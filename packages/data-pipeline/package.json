@@ -1,0 +1,42 @@
+{
+  "name": "data-pipeline",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "migrate": "tsx src/migrate.ts",
+    "build-seed": "tsx src/build/build-seed.ts",
+    "build-seed-test": "tsx src/build/build-seed-test.ts",
+    "build-seed-mammals": "tsx src/build/build-seed-mammals.ts",
+    "build-seed-fish": "tsx src/build/build-seed-fish.ts",
+    "build-seed-amphibians": "tsx src/build/build-seed-amphibians.ts",
+    "build-seed-reptiles": "tsx src/build/build-seed-reptiles.ts",
+    "build-seed-cnidarians": "tsx src/build/build-seed-cnidarians.ts",
+    "build-seed-echinoderms": "tsx src/build/build-seed-echinoderms.ts",
+    "build-seed-mollusks": "tsx src/build/build-seed-mollusks.ts",
+    "load-seed": "tsx src/build/load-seed.ts",
+    "compute-elusiveness": "tsx src/build/compute-elusiveness.ts",
+    "build-region-pack": "tsx src/build/build-region-pack.ts",
+    "backup": "tsx src/scripts/backup.ts",
+    "test": "vitest run",
+    "test:unit": "vitest run --exclude '**/*.integration.test.ts'",
+    "test:integration": "vitest run integration"
+  },
+  "dependencies": {
+    "@lifer/shared": "*",
+    "dotenv": "^16.4.5",
+    "exceljs": "^4.4.0",
+    "pg": "^8.13.0",
+    "shapefile": "^0.6.6",
+    "tar": "^7.5.22"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "@types/pg": "^8.11.10",
+    "@types/tar": "^6.1.13",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0",
+    "vitest": "^4.1.11"
+  }
+}
