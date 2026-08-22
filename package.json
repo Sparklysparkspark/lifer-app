@@ -1,0 +1,22 @@
+{
+  "name": "lifer",
+  "description": "Self-hosted, species-indexed life-list app for wildlife photography.",
+  "license": "AGPL-3.0-only",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "migrate": "npm run migrate -w data-pipeline",
+    "build-seed": "npm run build-seed -w data-pipeline",
+    "load-seed": "npm run load-seed -w data-pipeline",
+    "test": "npm run test:unit -w data-pipeline",
+    "test:integration": "npm run test:integration -w data-pipeline",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "build": "npm run build --workspaces --if-present"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
