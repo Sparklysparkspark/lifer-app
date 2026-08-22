@@ -1,0 +1,132 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Set up Lifer</title>
+    <style>
+      body {
+        margin: 0;
+        display: flex;
+        min-height: 100vh;
+        align-items: center;
+        justify-content: center;
+        background: #fafaf9;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        color: #1c1917;
+      }
+      .card {
+        width: 380px;
+        background: #fff;
+        border: 1px solid #e7e5e4;
+        border-radius: 12px;
+        padding: 28px;
+      }
+      h1 {
+        font-size: 18px;
+        margin: 0 0 4px;
+      }
+      p {
+        font-size: 13px;
+        color: #78716c;
+        margin: 0 0 20px;
+      }
+      button.option {
+        display: block;
+        width: 100%;
+        text-align: left;
+        padding: 12px 14px;
+        margin-bottom: 10px;
+        border: 1px solid #d6d3d1;
+        border-radius: 8px;
+        background: #fff;
+        cursor: pointer;
+        font-size: 13px;
+      }
+      button.option:hover {
+        background: #f5f5f4;
+      }
+      button.option strong {
+        display: block;
+        font-size: 14px;
+        margin-bottom: 2px;
+      }
+      .server-form {
+        display: none;
+        margin-top: 8px;
+      }
+      .server-form.open {
+        display: block;
+      }
+      input[type="text"] {
+        width: 100%;
+        box-sizing: border-box;
+        padding: 8px 10px;
+        border: 1px solid #d6d3d1;
+        border-radius: 6px;
+        font-size: 13px;
+        margin-bottom: 10px;
+      }
+      button.primary {
+        width: 100%;
+        padding: 10px;
+        border: none;
+        border-radius: 6px;
+        background: #1c1917;
+        color: #fff;
+        font-size: 13px;
+        cursor: pointer;
+      }
+      .error {
+        color: #dc2626;
+        font-size: 12px;
+        margin: -4px 0 10px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <h1>Set up Lifer</h1>
+      <p>How do you want to use Lifer on this Mac?</p>
+
+      <button class="option" id="use-local">
+        <strong>Use this Mac's own library</strong>
+        Lifer runs entirely on this computer — your photos live here.
+      </button>
+
+      <button class="option" id="show-server-form">
+        <strong>Connect to a Lifer server</strong>
+        Log in to a Lifer instance you already run elsewhere (a NAS, Docker host, etc.).
+      </button>
+
+      <div class="server-form" id="server-form">
+        <input type="text" id="server-url" placeholder="https://lifer.example.com" />
+        <div class="error" id="error" style="display: none"></div>
+        <button class="primary" id="connect">Connect</button>
+      </div>
+    </div>
+
+    <script>
+      document.getElementById("use-local").addEventListener("click", () => {
+        window.liferSetup.choose({ mode: "local" });
+      });
+      document.getElementById("show-server-form").addEventListener("click", () => {
+        document.getElementById("server-form").classList.add("open");
+      });
+      document.getElementById("connect").addEventListener("click", async () => {
+        const url = document.getElementById("server-url").value.trim();
+        const errorEl = document.getElementById("error");
+        errorEl.style.display = "none";
+        if (!/^https?:\/\//.test(url)) {
+          errorEl.textContent = "Enter a full URL, starting with http:// or https://";
+          errorEl.style.display = "block";
+          return;
+        }
+        const result = await window.liferSetup.choose({ mode: "remote", serverUrl: url });
+        if (result && result.error) {
+          errorEl.textContent = result.error;
+          errorEl.style.display = "block";
+        }
+      });
+    </script>
+  </body>
+</html>
