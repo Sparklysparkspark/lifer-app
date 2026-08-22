@@ -1,0 +1,44 @@
+{
+  "name": "desktop",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Lifer desktop app",
+  "author": "Lifer",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "npm run build -w web && electron-builder"
+  },
+  "devDependencies": {
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "app.lifer.desktop",
+    "productName": "Lifer",
+    "electronVersion": "33.4.11",
+    "npmRebuild": false,
+    "files": ["src/**/*"],
+    "extraResources": [
+      { "from": "../api/src", "to": "api/src" },
+      { "from": "../api/package.json", "to": "api/package.json" },
+      { "from": "../web/dist", "to": "web" },
+      { "from": "../../packages/shared", "to": "packages/shared", "filter": ["src/**/*", "package.json"] },
+      {
+        "from": "../../packages/data-pipeline",
+        "to": "packages/data-pipeline",
+        "filter": ["src/**/*", "migrations/**/*", "package.json"]
+      },
+      {
+        "from": "../../node_modules",
+        "to": "node_modules",
+        "filter": ["**/*", "!api", "!web", "!desktop", "!shared", "!data-pipeline", "!@lifer"]
+      }
+    ],
+    "mac": {
+      "category": "public.app-category.photography",
+      "target": "dir",
+      "identity": null
+    }
+  }
+}
