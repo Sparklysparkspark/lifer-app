@@ -1,0 +1,81 @@
+import "dotenv/config";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { readLocalSettings } from "./localSettings.js";
+
+// Resolved relative to this module's own location, not process.cwd() — cwd varies depending
+// on how/where the process is launched (npm workspace script vs a plain `tsx path/to/index.ts`
+// from the repo root) and got this wrong once already.
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const REPO_ROOT = path.join(__dirname, "..", "..", "..");
+
+export const PORT = Number(process.env.PORT ?? 4000);
+export const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://lifer:lifer@localhost:5432/lifer";
+// Filesystem layout per lifer-spec.md §8: display/{uuid}.webp, thumb/{uuid}.webp.
+// Storage location is configurable independent of where the app itself is installed, via
+// three sources in priority order: the DATA_DIR env var (Docker's LIFER_STORAGE_DIR bind
+// mount ultimately sets this inside the container — see docker-compose.yml/.env.example),
+// then the desktop-mode folder picker's persisted choice (see localSettings.ts/
+// settings/routes.ts — set via Settings, no env var needed), then this repo-relative default.
+export const DATA_DIR = process.env.DATA_DIR ?? readLocalSettings().dataDir ?? path.join(REPO_ROOT, "data", "lifer");
+// Full-resolution originals for "store" mode uploads (self-hosted single-user deployment,
+// per spec §6/§8.4's originals model). Never used for "link" mode, which references a file
+// wherever it already lives instead.
+export const ORIGINALS_DIR = path.join(DATA_DIR, "originals");
+// Offline basemap tiles (PMTiles — a single-file, range-requested vector tile archive from
+// Protomaps/OpenStreetMap) — not user data, so served unauthenticated like any other static
+// basemap tile source.
+export const MAPS_DIR = path.join(DATA_DIR, "maps");
+// Generous ceiling for a single FILE, set to 2GB: TIFF and DNG files can already run large,
+// and Canon's RAW-burst CR3 mode bundles many frames into ONE container file that can reach
+// several hundred MB to well over 1GB for an extended burst — a completely different scale
+// than a single-frame RAW. Since RawUpload.tsx sends one file per request rather than
+// batching many into one multipart request, raising this doesn't multiply out across a whole
+// batch, so a generous per-file number stays safe and bounded. This is @fastify/multipart's
+// per-part `fileSize` limit (not per-route), so it applies everywhere.
+export const MAX_UPLOAD_BYTES = Number(process.env.MAX_UPLOAD_BYTES ?? 2 * 1024 * 1024 * 1024);
+// Separate ceiling for the WHOLE request body — Fastify's bodyLimit applies to the entire
+// multipart request, not per file, so it must be at least MAX_UPLOAD_BYTES plus a little
+// headroom for multipart framing/field overhead (boundaries, field names, a few small text
+// fields like speciesId/mode) rather than exactly MAX_UPLOAD_BYTES.
+//
+// Batch-uploading a folder of RAW files (see RawUpload.tsx's "point it at a folder" feature)
+// previously sent every selected file in ONE combined multipart request, which could add up
+// to far more than any single-file limit even though each file alone was fine — several
+// files could already succeed (written to disk, linked/inserted) before the stream got cut
+// off mid-batch with a 413, since @fastify/multipart processes parts as bytes arrive. The
+// fix is one request per file (see RawUpload.tsx) rather than a bigger cap, so this only
+// needs to cover one file plus a small margin.
+export const MAX_UPLOAD_REQUEST_BYTES = Number(process.env.MAX_UPLOAD_REQUEST_BYTES ?? MAX_UPLOAD_BYTES + 5 * 1024 * 1024);
+// The built web app (vite build's output — see apps/web/package.json's "build" script).
+// Defaults to the monorepo-relative path so it "just works" in a Docker image that copies
+// both apps into place (see Dockerfile); override via env for any other layout.
+export const WEB_DIST_DIR = process.env.WEB_DIST_DIR ?? path.join(REPO_ROOT, "apps", "web", "dist");
+export const SESSION_COOKIE_NAME = "lifer_session";
+export const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+export const COOKIE_SECURE = process.env.NODE_ENV === "production";
+// Desktop mode: a single person on their own laptop, server bound to localhost only, no
+// other party who could ever reach it — a login screen there is pure friction with no real
+// security benefit. Sessions/first-run setup stay fully intact for the
+// self-hosted server/NAS deployment (one real account, protected by a real password, since
+// that one can be reached over a network); this flag just makes every request authenticate
+// as one auto-provisioned local user instead, skipping login entirely.
+export const SINGLE_USER_MODE = process.env.SINGLE_USER_MODE === "1";
+
+// Password-reset emails (see auth/routes.ts's forgot-password/reset-password handlers). No
+// SMTP env vars set is a valid, common state for a fresh self-hosted install — mailer.ts logs
+// the reset link to the server console instead of throwing, so "forgot password" still works
+// (an admin with shell/log access can hand the link to whoever needs it) rather than being a
+// hard requirement before the feature works at all.
+export const SMTP_HOST = process.env.SMTP_HOST ?? null;
+export const SMTP_PORT = Number(process.env.SMTP_PORT ?? 587);
+export const SMTP_USER = process.env.SMTP_USER ?? null;
+export const SMTP_PASS = process.env.SMTP_PASS ?? null;
+export const SMTP_FROM = process.env.SMTP_FROM ?? "Lifer <no-reply@lifer.app>";
+// Base URL used to build the link inside password-reset emails (e.g. https://lifer.example.com).
+export const APP_URL = process.env.APP_URL ?? `http://localhost:${PORT}`;
+
+// Where to fetch the canonical pack-index.json from (see offlinePacks/routes.ts). No default:
+// unset until a real GitHub-hosted index exists, at which point this can point at it (or, for
+// local development/testing, at any URL serving the same JSON shape).
+export const PACK_INDEX_URL = process.env.PACK_INDEX_URL ?? null;
