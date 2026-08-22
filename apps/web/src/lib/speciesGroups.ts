@@ -1,0 +1,90 @@
+// Folk/birding-style groupings ("Sparrows", "Hawks & Eagles") rather than raw Latin family
+// names — matches how birders actually think about a checklist (same idea eBird/Clements
+// use). Keyed by taxonomic family, which is real data already in the DB (species.family),
+// not guessed — this is a curated label on top of real data, covering the families you'll
+// actually run into; anything unmapped falls back to showing the family name as-is rather
+// than disappearing into an "Other" bucket, so nothing gets hidden just for being obscure.
+const BIRD_FAMILY_GROUPS: Record<string, string> = {
+  Anatidae: "Waterfowl",
+  Anhingidae: "Anhingas",
+  Phalacrocoracidae: "Cormorants",
+  Pelecanidae: "Pelicans",
+  Ardeidae: "Herons, Egrets & Bitterns",
+  Threskiornithidae: "Ibises & Spoonbills",
+  Ciconiidae: "Storks",
+  Gaviidae: "Loons",
+  Podicipedidae: "Grebes",
+  Fregatidae: "Frigatebirds",
+  Sulidae: "Boobies & Gannets",
+  Accipitridae: "Hawks, Eagles & Kites",
+  Pandionidae: "Ospreys",
+  Falconidae: "Falcons & Caracaras",
+  Strigidae: "Owls",
+  Tytonidae: "Owls",
+  Cathartidae: "Vultures & Condors",
+  Rallidae: "Rails, Crakes & Coots",
+  Gruidae: "Cranes",
+  Charadriidae: "Plovers",
+  Scolopacidae: "Sandpipers & Shorebirds",
+  Recurvirostridae: "Stilts & Avocets",
+  Haematopodidae: "Oystercatchers",
+  Jacanidae: "Jacanas",
+  Laridae: "Gulls & Terns",
+  Stercorariidae: "Jaegers & Skuas",
+  Alcidae: "Auks, Murres & Puffins",
+  Columbidae: "Pigeons & Doves",
+  Cuculidae: "Cuckoos & Roadrunners",
+  Caprimulgidae: "Nightjars",
+  Apodidae: "Swifts",
+  Trochilidae: "Hummingbirds",
+  Rallinae: "Rails",
+  Alcedinidae: "Kingfishers",
+  Picidae: "Woodpeckers",
+  Tyrannidae: "Tyrant Flycatchers",
+  Laniidae: "Shrikes",
+  Vireonidae: "Vireos",
+  Corvidae: "Crows, Jays & Magpies",
+  Alaudidae: "Larks",
+  Hirundinidae: "Swallows",
+  Paridae: "Chickadees & Titmice",
+  Sittidae: "Nuthatches",
+  Certhiidae: "Treecreepers",
+  Troglodytidae: "Wrens",
+  Polioptilidae: "Gnatcatchers",
+  Sturnidae: "Starlings",
+  Turdidae: "Thrushes",
+  Mimidae: "Mockingbirds & Thrashers",
+  Bombycillidae: "Waxwings",
+  Ptiliogonatidae: "Silky-flycatchers",
+  Passerellidae: "New World Sparrows",
+  Emberizidae: "Old World Buntings",
+  Icteriidae: "Yellowthroats",
+  Icteridae: "Blackbirds & Orioles",
+  Parulidae: "Wood-Warblers",
+  Cardinalidae: "Cardinals & Grosbeaks",
+  Fringillidae: "Finches",
+  Passeridae: "Old World Sparrows",
+  Motacillidae: "Pipits & Wagtails",
+  Phasianidae: "Grouse, Quail & Pheasants",
+  Odontophoridae: "New World Quail",
+  Podargidae: "Frogmouths",
+  Psittacidae: "Parrots",
+  Ramphastidae: "Toucans",
+  Trogonidae: "Trogons",
+  Bucconidae: "Puffbirds",
+  Thraupidae: "Tanagers",
+  Furnariidae: "Ovenbirds & Woodcreepers",
+  Thamnophilidae: "Antbirds",
+  Cotingidae: "Cotingas",
+  Pipridae: "Manakins",
+};
+
+// Mammals/fish don't have a curated folk-name map yet (the request that prompted this was
+// bird-specific — "Sparrows", "birds of prey") — grouping by the real family name for those
+// is still a real, useful breakdown, just not renamed to a friendly label yet.
+export function speciesGroupLabel(taxonClass: string | null, family: string | null): string {
+  if (family && taxonClass === "aves" && BIRD_FAMILY_GROUPS[family]) return BIRD_FAMILY_GROUPS[family];
+  return family ?? "Other";
+}
+
+export { BIRD_FAMILY_GROUPS };
