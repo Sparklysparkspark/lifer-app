@@ -1,0 +1,8 @@
+node_modules/
+src-tauri/target/
+src-tauri/resources-staging/
+src-tauri/gen/
+# Vendored Node runtime sidecar (~100MB+ per platform) — see scripts/fetch-node-sidecar.js.
+# Never committed: too large for git, and a real release build needs the official prebuilt
+# binary for EACH target platform, not just whatever's on the machine that happens to build it.
+src-tauri/binaries/
