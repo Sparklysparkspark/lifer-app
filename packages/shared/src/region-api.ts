@@ -27,7 +27,8 @@ export interface RegionStats {
   seen: number;
 }
 
-export interface RegionSpeciesResponse {
+export interface RegionSpeciesResult {
+  needsPack?: false;
   region: {
     id: string;
     name: string;
@@ -41,6 +42,16 @@ export interface RegionSpeciesResponse {
   stats: RegionStats;
   items: CollectionItem[];
 }
+
+export interface RegionNeedsPack {
+  /** No region_species data yet — a self-hosted install never computes this live (see
+   *  apps/api/src/regions/routes.ts), so the checklist only exists once its region pack has
+   *  been downloaded (see OfflinePacksPage.tsx). */
+  needsPack: true;
+  region: { id: string; name: string };
+}
+
+export type RegionSpeciesResponse = RegionSpeciesResult | RegionNeedsPack;
 
 export interface EbirdImportSummary {
   totalRows: number;

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../api/client";
 import Lightbox, { type LightboxSlide } from "../components/Lightbox";
+import { Spinner } from "../components/LoadingScreen";
 import BackToCollectionLink from "../components/BackToCollectionLink";
 import MasonryGrid from "../components/MasonryGrid";
 import ProgressiveImg from "../components/ProgressiveImg";
@@ -48,26 +49,26 @@ export default function GalleryPage() {
   );
 
   return (
-    <div className="min-h-screen bg-stone-50">
+    <div className="min-h-screen bg-canvas">
       {/* Top-left, above the title, same as every other page's header. */}
-      <header className="flex items-center justify-between border-b border-stone-200 bg-white px-6 py-4">
+      <header className="page-header flex items-center justify-between border-b border-line bg-surface px-6 py-4">
         <div>
-          <BackToCollectionLink className="text-sm text-stone-500 hover:underline" />
-          <h1 className="mt-1 text-lg font-semibold text-stone-900">Gallery</h1>
-          {items && <p className="text-xs text-stone-500">{items.length} photos</p>}
+          <BackToCollectionLink className="text-sm text-muted hover:underline" />
+          <h1 className="mt-1 text-lg font-semibold text-ink">Gallery</h1>
+          {items && <p className="text-xs text-muted">{items.length} photos</p>}
         </div>
         {items && items.length > 0 && (
           <div className="flex items-center gap-4">
-            <label className="flex items-center gap-1.5 text-xs text-stone-400">
+            <label className="flex items-center gap-1.5 text-xs text-muted">
               <input
                 type="checkbox"
                 checked={showCameraInfo}
                 onChange={(e) => setShowCameraInfo(e.target.checked)}
-                className="accent-stone-700"
+                className="accent-ink"
               />
               Camera info
             </label>
-            <label className="flex items-center gap-1.5 text-xs text-stone-400">
+            <label className="flex items-center gap-1.5 text-xs text-muted">
               Size
               <input
                 type="range"
@@ -76,7 +77,7 @@ export default function GalleryPage() {
                 step={20}
                 value={thumbSizePx}
                 onChange={(e) => updateThumbSize(Number(e.target.value))}
-                className="w-24 accent-stone-700"
+                className="w-24 accent-ink"
                 aria-label="Photo grid thumbnail size"
               />
             </label>
@@ -86,9 +87,9 @@ export default function GalleryPage() {
 
       <main className="p-6">
         {!items ? (
-          <p className="text-stone-500">Loading…</p>
+          <Spinner />
         ) : items.length === 0 ? (
-          <p className="text-stone-500">No photos yet — upload one from a species page to get started.</p>
+          <p className="text-muted">No photos yet — upload one from a species page to get started.</p>
         ) : (
           <MasonryGrid
             items={items.map((item, i) => ({ item, i }))}
@@ -102,7 +103,7 @@ export default function GalleryPage() {
                   alt={item.commonName ?? item.scientificName}
                   className="block w-full cursor-pointer rounded-md"
                 />
-                <p className="mt-1 truncate text-[11px] text-stone-500">{item.commonName ?? item.scientificName}</p>
+                <p className="mt-1 truncate text-[11px] text-muted">{item.commonName ?? item.scientificName}</p>
                 {showCameraInfo && shotDataLine({
                   camera_model: item.cameraModel,
                   lens: item.lens,
@@ -111,7 +112,7 @@ export default function GalleryPage() {
                   shutter: item.shutter,
                   iso: item.iso,
                 }) && (
-                  <p className="truncate text-[9px] text-stone-400">
+                  <p className="truncate text-[9px] text-muted">
                     {shotDataLine({
                       camera_model: item.cameraModel,
                       lens: item.lens,

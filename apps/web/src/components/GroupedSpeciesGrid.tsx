@@ -132,12 +132,12 @@ export default function GroupedSpeciesGrid({
          flow as empty-but-still-present sections, so collapsing several doesn't mean
          scrolling past all of them to reach what's still expanded. */}
       {(collapsedGroups.length > 0 || collectedCollapsed) && (
-        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-stone-200 bg-white p-2">
-          <span className="text-xs uppercase tracking-wide text-stone-400">Collapsed:</span>
+        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-line bg-surface p-2">
+          <span className="text-xs uppercase tracking-wide text-muted">Collapsed:</span>
           {collectedCollapsed && pinnedCollected && (
             <button
               onClick={() => toggleCollapsed(COLLECTED_GROUP_KEY)}
-              className="rounded-full border border-stone-300 px-2.5 py-1 text-xs text-stone-600 hover:bg-stone-100"
+              className="rounded-full border border-line px-2.5 py-1 text-xs text-muted hover:bg-surface-muted"
             >
               {pinnedCollected.label} ({pinnedCollected.items.length})
             </button>
@@ -146,7 +146,7 @@ export default function GroupedSpeciesGrid({
             <button
               key={g.key}
               onClick={() => toggleCollapsed(g.key)}
-              className="rounded-full border border-stone-300 px-2.5 py-1 text-xs text-stone-600 hover:bg-stone-100"
+              className="rounded-full border border-line px-2.5 py-1 text-xs text-muted hover:bg-surface-muted"
             >
               {g.label} ({g.items.length})
             </button>
@@ -186,10 +186,10 @@ function GroupSection({
 }) {
   return (
     <section className="mb-6">
-      <button onClick={onToggle} className="mb-2 flex w-full items-center gap-2 text-left text-sm font-medium text-stone-700">
-        <span className="text-stone-400">{collapsed ? "▸" : "▾"}</span>
+      <button onClick={onToggle} className="mb-2 flex w-full items-center gap-2 text-left text-sm font-medium text-ink">
+        <span className="text-muted">{collapsed ? "▸" : "▾"}</span>
         {group.label}
-        <span className="text-xs font-normal text-stone-400">({group.items.length})</span>
+        <span className="text-xs font-normal text-muted">({group.items.length})</span>
       </button>
       <div
         className={

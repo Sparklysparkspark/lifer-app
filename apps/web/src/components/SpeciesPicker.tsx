@@ -76,18 +76,18 @@ export default function SpeciesPicker({
         onBlur={() => setTimeout(() => setOpen(false), 100)}
         onChange={(e) => setQuery(e.target.value)}
         onKeyDown={handleKeyDown}
-        className="w-full rounded-md border border-stone-300 px-3 py-1.5 text-sm"
+        className="w-full rounded-md border border-line px-3 py-1.5 text-sm"
       />
       {open && results.length > 0 && (
-        <ul className="absolute z-10 mt-1 w-full rounded-md border border-stone-200 bg-white shadow-lg">
+        <ul className="absolute z-10 mt-1 w-full rounded-md border border-line bg-surface shadow-lg">
           {results.map((r, i) => (
             <li
               key={r.id}
               onMouseDown={() => selectResult(r)}
-              className={`cursor-pointer px-3 py-2 text-sm ${i === highlighted ? "bg-stone-100" : ""}`}
+              className={`cursor-pointer px-3 py-2 text-sm ${i === highlighted ? "bg-surface-muted" : ""}`}
             >
-              <span className="font-medium text-stone-900">{r.common_name ?? r.scientific_name}</span>{" "}
-              <span className="italic text-stone-400">{r.scientific_name}</span>
+              <span className="font-medium text-ink">{r.common_name ?? r.scientific_name}</span>{" "}
+              <span className="italic text-muted">{r.scientific_name}</span>
             </li>
           ))}
         </ul>

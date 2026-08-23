@@ -5,10 +5,14 @@ import type { FastifyInstance } from "fastify";
 import type { PoolClient } from "pg";
 import { pool } from "../db.js";
 import { requireAuth } from "../auth/session.js";
-import { DATA_DIR, ORIGINALS_DIR, PORT, SINGLE_USER_MODE } from "../config.js";
+import { DATA_DIR, ORIGINALS_DIR, PORT, SINGLE_USER_MODE, MAPS_DIR, MAP_DOWNLOAD_URL } from "../config.js";
 import { originalsFolder } from "../uploads/organizedPath.js";
 import { extractExif } from "../uploads/exif.js";
 import { readLocalSettings, writeLocalSettings } from "../localSettings.js";
+
+// Lifer's own subfolders under DATA_DIR (see config.ts) — implementation detail, never
+// something a user should navigate into when picking a library folder.
+const LIFER_INTERNAL_DIR_NAMES = new Set(["originals", "display", "thumb", "reference-display", "reference-thumb", "maps", "tmp"]);
 
 interface OrganizeBody {
   enabled?: boolean;
@@ -287,7 +291,7 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
       let entries: string[];
       try {
         entries = readdirSync(target, { withFileTypes: true })
-          .filter((e) => e.isDirectory() && !e.name.startsWith("."))
+          .filter((e) => e.isDirectory() && !e.name.startsWith(".") && !LIFER_INTERNAL_DIR_NAMES.has(e.name))
           .map((e) => e.name)
           .sort((a, b) => a.localeCompare(b));
       } catch (err) {
@@ -583,5 +587,115 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
     void runMigrationJob(baseUrl, cookieHeader, request.user!.id);
 
     return { started: true };
+  });
+
+  // The explicit, separate "delete local files now that they're on the server" step (see
+  // MigrateToServerSection.tsx's own comment) — deliberately its own action, never automatic
+  // at the end of a migration, and gated on the LAST migration run having actually finished
+  // clean (no failures) so there's no way to wipe local data the server never actually
+  // received. SINGLE_USER_MODE means exactly one real user per local install, so "delete the
+  // local library" is unambiguous: this user's captures, full stop.
+  app.post<{ Body: { confirm?: boolean } }>("/settings/delete-local-library", { preHandler: requireAuth }, async (request, reply) => {
+    if (!requireDesktopMode(reply)) return;
+    if (!request.body?.confirm) return reply.code(400).send({ error: "confirm is required" });
+    if (migrationJob.finishedAt == null || migrationJob.running || migrationJob.failed > 0) {
+      return reply.code(409).send({
+        error: "Local files can only be deleted right after a migration that finished with zero failures.",
+      });
+    }
+
+    const userId = request.user!.id;
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query(`DELETE FROM user_species WHERE user_id = $1`, [userId]);
+      await client.query(`DELETE FROM captures WHERE user_id = $1`, [userId]);
+      await client.query("COMMIT");
+    } catch (err) {
+      await client.query("ROLLBACK");
+      throw err;
+    } finally {
+      client.release();
+    }
+
+    // The captures/photos rows are gone (cascaded), but the actual files on disk aren't
+    // touched by that delete — clear the derivative/original folders directly. Recreated
+    // empty rather than removed outright, since DATA_DIR itself (and its expected
+    // subfolders) needs to keep existing for the next photo this install ever gets.
+    for (const dir of [ORIGINALS_DIR, path.join(DATA_DIR, "display"), path.join(DATA_DIR, "thumb")]) {
+      rmSync(dir, { recursive: true, force: true });
+      mkdirSync(dir, { recursive: true });
+    }
+
+    return { ok: true };
+  });
+
+  // Offline basemap download (see config.ts's MAP_DOWNLOAD_URL comment for why this is opt-in
+  // rather than bundled). Streams straight to disk instead of buffering the ~500MB response in
+  // memory, and reports progress via byte counts rather than percent so the frontend doesn't
+  // need to guess at a total when the server doesn't send Content-Length. Not desktop-only
+  // (requireDesktopMode) — a self-hosted server deployment wants this exact same opt-in
+  // download, into the same MAPS_DIR the static-file route in index.ts already serves.
+  interface MapJobState {
+    downloading: boolean;
+    downloadedBytes: number;
+    totalBytes: number | null;
+    error: string | null;
+  }
+  const mapJob: MapJobState = { downloading: false, downloadedBytes: 0, totalBytes: null, error: null };
+  const MAP_FILE_PATH = path.join(MAPS_DIR, "world-z8.pmtiles");
+
+  app.get("/settings/map/status", { preHandler: requireAuth }, async () => ({
+    available: MAP_DOWNLOAD_URL != null,
+    downloaded: existsSync(MAP_FILE_PATH),
+    ...mapJob,
+  }));
+
+  app.post("/settings/map/download", { preHandler: requireAuth }, async (_request, reply) => {
+    if (!MAP_DOWNLOAD_URL) return reply.code(400).send({ error: "No offline map is configured for this instance" });
+    if (mapJob.downloading) return reply.code(409).send({ error: "The map is already downloading" });
+
+    mapJob.downloading = true;
+    mapJob.downloadedBytes = 0;
+    mapJob.totalBytes = null;
+    mapJob.error = null;
+
+    // Not awaited — same "return immediately, poll /status for progress" shape as the
+    // migration job above.
+    void (async () => {
+      const tmpPath = `${MAP_FILE_PATH}.download`;
+      try {
+        mkdirSync(MAPS_DIR, { recursive: true });
+        const res = await fetch(MAP_DOWNLOAD_URL);
+        if (!res.ok || !res.body) throw new Error(`Download failed: HTTP ${res.status}`);
+        const contentLength = res.headers.get("content-length");
+        mapJob.totalBytes = contentLength ? Number(contentLength) : null;
+
+        const { createWriteStream } = await import("node:fs");
+        const { Readable } = await import("node:stream");
+        const { finished } = await import("node:stream/promises");
+        const out = createWriteStream(tmpPath);
+        const nodeStream = Readable.fromWeb(res.body as import("node:stream/web").ReadableStream);
+        nodeStream.on("data", (chunk: Buffer) => {
+          mapJob.downloadedBytes += chunk.length;
+        });
+        nodeStream.pipe(out);
+        await finished(out);
+        renameSync(tmpPath, MAP_FILE_PATH);
+      } catch (err) {
+        mapJob.error = (err as Error).message;
+        rmSync(tmpPath, { force: true });
+      } finally {
+        mapJob.downloading = false;
+      }
+    })();
+
+    return { started: true };
+  });
+
+  // Deletes the downloaded map to reclaim disk space — the reverse of the opt-in above.
+  app.delete("/settings/map", { preHandler: requireAuth }, async () => {
+    rmSync(MAP_FILE_PATH, { force: true });
+    return { ok: true };
   });
 }

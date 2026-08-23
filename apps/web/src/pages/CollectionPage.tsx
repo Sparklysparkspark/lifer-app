@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import type { CollectionItem, RegionSpeciesResponse, RegionSummary } from "@lifer/shared";
-import { api } from "../api/client";
+import type { CollectionItem, RegionSpeciesResponse, RegionSpeciesResult, RegionSummary } from "@lifer/shared";
+import { api, ApiError } from "../api/client";
 import { useAuth } from "../hooks/useAuth";
 import { useDesktopMode } from "../hooks/useDesktopMode";
 import SpeciesPicker from "../components/SpeciesPicker";
@@ -9,6 +9,8 @@ import CollectionStatsPanel from "../components/CollectionStats";
 import GroupedSpeciesGrid, { type GroupBy, type SortBy } from "../components/GroupedSpeciesGrid";
 import EbirdImport from "../components/EbirdImport";
 import RegionMap from "../components/RegionMap";
+import { Logo } from "../components/Logo";
+import { Spinner } from "../components/LoadingScreen";
 
 type StateFilter = "all" | "collected" | "seen" | "unseen";
 type TaxonFilter = "all" | "aves" | "mammalia" | "actinopterygii";
@@ -123,8 +125,16 @@ export default function CollectionPage() {
   }
 
   const [items, setItems] = useState<CollectionItem[] | null>(null);
-  const [regionMeta, setRegionMeta] = useState<RegionSpeciesResponse["region"] | null>(null);
-  const [regionStats, setRegionStats] = useState<RegionSpeciesResponse["stats"] | null>(null);
+  const [regionMeta, setRegionMeta] = useState<RegionSpeciesResult["region"] | null>(null);
+  const [regionStats, setRegionStats] = useState<RegionSpeciesResult["stats"] | null>(null);
+  // Set when the current region has no downloaded pack yet — see regions/routes.ts, which
+  // never computes a checklist live. Distinct from `loadError`: this isn't a failure, it's a
+  // real, expected state the UI offers a next step for.
+  const [needsPackFor, setNeedsPackFor] = useState<{ id: string; name: string } | null>(null);
+  // Resolves well before `items`/`regionStats` — a count-only query with none of the full
+  // list's reference-photo/tier joins or per-row mapping — so the header total updates on a
+  // region/taxon switch without waiting for the (much heavier) species grid to load.
+  const [quickCount, setQuickCount] = useState<{ total: number; collected: number } | null>(null);
   const [allRegions, setAllRegions] = useState<RegionSummary[]>([]);
   const [drillingDown, setDrillingDown] = useState(false);
   const [showStats, setShowStats] = useState(false);
@@ -178,6 +188,8 @@ export default function CollectionPage() {
     const seaZoneQuery = seaZonesRelevant && seaZoneIds.length > 0 ? `seaZoneIds=${seaZoneIds.join(",")}` : "";
     const includeLandQuery = seaZoneQuery && !includeLand ? "includeLand=0" : "";
 
+    setQuickCount(null);
+    setNeedsPackFor(null);
     if (regionId && regionKnownHub) {
       // No scoped checklist to show — just the breadcrumb/children pills, already rendered
       // from `allRegions` below, need nothing fetched here.
@@ -187,10 +199,23 @@ export default function CollectionPage() {
       setSeaZones([]);
     } else if (regionId) {
       api
+        .get<{ total: number; collected: number }>(
+          `/regions/${regionId}/species/count?${taxonQuery}&${seaZoneQuery}&${includeLandQuery}`,
+        )
+        .then(setQuickCount)
+        .catch(() => {});
+      api
         .get<RegionSpeciesResponse>(
           `/regions/${regionId}/species?filter=all&${taxonQuery}&${seaZoneQuery}&${includeLandQuery}`,
         )
         .then((res) => {
+          if (res.needsPack) {
+            setItems(null);
+            setRegionMeta(null);
+            setRegionStats(null);
+            setNeedsPackFor(res.region);
+            return;
+          }
           setItems(res.items);
           setRegionMeta(res.region);
           setRegionStats(res.stats);
@@ -203,6 +228,10 @@ export default function CollectionPage() {
     } else if (!firstRunPrompt) {
       setSeaZones([]);
       const query = taxonQuery ? `?${taxonQuery}` : "";
+      api
+        .get<{ total: number; collected: number }>(`/collection/count${query}`)
+        .then(setQuickCount)
+        .catch(() => {});
       api
         .get<{ items: CollectionItem[] }>(`/collection${query}`)
         .then((res) => {
@@ -227,6 +256,31 @@ export default function CollectionPage() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [seaZonesRelevant]);
+
+  // A country with zero native fish of its own but real nearby reef/marine zones (e.g. a
+  // small island whose fish are only ever reached via "include nearby water" — see
+  // regions/routes.ts's marine-exclusion logic) would otherwise show an empty fish list by
+  // default, with no visible reason why. Auto-checking the zone(s) surfaces that data
+  // immediately instead of requiring the user to already know to look for the checkbox.
+  // Tracked per-region in a ref (not the URL) so a later manual uncheck — which clears the
+  // `seaZones` param entirely, identical in the URL to "never set" — doesn't get silently
+  // re-applied on the next render.
+  const autoSelectedSeaZoneRegions = useRef(new Set<string>());
+  useEffect(() => {
+    if (!regionId || regionKnownHub || !seaZonesRelevant) return;
+    if (seaZones.length === 0 || seaZoneIds.length > 0) return;
+    if (autoSelectedSeaZoneRegions.current.has(regionId)) return;
+    autoSelectedSeaZoneRegions.current.add(regionId);
+
+    api
+      .get<{ total: number }>(`/regions/${regionId}/species/count?taxon=actinopterygii`)
+      .then((res) => {
+        if (res.total === 0) updateParam("seaZones", seaZones.map((z) => z.id).join(","));
+      })
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- seaZones is an array; length +
+    // regionId together are the real dependency, same reasoning as seaZoneIds elsewhere here.
+  }, [regionId, regionKnownHub, seaZonesRelevant, seaZones, seaZoneIds.length]);
 
   useEffect(() => {
     if (!regionResolved || !regionsLoaded) return;
@@ -284,38 +338,42 @@ export default function CollectionPage() {
     return filtered;
   }, [items, stateFilter, search]);
 
-  const collectedCount = items?.filter((i) => i.state === "collected").length ?? 0;
+  // Prefers the already-arrived full item list once it's in (it reflects any client-side
+  // filtering nuance exactly), but falls back to the fast count-only fetch so the header
+  // doesn't sit blank/stale while the heavier item list is still loading.
+  const collectedCount = items ? items.filter((i) => i.state === "collected").length : (quickCount?.collected ?? 0);
+  const totalCount = items ? items.length : (quickCount?.total ?? null);
 
   return (
-    <div className="min-h-screen bg-stone-50">
-      <header className="flex items-center justify-between border-b border-stone-200 bg-white px-6 py-4">
+    <div className="min-h-screen bg-canvas">
+      <header className="page-header flex items-center justify-between border-b border-line bg-surface px-6 py-4">
         <div>
-          <h1 className="text-lg font-semibold text-stone-900">Lifer</h1>
-          {items && (
-            <p className="text-xs text-stone-500">
-              {collectedCount} / {items.length} collected
+          <Logo variant="wordmark" className="h-7 w-auto" />
+          {totalCount != null && (
+            <p className="text-xs text-muted">
+              {collectedCount} / {totalCount} collected
             </p>
           )}
         </div>
         <div className="flex items-center gap-4">
           <SpeciesPicker />
-          <Link to="/import" className="text-sm text-stone-500 hover:underline">
+          <Link to="/import" className="text-sm text-muted hover:underline">
             Import
           </Link>
-          <button onClick={() => setShowStats((s) => !s)} className="text-sm text-stone-500 hover:underline">
+          <button onClick={() => setShowStats((s) => !s)} className="text-sm text-muted hover:underline">
             Stats
           </button>
-          <Link to="/gallery" className="text-sm text-stone-500 hover:underline">
+          <Link to="/gallery" className="text-sm text-muted hover:underline">
             Gallery
           </Link>
-          <Link to="/offline-packs" className="text-sm text-stone-500 hover:underline">
+          <Link to="/offline-packs" className="text-sm text-muted hover:underline">
             Offline packs
           </Link>
-          <Link to="/settings" className="text-sm text-stone-500 hover:underline">
+          <Link to="/settings" className="text-sm text-muted hover:underline">
             Settings
           </Link>
           {!isDesktopMode && (
-            <div className="flex items-center gap-3 text-sm text-stone-500">
+            <div className="flex items-center gap-3 text-sm text-muted">
               <span>{user?.email}</span>
               <button onClick={() => logout()} className="hover:underline">
                 Log out
@@ -326,24 +384,24 @@ export default function CollectionPage() {
       </header>
 
       {/* Region breadcrumb — the main-screen drill-down entry point. */}
-      <div className="border-b border-stone-200 bg-white px-6 py-2">
+      <div className="border-b border-line bg-surface px-6 py-2">
         {!regionId ? (
           worldRegion && (
-            <button onClick={() => navigateToRegion(worldRegion.id)} className="text-sm text-stone-500 hover:underline">
+            <button onClick={() => navigateToRegion(worldRegion.id)} className="text-sm text-muted hover:underline">
               Browse by region →
             </button>
           )
         ) : (
           <div className="space-y-2">
-            <nav className="flex flex-wrap items-center gap-1 text-sm text-stone-500">
+            <nav className="flex flex-wrap items-center gap-1 text-sm text-muted">
               <button onClick={() => navigateToRegion(null)} className="hover:underline">
                 All species
               </button>
               {breadcrumb.map((r, i) => (
                 <span key={r.id} className="flex items-center gap-1">
-                  <span className="text-stone-300">/</span>
+                  <span className="text-muted">/</span>
                   {i === breadcrumb.length - 1 ? (
-                    <span className="font-medium text-stone-900">{r.name}</span>
+                    <span className="font-medium text-ink">{r.name}</span>
                   ) : (
                     <button onClick={() => navigateToRegion(r.id)} className="hover:underline">
                       {r.name}
@@ -354,13 +412,13 @@ export default function CollectionPage() {
             </nav>
             {regionMeta && regionStats && (
               <div className="flex items-center gap-3">
-                <div className="h-1.5 w-40 overflow-hidden rounded-full bg-stone-100">
+                <div className="h-1.5 w-40 overflow-hidden rounded-full bg-surface-muted">
                   <div
-                    className="h-full bg-stone-900"
+                    className="h-full bg-ink"
                     style={{ width: `${regionStats.total ? Math.round((regionStats.collected / regionStats.total) * 100) : 0}%` }}
                   />
                 </div>
-                <p className="text-xs text-stone-500">
+                <p className="text-xs text-muted">
                   {regionStats.collected} collected · {regionStats.seen} seen · {regionStats.total} total
                 </p>
                 {regionMeta.ebirdRegionCode && (
@@ -368,7 +426,7 @@ export default function CollectionPage() {
                     href={`https://ebird.org/region/${regionMeta.ebirdRegionCode}/illustrated-checklist`}
                     target="_blank"
                     rel="noreferrer"
-                    className="text-xs text-stone-500 hover:underline"
+                    className="text-xs text-muted hover:underline"
                   >
                     eBird Illustrated Checklist ↗
                   </a>
@@ -377,12 +435,12 @@ export default function CollectionPage() {
             )}
             {(children.length > 0 || (regionMeta?.canDrillDown && !regionMeta.hasChildren)) && (
               <div className="flex flex-wrap items-center gap-2">
-                <span className="text-xs uppercase tracking-wide text-stone-400">Drill in:</span>
+                <span className="text-xs uppercase tracking-wide text-muted">Drill in:</span>
                 {children.map((child) => (
                   <button
                     key={child.id}
                     onClick={() => navigateToRegion(child.id)}
-                    className="rounded-full border border-stone-300 px-3 py-1 text-sm text-stone-700 hover:bg-stone-100"
+                    className="rounded-full border border-line px-3 py-1 text-sm text-ink hover:bg-surface-muted"
                   >
                     {child.name}
                   </button>
@@ -391,7 +449,7 @@ export default function CollectionPage() {
                   <button
                     onClick={drillDown}
                     disabled={drillingDown}
-                    className="rounded-full border border-stone-300 px-3 py-1 text-sm text-stone-500 hover:bg-stone-100 disabled:opacity-50"
+                    className="rounded-full border border-line px-3 py-1 text-sm text-muted hover:bg-surface-muted disabled:opacity-50"
                   >
                     {drillingDown ? "Loading provinces/states…" : "Show provinces/states"}
                   </button>
@@ -402,44 +460,44 @@ export default function CollectionPage() {
         )}
       </div>
 
-      <div className="flex flex-wrap items-center gap-3 border-b border-stone-200 bg-white px-6 py-2 text-sm">
+      <div className="flex flex-wrap items-center gap-3 border-b border-line bg-surface px-6 py-2 text-sm">
         <input
           type="text"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search this view…"
-          className="w-48 rounded-md border border-stone-300 px-2 py-1 text-stone-700"
+          placeholder="Search this area…"
+          className="w-48 rounded-md border border-line px-2 py-1 text-ink"
         />
         {search && (
-          <button onClick={() => setSearch("")} className="text-stone-400 hover:text-stone-600" aria-label="Clear search">
+          <button onClick={() => setSearch("")} className="text-muted hover:text-muted" aria-label="Clear search">
             ✕
           </button>
         )}
-        <label className="flex items-center gap-1.5 text-stone-500">
+        <label className="flex items-center gap-1.5 text-muted">
           Group
           <select
             value={groupBy}
             onChange={(e) => updateParam("group", e.target.value === "none" ? null : e.target.value)}
-            className="rounded-md border border-stone-300 px-2 py-1 text-stone-700"
+            className="rounded-md border border-line px-2 py-1 text-ink"
           >
             <option value="none">No grouping</option>
             <option value="group">Family group</option>
             <option value="tier">Rarity tier</option>
           </select>
         </label>
-        <label className="flex items-center gap-1.5 text-stone-500">
+        <label className="flex items-center gap-1.5 text-muted">
           Sort
           <select
             value={sortBy}
             onChange={(e) => updateParam("sort", e.target.value === "taxonomic" ? null : e.target.value)}
-            className="rounded-md border border-stone-300 px-2 py-1 text-stone-700"
+            className="rounded-md border border-line px-2 py-1 text-ink"
           >
             <option value="taxonomic">Taxonomic</option>
             <option value="name">Name</option>
             <option value="rarity">Rarity</option>
           </select>
         </label>
-        <label className="flex items-center gap-1.5 text-stone-500">
+        <label className="flex items-center gap-1.5 text-muted">
           <input
             type="checkbox"
             checked={collectedFirst}
@@ -447,12 +505,12 @@ export default function CollectionPage() {
           />
           Collected first
         </label>
-        <label className="flex items-center gap-1.5 text-stone-500">
+        <label className="flex items-center gap-1.5 text-muted">
           Show
           <select
             value={stateFilter}
             onChange={(e) => updateParam("show", e.target.value === "all" ? null : e.target.value)}
-            className="rounded-md border border-stone-300 px-2 py-1 text-stone-700"
+            className="rounded-md border border-line px-2 py-1 text-ink"
           >
             <option value="all">All</option>
             <option value="collected">Collected</option>
@@ -460,12 +518,12 @@ export default function CollectionPage() {
             <option value="unseen">Not yet collected</option>
           </select>
         </label>
-        <label className="flex items-center gap-1.5 text-stone-500">
+        <label className="flex items-center gap-1.5 text-muted">
           Taxon
           <select
             value={taxonFilter}
             onChange={(e) => updateParam("taxon", e.target.value === "all" ? null : e.target.value)}
-            className="rounded-md border border-stone-300 px-2 py-1 text-stone-700"
+            className="rounded-md border border-line px-2 py-1 text-ink"
           >
             {(Object.keys(TAXON_LABEL) as TaxonFilter[]).map((t) => (
               <option key={t} value={t}>
@@ -475,8 +533,21 @@ export default function CollectionPage() {
           </select>
         </label>
         {seaZonesRelevant && seaZones.length > 0 && (
-          <div className="flex flex-wrap items-center gap-2 text-stone-500">
+          <div className="flex flex-wrap items-center gap-2 text-muted">
             <span>Include nearby water:</span>
+            {seaZones.length > 1 && (
+              <label className="flex items-center gap-1 font-medium text-ink">
+                <input
+                  type="checkbox"
+                  checked={seaZoneIds.length === seaZones.length}
+                  onChange={(e) => {
+                    updateParam("seaZones", e.target.checked ? seaZones.map((z) => z.id).join(",") : null);
+                    if (!e.target.checked) updateParam("includeLand", null);
+                  }}
+                />
+                Select all
+              </label>
+            )}
             {seaZones.map((z) => (
               <label key={z.id} className="flex items-center gap-1">
                 <input
@@ -492,7 +563,7 @@ export default function CollectionPage() {
                zone's fish instead of always adding to the region's own land/freshwater
                checklist. */}
             {seaZoneIds.length > 0 && (
-              <label className="flex items-center gap-1 border-l border-stone-300 pl-2">
+              <label className="flex items-center gap-1 border-l border-line pl-2">
                 <input type="checkbox" checked={includeLand} onChange={(e) => setIncludeLand(e.target.checked)} />
                 Include {regionMeta?.name ?? "region"}'s own species
               </label>
@@ -512,38 +583,40 @@ export default function CollectionPage() {
         )}
 
         {firstRunPrompt ? (
-          <div className="rounded-xl border border-stone-200 bg-white p-8 text-center">
-            <h2 className="text-lg font-semibold text-stone-900">Welcome to Lifer</h2>
-            <p className="mx-auto mt-2 max-w-sm text-sm text-stone-500">
+          <div className="rounded-xl border border-line bg-surface p-8 text-center">
+            <h2 className="text-lg font-semibold text-ink">Welcome to Lifer</h2>
+            <p className="mx-auto mt-2 max-w-sm text-sm text-muted">
               Pick a region to see its checklist and start tracking what you've photographed there.
             </p>
             <div className="mt-4 flex items-center justify-center gap-4">
               {worldRegion && (
                 <button
                   onClick={() => navigateToRegion(worldRegion.id)}
-                  className="rounded-md bg-stone-900 px-4 py-2 text-sm font-medium text-white"
+                  className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-accent-fg"
                 >
                   Browse by region
                 </button>
               )}
-              <button onClick={() => setFirstRunPrompt(false)} className="text-sm text-stone-500 hover:underline">
+              <button onClick={() => setFirstRunPrompt(false)} className="text-sm text-muted hover:underline">
                 Or view every species worldwide
               </button>
             </div>
           </div>
         ) : regionKnownHub ? (
-          <p className="text-stone-500">Pick a region above to see its checklist.</p>
+          <p className="text-muted">Pick a region above to see its checklist.</p>
+        ) : needsPackFor ? (
+          <NeedsPackPrompt region={needsPackFor} onDownloaded={load} />
         ) : loadError ? (
-          <p className="text-stone-500">
+          <p className="text-muted">
             Couldn't load this view.{" "}
-            <button onClick={load} className="text-stone-900 underline">
+            <button onClick={load} className="text-ink underline">
               Retry
             </button>
           </p>
         ) : !visibleItems ? (
-          <p className="text-stone-500">Loading…</p>
+          <Spinner />
         ) : visibleItems.length === 0 ? (
-          <p className="text-stone-500">Nothing matches that filter.</p>
+          <p className="text-muted">Nothing matches that filter.</p>
         ) : (
           <GroupedSpeciesGrid
             items={visibleItems}
@@ -554,6 +627,88 @@ export default function CollectionPage() {
           />
         )}
       </main>
+    </div>
+  );
+}
+
+interface OfflinePackEntry {
+  id: string;
+  type: "region" | "seaZone";
+  region?: string;
+  sizeBytes: number;
+  speciesCount: number;
+  downloaded: boolean;
+}
+
+// Shown instead of a checklist for a region with no downloaded pack — see regions/routes.ts,
+// which never computes this live. Finds the matching "all taxa" pack for this region in the
+// index and offers a direct download, rather than sending the user off to the Offline Packs
+// settings page for what's usually a single, obvious action.
+function NeedsPackPrompt({ region, onDownloaded }: { region: { id: string; name: string }; onDownloaded: () => void }) {
+  const [pack, setPack] = useState<OfflinePackEntry | null | undefined>(undefined);
+  const [downloading, setDownloading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setPack(undefined);
+    api
+      .get<{ packs: OfflinePackEntry[] }>("/offline-packs/index")
+      .then((res) => setPack(res.packs.find((p) => p.type === "region" && p.region === region.name) ?? null))
+      .catch(() => setPack(null));
+  }, [region.name]);
+
+  async function download() {
+    if (!pack) return;
+    setDownloading(true);
+    setError(null);
+    try {
+      await api.post("/offline-packs/download", { packIds: [pack.id] });
+      // Same short-poll pattern as OfflinePacksPage — a pack download runs as a background
+      // job, not something this POST itself waits on.
+      for (;;) {
+        await new Promise((r) => setTimeout(r, 1000));
+        const status = await api.get<{ running: boolean; error: string | null }>("/offline-packs/download/status");
+        if (!status.running) {
+          if (status.error) setError(status.error);
+          break;
+        }
+      }
+      onDownloaded();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't download this pack");
+    } finally {
+      setDownloading(false);
+    }
+  }
+
+  return (
+    <div className="rounded-xl border border-line bg-surface p-8 text-center">
+      <h2 className="text-lg font-semibold text-ink">{region.name}'s checklist isn't downloaded yet</h2>
+      {pack === undefined ? (
+        <p className="mt-2 text-sm text-muted">Checking for a pack…</p>
+      ) : pack === null ? (
+        <p className="mx-auto mt-2 max-w-sm text-sm text-muted">
+          No offline pack is published for {region.name} yet. Check{" "}
+          <Link to="/offline-packs" className="underline">
+            Offline packs
+          </Link>{" "}
+          later, or ask whoever runs this Lifer instance about it.
+        </p>
+      ) : (
+        <>
+          <p className="mx-auto mt-2 max-w-sm text-sm text-muted">
+            {pack.speciesCount} species, {(pack.sizeBytes / 1024 / 1024).toFixed(0)}MB.
+          </p>
+          <button
+            onClick={download}
+            disabled={downloading}
+            className="mt-4 rounded-md bg-accent px-4 py-2 text-sm font-medium text-accent-fg disabled:opacity-50"
+          >
+            {downloading ? "Downloading…" : `Download ${region.name}'s pack`}
+          </button>
+          {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
+        </>
+      )}
     </div>
   );
 }

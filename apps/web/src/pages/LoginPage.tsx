@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, Navigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { api, ApiError } from "../api/client";
+import { Logo } from "../components/Logo";
 
 // Single-user app: no invite codes, no public sign-up, and no path to ever add a second
 // account. Before any account exists, this page is a one-time "create your account" setup
@@ -39,10 +40,10 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-stone-50">
-      <form onSubmit={handleSubmit} className="w-full max-w-sm space-y-4 rounded-xl border border-stone-200 bg-white p-8 shadow-sm">
-        <h1 className="text-2xl font-semibold text-stone-900">Lifer</h1>
-        <p className="text-sm text-stone-500">
+    <div className="min-h-screen flex items-center justify-center bg-canvas">
+      <form onSubmit={handleSubmit} className="w-full max-w-sm space-y-4 rounded-xl border border-line bg-surface p-8 shadow-sm">
+        <Logo variant="wordmark" className="h-8 w-auto" />
+        <p className="text-sm text-muted">
           {needsSetup
             ? "A species-indexed home for your wildlife photography. Create the first account to get started."
             : "A species-indexed home for your wildlife photography."}
@@ -54,7 +55,7 @@ export default function LoginPage() {
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           required
-          className="w-full rounded-md border border-stone-300 px-3 py-2 text-sm"
+          className="w-full rounded-md border border-line bg-surface px-3 py-2 text-sm text-ink"
         />
         <input
           type="password"
@@ -63,21 +64,21 @@ export default function LoginPage() {
           onChange={(e) => setPassword(e.target.value)}
           required
           minLength={8}
-          className="w-full rounded-md border border-stone-300 px-3 py-2 text-sm"
+          className="w-full rounded-md border border-line bg-surface px-3 py-2 text-sm text-ink"
         />
 
-        {error && <p className="text-sm text-red-600">{error}</p>}
+        {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
 
         <button
           type="submit"
           disabled={submitting}
-          className="w-full rounded-md bg-stone-900 py-2 text-sm font-medium text-white disabled:opacity-50"
+          className="w-full rounded-md bg-accent py-2 text-sm font-medium text-accent-fg disabled:opacity-50"
         >
           {needsSetup ? "Make account" : "Log in"}
         </button>
 
         {!needsSetup && (
-          <Link to="/forgot-password" className="block text-center text-sm text-stone-500 hover:underline">
+          <Link to="/forgot-password" className="block text-center text-sm text-muted hover:underline">
             Forgot password?
           </Link>
         )}

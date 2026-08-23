@@ -195,6 +195,15 @@ export function bboxesNear(a: BoundingBox, b: BoundingBox, bufferDegrees: number
   );
 }
 
+// True if `inner` sits entirely inside `outer` — used as a bypass for the nearby-sea-zone
+// ring-distance check (see regions/routes.ts and build-region-pack.ts's nearbyZones): a small
+// island whose own bbox is fully contained in a sea zone's bbox is unambiguously "in that
+// sea," even in the rare case where the zone's simplified polygon edge sits just past the
+// ring-distance cutoff (found via Antigua and Barb. vs. the Eastern Caribbean zone).
+export function bboxContains(outer: BoundingBox, inner: BoundingBox): boolean {
+  return inner.minLon >= outer.minLon && inner.maxLon <= outer.maxLon && inner.minLat >= outer.minLat && inner.maxLat <= outer.maxLat;
+}
+
 // Minimum distance (plain Euclidean degrees, not haversine — this is a proximity heuristic
 // for surfacing checkbox options, not a navigational distance, and the regions involved are
 // never near enough to a pole for the difference to matter) between any point of any ring in

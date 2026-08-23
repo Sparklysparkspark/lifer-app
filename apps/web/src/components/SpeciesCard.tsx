@@ -1,7 +1,9 @@
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import type { CollectionItem } from "@lifer/shared";
 import { cropToImageStyle } from "../lib/crop";
 import ProgressiveImg from "./ProgressiveImg";
+import PhotoPlaceholder from "./PhotoPlaceholder";
 
 const TIER_LABEL: Record<string, string> = {
   common: "Common",
@@ -15,16 +17,19 @@ const TIER_LABEL: Record<string, string> = {
 export default function SpeciesCard({ item, regionId }: { item: CollectionItem; regionId?: string }) {
   const isUnseen = item.state === "unseen";
   const isSeen = item.state === "seen";
+  // A reference photo whose file has since moved or been deleted would otherwise show the
+  // browser's own broken-image icon — falls back to the same "no photo" placeholder instead.
+  const [referencePhotoFailed, setReferencePhotoFailed] = useState(false);
 
   return (
     <Link
       to={regionId ? `/species/${item.speciesId}?regionId=${regionId}` : `/species/${item.speciesId}`}
-      className={`group block overflow-hidden rounded-lg border border-stone-200 bg-white transition hover:shadow-md ${
+      className={`group block overflow-hidden rounded-lg border border-line bg-surface transition hover:shadow-md ${
         isUnseen ? "opacity-60" : ""
       }`}
     >
-      <div className={`relative aspect-square overflow-hidden bg-stone-100 ${isSeen ? "grayscale" : ""}`}>
-        {item.coverPhotoUrl ? (
+      <div className={`relative aspect-square overflow-hidden bg-surface-muted ${isSeen ? "grayscale" : ""}`}>
+        {item.coverPhotoUrl && !referencePhotoFailed ? (
           // Only a captured photo (served from /api/photos/.../thumb) has a matching
           // /display derivative to upgrade to; an external reference-photo thumbnail has no
           // such counterpart to swap in, so it's left as-is.
@@ -42,10 +47,11 @@ export default function SpeciesCard({ item, regionId }: { item: CollectionItem; 
               alt={item.commonName ?? item.scientificName}
               className="h-full w-full"
               style={cropToImageStyle(item.cardCropX, item.cardCropY, item.cardCropSize)}
+              onError={() => setReferencePhotoFailed(true)}
             />
           )
         ) : (
-          <div className="flex h-full w-full items-center justify-center text-stone-300">?</div>
+          <PhotoPlaceholder className="h-full w-full" />
         )}
         {isSeen && (
           <span
@@ -57,16 +63,16 @@ export default function SpeciesCard({ item, regionId }: { item: CollectionItem; 
         )}
       </div>
       <div className="p-3">
-        <p className="truncate text-sm font-medium text-stone-900">{item.commonName ?? item.scientificName}</p>
-        <p className="truncate text-xs italic text-stone-500">{item.scientificName}</p>
+        <p className="truncate text-sm font-medium text-ink">{item.commonName ?? item.scientificName}</p>
+        <p className="truncate text-xs italic text-muted">{item.scientificName}</p>
         {(item.tier || item.localTier || item.endemic || item.vagrant) && (
           <div className="mt-1 flex flex-wrap items-center gap-1">
             {item.tier && (
               <span
                 className={
                   item.tier === "unrated"
-                    ? "inline-block rounded-full border border-dashed border-stone-300 px-2 py-0.5 text-[10px] uppercase tracking-wide text-stone-400"
-                    : "inline-block rounded-full bg-stone-100 px-2 py-0.5 text-[10px] uppercase tracking-wide text-stone-600"
+                    ? "inline-block rounded-full border border-dashed border-line px-2 py-0.5 text-[10px] uppercase tracking-wide text-muted"
+                    : "inline-block rounded-full bg-surface-muted px-2 py-0.5 text-[10px] uppercase tracking-wide text-muted"
                 }
                 title={item.tier === "unrated" ? "Not enough data yet to rate how hard this is to find" : undefined}
               >
@@ -78,7 +84,7 @@ export default function SpeciesCard({ item, regionId }: { item: CollectionItem; 
                effort-weighted score. */}
             {item.localTier && (
               <span
-                className="inline-block rounded-full border border-stone-300 px-2 py-0.5 text-[10px] uppercase tracking-wide text-stone-500"
+                className="inline-block rounded-full border border-line px-2 py-0.5 text-[10px] uppercase tracking-wide text-muted"
                 title="Rarity ranked against other species in this region specifically"
               >
                 {TIER_LABEL[item.localTier] ?? item.localTier} here

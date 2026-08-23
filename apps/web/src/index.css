@@ -1,1 +1,84 @@
 @import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  --color-canvas: #f6eedc;
+  --color-surface: #ffffff;
+  --color-surface-muted: #f1ece0;
+  --color-line: #d8d6d0;
+  --color-ink: #242c34;
+  --color-muted: #5f6b6f;
+  --color-accent: #748069;
+  --color-accent-fg: #ffffff;
+}
+
+.dark {
+  --color-canvas: #242c34;
+  --color-surface: #2b333c;
+  --color-surface-muted: #323b45;
+  --color-line: #3c4650;
+  --color-ink: #f6eedc;
+  --color-muted: #d8d6d0;
+  --color-accent: #748069;
+  --color-accent-fg: #ffffff;
+}
+
+@theme inline {
+  --color-canvas: var(--color-canvas);
+  --color-surface: var(--color-surface);
+  --color-surface-muted: var(--color-surface-muted);
+  --color-line: var(--color-line);
+  --color-ink: var(--color-ink);
+  --color-muted: var(--color-muted);
+  --color-accent: var(--color-accent);
+  --color-accent-fg: var(--color-accent-fg);
+}
+
+body {
+  background-color: var(--color-canvas);
+  color: var(--color-ink);
+}
+
+/* No-op outside Electron. Inside the desktop app's frameless mac window, this lets the
+   header double as a drag handle so the window still moves without a native title bar. */
+header {
+  -webkit-app-region: drag;
+}
+header button,
+header a,
+header input,
+header select {
+  -webkit-app-region: no-drag;
+}
+
+/* Clears space for the frameless mac window's traffic lights, which float over the top-left
+   of the page — see main.tsx, which sets [data-mac-app] only inside the desktop app on mac.
+   Pushes the whole header down rather than the logo right, so the logo sits below the
+   traffic lights (its own left-aligned row) instead of squeezed beside them. The traffic
+   lights sit at trafficLightPosition {x:20,y:20} (see apps/desktop/src/main.js) and are
+   ~12px tall, so their visual bottom edge is ~32px down — 24px of clearance below that. */
+[data-mac-app] header.page-header {
+  padding-top: 56px;
+}
+
+/* The traffic lights themselves are real native macOS buttons (see main.js's titleBarStyle),
+   not anything we draw — their color and dimmed-on-blur behavior are entirely owned by
+   AppKit, with no public API to override them. What WAS ours to fix: our light cream header
+   background sits too close in tone to the native inactive/unfocused grey for the buttons to
+   read clearly against it. This patch just darkens the small corner behind them so the OS's
+   own grey has enough contrast — sized a bit larger than the actual 3-button cluster
+   (trafficLightPosition {x:20,y:20}, ~12px per dot, standard ~76px-wide native group) so it
+   fully covers them with a little margin. pointer-events: none since it must never intercept
+   the window-drag region or the buttons' own native hit-testing underneath it. */
+[data-mac-app] body::before {
+  content: "";
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 90px;
+  height: 40px;
+  background: rgb(0 0 0 / 0.16);
+  pointer-events: none;
+  z-index: 9999;
+}

@@ -194,22 +194,22 @@ export default function BulkImportPage() {
   const doneCount = rows.filter((r) => r.status === "done").length;
 
   return (
-    <div className="min-h-screen bg-stone-50">
-      <header className="flex items-center justify-between border-b border-stone-200 bg-white px-6 py-4">
+    <div className="min-h-screen bg-canvas">
+      <header className="page-header flex items-center justify-between border-b border-line bg-surface px-6 py-4">
         <div>
-          <BackToCollectionLink className="text-sm text-stone-500 hover:underline" />
-          <h1 className="mt-1 text-lg font-semibold text-stone-900">Bulk import</h1>
+          <BackToCollectionLink className="text-sm text-muted hover:underline" />
+          <h1 className="mt-1 text-lg font-semibold text-ink">Bulk import</h1>
         </div>
         <div className="flex items-center gap-3 text-sm">
           {lastBatch.length > 0 && (
-            <button onClick={undoLastBatch} className="text-stone-500 hover:underline">
+            <button onClick={undoLastBatch} className="text-muted hover:underline">
               Undo last import ({lastBatch.length})
             </button>
           )}
           <button
             onClick={importAll}
             disabled={importing || readyCount === 0}
-            className="rounded-md bg-stone-900 px-3 py-1.5 text-white disabled:opacity-40"
+            className="rounded-md bg-accent px-3 py-1.5 text-accent-fg disabled:opacity-40"
           >
             {importing ? "Importing…" : `Import ${readyCount || ""} photo${readyCount === 1 ? "" : "s"}`}
           </button>
@@ -223,7 +223,7 @@ export default function BulkImportPage() {
             e.preventDefault();
             if (e.dataTransfer.files.length) addFiles(e.dataTransfer.files);
           }}
-          className="rounded-lg border-2 border-dashed border-stone-300 p-8 text-center"
+          className="rounded-lg border-2 border-dashed border-line p-8 text-center"
         >
           <input
             ref={folderInputRef}
@@ -243,17 +243,17 @@ export default function BulkImportPage() {
             className="hidden"
             onChange={(e) => e.target.files && addFiles(e.target.files)}
           />
-          <p className="text-sm text-stone-500">
+          <p className="text-sm text-muted">
             Drag JPEGs in, or{" "}
-            <button onClick={() => folderInputRef.current?.click()} className="text-stone-900 underline">
+            <button onClick={() => folderInputRef.current?.click()} className="text-ink underline">
               choose a folder
             </button>{" "}
             /{" "}
-            <button onClick={() => filesInputRef.current?.click()} className="text-stone-900 underline">
+            <button onClick={() => filesInputRef.current?.click()} className="text-ink underline">
               choose files
             </button>
           </p>
-          <p className="mt-1 text-xs text-stone-400">
+          <p className="mt-1 text-xs text-muted">
             Folder names and XMP keywords/tags on the files are used to auto-guess the species. Drag-and-drop only sees
             individual files, not folder structure — use "choose a folder" for folder-name matching.
           </p>
@@ -261,7 +261,7 @@ export default function BulkImportPage() {
 
         {rows.length > 0 && (
           <>
-            <div className="flex items-center gap-3 text-sm text-stone-500">
+            <div className="flex items-center gap-3 text-sm text-muted">
               <span>
                 {rows.length} file{rows.length === 1 ? "" : "s"} · {readyCount} ready to import · {doneCount} imported
               </span>
@@ -281,7 +281,7 @@ export default function BulkImportPage() {
               )}
             </div>
 
-            <div className="divide-y divide-stone-200 rounded-lg border border-stone-200 bg-white">
+            <div className="divide-y divide-line rounded-lg border border-line bg-surface">
               {rows.map((row, i) => (
                 <div key={row.key} className="flex items-center gap-3 p-3">
                   <input
@@ -297,8 +297,8 @@ export default function BulkImportPage() {
                     className="h-14 w-14 cursor-pointer rounded-md object-cover"
                   />
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm text-stone-700">{row.file.name}</p>
-                    {row.status === "inspecting" && <p className="text-xs text-stone-400">Reading keywords…</p>}
+                    <p className="truncate text-sm text-ink">{row.file.name}</p>
+                    {row.status === "inspecting" && <p className="text-xs text-muted">Reading keywords…</p>}
                     {focusedRowKey === row.key ? (
                       <div className="mt-1 w-64">
                         <SpeciesPicker
@@ -310,7 +310,7 @@ export default function BulkImportPage() {
                     ) : (
                       <button
                         onClick={() => setFocusedRowKey(row.key)}
-                        className={`mt-0.5 text-xs ${row.speciesId ? "text-stone-700" : "text-stone-400"} hover:underline`}
+                        className={`mt-0.5 text-xs ${row.speciesId ? "text-ink" : "text-muted"} hover:underline`}
                       >
                         {row.speciesId
                           ? `${row.speciesLabel}${row.autoMatched ? " (auto-matched)" : ""}`
@@ -318,7 +318,7 @@ export default function BulkImportPage() {
                       </button>
                     )}
                   </div>
-                  <span className="text-xs text-stone-400">
+                  <span className="text-xs text-muted">
                     {row.status === "done" ? "✓ Imported" : row.status === "error" ? row.error : row.status === "uploading" ? "Uploading…" : ""}
                   </span>
                 </div>

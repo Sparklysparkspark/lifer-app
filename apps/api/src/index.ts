@@ -1,5 +1,5 @@
 import path from "node:path";
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import Fastify from "fastify";
 import cookie from "@fastify/cookie";
 import multipart from "@fastify/multipart";
@@ -61,9 +61,14 @@ app.get("/health", async () => ({ ok: true }));
 // byte ranges for tiles actually in view rather than the whole file. decorateReply: false
 // since the reply.sendFile() decorator can only be added once per app, and the WEB_DIST_DIR
 // registration below (when it exists) is the one that actually uses it, for its SPA fallback.
-if (existsSync(MAPS_DIR)) {
-  await app.register(staticFiles, { root: MAPS_DIR, prefix: "/maps/", decorateReply: false });
-}
+//
+// The map itself is a large (~500MB) OPT-IN download (see settings/routes.ts's /settings/map
+// endpoints) rather than something every install ships with, so this directory usually starts
+// empty — created here unconditionally (not gated on existsSync like WEB_DIST_DIR below) so the
+// route is already live the moment a user downloads the map, instead of needing a server
+// restart to notice a directory that didn't exist at boot.
+mkdirSync(MAPS_DIR, { recursive: true });
+await app.register(staticFiles, { root: MAPS_DIR, prefix: "/maps/", decorateReply: false });
 
 // Serves the built web app (apps/web/dist) so the whole app is one container on one port —
 // a reverse proxy (nginx, DuckDNS, etc., configured separately) just needs a single upstream

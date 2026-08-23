@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Map as MapLibreMap, LngLatBounds, addProtocol } from "maplibre-gl";
 import { Protocol } from "pmtiles";
 import { layers, namedFlavor } from "@protomaps/basemaps";
@@ -23,9 +23,18 @@ function ensurePmtilesProtocol(): void {
 
 export default function RegionMap({ boundaryGeoJson }: { boundaryGeoJson: unknown }) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const [mapAvailable, setMapAvailable] = useState<boolean | null>(null);
+
+  // The basemap file is a large (~500MB) optional download, not guaranteed to be present —
+  // check first rather than letting maplibre fail loudly against a 404.
+  useEffect(() => {
+    fetch(PMTILES_URL, { method: "HEAD" })
+      .then((res) => setMapAvailable(res.ok))
+      .catch(() => setMapAvailable(false));
+  }, []);
 
   useEffect(() => {
-    if (!containerRef.current || !boundaryGeoJson) return;
+    if (!containerRef.current || !boundaryGeoJson || !mapAvailable) return;
     ensurePmtilesProtocol();
 
     const absolutePmtilesUrl = new URL(PMTILES_URL, window.location.origin).toString();
@@ -34,7 +43,12 @@ export default function RegionMap({ boundaryGeoJson }: { boundaryGeoJson: unknow
       style: {
         version: 8,
         sources: {
-          [PMTILES_SOURCE_ID]: { type: "vector", url: `pmtiles://${absolutePmtilesUrl}` },
+          // maxzoom must match the archive's actual baked-in max (8) — without it, fitting a
+          // small region's bounds zooms the map in past what the archive has, MapLibre
+          // requests tiles that don't exist, and land/water never renders (just the flat
+          // background color). Setting it tells MapLibre to keep reusing the z8 tiles,
+          // scaled up, for any deeper zoom instead.
+          [PMTILES_SOURCE_ID]: { type: "vector", url: `pmtiles://${absolutePmtilesUrl}`, maxzoom: 8 },
         },
         layers: layers(PMTILES_SOURCE_ID, namedFlavor("light"), { lang: "en" }),
       },
@@ -67,13 +81,20 @@ export default function RegionMap({ boundaryGeoJson }: { boundaryGeoJson: unknow
         }
       };
       extend(feature.geometry.coordinates);
-      map.fitBounds(bounds, { padding: 24 });
+      // Capped at the archive's own max zoom (8) — a small region would otherwise fit tight
+      // enough to zoom in well past that, just enlarging the same z8 tile pixels rather than
+      // showing any real extra detail.
+      map.fitBounds(bounds, { padding: 24, maxZoom: 8 });
     });
 
     return () => map.remove();
-  }, [boundaryGeoJson]);
+  }, [boundaryGeoJson, mapAvailable]);
 
-  if (!boundaryGeoJson) return null;
+  // The map is an opt-in download (see SettingsPage.tsx's MapSection) that most installs
+  // won't have — rather than a placeholder box explaining that on every region page, this
+  // whole component just isn't part of the layout when there's nothing to show. `null` (still
+  // checking) is treated the same as `false` here so nothing flashes a box then removes it.
+  if (!boundaryGeoJson || !mapAvailable) return null;
 
-  return <div ref={containerRef} className="h-64 w-full rounded-lg border border-stone-200" />;
+  return <div ref={containerRef} className="h-64 w-full rounded-lg border border-line" />;
 }

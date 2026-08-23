@@ -19,9 +19,9 @@ export interface LightboxSlide {
 function InfoRow({ label, value }: { label: string; value: string | number | null | undefined }) {
   if (value == null || value === "") return null;
   return (
-    <div className="flex justify-between gap-4 border-b border-stone-100 py-1.5 text-sm last:border-0">
-      <span className="text-stone-400">{label}</span>
-      <span className="text-stone-800">{value}</span>
+    <div className="flex justify-between gap-4 border-b border-line py-1.5 text-sm last:border-0">
+      <span className="text-muted">{label}</span>
+      <span className="text-ink">{value}</span>
     </div>
   );
 }
@@ -58,13 +58,13 @@ export default function Lightbox({
 
   const hasInfo = !!(slide.info && Object.values(slide.info).some((v) => v != null && v !== ""));
   const buttonClass = showInfo
-    ? "rounded-full bg-stone-100 p-3 text-xl text-stone-500 hover:bg-stone-200"
+    ? "rounded-full bg-surface-muted p-3 text-xl text-muted hover:bg-surface-muted"
     : "rounded-full bg-black/40 p-3 text-xl text-white hover:bg-black/60";
 
   return (
     <div
       className={`fixed inset-0 z-50 flex flex-col items-center overflow-y-auto p-4 ${
-        showInfo ? "justify-start bg-white" : "justify-center bg-black/90"
+        showInfo ? "justify-start bg-canvas" : "justify-center bg-black/90"
       }`}
       onClick={onClose}
     >
@@ -75,7 +75,7 @@ export default function Lightbox({
               e.stopPropagation();
               setShowInfo((v) => !v);
             }}
-            className={showInfo ? "rounded-full bg-stone-100 px-3 py-1.5 text-sm text-stone-600 hover:bg-stone-200" : "text-2xl text-white/70 hover:text-white"}
+            className={showInfo ? "rounded-full bg-surface-muted px-3 py-1.5 text-sm text-muted hover:bg-surface-muted" : "text-2xl text-white/70 hover:text-white"}
             aria-label="Toggle photo info"
             aria-pressed={showInfo}
           >
@@ -84,7 +84,7 @@ export default function Lightbox({
         )}
         <button
           onClick={onClose}
-          className={showInfo ? "text-2xl text-stone-400 hover:text-stone-700" : "text-2xl text-white/70 hover:text-white"}
+          className={showInfo ? "text-2xl text-muted hover:text-ink" : "text-2xl text-white/70 hover:text-white"}
           aria-label="Close"
         >
           ×
@@ -119,8 +119,8 @@ export default function Lightbox({
       {showInfo ? (
         <div className="mx-auto w-full max-w-2xl" onClick={(e) => e.stopPropagation()}>
           <img src={slide.url} alt="" className="mx-auto max-h-[60vh] max-w-full rounded-lg object-contain shadow-sm" />
-          <div className="mt-4 rounded-lg border border-stone-200 p-4">
-            {slide.caption && <p className="mb-2 text-sm font-medium text-stone-800">{slide.caption}</p>}
+          <div className="mt-4 rounded-lg border border-line p-4">
+            {slide.caption && <p className="mb-2 text-sm font-medium text-ink">{slide.caption}</p>}
             <InfoRow label="Camera" value={slide.info?.cameraModel} />
             <InfoRow label="Lens" value={slide.info?.lens} />
             <InfoRow
@@ -136,13 +136,13 @@ export default function Lightbox({
             />
           </div>
           {slides.length > 1 && (
-            <div className="mt-3 flex items-center justify-center gap-4 text-sm text-stone-400">
+            <div className="mt-3 flex items-center justify-center gap-4 text-sm text-muted">
               <button
                 onClick={(e) => {
                   e.stopPropagation();
                   onIndexChange((index - 1 + slides.length) % slides.length);
                 }}
-                className="hover:text-stone-700"
+                className="hover:text-ink"
               >
                 ‹ Previous
               </button>
@@ -154,7 +154,7 @@ export default function Lightbox({
                   e.stopPropagation();
                   onIndexChange((index + 1) % slides.length);
                 }}
-                className="hover:text-stone-700"
+                className="hover:text-ink"
               >
                 Next ›
               </button>

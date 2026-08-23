@@ -12,7 +12,9 @@ import {
   fetchYearCountsForSpecies,
   passesRecurrenceCheck,
   fetchRecordSampleForSpecies,
+  fetchRecordSampleForZone,
   looksCaptiveOnly,
+  looksTypeSpecimenOnly,
   MIN_RECORDS,
   FISH_MIN_RECORDS,
   FISH_YEARS_WINDOW,
@@ -24,6 +26,7 @@ import { AVES_CLASS_KEY, MAMMALIA_CLASS_KEY } from "data-pipeline/src/fetch/fetc
 import { fetchFishTaxonKeys } from "data-pipeline/src/fetch/fetch-fish-orders.js";
 import {
   bboxesNear,
+  bboxContains,
   minRingDistance,
   exteriorRingsFromGeometry,
   parseWktPolygonRing,
@@ -70,6 +73,16 @@ async function nearbyZones(
     ),
   );
   return shortlisted.filter((z) => {
+    // A small island's own bbox sitting entirely inside a sea zone's bbox is about as
+    // unambiguous as "nearby water" gets, regardless of what the ring-distance check says —
+    // found via Antigua and Barb.: fully inside the Eastern Caribbean zone's bbox, yet its
+    // simplified polygon edge (Ramer-Douglas-Peucker, see geometry.ts) sits 2.24° from
+    // Antigua's coast, just over the 2° cutoff below. A tiny island is disproportionately
+    // exposed to exactly this simplification artifact, so it gets its own bypass rather than
+    // loosening NEARBY_MAX_DISTANCE_DEGREES for every region (which risks reintroducing
+    // false positives like Egypt/the Ionian/the Aegean, the cases that motivated 2° at all).
+    const zoneBbox: BoundingBox = { minLon: z.bbox_min_lon, minLat: z.bbox_min_lat, maxLon: z.bbox_max_lon, maxLat: z.bbox_max_lat };
+    if (bboxContains(zoneBbox, regionBbox)) return true;
     const zoneRing = parseWktPolygonRing(z.wkt);
     return minRingDistance(regionRings, [zoneRing]) <= NEARBY_MAX_DISTANCE_DEGREES;
   });
@@ -84,7 +97,18 @@ async function ensureSeaZoneComputed(zoneId: string, wkt: string, alreadyCompute
   if (alreadyComputed) return;
   const fishKeys = await fetchFishTaxonKeys();
   const counts = await fetchSpeciesCountsForZone(wkt, fishKeys, FISH_YEARS_WINDOW);
-  const filtered = counts.filter((c) => c.recordCount >= FISH_MIN_RECORDS);
+  // See looksTypeSpecimenOnly's own comment — same fix as the land-region path, same
+  // recordCount===1 scoping to keep the extra per-species calls bounded.
+  const afterTypeSpecimenCheck: RegionSpeciesCount[] = [];
+  for (const c of counts) {
+    if (c.recordCount !== 1) {
+      afterTypeSpecimenCheck.push(c);
+      continue;
+    }
+    const sample = await fetchRecordSampleForZone(wkt, c.gbifKey);
+    if (!looksTypeSpecimenOnly(sample)) afterTypeSpecimenCheck.push(c);
+  }
+  const filtered = afterTypeSpecimenCheck.filter((c) => c.recordCount >= FISH_MIN_RECORDS);
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
@@ -172,36 +196,40 @@ export async function regionRoutes(app: FastifyInstance): Promise<void> {
       // keeps its old "land + selected zones" behavior.
       const includeLand = request.query.includeLand !== "0";
 
-      // Sea zone species — lazily computed the first time any user includes a zone, same
-      // pattern as a region's own occurrence computation, just keyed
-      // by sea_zones.id instead of regions.id and scoped to fish taxa only (the checkbox is
-      // specifically "include nearby water," which only makes sense for fish).
+      // Sea zone species come exclusively from a downloaded offline pack now — see
+      // offlinePacks/routes.ts's applyPack, which populates sea_zone_species and stamps
+      // occurrence_computed_at itself. A zone with no pack applied yet just contributes zero
+      // species to the "include nearby water" toggle rather than blocking this request on a
+      // live GBIF call (computeRegionOccurrences/ensureSeaZoneComputed's own GBIF-fetching
+      // logic still exists, but only for the offline pack-building scripts to call).
       if (seaZoneIds.length > 0) {
-        const zonesRes = await pool.query(`SELECT id, wkt, occurrence_computed_at FROM sea_zones WHERE id = ANY($1)`, [
-          seaZoneIds,
-        ]);
+        const zonesRes = await pool.query(`SELECT id FROM sea_zones WHERE id = ANY($1)`, [seaZoneIds]);
         if (zonesRes.rows.length !== seaZoneIds.length) return reply.code(404).send({ error: "Sea zone not found" });
-        for (const zone of zonesRes.rows) {
-          await ensureSeaZoneComputed(zone.id, zone.wkt, !!zone.occurrence_computed_at);
-        }
       }
 
+      // canDrillDown (below) needs to know whether THIS region is itself a country (parent is
+      // a continent/hub with no code of its own) as opposed to already a province/state —
+      // fetchProvincesForCountry only has admin1 (country -> province) data, no admin2, so
+      // "drill down" on an already-province region always yields zero children.
       const regionRes = await pool.query(
-        `SELECT id, name, ebird_region_code, boundary_geojson, external_codes, occurrence_computed_at, has_children
-         FROM regions WHERE id = $1`,
+        `SELECT r.id, r.name, r.ebird_region_code, r.boundary_geojson, r.external_codes, r.occurrence_computed_at, r.has_children,
+                COALESCE(array_length(p.external_codes, 1), 0) = 0 AS region_is_country_level
+         FROM regions r LEFT JOIN regions p ON p.id = r.parent_id
+         WHERE r.id = $1`,
         [regionId],
       );
       const region = regionRes.rows[0];
       if (!region) return reply.code(404).send({ error: "Region not found" });
 
-      // Lazy occurrence-count + seasonality computation — on first view
-      // of a region with a GADM code, fetch real counts now instead of doing this eagerly
-      // for all ~258 countries + ~4600 provinces worldwide at seed time. Regions with no
-      // GADM code (World, continents) never get this — too broad a GBIF filter to be useful.
-      // Factored into computeRegionOccurrences (below) so the same logic can also be called
-      // eagerly by a script (see scripts/prioritize-region.ts — North America prioritization).
+      // A region's checklist comes exclusively from a downloaded offline pack now — see
+      // offlinePacks/routes.ts's applyPack, which populates region_species and stamps
+      // occurrence_computed_at itself. computeRegionOccurrences (below) still exists and does
+      // real GBIF work, but only for the maintainer-side pack-building scripts to call — a
+      // self-hosted install's own API must never make that live call itself (it can take
+      // minutes per region). A region with a GADM code but no pack applied yet just tells the
+      // client so, rather than blocking this request on GBIF.
       if (!region.occurrence_computed_at && region.external_codes?.length > 0) {
-        await computeRegionOccurrences(region);
+        return { needsPack: true, region: { id: region.id, name: region.name } };
       }
 
       // Same per-user state computation as GET /collection (see collectionItem.ts) — collected
@@ -274,11 +302,52 @@ export async function regionRoutes(app: FastifyInstance): Promise<void> {
           ebirdRegionCode: region.ebird_region_code,
           boundaryGeoJson: region.boundary_geojson,
           hasChildren: region.has_children,
-          canDrillDown: (region.external_codes?.length ?? 0) > 0,
+          canDrillDown: (region.external_codes?.length ?? 0) > 0 && region.region_is_country_level,
         },
         stats,
         items,
       };
+    },
+  );
+
+  // Count-only counterpart to GET /regions/:id/species — same species_ids/taxon/extinct
+  // filtering, but skips the reference-photo/tier/rarity joins and per-row mapping the full
+  // list needs, so the header can show a total on a region/taxon switch without waiting on
+  // the full item list. Deliberately does NOT trigger computeRegionOccurrences if the region
+  // isn't computed yet — that's still the full endpoint's job; this just reflects whatever's
+  // already cached, so it never itself becomes a slow path.
+  app.get<{ Params: { id: string }; Querystring: { taxon?: string; seaZoneIds?: string; includeLand?: string } }>(
+    "/regions/:id/species/count",
+    { preHandler: requireAuth },
+    async (request, reply) => {
+      const { id: regionId } = request.params;
+      const userId = request.user!.id;
+      const taxon = request.query.taxon ?? null;
+      const seaZoneIds = request.query.seaZoneIds ? request.query.seaZoneIds.split(",").filter(Boolean) : [];
+      const includeLand = request.query.includeLand !== "0";
+
+      const regionRes = await pool.query(`SELECT id FROM regions WHERE id = $1`, [regionId]);
+      if (!regionRes.rows[0]) return reply.code(404).send({ error: "Region not found" });
+
+      const res = await pool.query<{ total: string; collected: string; seen: string }>(
+        `WITH species_ids AS (
+           SELECT species_id FROM region_species WHERE region_id = $2 AND $5
+           UNION
+           SELECT species_id FROM sea_zone_species WHERE sea_zone_id = ANY($4)
+         )
+         SELECT
+           count(*) AS total,
+           count(*) FILTER (WHERE us.state = 'collected') AS collected,
+           count(*) FILTER (WHERE us.state = 'seen') AS seen
+         FROM species_ids si
+         JOIN species s ON s.id = si.species_id
+         LEFT JOIN species_traits t ON t.species_id = s.id
+         LEFT JOIN user_species us ON us.user_id = $1 AND us.species_id = s.id
+         WHERE ($3::text IS NULL OR s.taxon_class = $3) AND COALESCE(t.fully_extinct, false) = false`,
+        [userId, regionId, taxon, seaZoneIds, includeLand],
+      );
+      const row = res.rows[0];
+      return { total: Number(row.total), collected: Number(row.collected), seen: Number(row.seen) };
     },
   );
 
@@ -338,10 +407,25 @@ export async function computeRegionOccurrences(region: {
   // used to avoid undercounting marine species, but that's now handled properly via sea
   // zones' own real polygons instead (see the seaZoneIds branch in the route handler) —
   // landOnly=true here.
-  const [birdMammalCounts, fishCounts] = await Promise.all([
+  const [birdMammalCounts, fishCountsRaw] = await Promise.all([
     fetchSpeciesCountsForRegion(code, BIRD_MAMMAL_TAXON_KEYS),
     fetchSpeciesCountsForRegion(code, fishKeys, FISH_YEARS_WINDOW, true),
   ]);
+  // A fish with a SINGLE regional record is exactly the case where one lonely, often
+  // decades/centuries-old museum type specimen (see looksTypeSpecimenOnly's own comment —
+  // Acipenser carbonarius/Canada) can singlehandedly add a species that was never actually
+  // found there. Scoped to recordCount===1 rather than every low-count fish so this stays a
+  // handful of extra per-species GBIF calls per region, not hundreds — FISH_MIN_RECORDS=1
+  // means most permissively-included fish sit at exactly this count.
+  const fishCounts: RegionSpeciesCount[] = [];
+  for (const c of fishCountsRaw) {
+    if (c.recordCount !== 1) {
+      fishCounts.push(c);
+      continue;
+    }
+    const sample = await fetchRecordSampleForSpecies(code, c.gbifKey, true);
+    if (!looksTypeSpecimenOnly(sample)) fishCounts.push(c);
+  }
   const [birdMammalSeasonality, fishSeasonality] = await Promise.all([
     fetchMonthlySeasonality(code, BIRD_MAMMAL_TAXON_KEYS),
     fetchMonthlySeasonality(code, fishKeys, FISH_YEARS_WINDOW, true),
@@ -479,9 +563,24 @@ export async function computeRegionOccurrences(region: {
   // computation: one extra GBIF year-facet call per species, same fetchWithRetry/backoff as
   // every other per-species call in this file.
   const wildFiltered = filtered.filter((c) => !domesticGbifKeys.has(c.gbifKey));
+  // Fish never get the recurrence/vagrancy check at all — it's tuned around bird cases
+  // (3+ distinct years) and runs against the same tiny land-only polygon fish are counted
+  // in. For a small island (Antigua and Barb.: land area ~280km²), a real, permanent reef
+  // resident's occurrences are almost all just offshore — only a sliver of GBIF points
+  // (geolocation noise) ever fall inside the literal land polygon, so it rarely reaches 3
+  // distinct years and gets wrongly flagged vagrant (89% of Antigua's fish, vs. 0% for every
+  // other Caribbean country in this dataset, where a bigger land polygon "catches" enough
+  // points regardless). Fish already get a deliberately permissive inclusion bar for the same
+  // sparse-citizen-science reason (FISH_MIN_RECORDS=1, no year window) — applying a strict
+  // bird-tuned check on top of that permissive inclusion was never consistent to begin with.
+  const fishGbifKeys = new Set(fishCounts.map((c) => c.gbifKey));
   const yearConcentrationByGbifKey = new Map<number, number>();
   const isVagrantByGbifKey = new Map<number, boolean>();
   for (const c of wildFiltered) {
+    if (fishGbifKeys.has(c.gbifKey)) {
+      isVagrantByGbifKey.set(c.gbifKey, false);
+      continue;
+    }
     const yearCounts = await fetchYearCountsForSpecies(code, c.gbifKey);
     const total = yearCounts.reduce((sum, y) => sum + y.count, 0);
     const isVagrant = total > 0 && !passesRecurrenceCheck(yearCounts);

@@ -10,7 +10,7 @@
 //     run elsewhere. That server's own login page (email/password, forgot password, all of
 //     it) handles authentication exactly as it would in a browser; this app is just the
 //     window chrome around it.
-const { app, BrowserWindow, dialog, ipcMain, Menu } = require("electron");
+const { app, BrowserWindow, dialog, ipcMain, Menu, shell } = require("electron");
 const { spawn } = require("node:child_process");
 const path = require("node:path");
 const http = require("node:http");
@@ -26,6 +26,10 @@ const nodeModulesDir = app.isPackaged ? path.join(resourcesRoot, "node_modules")
 
 let apiProcess = null;
 let mainWindow = null;
+// Set right before stopApi() kills the child on purpose (window closing, app quitting) — the
+// 'exit' handler below fires either way and can't otherwise tell "we did this" apart from a
+// real crash, since a killed-by-signal process also reports a non-zero/null exit code.
+let stoppingIntentionally = false;
 
 function fetchOk(url, timeoutMs = 5000) {
   const client = url.startsWith("https:") ? https : http;
@@ -57,6 +61,7 @@ function waitForServer(url, timeoutMs = 30000) {
 }
 
 function startApi(dataDir) {
+  stoppingIntentionally = false;
   const tsxDir = path.join(nodeModulesDir, "tsx", "dist");
   apiProcess = spawn(
     process.execPath,
@@ -76,21 +81,33 @@ function startApi(dataDir) {
         // fallback default (a repo-relative path that doesn't make sense outside a
         // checked-out repo) is used if somehow unset.
         DATA_DIR: dataDir || process.env.DATA_DIR || path.join(app.getPath("userData"), "data"),
+        // Shared app assets (offline basemap, species reference-photo cache) — deliberately
+        // NOT tied to whichever folder DATA_DIR points at (see config.ts's own comment).
+        // Electron's userData path is stable across the app's whole install, independent of
+        // switching photo libraries — a user who picks a new DATA_DIR keeps their downloaded
+        // map and reference cache instead of it silently going missing.
+        APP_DATA_DIR: path.join(app.getPath("userData"), "app-data"),
       },
       stdio: ["ignore", "pipe", "pipe"],
     },
   );
+  let recentStderr = "";
   apiProcess.stdout.on("data", (chunk) => process.stdout.write(`[api] ${chunk}`));
-  apiProcess.stderr.on("data", (chunk) => process.stderr.write(`[api] ${chunk}`));
+  apiProcess.stderr.on("data", (chunk) => {
+    process.stderr.write(`[api] ${chunk}`);
+    recentStderr = (recentStderr + chunk.toString()).slice(-4000);
+  });
   apiProcess.on("exit", (code) => {
-    if (code !== 0 && mainWindow) {
-      dialog.showErrorBox("Lifer stopped unexpectedly", `The backend process exited with code ${code}.`);
+    if (code !== 0 && !stoppingIntentionally && mainWindow) {
+      const detail = recentStderr.trim() || "No error output was captured.";
+      dialog.showErrorBox("Lifer stopped unexpectedly", `The backend process exited with code ${code}.\n\n${detail}`);
     }
   });
 }
 
 function stopApi() {
   if (apiProcess) {
+    stoppingIntentionally = true;
     apiProcess.kill();
     apiProcess = null;
   }
@@ -157,7 +174,11 @@ ipcMain.handle("lifer:choose-setup", async (event, config) => {
     if (!reachable) {
       return { error: "Couldn't reach that address. Check the URL and that the server is running." };
     }
-    writeConfig({ mode: "remote", serverUrl: url });
+    // offlineMode persists whether this window should keep a local low-res/collection-status
+    // cache for browsing while disconnected from the server (see SettingsPage.tsx's merged
+    // "Connect a server" card) — stored here alongside the rest of the connection config so
+    // it survives restarts the same way mode/serverUrl already do.
+    writeConfig({ mode: "remote", serverUrl: url, offlineMode: !!config.offlineMode });
     await loadRemote(url);
     return { ok: true };
   }
@@ -191,6 +212,12 @@ function buildMenu() {
           },
         },
         { type: "separator" },
+        { role: "services" },
+        { type: "separator" },
+        { role: "hide" },
+        { role: "hideOthers" },
+        { role: "unhide" },
+        { type: "separator" },
         { role: "quit" },
       ],
     },
@@ -206,11 +233,51 @@ async function createWindow() {
     width: 1360,
     height: 900,
     title: "Lifer",
+    // On mac, hide the native title bar strip (keeping only the traffic lights) so the app's
+    // own header reads as the window's top edge instead of sitting below a separate bar.
+    // Windows/Linux keep the default chrome — no equivalent of the mismatched-bar complaint
+    // exists there, and hiding it there needs its own titlebar-overlay button layout.
+    // "hidden" + an explicit trafficLightPosition instead of "hiddenInset" — a documented
+    // Electron quirk (traffic lights rendering fully invisible rather than just dimmed once
+    // the window loses focus) shows up more often with hiddenInset's implicit positioning.
+    titleBarStyle: process.platform === "darwin" ? "hidden" : "default",
+    trafficLightPosition: process.platform === "darwin" ? { x: 20, y: 20 } : undefined,
+    backgroundColor: "#f6eedc",
     webPreferences: {
       contextIsolation: true,
       preload: path.join(__dirname, "preload.js"),
     },
   });
+
+  // Links with target="_blank" (e.g. the eBird checklist link) open in the user's real
+  // browser instead of a bare second Electron window.
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    shell.openExternal(url);
+    return { action: "deny" };
+  });
+
+  // Trackpad two-finger swipe on mac — mirrors browser back/forward over the SPA's own
+  // client-side route history, not just the in-app back arrow.
+  mainWindow.on("swipe", (_event, direction) => {
+    if (direction === "left") mainWindow.webContents.goForward();
+    else if (direction === "right") mainWindow.webContents.goBack();
+  });
+
+  // Known Electron/macOS bug: with titleBarStyle "hidden"/"hiddenInset", the traffic lights
+  // can render fully invisible (not just dimmed) once the window loses focus, instead of
+  // showing their normal greyed-out inactive state. https://github.com/electron/electron/issues/16385
+  // The earlier off/on toggle-on-blur attempt didn't hold up — AppKit was still dropping them
+  // on the SAME tick before the button had a chance to redraw. Forcing visibility(true) again
+  // on every relevant window-state change (not just blur) is the workaround that actually
+  // sticks across Electron versions per that thread's later comments.
+  if (process.platform === "darwin") {
+    const showTrafficLights = () => mainWindow.setWindowButtonVisibility(true);
+    mainWindow.on("blur", showTrafficLights);
+    mainWindow.on("focus", showTrafficLights);
+    mainWindow.on("show", showTrafficLights);
+    mainWindow.on("restore", showTrafficLights);
+    mainWindow.on("leave-full-screen", showTrafficLights);
+  }
 
   const config = readConfig();
   if (config && config.mode) {

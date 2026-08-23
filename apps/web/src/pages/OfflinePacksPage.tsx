@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { RegionSummary } from "@lifer/shared";
 import { api, ApiError } from "../api/client";
+import { Spinner } from "../components/LoadingScreen";
 import BackToCollectionLink from "../components/BackToCollectionLink";
 
 interface PackEntry {
@@ -140,11 +141,11 @@ export default function OfflinePacksPage() {
   }
 
   return (
-    <div className="min-h-screen bg-stone-50">
-      <header className="border-b border-stone-200 bg-white px-6 py-4">
-        <BackToCollectionLink className="text-sm text-stone-500 hover:underline" />
-        <h1 className="mt-1 text-lg font-semibold text-stone-900">Offline packs</h1>
-        <p className="mt-1 text-sm text-stone-500">
+    <div className="min-h-screen bg-canvas">
+      <header className="page-header border-b border-line bg-surface px-6 py-4">
+        <BackToCollectionLink className="text-sm text-muted hover:underline" />
+        <h1 className="mt-1 text-lg font-semibold text-ink">Offline packs</h1>
+        <p className="mt-1 text-sm text-muted">
           Download reference photos and habitat info for a region so it's usable without an internet connection.
         </p>
       </header>
@@ -153,14 +154,14 @@ export default function OfflinePacksPage() {
         {indexError && <p className="text-sm text-red-600">{indexError}</p>}
 
         {status?.running && (
-          <div className="rounded-xl border border-stone-200 bg-white p-4">
-            <p className="text-sm text-stone-700">
+          <div className="rounded-xl border border-line bg-surface p-4">
+            <p className="text-sm text-ink">
               Downloading… {status.processed}/{status.total}
               {status.currentPack ? ` (${status.currentPack})` : ""}
             </p>
-            <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-stone-100">
+            <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-surface-muted">
               <div
-                className="h-full bg-stone-900 transition-all"
+                className="h-full bg-accent transition-all"
                 style={{ width: `${status.total ? Math.round((status.processed / status.total) * 100) : 0}%` }}
               />
             </div>
@@ -173,7 +174,7 @@ export default function OfflinePacksPage() {
         )}
 
         {!regions || !packs ? (
-          <p className="text-stone-500">Loading…</p>
+          <Spinner />
         ) : (
           continents.map((continent) => {
             const countries = (countriesByContinent.get(continent.id) ?? []).filter((c) => packsByRegion.has(c.name));
@@ -183,8 +184,8 @@ export default function OfflinePacksPage() {
             const someSelected = continentPackIds.some((id) => selected.has(id));
 
             return (
-              <section key={continent.id} className="rounded-xl border border-stone-200 bg-white p-4">
-                <label className="flex items-center gap-2 text-sm font-semibold text-stone-900">
+              <section key={continent.id} className="rounded-xl border border-line bg-surface p-4">
+                <label className="flex items-center gap-2 text-sm font-semibold text-ink">
                   <input
                     type="checkbox"
                     checked={allSelected}
@@ -201,13 +202,13 @@ export default function OfflinePacksPage() {
                   {countries.map((country) => {
                     const countryPacks = packsByRegion.get(country.name) ?? [];
                     return (
-                      <div key={country.id} className="flex flex-wrap items-center gap-3 text-sm text-stone-700">
+                      <div key={country.id} className="flex flex-wrap items-center gap-3 text-sm text-ink">
                         <span className="w-32 shrink-0">{country.name}</span>
                         {(["aves", "mammalia", "actinopterygii"] as const).map((taxon) => {
                           const pack = countryPacks.find((p) => p.taxon === taxon);
-                          if (!pack) return <span key={taxon} className="w-28 shrink-0 text-stone-300">—</span>;
+                          if (!pack) return <span key={taxon} className="w-28 shrink-0 text-muted">—</span>;
                           return (
-                            <label key={taxon} className="flex w-28 shrink-0 items-center gap-1.5 text-xs text-stone-600">
+                            <label key={taxon} className="flex w-28 shrink-0 items-center gap-1.5 text-xs text-muted">
                               <input
                                 type="checkbox"
                                 checked={pack.downloaded || selected.has(pack.id)}
@@ -228,11 +229,11 @@ export default function OfflinePacksPage() {
         )}
 
         {packs && continents.every((c) => (countriesByContinent.get(c.id) ?? []).every((country) => !packsByRegion.has(country.name))) && (
-          <p className="text-sm text-stone-500">No packs available yet for any region.</p>
+          <p className="text-sm text-muted">No packs available yet for any region.</p>
         )}
 
-        <div className="sticky bottom-4 flex items-center justify-between rounded-xl border border-stone-200 bg-white p-4 shadow-sm">
-          <p className="text-sm text-stone-600">
+        <div className="sticky bottom-4 flex items-center justify-between rounded-xl border border-line bg-surface p-4 shadow-sm">
+          <p className="text-sm text-muted">
             {selected.size === 0 ? "Nothing selected" : `${selected.size} pack(s) selected — ${formatBytes(selectedSizeBytes)}`}
           </p>
           <div className="flex items-center gap-3">
@@ -240,7 +241,7 @@ export default function OfflinePacksPage() {
             <button
               onClick={startDownload}
               disabled={selected.size === 0 || starting || status?.running}
-              className="rounded-md bg-stone-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+              className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-accent-fg disabled:opacity-50"
             >
               {starting ? "Starting…" : "Download selected"}
             </button>
