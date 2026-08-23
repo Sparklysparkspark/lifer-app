@@ -4,7 +4,7 @@ import SpeciesCard from "./SpeciesCard";
 import { speciesGroupLabel } from "../lib/speciesGroups";
 
 export type GroupBy = "none" | "group" | "tier";
-export type SortBy = "taxonomic" | "name" | "rarity";
+export type SortBy = "taxonomic" | "name" | "rarity" | "localRarity";
 
 // "unrated" ranks after "common", not before — it isn't easier than common, it's simply
 // unknown (mammals/fish with no real distinguishing data at all).
@@ -27,6 +27,12 @@ function sortItems(items: CollectionItem[], sortBy: SortBy): CollectionItem[] {
   const sorted = [...items];
   if (sortBy === "rarity") {
     sorted.sort((a, b) => (TIER_RANK[a.tier ?? "common"] ?? 5) - (TIER_RANK[b.tier ?? "common"] ?? 5));
+  } else if (sortBy === "localRarity") {
+    // Only populated on GET /regions/:id/species rows (see CollectionItem.localTier's own
+    // comment) — falls back to the global tier when it's null, same "common" default as the
+    // plain rarity sort above, so this option degrades gracefully rather than bunching
+    // everything together if somehow used outside a region view.
+    sorted.sort((a, b) => (TIER_RANK[a.localTier ?? a.tier ?? "common"] ?? 5) - (TIER_RANK[b.localTier ?? b.tier ?? "common"] ?? 5));
   } else if (sortBy === "name") {
     sorted.sort((a, b) => (a.commonName ?? a.scientificName).localeCompare(b.commonName ?? b.scientificName));
   }

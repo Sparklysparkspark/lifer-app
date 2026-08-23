@@ -495,6 +495,10 @@ export default function CollectionPage() {
             <option value="taxonomic">Taxonomic</option>
             <option value="name">Name</option>
             <option value="rarity">Rarity</option>
+            {/* Only meaningful with a region selected — localTier only comes back from
+               GET /regions/:id/species, never plain GET /collection (see CollectionItem's
+               own comment) — so this option would just silently do nothing without one. */}
+            {regionId && <option value="localRarity">Rarity here</option>}
           </select>
         </label>
         <label className="flex items-center gap-1.5 text-muted">
