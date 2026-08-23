@@ -1,0 +1,27 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Lifer</title>
+    <style>
+      body {
+        margin: 0;
+        display: flex;
+        min-height: 100vh;
+        align-items: center;
+        justify-content: center;
+        background: #f6eedc;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        color: #78716c;
+        font-size: 13px;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- Shown briefly while Rust spawns the local API (or reaches the remote server) and
+         waits for it to respond — see src-tauri/src/lib.rs's setup() — before navigating this
+         window to the real app. Matches the same brief blank/loading gap Electron's main.js
+         has between createWindow() and applyConfig()'s loadLocal/loadRemote resolving. -->
+    Starting Lifer…
+  </body>
+</html>

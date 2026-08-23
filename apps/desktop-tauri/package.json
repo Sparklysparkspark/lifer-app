@@ -1,0 +1,22 @@
+{
+  "name": "desktop-tauri",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "tauri": "tauri",
+    "start": "tauri dev",
+    "prepare-resources": "node scripts/prepare-resources.js",
+    "fetch-node-sidecar": "node scripts/fetch-node-sidecar.js",
+    "dist": "npm run build -w web && npm run prepare-resources && npm run fetch-node-sidecar && tauri build"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2",
+    "@tauri-apps/plugin-opener": "^2",
+    "@tauri-apps/plugin-dialog": "^2",
+    "@tauri-apps/plugin-shell": "^2"
+  }
+}
