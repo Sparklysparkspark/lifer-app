@@ -201,6 +201,30 @@ async function fetchSpeciesCountsForRegionParam(
   return results;
 }
 
+// A species' nomenclatural type specimen (Holotype, Lectotype, etc. — the physical specimen
+// a name was originally described from) can sit in a museum anywhere, often nowhere near the
+// species' actual modern range: e.g. Acipenser carbonarius (the Adriatic Sturgeon) showed up
+// in Canada's checklist purely because its 1850 holotype was collected in Lake Superior —
+// the SAME specimen's own identificationRemarks field already notes it's since been
+// reidentified as Acipenser fulvescens (Lake Sturgeon, a real Canadian species), but the
+// occurrence record itself still carries the original 175-year-old species-level tag. Fish
+// have no MIN_RECORDS/year-window guard against this (see FISH_MIN_RECORDS's own comment on
+// why), so a single type specimen alone is enough to add a species that was never actually
+// found where its type happened to be collected.
+//
+// GBIF's occurrence search `typeStatus` filter matches the exact verbatim string a dataset
+// used ("Holotype" here — confirmed by hand; `typeStatus=HOLOTYPE`, the vocabulary's own
+// canonical spelling, matched zero records for this exact case) rather than normalizing to
+// its controlled vocabulary, so filtering server-side by value is unreliable across
+// datasets. This instead samples actual records (same pattern as looksCaptiveOnly's locality
+// check below) and reads the field directly.
+const MIN_TYPE_SPECIMEN_SAMPLES_TO_JUDGE = 1;
+
+export function looksTypeSpecimenOnly(records: OccurrenceLocalitySample[]): boolean {
+  if (records.length < MIN_TYPE_SPECIMEN_SAMPLES_TO_JUDGE) return false;
+  return records.every((r) => !!r.typeStatus);
+}
+
 // Recurrence rescue: the recent-window MIN_RECORDS threshold treats a
 // genuinely-present-but-rarely-recorded resident (Northern Goshawk in BC: 8 records in 15
 // years, 411 all-time, spread over 102 different years) exactly like a one-off vagrant burst
@@ -254,23 +278,25 @@ const CAPTIVE_LOCALITY_PATTERN =
 
 export interface OccurrenceLocalitySample {
   locality: string | null;
+  typeStatus: string | null;
 }
 
-export async function fetchRecordSampleForSpecies(
-  externalCode: string,
-  gbifKey: number,
-  landOnly = false,
-): Promise<OccurrenceLocalitySample[]> {
-  const regionParam = await gbifRegionParam(externalCode, landOnly);
-  const url =
-    `${GBIF_OCCURRENCE_API}?${regionParam}&speciesKey=${gbifKey}&${basisOfRecordParams}` +
-    `&occurrenceStatus=PRESENT&limit=20`;
+async function fetchRecordSampleForParam(regionParam: string, gbifKey: number): Promise<OccurrenceLocalitySample[]> {
+  const url = `${GBIF_OCCURRENCE_API}?${regionParam}&speciesKey=${gbifKey}&${basisOfRecordParams}&occurrenceStatus=PRESENT&limit=20`;
   const res = await fetchWithRetry(url, {});
   if (!res.ok) {
     throw new Error(`[gbif-occ] fetch failed: ${res.status} ${res.statusText} (${url})`);
   }
-  const data = (await res.json()) as { results: Array<{ locality?: string }> };
-  return data.results.map((r) => ({ locality: r.locality ?? null }));
+  const data = (await res.json()) as { results: Array<{ locality?: string; typeStatus?: string }> };
+  return data.results.map((r) => ({ locality: r.locality ?? null, typeStatus: r.typeStatus ?? null }));
+}
+
+export async function fetchRecordSampleForSpecies(externalCode: string, gbifKey: number, landOnly = false): Promise<OccurrenceLocalitySample[]> {
+  return fetchRecordSampleForParam(await gbifRegionParam(externalCode, landOnly), gbifKey);
+}
+
+export async function fetchRecordSampleForZone(wkt: string, gbifKey: number): Promise<OccurrenceLocalitySample[]> {
+  return fetchRecordSampleForParam(`geometry=${encodeURIComponent(wkt)}`, gbifKey);
 }
 
 // Only rejects when there's actually enough evidence to judge — most iNaturalist-sourced

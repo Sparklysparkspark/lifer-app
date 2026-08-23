@@ -13,6 +13,7 @@ services:
   # Serves the API and the built web UI on one port. Put a reverse proxy in front for
   # TLS/a domain — that's configured on your end, not part of this repo.
   api:
+    image: ghcr.io/sparklysparkspark/lifer-app:latest
     build: .
     depends_on:
       - postgres

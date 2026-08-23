@@ -4,7 +4,7 @@
 import { mkdirSync } from "node:fs";
 import path from "node:path";
 import sharp from "sharp";
-import { DATA_DIR } from "../config.js";
+import { DATA_DIR, APP_DATA_DIR } from "../config.js";
 
 const DISPLAY_WIDTH = 2560;
 const THUMB_WIDTH = 400;
@@ -47,14 +47,15 @@ export async function generateDerivatives(buffer: Buffer, photoId: string): Prom
   return { displayPath, thumbPath };
 }
 
-// Same shape as generateDerivatives above, just a separate directory namespace
-// (data/lifer/reference-display, reference-thumb) and smaller target size — reference
-// photos are sourced from external URLs (iNaturalist/Wikimedia Commons, see lazyEnrich.ts),
-// keyed by their own id (a species id for the primary photo, a species_reference_photos row
-// id for a gallery photo) rather than a photos.id.
+// Same shape as generateDerivatives above, just under APP_DATA_DIR instead of DATA_DIR (this
+// is a shared species-reference cache, not part of any one photo library — see that
+// constant's own comment) and a smaller target size — reference photos are sourced from
+// external URLs (iNaturalist/Wikimedia Commons, see lazyEnrich.ts), keyed by their own id (a
+// species id for the primary photo, a species_reference_photos row id for a gallery photo)
+// rather than a photos.id.
 export async function generateReferenceDerivatives(buffer: Buffer, key: string): Promise<DerivativePaths> {
-  const displayDir = path.join(DATA_DIR, "reference-display");
-  const thumbDir = path.join(DATA_DIR, "reference-thumb");
+  const displayDir = path.join(APP_DATA_DIR, "reference-display");
+  const thumbDir = path.join(APP_DATA_DIR, "reference-thumb");
   mkdirSync(displayDir, { recursive: true });
   mkdirSync(thumbDir, { recursive: true });
 

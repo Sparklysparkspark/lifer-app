@@ -22,10 +22,28 @@ export const DATA_DIR = process.env.DATA_DIR ?? readLocalSettings().dataDir ?? p
 // per spec §6/§8.4's originals model). Never used for "link" mode, which references a file
 // wherever it already lives instead.
 export const ORIGINALS_DIR = path.join(DATA_DIR, "originals");
+// App-managed shared assets (the offline basemap, the species reference-photo cache) that
+// have nothing to do with any particular photo library — they're the same regardless of
+// which folder DATA_DIR currently points at. Kept separate so switching your photo library
+// folder (Settings → Storage location) never loses, hides, or re-requires re-downloading
+// these; the desktop app points this at Electron's own stable per-install userData directory
+// (see apps/desktop/src/main.js), independent of DATA_DIR. Server/Docker deployments have no
+// "switch libraries" concept — one volume covers everything — so this defaults to DATA_DIR
+// there, preserving the single-directory-tree layout that setup already expects.
+export const APP_DATA_DIR = process.env.APP_DATA_DIR ?? DATA_DIR;
 // Offline basemap tiles (PMTiles — a single-file, range-requested vector tile archive from
 // Protomaps/OpenStreetMap) — not user data, so served unauthenticated like any other static
 // basemap tile source.
-export const MAPS_DIR = path.join(DATA_DIR, "maps");
+export const MAPS_DIR = path.join(APP_DATA_DIR, "maps");
+// Direct download URL for the offline basemap file itself (a ~500MB PMTiles archive) — kept
+// out of the installer/Docker image entirely (see settings/routes.ts's /settings/map/download)
+// since it's a purely cosmetic feature nobody should be forced to pay ~500MB of app size for.
+// No default: unset until a real hosted copy exists (a GitHub Release asset is the natural
+// fit — same "just a URL to a static file" shape as PACK_INDEX_URL below, and GitHub Releases,
+// unlike GitHub Packages, is built for hosting large binary downloads rather than package
+// registries). Bump this alongside the maplibre-gl/pmtiles npm versions when publishing a new
+// map build, so the map format and the client reading it stay in lockstep.
+export const MAP_DOWNLOAD_URL = process.env.MAP_DOWNLOAD_URL ?? null;
 // Generous ceiling for a single FILE, set to 2GB: TIFF and DNG files can already run large,
 // and Canon's RAW-burst CR3 mode bundles many frames into ONE container file that can reach
 // several hundred MB to well over 1GB for an extended burst — a completely different scale

@@ -27,9 +27,9 @@ export default function EbirdImport({ onImported }: { onImported: () => void }) 
   }
 
   return (
-    <div className="rounded-lg border border-stone-200 bg-white p-4">
-      <h2 className="text-sm font-medium text-stone-700">Import eBird checklist data</h2>
-      <p className="mt-1 text-xs text-stone-500">
+    <div className="rounded-lg border border-line bg-surface p-4">
+      <h2 className="text-sm font-medium text-ink">Import eBird checklist data</h2>
+      <p className="mt-1 text-xs text-muted">
         Export "MyEBirdData.csv" from eBird's{" "}
         <a href="https://ebird.org/downloadMyData" target="_blank" rel="noreferrer" className="underline">
           Download My Data
@@ -50,13 +50,13 @@ export default function EbirdImport({ onImported }: { onImported: () => void }) 
       />
       <label
         htmlFor="ebird-csv-input"
-        className="mt-2 inline-block cursor-pointer text-sm text-stone-600 hover:underline"
+        className="mt-2 inline-block cursor-pointer text-sm text-muted hover:underline"
       >
         {importing ? "Importing…" : "Choose CSV file…"}
       </label>
       {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
       {summary && (
-        <p className="mt-2 text-xs text-stone-500">
+        <p className="mt-2 text-xs text-muted">
           {summary.uniqueSpecies} species in file · {summary.matched} matched · newly seen:{" "}
           {summary.matched - summary.alreadySeenOrCollected} · already seen/collected: {summary.alreadySeenOrCollected}{" "}
           · unmatched: {summary.unmatched}

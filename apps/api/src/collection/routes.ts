@@ -46,6 +46,29 @@ export async function collectionRoutes(app: FastifyInstance): Promise<void> {
     return { items };
   });
 
+  // Same view as GET /collection, count-only — no reference photos/tier/crop fields to join
+  // or serialize, just three numbers. Lets the header show a total instantly on a
+  // region/taxon switch without waiting on the full (much heavier) item list to download and
+  // render first — see CollectionPage.tsx, which fires this in parallel with /collection.
+  app.get<{ Querystring: { taxon?: string } }>("/collection/count", { preHandler: requireAuth }, async (request) => {
+    const userId = request.user!.id;
+    const { taxon } = request.query;
+
+    const res = await pool.query<{ total: string; collected: string; seen: string }>(
+      `SELECT
+         count(*) AS total,
+         count(*) FILTER (WHERE us.state = 'collected') AS collected,
+         count(*) FILTER (WHERE us.state = 'seen') AS seen
+       FROM species s
+       LEFT JOIN species_traits t ON t.species_id = s.id
+       LEFT JOIN user_species us ON us.user_id = $1 AND us.species_id = s.id
+       WHERE ($2::text IS NULL OR s.taxon_class = $2) AND COALESCE(t.fully_extinct, false) = false`,
+      [userId, taxon ?? null],
+    );
+    const row = res.rows[0];
+    return { total: Number(row.total), collected: Number(row.collected), seen: Number(row.seen) };
+  });
+
   // Phase 4 (spec §9): "total collected, by tier, by family, by year" — all derived from
   // data already in place (species_rarity.tier, species.family, user_species.first_collected,
   // set once at upload time — see uploads/routes.ts), no schema changes needed.

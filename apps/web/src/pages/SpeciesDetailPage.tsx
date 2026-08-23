@@ -9,6 +9,8 @@ import SeasonalityBar from "../components/SeasonalityBar";
 import SpeciesPicker from "../components/SpeciesPicker";
 import ProgressiveImg from "../components/ProgressiveImg";
 import BackToCollectionLink from "../components/BackToCollectionLink";
+import { LoadingScreen } from "../components/LoadingScreen";
+import PhotoPlaceholder from "../components/PhotoPlaceholder";
 import MasonryGrid from "../components/MasonryGrid";
 import { usePhotoGridSize } from "../hooks/usePhotoGridSize";
 import { shotDataLine } from "../lib/shotData";
@@ -112,6 +114,11 @@ export default function SpeciesDetailPage() {
   const [croppingCover, setCroppingCover] = useState(false);
   const [showUploadDialog, setShowUploadDialog] = useState(false);
   const [loadError, setLoadError] = useState(false);
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedCaptureIds, setSelectedCaptureIds] = useState<Set<string>>(new Set());
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [deleteRawToo, setDeleteRawToo] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   // Target thumbnail width in px, fed to MasonryGrid instead of fixed Tailwind breakpoint
   // column counts, so it's a true continuous size control rather than a handful of discrete
@@ -231,18 +238,22 @@ export default function SpeciesDetailPage() {
 
   const [heroIndex, setHeroIndex] = useState(0);
   useEffect(() => setHeroIndex(0), [heroSlides.length]);
+  // A reference photo whose file has since moved or been deleted would otherwise show the
+  // browser's own broken-image icon — falls back to the same "no photo" placeholder instead.
+  const [heroPhotoFailed, setHeroPhotoFailed] = useState(false);
+  useEffect(() => setHeroPhotoFailed(false), [heroIndex, heroSlides.length]);
 
   if (loadError) {
     return (
-      <div className="p-8 text-stone-500">
+      <div className="p-8 text-muted">
         Couldn't load this species.{" "}
-        <button onClick={load} className="text-stone-900 underline">
+        <button onClick={load} className="text-ink underline">
           Retry
         </button>
       </div>
     );
   }
-  if (!detail) return <div className="p-8 text-stone-500">Loading…</div>;
+  if (!detail) return <LoadingScreen />;
   const { species, captures } = detail;
 
   async function setCover(photoId: string) {
@@ -278,6 +289,38 @@ export default function SpeciesDetailPage() {
     load();
   }
 
+  function toggleSelected(captureId: string) {
+    setSelectedCaptureIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(captureId)) next.delete(captureId);
+      else next.add(captureId);
+      return next;
+    });
+  }
+
+  function exitSelectMode() {
+    setSelectMode(false);
+    setSelectedCaptureIds(new Set());
+  }
+
+  // Only offered when at least one selected photo actually has one to delete — asking every
+  // time, even for a batch with no RAWs at all, would be a pointless extra click most of the
+  // time.
+  const selectedHaveRaw = captures.some((c) => selectedCaptureIds.has(c.id) && c.has_raw_original);
+
+  async function confirmDeleteSelected() {
+    setDeleting(true);
+    try {
+      await api.post("/captures/batch-delete", { captureIds: [...selectedCaptureIds], deleteRaw: deleteRawToo });
+      setConfirmingDelete(false);
+      setDeleteRawToo(false);
+      exitSelectMode();
+      load();
+    } finally {
+      setDeleting(false);
+    }
+  }
+
   // Marks a photo as also containing another species (e.g. a hawk catching a fish) — the
   // tagged species counts as fully collected too, and this same photo then shows up on its
   // detail page as well (see species/routes.ts's captures query, which also matches via
@@ -308,11 +351,11 @@ export default function SpeciesDetailPage() {
     }));
 
   return (
-    <div className="min-h-screen bg-stone-50">
-      <header className="border-b border-stone-200 bg-white px-6 py-4">
+    <div className="min-h-screen bg-canvas">
+      <header className="page-header border-b border-line bg-surface px-6 py-4">
         <BackToCollectionLink
           fallbackTo={regionId ? `/?region=${regionId}` : "/"}
-          className="text-sm text-stone-500 hover:underline"
+          className="text-sm text-muted hover:underline"
         />
       </header>
 
@@ -323,9 +366,9 @@ export default function SpeciesDetailPage() {
         {/* 48rem (3xl) * 1.3 ≈ 62.4rem. */}
         <div className="mx-auto max-w-[62.4rem] space-y-6">
         {heroSlides.length === 0 ? (
-          <div className="flex aspect-[16/9] items-center justify-center rounded-lg bg-stone-100 text-stone-300">
-            ?
-          </div>
+          <PhotoPlaceholder className="aspect-[16/9]" />
+        ) : heroPhotoFailed ? (
+          <PhotoPlaceholder className="aspect-[16/9]" />
         ) : (
           // Fills this wrapper's own width, same as the description text below it, rather
           // than being capped to a separate width.
@@ -335,6 +378,7 @@ export default function SpeciesDetailPage() {
               alt={species.common_name ?? species.scientific_name}
               onClick={() => setLightbox({ slides: heroSlides, index: heroIndex })}
               className="aspect-[16/9] w-full cursor-pointer rounded-lg object-cover"
+              onError={() => setHeroPhotoFailed(true)}
             />
             {heroSlides.length > 1 && (
               <>
@@ -358,7 +402,7 @@ export default function SpeciesDetailPage() {
               </>
             )}
             {heroSlides[heroIndex].caption && (
-              <figcaption className="mt-1 text-[11px] text-stone-400">{heroSlides[heroIndex].caption}</figcaption>
+              <figcaption className="mt-1 text-[11px] text-muted">{heroSlides[heroIndex].caption}</figcaption>
             )}
           </figure>
         )}
@@ -366,21 +410,21 @@ export default function SpeciesDetailPage() {
         <div>
           <div className="flex items-start justify-between">
             <div>
-              <h1 className="text-2xl font-semibold text-stone-900">{species.common_name ?? species.scientific_name}</h1>
-              <p className="italic text-stone-500">{species.scientific_name}</p>
+              <h1 className="text-2xl font-semibold text-ink">{species.common_name ?? species.scientific_name}</h1>
+              <p className="italic text-muted">{species.scientific_name}</p>
             </div>
             <div className="flex shrink-0 items-center gap-3">
               {detail.userSpecies?.cover_photo_id && (
-                <button onClick={() => setCroppingCover(true)} className="text-xs text-stone-400 hover:underline">
+                <button onClick={() => setCroppingCover(true)} className="text-xs text-muted hover:underline">
                   Adjust card preview
                 </button>
               )}
               {detail.userSpecies?.state === "seen" ? (
-                <button onClick={unmarkSeen} className="text-xs text-stone-400 hover:underline">
+                <button onClick={unmarkSeen} className="text-xs text-muted hover:underline">
                   ✓ Seen (undo)
                 </button>
               ) : !detail.userSpecies ? (
-                <button onClick={markSeen} className="text-xs text-stone-400 hover:underline">
+                <button onClick={markSeen} className="text-xs text-muted hover:underline">
                   Mark as seen
                 </button>
               ) : null}
@@ -392,8 +436,8 @@ export default function SpeciesDetailPage() {
                 <span
                   className={
                     species.tier === "unrated"
-                      ? "inline-block rounded-full border border-dashed border-stone-300 px-2 py-0.5 text-xs uppercase tracking-wide text-stone-400"
-                      : "inline-block rounded-full bg-stone-100 px-2 py-0.5 text-xs uppercase tracking-wide text-stone-600"
+                      ? "inline-block rounded-full border border-dashed border-line px-2 py-0.5 text-xs uppercase tracking-wide text-muted"
+                      : "inline-block rounded-full bg-surface-muted px-2 py-0.5 text-xs uppercase tracking-wide text-muted"
                   }
                   title={species.tier === "unrated" ? "Not enough data yet to rate how hard this is to find" : undefined}
                 >
@@ -402,7 +446,7 @@ export default function SpeciesDetailPage() {
               )}
               {detail.localTier && (
                 <span
-                  className="inline-block rounded-full border border-stone-300 px-2 py-0.5 text-xs uppercase tracking-wide text-stone-500"
+                  className="inline-block rounded-full border border-line px-2 py-0.5 text-xs uppercase tracking-wide text-muted"
                   title="Rarity ranked against other species in this region specifically"
                 >
                   {detail.localTier} here
@@ -430,18 +474,18 @@ export default function SpeciesDetailPage() {
 
         <SeasonalityBar seasonality={detail.seasonality} />
         {species.description && (
-          <p className="text-sm text-stone-700">
+          <p className="text-sm text-ink">
             {species.description}{" "}
             {species.description_source_url && (
-              <a href={species.description_source_url} target="_blank" rel="noreferrer" className="text-stone-400 hover:underline">
+              <a href={species.description_source_url} target="_blank" rel="noreferrer" className="text-muted hover:underline">
                 (Wikipedia)
               </a>
             )}
           </p>
         )}
         {species.habitat_description && (
-          <p className="text-sm text-stone-700">
-            <span className="font-medium text-stone-500">Habitat: </span>
+          <p className="text-sm text-ink">
+            <span className="font-medium text-muted">Habitat: </span>
             {species.habitat_description}
           </p>
         )}
@@ -450,7 +494,7 @@ export default function SpeciesDetailPage() {
            birds (AVONET/EltonTraits), so showing them for mammals/fish was always just a
            blank "—" that implied a bird-shaped trait set applies to every taxon. Each taxon
            shows only the axes it actually has a real source for. */}
-        <dl className="grid grid-cols-2 gap-2 rounded-lg border border-stone-200 bg-white p-4 text-sm sm:grid-cols-4">
+        <dl className="grid grid-cols-2 gap-2 rounded-lg border border-line bg-surface p-4 text-sm sm:grid-cols-4">
           {species.taxon_class === "aves" && (
             <>
               <Stat label="Mass" value={species.mass_g ? formatMass(Number(species.mass_g)) : "—"} />
@@ -485,7 +529,7 @@ export default function SpeciesDetailPage() {
               href={`https://www.inaturalist.org/taxa/${species.inat_taxon_id}`}
               target="_blank"
               rel="noreferrer"
-              className="text-stone-500 hover:underline"
+              className="text-muted hover:underline"
             >
               View on iNaturalist ↗
             </a>
@@ -495,7 +539,7 @@ export default function SpeciesDetailPage() {
               href={`https://ebird.org/species/${species.ebird_code}`}
               target="_blank"
               rel="noreferrer"
-              className="text-stone-500 hover:underline"
+              className="text-muted hover:underline"
             >
               View on eBird ↗
             </a>
@@ -505,10 +549,10 @@ export default function SpeciesDetailPage() {
 
         <section>
           <div className="mb-2 flex items-center justify-between gap-4">
-            <h2 className="text-sm font-medium text-stone-700">Your photos</h2>
+            <h2 className="text-sm font-medium text-ink">Your photos</h2>
             <div className="flex items-center gap-4">
               {captures.length > 0 && (
-                <label className="flex items-center gap-1.5 text-xs text-stone-400">
+                <label className="flex items-center gap-1.5 text-xs text-muted">
                   Size
                   <input
                     type="range"
@@ -517,28 +561,50 @@ export default function SpeciesDetailPage() {
                     step={20}
                     value={thumbSizePx}
                     onChange={(e) => updateThumbSize(Number(e.target.value))}
-                    className="w-24 accent-stone-700"
+                    className="w-24 accent-ink"
                     aria-label="Photo grid thumbnail size"
                   />
                 </label>
               )}
               <button
                 onClick={toggleGalleryView}
-                className={`text-xs hover:underline ${galleryView ? "font-medium text-stone-700" : "text-stone-400"}`}
+                className={`text-xs hover:underline ${galleryView ? "font-medium text-ink" : "text-muted"}`}
                 title="Hide rarity, rating, and camera info — just the photos"
               >
                 {galleryView ? "Gallery view ✓" : "Gallery view"}
               </button>
+              {captures.length > 0 &&
+                (selectMode ? (
+                  <button onClick={exitSelectMode} className="text-xs text-muted hover:underline">
+                    Cancel
+                  </button>
+                ) : (
+                  <button onClick={() => setSelectMode(true)} className="text-xs text-muted hover:underline">
+                    Select
+                  </button>
+                ))}
               <button
                 onClick={() => setShowUploadDialog(true)}
-                className="rounded-md bg-stone-800 px-3 py-1 text-xs text-white hover:bg-stone-700"
+                className="rounded-md bg-accent px-3 py-1 text-xs text-accent-fg hover:opacity-90"
               >
                 Upload
               </button>
             </div>
           </div>
+          {selectMode && (
+            <div className="mb-2 flex items-center justify-between rounded-md border border-line bg-surface-muted px-3 py-2 text-xs">
+              <span className="text-muted">{selectedCaptureIds.size} selected</span>
+              <button
+                onClick={() => setConfirmingDelete(true)}
+                disabled={selectedCaptureIds.size === 0}
+                className="rounded-md bg-red-600 px-3 py-1 text-xs font-medium text-white hover:bg-red-700 disabled:opacity-40"
+              >
+                Delete selected
+              </button>
+            </div>
+          )}
           {captures.length === 0 ? (
-            <p className="text-sm text-stone-500">Not photographed yet.</p>
+            <p className="text-sm text-muted">Not photographed yet.</p>
           ) : (
             // No gap at all, in either direction; see MasonryGrid's own comment for why
             // this is a manually
@@ -575,29 +641,29 @@ export default function SpeciesDetailPage() {
                     {openMenuCaptureId === c.id && (
                       <div
                         ref={openMenuRef}
-                        className="absolute right-1 top-7 z-10 whitespace-nowrap rounded-md border border-stone-200 bg-white py-1 text-xs shadow-lg"
+                        className="absolute right-1 top-7 z-10 whitespace-nowrap rounded-md border border-line bg-surface py-1 text-xs shadow-lg"
                       >
                         <button
                           onClick={() => setCover(c.photo_id!)}
-                          className="block w-full px-3 py-1.5 text-left text-stone-700 hover:bg-stone-50"
+                          className="block w-full px-3 py-1.5 text-left text-ink hover:bg-surface-muted"
                         >
                           {detail.userSpecies?.cover_photo_id === c.photo_id ? "Featured photo ✓" : "Set as featured photo"}
                         </button>
                         {c.original_ref && c.original_available === false ? (
-                          <p className="w-full px-3 py-1.5 text-left text-stone-400">Original unavailable</p>
+                          <p className="w-full px-3 py-1.5 text-left text-muted">Original unavailable</p>
                         ) : (
                           c.original_ref && (
                             <>
                               <a
                                 href={`/api/photos/${c.photo_id}/original?download=1`}
-                                className="block w-full px-3 py-1.5 text-left text-stone-700 hover:bg-stone-50"
+                                className="block w-full px-3 py-1.5 text-left text-ink hover:bg-surface-muted"
                               >
                                 Download original
                               </a>
                               {c.has_raw_original && (
                                 <a
                                   href={`/api/photos/${c.photo_id}/original-raw?download=1`}
-                                  className="block w-full px-3 py-1.5 text-left text-stone-700 hover:bg-stone-50"
+                                  className="block w-full px-3 py-1.5 text-left text-ink hover:bg-surface-muted"
                                 >
                                   Download RAW
                                 </a>
@@ -606,7 +672,7 @@ export default function SpeciesDetailPage() {
                                 <>
                                   <button
                                     onClick={() => revealInFinder(c.original_ref!)}
-                                    className="block w-full px-3 py-1.5 text-left text-stone-700 hover:bg-stone-50"
+                                    className="block w-full px-3 py-1.5 text-left text-ink hover:bg-surface-muted"
                                   >
                                     Reveal in Finder
                                   </button>
@@ -615,7 +681,7 @@ export default function SpeciesDetailPage() {
                                       navigator.clipboard.writeText(c.original_ref!);
                                       setOpenMenuCaptureId(null);
                                     }}
-                                    className="block w-full px-3 py-1.5 text-left text-stone-700 hover:bg-stone-50"
+                                    className="block w-full px-3 py-1.5 text-left text-ink hover:bg-surface-muted"
                                   >
                                     Copy original's path
                                   </button>
@@ -635,14 +701,14 @@ export default function SpeciesDetailPage() {
                         ) : (
                           <button
                             onClick={() => setTaggingCaptureId(c.id)}
-                            className="block w-full px-3 py-1.5 text-left text-stone-700 hover:bg-stone-50"
+                            className="block w-full px-3 py-1.5 text-left text-ink hover:bg-surface-muted"
                           >
                             Also features another species…
                           </button>
                         )}
                         <button
                           onClick={() => removeCapture(c.id)}
-                          className="block w-full border-t border-stone-100 px-3 py-1.5 text-left text-red-600 hover:bg-red-50"
+                          className="block w-full border-t border-line px-3 py-1.5 text-left text-red-600 hover:bg-red-50"
                         >
                           Remove from Lifer
                         </button>
@@ -668,7 +734,7 @@ export default function SpeciesDetailPage() {
                             key={star}
                             onClick={() => rateCapture(c.id, c.quality_rating === star ? null : star)}
                             className={`text-xs leading-none ${
-                              c.quality_rating != null && star <= c.quality_rating ? "text-amber-500" : "text-stone-300"
+                              c.quality_rating != null && star <= c.quality_rating ? "text-amber-500" : "text-muted"
                             }`}
                             aria-label={`Rate ${star} star${star === 1 ? "" : "s"}`}
                           >
@@ -678,9 +744,9 @@ export default function SpeciesDetailPage() {
                       </div>
                     )}
                     {!galleryView && c.taken_at && (
-                      <p className="mt-0.5 text-[10px] text-stone-400">{new Date(c.taken_at).toLocaleDateString()}</p>
+                      <p className="mt-0.5 text-[10px] text-muted">{new Date(c.taken_at).toLocaleDateString()}</p>
                     )}
-                    {!galleryView && shotDataLine(c) && <p className="text-[9px] text-stone-400">{shotDataLine(c)}</p>}
+                    {!galleryView && shotDataLine(c) && <p className="text-[9px] text-muted">{shotDataLine(c)}</p>}
                   </div>
               )}
             />
@@ -695,11 +761,11 @@ export default function SpeciesDetailPage() {
            Download is the one real action. */}
         {unmatchedRaws.length > 0 && (
           <section>
-            <h2 className="mb-2 text-sm font-medium text-stone-700">RAW gallery</h2>
+            <h2 className="mb-2 text-sm font-medium text-ink">RAW gallery</h2>
             <div className="flex flex-wrap gap-3">
               {unmatchedRaws.map((r) => (
-                <div key={r.id} className="group relative w-32 rounded-md border border-stone-200 bg-white p-2 text-center">
-                  <img src={r.previewUrl} alt="" className="aspect-square w-full rounded-sm bg-stone-100 object-cover" />
+                <div key={r.id} className="group relative w-32 rounded-md border border-line bg-surface p-2 text-center">
+                  <img src={r.previewUrl} alt="" className="aspect-square w-full rounded-sm bg-surface-muted object-cover" />
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
@@ -713,18 +779,18 @@ export default function SpeciesDetailPage() {
                   {openRawMenuId === r.id && (
                     <div
                       ref={openRawMenuRef}
-                      className="absolute right-1 top-7 z-10 whitespace-nowrap rounded-md border border-stone-200 bg-white py-1 text-xs shadow-lg"
+                      className="absolute right-1 top-7 z-10 whitespace-nowrap rounded-md border border-line bg-surface py-1 text-xs shadow-lg"
                     >
                       <a
                         href={r.downloadUrl}
-                        className="block w-full px-3 py-1.5 text-left text-stone-700 hover:bg-stone-50"
+                        className="block w-full px-3 py-1.5 text-left text-ink hover:bg-surface-muted"
                       >
                         Download
                       </a>
                     </div>
                   )}
-                  <p className="mt-1 truncate text-[10px] text-stone-600">{r.filename}</p>
-                  <p className="text-[9px] text-stone-400">{(r.fileSize / (1024 * 1024)).toFixed(1)} MB</p>
+                  <p className="mt-1 truncate text-[10px] text-muted">{r.filename}</p>
+                  <p className="text-[9px] text-muted">{(r.fileSize / (1024 * 1024)).toFixed(1)} MB</p>
                 </div>
               ))}
             </div>
@@ -742,20 +808,20 @@ export default function SpeciesDetailPage() {
           onClick={() => setShowUploadDialog(false)}
         >
           <div
-            className="max-h-[90vh] w-full max-w-lg space-y-4 overflow-y-auto rounded-lg bg-stone-50 p-4"
+            className="max-h-[90vh] w-full max-w-lg space-y-4 overflow-y-auto rounded-lg bg-surface-muted p-4"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between">
-              <h2 className="text-sm font-medium text-stone-700">Upload</h2>
+              <h2 className="text-sm font-medium text-ink">Upload</h2>
               <button
                 onClick={() => setShowUploadDialog(false)}
-                className="text-stone-400 hover:text-stone-600"
+                className="text-muted hover:text-muted"
                 aria-label="Close"
               >
                 ✕
               </button>
             </div>
-            <UploadDropzone speciesId={species.id} onUploaded={load} />
+            <UploadDropzone speciesId={species.id} onUploaded={load} onClose={() => setShowUploadDialog(false)} />
             <RawUpload speciesId={species.id} onFiled={loadUnmatchedRaws} />
           </div>
         </div>
@@ -797,8 +863,8 @@ function formatMass(massG: number): string {
 function Stat({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <dt className="text-[10px] uppercase tracking-wide text-stone-400">{label}</dt>
-      <dd className="text-stone-800">{value}</dd>
+      <dt className="text-[10px] uppercase tracking-wide text-muted">{label}</dt>
+      <dd className="text-ink">{value}</dd>
     </div>
   );
 }

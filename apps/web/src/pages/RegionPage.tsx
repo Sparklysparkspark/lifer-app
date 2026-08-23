@@ -12,5 +12,5 @@ export default function RegionPage() {
     navigate(id ? `/?region=${id}` : "/", { replace: true });
   }, [id, navigate]);
 
-  return <div className="p-8 text-stone-500">Redirecting…</div>;
+  return <div className="p-8 text-muted">Redirecting…</div>;
 }

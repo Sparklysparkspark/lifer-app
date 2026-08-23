@@ -3,8 +3,9 @@
 // hit related Wikimedia infra earlier in the same pipeline run). A fixed delay between calls
 // isn't enough on its own; retrying a 429 with backoff is what actually recovers.
 
-const MAX_RETRIES = 3;
+const MAX_RETRIES = 6;
 const BASE_DELAY_MS = 1000;
+const MAX_DELAY_MS = 60_000;
 
 export async function fetchWithRetry(url: string, init: RequestInit): Promise<Response> {
   let lastResponse: Response | null = null;
@@ -15,7 +16,7 @@ export async function fetchWithRetry(url: string, init: RequestInit): Promise<Re
     const retryAfterHeader = Number(res.headers.get("retry-after"));
     const delayMs = Number.isFinite(retryAfterHeader) && retryAfterHeader > 0
       ? retryAfterHeader * 1000
-      : BASE_DELAY_MS * 2 ** attempt;
+      : Math.min(BASE_DELAY_MS * 2 ** attempt, MAX_DELAY_MS);
     await new Promise((resolve) => setTimeout(resolve, delayMs));
   }
   return lastResponse!;

@@ -83,9 +83,9 @@ export default function RawUpload({ speciesId, onFiled }: { speciesId: string; o
   const successCount = results?.filter((r) => r.linked || r.filed).length ?? 0;
 
   return (
-    <div className="rounded-lg border border-stone-200 bg-white p-4">
-      <h2 className="text-sm font-medium text-stone-700">Upload RAW files</h2>
-      <p className="mt-1 text-xs text-stone-500">
+    <div className="rounded-lg border border-line bg-surface p-4">
+      <h2 className="text-sm font-medium text-ink">Upload RAW files</h2>
+      <p className="mt-1 text-xs text-muted">
         Point this at RAW files — each is matched by camera timestamp/serial against your uploads and filed straight
         into the right species' RAW folder. A RAW with no match still gets filed here, under this species, since
         that's already known. Point it at a whole export folder instead, though, and only the RAWs that match a JPEG
@@ -116,17 +116,17 @@ export default function RawUpload({ speciesId, onFiled }: { speciesId: string; o
         }}
       />
       <div className="mt-2 flex gap-4">
-        <label htmlFor="raw-upload-files-input" className="cursor-pointer text-sm text-stone-600 hover:underline">
+        <label htmlFor="raw-upload-files-input" className="cursor-pointer text-sm text-muted hover:underline">
           {uploading ? "Matching…" : "Choose RAW files…"}
         </label>
-        <label htmlFor="raw-upload-folder-input" className="cursor-pointer text-sm text-stone-600 hover:underline">
+        <label htmlFor="raw-upload-folder-input" className="cursor-pointer text-sm text-muted hover:underline">
           {uploading ? "Matching…" : "Choose a folder…"}
         </label>
       </div>
       {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
       {results && (
         <div className="mt-2 space-y-1">
-          <p className="text-xs font-medium text-stone-600">
+          <p className="text-xs font-medium text-muted">
             {successCount} of {results.length} added
           </p>
           {/* A folder-wide run can be hundreds of files; a plain "no matching photo" result
@@ -135,15 +135,15 @@ export default function RawUpload({ speciesId, onFiled }: { speciesId: string; o
           {results
             .filter((r) => r.linked || r.filed || r.duplicate || r.error || r.collision)
             .map((r, i) => (
-              <p key={i} className="text-xs text-stone-500">
-                <span className="text-stone-700">{r.filename}</span>
+              <p key={i} className="text-xs text-muted">
+                <span className="text-ink">{r.filename}</span>
                 {": "}
                 {r.error ? (
                   <span className="text-red-600">{r.error}</span>
                 ) : r.collision ? (
                   <span className="text-amber-600">matched more than one photo with the same camera fingerprint — skipped</span>
                 ) : r.duplicate ? (
-                  <span className="text-stone-400">already added — skipped</span>
+                  <span className="text-muted">already added — skipped</span>
                 ) : r.filed ? (
                   <span className="text-emerald-700">added to {r.speciesCommonName ?? r.speciesScientificName}'s RAW folder</span>
                 ) : (

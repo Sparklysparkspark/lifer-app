@@ -12,7 +12,7 @@ import * as tar from "tar";
 import type { FastifyInstance } from "fastify";
 import { pool } from "../db.js";
 import { requireAuth } from "../auth/session.js";
-import { DATA_DIR, PACK_INDEX_URL } from "../config.js";
+import { APP_DATA_DIR, PACK_INDEX_URL } from "../config.js";
 
 interface PackIndexEntry {
   id: string;
@@ -59,10 +59,33 @@ interface ManifestSpecies {
   referenceLicense: string | null;
   displayFile: string | null;
   thumbFile: string | null;
+  // Checklist membership — see build-region-pack.ts's ManifestSpecies for why this rides
+  // along in the same entry rather than a separate list. Omitted entirely for a sea-zone
+  // pack except recordCount.
+  localFrequency?: number | null;
+  seasonality?: number[] | null;
+  localTier?: string | null;
+  isVagrant?: boolean;
+  recordCount?: number;
+}
+
+interface ManifestChildRegion {
+  name: string;
+  ebirdRegionCode: string | null;
+  boundaryGeoJson: unknown;
+  externalCodes: string[];
+  species: ManifestSpecies[];
 }
 
 interface PackManifest {
+  type: "region" | "seaZone";
+  region?: string;
+  seaZone?: string;
   species: ManifestSpecies[];
+  // Provinces/states bundled into a country pack (see build-region-pack.ts's
+  // fetchChildRegionsWithSpecies) — applied the same way as the top-level region, just
+  // against a local province row this install may not have yet (created here if missing).
+  children?: ManifestChildRegion[];
   seaZoneDependencies?: Array<{ name: string; packFile: string }>;
 }
 
@@ -76,44 +99,50 @@ function resolveWithinDir(dir: string, relativePath: string): string | null {
   return resolved;
 }
 
-async function applyPack(archivePath: string): Promise<{ speciesCount: number; skipped: number; manifest: PackManifest }> {
-  const extractDir = mkdtempSync(path.join(os.tmpdir(), "lifer-pack-"));
-  try {
-    await tar.extract({ file: archivePath, cwd: extractDir });
-    const manifest = JSON.parse(readFileSync(path.join(extractDir, "manifest.json"), "utf-8")) as PackManifest;
+// Applies one region/sea-zone's species list — enrichment fields (photo/habitat text) plus
+// checklist membership (region_species/sea_zone_species). Shared between the top-level
+// region a pack is named after and any provinces/states bundled into it (see
+// build-region-pack.ts's fetchChildRegionsWithSpecies) — a province is applied exactly the
+// same way, just against its own local region row instead of the country's.
+async function applyChecklist(
+  species: ManifestSpecies[],
+  target: { regionId: string } | { seaZoneId: string },
+  extractDir: string,
+  displayDir: string,
+  thumbDir: string,
+): Promise<{ applied: number; skipped: number }> {
+  let applied = 0;
+  let skipped = 0;
+  for (const sp of species) {
+    const existing = await pool.query<{ id: string; enriched_at: string | null }>(
+      `SELECT id, enriched_at FROM species WHERE scientific_name = $1`,
+      [sp.scientificName],
+    );
+    const row = existing.rows[0];
+    // No local match — a pack can reference species this install's own seed doesn't have
+    // (different taxonomy version, etc.) — nothing at all to apply for this entry.
+    if (!row) {
+      skipped++;
+      continue;
+    }
 
-    const displayDir = path.join(DATA_DIR, "reference-display");
-    const thumbDir = path.join(DATA_DIR, "reference-thumb");
-    mkdirSync(displayDir, { recursive: true });
-    mkdirSync(thumbDir, { recursive: true });
-
-    let applied = 0;
-    let skipped = 0;
-    for (const sp of manifest.species) {
-      const existing = await pool.query<{ id: string; enriched_at: string | null }>(
-        `SELECT id, enriched_at FROM species WHERE scientific_name = $1`,
-        [sp.scientificName],
-      );
-      const species = existing.rows[0];
-      // No local match (a pack can reference species this install's own seed doesn't have —
-      // different taxonomy version, etc.) or already enriched (see this file's top comment
-      // on the cross-pack dedup) — either way, nothing to apply.
-      if (!species || species.enriched_at) {
-        skipped++;
-        continue;
-      }
-
+    // Enrichment fields (photo/habitat text) only fill in if this species hasn't already
+    // been enriched by something else (its own lazy fetch, or an earlier pack) — see this
+    // file's top comment on the cross-pack dedup. Checklist membership below is applied
+    // regardless of enrichment status: a species can already be enriched yet still need
+    // its region_species row for THIS newly-downloaded region.
+    if (!row.enriched_at) {
       const displaySource = sp.displayFile ? resolveWithinDir(extractDir, sp.displayFile) : null;
       const thumbSource = sp.thumbFile ? resolveWithinDir(extractDir, sp.thumbFile) : null;
 
       let displayPath: string | null = null;
       let thumbPath: string | null = null;
       if (displaySource && existsSync(displaySource)) {
-        displayPath = path.join(displayDir, `${species.id}.webp`);
+        displayPath = path.join(displayDir, `${row.id}.webp`);
         copyFileSync(displaySource, displayPath);
       }
       if (thumbSource && existsSync(thumbSource)) {
-        thumbPath = path.join(thumbDir, `${species.id}.webp`);
+        thumbPath = path.join(thumbDir, `${row.id}.webp`);
         copyFileSync(thumbSource, thumbPath);
       }
 
@@ -126,9 +155,99 @@ async function applyPack(archivePath: string): Promise<{ speciesCount: number; s
            reference_thumb_path = COALESCE(reference_thumb_path, $5),
            enriched_at = now()
          WHERE id = $6`,
-        [sp.habitatDescription, sp.referenceCredit, sp.referenceLicense, displayPath, thumbPath, species.id],
+        [sp.habitatDescription, sp.referenceCredit, sp.referenceLicense, displayPath, thumbPath, row.id],
       );
-      applied++;
+    }
+
+    if ("regionId" in target) {
+      await pool.query(
+        `INSERT INTO region_species (region_id, species_id, local_frequency, seasonality, local_tier, is_vagrant)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT (region_id, species_id) DO UPDATE SET
+           local_frequency = EXCLUDED.local_frequency,
+           seasonality = EXCLUDED.seasonality,
+           local_tier = EXCLUDED.local_tier,
+           is_vagrant = EXCLUDED.is_vagrant`,
+        [target.regionId, row.id, sp.localFrequency ?? null, sp.seasonality ?? null, sp.localTier ?? null, sp.isVagrant ?? false],
+      );
+    } else {
+      await pool.query(
+        `INSERT INTO sea_zone_species (sea_zone_id, species_id, record_count)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (sea_zone_id, species_id) DO UPDATE SET record_count = EXCLUDED.record_count`,
+        [target.seaZoneId, row.id, sp.recordCount ?? 0],
+      );
+    }
+    applied++;
+  }
+  return { applied, skipped };
+}
+
+async function applyPack(archivePath: string): Promise<{ speciesCount: number; skipped: number; manifest: PackManifest }> {
+  const extractDir = mkdtempSync(path.join(os.tmpdir(), "lifer-pack-"));
+  try {
+    await tar.extract({ file: archivePath, cwd: extractDir });
+    const manifest = JSON.parse(readFileSync(path.join(extractDir, "manifest.json"), "utf-8")) as PackManifest;
+
+    const displayDir = path.join(APP_DATA_DIR, "reference-display");
+    const thumbDir = path.join(APP_DATA_DIR, "reference-thumb");
+    mkdirSync(displayDir, { recursive: true });
+    mkdirSync(thumbDir, { recursive: true });
+
+    // Resolved once, not per species — the checklist membership a pack carries is applied
+    // against this install's own local region/sea-zone row, matched by name (the same
+    // cross-install identity approach as species-by-scientific-name; every install seeds an
+    // identical regions/sea_zones table, just with its own UUIDs).
+    let regionId: string | null = null;
+    let seaZoneId: string | null = null;
+    if (manifest.type === "region" && manifest.region) {
+      const res = await pool.query<{ id: string }>(`SELECT id FROM regions WHERE name = $1`, [manifest.region]);
+      regionId = res.rows[0]?.id ?? null;
+    } else if (manifest.type === "seaZone" && manifest.seaZone) {
+      const res = await pool.query<{ id: string }>(`SELECT id FROM sea_zones WHERE name = $1`, [manifest.seaZone]);
+      seaZoneId = res.rows[0]?.id ?? null;
+    }
+
+    let applied = 0;
+    let skipped = 0;
+    if (regionId) {
+      const result = await applyChecklist(manifest.species, { regionId }, extractDir, displayDir, thumbDir);
+      applied += result.applied;
+      skipped += result.skipped;
+    } else if (seaZoneId) {
+      const result = await applyChecklist(manifest.species, { seaZoneId }, extractDir, displayDir, thumbDir);
+      applied += result.applied;
+      skipped += result.skipped;
+    }
+
+    // Provinces/states bundled into a country pack — create the local region row if this
+    // install doesn't have it yet (matched by name; same cross-install identity approach as
+    // everything else here), then apply its checklist exactly like the country's own.
+    if (regionId && manifest.children) {
+      for (const child of manifest.children) {
+        await pool.query(
+          `INSERT INTO regions (name, parent_id, ebird_region_code, boundary_geojson, external_codes, occurrence_computed_at)
+           VALUES ($1, $2, $3, $4, $5, now())
+           ON CONFLICT (name) DO NOTHING`,
+          [child.name, regionId, child.ebirdRegionCode, JSON.stringify(child.boundaryGeoJson), child.externalCodes],
+        );
+        const childRegionRes = await pool.query<{ id: string }>(`SELECT id FROM regions WHERE name = $1`, [child.name]);
+        const childRegionId = childRegionRes.rows[0]?.id;
+        if (!childRegionId) continue;
+        const result = await applyChecklist(child.species, { regionId: childRegionId }, extractDir, displayDir, thumbDir);
+        applied += result.applied;
+        skipped += result.skipped;
+        await pool.query(`UPDATE regions SET occurrence_computed_at = now(), has_children = false WHERE id = $1`, [childRegionId]);
+      }
+      await pool.query(`UPDATE regions SET has_children = true WHERE id = $1`, [regionId]);
+    }
+
+    // Checklist membership is now real, downloaded data — the region no longer needs (and,
+    // going forward, should never trigger) a live GBIF computation of its own.
+    if (regionId) {
+      await pool.query(`UPDATE regions SET occurrence_computed_at = now() WHERE id = $1`, [regionId]);
+    } else if (seaZoneId) {
+      await pool.query(`UPDATE sea_zones SET occurrence_computed_at = now() WHERE id = $1`, [seaZoneId]);
     }
 
     return { speciesCount: applied, skipped, manifest };

@@ -3,6 +3,7 @@ import { api, ApiError } from "../api/client";
 import BackToCollectionLink from "../components/BackToCollectionLink";
 import { useDesktopMode } from "../hooks/useDesktopMode";
 import { useMigrationStatus } from "../hooks/useMigrationStatus";
+import { useTheme } from "../hooks/useTheme";
 
 interface AccountSettings {
   email: string;
@@ -10,18 +11,24 @@ interface AccountSettings {
 }
 
 // Injected by the desktop app's preload script (apps/desktop/src/preload.js) — absent
-// entirely in a normal browser tab, which is what ElectronBridgeSection/MigrateToServerSection
-// use to decide whether to render at all.
+// entirely in a normal browser tab, which is what ServerSection uses to decide whether to
+// render at all.
 interface DesktopBridgeConfig {
   mode: "local" | "remote";
   dataDir?: string;
   serverUrl?: string;
+  offlineMode?: boolean;
 }
 declare global {
   interface Window {
     liferSetup?: {
-      choose: (config: { mode: "local" | "remote"; serverUrl?: string }) => Promise<{ ok?: boolean; canceled?: boolean; error?: string }>;
+      choose: (config: {
+        mode: "local" | "remote";
+        serverUrl?: string;
+        offlineMode?: boolean;
+      }) => Promise<{ ok?: boolean; canceled?: boolean; error?: string }>;
       getConfig: () => Promise<DesktopBridgeConfig | null>;
+      platform: string;
     };
   }
 }
@@ -38,10 +45,10 @@ export default function SettingsPage() {
   }, []);
 
   return (
-    <div className="min-h-screen bg-stone-50">
-      <header className="border-b border-stone-200 bg-white px-6 py-4">
-        <BackToCollectionLink className="text-sm text-stone-500 hover:underline" />
-        <h1 className="mt-1 text-lg font-semibold text-stone-900">Settings</h1>
+    <div className="min-h-screen bg-canvas">
+      <header className="page-header border-b border-line bg-surface px-6 py-4">
+        <BackToCollectionLink className="text-sm text-muted hover:underline" />
+        <h1 className="mt-1 text-lg font-semibold text-ink">Settings</h1>
       </header>
 
       <main className="mx-auto max-w-lg space-y-8 p-6">
@@ -60,10 +67,11 @@ export default function SettingsPage() {
                 />
               </>
             )}
+            <AppearanceSection />
             <OrganizePhotosSection />
             <StorageLocationSection />
-            <ElectronBridgeSection />
-            <MigrateToServerSection />
+            <ServerSection />
+            <MapSection />
           </>
         )}
       </main>
@@ -71,11 +79,40 @@ export default function SettingsPage() {
   );
 }
 
+function AppearanceSection() {
+  const { preference, setPreference } = useTheme();
+  const options = [
+    { value: "system", label: "Follow system" },
+    { value: "light", label: "Light" },
+    { value: "dark", label: "Dark" },
+  ] as const;
+  return (
+    <Card title="Appearance" description="Light or dark mode, or follow whatever this device is set to.">
+      <div className="flex gap-2">
+        {options.map((opt) => (
+          <button
+            key={opt.value}
+            type="button"
+            onClick={() => setPreference(opt.value)}
+            className={
+              preference === opt.value
+                ? "rounded-md bg-accent px-3 py-1.5 text-sm text-accent-fg"
+                : "rounded-md border border-line px-3 py-1.5 text-sm text-ink hover:bg-surface-muted"
+            }
+          >
+            {opt.label}
+          </button>
+        ))}
+      </div>
+    </Card>
+  );
+}
+
 function Card({ title, description, children }: { title: string; description: string; children: React.ReactNode }) {
   return (
-    <section className="rounded-xl border border-stone-200 bg-white p-5">
-      <h2 className="text-sm font-semibold text-stone-900">{title}</h2>
-      <p className="mt-1 text-xs text-stone-500">{description}</p>
+    <section className="rounded-xl border border-line bg-surface p-5">
+      <h2 className="text-sm font-semibold text-ink">{title}</h2>
+      <p className="mt-1 text-xs text-muted">{description}</p>
       <div className="mt-4 space-y-3">{children}</div>
     </section>
   );
@@ -87,8 +124,8 @@ function FormMessage({ error, success }: { error: string | null; success: string
   return null;
 }
 
-const inputClass = "w-full rounded-md border border-stone-300 px-3 py-2 text-sm";
-const buttonClass = "rounded-md bg-stone-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50";
+const inputClass = "w-full rounded-md border border-line px-3 py-2 text-sm";
+const buttonClass = "rounded-md bg-accent px-4 py-2 text-sm font-medium text-accent-fg disabled:opacity-50";
 
 function EmailSection({ currentEmail, onChanged }: { currentEmail: string; onChanged: (email: string) => void }) {
   const [newEmail, setNewEmail] = useState("");
@@ -326,7 +363,7 @@ function OrganizePhotosSection() {
       title="Photo library organization"
       description="Where full-resolution originals get filed on disk — useful if you ever want to browse or import your library outside Lifer (e.g. into Immich)."
     >
-      <label className="flex items-start gap-2 text-sm text-stone-700">
+      <label className="flex items-start gap-2 text-sm text-ink">
         <input
           type="checkbox"
           checked={enabled}
@@ -335,8 +372,8 @@ function OrganizePhotosSection() {
           className="mt-0.5"
         />
         <span>
-          Organize into <code className="text-xs text-stone-500">Wildlife &lt;year taken&gt;/Birds|Mammals|Fish/Species name</code> folders
-          instead of just <code className="text-xs text-stone-500">Species name</code> — each photo's own year, not the year you uploaded it
+          Organize into <code className="text-xs text-muted">Wildlife &lt;year taken&gt;/Birds|Mammals|Fish/Species name</code> folders
+          instead of just <code className="text-xs text-muted">Species name</code> — each photo's own year, not the year you uploaded it
         </span>
       </label>
       <div>
@@ -344,7 +381,7 @@ function OrganizePhotosSection() {
           type="button"
           onClick={reorganizeNow}
           disabled={reorganizing}
-          className="rounded-md border border-stone-300 px-3 py-1.5 text-sm text-stone-700 hover:bg-stone-50 disabled:opacity-50"
+          className="rounded-md border border-line px-3 py-1.5 text-sm text-ink hover:bg-surface-muted disabled:opacity-50"
         >
           {reorganizing ? "Reorganizing…" : "Reorganize existing photos now"}
         </button>
@@ -426,25 +463,25 @@ function StorageLocationSection() {
       title="Storage location"
       description="Where your photo library lives on this computer, instead of buried inside the app's own files."
     >
-      <p className="text-sm text-stone-700">
+      <p className="text-sm text-ink">
         Currently: <code className="text-xs">{currentDataDir}</code>
       </p>
       {!browsing ? (
         <button
           type="button"
           onClick={() => browse()}
-          className="rounded-md border border-stone-300 px-3 py-1.5 text-sm text-stone-700 hover:bg-stone-50"
+          className="rounded-md border border-line px-3 py-1.5 text-sm text-ink hover:bg-surface-muted"
         >
           Choose a different folder…
         </button>
       ) : (
-        <div className="space-y-2 rounded-md border border-stone-200 p-3">
-          <p className="truncate text-xs text-stone-500">{browsing.path}</p>
+        <div className="space-y-2 rounded-md border border-line p-3">
+          <p className="truncate text-xs text-muted">{browsing.path}</p>
           <div className="max-h-48 space-y-0.5 overflow-y-auto">
             {browsing.parent && (
               <button
                 onClick={() => browse(browsing.parent!)}
-                className="block w-full rounded px-2 py-1 text-left text-sm text-stone-600 hover:bg-stone-100"
+                className="block w-full rounded px-2 py-1 text-left text-sm text-muted hover:bg-surface-muted"
               >
                 .. (up one level)
               </button>
@@ -453,7 +490,7 @@ function StorageLocationSection() {
               <button
                 key={entry.path}
                 onClick={() => browse(entry.path)}
-                className="block w-full rounded px-2 py-1 text-left text-sm text-stone-700 hover:bg-stone-100"
+                className="block w-full rounded px-2 py-1 text-left text-sm text-ink hover:bg-surface-muted"
               >
                 {entry.name}
               </button>
@@ -471,7 +508,7 @@ function StorageLocationSection() {
             <button
               type="button"
               onClick={() => setBrowsing(null)}
-              className="rounded-md border border-stone-300 px-3 py-1.5 text-sm text-stone-700 hover:bg-stone-50"
+              className="rounded-md border border-line px-3 py-1.5 text-sm text-ink hover:bg-surface-muted"
             >
               Cancel
             </button>
@@ -483,27 +520,38 @@ function StorageLocationSection() {
   );
 }
 
-// Lets the desktop app switch between local library and remote server storage. Only renders
-// inside the desktop app (window.liferSetup is absent in a normal browser tab). Switching
-// modes navigates this whole window to wherever the new mode points — local's own server, or
-// the remote one — so this component itself unmounts as part of a successful switch, not
-// something it needs to handle explicitly.
-function ElectronBridgeSection() {
+// One merged "Connect a server" flow for the desktop app (only renders inside it —
+// window.liferSetup is absent in a normal browser tab). Used to be two disconnected cards
+// ("Where this window looks" and "Migrate to a server") asking for the same server URL in two
+// different forms; merged per explicit feedback that the split was confusing. The steps stay
+// sequential though, since they genuinely are: migrate your photos up first, confirm it went
+// cleanly, THEN either switch this window over to the server, or additionally free up local
+// disk space — each its own explicit action, never automatic.
+function ServerSection() {
   const [config, setConfig] = useState<DesktopBridgeConfig | null>(null);
   const [serverUrl, setServerUrl] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [offlineMode, setOfflineMode] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [starting, setStarting] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [deleted, setDeleted] = useState(false);
+  // Shares the exact same polled status the header indicator uses, so this card and the
+  // header always agree on whether a migration is running and how far along it is.
+  const status = useMigrationStatus();
 
   useEffect(() => {
     window.liferSetup?.getConfig().then(setConfig);
   }, []);
 
-  async function connectToServer(e: React.FormEvent) {
-    e.preventDefault();
+  async function connectToServer() {
     setError(null);
     setBusy(true);
     try {
-      const result = await window.liferSetup!.choose({ mode: "remote", serverUrl });
+      const result = await window.liferSetup!.choose({ mode: "remote", serverUrl, offlineMode });
       if (result.error) setError(result.error);
     } finally {
       setBusy(false);
@@ -516,70 +564,10 @@ function ElectronBridgeSection() {
     try {
       const result = await window.liferSetup!.choose({ mode: "local" });
       if (result.error) setError(result.error);
-      // result.canceled: the folder dialog was dismissed — nothing changed, nothing to show.
     } finally {
       setBusy(false);
     }
   }
-
-  if (!window.liferSetup || !config) return null;
-
-  return (
-    <Card
-      title="App connection"
-      description={config.mode === "local" ? "Using this Mac's own local library." : `Connected to ${config.serverUrl}.`}
-    >
-      {config.mode === "local" ? (
-        <form onSubmit={connectToServer} className="space-y-3">
-          <input
-            type="text"
-            placeholder="https://lifer.example.com"
-            value={serverUrl}
-            onChange={(e) => setServerUrl(e.target.value)}
-            required
-            className={inputClass}
-          />
-          {error && <p className="text-sm text-red-600">{error}</p>}
-          <button type="submit" disabled={busy} className={buttonClass}>
-            Connect to this server
-          </button>
-        </form>
-      ) : (
-        <div className="space-y-3">
-          {error && <p className="text-sm text-red-600">{error}</p>}
-          <button
-            type="button"
-            onClick={switchToLocal}
-            disabled={busy}
-            className="rounded-md border border-stone-300 px-3 py-1.5 text-sm text-stone-700 hover:bg-stone-50 disabled:opacity-50"
-          >
-            Switch to local library
-          </button>
-        </div>
-      )}
-    </Card>
-  );
-}
-
-// Lets the desktop app push its local library to a remote server. Only makes sense — and
-// only renders — while actually using the local library; if already connected to a server,
-// there's nothing local left to push. A one-way, explicit push (not a bidirectional sync)
-// that replays every local capture as a normal upload against the target server's own API.
-function MigrateToServerSection() {
-  const [isLocal, setIsLocal] = useState(false);
-  const [serverUrl, setServerUrl] = useState("");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [starting, setStarting] = useState(false);
-  // Shares the exact same polled status the header indicator uses, so this card and the
-  // header always agree on whether a migration is running and how far along it is, rather
-  // than this card only knowing about a migration it started this page-load.
-  const status = useMigrationStatus();
-
-  useEffect(() => {
-    window.liferSetup?.getConfig().then((config) => setIsLocal(config?.mode === "local"));
-  }, []);
 
   async function migrate(e: React.FormEvent) {
     e.preventDefault();
@@ -595,18 +583,56 @@ function MigrateToServerSection() {
     }
   }
 
-  if (!window.liferSetup || !isLocal) return null;
+  async function deleteLocalFiles() {
+    if (
+      !confirm(
+        "Permanently delete every local photo and capture on this computer? Only do this once you've confirmed they're all safely on the server. This can't be undone.",
+      )
+    ) {
+      return;
+    }
+    setDeleteError(null);
+    setDeleting(true);
+    try {
+      await api.post("/settings/delete-local-library", { confirm: true });
+      setDeleted(true);
+    } catch (err) {
+      setDeleteError(err instanceof ApiError ? err.message : "Couldn't delete your local files");
+    } finally {
+      setDeleting(false);
+    }
+  }
 
-  const done = status && !status.running && status.finishedAt != null;
+  if (!window.liferSetup || !config) return null;
+
+  // "Confirmed fully migrated": the last run finished, is not still running, and had zero
+  // failures — anything less and there could be photos the server never actually received.
+  const cleanMigration = status && !status.running && status.finishedAt != null && status.failed === 0;
+
+  if (config.mode === "remote") {
+    return (
+      <Card title="Connect a server" description={`Showing the library on ${config.serverUrl}.`}>
+        {error && <p className="text-sm text-red-600">{error}</p>}
+        <button
+          type="button"
+          onClick={switchToLocal}
+          disabled={busy}
+          className="rounded-md border border-line px-3 py-1.5 text-sm text-ink hover:bg-surface-muted disabled:opacity-50"
+        >
+          Switch to local library
+        </button>
+      </Card>
+    );
+  }
 
   return (
     <Card
-      title="Migrate to a server"
-      description="Upload everything in this local library to a Lifer server you run elsewhere — a one-time copy, not ongoing sync. Safe to run again later: anything already migrated is skipped, and only what previously failed gets retried."
+      title="Connect a server"
+      description="Move your library to a Lifer server you run elsewhere. Migrate your photos up, confirm nothing failed, then switch this window over — your local copies stay put until you separately choose to delete them."
     >
       {status?.running ? (
-        <p className="text-sm text-stone-600">
-          Syncing to {status.serverUrl} — {status.migrated + status.skipped + status.failed} of {status.total} processed
+        <p className="text-sm text-muted">
+          Migrating to {status.serverUrl} — {status.migrated + status.skipped + status.failed} of {status.total} processed
           ({status.migrated} migrated, {status.skipped} skipped, {status.failed} failed so far).
         </p>
       ) : (
@@ -635,17 +661,136 @@ function MigrateToServerSection() {
             required
             className={inputClass}
           />
-          {done && !status.error && (
-            <p className="text-sm text-green-700">
-              Last run: migrated {status.migrated} of {status.total} ({status.skipped} skipped, {status.failed} failed).
-            </p>
-          )}
+          <label className="flex items-start gap-2 text-sm text-ink">
+            <input type="checkbox" checked={offlineMode} onChange={(e) => setOfflineMode(e.target.checked)} className="mt-0.5" />
+            <span>
+              Keep an offline cache after connecting — low-res cover photos and your collected/seen status stay
+              browsable here even if this computer loses its connection to the server.
+            </span>
+          </label>
           <FormMessage error={error ?? status?.error ?? null} success={null} />
           <button type="submit" disabled={starting} className={buttonClass}>
             {starting ? "Starting…" : "Migrate my library"}
           </button>
         </form>
       )}
+
+      {status && !status.running && status.finishedAt != null && (
+        <div className="space-y-3 border-t border-line pt-3">
+          <p className={cleanMigration ? "text-sm text-green-700" : "text-sm text-red-600"}>
+            Last run: migrated {status.migrated} of {status.total} ({status.skipped} skipped, {status.failed} failed).
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" onClick={connectToServer} disabled={busy} className={buttonClass}>
+              Switch this window to the server
+            </button>
+            {cleanMigration && !deleted && (
+              <button
+                type="button"
+                onClick={deleteLocalFiles}
+                disabled={deleting}
+                className="rounded-md border border-red-300 px-3 py-1.5 text-sm text-red-700 hover:bg-red-50 disabled:opacity-50"
+              >
+                {deleting ? "Deleting…" : "Delete local files now that they're on the server"}
+              </button>
+            )}
+          </div>
+          {deleted && <p className="text-sm text-green-700">Local files deleted.</p>}
+          <FormMessage error={deleteError} success={null} />
+        </div>
+      )}
+    </Card>
+  );
+}
+
+// Offline basemap tiles are a large (~500MB) opt-in download, not something every install
+// ships with (see config.ts's MAP_DOWNLOAD_URL) — purely a cosmetic nicety on region/species
+// range maps, not worth doubling the install size for everyone by default.
+function MapSection() {
+  const [status, setStatus] = useState<{
+    available: boolean;
+    downloaded: boolean;
+    downloading: boolean;
+    downloadedBytes: number;
+    totalBytes: number | null;
+    error: string | null;
+  } | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout>;
+    async function poll() {
+      let nextDelay = 5000;
+      try {
+        const res = await api.get<NonNullable<typeof status>>("/settings/map/status");
+        if (!cancelled) setStatus(res);
+        nextDelay = res.downloading ? 1000 : 5000;
+      } catch {
+        if (!cancelled) setStatus(null);
+      }
+      if (!cancelled) timer = setTimeout(poll, nextDelay);
+    }
+    poll();
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function download() {
+    if (!confirm("Download the offline basemap? It's about 500MB and only affects range map visuals — nothing else in Lifer needs it.")) {
+      return;
+    }
+    setBusy(true);
+    try {
+      await api.post("/settings/map/download");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function remove() {
+    if (!confirm("Delete the downloaded offline map to reclaim disk space? You can download it again anytime.")) return;
+    setBusy(true);
+    try {
+      await api.delete("/settings/map");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!status || !status.available) return null;
+
+  return (
+    <Card
+      title="Offline map"
+      description="An offline basemap for range maps, so they render without an internet connection. Purely cosmetic — nothing else in Lifer depends on it."
+    >
+      {status.downloading ? (
+        <p className="text-sm text-muted">
+          Downloading… {(status.downloadedBytes / 1e6).toFixed(0)}MB
+          {status.totalBytes ? ` of ${(status.totalBytes / 1e6).toFixed(0)}MB` : ""}
+        </p>
+      ) : status.downloaded ? (
+        <div className="space-y-2">
+          <p className="text-sm text-green-700">Downloaded.</p>
+          <button
+            type="button"
+            onClick={remove}
+            disabled={busy}
+            className="rounded-md border border-line px-3 py-1.5 text-sm text-ink hover:bg-surface-muted disabled:opacity-50"
+          >
+            Delete to reclaim space
+          </button>
+        </div>
+      ) : (
+        <button type="button" onClick={download} disabled={busy} className={buttonClass}>
+          Download offline map (~500MB)
+        </button>
+      )}
+      {status.error && <p className="text-sm text-red-600">{status.error}</p>}
     </Card>
   );
 }

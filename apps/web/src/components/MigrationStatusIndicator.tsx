@@ -11,10 +11,10 @@ export default function MigrationStatusIndicator() {
   if (!status.running && !justFinished) return null;
 
   return (
-    <div className="fixed right-4 top-4 z-50 flex items-center gap-2 rounded-full border border-stone-200 bg-white px-3 py-1.5 text-xs text-stone-600 shadow-sm">
+    <div className="fixed right-4 top-4 z-50 flex items-center gap-2 rounded-full border border-line bg-surface px-3 py-1.5 text-xs text-muted shadow-sm">
       {status.running ? (
         <>
-          <span className="h-3 w-3 animate-spin rounded-full border-2 border-stone-300 border-t-stone-700" />
+          <span className="h-3 w-3 animate-spin rounded-full border-2 border-line border-t-ink" />
           <span>
             Syncing to server… {status.migrated + status.skipped + status.failed}/{status.total}
           </span>

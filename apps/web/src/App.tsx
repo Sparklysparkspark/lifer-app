@@ -11,10 +11,11 @@ import OfflinePacksPage from "./pages/OfflinePacksPage";
 import ForgotPasswordPage from "./pages/ForgotPasswordPage";
 import ResetPasswordPage from "./pages/ResetPasswordPage";
 import MigrationStatusIndicator from "./components/MigrationStatusIndicator";
+import { LoadingScreen } from "./components/LoadingScreen";
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
-  if (loading) return <div className="p-8 text-stone-500">Loading…</div>;
+  if (loading) return <LoadingScreen />;
   if (!user) return <Navigate to="/login" replace />;
   return <>{children}</>;
 }

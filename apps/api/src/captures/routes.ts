@@ -155,21 +155,33 @@ export async function captureRoutes(app: FastifyInstance): Promise<void> {
     },
   );
 
-  app.delete<{ Params: { id: string } }>("/captures/:id", { preHandler: requireAuth }, async (request, reply) => {
-    const { id: captureId } = request.params;
-    const userId = request.user!.id;
-
+  // Shared by the single-item "Remove from Lifer" menu action and the multi-select batch
+  // delete below. `deleteRaw` is opt-in and scoped to `managed` RAW originals only (Lifer's
+  // own "store"-mode copy) — a `managed=false` link-mode original just has its DB row
+  // cascade away with the capture, same as always; its file lives wherever the user's own
+  // library already has it and is never touched, matching the read-only guarantee link mode
+  // has always had for every other original type.
+  async function deleteCapture(userId: string, captureId: string, deleteRaw: boolean): Promise<{ notFound?: true }> {
     const captureRes = await pool.query<{ species_id: string; current_photo_id: string | null }>(
       `SELECT species_id, current_photo_id FROM captures WHERE id = $1 AND user_id = $2`,
       [captureId, userId],
     );
     const capture = captureRes.rows[0];
-    if (!capture) return reply.code(404).send({ error: "Capture not found" });
+    if (!capture) return { notFound: true };
 
     const photosRes = await pool.query<{ id: string; display_path: string; thumb_path: string }>(
       `SELECT id, display_path, thumb_path FROM photos WHERE capture_id = $1`,
       [captureId],
     );
+
+    const rawFilesToDelete: string[] = [];
+    if (deleteRaw) {
+      const rawRes = await pool.query<{ ref: string }>(
+        `SELECT ref FROM originals WHERE capture_id = $1 AND kind = 'raw' AND managed = true`,
+        [captureId],
+      );
+      rawFilesToDelete.push(...rawRes.rows.map((r) => r.ref));
+    }
 
     const client = await pool.connect();
     try {
@@ -227,7 +239,41 @@ export async function captureRoutes(app: FastifyInstance): Promise<void> {
       if (existsSync(p.display_path)) unlinkSync(p.display_path);
       if (existsSync(p.thumb_path)) unlinkSync(p.thumb_path);
     }
+    for (const ref of rawFilesToDelete) {
+      if (existsSync(ref)) unlinkSync(ref);
+    }
 
+    return {};
+  }
+
+  app.delete<{ Params: { id: string } }>("/captures/:id", { preHandler: requireAuth }, async (request, reply) => {
+    const result = await deleteCapture(request.user!.id, request.params.id, false);
+    if (result.notFound) return reply.code(404).send({ error: "Capture not found" });
     return { ok: true };
   });
+
+  // Multi-select delete (see SpeciesDetailPage.tsx's photo-grid select mode). `deleteRaw`
+  // applies to every capture in the batch — the frontend only offers the checkbox at all when
+  // at least one selected photo actually has a managed RAW to delete (see
+  // GET /species/:id's has_raw_original), and applying it uniformly to the whole batch is
+  // simpler than asking per-photo when most batches are either "all RAWs" or "no RAWs."
+  app.post<{ Body: { captureIds?: string[]; deleteRaw?: boolean } }>(
+    "/captures/batch-delete",
+    { preHandler: requireAuth },
+    async (request, reply) => {
+      const { captureIds, deleteRaw } = request.body ?? {};
+      if (!captureIds || captureIds.length === 0) {
+        return reply.code(400).send({ error: "captureIds is required" });
+      }
+      const userId = request.user!.id;
+      let deleted = 0;
+      let notFound = 0;
+      for (const captureId of captureIds) {
+        const result = await deleteCapture(userId, captureId, !!deleteRaw);
+        if (result.notFound) notFound++;
+        else deleted++;
+      }
+      return { deleted, notFound };
+    },
+  );
 }

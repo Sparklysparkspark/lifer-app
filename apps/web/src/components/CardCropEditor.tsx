@@ -116,8 +116,8 @@ export default function CardCropEditor({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
-      <div className="w-full max-w-2xl rounded-lg bg-white p-4" onClick={(e) => e.stopPropagation()}>
-        <p className="mb-2 text-sm text-stone-600">Drag the box to move it, drag the corner handle to resize.</p>
+      <div className="w-full max-w-2xl rounded-lg bg-surface p-4" onClick={(e) => e.stopPropagation()}>
+        <p className="mb-2 text-sm text-muted">Drag the box to move it, drag the corner handle to resize.</p>
         <div className="flex flex-col gap-4 sm:flex-row">
           <div
             className="relative flex-1 select-none overflow-hidden rounded-md"
@@ -146,8 +146,8 @@ export default function CardCropEditor({
             )}
           </div>
           <div className="w-full shrink-0 sm:w-32">
-            <p className="mb-1 text-xs text-stone-400">Card preview</p>
-            <div className="relative aspect-square w-full overflow-hidden rounded-md bg-stone-100 sm:w-32">
+            <p className="mb-1 text-xs text-muted">Card preview</p>
+            <div className="relative aspect-square w-full overflow-hidden rounded-md bg-surface-muted sm:w-32">
               {previewCrop && (
                 <img src={photoUrl} alt="" style={cropToImageStyle(previewCrop.x, previewCrop.y, previewCrop.size)} />
               )}
@@ -155,17 +155,17 @@ export default function CardCropEditor({
           </div>
         </div>
         <div className="mt-4 flex justify-between">
-          <button onClick={resetCrop} disabled={saving} className="text-sm text-stone-400 hover:underline">
+          <button onClick={resetCrop} disabled={saving} className="text-sm text-muted hover:underline">
             Reset to default
           </button>
           <div className="flex gap-2">
-            <button onClick={onClose} className="rounded-md px-3 py-1.5 text-sm text-stone-500 hover:bg-stone-100">
+            <button onClick={onClose} className="rounded-md px-3 py-1.5 text-sm text-muted hover:bg-surface-muted">
               Cancel
             </button>
             <button
               onClick={save}
               disabled={saving || !box}
-              className="rounded-md bg-stone-900 px-3 py-1.5 text-sm text-white disabled:opacity-50"
+              className="rounded-md bg-accent px-3 py-1.5 text-sm text-accent-fg disabled:opacity-50"
             >
               {saving ? "Saving…" : "Save"}
             </button>

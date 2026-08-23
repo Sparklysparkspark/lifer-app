@@ -1,4 +1,5 @@
 import { useEffect, useState, type CSSProperties } from "react";
+import PhotoPlaceholder from "./PhotoPlaceholder";
 
 // Renders a small/fast thumbnail first for a quick initial paint (especially useful on a
 // page with many photos), then preloads the full-resolution derivative in the background and
@@ -20,7 +21,13 @@ export default function ProgressiveImg({
   style?: CSSProperties;
 }) {
   const [loadedSrc, setLoadedSrc] = useState(thumbSrc);
+  // A record pointing at a photo whose file has since moved or been deleted (a storage
+  // migration, manual cleanup) would otherwise show the browser's own broken-image icon —
+  // this falls back to the same placeholder shown when there's no photo at all, so a missing
+  // file reads as "nothing here" rather than as an error.
+  const [failed, setFailed] = useState(false);
   useEffect(() => {
+    setFailed(false);
     setLoadedSrc(thumbSrc);
     const img = new Image();
     img.src = fullSrc;
@@ -29,5 +36,16 @@ export default function ProgressiveImg({
     // changed would just set loadedSrc to a URL no longer being displayed for, harmless.
   }, [thumbSrc, fullSrc]);
 
-  return <img src={loadedSrc} alt={alt} onClick={onClick} className={className} style={style} />;
+  if (failed) return <PhotoPlaceholder className={className} />;
+
+  return (
+    <img
+      src={loadedSrc}
+      alt={alt}
+      onClick={onClick}
+      className={className}
+      style={style}
+      onError={() => setFailed(true)}
+    />
+  );
 }

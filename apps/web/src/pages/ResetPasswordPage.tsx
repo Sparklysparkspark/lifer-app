@@ -31,10 +31,10 @@ export default function ResetPasswordPage() {
 
   if (!token) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-stone-50">
-        <div className="w-full max-w-sm space-y-4 rounded-xl border border-stone-200 bg-white p-8 text-center shadow-sm">
-          <p className="text-sm text-stone-600">This reset link is missing its token.</p>
-          <Link to="/forgot-password" className="text-sm text-stone-500 hover:underline">
+      <div className="flex min-h-screen items-center justify-center bg-canvas">
+        <div className="w-full max-w-sm space-y-4 rounded-xl border border-line bg-surface p-8 text-center shadow-sm">
+          <p className="text-sm text-muted">This reset link is missing its token.</p>
+          <Link to="/forgot-password" className="text-sm text-muted hover:underline">
             Request a new one
           </Link>
         </div>
@@ -43,12 +43,12 @@ export default function ResetPasswordPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-stone-50">
+    <div className="flex min-h-screen items-center justify-center bg-canvas">
       <form
         onSubmit={handleSubmit}
-        className="w-full max-w-sm space-y-4 rounded-xl border border-stone-200 bg-white p-8 shadow-sm"
+        className="w-full max-w-sm space-y-4 rounded-xl border border-line bg-surface p-8 shadow-sm"
       >
-        <h1 className="text-xl font-semibold text-stone-900">Choose a new password</h1>
+        <h1 className="text-xl font-semibold text-ink">Choose a new password</h1>
         <input
           type="password"
           placeholder="New password"
@@ -56,7 +56,7 @@ export default function ResetPasswordPage() {
           onChange={(e) => setNewPassword(e.target.value)}
           required
           minLength={8}
-          className="w-full rounded-md border border-stone-300 px-3 py-2 text-sm"
+          className="w-full rounded-md border border-line px-3 py-2 text-sm"
         />
         <input
           type="password"
@@ -65,13 +65,13 @@ export default function ResetPasswordPage() {
           onChange={(e) => setConfirmPassword(e.target.value)}
           required
           minLength={8}
-          className="w-full rounded-md border border-stone-300 px-3 py-2 text-sm"
+          className="w-full rounded-md border border-line px-3 py-2 text-sm"
         />
         {error && <p className="text-sm text-red-600">{error}</p>}
         <button
           type="submit"
           disabled={submitting}
-          className="w-full rounded-md bg-stone-900 py-2 text-sm font-medium text-white disabled:opacity-50"
+          className="w-full rounded-md bg-accent py-2 text-sm font-medium text-accent-fg disabled:opacity-50"
         >
           Reset password
         </button>

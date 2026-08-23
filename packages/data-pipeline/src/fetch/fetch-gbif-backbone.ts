@@ -18,6 +18,11 @@ const GBIF_API = "https://api.gbif.org/v1/species/search";
 // fossil. Excluded here so every taxon built through fetchGbifBackboneForKeys (past and
 // future) gets this for free.
 const PALEOBIOLOGY_DATABASE_CONSTITUENT_KEY = "c33ce2f2-c3cc-43a5-a380-fe4526d63650";
+// A second, smaller fossil-only constituent found the same way — GBIF's backbone also
+// merges in a fish-fossil taxon list from Munich's SNSB-JME collection (mostly extinct
+// Jurassic sharks/bony fish from the Tethys). Same reasoning as the PBDB exclusion above:
+// real accepted names, `extinct` unreliable/null, but nothing anyone could ever photograph.
+const JURASSIC_PISCES_TETHYS_CONSTITUENT_KEY = "f5c60e9e-5b76-43b7-aa14-bbc3fa23b7d5";
 
 export const AVES_CLASS_KEY = 212;
 // Verified via GBIF's own species/match API — Mammalia is a clean single class key, unlike
@@ -80,6 +85,13 @@ export async function fetchGbifBackboneForKeys(higherTaxonKeys: number[]): Promi
         // in case nameType is ever missing from a result.
         if (r.nameType === "HYBRID" || / x /.test(r.scientificName)) continue;
         if (r.constituentKey === PALEOBIOLOGY_DATABASE_CONSTITUENT_KEY) continue;
+        if (r.constituentKey === JURASSIC_PISCES_TETHYS_CONSTITUENT_KEY) continue;
+        // "Genus spec" (e.g. "Bos spec") is paleontology shorthand for "species
+        // indeterminate" — a placeholder some fossil checklists use in place of a real
+        // binomial, not an actual species name. Checked on the canonical name specifically
+        // (genus + epithet, no author string) so a real epithet that happens to end in
+        // "spec" as part of a longer word can't false-positive.
+        if (/ spec$/.test(r.canonicalName ?? "")) continue;
         // The Paleobiology Database exclusion above only catches ITS fossils — its own
         // `extinct` field is unreliable/null even for obvious cases (why the constituentKey
         // check exists at all). But OTHER constituents (e.g. "German Wikipedia - Species

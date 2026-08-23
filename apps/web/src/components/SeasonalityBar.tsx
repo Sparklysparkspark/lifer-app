@@ -11,12 +11,12 @@ export default function SeasonalityBar({ seasonality }: { seasonality: number[] 
 
   return (
     <div>
-      <p className="mb-1 text-[10px] uppercase tracking-wide text-stone-400">Observations by month</p>
+      <p className="mb-1 text-[10px] uppercase tracking-wide text-muted">Observations by month</p>
       <div className="flex h-10 items-end gap-1">
         {seasonality.map((value, i) => (
           <div
             key={i}
-            className="flex-1 rounded-sm bg-stone-400"
+            className="flex-1 rounded-sm bg-muted"
             style={{ height: `${max ? Math.max((value / max) * 100, value > 0 ? 4 : 0) : 0}%` }}
             title={`${value} records`}
           />
@@ -24,7 +24,7 @@ export default function SeasonalityBar({ seasonality }: { seasonality: number[] 
       </div>
       <div className="mt-0.5 flex gap-1">
         {MONTH_LABELS.map((label, i) => (
-          <span key={i} className="flex-1 text-center text-[9px] text-stone-400">
+          <span key={i} className="flex-1 text-center text-[9px] text-muted">
             {label}
           </span>
         ))}
