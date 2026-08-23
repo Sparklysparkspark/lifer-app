@@ -233,7 +233,20 @@ export function looksTypeSpecimenOnly(records: OccurrenceLocalitySample[]): bool
 // cases plus Whooping Crane (present in Saskatchewan, absent from Nova Scotia): does this
 // species turn up across several DIFFERENT years, with no single year dominating its
 // all-time total? That's recurring presence; a single-year spike, however large, isn't.
-export const RECURRENCE_ALLTIME_FLOOR = 3;
+// Was 3 — exactly RECURRENCE_MIN_DISTINCT_YEARS, i.e. the loosest possible pass ("one record
+// in each of 3 different years") carried no real evidence beyond the distinct-years check
+// itself. That let sporadic escaped-game-bird sightings slip onto checklists where they don't
+// belong: Chukar (Alectoris chukar, genuinely established/countable in BC and the western US)
+// and Swan Goose (Anser cygnoides) both showed up in New Brunswick off exactly 3 all-time
+// records, one per year, from perfectly ordinary-looking locality text (a residential street,
+// a train station) — neither eBird's own review nor iNaturalist's "captive" flag catches this
+// class of case (checked both against the real GBIF/iNaturalist records: no establishmentMeans
+// data, and iNaturalist's captive flag is false since the bird genuinely wasn't in a cage when
+// spotted, it just isn't part of a real local population). Raising the floor to noticeably more
+// than the distinct-years minimum requires more than "once per qualifying year" before treating
+// scattered sightings as a real population — Northern Goshawk's 411 all-time records clear this
+// by two orders of magnitude, unaffected.
+export const RECURRENCE_ALLTIME_FLOOR = 8;
 export const RECURRENCE_MIN_DISTINCT_YEARS = 3;
 export const RECURRENCE_MAX_YEAR_CONCENTRATION = 0.5;
 
