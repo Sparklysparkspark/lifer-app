@@ -20,10 +20,8 @@ async function main() {
   const res = await pool.query<{
     id: string;
     scientific_name: string;
-    wikipedia_title: string | null;
-    commons_image: string | null;
   }>(
-    `SELECT id, scientific_name, wikipedia_title, commons_image FROM species
+    `SELECT id, scientific_name FROM species
      WHERE enriched_at IS NOT NULL AND reference_photo IS NULL ORDER BY scientific_name`,
   );
 

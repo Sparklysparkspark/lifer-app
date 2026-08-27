@@ -1,28 +1,24 @@
-// On-demand species enrichment — reference photo (iNaturalist, then Wikimedia Commons
-// fallback), a one-sentence Wikipedia ID blurb, and the reference-photo gallery, all fetched
-// together the first time a species detail page is opened, instead of the full ~11,000
-// species backbone doing this eagerly (estimated 8+ hours for species that may never be
-// viewed). Ported from packages/data-pipeline's fetch-reference-photos.ts
-// / fetch-commons-photo.ts / fetch-wikipedia-summary.ts / fetch-wikipedia-media.ts (not
-// imported — see licensePolicy.ts for why data-pipeline's own runtime deps shouldn't leak
-// into the live API), consolidated into one pass with one "already tried" flag
-// (species.enriched_at) instead of three separate ones.
-import { isLicenseAllowed, normalizeLicense } from "./licensePolicy.js";
+// On-demand species enrichment — reference photo, a one-sentence ID blurb, and the
+// reference-photo gallery, all fetched together the first time a species detail page is
+// opened, instead of the full ~11,000 species backbone doing this eagerly (estimated 8+ hours
+// for species that may never be viewed).
+//
+// iNaturalist ONLY — no direct Wikipedia or Wikimedia Commons calls anywhere in this file.
+// This was a hard-won lesson, not a style preference: Commons rate-limits for real (a live
+// 429 with Retry-After: 600, i.e. a genuine 10-minute ban was reproduced and confirmed while
+// debugging this), while iNaturalist's own API (including its own wikipedia_summary field —
+// see fetchINaturalistWikipediaSummary) shows no rate-limiting at all. A prior version of this
+// file kept a Wikipedia/Commons fallback path "just in case iNaturalist has nothing," which
+// is exactly what caused a real species (Green-Winged Teal / Anas carolinensis) to hang for
+// minutes on every single page view. Do not reintroduce a Wikimedia fallback here — a species
+// iNaturalist has nothing for gets an honest empty gallery/description, not a slow retry
+// against a host known to ban this app.
+import { normalizeLicense } from "./licensePolicy.js";
 import { generateReferenceDerivatives } from "../uploads/image.js";
 import { pool } from "../db.js";
 
 const INAT_API = "https://api.inaturalist.org/v1";
-const COMMONS_API = "https://commons.wikimedia.org/w/api.php";
-const WIKIPEDIA_API = "https://en.wikipedia.org/w/api.php";
-const MEDIA_LIST_API = "https://en.wikipedia.org/api/rest_v1/page/media-list/";
 const MAX_GALLERY_PHOTOS = 6;
-const PHOTO_EXTENSIONS = /\.(jpe?g|png)$/i;
-const EXCLUDE_PATTERNS = /map|iucn|status|logo|icon|diagram|distribution|range|locator|plate|sound|chart/i;
-const DESCRIPTION_HEADINGS = ["description", "identification", "appearance"];
-// Habitat/range info was never surfaced even though it is usually present in the same
-// Wikipedia article text already downloaded; this was a self-imposed gap (only
-// DESCRIPTION_HEADINGS were ever searched for), not a data limitation.
-const HABITAT_HEADINGS = ["habitat", "distribution", "range", "habitat and distribution", "distribution and habitat", "ecology and habitat", "habitat and range", "range and habitat"];
 const DECIMAL_MARKER = "@@DECIMALPOINT@@";
 
 export interface EnrichmentResult {
@@ -68,108 +64,37 @@ export async function downloadAndCacheImage(url: string, key: string): Promise<{
   }
 }
 
-// This needs to be shared, module-level state rather than purely per-request backoff:
-// Wikimedia's upload CDN sends a real `Retry-After: 600` (10 minutes) on a 429, and
-// re-hitting the server again mid-cooldown appears to extend the ban rather than clear it.
-// This gate makes every caller, across this whole process, wait out a known ban before
-// attempting anything new, and enforces a steady per-request pace once clear so a burst of
-// concurrent calls can't immediately re-trigger it the moment the ban lifts.
-let bannedUntil = 0;
-// A true mutex, not just staggered start times: spacing out only when each request starts
-// (e.g. reserving a slot 1.1s apart) still allows a slow-to-respond request to be in flight
-// when the next one starts, making multiple requests genuinely concurrent against Wikimedia
-// even though they began at staggered times — which is enough on its own to trip the ban.
-// Chaining onto this promise means the next request can't begin until the previous one's
-// fetch has fully resolved (success or failure) and the minimum interval has passed since
-// then — at most one request to Wikimedia in flight at any instant, process-wide.
-let queue: Promise<void> = Promise.resolve();
-let lastCompletedAt = 0;
-// This needs to be much larger than a typical "polite API" convention would suggest: even a
-// true one-at-a-time mutex at 3s intervals still drew a fresh 600s hard ban after roughly
-// every ~4 successful requests, so the tolerance window here is much tighter than
-// documented. This value trades throughput for actually finishing an unattended, multi-day
-// crawl instead of spending most of each cycle sitting out repeat bans.
-const MIN_INTERVAL_MS = 75_000;
-
-function runSerialized<T>(fn: () => Promise<T>): Promise<T> {
-  const result = queue.then(async () => {
-    const now = Date.now();
-    const waitMs = Math.max(bannedUntil - now, lastCompletedAt + MIN_INTERVAL_MS - now, 0);
-    if (waitMs > 0) await new Promise((r) => setTimeout(r, waitMs));
-    try {
-      return await fn();
-    } finally {
-      lastCompletedAt = Date.now();
-    }
-  });
-  // Swallow the outcome for the queue's own chain (a rejection must not break the next
-  // caller's turn) — the real result/error still propagates to whoever called runSerialized.
-  queue = result.then(
-    () => undefined,
-    () => undefined,
-  );
-  return result;
-}
-
-// fetchWithRetry (and therefore the shared Wikimedia mutex/pacing above) previously applied
-// to every image download regardless of host, including iNaturalist's S3 bucket, which
-// shows no rate-limiting. That meant the majority of species whose photo comes from
-// iNaturalist were also stuck behind Wikimedia's per-request pace and its 10-minute bans for
-// no reason, stalling the enrichment job entirely even while running.
-//
-// en.wikipedia.org's own API is not rate-limited in practice; it had been added to this set
-// defensively without verification, and since most species have a Wikipedia article, that
-// alone kept the whole pipeline choked. commons.wikimedia.org's API does rate-limit for
-// real, so only upload.wikimedia.org and commons.wikimedia.org stay gated behind the mutex;
-// en.wikipedia.org and everything else (iNaturalist, etc.) get a plain per-request
-// retry-on-429 with no artificial pacing.
-const WIKIMEDIA_HOSTS = new Set(["upload.wikimedia.org", "commons.wikimedia.org"]);
-
+// Plain retry-on-429 — no per-host mutex/pacing needed now that this file only ever talks to
+// iNaturalist (its API and its S3 photo bucket), which shows no rate-limiting in practice. The
+// previous version of this gated Wikimedia hosts behind a shared 75-second-interval mutex with
+// ban tracking; none of that complexity is needed once Wikimedia is never called at all.
 export async function fetchWithRetry(url: string): Promise<Response> {
-  const isWikimedia = WIKIMEDIA_HOSTS.has(new URL(url).host);
-
+  let lastError: unknown;
   for (let attempt = 0; attempt <= 3; attempt++) {
-    const doFetch = () => fetch(url, { headers: { "User-Agent": "lifer-api/0.1 (personal project)" } });
-    const res = isWikimedia ? await runSerialized(doFetch) : await doFetch();
+    let res: Response;
+    try {
+      res = await fetch(url, { headers: { "User-Agent": "lifer-api/0.1 (personal project)" } });
+    } catch (err) {
+      // A dropped connection ("SocketError: other side closed") throws instead of resolving
+      // to a Response at all — this had no handling for that at all (only ever retried a 429
+      // status), so one network blip crashed the whole calling script instead of retrying.
+      // Same fix as data-pipeline's own fetch-with-retry.ts for the identical bug.
+      lastError = err;
+      console.error(`[lazyEnrich] network error for ${new URL(url).host}, retrying:`, err instanceof Error ? err.message : err);
+      await new Promise((r) => setTimeout(r, 1000 * 2 ** attempt));
+      continue;
+    }
     if (res.status !== 429) return res;
     const retryAfter = Number(res.headers.get("retry-after"));
     const delayMs = Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : 1000 * 2 ** attempt;
-    if (isWikimedia) bannedUntil = Math.max(bannedUntil, Date.now() + delayMs);
     console.error(`[lazyEnrich] 429 from ${new URL(url).host}, backing off ${Math.round(delayMs / 1000)}s`);
     await new Promise((r) => setTimeout(r, delayMs));
   }
-  return fetch(url);
-}
-
-async function fetchCommonsFileMetadata(filename: string): Promise<{ photoUrl: string; credit: string; license: string } | null> {
-  const url =
-    `${COMMONS_API}?action=query&titles=${encodeURIComponent(`File:${filename}`)}` +
-    `&prop=imageinfo&iiprop=extmetadata|url&format=json&origin=*`;
-  const res = await fetchWithRetry(url);
-  if (!res.ok) return null;
-
-  const data = (await res.json()) as {
-    query: { pages: Record<string, { imageinfo?: Array<{ url: string; extmetadata: Record<string, { value: string }> }> }> };
-  };
-  const info = Object.values(data.query.pages)[0]?.imageinfo?.[0];
-  if (!info) return null;
-
-  const rawLicense = info.extmetadata.License?.value ?? info.extmetadata.LicenseShortName?.value;
-  const license = rawLicense ? normalizeLicense(rawLicense) : null;
-  if (!license || !isLicenseAllowed(license)) return null;
-
-  const artist = info.extmetadata.Artist?.value ? info.extmetadata.Artist.value.replace(/<[^>]+>/g, "").trim() : "Unknown";
-  return {
-    photoUrl: info.url,
-    credit: `${artist}, via Wikimedia Commons (${info.extmetadata.LicenseShortName?.value ?? license})`,
-    license,
-  };
-}
-
-/** commonsImageUrl looks like "http://commons.wikimedia.org/wiki/Special:FilePath/Foo%20bar.jpg". */
-function filenameFromCommonsUrl(commonsImageUrl: string): string | null {
-  const m = commonsImageUrl.match(/Special:FilePath\/(.+)$/);
-  return m ? decodeURIComponent(m[1]) : null;
+  try {
+    return await fetch(url);
+  } catch (err) {
+    throw lastError ?? err;
+  }
 }
 
 // This is a personal, single-user app, not a redistribution product, so the earlier
@@ -186,9 +111,23 @@ interface INaturalistPhoto {
   attribution: string;
 }
 
-function toGalleryPhoto(photo: INaturalistPhoto): { photoUrl: string; credit: string; license: string } {
+export function toGalleryPhoto(photo: INaturalistPhoto): { photoUrl: string; credit: string; license: string } {
   const license = photo.license_code ? normalizeLicense(photo.license_code) : "all-rights-reserved";
   return { photoUrl: photo.medium_url, credit: photo.attribution, license };
+}
+
+// Sibling of fetchINaturalistTaxonDetail, but metadata-only — no download/cache of any photo.
+// A taxon record's default_photo flag is a curator quirk, not a reliable "has a photo" signal
+// (see persistGalleryPromotingMainIfMissing's comment below for the same finding from the
+// gallery-backfill side) — this lets a caller that only cares about ONE usable photo (e.g.
+// switch-wikimedia-species-to-inaturalist.ts) fall back to the first real taxon_photos entry
+// without paying for fetchINaturalistTaxonDetail's full gallery download.
+export async function fetchFirstTaxonPhoto(taxonId: number): Promise<INaturalistPhoto | null> {
+  const url = `${INAT_API}/taxa/${taxonId}`;
+  const res = await fetchWithRetry(url);
+  if (!res.ok) return null;
+  const data = (await res.json()) as { results: Array<{ taxon_photos?: Array<{ photo: INaturalistPhoto }> }> };
+  return data.results[0]?.taxon_photos?.[0]?.photo ?? null;
 }
 
 // iNaturalist's own taxon search ranks by relevance, not exact-name-match-first — searching
@@ -216,7 +155,7 @@ async function findReclassifiedTaxon(
 ): Promise<{ id: number; defaultPhoto: INaturalistPhoto | null } | null> {
   for (const candidate of candidates.slice(0, 5)) {
     const url = `https://www.inaturalist.org/taxon_changes.json?taxon_id=${candidate.id}`;
-    const res = await fetch(url);
+    const res = await fetchWithRetry(url);
     if (!res.ok) continue;
     const changes = (await res.json()) as Array<{
       status: string;
@@ -234,18 +173,43 @@ async function findReclassifiedTaxon(
   return null;
 }
 
+// Some species in our own DB (following a "split" taxonomy — e.g. Clements/eBird treating
+// Green-Winged Teal as its own species, Anas carolinensis) are classified by iNaturalist as a
+// SUBSPECIES of a different, "lumped" parent species instead (confirmed: iNaturalist has no
+// species-rank Anas carolinensis at all — it's Anas crecca carolinensis, a subspecies of Anas
+// crecca). A rank=species-only search can never find these, silently reading as "no photo
+// exists" for a bird that actually has real iNaturalist photos, just filed one rank down.
+async function fetchINaturalistSubspecies(
+  scientificName: string,
+): Promise<{ id: number; defaultPhoto: INaturalistPhoto | null } | null> {
+  const url = `${INAT_API}/taxa?q=${encodeURIComponent(scientificName)}&is_active=true&per_page=10`;
+  const res = await fetchWithRetry(url);
+  if (!res.ok) return null;
+  const data = (await res.json()) as {
+    results: Array<{ id: number; name: string; rank: string; default_photo: INaturalistPhoto | null }>;
+  };
+  const [genus, epithet] = scientificName.toLowerCase().split(" ");
+  const exactMatch = data.results.find((r) => {
+    const name = r.name.toLowerCase();
+    return r.rank === "subspecies" && name.startsWith(`${genus} `) && name.endsWith(` ${epithet}`);
+  });
+  return exactMatch ? { id: exactMatch.id, defaultPhoto: exactMatch.default_photo } : null;
+}
+
 export async function fetchINaturalistTaxon(
   scientificName: string,
 ): Promise<{ id: number; defaultPhoto: INaturalistPhoto | null } | null> {
   const url = `${INAT_API}/taxa?q=${encodeURIComponent(scientificName)}&rank=species&is_active=true&per_page=10`;
-  const res = await fetch(url);
+  const res = await fetchWithRetry(url);
   if (!res.ok) return null;
   const data = (await res.json()) as {
     results: Array<{ id: number; name: string; default_photo: INaturalistPhoto | null }>;
   };
   const exactMatch = data.results.find((r) => r.name.toLowerCase() === scientificName.toLowerCase());
   if (exactMatch) return { id: exactMatch.id, defaultPhoto: exactMatch.default_photo };
-  return findReclassifiedTaxon(scientificName, data.results);
+  const reclassified = await findReclassifiedTaxon(scientificName, data.results);
+  if (reclassified) return reclassified;
+  return fetchINaturalistSubspecies(scientificName);
 }
 
 // iNaturalist's own taxon record carries a full photo gallery (taxon_photos — e.g. 12
@@ -338,141 +302,33 @@ function truncateToSentences(text: string, maxSentences: number): string {
   return sentences.slice(0, maxSentences).join(" ").split(DECIMAL_MARKER).join(".").trim();
 }
 
-function splitSections(extract: string): Map<string, string> {
-  const sections = new Map<string, string>();
-  const headingPattern = /^==+\s*(.+?)\s*==+$/gm;
-  let lastIndex = 0;
-  let lastHeading = "";
-  let match: RegExpExecArray | null;
-  while ((match = headingPattern.exec(extract))) {
-    sections.set(lastHeading, extract.slice(lastIndex, match.index).trim());
-    lastHeading = match[1].trim().toLowerCase();
-    lastIndex = headingPattern.lastIndex;
-  }
-  sections.set(lastHeading, extract.slice(lastIndex).trim());
-  return sections;
-}
-
-export async function fetchWikipediaBlurb(
-  wikipediaTitle: string,
-): Promise<{
-  description: string;
-  descriptionCredit: string;
-  descriptionSourceUrl: string;
-  habitatDescription: string | null;
-} | null> {
-  const url =
-    `${WIKIPEDIA_API}?action=query&prop=extracts&explaintext=1&redirects=1&format=json` +
-    `&titles=${encodeURIComponent(wikipediaTitle)}`;
-  const res = await fetchWithRetry(url);
-  if (!res.ok) return null;
-
-  const data = (await res.json()) as {
-    query?: { pages: Record<string, { title?: string; extract?: string; missing?: string }> };
-  };
-  const page = data.query ? Object.values(data.query.pages)[0] : undefined;
-  if (!page?.extract || page.missing !== undefined) return null;
-
-  const sections = splitSections(page.extract);
-  const descriptionHeading = DESCRIPTION_HEADINGS.find((h) => sections.has(h) && sections.get(h));
-  const body = descriptionHeading ? sections.get(descriptionHeading)! : sections.get("") ?? page.extract;
-  const canonicalTitle = page.title ?? wikipediaTitle;
-
-  // Habitat/range info was never surfaced even though it's usually present in the same
-  // article, one section over from "description." Genuinely absent (no matching heading)
-  // for plenty of species — that's a real, honest null, not a fallback guess.
-  const habitatHeading = HABITAT_HEADINGS.find((h) => sections.has(h) && sections.get(h));
-  const habitatDescription = habitatHeading ? truncateToSentences(sections.get(habitatHeading)!, 4) : null;
-
-  return {
-    // 4 sentences gives real room without turning into a full article dump — 2 was too
-    // limiting for plenty of species.
-    description: truncateToSentences(body, 4),
-    descriptionCredit: "Wikipedia contributors (CC BY-SA)",
-    descriptionSourceUrl: `https://en.wikipedia.org/wiki/${encodeURIComponent(canonicalTitle.replace(/ /g, "_"))}`,
-    habitatDescription,
-  };
-}
-
-export async function fetchGallery(wikipediaTitle: string, speciesId: string): Promise<EnrichmentResult["gallery"]> {
-  const url = MEDIA_LIST_API + encodeURIComponent(wikipediaTitle.replace(/ /g, "_"));
-  const res = await fetchWithRetry(url);
-  if (!res.ok) return [];
-
-  const data = (await res.json()) as { items?: Array<{ title?: string; type?: string }> };
-  const candidates = (data.items ?? [])
-    .filter((item) => item.type === "image" && item.title)
-    .map((item) => item.title!.replace(/^File:/, ""))
-    .filter((filename) => PHOTO_EXTENSIONS.test(filename) && !EXCLUDE_PATTERNS.test(filename))
-    .slice(0, MAX_GALLERY_PHOTOS);
-
-  const results: EnrichmentResult["gallery"] = [];
-  for (const filename of candidates) {
-    const photo = await fetchCommonsFileMetadata(filename);
-    if (photo) {
-      // Keyed by species id + position rather than a fresh uuid — stable across re-runs
-      // (an already-cached gallery photo's files get overwritten in place, not orphaned
-      // under a new random name each time enrichment happens to re-run for this species).
-      const cached = await downloadAndCacheImage(photo.photoUrl, `${speciesId}-gallery-${results.length}`);
-      results.push({ ...photo, sortOrder: results.length, displayPath: cached?.displayPath ?? null, thumbPath: cached?.thumbPath ?? null });
-    }
-  }
-  return results;
-}
-
 // Shared by enrichSpecies (below) and species/routes.ts's gallery-backfill branch for
-// already-enriched species that predate the iNaturalist gallery source — one place for
-// "iNaturalist gallery first, Wikipedia/Commons only if that's empty" so the two paths can't
-// drift apart.
+// already-enriched species that predate the iNaturalist gallery source. iNaturalist-only —
+// see this file's top comment for why there is deliberately no Wikipedia/Commons fallback
+// when a species has no iNaturalist gallery photos.
 export async function fetchAnyGallery(species: {
   id: string;
   scientific_name: string;
-  wikipedia_title: string | null;
   reference_photo: string | null;
 }): Promise<EnrichmentResult["gallery"]> {
   const taxon = await fetchINaturalistTaxon(species.scientific_name);
-  let gallery: EnrichmentResult["gallery"] = [];
-  if (taxon) {
-    gallery = (await fetchINaturalistTaxonDetail(taxon.id, species.reference_photo, species.id)).gallery;
-  }
-  if (gallery.length === 0 && species.wikipedia_title) {
-    gallery = await fetchGallery(species.wikipedia_title, species.id);
-  }
-  return gallery;
+  if (!taxon) return [];
+  return (await fetchINaturalistTaxonDetail(taxon.id, species.reference_photo, species.id)).gallery;
 }
 
-export async function enrichSpecies(
-  species: {
-    id: string;
-    scientific_name: string;
-    wikipedia_title: string | null;
-    commons_image: string | null;
-  },
-  opts: { skipGallery?: boolean } = {},
-): Promise<EnrichmentResult> {
+export async function enrichSpecies(species: {
+  id: string;
+  scientific_name: string;
+}): Promise<EnrichmentResult> {
   const taxon = await fetchINaturalistTaxon(species.scientific_name);
   const inat = taxon?.defaultPhoto ? toGalleryPhoto(taxon.defaultPhoto) : null;
   let referencePhoto = inat?.photoUrl ?? null;
   let referenceCredit = inat?.credit ?? null;
   let referenceLicense = inat?.license ?? null;
 
-  if (!referencePhoto && species.commons_image) {
-    const filename = filenameFromCommonsUrl(species.commons_image);
-    const commons = filename ? await fetchCommonsFileMetadata(filename) : null;
-    if (commons) {
-      referencePhoto = commons.photoUrl;
-      referenceCredit = commons.credit;
-      referenceLicense = commons.license;
-    }
-  }
-
-  // Gallery now sources primarily from iNaturalist's own taxon_photos (fast, one request,
-  // no rate limiting observed) instead of the old Wikipedia-media-list + per-photo Commons
-  // approach — this was the real bottleneck that used to force the bulk overnight pass to
-  // skip galleries entirely (each Commons-sourced photo needed its own 75s-spaced request).
-  // The slow Wikipedia/Commons path (inside fetchAnyGallery, gated by opts.skipGallery in
-  // the bulk pass) now only runs as a fallback for the rare species with no iNaturalist
-  // photos at all — no realistic volume concern there since it should rarely trigger.
+  // Gallery sources from iNaturalist's own taxon_photos — fast, one request, no rate limiting
+  // observed. iNaturalist-only: see this file's top comment for why there is deliberately no
+  // Wikipedia/Commons fallback for a species with no iNaturalist photos.
   let gallery: EnrichmentResult["gallery"] = [];
   let inatWikipediaSummary: string | null = null;
   let inatWikipediaUrl: string | null = null;
@@ -481,9 +337,6 @@ export async function enrichSpecies(
     gallery = detail.gallery;
     inatWikipediaSummary = detail.wikipediaSummary;
     inatWikipediaUrl = detail.wikipediaUrl;
-  }
-  if (gallery.length === 0 && species.wikipedia_title && !opts.skipGallery) {
-    gallery = await fetchGallery(species.wikipedia_title, species.id);
   }
 
   let referenceDisplayPath: string | null = null;
@@ -509,25 +362,13 @@ export async function enrichSpecies(
     gallery = rest;
   }
 
-  let description: string | null = inatWikipediaSummary;
-  let descriptionCredit: string | null = inatWikipediaSummary ? "Wikipedia contributors (CC BY-SA), via iNaturalist" : null;
-  let descriptionSourceUrl: string | null = inatWikipediaSummary ? inatWikipediaUrl : null;
-  let habitatDescription: string | null = null;
-
-  // iNaturalist is preferred exclusively unless it has no entry for a species. This call
-  // used to run unconditionally whenever wikipedia_title existed, specifically to get
-  // habitat text (which iNaturalist's own intro-only summary never carries) — which quietly
-  // reintroduced a direct Wikipedia call for nearly every species and defeated the point of
-  // preferring iNaturalist. It now only runs when iNaturalist had no description at all;
-  // species with a real iNaturalist summary get no habitat text rather than paying for one
-  // with a Wikipedia call.
-  if (species.wikipedia_title && !description) {
-    const blurb = await fetchWikipediaBlurb(species.wikipedia_title);
-    description = blurb?.description ?? null;
-    descriptionCredit = blurb?.descriptionCredit ?? null;
-    descriptionSourceUrl = blurb?.descriptionSourceUrl ?? null;
-    habitatDescription = blurb?.habitatDescription ?? null;
-  }
+  // iNaturalist-only: no direct Wikipedia fallback for the description/habitat text. A
+  // species with no iNaturalist summary just gets no description, rather than paying for one
+  // with a direct Wikipedia call — see this file's top comment for why.
+  const description: string | null = inatWikipediaSummary;
+  const descriptionCredit: string | null = inatWikipediaSummary ? "Wikipedia contributors (CC BY-SA), via iNaturalist" : null;
+  const descriptionSourceUrl: string | null = inatWikipediaSummary ? inatWikipediaUrl : null;
+  const habitatDescription: string | null = null;
 
   return {
     referencePhoto,

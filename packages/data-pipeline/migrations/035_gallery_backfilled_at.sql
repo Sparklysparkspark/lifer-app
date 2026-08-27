@@ -1,0 +1,14 @@
+-- species/routes.ts's gallery-backfill branch (for species already marked enriched_at that
+-- predate the iNaturalist gallery source, per enrich-all-species.ts's skipGallery bulk pass)
+-- had no way to remember "already tried, found nothing" — it checked the current
+-- species_reference_photos row count instead, so a species with zero gallery photos
+-- re-triggered fetchAnyGallery() on EVERY page view. iNaturalist usually resolves fast, but
+-- its Wikipedia/Commons fallback is throttled to one request per 75 seconds (see
+-- lazyEnrich.ts's runSerialized) and can hit a 10-minute rate-limit ban, or the species may
+-- not even be found on iNaturalist at all (taxonomic mismatch, e.g. Anas carolinensis) — so a
+-- species with no photos anywhere made its detail page hang for a long time on every visit.
+--
+-- (An earlier attempt at this fix mistakenly assumed a similarly-named `gallery_fetched_at`
+-- column from migration 011 was still live — it was actually dropped by migration 012 and
+-- never wired into current code. This is the real column.)
+ALTER TABLE species ADD COLUMN IF NOT EXISTS gallery_backfilled_at timestamptz NULL;

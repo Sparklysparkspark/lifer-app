@@ -6,6 +6,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { BUILD_DIR } from "../raw-cache.js";
+import { fetchWithRetry } from "../fetch-with-retry.js";
 
 const SPARQL_ENDPOINT = "https://query.wikidata.org/sparql";
 const BATCH_SIZE = 100;
@@ -62,7 +63,7 @@ function buildQuery(names: string[]): string {
 async function runQuery(names: string[]): Promise<WikidataRow[]> {
   const query = buildQuery(names);
   const url = `${SPARQL_ENDPOINT}?query=${encodeURIComponent(query)}&format=json`;
-  const res = await fetch(url, { headers: { "User-Agent": "lifer-data-pipeline/0.1 (personal project)" } });
+  const res = await fetchWithRetry(url, { headers: { "User-Agent": "lifer-data-pipeline/0.1 (personal project)" } });
   if (!res.ok) {
     throw new Error(`[wikidata] fetch failed: ${res.status} ${res.statusText}`);
   }

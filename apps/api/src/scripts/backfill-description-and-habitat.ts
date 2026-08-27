@@ -1,12 +1,14 @@
-// One-off backfill applying the improved description/habitat pipeline (iNaturalist's own
-// wikipedia_summary field, a longer 4-sentence truncation, and Habitat/Range section
-// extraction) to species that were already enriched under the older, thinner pipeline.
-// Deliberately does NOT touch photos/gallery — those are unaffected by this change and
-// re-downloading them here would be pure waste (see fetchINaturalistWikipediaSummary's own
-// comment). Writes description/habitat unconditionally (not via persistEnrichment's COALESCE)
-// since the goal is to upgrade what's already there, not preserve it.
+// One-off backfill applying the improved description pipeline (iNaturalist's own
+// wikipedia_summary field, a longer 4-sentence truncation) to species that were already
+// enriched under the older, thinner pipeline. iNaturalist-only — no direct Wikipedia fallback
+// (see lazyEnrich.ts's top comment for why), so this no longer backfills habitat_description
+// (iNaturalist's summary is intro-only and never carries habitat/range text; that field stays
+// null for these species rather than paying for it with a direct Wikipedia call). Deliberately
+// does NOT touch photos/gallery — those are unaffected by this change and re-downloading them
+// here would be pure waste. Writes description unconditionally (not via persistEnrichment's
+// COALESCE) since the goal is to upgrade what's already there, not preserve it.
 import { pool } from "../db.js";
-import { fetchINaturalistTaxon, fetchINaturalistWikipediaSummary, fetchWikipediaBlurb } from "../species/lazyEnrich.js";
+import { fetchINaturalistTaxon, fetchINaturalistWikipediaSummary } from "../species/lazyEnrich.js";
 import { mapWithConcurrency } from "data-pipeline/src/concurrency.js";
 
 const CONCURRENCY = 4;
@@ -21,8 +23,7 @@ async function main() {
   const res = await pool.query<{
     id: string;
     scientific_name: string;
-    wikipedia_title: string | null;
-  }>(`SELECT id, scientific_name, wikipedia_title FROM species WHERE enriched_at IS NOT NULL ORDER BY scientific_name`);
+  }>(`SELECT id, scientific_name FROM species WHERE enriched_at IS NOT NULL ORDER BY scientific_name`);
 
   const canadaRows = res.rows.filter((r) => canadaIds.has(r.id));
   const restRows = res.rows.filter((r) => !canadaIds.has(r.id));
@@ -36,7 +37,6 @@ async function main() {
       let description: string | null = null;
       let descriptionCredit: string | null = null;
       let descriptionSourceUrl: string | null = null;
-      let habitatDescription: string | null = null;
 
       const taxon = await fetchINaturalistTaxon(row.scientific_name);
       if (taxon) {
@@ -48,27 +48,14 @@ async function main() {
         }
       }
 
-      if (row.wikipedia_title) {
-        const blurb = await fetchWikipediaBlurb(row.wikipedia_title);
-        if (blurb) {
-          habitatDescription = blurb.habitatDescription;
-          descriptionSourceUrl = blurb.descriptionSourceUrl;
-          if (!description) {
-            description = blurb.description;
-            descriptionCredit = blurb.descriptionCredit;
-          }
-        }
-      }
-
-      if (description || habitatDescription) {
+      if (description) {
         await pool.query(
           `UPDATE species SET
-             description = COALESCE($1, description),
-             description_credit = COALESCE($2, description_credit),
-             description_source_url = COALESCE($3, description_source_url),
-             habitat_description = COALESCE($4, habitat_description)
-           WHERE id = $5`,
-          [description, descriptionCredit, descriptionSourceUrl, habitatDescription, row.id],
+             description = $1,
+             description_credit = $2,
+             description_source_url = $3
+           WHERE id = $4`,
+          [description, descriptionCredit, descriptionSourceUrl, row.id],
         );
         updated++;
       }

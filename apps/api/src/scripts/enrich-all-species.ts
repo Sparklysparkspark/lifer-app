@@ -78,14 +78,12 @@ async function main() {
   const { canada, restOfNorthAmerica } = await priorityTiers();
 
   const res = await pool.query(
-    `SELECT id, scientific_name, taxon_class, wikipedia_title, commons_image FROM species WHERE enriched_at IS NULL ORDER BY scientific_name`,
+    `SELECT id, scientific_name, taxon_class FROM species WHERE enriched_at IS NULL ORDER BY scientific_name`,
   );
   const rows = res.rows as Array<{
     id: string;
     scientific_name: string;
     taxon_class: string;
-    wikipedia_title: string | null;
-    commons_image: string | null;
   }>;
 
   // Canada is completed first (every taxon), then the rest of North America, then everything
@@ -115,21 +113,9 @@ async function main() {
   let failed = 0;
   await mapWithConcurrency(ordered, CONCURRENCY, async (row) => {
     try {
-      // skipGallery no longer disables the gallery outright (see lazyEnrich.ts — the gallery
-      // now sources from iNaturalist's fast, non-rate-limited taxon_photos by default) — it
-      // only suppresses the rare, still-slow Wikipedia/Commons fallback for the handful of
-      // species with no iNaturalist photos at all, so one stubborn species can't stall this
-      // whole bulk pass. That rare fallback still runs for a species the first time someone
-      // actually opens its page (species/routes.ts's lazy path).
-      const enrichment = await enrichSpecies(
-        {
-          id: row.id,
-          scientific_name: row.scientific_name,
-          wikipedia_title: row.wikipedia_title,
-          commons_image: row.commons_image,
-        },
-        { skipGallery: true },
-      );
+      // iNaturalist-only (see lazyEnrich.ts's top comment) — no Wikipedia/Commons fallback to
+      // worry about stalling this bulk pass any more.
+      const enrichment = await enrichSpecies({ id: row.id, scientific_name: row.scientific_name });
       await persistEnrichment(row.id, enrichment);
     } catch (err) {
       failed++;
