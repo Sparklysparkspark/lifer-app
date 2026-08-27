@@ -52,6 +52,8 @@ interface SpeciesDetail {
      *  conversation). Always use this, not reference_photo, for rendering. */
     reference_photo_url: string | null;
     reference_credit: string | null;
+    reference_focal_x: number | string | null;
+    reference_focal_y: number | string | null;
     description: string | null;
     description_credit: string | null;
     description_source_url: string | null;
@@ -82,11 +84,18 @@ interface SpeciesDetail {
     card_crop_size: string | number | null;
     best_quality: number | null;
   } | null;
-  referencePhotos: Array<{ photo_url: string; credit: string; license: string }>;
+  referencePhotos: Array<{
+    photo_url: string;
+    credit: string;
+    license: string;
+    focal_x: number | string | null;
+    focal_y: number | string | null;
+  }>;
   seasonality: number[] | null;
   localTier: string | null;
   isVagrant: boolean;
   endemicCountryName: string | null;
+  isArchived: boolean;
 }
 
 // "Show me this photo big" prefers the full-resolution original when one exists (store or
@@ -215,6 +224,15 @@ export default function SpeciesDetailPage() {
     loadUnmatchedRaws();
   }, [load, loadUnmatchedRaws]);
 
+  // React Router doesn't reset scroll position on navigation by itself — without this,
+  // clicking from a long-scrolled species page into another species (or hitting back/forward
+  // between two of them) lands wherever the browser happened to leave the scroll offset, which
+  // reads as "landing in the middle of a random photo gallery" rather than at the species'
+  // own header/hero photo.
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [id]);
+
   // Your own cover photo first (if you have one), then the Phase-1 reference gallery
   // (Wikipedia media -> Commons) as alternates to arrow through and compare against.
   const heroSlides = useMemo<LightboxSlide[]>(() => {
@@ -226,12 +244,25 @@ export default function SpeciesDetailPage() {
     if (userSpecies?.cover_photo_id && coverCapture) {
       slides.push({ url: fullSizeUrl(coverCapture)!, caption: "Your photo" });
     } else if (species.reference_photo_url) {
-      slides.push({ url: species.reference_photo_url, caption: species.reference_credit });
+      // focalX/Y (migration 043) — a stored focal point for the shared reference photo,
+      // applied via object-position wherever this slide shows in a cropped box (the hero
+      // below); never meaningful for your own cover photo above, which has no such column.
+      slides.push({
+        url: species.reference_photo_url,
+        caption: species.reference_credit,
+        focalX: species.reference_focal_x == null ? null : Number(species.reference_focal_x),
+        focalY: species.reference_focal_y == null ? null : Number(species.reference_focal_y),
+      });
     }
 
     for (const p of referencePhotos) {
       if (p.photo_url === species.reference_photo_url && !userSpecies?.cover_photo_id) continue;
-      slides.push({ url: p.photo_url, caption: p.credit });
+      slides.push({
+        url: p.photo_url,
+        caption: p.credit,
+        focalX: p.focal_x == null ? null : Number(p.focal_x),
+        focalY: p.focal_y == null ? null : Number(p.focal_y),
+      });
     }
     return slides;
   }, [detail]);
@@ -243,17 +274,34 @@ export default function SpeciesDetailPage() {
   const [heroPhotoFailed, setHeroPhotoFailed] = useState(false);
   useEffect(() => setHeroPhotoFailed(false), [heroIndex, heroSlides.length]);
 
+  // Both the error and still-loading states previously skipped the header entirely, leaving
+  // no way back except closing the tab/window — the header (and its BackToCollectionLink) now
+  // renders unconditionally, with only the body swapping between error/loading/loaded.
   if (loadError) {
     return (
-      <div className="p-8 text-muted">
-        Couldn't load this species.{" "}
-        <button onClick={load} className="text-ink underline">
-          Retry
-        </button>
+      <div className="min-h-screen bg-canvas">
+        <header className="page-header border-b border-line bg-surface px-6 py-4">
+          <BackToCollectionLink fallbackTo={regionId ? `/?region=${regionId}` : "/"} className="text-sm text-muted hover:underline" />
+        </header>
+        <div className="p-8 text-muted">
+          Couldn't load this species.{" "}
+          <button onClick={load} className="text-ink underline">
+            Retry
+          </button>
+        </div>
       </div>
     );
   }
-  if (!detail) return <LoadingScreen />;
+  if (!detail) {
+    return (
+      <div className="min-h-screen bg-canvas">
+        <header className="page-header border-b border-line bg-surface px-6 py-4">
+          <BackToCollectionLink fallbackTo={regionId ? `/?region=${regionId}` : "/"} className="text-sm text-muted hover:underline" />
+        </header>
+        <LoadingScreen showBackLink={false} />
+      </div>
+    );
+  }
   const { species, captures } = detail;
 
   async function setCover(photoId: string) {
@@ -270,6 +318,24 @@ export default function SpeciesDetailPage() {
   async function unmarkSeen() {
     await api.delete(`/species/${id}/seen`);
     load();
+  }
+
+  async function archive() {
+    try {
+      await api.post(`/species/${id}/archive`);
+      load();
+    } catch {
+      alert("Couldn't archive this species — try again.");
+    }
+  }
+
+  async function unarchive() {
+    try {
+      await api.delete(`/species/${id}/archive`);
+      load();
+    } catch {
+      alert("Couldn't unarchive this species — try again.");
+    }
   }
 
   async function revealInFinder(path: string) {
@@ -352,7 +418,12 @@ export default function SpeciesDetailPage() {
 
   return (
     <div className="min-h-screen bg-canvas">
-      <header className="page-header border-b border-line bg-surface px-6 py-4">
+      {/* Sticky rather than the collection page's normal in-flow header — this page is long
+         enough (hero photo + full gallery) that losing the back link off the top of the
+         viewport made it easy to end up scrolled a long way down with no quick way back up
+         to it. z-20 keeps it above the page content but still under the mac title-bar drag
+         strip's own z-index (see index.css). */}
+      <header className="page-header sticky top-0 z-20 border-b border-line bg-surface px-6 py-4">
         <BackToCollectionLink
           fallbackTo={regionId ? `/?region=${regionId}` : "/"}
           className="text-sm text-muted hover:underline"
@@ -378,6 +449,9 @@ export default function SpeciesDetailPage() {
               alt={species.common_name ?? species.scientific_name}
               onClick={() => setLightbox({ slides: heroSlides, index: heroIndex })}
               className="aspect-[16/9] w-full cursor-pointer rounded-lg object-cover"
+              style={{
+                objectPosition: `${heroSlides[heroIndex].focalX ?? 50}% ${heroSlides[heroIndex].focalY ?? 50}%`,
+              }}
               onError={() => setHeroPhotoFailed(true)}
             />
             {heroSlides.length > 1 && (
@@ -396,7 +470,7 @@ export default function SpeciesDetailPage() {
                 >
                   ›
                 </button>
-                <span className="absolute bottom-2 right-2 rounded bg-black/40 px-1.5 py-0.5 text-[10px] text-white">
+                <span className="absolute bottom-[28px] right-2 rounded bg-black/40 px-1.5 py-0.5 text-[10px] text-white">
                   {heroIndex + 1} / {heroSlides.length}
                 </span>
               </>
@@ -426,6 +500,19 @@ export default function SpeciesDetailPage() {
               ) : !detail.userSpecies ? (
                 <button onClick={markSeen} className="text-xs text-muted hover:underline">
                   Mark as seen
+                </button>
+              ) : null}
+              {/* Archived species are excluded from checklists (see NOT_ARCHIVED_SQL) but stay
+                 reachable via search/this page, exactly so they can be unarchived here — the
+                 button always reflects the real archived row, not the exemption that lets a
+                 collected species stay visible despite one existing. */}
+              {detail.isArchived ? (
+                <button onClick={unarchive} className="text-xs text-muted hover:underline">
+                  Archived (unarchive)
+                </button>
+              ) : detail.userSpecies?.state !== "collected" ? (
+                <button onClick={archive} className="text-xs text-muted hover:underline">
+                  Archive
                 </button>
               ) : null}
             </div>
@@ -838,13 +925,19 @@ export default function SpeciesDetailPage() {
 
       {croppingCover && detail.userSpecies?.cover_photo_id && (
         <CardCropEditor
-          speciesId={species.id}
           photoUrl={`/api/photos/${detail.userSpecies.cover_photo_id}/display`}
           initialX={detail.userSpecies.card_crop_x == null ? null : Number(detail.userSpecies.card_crop_x)}
           initialY={detail.userSpecies.card_crop_y == null ? null : Number(detail.userSpecies.card_crop_y)}
           initialSize={detail.userSpecies.card_crop_size == null ? null : Number(detail.userSpecies.card_crop_size)}
           onClose={() => setCroppingCover(false)}
-          onSaved={load}
+          onSave={async (crop) => {
+            await api.patch(`/species/${id}/card-crop`, crop);
+            load();
+          }}
+          onReset={async () => {
+            await api.patch(`/species/${id}/card-crop`, { reset: true });
+            load();
+          }}
         />
       )}
     </div>

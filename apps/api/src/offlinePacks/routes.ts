@@ -13,6 +13,9 @@ import type { FastifyInstance } from "fastify";
 import { pool } from "../db.js";
 import { requireAuth } from "../auth/session.js";
 import { APP_DATA_DIR, PACK_INDEX_URL } from "../config.js";
+// Cross-package import, same convention as regions/routes.ts's own build-region-species.js
+// import — pure id-derivation logic with no heavy runtime deps.
+import { packIdFromFileName } from "data-pipeline/src/build/pack-id.js";
 
 interface PackIndexEntry {
   id: string;
@@ -22,6 +25,15 @@ interface PackIndexEntry {
   taxon?: string | null;
   sizeBytes: number;
   speciesCount: number;
+  // Content hash of the pack's manifest (see build-region-pack.ts's contentHash) — lets an
+  // already-downloaded pack be recognized as stale when its upstream content changes, instead
+  // of dedup being purely "have I ever downloaded this id" forever.
+  contentVersion: string;
+  // Deduplicated across the pack's own top-level species and every bundled child region's
+  // species (build-pack-index.ts does the dedup — a country pack's manifest doesn't
+  // deduplicate those against each other) — the only thing /offline-packs/recommend needs to
+  // score a pack's coverage against a list of missing species.
+  scientificNames: string[];
   url: string;
 }
 
@@ -288,16 +300,23 @@ async function runDownloadJob(requestedPackIds: string[]): Promise<void> {
       downloadJob.currentPack = id;
       downloadJob.total = seen.size + queue.length;
 
-      const already = await pool.query(`SELECT 1 FROM downloaded_packs WHERE pack_id = $1`, [id]);
-      if (already.rows.length > 0) {
-        downloadJob.processed++;
-        continue;
-      }
-
       const entry = byId.get(id);
       if (!entry) {
         // Unknown pack id (index changed since the client's copy, a stale dependency
         // reference) — skip it rather than fail the whole job over one bad entry.
+        downloadJob.processed++;
+        continue;
+      }
+
+      // Only skip when the CONTENT hasn't changed — a pack already downloaded at an older
+      // content_version proceeds through the same download+apply flow below to pick up the
+      // update (safe to re-apply: enrichment writes are COALESCE-guarded, checklist upserts
+      // are ON CONFLICT DO UPDATE — see applyPack's own comments).
+      const already = await pool.query<{ content_version: string | null }>(
+        `SELECT content_version FROM downloaded_packs WHERE pack_id = $1`,
+        [id],
+      );
+      if (already.rows.length > 0 && already.rows[0].content_version === entry.contentVersion) {
         downloadJob.processed++;
         continue;
       }
@@ -313,14 +332,15 @@ async function runDownloadJob(requestedPackIds: string[]): Promise<void> {
       rmSync(tmpFile, { force: true });
 
       await pool.query(
-        `INSERT INTO downloaded_packs (pack_id, region, taxon, species_count, bytes) VALUES ($1, $2, $3, $4, $5)
-         ON CONFLICT (pack_id) DO UPDATE SET species_count = EXCLUDED.species_count, bytes = EXCLUDED.bytes, downloaded_at = now()`,
-        [id, entry.region ?? entry.seaZone ?? null, entry.taxon ?? null, speciesCount, buf.length],
+        `INSERT INTO downloaded_packs (pack_id, region, taxon, species_count, bytes, content_version) VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT (pack_id) DO UPDATE SET
+           species_count = EXCLUDED.species_count, bytes = EXCLUDED.bytes, content_version = EXCLUDED.content_version, downloaded_at = now()`,
+        [id, entry.region ?? entry.seaZone ?? null, entry.taxon ?? null, speciesCount, buf.length, entry.contentVersion],
       );
 
       downloadJob.processed++;
       for (const dep of manifest.seaZoneDependencies ?? []) {
-        const depId = dep.packFile.replace(/\.pack\.tar\.gz$/, "");
+        const depId = packIdFromFileName(dep.packFile);
         if (!seen.has(depId)) queue.push(depId);
       }
     }
@@ -337,12 +357,70 @@ export async function offlinePacksRoutes(app: FastifyInstance): Promise<void> {
   app.get("/offline-packs/index", { preHandler: requireAuth }, async (_request, reply) => {
     try {
       const index = await fetchPackIndex();
-      const downloadedRes = await pool.query<{ pack_id: string }>(`SELECT pack_id FROM downloaded_packs`);
-      const downloaded = new Set(downloadedRes.rows.map((r) => r.pack_id));
+      const downloadedRes = await pool.query<{ pack_id: string; content_version: string | null }>(
+        `SELECT pack_id, content_version FROM downloaded_packs`,
+      );
+      const downloadedVersions = new Map(downloadedRes.rows.map((r) => [r.pack_id, r.content_version]));
       return {
         generatedAt: index.generatedAt,
-        packs: index.packs.map((p) => ({ ...p, downloaded: downloaded.has(p.id) })),
+        // scientificNames is left out here — this listing only ever renders pack cards, never
+        // needs the per-species names, and it can be a meaningful chunk of payload for the
+        // largest all-taxa country packs. /offline-packs/recommend fetches the full index
+        // itself when it actually needs that field.
+        packs: index.packs.map(({ scientificNames: _scientificNames, ...p }) => {
+          const downloadedVersion = downloadedVersions.get(p.id);
+          return {
+            ...p,
+            downloaded: downloadedVersion !== undefined,
+            // A pack downloaded before content_version existed (downloadedVersion === null)
+            // reads as "no update available" rather than a false positive — there's no real
+            // signal to compare against yet, and it'll self-correct the next time it's
+            // actually re-applied.
+            updateAvailable: downloadedVersion != null && downloadedVersion !== p.contentVersion,
+          };
+        }),
       };
+    } catch (err) {
+      return reply.code(503).send({ error: (err as Error).message });
+    }
+  });
+
+  // Given a list of scientific names (e.g. the gap the library reimport tool surfaced —
+  // recovered species with no reference photo/description), greedily picks the smallest set
+  // of not-yet-downloaded packs that covers them, rather than every pack with SOME overlap.
+  // Standard greedy set-cover: repeatedly take whichever remaining pack covers the most still-
+  // uncovered names, until either nothing's left to cover or no remaining pack covers anything.
+  app.post<{ Body: { scientificNames?: string[] } }>("/offline-packs/recommend", { preHandler: requireAuth }, async (request, reply) => {
+    const scientificNames = request.body?.scientificNames;
+    if (!scientificNames || scientificNames.length === 0) {
+      return reply.code(400).send({ error: "scientificNames is required" });
+    }
+    try {
+      const index = await fetchPackIndex();
+      const downloadedRes = await pool.query<{ pack_id: string }>(`SELECT pack_id FROM downloaded_packs`);
+      const downloadedIds = new Set(downloadedRes.rows.map((r) => r.pack_id));
+
+      let remaining = new Set(scientificNames);
+      const candidates = index.packs.filter((p) => !downloadedIds.has(p.id));
+      const picked: Array<{ id: string; region?: string; seaZone?: string; taxon: string | null; sizeBytes: number; covers: number }> = [];
+
+      while (remaining.size > 0) {
+        let best: PackIndexEntry | null = null;
+        let bestCoverage = 0;
+        for (const pack of candidates) {
+          if (picked.some((p) => p.id === pack.id)) continue;
+          const coverage = pack.scientificNames.filter((n) => remaining.has(n)).length;
+          if (coverage > bestCoverage) {
+            best = pack;
+            bestCoverage = coverage;
+          }
+        }
+        if (!best || bestCoverage === 0) break;
+        picked.push({ id: best.id, region: best.region, seaZone: best.seaZone, taxon: best.taxon ?? null, sizeBytes: best.sizeBytes, covers: bestCoverage });
+        for (const name of best.scientificNames) remaining.delete(name);
+      }
+
+      return { recommended: picked, uncovered: [...remaining] };
     } catch (err) {
       return reply.code(503).send({ error: (err as Error).message });
     }

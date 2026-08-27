@@ -3,6 +3,12 @@ import type { RegionSummary } from "@lifer/shared";
 import { api, ApiError } from "../api/client";
 import { Spinner } from "../components/LoadingScreen";
 import BackToCollectionLink from "../components/BackToCollectionLink";
+import InfoTip from "../components/InfoTip";
+
+const PACKS_INFO_PARAGRAPHS = [
+  '"Update available" means the pack\'s checklist data (which species occur there, and how often) has changed since you downloaded it. Re-downloading refreshes that.',
+  "It won't overwrite any reference photo or description a species already has, no matter where that came from. Those are only ever filled in once, never replaced.",
+];
 
 interface PackEntry {
   id: string;
@@ -13,6 +19,7 @@ interface PackEntry {
   sizeBytes: number;
   speciesCount: number;
   downloaded: boolean;
+  updateAvailable: boolean;
 }
 
 interface DownloadStatus {
@@ -22,6 +29,20 @@ interface DownloadStatus {
   currentPack: string | null;
   error: string | null;
   finishedAt: number | null;
+}
+
+interface RecommendedPack {
+  id: string;
+  region?: string;
+  seaZone?: string;
+  taxon: "aves" | "mammalia" | "actinopterygii" | null;
+  sizeBytes: number;
+  covers: number;
+}
+
+interface Recommendation {
+  recommended: RecommendedPack[];
+  uncovered: string[];
 }
 
 const TAXON_LABEL: Record<string, string> = { aves: "Birds", mammalia: "Mammals", actinopterygii: "Fish" };
@@ -43,6 +64,8 @@ export default function OfflinePacksPage() {
   const [starting, setStarting] = useState(false);
   const [startError, setStartError] = useState<string | null>(null);
   const [status, setStatus] = useState<DownloadStatus | null>(null);
+  const [recommendation, setRecommendation] = useState<Recommendation | null>(null);
+  const [recommendationError, setRecommendationError] = useState<string | null>(null);
 
   useEffect(() => {
     api.get<{ regions: RegionSummary[] }>("/regions").then((res) => setRegions(res.regions));
@@ -50,6 +73,19 @@ export default function OfflinePacksPage() {
       .get<{ packs: PackEntry[] }>("/offline-packs/index")
       .then((res) => setPacks(res.packs))
       .catch((err) => setIndexError(err instanceof ApiError ? err.message : "Couldn't load available packs"));
+  }, []);
+
+  // Arrived from the library reimport tool's "N species missing reference data" link
+  // (SettingsPage.tsx) with the gap list in the URL — check which packs would cover it.
+  useEffect(() => {
+    const missing = new URLSearchParams(window.location.search).get("missing");
+    if (!missing) return;
+    const scientificNames = missing.split(",").filter(Boolean);
+    if (scientificNames.length === 0) return;
+    api
+      .post<Recommendation>("/offline-packs/recommend", { scientificNames })
+      .then(setRecommendation)
+      .catch((err) => setRecommendationError(err instanceof ApiError ? err.message : "Couldn't compute pack recommendations"));
   }, []);
 
   useEffect(() => {
@@ -97,7 +133,7 @@ export default function OfflinePacksPage() {
     const ids: string[] = [];
     for (const name of regionNames) {
       for (const p of packsByRegion.get(name) ?? []) {
-        if (!p.downloaded) ids.push(p.id);
+        if (!p.downloaded || p.updateAvailable) ids.push(p.id);
       }
     }
     return ids;
@@ -143,8 +179,11 @@ export default function OfflinePacksPage() {
   return (
     <div className="min-h-screen bg-canvas">
       <header className="page-header border-b border-line bg-surface px-6 py-4">
-        <BackToCollectionLink className="text-sm text-muted hover:underline" />
-        <h1 className="mt-1 text-lg font-semibold text-ink">Offline packs</h1>
+        <BackToCollectionLink fallbackTo="/settings" label="Settings" className="text-sm text-muted hover:underline" />
+        <div className="mt-1 flex items-center gap-2">
+          <h1 className="text-lg font-semibold text-ink">Offline packs</h1>
+          <InfoTip paragraphs={PACKS_INFO_PARAGRAPHS} />
+        </div>
         <p className="mt-1 text-sm text-muted">
           Download reference photos and habitat info for a region so it's usable without an internet connection.
         </p>
@@ -152,6 +191,40 @@ export default function OfflinePacksPage() {
 
       <main className="mx-auto max-w-2xl space-y-6 p-6">
         {indexError && <p className="text-sm text-red-600">{indexError}</p>}
+        {recommendationError && <p className="text-sm text-red-600">{recommendationError}</p>}
+
+        {recommendation && (
+          <div className="rounded-xl border border-line bg-surface p-4">
+            {recommendation.recommended.length === 0 ? (
+              <p className="text-sm text-muted">
+                None of the available packs cover the missing species from your library — they may not have offline packs yet.
+              </p>
+            ) : (
+              <>
+                <p className="text-sm text-ink">These packs would restore reference data for the species your reimport found missing:</p>
+                <ul className="mt-2 space-y-1 text-sm text-muted">
+                  {recommendation.recommended.map((p) => (
+                    <li key={p.id}>
+                      {p.region ?? p.seaZone} {p.taxon ? `(${TAXON_LABEL[p.taxon]})` : ""} — covers {p.covers} species,{" "}
+                      {formatBytes(p.sizeBytes)}
+                    </li>
+                  ))}
+                </ul>
+                {recommendation.uncovered.length > 0 && (
+                  <p className="mt-2 text-xs text-muted">
+                    {recommendation.uncovered.length} species aren't covered by any available pack yet.
+                  </p>
+                )}
+                <button
+                  onClick={() => setSelected((prev) => new Set([...prev, ...recommendation.recommended.map((p) => p.id)]))}
+                  className="mt-3 rounded-md border border-line px-3 py-1.5 text-sm text-ink hover:bg-surface-muted"
+                >
+                  Select these packs
+                </button>
+              </>
+            )}
+          </div>
+        )}
 
         {status?.running && (
           <div className="rounded-xl border border-line bg-surface p-4">
@@ -207,15 +280,18 @@ export default function OfflinePacksPage() {
                         {(["aves", "mammalia", "actinopterygii"] as const).map((taxon) => {
                           const pack = countryPacks.find((p) => p.taxon === taxon);
                           if (!pack) return <span key={taxon} className="w-28 shrink-0 text-muted">—</span>;
+                          const upToDate = pack.downloaded && !pack.updateAvailable;
                           return (
                             <label key={taxon} className="flex w-28 shrink-0 items-center gap-1.5 text-xs text-muted">
                               <input
                                 type="checkbox"
-                                checked={pack.downloaded || selected.has(pack.id)}
-                                disabled={pack.downloaded}
+                                checked={upToDate || selected.has(pack.id)}
+                                disabled={upToDate}
                                 onChange={(e) => toggle(pack.id, e.target.checked)}
                               />
-                              {TAXON_LABEL[taxon]} ({pack.downloaded ? "✓" : formatBytes(pack.sizeBytes)})
+                              {TAXON_LABEL[taxon]} (
+                              {upToDate ? "✓" : pack.updateAvailable ? <span className="text-accent">Update available</span> : formatBytes(pack.sizeBytes)}
+                              )
                             </label>
                           );
                         })}

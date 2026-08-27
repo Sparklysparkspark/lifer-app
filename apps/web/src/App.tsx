@@ -8,9 +8,14 @@ import RegionPage from "./pages/RegionPage";
 import BulkImportPage from "./pages/BulkImportPage";
 import SettingsPage from "./pages/SettingsPage";
 import OfflinePacksPage from "./pages/OfflinePacksPage";
+import TripsPage from "./pages/TripsPage";
+import TripDetailPage from "./pages/TripDetailPage";
+import ArchivedSpeciesPage from "./pages/ArchivedSpeciesPage";
 import ForgotPasswordPage from "./pages/ForgotPasswordPage";
 import ResetPasswordPage from "./pages/ResetPasswordPage";
 import MigrationStatusIndicator from "./components/MigrationStatusIndicator";
+import UpdateAvailableBanner from "./components/UpdateAvailableBanner";
+import TrafficLights from "./components/TrafficLights";
 import { LoadingScreen } from "./components/LoadingScreen";
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
@@ -24,6 +29,8 @@ export default function App() {
   return (
     <>
       <MigrationStatusIndicator />
+      <UpdateAvailableBanner />
+      <TrafficLights />
       <Routes>
       <Route path="/login" element={<LoginPage />} />
       <Route path="/forgot-password" element={<ForgotPasswordPage />} />
@@ -81,6 +88,30 @@ export default function App() {
         element={
           <RequireAuth>
             <OfflinePacksPage />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/trips"
+        element={
+          <RequireAuth>
+            <TripsPage />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/trips/:id"
+        element={
+          <RequireAuth>
+            <TripDetailPage />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/archived"
+        element={
+          <RequireAuth>
+            <ArchivedSpeciesPage />
           </RequireAuth>
         }
       />
