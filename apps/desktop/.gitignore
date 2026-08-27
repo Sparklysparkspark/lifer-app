@@ -1,0 +1,14 @@
+node_modules/
+# Tauri updater signing keypair (generated via `npx tauri signer generate`) — the private key
+# must never be committed. It lives only in the local filesystem and as the
+# TAURI_SIGNING_PRIVATE_KEY(_PASSWORD) GitHub Actions secrets used by release.yml; only the
+# PUBLIC key (embedded directly in tauri.conf.json's plugins.updater.pubkey) is meant to be
+# checked in.
+.updater-keys/
+src-tauri/target/
+src-tauri/resources-staging/
+src-tauri/gen/
+# Vendored Node runtime sidecar (~100MB+ per platform) — see scripts/fetch-node-sidecar.js.
+# Never committed: too large for git, and a real release build needs the official prebuilt
+# binary for EACH target platform, not just whatever's on the machine that happens to build it.
+src-tauri/binaries/

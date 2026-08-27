@@ -12,30 +12,52 @@ jobs:
   desktop:
     strategy:
       matrix:
-        # Two separate macOS runners, not one "universal" build: native modules
-        # (sharp, exiftool-vendored) are copied into the app as plain extraResources rather
-        # than going through electron-builder's per-arch rebuild step, so each arch needs its
-        # own `npm ci` on host-matching hardware to get correctly-compiled binaries — a
-        # universal/merged build would risk silently shipping the wrong arch's binary.
-        os: [macos-14, macos-13, windows-latest, ubuntu-latest]
+        # Native modules (sharp, exiftool-vendored) are copied into the app as plain resources
+        # rather than rebuilt per-arch, so each target still needs its own `npm ci` on
+        # matching hardware for correctly-compiled binaries. Windows/Linux aren't wired up yet
+        # — apps/desktop/scripts/fetch-node-sidecar.js only knows how to vendor the macOS
+        # arm64 Node sidecar right now (see that script's own TARGETS map); extending this
+        # matrix means adding the matching target-triple entries there first.
+        os: [macos-14]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - uses: dtolnay/rust-toolchain@stable
       - run: npm ci
+      # Real release version, not the permanent "0.1.0" placeholder — so the running app has
+      # something to compare against the updater manifest's version. Derived from the pushed
+      # tag (v1.2.3 -> 1.2.3), not hand-maintained.
+      - name: Set app version from tag
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          jq --arg v "$VERSION" '.version = $v' apps/desktop/src-tauri/tauri.conf.json > /tmp/tauri.conf.json
+          mv /tmp/tauri.conf.json apps/desktop/src-tauri/tauri.conf.json
+          echo "LIFER_RELEASE_VERSION=$VERSION" >> "$GITHUB_ENV"
       - run: npm run dist -w desktop
+      - name: Zip the app for upload
+        run: cd apps/desktop/src-tauri/target/release/bundle/macos && zip -r Lifer-macos-arm64.zip Lifer.app
+      # Must run after resign-macos.js (part of `npm run dist` above) — the updater archive has
+      # to be built from the RESIGNED .app, not tauri build's raw output (see
+      # build-update-manifest.js's own comment). Produces Lifer.app.tar.gz + latest.json,
+      # signed with the updater's private key (GitHub secrets, never committed — see
+      # apps/desktop/.gitignore's .updater-keys/ entry for the local-dev equivalent).
+      - name: Build signed update artifact + manifest
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: npm run build-update-manifest -w desktop
       - name: Upload installers to the release
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
           files: |
-            apps/desktop/dist/*.dmg
-            apps/desktop/dist/*.zip
-            apps/desktop/dist/*.exe
-            apps/desktop/dist/*.AppImage
-            apps/desktop/dist/*.deb
+            apps/desktop/src-tauri/target/release/bundle/macos/Lifer-macos-arm64.zip
+            apps/desktop/src-tauri/target/release/bundle/macos/Lifer.app.tar.gz
+            apps/desktop/src-tauri/target/release/bundle/macos/Lifer.app.tar.gz.sig
+            apps/desktop/src-tauri/target/release/bundle/macos/latest.json
 
   docker-image:
     runs-on: ubuntu-latest

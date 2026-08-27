@@ -1,0 +1,44 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Lifer",
+  "version": "0.1.0",
+  "identifier": "app.lifer.desktop",
+  "build": {
+    "frontendDist": "../src"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["app"],
+    "externalBin": ["binaries/node"],
+    "resources": {
+      "resources-staging/api": "api",
+      "resources-staging/web": "web",
+      "resources-staging/node_modules": "node_modules"
+    },
+    "macOS": {
+      "entitlements": null
+    },
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDcwMDBCQkM0QUIxQUNFQ0EKUldUS3pocXJ4THNBY0lZYkZOUUd2VElHTkZKZXZTSlR6TTQ0dGpURlRjMDJKUDdyMTBaWG96eFgK",
+      "endpoints": [
+        "https://github.com/Sparklysparkspark/lifer-app/releases/latest/download/latest.json"
+      ]
+    }
+  }
+}
