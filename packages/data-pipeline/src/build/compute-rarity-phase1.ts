@@ -13,6 +13,15 @@ export type RarityTier = "common" | "uncommon" | "rare" | "epic" | "legendary" |
 
 export const IUCN_MODIFIER: Record<string, number> = {
   "Least Concern": 0,
+  // "Data Deficient" means IUCN assessors couldn't gather enough data to assess risk at
+  // all — previously fell through to the same 0 as "Least Concern," treating "we don't know
+  // anything about this species" as equivalent evidence to "well-documented and not at
+  // risk." That's backwards: a species well-photographed/observed enough to actually assess
+  // almost always ends up with a real category, so Data Deficient is itself a real,
+  // authoritative (not guessed) signal correlating with genuine obscurity. Set below
+  // "Vulnerable" (0.35) rather than above it — this reflects real uncertainty ("could be
+  // anything"), not a confirmed at-risk finding.
+  "Data Deficient": 0.3,
   "Near Threatened": 0.15,
   Vulnerable: 0.35,
   Endangered: 0.6,
@@ -184,6 +193,34 @@ export function boostTowardHarderToDetect(score: number, boostAmount: number): n
 export function boostElusivenessForNocturnal(score: number, nocturnal: boolean | null): number {
   if (!nocturnal) return score;
   return boostTowardHarderToDetect(score, NOCTURNAL_ELUSIVENESS_BOOST);
+}
+
+// Curated, not sourced from any trait dataset — no existing source flags "camouflaged/cryptic
+// fish" the way AVONET flags nocturnality for birds. Grounded in real diver testimony: a
+// species like a frogfish stays in one exact spot for weeks/months, so once a dive guide
+// finds one, every group they lead gets shown it and photographs it — raw GBIF record volume
+// then measures "how many divers were shown a known spot," not "how likely you are to find
+// one yourself" (140 real dives, 0 sightings, vs. 421 GBIF records for the Bandfin Frogfish).
+// Same 0.4 boost magnitude as the nocturnal boost — a comparably coarse, near-universal-
+// within-the-family trait, not a continuous per-species measurement like density/home range.
+export const CAMOUFLAGE_ELUSIVENESS_BOOST = 0.4;
+
+// Families with a well-established reputation (among divers/underwater photographers, not a
+// guess) for extreme camouflage and/or site fidelity making them far harder to find in person
+// than their GBIF record count alone suggests: frogfish, seahorses/pipefish/seadragons, ghost
+// pipefish, stonefish, scorpionfish (including leaf scorpionfish/Rhinopias), and seamoths.
+export const CAMOUFLAGED_FISH_FAMILIES = new Set([
+  "Antennariidae",
+  "Syngnathidae",
+  "Solenostomidae",
+  "Synanceiidae",
+  "Scorpaenidae",
+  "Pegasidae",
+]);
+
+export function boostElusivenessForCamouflage(score: number, family: string | null): number {
+  if (!family || !CAMOUFLAGED_FISH_FAMILIES.has(family)) return score;
+  return boostTowardHarderToDetect(score, CAMOUFLAGE_ELUSIVENESS_BOOST);
 }
 
 // Density's boost is proportional to how low the density actually is (a continuous

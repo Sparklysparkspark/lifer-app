@@ -17,18 +17,39 @@
 // references the same zone, not re-downloaded per country.
 //
 // --taxon scopes a build to one taxon class, producing a separate, independently downloadable
-// file per group, so installs can download fish, mammals, or birds by themselves or as a
-// group; omit it to build every taxon together.
+// file per group (see TAXON_CLASSES below for the full fine-grained list — sharks split from
+// bony fish, aquatic mammals split from both, reptile/cnidarian/mollusk subgroups, plus the
+// newer invertebrate-only groups), so installs can download exactly the groups they care
+// about; omit it to build every taxon together.
 //
 // Usage:
-//   npm run build-region-pack -w data-pipeline -- "Canada" [outputDir] [--taxon=aves|mammalia|actinopterygii]
+//   npm run build-region-pack -w data-pipeline -- "Canada" [outputDir] [--taxon=<TaxonClass>]
 //   npm run build-region-pack -w data-pipeline -- --sea-zone "Red Sea" [outputDir]
 import { existsSync, mkdirSync, writeFileSync, copyFileSync, rmSync, statSync } from "node:fs";
+import { createHash } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import * as tar from "tar";
 import { pool } from "../db.js";
-import { bboxesNear, bboxContains, minRingDistance, exteriorRingsFromGeometry, parseWktPolygonRing, type BoundingBox } from "../geometry.js";
+import {
+  bboxesNear,
+  bboxContains,
+  bboxDiagonalDegrees,
+  SMALL_ISLAND_MAX_BBOX_DIAGONAL_DEGREES,
+  minRingDistance,
+  exteriorRingsFromGeometry,
+  parseWktPolygonRing,
+  type BoundingBox,
+} from "../geometry.js";
+import { sanitize, regionPackFileName, seaZonePackFileName } from "./pack-id.js";
+
+// Hash of everything in the manifest EXCEPT generatedAt (a fresh timestamp every run would
+// otherwise make every rebuild look like a content change) — see build-pack-index.ts and
+// offlinePacks/routes.ts, which compare this against a client's stored content_version to
+// decide whether an already-downloaded pack actually needs re-fetching.
+function contentHash(manifestCore: unknown): string {
+  return createHash("sha256").update(JSON.stringify(manifestCore)).digest("hex");
+}
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.join(__dirname, "..", "..", "..", "..");
@@ -39,12 +60,36 @@ const REPO_ROOT = path.join(__dirname, "..", "..", "..", "..");
 const BBOX_PREFILTER_BUFFER_DEGREES = 10;
 const NEARBY_MAX_DISTANCE_DEGREES = 2;
 
-const TAXON_CLASSES = ["aves", "mammalia", "actinopterygii"] as const;
+// Mirrors packages/shared/src/species.ts's TaxonClass exactly — kept as its own local tuple
+// (not imported) to match this file's existing pattern, same reasoning as this file's own
+// top comment on duplicating regions/routes.ts's nearbyZones logic instead of importing it.
+const TAXON_CLASSES = [
+  "aves",
+  "mammalia",
+  "actinopterygii",
+  "elasmobranchii",
+  "aquatic_mammalia",
+  "amphibia",
+  "squamata",
+  "testudines",
+  "crocodylia",
+  "corals",
+  "jellies_and_anemones",
+  "echinodermata",
+  "nudibranchs",
+  "collector_shells",
+  "marine_mollusks",
+  "cephalopoda",
+  "crustacea",
+  "sponges_tunicates_other",
+] as const;
 type TaxonClass = (typeof TAXON_CLASSES)[number];
 
-function sanitize(name: string): string {
-  return name.replace(/[^a-zA-Z0-9._-]/g, "_");
-}
+// Only these taxa currently have any sea_zone_species data at all (see regions/routes.ts's
+// ensureSeaZoneComputed) — the newer invertebrate/reptile/amphibian groups aren't wired into
+// region/sea-zone computation yet (disclosed gap, same as their seed scripts' own notes), so
+// checking for a sea zone dependency on them would just always find zero and add nothing.
+const TAXA_WITH_SEA_ZONE_DATA: readonly TaxonClass[] = ["actinopterygii", "elasmobranchii", "aquatic_mammalia"];
 
 interface ManifestSpecies {
   scientificName: string;
@@ -115,8 +160,12 @@ async function nearbyZonesForRegion(boundaryGeoJson: {
       // small island's bbox sitting entirely inside a sea zone's bbox is unambiguous even
       // when the zone's simplified polygon edge happens to sit just past the ring-distance
       // cutoff (see that file's comment on Antigua and Barb. vs. the Eastern Caribbean zone).
+      // Gated to island-scale regions only — see bboxContains's own comment on why this
+      // backfires (Aswan, Egypt) for a large landlocked region without that gate.
       const zoneBbox: BoundingBox = { minLon: z.bbox_min_lon, minLat: z.bbox_min_lat, maxLon: z.bbox_max_lon, maxLat: z.bbox_max_lat };
-      if (bboxContains(zoneBbox, regionBbox)) return true;
+      if (bboxDiagonalDegrees(regionBbox) <= SMALL_ISLAND_MAX_BBOX_DIAGONAL_DEGREES && bboxContains(zoneBbox, regionBbox)) {
+        return true;
+      }
       return minRingDistance(regionRings, [parseWktPolygonRing(z.wkt)]) <= NEARBY_MAX_DISTANCE_DEGREES;
     })
     .map((z) => ({ id: z.id, name: z.name }));
@@ -193,16 +242,16 @@ async function buildSeaZonePack(zoneName: string, outDir: string): Promise<void>
   mkdirSync(path.join(stagingDir, "photos"), { recursive: true });
 
   const { manifestSpecies, photoCount } = packSpecies(stagingDir, speciesRes.rows);
-  const manifest = {
+  const manifestCore = {
     type: "seaZone",
     seaZone: zoneName,
-    generatedAt: new Date().toISOString(),
     speciesCount: manifestSpecies.length,
     species: manifestSpecies,
   };
+  const manifest = { ...manifestCore, generatedAt: new Date().toISOString(), contentVersion: contentHash(manifestCore) };
   writeFileSync(path.join(stagingDir, "manifest.json"), JSON.stringify(manifest, null, 2));
 
-  const archiveName = `seazone-${sanitize(zoneName).toLowerCase()}.pack.tar.gz`;
+  const archiveName = seaZonePackFileName(zoneName);
   const sizeMb = (await writeArchive(stagingDir, outDir, archiveName)) / 1024 / 1024;
   console.log(`[build-region-pack] sea zone "${zoneName}": ${manifestSpecies.length} species (${photoCount} with photos)`);
   console.log(`[build-region-pack] wrote ${path.join(outDir, archiveName)} (${sizeMb.toFixed(1)} MB)`);
@@ -292,15 +341,14 @@ async function buildRegionPack(regionName: string, outDir: string, taxon: TaxonC
     [region.id],
   );
 
-  // Only fish ever reference a sea zone — sea_zone_species is populated exclusively from fish
-  // taxon keys — so this is skipped entirely for a birds/mammals-only build rather than
-  // computing zones nobody asked for.
-  const includeSeaZones = taxon === null || taxon === "actinopterygii";
+  // See TAXA_WITH_SEA_ZONE_DATA's own comment — only fish/sharks/aquatic mammals currently
+  // have any sea zone data computed at all.
+  const includeSeaZones = taxon === null || TAXA_WITH_SEA_ZONE_DATA.includes(taxon);
   const seaZones = includeSeaZones
     ? await nearbyZonesForRegion(region.boundary_geojson as Parameters<typeof nearbyZonesForRegion>[0])
     : [];
 
-  const suffix = taxon ? `-${taxon === "actinopterygii" ? "fish" : taxon === "aves" ? "birds" : "mammals"}` : "";
+  const suffix = taxon ? `-${taxon}` : "";
   const stagingDir = path.join(outDir, `.staging-${sanitize(regionName)}${suffix}`);
   rmSync(stagingDir, { recursive: true, force: true });
   mkdirSync(path.join(stagingDir, "photos"), { recursive: true });
@@ -308,11 +356,10 @@ async function buildRegionPack(regionName: string, outDir: string, taxon: TaxonC
 
   const { manifestSpecies, photoCount } = packSpecies(stagingDir, speciesRes.rows);
   const children = await fetchChildRegionsWithSpecies(region.id, taxonFilter);
-  const manifest = {
+  const manifestCore = {
     type: "region",
     region: regionName,
     taxon,
-    generatedAt: new Date().toISOString(),
     speciesCount: manifestSpecies.length,
     species: manifestSpecies,
     // Provinces/states this country's install can already show once this pack applies —
@@ -320,11 +367,12 @@ async function buildRegionPack(regionName: string, outDir: string, taxon: TaxonC
     children,
     // The client downloads each of these SEPARATELY (and only once, however many of this
     // region's neighbors also depend on it) — see this file's own top comment.
-    seaZoneDependencies: seaZones.map((z) => ({ name: z.name, packFile: `seazone-${sanitize(z.name).toLowerCase()}.pack.tar.gz` })),
+    seaZoneDependencies: seaZones.map((z) => ({ name: z.name, packFile: seaZonePackFileName(z.name) })),
   };
+  const manifest = { ...manifestCore, generatedAt: new Date().toISOString(), contentVersion: contentHash(manifestCore) };
   writeFileSync(path.join(stagingDir, "manifest.json"), JSON.stringify(manifest, null, 2));
 
-  const archiveName = `${sanitize(regionName).toLowerCase()}${suffix}.pack.tar.gz`;
+  const archiveName = regionPackFileName(regionName, taxon);
   const sizeMb = (await writeArchive(stagingDir, outDir, archiveName)) / 1024 / 1024;
   console.log(
     `[build-region-pack] ${regionName}${suffix}: ${manifestSpecies.length} species (${photoCount} with photos)` +
@@ -348,7 +396,7 @@ async function main() {
 
   if (!name) {
     console.error(
-      "Usage: npm run build-region-pack -w data-pipeline -- <region name> [outputDir] [--taxon=aves|mammalia|actinopterygii]\n" +
+      `Usage: npm run build-region-pack -w data-pipeline -- <region name> [outputDir] [--taxon=${TAXON_CLASSES.join("|")}]\n` +
         "   or: npm run build-region-pack -w data-pipeline -- --sea-zone <sea zone name> [outputDir]",
     );
     process.exit(1);

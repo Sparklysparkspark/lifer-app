@@ -15,6 +15,8 @@ import {
   boostElusivenessForDensity,
   boostElusivenessForHabitatDensity,
   boostElusivenessForHomeRange,
+  boostElusivenessForCamouflage,
+  CAMOUFLAGED_FISH_FAMILIES,
   MAMMAL_DENSITY_ELUSIVENESS_BOOST_WEIGHT,
   type RarityTier,
 } from "./compute-rarity-phase1.js";
@@ -59,6 +61,19 @@ const MAMMAL_WEIGHTS = { abundance: 0.2, elusiveness: 0.8 };
 // and 18 of 47,345 species respectively) — so abundance is an even more load-bearing signal
 // here than for mammals.
 const FISH_WEIGHTS = { abundance: 0.6, elusiveness: 0.4 };
+// The camouflaged-family boost (boostElusivenessForCamouflage) can't lift these species past
+// "rare" under FISH_WEIGHTS: with abundanceScore pinned at 0 (their IUCN status is almost
+// always "least concern" or "Data Deficient" — uninformative, not evidence of being easy to
+// find), the composite ceiling is FISH_WEIGHTS.elusiveness * 1.0 = 0.4, below even
+// FISH_ABSOLUTE_TIER_THRESHOLDS' epic cutoff (0.5) — no boost magnitude could ever cross it.
+// That's backwards for exactly this group: general FISH_WEIGHTS leans on abundance/IUCN
+// because that's authoritative and elusiveness's GBIF-record-volume signal is noisy for most
+// fish — but for frogfish/seahorses/etc. specifically, IUCN status carries no real difficulty
+// signal at all, while elusiveness (once camouflage-boosted) is the one axis that actually
+// reflects "140 real dives, 0 sightings." Inverted the same way MAMMAL_WEIGHTS inverts the
+// general fish/mammal default for mammals, and for the same reason: the general weighting is
+// wrong for this specific, disclosed exception, not wrong overall.
+const CAMOUFLAGED_FISH_WEIGHTS = { abundance: 0.2, elusiveness: 0.8 };
 
 // Abundance blends the official IUCN threat modifier (an authoritative but coarse 7-bucket
 // signal — most birds are simply "Least Concern," giving zero differentiation) with a real
@@ -114,7 +129,7 @@ export async function applyElusiveness(
   // observations gets the "probably hard to find" default, which can push its composite
   // artificially high.
   const res = await pool.query(
-    `SELECT s.id, s.gbif_key, s.taxon_class, t.range_size_km2, t.iucn_status, t.nocturnal, t.population_estimate, t.density_per_km2, t.home_range_km2, t.habitat_density, t.domestic
+    `SELECT s.id, s.gbif_key, s.taxon_class, s.family, t.range_size_km2, t.iucn_status, t.nocturnal, t.population_estimate, t.density_per_km2, t.home_range_km2, t.habitat_density, t.domestic
      FROM species s JOIN species_traits t ON t.species_id = s.id
      WHERE t.fully_extinct = false`,
   );
@@ -122,6 +137,7 @@ export async function applyElusiveness(
     id: string;
     gbif_key: number;
     taxon_class: string;
+    family: string | null;
     range_size_km2: string | null;
     iucn_status: string | null;
     nocturnal: boolean | null;
@@ -247,10 +263,18 @@ export async function applyElusiveness(
       const nocturnalBoosted = hasRealElusivenessMeasurement
         ? boostElusivenessForNocturnal(rawElusivenessScore, row.nocturnal)
         : rawElusivenessScore;
+      // Same gating as nocturnal's boost — family membership is a coarse, near-universal-
+      // within-the-family flag, not a continuous per-species measurement, so it's only
+      // applied on top of a real crawl-based elusiveness score, never stacked onto the
+      // inferred "no crawl data" placeholder (see NO_CRAWL_DATA_ELUSIVENESS_DEFAULT's own
+      // comment for why that would compound two guesses into an unjustified extreme).
+      const camouflageBoosted = hasRealElusivenessMeasurement
+        ? boostElusivenessForCamouflage(nocturnalBoosted, row.family)
+        : nocturnalBoosted;
       const isMammal = row.taxon_class === "mammalia";
       const isFish = row.taxon_class === "actinopterygii";
       const densityBoostWeight = isMammal ? MAMMAL_DENSITY_ELUSIVENESS_BOOST_WEIGHT : undefined;
-      const densityBoosted = boostElusivenessForDensity(nocturnalBoosted, densityScoreByIdx.get(idx) ?? null, densityBoostWeight);
+      const densityBoosted = boostElusivenessForDensity(camouflageBoosted, densityScoreByIdx.get(idx) ?? null, densityBoostWeight);
       // Real COMBINE home-range data (mammals only, sparse coverage), applied regardless of
       // crawl status — a specific per-species measurement, not a near-universal weak trait.
       const homeRangeBoosted = boostElusivenessForHomeRange(densityBoosted, homeRangeScoreByIdx.get(idx) ?? null);
@@ -262,10 +286,12 @@ export async function applyElusiveness(
       // information, wasting weight that abundance/elusiveness could otherwise use) rather
       // than including it and silently capping every species' composite below what a real,
       // extreme measurement should be able to reach.
+      const isCamouflagedFish = isFish && !!row.family && CAMOUFLAGED_FISH_FAMILIES.has(row.family);
+      const fishWeights = isCamouflagedFish ? CAMOUFLAGED_FISH_WEIGHTS : FISH_WEIGHTS;
       const composite = isMammal
         ? MAMMAL_WEIGHTS.abundance * abundanceScore + MAMMAL_WEIGHTS.elusiveness * elusivenessScore
         : isFish
-          ? FISH_WEIGHTS.abundance * abundanceScore + FISH_WEIGHTS.elusiveness * elusivenessScore
+          ? fishWeights.abundance * abundanceScore + fishWeights.elusiveness * elusivenessScore
           : WEIGHTS.range * rangeScore + WEIGHTS.abundance * abundanceScore + WEIGHTS.elusiveness * elusivenessScore;
       // A species with at least one real per-species signal that actually MOVES its score
       // away from the complete-unknown baseline is fundamentally different from one we know

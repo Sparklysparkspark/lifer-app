@@ -1,6 +1,7 @@
 // Shared between GET /collection and GET /regions/:id/species — both compute the same
 // per-user card state (spec §1) from the same joined columns, just over a different base
 // query (all species vs. one region's species).
+import { MEDIA_CACHE_BUST } from "../config.js";
 
 export interface CollectionRow {
   species_id: string;
@@ -28,12 +29,22 @@ export interface CollectionRow {
   /** species_traits.endemic_country_iso3 — set if this species is only ever recorded
    *  (real GBIF presence) in one of the 258 crawled countries. */
   endemic_country_iso3?: string | null;
+  /** species_traits.endemic_region_label — a richer named-place label (e.g. "the Rocky
+   *  Mountains") pulled from the species' own description text. Set independently of
+   *  endemic_country_iso3 — see verify-and-label-endemics.ts — so a real multi-country
+   *  range/basin endemic can carry a label even when it isn't single-country-endemic. */
+  endemic_region_label?: string | null;
   state: "collected" | "seen" | null;
   cover_photo_id: string | null;
   card_crop_x: string | number | null;
   card_crop_y: string | number | null;
   card_crop_size: string | number | null;
   has_cover_photo: boolean;
+  /** species.reference_focal_x/y (migration 043) — a focal point for the shared reference
+   *  photo, not a per-user crop like card_crop_*. Only relevant when showing that reference
+   *  photo (i.e. you have no cover photo of your own yet). */
+  reference_focal_x?: string | number | null;
+  reference_focal_y?: string | number | null;
 }
 
 export function toCollectionItem(row: CollectionRow) {
@@ -49,11 +60,11 @@ export function toCollectionItem(row: CollectionRow) {
     tier: row.tier,
     localTier: row.local_tier ?? null,
     vagrant: row.is_vagrant === true,
-    endemic: row.endemic_country_iso3 != null,
+    endemic: row.endemic_country_iso3 != null || row.endemic_region_label != null,
     coverPhotoUrl: hasOwnCover
       ? `/api/photos/${row.cover_photo_id}/thumb`
       : row.has_reference_thumb
-        ? `/api/species/${row.species_id}/reference-photo/thumb`
+        ? `/api/species/${row.species_id}/reference-photo/thumb?v=${MEDIA_CACHE_BUST}`
         : row.reference_photo,
     coverPhotoCredit: hasOwnCover ? null : row.reference_credit,
     // Only meaningful for your own photo — the external reference thumbnails are already
@@ -62,6 +73,10 @@ export function toCollectionItem(row: CollectionRow) {
     cardCropX: hasOwnCover ? numOrNull(row.card_crop_x) : null,
     cardCropY: hasOwnCover ? numOrNull(row.card_crop_y) : null,
     cardCropSize: hasOwnCover ? numOrNull(row.card_crop_size) : null,
+    // The inverse gating of cardCrop* above — a focal point on the shared reference photo
+    // only means anything when that's actually what's showing (no cover photo of your own).
+    referenceFocalX: hasOwnCover ? null : numOrNull(row.reference_focal_x),
+    referenceFocalY: hasOwnCover ? null : numOrNull(row.reference_focal_y),
   };
 }
 
