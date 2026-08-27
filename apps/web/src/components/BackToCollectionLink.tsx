@@ -7,15 +7,24 @@ import { useLocation, useNavigate } from "react-router-dom";
 //
 // location.key === "default" means there's no actual in-app history to go back to (opened
 // via a fresh tab/bookmark/shared link) — falls back to `fallbackTo` in that case.
+//
+// `label` is the right text for a page with exactly one real entry point (e.g. Trip detail
+// always comes from Trips). A page reachable from more than one place (SpeciesDetailPage: the
+// main collection, a trip's species view, Archived species) instead gets its label from
+// `location.state.backLabel`, set by whichever page navigated here — see SpeciesCard.tsx and
+// ArchivedSpeciesPage.tsx's own Link `state` for where that's set.
 export default function BackToCollectionLink({
   fallbackTo = "/",
+  label = "Collection",
   className,
 }: {
   fallbackTo?: string;
+  label?: string;
   className?: string;
 }) {
   const navigate = useNavigate();
   const location = useLocation();
+  const state = location.state as { backLabel?: string } | null;
   return (
     <button
       onClick={() => {
@@ -24,7 +33,7 @@ export default function BackToCollectionLink({
       }}
       className={className}
     >
-      ← Collection
+      ← {state?.backLabel ?? label}
     </button>
   );
 }

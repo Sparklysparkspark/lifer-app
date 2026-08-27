@@ -1,9 +1,18 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { CollectionItem } from "@lifer/shared";
+import { api } from "../api/client";
 import SpeciesCard from "./SpeciesCard";
 import { speciesGroupLabel } from "../lib/speciesGroups";
 
-export type GroupBy = "none" | "group" | "tier";
+// Rendering every matching species as a real DOM node (each with its own <img> and, via
+// SpeciesCard's useFitText, a ResizeObserver) is fine for a region's checklist — usually a few
+// hundred to a couple thousand — but "All species" / no region selected can be 60,000+, which
+// locks up the main thread badly enough that even clicking "Browse by region" stops responding.
+// Rendered items are capped and revealed incrementally on scroll instead of all at once.
+const INITIAL_VISIBLE = 300;
+const VISIBLE_STEP = 300;
+
+export type GroupBy = "none" | "group" | "tier" | "localTier";
 export type SortBy = "taxonomic" | "name" | "rarity" | "localRarity";
 
 // "unrated" ranks after "common", not before — it isn't easier than common, it's simply
@@ -18,6 +27,7 @@ const TIER_LABEL: Record<string, string> = {
   unrated: "Unrated",
 };
 const COLLECTED_GROUP_KEY = "__collected__";
+const SEEN_GROUP_KEY = "__seen__";
 
 // groupBy and sortBy are independent: group by folk-taxonomy or rarity tier, then sort
 // within (or across, if ungrouped) by whichever of taxonomic/name/rarity order. Array.sort
@@ -46,52 +56,122 @@ export default function GroupedSpeciesGrid({
   groupBy,
   sortBy,
   collectedFirst,
+  seenFirst,
+  onArchived,
 }: {
   items: CollectionItem[];
   regionId?: string;
   groupBy: GroupBy;
   sortBy: SortBy;
   collectedFirst: boolean;
+  /** Independent of collectedFirst — either can be on without the other. Pin order when both
+   *  are on is always Collected above Seen, since a photographed species is a stronger signal
+   *  than a merely-seen one, not because the two toggles are coupled. */
+  seenFirst: boolean;
+  /** Called after an archive/unarchive action succeeds (single or bulk) so the parent can
+   *  refetch — archived species are excluded server-side, so the only correct way to reflect
+   *  a change here is to reload, not to guess at how to patch local state. */
+  onArchived?: () => void;
 }) {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const [visibleCount, setVisibleCount] = useState(INITIAL_VISIBLE);
+  const sentinelRef = useRef<HTMLDivElement>(null);
+
+  // A fresh filter/sort/region change should start back at the cap, not keep whatever was
+  // revealed for a totally different, possibly much larger, previous list.
+  useEffect(() => {
+    setVisibleCount(INITIAL_VISIBLE);
+  }, [items, groupBy, sortBy, collectedFirst, seenFirst]);
+
+  // Rank used for the ungrouped "float to top" sort below — only ranks a state ahead of
+  // "everything else" when its own toggle is actually on, so collectedFirst/seenFirst stay
+  // fully independent (either can be on without the other) while still cooperating correctly
+  // when both are on at once (collected above seen, seen above the rest).
+  function floatRank(state: string): number {
+    if (state === "collected") return collectedFirst ? 0 : 2;
+    if (state === "seen") return seenFirst ? (collectedFirst ? 1 : 0) : 2;
+    return 2;
+  }
 
   const groups = useMemo(() => {
     const sorted = sortItems(items, sortBy);
 
     if (groupBy === "none") {
-      // Ungrouped: "collected first" just means collected items float to the top of the
-      // single list, same as before.
-      const list = collectedFirst
-        ? [...sorted].sort((a, b) => (a.state === "collected" ? 0 : 1) - (b.state === "collected" ? 0 : 1))
-        : sorted;
+      // "Collected first" / "Seen first" float their own state to the top of the single list
+      // — independent toggles, so either can be on alone, or both (collected above seen).
+      const list = collectedFirst || seenFirst ? [...sorted].sort((a, b) => floatRank(a.state) - floatRank(b.state)) : sorted;
       return [{ key: "", label: "", items: list }];
     }
 
+    const byTier = groupBy === "tier" || groupBy === "localTier";
     const byKey = new Map<string, CollectionItem[]>();
     for (const item of sorted) {
-      const key = groupBy === "tier" ? item.tier ?? "common" : speciesGroupLabel(item.taxonClass, item.family);
+      // "Rarity here" falls back to the global tier when localTier is null (see
+      // CollectionItem.localTier's own comment) — same graceful-degrade as the sort option.
+      const key = groupBy === "tier"
+        ? item.tier ?? "common"
+        : groupBy === "localTier"
+          ? item.localTier ?? item.tier ?? "common"
+          : speciesGroupLabel(item.taxonClass, item.family);
       if (!byKey.has(key)) byKey.set(key, []);
       byKey.get(key)!.push(item);
     }
 
     const keys = [...byKey.keys()];
-    if (groupBy === "tier") keys.sort((a, b) => (TIER_RANK[a] ?? 5) - (TIER_RANK[b] ?? 5));
+    if (byTier) keys.sort((a, b) => (TIER_RANK[a] ?? 5) - (TIER_RANK[b] ?? 5));
     else keys.sort((a, b) => a.localeCompare(b));
 
     const named = keys.map((key) => ({
       key,
-      label: groupBy === "tier" ? TIER_LABEL[key] ?? key : key,
+      label: byTier ? TIER_LABEL[key] ?? key : key,
       items: byKey.get(key)!,
     }));
 
-    // "Collected first" while grouped: a pinned "Collected" group up top showing everything
-    // already found, on top of — not instead of — the normal family/tier breakdown below,
-    // which still lists every species in its usual group.
-    if (!collectedFirst) return named;
-    const collectedItems = sorted.filter((i) => i.state === "collected");
-    if (collectedItems.length === 0) return named;
-    return [{ key: COLLECTED_GROUP_KEY, label: "Collected", items: collectedItems }, ...named];
-  }, [items, groupBy, sortBy, collectedFirst]);
+    // "Collected first" / "Seen first" while grouped: independent pinned groups up top
+    // showing everything already found and/or seen, on top of — not instead of — the normal
+    // family/tier breakdown below, which still lists every species in its usual group. Order
+    // is always Collected above Seen when both are on, same reasoning as floatRank above.
+    const pinned: typeof named = [];
+    if (collectedFirst) {
+      const collectedItems = sorted.filter((i) => i.state === "collected");
+      if (collectedItems.length > 0) pinned.push({ key: COLLECTED_GROUP_KEY, label: "Collected", items: collectedItems });
+    }
+    if (seenFirst) {
+      const seenItems = sorted.filter((i) => i.state === "seen");
+      if (seenItems.length > 0) pinned.push({ key: SEEN_GROUP_KEY, label: "Seen", items: seenItems });
+    }
+    return [...pinned, ...named];
+  }, [items, groupBy, sortBy, collectedFirst, seenFirst]);
+
+  // How many of EACH group's items are actually rendered as cards right now — a running
+  // budget consumed in group order, so the cap applies to the page as a whole (not per group),
+  // while a group's header/bulk-archive action still sees its true, uncapped item list.
+  const visibleCountByKey = useMemo(() => {
+    let remaining = visibleCount;
+    const map = new Map<string, number>();
+    for (const g of groups) {
+      const take = Math.max(0, Math.min(g.items.length, remaining));
+      map.set(g.key, take);
+      remaining -= take;
+    }
+    return map;
+  }, [groups, visibleCount]);
+  const totalItemCount = useMemo(() => groups.reduce((sum, g) => sum + g.items.length, 0), [groups]);
+  const hasMore = visibleCount < totalItemCount;
+
+  useEffect(() => {
+    if (!hasMore) return;
+    const el = sentinelRef.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) setVisibleCount((c) => c + VISIBLE_STEP);
+      },
+      { rootMargin: "600px" },
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [hasMore]);
 
   function toggleCollapsed(key: string) {
     setCollapsed((prev) => {
@@ -106,48 +186,59 @@ export default function GroupedSpeciesGrid({
   // several SMALL groups side by side, which doesn't apply here, so it keeps the plain wide
   // grid (up to 6 columns) instead of being squeezed into 2-3 packing columns.
   if (groupBy === "none") {
+    const visible = groups[0].items.slice(0, visibleCountByKey.get(groups[0].key) ?? groups[0].items.length);
     return (
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
-        {groups[0].items.map((item) => (
-          <SpeciesCard key={item.speciesId} item={item} regionId={regionId} />
-        ))}
-      </div>
+      <>
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
+          {visible.map((item) => (
+            <SpeciesCard key={item.speciesId} item={item} regionId={regionId} onArchived={onArchived} />
+          ))}
+        </div>
+        {hasMore && <div ref={sentinelRef} className="h-10" />}
+      </>
     );
   }
 
-  const pinnedCollected = collectedFirst ? groups.find((g) => g.key === COLLECTED_GROUP_KEY) : null;
-  const rest = groups.filter((g) => g.key !== COLLECTED_GROUP_KEY);
+  // `groups` above only ever contains a pinned entry when its own toggle was actually on, so
+  // this doesn't need to re-check collectedFirst/seenFirst itself.
+  const pinnedKeys = new Set([COLLECTED_GROUP_KEY, SEEN_GROUP_KEY]);
+  const pinnedGroups = groups.filter((g) => pinnedKeys.has(g.key));
+  const rest = groups.filter((g) => !pinnedKeys.has(g.key));
   const collapsedGroups = rest.filter((g) => collapsed.has(g.key));
   const expandedGroups = rest.filter((g) => !collapsed.has(g.key));
-  const collectedCollapsed = pinnedCollected ? collapsed.has(COLLECTED_GROUP_KEY) : false;
+  const expandedPinnedGroups = pinnedGroups.filter((g) => !collapsed.has(g.key));
+  const collapsedPinnedGroups = pinnedGroups.filter((g) => collapsed.has(g.key));
 
   return (
     <div className="space-y-4">
-      {pinnedCollected &&
-        (collectedCollapsed ? null : (
-          <GroupSection
-            group={pinnedCollected}
-            regionId={regionId}
-            collapsed={false}
-            onToggle={() => toggleCollapsed(COLLECTED_GROUP_KEY)}
-            wide
-          />
-        ))}
+      {expandedPinnedGroups.map((group) => (
+        <GroupSection
+          key={group.key}
+          group={group}
+          visibleCount={visibleCountByKey.get(group.key) ?? group.items.length}
+          regionId={regionId}
+          collapsed={false}
+          onToggle={() => toggleCollapsed(group.key)}
+          onArchived={onArchived}
+          wide
+        />
+      ))}
 
       {/* Collapsed groups move here as compact chips instead of sitting in the vertical
          flow as empty-but-still-present sections, so collapsing several doesn't mean
          scrolling past all of them to reach what's still expanded. */}
-      {(collapsedGroups.length > 0 || collectedCollapsed) && (
+      {(collapsedGroups.length > 0 || collapsedPinnedGroups.length > 0) && (
         <div className="flex flex-wrap items-center gap-2 rounded-lg border border-line bg-surface p-2">
           <span className="text-xs uppercase tracking-wide text-muted">Collapsed:</span>
-          {collectedCollapsed && pinnedCollected && (
+          {collapsedPinnedGroups.map((g) => (
             <button
-              onClick={() => toggleCollapsed(COLLECTED_GROUP_KEY)}
+              key={g.key}
+              onClick={() => toggleCollapsed(g.key)}
               className="rounded-full border border-line px-2.5 py-1 text-xs text-muted hover:bg-surface-muted"
             >
-              {pinnedCollected.label} ({pinnedCollected.items.length})
+              {g.label} ({g.items.length})
             </button>
-          )}
+          ))}
           {collapsedGroups.map((g) => (
             <button
               key={g.key}
@@ -167,36 +258,87 @@ export default function GroupedSpeciesGrid({
       <div className="columns-1 gap-6 sm:columns-2 xl:columns-3">
         {expandedGroups.map((group) => (
           <div key={group.key} className="break-inside-avoid">
-            <GroupSection group={group} regionId={regionId} collapsed={false} onToggle={() => toggleCollapsed(group.key)} />
+            <GroupSection
+              group={group}
+              visibleCount={visibleCountByKey.get(group.key) ?? group.items.length}
+              regionId={regionId}
+              collapsed={false}
+              onToggle={() => toggleCollapsed(group.key)}
+              onArchived={onArchived}
+              archivableGroup={groupBy === "group"}
+            />
           </div>
         ))}
       </div>
+      {hasMore && <div ref={sentinelRef} className="h-10" />}
     </div>
   );
 }
 
 function GroupSection({
   group,
+  visibleCount,
   regionId,
   collapsed,
   onToggle,
+  onArchived,
+  archivableGroup,
   wide,
 }: {
   group: { key: string; label: string; items: CollectionItem[] };
+  /** How many of this group's items to actually render as cards — the header count and the
+   *  bulk archive action still use the group's true, uncapped item list (see
+   *  GroupedSpeciesGrid's visibleCountByKey comment). */
+  visibleCount: number;
   regionId: string | undefined;
   collapsed: boolean;
   onToggle: () => void;
-  /** The pinned "Collected" section gets the full-width grid, same as ungrouped — it's a
+  onArchived?: () => void;
+  /** True only when grouped by family/folk-taxonomy (`groupBy === "group"`) — archiving "all
+   *  Legendary species" or "all Collected species" by tier would be a confusing, likely
+   *  unintended bulk action, so the button only ever appears on a genuine taxonomic group. */
+  archivableGroup?: boolean;
+  /** The pinned "Collected"/"Seen" sections get the full-width grid, same as ungrouped — a
    *  highlight strip, not one of the packed small-group tiles. */
   wide?: boolean;
 }) {
+  const [archiving, setArchiving] = useState(false);
+  const archivable = archivableGroup && group.key !== COLLECTED_GROUP_KEY;
+
+  async function archiveGroup() {
+    if (!confirm(`Archive all ${group.items.length} species in "${group.label}"? You can unarchive them later from the Archived page.`)) {
+      return;
+    }
+    setArchiving(true);
+    try {
+      await api.post("/archive/bulk", { speciesIds: group.items.map((i) => i.speciesId) });
+      onArchived?.();
+    } catch {
+      alert("Couldn't archive this group — try again.");
+    } finally {
+      setArchiving(false);
+    }
+  }
+
   return (
     <section className="mb-6">
-      <button onClick={onToggle} className="mb-2 flex w-full items-center gap-2 text-left text-sm font-medium text-ink">
-        <span className="text-muted">{collapsed ? "▸" : "▾"}</span>
-        {group.label}
-        <span className="text-xs font-normal text-muted">({group.items.length})</span>
-      </button>
+      <div className="mb-2 flex items-center gap-2">
+        <button onClick={onToggle} className="flex flex-1 items-center gap-2 text-left text-sm font-medium text-ink">
+          <span className="text-muted">{collapsed ? "▸" : "▾"}</span>
+          {group.label}
+          <span className="text-xs font-normal text-muted">({group.items.length})</span>
+        </button>
+        {archivable && (
+          <button
+            onClick={archiveGroup}
+            disabled={archiving}
+            title="Archive every species in this group — they'll stop counting toward your to-collect total, and you can unarchive them later"
+            className="shrink-0 text-xs text-muted hover:text-ink hover:underline disabled:opacity-50"
+          >
+            {archiving ? "Archiving…" : "Archive group"}
+          </button>
+        )}
+      </div>
       <div
         className={
           wide
@@ -204,8 +346,8 @@ function GroupSection({
             : "grid grid-cols-2 gap-4 sm:grid-cols-3"
         }
       >
-        {group.items.map((item) => (
-          <SpeciesCard key={item.speciesId} item={item} regionId={regionId} />
+        {group.items.slice(0, visibleCount).map((item) => (
+          <SpeciesCard key={item.speciesId} item={item} regionId={regionId} onArchived={onArchived} />
         ))}
       </div>
     </section>

@@ -34,6 +34,7 @@ export default function GalleryPage() {
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const [thumbSizePx, updateThumbSize] = usePhotoGridSize();
   const [showCameraInfo, setShowCameraInfo] = useState(false);
+  const [showLabels, setShowLabels] = useState(true);
 
   useEffect(() => {
     api.get<{ items: GalleryItem[] }>("/gallery").then((res) => setItems(res.items));
@@ -59,6 +60,10 @@ export default function GalleryPage() {
         </div>
         {items && items.length > 0 && (
           <div className="flex items-center gap-4">
+            <label className="flex items-center gap-1.5 text-xs text-muted">
+              <input type="checkbox" checked={showLabels} onChange={(e) => setShowLabels(e.target.checked)} className="accent-ink" />
+              Labels
+            </label>
             <label className="flex items-center gap-1.5 text-xs text-muted">
               <input
                 type="checkbox"
@@ -103,7 +108,7 @@ export default function GalleryPage() {
                   alt={item.commonName ?? item.scientificName}
                   className="block w-full cursor-pointer rounded-md"
                 />
-                <p className="mt-1 truncate text-[11px] text-muted">{item.commonName ?? item.scientificName}</p>
+                {showLabels && <p className="mt-1 truncate text-[11px] text-muted">{item.commonName ?? item.scientificName}</p>}
                 {showCameraInfo && shotDataLine({
                   camera_model: item.cameraModel,
                   lens: item.lens,

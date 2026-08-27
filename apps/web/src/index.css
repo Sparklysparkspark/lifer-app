@@ -52,33 +52,49 @@ header select {
   -webkit-app-region: no-drag;
 }
 
-/* Clears space for the frameless mac window's traffic lights, which float over the top-left
-   of the page — see main.tsx, which sets [data-mac-app] only inside the desktop app on mac.
-   Pushes the whole header down rather than the logo right, so the logo sits below the
-   traffic lights (its own left-aligned row) instead of squeezed beside them. The traffic
-   lights sit at trafficLightPosition {x:20,y:20} (see apps/desktop/src/main.js) and are
-   ~12px tall, so their visual bottom edge is ~32px down — 24px of clearance below that. */
+/* Clears space for the frameless mac window's real native traffic lights, which float over
+   the top-left of the page — see main.tsx, which sets [data-mac-app] only inside the desktop
+   app on mac. Pushes the whole header down rather than the logo right, so the logo sits below
+   the traffic lights (its own left-aligned row) instead of squeezed beside them. The traffic
+   lights sit at trafficLightPosition {x:20,y:20} (see apps/desktop/src-tauri/src/lib.rs) and
+   are ~12px tall, so their visual bottom edge is ~32px down — 24px of clearance below that. */
 [data-mac-app] header.page-header {
   padding-top: 56px;
 }
 
-/* The traffic lights themselves are real native macOS buttons (see main.js's titleBarStyle),
-   not anything we draw — their color and dimmed-on-blur behavior are entirely owned by
-   AppKit, with no public API to override them. What WAS ours to fix: our light cream header
-   background sits too close in tone to the native inactive/unfocused grey for the buttons to
-   read clearly against it. This patch just darkens the small corner behind them so the OS's
-   own grey has enough contrast — sized a bit larger than the actual 3-button cluster
-   (trafficLightPosition {x:20,y:20}, ~12px per dot, standard ~76px-wide native group) so it
-   fully covers them with a little margin. pointer-events: none since it must never intercept
-   the window-drag region or the buttons' own native hit-testing underneath it. */
+/* Same traffic-light clearance as above, for the couple of loading/error screens that render
+   a bare top-left "back to collection" link with no header.page-header around it at all (so
+   the rule above doesn't apply) — without this, that link's default top-4 (16px) sits right
+   under the native traffic lights' ~32px visual bottom edge, and can end up intersecting them. */
+[data-mac-app] .back-link-corner {
+  top: 56px;
+}
+
+/* A solid, always-draggable strip across the full window width where the traffic lights
+   float, independent of whatever page/header renders beneath it. Tracks --color-surface (the
+   same background every page's own header already uses) rather than a hardcoded color, so it
+   reads as a seamless continuation of the header in both light and dark theme instead of a
+   fixed white bar sitting on top of a dark one. The traffic lights themselves are already
+   forced to dark-appearance styling independent of the app's own theme (see lib.rs) — chosen
+   for the dots' own visibility, not because the strip beneath them needed to stay white — so
+   theming this strip doesn't touch that. A pure-CSS ::before on body (rather than per-page
+   header markup) so every page/state gets it unconditionally, including ones with no header at
+   all (LoadingScreen, the archived-species error screen) — those sit on the body's own
+   --color-canvas rather than --color-surface, a pre-existing minor seam shared by both themes,
+   not something new this introduces. pointer-events stays enabled (default) because
+   -webkit-app-region: drag only works on an element that actually receives the mouse-down —
+   nothing meaningful renders in this exact 56px band on any page (every header already clears
+   it via padding-top above), so this can't block a real click. TrafficLights' own custom dots
+   (light theme only) sit at z-index 2147483647, one above this strip's 2147483646, so they
+   still receive their own (no-drag) clicks on top of it. */
 [data-mac-app] body::before {
   content: "";
   position: fixed;
   top: 0;
   left: 0;
-  width: 90px;
-  height: 40px;
-  background: rgb(0 0 0 / 0.16);
-  pointer-events: none;
-  z-index: 9999;
+  right: 0;
+  height: 56px;
+  background: var(--color-surface);
+  -webkit-app-region: drag;
+  z-index: 2147483646;
 }

@@ -3,6 +3,11 @@ import { useEffect, useState } from "react";
 export interface LightboxSlide {
   url: string;
   caption?: string | null;
+  // Only meaningful to callers that show this slide inside an object-cover box (e.g. the
+  // species detail page's 16:9 hero) — Lightbox itself always shows the full photo
+  // (object-contain), so it never reads these, just carries them through per slide.
+  focalX?: number | null;
+  focalY?: number | null;
   // Structured rather than a single preformatted string, so the detail view (see showInfo
   // below) can lay each field out as its own labeled row instead of one run-on line.
   info?: {

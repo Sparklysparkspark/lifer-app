@@ -1,7 +1,9 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import type { CollectionItem } from "@lifer/shared";
+import { api } from "../api/client";
 import { cropToImageStyle } from "../lib/crop";
+import { useFitText } from "../hooks/useFitText";
 import ProgressiveImg from "./ProgressiveImg";
 import PhotoPlaceholder from "./PhotoPlaceholder";
 
@@ -14,16 +16,71 @@ const TIER_LABEL: Record<string, string> = {
   unrated: "Unrated",
 };
 
-export default function SpeciesCard({ item, regionId }: { item: CollectionItem; regionId?: string }) {
+export default function SpeciesCard({
+  item,
+  regionId,
+  backLabel,
+  onArchived,
+}: {
+  item: CollectionItem;
+  regionId?: string;
+  /** What SpeciesDetailPage's own back link should say — this card is reused from more than
+   *  one page (the main collection, a trip's species view), so the right label depends on
+   *  which one rendered it. Omitted on the main collection, whose "Collection" default is
+   *  already correct. See BackToCollectionLink's own comment. */
+  backLabel?: string;
+  /** Called after this card's own archive action succeeds — archived species are excluded
+   *  server-side, so the parent needs to refetch to actually remove this card from view. */
+  onArchived?: () => void;
+}) {
   const isUnseen = item.state === "unseen";
   const isSeen = item.state === "seen";
   // A reference photo whose file has since moved or been deleted would otherwise show the
   // browser's own broken-image icon — falls back to the same "no photo" placeholder instead.
   const [referencePhotoFailed, setReferencePhotoFailed] = useState(false);
+  const [archiving, setArchiving] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const displayName = item.commonName ?? item.scientificName;
+  const { ref: nameRef, fontSize: nameFontSize } = useFitText([displayName]);
+
+  // A hover-only affordance never surfaces on touch devices, and clicking a button stacked
+  // over a whole-card <Link> is fragile — a small always-visible menu button, closed by any
+  // outside click, is discoverable everywhere and only navigates when its own item is chosen.
+  useEffect(() => {
+    if (!menuOpen) return;
+    function onClickOutside(e: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false);
+    }
+    document.addEventListener("click", onClickOutside);
+    return () => document.removeEventListener("click", onClickOutside);
+  }, [menuOpen]);
+
+  function toggleMenu(e: React.MouseEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    setMenuOpen((open) => !open);
+  }
+
+  async function archive(e: React.MouseEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    setMenuOpen(false);
+    setArchiving(true);
+    try {
+      await api.post(`/species/${item.speciesId}/archive`);
+      onArchived?.();
+    } catch {
+      alert("Couldn't archive this species — try again.");
+    } finally {
+      setArchiving(false);
+    }
+  }
 
   return (
     <Link
       to={regionId ? `/species/${item.speciesId}?regionId=${regionId}` : `/species/${item.speciesId}`}
+      state={backLabel ? { backLabel } : undefined}
       className={`group block overflow-hidden rounded-lg border border-line bg-surface transition hover:shadow-md ${
         isUnseen ? "opacity-60" : ""
       }`}
@@ -45,8 +102,10 @@ export default function SpeciesCard({ item, regionId }: { item: CollectionItem; 
             <img
               src={item.coverPhotoUrl}
               alt={item.commonName ?? item.scientificName}
-              className="h-full w-full"
-              style={cropToImageStyle(item.cardCropX, item.cardCropY, item.cardCropSize)}
+              className="h-full w-full object-cover"
+              style={{
+                objectPosition: `${item.referenceFocalX ?? 50}% ${item.referenceFocalY ?? 50}%`,
+              }}
               onError={() => setReferencePhotoFailed(true)}
             />
           )
@@ -61,9 +120,51 @@ export default function SpeciesCard({ item, regionId }: { item: CollectionItem; 
             ✓
           </span>
         )}
+        {/* Archiving a species you've already collected/seen would be a no-op server-side
+           (see ALREADY_OWNED_SQL), so the menu doesn't offer it there at all. */}
+        {/* On a real pointer (hover-capable) device, the button sits top-right and only
+           appears on card hover, so it doesn't compete for attention with the whole grid
+           visible at once. A touch device has no hover to reveal it with, so there it's
+           pinned bottom-right and always visible instead — same reasoning that made
+           bottom-right the natural "always-on" corner. The dropdown opens the opposite
+           direction from wherever the button sits, so it never gets clipped by this
+           container's own overflow-hidden. */}
+        {item.state !== "collected" && (
+          <div ref={menuRef} className="absolute bottom-1.5 right-1.5 [@media(hover:hover)]:bottom-auto [@media(hover:hover)]:top-1.5">
+            <button
+              onClick={toggleMenu}
+              title="More actions"
+              className={`flex h-6 w-6 items-center justify-center rounded-full bg-white/90 text-sm leading-none text-stone-600 shadow transition hover:bg-white ${
+                menuOpen
+                  ? "opacity-100"
+                  : "opacity-100 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100"
+              }`}
+            >
+              ⋮
+            </button>
+            {menuOpen && (
+              <div className="absolute bottom-7 right-0 z-10 min-w-[8rem] rounded-md border border-line bg-surface py-1 shadow-lg [@media(hover:hover)]:bottom-auto [@media(hover:hover)]:top-7">
+                <button
+                  onClick={archive}
+                  disabled={archiving}
+                  title="Stop counting this toward your to-collect total (can be undone from the Archived page)"
+                  className="block w-full px-3 py-1.5 text-left text-xs text-ink hover:bg-surface-muted disabled:opacity-50"
+                >
+                  {archiving ? "Archiving…" : "Archive"}
+                </button>
+              </div>
+            )}
+          </div>
+        )}
       </div>
       <div className="p-3">
-        <p className="truncate text-sm font-medium text-ink">{item.commonName ?? item.scientificName}</p>
+        <p
+          ref={nameRef}
+          className="overflow-hidden font-medium leading-tight text-ink"
+          style={{ fontSize: nameFontSize }}
+        >
+          {displayName}
+        </p>
         <p className="truncate text-xs italic text-muted">{item.scientificName}</p>
         {(item.tier || item.localTier || item.endemic || item.vagrant) && (
           <div className="mt-1 flex flex-wrap items-center gap-1">

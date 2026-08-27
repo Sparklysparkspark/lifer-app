@@ -31,5 +31,8 @@ export const api = {
     request<T>(path, { method: "POST", body: body instanceof FormData ? body : JSON.stringify(body) }),
   patch: <T>(path: string, body?: unknown) => request<T>(path, { method: "PATCH", body: JSON.stringify(body) }),
   put: <T>(path: string, body?: unknown) => request<T>(path, { method: "PUT", body: JSON.stringify(body) }),
-  delete: <T>(path: string) => request<T>(path, { method: "DELETE" }),
+  // body is optional — most DELETEs carry none, but bulk actions (e.g. /archive/bulk) need to
+  // send which ids to act on, the same as a POST body would.
+  delete: <T>(path: string, body?: unknown) =>
+    request<T>(path, { method: "DELETE", body: body === undefined ? undefined : JSON.stringify(body) }),
 };
