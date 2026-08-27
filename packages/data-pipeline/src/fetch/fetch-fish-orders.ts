@@ -13,6 +13,8 @@
 // Still excluded, correctly: Amphibia/Aves/Crocodylia/Mammalia/Sphenodontia/Squamata/
 // Testudines (tetrapods, not fish) and Ascidiacea/Thaliacea/Leptocardii (tunicates/
 // lancelets — chordates, but not fish by any common definition).
+import { fetchWithRetry } from "../fetch-with-retry.js";
+
 const CHORDATA_KEY = 44;
 const GBIF_BACKBONE_DATASET_KEY = "d7dddbf4-2cf0-4f39-9b2a-bb099caae36c";
 const NON_FISH_ORDERS = new Set(["Copelata"]);
@@ -39,7 +41,7 @@ async function fetchRayFinnedOrderKeys(): Promise<number[]> {
   let offset = 0;
   for (;;) {
     const url = `https://api.gbif.org/v1/species/${CHORDATA_KEY}/children?datasetKey=${GBIF_BACKBONE_DATASET_KEY}&limit=200&offset=${offset}`;
-    const res = await fetch(url);
+    const res = await fetchWithRetry(url, {});
     if (!res.ok) throw new Error(`[fish-orders] fetch failed: ${res.status} ${res.statusText}`);
     const data = (await res.json()) as { results: GbifChild[]; endOfRecords: boolean };
 

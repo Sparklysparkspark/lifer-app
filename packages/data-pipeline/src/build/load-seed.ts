@@ -6,6 +6,7 @@ import path from "node:path";
 import type { PoolClient } from "pg";
 import { pool } from "../db.js";
 import { BUILD_DIR } from "../raw-cache.js";
+import { SPECIES_SYNONYM_GBIF_KEYS } from "../species-synonyms.js";
 
 export interface SeedRarityInput {
   rangeScore: number;
@@ -133,6 +134,15 @@ async function main() {
 
     const speciesIdByGbifKey = new Map<number, string>();
     for (const s of species) {
+      // Duplicate-species cleanup (see species-synonyms.ts's own comment): this gbif_key was
+      // manually confirmed to be the SAME real species as another gbif_key already in our DB
+      // under a different scientific name — GBIF's own backbone lists both as independently
+      // "ACCEPTED" (sometimes under different families entirely), so a fresh backbone pull
+      // would otherwise recreate the exact duplicate row this cleanup removed. Skipped
+      // entirely here rather than inserted-then-deleted; region/sea-zone links for it are
+      // remapped to the canonical species after this loop.
+      if (SPECIES_SYNONYM_GBIF_KEYS[s.gbifKey] !== undefined) continue;
+
       const res = await client.query(
         `INSERT INTO species
            (gbif_key, ebird_code, inat_taxon_id, scientific_name, common_name, taxon_class, family, taxon_order, reference_photo, reference_credit, reference_license, description, description_credit, description_source_url, wikipedia_title, commons_image)
@@ -238,7 +248,18 @@ async function main() {
         );
       }
     }
-    console.log(`[load-seed] upserted ${species.length} species`);
+    // Point every skipped synonym's gbif_key at its canonical species' id, so region_species/
+    // sea_zone_species rows below (keyed by gbifKey, looked up via this same map) attach to
+    // the correct, already-inserted species instead of silently having nowhere to resolve to.
+    let remapped = 0;
+    for (const [staleKey, canonicalKey] of Object.entries(SPECIES_SYNONYM_GBIF_KEYS)) {
+      const canonicalId = speciesIdByGbifKey.get(canonicalKey);
+      if (canonicalId) {
+        speciesIdByGbifKey.set(Number(staleKey), canonicalId);
+        remapped++;
+      }
+    }
+    console.log(`[load-seed] upserted ${speciesIdByGbifKey.size - remapped} species, remapped ${remapped} known synonyms`);
 
     const regionIdByName = new Map<string, string>();
     for (const r of regions) {
