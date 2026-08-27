@@ -18,7 +18,9 @@
     "load-seed": "tsx src/build/load-seed.ts",
     "compute-elusiveness": "tsx src/build/compute-elusiveness.ts",
     "build-region-pack": "tsx src/build/build-region-pack.ts",
+    "build-pack-index": "tsx src/build/build-pack-index.ts",
     "backup": "tsx src/scripts/backup.ts",
+    "publish-packs": "tsx src/scripts/publish-packs.ts",
     "test": "vitest run",
     "test:unit": "vitest run --exclude '**/*.integration.test.ts'",
     "test:integration": "vitest run integration"

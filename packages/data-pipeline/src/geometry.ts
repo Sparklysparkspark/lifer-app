@@ -200,9 +200,30 @@ export function bboxesNear(a: BoundingBox, b: BoundingBox, bufferDegrees: number
 // island whose own bbox is fully contained in a sea zone's bbox is unambiguously "in that
 // sea," even in the rare case where the zone's simplified polygon edge sits just past the
 // ring-distance cutoff (found via Antigua and Barb. vs. the Eastern Caribbean zone).
+//
+// This is a plain geometric containment check with no size opinion of its own — callers using
+// it as that "small island" bypass MUST additionally gate on the inner bbox actually being
+// island-scale (see bboxDiagonalDegrees + SMALL_ISLAND_MAX_BBOX_DIAGONAL_DEGREES below).
+// Without that gate, this backfires for a LARGE landlocked region: a sea zone's bbox is often
+// a loose rectangle spanning its entire basin (gulfs, sub-seas and all), so a big inland
+// governorate's bbox can trivially sit "inside" it by sheer coincidence of rectangle geometry
+// despite being nowhere near real water — found via Aswan (Egypt), whose bbox landed
+// entirely inside the Red Sea zone's bbox despite being ~200km from the actual coast.
 export function bboxContains(outer: BoundingBox, inner: BoundingBox): boolean {
   return inner.minLon >= outer.minLon && inner.maxLon <= outer.maxLon && inner.minLat >= outer.minLat && inner.maxLat <= outer.maxLat;
 }
+
+// Diagonal size of a bbox in plain degrees (same Euclidean-not-haversine tradeoff as
+// minRingDistance below — a proximity heuristic, not a navigational distance).
+export function bboxDiagonalDegrees(bbox: BoundingBox): number {
+  return Math.hypot(bbox.maxLon - bbox.minLon, bbox.maxLat - bbox.minLat);
+}
+
+// ~1.5° (roughly 165km at the equator) comfortably covers genuine small-island cases (Antigua
+// and Barbuda's combined bbox is well under 1°) while excluding anything governorate/county
+// scale or larger, which is exactly the size class the bboxContains bypass above was never
+// meant to cover.
+export const SMALL_ISLAND_MAX_BBOX_DIAGONAL_DEGREES = 1.5;
 
 // Minimum distance (plain Euclidean degrees, not haversine — this is a proximity heuristic
 // for surfacing checkbox options, not a navigational distance, and the regions involved are
@@ -223,6 +244,30 @@ export function minRingDistance(ringsA: Point[][], ringsB: Point[][]): number {
     }
   }
   return min;
+}
+
+// Standard ray-casting point-in-polygon test (even-odd rule) — a genuine gap this file didn't
+// have: minRingDistance/bboxContains answer "how close are two shapes," not "is this exact
+// point inside this one shape," which is what's needed to sanity-check an occurrence record's
+// own coordinates against a country's real landmass (see looksLikeInlandRecords's own
+// comment — a "marine" observation that resolves 150+ miles inland at a desert oasis is
+// wrong regardless of which sea zone's polygon happened to also (incorrectly) claim it).
+export function pointInRing(point: Point, ring: Point[]): boolean {
+  const [px, py] = point;
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const [xi, yi] = ring[i];
+    const [xj, yj] = ring[j];
+    if (yi === yj) continue;
+    if (py < Math.min(yi, yj) || py >= Math.max(yi, yj)) continue;
+    const xIntersect = xi + ((py - yi) / (yj - yi)) * (xj - xi);
+    if (px < xIntersect) inside = !inside;
+  }
+  return inside;
+}
+
+export function pointInAnyRing(point: Point, rings: Point[][]): boolean {
+  return rings.some((ring) => pointInRing(point, ring));
 }
 
 export function exteriorRingsFromGeometry(geometry: { type: string; coordinates: unknown }): Point[][] {

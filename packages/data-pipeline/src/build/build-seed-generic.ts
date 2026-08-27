@@ -26,6 +26,13 @@ export interface GenericTaxonConfig {
   buildIdEnvVar: string;
   defaultBuildId: string;
   logPrefix: string;
+  // Most invertebrate groups (crustaceans, sponges, obscure gastropods) are overwhelmingly
+  // taxonomic-database-only entries — no common name, no Wikipedia article, and often no
+  // real GBIF occurrence records either, meaning no one could ever realistically identify or
+  // photograph them. Vertebrate groups (reptiles/amphibians) don't have this problem badly
+  // enough to need the same floor. When true, a species with neither a common name NOR a
+  // Wikipedia sitelink is dropped before being written to species.json.
+  requireVisibilitySignal?: boolean;
 }
 
 export async function buildGenericTaxonSeed(config: GenericTaxonConfig): Promise<void> {
@@ -59,8 +66,16 @@ export async function buildGenericTaxonSeed(config: GenericTaxonConfig): Promise
   const rarity = computeRarityPhase1(rarityInputs);
   const rarityByName = new Map(rarity.map((r) => [r.scientificName, r]));
 
+  let visible = gbif;
+  if (config.requireVisibilitySignal) {
+    visible = gbif.filter((g) => commonNameByGbifKey.get(g.gbifKey) || wikidataByName.get(canonical(g))?.wikipediaTitle);
+    console.log(
+      `[${config.logPrefix}] visibility floor: kept ${visible.length}/${gbif.length} (dropped species with no common name and no Wikipedia article)`,
+    );
+  }
+
   console.log(`[${config.logPrefix}] step 4/4: assembling species.json`);
-  const species = gbif.map((g) => {
+  const species = visible.map((g) => {
     const name = canonical(g);
     const wiki = wikidataByName.get(name);
     const rarityRow = rarityByName.get(name);

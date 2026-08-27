@@ -6,6 +6,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { BUILD_DIR } from "../raw-cache.js";
+import { fetchWithRetry } from "../fetch-with-retry.js";
 
 const GBIF_API = "https://api.gbif.org/v1/species/search";
 
@@ -69,7 +70,7 @@ export async function fetchGbifBackboneForKeys(higherTaxonKeys: number[]): Promi
     let offset = 0;
     for (;;) {
       const url = `${GBIF_API}?rank=SPECIES&status=ACCEPTED&highertaxonKey=${higherTaxonKey}&limit=${PAGE_SIZE}&offset=${offset}`;
-      const res = await fetch(url);
+      const res = await fetchWithRetry(url, {});
       if (!res.ok) {
         throw new Error(`[gbif] fetch failed: ${res.status} ${res.statusText} (${url})`);
       }
@@ -135,7 +136,7 @@ export async function fetchGbifSpeciesByNames(names: string[]): Promise<GbifSpec
   const rows: GbifSpeciesRow[] = [];
   for (const name of names) {
     const url = `https://api.gbif.org/v1/species/match?name=${encodeURIComponent(name)}&rank=SPECIES&strict=true`;
-    const res = await fetch(url);
+    const res = await fetchWithRetry(url, {});
     if (!res.ok) {
       throw new Error(`[gbif] match failed for "${name}": ${res.status} ${res.statusText}`);
     }
