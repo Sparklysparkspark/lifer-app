@@ -5,23 +5,23 @@ on:
 
 jobs:
   build:
+    # Windows/Linux aren't wired up yet — apps/desktop/scripts/fetch-node-sidecar.js only
+    # knows how to vendor the macOS arm64 Node sidecar binary right now (see that script's own
+    # TARGETS map). Extending this matrix means adding the matching target-triple entries
+    # there first, not just adding OSes here.
     strategy:
       matrix:
-        os: [macos-14, macos-13, windows-latest, ubuntu-latest]
+        os: [macos-14]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - uses: dtolnay/rust-toolchain@stable
       - run: npm ci
       - run: npm run dist -w desktop
       - uses: actions/upload-artifact@v4
         with:
           name: lifer-desktop-${{ matrix.os }}
-          path: |
-            apps/desktop/dist/*.dmg
-            apps/desktop/dist/*.zip
-            apps/desktop/dist/*.exe
-            apps/desktop/dist/*.AppImage
-            apps/desktop/dist/*.deb
+          path: apps/desktop/src-tauri/target/release/bundle/macos/Lifer.app

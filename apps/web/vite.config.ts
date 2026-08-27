@@ -1,16 +1,39 @@
-import { defineConfig } from "vite";
+import { cpSync, existsSync, mkdirSync } from "node:fs";
+import path from "node:path";
+import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 
+// maplibre-gl parses vector tiles off the main thread via a worker script it loads at RUNTIME
+// (a URL it builds itself), not a static import Rollup can see and bundle — left alone, the
+// production build never emits that file at all, the browser refuses to run the resulting
+// 404-turned-index.html as a JS module, and the map silently never renders any tile data (only
+// its flat style background) even though the network/data layer underneath is completely fine.
+// A `?url` import (see RegionMap.tsx) gets Vite to emit maplibre-gl-worker.mjs itself, but that
+// file has its OWN internal `import ... from "./maplibre-gl-shared.mjs"` which Vite's `?url`
+// raw-copy doesn't trace or rewrite either — so its sibling has to be copied to the exact same
+// output directory by hand, unmodified, for that relative import to resolve at all.
+function copyMaplibreWorkerSharedChunk(): Plugin {
+  return {
+    name: "copy-maplibre-worker-shared-chunk",
+    apply: "build",
+    writeBundle(options) {
+      const outDir = path.resolve(options.dir ?? "dist");
+      const assetsDir = path.join(outDir, "assets");
+      const src = path.resolve("../../node_modules/maplibre-gl/dist/maplibre-gl-shared.mjs");
+      if (!existsSync(src)) throw new Error(`maplibre-gl-shared.mjs not found at ${src} — is maplibre-gl installed?`);
+      mkdirSync(assetsDir, { recursive: true });
+      cpSync(src, path.join(assetsDir, "maplibre-gl-shared.mjs"));
+    },
+  };
+}
+
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
-  // maplibre-gl ships its own worker bundle (maplibre-gl-worker.mjs) for parsing vector
-  // tiles off the main thread — Vite's esbuild-based dep pre-bundler doesn't handle that
-  // pattern and silently produces a broken reference to it ("The file does not exist at
-  // .../maplibre-gl-worker.mjs" in the dev server log). Without a working worker, MapLibre
-  // can still paint its style's plain background color but never parses or renders any
-  // actual tile data — exactly a "just a blue screen" symptom. Excluding it from
-  // pre-bundling is the fix Vite's own warning suggests.
+  plugins: [react(), tailwindcss(), copyMaplibreWorkerSharedChunk()],
+  // Same underlying maplibre-gl worker issue as above, but for the dev server specifically:
+  // Vite's esbuild-based dep pre-bundler mishandles the runtime-constructed worker URL
+  // differently again ("The file does not exist at .../maplibre-gl-worker.mjs" in the dev
+  // server log) — excluding it from pre-bundling is the fix Vite's own warning suggests.
   optimizeDeps: {
     exclude: ["maplibre-gl"],
   },
