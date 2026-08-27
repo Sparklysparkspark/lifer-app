@@ -14,6 +14,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { BUILD_DIR } from "../raw-cache.js";
+import { fetchWithRetry } from "../fetch-with-retry.js";
 
 const WIKIPEDIA_API = "https://en.wikipedia.org/w/api.php";
 const MAX_SENTENCES = 2;
@@ -66,7 +67,7 @@ export async function fetchWikipediaSummary(title: string): Promise<WikipediaSum
     WIKIPEDIA_API +
     "?action=query&prop=extracts&explaintext=1&redirects=1&format=json&titles=" +
     encodeURIComponent(title);
-  const res = await fetch(url, { headers: { "User-Agent": "lifer-data-pipeline/0.1 (personal project)" } });
+  const res = await fetchWithRetry(url, { headers: { "User-Agent": "lifer-data-pipeline/0.1 (personal project)" } });
   if (!res.ok) return { description: null, descriptionCredit: null, descriptionSourceUrl: null };
 
   const data = (await res.json()) as QueryResponse;

@@ -10,6 +10,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { BUILD_DIR } from "../raw-cache.js";
 import { isLicenseAllowed, isRestrictedLicense, normalizeLicense } from "../license-policy.js";
+import { fetchWithRetry } from "../fetch-with-retry.js";
 
 const INAT_API = "https://api.inaturalist.org/v1";
 const OPEN_DATA_DOMAIN = "inaturalist-open-data.s3";
@@ -34,7 +35,7 @@ interface InatTaxon {
 
 async function lookupTaxon(scientificName: string): Promise<InatTaxon | null> {
   const url = `${INAT_API}/taxa?q=${encodeURIComponent(scientificName)}&rank=species&is_active=true&per_page=1`;
-  const res = await fetch(url);
+  const res = await fetchWithRetry(url, {});
   if (!res.ok) return null;
   const data = (await res.json()) as { results: InatTaxon[] };
   return data.results[0] ?? null;
