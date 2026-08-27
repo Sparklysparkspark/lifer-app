@@ -17,11 +17,35 @@ import { regionRoutes } from "./regions/routes.js";
 import { importRoutes } from "./imports/routes.js";
 import { settingsRoutes, recoverInterruptedStorageMigration } from "./settings/routes.js";
 import { offlinePacksRoutes } from "./offlinePacks/routes.js";
+import { archiveRoutes } from "./archive/routes.js";
+import { tripsRoutes } from "./trips/routes.js";
+import { libraryRoutes } from "./library/routes.js";
 
 // Checked before anything else starts, so an interrupted storage-location move (see
 // settings/routes.ts) gets resolved one way or the other before the app serves a single
 // request against a possibly-inconsistent DATA_DIR.
 await recoverInterruptedStorageMigration();
+
+// Force-quitting the desktop app (or a crash) sends SIGKILL straight to the Tauri process
+// only — Unix doesn't cascade a kill to child processes automatically, so this sidecar would
+// otherwise become an orphan that keeps running (and keeps squatting on LOCAL_PORT) with zero
+// chance for any of api.rs's own cleanup code to run, since none of it executes at all. Only
+// active when the desktop app actually sets LIFER_WATCH_PARENT_PID (see apps/desktop/src-
+// tauri/src/api.rs) — a plain `npm run dev`/background script invocation has no such parent
+// to watch for and should keep running independently of whatever shell started it.
+const watchParentPid = Number(process.env.LIFER_WATCH_PARENT_PID);
+if (Number.isInteger(watchParentPid) && watchParentPid > 0) {
+  setInterval(() => {
+    try {
+      // Signal 0 sends nothing — it's the standard Unix idiom for "does this pid still
+      // exist," throwing ESRCH the moment it doesn't.
+      process.kill(watchParentPid, 0);
+    } catch {
+      console.error(`[watchdog] parent pid ${watchParentPid} is gone — exiting`);
+      process.exit(0);
+    }
+  }, 3000);
+}
 
 // trustProxy: this app is meant to sit behind a reverse proxy (nginx, etc., configured
 // separately) once self-hosted. Nothing here currently branches on request.protocol/
@@ -52,6 +76,9 @@ await app.register(async (api) => {
   await api.register(importRoutes);
   await api.register(settingsRoutes);
   await api.register(offlinePacksRoutes);
+  await api.register(archiveRoutes);
+  await api.register(tripsRoutes);
+  await api.register(libraryRoutes);
 }, { prefix: "/api" });
 
 app.get("/health", async () => ({ ok: true }));

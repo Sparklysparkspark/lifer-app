@@ -1,5 +1,4 @@
 import { useRef, useState } from "react";
-import { api } from "../api/client";
 import { cropToImageStyle } from "../lib/crop";
 
 const MIN_SIZE_PX = 40;
@@ -9,22 +8,27 @@ const MIN_SIZE_PX = 40;
 // the image's rendered bounding rect; only converted to the stored width-relative fractions
 // (see migration 006) at save time, so none of the drag math needs to know the photo's
 // natural resolution.
+//
+// Persistence is the caller's job (onSave/onReset) rather than baked in here — originally
+// species-only (PATCH /species/:id/card-crop), generalized so trips' own cover photo can reuse
+// the exact same drag-to-crop UI against PATCH /trips/:id/cover-crop instead of duplicating
+// ~170 lines of drag math for a second card-crop concept.
 export default function CardCropEditor({
-  speciesId,
   photoUrl,
   initialX,
   initialY,
   initialSize,
   onClose,
-  onSaved,
+  onSave,
+  onReset,
 }: {
-  speciesId: string;
   photoUrl: string;
   initialX: number | null;
   initialY: number | null;
   initialSize: number | null;
   onClose: () => void;
-  onSaved: () => void;
+  onSave: (crop: { x: number; y: number; size: number }) => Promise<void>;
+  onReset: () => Promise<void>;
 }) {
   const imgRef = useRef<HTMLImageElement>(null);
   const [imgSize, setImgSize] = useState<{ width: number; height: number } | null>(null);
@@ -87,12 +91,11 @@ export default function CardCropEditor({
     if (!box || !imgSize) return;
     setSaving(true);
     try {
-      await api.patch(`/species/${speciesId}/card-crop`, {
+      await onSave({
         x: (box.left / imgSize.width) * 100,
         y: (box.top / imgSize.width) * 100,
         size: (box.size / imgSize.width) * 100,
       });
-      onSaved();
       onClose();
     } finally {
       setSaving(false);
@@ -102,8 +105,7 @@ export default function CardCropEditor({
   async function resetCrop() {
     setSaving(true);
     try {
-      await api.patch(`/species/${speciesId}/card-crop`, { reset: true });
-      onSaved();
+      await onReset();
       onClose();
     } finally {
       setSaving(false);

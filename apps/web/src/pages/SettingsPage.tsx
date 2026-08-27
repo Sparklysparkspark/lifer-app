@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { api, ApiError } from "../api/client";
 import BackToCollectionLink from "../components/BackToCollectionLink";
 import { useDesktopMode } from "../hooks/useDesktopMode";
@@ -67,15 +68,36 @@ export default function SettingsPage() {
                 />
               </>
             )}
+            <LibraryLinksSection />
             <AppearanceSection />
+            <HideObscureSpeciesSection />
             <OrganizePhotosSection />
             <StorageLocationSection />
+            <LibraryReimportSection />
             <ServerSection />
+            <AppUpdatesSection />
             <MapSection />
           </>
         )}
       </main>
     </div>
+  );
+}
+
+// Moved out of the main collection page's nav bar to declutter it — these are occasional,
+// not everyday actions, so Settings is a better home than a permanent top-bar link.
+function LibraryLinksSection() {
+  return (
+    <Card title="Library" description="Manage your offline reference data and archived species.">
+      <div className="flex flex-wrap gap-3">
+        <Link to="/offline-packs" className="rounded-md border border-line px-3 py-1.5 text-sm text-ink hover:bg-surface-muted">
+          Offline packs
+        </Link>
+        <Link to="/archived" className="rounded-md border border-line px-3 py-1.5 text-sm text-ink hover:bg-surface-muted">
+          Archived species
+        </Link>
+      </div>
+    </Card>
   );
 }
 
@@ -104,6 +126,47 @@ function AppearanceSection() {
           </button>
         ))}
       </div>
+    </Card>
+  );
+}
+
+// Moved off the collection page's per-view filter bar (migration 038) — a persisted account
+// preference instead, applied automatically to every region/collection view without a
+// visible toggle cluttering that page.
+function HideObscureSpeciesSection() {
+  const [enabled, setEnabled] = useState<boolean | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    api.get<{ hideObscureSpecies: boolean }>("/settings").then((res) => setEnabled(res.hideObscureSpecies));
+  }, []);
+
+  async function toggle(next: boolean) {
+    setSaving(true);
+    setError(null);
+    try {
+      await api.put("/settings/hide-obscure-species", { enabled: next });
+      setEnabled(next);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't update this setting");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (enabled === null) return null;
+
+  return (
+    <Card
+      title="Obscure & inaccessible species"
+      description="Hides deep-water fish (beyond recreational/technical diving depth) and species with almost no historical record — mostly ones nobody will realistically encounter. Anything you've already collected or seen always stays visible regardless."
+    >
+      <label className="flex items-start gap-2 text-sm text-ink">
+        <input type="checkbox" checked={enabled} disabled={saving} onChange={(e) => toggle(e.target.checked)} className="mt-0.5" />
+        <span>Hide obscure/inaccessible species from region checklists</span>
+      </label>
+      <FormMessage error={error} success={null} />
     </Card>
   );
 }
@@ -387,6 +450,153 @@ function OrganizePhotosSection() {
         </button>
       </div>
       <FormMessage error={error} success={result} />
+    </Card>
+  );
+}
+
+interface ReimportStatus {
+  running: boolean;
+  processedJpegs: number;
+  totalJpegs: number;
+  processedRaws: number;
+  totalRaws: number;
+  error: string | null;
+  finishedAt: number | null;
+  jpegsRecovered: number;
+  jpegsAlreadyKnown: number;
+  jpegsUnrecognized: string[];
+  jpegsAmbiguous: Array<{ file: string; scientificNames: string[] }>;
+  rawsRecovered: number;
+  rawsAlreadyKnown: number;
+  rawsUnmatched: number;
+  missingReferenceData: string[];
+}
+
+// Rebuilds captures/photos/user_species/originals from a species-organized library that's
+// already on disk but has no database rows pointing at it — the fresh-install/migrated-server
+// recovery path (see apps/api/src/library/reimport.ts's own comment on why this reads embedded
+// file metadata rather than trusting folder names). Desktop-only for the same reason as
+// StorageLocationSection above: it walks the server's own filesystem directly.
+function LibraryReimportSection() {
+  const [status, setStatus] = useState<ReimportStatus | null>(null);
+  const [starting, setStarting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    api
+      .get<ReimportStatus>("/library/reimport/status")
+      .then(setStatus)
+      .catch(() => {
+        // 404s outside desktop mode — this section just won't render (see below).
+      });
+  }, []);
+
+  // Same recursive setTimeout poll pattern as TripDetailPage's scan/import status polling.
+  useEffect(() => {
+    if (!status?.running) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout>;
+    async function poll() {
+      try {
+        const res = await api.get<ReimportStatus>("/library/reimport/status");
+        if (cancelled) return;
+        setStatus(res);
+        if (!res.running) return;
+      } catch {
+        // ignore — status just won't update this tick
+      }
+      if (!cancelled) timer = setTimeout(poll, 1500);
+    }
+    timer = setTimeout(poll, 1500);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status?.running]);
+
+  async function start() {
+    if (
+      !confirm(
+        "This walks your whole photo library on disk and rebuilds any captures/species records missing from the database. It never modifies or moves your files. Continue?",
+      )
+    )
+      return;
+    setStarting(true);
+    setError(null);
+    try {
+      await api.post("/library/reimport");
+      setStatus(await api.get<ReimportStatus>("/library/reimport/status"));
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't start the reimport");
+    } finally {
+      setStarting(false);
+    }
+  }
+
+  if (status === null) return null;
+
+  return (
+    <Card
+      title="Reimport library"
+      description="Rebuild your species records straight from the photos already organized on disk — for after a fresh install or server migration where the database doesn't know about them yet."
+    >
+      <div>
+        <button
+          type="button"
+          onClick={start}
+          disabled={starting || status.running}
+          className="rounded-md border border-line px-3 py-1.5 text-sm text-ink hover:bg-surface-muted disabled:opacity-50"
+        >
+          {status.running ? "Reimporting…" : "Reimport library now"}
+        </button>
+      </div>
+      {status.running && (
+        <p className="text-xs text-muted">
+          Photos: {status.processedJpegs}/{status.totalJpegs} · RAW files: {status.processedRaws}/{status.totalRaws}
+        </p>
+      )}
+      {!status.running && status.finishedAt !== null && (
+        <div className="space-y-2 text-xs text-muted">
+          <p>
+            Recovered {status.jpegsRecovered} photo{status.jpegsRecovered === 1 ? "" : "s"}
+            {status.jpegsAlreadyKnown > 0 && ` (${status.jpegsAlreadyKnown} already known)`}
+            {status.rawsRecovered > 0 && ` and matched ${status.rawsRecovered} RAW file${status.rawsRecovered === 1 ? "" : "s"}`}.
+          </p>
+          {status.jpegsUnrecognized.length > 0 && (
+            <p>
+              {status.jpegsUnrecognized.length} photo{status.jpegsUnrecognized.length === 1 ? "" : "s"} had no recognizable species
+              metadata and were skipped.
+            </p>
+          )}
+          {status.jpegsAmbiguous.length > 0 && (
+            <p>
+              {status.jpegsAmbiguous.length} photo{status.jpegsAmbiguous.length === 1 ? "" : "s"} matched more than one possible
+              species and were skipped for manual review.
+            </p>
+          )}
+          {status.rawsUnmatched > 0 && (
+            <p>
+              {status.rawsUnmatched} RAW file{status.rawsUnmatched === 1 ? "" : "s"} couldn't be matched to a recovered photo.
+            </p>
+          )}
+          {status.missingReferenceData.length > 0 && (
+            <p>
+              {status.missingReferenceData.length} recovered species {status.missingReferenceData.length === 1 ? "is" : "are"} missing
+              reference photos/descriptions —{" "}
+              <Link
+                to={`/offline-packs?missing=${encodeURIComponent(status.missingReferenceData.join(","))}`}
+                className="underline hover:no-underline"
+              >
+                see which packs would restore them
+              </Link>
+              .
+            </p>
+          )}
+        </div>
+      )}
+      {status.error && <p className="text-sm text-red-600">{status.error}</p>}
+      <FormMessage error={error} success={null} />
     </Card>
   );
 }
@@ -699,6 +909,110 @@ function ServerSection() {
           <FormMessage error={deleteError} success={null} />
         </div>
       )}
+    </Card>
+  );
+}
+
+// Desktop-only, same window.liferSetup gating as StorageLocationSection/ServerSection above.
+// Dynamically imports @tauri-apps/plugin-updater/-process rather than a top-level import —
+// this file is also built and served to a plain browser tab / Docker deployment, where
+// window.__TAURI_INTERNALS__ never exists, so the actual invoke() calls those packages make
+// must never run there. A dynamic import keeps that code out of the initial bundle entirely
+// and only ever executes from inside this component's own (already-gated) event handlers.
+function AppUpdatesSection() {
+  type CheckResult = { version: string; body?: string; downloadAndInstall: (onEvent: (e: DownloadEventLike) => void) => Promise<void> };
+  type DownloadEventLike =
+    | { event: "Started"; data: { contentLength?: number } }
+    | { event: "Progress"; data: { chunkLength: number } }
+    | { event: "Finished" };
+
+  const [status, setStatus] = useState<"idle" | "checking" | "up-to-date" | "available" | "downloading" | "installing" | "error">("idle");
+  const [update, setUpdate] = useState<CheckResult | null>(null);
+  const [progress, setProgress] = useState<{ downloaded: number; total: number | null } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function checkForUpdate() {
+    setStatus("checking");
+    setError(null);
+    try {
+      const { check } = await import("@tauri-apps/plugin-updater");
+      const result = await check();
+      if (result) {
+        setUpdate(result);
+        setStatus("available");
+      } else {
+        setUpdate(null);
+        setStatus("up-to-date");
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't check for updates");
+      setStatus("error");
+    }
+  }
+
+  async function installUpdate() {
+    if (!update) return;
+    setStatus("downloading");
+    setError(null);
+    let totalBytes: number | null = null;
+    let downloaded = 0;
+    try {
+      await update.downloadAndInstall((event) => {
+        if (event.event === "Started") {
+          totalBytes = event.data.contentLength ?? null;
+          setProgress({ downloaded: 0, total: totalBytes });
+        } else if (event.event === "Progress") {
+          downloaded += event.data.chunkLength;
+          setProgress({ downloaded, total: totalBytes });
+        } else if (event.event === "Finished") {
+          setStatus("installing");
+        }
+      });
+      const { relaunch } = await import("@tauri-apps/plugin-process");
+      await relaunch();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't install the update");
+      setStatus("error");
+    }
+  }
+
+  if (!window.liferSetup) return null;
+
+  return (
+    <Card title="App updates" description="Check for and install a newer version of Lifer.">
+      {status === "idle" && (
+        <button type="button" onClick={checkForUpdate} className={buttonClass}>
+          Check for updates
+        </button>
+      )}
+      {status === "checking" && <p className="text-sm text-muted">Checking…</p>}
+      {status === "up-to-date" && (
+        <div className="space-y-2">
+          <p className="text-sm text-muted">You're on the latest version.</p>
+          <button type="button" onClick={checkForUpdate} className="text-sm text-ink underline">
+            Check again
+          </button>
+        </div>
+      )}
+      {status === "available" && update && (
+        <div className="space-y-2">
+          <p className="text-sm text-ink">Version {update.version} is available.</p>
+          {update.body && <p className="text-sm text-muted">{update.body}</p>}
+          <button type="button" onClick={installUpdate} className={buttonClass}>
+            Download and install
+          </button>
+        </div>
+      )}
+      {(status === "downloading" || status === "installing") && (
+        <p className="text-sm text-muted">
+          {status === "installing"
+            ? "Installing — Lifer will restart shortly…"
+            : progress?.total
+              ? `Downloading… ${Math.round((progress.downloaded / progress.total) * 100)}%`
+              : "Downloading…"}
+        </p>
+      )}
+      <FormMessage error={error} success={null} />
     </Card>
   );
 }
