@@ -2,72 +2,92 @@ import type { FastifyInstance } from "fastify";
 import { pool } from "../db.js";
 import { requireAuth } from "../auth/session.js";
 import { toCollectionItem } from "./collectionItem.js";
+import { OBSCURE_SPECIES_SQL, ALREADY_OWNED_SQL, NOT_ARCHIVED_SQL, getHideObscurePreference } from "../species/obscurity.js";
 
 export async function collectionRoutes(app: FastifyInstance): Promise<void> {
-  app.get<{ Querystring: { taxon?: string } }>("/collection", { preHandler: requireAuth }, async (request) => {
-    const userId = request.user!.id;
-    const { taxon } = request.query;
+  app.get<{ Querystring: { taxon?: string } }>(
+    "/collection",
+    { preHandler: requireAuth },
+    async (request) => {
+      const userId = request.user!.id;
+      const { taxon } = request.query;
+      const hideObscure = await getHideObscurePreference(userId);
 
-    // state per lifer-spec.md §1: collected (user_species row with state='collected'),
-    // seen (state='seen' — nothing sets this yet, that's Phase 3's eBird import), else unseen.
-    // Phase 8: ?taxon= filters by species.taxon_class (aves/mammalia/actinopterygii) — a
-    // plain query param rather than a route segment, since "all taxa" (no filter) is a
-    // completely valid, common view too.
-    const res = await pool.query(
-      `SELECT
-         s.id AS species_id,
-         s.scientific_name,
-         s.common_name,
-         s.taxon_class,
-         s.family,
-         s.reference_photo,
-         s.reference_credit,
-         s.reference_thumb_path IS NOT NULL AS has_reference_thumb,
-         r.tier,
-         t.endemic_country_iso3,
-         us.state,
-         us.cover_photo_id,
-         us.card_crop_x,
-         us.card_crop_y,
-         us.card_crop_size,
-         p.thumb_path IS NOT NULL AS has_cover_photo
-       FROM species s
-       LEFT JOIN species_rarity r ON r.species_id = s.id
-       LEFT JOIN species_traits t ON t.species_id = s.id
-       LEFT JOIN user_species us ON us.user_id = $1 AND us.species_id = s.id
-       LEFT JOIN photos p ON p.id = us.cover_photo_id
-       WHERE ($2::text IS NULL OR s.taxon_class = $2) AND COALESCE(t.fully_extinct, false) = false
-       ORDER BY s.sort_order NULLS LAST, s.scientific_name`,
-      [userId, taxon ?? null],
-    );
+      // state per lifer-spec.md §1: collected (user_species row with state='collected'),
+      // seen (state='seen' — nothing sets this yet, that's Phase 3's eBird import), else unseen.
+      // Phase 8: ?taxon= filters by species.taxon_class (aves/mammalia/actinopterygii) — a
+      // plain query param rather than a route segment, since "all taxa" (no filter) is a
+      // completely valid, common view too.
+      const res = await pool.query(
+        `SELECT
+           s.id AS species_id,
+           s.scientific_name,
+           s.common_name,
+           s.taxon_class,
+           s.family,
+           s.reference_photo,
+           s.reference_credit,
+           s.reference_thumb_path IS NOT NULL AS has_reference_thumb,
+           s.reference_focal_x,
+           s.reference_focal_y,
+           r.tier,
+           t.endemic_country_iso3,
+           t.endemic_region_label,
+           us.state,
+           us.cover_photo_id,
+           us.card_crop_x,
+           us.card_crop_y,
+           us.card_crop_size,
+           p.thumb_path IS NOT NULL AS has_cover_photo
+         FROM species s
+         LEFT JOIN species_rarity r ON r.species_id = s.id
+         LEFT JOIN species_traits t ON t.species_id = s.id
+         LEFT JOIN user_species us ON us.user_id = $1 AND us.species_id = s.id
+         LEFT JOIN photos p ON p.id = us.cover_photo_id
+         LEFT JOIN user_archived_species uas ON uas.user_id = $1 AND uas.species_id = s.id
+         WHERE ($2::text IS NULL OR s.taxon_class = $2) AND COALESCE(t.fully_extinct, false) = false
+           AND ($3 = false OR ${ALREADY_OWNED_SQL} OR NOT ${OBSCURE_SPECIES_SQL})
+           AND ${NOT_ARCHIVED_SQL}
+         ORDER BY s.sort_order NULLS LAST, s.scientific_name`,
+        [userId, taxon ?? null, hideObscure],
+      );
 
-    const items = res.rows.map(toCollectionItem);
+      const items = res.rows.map(toCollectionItem);
 
-    return { items };
-  });
+      return { items };
+    },
+  );
 
   // Same view as GET /collection, count-only — no reference photos/tier/crop fields to join
   // or serialize, just three numbers. Lets the header show a total instantly on a
   // region/taxon switch without waiting on the full (much heavier) item list to download and
   // render first — see CollectionPage.tsx, which fires this in parallel with /collection.
-  app.get<{ Querystring: { taxon?: string } }>("/collection/count", { preHandler: requireAuth }, async (request) => {
-    const userId = request.user!.id;
-    const { taxon } = request.query;
+  app.get<{ Querystring: { taxon?: string } }>(
+    "/collection/count",
+    { preHandler: requireAuth },
+    async (request) => {
+      const userId = request.user!.id;
+      const { taxon } = request.query;
+      const hideObscure = await getHideObscurePreference(userId);
 
-    const res = await pool.query<{ total: string; collected: string; seen: string }>(
-      `SELECT
-         count(*) AS total,
-         count(*) FILTER (WHERE us.state = 'collected') AS collected,
-         count(*) FILTER (WHERE us.state = 'seen') AS seen
-       FROM species s
-       LEFT JOIN species_traits t ON t.species_id = s.id
-       LEFT JOIN user_species us ON us.user_id = $1 AND us.species_id = s.id
-       WHERE ($2::text IS NULL OR s.taxon_class = $2) AND COALESCE(t.fully_extinct, false) = false`,
-      [userId, taxon ?? null],
-    );
-    const row = res.rows[0];
-    return { total: Number(row.total), collected: Number(row.collected), seen: Number(row.seen) };
-  });
+      const res = await pool.query<{ total: string; collected: string; seen: string }>(
+        `SELECT
+           count(*) AS total,
+           count(*) FILTER (WHERE us.state = 'collected') AS collected,
+           count(*) FILTER (WHERE us.state = 'seen') AS seen
+         FROM species s
+         LEFT JOIN species_traits t ON t.species_id = s.id
+         LEFT JOIN user_species us ON us.user_id = $1 AND us.species_id = s.id
+         LEFT JOIN user_archived_species uas ON uas.user_id = $1 AND uas.species_id = s.id
+         WHERE ($2::text IS NULL OR s.taxon_class = $2) AND COALESCE(t.fully_extinct, false) = false
+           AND ($3 = false OR ${ALREADY_OWNED_SQL} OR NOT ${OBSCURE_SPECIES_SQL})
+           AND ${NOT_ARCHIVED_SQL}`,
+        [userId, taxon ?? null, hideObscure],
+      );
+      const row = res.rows[0];
+      return { total: Number(row.total), collected: Number(row.collected), seen: Number(row.seen) };
+    },
+  );
 
   // Phase 4 (spec §9): "total collected, by tier, by family, by year" — all derived from
   // data already in place (species_rarity.tier, species.family, user_species.first_collected,

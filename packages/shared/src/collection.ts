@@ -43,6 +43,14 @@ export interface CollectionItem {
   cardCropX: number | null;
   cardCropY: number | null;
   cardCropSize: number | null;
+  /** A focal point (fractions 0-100) for the shared reference photo — see migration 043.
+   *  Only meaningful when coverPhotoUrl is that reference photo (no cover of your own yet);
+   *  null otherwise, same convention as cardCropX/Y being null. Applied via CSS
+   *  object-position, which (unlike cardCrop's square rect) works against any box shape a
+   *  reference photo shows up in, so one stored value covers both the square card thumbnail
+   *  and the 16:9 detail-page hero. */
+  referenceFocalX: number | null;
+  referenceFocalY: number | null;
 }
 
 // Response shape for GET /api/collection/stats (spec §9 Phase 4).

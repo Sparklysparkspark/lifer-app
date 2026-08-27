@@ -10,6 +10,7 @@ import path from "node:path";
 import { BUILD_DIR } from "../raw-cache.js";
 import { fetchWithRetry } from "../fetch-with-retry.js";
 import { fetchAllCountries } from "../fetch/fetch-region-boundary.js";
+import { pointInRing, minRingDistance, exteriorRingsFromGeometry, ringBoundingBox, type Point, type BoundingBox } from "../geometry.js";
 
 const GBIF_OCCURRENCE_API = "https://api.gbif.org/v1/occurrence/search";
 // Aves' one class key, kept as the default so every existing call site (apps/api's lazy
@@ -292,6 +293,9 @@ const CAPTIVE_LOCALITY_PATTERN =
 export interface OccurrenceLocalitySample {
   locality: string | null;
   typeStatus: string | null;
+  // [longitude, latitude], same order geometry.ts's Point/WKT helpers use — null when GBIF
+  // has no coordinate for this particular record (common for older museum-specimen data).
+  point: [number, number] | null;
 }
 
 async function fetchRecordSampleForParam(regionParam: string, gbifKey: number): Promise<OccurrenceLocalitySample[]> {
@@ -300,8 +304,14 @@ async function fetchRecordSampleForParam(regionParam: string, gbifKey: number): 
   if (!res.ok) {
     throw new Error(`[gbif-occ] fetch failed: ${res.status} ${res.statusText} (${url})`);
   }
-  const data = (await res.json()) as { results: Array<{ locality?: string; typeStatus?: string }> };
-  return data.results.map((r) => ({ locality: r.locality ?? null, typeStatus: r.typeStatus ?? null }));
+  const data = (await res.json()) as {
+    results: Array<{ locality?: string; typeStatus?: string; decimalLongitude?: number; decimalLatitude?: number }>;
+  };
+  return data.results.map((r) => ({
+    locality: r.locality ?? null,
+    typeStatus: r.typeStatus ?? null,
+    point: r.decimalLongitude != null && r.decimalLatitude != null ? [r.decimalLongitude, r.decimalLatitude] : null,
+  }));
 }
 
 export async function fetchRecordSampleForSpecies(externalCode: string, gbifKey: number, landOnly = false): Promise<OccurrenceLocalitySample[]> {
@@ -334,6 +344,117 @@ export function looksCaptiveOnly(records: OccurrenceLocalitySample[]): boolean {
   if (withLocality.length < MIN_LOCALITY_SAMPLES_TO_JUDGE) return false;
   const captiveCount = withLocality.filter((r) => CAPTIVE_LOCALITY_PATTERN.test(r.locality!)).length;
   return captiveCount / withLocality.length >= CAPTIVE_SHARE_THRESHOLD;
+}
+
+// A species whose real range is entirely elsewhere can still slip a handful of records into
+// an unrelated region/zone — confirmed on Amphiprion akindynos (Barrier Reef Anemonefish, a
+// Great Barrier Reef/New Caledonia endemic): 2,622 real global records, ALL in
+// Australia/New Caledonia, yet 3 showed up in the Northern and Central Red Sea sea zone,
+// traced to a single low-reliability citizen-science submission (Questagame, gamified/
+// self-identified) — almost certainly a misidentification of the real native Red Sea
+// Anemonefish (Amphiprion bicinctus). Neither looksTypeSpecimenOnly nor looksCaptiveOnly
+// catches this: no type-specimen flag, no zoo/museum locality keyword, just a plain wrong ID
+// on an otherwise-ordinary-looking photo. The signal that DOES catch it is the imbalance
+// itself — a real, well-documented species showing up almost nowhere near where the rest of
+// its own record set lives is inherently suspicious, checkable with one extra global-count
+// query, independent of what the local records' text says.
+export const GEOGRAPHIC_OUTLIER_MAX_LOCAL_RECORDS = 5;
+// Needs a real, well-documented global population to compare against — a species with only
+// a handful of records anywhere isn't "suspiciously concentrated elsewhere," it's just
+// generally under-documented, which is a different (and not inherently suspect) situation.
+const GEOGRAPHIC_OUTLIER_MIN_GLOBAL_RECORDS = 50;
+// The local records must be a tiny sliver of the global total, not just "fewer than
+// elsewhere" — a genuinely-present vagrant/edge-of-range population can legitimately be a
+// small fraction of a species' global count without being a misidentification.
+const GEOGRAPHIC_OUTLIER_MAX_LOCAL_SHARE = 0.02;
+
+export function looksLikeGeographicOutlier(localRecordCount: number, globalRecordCount: number): boolean {
+  if (localRecordCount > GEOGRAPHIC_OUTLIER_MAX_LOCAL_RECORDS) return false;
+  if (globalRecordCount < GEOGRAPHIC_OUTLIER_MIN_GLOBAL_RECORDS) return false;
+  return localRecordCount / globalRecordCount <= GEOGRAPHIC_OUTLIER_MAX_LOCAL_SHARE;
+}
+
+/** Global occurrence count for a species — no region/zone scoping — used only by
+ *  looksLikeGeographicOutlier's comparison, and only for the already-small set of low local-
+ *  count candidates the type-specimen/captive checks already sample, so the added cost is
+ *  bounded the same way theirs is. */
+export async function fetchGlobalOccurrenceCount(gbifKey: number): Promise<number> {
+  const url = `${GBIF_OCCURRENCE_API}?taxonKey=${gbifKey}&${basisOfRecordParams}&occurrenceStatus=PRESENT&limit=0`;
+  const res = await fetchWithRetry(url, {});
+  if (!res.ok) {
+    throw new Error(`[gbif-occ] fetch failed: ${res.status} ${res.statusText} (${url})`);
+  }
+  const data = (await res.json()) as { count: number };
+  return data.count;
+}
+
+interface LandRing {
+  bbox: BoundingBox;
+  ring: Point[];
+}
+
+// Every country's real landmass, loaded once (fetchAllCountries() is itself cached — see its
+// own comment) and reused across every sea-zone candidate check in a process run, rather than
+// re-fetched per species. Natural Earth's 10m-resolution coastlines carry thousands of points
+// per ring, so each ring's own bbox is precomputed here too — a cheap rectangle check first,
+// same "loose prefilter, then the real (expensive) check" shape this file already uses for
+// zone adjacency (see bboxesNear's own comment), rather than running the full ray-cast against
+// every one of ~250 countries' rings for every sampled point.
+let allCountryLandRingsPromise: Promise<LandRing[]> | null = null;
+function allCountryLandRings(): Promise<LandRing[]> {
+  if (!allCountryLandRingsPromise) {
+    allCountryLandRingsPromise = fetchAllCountries().then((countries) =>
+      countries
+        .flatMap((c) => exteriorRingsFromGeometry(c.feature.geometry as { type: string; coordinates: unknown }))
+        .map((ring) => ({ bbox: ringBoundingBox(ring), ring })),
+    );
+  }
+  return allCountryLandRingsPromise;
+}
+
+function isPointInBbox([x, y]: Point, bbox: BoundingBox): boolean {
+  return x >= bbox.minLon && x <= bbox.maxLon && y >= bbox.minLat && y <= bbox.maxLat;
+}
+
+// A sea zone's own stored polygon is a simplified shape (Marine Ecoregions of the World data,
+// not a precise coastline) — confirmed wrong on Aphanius sirhani (Azraq toothcarp, endemic to
+// one desert oasis 150+ miles from the Mediterranean) and the Yarışlı Killifish (endemic to a
+// single lake in Turkey): both showed up in the Levantine Sea / Egypt's nearby-water data
+// because the zone's simplified boundary apparently extends inland far enough to swallow real,
+// but entirely non-marine, records. This checks the thing that should NEVER be true for a
+// genuine marine species regardless of which sea zone's polygon claims it: does the record's
+// own coordinate resolve onto real land at all, independent of any particular zone's shape.
+// General on purpose — reuses the same Natural Earth country polygons already loaded
+// elsewhere in this pipeline, so it works for any sea zone anywhere, not just the ones a
+// specific bad case happened to surface.
+//
+// Plain "is this point on land at all" is too aggressive, though — confirmed by hand: a real
+// Red Sea reef-fish record geotagged at a Sharm El Sheikh dive resort (right at the shoreline,
+// a completely normal way for a real marine observation to get coordinates) also resolves
+// "on land," since the resort itself sits on the beach. The real distinguishing signal is
+// DISTANCE from the coastline, not containment alone — Azraq is 150+ miles inland, a beach
+// resort is a few hundred meters from the water at most. INLAND_BUFFER_DEGREES (~33km) is
+// chosen well beyond any ordinary coastal town/resort's distance from the true shoreline.
+const MIN_LAND_SAMPLES_TO_JUDGE = 2;
+const INLAND_SHARE_THRESHOLD = 0.5;
+const INLAND_BUFFER_DEGREES = 0.3;
+
+async function pointIsDeepInland(point: Point): Promise<boolean> {
+  const landRings = await allCountryLandRings();
+  const candidateRings = landRings.filter((lr) => isPointInBbox(point, lr.bbox));
+  return candidateRings.some(
+    (lr) => pointInRing(point, lr.ring) && minRingDistance([[point]], [lr.ring]) >= INLAND_BUFFER_DEGREES,
+  );
+}
+
+export async function looksLikeInlandRecords(records: OccurrenceLocalitySample[]): Promise<boolean> {
+  const withPoint = records.filter((r) => r.point);
+  if (withPoint.length < MIN_LAND_SAMPLES_TO_JUDGE) return false;
+  let inlandCount = 0;
+  for (const r of withPoint) {
+    if (await pointIsDeepInland(r.point!)) inlandCount++;
+  }
+  return inlandCount / withPoint.length >= INLAND_SHARE_THRESHOLD;
 }
 
 /** For test/dev runs: a direct occurrence count for one species, cheaper than faceting over the whole region. */
@@ -389,6 +510,61 @@ export async function fetchMonthlySeasonality(
         const gbifKey = Number(c.name);
         const arr = bySpecies.get(gbifKey) ?? new Array(12).fill(0);
         arr[month - 1] = c.count;
+        bySpecies.set(gbifKey, arr);
+      }
+      if (facet.counts.length < pageSize) break;
+      offset += pageSize;
+    }
+  }
+
+  return bySpecies;
+}
+
+/**
+ * Per-species record counts broken down by year, for the "is this an established resident or
+ * a one-off vagrant burst" check (passesRecurrenceCheck) — same batching trick as
+ * fetchMonthlySeasonality just above: one facet=speciesKey call PER YEAR in the window, not one
+ * live call PER SPECIES. Bounded to yearsWindow (defaults to RECENT_YEARS_WINDOW, the same
+ * window a species already had to clear on record count to make the checklist at all — judging
+ * recency-of-distribution against the same window used for recency-of-presence is more
+ * consistent than the old per-species call's ALL-TIME lookback, not less correct: RECENT_YEARS_
+ * WINDOW exists specifically so an old burst can't inflate a checklist forever, and the same
+ * reasoning applies to whether a burst still reads as one within THAT window). This turns what
+ * used to be one live GBIF call per already-included bird/mammal species — hundreds, for a
+ * well-recorded region, and the actual cause of region computation taking a very long time
+ * under GBIF's live rate limits — into a fixed, small number of calls per region regardless of
+ * how many species are on the checklist.
+ */
+export async function fetchYearlyRecordCounts(
+  externalCode: string,
+  taxonKeys: number[],
+  yearsWindow: number = RECENT_YEARS_WINDOW,
+  landOnly = false,
+): Promise<Map<number, Array<{ year: number; count: number }>>> {
+  const bySpecies = new Map<number, Array<{ year: number; count: number }>>();
+  const currentYear = new Date().getFullYear();
+  const regionParam = await gbifRegionParam(externalCode, landOnly);
+
+  for (let year = currentYear - yearsWindow; year <= currentYear; year++) {
+    let offset = 0;
+    const pageSize = 5000;
+    for (;;) {
+      const url =
+        `${GBIF_OCCURRENCE_API}?${regionParam}&year=${year}` +
+        `&${taxonKeyParams(taxonKeys)}&${basisOfRecordParams}&occurrenceStatus=PRESENT&facet=speciesKey` +
+        `&facetLimit=${pageSize}&facetOffset=${offset}&limit=0`;
+      const res = await fetchWithRetry(url, {});
+      if (!res.ok) {
+        throw new Error(`[gbif-occ] yearly-count fetch failed: ${res.status} ${res.statusText} (${url})`);
+      }
+      const data = (await res.json()) as FacetResponse;
+      const facet = data.facets.find((f) => f.field === "SPECIES_KEY");
+      if (!facet || facet.counts.length === 0) break;
+
+      for (const c of facet.counts) {
+        const gbifKey = Number(c.name);
+        const arr = bySpecies.get(gbifKey) ?? [];
+        arr.push({ year, count: c.count });
         bySpecies.set(gbifKey, arr);
       }
       if (facet.counts.length < pageSize) break;

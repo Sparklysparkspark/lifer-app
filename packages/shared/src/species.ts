@@ -1,23 +1,42 @@
 // Mirrors the Phase-1 subset of lifer-spec.md §6 (species, species_traits, species_rarity).
 
-// "amphibia"/"reptilia" cover herps. "cnidaria" covers corals+anemones+jellyfish
-// (Anthozoa/Scyphozoa/Cubozoa/Hydrozoa — GBIF has no single "jellyfish" class, so this is a
-// UI-level grouping, same simplification already used for "actinopterygii" bundling
-// non-Actinopterygii fish classes). "echinodermata" covers sea stars+sea urchins
-// (Asteroidea/Echinoidea). "mollusca" is deliberately scoped to 4 GBIF orders, not the whole
-// Gastropoda class (Gastropoda alone is ~178k GBIF entries, bigger than everything else
-// combined): Neogastropoda/Littorinimorpha/Trochida (the classic shell-collecting marine
-// snails — cones, cowries, conchs, murex, whelks, top shells) plus Nudibranchia (sea slugs);
-// land snails/slugs (Stylommatophora) are excluded.
+// Fine-grained on purpose — every value here is independently downloadable/filterable (see
+// build-region-pack.ts's --taxon flag and the collection page's taxon picker), not just a
+// display label. Groups that used to be one coarser bucket were split so a user who only
+// cares about, say, sharks isn't forced to also download every bony fish:
+//   - "actinopterygii" (bony fish) vs "elasmobranchii" (sharks/rays) vs "aquatic_mammalia"
+//     (whales/dolphins/dugongs — real Mammalia taxonomically, reclassified out of both
+//     "mammalia" and "actinopterygii" since they're neither a land mammal nor a fish)
+//   - "reptilia" split into "squamata" (lizards/snakes), "testudines" (turtles),
+//     "crocodylia" (crocodilians + the 2 living tuatara species)
+//   - "cnidaria" split into "corals" (Scleractinia) vs "jellies_and_anemones"
+//     (Actiniaria/Scyphozoa/Cubozoa/Hydrozoa)
+//   - "mollusca" split into "nudibranchs" (Nudibranchia), "collector_shells" (the specific
+//     families shell collectors universally recognize — cowries, cones, murex, volutes,
+//     etc., see build-seed-collector-shells.ts), and "marine_mollusks" (the rest of the same
+//     marine gastropod orders, minus those two)
+// New invertebrate groups with no prior bucket at all: "cephalopoda", "crustacea" (scoped to
+// Decapoda — crabs/lobsters/shrimp — not the whole Malacostraca class),
+// "sponges_tunicates_other". "echinodermata" (sea stars + sea urchins) is unchanged.
 export type TaxonClass =
   | "aves"
   | "mammalia"
   | "actinopterygii"
+  | "elasmobranchii"
+  | "aquatic_mammalia"
   | "amphibia"
-  | "reptilia"
-  | "cnidaria"
+  | "squamata"
+  | "testudines"
+  | "crocodylia"
+  | "corals"
+  | "jellies_and_anemones"
   | "echinodermata"
-  | "mollusca";
+  | "nudibranchs"
+  | "collector_shells"
+  | "marine_mollusks"
+  | "cephalopoda"
+  | "crustacea"
+  | "sponges_tunicates_other";
 
 export interface Species {
   id: string;

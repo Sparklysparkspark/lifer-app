@@ -2,6 +2,13 @@ import type { FastifyInstance } from "fastify";
 import { pool } from "../db.js";
 import { requireAuth } from "../auth/session.js";
 import { toCollectionItem } from "../collection/collectionItem.js";
+import {
+  OBSCURE_SPECIES_SQL,
+  REGION_VAGRANT_SQL,
+  ALREADY_OWNED_SQL,
+  NOT_ARCHIVED_SQL,
+  getHideObscurePreference,
+} from "../species/obscurity.js";
 // Cross-package import, deliberately — this is pure GBIF-fetching logic with no heavy
 // runtime deps, unlike the exiftool/sharp-laden upload pipeline code kept duplicated
 // elsewhere (see licensePolicy.ts).
@@ -10,11 +17,16 @@ import {
   fetchSpeciesCountsForZone,
   fetchMonthlySeasonality,
   fetchYearCountsForSpecies,
+  fetchYearlyRecordCounts,
   passesRecurrenceCheck,
   fetchRecordSampleForSpecies,
   fetchRecordSampleForZone,
   looksCaptiveOnly,
   looksTypeSpecimenOnly,
+  looksLikeGeographicOutlier,
+  looksLikeInlandRecords,
+  fetchGlobalOccurrenceCount,
+  GEOGRAPHIC_OUTLIER_MAX_LOCAL_RECORDS,
   MIN_RECORDS,
   FISH_MIN_RECORDS,
   FISH_YEARS_WINDOW,
@@ -27,6 +39,8 @@ import { fetchFishTaxonKeys } from "data-pipeline/src/fetch/fetch-fish-orders.js
 import {
   bboxesNear,
   bboxContains,
+  bboxDiagonalDegrees,
+  SMALL_ISLAND_MAX_BBOX_DIAGONAL_DEGREES,
   minRingDistance,
   exteriorRingsFromGeometry,
   parseWktPolygonRing,
@@ -47,6 +61,22 @@ import {
 // different thresholds to one result set, so bird+mammal and fish are fetched as two
 // separate calls here and merged, rather than the one combined call this used to be.
 const BIRD_MAMMAL_TAXON_KEYS = [AVES_CLASS_KEY, MAMMALIA_CLASS_KEY];
+
+// Cetacea (733) and Sirenia (802) — verified live against GBIF's backbone (species/match),
+// both ORDER-rank under classKey 359 (Mammalia). build-seed-mammals.ts already reclassifies
+// these species' taxon_class to "actinopterygii" (the app's "Fish" grouping) specifically so
+// whales/dolphins/dugongs get the sea-zone-gated treatment instead of a land region's default
+// checklist — but that reclassification only ever touched the seed data, not this file's own
+// GBIF queries, which still pull BIRD_MAMMAL_TAXON_KEYS (including all of Mammalia) with no
+// marine carve-out. Confirmed live: Egypt's base (land) checklist included the Common
+// Bottlenose Dolphin, Dugong, Humpback Whale, Spinner Dolphin, and 6 others, because GBIF's
+// `country=EG` field covers Egypt's territorial waters too and nothing ever excluded them.
+// Unlike fish's marineGbifKeys/MARINE_EXCLUSION_MAX_NOISE_RECORDS noise-threshold (some fish
+// really do have a genuine land/freshwater population as well as unrelated marine records
+// elsewhere), an obligate marine mammal has no legitimate land population at all — every
+// single record IS a sea record — so exclusion from a land region's default list is
+// unconditional, not threshold-gated.
+const MARINE_MAMMAL_ORDER_KEYS = [733, 802];
 
 // A generous bbox pre-filter (cheap, avoids computing real point-distance against all ~139
 // zones every time) followed by a real point-to-point distance check with a much tighter
@@ -82,7 +112,12 @@ async function nearbyZones(
     // loosening NEARBY_MAX_DISTANCE_DEGREES for every region (which risks reintroducing
     // false positives like Egypt/the Ionian/the Aegean, the cases that motivated 2° at all).
     const zoneBbox: BoundingBox = { minLon: z.bbox_min_lon, minLat: z.bbox_min_lat, maxLon: z.bbox_max_lon, maxLat: z.bbox_max_lat };
-    if (bboxContains(zoneBbox, regionBbox)) return true;
+    // Gated to island-scale regions only (see bboxContains's own comment) — without this, a
+    // large landlocked region (e.g. Aswan) can trivially have its whole bbox sit "inside" a
+    // sea zone's own loose, whole-basin bbox despite being nowhere near real water.
+    if (bboxDiagonalDegrees(regionBbox) <= SMALL_ISLAND_MAX_BBOX_DIAGONAL_DEGREES && bboxContains(zoneBbox, regionBbox)) {
+      return true;
+    }
     const zoneRing = parseWktPolygonRing(z.wkt);
     return minRingDistance(regionRings, [zoneRing]) <= NEARBY_MAX_DISTANCE_DEGREES;
   });
@@ -96,17 +131,55 @@ async function nearbyZones(
 async function ensureSeaZoneComputed(zoneId: string, wkt: string, alreadyComputed: boolean): Promise<void> {
   if (alreadyComputed) return;
   const fishKeys = await fetchFishTaxonKeys();
-  const counts = await fetchSpeciesCountsForZone(wkt, fishKeys, FISH_YEARS_WINDOW);
-  // See looksTypeSpecimenOnly's own comment — same fix as the land-region path, same
-  // recordCount===1 scoping to keep the extra per-species calls bounded.
+  // fetchFishTaxonKeys() deliberately excludes Mammalia entirely (see its own comment) — a
+  // sea zone's checklist still needs whales/dolphins/dugongs, since MARINE_MAMMAL_ORDER_KEYS'
+  // whole point is that these species belong on the SEA side of the land/sea split, not on
+  // a land region's default list. Without this, they'd be excluded from land regions (once
+  // that carve-out exists) but never actually show up anywhere — including the "include
+  // nearby water" toggle they're specifically meant to appear under.
+  const [counts, marineMammalCounts] = await Promise.all([
+    fetchSpeciesCountsForZone(wkt, fishKeys, FISH_YEARS_WINDOW),
+    fetchSpeciesCountsForZone(wkt, MARINE_MAMMAL_ORDER_KEYS),
+  ]);
+  counts.push(...marineMammalCounts);
+  // A rare-tier species with no reference photo at all is exactly the case most worth an
+  // extra look before it gets included in a specific sea zone's checklist — it's both the
+  // most likely to be an undetected data-quality problem (nobody's verified it by eye yet)
+  // and the most consequential to get wrong (a "legendary" showing up somewhere it doesn't
+  // belong is a much bigger deal to a user hunting for it than a common species would be).
+  // Widens the scrutiny gate below beyond just "low record count" to also cover these,
+  // regardless of how many records they have.
+  const gbifKeys = counts.map((c) => c.gbifKey);
+  const scrutinyRes = await pool.query<{ gbif_key: string }>(
+    `SELECT s.gbif_key FROM species s LEFT JOIN species_rarity r ON r.species_id = s.id
+     WHERE s.gbif_key = ANY($1) AND s.reference_photo IS NULL AND r.tier IN ('epic', 'legendary', 'unrated')`,
+    [gbifKeys],
+  );
+  const highTierNoPhotoGbifKeys = new Set(scrutinyRes.rows.map((r) => Number(r.gbif_key)));
+
+  // See looksTypeSpecimenOnly/looksLikeGeographicOutlier/looksLikeInlandRecords's own
+  // comments — same fix as the land-region path, same bounded-cost scoping
+  // (GEOGRAPHIC_OUTLIER_MAX_LOCAL_RECORDS OR the high-tier/no-photo set above, not every
+  // species). looksLikeInlandRecords applies regardless of record count within this group —
+  // it's a pure geometry sanity check (does this resolve onto real land, far from any coast),
+  // not a volume comparison, so a high-tier species with plenty of records but all of them
+  // inland is just as wrong as one with only a few.
   const afterTypeSpecimenCheck: RegionSpeciesCount[] = [];
   for (const c of counts) {
-    if (c.recordCount !== 1) {
+    const needsScrutiny = c.recordCount <= GEOGRAPHIC_OUTLIER_MAX_LOCAL_RECORDS || highTierNoPhotoGbifKeys.has(c.gbifKey);
+    if (!needsScrutiny) {
       afterTypeSpecimenCheck.push(c);
       continue;
     }
     const sample = await fetchRecordSampleForZone(wkt, c.gbifKey);
-    if (!looksTypeSpecimenOnly(sample)) afterTypeSpecimenCheck.push(c);
+    if (looksTypeSpecimenOnly(sample)) continue;
+    if (await looksLikeInlandRecords(sample)) continue;
+    if (c.recordCount > GEOGRAPHIC_OUTLIER_MAX_LOCAL_RECORDS) {
+      afterTypeSpecimenCheck.push(c);
+      continue;
+    }
+    const globalCount = await fetchGlobalOccurrenceCount(c.gbifKey);
+    if (!looksLikeGeographicOutlier(c.recordCount, globalCount)) afterTypeSpecimenCheck.push(c);
   }
   const filtered = afterTypeSpecimenCheck.filter((c) => c.recordCount >= FISH_MIN_RECORDS);
   const client = await pool.connect();
@@ -176,7 +249,13 @@ export async function regionRoutes(app: FastifyInstance): Promise<void> {
 
   app.get<{
     Params: { id: string };
-    Querystring: { sort?: SortBy; filter?: StateFilter; taxon?: string; seaZoneIds?: string; includeLand?: string };
+    Querystring: {
+      sort?: SortBy;
+      filter?: StateFilter;
+      taxon?: string;
+      seaZoneIds?: string;
+      includeLand?: string;
+    };
   }>(
     "/regions/:id/species",
     { preHandler: requireAuth },
@@ -186,6 +265,7 @@ export async function regionRoutes(app: FastifyInstance): Promise<void> {
       const sort = request.query.sort ?? "taxonomic";
       const filter = request.query.filter ?? "all";
       const taxon = request.query.taxon ?? null;
+      const hideObscure = await getHideObscurePreference(userId);
       // Multiple sea zones can be toggled on at once (e.g. Red Sea AND Gulf of Aqaba) —
       // comma-separated, same simple-string-param convention already used for `taxon` etc.
       // in this file, rather than adding array querystring parsing.
@@ -255,10 +335,13 @@ export async function regionRoutes(app: FastifyInstance): Promise<void> {
            s.reference_photo,
            s.reference_credit,
            s.reference_thumb_path IS NOT NULL AS has_reference_thumb,
+           s.reference_focal_x,
+           s.reference_focal_y,
            r.tier,
            rs.local_tier,
            rs.is_vagrant,
            t.endemic_country_iso3,
+           t.endemic_region_label,
            us.state,
            us.cover_photo_id,
            us.card_crop_x,
@@ -272,9 +355,12 @@ export async function regionRoutes(app: FastifyInstance): Promise<void> {
          LEFT JOIN species_traits t ON t.species_id = s.id
          LEFT JOIN user_species us ON us.user_id = $1 AND us.species_id = s.id
          LEFT JOIN photos p ON p.id = us.cover_photo_id
+         LEFT JOIN user_archived_species uas ON uas.user_id = $1 AND uas.species_id = s.id
          WHERE ($3::text IS NULL OR s.taxon_class = $3) AND COALESCE(t.fully_extinct, false) = false
+           AND ($6 = false OR ${ALREADY_OWNED_SQL} OR NOT (${OBSCURE_SPECIES_SQL} OR ${REGION_VAGRANT_SQL}))
+           AND ${NOT_ARCHIVED_SQL}
          ORDER BY s.sort_order NULLS LAST, s.scientific_name`,
-        [userId, regionId, taxon, seaZoneIds, includeLand],
+        [userId, regionId, taxon, seaZoneIds, includeLand, hideObscure],
       );
 
       let items = res.rows.map(toCollectionItem);
@@ -316,7 +402,10 @@ export async function regionRoutes(app: FastifyInstance): Promise<void> {
   // the full item list. Deliberately does NOT trigger computeRegionOccurrences if the region
   // isn't computed yet — that's still the full endpoint's job; this just reflects whatever's
   // already cached, so it never itself becomes a slow path.
-  app.get<{ Params: { id: string }; Querystring: { taxon?: string; seaZoneIds?: string; includeLand?: string } }>(
+  app.get<{
+    Params: { id: string };
+    Querystring: { taxon?: string; seaZoneIds?: string; includeLand?: string };
+  }>(
     "/regions/:id/species/count",
     { preHandler: requireAuth },
     async (request, reply) => {
@@ -325,6 +414,7 @@ export async function regionRoutes(app: FastifyInstance): Promise<void> {
       const taxon = request.query.taxon ?? null;
       const seaZoneIds = request.query.seaZoneIds ? request.query.seaZoneIds.split(",").filter(Boolean) : [];
       const includeLand = request.query.includeLand !== "0";
+      const hideObscure = await getHideObscurePreference(userId);
 
       const regionRes = await pool.query(`SELECT id FROM regions WHERE id = $1`, [regionId]);
       if (!regionRes.rows[0]) return reply.code(404).send({ error: "Region not found" });
@@ -342,9 +432,13 @@ export async function regionRoutes(app: FastifyInstance): Promise<void> {
          FROM species_ids si
          JOIN species s ON s.id = si.species_id
          LEFT JOIN species_traits t ON t.species_id = s.id
+         LEFT JOIN region_species rs ON rs.species_id = s.id AND rs.region_id = $2
          LEFT JOIN user_species us ON us.user_id = $1 AND us.species_id = s.id
-         WHERE ($3::text IS NULL OR s.taxon_class = $3) AND COALESCE(t.fully_extinct, false) = false`,
-        [userId, regionId, taxon, seaZoneIds, includeLand],
+         LEFT JOIN user_archived_species uas ON uas.user_id = $1 AND uas.species_id = s.id
+         WHERE ($3::text IS NULL OR s.taxon_class = $3) AND COALESCE(t.fully_extinct, false) = false
+           AND ($6 = false OR ${ALREADY_OWNED_SQL} OR NOT (${OBSCURE_SPECIES_SQL} OR ${REGION_VAGRANT_SQL}))
+           AND ${NOT_ARCHIVED_SQL}`,
+        [userId, regionId, taxon, seaZoneIds, includeLand, hideObscure],
       );
       const row = res.rows[0];
       return { total: Number(row.total), collected: Number(row.collected), seen: Number(row.seen) };
@@ -401,44 +495,85 @@ export async function computeRegionOccurrences(region: {
   const regionId = region.id;
   const code = region.external_codes![0];
   const fishKeys = await fetchFishTaxonKeys();
-  // Fish default to the land polygon (gadmGid), NOT the broader `country` field — a
-  // country's default fish list should be its native land/freshwater species (e.g.
-  // Egypt's Nile fish), not reef fish it only borders by sea. `country` was previously
-  // used to avoid undercounting marine species, but that's now handled properly via sea
-  // zones' own real polygons instead (see the seaZoneIds branch in the route handler) —
-  // landOnly=true here.
-  const [birdMammalCounts, fishCountsRaw] = await Promise.all([
+  // Switched from the land-polygon-only gadmGid match back to the broader `country` field
+  // (landOnly=false) — gadmGid requires GBIF to have reverse-geocoded a record onto a real
+  // land polygon, which needs actual GPS coordinates on the occurrence. A lot of real,
+  // well-documented African freshwater fish data (older museum/ichthyological collections
+  // especially) only has a textual country field, no coordinates — so Egypt's own native
+  // Nile fish (Nile Perch, various catfish/tilapia, ~60 of them) were silently missing from
+  // its own checklist despite being genuinely documented species already in this app's own
+  // catalog. `country` alone would reintroduce reef fish that only border Egypt by sea, but
+  // that's exactly what the marine cross-reference exclusion pass below already exists to
+  // catch (with its own MARINE_EXCLUSION_MAX_NOISE_RECORDS safety valve, already proven not
+  // to over-exclude globally-farmed species like tilapia) — so this doesn't need a second,
+  // narrower filter of its own, just the wider net feeding the one that's already there.
+  const [birdMammalCountsRaw, fishCountsRaw, marineMammalCounts] = await Promise.all([
     fetchSpeciesCountsForRegion(code, BIRD_MAMMAL_TAXON_KEYS),
-    fetchSpeciesCountsForRegion(code, fishKeys, FISH_YEARS_WINDOW, true),
+    fetchSpeciesCountsForRegion(code, fishKeys, FISH_YEARS_WINDOW, false),
+    // yearsWindow=null (all-time) rather than the default recent window — this query is only
+    // ever used as an identity set ("is this gbifKey a Cetacea/Sirenia species"), not for a
+    // count threshold, so it should catch every marine mammal ever recorded here, including
+    // one whose only records predate the recent window — otherwise it could slip past this
+    // exclusion and then get "rescued" back in by the below all-time recurrence pass anyway.
+    fetchSpeciesCountsForRegion(code, MARINE_MAMMAL_ORDER_KEYS, null),
   ]);
+  // See MARINE_MAMMAL_ORDER_KEYS's own comment — birdMammalCountsRaw already includes every
+  // Cetacea/Sirenia species GBIF's country field caught in this region's waters (it's a
+  // superset query); this second, narrower query exists only to know WHICH of those gbifKeys
+  // are the obligate marine mammals, so they can be pulled back out before a land region's
+  // default checklist ever sees them.
+  const marineMammalGbifKeys = new Set(marineMammalCounts.map((c) => c.gbifKey));
+  const birdMammalCounts = birdMammalCountsRaw.filter((c) => !marineMammalGbifKeys.has(c.gbifKey));
   // A fish with a SINGLE regional record is exactly the case where one lonely, often
   // decades/centuries-old museum type specimen (see looksTypeSpecimenOnly's own comment —
   // Acipenser carbonarius/Canada) can singlehandedly add a species that was never actually
-  // found there. Scoped to recordCount===1 rather than every low-count fish so this stays a
-  // handful of extra per-species GBIF calls per region, not hundreds — FISH_MIN_RECORDS=1
-  // means most permissively-included fish sit at exactly this count.
+  // found there. Widened from exactly 1 to GEOGRAPHIC_OUTLIER_MAX_LOCAL_RECORDS (see
+  // looksLikeGeographicOutlier's own comment — Barrier Reef Anemonefish showed up in the Red
+  // Sea off 3 records, not 1, from a single low-reliability citizen-science misidentification
+  // that neither the type-specimen nor captive-locality checks are shaped to catch) rather
+  // than every low-count fish, so this stays a handful of extra per-species GBIF calls per
+  // region, not hundreds — FISH_MIN_RECORDS=1 means most permissively-included fish sit at
+  // exactly this count anyway. Also widened (see ensureSeaZoneComputed's own comment) to
+  // always scrutinize a rare-tier species with no reference photo at all, regardless of
+  // record count — the most likely to be an undetected problem, and the most consequential
+  // to get wrong.
+  const fishCandidateGbifKeys = fishCountsRaw.map((c) => c.gbifKey);
+  const fishScrutinyRes = await pool.query<{ gbif_key: string }>(
+    `SELECT s.gbif_key FROM species s LEFT JOIN species_rarity r ON r.species_id = s.id
+     WHERE s.gbif_key = ANY($1) AND s.reference_photo IS NULL AND r.tier IN ('epic', 'legendary', 'unrated')`,
+    [fishCandidateGbifKeys],
+  );
+  const fishHighTierNoPhotoGbifKeys = new Set(fishScrutinyRes.rows.map((r) => Number(r.gbif_key)));
   const fishCounts: RegionSpeciesCount[] = [];
   for (const c of fishCountsRaw) {
-    if (c.recordCount !== 1) {
+    const needsScrutiny = c.recordCount <= GEOGRAPHIC_OUTLIER_MAX_LOCAL_RECORDS || fishHighTierNoPhotoGbifKeys.has(c.gbifKey);
+    if (!needsScrutiny) {
       fishCounts.push(c);
       continue;
     }
-    const sample = await fetchRecordSampleForSpecies(code, c.gbifKey, true);
-    if (!looksTypeSpecimenOnly(sample)) fishCounts.push(c);
+    const sample = await fetchRecordSampleForSpecies(code, c.gbifKey, false);
+    if (looksTypeSpecimenOnly(sample)) continue;
+    if (c.recordCount > GEOGRAPHIC_OUTLIER_MAX_LOCAL_RECORDS) {
+      fishCounts.push(c);
+      continue;
+    }
+    const globalCount = await fetchGlobalOccurrenceCount(c.gbifKey);
+    if (!looksLikeGeographicOutlier(c.recordCount, globalCount)) fishCounts.push(c);
   }
   const [birdMammalSeasonality, fishSeasonality] = await Promise.all([
     fetchMonthlySeasonality(code, BIRD_MAMMAL_TAXON_KEYS),
-    fetchMonthlySeasonality(code, fishKeys, FISH_YEARS_WINDOW, true),
+    fetchMonthlySeasonality(code, fishKeys, FISH_YEARS_WINDOW, false),
   ]);
   const seasonality = new Map([...birdMammalSeasonality, ...fishSeasonality]);
 
   // Rather than guess at a habitat type (which breaks on salt
   // lakes — a landlocked salt lake fish would wrongly read as "marine"), a fish is
   // excluded from the country's own DEFAULT list only if it's ALSO demonstrably
-  // present in a real nearby sea zone's own polygon-based checklist — reef fish
-  // whose near-shore GBIF points happen to fall inside the land polygon (see
-  // gbifRegionParam's landOnly comment) get filtered back out here, using the same
-  // real marine data the "include nearby water" toggle itself uses, not a heuristic.
+  // present in a real nearby sea zone's own polygon-based checklist — reef fish that
+  // only really belong to this country's territorial waters (now caught by the broader
+  // `country` match above, see fishCountsRaw's own comment) get filtered back out here,
+  // using the same real marine data the "include nearby water" toggle itself uses, not a
+  // heuristic.
   const bbox = region.boundary_geojson?.bbox as [number, number, number, number] | undefined;
   const geometry = region.boundary_geojson?.geometry;
   const marineGbifKeys = new Set<number>();
@@ -472,9 +607,24 @@ export async function computeRegionOccurrences(region: {
     }
   }
 
+  // "Also found in a nearby sea zone" is not, on its own, proof a fish's land-polygon records
+  // are coastal noise — Nile Tilapia, Nile Perch, and African/Synodontis catfish are all
+  // globally farmed/introduced species with real, separate populations in brackish coastal
+  // water FAR from Egypt (Gulf of Mexico, the Caribbean, etc.) as well as their genuine native
+  // Nile range; the naive "any overlap -> exclude" rule was stripping ~90 real Nile species
+  // from Egypt's own checklist because of introductions on the other side of the planet. Only
+  // treat the sea-zone signal as noise-evidence when the land record count itself is small
+  // enough to plausibly BE noise (a handful of near-shore points spilling just inside the land
+  // polygon) — a fish with dozens of its own land records is documented enough to keep
+  // regardless of what else shares its gbifKey in a marine dataset.
+  const MARINE_EXCLUSION_MAX_NOISE_RECORDS = 10;
   const filtered: RegionSpeciesCount[] = [
     ...birdMammalCounts.filter((c) => c.recordCount >= MIN_RECORDS),
-    ...fishCounts.filter((c) => c.recordCount >= FISH_MIN_RECORDS && !marineGbifKeys.has(c.gbifKey)),
+    ...fishCounts.filter(
+      (c) =>
+        c.recordCount >= FISH_MIN_RECORDS &&
+        !(marineGbifKeys.has(c.gbifKey) && c.recordCount <= MARINE_EXCLUSION_MAX_NOISE_RECORDS),
+    ),
   ];
 
   // Recurrence rescue pass (see fetchYearCountsForSpecies/passesRecurrenceCheck's own
@@ -487,7 +637,11 @@ export async function computeRegionOccurrences(region: {
   // (whatever the window threshold excluded, not the whole checklist), so the extra
   // per-species GBIF call this costs stays bounded.
   const passedGbifKeys = new Set(filtered.map((c) => c.gbifKey));
-  const [allTimeBirdMammalCounts] = await Promise.all([fetchSpeciesCountsForRegion(code, BIRD_MAMMAL_TAXON_KEYS, null)]);
+  const [allTimeBirdMammalCountsRaw] = await Promise.all([fetchSpeciesCountsForRegion(code, BIRD_MAMMAL_TAXON_KEYS, null)]);
+  // Same marine-mammal carve-out as birdMammalCounts above — otherwise a Red Sea dolphin
+  // that failed the recent-window MIN_RECORDS threshold could get "rescued" right back onto
+  // Egypt's land checklist via its real, but entirely marine, all-time record spread.
+  const allTimeBirdMammalCounts = allTimeBirdMammalCountsRaw.filter((c) => !marineMammalGbifKeys.has(c.gbifKey));
   const rescueCandidates = allTimeBirdMammalCounts.filter(
     (c) => !passedGbifKeys.has(c.gbifKey) && c.recordCount >= RECURRENCE_ALLTIME_FLOOR,
   );
@@ -576,12 +730,18 @@ export async function computeRegionOccurrences(region: {
   const fishGbifKeys = new Set(fishCounts.map((c) => c.gbifKey));
   const yearConcentrationByGbifKey = new Map<number, number>();
   const isVagrantByGbifKey = new Map<number, boolean>();
+  // Batched — a fixed, small number of calls (one facet=speciesKey per year in the window,
+  // see fetchYearlyRecordCounts's own comment) covering every bird/mammal species on the
+  // checklist at once, instead of one live GBIF call per already-included species. This was
+  // the actual bottleneck making region computation take a very long time under GBIF's rate
+  // limits — hundreds of sequential per-species calls for a well-recorded region.
+  const yearlyCountsByGbifKey = await fetchYearlyRecordCounts(code, BIRD_MAMMAL_TAXON_KEYS);
   for (const c of wildFiltered) {
     if (fishGbifKeys.has(c.gbifKey)) {
       isVagrantByGbifKey.set(c.gbifKey, false);
       continue;
     }
-    const yearCounts = await fetchYearCountsForSpecies(code, c.gbifKey);
+    const yearCounts = yearlyCountsByGbifKey.get(c.gbifKey) ?? [];
     const total = yearCounts.reduce((sum, y) => sum + y.count, 0);
     const isVagrant = total > 0 && !passesRecurrenceCheck(yearCounts);
     isVagrantByGbifKey.set(c.gbifKey, isVagrant);
@@ -616,6 +776,33 @@ export async function computeRegionOccurrences(region: {
     // idx 0 = highest boosted score (rarest here) -> smallest percentile -> legendary.
     localTierByGbifKey.set(row.gbifKey, tierForPercentile((idx + 1) / localN));
   });
+
+  // Local tier ranks purely by in-region record-count percentile, which can badly
+  // undersell a species that's globally hard to find but happens to have decent record
+  // density HERE specifically — Whooping Crane (globally "rare", ~500-800 birds worldwide)
+  // reads "common" in Canada purely because it's so intensively conservation-monitored that
+  // its sparse population still generates thousands of records; Wolverine (globally
+  // "legendary") read "uncommon" in Canada the same way. A region genuinely CAN be the best
+  // place on Earth to find something without that species stopping being globally rare, so
+  // local tier is allowed to read up to LOCAL_TIER_GLOBAL_FLOOR_STEPS easier than the global
+  // tier (rewarding "this is comparatively the spot for it") but never further than that —
+  // "easier to find here" should never mean "not actually rare," just "less rare than usual."
+  const LOCAL_TIER_GLOBAL_FLOOR_STEPS = 1;
+  const TIER_ORDER = ["legendary", "epic", "rare", "uncommon", "common"];
+  const globalTierRes = await pool.query<{ gbif_key: string; tier: string }>(
+    `SELECT s.gbif_key, r.tier FROM species s JOIN species_rarity r ON r.species_id = s.id WHERE s.gbif_key = ANY($1)`,
+    [wildFiltered.map((c) => c.gbifKey)],
+  );
+  const globalTierByGbifKey = new Map(globalTierRes.rows.map((r) => [Number(r.gbif_key), r.tier]));
+  for (const [gbifKey, localTier] of localTierByGbifKey) {
+    const globalTier = globalTierByGbifKey.get(gbifKey);
+    if (!globalTier || globalTier === "unrated") continue;
+    const globalRank = TIER_ORDER.indexOf(globalTier);
+    const localRank = TIER_ORDER.indexOf(localTier);
+    const flooredRank = Math.min(localRank, globalRank + LOCAL_TIER_GLOBAL_FLOOR_STEPS);
+    if (flooredRank !== localRank) localTierByGbifKey.set(gbifKey, TIER_ORDER[flooredRank]);
+  }
+
   for (const gbifKey of domesticGbifKeys) localTierByGbifKey.set(gbifKey, "common");
 
   const client = await pool.connect();
