@@ -7,6 +7,7 @@ import { pool } from "../db.js";
 import { requireAuth } from "../auth/session.js";
 import { DATA_DIR, ORIGINALS_DIR, PORT, SINGLE_USER_MODE, MAPS_DIR, MAP_DOWNLOAD_URL } from "../config.js";
 import { originalsFolder } from "../uploads/organizedPath.js";
+import { resolveSpeciesFolderName } from "../uploads/speciesFolderName.js";
 import { extractExif } from "../uploads/exif.js";
 import { readLocalSettings, writeLocalSettings } from "../localSettings.js";
 
@@ -34,16 +35,12 @@ interface MigrateBody {
 // risk for a network-reachable Docker deployment. Docker already has its own documented way
 // to do this (LIFER_STORAGE_DIR — see .env.example), so these routes simply don't exist
 // outside SINGLE_USER_MODE rather than needing their own auth model.
-function requireDesktopMode(reply: { code: (n: number) => { send: (b: unknown) => void } }): boolean {
+export function requireDesktopMode(reply: { code: (n: number) => { send: (b: unknown) => void } }): boolean {
   if (!SINGLE_USER_MODE) {
     reply.code(404).send({ error: "Not found" });
     return false;
   }
   return true;
-}
-
-function sanitizeForFilesystem(name: string): string {
-  return name.replace(/[/\\:*?"<>|]/g, "").trim();
 }
 
 // reorganize-originals moves files one at a time, which otherwise leaves the old species/
@@ -171,11 +168,14 @@ export async function recoverInterruptedStorageMigration(): Promise<void> {
 // the user put it, and is never Lifer's to relocate.
 export async function settingsRoutes(app: FastifyInstance): Promise<void> {
   app.get("/settings", { preHandler: requireAuth }, async (request) => {
-    const res = await pool.query<{ organize_originals_by_year: boolean }>(
-      `SELECT organize_originals_by_year FROM users WHERE id = $1`,
+    const res = await pool.query<{ organize_originals_by_year: boolean; hide_obscure_species: boolean }>(
+      `SELECT organize_originals_by_year, hide_obscure_species FROM users WHERE id = $1`,
       [request.user!.id],
     );
-    return { organizeOriginalsByYear: res.rows[0]?.organize_originals_by_year ?? false };
+    return {
+      organizeOriginalsByYear: res.rows[0]?.organize_originals_by_year ?? false,
+      hideObscureSpecies: res.rows[0]?.hide_obscure_species ?? true,
+    };
   });
 
   app.put<{ Body: OrganizeBody }>("/settings/organize-originals", { preHandler: requireAuth }, async (request, reply) => {
@@ -183,6 +183,15 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
     if (typeof enabled !== "boolean") return reply.code(400).send({ error: "enabled must be a boolean" });
     await pool.query(`UPDATE users SET organize_originals_by_year = $1 WHERE id = $2`, [enabled, request.user!.id]);
     return { organizeOriginalsByYear: enabled };
+  });
+
+  // Moved off the collection page's per-view filter bar (migration 038) — a persisted account
+  // preference instead, so it's decided once rather than re-checked on every region.
+  app.put<{ Body: { enabled?: boolean } }>("/settings/hide-obscure-species", { preHandler: requireAuth }, async (request, reply) => {
+    const { enabled } = request.body ?? {};
+    if (typeof enabled !== "boolean") return reply.code(400).send({ error: "enabled must be a boolean" });
+    await pool.query(`UPDATE users SET hide_obscure_species = $1 WHERE id = $2`, [enabled, request.user!.id]);
+    return { hideObscureSpecies: enabled };
   });
 
   app.post("/settings/reorganize-originals", { preHandler: requireAuth }, async (request) => {
@@ -231,7 +240,7 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
 
       const folder = originalsFolder(ORIGINALS_DIR, {
         organizeByYear,
-        speciesFolderName: sanitizeForFilesystem(original.common_name ?? original.scientific_name),
+        speciesFolderName: await resolveSpeciesFolderName(original.common_name, original.scientific_name),
         taxonClass: original.taxon_class,
         takenAt,
         subfolder: original.kind === "raw" ? "RAW" : "Adjusted",

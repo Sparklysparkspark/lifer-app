@@ -1,4 +1,4 @@
-import "dotenv/config";
+import { config as loadDotenv } from "dotenv";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { readLocalSettings } from "./localSettings.js";
@@ -8,6 +8,27 @@ import { readLocalSettings } from "./localSettings.js";
 // from the repo root) and got this wrong once already.
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.join(__dirname, "..", "..", "..");
+
+// Same reasoning as REPO_ROOT above, and a real bug this exact one caused: a bare
+// `import "dotenv/config"` resolves `.env` from process.cwd(), which for the normal `npm run
+// dev -w api` workflow is apps/api, NOT the repo root where .env actually lives — so the root
+// .env was silently never loaded at all (masked only because DATABASE_URL's hardcoded fallback
+// below happens to match its value). Pointed at REPO_ROOT explicitly so every env var in that
+// file — this session's SINGLE_USER_MODE included — actually takes effect regardless of
+// which directory the process was launched from.
+loadDotenv({ path: path.join(REPO_ROOT, ".env") });
+
+// A reference photo's URL is keyed by species/gallery-photo id, not by content — so a restore
+// pass that overwrites species.reference_display_path's file IN PLACE (fixing a crop, e.g.)
+// doesn't change the URL a browser/webview would use to fetch it, and a client that already
+// cached a response for that URL has no reason to ever ask again. Appending this to every
+// reference-photo URL (see species/routes.ts) guarantees a fresh fetch on the very first
+// request each time the server process restarts — which for a desktop app means "the moment
+// you relaunch after an update" without needing to know or track which specific files
+// actually changed. Combined with those routes' own Cache-Control: no-cache (which prevents
+// staleness going forward, within a single run), this fixes staleness both looking backward
+// (already-cached responses from before a restore) and forward.
+export const MEDIA_CACHE_BUST = Date.now();
 
 export const PORT = Number(process.env.PORT ?? 4000);
 export const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://lifer:lifer@localhost:5432/lifer";
