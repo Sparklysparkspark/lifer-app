@@ -70,11 +70,17 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      # GitHub Actions expressions have no toLower()/toUpper() (that's an Azure Pipelines
+      # function, not a GitHub one) — ghcr.io requires an all-lowercase image name, so this
+      # has to be computed in a shell step instead.
+      - name: Lowercase repository name
+        id: repo
+        run: echo "name=${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
       - uses: docker/build-push-action@v6
         with:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
           tags: |
-            ghcr.io/${{ toLower(github.repository) }}:${{ github.ref_name }}
-            ghcr.io/${{ toLower(github.repository) }}:latest
+            ghcr.io/${{ steps.repo.outputs.name }}:${{ github.ref_name }}
+            ghcr.io/${{ steps.repo.outputs.name }}:latest
