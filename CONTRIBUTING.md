@@ -32,6 +32,6 @@ npm workspaces monorepo:
 |---|---|
 | `apps/api` | Fastify + PostgreSQL backend. Runs directly via `tsx`, no build step. |
 | `apps/web` | React + Vite frontend. |
-| `apps/desktop` | Electron shell — spawns the API locally, or points at a remote server. |
+| `apps/desktop` | Tauri (Rust) shell — spawns the API locally, or points at a remote server. |
 | `packages/shared` | Types shared between `apps/api` and `apps/web`. |
 | `packages/data-pipeline` | Species seed data, migrations, enrichment scripts, region-pack builder. |
