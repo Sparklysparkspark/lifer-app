@@ -1,8 +1,16 @@
 // exiftool-vendored bundles its own exiftool binary, so there's no system-install dependency
 // (lifer-spec.md §4: "Image processing: sharp... EXIF via exiftool"). It reads metadata only —
 // per spec §6 rule 3, Lifer never decodes the image itself for this.
+import { availableParallelism } from "node:os";
 import { createHash } from "node:crypto";
-import { exiftool } from "exiftool-vendored";
+import { ExifTool } from "exiftool-vendored";
+
+// The library's default singleton caps concurrent exiftool worker processes at 1/4 of the
+// CPU count, tuned for a shared multi-tenant server. Lifer is a single-user desktop app where
+// a burst of several photos uploaded at once (each needing 1-2 exiftool calls) is a normal,
+// latency-sensitive workload, not something to throttle — so a dedicated instance uses the
+// full core count instead of accepting that shared-server-friendly default.
+const exiftool = new ExifTool({ maxProcs: Math.max(1, availableParallelism()) });
 
 export interface ExtractedExif {
   takenAt: Date | null;

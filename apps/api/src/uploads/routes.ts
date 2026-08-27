@@ -6,10 +6,11 @@ import { pool } from "../db.js";
 import { requireAuth } from "../auth/session.js";
 import { generateDerivatives } from "./image.js";
 import { extractExif, extractKeywords, computeExifFingerprint, writeSpeciesMetadata, readExifTags, type ExtractedExif } from "./exif.js";
-import { DATA_DIR, ORIGINALS_DIR } from "../config.js";
+import { DATA_DIR, APP_DATA_DIR, ORIGINALS_DIR } from "../config.js";
 import { fetchS3Object } from "../photoSources/s3.js";
 import { RAW_EXTENSIONS } from "./rawExtensions.js";
 import { originalsFolder } from "./organizedPath.js";
+import { resolveSpeciesFolderName } from "./speciesFolderName.js";
 
 type UploadMode = "store" | "link" | "s3";
 
@@ -33,10 +34,6 @@ function sanitizeForFilesystem(name: string): string {
   // Slashes would create unintended subfolders; the rest are characters Windows/macOS/Linux
   // either forbid outright or that just make a folder name awkward to look at/type.
   return name.replace(/[/\\:*?"<>|]/g, "").trim();
-}
-
-function speciesFolderName(commonName: string | null, scientificName: string): string {
-  return sanitizeForFilesystem(commonName ?? scientificName);
 }
 
 /** Prefers the browser-supplied original filename (sanitized); falls back to a date-based
@@ -73,7 +70,7 @@ function uniqueDestination(dir: string, filename: string): string {
 // move, same principle as store vs. link mode elsewhere in this file. Renames when possible;
 // falls back to copy+delete for the rare case the destination is on a different
 // filesystem/volume.
-function moveManagedOriginalToSpeciesFolder(
+async function moveManagedOriginalToSpeciesFolder(
   currentRef: string,
   managed: boolean,
   commonName: string | null,
@@ -82,11 +79,11 @@ function moveManagedOriginalToSpeciesFolder(
   organizeByYear: boolean,
   taxonClass: string | null,
   takenAt: Date | null,
-): string {
+): Promise<string> {
   if (!managed || !existsSync(currentRef)) return currentRef;
   const folder = originalsFolder(ORIGINALS_DIR, {
     organizeByYear,
-    speciesFolderName: speciesFolderName(commonName, scientificName),
+    speciesFolderName: await resolveSpeciesFolderName(commonName, scientificName),
     taxonClass,
     takenAt,
     subfolder: kind === "raw" ? "RAW" : "Adjusted",
@@ -114,7 +111,7 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
     }
     if (!fileBuffer) return reply.code(400).send({ error: "No file uploaded" });
 
-    const tmpDir = path.join(DATA_DIR, "tmp");
+    const tmpDir = path.join(APP_DATA_DIR, "tmp");
     mkdirSync(tmpDir, { recursive: true });
     const tmpPath = path.join(tmpDir, `${randomUUID()}.jpg`);
     writeFileSync(tmpPath, fileBuffer);
@@ -153,7 +150,7 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
     speciesId: string | null,
     allowUnmatchedFallback: boolean,
   ): Promise<RawUploadOutcome> {
-    const tmpDir = path.join(DATA_DIR, "tmp");
+    const tmpDir = path.join(APP_DATA_DIR, "tmp");
     mkdirSync(tmpDir, { recursive: true });
     const tmpPath = path.join(tmpDir, `${randomUUID()}${path.extname(rawFileName).toLowerCase()}`);
     writeFileSync(tmpPath, rawBuffer);
@@ -246,7 +243,7 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
       const match = matches[0];
       const folder = originalsFolder(ORIGINALS_DIR, {
         organizeByYear,
-        speciesFolderName: speciesFolderName(match.common_name, match.scientific_name),
+        speciesFolderName: await resolveSpeciesFolderName(match.common_name, match.scientific_name),
         taxonClass: match.taxon_class,
         takenAt: exif.takenAt,
         subfolder: "RAW",
@@ -303,7 +300,7 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
 
         const folder = originalsFolder(ORIGINALS_DIR, {
           organizeByYear,
-          speciesFolderName: speciesFolderName(species.common_name, species.scientific_name),
+          speciesFolderName: await resolveSpeciesFolderName(species.common_name, species.scientific_name),
           taxonClass: species.taxon_class,
           takenAt: exif.takenAt,
           subfolder: "RAW",
@@ -474,7 +471,7 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
 
     // exiftool-vendored needs a real file path — write to a scratch dir, then clean up.
     // (Skipped for link mode's own file, since it's already got a real path on disk.)
-    const tmpDir = path.join(DATA_DIR, "tmp");
+    const tmpDir = path.join(APP_DATA_DIR, "tmp");
     let exifSourcePath = originalRef;
     if (mode === "store") {
       mkdirSync(tmpDir, { recursive: true });
@@ -587,7 +584,7 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
       if (mode === "store") {
         const folder = originalsFolder(ORIGINALS_DIR, {
           organizeByYear,
-          speciesFolderName: speciesFolderName(species.common_name, species.scientific_name),
+          speciesFolderName: await resolveSpeciesFolderName(species.common_name, species.scientific_name),
           taxonClass: species.taxon_class,
           takenAt: exif.takenAt,
           subfolder: "Adjusted",
@@ -619,7 +616,7 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
       if (rawBuffer && rawFileName) {
         const rawFolder = originalsFolder(ORIGINALS_DIR, {
           organizeByYear,
-          speciesFolderName: speciesFolderName(species.common_name, species.scientific_name),
+          speciesFolderName: await resolveSpeciesFolderName(species.common_name, species.scientific_name),
           taxonClass: species.taxon_class,
           takenAt: exif.takenAt,
           subfolder: "RAW",
@@ -660,7 +657,7 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
           );
           linked = (res.rowCount ?? 0) === 1;
           if (linked) {
-            const newRef = moveManagedOriginalToSpeciesFolder(
+            const newRef = await moveManagedOriginalToSpeciesFolder(
               filenameVerifiedRaw.ref,
               filenameVerifiedRaw.managed,
               species.common_name,
@@ -695,7 +692,7 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
           if (unlinkedRaw.length === 1) {
             const match = unlinkedRaw[0];
             await client.query(`UPDATE originals SET capture_id = $1 WHERE id = $2`, [captureId, match.id]);
-            const newRef = moveManagedOriginalToSpeciesFolder(
+            const newRef = await moveManagedOriginalToSpeciesFolder(
               match.ref,
               match.managed,
               species.common_name,
