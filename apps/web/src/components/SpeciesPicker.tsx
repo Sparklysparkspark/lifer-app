@@ -79,11 +79,12 @@ export default function SpeciesPicker({
         className="w-full rounded-md border border-line px-3 py-1.5 text-sm"
       />
       {open && results.length > 0 && (
-        <ul className="absolute z-10 mt-1 w-full rounded-md border border-line bg-surface shadow-lg">
+        <ul className="absolute z-10 mt-1 max-h-72 w-full overflow-y-auto rounded-md border border-line bg-surface shadow-lg">
           {results.map((r, i) => (
             <li
               key={r.id}
               onMouseDown={() => selectResult(r)}
+              onMouseEnter={() => setHighlighted(i)}
               className={`cursor-pointer px-3 py-2 text-sm ${i === highlighted ? "bg-surface-muted" : ""}`}
             >
               <span className="font-medium text-ink">{r.common_name ?? r.scientific_name}</span>{" "}

@@ -10,10 +10,39 @@ import GroupedSpeciesGrid, { type GroupBy, type SortBy } from "../components/Gro
 import EbirdImport from "../components/EbirdImport";
 import RegionMap from "../components/RegionMap";
 import { Logo } from "../components/Logo";
+import InfoTip from "../components/InfoTip";
 import { Spinner } from "../components/LoadingScreen";
+
+const RARITY_INFO_PARAGRAPHS = [
+  '"Rarity" ranks how hard a species is to get a good photo of overall. It\'s not conservation status. A common species that\'s hard to photograph can rank higher than an endangered species that\'s easy to photograph.',
+  '"Rarity here" is a completely different, region-specific measure. It\'s how often that species actually turns up in the region you\'ve selected, based on real sighting records for that area.',
+];
 
 type StateFilter = "all" | "collected" | "seen" | "unseen";
 type TaxonFilter = "all" | "aves" | "mammalia" | "actinopterygii";
+
+// Species detail is a SIBLING route (see App.tsx), not nested under this page, so navigating
+// there and back fully unmounts/remounts CollectionPage — every `useState` resets to its
+// initial value and the load effect below re-fetches from zero, which is what actually caused
+// the brief loading flash on "back to collection" (nothing to do with the map: this page
+// doesn't even render one). Module-scoped (survives remounts, cleared only on a real reload)
+// so the previous view can render INSTANTLY from cache on mount while the effect still
+// fetches fresh data in the background and silently updates it if anything changed —
+// stale-while-revalidate, without pulling in a whole data-fetching library for one page.
+interface CollectionCacheEntry {
+  items: CollectionItem[];
+  regionMeta: RegionSpeciesResult["region"] | null;
+  regionStats: RegionSpeciesResult["stats"] | null;
+}
+const collectionCache = new Map<string, CollectionCacheEntry>();
+function collectionCacheKey(
+  regionId: string | null,
+  taxonFilter: TaxonFilter,
+  seaZoneIds: string[],
+  includeLand: boolean,
+): string {
+  return JSON.stringify([regionId, taxonFilter, [...seaZoneIds].sort(), includeLand]);
+}
 
 const TAXON_LABEL: Record<TaxonFilter, string> = {
   all: "All taxa",
@@ -83,11 +112,15 @@ export default function CollectionPage() {
   }, [regionId]);
   const sortBy = (searchParams.get("sort") as SortBy) || "taxonomic";
   const groupBy = (searchParams.get("group") as GroupBy) || "none";
-  // "Collected first" (everything shown, collected species pinned at top) defaults on; this
-  // is distinct from the "Show: Collected only" filter (which defaults to "All" below). No
-  // `collectedFirst` param at all means checked; explicitly unchecking writes
-  // `collectedFirst=0` into the URL so it's distinguishable from the default.
+  // "Collected first" and "Seen first" (everything shown, collected/seen pinned at top) are
+  // independent toggles — either can be on alone, or both (collected always pins above seen
+  // when both are on; see GroupedSpeciesGrid's floatRank). Distinct from the "Show: Collected
+  // only" filter (which defaults to "All" below). No param at all means checked for
+  // collectedFirst (on by default) and unchecked for seenFirst (off by default) — explicitly
+  // toggling either writes its own `=0`/`=1` into the URL so it's distinguishable from the
+  // default.
   const collectedFirst = searchParams.get("collectedFirst") !== "0";
+  const seenFirst = searchParams.get("seenFirst") === "1";
   const stateFilter = (searchParams.get("show") as StateFilter) || "all";
   const taxonFilter = (searchParams.get("taxon") as TaxonFilter) || "all";
   // Lets a region's checklist optionally include species from nearby marine zones. Multiple
@@ -100,10 +133,14 @@ export default function CollectionPage() {
   );
   function toggleSeaZone(zoneId: string, checked: boolean) {
     const next = checked ? [...seaZoneIds, zoneId] : seaZoneIds.filter((id) => id !== zoneId);
-    updateParam("seaZones", next.length > 0 ? next.join(",") : null);
     // Clearing the last zone makes "include land" meaningless again — drop it so a later
     // zone pick doesn't silently inherit a stale "land off" from an unrelated earlier zone.
-    if (next.length === 0) updateParam("includeLand", null);
+    // Both keys are updated in one call (see updateParams) so clearing the last zone can't
+    // race with itself.
+    updateParams({
+      seaZones: next.length > 0 ? next.join(",") : null,
+      ...(next.length === 0 ? { includeLand: null } : {}),
+    });
   }
   // Sea zones only ever add fish species (sea_zone_species is populated exclusively from
   // fish taxon keys), so the whole "include nearby water" control is dead weight — reveals
@@ -114,19 +151,29 @@ export default function CollectionPage() {
   function setIncludeLand(checked: boolean) {
     updateParam("includeLand", checked ? null : "0");
   }
-
   function updateParam(key: string, value: string | null) {
+    updateParams({ [key]: value });
+  }
+  // Two sequential setSearchParams calls in the same handler (e.g. clearing both `seaZones`
+  // and `includeLand` together) each captured their own `prev` snapshot, so the second call
+  // could silently clobber the first — this is what made "select all" impossible to uncheck,
+  // and the last sea zone impossible to deselect. One functional update touching every changed
+  // key at once removes the race entirely.
+  function updateParams(updates: Record<string, string | null>) {
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev);
-      if (value === null || value === "") next.delete(key);
-      else next.set(key, value);
+      for (const [key, value] of Object.entries(updates)) {
+        if (value === null || value === "") next.delete(key);
+        else next.set(key, value);
+      }
       return next;
     });
   }
 
-  const [items, setItems] = useState<CollectionItem[] | null>(null);
-  const [regionMeta, setRegionMeta] = useState<RegionSpeciesResult["region"] | null>(null);
-  const [regionStats, setRegionStats] = useState<RegionSpeciesResult["stats"] | null>(null);
+  const cachedEntry = collectionCache.get(collectionCacheKey(regionId, taxonFilter, seaZoneIds, includeLand));
+  const [items, setItems] = useState<CollectionItem[] | null>(cachedEntry?.items ?? null);
+  const [regionMeta, setRegionMeta] = useState<RegionSpeciesResult["region"] | null>(cachedEntry?.regionMeta ?? null);
+  const [regionStats, setRegionStats] = useState<RegionSpeciesResult["stats"] | null>(cachedEntry?.regionStats ?? null);
   // Set when the current region has no downloaded pack yet — see regions/routes.ts, which
   // never computes a checklist live. Distinct from `loadError`: this isn't a failure, it's a
   // real, expected state the UI offers a next step for.
@@ -219,6 +266,11 @@ export default function CollectionPage() {
           setItems(res.items);
           setRegionMeta(res.region);
           setRegionStats(res.stats);
+          collectionCache.set(collectionCacheKey(regionId, taxonFilter, seaZoneIds, includeLand), {
+            items: res.items,
+            regionMeta: res.region,
+            regionStats: res.stats,
+          });
         })
         .catch(() => setLoadError(true));
       api
@@ -238,12 +290,24 @@ export default function CollectionPage() {
           setItems(res.items);
           setRegionMeta(null);
           setRegionStats(null);
+          collectionCache.set(collectionCacheKey(regionId, taxonFilter, seaZoneIds, includeLand), {
+            items: res.items,
+            regionMeta: null,
+            regionStats: null,
+          });
         })
         .catch(() => setLoadError(true));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- seaZoneIds is an array; its
     // joined string is the real dependency (stable primitive, avoids reference-identity churn)
   }, [regionId, taxonFilter, seaZoneIds.join(","), includeLand, firstRunPrompt, regionKnownHub]);
+
+  // Archived species are excluded server-side (see apps/api/src/species/obscurity.ts's
+  // NOT_ARCHIVED_SQL) — after an archive action succeeds, the simplest correct way to reflect
+  // that is just re-running the same fetch this page already does on every filter change,
+  // rather than hand-patching `items`/`quickCount` in two places and risking them drifting
+  // out of sync with what the server would actually return.
+  const handleArchived = useCallback(() => load(), [load]);
 
   // Narrowing to birds/mammals hides the sea-zone checkboxes entirely (see seaZonesRelevant),
   // so any zones/includeLand picked under "all taxa" would otherwise sit invisibly in the URL
@@ -366,9 +430,11 @@ export default function CollectionPage() {
           <Link to="/gallery" className="text-sm text-muted hover:underline">
             Gallery
           </Link>
-          <Link to="/offline-packs" className="text-sm text-muted hover:underline">
-            Offline packs
-          </Link>
+          {isDesktopMode && (
+            <Link to="/trips" className="text-sm text-muted hover:underline">
+              Trips
+            </Link>
+          )}
           <Link to="/settings" className="text-sm text-muted hover:underline">
             Settings
           </Link>
@@ -468,11 +534,6 @@ export default function CollectionPage() {
           placeholder="Search this area…"
           className="w-48 rounded-md border border-line px-2 py-1 text-ink"
         />
-        {search && (
-          <button onClick={() => setSearch("")} className="text-muted hover:text-muted" aria-label="Clear search">
-            ✕
-          </button>
-        )}
         <label className="flex items-center gap-1.5 text-muted">
           Group
           <select
@@ -483,6 +544,9 @@ export default function CollectionPage() {
             <option value="none">No grouping</option>
             <option value="group">Family group</option>
             <option value="tier">Rarity tier</option>
+            {/* Only meaningful with a region selected — see the matching "Rarity here" sort
+               option's own comment. */}
+            {regionId && <option value="localTier">Rarity here</option>}
           </select>
         </label>
         <label className="flex items-center gap-1.5 text-muted">
@@ -501,6 +565,7 @@ export default function CollectionPage() {
             {regionId && <option value="localRarity">Rarity here</option>}
           </select>
         </label>
+        <InfoTip paragraphs={RARITY_INFO_PARAGRAPHS} />
         <label className="flex items-center gap-1.5 text-muted">
           <input
             type="checkbox"
@@ -508,6 +573,14 @@ export default function CollectionPage() {
             onChange={(e) => updateParam("collectedFirst", e.target.checked ? null : "0")}
           />
           Collected first
+        </label>
+        <label className="flex items-center gap-1.5 text-muted">
+          <input
+            type="checkbox"
+            checked={seenFirst}
+            onChange={(e) => updateParam("seenFirst", e.target.checked ? "1" : null)}
+          />
+          Seen first
         </label>
         <label className="flex items-center gap-1.5 text-muted">
           Show
@@ -544,10 +617,12 @@ export default function CollectionPage() {
                 <input
                   type="checkbox"
                   checked={seaZoneIds.length === seaZones.length}
-                  onChange={(e) => {
-                    updateParam("seaZones", e.target.checked ? seaZones.map((z) => z.id).join(",") : null);
-                    if (!e.target.checked) updateParam("includeLand", null);
-                  }}
+                  onChange={(e) =>
+                    updateParams({
+                      seaZones: e.target.checked ? seaZones.map((z) => z.id).join(",") : null,
+                      ...(e.target.checked ? {} : { includeLand: null }),
+                    })
+                  }
                 />
                 Select all
               </label>
@@ -581,7 +656,7 @@ export default function CollectionPage() {
 
         {regionId && regionMeta && (
           <>
-            <RegionMap boundaryGeoJson={regionMeta.boundaryGeoJson} />
+            <RegionMap boundaryGeoJson={regionMeta.boundaryGeoJson} regionKey={regionMeta.id} />
             <EbirdImport onImported={load} />
           </>
         )}
@@ -628,6 +703,8 @@ export default function CollectionPage() {
             groupBy={groupBy}
             sortBy={sortBy}
             collectedFirst={collectedFirst}
+            seenFirst={seenFirst}
+            onArchived={handleArchived}
           />
         )}
       </main>

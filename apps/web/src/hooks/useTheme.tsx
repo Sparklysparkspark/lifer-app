@@ -4,6 +4,14 @@ type Theme = "light" | "dark";
 type Preference = Theme | "system";
 const STORAGE_KEY = "lifer-theme";
 
+// Same direct window.__TAURI__ access TrafficLights.tsx uses for its own window-chrome
+// commands — a no-op outside the desktop app (a plain browser tab/Docker deployment never has
+// __TAURI__ at all), so this is safe to call unconditionally.
+function tauriInvoke(): ((cmd: string, args?: unknown) => Promise<unknown>) | null {
+  const tauri = (window as unknown as { __TAURI__?: { core: { invoke: (cmd: string, args?: unknown) => Promise<unknown> } } }).__TAURI__;
+  return tauri?.core.invoke ?? null;
+}
+
 function systemTheme(): Theme {
   return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
 }
@@ -36,6 +44,11 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", theme === "dark");
+    // Keeps the desktop window's own background in sync with the theme — that's what shows
+    // through during macOS's rubber-band overscroll past the top/bottom of the page, and is
+    // otherwise stuck at whatever color the window was created with (see lib.rs's own
+    // set_window_theme_background comment).
+    tauriInvoke()?.("set_window_theme_background", { dark: theme === "dark" });
   }, [theme]);
 
   return <ThemeContext.Provider value={{ theme, preference, setPreference }}>{children}</ThemeContext.Provider>;

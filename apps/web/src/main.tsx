@@ -7,7 +7,7 @@ import App from "./App";
 import "./index.css";
 
 // The Tauri desktop app has no single "preload script" that survives navigating this window
-// to a different origin the way Electron's preload.js does (see apps/desktop-tauri/src/
+// to a different origin the way Electron's preload.js does (see apps/desktop/src/
 // bridge.js's own comment) — so when this app is loaded INSIDE Tauri (window.__TAURI__ is
 // injected globally by withGlobalTauri, on every origin including this one), reconstruct the
 // exact same window.liferSetup shape here instead. Electron's real preload.js already sets

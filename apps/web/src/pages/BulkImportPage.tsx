@@ -5,50 +5,24 @@ import SpeciesPicker, { type SpeciesResult } from "../components/SpeciesPicker";
 import Lightbox from "../components/Lightbox";
 import BackToCollectionLink from "../components/BackToCollectionLink";
 
-// Phase 5 (spec §9): "a decade of photos onboarded in an evening." Three things chain
-// together here — drag a whole folder in, auto-guess the species from folder names/XMP
-// keywords so most rows need zero typing, and a keyboard-driven picker (type/arrow/enter)
-// for the rest, with bulk-assign for whatever's left after that.
-type RowStatus = "pending" | "inspecting" | "ready" | "uploading" | "done" | "error";
+// Phase 5 (spec §9): "a decade of photos onboarded in an evening." AI photo matching was
+// tried here (see packages-id/ archive) but shelved after regressions — species assignment is
+// fully manual for now, with a keyboard-driven picker (type/arrow/enter) and bulk-assign for
+// getting through a large batch quickly.
+type RowStatus = "pending" | "ready" | "uploading" | "done" | "error";
 
 interface ImportRow {
   key: string;
   file: File;
   previewUrl: string;
-  folderHint: string | null;
-  keywords: string[] | null;
   speciesId: string | null;
   speciesLabel: string | null;
-  autoMatched: boolean;
   status: RowStatus;
   captureId?: string;
   error?: string;
 }
 
-const INSPECT_CONCURRENCY = 4;
 const UPLOAD_CONCURRENCY = 2;
-
-function folderHintFromFile(file: File): string | null {
-  // webkitRelativePath is only populated when the file came from a <input webkitdirectory>
-  // folder pick — "MyPhotos/Mallard/img001.jpg" -> "Mallard" (spec: "folder-structure
-  // import: treat directory names as species names"). Plain drag-and-drop files have no
-  // relative path, so this is null for those (a known limitation of drag-and-drop).
-  const relPath = (file as File & { webkitRelativePath?: string }).webkitRelativePath;
-  if (!relPath) return null;
-  const parts = relPath.split("/");
-  return parts.length >= 2 ? parts[parts.length - 2] : null;
-}
-
-async function findSpeciesMatch(candidate: string): Promise<SpeciesResult | null> {
-  if (!candidate.trim()) return null;
-  const res = await api.get<{ results: SpeciesResult[] }>(`/species?q=${encodeURIComponent(candidate)}`);
-  return res.results[0] ?? null;
-}
-
-function isExactMatch(candidate: string, result: SpeciesResult): boolean {
-  const norm = (s: string) => s.trim().toLowerCase();
-  return norm(candidate) === norm(result.common_name ?? "") || norm(candidate) === norm(result.scientific_name);
-}
 
 export default function BulkImportPage() {
   const [rows, setRows] = useState<ImportRow[]>([]);
@@ -64,73 +38,22 @@ export default function BulkImportPage() {
   const filesInputRef = useRef<HTMLInputElement>(null);
 
   function addFiles(fileList: FileList | File[]) {
-    const files = Array.from(fileList).filter((f) => f.type === "image/jpeg" || f.type === "image/jpg");
+    const files = Array.from(fileList).filter((f) => f.type.startsWith("image/"));
     const newRows: ImportRow[] = files.map((file) => ({
       key: `${file.name}-${file.size}-${file.lastModified}-${Math.random()}`,
       file,
       previewUrl: URL.createObjectURL(file),
-      folderHint: folderHintFromFile(file),
-      keywords: null,
       speciesId: null,
       speciesLabel: null,
-      autoMatched: false,
-      status: "pending",
+      status: "ready",
     }));
     setRows((prev) => [...prev, ...newRows]);
-    inspectRows(newRows);
-  }
-
-  async function inspectRows(newRows: ImportRow[]) {
-    setRows((prev) => prev.map((r) => (newRows.some((n) => n.key === r.key) ? { ...r, status: "inspecting" } : r)));
-
-    await mapWithConcurrency(newRows, INSPECT_CONCURRENCY, async (row) => {
-      let keywords: string[] = [];
-      try {
-        const form = new FormData();
-        form.append("file", row.file);
-        const res = await api.post<{ keywords: string[] }>("/uploads/inspect", form);
-        keywords = res.keywords;
-      } catch {
-        // Inspection is best-effort — a failure here just means no auto-match, not a
-        // blocked import; the row still gets a manual picker.
-      }
-
-      const candidates = [row.folderHint, ...keywords].filter((c): c is string => !!c);
-      let match: SpeciesResult | null = null;
-      let exact = false;
-      for (const candidate of candidates) {
-        const result = await findSpeciesMatch(candidate);
-        if (result && isExactMatch(candidate, result)) {
-          match = result;
-          exact = true;
-          break;
-        }
-        if (result && !match) match = result; // keep the first hit as a non-exact suggestion
-      }
-
-      setRows((prev) =>
-        prev.map((r) =>
-          r.key === row.key
-            ? {
-                ...r,
-                keywords,
-                status: "ready",
-                speciesId: exact ? match!.id : r.speciesId,
-                speciesLabel: exact ? (match!.common_name ?? match!.scientific_name) : r.speciesLabel,
-                autoMatched: exact,
-              }
-            : r,
-        ),
-      );
-    });
   }
 
   function assignSpecies(keys: string[], result: SpeciesResult) {
     setRows((prev) =>
       prev.map((r) =>
-        keys.includes(r.key)
-          ? { ...r, speciesId: result.id, speciesLabel: result.common_name ?? result.scientific_name, autoMatched: false }
-          : r,
+        keys.includes(r.key) ? { ...r, speciesId: result.id, speciesLabel: result.common_name ?? result.scientific_name } : r,
       ),
     );
   }
@@ -223,7 +146,8 @@ export default function BulkImportPage() {
             e.preventDefault();
             if (e.dataTransfer.files.length) addFiles(e.dataTransfer.files);
           }}
-          className="rounded-lg border-2 border-dashed border-line p-8 text-center"
+          onClick={() => filesInputRef.current?.click()}
+          className="cursor-pointer rounded-lg border-2 border-dashed border-line p-8 text-center"
         >
           <input
             ref={folderInputRef}
@@ -239,24 +163,33 @@ export default function BulkImportPage() {
             ref={filesInputRef}
             type="file"
             multiple
-            accept="image/jpeg"
+            accept="image/*"
             className="hidden"
             onChange={(e) => e.target.files && addFiles(e.target.files)}
           />
           <p className="text-sm text-muted">
             Drag JPEGs in, or{" "}
-            <button onClick={() => folderInputRef.current?.click()} className="text-ink underline">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                folderInputRef.current?.click();
+              }}
+              className="text-ink underline"
+            >
               choose a folder
             </button>{" "}
             /{" "}
-            <button onClick={() => filesInputRef.current?.click()} className="text-ink underline">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                filesInputRef.current?.click();
+              }}
+              className="text-ink underline"
+            >
               choose files
             </button>
           </p>
-          <p className="mt-1 text-xs text-muted">
-            Folder names and XMP keywords/tags on the files are used to auto-guess the species. Drag-and-drop only sees
-            individual files, not folder structure — use "choose a folder" for folder-name matching.
-          </p>
+          <p className="mt-1 text-xs text-muted">Assign a species to each photo below, then import.</p>
         </div>
 
         {rows.length > 0 && (
@@ -298,7 +231,6 @@ export default function BulkImportPage() {
                   />
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm text-ink">{row.file.name}</p>
-                    {row.status === "inspecting" && <p className="text-xs text-muted">Reading keywords…</p>}
                     {focusedRowKey === row.key ? (
                       <div className="mt-1 w-64">
                         <SpeciesPicker
@@ -312,9 +244,7 @@ export default function BulkImportPage() {
                         onClick={() => setFocusedRowKey(row.key)}
                         className={`mt-0.5 text-xs ${row.speciesId ? "text-ink" : "text-muted"} hover:underline`}
                       >
-                        {row.speciesId
-                          ? `${row.speciesLabel}${row.autoMatched ? " (auto-matched)" : ""}`
-                          : "Click to assign species…"}
+                        {row.speciesId ? row.speciesLabel : "Click to assign species…"}
                       </button>
                     )}
                   </div>
