@@ -5,6 +5,9 @@ import BackToCollectionLink from "../components/BackToCollectionLink";
 import { useDesktopMode } from "../hooks/useDesktopMode";
 import { useMigrationStatus } from "../hooks/useMigrationStatus";
 import { useTheme } from "../hooks/useTheme";
+import { pickFolderNative, FolderBrowser } from "../components/FolderPicker";
+import { useStorageVolumes } from "../hooks/useStorageVolumes";
+import EbirdImport from "../components/EbirdImport";
 
 interface AccountSettings {
   email: string;
@@ -71,8 +74,10 @@ export default function SettingsPage() {
             <LibraryLinksSection />
             <AppearanceSection />
             <HideObscureSpeciesSection />
+            <EbirdImportSection />
             <OrganizePhotosSection />
             <StorageLocationSection />
+            <StorageVolumesSection />
             <LibraryReimportSection />
             <ServerSection />
             <AppUpdatesSection />
@@ -169,6 +174,14 @@ function HideObscureSpeciesSection() {
       <FormMessage error={error} success={null} />
     </Card>
   );
+}
+
+// Moved here from CollectionPage (previously shown any time a region was selected, whether or
+// not you actually had eBird data to import) — a one-off action, not something that needs to
+// sit on the main browsing screen. Doesn't need onImported to refresh anything on this page;
+// EbirdImport already shows its own import summary inline.
+function EbirdImportSection() {
+  return <EbirdImport onImported={() => {}} />;
 }
 
 function Card({ title, description, children }: { title: string; description: string; children: React.ReactNode }) {
@@ -464,10 +477,12 @@ interface ReimportStatus {
   finishedAt: number | null;
   jpegsRecovered: number;
   jpegsAlreadyKnown: number;
+  jpegsRelinked: number;
   jpegsUnrecognized: string[];
   jpegsAmbiguous: Array<{ file: string; scientificNames: string[] }>;
   rawsRecovered: number;
   rawsAlreadyKnown: number;
+  rawsRelinked: number;
   rawsUnmatched: number;
   missingReferenceData: string[];
 }
@@ -481,6 +496,9 @@ function LibraryReimportSection() {
   const [status, setStatus] = useState<ReimportStatus | null>(null);
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { volumes } = useStorageVolumes();
+  const connectedVolumes = volumes.filter((v) => v.connected);
+  const [volumeId, setVolumeId] = useState("");
 
   useEffect(() => {
     api
@@ -516,16 +534,19 @@ function LibraryReimportSection() {
   }, [status?.running]);
 
   async function start() {
+    const targetLabel = volumeId ? connectedVolumes.find((v) => v.id === volumeId)?.label : null;
     if (
       !confirm(
-        "This walks your whole photo library on disk and rebuilds any captures/species records missing from the database. It never modifies or moves your files. Continue?",
+        targetLabel
+          ? `This walks "${targetLabel}"'s own photo folder and rebuilds any missing records, and repairs any already-known photo whose saved location has drifted (e.g. this drive remounting under a different name). It never modifies or moves your files. Continue?`
+          : "This walks your whole photo library on disk and rebuilds any captures/species records missing from the database. It never modifies or moves your files. Continue?",
       )
     )
       return;
     setStarting(true);
     setError(null);
     try {
-      await api.post("/library/reimport");
+      await api.post("/library/reimport", volumeId ? { volumeId } : undefined);
       setStatus(await api.get<ReimportStatus>("/library/reimport/status"));
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Couldn't start the reimport");
@@ -539,8 +560,26 @@ function LibraryReimportSection() {
   return (
     <Card
       title="Reimport library"
-      description="Rebuild your species records straight from the photos already organized on disk — for after a fresh install or server migration where the database doesn't know about them yet."
+      description="Rebuild your species records straight from the photos already organized on disk — for after a fresh install or server migration where the database doesn't know about them yet, or to repair links after a drive got reconnected under a different name."
     >
+      {connectedVolumes.length > 0 && (
+        <div className="space-y-1">
+          <label className="text-xs font-medium text-muted">Reimport from</label>
+          <select
+            value={volumeId}
+            onChange={(e) => setVolumeId(e.target.value)}
+            disabled={starting || status.running}
+            className="w-full rounded-md border border-line bg-surface px-2 py-1.5 text-sm text-ink"
+          >
+            <option value="">This computer's library</option>
+            {connectedVolumes.map((v) => (
+              <option key={v.id} value={v.id}>
+                {v.label}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
       <div>
         <button
           type="button"
@@ -563,6 +602,12 @@ function LibraryReimportSection() {
             {status.jpegsAlreadyKnown > 0 && ` (${status.jpegsAlreadyKnown} already known)`}
             {status.rawsRecovered > 0 && ` and matched ${status.rawsRecovered} RAW file${status.rawsRecovered === 1 ? "" : "s"}`}.
           </p>
+          {(status.jpegsRelinked > 0 || status.rawsRelinked > 0) && (
+            <p>
+              Repaired {status.jpegsRelinked + status.rawsRelinked} file{status.jpegsRelinked + status.rawsRelinked === 1 ? "" : "s"} whose
+              saved location had drifted.
+            </p>
+          )}
           {status.jpegsUnrecognized.length > 0 && (
             <p>
               {status.jpegsUnrecognized.length} photo{status.jpegsUnrecognized.length === 1 ? "" : "s"} had no recognizable species
@@ -601,19 +646,13 @@ function LibraryReimportSection() {
   );
 }
 
-interface DirectoryListing {
-  path: string;
-  parent: string | null;
-  entries: Array<{ name: string; path: string }>;
-}
-
 // Desktop-mode only (see settings/routes.ts's requireDesktopMode) — the Docker deployment
 // already has LIFER_STORAGE_DIR for this (see .env.example). GET /settings/storage 404s
 // outside desktop mode, which is how this section knows to just not render at all.
 function StorageLocationSection() {
   const [available, setAvailable] = useState(false);
   const [currentDataDir, setCurrentDataDir] = useState<string | null>(null);
-  const [browsing, setBrowsing] = useState<DirectoryListing | null>(null);
+  const [browsing, setBrowsing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<string | null>(null);
@@ -628,20 +667,9 @@ function StorageLocationSection() {
       .catch(() => setAvailable(false));
   }, []);
 
-  function browse(dirPath?: string) {
-    setError(null);
-    api
-      .get<DirectoryListing>(`/settings/browse-directory${dirPath ? `?path=${encodeURIComponent(dirPath)}` : ""}`)
-      .then(setBrowsing)
-      .catch((err) => setError(err instanceof ApiError ? err.message : "Couldn't browse that folder"));
-  }
-
-  async function chooseThisFolder() {
-    if (!browsing) return;
+  async function moveTo(newPath: string) {
     if (
-      !confirm(
-        `Move your photo library from ${currentDataDir} to ${browsing.path}? This moves every file and updates Lifer's records to match.`,
-      )
+      !confirm(`Move your photo library from ${currentDataDir} to ${newPath}? This moves every file and updates Lifer's records to match.`)
     ) {
       return;
     }
@@ -650,7 +678,7 @@ function StorageLocationSection() {
     setResult(null);
     try {
       const res = await api.put<{ dataDir: string; filesMoved: boolean }>("/settings/storage", {
-        dataDir: browsing.path,
+        dataDir: newPath,
       });
       setResult(
         res.filesMoved
@@ -658,7 +686,7 @@ function StorageLocationSection() {
           : "Saved. Restart Lifer for the new location to take effect.",
       );
       setCurrentDataDir(res.dataDir);
-      setBrowsing(null);
+      setBrowsing(false);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Couldn't move this library");
     } finally {
@@ -666,58 +694,239 @@ function StorageLocationSection() {
     }
   }
 
+  // Native OS folder dialog first, same convention as everywhere else that picks a folder
+  // (see FolderPicker.tsx) — <FolderBrowser> only ever runs as the no-Tauri fallback.
+  async function chooseFolder() {
+    const native = await pickFolderNative();
+    if (native === undefined) {
+      setBrowsing(true);
+      return;
+    }
+    if (native === null) return;
+    await moveTo(native);
+  }
+
   if (!available) return null;
 
   return (
-    <Card
-      title="Storage location"
-      description="Where your photo library lives on this computer, instead of buried inside the app's own files."
-    >
+    <Card title="Storage location" description="Where your photo library lives and you can find all the files">
       <p className="text-sm text-ink">
         Currently: <code className="text-xs">{currentDataDir}</code>
       </p>
       {!browsing ? (
         <button
           type="button"
-          onClick={() => browse()}
+          onClick={chooseFolder}
+          disabled={saving}
           className="rounded-md border border-line px-3 py-1.5 text-sm text-ink hover:bg-surface-muted"
         >
           Choose a different folder…
         </button>
       ) : (
+        <FolderBrowser onChoose={moveTo} onCancel={() => setBrowsing(false)} />
+      )}
+      <FormMessage error={error} success={result} />
+    </Card>
+  );
+}
+
+interface StorageVolume {
+  id: string;
+  label: string;
+  mountPath: string;
+  connected: boolean;
+  lastSeenAt: string;
+  isDefault: boolean;
+}
+
+// Desktop-only, same gating as StorageLocationSection above (GET /storage-volumes 404s
+// outside desktop mode). A registered external drive shows its live connected/disconnected
+// state — whether it's plugged in right now — rather than a cached guess, since that's exactly
+// what changes between one visit to this page and the next. See
+// ~/.claude/plans/multi-drive-storage.md.
+function StorageVolumesSection() {
+  const [available, setAvailable] = useState(false);
+  const [volumes, setVolumes] = useState<StorageVolume[] | null>(null);
+  const [browsing, setBrowsing] = useState(false);
+  const [pendingPath, setPendingPath] = useState<string | null>(null);
+  const [label, setLabel] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [result, setResult] = useState<string | null>(null);
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+
+  function load() {
+    api
+      .get<{ volumes: StorageVolume[] }>("/storage-volumes")
+      .then((res) => {
+        setAvailable(true);
+        setVolumes(res.volumes);
+      })
+      .catch(() => setAvailable(false));
+  }
+  useEffect(load, []);
+
+  // Native OS folder dialog first, same convention as everywhere else that picks a folder
+  // (see FolderPicker.tsx) — <FolderBrowser> only ever runs as the no-Tauri fallback.
+  async function chooseFolder() {
+    setError(null);
+    const native = await pickFolderNative();
+    if (native === undefined) {
+      setBrowsing(true);
+      return;
+    }
+    if (native === null) return;
+    setPendingPath(native);
+  }
+
+  async function registerThisFolder() {
+    if (!pendingPath) return;
+    if (!label.trim()) {
+      setError("Give this drive a name first (e.g. \"Red 2TB drive\")");
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    setResult(null);
+    try {
+      const res = await api.post<{ readopted?: number }>("/storage-volumes", { path: pendingPath, label: label.trim() });
+      setPendingPath(null);
+      setLabel("");
+      if (res.readopted) {
+        setResult(`Recognized ${res.readopted} photo${res.readopted === 1 ? "" : "s"} already on this drive from before.`);
+      }
+      load();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't register that drive");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function remove(id: string) {
+    if (!confirm("Stop tracking this drive? Photos already imported from it stay in your library — this just stops Lifer from checking whether it's connected.")) {
+      return;
+    }
+    await api.delete(`/storage-volumes/${id}`);
+    load();
+  }
+
+  async function setDefault(id: string) {
+    await api.put(`/storage-volumes/${id}/default`, {});
+    load();
+  }
+
+  async function rename(id: string) {
+    if (!renameValue.trim()) return;
+    await api.put(`/storage-volumes/${id}`, { label: renameValue.trim() });
+    setRenamingId(null);
+    load();
+  }
+
+  if (!available) return null;
+
+  return (
+    <Card
+      title="External drives"
+      description="Register a drive that holds part of your photo library — Lifer will show its photos with a thumbnail even when the drive isn't plugged in, so you can tell which drive to go grab."
+    >
+      {volumes && volumes.length > 0 && (
+        <ul className="space-y-2">
+          {volumes.map((v) => (
+            <li key={v.id} className="flex items-center justify-between rounded-md border border-line px-3 py-2 text-sm">
+              <div className="min-w-0 flex-1">
+                {renamingId === v.id ? (
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={renameValue}
+                      onChange={(e) => setRenameValue(e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && rename(v.id)}
+                      autoFocus
+                      className={inputClass}
+                    />
+                    <button type="button" onClick={() => rename(v.id)} className="text-xs text-accent hover:underline">
+                      Save
+                    </button>
+                    <button type="button" onClick={() => setRenamingId(null)} className="text-xs text-muted hover:underline">
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  <p className="text-ink">
+                    {v.label}
+                    {v.isDefault && (
+                      <span className="ml-2 inline-block rounded-full bg-surface-muted px-2 py-0.5 text-[10px] uppercase tracking-wide text-muted">
+                        Default
+                      </span>
+                    )}
+                  </p>
+                )}
+                <p className="text-xs text-muted">{v.connected ? v.mountPath : `Last seen: ${new Date(v.lastSeenAt).toLocaleString()}`}</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className={`text-xs ${v.connected ? "text-green-700" : "text-muted"}`}>
+                  {v.connected ? "Connected" : "Not connected"}
+                </span>
+                {renamingId !== v.id && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setRenamingId(v.id);
+                      setRenameValue(v.label);
+                    }}
+                    className="text-xs text-muted hover:underline"
+                  >
+                    Rename
+                  </button>
+                )}
+                {!v.isDefault && (
+                  <button type="button" onClick={() => setDefault(v.id)} className="text-xs text-muted hover:underline">
+                    Set as default
+                  </button>
+                )}
+                <button type="button" onClick={() => remove(v.id)} className="text-xs text-muted hover:underline">
+                  Remove
+                </button>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {!browsing && !pendingPath ? (
+        <button type="button" onClick={chooseFolder} className="rounded-md border border-line px-3 py-1.5 text-sm text-ink hover:bg-surface-muted">
+          Add a drive…
+        </button>
+      ) : browsing && !pendingPath ? (
+        <FolderBrowser
+          onChoose={(path) => {
+            setBrowsing(false);
+            setPendingPath(path);
+          }}
+          onCancel={() => setBrowsing(false)}
+        />
+      ) : (
         <div className="space-y-2 rounded-md border border-line p-3">
-          <p className="truncate text-xs text-muted">{browsing.path}</p>
-          <div className="max-h-48 space-y-0.5 overflow-y-auto">
-            {browsing.parent && (
-              <button
-                onClick={() => browse(browsing.parent!)}
-                className="block w-full rounded px-2 py-1 text-left text-sm text-muted hover:bg-surface-muted"
-              >
-                .. (up one level)
-              </button>
-            )}
-            {browsing.entries.map((entry) => (
-              <button
-                key={entry.path}
-                onClick={() => browse(entry.path)}
-                className="block w-full rounded px-2 py-1 text-left text-sm text-ink hover:bg-surface-muted"
-              >
-                {entry.name}
-              </button>
-            ))}
-          </div>
+          <p className="truncate text-xs text-muted">{pendingPath}</p>
+          <input
+            type="text"
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+            placeholder="Name this drive (e.g. Red 2TB drive)"
+            className={inputClass}
+          />
           <div className="flex gap-2 pt-1">
-            <button
-              type="button"
-              onClick={chooseThisFolder}
-              disabled={saving}
-              className={buttonClass}
-            >
-              Use this folder
+            <button type="button" onClick={registerThisFolder} disabled={saving} className={buttonClass}>
+              Register this folder
             </button>
             <button
               type="button"
-              onClick={() => setBrowsing(null)}
+              onClick={() => {
+                setPendingPath(null);
+                setLabel("");
+              }}
               className="rounded-md border border-line px-3 py-1.5 text-sm text-ink hover:bg-surface-muted"
             >
               Cancel

@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { api, ApiError } from "../api/client";
+import { enqueueRawUploads } from "../lib/uploadQueue";
 
 const RAW_EXTENSIONS = new Set([".cr2", ".cr3", ".nef", ".nrw", ".arw", ".raf", ".rw2", ".orf", ".dng", ".pef", ".srw", ".tif", ".tiff"]);
 
@@ -20,64 +20,87 @@ interface RawUploadOutcome {
   filed?: boolean;
   /** Identical content already on file for this species — not re-added. */
   duplicate?: boolean;
+  /** Internal only — identifies this placeholder's own list entry so a result can be routed
+   *  back to the right row even when two files in the same (or overlapping) batch share a
+   *  filename, e.g. same-named RAWs in different subfolders. Never rendered. */
+  _key?: string;
 }
 
 // Standalone RAW upload, matched by EXIF fingerprint against already-uploaded JPEGs, with no
 // species picker needed since the match determines the species. Accepts many files (or a
 // whole folder) at once; each is matched independently, so a mixed batch of hits/misses/
-// collisions is reported per file rather than all-or-nothing.
-export default function RawUpload({ speciesId, onFiled }: { speciesId: string; onFiled?: () => void }) {
+// collisions is reported per file rather than all-or-nothing. Requests run through the shared
+// background queue (lib/uploadQueue) — closing this dialog, or navigating away entirely,
+// doesn't stop or lose them; only this component's own inline result list goes away if it's
+// not mounted to receive it (the global upload banner still shows progress either way).
+export default function RawUpload({
+  speciesId,
+  volumeId,
+  onFiled,
+}: {
+  speciesId: string;
+  /** Registered external drive to save into, or "" for the primary drive — see
+   *  VolumeDestinationPicker, rendered by the parent dialog above both upload controls. */
+  volumeId: string;
+  onFiled?: () => void;
+}) {
   const [results, setResults] = useState<RawUploadOutcome[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [uploading, setUploading] = useState(false);
   const filesInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
 
-  // One request per file instead of one giant multipart request for the whole batch — a
-  // folder of real camera RAWs can easily add up to several hundred MB combined even though
-  // each file alone is well within the per-file limit. Filtered to RAW extensions client-side
-  // first (a folder picker also grabs JPEGs, .DS_Store, XMP sidecars, etc.) so a request is
-  // never wasted on a file the server would just skip anyway. Sent concurrently — the
-  // browser's own per-origin connection limit throttles this naturally, no manual concurrency
-  // cap needed.
-  //
   // allowUnmatchedFallback is only ever true from the "Choose RAW files…" picker below, never
   // from "Choose a folder…" — this page knows which species a directly-chosen file belongs
   // to, whereas a folder full of RAWs may span many species, so only files that match an
-  // existing JPEG should be filed from a folder upload.
-  async function handleFiles(fileList: FileList, allowUnmatchedFallback: boolean) {
+  // existing JPEG should be filed from a folder upload. The destination drive (volumeId)
+  // applies either way — it's a storage preference, independent of which species matched.
+  function handleFiles(fileList: FileList, allowUnmatchedFallback: boolean) {
     const files = Array.from(fileList).filter((f) => RAW_EXTENSIONS.has(extname(f.name)));
     setError(null);
-    setResults(null);
     if (files.length === 0) {
       setError("No supported RAW files found in that selection");
       return;
     }
-    setUploading(true);
-    try {
-      const outcomes = await Promise.all(
-        files.map(async (file): Promise<RawUploadOutcome> => {
-          try {
-            const form = new FormData();
-            if (allowUnmatchedFallback) {
-              form.append("speciesId", speciesId);
-              form.append("allowUnmatchedFallback", "1");
-            }
-            form.append("file", file);
-            const res = await api.post<{ results: RawUploadOutcome[] }>("/uploads/raw", form);
-            return res.results[0];
-          } catch (err) {
-            return { filename: file.name, linked: false, collision: false, error: err instanceof ApiError ? err.message : "Upload failed" };
-          }
-        }),
-      );
-      setResults(outcomes);
-      if (outcomes.some((o) => o.filed)) onFiled?.();
-    } finally {
-      setUploading(false);
-      if (filesInputRef.current) filesInputRef.current.value = "";
-      if (folderInputRef.current) folderInputRef.current.value = "";
-    }
+    // A unique key per file in this batch — not the filename, which two RAWs in the same
+    // folder-wide upload can legitimately share (different subfolders) — so each result routes
+    // back to its own placeholder row instead of the first pending row with a matching name.
+    const batchId = `${Date.now()}-${Math.random()}`;
+    const placeholders: RawUploadOutcome[] = files.map((f, i) => ({ filename: f.name, linked: false, collision: false, _key: `${batchId}-${i}` }));
+    setResults((prev) => [...(prev ?? []), ...placeholders]);
+
+    enqueueRawUploads<RawUploadOutcome>(
+      speciesId,
+      files,
+      (_file, form) => {
+        if (allowUnmatchedFallback) {
+          form.append("speciesId", speciesId);
+          form.append("allowUnmatchedFallback", "1");
+        }
+        if (volumeId) form.append("volumeId", volumeId);
+      },
+      (body) => body.results[0],
+      {
+        onResult: (file, result, requestError) => {
+          const key = `${batchId}-${files.indexOf(file)}`;
+          setResults((prev) =>
+            (prev ?? []).map((r) =>
+              r._key === key
+                ? { ...(result ?? { filename: file.name, linked: false, collision: false, error: requestError ?? "Upload failed" }), _key: key }
+                : r,
+            ),
+          );
+        },
+        onBatchSettled: () => {
+          setResults((prev) => {
+            if (prev?.some((r) => r.filed)) onFiled?.();
+            return prev;
+          });
+        },
+      },
+    );
+
+    if (filesInputRef.current) filesInputRef.current.value = "";
+    if (folderInputRef.current) folderInputRef.current.value = "";
   }
 
   const successCount = results?.filter((r) => r.linked || r.filed).length ?? 0;
@@ -117,10 +140,10 @@ export default function RawUpload({ speciesId, onFiled }: { speciesId: string; o
       />
       <div className="mt-2 flex gap-4">
         <label htmlFor="raw-upload-files-input" className="cursor-pointer text-sm text-muted hover:underline">
-          {uploading ? "Matching…" : "Choose RAW files…"}
+          Choose RAW files…
         </label>
         <label htmlFor="raw-upload-folder-input" className="cursor-pointer text-sm text-muted hover:underline">
-          {uploading ? "Matching…" : "Choose a folder…"}
+          Choose a folder…
         </label>
       </div>
       {error && <p className="mt-2 text-sm text-red-600">{error}</p>}

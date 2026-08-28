@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 export interface LightboxSlide {
   url: string;
@@ -47,6 +47,14 @@ export default function Lightbox({
   onClose: () => void;
 }) {
   const [showInfo, setShowInfo] = useState(false);
+  // Scroll-wheel/trackpad-pinch zoom (macOS/WKWebView reports a trackpad pinch as a wheel
+  // event, so this covers both without separate touch-gesture handling) plus drag-to-pan once
+  // zoomed in. Reset whenever the slide changes or the info panel toggles — panning/zoom state
+  // from one photo has no business carrying over to the next.
+  const [scale, setScale] = useState(1);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const dragRef = useRef<{ startX: number; startY: number; panX: number; panY: number } | null>(null);
+  const [dragging, setDragging] = useState(false);
 
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
@@ -57,6 +65,43 @@ export default function Lightbox({
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
   }, [index, slides.length, onIndexChange, onClose]);
+
+  useEffect(() => {
+    setScale(1);
+    setPan({ x: 0, y: 0 });
+  }, [index, showInfo]);
+
+  function onWheelZoom(e: React.WheelEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    setScale((s) => {
+      const next = Math.min(4, Math.max(1, s - e.deltaY * 0.01));
+      if (next === 1) setPan({ x: 0, y: 0 });
+      return next;
+    });
+  }
+
+  function onDoubleClickZoom(e: React.MouseEvent) {
+    e.stopPropagation();
+    setScale((s) => (s > 1 ? 1 : 2));
+    setPan({ x: 0, y: 0 });
+  }
+
+  function onDragStart(e: React.MouseEvent) {
+    if (scale <= 1) return;
+    e.stopPropagation();
+    setDragging(true);
+    dragRef.current = { startX: e.clientX, startY: e.clientY, panX: pan.x, panY: pan.y };
+  }
+  function onDragMove(e: React.MouseEvent) {
+    const d = dragRef.current;
+    if (!d) return;
+    setPan({ x: d.panX + (e.clientX - d.startX), y: d.panY + (e.clientY - d.startY) });
+  }
+  function onDragEnd() {
+    dragRef.current = null;
+    setDragging(false);
+  }
 
   const slide = slides[index];
   if (!slide) return null;
@@ -171,9 +216,33 @@ export default function Lightbox({
           <img
             src={slide.url}
             alt=""
-            className="max-h-[85vh] max-w-full object-contain"
+            draggable={false}
+            className="max-h-[85vh] max-w-full select-none object-contain"
+            style={{
+              transform: `translate(${pan.x}px, ${pan.y}px) scale(${scale})`,
+              transition: dragging ? "none" : "transform 0.05s ease-out",
+              cursor: scale > 1 ? (dragging ? "grabbing" : "grab") : "zoom-in",
+            }}
             onClick={(e) => e.stopPropagation()}
+            onDoubleClick={onDoubleClickZoom}
+            onWheel={onWheelZoom}
+            onMouseDown={onDragStart}
+            onMouseMove={onDragMove}
+            onMouseUp={onDragEnd}
+            onMouseLeave={onDragEnd}
           />
+          {scale > 1 && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setScale(1);
+                setPan({ x: 0, y: 0 });
+              }}
+              className="absolute bottom-4 left-1/2 -translate-x-1/2 rounded-full bg-black/40 px-3 py-1 text-xs text-white hover:bg-black/60"
+            >
+              Reset zoom
+            </button>
+          )}
           {(slide.caption || slides.length > 1) && (
             <div className="mt-3 text-center text-sm text-white/70" onClick={(e) => e.stopPropagation()}>
               {slide.caption}

@@ -16,15 +16,18 @@ import { captureRoutes } from "./captures/routes.js";
 import { regionRoutes } from "./regions/routes.js";
 import { importRoutes } from "./imports/routes.js";
 import { settingsRoutes, recoverInterruptedStorageMigration } from "./settings/routes.js";
+import { migrateDerivativesLocation } from "./uploads/migrateDerivativesLocation.js";
 import { offlinePacksRoutes } from "./offlinePacks/routes.js";
 import { archiveRoutes } from "./archive/routes.js";
 import { tripsRoutes } from "./trips/routes.js";
 import { libraryRoutes } from "./library/routes.js";
+import { storageVolumesRoutes } from "./storageVolumes/routes.js";
 
 // Checked before anything else starts, so an interrupted storage-location move (see
 // settings/routes.ts) gets resolved one way or the other before the app serves a single
 // request against a possibly-inconsistent DATA_DIR.
 await recoverInterruptedStorageMigration();
+await migrateDerivativesLocation();
 
 // Force-quitting the desktop app (or a crash) sends SIGKILL straight to the Tauri process
 // only — Unix doesn't cascade a kill to child processes automatically, so this sidecar would
@@ -79,6 +82,7 @@ await app.register(async (api) => {
   await api.register(archiveRoutes);
   await api.register(tripsRoutes);
   await api.register(libraryRoutes);
+  await api.register(storageVolumesRoutes);
 }, { prefix: "/api" });
 
 app.get("/health", async () => ({ ok: true }));

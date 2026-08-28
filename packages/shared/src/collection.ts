@@ -51,6 +51,11 @@ export interface CollectionItem {
    *  and the 16:9 detail-page hero. */
   referenceFocalX: number | null;
   referenceFocalY: number | null;
+  /** The registered external drive (storage_volumes.label) holding the cover photo's original,
+   *  desktop multi-drive feature only — null when it's on the primary drive or there's no
+   *  cover photo of your own yet. The card only renders this as a badge when the frontend's
+   *  own useStorageVolumes() hook reports more than one drive location actually in use. */
+  coverVolumeLabel: string | null;
 }
 
 // Response shape for GET /api/collection/stats (spec §9 Phase 4).

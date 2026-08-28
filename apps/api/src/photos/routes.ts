@@ -6,6 +6,7 @@ import type { FastifyInstance } from "fastify";
 import { pool } from "../db.js";
 import { requireAuth } from "../auth/session.js";
 import { signedS3Url } from "../photoSources/s3.js";
+import { resolveOriginalPath } from "../storageVolumes/resolve.js";
 
 async function resolvePhotoPath(photoId: string, userId: string, kind: "display" | "thumb"): Promise<string | null> {
   const column = kind === "display" ? "p.display_path" : "p.thumb_path";
@@ -19,22 +20,35 @@ async function resolvePhotoPath(photoId: string, userId: string, kind: "display"
   return res.rows[0]?.path ?? null;
 }
 
-async function resolveOriginal(
-  photoId: string,
-  userId: string,
-  kind: "jpeg" | "raw" = "jpeg",
-): Promise<{ ref: string; refType: string } | null> {
+interface ResolvedOriginalRef {
+  ref: string | null;
+  refType: string;
+  connected: boolean;
+  volumeLabel?: string;
+}
+
+async function resolveOriginal(photoId: string, userId: string, kind: "jpeg" | "raw" = "jpeg"): Promise<ResolvedOriginalRef | null> {
   // photos.id -> captures.id -> originals.capture_id (originals is keyed by capture, since a
   // capture has at most one original per kind, independent of which rendition is "current").
-  const res = await pool.query<{ ref: string; ref_type: string }>(
-    `SELECT o.ref, o.ref_type
+  const res = await pool.query<{
+    ref: string;
+    ref_type: string;
+    volume_id: string | null;
+    volume_relative_path: string | null;
+  }>(
+    `SELECT o.ref, o.ref_type, o.volume_id, o.volume_relative_path
      FROM photos p
      JOIN captures c ON c.id = p.capture_id
      JOIN originals o ON o.capture_id = c.id
      WHERE p.id = $1 AND c.user_id = $2 AND o.kind = $3`,
     [photoId, userId, kind],
   );
-  return res.rows[0] ? { ref: res.rows[0].ref, refType: res.rows[0].ref_type } : null;
+  const row = res.rows[0];
+  if (!row) return null;
+  if (row.ref_type === "s3") return { ref: row.ref, refType: row.ref_type, connected: true };
+
+  const resolved = await resolveOriginalPath({ ref: row.ref, volume_id: row.volume_id, volume_relative_path: row.volume_relative_path });
+  return { ref: resolved.path, refType: row.ref_type, connected: resolved.connected, volumeLabel: resolved.volumeLabel };
 }
 
 export async function photoRoutes(app: FastifyInstance): Promise<void> {
@@ -61,10 +75,16 @@ export async function photoRoutes(app: FastifyInstance): Promise<void> {
       if (original.refType === "s3") {
         // A signed URL is time-limited and only usable directly, so ?download=1 can't add a
         // Content-Disposition header here the way the local-file branch does below.
-        return reply.redirect(await signedS3Url(original.ref));
+        return reply.redirect(await signedS3Url(original.ref!));
       }
 
-      if (!existsSync(original.ref)) {
+      if (!original.connected) {
+        // 409 (not 404) — the file isn't missing, its drive just isn't plugged in right now.
+        // volumeLabel lets the client tell the user exactly which drive to go grab, instead of
+        // a generic "not found" that reads as data loss.
+        return reply.code(409).send({ error: "This photo's drive isn't connected right now", volumeLabel: original.volumeLabel });
+      }
+      if (!original.ref || !existsSync(original.ref)) {
         return reply.code(404).send({ error: "Original not found" });
       }
       reply.header("Content-Type", "image/jpeg");
@@ -89,10 +109,13 @@ export async function photoRoutes(app: FastifyInstance): Promise<void> {
       if (!original) return reply.code(404).send({ error: "No RAW original for this photo" });
 
       if (original.refType === "s3") {
-        return reply.redirect(await signedS3Url(original.ref));
+        return reply.redirect(await signedS3Url(original.ref!));
       }
 
-      if (!existsSync(original.ref)) {
+      if (!original.connected) {
+        return reply.code(409).send({ error: "This RAW's drive isn't connected right now", volumeLabel: original.volumeLabel });
+      }
+      if (!original.ref || !existsSync(original.ref)) {
         return reply.code(404).send({ error: "RAW original not found" });
       }
       reply.header("Content-Type", "application/octet-stream");

@@ -45,6 +45,10 @@ export interface CollectionRow {
    *  photo (i.e. you have no cover photo of your own yet). */
   reference_focal_x?: string | number | null;
   reference_focal_y?: string | number | null;
+  /** storage_volumes.label for the cover photo's original, when it's tagged to a registered
+   *  external drive (see ~/.claude/plans/multi-drive-storage.md) — null for anything living on
+   *  the primary drive, same as any other original with no volume_id. */
+  cover_volume_label?: string | null;
 }
 
 export function toCollectionItem(row: CollectionRow) {
@@ -77,6 +81,7 @@ export function toCollectionItem(row: CollectionRow) {
     // only means anything when that's actually what's showing (no cover photo of your own).
     referenceFocalX: hasOwnCover ? null : numOrNull(row.reference_focal_x),
     referenceFocalY: hasOwnCover ? null : numOrNull(row.reference_focal_y),
+    coverVolumeLabel: hasOwnCover ? (row.cover_volume_label ?? null) : null,
   };
 }
 

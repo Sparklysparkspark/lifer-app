@@ -3,6 +3,7 @@ import { useParams, useSearchParams } from "react-router-dom";
 import { api, ApiError } from "../api/client";
 import UploadDropzone from "../components/UploadDropzone";
 import RawUpload from "../components/RawUpload";
+import { useVolumeDestination, VolumeDestinationPicker } from "../components/VolumeDestinationPicker";
 import Lightbox, { type LightboxSlide } from "../components/Lightbox";
 import CardCropEditor from "../components/CardCropEditor";
 import SeasonalityBar from "../components/SeasonalityBar";
@@ -74,6 +75,10 @@ interface SpeciesDetail {
     original_managed: boolean | null;
     original_kind: string | null;
     original_available: boolean | null;
+    /** Which registered external drive holds this original, set only when original_available
+     *  is false because that drive isn't connected right now (see storageVolumes) — null for
+     *  a genuinely missing file, or one that's on the always-on primary drive. */
+    original_volume_label: string | null;
     has_raw_original: boolean;
   }>;
   userSpecies: {
@@ -100,12 +105,14 @@ interface SpeciesDetail {
 
 // "Show me this photo big" prefers the full-resolution original when one exists (store or
 // link mode — see the originals feature); falls back to the 2560px display WebP for
-// captures predating it. RAW originals (Phase 7, not yet possible) would need to keep using
-// /display instead, since browsers can't render RAW.
-
-function fullSizeUrl(capture: { photo_id: string | null; original_ref: string | null; original_kind: string | null }) {
+// captures predating it, AND for one whose original is known unavailable right now (a
+// disconnected external drive, or a genuinely missing file) — otherwise the lightbox would
+// request a 404/409 and show a broken image instead of the still-perfectly-viewable display
+// copy. RAW originals (Phase 7, not yet possible) would need to keep using /display instead,
+// since browsers can't render RAW.
+function fullSizeUrl(capture: { photo_id: string | null; original_ref: string | null; original_kind: string | null; original_available: boolean | null }) {
   if (!capture.photo_id) return null;
-  if (capture.original_ref && capture.original_kind === "jpeg") {
+  if (capture.original_ref && capture.original_kind === "jpeg" && capture.original_available !== false) {
     return `/api/photos/${capture.photo_id}/original`;
   }
   return `/api/photos/${capture.photo_id}/display`;
@@ -134,6 +141,7 @@ export default function SpeciesDetailPage() {
   // column-count steps. Shared with GalleryPage via the same localStorage key (see
   // usePhotoGridSize's own comment) so both pages stay in sync.
   const [thumbSizePx, updateThumbSize] = usePhotoGridSize();
+  const volumeDestination = useVolumeDestination(id ?? "");
 
   // "Gallery view" hides rarity tier/rating and camera/EXIF info, for showing off the photos
   // themselves (to someone else, or on a big screen) without the app's own bookkeeping
@@ -223,6 +231,17 @@ export default function SpeciesDetailPage() {
     load();
     loadUnmatchedRaws();
   }, [load, loadUnmatchedRaws]);
+
+  // A drive that was disconnected when this page first loaded might get plugged back in while
+  // you're still sitting here — without this, "connect the drive" only ever gets rechecked by
+  // leaving and coming back to the page. Only polls while it's actually relevant (at least one
+  // capture currently reads as unavailable), and stops as soon as everything resolves.
+  const hasUnavailableOriginal = detail?.captures.some((c) => c.original_available === false) ?? false;
+  useEffect(() => {
+    if (!hasUnavailableOriginal) return;
+    const timer = setInterval(load, 8000);
+    return () => clearInterval(timer);
+  }, [hasUnavailableOriginal, load]);
 
   // React Router doesn't reset scroll position on navigation by itself — without this,
   // clicking from a long-scrolled species page into another species (or hitting back/forward
@@ -737,7 +756,11 @@ export default function SpeciesDetailPage() {
                           {detail.userSpecies?.cover_photo_id === c.photo_id ? "Featured photo ✓" : "Set as featured photo"}
                         </button>
                         {c.original_ref && c.original_available === false ? (
-                          <p className="w-full px-3 py-1.5 text-left text-muted">Original unavailable</p>
+                          <p className="w-full px-3 py-1.5 text-left text-muted">
+                            {c.original_volume_label
+                              ? `Connect "${c.original_volume_label}" to view this original`
+                              : "Original unavailable"}
+                          </p>
                         ) : (
                           c.original_ref && (
                             <>
@@ -806,13 +829,18 @@ export default function SpeciesDetailPage() {
                         Best shot
                       </span>
                     )}
+                    {/* A small status dot, not a full text label — the actual explanation
+                       (and, when it's a disconnected drive, which one) lives in the ⋯ menu
+                       above rather than crowding the thumbnail itself. */}
                     {c.original_available === false && (
                       <span
-                        className="absolute left-1 bottom-1 rounded-full bg-red-900/70 px-1.5 py-0.5 text-[9px] text-white"
-                        title="The original file couldn't be found at its saved location"
-                      >
-                        Original unavailable
-                      </span>
+                        className="absolute left-1.5 bottom-1.5 h-2.5 w-2.5 rounded-full bg-red-600 shadow"
+                        title={
+                          c.original_volume_label
+                            ? `Original unavailable — connect "${c.original_volume_label}" to view it`
+                            : "Original unavailable — the file couldn't be found at its saved location"
+                        }
+                      />
                     )}
                     {!galleryView && (
                       <div className="mt-1 flex gap-0.5">
@@ -908,8 +936,14 @@ export default function SpeciesDetailPage() {
                 ✕
               </button>
             </div>
-            <UploadDropzone speciesId={species.id} onUploaded={load} onClose={() => setShowUploadDialog(false)} />
-            <RawUpload speciesId={species.id} onFiled={loadUnmatchedRaws} />
+            <VolumeDestinationPicker {...volumeDestination} />
+            <UploadDropzone
+              speciesId={species.id}
+              volumeId={volumeDestination.volumeId}
+              onUploaded={load}
+              onClose={() => setShowUploadDialog(false)}
+            />
+            <RawUpload speciesId={species.id} volumeId={volumeDestination.volumeId} onFiled={loadUnmatchedRaws} />
           </div>
         </div>
       )}

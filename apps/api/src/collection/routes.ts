@@ -38,12 +38,15 @@ export async function collectionRoutes(app: FastifyInstance): Promise<void> {
            us.card_crop_x,
            us.card_crop_y,
            us.card_crop_size,
-           p.thumb_path IS NOT NULL AS has_cover_photo
+           p.thumb_path IS NOT NULL AS has_cover_photo,
+           sv.label AS cover_volume_label
          FROM species s
          LEFT JOIN species_rarity r ON r.species_id = s.id
          LEFT JOIN species_traits t ON t.species_id = s.id
          LEFT JOIN user_species us ON us.user_id = $1 AND us.species_id = s.id
          LEFT JOIN photos p ON p.id = us.cover_photo_id
+         LEFT JOIN originals o ON o.capture_id = p.capture_id AND o.kind = 'jpeg'
+         LEFT JOIN storage_volumes sv ON sv.id = o.volume_id
          LEFT JOIN user_archived_species uas ON uas.user_id = $1 AND uas.species_id = s.id
          WHERE ($2::text IS NULL OR s.taxon_class = $2) AND COALESCE(t.fully_extinct, false) = false
            AND ($3 = false OR ${ALREADY_OWNED_SQL} OR NOT ${OBSCURE_SPECIES_SQL})

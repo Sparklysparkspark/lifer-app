@@ -14,8 +14,10 @@ import ArchivedSpeciesPage from "./pages/ArchivedSpeciesPage";
 import ForgotPasswordPage from "./pages/ForgotPasswordPage";
 import ResetPasswordPage from "./pages/ResetPasswordPage";
 import MigrationStatusIndicator from "./components/MigrationStatusIndicator";
+import UploadQueueBanner from "./components/UploadQueueBanner";
 import UpdateAvailableBanner from "./components/UpdateAvailableBanner";
 import TrafficLights from "./components/TrafficLights";
+import TitleBarDragRegion from "./components/TitleBarDragRegion";
 import { LoadingScreen } from "./components/LoadingScreen";
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
@@ -28,7 +30,9 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
 export default function App() {
   return (
     <>
+      <TitleBarDragRegion />
       <MigrationStatusIndicator />
+      <UploadQueueBanner />
       <UpdateAvailableBanner />
       <TrafficLights />
       <Routes>

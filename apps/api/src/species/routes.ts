@@ -5,6 +5,7 @@ import { pool } from "../db.js";
 import { requireAuth } from "../auth/session.js";
 import { enrichSpecies, persistEnrichment, fetchAnyGallery, persistGalleryPromotingMainIfMissing } from "./lazyEnrich.js";
 import { MEDIA_CACHE_BUST } from "../config.js";
+import { resolveOriginalPath } from "../storageVolumes/resolve.js";
 
 interface SearchQuery {
   q?: string;
@@ -133,6 +134,7 @@ export async function speciesRoutes(app: FastifyInstance): Promise<void> {
           pool.query(
             `SELECT c.*, p.id AS photo_id, p.display_path, p.thumb_path,
                     o.ref AS original_ref, o.managed AS original_managed, o.kind AS original_kind,
+                    o.volume_id AS original_volume_id, o.volume_relative_path AS original_volume_relative_path,
                     EXISTS (SELECT 1 FROM originals ro WHERE ro.capture_id = c.id AND ro.kind = 'raw') AS has_raw_original
              FROM captures c
              LEFT JOIN photos p ON p.id = c.current_photo_id
@@ -197,19 +199,34 @@ export async function speciesRoutes(app: FastifyInstance): Promise<void> {
       // than via synchronous existsSync() in a .map() — that blocked Node's whole event loop
       // on one filesystem stat call at a time, serially, for every photo in the gallery, which
       // is exactly the kind of thing that makes an "everything's local" page feel slow.
-      const originalAvailability = await Promise.all(
-        capturesRes.rows.map((c) =>
-          c.original_ref
-            ? fsAccess(c.original_ref).then(
+      //
+      // A volume-tagged original (see ~/.claude/plans/multi-drive-storage.md) is resolved via
+      // resolveOriginalPath first — a plain fsAccess on the stored `ref` alone can't tell "the
+      // drive isn't plugged in right now" apart from "this file is actually gone", and only the
+      // former has a helpful volumeLabel to show. `ref` also goes stale if the drive remounts
+      // under a different name; resolveOriginalPath always recomputes the current real path.
+      const originalStatuses = await Promise.all(
+        capturesRes.rows.map(async (c): Promise<{ available: boolean | null; volumeLabel: string | null }> => {
+          if (!c.original_ref) return { available: null, volumeLabel: null };
+          const resolved = await resolveOriginalPath({
+            ref: c.original_ref,
+            volume_id: c.original_volume_id,
+            volume_relative_path: c.original_volume_relative_path,
+          });
+          if (!resolved.connected) return { available: false, volumeLabel: resolved.volumeLabel ?? null };
+          const exists = resolved.path
+            ? await fsAccess(resolved.path).then(
                 () => true,
                 () => false,
               )
-            : Promise.resolve(null),
-        ),
+            : false;
+          return { available: exists, volumeLabel: null };
+        }),
       );
       const captures = capturesRes.rows.map((c, i) => ({
         ...c,
-        original_available: originalAvailability[i],
+        original_available: originalStatuses[i].available,
+        original_volume_label: originalStatuses[i].volumeLabel,
       }));
 
       const endemicCountryName: string | null = endemicRes?.rows[0]?.name ?? null;
@@ -285,6 +302,28 @@ export async function speciesRoutes(app: FastifyInstance): Promise<void> {
         previewUrl: `/api/originals/${r.id}/preview`,
         downloadUrl: `/api/originals/${r.id}/download`,
       })),
+    };
+  });
+
+  // Powers the import destination picker's "recommended drive" hint (see
+  // ~/.claude/plans/multi-drive-storage.md) — which registered drives already hold photos of
+  // this species, so a new upload can default to keeping them together rather than scattering
+  // one species across drives by accident. A species can legitimately have photos split
+  // across more than one drive (e.g. shot on different trips), so this returns every drive in
+  // use, not just a single "the" answer — the frontend picks the top one as the default.
+  app.get<{ Params: { id: string } }>("/species/:id/volume-usage", { preHandler: requireAuth }, async (request) => {
+    const res = await pool.query<{ volume_id: string | null; label: string | null; count: string }>(
+      `SELECT sv.id AS volume_id, sv.label, COUNT(*) AS count
+       FROM captures c
+       JOIN originals o ON o.capture_id = c.id AND o.kind = 'jpeg'
+       LEFT JOIN storage_volumes sv ON sv.id = o.volume_id
+       WHERE c.user_id = $1 AND c.species_id = $2
+       GROUP BY sv.id, sv.label
+       ORDER BY count DESC`,
+      [request.user!.id, request.params.id],
+    );
+    return {
+      volumes: res.rows.map((r) => ({ volumeId: r.volume_id, label: r.label, count: Number(r.count) })),
     };
   });
 

@@ -13,6 +13,7 @@ import CardCropEditor from "../components/CardCropEditor";
 import { FolderBrowser, pickFolderNative } from "../components/FolderPicker";
 import InfoTip from "../components/InfoTip";
 import { usePhotoGridSize } from "../hooks/usePhotoGridSize";
+import { useStorageVolumes } from "../hooks/useStorageVolumes";
 
 const RELOCATE_INFO_PARAGRAPHS = [
   "Use this if this trip's folder moved: a new computer, a reinstall, a renamed drive.",
@@ -87,6 +88,7 @@ export default function TripDetailPage() {
   const [view, setView] = useState<View>("gallery");
   const [loadError, setLoadError] = useState(false);
   const [thumbSizePx, updateThumbSize] = usePhotoGridSize();
+  const { multiDriveInUse } = useStorageVolumes();
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const [showLabels, setShowLabels] = useState(true);
   const [search, setSearch] = useState("");
@@ -552,7 +554,7 @@ export default function TripDetailPage() {
           ) : (
             <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
               {visibleSpecies.map((item) => (
-                <SpeciesCard key={item.speciesId} item={item} backLabel={trip?.name} />
+                <SpeciesCard key={item.speciesId} item={item} backLabel={trip?.name} showVolumeBadge={multiDriveInUse} />
               ))}
             </div>
           )

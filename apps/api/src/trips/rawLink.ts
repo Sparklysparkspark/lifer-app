@@ -14,6 +14,7 @@ import { pool } from "../db.js";
 import { extractExif, readExifTags } from "../uploads/exif.js";
 import { computeFileFingerprint } from "../uploads/fileFingerprint.js";
 import { RAW_EXTENSIONS } from "../uploads/rawExtensions.js";
+import { tagWithRegisteredVolume } from "../storageVolumes/resolve.js";
 
 export interface RawCandidate {
   relativePath: string;
@@ -70,12 +71,28 @@ export async function linkRawForCapture(captureId: string, jpegFileName: string,
 
   const { contentHash, exifFingerprint } = await computeFileFingerprint(candidate.absolutePath, tags);
   const fileSize = statSync(candidate.absolutePath).size;
+  // Looked up rather than threaded through both call sites (import.ts already has it in
+  // scope, but scan.ts's autoLinkMissingRaws sweep doesn't) — cheap, and this function is
+  // never called at a volume without a real, already-committed capture behind it.
+  const ownerRes = await pool.query<{ user_id: string }>(`SELECT user_id FROM captures WHERE id = $1`, [captureId]);
+  const volumeTag = ownerRes.rows[0]
+    ? await tagWithRegisteredVolume(ownerRes.rows[0].user_id, candidate.absolutePath)
+    : { volumeId: null, volumeRelativePath: null };
   // managed=false, ref=the file's own real path — a trip's RAW is exactly as external as its
   // JPEG sibling, never copied or moved (same convention as import.ts's own JPEG insert).
   await pool.query(
-    `INSERT INTO originals (capture_id, kind, ref_type, ref, managed, content_hash, file_size, exif_fingerprint, exif_fingerprint_loose)
-     VALUES ($1, 'raw', 'path', $2, false, $3, $4, $5, $6)`,
-    [captureId, candidate.absolutePath, contentHash, fileSize, exifFingerprint.strict, exifFingerprint.loose],
+    `INSERT INTO originals (capture_id, kind, ref_type, ref, managed, content_hash, file_size, exif_fingerprint, exif_fingerprint_loose, volume_id, volume_relative_path)
+     VALUES ($1, 'raw', 'path', $2, false, $3, $4, $5, $6, $7, $8)`,
+    [
+      captureId,
+      candidate.absolutePath,
+      contentHash,
+      fileSize,
+      exifFingerprint.strict,
+      exifFingerprint.loose,
+      volumeTag.volumeId,
+      volumeTag.volumeRelativePath,
+    ],
   );
   return true;
 }
