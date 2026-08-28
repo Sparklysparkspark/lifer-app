@@ -11,7 +11,8 @@ import { requireAuth } from "../auth/session.js";
 import { requireDesktopMode } from "../settings/routes.js";
 import { ORIGINALS_DIR } from "../config.js";
 import { mapWithConcurrency } from "data-pipeline/src/concurrency.js";
-import { listManagedFiles, recoverJpeg, recoverRaw, findMissingReferenceData } from "./reimport.js";
+import { listManagedFiles, recoverJpeg, recoverRaw, findMissingReferenceData, type VolumeContext } from "./reimport.js";
+import { resolveChosenVolumeDestination } from "../storageVolumes/resolve.js";
 
 // Same concurrency Trips' import job uses (trips/routes.ts) — each file pays a real exiftool
 // round-trip plus (for a recovered JPEG) a sharp resize, so running this sequentially over a
@@ -28,10 +29,12 @@ interface ReimportJobState {
   finishedAt: number | null;
   jpegsRecovered: number;
   jpegsAlreadyKnown: number;
+  jpegsRelinked: number;
   jpegsUnrecognized: string[];
   jpegsAmbiguous: Array<{ file: string; scientificNames: string[] }>;
   rawsRecovered: number;
   rawsAlreadyKnown: number;
+  rawsRelinked: number;
   rawsUnmatched: number;
   // Distinct scientific names this run recovered that have no reference photo/description in
   // the current catalog — the direct input to the pack-recommendation feature.
@@ -49,10 +52,12 @@ function freshJobState(): ReimportJobState {
     finishedAt: null,
     jpegsRecovered: 0,
     jpegsAlreadyKnown: 0,
+    jpegsRelinked: 0,
     jpegsUnrecognized: [],
     jpegsAmbiguous: [],
     rawsRecovered: 0,
     rawsAlreadyKnown: 0,
+    rawsRelinked: 0,
     rawsUnmatched: 0,
     missingReferenceData: [],
   };
@@ -60,9 +65,9 @@ function freshJobState(): ReimportJobState {
 
 let job: ReimportJobState = freshJobState();
 
-async function runReimportJob(userId: string): Promise<void> {
+async function runReimportJob(userId: string, walkDir: string, volumeContext: VolumeContext | null): Promise<void> {
   try {
-    const { jpegs, raws } = listManagedFiles(ORIGINALS_DIR);
+    const { jpegs, raws } = listManagedFiles(walkDir);
     job.totalJpegs = jpegs.length;
     job.totalRaws = raws.length;
 
@@ -71,14 +76,16 @@ async function runReimportJob(userId: string): Promise<void> {
     // JPEGs first, in full — RAW recovery below matches against JPEG captures already
     // committed to the database, so it needs this pass finished, not interleaved with it.
     await mapWithConcurrency(jpegs, CONCURRENCY, async (absolutePath) => {
-      const relativePath = path.relative(ORIGINALS_DIR, absolutePath);
+      const relativePath = path.relative(walkDir, absolutePath);
       try {
-        const outcome = await recoverJpeg(userId, absolutePath);
+        const outcome = await recoverJpeg(userId, absolutePath, volumeContext);
         if (outcome.status === "recovered") {
           job.jpegsRecovered++;
           recoveredScientificNames.add(outcome.scientificName);
         } else if (outcome.status === "already-known") {
           job.jpegsAlreadyKnown++;
+        } else if (outcome.status === "relinked") {
+          job.jpegsRelinked++;
         } else if (outcome.status === "unrecognized") {
           job.jpegsUnrecognized.push(relativePath);
         } else {
@@ -93,9 +100,10 @@ async function runReimportJob(userId: string): Promise<void> {
 
     await mapWithConcurrency(raws, CONCURRENCY, async (absolutePath) => {
       try {
-        const outcome = await recoverRaw(userId, absolutePath);
+        const outcome = await recoverRaw(userId, absolutePath, volumeContext);
         if (outcome.status === "recovered") job.rawsRecovered++;
         else if (outcome.status === "already-known") job.rawsAlreadyKnown++;
+        else if (outcome.status === "relinked") job.rawsRelinked++;
         else job.rawsUnmatched++;
       } catch {
         job.rawsUnmatched++;
@@ -114,16 +122,31 @@ async function runReimportJob(userId: string): Promise<void> {
 }
 
 export async function libraryRoutes(app: FastifyInstance): Promise<void> {
-  app.post("/library/reimport", { preHandler: requireAuth }, async (request, reply) => {
+  app.post<{ Body: { volumeId?: string } }>("/library/reimport", { preHandler: requireAuth }, async (request, reply) => {
     if (!requireDesktopMode(reply)) return;
     if (job.running) return reply.code(409).send({ error: "A reimport is already running" });
     const userId = request.user!.id;
+
+    // Pointing this at a registered external drive instead of the primary library walks that
+    // drive's own "Lifer Originals" folder (same base a store-mode upload would have used —
+    // see storageVolumes/resolve.ts's resolveChosenVolumeDestination) and repairs any already-
+    // known file whose ref/volume_id has drifted (drive removed-then-re-registered under a
+    // different mount name, moved between drives by hand, etc.) instead of just skipping it.
+    let walkDir = ORIGINALS_DIR;
+    let volumeContext: VolumeContext | null = null;
+    if (request.body?.volumeId) {
+      const resolved = await resolveChosenVolumeDestination(userId, request.body.volumeId);
+      if (!resolved) return reply.code(400).send({ error: "That drive isn't connected right now" });
+      walkDir = resolved.baseDir;
+      volumeContext = resolved;
+    }
+
     job = freshJobState();
     job.running = true;
 
     // Not awaited — same reasoning as Trips' own scan/import jobs: this can take a real
     // amount of time, and the client polls status instead of holding one giant request open.
-    void runReimportJob(userId);
+    void runReimportJob(userId, walkDir, volumeContext);
 
     return { started: true };
   });

@@ -21,6 +21,7 @@ export default function SpeciesCard({
   regionId,
   backLabel,
   onArchived,
+  showVolumeBadge,
 }: {
   item: CollectionItem;
   regionId?: string;
@@ -32,6 +33,11 @@ export default function SpeciesCard({
   /** Called after this card's own archive action succeeds — archived species are excluded
    *  server-side, so the parent needs to refetch to actually remove this card from view. */
   onArchived?: () => void;
+  /** Whether to show which external drive the cover photo lives on — passed down from
+   *  useStorageVolumes().multiDriveInUse rather than checked per-card, so the badge only
+   *  ever shows up once there's actually more than one place photos could be (see
+   *  ~/.claude/plans/multi-drive-storage.md). */
+  showVolumeBadge?: boolean;
 }) {
   const isUnseen = item.state === "unseen";
   const isSeen = item.state === "seen";
@@ -118,6 +124,14 @@ export default function SpeciesCard({
             title="Seen, not yet photographed"
           >
             ✓
+          </span>
+        )}
+        {showVolumeBadge && item.coverVolumeLabel && (
+          <span
+            className="absolute left-1.5 bottom-1.5 max-w-[80%] truncate rounded-full bg-black/60 px-2 py-0.5 text-[10px] font-medium text-white shadow"
+            title={`This photo is on the "${item.coverVolumeLabel}" drive`}
+          >
+            {item.coverVolumeLabel}
           </span>
         )}
         {/* Archiving a species you've already collected/seen would be a no-op server-side

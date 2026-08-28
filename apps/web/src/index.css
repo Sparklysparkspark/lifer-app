@@ -40,18 +40,6 @@ body {
   color: var(--color-ink);
 }
 
-/* No-op outside Electron. Inside the desktop app's frameless mac window, this lets the
-   header double as a drag handle so the window still moves without a native title bar. */
-header {
-  -webkit-app-region: drag;
-}
-header button,
-header a,
-header input,
-header select {
-  -webkit-app-region: no-drag;
-}
-
 /* Clears space for the frameless mac window's real native traffic lights, which float over
    the top-left of the page — see main.tsx, which sets [data-mac-app] only inside the desktop
    app on mac. Pushes the whole header down rather than the logo right, so the logo sits below
@@ -70,31 +58,6 @@ header select {
   top: 56px;
 }
 
-/* A solid, always-draggable strip across the full window width where the traffic lights
-   float, independent of whatever page/header renders beneath it. Tracks --color-surface (the
-   same background every page's own header already uses) rather than a hardcoded color, so it
-   reads as a seamless continuation of the header in both light and dark theme instead of a
-   fixed white bar sitting on top of a dark one. The traffic lights themselves are already
-   forced to dark-appearance styling independent of the app's own theme (see lib.rs) — chosen
-   for the dots' own visibility, not because the strip beneath them needed to stay white — so
-   theming this strip doesn't touch that. A pure-CSS ::before on body (rather than per-page
-   header markup) so every page/state gets it unconditionally, including ones with no header at
-   all (LoadingScreen, the archived-species error screen) — those sit on the body's own
-   --color-canvas rather than --color-surface, a pre-existing minor seam shared by both themes,
-   not something new this introduces. pointer-events stays enabled (default) because
-   -webkit-app-region: drag only works on an element that actually receives the mouse-down —
-   nothing meaningful renders in this exact 56px band on any page (every header already clears
-   it via padding-top above), so this can't block a real click. TrafficLights' own custom dots
-   (light theme only) sit at z-index 2147483647, one above this strip's 2147483646, so they
-   still receive their own (no-drag) clicks on top of it. */
-[data-mac-app] body::before {
-  content: "";
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 56px;
-  background: var(--color-surface);
-  -webkit-app-region: drag;
-  z-index: 2147483646;
-}
+/* The always-draggable strip itself (TitleBarDragRegion.tsx) needs to be a real rendered DOM
+   element, not CSS — data-tauri-drag-region only works on an actual node, unlike Electron's
+   -webkit-app-region: drag, which could apply to a pure ::before pseudo-element. */

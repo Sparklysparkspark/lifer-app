@@ -74,8 +74,43 @@ interface SpeciesRow {
 export type JpegOutcome =
   | { status: "recovered"; captureId: string; photoId: string; scientificName: string }
   | { status: "already-known" }
+  | { status: "relinked" }
   | { status: "unrecognized"; candidates: string[] }
   | { status: "ambiguous"; scientificNames: string[] };
+
+/** Where a reimport walk is pointed and, if it's a registered external drive rather than the
+ *  primary library, how to tag newly-recovered/repaired originals with that drive. Passed
+ *  through from library/routes.ts's job, which resolves it once per run (see
+ *  storageVolumes/resolve.ts's resolveChosenVolumeDestination — same helper the upload picker
+ *  uses, since "which drive is this file really on" is the same question either way). */
+export interface VolumeContext {
+  volumeId: string;
+  baseDir: string;
+  mountPath: string;
+}
+
+// A file whose bytes are already known (same content_hash as some existing original) isn't
+// necessarily fully up to date — its `ref` might point at a stale absolute path left over
+// from before a drive was unplugged/reconnected under a different mount name, or removed and
+// re-registered somewhere reimport's own path-prefix re-adoption (storageVolumes/routes.ts)
+// couldn't catch. Repairs that in place instead of silently doing nothing, which is exactly
+// what "already-known" used to mean for every case. Returns true if a repair was actually made.
+async function repairIfStale(
+  existingId: string,
+  existingRef: string,
+  existingVolumeId: string | null,
+  absolutePath: string,
+  volumeContext: VolumeContext | null,
+): Promise<boolean> {
+  const wantVolumeId = volumeContext?.volumeId ?? null;
+  if (existingRef === absolutePath && existingVolumeId === wantVolumeId) return false;
+  const volumeRelativePath = volumeContext ? absolutePath.slice(volumeContext.mountPath.length) : null;
+  await pool.query(
+    `UPDATE originals SET ref = $1, volume_id = $2, volume_relative_path = $3, last_seen_at = now() WHERE id = $4`,
+    [absolutePath, wantVolumeId, volumeRelativePath, existingId],
+  );
+  return true;
+}
 
 // Only reached when embedded keywords matched more than one distinct scientific name — picks
 // whichever one this file's OWN folder was actually written for (see this file's top comment).
@@ -88,10 +123,17 @@ async function findRowMatchingFolder(absolutePath: string, byName: Map<string, S
   return null;
 }
 
-export async function recoverJpeg(userId: string, absolutePath: string): Promise<JpegOutcome> {
+export async function recoverJpeg(userId: string, absolutePath: string, volumeContext: VolumeContext | null = null): Promise<JpegOutcome> {
   const contentHash = computeContentHash(absolutePath);
-  const known = await pool.query(`SELECT 1 FROM originals WHERE content_hash = $1 LIMIT 1`, [contentHash]);
-  if (known.rows.length > 0) return { status: "already-known" };
+  const known = await pool.query<{ id: string; ref: string; volume_id: string | null }>(
+    `SELECT id, ref, volume_id FROM originals WHERE content_hash = $1 LIMIT 1`,
+    [contentHash],
+  );
+  if (known.rows.length > 0) {
+    const row = known.rows[0];
+    const repaired = await repairIfStale(row.id, row.ref, row.volume_id, absolutePath, volumeContext);
+    return { status: repaired ? "relinked" : "already-known" };
+  }
 
   const tags: ExifTags = await readExifTags(absolutePath);
   const candidates = await extractKeywords(absolutePath, tags);
@@ -179,9 +221,18 @@ export async function recoverJpeg(userId: string, absolutePath: string): Promise
     // managed=true, ref=the file's own existing path — it's already exactly where the normal
     // upload flow would have written it; recovering it is never a copy or a move.
     await client.query(
-      `INSERT INTO originals (capture_id, kind, ref_type, ref, managed, content_hash, file_size, exif_fingerprint, exif_fingerprint_loose)
-       VALUES ($1, 'jpeg', 'path', $2, true, $3, $4, $5, $6)`,
-      [captureId, absolutePath, contentHash, buffer.length, exifFingerprint.strict, exifFingerprint.loose],
+      `INSERT INTO originals (capture_id, kind, ref_type, ref, managed, content_hash, file_size, exif_fingerprint, exif_fingerprint_loose, volume_id, volume_relative_path)
+       VALUES ($1, 'jpeg', 'path', $2, true, $3, $4, $5, $6, $7, $8)`,
+      [
+        captureId,
+        absolutePath,
+        contentHash,
+        buffer.length,
+        exifFingerprint.strict,
+        exifFingerprint.loose,
+        volumeContext?.volumeId ?? null,
+        volumeContext ? absolutePath.slice(volumeContext.mountPath.length) : null,
+      ],
     );
 
     await client.query("COMMIT");
@@ -194,7 +245,11 @@ export async function recoverJpeg(userId: string, absolutePath: string): Promise
   }
 }
 
-export type RawOutcome = { status: "recovered"; captureId: string } | { status: "already-known" } | { status: "unmatched" };
+export type RawOutcome =
+  | { status: "recovered"; captureId: string }
+  | { status: "already-known" }
+  | { status: "relinked" }
+  | { status: "unmatched" };
 
 function sanitizeFilenameStem(name: string): string {
   return name.replace(/[/\\:*?"<>|]/g, "").trim();
@@ -206,10 +261,17 @@ function sanitizeFilenameStem(name: string): string {
 // Deliberately no fingerprint fallback in this first pass, same call already made for Trips'
 // own import (trips/import.ts's top comment) — an unmatched RAW is left for the existing
 // per-species "Choose RAW files…" manual flow rather than guessed at.
-export async function recoverRaw(userId: string, absolutePath: string): Promise<RawOutcome> {
+export async function recoverRaw(userId: string, absolutePath: string, volumeContext: VolumeContext | null = null): Promise<RawOutcome> {
   const contentHash = computeContentHash(absolutePath);
-  const known = await pool.query(`SELECT 1 FROM originals WHERE content_hash = $1 LIMIT 1`, [contentHash]);
-  if (known.rows.length > 0) return { status: "already-known" };
+  const known = await pool.query<{ id: string; ref: string; volume_id: string | null }>(
+    `SELECT id, ref, volume_id FROM originals WHERE content_hash = $1 LIMIT 1`,
+    [contentHash],
+  );
+  if (known.rows.length > 0) {
+    const row = known.rows[0];
+    const repaired = await repairIfStale(row.id, row.ref, row.volume_id, absolutePath, volumeContext);
+    return { status: repaired ? "relinked" : "already-known" };
+  }
 
   const tags = await readExifTags(absolutePath);
   const exif = await extractExif(absolutePath, tags);
@@ -236,9 +298,18 @@ export async function recoverRaw(userId: string, absolutePath: string): Promise<
   const { exifFingerprint } = await computeFileFingerprint(absolutePath, tags);
   const fileSize = statSync(absolutePath).size;
   await pool.query(
-    `INSERT INTO originals (capture_id, kind, ref_type, ref, managed, content_hash, file_size, exif_fingerprint, exif_fingerprint_loose)
-     VALUES ($1, 'raw', 'path', $2, true, $3, $4, $5, $6)`,
-    [match.id, absolutePath, contentHash, fileSize, exifFingerprint.strict, exifFingerprint.loose],
+    `INSERT INTO originals (capture_id, kind, ref_type, ref, managed, content_hash, file_size, exif_fingerprint, exif_fingerprint_loose, volume_id, volume_relative_path)
+     VALUES ($1, 'raw', 'path', $2, true, $3, $4, $5, $6, $7, $8)`,
+    [
+      match.id,
+      absolutePath,
+      contentHash,
+      fileSize,
+      exifFingerprint.strict,
+      exifFingerprint.loose,
+      volumeContext?.volumeId ?? null,
+      volumeContext ? absolutePath.slice(volumeContext.mountPath.length) : null,
+    ],
   );
   return { status: "recovered", captureId: match.id };
 }

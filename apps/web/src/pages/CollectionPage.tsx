@@ -7,7 +7,6 @@ import { useDesktopMode } from "../hooks/useDesktopMode";
 import SpeciesPicker from "../components/SpeciesPicker";
 import CollectionStatsPanel from "../components/CollectionStats";
 import GroupedSpeciesGrid, { type GroupBy, type SortBy } from "../components/GroupedSpeciesGrid";
-import EbirdImport from "../components/EbirdImport";
 import RegionMap from "../components/RegionMap";
 import { Logo } from "../components/Logo";
 import InfoTip from "../components/InfoTip";
@@ -151,15 +150,20 @@ export default function CollectionPage() {
   function setIncludeLand(checked: boolean) {
     updateParam("includeLand", checked ? null : "0");
   }
-  function updateParam(key: string, value: string | null) {
-    updateParams({ [key]: value });
+  function updateParam(key: string, value: string | null, options?: { replace?: boolean }) {
+    updateParams({ [key]: value }, options);
   }
   // Two sequential setSearchParams calls in the same handler (e.g. clearing both `seaZones`
   // and `includeLand` together) each captured their own `prev` snapshot, so the second call
   // could silently clobber the first — this is what made "select all" impossible to uncheck,
   // and the last sea zone impossible to deselect. One functional update touching every changed
   // key at once removes the race entirely.
-  function updateParams(updates: Record<string, string | null>) {
+  //
+  // replace defaults to false (a real history entry per change) — fine for a discrete, one-off
+  // toggle like sort/group/taxon, where "undo via back button" is a reasonable side effect.
+  // search passes replace: true instead, since typing fires one update per keystroke — without
+  // it, every character typed would be its own back-button stop.
+  function updateParams(updates: Record<string, string | null>, options?: { replace?: boolean }) {
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev);
       for (const [key, value] of Object.entries(updates)) {
@@ -167,7 +171,7 @@ export default function CollectionPage() {
         else next.set(key, value);
       }
       return next;
-    });
+    }, options);
   }
 
   const cachedEntry = collectionCache.get(collectionCacheKey(regionId, taxonFilter, seaZoneIds, includeLand));
@@ -188,10 +192,15 @@ export default function CollectionPage() {
   const [loadError, setLoadError] = useState(false);
   // In-view search filters whatever's already on screen (all species, or the current
   // region's checklist), not a separate global lookup like the header's SpeciesPicker (which
-  // navigates away). Deliberately plain component state, not a URL param, and reset on
-  // region change — a filter scoped to the current view shouldn't carry over when drilling
-  // into a different region.
-  const [search, setSearch] = useState("");
+  // navigates away). A URL param (not plain component state) so it round-trips through real
+  // browser back-navigation — opening a species from a filtered search and clicking back
+  // restores the exact search instead of landing on an unfiltered list. Still cleared on an
+  // actual region change (see the regionId effect below), same as before — a filter scoped to
+  // the current view shouldn't carry over when drilling into a different region.
+  const search = searchParams.get("search") ?? "";
+  function setSearch(value: string) {
+    updateParam("search", value || null);
+  }
   const [seaZones, setSeaZones] = useState<Array<{ id: string; name: string }>>([]);
 
   // Fetched once, up front, independent of regionId — the region list is cheap (it's just
@@ -353,11 +362,15 @@ export default function CollectionPage() {
 
   const prevRegionId = useRef(regionId);
   useEffect(() => {
-    setSearch("");
-    // A sea zone picked for one region (e.g. Egypt -> Red Sea) is meaningless for a
-    // different region — cleared when the region actually changes, but NOT on first mount
-    // (a bookmarked/shared `?region=X&seaZone=Y` URL should still work when opened fresh).
-    if (prevRegionId.current !== regionId) updateParam("seaZones", null);
+    // Cleared when the region actually changes, but NOT on first mount — a bookmarked/shared
+    // `?region=X&search=Y` URL, or a browser-back restoring one, should still work as-is
+    // rather than having its own search wiped out immediately after landing.
+    if (prevRegionId.current !== regionId) {
+      setSearch("");
+      // A sea zone picked for one region (e.g. Egypt -> Red Sea) is meaningless for a
+      // different region — same "actual change, not first mount" rule as search above.
+      updateParam("seaZones", null);
+    }
     prevRegionId.current = regionId;
   }, [regionId]);
 
@@ -654,12 +667,7 @@ export default function CollectionPage() {
       <main className="space-y-6 p-6">
         {showStats && <CollectionStatsPanel />}
 
-        {regionId && regionMeta && (
-          <>
-            <RegionMap boundaryGeoJson={regionMeta.boundaryGeoJson} regionKey={regionMeta.id} />
-            <EbirdImport onImported={load} />
-          </>
-        )}
+        {regionId && regionMeta && <RegionMap boundaryGeoJson={regionMeta.boundaryGeoJson} regionKey={regionMeta.id} />}
 
         {firstRunPrompt ? (
           <div className="rounded-xl border border-line bg-surface p-8 text-center">

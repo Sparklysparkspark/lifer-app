@@ -1,65 +1,37 @@
-import { useRef, useState } from "react";
-import { api, ApiError } from "../api/client";
+import { useRef } from "react";
+import { enqueueUploads } from "../lib/uploadQueue";
 
-interface FileUploadResult {
-  name: string;
-  ok: boolean;
-  error?: string;
-}
-
-// Simple upload control: pick one or more JPEGs/PNGs and upload them in "store" mode. RAW
-// siblings are handled separately by RawUpload's folder-based matcher (by filename + EXIF),
-// so this component doesn't need to offer a single-photo "attach a RAW" flow. It also avoids
-// any platform-specific file-picking (e.g. shelling out to Finder on macOS), since this
-// control needs to work on any OS a self-hosted server's client might run on.
+// Simple upload control: pick one or more JPEGs/PNGs and queue them in "store" mode. The
+// actual upload happens in the background via lib/uploadQueue — this component just enqueues
+// and gets out of the way (closing immediately), so the user can keep browsing or start
+// another upload elsewhere while these finish. Progress/errors surface via the global banner
+// (UploadQueueBanner in App.tsx), not here. RAW siblings are handled separately by RawUpload's
+// folder-based matcher (by filename + EXIF); the destination drive picker itself lives one
+// level up (VolumeDestinationPicker), shared between this and RawUpload.
 export default function UploadDropzone({
   speciesId,
+  volumeId,
   onUploaded,
   onClose,
 }: {
   speciesId: string;
+  /** Registered external drive to save into, or "" for the primary drive — see
+   *  VolumeDestinationPicker, rendered by the parent dialog above both upload controls. */
+  volumeId: string;
   onUploaded: () => void;
   onClose?: () => void;
 }) {
-  const [uploading, setUploading] = useState(false);
-  const [results, setResults] = useState<FileUploadResult[] | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  async function uploadOne(file: File): Promise<FileUploadResult> {
-    try {
-      const form = new FormData();
-      form.append("mode", "store");
-      form.append("speciesId", speciesId);
-      form.append("file", file);
-      await api.post("/uploads", form);
-      return { name: file.name, ok: true };
-    } catch (err) {
-      return { name: file.name, ok: false, error: err instanceof ApiError ? err.message : "Upload failed" };
-    }
-  }
-
-  async function handleUpload(files: File[]) {
+  function handleUpload(files: File[]) {
     if (files.length === 0) return;
-    setResults(null);
-    setUploading(true);
-    try {
-      // Independent captures — no reason one slow/failed file should hold up the rest, so
-      // they all go concurrently (same pattern as RawUpload's batch endpoint) rather than
-      // one at a time.
-      const outcomes = await Promise.all(files.map(uploadOne));
-      if (outcomes.some((o) => o.ok)) onUploaded();
-      if (outcomes.every((o) => o.ok)) {
-        onClose?.();
-      } else {
-        setResults(outcomes);
-      }
-    } finally {
-      setUploading(false);
-      if (fileInputRef.current) fileInputRef.current.value = "";
-    }
+    enqueueUploads(speciesId, files, {
+      volumeId: volumeId || undefined,
+      targetsExternalDrive: Boolean(volumeId),
+      onBatchSettled: onUploaded,
+    });
+    onClose?.();
   }
-
-  const successCount = results?.filter((r) => r.ok).length ?? 0;
 
   return (
     // The whole dashed box opens the file picker, not just the "Choose photos…" text.
@@ -76,21 +48,7 @@ export default function UploadDropzone({
         id="upload-input"
         onChange={(e) => handleUpload(Array.from(e.target.files ?? []))}
       />
-      <span className="text-sm text-muted hover:underline">{uploading ? "Uploading…" : "Choose photos…"}</span>
-      {results && (
-        <div onClick={(e) => e.stopPropagation()} className="mt-2 space-y-1 text-left text-xs">
-          <p className="font-medium text-muted">
-            {successCount} of {results.length} uploaded
-          </p>
-          {results
-            .filter((r) => !r.ok)
-            .map((r, i) => (
-              <p key={i} className="text-red-600">
-                {r.name}: {r.error}
-              </p>
-            ))}
-        </div>
-      )}
+      <span className="text-sm text-muted hover:underline">Choose photos…</span>
     </div>
   );
 }

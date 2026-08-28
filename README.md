@@ -6,7 +6,11 @@ attached your own photo of it.
 
 Once you add photos it keeps all the files organized in an easily navigable folder structure so
 that it is easy to keep track of where you put all your files (ie no more where on Earth did I
-leave that raw file frantic searches across a bunch of scattered storage solutions).
+leave that raw file frantic searches across a bunch of scattered storage solutions). If your
+library is spread across a few external hard drives instead of one NAS — common for photographers
+before they consolidate — Lifer can track that too: it knows which drive each photo lives on and
+still shows you a thumbnail even when that drive isn't plugged in, so you always know which one to
+go grab.
 
 Browse checklists by region (country, province, or a nearby marine zone for fish), see which
 species you still need, and upload your photos to fill in the gaps. Each species carries a
@@ -16,6 +20,36 @@ your whole library stays on hardware you control.
 
 The rarity tier is meant to approximate how hard it is to go find the subject to photograph, it
 doesn't reflect how rare or endangered it actually is.
+
+## Features
+
+- **Region checklists** — browse by country, province/state, or a nearby marine zone for fish,
+  and see exactly which species you still need.
+- **Rarity tiers** — ranked by how hard a species actually is to get a photo of, not
+  conservation status.
+- **Reference photos & habitat info** — pulled from public sources, so you know roughly what
+  you're looking for before you go find it.
+- **Organized photo library** — uploads land in a real `<species>/Adjusted` (and `RAW`, if you
+  add one) folder structure on disk, so your library stays usable outside Lifer too.
+- **Multiple drives, one library** (desktop app) — register the external hard drives your photo
+  library is already spread across; Lifer remembers which drive each photo is on and still shows
+  a thumbnail when that drive is unplugged, so you never have to guess which one to reconnect.
+  When you're ready to consolidate onto a single drive or a NAS, move everything over from
+  Settings in one step.
+- **RAW matching** — add a RAW alongside its edited JPEG, or separately, and Lifer links them
+  by filename and timestamp automatically.
+- **Trips** — point Lifer at a folder of photos from a trip without importing or copying
+  anything; it references the files right where they are, and picks up new photos (and their
+  matching RAWs) automatically on a rescan.
+- **Offline reference packs** — download a region's reference photos and habitat data ahead of
+  time, with pack recommendations for whatever species you're still missing, so the app stays
+  useful without a live connection.
+- **Archive** — hide species you don't care about photographing from your checklist and counts,
+  without losing any history; unarchive any time.
+- **Gallery** — every photo you've taken, across every species, in one browsable, sortable grid.
+
+Full checklist and reference-photo coverage is live for **birds, mammals, and fish** today, with
+more taxonomic groups (reptiles, amphibians, marine invertebrates, and others) being added.
 
 ## Which one do you want?
 

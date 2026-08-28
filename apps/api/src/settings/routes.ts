@@ -5,7 +5,7 @@ import type { FastifyInstance } from "fastify";
 import type { PoolClient } from "pg";
 import { pool } from "../db.js";
 import { requireAuth } from "../auth/session.js";
-import { DATA_DIR, ORIGINALS_DIR, PORT, SINGLE_USER_MODE, MAPS_DIR, MAP_DOWNLOAD_URL } from "../config.js";
+import { DATA_DIR, ORIGINALS_DIR, APP_DATA_DIR, PORT, SINGLE_USER_MODE, MAPS_DIR, MAP_DOWNLOAD_URL } from "../config.js";
 import { originalsFolder } from "../uploads/organizedPath.js";
 import { resolveSpeciesFolderName } from "../uploads/speciesFolderName.js";
 import { extractExif } from "../uploads/exif.js";
@@ -631,7 +631,7 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
     // touched by that delete — clear the derivative/original folders directly. Recreated
     // empty rather than removed outright, since DATA_DIR itself (and its expected
     // subfolders) needs to keep existing for the next photo this install ever gets.
-    for (const dir of [ORIGINALS_DIR, path.join(DATA_DIR, "display"), path.join(DATA_DIR, "thumb")]) {
+    for (const dir of [ORIGINALS_DIR, path.join(APP_DATA_DIR, "display"), path.join(APP_DATA_DIR, "thumb")]) {
       rmSync(dir, { recursive: true, force: true });
       mkdirSync(dir, { recursive: true });
     }

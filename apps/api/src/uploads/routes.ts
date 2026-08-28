@@ -11,6 +11,7 @@ import { fetchS3Object } from "../photoSources/s3.js";
 import { RAW_EXTENSIONS } from "./rawExtensions.js";
 import { originalsFolder } from "./organizedPath.js";
 import { resolveSpeciesFolderName } from "./speciesFolderName.js";
+import { tagWithRegisteredVolume, resolveChosenVolumeDestination } from "../storageVolumes/resolve.js";
 
 type UploadMode = "store" | "link" | "s3";
 
@@ -149,6 +150,7 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
     userId: string,
     speciesId: string | null,
     allowUnmatchedFallback: boolean,
+    chosenVolume: { baseDir: string; mountPath: string; volumeId: string } | null,
   ): Promise<RawUploadOutcome> {
     const tmpDir = path.join(APP_DATA_DIR, "tmp");
     mkdirSync(tmpDir, { recursive: true });
@@ -241,7 +243,7 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
 
     if (matches.length === 1) {
       const match = matches[0];
-      const folder = originalsFolder(ORIGINALS_DIR, {
+      const folder = originalsFolder(chosenVolume?.baseDir ?? ORIGINALS_DIR, {
         organizeByYear,
         speciesFolderName: await resolveSpeciesFolderName(match.common_name, match.scientific_name),
         taxonClass: match.taxon_class,
@@ -251,14 +253,15 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
       mkdirSync(folder, { recursive: true });
       const dest = uniqueDestination(folder, originalFilename(rawFileName, exif.takenAt, path.extname(rawFileName).toLowerCase()));
       writeFileSync(dest, rawBuffer);
+      const volumeRelativePath = chosenVolume ? dest.slice(chosenVolume.mountPath.length) : null;
       // If this INSERT throws after the file above was already written, the file would be
       // left as a phantom on disk with no DB row to ever find it again. Clean it up on
       // failure rather than leaving an orphan.
       try {
         await pool.query(
-          `INSERT INTO originals (capture_id, kind, ref_type, ref, managed, content_hash, file_size, exif_fingerprint, exif_fingerprint_loose, user_id)
-           VALUES ($1, 'raw', 'path', $2, true, $3, $4, $5, $6, $7)`,
-          [match.id, dest, contentHash, rawBuffer.length, fingerprint.strict, fingerprint.loose, userId],
+          `INSERT INTO originals (capture_id, kind, ref_type, ref, managed, content_hash, file_size, exif_fingerprint, exif_fingerprint_loose, user_id, volume_id, volume_relative_path)
+           VALUES ($1, 'raw', 'path', $2, true, $3, $4, $5, $6, $7, $8, $9)`,
+          [match.id, dest, contentHash, rawBuffer.length, fingerprint.strict, fingerprint.loose, userId, chosenVolume?.volumeId ?? null, volumeRelativePath],
         );
       } catch (err) {
         rmSync(dest, { force: true });
@@ -298,7 +301,7 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
           return { filename: rawFileName, linked: false, collision: false, duplicate: true };
         }
 
-        const folder = originalsFolder(ORIGINALS_DIR, {
+        const folder = originalsFolder(chosenVolume?.baseDir ?? ORIGINALS_DIR, {
           organizeByYear,
           speciesFolderName: await resolveSpeciesFolderName(species.common_name, species.scientific_name),
           taxonClass: species.taxon_class,
@@ -311,11 +314,12 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
         // "this is just the same file again."
         const dest = uniqueDestination(folder, originalFilename(rawFileName, exif.takenAt, path.extname(rawFileName).toLowerCase()));
         writeFileSync(dest, rawBuffer);
+        const volumeRelativePath = chosenVolume ? dest.slice(chosenVolume.mountPath.length) : null;
         try {
           await pool.query(
-            `INSERT INTO originals (capture_id, kind, ref_type, ref, managed, content_hash, file_size, exif_fingerprint, exif_fingerprint_loose, user_id, species_id)
-             VALUES (NULL, 'raw', 'path', $1, true, $2, $3, $4, $5, $6, $7)`,
-            [dest, contentHash, rawBuffer.length, fingerprint.strict, fingerprint.loose, userId, speciesId],
+            `INSERT INTO originals (capture_id, kind, ref_type, ref, managed, content_hash, file_size, exif_fingerprint, exif_fingerprint_loose, user_id, species_id, volume_id, volume_relative_path)
+             VALUES (NULL, 'raw', 'path', $1, true, $2, $3, $4, $5, $6, $7, $8, $9)`,
+            [dest, contentHash, rawBuffer.length, fingerprint.strict, fingerprint.loose, userId, speciesId, chosenVolume?.volumeId ?? null, volumeRelativePath],
           );
         } catch (err) {
           rmSync(dest, { force: true });
@@ -355,11 +359,17 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
     // before any file part, so they're already set by the time the first file needs them.
     let speciesId: string | null = null;
     let allowUnmatchedFallback = false;
+    let volumeId: string | null = null;
+    // Resolved lazily, at most once per request — RawUpload.tsx sends volumeId (like
+    // speciesId/allowUnmatchedFallback) before any file part, so it's already set by the time
+    // the first file needs it.
+    let chosenVolumePromise: Promise<{ baseDir: string; mountPath: string; volumeId: string } | null> | null = null;
     const pending: Promise<RawUploadOutcome>[] = [];
     for await (const part of request.parts()) {
       if (part.type !== "file") {
         if (part.fieldname === "speciesId") speciesId = String(part.value);
         else if (part.fieldname === "allowUnmatchedFallback") allowUnmatchedFallback = String(part.value) === "1";
+        else if (part.fieldname === "volumeId") volumeId = String(part.value);
         continue;
       }
       if (!part.filename) continue;
@@ -374,7 +384,12 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
         continue;
       }
       const buffer = await part.toBuffer();
-      pending.push(processOneRawUpload(buffer, part.filename, userId, speciesId, allowUnmatchedFallback));
+      if (volumeId && !chosenVolumePromise) chosenVolumePromise = resolveChosenVolumeDestination(userId, volumeId);
+      const chosenVolume = chosenVolumePromise ? await chosenVolumePromise : null;
+      if (volumeId && !chosenVolume) {
+        return reply.code(400).send({ error: "That drive isn't connected right now" });
+      }
+      pending.push(processOneRawUpload(buffer, part.filename, userId, speciesId, allowUnmatchedFallback, chosenVolume));
     }
     if (pending.length === 0) {
       return reply.code(400).send({ error: "No supported RAW files found in that upload" });
@@ -415,6 +430,18 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
     const mode: UploadMode = fields.mode === "link" ? "link" : fields.mode === "s3" ? "s3" : "store";
     const speciesId = fields.speciesId;
     if (!speciesId) return reply.code(400).send({ error: "speciesId field is required" });
+
+    // Optional destination override for mode=store: write directly onto a registered external
+    // drive (see ~/.claude/plans/multi-drive-storage.md's import destination picker) instead
+    // of the primary ORIGINALS_DIR. Resolved up front so a disconnected/unknown drive fails
+    // fast, before any file work happens.
+    let chosenVolume: { baseDir: string; mountPath: string; volumeId: string } | null = null;
+    if (mode === "store" && fields.volumeId) {
+      chosenVolume = await resolveChosenVolumeDestination(request.user!.id, fields.volumeId);
+      if (!chosenVolume) {
+        return reply.code(400).send({ error: "That drive isn't connected right now" });
+      }
+    }
 
     const speciesRes = await pool.query<{
       id: string;
@@ -582,7 +609,7 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
       let finalOriginalRef = originalRef;
       let managed = false;
       if (mode === "store") {
-        const folder = originalsFolder(ORIGINALS_DIR, {
+        const folder = originalsFolder(chosenVolume?.baseDir ?? ORIGINALS_DIR, {
           organizeByYear,
           speciesFolderName: await resolveSpeciesFolderName(species.common_name, species.scientific_name),
           taxonClass: species.taxon_class,
@@ -603,11 +630,33 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
         managed = true;
       }
       const refType = mode === "s3" ? "s3" : "path";
+      // Link mode tags against whatever registered volume the file's own path already happens
+      // to be on; store mode only ends up on a registered volume when the user explicitly
+      // chose one via chosenVolume above (see storageVolumes/resolve.ts's
+      // resolveChosenVolumeDestination) — writing into ORIGINALS_DIR on the primary drive is
+      // still the default and is never volume-tagged.
+      const volumeTag =
+        mode === "link" && finalOriginalRef
+          ? await tagWithRegisteredVolume(userId, finalOriginalRef)
+          : chosenVolume && finalOriginalRef
+            ? { volumeId: chosenVolume.volumeId, volumeRelativePath: finalOriginalRef.slice(chosenVolume.mountPath.length) }
+            : { volumeId: null, volumeRelativePath: null };
 
       await client.query(
-        `INSERT INTO originals (capture_id, kind, ref_type, ref, managed, content_hash, file_size, exif_fingerprint, exif_fingerprint_loose)
-         VALUES ($1, 'jpeg', $6, $2, $3, $4, $5, $7, $8)`,
-        [captureId, finalOriginalRef, managed, fingerprint, buffer.length, refType, exifFingerprint.strict, exifFingerprint.loose],
+        `INSERT INTO originals (capture_id, kind, ref_type, ref, managed, content_hash, file_size, exif_fingerprint, exif_fingerprint_loose, volume_id, volume_relative_path)
+         VALUES ($1, 'jpeg', $6, $2, $3, $4, $5, $7, $8, $9, $10)`,
+        [
+          captureId,
+          finalOriginalRef,
+          managed,
+          fingerprint,
+          buffer.length,
+          refType,
+          exifFingerprint.strict,
+          exifFingerprint.loose,
+          volumeTag.volumeId,
+          volumeTag.volumeRelativePath,
+        ],
       );
 
       // The RAW sibling, when submitted in the same request (see this file's top comment),

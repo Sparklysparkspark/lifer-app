@@ -16,6 +16,7 @@ import { extractExif, readExifTags } from "../uploads/exif.js";
 import { computeFileFingerprint } from "../uploads/fileFingerprint.js";
 import { recordTripIndexEntry } from "./tripIndex.js";
 import { linkRawForCapture } from "./rawLink.js";
+import { tagWithRegisteredVolume } from "../storageVolumes/resolve.js";
 
 export interface TripImportResult {
   captureId: string;
@@ -42,6 +43,11 @@ export async function importTripFile(
   // what made a small trip import noticeably slow.
   const { contentHash, exifFingerprint } = await computeFileFingerprint(absolutePath, tags);
   const buffer = readFileSync(absolutePath);
+  // Trip photos are the canonical reference-in-place case (see this file's own top comment) —
+  // exactly what tagging against a registered external drive is for (see
+  // ~/.claude/plans/multi-drive-storage.md). A path not under any registered volume resolves to
+  // {volumeId: null, ...}, i.e. today's plain-absolute-path behavior, unchanged.
+  const volumeTag = await tagWithRegisteredVolume(userId, absolutePath);
 
   const client = await pool.connect();
   try {
@@ -94,9 +100,19 @@ export async function importTripFile(
     // managed=false, ref=the file's own real path — never copied, never renamed. See
     // originals.managed's own convention (uploads/routes.ts) for why this is the right value.
     await client.query(
-      `INSERT INTO originals (capture_id, kind, ref_type, ref, managed, content_hash, file_size, exif_fingerprint, exif_fingerprint_loose, user_id)
-       VALUES ($1, 'jpeg', 'path', $2, false, $3, $4, $5, $6, $7)`,
-      [captureId, absolutePath, contentHash, buffer.length, exifFingerprint.strict, exifFingerprint.loose, userId],
+      `INSERT INTO originals (capture_id, kind, ref_type, ref, managed, content_hash, file_size, exif_fingerprint, exif_fingerprint_loose, user_id, volume_id, volume_relative_path)
+       VALUES ($1, 'jpeg', 'path', $2, false, $3, $4, $5, $6, $7, $8, $9)`,
+      [
+        captureId,
+        absolutePath,
+        contentHash,
+        buffer.length,
+        exifFingerprint.strict,
+        exifFingerprint.loose,
+        userId,
+        volumeTag.volumeId,
+        volumeTag.volumeRelativePath,
+      ],
     );
 
     await client.query("COMMIT");

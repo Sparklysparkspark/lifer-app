@@ -3,6 +3,7 @@ import type { CollectionItem } from "@lifer/shared";
 import { api } from "../api/client";
 import SpeciesCard from "./SpeciesCard";
 import { speciesGroupLabel } from "../lib/speciesGroups";
+import { useStorageVolumes } from "../hooks/useStorageVolumes";
 
 // Rendering every matching species as a real DOM node (each with its own <img> and, via
 // SpeciesCard's useFitText, a ResizeObserver) is fine for a region's checklist — usually a few
@@ -76,6 +77,7 @@ export default function GroupedSpeciesGrid({
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [visibleCount, setVisibleCount] = useState(INITIAL_VISIBLE);
   const sentinelRef = useRef<HTMLDivElement>(null);
+  const { multiDriveInUse } = useStorageVolumes();
 
   // A fresh filter/sort/region change should start back at the cap, not keep whatever was
   // revealed for a totally different, possibly much larger, previous list.
@@ -191,7 +193,7 @@ export default function GroupedSpeciesGrid({
       <>
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
           {visible.map((item) => (
-            <SpeciesCard key={item.speciesId} item={item} regionId={regionId} onArchived={onArchived} />
+            <SpeciesCard key={item.speciesId} item={item} regionId={regionId} onArchived={onArchived} showVolumeBadge={multiDriveInUse} />
           ))}
         </div>
         {hasMore && <div ref={sentinelRef} className="h-10" />}
@@ -221,6 +223,7 @@ export default function GroupedSpeciesGrid({
           onToggle={() => toggleCollapsed(group.key)}
           onArchived={onArchived}
           wide
+          showVolumeBadge={multiDriveInUse}
         />
       ))}
 
@@ -266,6 +269,7 @@ export default function GroupedSpeciesGrid({
               onToggle={() => toggleCollapsed(group.key)}
               onArchived={onArchived}
               archivableGroup={groupBy === "group"}
+              showVolumeBadge={multiDriveInUse}
             />
           </div>
         ))}
@@ -284,6 +288,7 @@ function GroupSection({
   onArchived,
   archivableGroup,
   wide,
+  showVolumeBadge,
 }: {
   group: { key: string; label: string; items: CollectionItem[] };
   /** How many of this group's items to actually render as cards — the header count and the
@@ -301,6 +306,7 @@ function GroupSection({
   /** The pinned "Collected"/"Seen" sections get the full-width grid, same as ungrouped — a
    *  highlight strip, not one of the packed small-group tiles. */
   wide?: boolean;
+  showVolumeBadge?: boolean;
 }) {
   const [archiving, setArchiving] = useState(false);
   const archivable = archivableGroup && group.key !== COLLECTED_GROUP_KEY;
@@ -347,7 +353,7 @@ function GroupSection({
         }
       >
         {group.items.slice(0, visibleCount).map((item) => (
-          <SpeciesCard key={item.speciesId} item={item} regionId={regionId} onArchived={onArchived} />
+          <SpeciesCard key={item.speciesId} item={item} regionId={regionId} onArchived={onArchived} showVolumeBadge={showVolumeBadge} />
         ))}
       </div>
     </section>

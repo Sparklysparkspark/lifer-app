@@ -4,7 +4,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import sharp from "sharp";
-import { DATA_DIR, APP_DATA_DIR } from "../config.js";
+import { APP_DATA_DIR } from "../config.js";
 
 const DISPLAY_WIDTH = 2560;
 const THUMB_WIDTH = 400;
@@ -21,9 +21,15 @@ export interface DerivativePaths {
   thumbPath: string;
 }
 
+// Under APP_DATA_DIR, not DATA_DIR — these are disposable, regenerable-from-the-original
+// caches, not part of the user's own portable library (the thing "Storage location" in
+// Settings is about). Keeping them out of DATA_DIR means moving your library to a new folder
+// only moves what you'd actually recognize as your photos, not internal derivative junk
+// alongside it — and matches generateReferenceDerivatives below, which already followed this
+// same rule for the shared species-reference cache.
 export async function generateDerivatives(buffer: Buffer, photoId: string): Promise<DerivativePaths> {
-  const displayDir = path.join(DATA_DIR, "display");
-  const thumbDir = path.join(DATA_DIR, "thumb");
+  const displayDir = path.join(APP_DATA_DIR, "display");
+  const thumbDir = path.join(APP_DATA_DIR, "thumb");
   mkdirSync(displayDir, { recursive: true });
   mkdirSync(thumbDir, { recursive: true });
 
