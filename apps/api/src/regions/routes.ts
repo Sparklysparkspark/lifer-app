@@ -347,7 +347,8 @@ export async function regionRoutes(app: FastifyInstance): Promise<void> {
            us.card_crop_x,
            us.card_crop_y,
            us.card_crop_size,
-           p.thumb_path IS NOT NULL AS has_cover_photo
+           p.thumb_path IS NOT NULL AS has_cover_photo,
+           sv.label AS cover_volume_label
          FROM species_ids si
          JOIN species s ON s.id = si.species_id
          LEFT JOIN region_species rs ON rs.species_id = s.id AND rs.region_id = $2
@@ -355,6 +356,8 @@ export async function regionRoutes(app: FastifyInstance): Promise<void> {
          LEFT JOIN species_traits t ON t.species_id = s.id
          LEFT JOIN user_species us ON us.user_id = $1 AND us.species_id = s.id
          LEFT JOIN photos p ON p.id = us.cover_photo_id
+         LEFT JOIN originals o ON o.capture_id = p.capture_id AND o.kind = 'jpeg'
+         LEFT JOIN storage_volumes sv ON sv.id = o.volume_id
          LEFT JOIN user_archived_species uas ON uas.user_id = $1 AND uas.species_id = s.id
          WHERE ($3::text IS NULL OR s.taxon_class = $3) AND COALESCE(t.fully_extinct, false) = false
            AND ($6 = false OR ${ALREADY_OWNED_SQL} OR NOT (${OBSCURE_SPECIES_SQL} OR ${REGION_VAGRANT_SQL}))
@@ -467,7 +470,7 @@ export async function regionRoutes(app: FastifyInstance): Promise<void> {
       await pool.query(
         `INSERT INTO regions (name, parent_id, external_codes, ebird_region_code, boundary_geojson)
          VALUES ($1, $2, $3, $4, $5)
-         ON CONFLICT (name) DO NOTHING`,
+         ON CONFLICT (name, parent_id) DO NOTHING`,
         [
           province.name,
           regionId,

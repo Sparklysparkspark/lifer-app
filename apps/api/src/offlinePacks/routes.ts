@@ -240,10 +240,13 @@ async function applyPack(archivePath: string): Promise<{ speciesCount: number; s
         await pool.query(
           `INSERT INTO regions (name, parent_id, ebird_region_code, boundary_geojson, external_codes, occurrence_computed_at)
            VALUES ($1, $2, $3, $4, $5, now())
-           ON CONFLICT (name) DO NOTHING`,
+           ON CONFLICT (name, parent_id) DO NOTHING`,
           [child.name, regionId, child.ebirdRegionCode, JSON.stringify(child.boundaryGeoJson), child.externalCodes],
         );
-        const childRegionRes = await pool.query<{ id: string }>(`SELECT id FROM regions WHERE name = $1`, [child.name]);
+        const childRegionRes = await pool.query<{ id: string }>(`SELECT id FROM regions WHERE name = $1 AND parent_id = $2`, [
+          child.name,
+          regionId,
+        ]);
         const childRegionId = childRegionRes.rows[0]?.id;
         if (!childRegionId) continue;
         const result = await applyChecklist(child.species, { regionId: childRegionId }, extractDir, displayDir, thumbDir);

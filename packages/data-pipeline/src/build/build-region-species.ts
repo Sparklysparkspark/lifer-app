@@ -109,6 +109,15 @@ function iso3ToIso2Map(): Promise<Map<string, string>> {
 // broader field. Birds/mammals are unaffected (still default to `country` — see
 // gbifRegionParam's own default and the caller in regions/routes.ts).
 async function gbifRegionParam(externalCode: string, landOnly = false): Promise<string> {
+  // A province with no real GADM gid on hand (see compute-all-regions.ts's drill-down —
+  // Natural Earth only gives an ISO 3166-2 code like "TH-70", which GBIF's gadmGid param
+  // doesn't recognize at all, silently matching zero records) stores its own boundary as a
+  // WKT polygon directly in external_codes instead of a code. Recognized here before either
+  // lookup path below, so every caller (fetchSpeciesCountsForRegion, fetchMonthlySeasonality,
+  // etc.) gets correct results with no change needed on their end.
+  if (externalCode.startsWith("POLYGON(") || externalCode.startsWith("MULTIPOLYGON(")) {
+    return `geometry=${encodeURIComponent(externalCode)}`;
+  }
   if (!landOnly && !externalCode.includes(".")) {
     const iso2 = (await iso3ToIso2Map()).get(externalCode);
     if (iso2) return `country=${iso2}`;
