@@ -19,7 +19,12 @@ import { enrichSpecies, persistEnrichment } from "../species/lazyEnrich.js";
 import { computeRegionOccurrences } from "../regions/routes.js";
 import { mapWithConcurrency } from "data-pipeline/src/concurrency.js";
 
-const CONCURRENCY = 4;
+const CONCURRENCY = 2;
+
+// Temporary: scoped to the three taxon groups needed for the initial release (fish, birds,
+// mammals) so those finish in hours rather than getting stuck behind the other 12 groups'
+// ~47k still-unenriched species. Remove this filter once ready to enrich everything else.
+const INITIAL_RELEASE_TAXA = ["actinopterygii", "aves", "mammalia"];
 
 type RegionRow = {
   id: string;
@@ -78,7 +83,8 @@ async function main() {
   const { canada, restOfNorthAmerica } = await priorityTiers();
 
   const res = await pool.query(
-    `SELECT id, scientific_name, taxon_class FROM species WHERE enriched_at IS NULL ORDER BY scientific_name`,
+    `SELECT id, scientific_name, taxon_class FROM species WHERE enriched_at IS NULL AND taxon_class = ANY($1) ORDER BY scientific_name`,
+    [INITIAL_RELEASE_TAXA],
   );
   const rows = res.rows as Array<{
     id: string;

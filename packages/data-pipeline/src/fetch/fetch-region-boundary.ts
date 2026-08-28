@@ -24,14 +24,30 @@ interface GeoJsonFeatureCollection {
   features: GeoJsonFeature[];
 }
 
+// Memoized in-process: fetchProvincesForCountry is called once per region during a full
+// drill-down sweep (thousands of calls in a single run — see compute-all-regions.ts /
+// recompute-all-regions.ts), and this file is ~40MB — re-reading and re-JSON.parsing it from
+// disk on every single call was turning an otherwise-instant local lookup into several minutes
+// of redundant I/O and parsing over the course of one sweep.
+let admin0Cache: Promise<GeoJsonFeatureCollection> | null = null;
+let admin1Cache: Promise<GeoJsonFeatureCollection> | null = null;
+
 async function loadAdmin0(): Promise<GeoJsonFeatureCollection> {
-  const path = await fetchCached("natural-earth", "ne_10m_admin_0_countries.geojson", ADMIN0_URL);
-  return JSON.parse(readFileSync(path, "utf-8")) as GeoJsonFeatureCollection;
+  if (!admin0Cache) {
+    admin0Cache = fetchCached("natural-earth", "ne_10m_admin_0_countries.geojson", ADMIN0_URL).then(
+      (path) => JSON.parse(readFileSync(path, "utf-8")) as GeoJsonFeatureCollection,
+    );
+  }
+  return admin0Cache;
 }
 
 async function loadAdmin1(): Promise<GeoJsonFeatureCollection> {
-  const path = await fetchCached("natural-earth", "ne_10m_admin_1_states_provinces.geojson", ADMIN1_URL);
-  return JSON.parse(readFileSync(path, "utf-8")) as GeoJsonFeatureCollection;
+  if (!admin1Cache) {
+    admin1Cache = fetchCached("natural-earth", "ne_10m_admin_1_states_provinces.geojson", ADMIN1_URL).then(
+      (path) => JSON.parse(readFileSync(path, "utf-8")) as GeoJsonFeatureCollection,
+    );
+  }
+  return admin1Cache;
 }
 
 export interface CountryEntry {

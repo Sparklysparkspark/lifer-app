@@ -1,0 +1,18 @@
+-- Not every country's province/state split is worth computing a full checklist for — GBIF
+-- occurrence records are often only geocoded precisely enough to resolve to a country, not a
+-- specific small province's polygon, so drilling a data-sparse country (e.g. Thailand: all 3
+-- provinces checked so far came back with zero real species after full computation) into 70+
+-- provinces just burns GBIF calls to arrive at empty lists repeatedly. A small, data-rich
+-- country (Costa Rica: real birder density) can have excellent province-level data despite
+-- being physically tiny, so this is decided per-country from actual observation density (see
+-- probe-province-value.ts), never from land area or population.
+--
+-- NULL = not yet evaluated (default state right after drill-down creates the province rows).
+-- true = this country's provinces showed real, differentiated data in the light probe pass —
+--   worth the full per-province computation.
+-- false = this country's provinces came back near-empty across the board — skip full
+--   per-province computation entirely and rely on the country-level checklist for all of them.
+--
+-- Set on every province row (not the country itself) since it's the province-level compute
+-- this flag gates.
+ALTER TABLE regions ADD COLUMN province_split_meaningful boolean NULL;

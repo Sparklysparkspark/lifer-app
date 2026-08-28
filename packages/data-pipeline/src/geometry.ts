@@ -122,11 +122,27 @@ export function simplifyRingToMaxPoints(points: Point[], maxPoints: number): Poi
     if (!reached) {
       // Fallback: if RDP still hasn't converged (pathological input), decimate evenly — a
       // worse approximation of the shape but guaranteed to fit GBIF's point-count limit.
+      // Filtering by stride can drop the ring's closing point (index 0 duplicated at the
+      // end) if that index isn't a multiple of the stride, leaving an open ring — GBIF's WKT
+      // parser rejects that outright (confirmed live: a Brazilian state's complex boundary
+      // hit exactly this path and came back a 400). closeRing below is the general fix.
       const stride = Math.ceil(points.length / maxPoints);
       simplified = points.filter((_, i) => i % stride === 0);
     }
   }
+  simplified = closeRing(simplified);
   return isSimpleRing(simplified) ? simplified : convexHull(points);
+}
+
+// A valid WKT/GeoJSON ring's first and last points must be identical. Most paths above
+// already preserve this (RDP keeps both endpoints of the polyline it's simplifying; convexHull
+// explicitly closes itself), but this is cheap insurance against any path — present or future —
+// that doesn't, rather than relying on every caller getting it right independently.
+function closeRing(ring: Point[]): Point[] {
+  if (ring.length === 0) return ring;
+  const [firstX, firstY] = ring[0];
+  const [lastX, lastY] = ring[ring.length - 1];
+  return firstX === lastX && firstY === lastY ? ring : [...ring, ring[0]];
 }
 
 // GBIF requires a counter-clockwise exterior ring — a clockwise ring is rejected outright —
@@ -274,6 +290,45 @@ export function exteriorRingsFromGeometry(geometry: { type: string; coordinates:
   if (geometry.type === "Polygon") return [(geometry.coordinates as Point[][])[0]];
   if (geometry.type === "MultiPolygon") return (geometry.coordinates as Point[][][]).map((poly) => poly[0]);
   return [];
+}
+
+// Same simplification fetch-marine-zones.ts uses for sea zones (only the largest ring, capped
+// point count, forced winding direction) — reused here so a province's own boundary can be
+// turned into a GBIF-queryable WKT polygon (see gbifRegionParam's WKT branch in
+// build-region-species.ts) whenever it has no usable GADM gid. Only the exterior ring of the
+// largest polygon is kept: holes and a MultiPolygon's smaller disconnected parts don't matter
+// for "is a species found roughly within this area," and keeping them would blow past GBIF's
+// request-length limit for no real accuracy gain.
+const DEFAULT_MAX_WKT_POINTS = 80;
+
+export function wktFromGeometry(geometry: { type: string; coordinates: unknown }, maxPoints = DEFAULT_MAX_WKT_POINTS): string | null {
+  const rings = exteriorRingsFromGeometry(geometry);
+  if (rings.length === 0) return null;
+  const largest = rings.reduce((a, b) => (b.length > a.length ? b : a));
+  return ringToWktPolygon(ensureCounterClockwise(simplifyRingToMaxPoints(largest, maxPoints)));
+}
+
+// A vernacular region (see ~/.claude/plans/inaturalist-sync.md's sibling plan for province
+// grouping) merges several provinces' own boundaries into one GBIF-queryable shape — e.g.
+// Thailand's 6 regions each combining a dozen-plus provinces. The first version of this
+// function built a MULTIPOLYGON out of each member's independently-simplified ring, which GBIF
+// rejected with a 400 across essentially every group tried (confirmed live, systematically):
+// simplifying each member's boundary on its own, with no constraint that adjacent members'
+// simplified edges still line up, easily produces two neighboring provinces' shapes that
+// slightly overlap or gap at their shared border — an invalid MultiPolygon by the OGC/JTS rules
+// GBIF's geometry parser enforces. A convex hull over every member's combined points sidesteps
+// the problem entirely: a hull can never self-intersect or have a topology conflict between
+// parts, so it's always a valid single POLYGON, at the cost of a coarser shape (it fills in the
+// concave "bites" between member provinces, and for a country whose regions are contiguous
+// blocks — the normal case here — that's a fairly small over-approximation, not a wild one).
+export function wktFromMergedGeometries(
+  geometries: Array<{ type: string; coordinates: unknown }>,
+  maxPoints = DEFAULT_MAX_WKT_POINTS,
+): string | null {
+  const allPoints = geometries.flatMap((g) => exteriorRingsFromGeometry(g).flat());
+  if (allPoints.length === 0) return null;
+  const hull = convexHull(allPoints);
+  return ringToWktPolygon(ensureCounterClockwise(simplifyRingToMaxPoints(hull, maxPoints)));
 }
 
 // Parses back the exact WKT shape `ringToWktPolygon` produces ("POLYGON((x y,x y,...))") —

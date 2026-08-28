@@ -6,13 +6,16 @@
 // iNaturalist ONLY — no direct Wikipedia or Wikimedia Commons calls anywhere in this file.
 // This was a hard-won lesson, not a style preference: Commons rate-limits for real (a live
 // 429 with Retry-After: 600, i.e. a genuine 10-minute ban was reproduced and confirmed while
-// debugging this), while iNaturalist's own API (including its own wikipedia_summary field —
-// see fetchINaturalistWikipediaSummary) shows no rate-limiting at all. A prior version of this
-// file kept a Wikipedia/Commons fallback path "just in case iNaturalist has nothing," which
-// is exactly what caused a real species (Green-Winged Teal / Anas carolinensis) to hang for
-// minutes on every single page view. Do not reintroduce a Wikimedia fallback here — a species
-// iNaturalist has nothing for gets an honest empty gallery/description, not a slow retry
-// against a host known to ban this app.
+// debugging this). A prior version of this file kept a Wikipedia/Commons fallback path "just
+// in case iNaturalist has nothing," which is exactly what caused a real species (Green-Winged
+// Teal / Anas carolinensis) to hang for minutes on every single page view. Do not reintroduce
+// a Wikimedia fallback here — a species iNaturalist has nothing for gets an honest empty
+// gallery/description, not a slow retry against a host known to ban this app.
+//
+// iNaturalist itself is much better-behaved than Commons was, but is NOT rate-limit-free —
+// a bulk pass (enrich-all-species.ts) at even modest concurrency still drew real 429s from
+// api.inaturalist.org, since one enrichSpecies call alone fires several requests back-to-back.
+// See fetchWithRetry's own comment for the per-host pacing that actually fixes this.
 import { normalizeLicense } from "./licensePolicy.js";
 import { generateReferenceDerivatives } from "../uploads/image.js";
 import { pool } from "../db.js";
@@ -64,15 +67,45 @@ export async function downloadAndCacheImage(url: string, key: string): Promise<{
   }
 }
 
-// Plain retry-on-429 — no per-host mutex/pacing needed now that this file only ever talks to
-// iNaturalist (its API and its S3 photo bucket), which shows no rate-limiting in practice. The
-// previous version of this gated Wikimedia hosts behind a shared 75-second-interval mutex with
-// ban tracking; none of that complexity is needed once Wikimedia is never called at all.
+// Per-host pacing — a bulk pass (enrich-all-species.ts) at even modest concurrency turned out
+// to still draw 429s from api.inaturalist.org: a single enrichSpecies call fires several
+// requests back-to-back on its own (taxon search, taxon detail, sometimes a subspecies/taxon-
+// change lookup), so concurrency alone doesn't cap the real request rate to that host. This
+// serializes every call to the SAME host at least MIN_INTERVAL_MS apart, regardless of how
+// many concurrent callers (or how many sequential calls within one enrichSpecies) are asking —
+// a chained-promise queue per host, same pattern as trips/tripIndex.ts's own per-folder write
+// queue. iNaturalist's own API guidance suggests roughly 1 request/second unauthenticated.
+// Measured against a real bulk run (~5,400 species): 1000ms still drew frequent 429s, but a
+// slower 2500ms interval measured WORSE real throughput (fewer errors, but a lower net
+// species/hour — the errors' own short backoffs cost less than the wider base interval does),
+// so 1000ms is the deliberately-kept value despite the visible 429 log noise. Re-measure
+// against the database directly (species enriched per minute), not just the 429 count, before
+// changing this again. The S3 photo bucket is a different host and queues (and paces)
+// separately, so this doesn't slow down image downloads. A single species page's first-ever
+// view (the lazy
+// path) pays a few seconds of this once, cached in the DB forever after — a fine trade for not
+// getting blocked.
+const MIN_HOST_INTERVAL_MS = 1000;
+const hostQueues = new Map<string, Promise<void>>();
+const lastCallAtByHost = new Map<string, number>();
+
+function paceHost(host: string): Promise<void> {
+  const prior = hostQueues.get(host) ?? Promise.resolve();
+  const next = prior.then(async () => {
+    const wait = (lastCallAtByHost.get(host) ?? 0) + MIN_HOST_INTERVAL_MS - Date.now();
+    if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+    lastCallAtByHost.set(host, Date.now());
+  });
+  hostQueues.set(host, next);
+  return next;
+}
+
 export async function fetchWithRetry(url: string): Promise<Response> {
   let lastError: unknown;
   for (let attempt = 0; attempt <= 3; attempt++) {
     let res: Response;
     try {
+      await paceHost(new URL(url).host);
       res = await fetch(url, { headers: { "User-Agent": "lifer-api/0.1 (personal project)" } });
     } catch (err) {
       // A dropped connection ("SocketError: other side closed") throws instead of resolving
