@@ -50,12 +50,17 @@ export default function SettingsPage() {
 
   return (
     <div className="min-h-screen bg-canvas">
-      <header className="page-header border-b border-line bg-surface px-6 py-4">
-        <BackToCollectionLink className="text-sm text-muted hover:underline" />
-        <h1 className="mt-1 text-lg font-semibold text-ink">Settings</h1>
+      <header className="page-header flex items-start justify-between border-b border-line bg-surface px-6 py-4">
+        <div>
+          <BackToCollectionLink className="text-sm text-muted hover:underline" />
+          <h1 className="mt-1 text-lg font-semibold text-ink">Settings</h1>
+        </div>
+        <Link to="/guide" className="text-sm text-muted hover:underline">
+          Getting started guide
+        </Link>
       </header>
 
-      <main className="mx-auto max-w-lg space-y-8 p-6">
+      <main className="mx-auto max-w-5xl space-y-8 p-6">
         {settings && (
           <>
             {/* Desktop mode's account is an auto-provisioned local user with no real
@@ -165,7 +170,7 @@ function HideObscureSpeciesSection() {
   return (
     <Card
       title="Obscure & inaccessible species"
-      description="Hides deep-water fish (beyond recreational/technical diving depth) and species with almost no historical record — mostly ones nobody will realistically encounter. Anything you've already collected or seen always stays visible regardless."
+      description="Hides deep-water fish (beyond recreational/technical diving depth) and species with almost no historical record, mostly ones nobody will realistically encounter. Anything you've already collected or seen always stays visible regardless."
     >
       <label className="flex items-start gap-2 text-sm text-ink">
         <input type="checkbox" checked={enabled} disabled={saving} onChange={(e) => toggle(e.target.checked)} className="mt-0.5" />
@@ -437,7 +442,7 @@ function OrganizePhotosSection() {
   return (
     <Card
       title="Photo library organization"
-      description="Where full-resolution originals get filed on disk — useful if you ever want to browse or import your library outside Lifer (e.g. into Immich)."
+      description="Where full-resolution originals get filed on disk, useful if you ever want to browse or import your library outside Lifer (e.g. into Immich)."
     >
       <label className="flex items-start gap-2 text-sm text-ink">
         <input
@@ -449,7 +454,7 @@ function OrganizePhotosSection() {
         />
         <span>
           Organize into <code className="text-xs text-muted">Wildlife &lt;year taken&gt;/Birds|Mammals|Fish/Species name</code> folders
-          instead of just <code className="text-xs text-muted">Species name</code> — each photo's own year, not the year you uploaded it
+          instead of just <code className="text-xs text-muted">Species name</code>, each photo's own year, not the year you uploaded it
         </span>
       </label>
       <div>
@@ -560,8 +565,14 @@ function LibraryReimportSection() {
   return (
     <Card
       title="Reimport library"
-      description="Rebuild your species records straight from the photos already organized on disk — for after a fresh install or server migration where the database doesn't know about them yet, or to repair links after a drive got reconnected under a different name."
+      description="Rebuild your species records straight from the photos already organized on disk, for after a fresh install or server migration where the database doesn't know about them yet, or to repair links after a drive got reconnected under a different name."
     >
+      <p className="text-xs text-muted">
+        This only scans the one location you pick below, either your computer's own library folder, or a single
+        connected external drive, never everything at once. Pick "This computer's library" for a fresh install or
+        server migration; pick a specific drive if that drive's own photos have gone stale (path drifted after
+        reconnecting under a different name, for example).
+      </p>
       {connectedVolumes.length > 0 && (
         <div className="space-y-1">
           <label className="text-xs font-medium text-muted">Reimport from</label>
@@ -628,7 +639,7 @@ function LibraryReimportSection() {
           {status.missingReferenceData.length > 0 && (
             <p>
               {status.missingReferenceData.length} recovered species {status.missingReferenceData.length === 1 ? "is" : "are"} missing
-              reference photos/descriptions —{" "}
+              reference photos/descriptions,{" "}
               <Link
                 to={`/offline-packs?missing=${encodeURIComponent(status.missingReferenceData.join(","))}`}
                 className="underline hover:no-underline"
@@ -805,7 +816,7 @@ function StorageVolumesSection() {
   }
 
   async function remove(id: string) {
-    if (!confirm("Stop tracking this drive? Photos already imported from it stay in your library — this just stops Lifer from checking whether it's connected.")) {
+    if (!confirm("Stop tracking this drive? Photos already imported from it stay in your library, this just stops Lifer from checking whether it's connected.")) {
       return;
     }
     await api.delete(`/storage-volumes/${id}`);
@@ -829,67 +840,78 @@ function StorageVolumesSection() {
   return (
     <Card
       title="External drives"
-      description="Register a drive that holds part of your photo library — Lifer will show its photos with a thumbnail even when the drive isn't plugged in, so you can tell which drive to go grab."
+      description="Register a drive that holds part of your photo library. Lifer will show its photos with a thumbnail even when the drive isn't plugged in, so you can tell which drive to go grab."
     >
       {volumes && volumes.length > 0 && (
         <ul className="space-y-2">
           {volumes.map((v) => (
-            <li key={v.id} className="flex items-center justify-between rounded-md border border-line px-3 py-2 text-sm">
-              <div className="min-w-0 flex-1">
-                {renamingId === v.id ? (
+            <li key={v.id} className="rounded-md border border-line px-3 py-2 text-sm">
+              {renamingId === v.id ? (
+                // Renaming gets its own two-row layout rather than squeezing an input in
+                // alongside the normal action buttons — those have very different natural
+                // heights (a text input vs. plain text links), which made the row look
+                // misaligned when packed into one line.
+                <div className="space-y-2">
+                  <input
+                    type="text"
+                    value={renameValue}
+                    onChange={(e) => setRenameValue(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && rename(v.id)}
+                    autoFocus
+                    className={`${inputClass} w-full`}
+                  />
+                  <div className="flex items-center justify-between">
+                    <div className="flex gap-3">
+                      <button type="button" onClick={() => rename(v.id)} className="text-xs text-accent hover:underline">
+                        Save
+                      </button>
+                      <button type="button" onClick={() => setRenamingId(null)} className="text-xs text-muted hover:underline">
+                        Cancel
+                      </button>
+                    </div>
+                    <span className={`text-xs ${v.connected ? "text-green-700" : "text-muted"}`}>
+                      {v.connected ? "Connected" : "Not connected"}
+                    </span>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center justify-between">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-ink">
+                      {v.label}
+                      {v.isDefault && (
+                        <span className="ml-2 inline-block rounded-full bg-surface-muted px-2 py-0.5 text-[10px] uppercase tracking-wide text-muted">
+                          Default
+                        </span>
+                      )}
+                    </p>
+                    <p className="text-xs text-muted">{v.connected ? v.mountPath : `Last seen: ${new Date(v.lastSeenAt).toLocaleString()}`}</p>
+                  </div>
                   <div className="flex items-center gap-2">
-                    <input
-                      type="text"
-                      value={renameValue}
-                      onChange={(e) => setRenameValue(e.target.value)}
-                      onKeyDown={(e) => e.key === "Enter" && rename(v.id)}
-                      autoFocus
-                      className={inputClass}
-                    />
-                    <button type="button" onClick={() => rename(v.id)} className="text-xs text-accent hover:underline">
-                      Save
+                    <span className={`text-xs ${v.connected ? "text-green-700" : "text-muted"}`}>
+                      {v.connected ? "Connected" : "Not connected"}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setRenamingId(v.id);
+                        setRenameValue(v.label);
+                      }}
+                      className="text-xs text-muted hover:underline"
+                    >
+                      Rename
                     </button>
-                    <button type="button" onClick={() => setRenamingId(null)} className="text-xs text-muted hover:underline">
-                      Cancel
+                    {!v.isDefault && (
+                      <button type="button" onClick={() => setDefault(v.id)} className="text-xs text-muted hover:underline">
+                        Set as default
+                      </button>
+                    )}
+                    <button type="button" onClick={() => remove(v.id)} className="text-xs text-muted hover:underline">
+                      Remove
                     </button>
                   </div>
-                ) : (
-                  <p className="text-ink">
-                    {v.label}
-                    {v.isDefault && (
-                      <span className="ml-2 inline-block rounded-full bg-surface-muted px-2 py-0.5 text-[10px] uppercase tracking-wide text-muted">
-                        Default
-                      </span>
-                    )}
-                  </p>
-                )}
-                <p className="text-xs text-muted">{v.connected ? v.mountPath : `Last seen: ${new Date(v.lastSeenAt).toLocaleString()}`}</p>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className={`text-xs ${v.connected ? "text-green-700" : "text-muted"}`}>
-                  {v.connected ? "Connected" : "Not connected"}
-                </span>
-                {renamingId !== v.id && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setRenamingId(v.id);
-                      setRenameValue(v.label);
-                    }}
-                    className="text-xs text-muted hover:underline"
-                  >
-                    Rename
-                  </button>
-                )}
-                {!v.isDefault && (
-                  <button type="button" onClick={() => setDefault(v.id)} className="text-xs text-muted hover:underline">
-                    Set as default
-                  </button>
-                )}
-                <button type="button" onClick={() => remove(v.id)} className="text-xs text-muted hover:underline">
-                  Remove
-                </button>
-              </div>
+                </div>
+              )}
             </li>
           ))}
         </ul>
@@ -1047,11 +1069,11 @@ function ServerSection() {
   return (
     <Card
       title="Connect a server"
-      description="Move your library to a Lifer server you run elsewhere. Migrate your photos up, confirm nothing failed, then switch this window over — your local copies stay put until you separately choose to delete them."
+      description="Move your library to a Lifer server you run elsewhere. Migrate your photos up, confirm nothing failed, then switch this window over. Your local copies stay put until you separately choose to delete them."
     >
       {status?.running ? (
         <p className="text-sm text-muted">
-          Migrating to {status.serverUrl} — {status.migrated + status.skipped + status.failed} of {status.total} processed
+          Migrating to {status.serverUrl}, {status.migrated + status.skipped + status.failed} of {status.total} processed
           ({status.migrated} migrated, {status.skipped} skipped, {status.failed} failed so far).
         </p>
       ) : (
@@ -1083,7 +1105,7 @@ function ServerSection() {
           <label className="flex items-start gap-2 text-sm text-ink">
             <input type="checkbox" checked={offlineMode} onChange={(e) => setOfflineMode(e.target.checked)} className="mt-0.5" />
             <span>
-              Keep an offline cache after connecting — low-res cover photos and your collected/seen status stay
+              Keep an offline cache after connecting. Low-res cover photos and your collected/seen status stay
               browsable here even if this computer loses its connection to the server.
             </span>
           </label>
@@ -1215,7 +1237,7 @@ function AppUpdatesSection() {
       {(status === "downloading" || status === "installing") && (
         <p className="text-sm text-muted">
           {status === "installing"
-            ? "Installing — Lifer will restart shortly…"
+            ? "Installing, Lifer will restart shortly…"
             : progress?.total
               ? `Downloading… ${Math.round((progress.downloaded / progress.total) * 100)}%`
               : "Downloading…"}
@@ -1263,7 +1285,7 @@ function MapSection() {
   }, []);
 
   async function download() {
-    if (!confirm("Download the offline basemap? It's about 500MB and only affects range map visuals — nothing else in Lifer needs it.")) {
+    if (!confirm("Download the offline basemap? It's about 500MB and only affects range map visuals, nothing else in Lifer needs it.")) {
       return;
     }
     setBusy(true);
@@ -1289,7 +1311,7 @@ function MapSection() {
   return (
     <Card
       title="Offline map"
-      description="An offline basemap for range maps, so they render without an internet connection. Purely cosmetic — nothing else in Lifer depends on it."
+      description="An offline basemap for range maps, so they render without an internet connection. Purely cosmetic, nothing else in Lifer depends on it."
     >
       {status.downloading ? (
         <p className="text-sm text-muted">
