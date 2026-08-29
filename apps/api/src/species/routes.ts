@@ -1,10 +1,10 @@
-import { createReadStream, existsSync } from "node:fs";
+import { createReadStream, existsSync, statSync } from "node:fs";
 import { access as fsAccess } from "node:fs/promises";
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import { pool } from "../db.js";
 import { requireAuth } from "../auth/session.js";
 import { enrichSpecies, persistEnrichment, fetchAnyGallery, persistGalleryPromotingMainIfMissing } from "./lazyEnrich.js";
-import { MEDIA_CACHE_BUST } from "../config.js";
+import { MEDIA_CACHE_BUST, SINGLE_USER_MODE } from "../config.js";
 import { resolveOriginalPath } from "../storageVolumes/resolve.js";
 
 interface SearchQuery {
@@ -81,8 +81,12 @@ export async function speciesRoutes(app: FastifyInstance): Promise<void> {
       // reference photo + blurb + gallery now instead of the full ~11,000-species backbone
       // having fetched all of them eagerly (8+ hours for species that may never be viewed).
       // enriched_at means "already tried," regardless of outcome, so a species with nothing
-      // usable isn't re-fetched on every view.
-      if (!species.enriched_at) {
+      // usable isn't re-fetched on every view. SINGLE_USER_MODE (the desktop build — see
+      // api.rs) never takes this path: a self-hosted install's own data comes exclusively from
+      // downloaded packs (see offlinePacks/routes.ts), and a species missing pack data should
+      // read as "pack not installed," never as a live iNaturalist/Wikipedia call the "fully
+      // offline" install was never supposed to make.
+      if (!species.enriched_at && !SINGLE_USER_MODE) {
         // No skipGallery here (unlike enrich-all-species.ts's bulk pass), so this always runs
         // the full gallery fetch including the slow Wikipedia/Commons fallback — safe to mark
         // gallery_backfilled_at done immediately rather than leaving it for the branch below.
@@ -98,7 +102,7 @@ export async function speciesRoutes(app: FastifyInstance): Promise<void> {
           [id],
         );
         species = speciesRes.rows[0];
-      } else if (!species.gallery_backfilled_at) {
+      } else if (!species.gallery_backfilled_at && !SINGLE_USER_MODE) {
         // Backfills the gallery for species the bulk overnight pass (enrich-all-species.ts)
         // already marked enriched_at on but deliberately skipped the slow Wikipedia fallback
         // for (see lazyEnrich.ts's skipGallery comment) — paid once, on-demand, the first
@@ -327,6 +331,27 @@ export async function speciesRoutes(app: FastifyInstance): Promise<void> {
     };
   });
 
+  // Unlike a user's own capture (keyed by an immutable photo id — its file content never
+  // changes after upload), a reference photo's path can end up pointing at genuinely
+  // different bytes over time: species.reference_display_path/reference_thumb_path is
+  // overwritten in place whenever a species' reference photo gets re-fetched/restored (see
+  // scripts/fix-portrait-*) or re-extracted from a newly-downloaded pack — all while the API
+  // process (and its MEDIA_CACHE_BUST-versioned URL) keeps running, so the URL itself doesn't
+  // change to signal that. no-cache (NOT no-store) forces the browser to always ask again
+  // rather than blindly trusting a local hit, but with no validator that "ask again" was a
+  // full re-download every single time, which is what made repeat views feel slow instead of
+  // instant. An ETag from the file's own mtime+size gives the browser something to compare —
+  // unchanged file, unchanged ETag, and this returns a 304 in place of the image bytes.
+  function sendCachedFile(request: FastifyRequest, reply: FastifyReply, filePath: string) {
+    const stat = statSync(filePath);
+    const etag = `"${stat.mtimeMs.toString(36)}-${stat.size.toString(36)}"`;
+    reply.header("Content-Type", "image/webp");
+    reply.header("Cache-Control", "no-cache");
+    reply.header("ETag", etag);
+    if (request.headers["if-none-match"] === etag) return reply.code(304).send();
+    return reply.send(createReadStream(filePath));
+  }
+
   // Cached reference photos — same public-content-for-every-user reasoning as the rest of
   // this file's read routes, just serving a local file instead of a DB row's JSON.
   // requireAuth only (no ownership check needed, unlike photos/routes.ts' user-photo
@@ -338,19 +363,24 @@ export async function speciesRoutes(app: FastifyInstance): Promise<void> {
         request.params.id,
       ]);
       const filePath = res.rows[0]?.path;
-      if (!filePath || !existsSync(filePath)) return reply.code(404).send({ error: "Reference photo not found" });
-      reply.header("Content-Type", "image/webp");
-      // Unlike a user's own capture (keyed by an immutable photo id — its file content never
-      // changes after upload), this same URL can end up pointing at genuinely different bytes
-      // over time: species.reference_display_path is overwritten in place whenever a
-      // species' reference photo gets re-fetched/restored (see scripts/fix-portrait-*). With
-      // no cache header at all, the webview's own HTTP cache has no reason to ever ask again
-      // once it's seen this URL — this is exactly what left restored photos looking
-      // unchanged even after the underlying file was fixed. no-cache (NOT no-store) forces a
-      // real request every time rather than a blind local hit; served over loopback, that
-      // costs nothing worth avoiding on a single-user local install.
-      reply.header("Cache-Control", "no-cache");
-      return reply.send(createReadStream(filePath));
+      if (!filePath || !existsSync(filePath)) {
+        if (filePath) {
+          // The column pointed at a file that's genuinely gone (a stale path surviving from a
+          // catalog seed/pack apply that never actually delivered it — see applyChecklist's own
+          // comment on this). Leaving the path set would 404 on this exact URL forever, since
+          // nothing else ever revisits it; clearing both columns lets has_reference_thumb (see
+          // collectionItem.ts) correctly read as "no photo" instead of quietly lying, and a
+          // future pack/enrichment pass is free to fill it back in properly.
+          await pool
+            .query(
+              `UPDATE species SET reference_display_path = NULL, reference_thumb_path = NULL WHERE id = $1`,
+              [request.params.id],
+            )
+            .catch(() => {});
+        }
+        return reply.code(404).send({ error: "Reference photo not found" });
+      }
+      return sendCachedFile(request, reply, filePath);
     });
 
     const galleryColumn = kind === "display" ? "display_path" : "thumb_path";
@@ -363,12 +393,18 @@ export async function speciesRoutes(app: FastifyInstance): Promise<void> {
           [request.params.photoId],
         );
         const filePath = res.rows[0]?.path;
-        if (!filePath || !existsSync(filePath)) return reply.code(404).send({ error: "Gallery photo not found" });
-        reply.header("Content-Type", "image/webp");
-        // Same reasoning as the primary reference-photo route above — this URL's underlying
-        // file can be overwritten in place by a restore pass, so it can't be cached forever.
-        reply.header("Cache-Control", "no-cache");
-        return reply.send(createReadStream(filePath));
+        if (!filePath || !existsSync(filePath)) {
+          if (filePath) {
+            await pool
+              .query(
+                `UPDATE species_reference_photos SET display_path = NULL, thumb_path = NULL WHERE id = $1`,
+                [request.params.photoId],
+              )
+              .catch(() => {});
+          }
+          return reply.code(404).send({ error: "Gallery photo not found" });
+        }
+        return sendCachedFile(request, reply, filePath);
       },
     );
   }
