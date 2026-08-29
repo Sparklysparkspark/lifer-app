@@ -41,8 +41,10 @@ export const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://lifer:lifer@
 export const DATA_DIR = process.env.DATA_DIR ?? readLocalSettings().dataDir ?? path.join(REPO_ROOT, "data", "lifer");
 // Full-resolution originals for "store" mode uploads (self-hosted single-user deployment,
 // per spec §6/§8.4's originals model). Never used for "link" mode, which references a file
-// wherever it already lives instead.
-export const ORIGINALS_DIR = path.join(DATA_DIR, "originals");
+// wherever it already lives instead. Named "Lifer Photos" (not the old internal "originals")
+// so it reads as a real, human-meaningful folder to browse in Finder/Explorer, not an
+// implementation detail — this is the one folder most users will ever actually look inside.
+export const ORIGINALS_DIR = path.join(DATA_DIR, "Lifer Photos");
 // App-managed shared assets (the offline basemap, the species reference-photo cache) that
 // have nothing to do with any particular photo library — they're the same regardless of
 // which folder DATA_DIR currently points at. Kept separate so switching your photo library

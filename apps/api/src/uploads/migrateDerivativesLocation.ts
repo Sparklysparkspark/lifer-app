@@ -21,13 +21,23 @@ export async function migrateDerivativesLocation(): Promise<void> {
     const oldDir = path.join(DATA_DIR, sub);
     const newDir = path.join(APP_DATA_DIR, sub);
     if (!existsSync(oldDir)) continue;
-    mkdirSync(newDir, { recursive: true });
-    for (const entry of readdirSync(oldDir, { withFileTypes: true })) {
-      if (!entry.isFile()) continue;
-      const to = path.join(newDir, entry.name);
-      if (existsSync(to)) continue; // already moved by a previous run
-      renameSync(path.join(oldDir, entry.name), to);
-      filesMoved++;
+    // existsSync only checks that the path itself is stat-able — a folder can pass that check
+    // and still fail to list (macOS TCC blocks scanning some folders' *contents*, e.g. Desktop,
+    // independently of whether the folder itself is visible). This is a best-effort one-time
+    // backfill, not something worth crashing the whole app's startup over: skip this subfolder
+    // and leave those files where they are rather than letting the error propagate — they're
+    // still found fine at their old path, just not moved to the newer, correct location yet.
+    try {
+      mkdirSync(newDir, { recursive: true });
+      for (const entry of readdirSync(oldDir, { withFileTypes: true })) {
+        if (!entry.isFile()) continue;
+        const to = path.join(newDir, entry.name);
+        if (existsSync(to)) continue; // already moved by a previous run
+        renameSync(path.join(oldDir, entry.name), to);
+        filesMoved++;
+      }
+    } catch (err) {
+      console.error(`[migrateDerivativesLocation] couldn't scan ${oldDir}, skipping:`, err);
     }
   }
   if (filesMoved === 0) return;

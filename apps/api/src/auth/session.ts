@@ -16,17 +16,24 @@ const LOCAL_USER_EMAIL = "local@lifer.app";
 let cachedLocalUserId: string | null = null;
 async function getOrCreateLocalUser(): Promise<SessionUser> {
   if (cachedLocalUserId) return { id: cachedLocalUserId, email: LOCAL_USER_EMAIL };
-  const existing = await pool.query<{ id: string }>(`SELECT id FROM users WHERE email = $1`, [LOCAL_USER_EMAIL]);
-  if (existing.rows[0]) {
-    cachedLocalUserId = existing.rows[0].id;
-    return { id: cachedLocalUserId, email: LOCAL_USER_EMAIL };
-  }
+  // A brand new local library gets several requests firing on first page load, all racing
+  // into this function before any of them has committed a row — a plain check-then-insert
+  // (SELECT, then INSERT if missing) lets more than one of them see "no user yet" and all try
+  // to INSERT, so every request after the first one to actually commit throws a real
+  // users_email_key violation instead of just finding the row. ON CONFLICT DO NOTHING sidesteps
+  // that: the losing inserts return no row instead of throwing, and fall back to the SELECT
+  // below to pick up whichever one actually won.
   const randomPasswordHash = randomBytes(32).toString("hex");
-  const created = await pool.query<{ id: string }>(
-    `INSERT INTO users (email, password_hash) VALUES ($1, $2) RETURNING id`,
+  const inserted = await pool.query<{ id: string }>(
+    `INSERT INTO users (email, password_hash) VALUES ($1, $2) ON CONFLICT (email) DO NOTHING RETURNING id`,
     [LOCAL_USER_EMAIL, randomPasswordHash],
   );
-  cachedLocalUserId = created.rows[0].id;
+  if (inserted.rows[0]) {
+    cachedLocalUserId = inserted.rows[0].id;
+    return { id: cachedLocalUserId, email: LOCAL_USER_EMAIL };
+  }
+  const existing = await pool.query<{ id: string }>(`SELECT id FROM users WHERE email = $1`, [LOCAL_USER_EMAIL]);
+  cachedLocalUserId = existing.rows[0].id;
   return { id: cachedLocalUserId, email: LOCAL_USER_EMAIL };
 }
 

@@ -13,7 +13,7 @@ import { readLocalSettings, writeLocalSettings } from "../localSettings.js";
 
 // Lifer's own subfolders under DATA_DIR (see config.ts) — implementation detail, never
 // something a user should navigate into when picking a library folder.
-const LIFER_INTERNAL_DIR_NAMES = new Set(["originals", "display", "thumb", "reference-display", "reference-thumb", "maps", "tmp"]);
+const LIFER_INTERNAL_DIR_NAMES = new Set(["Lifer Photos", "display", "thumb", "reference-display", "reference-thumb", "maps", "tmp"]);
 
 interface OrganizeBody {
   enabled?: boolean;
