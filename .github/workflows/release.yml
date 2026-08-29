@@ -39,7 +39,7 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libfuse2
       - run: npm ci
       # Real release version, not the permanent "0.1.0" placeholder — so the running app has
       # something to compare against the updater manifest's version. Derived from the pushed
