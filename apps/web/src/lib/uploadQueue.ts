@@ -162,7 +162,15 @@ function settleIfDone() {
     // MigrationStatusIndicator's justFinished window).
     setTimeout(() => {
       if (state.jobs.every((j) => j.done)) {
-        setState({ jobs: [], targetsExternalDrive: false, justFinishedAt: Date.now() });
+        const finishedAt = Date.now();
+        setState({ jobs: [], targetsExternalDrive: false, justFinishedAt: finishedAt });
+        // UploadQueueBanner's "justFinished" window is only ever re-evaluated on a render —
+        // with no more jobs left, nothing else triggers one, so without this the banner never
+        // re-renders to notice the window has elapsed and just sticks on "Upload finished"
+        // forever. This is the render that actually clears it.
+        setTimeout(() => {
+          if (state.justFinishedAt === finishedAt) setState({ justFinishedAt: null });
+        }, 6000);
       }
     }, 50);
   }
