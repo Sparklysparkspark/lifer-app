@@ -13,7 +13,7 @@ export default function UploadQueueBanner() {
   if (jobs.length === 0 && !justFinished) return null;
 
   return (
-    <div className="fixed left-4 top-4 z-50 flex items-center gap-2 rounded-full border border-line bg-surface px-3 py-1.5 text-xs text-muted shadow-sm">
+    <div className="fixed bottom-4 left-4 z-50 flex items-center gap-2 rounded-full border border-line bg-surface px-3 py-1.5 text-xs text-muted shadow-sm">
       {jobs.length > 0 ? (
         <>
           <span className="h-3 w-3 animate-spin rounded-full border-2 border-line border-t-ink" />
