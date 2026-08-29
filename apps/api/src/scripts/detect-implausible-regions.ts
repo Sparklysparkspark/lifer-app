@@ -19,24 +19,27 @@
 //   matching a free-text place name back to real geography is not reliable enough to trust
 //   blind deletion.
 import { pool } from "../db.js";
-// Reuses the already-battle-tested retry/backoff logic instead of writing a second, untested
-// one: a plain fetch with no retry would silently treat a transient 429 as "no article found"
-// and skip a candidate without ever really checking it.
-import { fetchWithRetry } from "../species/lazyEnrich.js";
+// iNaturalist's own taxon record already carries the full Wikipedia article text in
+// wikipedia_summary (see lazyEnrich.ts's fetchINaturalistTaxon/stripHtml) and is never
+// rate-limited the way hitting en.wikipedia.org's API directly for ~1200 species in a row is
+// (that used to draw a 429 roughly every other request, each with a 50s+ backoff). Reuses
+// fetchWithRetry for the same host-pacing/retry behavior other iNaturalist calls get.
+import { fetchWithRetry, stripHtml } from "../species/lazyEnrich.js";
 
+const INAT_API = "https://api.inaturalist.org/v1";
 const EXTINCT_IN_WILD_PATTERN = /\bextinct in the wild\b/i;
 const ENDEMIC_PATTERN = /\b(?:endemic to|restricted to|confined to|only found in)\s+((?:(?!\.|,\s+(?:and|but|though)|;)[^.;])+)/i;
 
-async function fetchFullExtract(title: string): Promise<string | null> {
-  const url =
-    `https://en.wikipedia.org/w/api.php?action=query&prop=extracts&explaintext=1&redirects=1&format=json` +
-    `&titles=${encodeURIComponent(title)}`;
+async function fetchFullExtract(name: string, rank: "species" | "genus"): Promise<string | null> {
+  const url = `${INAT_API}/taxa?q=${encodeURIComponent(name)}&rank=${rank}&is_active=true&per_page=10`;
   const res = await fetchWithRetry(url);
   if (!res.ok) return null;
-  const data = (await res.json()) as { query?: { pages: Record<string, { extract?: string; missing?: string }> } };
-  const page = data.query ? Object.values(data.query.pages)[0] : undefined;
-  if (!page?.extract || page.missing !== undefined) return null;
-  return page.extract;
+  const data = (await res.json()) as {
+    results: Array<{ name: string; wikipedia_summary?: string | null }>;
+  };
+  const match = data.results.find((r) => r.name.toLowerCase() === name.toLowerCase()) ?? data.results[0];
+  if (!match?.wikipedia_summary) return null;
+  return stripHtml(match.wikipedia_summary);
 }
 
 async function main() {
@@ -44,17 +47,16 @@ async function main() {
     id: string;
     scientific_name: string;
     common_name: string | null;
-    wikipedia_title: string | null;
     regions: string[];
     flagged_regions: string[];
   }>(
-    `SELECT s.id, s.scientific_name, s.common_name, s.wikipedia_title,
+    `SELECT s.id, s.scientific_name, s.common_name,
        array_agg(DISTINCT r.name) AS regions,
        array_agg(DISTINCT r.name) FILTER (WHERE rs.local_tier IN ('epic', 'legendary') AND rs.local_frequency <= 2) AS flagged_regions
      FROM species s
      JOIN region_species rs ON rs.species_id = s.id
      JOIN regions r ON r.id = rs.region_id
-     GROUP BY s.id, s.scientific_name, s.common_name, s.wikipedia_title
+     GROUP BY s.id, s.scientific_name, s.common_name
      HAVING bool_or(s.reference_photo IS NULL AND s.enriched_at IS NOT NULL)
         OR bool_or(rs.local_tier IN ('epic', 'legendary') AND rs.local_frequency <= 2)
      ORDER BY s.scientific_name`,
@@ -69,8 +71,8 @@ async function main() {
     const genus = species.scientific_name.split(" ")[0];
     const speciesEpithet = species.scientific_name.split(" ")[1] ?? null;
     const [speciesText, genusText] = await Promise.all([
-      species.wikipedia_title ? fetchFullExtract(species.wikipedia_title) : Promise.resolve(null),
-      fetchFullExtract(genus),
+      fetchFullExtract(species.scientific_name, "species"),
+      fetchFullExtract(genus, "genus"),
     ]);
     const combined = [speciesText, genusText].filter(Boolean).join("\n\n");
     done++;

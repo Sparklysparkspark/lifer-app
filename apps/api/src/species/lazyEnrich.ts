@@ -253,7 +253,7 @@ export async function fetchINaturalistTaxon(
 // all, and sourcing the summary from here means one fewer direct Wikipedia call per species.
 // Same "personal use" license stance as the main photo (see fetchINaturalistTaxon's
 // neighboring comment) — no license filtering.
-function stripHtml(html: string): string {
+export function stripHtml(html: string): string {
   return html
     .replace(/<[^>]+>/g, "")
     .replace(/&amp;/g, "&")
