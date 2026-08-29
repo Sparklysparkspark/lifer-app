@@ -82,6 +82,11 @@ export default function CollectionPage() {
   // the full worldwide fetch on that render before ever getting overridden.
   const restoredLastRegion = useRef(false);
   const [firstRunPrompt, setFirstRunPrompt] = useState(false);
+  // A genuinely first-ever login (no lastRegionId to restore) can't decide between "show the
+  // picker" and "jump straight into the one region you've got" until we actually know how many
+  // packs are downloaded — that arrives via a separate async fetch, so the decision is deferred
+  // to the effect below rather than made here.
+  const [pendingFirstRunDecision, setPendingFirstRunDecision] = useState(false);
   const [regionResolved, setRegionResolved] = useState(false);
   useEffect(() => {
     if (restoredLastRegion.current) return;
@@ -92,12 +97,16 @@ export default function CollectionPage() {
     }
     try {
       const lastRegionId = localStorage.getItem("lifer:lastRegionId");
-      if (lastRegionId) updateParam("region", lastRegionId);
-      else setFirstRunPrompt(true);
+      if (lastRegionId) {
+        updateParam("region", lastRegionId);
+        setRegionResolved(true);
+        return;
+      }
     } catch {
       // localStorage can throw in some contexts (private browsing, disabled storage) — a
-      // missed restore just falls back to the old "show everything" default, not an error.
+      // missed restore just falls back to the deferred first-run decision below, not an error.
     }
+    setPendingFirstRunDecision(true);
     setRegionResolved(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -141,11 +150,6 @@ export default function CollectionPage() {
       ...(next.length === 0 ? { includeLand: null } : {}),
     });
   }
-  // Sea zones only ever add fish species (sea_zone_species is populated exclusively from
-  // fish taxon keys), so the whole "include nearby water" control is dead weight — reveals
-  // zero species — whenever the taxon filter is narrowed to birds or mammals. The toggle is
-  // hidden in that case since it wouldn't reveal any data.
-  const seaZonesRelevant = taxonFilter === "all" || taxonFilter === "actinopterygii";
   const includeLand = searchParams.get("includeLand") !== "0";
   function setIncludeLand(checked: boolean) {
     updateParam("includeLand", checked ? null : "0");
@@ -182,6 +186,13 @@ export default function CollectionPage() {
   // never computes a checklist live. Distinct from `loadError`: this isn't a failure, it's a
   // real, expected state the UI offers a next step for.
   const [needsPackFor, setNeedsPackFor] = useState<{ id: string; name: string } | null>(null);
+  // Set when a specific `?taxon=` filter is active and that taxon's pack isn't downloaded for
+  // the current region (see regions/routes.ts's taxonPackMissing) — distinct from `needsPackFor`,
+  // which means the region has NO pack at all; this means "some pack is here, just not this
+  // taxon's," e.g. Canada's birds+mammals downloaded but not its fish.
+  const [taxonPackMissingFor, setTaxonPackMissingFor] = useState<{ id: string; name: string; taxon: TaxonFilter } | null>(
+    null,
+  );
   // Resolves well before `items`/`regionStats` — a count-only query with none of the full
   // list's reference-photo/tier joins or per-row mapping — so the header total updates on a
   // region/taxon switch without waiting for the (much heavier) species grid to load.
@@ -223,6 +234,138 @@ export default function CollectionPage() {
       });
   }, []);
 
+  // Country-level packs are keyed by region NAME (see offlinePacks/routes.ts, build-region-
+  // pack.ts's own comment on why — installs don't share region ids), so this is the only way
+  // to connect a downloaded pack back to a row in `allRegions`. Sea-zone packs (region: null)
+  // don't participate here at all — they're not part of the country/province browse tree.
+  const [downloadedCountryNames, setDownloadedCountryNames] = useState<Set<string> | null>(null);
+  // Per-country, which taxa actually have a downloaded pack (null in the inner set means an
+  // all-taxa pack, which covers every taxon) — lets the sea-zone auto-select effect and the
+  // taxon-pack prompt below tell "this taxon's pack isn't downloaded" apart from "downloaded,
+  // genuinely empty," neither of which downloadedCountryNames alone can distinguish.
+  const [downloadedRegionTaxons, setDownloadedRegionTaxons] = useState<Map<string, Set<string | null>> | null>(null);
+  useEffect(() => {
+    api
+      .get<{ packs: Array<{ type: string; region: string | null; taxon: string | null; downloaded: boolean }> }>(
+        "/offline-packs/index",
+      )
+      .then((res) => {
+        setDownloadedCountryNames(
+          new Set(res.packs.filter((p) => p.type === "region" && p.region && p.downloaded).map((p) => p.region!)),
+        );
+        const taxonMap = new Map<string, Set<string | null>>();
+        for (const p of res.packs) {
+          if (p.type !== "region" || !p.region || !p.downloaded) continue;
+          if (!taxonMap.has(p.region)) taxonMap.set(p.region, new Set());
+          taxonMap.get(p.region)!.add(p.taxon ?? null);
+        }
+        setDownloadedRegionTaxons(taxonMap);
+      })
+      .catch(() => {
+        setDownloadedCountryNames(new Set());
+        setDownloadedRegionTaxons(new Map());
+      });
+  }, []);
+
+  // Client-side mirror of regions/routes.ts's resolvePackRegionName — packs are always built
+  // at country level, so a province's own name never appears in downloaded_packs; only its
+  // direct parent (the country) does. Good enough for gating UI decisions defensively: if it
+  // ever mismatches the server's own resolution, the worst case is skipping a helpful prompt
+  // or auto-select, never showing data that isn't actually unlocked.
+  const packRegionNameFor = useCallback(
+    (id: string): string | null => {
+      const region = allRegions.find((r) => r.id === id);
+      if (!region) return null;
+      if (!region.parentId) return region.name;
+      const parent = allRegions.find((r) => r.id === region.parentId);
+      return parent ? parent.name : region.name;
+    },
+    [allRegions],
+  );
+  const isTaxonPackDownloaded = useCallback(
+    (id: string | null, taxonClass: string): boolean => {
+      if (!id || !downloadedRegionTaxons) return false;
+      const packRegionName = packRegionNameFor(id);
+      if (!packRegionName) return false;
+      const taxons = downloadedRegionTaxons.get(packRegionName);
+      if (!taxons) return false;
+      return taxons.has(null) || taxons.has(taxonClass);
+    },
+    [downloadedRegionTaxons, packRegionNameFor],
+  );
+
+  // Sea zones only ever add fish species (sea_zone_species is populated exclusively from
+  // fish taxon keys), so the whole "include nearby water" control is dead weight — reveals
+  // zero species — whenever the taxon filter is narrowed to birds or mammals. It's ALSO
+  // pointless (and actively confusing) to offer "see nearby ocean fish" for a region whose own
+  // native fish aren't even downloaded yet — showing a neighboring sea zone's fish before the
+  // region's own fish pack is installed contradicts "download this region's pack to see its
+  // data." Hidden in both cases, not just skipped for auto-select.
+  const seaZonesRelevant =
+    (taxonFilter === "all" || taxonFilter === "actinopterygii") &&
+    (!regionId || isTaxonPackDownloaded(regionId, "actinopterygii"));
+
+  // A region only has real reference data once a pack covers it — see regions/routes.ts's own
+  // "never computes a checklist live" comment. Browsing shouldn't offer a region with nothing
+  // behind it, so the drill-down tree is filtered to only what's actually reachable from a
+  // downloaded country pack: the country itself, every province bundled inside its pack (all
+  // descendants), and every ancestor up to World (so the path TO that country stays visible —
+  // otherwise a downloaded Canada would have nothing above it to click through from).
+  // `null` (packs not loaded yet) means "don't filter yet" rather than "filter out everything",
+  // so the tree doesn't flash empty on every load before the pack list arrives.
+  const availableRegionIds = useMemo(() => {
+    if (!downloadedCountryNames) return null;
+    const byId = new Map(allRegions.map((r) => [r.id, r]));
+    const childrenOf = new Map<string, RegionSummary[]>();
+    for (const r of allRegions) {
+      if (r.parentId == null) continue;
+      if (!childrenOf.has(r.parentId)) childrenOf.set(r.parentId, []);
+      childrenOf.get(r.parentId)!.push(r);
+    }
+    const available = new Set<string>();
+    for (const region of allRegions) {
+      if (!downloadedCountryNames.has(region.name)) continue;
+      available.add(region.id);
+      // Walk up to World.
+      let cursor: RegionSummary | undefined = region;
+      while (cursor?.parentId) {
+        available.add(cursor.parentId);
+        cursor = byId.get(cursor.parentId);
+      }
+      // Walk down through every descendant (provinces/states bundled in the same pack).
+      const stack = [...(childrenOf.get(region.id) ?? [])];
+      while (stack.length) {
+        const child = stack.pop()!;
+        available.add(child.id);
+        stack.push(...(childrenOf.get(child.id) ?? []));
+      }
+    }
+    return available;
+  }, [allRegions, downloadedCountryNames]);
+
+  // Resolves the deferred first-run decision (see the restore-last-region effect above) once
+  // the region list has actually arrived — the single-downloaded-country case is handled
+  // uniformly below instead of here, since it applies every time someone lands back on the
+  // unscoped root, not just on a brand new login.
+  useEffect(() => {
+    if (!pendingFirstRunDecision || !regionsLoaded) return;
+    setPendingFirstRunDecision(false);
+    setFirstRunPrompt(true);
+  }, [pendingFirstRunDecision, regionsLoaded]);
+
+  // Whenever exactly one country has ever been downloaded, the unscoped root ("All species"/
+  // World, regionId === null) isn't really a useful place to land — there's only one region
+  // with any real data at all, so jump straight into it instead of making the user click
+  // through. Applies every time someone navigates back to the root this way (clearing the
+  // region, or a fresh login), not just once — if a second pack gets downloaded later, this
+  // naturally stops firing since downloadedCountryNames.size is no longer 1.
+  useEffect(() => {
+    if (!regionResolved || regionId || !downloadedCountryNames || downloadedCountryNames.size !== 1) return;
+    const onlyName = [...downloadedCountryNames][0];
+    const onlyCountry = allRegions.find((r) => r.name === onlyName);
+    if (onlyCountry) navigateToRegion(onlyCountry.id);
+  }, [regionResolved, regionId, downloadedCountryNames, allRegions]);
+
   // World and the continents are purely organizational: they have no GADM code of their own
   // (hasScopedChecklist false, see regions/routes.ts), so their "checklist" is literally
   // every species on Earth with no occurrence filter behind it. Landing on one of those
@@ -246,6 +389,7 @@ export default function CollectionPage() {
 
     setQuickCount(null);
     setNeedsPackFor(null);
+    setTaxonPackMissingFor(null);
     if (regionId && regionKnownHub) {
       // No scoped checklist to show — just the breadcrumb/children pills, already rendered
       // from `allRegions` below, need nothing fetched here.
@@ -275,6 +419,9 @@ export default function CollectionPage() {
           setItems(res.items);
           setRegionMeta(res.region);
           setRegionStats(res.stats);
+          if (res.taxonPackMissing && taxonFilter !== "all") {
+            setTaxonPackMissingFor({ id: res.region.id, name: res.region.name, taxon: taxonFilter });
+          }
           collectionCache.set(collectionCacheKey(regionId, taxonFilter, seaZoneIds, includeLand), {
             items: res.items,
             regionMeta: res.region,
@@ -343,6 +490,13 @@ export default function CollectionPage() {
     if (!regionId || regionKnownHub || !seaZonesRelevant) return;
     if (seaZones.length === 0 || seaZoneIds.length > 0) return;
     if (autoSelectedSeaZoneRegions.current.has(regionId)) return;
+    // A 0 fish count here can mean two very different things: this region genuinely has no
+    // native fish (the case this effect exists for), or its fish pack simply isn't downloaded
+    // yet — indistinguishable from the count alone once fish became pack-gated. Only treat it
+    // as "genuinely none" once the fish pack IS actually downloaded; otherwise a 0 caused by
+    // gating would auto-turn-on nearby sea zones and surface real fish from any OTHER
+    // downloaded sea-zone pack, before this region's own fish pack was ever installed.
+    if (!isTaxonPackDownloaded(regionId, "actinopterygii")) return;
     autoSelectedSeaZoneRegions.current.add(regionId);
 
     api
@@ -353,7 +507,7 @@ export default function CollectionPage() {
       .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps -- seaZones is an array; length +
     // regionId together are the real dependency, same reasoning as seaZoneIds elsewhere here.
-  }, [regionId, regionKnownHub, seaZonesRelevant, seaZones, seaZoneIds.length]);
+  }, [regionId, regionKnownHub, seaZonesRelevant, seaZones, seaZoneIds.length, isTaxonPackDownloaded]);
 
   useEffect(() => {
     if (!regionResolved || !regionsLoaded) return;
@@ -380,7 +534,11 @@ export default function CollectionPage() {
   }
 
   const worldRegion = useMemo(() => allRegions.find((r) => r.parentId === null && r.name === "World"), [allRegions]);
-  const children = useMemo(() => allRegions.filter((r) => r.parentId === regionId), [allRegions, regionId]);
+  const allChildren = useMemo(() => allRegions.filter((r) => r.parentId === regionId), [allRegions, regionId]);
+  const children = useMemo(
+    () => (availableRegionIds ? allChildren.filter((r) => availableRegionIds.has(r.id)) : allChildren),
+    [allChildren, availableRegionIds],
+  );
   const breadcrumb = useMemo(() => {
     const byId = new Map(allRegions.map((r) => [r.id, r]));
     const trail: RegionSummary[] = [];
@@ -535,6 +693,15 @@ export default function CollectionPage() {
                 )}
               </div>
             )}
+            {availableRegionIds && allChildren.length > 0 && children.length === 0 && (
+              <p className="text-xs text-muted">
+                None of this region's countries have a downloaded pack yet.{" "}
+                <Link to="/offline-packs" state={{ backLabel: "Collection" }} className="underline">
+                  Download one in Offline packs
+                </Link>{" "}
+                to see it here.
+              </p>
+            )}
           </div>
         )}
       </div>
@@ -673,20 +840,17 @@ export default function CollectionPage() {
           <div className="rounded-xl border border-line bg-surface p-8 text-center">
             <h2 className="text-lg font-semibold text-ink">Welcome to Lifer</h2>
             <p className="mx-auto mt-2 max-w-sm text-sm text-muted">
-              Pick a region to see its checklist and start tracking what you've photographed there.
+              Download a region's offline pack to see its checklist and start tracking what you've photographed
+              there — a region only shows real data once its pack is downloaded.
             </p>
             <div className="mt-4 flex items-center justify-center gap-4">
-              {worldRegion && (
-                <button
-                  onClick={() => navigateToRegion(worldRegion.id)}
-                  className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-accent-fg"
-                >
-                  Browse by region
-                </button>
-              )}
-              <button onClick={() => setFirstRunPrompt(false)} className="text-sm text-muted hover:underline">
-                Or view every species worldwide
-              </button>
+              <Link
+                to="/offline-packs"
+                state={{ backLabel: "Collection" }}
+                className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-accent-fg"
+              >
+                Download a pack
+              </Link>
             </div>
           </div>
         ) : regionKnownHub ? (
@@ -702,6 +866,16 @@ export default function CollectionPage() {
           </p>
         ) : !visibleItems ? (
           <Spinner />
+        ) : taxonPackMissingFor &&
+          taxonPackMissingFor.id === regionId &&
+          taxonPackMissingFor.taxon === taxonFilter &&
+          visibleItems.length === 0 ? (
+          <TaxonPackPrompt
+            regionId={taxonPackMissingFor.id}
+            regionName={taxonPackMissingFor.name}
+            taxon={taxonPackMissingFor.taxon}
+            onDownloaded={load}
+          />
         ) : visibleItems.length === 0 ? (
           <p className="text-muted">Nothing matches that filter.</p>
         ) : (
@@ -724,6 +898,8 @@ interface OfflinePackEntry {
   id: string;
   type: "region" | "seaZone";
   region?: string;
+  seaZone?: string;
+  taxon?: string | null;
   sizeBytes: number;
   speciesCount: number;
   downloaded: boolean;
@@ -778,7 +954,7 @@ function NeedsPackPrompt({ region, onDownloaded }: { region: { id: string; name:
       ) : pack === null ? (
         <p className="mx-auto mt-2 max-w-sm text-sm text-muted">
           No offline pack is published for {region.name} yet. Check{" "}
-          <Link to="/offline-packs" className="underline">
+          <Link to="/offline-packs" state={{ backLabel: "Collection" }} className="underline">
             Offline packs
           </Link>{" "}
           later, or ask whoever runs this Lifer instance about it.
@@ -797,6 +973,162 @@ function NeedsPackPrompt({ region, onDownloaded }: { region: { id: string; name:
           </button>
           {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
         </>
+      )}
+    </div>
+  );
+}
+
+// Shown instead of an empty grid when a taxon filter (Birds/Mammals/Fish) is narrowed to a
+// region that has SOME pack downloaded, just not this taxon's — see regions/routes.ts's
+// taxonPackMissing. Packs are taxon-split per country (see build-region-pack.ts), so this
+// looks for a pack matching both the region name AND this specific taxon, falling back to an
+// all-taxa pack (taxon: null) if that's what this install actually publishes.
+function TaxonPackPrompt({
+  regionId,
+  regionName,
+  taxon,
+  onDownloaded,
+}: {
+  regionId: string;
+  regionName: string;
+  taxon: TaxonFilter;
+  onDownloaded: () => void;
+}) {
+  const [pack, setPack] = useState<OfflinePackEntry | null | undefined>(undefined);
+  const [downloading, setDownloading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  // Fish specifically can ALSO be reached via a nearby sea zone's own separate pack (see
+  // CollectionPage's seaZonesRelevant/isTaxonPackDownloaded) — without offering that here too,
+  // this screen was a dead end for anyone whose actual interest is "nearby ocean fish," not
+  // this region's own native freshwater/coastal species.
+  const [seaZonePacks, setSeaZonePacks] = useState<Array<{ zoneId: string; zoneName: string; pack: OfflinePackEntry }> | null>(
+    null,
+  );
+  const [downloadingZoneId, setDownloadingZoneId] = useState<string | null>(null);
+  const [zoneError, setZoneError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setPack(undefined);
+    setSeaZonePacks(null);
+    Promise.all([
+      api.get<{ packs: OfflinePackEntry[] }>("/offline-packs/index"),
+      taxon === "actinopterygii"
+        ? api.get<{ zones: Array<{ id: string; name: string }> }>(`/regions/${regionId}/sea-zones`)
+        : Promise.resolve({ zones: [] }),
+    ])
+      .then(([{ packs }, { zones }]) => {
+        const candidates = packs.filter((p) => p.type === "region" && p.region === regionName);
+        setPack(candidates.find((p) => p.taxon === taxon) ?? candidates.find((p) => !p.taxon) ?? null);
+
+        const zonePacks = zones
+          .map((zone) => ({ zoneId: zone.id, zoneName: zone.name, pack: packs.find((p) => p.type === "seaZone" && p.seaZone === zone.name) }))
+          .filter((z): z is { zoneId: string; zoneName: string; pack: OfflinePackEntry } => !!z.pack && !z.pack.downloaded);
+        setSeaZonePacks(zonePacks);
+      })
+      .catch(() => {
+        setPack(null);
+        setSeaZonePacks([]);
+      });
+  }, [regionId, regionName, taxon]);
+
+  async function download() {
+    if (!pack) return;
+    setDownloading(true);
+    setError(null);
+    try {
+      await api.post("/offline-packs/download", { packIds: [pack.id] });
+      for (;;) {
+        await new Promise((r) => setTimeout(r, 1000));
+        const status = await api.get<{ running: boolean; error: string | null }>("/offline-packs/download/status");
+        if (!status.running) {
+          if (status.error) setError(status.error);
+          break;
+        }
+      }
+      onDownloaded();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't download this pack");
+    } finally {
+      setDownloading(false);
+    }
+  }
+
+  async function downloadZone(zoneId: string, packId: string) {
+    setDownloadingZoneId(zoneId);
+    setZoneError(null);
+    try {
+      await api.post("/offline-packs/download", { packIds: [packId] });
+      for (;;) {
+        await new Promise((r) => setTimeout(r, 1000));
+        const status = await api.get<{ running: boolean; error: string | null }>("/offline-packs/download/status");
+        if (!status.running) {
+          if (status.error) setZoneError(status.error);
+          break;
+        }
+      }
+      setSeaZonePacks((prev) => prev?.filter((z) => z.zoneId !== zoneId) ?? null);
+      onDownloaded();
+    } catch (err) {
+      setZoneError(err instanceof ApiError ? err.message : "Couldn't download this pack");
+    } finally {
+      setDownloadingZoneId(null);
+    }
+  }
+
+  return (
+    <div className="rounded-xl border border-line bg-surface p-8 text-center">
+      <h2 className="text-lg font-semibold text-ink">
+        {regionName}'s {TAXON_LABEL[taxon].toLowerCase()} pack isn't downloaded yet
+      </h2>
+      {pack === undefined ? (
+        <p className="mt-2 text-sm text-muted">Checking for a pack…</p>
+      ) : pack === null ? (
+        <p className="mx-auto mt-2 max-w-sm text-sm text-muted">
+          No offline pack covers {regionName}'s {TAXON_LABEL[taxon].toLowerCase()} yet. Check{" "}
+          <Link to="/offline-packs" state={{ backLabel: "Collection" }} className="underline">
+            Offline packs
+          </Link>{" "}
+          later, or ask whoever runs this Lifer instance about it.
+        </p>
+      ) : (
+        <>
+          <p className="mx-auto mt-2 max-w-sm text-sm text-muted">
+            {pack.speciesCount} species, {(pack.sizeBytes / 1024 / 1024).toFixed(0)}MB.
+          </p>
+          <button
+            onClick={download}
+            disabled={downloading}
+            className="mt-4 rounded-md bg-accent px-4 py-2 text-sm font-medium text-accent-fg disabled:opacity-50"
+          >
+            {downloading ? "Downloading…" : `Download ${regionName}'s ${TAXON_LABEL[taxon].toLowerCase()} pack`}
+          </button>
+          {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
+        </>
+      )}
+      {seaZonePacks !== null && seaZonePacks.length > 0 && (
+        <div className="mx-auto mt-6 max-w-sm border-t border-line pt-4 text-left">
+          <p className="text-sm text-muted">
+            Or get fish from a nearby sea zone instead — a separate, optional download, not part of {regionName}'s
+            own pack above:
+          </p>
+          <div className="mt-3 space-y-2">
+            {seaZonePacks.map((zone) => (
+              <div key={zone.zoneId} className="flex items-center justify-between gap-2 rounded-md border border-line px-3 py-2">
+                <span className="text-sm text-ink">
+                  {zone.zoneName} <span className="text-muted">({zone.pack.speciesCount} species)</span>
+                </span>
+                <button
+                  onClick={() => downloadZone(zone.zoneId, zone.pack.id)}
+                  disabled={downloadingZoneId !== null}
+                  className="shrink-0 rounded-md border border-line px-3 py-1 text-xs font-medium text-ink disabled:opacity-50"
+                >
+                  {downloadingZoneId === zone.zoneId ? "Downloading…" : "Download"}
+                </button>
+              </div>
+            ))}
+          </div>
+          {zoneError && <p className="mt-2 text-sm text-red-600">{zoneError}</p>}
+        </div>
       )}
     </div>
   );
