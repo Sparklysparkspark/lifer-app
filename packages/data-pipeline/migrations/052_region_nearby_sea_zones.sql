@@ -1,0 +1,11 @@
+-- Precomputed "which sea zones count as nearby water" per region — this used to be computed
+-- LIVE, on every single GET /regions/:id/sea-zones request, via real ring-distance geometry
+-- against every sea zone's polygon (regions/routes.ts's nearbyZones). That's a pure function of
+-- static reference data (a region's boundary, sea zones' polygons) that never changes while the
+-- app is running, but the live computation was expensive enough for a large/complex coastline
+-- (confirmed: Canada took 2.5+ seconds) to visibly stall the app on every load, and being
+-- synchronous JS, blocked Node's single event loop long enough to stall every OTHER concurrent
+-- request behind it too. NULL means "not backfilled yet" (falls back to the old live
+-- computation), distinct from an empty array (backfilled, genuinely no nearby zones) — see
+-- backfill-nearby-sea-zones.ts, which computes this once and is safe to re-run.
+ALTER TABLE regions ADD COLUMN nearby_sea_zone_ids uuid[];

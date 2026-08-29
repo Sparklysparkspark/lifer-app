@@ -2,7 +2,13 @@ import type { FastifyInstance } from "fastify";
 import { pool } from "../db.js";
 import { requireAuth } from "../auth/session.js";
 import { toCollectionItem } from "./collectionItem.js";
-import { OBSCURE_SPECIES_SQL, ALREADY_OWNED_SQL, NOT_ARCHIVED_SQL, getHideObscurePreference } from "../species/obscurity.js";
+import {
+  OBSCURE_SPECIES_SQL,
+  ALREADY_OWNED_SQL,
+  NOT_ARCHIVED_SQL,
+  SPECIES_UNLOCKED_SQL,
+  getHideObscurePreference,
+} from "../species/obscurity.js";
 
 export async function collectionRoutes(app: FastifyInstance): Promise<void> {
   app.get<{ Querystring: { taxon?: string } }>(
@@ -51,6 +57,7 @@ export async function collectionRoutes(app: FastifyInstance): Promise<void> {
          WHERE ($2::text IS NULL OR s.taxon_class = $2) AND COALESCE(t.fully_extinct, false) = false
            AND ($3 = false OR ${ALREADY_OWNED_SQL} OR NOT ${OBSCURE_SPECIES_SQL})
            AND ${NOT_ARCHIVED_SQL}
+           AND (${ALREADY_OWNED_SQL} OR ${SPECIES_UNLOCKED_SQL})
          ORDER BY s.sort_order NULLS LAST, s.scientific_name`,
         [userId, taxon ?? null, hideObscure],
       );
@@ -84,7 +91,8 @@ export async function collectionRoutes(app: FastifyInstance): Promise<void> {
          LEFT JOIN user_archived_species uas ON uas.user_id = $1 AND uas.species_id = s.id
          WHERE ($2::text IS NULL OR s.taxon_class = $2) AND COALESCE(t.fully_extinct, false) = false
            AND ($3 = false OR ${ALREADY_OWNED_SQL} OR NOT ${OBSCURE_SPECIES_SQL})
-           AND ${NOT_ARCHIVED_SQL}`,
+           AND ${NOT_ARCHIVED_SQL}
+           AND (${ALREADY_OWNED_SQL} OR ${SPECIES_UNLOCKED_SQL})`,
         [userId, taxon ?? null, hideObscure],
       );
       const row = res.rows[0];

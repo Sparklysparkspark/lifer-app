@@ -126,8 +126,13 @@ async function applyChecklist(
   let applied = 0;
   let skipped = 0;
   for (const sp of species) {
-    const existing = await pool.query<{ id: string; enriched_at: string | null }>(
-      `SELECT id, enriched_at FROM species WHERE scientific_name = $1`,
+    const existing = await pool.query<{
+      id: string;
+      enriched_at: string | null;
+      reference_display_path: string | null;
+      reference_thumb_path: string | null;
+    }>(
+      `SELECT id, enriched_at, reference_display_path, reference_thumb_path FROM species WHERE scientific_name = $1`,
       [sp.scientificName],
     );
     const row = existing.rows[0];
@@ -143,7 +148,21 @@ async function applyChecklist(
     // file's top comment on the cross-pack dedup. Checklist membership below is applied
     // regardless of enrichment status: a species can already be enriched yet still need
     // its region_species row for THIS newly-downloaded region.
-    if (!row.enriched_at) {
+    //
+    // enriched_at alone isn't enough, though: species/region data restored from a portable
+    // catalog seed (see desktop's embedded_db.rs) arrives with enriched_at already set but
+    // NONE of the cached image files, deliberately — that's the whole reason a pack bundles
+    // its own copies. Treating "enriched_at is set" as "nothing to do" would skip extracting
+    // those images forever, even though this pack has exactly what's missing. Re-running the
+    // copy whenever the currently-recorded path doesn't actually resolve on disk covers both:
+    // a genuinely fresh species (never enriched at all) and one whose data moved here without
+    // its files. Checked independently for display AND thumb — a species can have one file
+    // present and the other missing (e.g. a partial extraction), and treating "display exists"
+    // as "nothing to do" left the thumb 404ing forever even after re-downloading the pack.
+    const referenceFileMissing =
+      (row.reference_display_path != null && !existsSync(row.reference_display_path)) ||
+      (row.reference_thumb_path != null && !existsSync(row.reference_thumb_path));
+    if (!row.enriched_at || referenceFileMissing) {
       const displaySource = sp.displayFile ? resolveWithinDir(extractDir, sp.displayFile) : null;
       const thumbSource = sp.thumbFile ? resolveWithinDir(extractDir, sp.thumbFile) : null;
 
@@ -163,8 +182,8 @@ async function applyChecklist(
            habitat_description = COALESCE(habitat_description, $1),
            reference_credit = COALESCE(reference_credit, $2),
            reference_license = COALESCE(reference_license, $3),
-           reference_display_path = COALESCE(reference_display_path, $4),
-           reference_thumb_path = COALESCE(reference_thumb_path, $5),
+           reference_display_path = COALESCE($4, reference_display_path),
+           reference_thumb_path = COALESCE($5, reference_thumb_path),
            enriched_at = now()
          WHERE id = $6`,
         [sp.habitatDescription, sp.referenceCredit, sp.referenceLicense, displayPath, thumbPath, row.id],

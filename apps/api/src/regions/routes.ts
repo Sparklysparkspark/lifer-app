@@ -88,7 +88,7 @@ const MARINE_MAMMAL_ORDER_KEYS = [733, 802];
 const BBOX_PREFILTER_BUFFER_DEGREES = 10;
 const NEARBY_MAX_DISTANCE_DEGREES = 2;
 
-async function nearbyZones(
+export async function nearbyZones(
   regionBbox: BoundingBox,
   regionRings: Point[][],
 ): Promise<Array<{ id: string; name: string; wkt: string }>> {
@@ -211,10 +211,49 @@ type StateFilter = "all" | "missing" | "collected" | "seen";
 
 const TIER_RANK: Record<string, number> = { legendary: 0, epic: 1, rare: 2, uncommon: 3, common: 4 };
 
+// Packs are only ever built at country level (bundling every province inside), so a downloaded
+// pack's own `downloaded_packs.region` value is always a country name — resolves regionId
+// (which might be that country itself, or one of its provinces) up to whichever one that is.
+async function resolvePackRegionName(regionId: string): Promise<string | null> {
+  const res = await pool.query<{ name: string; parent_id: string | null; parent_external_codes: string[] | null }>(
+    `SELECT r.name, r.parent_id, p.external_codes AS parent_external_codes
+     FROM regions r LEFT JOIN regions p ON p.id = r.parent_id
+     WHERE r.id = $1`,
+    [regionId],
+  );
+  const row = res.rows[0];
+  if (!row) return null;
+  // Parent has no external codes (a continent/World, purely organizational) means THIS region
+  // is itself the country. Otherwise the parent IS a country, and this region is one of its
+  // provinces — the province's own name never appears in downloaded_packs.
+  if (!row.parent_external_codes?.length) return row.name;
+  const parentRes = await pool.query<{ name: string }>(`SELECT name FROM regions WHERE id = $1`, [row.parent_id]);
+  return parentRes.rows[0]?.name ?? null;
+}
+
+// A species/region row existing in region_species does NOT by itself mean its pack was ever
+// downloaded — a portable catalog seed (see desktop's embedded_db.rs) brings over the WHOLE
+// region_species table up front, across every taxon, purely so there's something to browse
+// before any pack is downloaded at all. Packs are taxon-split (Canada's birds pack is separate
+// from its fish pack) — downloading only birds+mammals for a country must not also surface
+// fish that were only ever in the catalog seed, never actually downloaded. NULL (no packs
+// tracked, or this region isn't under any tracked country) means nothing is available yet —
+// callers should treat that as "show nothing" via the returned SQL fragment's own false-y NULL
+// behavior, not "show everything."
+const TAXON_PACK_DOWNLOADED_SQL = `EXISTS (
+  SELECT 1 FROM downloaded_packs dp WHERE dp.region = $7 AND (dp.taxon IS NULL OR dp.taxon = s.taxon_class)
+)`;
+
 export async function regionRoutes(app: FastifyInstance): Promise<void> {
   app.get("/regions", { preHandler: requireAuth }, async () => {
+    // boundary_geojson deliberately excluded — a real Natural Earth polygon per region, easily
+    // hundreds of KB each, and nothing here ever reads it: CollectionPage's allRegions only
+    // uses id/name/parentId/hasChildren/hasScopedChecklist for tree building and lookups; the
+    // actual map renders from regionMeta.boundaryGeoJson, the ONE region's own copy returned by
+    // GET /regions/:id/species below. Pulling and serializing all ~300 regions' full polygons
+    // on every app load for data nothing uses was most of this endpoint's own latency.
     const res = await pool.query(
-      `SELECT id, name, parent_id, ebird_region_code, boundary_geojson, has_children, external_codes FROM regions ORDER BY parent_id NULLS FIRST, name`,
+      `SELECT id, name, parent_id, ebird_region_code, has_children, external_codes FROM regions ORDER BY parent_id NULLS FIRST, name`,
     );
     return {
       regions: res.rows.map((r) => ({
@@ -222,7 +261,7 @@ export async function regionRoutes(app: FastifyInstance): Promise<void> {
         name: r.name,
         parentId: r.parent_id,
         ebirdRegionCode: r.ebird_region_code,
-        boundaryGeoJson: r.boundary_geojson,
+        boundaryGeoJson: null,
         hasChildren: r.has_children,
         hasScopedChecklist: (r.external_codes?.length ?? 0) > 0,
       })),
@@ -233,18 +272,43 @@ export async function regionRoutes(app: FastifyInstance): Promise<void> {
   // option to include nearby major sources of water. This list is
   // only for surfacing reasonable checkbox options; the species themselves are counted from
   // each sea zone's real, unbuffered polygon (see fetchSpeciesCountsForZone).
+  //
+  // Reads regions.nearby_sea_zone_ids (migration 052) — precomputed once by
+  // backfill-nearby-sea-zones.ts, not live here. nearbyZones (below, still used by that script
+  // and by computeRegionOccurrences' own build-time call) does real ring-distance geometry
+  // against every candidate sea zone's polygon — synchronous, CPU-bound, and expensive enough
+  // for a large/complex coastline (confirmed live: Canada took 2.5+ SECONDS) that running it on
+  // every request was blocking Node's single event loop long enough to stall every OTHER
+  // concurrent request behind it too. The result is a pure function of static reference data
+  // that never changes while the app is running, so a self-hosted install should never compute
+  // it at all — same "packs bring the data, the app never recomputes it live" principle as
+  // everything else in this file. NULL (not backfilled yet — an older catalog seed/pack
+  // predating migration 052) falls back to the old live computation exactly once, rather than
+  // silently showing zero options on an install that hasn't picked up the backfill yet.
   app.get<{ Params: { id: string } }>("/regions/:id/sea-zones", { preHandler: requireAuth }, async (request, reply) => {
     const { id: regionId } = request.params;
-    const regionRes = await pool.query(`SELECT boundary_geojson FROM regions WHERE id = $1`, [regionId]);
+    const regionRes = await pool.query<{
+      boundary_geojson: { bbox?: number[]; geometry?: { type: string; coordinates: unknown } } | null;
+      nearby_sea_zone_ids: string[] | null;
+    }>(`SELECT boundary_geojson, nearby_sea_zone_ids FROM regions WHERE id = $1`, [regionId]);
     const region = regionRes.rows[0];
     if (!region) return reply.code(404).send({ error: "Region not found" });
 
-    const bbox = region.boundary_geojson?.bbox as [number, number, number, number] | undefined;
-    const geometry = region.boundary_geojson?.geometry;
-    if (!bbox || !geometry) return { zones: [] };
-    const regionBbox: BoundingBox = { minLon: bbox[0], minLat: bbox[1], maxLon: bbox[2], maxLat: bbox[3] };
-    const zones = await nearbyZones(regionBbox, exteriorRingsFromGeometry(geometry));
-    return { zones: zones.map((z) => ({ id: z.id, name: z.name })) };
+    let zoneIds = region.nearby_sea_zone_ids;
+    if (zoneIds == null) {
+      const bbox = region.boundary_geojson?.bbox as [number, number, number, number] | undefined;
+      const geometry = region.boundary_geojson?.geometry;
+      if (!bbox || !geometry) return { zones: [] };
+      const regionBbox: BoundingBox = { minLon: bbox[0], minLat: bbox[1], maxLon: bbox[2], maxLat: bbox[3] };
+      const zones = await nearbyZones(regionBbox, exteriorRingsFromGeometry(geometry));
+      zoneIds = zones.map((z) => z.id);
+      await pool.query(`UPDATE regions SET nearby_sea_zone_ids = $1 WHERE id = $2`, [zoneIds, regionId]);
+    }
+    if (zoneIds.length === 0) return { zones: [] };
+    const namesRes = await pool.query<{ id: string; name: string }>(`SELECT id, name FROM sea_zones WHERE id = ANY($1)`, [
+      zoneIds,
+    ]);
+    return { zones: namesRes.rows };
   });
 
   app.get<{
@@ -312,6 +376,8 @@ export async function regionRoutes(app: FastifyInstance): Promise<void> {
         return { needsPack: true, region: { id: region.id, name: region.name } };
       }
 
+      const packRegionName = await resolvePackRegionName(regionId);
+
       // Same per-user state computation as GET /collection (see collectionItem.ts) — collected
       // if a capture exists, seen if eBird-imported without a photo, else unseen. Species
       // ids come from a UNION of this region's own checklist AND (when a sea zone checkbox
@@ -362,11 +428,28 @@ export async function regionRoutes(app: FastifyInstance): Promise<void> {
          WHERE ($3::text IS NULL OR s.taxon_class = $3) AND COALESCE(t.fully_extinct, false) = false
            AND ($6 = false OR ${ALREADY_OWNED_SQL} OR NOT (${OBSCURE_SPECIES_SQL} OR ${REGION_VAGRANT_SQL}))
            AND ${NOT_ARCHIVED_SQL}
+           AND (rs.region_id IS NULL OR ${TAXON_PACK_DOWNLOADED_SQL})
          ORDER BY s.sort_order NULLS LAST, s.scientific_name`,
-        [userId, regionId, taxon, seaZoneIds, includeLand, hideObscure],
+        [userId, regionId, taxon, seaZoneIds, includeLand, hideObscure, packRegionName],
       );
 
       let items = res.rows.map(toCollectionItem);
+
+      // Distinguishes "this taxon genuinely has nothing here" from "this taxon's pack just
+      // isn't downloaded" for the UI's own prompt — only relevant when a specific taxon was
+      // requested; region_species existing at all (regardless of taxon) already means the
+      // region overall has some pack (see the needsPack check above), so this only asks
+      // whether THIS taxon specifically is covered.
+      let taxonPackMissing = false;
+      if (taxon && packRegionName) {
+        const taxonPackRes = await pool.query<{ exists: boolean }>(
+          `SELECT EXISTS (
+             SELECT 1 FROM downloaded_packs WHERE region = $1 AND (taxon IS NULL OR taxon = $2)
+           ) AS exists`,
+          [packRegionName, taxon],
+        );
+        taxonPackMissing = !taxonPackRes.rows[0]?.exists;
+      }
 
       const stats = {
         total: items.length,
@@ -395,6 +478,7 @@ export async function regionRoutes(app: FastifyInstance): Promise<void> {
         },
         stats,
         items,
+        taxonPackMissing,
       };
     },
   );
@@ -422,6 +506,8 @@ export async function regionRoutes(app: FastifyInstance): Promise<void> {
       const regionRes = await pool.query(`SELECT id FROM regions WHERE id = $1`, [regionId]);
       if (!regionRes.rows[0]) return reply.code(404).send({ error: "Region not found" });
 
+      const packRegionName = await resolvePackRegionName(regionId);
+
       const res = await pool.query<{ total: string; collected: string; seen: string }>(
         `WITH species_ids AS (
            SELECT species_id FROM region_species WHERE region_id = $2 AND $5
@@ -440,8 +526,9 @@ export async function regionRoutes(app: FastifyInstance): Promise<void> {
          LEFT JOIN user_archived_species uas ON uas.user_id = $1 AND uas.species_id = s.id
          WHERE ($3::text IS NULL OR s.taxon_class = $3) AND COALESCE(t.fully_extinct, false) = false
            AND ($6 = false OR ${ALREADY_OWNED_SQL} OR NOT (${OBSCURE_SPECIES_SQL} OR ${REGION_VAGRANT_SQL}))
-           AND ${NOT_ARCHIVED_SQL}`,
-        [userId, regionId, taxon, seaZoneIds, includeLand, hideObscure],
+           AND ${NOT_ARCHIVED_SQL}
+           AND (rs.region_id IS NULL OR ${TAXON_PACK_DOWNLOADED_SQL})`,
+        [userId, regionId, taxon, seaZoneIds, includeLand, hideObscure, packRegionName],
       );
       const row = res.rows[0];
       return { total: Number(row.total), collected: Number(row.collected), seen: Number(row.seen) };
@@ -720,17 +807,28 @@ export async function computeRegionOccurrences(region: {
   // computation: one extra GBIF year-facet call per species, same fetchWithRetry/backoff as
   // every other per-species call in this file.
   const wildFiltered = filtered.filter((c) => !domesticGbifKeys.has(c.gbifKey));
-  // Fish never get the recurrence/vagrancy check at all — it's tuned around bird cases
-  // (3+ distinct years) and runs against the same tiny land-only polygon fish are counted
-  // in. For a small island (Antigua and Barb.: land area ~280km²), a real, permanent reef
-  // resident's occurrences are almost all just offshore — only a sliver of GBIF points
-  // (geolocation noise) ever fall inside the literal land polygon, so it rarely reaches 3
-  // distinct years and gets wrongly flagged vagrant (89% of Antigua's fish, vs. 0% for every
-  // other Caribbean country in this dataset, where a bigger land polygon "catches" enough
-  // points regardless). Fish already get a deliberately permissive inclusion bar for the same
-  // sparse-citizen-science reason (FISH_MIN_RECORDS=1, no year window) — applying a strict
-  // bird-tuned check on top of that permissive inclusion was never consistent to begin with.
+  // Fish never get the STRICT bird recurrence check (3+ distinct years) — it runs against the
+  // same tiny land-only polygon fish are counted in, and for a small island (Antigua and
+  // Barb.: land area ~280km²), a real, permanent reef resident's occurrences are almost all
+  // just offshore — only a sliver of GBIF points (geolocation noise) ever fall inside the
+  // literal land polygon, so it rarely reaches 3 distinct years and gets wrongly flagged
+  // vagrant (89% of Antigua's fish, vs. 0% for every other Caribbean country in this dataset,
+  // where a bigger land polygon "catches" enough points regardless).
+  //
+  // That said, an UNCONDITIONAL exemption (this used to just hardcode isVagrant=false for
+  // every fish, full stop) went too far the other way: real-world case — a Falklands/Argentina
+  // skate and a Borneo-endemic minnow both ended up on Canada's own checklist as non-vagrant
+  // "legendary" residents, each on just 1-2 total GBIF records ever, anywhere near Canada.
+  // FISH_MIN_RECORDS=1 already means a single stray/misidentified point is enough to add a
+  // fish to the checklist at all; skipping vagrancy on top of that left genuinely implausible
+  // one-off records with no signal marking them as such. This keeps the exemption from the
+  // strict distinct-years check (so real sparse island reef residents are unaffected — they
+  // typically clear a handful of total records even when concentrated in 1-2 years) but adds a
+  // much lower floor: a fish needs at least a few total records anywhere in the region, ever,
+  // before it's treated as a real local population rather than noise.
+  const FISH_VAGRANT_MIN_RECORDS = 3;
   const fishGbifKeys = new Set(fishCounts.map((c) => c.gbifKey));
+  const fishRecordCountByGbifKey = new Map(fishCounts.map((c) => [c.gbifKey, c.recordCount]));
   const yearConcentrationByGbifKey = new Map<number, number>();
   const isVagrantByGbifKey = new Map<number, boolean>();
   // Batched — a fixed, small number of calls (one facet=speciesKey per year in the window,
@@ -741,7 +839,8 @@ export async function computeRegionOccurrences(region: {
   const yearlyCountsByGbifKey = await fetchYearlyRecordCounts(code, BIRD_MAMMAL_TAXON_KEYS);
   for (const c of wildFiltered) {
     if (fishGbifKeys.has(c.gbifKey)) {
-      isVagrantByGbifKey.set(c.gbifKey, false);
+      const recordCount = fishRecordCountByGbifKey.get(c.gbifKey) ?? 0;
+      isVagrantByGbifKey.set(c.gbifKey, recordCount < FISH_VAGRANT_MIN_RECORDS);
       continue;
     }
     const yearCounts = yearlyCountsByGbifKey.get(c.gbifKey) ?? [];
