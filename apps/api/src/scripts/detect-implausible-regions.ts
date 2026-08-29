@@ -43,6 +43,13 @@ async function fetchFullExtract(name: string, rank: "species" | "genus"): Promis
 }
 
 async function main() {
+  // --regions=Canada,Finland scopes this pass to species that appear on those regions'
+  // checklists first — prioritizes whichever regions have an actual test pack right now, ahead
+  // of the much larger full-catalog sweep. Not a perfect scope (a flagged species might ALSO
+  // sit on other regions' checklists, still reported/tagged for all of them, same as an
+  // unscoped run), but it means the first, most-relevant candidates get checked first.
+  const regionsArg = process.argv.find((a) => a.startsWith("--regions="));
+  const regionNames = regionsArg ? regionsArg.split("=")[1].split(",") : null;
   const res = await pool.query<{
     id: string;
     scientific_name: string;
@@ -56,10 +63,14 @@ async function main() {
      FROM species s
      JOIN region_species rs ON rs.species_id = s.id
      JOIN regions r ON r.id = rs.region_id
+     ${regionNames ? `WHERE s.id IN (
+       SELECT rs2.species_id FROM region_species rs2 JOIN regions r2 ON r2.id = rs2.region_id WHERE r2.name = ANY($1)
+     )` : ""}
      GROUP BY s.id, s.scientific_name, s.common_name
      HAVING bool_or(s.reference_photo IS NULL AND s.enriched_at IS NOT NULL)
         OR bool_or(rs.local_tier IN ('epic', 'legendary') AND rs.local_frequency <= 2)
      ORDER BY s.scientific_name`,
+    regionNames ? [regionNames] : [],
   );
   console.log(`[detect-implausible] ${res.rows.length} candidate species to check (no-photo or near-single-record-outlier)`);
 
