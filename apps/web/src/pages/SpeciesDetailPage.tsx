@@ -14,6 +14,7 @@ import { LoadingScreen } from "../components/LoadingScreen";
 import PhotoPlaceholder from "../components/PhotoPlaceholder";
 import MasonryGrid from "../components/MasonryGrid";
 import { usePhotoGridSize } from "../hooks/usePhotoGridSize";
+import { useUploadQueue } from "../lib/uploadQueue";
 import { shotDataLine } from "../lib/shotData";
 
 // GET /api/species/:id/unmatched-raws — RAWs filed under this species with no capture (see
@@ -121,6 +122,8 @@ function fullSizeUrl(capture: { photo_id: string | null; original_ref: string | 
 
 export default function SpeciesDetailPage() {
   const { id } = useParams<{ id: string }>();
+  const { jobs: uploadJobs } = useUploadQueue();
+  const pendingUploadCount = uploadJobs.filter((j) => j.speciesId === id && !j.done).length;
   const [searchParams] = useSearchParams();
   const regionId = searchParams.get("regionId");
   const [detail, setDetail] = useState<SpeciesDetail | null>(null);
@@ -709,7 +712,7 @@ export default function SpeciesDetailPage() {
               </button>
             </div>
           )}
-          {captures.length === 0 ? (
+          {captures.length === 0 && pendingUploadCount === 0 ? (
             <p className="text-sm text-muted">Not photographed yet.</p>
           ) : (
             // No gap at all, in either direction; see MasonryGrid's own comment for why
@@ -719,10 +722,28 @@ export default function SpeciesDetailPage() {
             // refactor — captureSlides/the lightbox index expects that, not a position
             // within just the photo-having subset.
             <MasonryGrid
-              items={captures.map((c, i) => ({ c, i })).filter(({ c }) => c.photo_id)}
+              items={[
+                ...captures.map((c, i) => ({ kind: "capture" as const, c, i })).filter((it) => it.c.photo_id),
+                // A fake tile per photo currently uploading for this species — shown in the
+                // actual photo grid (where the real thing will land) instead of only in the
+                // global corner banner, so it's obvious right where the new photo is going.
+                ...Array.from({ length: pendingUploadCount }, (_, idx) => ({ kind: "placeholder" as const, key: `pending-${idx}` })),
+              ]}
               columnWidth={thumbSizePx}
-              keyFor={({ c }) => c.id}
-              renderItem={({ c, i }) => (
+              keyFor={(item) => (item.kind === "placeholder" ? item.key : item.c.id)}
+              renderItem={(item) => {
+                if (item.kind === "placeholder") {
+                  return (
+                    <div
+                      key={item.key}
+                      className="flex aspect-square w-full items-center justify-center rounded-md bg-surface-muted"
+                    >
+                      <span className="h-6 w-6 animate-spin rounded-full border-2 border-line border-t-ink" />
+                    </div>
+                  );
+                }
+                const { c, i } = item;
+                return (
                   <div
                     key={c.id}
                     className="group relative"
@@ -863,7 +884,8 @@ export default function SpeciesDetailPage() {
                     )}
                     {!galleryView && shotDataLine(c) && <p className="text-[9px] text-muted">{shotDataLine(c)}</p>}
                   </div>
-              )}
+                );
+              }}
             />
           )}
         </section>
