@@ -69,7 +69,16 @@ function pump() {
 export function enqueueUploads(
   speciesId: string,
   files: File[],
-  opts: { volumeId?: string; targetsExternalDrive?: boolean; onBatchSettled?: () => void } = {},
+  opts: {
+    volumeId?: string;
+    targetsExternalDrive?: boolean;
+    /** Fires after EACH file's own upload settles (success or failure), not just once the
+     *  whole batch finishes — lets the species page refresh and show that photo immediately
+     *  instead of every uploaded photo popping in at once only after the slowest one in the
+     *  batch finally settles. */
+    onFileSettled?: () => void;
+    onBatchSettled?: () => void;
+  } = {},
 ): void {
   if (files.length === 0) return;
   const jobs: UploadJob[] = files.map((f) => ({ id: `${Date.now()}-${Math.random()}`, fileName: f.name, speciesId, done: false }));
@@ -96,6 +105,7 @@ export function enqueueUploads(
         job.done = true;
         settleIfDone();
         setState({ jobs: [...state.jobs] });
+        opts.onFileSettled?.();
         // Fires once this specific batch (not the whole global queue) has fully settled —
         // lets whichever page enqueued these refresh its own data if it's still mounted,
         // without needing a live subscription that outlives the component itself.
