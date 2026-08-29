@@ -6,6 +6,7 @@
   "permissions": [
     "core:default",
     "core:window:allow-start-dragging",
+    "allow-app-commands",
     "opener:default",
     "dialog:default",
     "updater:default",
@@ -20,6 +21,6 @@
     }
   ],
   "remote": {
-    "urls": ["http://localhost:4310", "http://*", "https://*"]
+    "urls": ["http://127.0.0.1:4310", "http://*", "https://*"]
   }
 }

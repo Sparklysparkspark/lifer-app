@@ -4,8 +4,10 @@
 // no Electron-specific assumptions anywhere) — only how it's launched changes, from Electron
 // repurposing its own binary as Node (ELECTRON_RUN_AS_NODE) to a real vendored Node binary
 // run as a Tauri sidecar.
+use crate::embedded_db;
+use postgresql_embedded::PostgreSQL;
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use tauri::{AppHandle, Emitter};
@@ -23,6 +25,11 @@ pub struct ApiState {
     pub stopping_intentionally: AtomicBool,
     // Last 4KB of stderr, for the crash dialog — mirrors main.js's `recentStderr`.
     pub recent_stderr: Mutex<String>,
+    // The embedded Postgres instance backing local mode (see embedded_db.rs) — kept alive here
+    // for the app's lifetime so stop_api() can shut it down cleanly, and so a second start_api()
+    // call in the same process (re-picking the library folder) reuses the already-running
+    // instance instead of trying to set up/start a second one on top of it.
+    pub postgres: Mutex<Option<PostgreSQL>>,
 }
 
 fn resources_root(app: &AppHandle) -> PathBuf {
@@ -80,7 +87,7 @@ pub async fn start_api(app: &AppHandle, data_dir: Option<String>) -> Result<(), 
     // happens before the child's own stderr pipe produces anything). If something's already
     // answering on LOCAL_PORT, treat it as already-running and just use it rather than
     // fighting it for the port.
-    if is_reachable(&format!("http://localhost:{LOCAL_PORT}/health")).await {
+    if is_reachable(&format!("http://127.0.0.1:{LOCAL_PORT}/health")).await {
         return Ok(());
     }
 
@@ -107,10 +114,36 @@ pub async fn start_api(app: &AppHandle, data_dir: Option<String>) -> Result<(), 
     // self-exits once it's gone.
     envs.insert("LIFER_WATCH_PARENT_PID".into(), std::process::id().to_string());
     envs.insert("WEB_DIST_DIR".into(), web_dist.to_string_lossy().into_owned());
-    envs.insert(
-        "DATABASE_URL".into(),
-        std::env::var("DATABASE_URL").unwrap_or_else(|_| "postgres://lifer:lifer@localhost:5432/lifer".into()),
-    );
+
+    // An explicit DATABASE_URL in the environment (development against a real Postgres) is
+    // always respected as-is; otherwise local mode is fully self-contained — no separately-
+    // running Postgres required anymore. Reuses an already-running embedded instance from an
+    // earlier start_api() call in this same process (e.g. re-picking the library folder)
+    // rather than trying to set one up on top of it.
+    let already_running_url = {
+        let guard = state.postgres.lock().unwrap();
+        guard.as_ref().map(embedded_db::connection_url)
+    };
+    let database_url = if let Ok(url) = std::env::var("DATABASE_URL") {
+        url
+    } else if let Some(url) = already_running_url {
+        url
+    } else {
+        let (postgresql, url) = embedded_db::start_embedded_postgres(&app_data_dir)
+            .await
+            .map_err(|e| format!("Couldn't start the embedded database: {e}"))?;
+        run_migrations(app, &resources, &url).await?;
+        // Migrations create the schema; a brand new database still has none of the base
+        // species/region taxonomy (a separate one-time "seed" dataset — see this function's own
+        // comment). Restoring it here, right after migrations and before the real API starts,
+        // is what makes a fresh local library show anything at all instead of an empty shell.
+        embedded_db::restore_catalog_seed_if_needed(&postgresql, &resources)
+            .await
+            .map_err(|e| format!("Couldn't load the species catalog: {e}"))?;
+        *state.postgres.lock().unwrap() = Some(postgresql);
+        url
+    };
+    envs.insert("DATABASE_URL".into(), database_url);
     // Same fallback chain as main.js: the folder chosen in the picker, persisted in config,
     // falling back to a stable per-install default under Tauri's own app data dir.
     let resolved_data_dir = data_dir.unwrap_or_else(|| app_data_dir.join("data").to_string_lossy().into_owned());
@@ -186,6 +219,52 @@ pub async fn start_api(app: &AppHandle, data_dir: Option<String>) -> Result<(), 
     Ok(())
 }
 
+// apps/api itself never runs its own migrations (see packages/data-pipeline/src/migrate.ts —
+// the Docker image's own CMD runs it as a separate step before starting the server); local
+// mode has no equivalent separate step today, so this runs it as a one-off sidecar invocation,
+// waited on to completion, right after the embedded database is confirmed up and before the
+// real API sidecar starts. Idempotent (schema_migrations tracks what's already applied), so
+// safe to run on every start_api() call that just (re)created the embedded instance.
+async fn run_migrations(app: &AppHandle, resources: &Path, database_url: &str) -> Result<(), String> {
+    let migrate_entry = resources.join("node_modules").join("data-pipeline").join("src").join("migrate.ts");
+    let tsx_dir = resources.join("node_modules").join("tsx").join("dist");
+
+    let mut envs: HashMap<String, String> = std::env::vars().collect();
+    envs.insert("DATABASE_URL".into(), database_url.to_string());
+
+    let (mut rx, _child) = app
+        .shell()
+        .sidecar("node")
+        .map_err(|e| format!("Couldn't resolve the node sidecar for migrations: {e}"))?
+        .envs(envs)
+        .args([
+            "--require".into(),
+            tsx_dir.join("preflight.cjs").to_string_lossy().into_owned(),
+            "--import".into(),
+            format!("file://{}", tsx_dir.join("loader.mjs").to_string_lossy()),
+            migrate_entry.to_string_lossy().into_owned(),
+        ])
+        .spawn()
+        .map_err(|e| format!("Couldn't run database migrations: {e}"))?;
+
+    let mut stderr_output = String::new();
+    while let Some(event) = rx.recv().await {
+        match event {
+            CommandEvent::Stderr(line) => stderr_output.push_str(&String::from_utf8_lossy(&line)),
+            CommandEvent::Terminated(payload) => {
+                return match payload.code {
+                    Some(0) => Ok(()),
+                    code => Err(format!(
+                        "Database migrations failed (exit code {code:?}):\n{stderr_output}"
+                    )),
+                };
+            }
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
 pub fn stop_api(app: &AppHandle) {
     use tauri::Manager;
     let state = app.state::<ApiState>();
@@ -193,6 +272,23 @@ pub fn stop_api(app: &AppHandle) {
     let taken = state.child.lock().unwrap().take();
     if let Some(child) = taken {
         let _ = child.kill();
+    }
+    // Blocks until this actually finishes (bounded by a timeout), rather than firing an async
+    // task and returning immediately — a fire-and-forget version raced a caller that relaunches
+    // right after this returns (or the whole app process exiting before the spawned task ever
+    // got scheduled) into "another server might be running" on the very next start, which
+    // happened for real: this function returning was no guarantee postgres had actually stopped
+    // yet. block_on is safe here — this always runs on the main/event thread (RunEvent's own
+    // callback, or a plain menu-item handler), never from inside the async runtime's own worker
+    // pool, so there's no risk of deadlocking against it.
+    let taken_postgres = state.postgres.lock().unwrap().take();
+    if let Some(postgresql) = taken_postgres {
+        let stopped = tauri::async_runtime::block_on(async {
+            tokio::time::timeout(std::time::Duration::from_secs(10), postgresql.stop()).await
+        });
+        if stopped.is_err() {
+            eprintln!("[stop_api] embedded postgres didn't stop within 10s, proceeding anyway");
+        }
     }
 }
 

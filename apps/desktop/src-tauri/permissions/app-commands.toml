@@ -1,0 +1,19 @@
+"$schema" = "schemas/schema.json"
+
+# Every command registered in lib.rs's tauri::generate_handler![...] — Tauri v2's ACL denies
+# ANY command by default, including the app's own (not just plugin commands), unless it has an
+# explicit permission somewhere. Nothing granted these until now, so all six were silently
+# rejected at the IPC layer on every call — invisible in a release build (nothing surfaces an
+# unhandled promise rejection there), only noticed once devtools were enabled and its console
+# started actually showing them. capabilities/default.json references this by its identifier.
+[[permission]]
+identifier = "allow-app-commands"
+description = "Allow this app's own Tauri commands (see lib.rs's generate_handler! list)"
+commands.allow = [
+  "get_config",
+  "choose_setup",
+  "platform",
+  "set_traffic_lights_hidden",
+  "window_control",
+  "set_window_theme_background",
+]

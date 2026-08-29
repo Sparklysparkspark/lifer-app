@@ -1,4 +1,5 @@
 mod api;
+mod embedded_db;
 mod mac_window;
 mod store;
 
@@ -28,7 +29,7 @@ fn is_trusted_sender(window: &WebviewWindow) -> bool {
     if url.scheme() == "tauri" {
         return true; // our own bundled index.html/picker.html
     }
-    if url.host_str() == Some("localhost") && url.port() == Some(api::LOCAL_PORT) {
+    if url.host_str() == Some("127.0.0.1") && url.port() == Some(api::LOCAL_PORT) {
         return true;
     }
     let config = store::read_config(&app_data_dir(window.app_handle()));
@@ -191,7 +192,7 @@ async fn choose_setup(window: WebviewWindow, app: AppHandle, config: ChooseSetup
     if let Err(e) = api::start_api(&app, Some(data_dir)).await {
         return ChooseSetupResult { ok: None, canceled: None, error: Some(e) };
     }
-    let url = format!("http://localhost:{}", api::LOCAL_PORT);
+    let url = format!("http://127.0.0.1:{}", api::LOCAL_PORT);
     if let Err(e) = api::wait_for_server(&format!("{url}/health"), 30_000).await {
         return ChooseSetupResult { ok: None, canceled: None, error: Some(e) };
     }
@@ -250,7 +251,7 @@ async fn apply_config(app: AppHandle, window: WebviewWindow) {
                 app.dialog().message(e).kind(tauri_plugin_dialog::MessageDialogKind::Error).blocking_show();
                 return;
             }
-            let url = format!("http://localhost:{}", api::LOCAL_PORT);
+            let url = format!("http://127.0.0.1:{}", api::LOCAL_PORT);
             match api::wait_for_server(&format!("{url}/health"), 30_000).await {
                 Ok(()) => {
                     let _ = window.navigate(url.parse().unwrap());
@@ -349,7 +350,7 @@ pub fn run() {
                 // this same page runs in a normal browser.
                 .disable_drag_drop_handler()
                 // Injected before ANY page script runs, on every navigation (including once
-                // this window later navigates away to http://localhost:4310 or a remote
+                // this window later navigates away to http://127.0.0.1:4310 or a remote
                 // server's own origin) — the one piece apps/web's own Tauri shim (main.tsx)
                 // needs synchronously rather than via an async invoke() call. See bridge.js's
                 // matching comment for why this can't just be a preload script like Electron's.
@@ -359,7 +360,7 @@ pub fn run() {
                 // setWindowOpenHandler.
                 .on_navigation(move |url| {
                     let is_local_asset = url.scheme() == "tauri";
-                    let is_local_api = url.host_str() == Some("localhost") && url.port() == Some(api::LOCAL_PORT);
+                    let is_local_api = url.host_str() == Some("127.0.0.1") && url.port() == Some(api::LOCAL_PORT);
                     let is_configured_remote = store::read_config(&app_data_dir(&nav_handle))
                         .and_then(|cfg| cfg.server_url)
                         .and_then(|s| url::Url::parse(&s).ok())
