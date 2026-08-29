@@ -52,7 +52,15 @@ jobs:
           jq --arg v "$VERSION" '.version = $v' apps/desktop/src-tauri/tauri.conf.json > /tmp/tauri.conf.json
           mv /tmp/tauri.conf.json apps/desktop/src-tauri/tauri.conf.json
           echo "LIFER_RELEASE_VERSION=$VERSION" >> "$GITHUB_ENV"
+      # linuxdeploy/appimagetool are themselves AppImages, which need to mount via FUSE to run
+      # normally — installing libfuse2 alone wasn't enough, since GitHub's ubuntu-latest runner
+      # sandbox blocks the unprivileged user namespace FUSE needs regardless of the library
+      # being present. Extract-and-run mode sidesteps FUSE entirely (unpack the AppImage to a
+      # temp dir and exec the binary directly) — this is the standard workaround for exactly
+      # this "failed to run linuxdeploy" error in CI.
       - run: npm run dist -w desktop
+        env:
+          APPIMAGE_EXTRACT_AND_RUN: "1"
       - name: Zip the macOS app for upload
         if: matrix.os == 'macos-14'
         run: cd apps/desktop/src-tauri/target/release/bundle/macos && zip -r Lifer-macos-arm64.zip Lifer.app
