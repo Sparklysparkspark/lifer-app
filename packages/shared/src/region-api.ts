@@ -41,6 +41,11 @@ export interface RegionSpeciesResult {
   };
   stats: RegionStats;
   items: CollectionItem[];
+  /** True when a `?taxon=` filter was requested and that specific taxon's pack isn't
+   *  downloaded for this region yet (even though the region overall has some pack downloaded,
+   *  hence not `needsPack`). Lets the UI tell "this taxon group's pack isn't installed" apart
+   *  from "this taxon group is genuinely empty here." */
+  taxonPackMissing?: boolean;
 }
 
 export interface RegionNeedsPack {
