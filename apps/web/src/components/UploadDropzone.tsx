@@ -28,6 +28,12 @@ export default function UploadDropzone({
     enqueueUploads(speciesId, files, {
       volumeId: volumeId || undefined,
       targetsExternalDrive: Boolean(volumeId),
+      // Refreshes after EACH photo settles, not just once the whole batch finishes — a
+      // multi-photo upload otherwise showed shrinking placeholder squares while every real
+      // photo waited to pop in all at once at the very end, instead of each one appearing as
+      // soon as its own upload was actually done. onUploaded (a plain refetch) is safe to call
+      // this often — it's just a GET, not a mutation.
+      onFileSettled: onUploaded,
       onBatchSettled: onUploaded,
     });
     onClose?.();
