@@ -26,7 +26,7 @@ export async function storageVolumesRoutes(app: FastifyInstance): Promise<void> 
       [request.user!.id],
     );
 
-    const mounted = listMountedVolumes();
+    const mounted = await listMountedVolumes();
     const results = [];
     for (const row of rows.rows) {
       const match = mounted.find((v) => v.platformVolumeId === row.platform_volume_id);
@@ -63,8 +63,8 @@ export async function storageVolumesRoutes(app: FastifyInstance): Promise<void> 
     }
     if (!label?.trim()) return reply.code(400).send({ error: "label is required" });
 
-    const mountPath = mountPathFor(folderPath);
-    const platformVolumeId = getVolumeId(mountPath);
+    const mountPath = await mountPathFor(folderPath);
+    const platformVolumeId = await getVolumeId(mountPath);
     if (!platformVolumeId) {
       return reply.code(400).send({
         error: ["darwin", "linux", "win32"].includes(process.platform)
@@ -72,7 +72,7 @@ export async function storageVolumesRoutes(app: FastifyInstance): Promise<void> 
           : "Multi-drive support isn't available on this operating system yet",
       });
     }
-    if (isSameVolumeAsDataDir(mountPath, DATA_DIR)) {
+    if (await isSameVolumeAsDataDir(mountPath, DATA_DIR)) {
       return reply.code(400).send({ error: "That folder is on the same drive as your main Lifer storage — no need to register it separately" });
     }
 
