@@ -14,7 +14,15 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   // DELETE requests, which send no body at all).
   const isJsonBody = typeof options.body === "string";
   const res = await fetch(`${BASE}${path}`, {
-    credentials: "include",
+    // BASE is always a relative path, so every request here is inherently same-origin
+    // regardless of desktop vs. hosted deployment — "include" (send cookies cross-origin too)
+    // was never actually needed, just the default-safe choice at the time. WKWebView (the
+    // desktop app's renderer) does measurably more internal cookie-jar/ITP-policy work for
+    // "include" than "same-origin" — confirmed via [perf] instrumentation showing a ~490ms
+    // per-request cost in the packaged app that neither curl nor Node's own fetch reproduced
+    // against the identical endpoint, which pointed at the webview's request handling itself
+    // rather than the server.
+    credentials: "same-origin",
     headers: isJsonBody ? { "Content-Type": "application/json" } : undefined,
     ...options,
   });

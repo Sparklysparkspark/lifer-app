@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { RegionSummary } from "@lifer/shared";
 import { api, ApiError } from "../api/client";
 import { Spinner } from "../components/LoadingScreen";
@@ -88,13 +88,24 @@ export default function OfflinePacksPage() {
       .catch((err) => setRecommendationError(err instanceof ApiError ? err.message : "Couldn't compute pack recommendations"));
   }, []);
 
+  // Without this, a pack's card kept showing its old (not-downloaded) state until the user
+  // navigated away and back — nothing ever re-fetched /offline-packs/index once a download
+  // actually finished, only the separate status-polling below, which doesn't carry per-pack
+  // `downloaded`/`updateAvailable` flags at all.
+  const wasRunning = useRef(false);
   useEffect(() => {
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout>;
     async function poll() {
       try {
         const res = await api.get<DownloadStatus>("/offline-packs/download/status");
-        if (!cancelled) setStatus(res);
+        if (!cancelled) {
+          setStatus(res);
+          if (wasRunning.current && !res.running) {
+            api.get<{ packs: PackEntry[] }>("/offline-packs/index").then((r) => !cancelled && setPacks(r.packs));
+          }
+          wasRunning.current = res.running;
+        }
       } catch {
         // ignore — status just won't update this tick
       }
@@ -273,28 +284,44 @@ export default function OfflinePacksPage() {
 
                 <div className="mt-3 space-y-2 pl-6">
                   {countries.map((country) => {
+                    // Not every country pack is split by taxon (Finland/Canada, for instance,
+                    // ship as one all-taxa pack, pack.taxon === null) — iterating whatever
+                    // packs actually exist here, instead of assuming exactly one per taxon,
+                    // is what makes an all-taxa pack show up at all instead of silently having
+                    // no checkbox anywhere for it.
                     const countryPacks = packsByRegion.get(country.name) ?? [];
                     return (
-                      <div key={country.id} className="flex flex-wrap items-center gap-3 text-sm text-ink">
+                      <div key={country.id} className="flex flex-wrap items-center gap-2 text-sm text-ink">
                         <span className="w-32 shrink-0">{country.name}</span>
-                        {(["aves", "mammalia", "actinopterygii"] as const).map((taxon) => {
-                          const pack = countryPacks.find((p) => p.taxon === taxon);
-                          if (!pack) return <span key={taxon} className="w-28 shrink-0 text-muted">—</span>;
-                          const upToDate = pack.downloaded && !pack.updateAvailable;
-                          return (
-                            <label key={taxon} className="flex w-28 shrink-0 items-center gap-1.5 text-xs text-muted">
-                              <input
-                                type="checkbox"
-                                checked={upToDate || selected.has(pack.id)}
+                        <div className="flex flex-wrap gap-2">
+                          {countryPacks.length === 0 && <span className="text-xs text-muted">—</span>}
+                          {countryPacks.map((pack) => {
+                            const label = pack.taxon ? TAXON_LABEL[pack.taxon] : "All taxa";
+                            const upToDate = pack.downloaded && !pack.updateAvailable;
+                            const isSelected = selected.has(pack.id);
+                            return (
+                              <button
+                                key={pack.id}
+                                type="button"
                                 disabled={upToDate}
-                                onChange={(e) => toggle(pack.id, e.target.checked)}
-                              />
-                              {TAXON_LABEL[taxon]} (
-                              {upToDate ? "✓" : pack.updateAvailable ? <span className="text-accent">Update available</span> : formatBytes(pack.sizeBytes)}
-                              )
-                            </label>
-                          );
-                        })}
+                                onClick={() => toggle(pack.id, !isSelected)}
+                                className={`rounded-full border px-3 py-1 text-xs transition-colors disabled:cursor-default ${
+                                  upToDate
+                                    ? "border-accent bg-accent text-accent-fg"
+                                    : pack.updateAvailable
+                                      ? isSelected
+                                        ? "border-accent bg-accent text-accent-fg"
+                                        : "border-accent text-accent hover:bg-surface-muted"
+                                      : isSelected
+                                        ? "border-ink bg-ink text-canvas"
+                                        : "border-line text-muted hover:bg-surface-muted"
+                                }`}
+                              >
+                                {label} · {upToDate ? "✓" : pack.updateAvailable ? "update" : formatBytes(pack.sizeBytes)}
+                              </button>
+                            );
+                          })}
+                        </div>
                       </div>
                     );
                   })}

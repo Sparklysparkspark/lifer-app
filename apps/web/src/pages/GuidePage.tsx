@@ -8,7 +8,7 @@ interface Step {
 
 function PageLink({ to, children }: { to: string; children: React.ReactNode }) {
   return (
-    <Link to={to} className="font-medium text-ink underline">
+    <Link to={to} state={{ backLabel: "Getting started" }} className="font-medium text-ink underline">
       {children}
     </Link>
   );
@@ -101,11 +101,11 @@ export default function GuidePage() {
           <h2 className="text-lg font-semibold text-ink">How your files are stored</h2>
           <div className="rounded-lg border border-line bg-surface p-4 text-sm text-muted">
             <p>
-              Every original photo you upload goes under your library's <strong>Storage location</strong>,
-              so your library stays usable outside Lifer too:
+              Every original photo you upload goes under a <strong>Lifer Photos</strong> folder inside your
+              library's <strong>Storage location</strong>, so your library stays usable outside Lifer too:
             </p>
             <pre className="mt-2 overflow-x-auto rounded-md bg-surface-muted p-2 text-xs text-ink">
-              {"<species name>/Adjusted/<your edited JPEG>\n<species name>/RAW/<matching RAW file>"}
+              {"Lifer Photos/<species name>/Adjusted/<your edited JPEG>\nLifer Photos/<species name>/RAW/<matching RAW file>"}
             </pre>
             <p className="mt-2">
               Turning on <PageLink to="/settings">"Organize by year"</PageLink> nests that same structure
