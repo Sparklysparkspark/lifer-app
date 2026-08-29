@@ -1,19 +1,30 @@
-// The frameless mac window (title_bar_style: Overlay — see lib.rs) has no native title bar to
-// drag by, so this strip stands in for one. Ported over from the Electron build, this used to
-// rely on `-webkit-app-region: drag` (index.css) — a Chromium-only CSS property with no effect
-// at all in Tauri's WKWebView. Tauri's real equivalent is the `data-tauri-drag-region` HTML
-// attribute, read by Tauri's own injected pointerdown listener; a CSS pseudo-element (the old
-// approach) can't carry it since it isn't a real DOM node, so this needs an actual element.
-// Matches index.css's [data-mac-app] header.page-header padding-top (56px) exactly, so every
-// page's own header sits right below this strip rather than overlapping or leaving a gap.
-export default function TitleBarDragRegion() {
-  if (!document.documentElement.hasAttribute("data-mac-app")) return null;
+import { useEffect } from "react";
+import { useLocation } from "react-router-dom";
 
-  return (
-    <div
-      data-tauri-drag-region
-      className="fixed left-0 right-0 top-0 bg-surface"
-      style={{ height: 56, zIndex: 2147483646 }}
-    />
-  );
+// Renders nothing — this just tags the CURRENT page's own header as the drag region, rather
+// than drawing a separate floating strip over it. That first attempt (a `position: fixed`
+// div pinned to the viewport's top 56px, ported over from Electron's -webkit-app-region
+// approach) had a real bug: it sits above whatever's on screen at all times, including page
+// content that scrolls UP into that band once you scroll down — so a link/button there would
+// get its click silently swallowed by the strip instead (right-click "Open Link" still worked,
+// since context-menu navigation doesn't go through the same click-completion path). Tagging
+// the header element itself is what every other Tauri app does for this: drag.js's own
+// isDragRegion() already special-cases a genuinely clickable descendant (a real <a>/<button>)
+// as taking precedence over its drag-region ancestor, so this coexists correctly with the
+// header's own back-link/nav — no click-blocking, because there's no separate overlay sitting
+// on top of anything anymore. Only real gap versus the old approach: once you scroll a page far
+// enough that its header scrolls out of view, dragging stops working until you scroll back up
+// (headers aren't position:sticky) — vastly preferable to silently eating clicks everywhere.
+export default function TitleBarDragRegion() {
+  const location = useLocation();
+
+  useEffect(() => {
+    if (!document.documentElement.hasAttribute("data-mac-app")) return;
+    const header = document.querySelector<HTMLElement>("header.page-header");
+    if (!header) return;
+    header.setAttribute("data-tauri-drag-region", "");
+    return () => header.removeAttribute("data-tauri-drag-region");
+  }, [location.pathname]);
+
+  return null;
 }
