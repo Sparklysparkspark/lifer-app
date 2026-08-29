@@ -304,28 +304,42 @@ pub fn run() {
 
             let nav_handle = handle.clone();
             let new_window_handle = handle.clone();
-            let window = WebviewWindowBuilder::new(app, WINDOW_LABEL, WebviewUrl::App("index.html".into()))
+            #[allow(unused_mut)]
+            let mut window_builder = WebviewWindowBuilder::new(app, WINDOW_LABEL, WebviewUrl::App("index.html".into()))
                 .title("Lifer")
                 .inner_size(1360.0, 900.0)
-                .background_color(tauri::webview::Color(0xf6, 0xee, 0xdc, 255))
-                // Native macOS traffic lights over our own header (see index.css's
-                // [data-mac-app] rules) — direct equivalent of Electron's titleBarStyle:
-                // "hidden" + trafficLightPosition. Genuinely native (owned by AppKit), same as
-                // Electron's — validated in the Phase 1 spike with no blur-visibility bug.
-                .title_bar_style(tauri::TitleBarStyle::Overlay)
-                .hidden_title(true)
-                .traffic_light_position(tauri::LogicalPosition::new(20.0, 20.0))
-                // Forces AppKit to draw the traffic lights using dark-appearance styling —
-                // independent of the app's own light/dark theme (apps/web's ThemeProvider),
-                // which only ever affects our own web content, never the native window chrome.
-                // Confirmed: dark-mode's inactive/unfocused traffic lights are a genuinely
-                // more visible grey than light mode's (which reads as barely-there/near-white
-                // no matter what color sits behind them — every header-tint attempt only ever
-                // nudged this, never fixed it, because the dots' own color was never the
-                // adjustable part). Always using the dark rendering sidesteps that entirely,
-                // with no visible side effect since our own header/content still render
-                // whatever theme the user actually picked.
-                .theme(Some(tauri::Theme::Dark))
+                .background_color(tauri::webview::Color(0xf6, 0xee, 0xdc, 255));
+
+            // title_bar_style/hidden_title/traffic_light_position are macOS-only builder
+            // methods (calling them unconditionally fails to COMPILE on Windows/Linux, not
+            // just a runtime no-op — confirmed against the tauri crate source) — this whole
+            // block, including forcing the native window chrome to dark appearance, only
+            // makes sense on macOS's frameless-with-native-traffic-lights window anyway.
+            // Windows/Linux get Tauri's normal decorated window with no special handling.
+            #[cfg(target_os = "macos")]
+            {
+                window_builder = window_builder
+                    // Native macOS traffic lights over our own header (see index.css's
+                    // [data-mac-app] rules) — direct equivalent of Electron's titleBarStyle:
+                    // "hidden" + trafficLightPosition. Genuinely native (owned by AppKit), same as
+                    // Electron's — validated in the Phase 1 spike with no blur-visibility bug.
+                    .title_bar_style(tauri::TitleBarStyle::Overlay)
+                    .hidden_title(true)
+                    .traffic_light_position(tauri::LogicalPosition::new(20.0, 20.0))
+                    // Forces AppKit to draw the traffic lights using dark-appearance styling —
+                    // independent of the app's own light/dark theme (apps/web's ThemeProvider),
+                    // which only ever affects our own web content, never the native window chrome.
+                    // Confirmed: dark-mode's inactive/unfocused traffic lights are a genuinely
+                    // more visible grey than light mode's (which reads as barely-there/near-white
+                    // no matter what color sits behind them — every header-tint attempt only ever
+                    // nudged this, never fixed it, because the dots' own color was never the
+                    // adjustable part). Always using the dark rendering sidesteps that entirely,
+                    // with no visible side effect since our own header/content still render
+                    // whatever theme the user actually picked.
+                    .theme(Some(tauri::Theme::Dark));
+            }
+
+            let window = window_builder
                 // Tauri intercepts OS-level file drag-and-drop by default and routes it through
                 // its own DragDrop event system instead of letting it reach the webview as a
                 // normal DOM DragEvent — which left BulkImportPage's onDrop handler seeing an
