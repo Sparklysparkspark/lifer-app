@@ -102,15 +102,16 @@ export default function GuidePage() {
           <div className="rounded-lg border border-line bg-surface p-4 text-sm text-muted">
             <p>
               Every original photo you upload goes under a <strong>Lifer Photos</strong> folder inside your
-              library's <strong>Storage location</strong>, so your library stays usable outside Lifer too:
+              library's <strong>Storage location</strong>, grouped by taxon (Birds/Mammals/Fish/Other) then
+              species, so your library stays usable outside Lifer too:
             </p>
             <pre className="mt-2 overflow-x-auto rounded-md bg-surface-muted p-2 text-xs text-ink">
-              {"Lifer Photos/<species name>/Adjusted/<your edited JPEG>\nLifer Photos/<species name>/RAW/<matching RAW file>"}
+              {"Lifer Photos/Birds/<species name>/Adjusted/<your edited JPEG>\nLifer Photos/Birds/<species name>/RAW/<matching RAW file>"}
             </pre>
             <p className="mt-2">
               Turning on <PageLink to="/settings">"Organize by year"</PageLink> nests that same structure
-              one level deeper, under <code className="text-xs">Wildlife &lt;year taken&gt;/Birds|Mammals|Fish/</code>,
-              using each photo's own capture year, not the year you uploaded it.
+              one level deeper, under <code className="text-xs">Wildlife &lt;year taken&gt;/</code>, using
+              each photo's own capture year, not the year you uploaded it.
             </p>
             <p className="mt-2">
               Thumbnails and the smaller "display" copy shown while browsing are separate, regenerable

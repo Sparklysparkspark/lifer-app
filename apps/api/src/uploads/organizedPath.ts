@@ -12,11 +12,12 @@ function taxonLabel(taxonClass: string | null): string {
   return (taxonClass && TAXON_LABEL[taxonClass]) || "Other";
 }
 
-// An opt-in alternate originals layout, grouping photos by year (handy for importing into
-// external libraries like Immich). Species still only ever needs its own folder name; the
-// year layer above it comes from taken_at, so one species' photos across years land in
-// different `Wildlife <year>` roots, and this fn is the one place that split happens (see
-// organize_originals_by_year on users, toggled from Settings).
+// Every layout groups by taxon (Birds/Mammals/Fish/Other) — mirrors how the rest of the app
+// already organizes browsing, and keeps a growing library navigable outside Lifer too (Finder,
+// an external tool like Immich). The year layer is opt-in on top of that (see
+// organize_originals_by_year on users, toggled from Settings): species still only ever needs
+// its own folder name, and the year comes from taken_at, so one species' photos across years
+// land in different `Wildlife <year>` roots — this fn is the one place that split happens.
 export function originalsFolder(
   baseDir: string,
   opts: {
@@ -28,7 +29,7 @@ export function originalsFolder(
   },
 ): string {
   if (!opts.organizeByYear) {
-    return path.join(baseDir, opts.speciesFolderName, opts.subfolder);
+    return path.join(baseDir, taxonLabel(opts.taxonClass), opts.speciesFolderName, opts.subfolder);
   }
   const year = opts.takenAt ? String(opts.takenAt.getFullYear()) : "Undated";
   return path.join(baseDir, `Wildlife ${year}`, taxonLabel(opts.taxonClass), opts.speciesFolderName, opts.subfolder);
