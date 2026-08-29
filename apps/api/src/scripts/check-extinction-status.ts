@@ -45,18 +45,28 @@ async function fetchIucnThreatStatus(gbifKey: number): Promise<string | null> {
 async function main() {
   const limitArg = process.argv.find((a) => a.startsWith("--limit="));
   const limit = limitArg ? Number(limitArg.split("=")[1]) : null;
+  // --regions=Canada,Finland scopes the pass to species on those regions' own checklists
+  // first — useful for prioritizing whichever regions have an actual test pack right now,
+  // ahead of the much larger full-catalog sweep (see this script's own re-runnable design:
+  // gated on extinction_checked_at IS NULL, so running scoped now and unscoped later never
+  // re-checks the same species twice).
+  const regionsArg = process.argv.find((a) => a.startsWith("--regions="));
+  const regionNames = regionsArg ? regionsArg.split("=")[1].split(",") : null;
   const res = await pool.query<{ species_id: string; gbif_key: string; scientific_name: string; common_name: string | null }>(
-    `SELECT s.id AS species_id, s.gbif_key, s.scientific_name, s.common_name
+    `SELECT DISTINCT s.id AS species_id, s.gbif_key, s.scientific_name, s.common_name
      FROM species s
      LEFT JOIN species_traits t ON t.species_id = s.id
      LEFT JOIN species_rarity r ON r.species_id = s.id
+     ${regionNames ? `JOIN region_species rs ON rs.species_id = s.id JOIN regions reg ON reg.id = rs.region_id` : ""}
      WHERE (s.reference_photo IS NULL OR r.tier = 'legendary')
        AND COALESCE(t.fully_extinct, false) = false
        AND t.extinction_checked_at IS NULL
        AND t.occurrence_count IS NOT NULL
        AND (t.occurrence_count < 20 OR t.last_occurrence_year < 1990)
+       ${regionNames ? `AND reg.name = ANY($1)` : ""}
      ORDER BY s.scientific_name
      ${limit ? `LIMIT ${limit}` : ""}`,
+    regionNames ? [regionNames] : [],
   );
   console.log(`[check-extinction] ${res.rows.length} candidates to check against GBIF/IUCN`);
 
