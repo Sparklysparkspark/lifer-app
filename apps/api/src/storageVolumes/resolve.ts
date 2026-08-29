@@ -14,9 +14,9 @@ export interface VolumeTag {
 // should behave exactly as it does today (a plain absolute path, no connected/disconnected
 // tracking, no different from before this feature existed).
 export async function tagWithRegisteredVolume(userId: string, absolutePath: string): Promise<VolumeTag> {
-  const mountPath = mountPathFor(absolutePath);
+  const mountPath = await mountPathFor(absolutePath);
   if (mountPath === "/") return { volumeId: null, volumeRelativePath: null };
-  const platformVolumeId = getVolumeId(mountPath);
+  const platformVolumeId = await getVolumeId(mountPath);
   if (!platformVolumeId) return { volumeId: null, volumeRelativePath: null };
 
   const res = await pool.query<{ id: string }>(
@@ -57,7 +57,8 @@ export async function resolveChosenVolumeDestination(userId: string, volumeId: s
   const volume = res.rows[0];
   if (!volume) return null;
 
-  const mounted = listMountedVolumes().find((v) => v.platformVolumeId === volume.platform_volume_id);
+  const volumes = await listMountedVolumes();
+  const mounted = volumes.find((v) => v.platformVolumeId === volume.platform_volume_id);
   if (!mounted) return null;
 
   return { baseDir: `${mounted.mountPath}/Lifer Originals`, mountPath: mounted.mountPath, volumeId };
@@ -88,7 +89,8 @@ export async function resolveOriginalPath(original: {
   const volume = volumeRes.rows[0];
   if (!volume) return { path: original.ref, connected: true }; // volume was deleted — FK already nulled volume_id elsewhere; defensive fallback
 
-  const mounted = listMountedVolumes().find((v) => v.platformVolumeId === volume.platform_volume_id);
+  const volumes = await listMountedVolumes();
+  const mounted = volumes.find((v) => v.platformVolumeId === volume.platform_volume_id);
   if (!mounted || original.volume_relative_path == null) {
     return { path: null, connected: false, volumeLabel: volume.label };
   }
