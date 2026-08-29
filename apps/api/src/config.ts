@@ -114,7 +114,9 @@ export const SMTP_FROM = process.env.SMTP_FROM ?? "Lifer <no-reply@lifer.app>";
 // Base URL used to build the link inside password-reset emails (e.g. https://lifer.example.com).
 export const APP_URL = process.env.APP_URL ?? `http://localhost:${PORT}`;
 
-// Where to fetch the canonical pack-index.json from (see offlinePacks/routes.ts). No default:
-// unset until a real GitHub-hosted index exists, at which point this can point at it (or, for
-// local development/testing, at any URL serving the same JSON shape).
-export const PACK_INDEX_URL = process.env.PACK_INDEX_URL ?? null;
+// Where to fetch the canonical pack-index.json from (see offlinePacks/routes.ts). Defaults to
+// the real hosted index (same packs-latest release tag build-pack-index.ts publishes to) so
+// every install works out of the box; the env var exists only to override it for local
+// development/testing against a differently-served index.
+export const PACK_INDEX_URL =
+  process.env.PACK_INDEX_URL ?? "https://github.com/Sparklysparkspark/lifer-app/releases/download/packs-latest/pack-index.json";
