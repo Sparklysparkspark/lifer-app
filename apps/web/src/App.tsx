@@ -11,6 +11,7 @@ import OfflinePacksPage from "./pages/OfflinePacksPage";
 import TripsPage from "./pages/TripsPage";
 import TripDetailPage from "./pages/TripDetailPage";
 import ArchivedSpeciesPage from "./pages/ArchivedSpeciesPage";
+import GuidePage from "./pages/GuidePage";
 import ForgotPasswordPage from "./pages/ForgotPasswordPage";
 import ResetPasswordPage from "./pages/ResetPasswordPage";
 import MigrationStatusIndicator from "./components/MigrationStatusIndicator";
@@ -116,6 +117,14 @@ export default function App() {
         element={
           <RequireAuth>
             <ArchivedSpeciesPage />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/guide"
+        element={
+          <RequireAuth>
+            <GuidePage />
           </RequireAuth>
         }
       />
