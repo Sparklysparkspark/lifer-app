@@ -15,7 +15,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["app"],
+    "targets": ["app", "nsis", "deb", "appimage"],
     "externalBin": ["binaries/node"],
     "resources": {
       "resources-staging/api": "api",

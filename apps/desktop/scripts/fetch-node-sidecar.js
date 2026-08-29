@@ -31,27 +31,41 @@ function currentTargetTriple() {
 async function fetchAndExtract(targetTriple) {
   const spec = TARGETS[targetTriple];
   if (!spec) throw new Error(`No known Node download for target triple ${targetTriple} — add it to TARGETS.`);
-  if (spec.ext !== "tar.gz") throw new Error(`${spec.ext} extraction not implemented yet — Windows needs a zip step.`);
 
-  const url = `https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-${spec.platform}.tar.gz`;
+  const url = `https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-${spec.platform}.${spec.ext}`;
   const binariesDir = path.join(__dirname, "..", "src-tauri", "binaries");
-  const tmpTar = path.join(binariesDir, "node.tar.gz");
+  const tmpArchive = path.join(binariesDir, `node.${spec.ext}`);
   const extractDir = path.join(binariesDir, "_extract");
   mkdirSync(binariesDir, { recursive: true });
 
   console.log(`[fetch-node-sidecar] downloading ${url}`);
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Download failed: HTTP ${res.status}`);
-  await pipeline(res.body, createWriteStream(tmpTar));
+  await pipeline(res.body, createWriteStream(tmpArchive));
 
   rmSync(extractDir, { recursive: true, force: true });
   mkdirSync(extractDir, { recursive: true });
-  execSync(`tar -xzf "${tmpTar}" -C "${extractDir}" --strip-components=1`);
+  // The official Windows build is a zip with node.exe at its own root; macOS/Linux tarballs
+  // nest everything one level down under bin/node — `unzip` has no --strip-components
+  // equivalent, so the Windows branch extracts flat and reads straight from extractDir instead.
+  const isWindows = spec.ext === "zip";
+  if (isWindows) {
+    execSync(`unzip -q "${tmpArchive}" -d "${extractDir}"`);
+  } else {
+    execSync(`tar -xzf "${tmpArchive}" -C "${extractDir}" --strip-components=1`);
+  }
 
-  const dest = path.join(binariesDir, `node-${targetTriple}`);
-  execSync(`cp "${path.join(extractDir, "bin", "node")}" "${dest}"`);
-  chmodSync(dest, 0o755);
-  rmSync(tmpTar, { force: true });
+  const dest = path.join(binariesDir, `node-${targetTriple}${isWindows ? ".exe" : ""}`);
+  if (isWindows) {
+    // The zip's own top-level folder is named node-v<version>-win-x64 — same "one level down"
+    // shape as the tarballs, just not stripped by the extraction step above.
+    const nested = path.join(extractDir, `node-v${NODE_VERSION}-${spec.platform}`, "node.exe");
+    execSync(`cp "${nested}" "${dest}"`);
+  } else {
+    execSync(`cp "${path.join(extractDir, "bin", "node")}" "${dest}"`);
+    chmodSync(dest, 0o755);
+  }
+  rmSync(tmpArchive, { force: true });
   rmSync(extractDir, { recursive: true, force: true });
   console.log(`[fetch-node-sidecar] vendored ${dest}`);
 }
