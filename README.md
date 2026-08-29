@@ -97,8 +97,8 @@ build step:
 - **Windows**: the `.exe` installer
 - **Linux**: the `.AppImage` (run directly) or `.deb` (Debian/Ubuntu)
 
-Local/offline mode still needs a reachable Postgres, either `docker compose up postgres` from
-a downloaded `docker-compose.yml` (see above), or any Postgres 16+ with PostGIS enabled.
+Local/offline mode is fully self-contained: the app manages its own embedded Postgres
+database automatically, no separate install or Docker needed.
 
 First launch asks:
 - **Use this computer's own library**: pick a folder for your photos, then run entirely
