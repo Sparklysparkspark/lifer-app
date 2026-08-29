@@ -20,7 +20,8 @@
     "resources": {
       "resources-staging/api": "api",
       "resources-staging/web": "web",
-      "resources-staging/node_modules": "node_modules"
+      "resources-staging/node_modules": "node_modules",
+      "resources-staging/catalog-seed": "catalog-seed"
     },
     "macOS": {
       "entitlements": null

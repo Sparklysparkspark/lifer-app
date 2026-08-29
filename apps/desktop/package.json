@@ -8,9 +8,10 @@
     "start": "tauri dev",
     "prepare-resources": "node scripts/prepare-resources.js",
     "fetch-node-sidecar": "node scripts/fetch-node-sidecar.js",
+    "fetch-catalog-seed": "node scripts/fetch-catalog-seed.js",
     "resign-macos": "node scripts/resign-macos.js",
     "build-update-manifest": "node scripts/build-update-manifest.js",
-    "dist": "npm run build -w web && npm run prepare-resources && npm run fetch-node-sidecar && tauri build && npm run resign-macos"
+    "dist": "npm run build -w web && npm run prepare-resources && npm run fetch-node-sidecar && npm run fetch-catalog-seed && tauri build && npm run resign-macos"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2"

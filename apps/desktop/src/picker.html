@@ -101,12 +101,43 @@
         <div class="error" id="error" style="display: none"></div>
         <button class="primary" id="connect">Connect</button>
       </div>
+
+      <p class="status" id="status" style="display: none; margin: 12px 0 0"></p>
     </div>
 
     <script src="bridge.js"></script>
     <script>
-      document.getElementById("use-local").addEventListener("click", () => {
-        window.liferSetup.choose({ mode: "local" });
+      const localButton = document.getElementById("use-local");
+      const statusEl = document.getElementById("status");
+
+      function setBusy(message) {
+        statusEl.textContent = message;
+        statusEl.style.display = "block";
+        localButton.disabled = true;
+        document.getElementById("show-server-form").disabled = true;
+      }
+      function clearBusy() {
+        statusEl.style.display = "none";
+        localButton.disabled = false;
+        document.getElementById("show-server-form").disabled = false;
+      }
+
+      localButton.addEventListener("click", async () => {
+        // A brand new library's very first setup call can genuinely take 10-30+ seconds (the
+        // embedded database is initialized, migrated, and its species/region catalog
+        // downloaded and restored — see embedded_db.rs) — with nothing shown here before this
+        // fix, that stretch looked exactly like the button silently doing nothing.
+        setBusy("Setting up your library… this can take a minute the first time.");
+        const result = await window.liferSetup.choose({ mode: "local" });
+        // A successful result navigates away entirely (see lib.rs), so reaching here at all
+        // means it was canceled (the folder dialog was dismissed) or genuinely failed — either
+        // way, the picker needs to be usable again rather than stuck on "Setting up…" forever.
+        clearBusy();
+        if (result && result.error) {
+          const errorEl = document.getElementById("error");
+          errorEl.textContent = result.error;
+          errorEl.style.display = "block";
+        }
       });
       document.getElementById("show-server-form").addEventListener("click", () => {
         document.getElementById("server-form").classList.add("open");
