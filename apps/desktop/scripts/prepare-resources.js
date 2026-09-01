@@ -101,25 +101,36 @@ function stripOnnxGpuProviders(stagingNodeModulesDir) {
   if (removed > 0) console.log(`[prepare-resources] stripped ${removed} onnxruntime GPU provider file(s)`);
 }
 
-// sharp lists a platform/libc-specific optionalDependency for every combination it supports
-// (linux-x64-gnu, linuxmusl-x64, darwin-arm64, ...) — npm is supposed to install only the one
-// matching the current host, but this has a known history of installing extra variants anyway
-// in some npm-version/lockfile combos. Harmless on its own (an unused platform folder just sits
-// there), except linuxdeploy hard-fails the WHOLE AppImage bundle on the first native binary it
-// can't resolve every shared-library dependency for, and a musl-linked libvips pulls in musl's
-// own libc (libc.musl-x86_64.so.1), which a glibc-based Ubuntu runner doesn't have. Preemptive:
-// only actually removes anything if npm really did install the mismatched variant.
-function stripMismatchedSharpVariants(stagingNodeModulesDir) {
-  const isMusl = process.platform === "linux"; // musl is the one exotic case; nothing to strip on darwin/win32
-  if (!isMusl) return;
+// Several native packages (sharp, lightningcss, and presumably others we haven't hit yet) ship
+// a separate optionalDependency per platform/libc combo (linux-x64-gnu, linux-x64-musl,
+// darwin-arm64, ...) — npm is supposed to install only the one matching the current host, but
+// this has a known history of installing extra variants anyway in some npm-version/lockfile
+// combos (confirmed here for both sharp and lightningcss). Harmless on its own, except
+// linuxdeploy hard-fails the WHOLE AppImage bundle on the first native binary it can't resolve
+// every shared-library dependency for, and a musl-linked .node/.so pulls in musl's own libc
+// (libc.musl-x86_64.so.1), which a glibc-based Ubuntu runner doesn't have. Rather than
+// allowlisting mismatched variants one package at a time as each one surfaces a new CI failure,
+// sweep every package directory (including scoped ones) for "musl" in its name and strip it —
+// this app never targets an Alpine/musl host, so a musl-named package is always safe to drop.
+function stripMuslVariants(stagingNodeModulesDir) {
+  if (process.platform !== "linux") return; // musl is the one exotic case; nothing to strip on darwin/win32
   let removed = 0;
-  for (const pkg of ["@img/sharp-libvips-linuxmusl-x64", "@img/sharp-linuxmusl-x64", "@img/sharp-libvips-linuxmusl-arm64", "@img/sharp-linuxmusl-arm64"]) {
-    const dir = path.join(stagingNodeModulesDir, pkg);
-    if (!existsSync(dir)) continue;
-    rmSync(dir, { recursive: true, force: true });
+  for (const entry of readdirSync(stagingNodeModulesDir)) {
+    const entryPath = path.join(stagingNodeModulesDir, entry);
+    if (!statSync(entryPath).isDirectory()) continue;
+    if (entry.startsWith("@")) {
+      for (const scopedEntry of readdirSync(entryPath)) {
+        if (!/musl/i.test(scopedEntry)) continue;
+        rmSync(path.join(entryPath, scopedEntry), { recursive: true, force: true });
+        removed++;
+      }
+      continue;
+    }
+    if (!/musl/i.test(entry)) continue;
+    rmSync(entryPath, { recursive: true, force: true });
     removed++;
   }
-  if (removed > 0) console.log(`[prepare-resources] stripped ${removed} mismatched (musl) sharp variant dir(s)`);
+  if (removed > 0) console.log(`[prepare-resources] stripped ${removed} musl-linked package dir(s)`);
 }
 
 function main() {
@@ -143,7 +154,7 @@ function main() {
   const exclude = loadNodeModulesExcludeSet();
   copyNodeModules(exclude);
   stripOnnxGpuProviders(path.join(STAGING, "node_modules"));
-  stripMismatchedSharpVariants(path.join(STAGING, "node_modules"));
+  stripMuslVariants(path.join(STAGING, "node_modules"));
 
   console.log(`[prepare-resources] staged at ${STAGING}`);
 }
