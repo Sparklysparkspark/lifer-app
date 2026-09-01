@@ -123,6 +123,16 @@ export const APP_URL = process.env.APP_URL ?? `http://localhost:${PORT}`;
 export const PACK_INDEX_URL =
   process.env.PACK_INDEX_URL ?? "https://github.com/Sparklysparkspark/lifer-app/releases/download/packs-latest/pack-index.json";
 
+// Same shape as PACK_INDEX_URL — a small manifest checked first (see species/catalogSeedUpdate.ts)
+// before ever downloading the much larger seed file itself. Published by
+// packages/data-pipeline/src/scripts/build-catalog-seed.ts alongside the seed.
+export const CATALOG_MANIFEST_URL =
+  process.env.CATALOG_MANIFEST_URL ??
+  "https://github.com/Sparklysparkspark/lifer-app/releases/download/catalog-latest/catalog-manifest.json";
+export const CATALOG_SEED_URL =
+  process.env.CATALOG_SEED_URL ??
+  "https://github.com/Sparklysparkspark/lifer-app/releases/download/catalog-latest/lifer-catalog-seed.sql.gz";
+
 // Species auto-suggest (see species/embeddings.ts). A quantized CLIP ViT-L/14 vision encoder —
 // ~307MB, downloaded automatically on first use (or bundled — see resolveModelPath), same
 // "just a URL to a static file" shape as PACK_INDEX_URL/MAP_DOWNLOAD_URL above, so no new
