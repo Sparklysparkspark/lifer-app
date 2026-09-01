@@ -21,10 +21,16 @@ import { mapWithConcurrency } from "data-pipeline/src/concurrency.js";
 
 const CONCURRENCY = 2;
 
-// Temporary: scoped to the three taxon groups needed for the initial release (fish, birds,
+// Originally scoped to the three taxon groups needed for the initial release (fish, birds,
 // mammals) so those finish in hours rather than getting stuck behind the other 12 groups'
-// ~47k still-unenriched species. Remove this filter once ready to enrich everything else.
-const INITIAL_RELEASE_TAXA = ["actinopterygii", "aves", "mammalia"];
+// ~47k still-unenriched species — --taxa=squamata,amphibia,... overrides this for a specific
+// batch (e.g. reptiles/amphibians/marine invertebrates, none of which participate in any
+// region checklist, so the Canada/North-America priority-tiering below is skipped entirely
+// for a custom scope: it's meaningless for taxa with no checklist system, and would risk
+// firing fresh live GBIF calls for any not-yet-computed country — exactly what we're trying
+// to avoid while GBIF calls are being moved to a bulk-download approach instead).
+const taxaArg = process.argv.find((a) => a.startsWith("--taxa="));
+const INITIAL_RELEASE_TAXA = taxaArg ? taxaArg.split("=")[1].split(",") : ["actinopterygii", "aves", "mammalia"];
 
 type RegionRow = {
   id: string;
@@ -80,7 +86,9 @@ async function priorityTiers(): Promise<{ canada: Set<string>; restOfNorthAmeric
 }
 
 async function main() {
-  const { canada, restOfNorthAmerica } = await priorityTiers();
+  const { canada, restOfNorthAmerica } = taxaArg
+    ? { canada: new Set<string>(), restOfNorthAmerica: new Set<string>() }
+    : await priorityTiers();
 
   const res = await pool.query(
     `SELECT id, scientific_name, taxon_class FROM species WHERE enriched_at IS NULL AND taxon_class = ANY($1) ORDER BY scientific_name`,
