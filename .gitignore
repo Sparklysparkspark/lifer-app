@@ -10,3 +10,5 @@ data/backups/
 data/junk_species_candidates.tsv
 /archive/
 packs/
+packages/data-pipeline/data/build/refresh-all-provinces-checkpoint.json
+.cache/
