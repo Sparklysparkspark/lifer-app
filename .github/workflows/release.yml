@@ -16,20 +16,22 @@ jobs:
       # macOS runner images, so this deliberately isn't a real .dmg yet; nsis on Windows;
       # deb+AppImage on Linux — see tauri.conf.json's bundle.targets, which lists all of them;
       # tauri-bundler silently only produces whichever ones are valid for the host it's
-      # actually running on). Native modules (sharp, exiftool-vendored) are copied into the
-      # app as plain resources rather than rebuilt per-arch, so each target still needs its own
-      # `npm ci` on matching hardware for correctly-compiled binaries — this is exactly why
-      # Intel Mac support is its own matrix entry (macos-13, GitHub's last x86_64 macOS runner
-      # image) rather than a `--target` flag on the macos-14 (Apple Silicon) job: sharp's native
-      # bindings have to actually be compiled on x86_64 hardware, cross-compiling them from
-      # arm64 isn't something `npm ci` does. The auto-updater (build-update-manifest.js) stays
-      # macOS-only for now — it self-skips on other platforms — so Windows/Linux builds are
-      # download-and-reinstall-to-update for now, no in-app update check. The two macOS jobs
-      # each produce a partial updater manifest (their own architecture only); merge-update-
-      # manifest below combines them into the one real latest.json the release ships.
+      # actually running on). The auto-updater (build-update-manifest.js) stays macOS-only for
+      # now — it self-skips on other platforms — so Windows/Linux builds are
+      # download-and-reinstall-to-update for now, no in-app update check.
+      #
+      # Intel Mac (x86_64) support used to be its own matrix entry (macos-13) but GitHub has
+      # since retired that hosted runner image entirely — its job never gets a runner assigned
+      # (confirmed via the Actions API: runner_id stays 0 indefinitely) and just queues forever,
+      # which in turn means merge-update-manifest below (needs: desktop, i.e. every matrix leg)
+      # never runs either, silently breaking the auto-updater manifest for EVERY release since
+      # macos-13 was added — the per-OS installer uploads still happened fine since those are
+      # separate steps inside this same job, just not the updater manifest merge. Only Apple
+      # Silicon (macos-14) is buildable on GitHub-hosted runners now; Intel Mac support is
+      # dropped from CI until/unless a self-hosted x86_64 macOS runner is set up.
       fail-fast: false
       matrix:
-        os: [macos-14, macos-13, windows-latest, ubuntu-latest]
+        os: [macos-14, windows-latest, ubuntu-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -93,18 +95,24 @@ jobs:
       # real underlying error. This env var (respected by the AppImage runtime itself, so it
       # covers linuxdeploy AND its plugins in one shot) forces extract-and-run instead of a FUSE
       # mount, which needs no special kernel/container permissions at all. No-op on macOS/Windows.
+      #
+      # Still failing with the same swallowed "failed to run linuxdeploy" message even with
+      # extract-and-run forced on — TAURI_BUILD_ARGS=--verbose (only set for ubuntu-latest, a
+      # no-op elsewhere) makes tauri-bundler print linuxdeploy's actual stdout/stderr instead of
+      # its generic wrapper error, since that's the only way to see the real failure short of
+      # attaching a debugger to a hosted runner.
       - run: npm run dist -w desktop
         env:
           APPIMAGE_EXTRACT_AND_RUN: "1"
-      # Filename carries the architecture (macos-14 = arm64, macos-13 = Intel/x86_64) so both
-      # macOS jobs can upload to the same release without one silently overwriting the other's
-      # same-named asset.
+          TAURI_BUILD_ARGS: ${{ matrix.os == 'ubuntu-latest' && '--verbose' || '' }}
+      # Only macos-14 (arm64) builds now — see the matrix comment above on why Intel Mac is
+      # dropped — but the filename keeps its arch label so a future re-added x86_64 runner
+      # wouldn't silently collide with this asset's name.
       - name: Zip the macOS app for upload
         if: startsWith(matrix.os, 'macos')
         shell: bash
         run: |
-          ARCH_LABEL=$([ "${{ matrix.os }}" = "macos-14" ] && echo "arm64" || echo "x86_64")
-          cd apps/desktop/src-tauri/target/release/bundle/macos && zip -r "Lifer-macos-$ARCH_LABEL.zip" Lifer.app
+          cd apps/desktop/src-tauri/target/release/bundle/macos && zip -r "Lifer-macos-arm64.zip" Lifer.app
       # Must run after resign-macos.js (part of `npm run dist` above) — the updater archive has
       # to be built from the RESIGNED .app, not tauri build's raw output (see
       # build-update-manifest.js's own comment). Produces Lifer-<arch>.app.tar.gz +
