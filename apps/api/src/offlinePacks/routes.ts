@@ -16,6 +16,7 @@ import { APP_DATA_DIR, PACK_INDEX_URL } from "../config.js";
 // Cross-package import, same convention as regions/routes.ts's own build-region-species.js
 // import — pure id-derivation logic with no heavy runtime deps.
 import { packIdFromFileName } from "data-pipeline/src/build/pack-id.js";
+import { subdivisionLabelFor } from "@lifer/shared";
 
 export interface PackIndexEntry {
   id: string;
@@ -35,6 +36,12 @@ export interface PackIndexEntry {
   // score a pack's coverage against a list of missing species.
   scientificNames: string[];
   url: string;
+  // Sea zone pack NAMES this (region-type) pack depends on (build-region-pack.ts's own
+  // seaZoneDependencies, just names instead of {name, packFile} pairs) — lets the client group
+  // a country's dependency sea zones under "<Country> - Sea zones" instead of each one showing
+  // up as its own top-level entry in the downloaded-packs list. Undefined for sea-zone packs
+  // themselves and any region pack with none.
+  seaZoneDependencies?: string[];
 }
 
 export interface PackIndex {
@@ -851,16 +858,17 @@ export async function offlinePacksRoutes(app: FastifyInstance): Promise<void> {
       );
       if (packRes.rows.length === 0) return reply.code(404).send({ error: "No downloaded pack found with that id" });
       const { region, applied_province_region_ids: appliedIds } = packRes.rows[0];
-      if (!region) return { provinces: [] };
+      if (!region) return { provinces: [], subdivisionLabel: "Provinces" };
       const regionRes = await pool.query<{ id: string }>(`SELECT id FROM regions WHERE name = $1`, [region]);
       const regionId = regionRes.rows[0]?.id;
-      if (!regionId) return { provinces: [] };
-      const childrenRes = await pool.query<{ id: string; name: string }>(
-        `SELECT id, name FROM regions WHERE parent_id = $1 ORDER BY name`,
+      if (!regionId) return { provinces: [], subdivisionLabel: "Provinces" };
+      const childrenRes = await pool.query<{ id: string; name: string; subdivision_type: string | null }>(
+        `SELECT id, name, subdivision_type FROM regions WHERE parent_id = $1 ORDER BY name`,
         [regionId],
       );
       return {
         provinces: childrenRes.rows.map((c) => ({ id: c.id, name: c.name, applied: !appliedIds || appliedIds.includes(c.id) })),
+        subdivisionLabel: subdivisionLabelFor(childrenRes.rows.map((c) => c.subdivision_type)),
       };
     } catch (err) {
       return reply.code(500).send({ error: (err as Error).message });
