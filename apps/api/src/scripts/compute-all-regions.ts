@@ -101,7 +101,18 @@ async function main() {
   await pool.end();
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+// Guarded so importing this module purely for drillDownAllCountries (compute-provinces-bulk.ts,
+// recompute-all-regions.ts) doesn't ALSO trigger a full unscoped "compute every uncomputed
+// region in the world" run as a side effect of the import — ES module top-level code runs on
+// import regardless of which named export the importer actually wanted. Confirmed as a real,
+// currently-live bug: every single-country compute-provinces-bulk.ts invocation was silently
+// re-running this file's own main() underneath it, including a second, redundant
+// drillDownAllCountries() and an unbounded computeAllUncomputed() sweep, then closing the
+// shared pool out from under the outer script's own later `await pool.end()` ("Called end on
+// pool more than once"). Only fires when this file is actually the process entry point.
+if (import.meta.url === `file://${process.argv[1]}`) {
+  main().catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
+}

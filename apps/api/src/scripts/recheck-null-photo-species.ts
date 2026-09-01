@@ -14,12 +14,30 @@ import { mapWithConcurrency } from "data-pipeline/src/concurrency.js";
 
 const CONCURRENCY = 4;
 
+// --countries= scopes this to species on those countries' checklists (same
+// region_species/regions join update-pack.ts's own autoDetectTaxa uses) — added so a routine
+// pack refresh can recheck just the photoless species relevant to it instead of always sweeping
+// the entire catalog; omit for the original unscoped full-catalog behavior.
 async function main() {
-  const res = await pool.query<{ id: string; scientific_name: string }>(
-    `SELECT id, scientific_name FROM species WHERE enriched_at IS NOT NULL AND reference_photo IS NULL
-     ORDER BY scientific_name`,
-  );
-  console.log(`[recheck-null-photo] ${res.rows.length} enriched-but-photoless species to recheck`);
+  const countriesArg = process.argv.find((a) => a.startsWith("--countries="));
+  const countries = countriesArg ? countriesArg.split("=")[1].split(",") : null;
+
+  const res = countries
+    ? await pool.query<{ id: string; scientific_name: string }>(
+        `SELECT DISTINCT s.id, s.scientific_name
+         FROM region_species rs
+         JOIN regions r ON r.id = rs.region_id
+         LEFT JOIN regions parent ON parent.id = r.parent_id
+         JOIN species s ON s.id = rs.species_id
+         WHERE (r.name = ANY($1) OR parent.name = ANY($1)) AND s.enriched_at IS NOT NULL AND s.reference_photo IS NULL
+         ORDER BY s.scientific_name`,
+        [countries],
+      )
+    : await pool.query<{ id: string; scientific_name: string }>(
+        `SELECT id, scientific_name FROM species WHERE enriched_at IS NOT NULL AND reference_photo IS NULL
+         ORDER BY scientific_name`,
+      );
+  console.log(`[recheck-null-photo] ${res.rows.length} enriched-but-photoless species to recheck${countries ? ` (scoped to ${countries.join(", ")})` : ""}`);
 
   let done = 0;
   let recovered = 0;
