@@ -21,6 +21,8 @@ interface PackEntry {
   speciesCount: number;
   downloaded: boolean;
   updateAvailable: boolean;
+  /** Sea zone pack names this (region-type) pack depends on — see build-pack-index.ts. */
+  seaZoneDependencies?: string[];
 }
 
 interface DownloadStatus {
@@ -94,6 +96,10 @@ export default function OfflinePacksPage() {
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
   const [provinceManagerPackId, setProvinceManagerPackId] = useState<string | null>(null);
   const [provinceList, setProvinceList] = useState<ProvinceEntry[] | null>(null);
+  // "States" for the US, "Regions" for Thailand, "Provinces" for most others — computed
+  // server-side from that country's own admin-1 data (see subdivisionLabelFor), not assumed.
+  // Defaults to "Provinces" until the first fetch resolves, same as the server-side default.
+  const [subdivisionLabel, setSubdivisionLabel] = useState("Provinces");
   const [provinceError, setProvinceError] = useState<string | null>(null);
   const [provinceBusyId, setProvinceBusyId] = useState<string | null>(null);
   const countryRowRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
@@ -164,16 +170,58 @@ export default function OfflinePacksPage() {
 
   const world = regions?.find((r) => r.parentId === null);
   const continents = useMemo(() => (regions ?? []).filter((r) => r.parentId === world?.id), [regions, world]);
+  // Split each continent's children into primary countries (the main pill list) and
+  // dependencies/territories (moved to a separate "Other Territories" catch-all at the end of
+  // that continent's group instead — a territory that isn't obviously "part of" a country
+  // someone's already looking at (e.g. Puerto Rico while browsing North America, not realizing
+  // it's a US territory) still needs to be findable directly, without cluttering the main list
+  // with ~15 tiny entries per continent). See migration 066's own comment.
   const countriesByContinent = useMemo(() => {
     const map = new Map<string, RegionSummary[]>();
     for (const r of regions ?? []) {
-      if (!r.parentId) continue;
+      if (!r.parentId || r.isSovereignDependency) continue;
+      if (!map.has(r.parentId)) map.set(r.parentId, []);
+      map.get(r.parentId)!.push(r);
+    }
+    return map;
+  }, [regions]);
+  const territoriesByContinent = useMemo(() => {
+    const map = new Map<string, RegionSummary[]>();
+    for (const r of regions ?? []) {
+      if (!r.parentId || !r.isSovereignDependency) continue;
       if (!map.has(r.parentId)) map.set(r.parentId, []);
       map.get(r.parentId)!.push(r);
     }
     return map;
   }, [regions]);
   const countryById = useMemo(() => new Map((regions ?? []).map((r) => [r.id, r])), [regions]);
+
+  // Country -> its own geographically-separate territories (sharing one Natural Earth
+  // sovereignty-group code, e.g. "United States of America" + "Puerto Rico" + "U.S. Virgin
+  // Is." all carry "US1" — see migration 065). Each territory ALSO already appears as its own
+  // ordinary pill under its true geographic continent (Natural Earth places it there directly,
+  // no cross-listing logic needed for that part) — this only adds the grouped "Territories"
+  // panel under the sovereign country's own pill, for someone who wants to grab e.g. Puerto
+  // Rico while browsing the US rather than hunting for it separately under North America.
+  const territoriesByCountryId = useMemo(() => {
+    const bySovereigntyGroup = new Map<string, RegionSummary[]>();
+    for (const r of regions ?? []) {
+      if (!r.sovereigntyGroup || !r.parentId) continue;
+      if (!bySovereigntyGroup.has(r.sovereigntyGroup)) bySovereigntyGroup.set(r.sovereigntyGroup, []);
+      bySovereigntyGroup.get(r.sovereigntyGroup)!.push(r);
+    }
+    const map = new Map<string, RegionSummary[]>();
+    for (const group of bySovereigntyGroup.values()) {
+      const dependencies = group.filter((g) => g.isSovereignDependency).sort((a, b) => a.name.localeCompare(b.name));
+      if (dependencies.length === 0) continue;
+      // Only the primary (non-dependency) member of a group gets a "Territories" panel under
+      // it — a territory itself never lists its sibling territories as ITS OWN territories.
+      for (const country of group) {
+        if (!country.isSovereignDependency) map.set(country.id, dependencies);
+      }
+    }
+    return map;
+  }, [regions]);
 
   // Which continents currently have their country-pill group expanded — an explicit UI toggle,
   // separate from selection: clicking a continent pill only ever opens/closes its own group, it
@@ -208,12 +256,22 @@ export default function OfflinePacksPage() {
   }, [selectedCountryIds, availableTaxaByRegion]);
 
   function toggleCountry(id: string) {
+    const willSelect = !selectedCountryIds.has(id);
     setSelectedCountryIds((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
       return next;
     });
+    // A country selected by clicking it on the map (PacksMap's onToggleCountry, this same
+    // function) previously left its pill + territories panel invisible unless that continent's
+    // group already happened to be open — same fix as selectSearchResult already had for the
+    // search box, so every way of selecting a country consistently surfaces its territories.
+    if (willSelect) {
+      const region = countryById.get(id);
+      if (region?.parentId) setOpenContinentIds((prev) => new Set(prev).add(region.parentId!));
+      setTimeout(() => countryRowRefs.current.get(id)?.scrollIntoView({ behavior: "smooth", block: "nearest" }), 0);
+    }
   }
 
   function toggleContinent(continentId: string, countries: RegionSummary[]) {
@@ -337,8 +395,11 @@ export default function OfflinePacksPage() {
     setProvinceList(null);
     setProvinceError(null);
     try {
-      const res = await api.get<{ provinces: ProvinceEntry[] }>(`/offline-packs/${encodeURIComponent(packId)}/provinces`);
+      const res = await api.get<{ provinces: ProvinceEntry[]; subdivisionLabel: string }>(
+        `/offline-packs/${encodeURIComponent(packId)}/provinces`,
+      );
       setProvinceList(res.provinces);
+      setSubdivisionLabel(res.subdivisionLabel);
     } catch (err) {
       setProvinceError(err instanceof ApiError ? err.message : "Couldn't load this pack's provinces");
     }
@@ -436,15 +497,43 @@ export default function OfflinePacksPage() {
   }
 
   const downloadedPacks = (packs ?? []).filter((p) => p.downloaded);
+
+  // A downloaded sea zone pack's "owner" — whichever downloaded country pack listed it as a
+  // dependency (build-region-pack.ts's seaZoneDependencies), so its rows collapse into
+  // "<Country> - Sea zones" instead of every sea zone getting its own top-level group. A sea
+  // zone can legitimately border more than one country (e.g. Gulf of Maine/Bay of Fundy is both
+  // a US and a Canada dependency) — picking whichever owning country sorts first by name keeps
+  // it under exactly one group rather than duplicating the row, since which one "owns" it isn't
+  // actually meaningful (the pack itself doesn't belong to either country specifically).
+  const seaZoneOwner = useMemo(() => {
+    const owners = new Map<string, string[]>();
+    for (const p of downloadedPacks) {
+      if (p.type !== "region" || !p.region || !p.seaZoneDependencies?.length) continue;
+      for (const zoneName of p.seaZoneDependencies) {
+        if (!owners.has(zoneName)) owners.set(zoneName, []);
+        owners.get(zoneName)!.push(p.region);
+      }
+    }
+    const map = new Map<string, string>();
+    for (const [zoneName, countries] of owners) {
+      map.set(zoneName, [...countries].sort((a, b) => a.localeCompare(b))[0]);
+    }
+    return map;
+  }, [downloadedPacks]);
+
   const downloadedGroups = useMemo(() => {
     const map = new Map<string, PackEntry[]>();
     for (const p of downloadedPacks) {
-      const name = p.region ?? p.seaZone ?? "Other";
+      const owner = p.type === "seaZone" && p.seaZone ? seaZoneOwner.get(p.seaZone) : null;
+      const name = owner ? `${owner} - Sea zones` : (p.region ?? p.seaZone ?? "Other");
       if (!map.has(name)) map.set(name, []);
       map.get(name)!.push(p);
     }
+    for (const group of map.values()) {
+      group.sort((a, b) => (a.seaZone ?? a.region ?? "").localeCompare(b.seaZone ?? b.region ?? ""));
+    }
     return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0]));
-  }, [downloadedPacks]);
+  }, [downloadedPacks, seaZoneOwner]);
 
   return (
     <div className="min-h-screen bg-canvas">
@@ -603,34 +692,154 @@ export default function OfflinePacksPage() {
                         {countries.map((country) => {
                           const coverage = countryCoverage(country.name);
                           const isSelected = selectedCountryIds.has(country.id);
+                          const territories = territoriesByCountryId.get(country.id);
                           return (
-                            <button
-                              key={country.id}
-                              type="button"
-                              ref={(el) => {
-                                if (el) countryRowRefs.current.set(country.id, el);
-                                else countryRowRefs.current.delete(country.id);
-                              }}
-                              onClick={() => toggleCountry(country.id)}
-                              title={coverage === "full" ? "Fully downloaded" : coverage === "partial" ? "Partially downloaded" : undefined}
-                              className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs transition-colors ${
-                                coverage === "full"
-                                  ? isSelected
-                                    ? "border-green-700 bg-green-700 text-white ring-2 ring-green-700/40"
-                                    : "border-green-600 bg-green-600 text-white"
-                                  : isSelected
-                                    ? "border-ink bg-ink text-canvas"
-                                    : "border-line bg-surface-muted text-ink hover:bg-line"
-                              }`}
-                            >
-                              {coverage === "partial" && (
-                                <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full bg-green-600/50" />
+                            <div key={country.id} className="contents">
+                              <button
+                                type="button"
+                                ref={(el) => {
+                                  if (el) countryRowRefs.current.set(country.id, el);
+                                  else countryRowRefs.current.delete(country.id);
+                                }}
+                                onClick={() => toggleCountry(country.id)}
+                                title={coverage === "full" ? "Fully downloaded" : coverage === "partial" ? "Partially downloaded" : undefined}
+                                className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs transition-colors ${
+                                  coverage === "full"
+                                    ? isSelected
+                                      ? "border-green-700 bg-green-700 text-white ring-2 ring-green-700/40"
+                                      : "border-green-600 bg-green-600 text-white"
+                                    : isSelected
+                                      ? "border-ink bg-ink text-canvas"
+                                      : "border-line bg-surface-muted text-ink hover:bg-line"
+                                }`}
+                              >
+                                {coverage === "partial" && (
+                                  <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full bg-green-600/50" />
+                                )}
+                                {country.name}
+                              </button>
+                              {isSelected && territories && territories.length > 0 && (
+                                <div className="mt-1 flex w-full flex-wrap items-center gap-1.5 pl-3">
+                                  <span className="text-[11px] text-muted">Territories:</span>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setSelectedCountryIds((prev) => {
+                                        const next = new Set(prev);
+                                        const allSelected = territories.every((t) => next.has(t.id));
+                                        for (const t of territories) {
+                                          if (allSelected) next.delete(t.id);
+                                          else next.add(t.id);
+                                        }
+                                        return next;
+                                      })
+                                    }
+                                    className="text-[11px] font-medium text-accent hover:underline"
+                                  >
+                                    {territories.every((t) => selectedCountryIds.has(t.id)) ? "Deselect all" : "Select all"}
+                                  </button>
+                                  {territories.map((territory) => {
+                                    const territoryCoverage = countryCoverage(territory.name);
+                                    const territorySelected = selectedCountryIds.has(territory.id);
+                                    return (
+                                      <button
+                                        key={territory.id}
+                                        type="button"
+                                        onClick={() => toggleCountry(territory.id)}
+                                        title={
+                                          territoryCoverage === "full"
+                                            ? "Fully downloaded"
+                                            : territoryCoverage === "partial"
+                                              ? "Partially downloaded"
+                                              : undefined
+                                        }
+                                        className={`flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] transition-colors ${
+                                          territoryCoverage === "full"
+                                            ? territorySelected
+                                              ? "border-green-700 bg-green-700 text-white ring-2 ring-green-700/40"
+                                              : "border-green-600 bg-green-600 text-white"
+                                            : territorySelected
+                                              ? "border-ink bg-ink text-canvas"
+                                              : "border-line bg-surface-muted text-muted hover:bg-line"
+                                        }`}
+                                      >
+                                        {territoryCoverage === "partial" && (
+                                          <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full bg-green-600/50" />
+                                        )}
+                                        {territory.name}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
                               )}
-                              {country.name}
-                            </button>
+                            </div>
                           );
                         })}
                       </div>
+                      {(() => {
+                        const otherTerritories = [...(territoriesByContinent.get(continent.id) ?? [])].sort((a, b) =>
+                          a.name.localeCompare(b.name),
+                        );
+                        if (otherTerritories.length === 0) return null;
+                        // Catch-all for this continent's own territories that aren't obviously
+                        // "part of" a country someone's already looking at (e.g. Puerto Rico
+                        // while browsing North America, not the US) — same territories also
+                        // show grouped under their sovereign country's own "Territories" panel
+                        // above once that country is selected; this is just the fallback for
+                        // finding one directly.
+                        const allOtherSelected = otherTerritories.every((t) => selectedCountryIds.has(t.id));
+                        return (
+                          <div className="mt-2 border-t border-line pt-2">
+                            <div className="mb-1.5 flex items-center justify-between">
+                              <p className="text-xs text-muted">Other Territories</p>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setSelectedCountryIds((prev) => {
+                                    const next = new Set(prev);
+                                    for (const t of otherTerritories) {
+                                      if (allOtherSelected) next.delete(t.id);
+                                      else next.add(t.id);
+                                    }
+                                    return next;
+                                  })
+                                }
+                                className="text-xs font-medium text-accent hover:underline"
+                              >
+                                {allOtherSelected ? "Deselect all" : "Select all"}
+                              </button>
+                            </div>
+                            <div className="flex flex-wrap gap-1.5">
+                              {otherTerritories.map((territory) => {
+                                const coverage = countryCoverage(territory.name);
+                                const isSelected = selectedCountryIds.has(territory.id);
+                                return (
+                                  <button
+                                    key={territory.id}
+                                    type="button"
+                                    onClick={() => toggleCountry(territory.id)}
+                                    title={coverage === "full" ? "Fully downloaded" : coverage === "partial" ? "Partially downloaded" : undefined}
+                                    className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs transition-colors ${
+                                      coverage === "full"
+                                        ? isSelected
+                                          ? "border-green-700 bg-green-700 text-white ring-2 ring-green-700/40"
+                                          : "border-green-600 bg-green-600 text-white"
+                                        : isSelected
+                                          ? "border-ink bg-ink text-canvas"
+                                          : "border-line bg-surface-muted text-muted hover:bg-line"
+                                    }`}
+                                  >
+                                    {coverage === "partial" && (
+                                      <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full bg-green-600/50" />
+                                    )}
+                                    {territory.name}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        );
+                      })()}
                     </div>
                   );
                 })}
@@ -684,11 +893,14 @@ export default function OfflinePacksPage() {
                     {downloadedPacks.some((p) => p.updateAvailable) && (
                       <button
                         type="button"
-                        disabled={starting}
+                        disabled={starting || status?.running}
                         onClick={() => updatePacks(downloadedPacks.filter((p) => p.updateAvailable).map((p) => p.id))}
-                        className="rounded-md bg-accent px-2 py-1 text-xs font-medium text-accent-fg disabled:opacity-50"
+                        className="flex items-center gap-1.5 rounded-md bg-accent px-2 py-1 text-xs font-medium text-accent-fg disabled:opacity-50"
                       >
-                        Update all
+                        {(starting || status?.running) && (
+                          <span className="h-3 w-3 animate-spin rounded-full border-2 border-accent-fg/40 border-t-accent-fg" />
+                        )}
+                        {starting || status?.running ? "Updating…" : "Update all"}
                       </button>
                     )}
                     {selectedOffloadIds.size > 0 && (
@@ -751,18 +963,21 @@ export default function OfflinePacksPage() {
                                     className="h-4 w-4"
                                   />
                                   <span className="flex-1 text-ink">
-                                    {p.taxon ? TAXON_CLASS_LABEL[p.taxon] : "All taxa"}
+                                    {p.type === "seaZone" ? p.seaZone : p.taxon ? TAXON_CLASS_LABEL[p.taxon] : "All taxa"}
                                     {p.updateAvailable && <span className="ml-2 text-xs text-accent">update available</span>}
                                   </span>
                                   <span className="text-xs text-muted">{formatBytes(p.sizeBytes)}</span>
                                   {p.updateAvailable && (
                                     <button
                                       type="button"
-                                      disabled={starting}
+                                      disabled={starting || status?.running}
                                       onClick={() => updatePacks([p.id])}
-                                      className="rounded-md border border-accent px-2 py-1 text-xs font-medium text-accent hover:bg-surface-muted disabled:opacity-50"
+                                      className="flex items-center gap-1.5 rounded-md border border-accent px-2 py-1 text-xs font-medium text-accent hover:bg-surface-muted disabled:opacity-50"
                                     >
-                                      Update
+                                      {(starting || status?.running) && (
+                                        <span className="h-3 w-3 animate-spin rounded-full border-2 border-accent/40 border-t-accent" />
+                                      )}
+                                      {starting || status?.running ? "Updating…" : "Update"}
                                     </button>
                                   )}
                                   {p.type === "region" && (
@@ -771,7 +986,7 @@ export default function OfflinePacksPage() {
                                       onClick={() => openProvinceManager(p.id)}
                                       className="rounded-md border border-line px-2 py-1 text-xs text-muted hover:bg-surface-muted"
                                     >
-                                      Provinces
+                                      {provinceManagerPackId === p.id ? subdivisionLabel : "Provinces"}
                                     </button>
                                   )}
                                   <button
@@ -785,9 +1000,11 @@ export default function OfflinePacksPage() {
                                 {provinceManagerPackId === p.id && (
                                   <div className="mt-2 ml-6 rounded-md border border-line bg-surface-muted p-2">
                                     {provinceError && <p className="text-xs text-red-600">{provinceError}</p>}
-                                    {!provinceList && !provinceError && <p className="text-xs text-muted">Loading provinces…</p>}
+                                    {!provinceList && !provinceError && (
+                                      <p className="text-xs text-muted">Loading {subdivisionLabel.toLowerCase()}…</p>
+                                    )}
                                     {provinceList && provinceList.length === 0 && (
-                                      <p className="text-xs text-muted">This pack has no provinces.</p>
+                                      <p className="text-xs text-muted">This pack has no {subdivisionLabel.toLowerCase()}.</p>
                                     )}
                                     {provinceList && provinceList.length > 0 && (
                                       <ul className="max-h-64 space-y-1 overflow-y-auto">

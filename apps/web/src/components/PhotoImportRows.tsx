@@ -232,6 +232,9 @@ export default function PhotoImportRows({ tripId, onImported }: { tripId?: strin
         form.append("mode", "store");
         form.append("speciesId", row.speciesId!);
         if (tripId) form.append("tripId", tripId);
+        // Persisted on the capture (see migration 067) so the Stats page can answer "which
+        // countries have I actually photographed in" without depending on sparse GPS EXIF.
+        if (regionId) form.append("regionId", regionId);
         form.append("file", row.file);
         // A RAW that matched an already-imported edited JPEG comes back with linkedExisting:
         // true and no new photo of its own — it's filed as that capture's RAW sibling, not a

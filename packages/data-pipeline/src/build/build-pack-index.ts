@@ -36,6 +36,7 @@ interface PackManifestCore {
   // region gets its own full checklist) — deduping across both is this file's job below, not
   // something already done by the time the manifest is read here.
   children?: Array<{ species: Array<{ scientificName: string }> }>;
+  seaZoneDependencies?: Array<{ name: string; packFile: string }>;
 }
 
 function readManifest(archivePath: string): PackManifestCore {
@@ -86,6 +87,7 @@ async function main() {
       contentVersion: manifest.contentVersion,
       scientificNames,
       url: `https://github.com/${GITHUB_REPO}/releases/download/${PACKS_RELEASE_TAG}/${file}`,
+      seaZoneDependencies: manifest.seaZoneDependencies?.map((d) => d.name),
     };
   });
 
