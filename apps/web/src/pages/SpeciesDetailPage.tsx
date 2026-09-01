@@ -3,6 +3,7 @@ import { useParams, useSearchParams } from "react-router-dom";
 import { api, ApiError } from "../api/client";
 import UploadDropzone from "../components/UploadDropzone";
 import RawUpload from "../components/RawUpload";
+import StarRating from "../components/StarRating";
 import { useVolumeDestination, VolumeDestinationPicker } from "../components/VolumeDestinationPicker";
 import Lightbox, { type LightboxSlide } from "../components/Lightbox";
 import CardCropEditor from "../components/CardCropEditor";
@@ -64,6 +65,8 @@ interface SpeciesDetail {
   captures: Array<{
     id: string;
     photo_id: string | null;
+    width: number | null;
+    height: number | null;
     taken_at: string | null;
     camera_model: string | null;
     lens: string | null;
@@ -136,6 +139,13 @@ export default function SpeciesDetailPage() {
   const [selectMode, setSelectMode] = useState(false);
   const [selectedCaptureIds, setSelectedCaptureIds] = useState<Set<string>>(new Set());
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  // "Correct the ID" — reassigns a mis-identified photo (or a whole batch of them) to a
+  // different species after the fact. Reuses PATCH /captures/:id/reassign per-capture (there's
+  // no batch endpoint for this — the set of reassignments is small and interactive, so a
+  // Promise.all loop is simpler than adding a new bulk route).
+  const [reassigningCaptureId, setReassigningCaptureId] = useState<string | null>(null);
+  const [batchReassigning, setBatchReassigning] = useState(false);
+  const [reassignError, setReassignError] = useState<string | null>(null);
   const [deleteRawToo, setDeleteRawToo] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
@@ -158,6 +168,11 @@ export default function SpeciesDetailPage() {
       return false;
     }
   });
+  // Edited vs RAW-only view filter — state declared here (near the other view toggles);
+  // derived counts (editedCount/rawOnlyCount) are computed further down, once `captures` is
+  // actually in scope.
+  const [photoFilter, setPhotoFilter] = useState<"all" | "edited" | "raw">("edited");
+
   function toggleGalleryView() {
     setGalleryView((prev) => {
       const next = !prev;
@@ -278,6 +293,10 @@ export default function SpeciesDetailPage() {
     }
 
     for (const p of referencePhotos) {
+      // A gallery row can exist with no actual file behind it (a failed fetch that still left
+      // a placeholder row instead of being cleaned up) — pushing it in anyway would put a
+      // slide with nothing to show into the arrow-through order for no reason.
+      if (!p.photo_url) continue;
       if (p.photo_url === species.reference_photo_url && !userSpecies?.cover_photo_id) continue;
       slides.push({
         url: p.photo_url,
@@ -370,11 +389,13 @@ export default function SpeciesDetailPage() {
     load();
   }
 
-  async function removeCapture(captureId: string) {
+  // Single-photo delete reuses the same confirmation dialog as the multi-select batch delete
+  // below — one dialog, one place to get the trash-retention wording right, instead of a plain
+  // native confirm() here duplicating (and inevitably drifting from) that copy.
+  function requestDeleteCapture(captureId: string) {
     setOpenMenuCaptureId(null);
-    if (!confirm("Remove this photo from Lifer? The original file (if you have one) won't be touched.")) return;
-    await api.delete(`/captures/${captureId}`);
-    load();
+    setSelectedCaptureIds(new Set([captureId]));
+    setConfirmingDelete(true);
   }
 
   function toggleSelected(captureId: string) {
@@ -395,6 +416,9 @@ export default function SpeciesDetailPage() {
   // time, even for a batch with no RAWs at all, would be a pointless extra click most of the
   // time.
   const selectedHaveRaw = captures.some((c) => selectedCaptureIds.has(c.id) && c.has_raw_original);
+  // See photoFilter's own declaration above for why "edited" means original_kind !== "raw".
+  const editedCount = captures.filter((c) => c.photo_id && c.original_kind !== "raw").length;
+  const rawOnlyCount = captures.filter((c) => c.photo_id && c.original_kind === "raw").length;
 
   async function confirmDeleteSelected() {
     setDeleting(true);
@@ -413,6 +437,34 @@ export default function SpeciesDetailPage() {
   // tagged species counts as fully collected too, and this same photo then shows up on its
   // detail page as well (see species/routes.ts's captures query, which also matches via
   // capture_species).
+  async function reassignSpecies(captureId: string, newSpeciesId: string) {
+    setReassigningCaptureId(null);
+    setOpenMenuCaptureId(null);
+    setReassignError(null);
+    try {
+      await api.patch(`/captures/${captureId}/reassign`, { speciesId: newSpeciesId });
+      load();
+    } catch (err) {
+      setReassignError(err instanceof ApiError ? err.message : "Couldn't reassign this photo");
+    }
+  }
+
+  async function reassignSelected(newSpeciesId: string) {
+    setBatchReassigning(true);
+    setReassignError(null);
+    try {
+      const results = await Promise.allSettled(
+        [...selectedCaptureIds].map((captureId) => api.patch(`/captures/${captureId}/reassign`, { speciesId: newSpeciesId })),
+      );
+      const failed = results.filter((r) => r.status === "rejected").length;
+      if (failed > 0) setReassignError(`${failed} of ${results.length} photos couldn't be reassigned`);
+      exitSelectMode();
+      load();
+    } finally {
+      setBatchReassigning(false);
+    }
+  }
+
   async function tagSpecies(captureId: string, otherSpeciesId: string) {
     setTaggingCaptureId(null);
     setOpenMenuCaptureId(null);
@@ -682,6 +734,21 @@ export default function SpeciesDetailPage() {
               >
                 {galleryView ? "Gallery view ✓" : "Gallery view"}
               </button>
+              {rawOnlyCount > 0 && (
+                <div className="flex items-center gap-1 rounded-md border border-line p-0.5 text-xs">
+                  {(["all", "edited", "raw"] as const).map((option) => (
+                    <button
+                      key={option}
+                      onClick={() => setPhotoFilter(option)}
+                      className={`rounded px-2 py-0.5 ${
+                        photoFilter === option ? "bg-ink text-canvas" : "text-muted hover:bg-surface-muted"
+                      }`}
+                    >
+                      {option === "all" ? `All (${editedCount + rawOnlyCount})` : option === "edited" ? `Edited (${editedCount})` : `RAW (${rawOnlyCount})`}
+                    </button>
+                  ))}
+                </div>
+              )}
               {captures.length > 0 &&
                 (selectMode ? (
                   <button onClick={exitSelectMode} className="text-xs text-muted hover:underline">
@@ -701,15 +768,62 @@ export default function SpeciesDetailPage() {
             </div>
           </div>
           {selectMode && (
-            <div className="mb-2 flex items-center justify-between rounded-md border border-line bg-surface-muted px-3 py-2 text-xs">
-              <span className="text-muted">{selectedCaptureIds.size} selected</span>
+            <div className="mb-2 flex items-center justify-between gap-3 rounded-md border border-line bg-surface-muted px-3 py-2 text-xs">
+              <span className="shrink-0 text-muted">{selectedCaptureIds.size} selected</span>
+              {selectedCaptureIds.size > 0 && (
+                <div className="flex min-w-0 flex-1 items-center gap-2">
+                  <span className="shrink-0 text-muted">Correct ID to:</span>
+                  <div className="w-56">
+                    <SpeciesPicker placeholder="Type a species…" onSelect={(s) => reassignSelected(s.id)} />
+                  </div>
+                  {batchReassigning && <span className="shrink-0 text-muted">Reassigning…</span>}
+                </div>
+              )}
               <button
                 onClick={() => setConfirmingDelete(true)}
                 disabled={selectedCaptureIds.size === 0}
-                className="rounded-md bg-red-600 px-3 py-1 text-xs font-medium text-white hover:bg-red-700 disabled:opacity-40"
+                className="shrink-0 rounded-md bg-red-600 px-3 py-1 text-xs font-medium text-white hover:bg-red-700 disabled:opacity-40"
               >
                 Delete selected
               </button>
+            </div>
+          )}
+          {reassignError && <p className="mb-2 text-xs text-red-600">{reassignError}</p>}
+          {confirmingDelete && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setConfirmingDelete(false)}>
+              <div className="w-full max-w-sm rounded-lg border border-line bg-surface p-4 shadow-lg" onClick={(e) => e.stopPropagation()}>
+                <h3 className="text-sm font-medium text-ink">
+                  Delete {selectedCaptureIds.size} photo{selectedCaptureIds.size === 1 ? "" : "s"}?
+                </h3>
+                <p className="mt-2 text-xs text-muted">
+                  Deleted photos go to Trash for 7 days first, where you can still restore them. After 7 days they're
+                  gone for good and can't be recovered.
+                </p>
+                {selectedHaveRaw && (
+                  <label className="mt-3 flex items-center gap-2 text-xs text-ink">
+                    <input type="checkbox" checked={deleteRawToo} onChange={(e) => setDeleteRawToo(e.target.checked)} className="h-3.5 w-3.5" />
+                    Also delete the matching RAW file when this is permanently removed
+                  </label>
+                )}
+                <div className="mt-4 flex justify-end gap-2">
+                  <button
+                    onClick={() => {
+                      setConfirmingDelete(false);
+                      setDeleteRawToo(false);
+                    }}
+                    className="rounded-md px-3 py-1.5 text-xs text-muted hover:bg-surface-muted"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={confirmDeleteSelected}
+                    disabled={deleting}
+                    className="rounded-md bg-red-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-700 disabled:opacity-40"
+                  >
+                    {deleting ? "Deleting…" : "Delete"}
+                  </button>
+                </div>
+              </div>
             </div>
           )}
           {captures.length === 0 && pendingUploadCount === 0 ? (
@@ -723,7 +837,10 @@ export default function SpeciesDetailPage() {
             // within just the photo-having subset.
             <MasonryGrid
               items={[
-                ...captures.map((c, i) => ({ kind: "capture" as const, c, i })).filter((it) => it.c.photo_id),
+                ...captures
+                  .map((c, i) => ({ kind: "capture" as const, c, i }))
+                  .filter((it) => it.c.photo_id)
+                  .filter((it) => photoFilter === "all" || (photoFilter === "raw" ? it.c.original_kind === "raw" : it.c.original_kind !== "raw")),
                 // A fake tile per photo currently uploading for this species — shown in the
                 // actual photo grid (where the real thing will land) instead of only in the
                 // global corner banner, so it's obvious right where the new photo is going.
@@ -731,6 +848,9 @@ export default function SpeciesDetailPage() {
               ]}
               columnWidth={thumbSizePx}
               keyFor={(item) => (item.kind === "placeholder" ? item.key : item.c.id)}
+              aspectRatioFor={(item) =>
+                item.kind === "capture" && item.c.width && item.c.height ? item.c.width / item.c.height : null
+              }
               renderItem={(item) => {
                 if (item.kind === "placeholder") {
                   return (
@@ -746,15 +866,27 @@ export default function SpeciesDetailPage() {
                 return (
                   <div
                     key={c.id}
-                    className="group relative"
+                    className="group relative min-w-0"
                   >
                     <ProgressiveImg
                       thumbSrc={`/api/photos/${c.photo_id}/thumb`}
                       fullSrc={`/api/photos/${c.photo_id}/display`}
                       alt=""
-                      onClick={() => setLightbox({ slides: captureSlides, index: i })}
-                      className="block w-full cursor-pointer rounded-md"
+                      onClick={() => (selectMode ? toggleSelected(c.id) : setLightbox({ slides: captureSlides, index: i }))}
+                      className={`block w-full cursor-pointer rounded-md ${
+                        selectMode && selectedCaptureIds.has(c.id) ? "ring-2 ring-accent ring-offset-2" : ""
+                      }`}
                     />
+                    {selectMode && (
+                      <input
+                        type="checkbox"
+                        checked={selectedCaptureIds.has(c.id)}
+                        onChange={() => toggleSelected(c.id)}
+                        className="absolute left-2 top-2 h-4 w-4 accent-accent"
+                        aria-label="Select photo"
+                      />
+                    )}
+                    {!selectMode && (
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
@@ -765,7 +897,8 @@ export default function SpeciesDetailPage() {
                     >
                       ⋯
                     </button>
-                    {openMenuCaptureId === c.id && (
+                    )}
+                    {!selectMode && openMenuCaptureId === c.id && (
                       <div
                         ref={openMenuRef}
                         className="absolute right-1 top-7 z-10 whitespace-nowrap rounded-md border border-line bg-surface py-1 text-xs shadow-lg"
@@ -837,11 +970,27 @@ export default function SpeciesDetailPage() {
                             Also features another species…
                           </button>
                         )}
+                        {reassigningCaptureId === c.id ? (
+                          <div className="px-3 py-1.5">
+                            <SpeciesPicker
+                              autoFocus
+                              placeholder="Correct ID to…"
+                              onSelect={(s) => reassignSpecies(c.id, s.id)}
+                            />
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => setReassigningCaptureId(c.id)}
+                            className="block w-full px-3 py-1.5 text-left text-ink hover:bg-surface-muted"
+                          >
+                            Correct the ID…
+                          </button>
+                        )}
                         <button
-                          onClick={() => removeCapture(c.id)}
+                          onClick={() => requestDeleteCapture(c.id)}
                           className="block w-full border-t border-line px-3 py-1.5 text-left text-red-600 hover:bg-red-50"
                         >
-                          Remove from Lifer
+                          Delete Photo
                         </button>
                       </div>
                     )}
@@ -864,19 +1013,8 @@ export default function SpeciesDetailPage() {
                       />
                     )}
                     {!galleryView && (
-                      <div className="mt-1 flex gap-0.5">
-                        {[1, 2, 3, 4, 5].map((star) => (
-                          <button
-                            key={star}
-                            onClick={() => rateCapture(c.id, c.quality_rating === star ? null : star)}
-                            className={`text-xs leading-none ${
-                              c.quality_rating != null && star <= c.quality_rating ? "text-amber-500" : "text-muted"
-                            }`}
-                            aria-label={`Rate ${star} star${star === 1 ? "" : "s"}`}
-                          >
-                            ★
-                          </button>
-                        ))}
+                      <div className="mt-1">
+                        <StarRating rating={c.quality_rating} onRate={(rating) => rateCapture(c.id, rating)} />
                       </div>
                     )}
                     {!galleryView && c.taken_at && (

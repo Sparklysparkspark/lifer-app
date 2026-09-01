@@ -11,13 +11,13 @@ import OfflinePacksPage from "./pages/OfflinePacksPage";
 import TripsPage from "./pages/TripsPage";
 import TripDetailPage from "./pages/TripDetailPage";
 import ArchivedSpeciesPage from "./pages/ArchivedSpeciesPage";
+import TrashedPhotosPage from "./pages/TrashedPhotosPage";
 import GuidePage from "./pages/GuidePage";
 import ForgotPasswordPage from "./pages/ForgotPasswordPage";
 import ResetPasswordPage from "./pages/ResetPasswordPage";
 import MigrationStatusIndicator from "./components/MigrationStatusIndicator";
 import UploadQueueBanner from "./components/UploadQueueBanner";
-import UpdateAvailableBanner from "./components/UpdateAvailableBanner";
-import TrafficLights from "./components/TrafficLights";
+import UpdatesBanner from "./components/UpdatesBanner";
 import TitleBarDragRegion from "./components/TitleBarDragRegion";
 import { LoadingScreen } from "./components/LoadingScreen";
 
@@ -34,8 +34,7 @@ export default function App() {
       <TitleBarDragRegion />
       <MigrationStatusIndicator />
       <UploadQueueBanner />
-      <UpdateAvailableBanner />
-      <TrafficLights />
+      <UpdatesBanner />
       <Routes>
       <Route path="/login" element={<LoginPage />} />
       <Route path="/forgot-password" element={<ForgotPasswordPage />} />
@@ -85,6 +84,14 @@ export default function App() {
         element={
           <RequireAuth>
             <SettingsPage />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/trash"
+        element={
+          <RequireAuth>
+            <TrashedPhotosPage />
           </RequireAuth>
         }
       />

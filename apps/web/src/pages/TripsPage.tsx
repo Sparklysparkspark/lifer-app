@@ -19,6 +19,7 @@ export default function TripsPage() {
   const [trips, setTrips] = useState<TripSummary[] | null>(null);
   const [loadError, setLoadError] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [building, setBuilding] = useState(false);
   const [name, setName] = useState("");
   const [chosenFolder, setChosenFolder] = useState<string | null>(null);
   const [browsingFolder, setBrowsingFolder] = useState(false);
@@ -68,6 +69,26 @@ export default function TripsPage() {
     }
   }
 
+  // "Build a Trip" — the opposite of "Import Trip": instead of pointing at a folder the user
+  // already organized by hand, this creates a brand-new "Wildlife" folder under wherever they
+  // pick and lands on that trip's own detail page in upload mode (see TripDetailPage.tsx's own
+  // ?mode=build handling), ready to add photos directly rather than requiring the user to file
+  // them into the right subfolders externally first.
+  async function buildTrip(e: React.FormEvent) {
+    e.preventDefault();
+    if (!name.trim() || !chosenFolder) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const res = await api.post<{ id: string }>("/trips/build", { name: name.trim(), parentDir: chosenFolder });
+      navigate(`/trips/${res.id}?mode=build`);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't create this trip");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
     <div className="min-h-screen bg-canvas">
       <header className="page-header flex items-center justify-between border-b border-line bg-surface px-6 py-4">
@@ -78,17 +99,36 @@ export default function TripsPage() {
         <div className="flex items-center gap-2">
           <InfoTip paragraphs={TRIPS_INFO_PARAGRAPHS} align="right" />
           <button
-            onClick={() => setCreating((c) => !c)}
+            onClick={() => {
+              setBuilding(false);
+              setCreating((c) => !c);
+              setChosenFolder(null);
+              setError(null);
+            }}
+            className="rounded-md border border-line px-3 py-1.5 text-sm font-medium text-ink hover:bg-surface-muted"
+          >
+            {creating && !building ? "Cancel" : "Import Trip"}
+          </button>
+          <button
+            onClick={() => {
+              setCreating(false);
+              setBuilding((b) => !b);
+              setChosenFolder(null);
+              setError(null);
+            }}
             className="rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-accent-fg"
           >
-            {creating ? "Cancel" : "New trip"}
+            {building ? "Cancel" : "Build a Trip"}
           </button>
         </div>
       </header>
 
       <main className="space-y-6 p-6">
-        {creating && (
-          <form onSubmit={createTrip} className="max-w-md space-y-3 rounded-lg border border-line bg-surface p-4">
+        {(creating || building) && (
+          <form
+            onSubmit={building ? buildTrip : createTrip}
+            className="max-w-md space-y-3 rounded-lg border border-line bg-surface p-4"
+          >
             <div>
               <label className="mb-1 block text-sm font-medium text-ink">Name</label>
               <input
@@ -101,7 +141,9 @@ export default function TripsPage() {
               />
             </div>
             <div>
-              <label className="mb-1 block text-sm font-medium text-ink">Wildlife folder</label>
+              <label className="mb-1 block text-sm font-medium text-ink">
+                {building ? "Where should the trip folder go?" : "Wildlife folder"}
+              </label>
               {chosenFolder && !browsingFolder ? (
                 <div className="flex items-center gap-2">
                   <code className="flex-1 truncate rounded-md border border-line px-3 py-2 text-xs">{chosenFolder}</code>
@@ -130,6 +172,11 @@ export default function TripsPage() {
                   Choose a folder…
                 </button>
               )}
+              {building && chosenFolder && (
+                <p className="mt-1 text-xs text-muted">
+                  Lifer will create "{name.trim() || "(name)"}/Wildlife" inside this folder.
+                </p>
+              )}
             </div>
             {error && <p className="text-sm text-red-600">{error}</p>}
             <button
@@ -137,7 +184,7 @@ export default function TripsPage() {
               disabled={saving || !name.trim() || !chosenFolder}
               className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-accent-fg disabled:opacity-50"
             >
-              {saving ? "Creating…" : "Create trip"}
+              {saving ? "Creating…" : building ? "Create folder & start" : "Create trip"}
             </button>
           </form>
         )}

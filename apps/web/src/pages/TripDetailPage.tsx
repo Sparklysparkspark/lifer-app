@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useParams, useSearchParams } from "react-router-dom";
+import RawUpload from "../components/RawUpload";
+import PhotoImportRows from "../components/PhotoImportRows";
 import type { CollectionItem } from "@lifer/shared";
 import { api, ApiError } from "../api/client";
 import { Spinner } from "../components/LoadingScreen";
@@ -32,6 +34,8 @@ interface TripDetail {
 
 interface TripPhoto {
   photoId: string;
+  width: number | null;
+  height: number | null;
   captureId: string;
   speciesId: string;
   scientificName: string;
@@ -82,6 +86,11 @@ type View = "gallery" | "species";
 // and a scan actually finds something — never open by default.
 export default function TripDetailPage() {
   const { id } = useParams<{ id: string }>();
+  // Set only by TripsPage's "Build a Trip" flow (a fresh, empty Wildlife folder it just
+  // created) — shows an upload panel in the empty state below instead of the normal "scan an
+  // existing folder" prompt, since there's deliberately nothing on disk yet to scan.
+  const [searchParams] = useSearchParams();
+  const buildMode = searchParams.get("mode") === "build";
   const [trip, setTrip] = useState<TripDetail | null>(null);
   const [photos, setPhotos] = useState<TripPhoto[] | null>(null);
   const [speciesItems, setSpeciesItems] = useState<CollectionItem[] | null>(null);
@@ -114,6 +123,17 @@ export default function TripDetailPage() {
 
   const [relocating, setRelocating] = useState(false);
   const [relocateError, setRelocateError] = useState<string | null>(null);
+
+  // Gallery multi-select delete — same pattern as GalleryPage/SpeciesDetailPage: a "Select"
+  // toggle for the photo grid (distinct from `selected`, which is the import-review-row
+  // selection above), a toolbar with the count + Delete selected, and one shared confirmation
+  // dialog for both single-photo and batch delete.
+  const [gallerySelectMode, setGallerySelectMode] = useState(false);
+  const [selectedPhotoCaptureIds, setSelectedPhotoCaptureIds] = useState<Set<string>>(new Set());
+  const [confirmingDeleteCaptureId, setConfirmingDeleteCaptureId] = useState<string | null>(null);
+  const [confirmingBatchDeletePhotos, setConfirmingBatchDeletePhotos] = useState(false);
+  const [deletingPhoto, setDeletingPhoto] = useState(false);
+  const [deleteRawTooPhotos, setDeleteRawTooPhotos] = useState(false);
 
   // Same dismiss-on-outside-click as SpeciesDetailPage's own "⋯" photo menu — scoped to
   // clicks outside the menu itself so its own buttons still work normally.
@@ -329,6 +349,46 @@ export default function TripDetailPage() {
     }
   }
 
+  async function confirmDeletePhoto(captureId: string) {
+    setDeletingPhoto(true);
+    try {
+      await api.delete(`/captures/${captureId}`);
+      setConfirmingDeleteCaptureId(null);
+      load();
+    } finally {
+      setDeletingPhoto(false);
+    }
+  }
+
+  function togglePhotoSelected(captureId: string) {
+    setSelectedPhotoCaptureIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(captureId)) next.delete(captureId);
+      else next.add(captureId);
+      return next;
+    });
+  }
+
+  function exitGallerySelectMode() {
+    setGallerySelectMode(false);
+    setSelectedPhotoCaptureIds(new Set());
+  }
+
+  const selectedPhotosHaveRaw = (photos ?? []).some((p) => selectedPhotoCaptureIds.has(p.captureId) && p.hasRaw);
+
+  async function confirmDeleteSelectedPhotos() {
+    setDeletingPhoto(true);
+    try {
+      await api.post("/captures/batch-delete", { captureIds: [...selectedPhotoCaptureIds], deleteRaw: deleteRawTooPhotos });
+      setConfirmingBatchDeletePhotos(false);
+      setDeleteRawTooPhotos(false);
+      exitGallerySelectMode();
+      load();
+    } finally {
+      setDeletingPhoto(false);
+    }
+  }
+
   async function relocateFolder() {
     if (!id) return;
     setRelocateError(null);
@@ -383,8 +443,8 @@ export default function TripDetailPage() {
         <div>
           <BackToCollectionLink fallbackTo="/trips" label="Trips" className="text-sm text-muted hover:underline" />
           <h1 className="mt-1 text-lg font-semibold text-ink">{trip.name}</h1>
-          <p className="flex items-center gap-2 truncate text-xs text-muted">
-            <span className="truncate">{trip.sourceFolder}</span>
+          <div className="flex min-w-0 items-center gap-2 text-xs text-muted">
+            <span className="min-w-0 truncate">{trip.sourceFolder}</span>
             <button onClick={relocateFolder} className="shrink-0 underline hover:text-ink">
               Relocate…
             </button>
@@ -392,7 +452,7 @@ export default function TripDetailPage() {
             <span>
               · {photos.length} photo{photos.length === 1 ? "" : "s"}
             </span>
-          </p>
+          </div>
         </div>
         <div className="flex items-center gap-4">
           <div className="flex rounded-md border border-line text-xs">
@@ -428,6 +488,15 @@ export default function TripDetailPage() {
                   aria-label="Photo grid thumbnail size"
                 />
               </label>
+              {gallerySelectMode ? (
+                <button onClick={exitGallerySelectMode} className="text-xs text-muted hover:underline">
+                  Cancel
+                </button>
+              ) : (
+                <button onClick={() => setGallerySelectMode(true)} className="text-xs text-muted hover:underline">
+                  Select
+                </button>
+              )}
             </>
           )}
           <button
@@ -460,6 +529,19 @@ export default function TripDetailPage() {
           </button>
         )}
       </div>
+
+      {gallerySelectMode && (
+        <div className="flex items-center justify-between border-b border-line bg-surface-muted px-6 py-2 text-xs">
+          <span className="text-muted">{selectedPhotoCaptureIds.size} selected</span>
+          <button
+            onClick={() => setConfirmingBatchDeletePhotos(true)}
+            disabled={selectedPhotoCaptureIds.size === 0}
+            className="rounded-md bg-red-600 px-3 py-1 text-xs font-medium text-white hover:bg-red-700 disabled:opacity-40"
+          >
+            Delete selected
+          </button>
+        </div>
+      )}
 
       <main className="space-y-6 p-6">
         {relocateError && <p className="text-sm text-red-600">{relocateError}</p>}
@@ -558,6 +640,20 @@ export default function TripDetailPage() {
               ))}
             </div>
           )
+        ) : photos.length === 0 && pendingImports.length === 0 && buildMode ? (
+          <div className="max-w-2xl space-y-3 rounded-lg border border-line bg-surface p-4">
+            <p className="text-sm text-ink">Drop in this trip's photos, then assign each one to a species below.</p>
+            <PhotoImportRows tripId={id} onImported={load} />
+            <div className="border-t border-line pt-3">
+              {/* speciesId is unused in matchOnly mode (see RawUpload's own doc comment) — a
+                  RAW's match against an already-uploaded trip photo determines its species and
+                  destination on its own, no hint needed since a trip spans many species. */}
+              <RawUpload speciesId="" volumeId="" matchOnly onFiled={load} />
+            </div>
+            <p className="text-xs text-muted">
+              Prefer to organize the folder yourself first? Use "Add more photos" above to scan it instead.
+            </p>
+          </div>
         ) : photos.length === 0 && pendingImports.length === 0 ? (
           <p className="text-muted">
             Nothing imported yet — {reviewRows.length === 0 ? '"Add more photos" to scan this trip\'s folder.' : "assign species above and import."}
@@ -569,6 +665,9 @@ export default function TripDetailPage() {
             items={gridItems}
             columnWidth={thumbSizePx}
             keyFor={(gi) => (gi.kind === "placeholder" ? `pending-${gi.key}` : gi.photo.photoId)}
+            aspectRatioFor={(gi) =>
+              gi.kind === "photo" && gi.photo.width && gi.photo.height ? gi.photo.width / gi.photo.height : null
+            }
             renderItem={(gi) => {
               if (gi.kind === "placeholder") {
                 // A newly-added photo is still being processed (exif read, thumbnail
@@ -588,12 +687,28 @@ export default function TripDetailPage() {
                     thumbSrc={`/api/photos/${photo.photoId}/thumb`}
                     fullSrc={`/api/photos/${photo.photoId}/display`}
                     alt={photo.commonName ?? photo.scientificName}
-                    onClick={() => setLightboxIndex(photoIndex)}
-                    className="block w-full cursor-pointer rounded-md"
+                    onClick={() =>
+                      gallerySelectMode ? togglePhotoSelected(photo.captureId) : setLightboxIndex(photoIndex)
+                    }
+                    className={`block w-full cursor-pointer rounded-md ${
+                      gallerySelectMode && selectedPhotoCaptureIds.has(photo.captureId)
+                        ? "ring-2 ring-accent ring-offset-2"
+                        : ""
+                    }`}
                   />
+                  {gallerySelectMode && (
+                    <input
+                      type="checkbox"
+                      checked={selectedPhotoCaptureIds.has(photo.captureId)}
+                      onChange={() => togglePhotoSelected(photo.captureId)}
+                      className="absolute left-2 top-2 h-4 w-4 accent-accent"
+                      aria-label="Select photo"
+                    />
+                  )}
                   {showLabels && <p className="mt-1 truncate text-[11px] text-muted">{photo.commonName ?? photo.scientificName}</p>}
                   {/* Same "⋯" hover-menu pattern as SpeciesDetailPage's own photo gallery —
                      parity means the same interaction, not just the same end result. */}
+                  {!gallerySelectMode && (
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
@@ -604,7 +719,8 @@ export default function TripDetailPage() {
                   >
                     ⋯
                   </button>
-                  {openMenuCaptureId === photo.captureId && (
+                  )}
+                  {!gallerySelectMode && openMenuCaptureId === photo.captureId && (
                     <div ref={openMenuRef} className="absolute right-1 top-7 z-10 whitespace-nowrap rounded-md border border-line bg-surface py-1 text-xs shadow-lg">
                       <button
                         onClick={() =>
@@ -637,6 +753,15 @@ export default function TripDetailPage() {
                           Download RAW
                         </a>
                       )}
+                      <button
+                        onClick={() => {
+                          setOpenMenuCaptureId(null);
+                          setConfirmingDeleteCaptureId(photo.captureId);
+                        }}
+                        className="block w-full border-t border-line px-3 py-1.5 text-left text-red-600 hover:bg-red-50"
+                      >
+                        Delete Photo
+                      </button>
                     </div>
                   )}
                 </div>
@@ -666,6 +791,82 @@ export default function TripDetailPage() {
             load();
           }}
         />
+      )}
+
+      {confirmingDeleteCaptureId && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          onClick={() => setConfirmingDeleteCaptureId(null)}
+        >
+          <div className="w-full max-w-sm rounded-lg border border-line bg-surface p-4 shadow-lg" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-sm font-medium text-ink">Delete this photo?</h3>
+            <p className="mt-2 text-xs text-muted">
+              Deleted photos go to Trash for 7 days first, where you can still restore them. After 7 days they're gone
+              for good and can't be recovered.
+            </p>
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                onClick={() => setConfirmingDeleteCaptureId(null)}
+                className="rounded-md px-3 py-1.5 text-xs text-muted hover:bg-surface-muted"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => confirmDeletePhoto(confirmingDeleteCaptureId)}
+                disabled={deletingPhoto}
+                className="rounded-md bg-red-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-700 disabled:opacity-40"
+              >
+                {deletingPhoto ? "Deleting…" : "Delete"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {confirmingBatchDeletePhotos && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          onClick={() => setConfirmingBatchDeletePhotos(false)}
+        >
+          <div className="w-full max-w-sm rounded-lg border border-line bg-surface p-4 shadow-lg" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-sm font-medium text-ink">
+              Delete {selectedPhotoCaptureIds.size} photo{selectedPhotoCaptureIds.size === 1 ? "" : "s"}?
+            </h3>
+            <p className="mt-2 text-xs text-muted">
+              Deleted photos go to Trash for 7 days first, where you can still restore them. After 7 days they're gone
+              for good and can't be recovered.
+            </p>
+            {selectedPhotosHaveRaw && (
+              <label className="mt-3 flex items-center gap-2 text-xs text-ink">
+                <input
+                  type="checkbox"
+                  checked={deleteRawTooPhotos}
+                  onChange={(e) => setDeleteRawTooPhotos(e.target.checked)}
+                  className="h-3.5 w-3.5"
+                />
+                Also delete the matching RAW file when this is permanently removed
+              </label>
+            )}
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                onClick={() => {
+                  setConfirmingBatchDeletePhotos(false);
+                  setDeleteRawTooPhotos(false);
+                }}
+                className="rounded-md px-3 py-1.5 text-xs text-muted hover:bg-surface-muted"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmDeleteSelectedPhotos}
+                disabled={deletingPhoto}
+                className="rounded-md bg-red-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-700 disabled:opacity-40"
+              >
+                {deletingPhoto ? "Deleting…" : "Delete"}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
