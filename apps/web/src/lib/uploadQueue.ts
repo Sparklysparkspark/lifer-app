@@ -9,6 +9,36 @@ export interface UploadJob {
    *  banner distinguish "still going" from "just about to be cleared". */
   done: boolean;
   error?: string;
+  /** User chose "skip" on a duplicate-detection prompt — not an error, just never uploaded. */
+  skipped?: boolean;
+}
+
+export interface PossibleDuplicate {
+  captureId: string;
+  speciesName: string;
+  takenAt: string | null;
+  /** false means this was caught by visual similarity (an edited/re-exported copy of a photo
+   *  you already have), not a byte-for-byte identical file — see uploads/routes.ts's
+   *  /uploads/inspect, which falls back to embedding similarity when the file hash alone finds
+   *  nothing. */
+  exact: boolean;
+}
+
+/** POSTs the file to /uploads/inspect (already computes EXIF/keywords for auto-matching) and
+ *  reads back its possibleDuplicate field — a real network round trip per file, which is why
+ *  this is only ever called when a caller opts in via onDuplicateDetected, never unconditionally
+ *  for every upload. */
+async function checkDuplicate(file: File): Promise<PossibleDuplicate | null> {
+  const form = new FormData();
+  form.append("file", file);
+  try {
+    const res = await api.post<{ possibleDuplicate: PossibleDuplicate | null }>("/uploads/inspect", form);
+    return res.possibleDuplicate;
+  } catch {
+    // Inspection failing (a transient network blip, say) shouldn't block the real upload —
+    // worst case, a genuine duplicate goes unflagged this one time.
+    return null;
+  }
 }
 
 interface QueueState {
@@ -18,6 +48,12 @@ interface QueueState {
    *  mid-write could actually corrupt a file. */
   targetsExternalDrive: boolean;
   justFinishedAt: number | null;
+  /** A duplicate was found for a file whose upload is paused waiting on the user's choice —
+   *  surfaced through the SAME global banner every other upload state goes through
+   *  (UploadQueueBanner.tsx), not a dialog local to whichever page enqueued the file: that page
+   *  (e.g. UploadDropzone's parent) may have already closed/unmounted by the time this async
+   *  check comes back, same reason progress/errors are already global instead of per-caller. */
+  pendingDuplicate: { jobId: string; fileName: string; info: PossibleDuplicate } | null;
 }
 
 // A module-level store (not a React context) is deliberate: uploads are fired from whichever
@@ -27,7 +63,16 @@ interface QueueState {
 // already survive a component unmount (see api/client.ts — no AbortController tied to
 // anything); this store just gives every other component a way to see progress they didn't
 // personally kick off.
-let state: QueueState = { jobs: [], targetsExternalDrive: false, justFinishedAt: null };
+let state: QueueState = { jobs: [], targetsExternalDrive: false, justFinishedAt: null, pendingDuplicate: null };
+const duplicateResolvers = new Map<string, (choice: "import" | "skip") => void>();
+
+/** Called by UploadQueueBanner's confirm UI — resolves the paused upload task waiting on this
+ *  jobId, and clears the prompt from global state. */
+export function resolveDuplicate(jobId: string, choice: "import" | "skip"): void {
+  duplicateResolvers.get(jobId)?.(choice);
+  duplicateResolvers.delete(jobId);
+  setState({ pendingDuplicate: null });
+}
 const listeners = new Set<() => void>();
 
 function setState(next: Partial<QueueState>) {
@@ -72,6 +117,10 @@ export function enqueueUploads(
   opts: {
     volumeId?: string;
     targetsExternalDrive?: boolean;
+    /** "Build a Trip" destination override — see uploads/routes.ts's own tripId handling.
+     *  Files land under that trip's own folder and get tagged with trip_id instead of the
+     *  default ORIGINALS_DIR/no-trip behavior. */
+    tripId?: string;
     /** Fires after EACH file's own upload settles (success or failure), not just once the
      *  whole batch finishes — lets the species page refresh and show that photo immediately
      *  instead of every uploaded photo popping in at once only after the slowest one in the
@@ -93,11 +142,21 @@ export function enqueueUploads(
     const job = jobs[i];
     pending.push(async () => {
       try {
+        const dup = await checkDuplicate(file);
+        if (dup) {
+          setState({ pendingDuplicate: { jobId: job.id, fileName: job.fileName, info: dup } });
+          const choice = await new Promise<"import" | "skip">((resolve) => duplicateResolvers.set(job.id, resolve));
+          if (choice === "skip") {
+            job.skipped = true;
+            return;
+          }
+        }
         const form = new FormData();
         form.append("mode", "store");
         form.append("speciesId", speciesId);
         form.append("file", file);
         if (opts.volumeId) form.append("volumeId", opts.volumeId);
+        if (opts.tripId) form.append("tripId", opts.tripId);
         await api.post("/uploads", form);
       } catch (err) {
         job.error = err instanceof ApiError ? err.message : "Upload failed";

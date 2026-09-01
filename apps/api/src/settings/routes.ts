@@ -168,13 +168,14 @@ export async function recoverInterruptedStorageMigration(): Promise<void> {
 // the user put it, and is never Lifer's to relocate.
 export async function settingsRoutes(app: FastifyInstance): Promise<void> {
   app.get("/settings", { preHandler: requireAuth }, async (request) => {
-    const res = await pool.query<{ organize_originals_by_year: boolean; hide_obscure_species: boolean }>(
-      `SELECT organize_originals_by_year, hide_obscure_species FROM users WHERE id = $1`,
+    const res = await pool.query<{ organize_originals_by_year: boolean; hide_obscure_species: boolean; species_suggest_enabled: boolean }>(
+      `SELECT organize_originals_by_year, hide_obscure_species, species_suggest_enabled FROM users WHERE id = $1`,
       [request.user!.id],
     );
     return {
       organizeOriginalsByYear: res.rows[0]?.organize_originals_by_year ?? false,
       hideObscureSpecies: res.rows[0]?.hide_obscure_species ?? true,
+      speciesSuggestEnabled: res.rows[0]?.species_suggest_enabled ?? true,
     };
   });
 
@@ -192,6 +193,15 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
     if (typeof enabled !== "boolean") return reply.code(400).send({ error: "enabled must be a boolean" });
     await pool.query(`UPDATE users SET hide_obscure_species = $1 WHERE id = $2`, [enabled, request.user!.id]);
     return { hideObscureSpecies: enabled };
+  });
+
+  // Experimental (see species/embeddings.ts) — on by default since it's purely local/on-device,
+  // but a user may still want to turn off the suggestion cards while it's being tuned.
+  app.put<{ Body: { enabled?: boolean } }>("/settings/species-suggest", { preHandler: requireAuth }, async (request, reply) => {
+    const { enabled } = request.body ?? {};
+    if (typeof enabled !== "boolean") return reply.code(400).send({ error: "enabled must be a boolean" });
+    await pool.query(`UPDATE users SET species_suggest_enabled = $1 WHERE id = $2`, [enabled, request.user!.id]);
+    return { speciesSuggestEnabled: enabled };
   });
 
   app.post("/settings/reorganize-originals", { preHandler: requireAuth }, async (request) => {

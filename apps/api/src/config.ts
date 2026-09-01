@@ -122,3 +122,22 @@ export const APP_URL = process.env.APP_URL ?? `http://localhost:${PORT}`;
 // development/testing against a differently-served index.
 export const PACK_INDEX_URL =
   process.env.PACK_INDEX_URL ?? "https://github.com/Sparklysparkspark/lifer-app/releases/download/packs-latest/pack-index.json";
+
+// Species auto-suggest (see species/embeddings.ts). A quantized CLIP ViT-L/14 vision encoder —
+// ~307MB, downloaded automatically on first use (or bundled — see resolveModelPath), same
+// "just a URL to a static file" shape as PACK_INDEX_URL/MAP_DOWNLOAD_URL above, so no new
+// hosting infrastructure is needed. Cached under APP_DATA_DIR once fetched (see
+// ensureModelDownloaded), never re-fetched unless EMBEDDING_MODEL_VERSION changes. Upgraded
+// from the original ViT-B/32 after measuring same-species-vs-cross-species cosine similarity
+// gap on this app's own reference photos: B/32 0.174, ViT-B/16 0.179 (marginal), ViT-L/14
+// 0.207 (a real, meaningfully bigger gap — the size/accuracy tradeoff worth paying). Not
+// BioCLIP: BioCLIP has no ready-made ONNX export, and an earlier test of a mislabeled
+// "BioCLIP-2" ONNX port actually measured WORSE than plain CLIP on this app's own data.
+export const EMBEDDING_MODEL_URL =
+  process.env.EMBEDDING_MODEL_URL ?? "https://huggingface.co/Xenova/clip-vit-large-patch14/resolve/main/onnx/vision_model_quantized.onnx";
+// Bumped whenever EMBEDDING_MODEL_URL points at a different model — every stored vector is
+// tagged with the version it was computed under (capture_embeddings/species_reference_embeddings
+// .model_version) so vectors from two different models are never compared against each other
+// (see embeddings.ts's cosine-ranking code) and the backfill job knows a stale vector from a
+// current one.
+export const EMBEDDING_MODEL_VERSION = "clip-vit-l14-quantized-v1";
