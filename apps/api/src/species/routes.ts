@@ -3,7 +3,13 @@ import { access as fsAccess } from "node:fs/promises";
 import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import { pool } from "../db.js";
 import { requireAuth } from "../auth/session.js";
-import { enrichSpecies, persistEnrichment, fetchAnyGallery, persistGalleryPromotingMainIfMissing } from "./lazyEnrich.js";
+import {
+  enrichSpecies,
+  persistEnrichment,
+  fetchAnyGallery,
+  persistGalleryPromotingMainIfMissing,
+  downloadAndCacheImage,
+} from "./lazyEnrich.js";
 import { MEDIA_CACHE_BUST, SINGLE_USER_MODE } from "../config.js";
 import { resolveOriginalPath } from "../storageVolumes/resolve.js";
 
@@ -31,24 +37,32 @@ export async function speciesRoutes(app: FastifyInstance): Promise<void> {
     }
 
     // pg_trgm similarity search across common + scientific name (spec §9 Phase 2: fuzzy search),
-    // plus every known alias (common_name_aliases — e.g. "Peacock" finds "Indian Peafowl",
+    // every known alias (common_name_aliases — e.g. "Peacock" finds "Indian Peafowl",
     // "Coin-Bearing Frogfish" finds "Spotfin Frogfish") so a search only matching the ONE name
     // our tie-break logic picked as primary doesn't come up empty for someone who knows the
-    // species by a different real name. A fully extinct species (no living individual
-    // anywhere, wild or captive — see species_traits.fully_extinct's own comment) can never be
-    // photographed, so it's excluded from the picker entirely rather than offered as a choice.
+    // species by a different real name, AND genus/family — so typing "Anas" (a genus) or
+    // "Anatidae" (a family) surfaces every species in it, not just an exact species match.
+    // Genus/family matches rank below a real name/alias match (ILIKE prefix only, no trigram
+    // fuzziness — "Anas" fuzzy-matching some unrelated genus that merely LOOKS similar would be
+    // a worse experience than requiring the exact rank name here) so searching a common bird's
+    // actual name still surfaces it first even if it also happens to share a genus prefix with
+    // something else. A fully extinct species (no living individual anywhere, wild or captive —
+    // see species_traits.fully_extinct's own comment) can never be photographed, so it's
+    // excluded from the picker entirely rather than offered as a choice.
     const res = await pool.query(
       `SELECT s.id, s.scientific_name, s.common_name,
               GREATEST(
                 similarity(s.common_name, $1),
                 similarity(s.scientific_name, $1),
-                COALESCE((SELECT MAX(similarity(a, $1)) FROM unnest(s.common_name_aliases) a), 0)
+                COALESCE((SELECT MAX(similarity(a, $1)) FROM unnest(s.common_name_aliases) a), 0),
+                CASE WHEN s.genus ILIKE $1 || '%' OR s.family ILIKE $1 || '%' THEN 0.3 ELSE 0 END
               ) AS rank
        FROM species s
        LEFT JOIN species_traits t ON t.species_id = s.id
        WHERE (
          s.common_name % $1 OR s.scientific_name % $1 OR s.common_name ILIKE '%' || $1 || '%'
          OR EXISTS (SELECT 1 FROM unnest(s.common_name_aliases) a WHERE a % $1 OR a ILIKE '%' || $1 || '%')
+         OR s.genus ILIKE $1 || '%' OR s.family ILIKE $1 || '%'
        )
          AND COALESCE(t.fully_extinct, false) = false
        ORDER BY rank DESC
@@ -82,11 +96,20 @@ export async function speciesRoutes(app: FastifyInstance): Promise<void> {
       // having fetched all of them eagerly (8+ hours for species that may never be viewed).
       // enriched_at means "already tried," regardless of outcome, so a species with nothing
       // usable isn't re-fetched on every view. SINGLE_USER_MODE (the desktop build — see
-      // api.rs) never takes this path: a self-hosted install's own data comes exclusively from
-      // downloaded packs (see offlinePacks/routes.ts), and a species missing pack data should
-      // read as "pack not installed," never as a live iNaturalist/Wikipedia call the "fully
-      // offline" install was never supposed to make.
-      if (!species.enriched_at && !SINGLE_USER_MODE) {
+      // api.rs) blocks this path ONLY for a species some downloaded pack actually claims to
+      // cover (pack_species, migration 054) — that species missing pack data should read as
+      // "pack not installed," never as a live call the "fully offline" install wasn't supposed
+      // to make for it. A species NOT covered by any downloaded pack at all (e.g. photographed
+      // somewhere with no offline pack downloaded yet, or a taxon group with no pack built yet)
+      // has no offline promise to keep in the first place, so a live call for THAT species is
+      // a real improvement (a real photo/gallery instead of a permanently blank page), not a
+      // violation of the guarantee.
+      const packCoverageRes = SINGLE_USER_MODE
+        ? await pool.query(`SELECT 1 FROM pack_species WHERE species_id = $1 LIMIT 1`, [id])
+        : null;
+      const liveCallsAllowed = !SINGLE_USER_MODE || (packCoverageRes?.rowCount ?? 0) === 0;
+
+      if (!species.enriched_at && liveCallsAllowed) {
         // No skipGallery here (unlike enrich-all-species.ts's bulk pass), so this always runs
         // the full gallery fetch including the slow Wikipedia/Commons fallback — safe to mark
         // gallery_backfilled_at done immediately rather than leaving it for the branch below.
@@ -102,7 +125,7 @@ export async function speciesRoutes(app: FastifyInstance): Promise<void> {
           [id],
         );
         species = speciesRes.rows[0];
-      } else if (!species.gallery_backfilled_at && !SINGLE_USER_MODE) {
+      } else if (!species.gallery_backfilled_at && liveCallsAllowed) {
         // Backfills the gallery for species the bulk overnight pass (enrich-all-species.ts)
         // already marked enriched_at on but deliberately skipped the slow Wikipedia fallback
         // for (see lazyEnrich.ts's skipGallery comment) — paid once, on-demand, the first
@@ -136,7 +159,7 @@ export async function speciesRoutes(app: FastifyInstance): Promise<void> {
       const [capturesRes, userSpeciesRes, archivedRes, referencePhotosRes, regionSpeciesRes, endemicRes] =
         await Promise.all([
           pool.query(
-            `SELECT c.*, p.id AS photo_id, p.display_path, p.thumb_path,
+            `SELECT c.*, p.id AS photo_id, p.display_path, p.thumb_path, p.width, p.height,
                     o.ref AS original_ref, o.managed AS original_managed, o.kind AS original_kind,
                     o.volume_id AS original_volume_id, o.volume_relative_path AS original_volume_relative_path,
                     EXISTS (SELECT 1 FROM originals ro WHERE ro.capture_id = c.id AND ro.kind = 'raw') AS has_raw_original
@@ -286,6 +309,47 @@ export async function speciesRoutes(app: FastifyInstance): Promise<void> {
     return { ok: true };
   });
 
+  // A lightweight, enrichment-side-effect-free list of every reference photo (main + gallery)
+  // for one species — used by the species-suggestion cards during import so a user can flip
+  // through every photo this app has of a candidate species to visually compare against their
+  // own new photo, instead of judging off a single thumbnail. Deliberately doesn't trigger
+  // enrichSpecies/fetchAnyGallery like GET /species/:id does — by the time embedding-based
+  // suggestions surface a species at all, it's already been enriched (the reference embedding
+  // that made the match possible is itself derived from these same cached photos).
+  app.get<{ Params: { id: string } }>("/species/:id/reference-photos", { preHandler: requireAuth }, async (request, reply) => {
+    const { id } = request.params;
+    const speciesRes = await pool.query<{
+      reference_photo: string | null;
+      reference_display_path: string | null;
+      reference_credit: string | null;
+    }>(`SELECT reference_photo, reference_display_path, reference_credit FROM species WHERE id = $1`, [id]);
+    const species = speciesRes.rows[0];
+    if (!species) return reply.code(404).send({ error: "Species not found" });
+
+    const galleryRes = await pool.query<{ id: string; photo_url: string; credit: string | null; has_cached_photo: boolean }>(
+      `SELECT id, photo_url, credit, display_path IS NOT NULL AS has_cached_photo
+       FROM species_reference_photos WHERE species_id = $1 ORDER BY sort_order`,
+      [id],
+    );
+
+    const photos: Array<{ url: string; credit: string | null }> = [];
+    if (species.reference_photo || species.reference_display_path) {
+      photos.push({
+        url: species.reference_display_path
+          ? `/api/species/${id}/reference-photo/display?v=${MEDIA_CACHE_BUST}`
+          : species.reference_photo!,
+        credit: species.reference_credit,
+      });
+    }
+    for (const g of galleryRes.rows) {
+      photos.push({
+        url: g.has_cached_photo ? `/api/species/reference-gallery-photo/${g.id}/display?v=${MEDIA_CACHE_BUST}` : g.photo_url,
+        credit: g.credit,
+      });
+    }
+    return { photos };
+  });
+
   // RAWs filed directly into this species' RAW folder by /uploads/raw's unmatched-fallback
   // (species_id set, capture_id null) have no capture to show up alongside in the normal
   // captures list, so they get their own small listing instead of silently existing only on
@@ -359,26 +423,37 @@ export async function speciesRoutes(app: FastifyInstance): Promise<void> {
   for (const kind of ["display", "thumb"] as const) {
     const column = kind === "display" ? "reference_display_path" : "reference_thumb_path";
     app.get<{ Params: { id: string } }>(`/species/:id/reference-photo/${kind}`, { preHandler: requireAuth }, async (request, reply) => {
-      const res = await pool.query<{ path: string | null }>(`SELECT ${column} AS path FROM species WHERE id = $1`, [
-        request.params.id,
-      ]);
-      const filePath = res.rows[0]?.path;
+      const res = await pool.query<{ path: string | null; photo_url: string | null }>(
+        `SELECT ${column} AS path, reference_photo AS photo_url FROM species WHERE id = $1`,
+        [request.params.id],
+      );
+      let filePath = res.rows[0]?.path;
+      const photoUrl = res.rows[0]?.photo_url;
       if (!filePath || !existsSync(filePath)) {
-        if (filePath) {
-          // The column pointed at a file that's genuinely gone (a stale path surviving from a
-          // catalog seed/pack apply that never actually delivered it — see applyChecklist's own
-          // comment on this). Leaving the path set would 404 on this exact URL forever, since
-          // nothing else ever revisits it; clearing both columns lets has_reference_thumb (see
-          // collectionItem.ts) correctly read as "no photo" instead of quietly lying, and a
-          // future pack/enrichment pass is free to fill it back in properly.
-          await pool
-            .query(
-              `UPDATE species SET reference_display_path = NULL, reference_thumb_path = NULL WHERE id = $1`,
-              [request.params.id],
-            )
-            .catch(() => {});
+        // The column pointed at a file that isn't on THIS machine — either genuinely gone, or
+        // (the common case: a catalog seed built on one machine baking in that machine's own
+        // cache path) never existed here in the first place. Since reference_photo (the
+        // original remote URL) is still known, this is a cheap one-time image re-download —
+        // not a live iNaturalist metadata search — so it's safe to do inline on a cache miss
+        // rather than leaving the species permanently photo-less until a bulk pass revisits it.
+        const recovered = photoUrl && (await downloadAndCacheImage(photoUrl, request.params.id));
+        if (recovered) {
+          await pool.query(
+            `UPDATE species SET reference_display_path = $1, reference_thumb_path = $2 WHERE id = $3`,
+            [recovered.displayPath, recovered.thumbPath, request.params.id],
+          );
+          filePath = recovered[column === "reference_display_path" ? "displayPath" : "thumbPath"];
+        } else {
+          if (filePath) {
+            await pool
+              .query(
+                `UPDATE species SET reference_display_path = NULL, reference_thumb_path = NULL WHERE id = $1`,
+                [request.params.id],
+              )
+              .catch(() => {});
+          }
+          return reply.code(404).send({ error: "Reference photo not found" });
         }
-        return reply.code(404).send({ error: "Reference photo not found" });
       }
       return sendCachedFile(request, reply, filePath);
     });
@@ -388,21 +463,32 @@ export async function speciesRoutes(app: FastifyInstance): Promise<void> {
       `/species/reference-gallery-photo/:photoId/${kind}`,
       { preHandler: requireAuth },
       async (request, reply) => {
-        const res = await pool.query<{ path: string | null }>(
-          `SELECT ${galleryColumn} AS path FROM species_reference_photos WHERE id = $1`,
+        const res = await pool.query<{ path: string | null; photo_url: string }>(
+          `SELECT ${galleryColumn} AS path, photo_url FROM species_reference_photos WHERE id = $1`,
           [request.params.photoId],
         );
-        const filePath = res.rows[0]?.path;
+        let filePath = res.rows[0]?.path;
+        const photoUrl = res.rows[0]?.photo_url;
         if (!filePath || !existsSync(filePath)) {
-          if (filePath) {
-            await pool
-              .query(
-                `UPDATE species_reference_photos SET display_path = NULL, thumb_path = NULL WHERE id = $1`,
-                [request.params.photoId],
-              )
-              .catch(() => {});
+          const recovered = photoUrl && (await downloadAndCacheImage(photoUrl, request.params.photoId));
+          if (recovered) {
+            await pool.query(`UPDATE species_reference_photos SET display_path = $1, thumb_path = $2 WHERE id = $3`, [
+              recovered.displayPath,
+              recovered.thumbPath,
+              request.params.photoId,
+            ]);
+            filePath = recovered[galleryColumn === "display_path" ? "displayPath" : "thumbPath"];
+          } else {
+            if (filePath) {
+              await pool
+                .query(
+                  `UPDATE species_reference_photos SET display_path = NULL, thumb_path = NULL WHERE id = $1`,
+                  [request.params.photoId],
+                )
+                .catch(() => {});
+            }
+            return reply.code(404).send({ error: "Gallery photo not found" });
           }
-          return reply.code(404).send({ error: "Gallery photo not found" });
         }
         return sendCachedFile(request, reply, filePath);
       },
