@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import type { CollectionItem, RegionSpeciesResponse, RegionSpeciesResult, RegionSummary } from "@lifer/shared";
+import { TAXON_CLASS_LABEL, type CollectionItem, type RegionSpeciesResponse, type RegionSpeciesResult, type RegionSummary } from "@lifer/shared";
 import { api, ApiError } from "../api/client";
 import { useAuth } from "../hooks/useAuth";
 import { useDesktopMode } from "../hooks/useDesktopMode";
@@ -43,10 +43,13 @@ function collectionCacheKey(
   return JSON.stringify([regionId, taxonFilter, [...seaZoneIds].sort(), includeLand]);
 }
 
+// "Fish" (not the shared map's "Bony Fish") is kept here deliberately — this filter only ever
+// offers actinopterygii on its own, with no sibling "Sharks & Rays" etc. to disambiguate from
+// yet, so the shorter, more casual label reads better in this narrower context.
 const TAXON_LABEL: Record<TaxonFilter, string> = {
   all: "All taxa",
-  aves: "Birds",
-  mammalia: "Mammals",
+  aves: TAXON_CLASS_LABEL.aves,
+  mammalia: TAXON_CLASS_LABEL.mammalia,
   actinopterygii: "Fish",
 };
 
