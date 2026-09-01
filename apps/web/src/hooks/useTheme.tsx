@@ -4,9 +4,8 @@ type Theme = "light" | "dark";
 type Preference = Theme | "system";
 const STORAGE_KEY = "lifer-theme";
 
-// Same direct window.__TAURI__ access TrafficLights.tsx uses for its own window-chrome
-// commands — a no-op outside the desktop app (a plain browser tab/Docker deployment never has
-// __TAURI__ at all), so this is safe to call unconditionally.
+// A no-op outside the desktop app (a plain browser tab/Docker deployment never has __TAURI__
+// at all), so this is safe to call unconditionally.
 function tauriInvoke(): ((cmd: string, args?: unknown) => Promise<unknown>) | null {
   const tauri = (window as unknown as { __TAURI__?: { core: { invoke: (cmd: string, args?: unknown) => Promise<unknown> } } }).__TAURI__;
   return tauri?.core.invoke ?? null;

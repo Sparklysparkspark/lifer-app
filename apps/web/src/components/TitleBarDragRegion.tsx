@@ -19,12 +19,29 @@ export default function TitleBarDragRegion() {
   const location = useLocation();
 
   useEffect(() => {
-    if (!document.documentElement.hasAttribute("data-mac-app")) return;
+    // No platform gate here — data-tauri-drag-region is a plain data attribute with no
+    // meaning at all outside Tauri's own webview, so tagging it unconditionally is harmless
+    // in a browser tab or the Docker/server deployment, and removes one more thing (the
+    // data-mac-app attribute actually having been set correctly) that had to go right for
+    // dragging to work at all.
     const header = document.querySelector<HTMLElement>("header.page-header");
     if (!header) return;
     header.setAttribute("data-tauri-drag-region", "");
     return () => header.removeAttribute("data-tauri-drag-region");
   }, [location.pathname]);
 
-  return null;
+  // Always-mounted fallback, independent of the header-tagging effect above (and of whatever
+  // was preventing that from working reliably — never fully root-caused, since there's no
+  // devtools access into a running release build to inspect it live): a fixed strip spanning
+  // the FULL WIDTH of the window, matching index.css's own [data-mac-app] header.page-header
+  // clearance height (56px) — that space is kept genuinely empty of real content by design
+  // (it exists purely to clear the native traffic lights), so overlaying it full-width here
+  // never risks swallowing a click meant for a real header button/link sitting below it.
+  // Only on macOS — Windows/Linux keep Tauri's normal decorated window (a real OS title bar
+  // outside the webview entirely), so this would just be a dead click-zone over real page
+  // content there for no benefit.
+  if (window.liferSetup?.platform !== "darwin") return null;
+  return (
+    <div data-tauri-drag-region="" style={{ position: "fixed", top: 0, left: 0, right: 0, height: 56, zIndex: 2147483647 }} />
+  );
 }
