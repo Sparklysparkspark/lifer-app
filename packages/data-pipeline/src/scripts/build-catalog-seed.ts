@@ -22,10 +22,22 @@
 // build-region-pack.ts, which copies real image bytes, not path strings — or a one-time live
 // fetch otherwise).
 //
+// Also writes a small companion `<outputPath's dir>/catalog-manifest.json` — {version, publishedAt}
+// — published to the SAME catalog-latest release alongside the seed itself. An already-installed
+// app (see apps/api/src/species/catalogSeedUpdate.ts) fetches this manifest to check whether a
+// newer catalog is available before downloading the (much larger) seed itself, and to know which
+// version it just applied. `version` is a plain epoch-ms timestamp, not a content hash — pg_dump's
+// own output isn't byte-stable run to run even for identical data (row order, etc), so a hash
+// would falsely read as "always changed"; a build timestamp instead means "was rebuilt at least
+// this recently," which is all a merge-update check actually needs.
+//
 // Usage: DATABASE_URL=postgres://... npx tsx packages/data-pipeline/src/scripts/build-catalog-seed.ts <outputPath.sql.gz>
+// After running, publish both files to the catalog-latest release:
+//   gh release upload catalog-latest <outputPath> <dir>/catalog-manifest.json --clobber
 import { execFileSync } from "node:child_process";
 import { createGzip } from "node:zlib";
-import { createWriteStream } from "node:fs";
+import { createWriteStream, writeFileSync } from "node:fs";
+import path from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { pool } from "../db.js";
@@ -94,6 +106,11 @@ async function main() {
 
     await pipeline(Readable.from(dumpBuffer), createGzip(), createWriteStream(outputPath));
     console.log(`[build-catalog-seed] wrote ${outputPath}`);
+
+    const version = Date.now();
+    const manifestPath = path.join(path.dirname(outputPath), "catalog-manifest.json");
+    writeFileSync(manifestPath, JSON.stringify({ version, publishedAt: new Date(version).toISOString() }, null, 2));
+    console.log(`[build-catalog-seed] wrote ${manifestPath} (version ${version})`);
   } finally {
     for (const { table, idColumn, rows } of backups) {
       const columns = PATH_COLUMNS[table];

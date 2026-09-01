@@ -10,6 +10,7 @@ import { originalsFolder } from "../uploads/organizedPath.js";
 import { resolveSpeciesFolderName } from "../uploads/speciesFolderName.js";
 import { extractExif } from "../uploads/exif.js";
 import { readLocalSettings, writeLocalSettings } from "../localSettings.js";
+import { checkCatalogUpdate, applyCatalogUpdate } from "../species/catalogSeedUpdate.js";
 
 // Lifer's own subfolders under DATA_DIR (see config.ts) — implementation detail, never
 // something a user should navigate into when picking a library folder.
@@ -218,6 +219,21 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
     if (typeof enabled !== "boolean") return reply.code(400).send({ error: "enabled must be a boolean" });
     await pool.query(`UPDATE users SET species_suggest_enabled = $1 WHERE id = $2`, [enabled, request.user!.id]);
     return { speciesSuggestEnabled: enabled };
+  });
+
+  // Same "check first, apply on demand" shape as the pack-update flow (offlinePacks/routes.ts) —
+  // see catalogSeedUpdate.ts's own header comment for why this needs to exist at all (the
+  // fresh-install-only restore path never reaches an already-running install).
+  app.get("/settings/catalog-update", { preHandler: requireAuth }, async (request) => {
+    return checkCatalogUpdate(pool, request.user!.id);
+  });
+
+  app.post("/settings/catalog-update/apply", { preHandler: requireAuth }, async (request, reply) => {
+    try {
+      return await applyCatalogUpdate(pool, request.user!.id);
+    } catch (err) {
+      return reply.code(502).send({ error: err instanceof Error ? err.message : "Couldn't apply the catalog update" });
+    }
   });
 
   app.post("/settings/reorganize-originals", { preHandler: requireAuth }, async (request) => {
