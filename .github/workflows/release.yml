@@ -85,7 +85,17 @@ jobs:
               found { print }
             ' CHANGELOG.md > /tmp/changelog-section.md
           fi
+      # Linux only: linuxdeploy (and its bundled AppImage plugins) ship as legacy AppImages that
+      # self-mount via FUSE when executed — current ubuntu-latest (24.04) runners block
+      # unprivileged FUSE mounts via AppArmor even with libfuse2 installed and /dev/fuse
+      # writable (see "Install Linux system dependencies" above), so the mount silently fails
+      # and tauri-bundler only ever surfaces the generic "failed to run linuxdeploy", never the
+      # real underlying error. This env var (respected by the AppImage runtime itself, so it
+      # covers linuxdeploy AND its plugins in one shot) forces extract-and-run instead of a FUSE
+      # mount, which needs no special kernel/container permissions at all. No-op on macOS/Windows.
       - run: npm run dist -w desktop
+        env:
+          APPIMAGE_EXTRACT_AND_RUN: "1"
       # Filename carries the architecture (macos-14 = arm64, macos-13 = Intel/x86_64) so both
       # macOS jobs can upload to the same release without one silently overwriting the other's
       # same-named asset.
