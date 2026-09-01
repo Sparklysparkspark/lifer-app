@@ -22,6 +22,11 @@ export interface RegionSeed {
   // (verified by hand, not guessed); null elsewhere rather than assumed.
   ebirdRegionCode: string | null;
   boundaryGeoJson: unknown | null;
+  // Natural Earth's SOV_A3 sovereignty-group code — shared by a country and its own
+  // geographically-separate territories (e.g. USA and Puerto Rico both carry "US1"). Null for
+  // World/continents; see CountryEntry's own comment in fetch-region-boundary.ts.
+  sovereigntyGroup: string | null;
+  isSovereignDependency: boolean;
 }
 
 // Countries eBird's region-code convention is confirmed for, from earlier hands-on checks —
@@ -34,10 +39,28 @@ export async function buildRegions(): Promise<RegionSeed[]> {
   const countries = await fetchAllCountries();
   const continents = [...new Set(countries.map((c) => c.continent))];
 
-  const regions: RegionSeed[] = [{ name: "World", parentName: null, externalCodes: [], ebirdRegionCode: null, boundaryGeoJson: null }];
+  const regions: RegionSeed[] = [
+    {
+      name: "World",
+      parentName: null,
+      externalCodes: [],
+      ebirdRegionCode: null,
+      boundaryGeoJson: null,
+      sovereigntyGroup: null,
+      isSovereignDependency: false,
+    },
+  ];
 
   for (const continent of continents) {
-    regions.push({ name: continent, parentName: "World", externalCodes: [], ebirdRegionCode: null, boundaryGeoJson: null });
+    regions.push({
+      name: continent,
+      parentName: "World",
+      externalCodes: [],
+      ebirdRegionCode: null,
+      boundaryGeoJson: null,
+      sovereigntyGroup: null,
+      isSovereignDependency: false,
+    });
   }
 
   for (const country of countries) {
@@ -47,6 +70,8 @@ export async function buildRegions(): Promise<RegionSeed[]> {
       externalCodes: [country.iso3],
       ebirdRegionCode: KNOWN_EBIRD_COUNTRY_CODES[country.iso3] ?? null,
       boundaryGeoJson: country.feature,
+      sovereigntyGroup: country.sovereigntyGroup,
+      isSovereignDependency: country.isSovereignDependency,
     });
   }
 

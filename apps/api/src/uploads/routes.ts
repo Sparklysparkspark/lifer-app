@@ -907,8 +907,8 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
 
       const captureRes = await client.query<{ id: string }>(
         `INSERT INTO captures
-           (user_id, species_id, fingerprint, exif_fingerprint, exif_fingerprint_loose, taken_at, lat, lon, camera_model, lens, focal_length_mm, aperture, shutter, iso, trip_id)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+           (user_id, species_id, fingerprint, exif_fingerprint, exif_fingerprint_loose, taken_at, lat, lon, camera_model, lens, focal_length_mm, aperture, shutter, iso, trip_id, region_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
          RETURNING id`,
         [
           userId,
@@ -926,6 +926,7 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
           exif.shutter,
           exif.iso,
           tripId,
+          fields.regionId || null,
         ],
       );
       const captureId = captureRes.rows[0].id;

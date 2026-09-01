@@ -103,6 +103,8 @@ interface SeedRegion {
   externalCodes: string[];
   ebirdRegionCode: string | null;
   boundaryGeoJson: unknown | null;
+  sovereigntyGroup?: string | null;
+  isSovereignDependency?: boolean;
 }
 
 function resolveBuildDir(): string {
@@ -265,15 +267,25 @@ async function main() {
     for (const r of regions) {
       const parentId = r.parentName ? regionIdByName.get(r.parentName) ?? null : null;
       const res = await client.query(
-        `INSERT INTO regions (name, parent_id, external_codes, ebird_region_code, boundary_geojson)
-         VALUES ($1,$2,$3,$4,$5)
+        `INSERT INTO regions (name, parent_id, external_codes, ebird_region_code, boundary_geojson, sovereignty_group, is_sovereign_dependency)
+         VALUES ($1,$2,$3,$4,$5,$6,$7)
          ON CONFLICT (name, parent_id) DO UPDATE SET
            parent_id = EXCLUDED.parent_id,
            external_codes = EXCLUDED.external_codes,
            ebird_region_code = EXCLUDED.ebird_region_code,
-           boundary_geojson = EXCLUDED.boundary_geojson
+           boundary_geojson = EXCLUDED.boundary_geojson,
+           sovereignty_group = EXCLUDED.sovereignty_group,
+           is_sovereign_dependency = EXCLUDED.is_sovereign_dependency
          RETURNING id`,
-        [r.name, parentId, r.externalCodes, r.ebirdRegionCode, r.boundaryGeoJson ? JSON.stringify(r.boundaryGeoJson) : null],
+        [
+          r.name,
+          parentId,
+          r.externalCodes,
+          r.ebirdRegionCode,
+          r.boundaryGeoJson ? JSON.stringify(r.boundaryGeoJson) : null,
+          r.sovereigntyGroup ?? null,
+          r.isSovereignDependency ?? false,
+        ],
       );
       regionIdByName.set(r.name, res.rows[0].id as string);
     }

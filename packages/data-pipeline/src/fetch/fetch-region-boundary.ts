@@ -62,6 +62,23 @@ export interface CountryEntry {
   name: string;
   continent: string;
   feature: GeoJsonFeature;
+  // Natural Earth's SOV_A3 ("US1", "FR1", ...) — a sovereignty-GROUP code shared by every
+  // entry belonging to the same sovereign state, including its own metropolitan/mainland entry.
+  // Different from `iso3` (ADM0_A3): e.g. Puerto Rico's own iso3 is "PRI", but its SOV_A3 is
+  // "US1", the SAME code the United States of America's own entry carries — that shared code
+  // is what lets the UI group "United States of America" with "Puerto Rico"/"U.S. Virgin Is."/
+  // "U.S. Minor Outlying Is." as one sovereignty's territories, even though Natural Earth
+  // already (correctly) places each one under its own true geographic continent rather than
+  // nesting them under the metropolitan country the way admin-1 provinces are nested.
+  sovereigntyGroup: string | null;
+  // True when this entry is a dependency/territory of ANOTHER country, not the primary
+  // sovereign state itself — Natural Earth's SOVEREIGNT property equals NAME for the primary
+  // (France/SOVEREIGNT=France) and differs for its own territories (New Caledonia/SOVEREIGNT=
+  // France). Lets the picker keep its main continent pill list to just the ~195 primary
+  // countries, moving territories into a separate "Other Territories" catch-all instead of
+  // cluttering it (e.g. North America otherwise lists ~15 tiny UK/French/US/Dutch territories
+  // alongside real countries).
+  isSovereignDependency: boolean;
 }
 
 // "-99" is a non-empty, truthy STRING — `a || b` never falls through to `b` for it, so the
@@ -73,6 +90,33 @@ function normalizeIso2(value: string | undefined): string | null {
 }
 
 /** Every country in the world, grouped by continent — local file filtering, no network calls beyond the initial cache fetch. */
+// Whether a country-level Natural Earth feature is a dependency/territory of another sovereign
+// state, rather than the primary state itself. Previously just `SOVEREIGNT !== NAME` — broken
+// for any country whose abbreviated NAME field differs from SOVEREIGNT's always-full form (e.g.
+// NAME="Dominican Rep." vs SOVEREIGNT="Dominican Republic": same country, different strings),
+// which wrongly flagged 19 real sovereign countries (Dominican Republic, Tanzania, Serbia,
+// Bahamas, ...) as territories. Natural Earth's own TYPE field is the authoritative signal for
+// the unambiguous cases; only TYPE="Country" genuinely mixes primary states (France, the
+// Netherlands, Denmark, ...) with their own dependencies (Sint Maarten, Curaçao, Greenland, ...)
+// under the same type, where the NAME/SOVEREIGNT comparison is reliable since none of those
+// primary "Country" entries have an abbreviated NAME.
+export function isSovereignDependencyFromType(properties: { TYPE?: string; SOVEREIGNT?: string; NAME?: string }): boolean {
+  switch (properties.TYPE) {
+    case "Sovereign country":
+      return false; // NE's own label for a primary state — never a territory, regardless of NAME/SOVEREIGNT text.
+    case "Dependency":
+      return true;
+    case "Lease":
+      return true; // e.g. USNB Guantanamo Bay (leased from Cuba), Baikonur (leased from Kazakhstan)
+    case "Sovereignty":
+      return false; // The SOVEREIGN holder's own entry (e.g. Cuba, Kazakhstan), not the leased dependent territory.
+    default:
+      // "Country" (mixes primary states and real dependencies), "Disputed", "Indeterminate": no
+      // single TYPE value settles it, fall back to the NAME/SOVEREIGNT comparison.
+      return properties.SOVEREIGNT !== properties.NAME;
+  }
+}
+
 export async function fetchAllCountries(): Promise<CountryEntry[]> {
   const data = await loadAdmin0();
   return data.features
@@ -92,6 +136,8 @@ export async function fetchAllCountries(): Promise<CountryEntry[]> {
       name: f.properties.NAME as string,
       continent: (f.properties.CONTINENT as string) ?? "Other",
       feature: f,
+      sovereigntyGroup: (f.properties.SOV_A3 as string) ?? null,
+      isSovereignDependency: isSovereignDependencyFromType(f.properties as { TYPE?: string; SOVEREIGNT?: string; NAME?: string }),
     }));
 }
 
@@ -100,6 +146,10 @@ export interface ProvinceEntry {
   name: string;
   feature: GeoJsonFeature;
   isOverseasTerritory: boolean;
+  // Natural Earth's raw admin-1 "type" ("State", "Region", "Province", "Oblast", ...) — stored
+  // per-child on regions.subdivision_type (migration 064) so the UI can say "States"/"Regions"
+  // instead of always "Provinces". Null when the source feature has no type at all.
+  type: string | null;
 }
 
 // Natural Earth's admin1 `type` field distinguishes this per-country in different wording (no
@@ -120,5 +170,6 @@ export async function fetchProvincesForCountry(iso3: string): Promise<ProvinceEn
       name: f.properties.name as string,
       feature: f,
       isOverseasTerritory: OVERSEAS_TERRITORY_TYPES.has(f.properties.type as string),
+      type: (f.properties.type as string) ?? null,
     }));
 }
