@@ -263,6 +263,7 @@ interface ManifestChildRegion {
   boundaryGeoJson: unknown;
   externalCodes: string[];
   species: ManifestSpecies[];
+  isOverseasTerritory: boolean;
 }
 
 // A downloaded country pack should leave its provinces/states ready too, not just the
@@ -282,8 +283,9 @@ async function fetchChildRegionsWithSpecies(
     ebird_region_code: string | null;
     boundary_geojson: unknown;
     external_codes: string[];
+    is_overseas_territory: boolean;
   }>(
-    `SELECT id, name, ebird_region_code, boundary_geojson, external_codes
+    `SELECT id, name, ebird_region_code, boundary_geojson, external_codes, is_overseas_territory
      FROM regions WHERE parent_id = $1 AND occurrence_computed_at IS NOT NULL ORDER BY name`,
     [parentId],
   );
@@ -309,6 +311,7 @@ async function fetchChildRegionsWithSpecies(
       boundaryGeoJson: child.boundary_geojson,
       externalCodes: child.external_codes,
       species: manifestSpecies,
+      isOverseasTerritory: child.is_overseas_territory,
     });
   }
   return children;

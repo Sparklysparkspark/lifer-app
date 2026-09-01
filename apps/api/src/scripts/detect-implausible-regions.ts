@@ -11,13 +11,14 @@
 //      rare vagrants (Steller's Eider, McKay's Bunting) still have several records, while real
 //      misidentification artifacts sit right at 1-2.
 //
-// Two outcomes, deliberately asymmetric in how much they're trusted:
-// - "extinct in the wild" is safe to apply as a pure informational tag wherever the species
-//   appears — it never removes anything, since a real reintroduction population (Spix's
-//   Macaw) can make a species both extinct-in-the-wild AND a legitimately findable target.
-// - "endemic to/restricted to X" is only ever flagged for manual review, never auto-excluded —
-//   matching a free-text place name back to real geography is not reliable enough to trust
-//   blind deletion.
+// Only ever flags "endemic to/restricted to X" for manual review, never auto-excludes —
+// matching a free-text place name back to real geography is not reliable enough to trust blind
+// deletion. "Extinct in the wild" tagging used to also live here (Wikipedia-text pattern
+// matching via iNaturalist), but moved to check-extinction-status.ts, which gets the SAME
+// signal from GBIF's own structured IUCN threatStatus field ("EXTINCT_IN_THE_WILD" — confirmed
+// live for Spix's Macaw) instead of regex against free text — more reliable, and GBIF's
+// distributions endpoint has never shown the sustained rate-limit throttling this script's own
+// iNaturalist calls did on a 20k+ candidate run.
 import { pool } from "../db.js";
 // iNaturalist's own taxon record already carries the full Wikipedia article text in
 // wikipedia_summary (see lazyEnrich.ts's fetchINaturalistTaxon/stripHtml) and is never
@@ -27,7 +28,6 @@ import { pool } from "../db.js";
 import { fetchWithRetry, stripHtml } from "../species/lazyEnrich.js";
 
 const INAT_API = "https://api.inaturalist.org/v1";
-const EXTINCT_IN_WILD_PATTERN = /\bextinct in the wild\b/i;
 const ENDEMIC_PATTERN = /\b(?:endemic to|restricted to|confined to|only found in)\s+((?:(?!\.|,\s+(?:and|but|though)|;)[^.;])+)/i;
 
 async function fetchFullExtract(name: string, rank: "species" | "genus"): Promise<string | null> {
@@ -75,48 +75,42 @@ async function main() {
   console.log(`[detect-implausible] ${res.rows.length} candidate species to check (no-photo or near-single-record-outlier)`);
 
   const reviewFlags: string[] = [];
-  let extinctFound = 0;
   let done = 0;
 
+  let failed = 0;
   for (const species of res.rows) {
     const genus = species.scientific_name.split(" ")[0];
-    const speciesEpithet = species.scientific_name.split(" ")[1] ?? null;
-    const [speciesText, genusText] = await Promise.all([
-      fetchFullExtract(species.scientific_name, "species"),
-      fetchFullExtract(genus, "genus"),
-    ]);
+    let speciesText: string | null;
+    let genusText: string | null;
+    try {
+      // fetchWithRetry already retries on 429/5xx, but a connection-level failure (a transient
+      // network drop, seen for real: ENETUNREACH mid-run) isn't an HTTP response at all, so it
+      // throws straight through. Without this try/catch, one bad request crashed the ENTIRE
+      // run — discarding up to ~40 minutes of already-completed work, since this script has no
+      // per-species "already checked" marker to resume from (unlike check-extinction-status.ts's
+      // extinction_checked_at) — for the sake of one skippable candidate. Logged and skipped
+      // instead; a real, persistent outage still shows up as a big final `failed` count.
+      //
+      // Genus is only fetched as a FALLBACK, not unconditionally — it exists for species with
+      // no Wikipedia article of their own (covered only within a shared genus-level page, see
+      // the genus-match guard below), not as a second opinion for species that already have
+      // real text. Firing both requests via Promise.all every single time was doubling this
+      // script's real request volume against an already-tight rate limit for no benefit on
+      // every well-documented candidate. The (rare) cost: a species WITH its own article that
+      // doesn't mention endemism, whose genus page happens to separately say something relevant
+      // about it specifically, no longer gets checked — accepted given the throughput this
+      // recovers.
+      speciesText = await fetchFullExtract(species.scientific_name, "species");
+      genusText = speciesText ? null : await fetchFullExtract(genus, "genus");
+    } catch (err) {
+      console.error(`[detect-implausible] SKIP ${species.scientific_name}: ${(err as Error).message}`);
+      failed++;
+      done++;
+      continue;
+    }
     const combined = [speciesText, genusText].filter(Boolean).join("\n\n");
     done++;
     if (!combined) continue;
-
-    // The species' own article is always safe to trust, but the genus-level article can
-    // legitimately discuss a sibling species' extinction in the same shared genus page (e.g.
-    // Alaska Sheefish/Stenodus nelma sharing a genus article with the already-extinct
-    // Beloribitsa/Stenodus leucichthys) — a bare pattern match against the whole genus text
-    // can't tell which species the sentence is actually about, so every species sharing that
-    // genus would get tagged. A genus-level match only counts if the species' own name
-    // (epithet or common name) appears within the same ~400-char window as the match — the
-    // species' own article needs no such guard, since it's already about the right species by
-    // construction.
-    const speciesOwnMatch = speciesText ? EXTINCT_IN_WILD_PATTERN.test(speciesText) : false;
-    let genusMatchIsAboutThisSpecies = false;
-    if (genusText) {
-      const match = EXTINCT_IN_WILD_PATTERN.exec(genusText);
-      if (match) {
-        const windowStart = Math.max(0, match.index - 400);
-        const windowEnd = Math.min(genusText.length, match.index + 400);
-        const window = genusText.slice(windowStart, windowEnd);
-        genusMatchIsAboutThisSpecies =
-          (speciesEpithet != null && window.includes(speciesEpithet)) ||
-          (species.common_name != null && window.includes(species.common_name));
-      }
-    }
-
-    if (speciesOwnMatch || genusMatchIsAboutThisSpecies) {
-      await pool.query(`UPDATE species_traits SET extinct_in_wild = true WHERE species_id = $1`, [species.id]);
-      extinctFound++;
-      console.log(`[extinct-in-wild] ${species.scientific_name} (${species.common_name ?? "no common name"})`);
-    }
 
     const endemicMatch = combined.match(ENDEMIC_PATTERN);
     const flaggedRegions = species.flagged_regions ?? [];
@@ -134,7 +128,9 @@ async function main() {
     if (done % 50 === 0) console.log(`[detect-implausible] ${done}/${res.rows.length}`);
   }
 
-  console.log(`\n[detect-implausible] done. ${done} checked, ${extinctFound} tagged extinct-in-wild, ${reviewFlags.length} flagged for region review.`);
+  console.log(
+    `\n[detect-implausible] done. ${done} checked (${failed} skipped on error), ${reviewFlags.length} flagged for region review.`,
+  );
   await pool.end();
 }
 
