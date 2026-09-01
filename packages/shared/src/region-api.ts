@@ -19,6 +19,16 @@ export interface RegionSummary {
    *  those, since there's no occurrence filter to scope it. Lets the UI show just the
    *  drill-down children for a hub node instead of quietly fetching/rendering that. */
   hasScopedChecklist: boolean;
+  /** Natural Earth's SOV_A3 sovereignty-group code (migration 065) — country-level rows only,
+   *  null for World/continents/provinces. A country and its own geographically-separate
+   *  territories share one code (e.g. "United States of America" and "Puerto Rico" both carry
+   *  "US1"), letting the picker group them even though each already sits under its own true
+   *  geographic continent rather than being nested like an admin-1 province. */
+  sovereigntyGroup: string | null;
+  /** Country-level only (migration 066) — true for a dependency/territory of another country
+   *  (Puerto Rico, New Caledonia, ...) rather than the primary sovereign state. Lets the picker
+   *  keep its main continent pill list to just primary countries. */
+  isSovereignDependency: boolean;
 }
 
 export interface RegionStats {

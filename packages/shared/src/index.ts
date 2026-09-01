@@ -6,3 +6,4 @@ export * from "./region-api.js";
 export * from "./photoSource.js";
 export * from "./trip.js";
 export * from "./taxonLabels.js";
+export * from "./subdivisionLabel.js";
