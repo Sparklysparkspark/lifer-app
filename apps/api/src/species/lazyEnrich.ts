@@ -85,7 +85,18 @@ export async function downloadAndCacheImage(url: string, key: string): Promise<{
 // view (the lazy
 // path) pays a few seconds of this once, cached in the DB forever after — a fine trade for not
 // getting blocked.
-const MIN_HOST_INTERVAL_MS = 1000;
+//
+// Overridable via INAT_MIN_HOST_INTERVAL_MS — confirmed live (see this constant's own recent
+// history) that sustained 1000ms is enough to pin this app's IP in iNaturalist's real
+// "normal_throttling" state indefinitely: a live burst test 429'd immediately, but the SAME
+// test succeeded cleanly after 90s of total silence, proving it's a real rolling debt that
+// accumulates faster than it drains at this pace, not a one-off. A long-running bulk pass
+// (detect-implausible-regions.ts, enrich-all-species.ts, etc.) should set this env var to
+// something slower (e.g. 2500-3000) before it ever gets stuck in that steady state — the
+// single on-demand call a live species-page view makes (SINGLE_USER_MODE off, i.e. self-hosted
+// multi-user installs) stays at the fast default, since one request in isolation was never
+// the problem.
+const MIN_HOST_INTERVAL_MS = Number(process.env.INAT_MIN_HOST_INTERVAL_MS) || 1000;
 const hostQueues = new Map<string, Promise<void>>();
 const lastCallAtByHost = new Map<string, number>();
 
@@ -100,13 +111,51 @@ function paceHost(host: string): Promise<void> {
   return next;
 }
 
+// Only the iNaturalist JSON API hosts — never the image-byte downloads this same function also
+// serves (downloadAndCacheImage, above), which live on entirely different hosts (Wikimedia
+// Commons, iNaturalist's own photo CDN) and would be wrong to store as cached text here.
+const CACHEABLE_HOSTS = new Set(["api.inaturalist.org", "www.inaturalist.org"]);
+
+async function getCachedInatResponse(url: string): Promise<string | null> {
+  try {
+    const res = await pool.query<{ response: string }>(`SELECT response FROM inat_response_cache WHERE url = $1`, [url]);
+    return res.rows[0]?.response ?? null;
+  } catch {
+    return null;
+  }
+}
+
+async function setCachedInatResponse(url: string, response: string): Promise<void> {
+  try {
+    await pool.query(
+      `INSERT INTO inat_response_cache (url, response) VALUES ($1, $2) ON CONFLICT (url) DO UPDATE SET response = EXCLUDED.response, fetched_at = now()`,
+      [url, response],
+    );
+  } catch {
+    // Best-effort — failing to cache shouldn't fail the caller's real request.
+  }
+}
+
 export async function fetchWithRetry(url: string): Promise<Response> {
+  const cacheable = CACHEABLE_HOSTS.has(new URL(url).host);
+  if (cacheable) {
+    const cached = await getCachedInatResponse(url);
+    if (cached !== null) return new Response(cached, { status: 200 });
+  }
+
   let lastError: unknown;
   for (let attempt = 0; attempt <= 3; attempt++) {
     let res: Response;
     try {
       await paceHost(new URL(url).host);
-      res = await fetch(url, { headers: { "User-Agent": "lifer-api/0.1 (personal project)" } });
+      // A hung connection (confirmed live: a long-running sweep froze with 0% CPU, no error,
+      // no timeout, no further log output at all — the underlying fetch just never settled
+      // either way) previously blocked forever with no way to recover short of killing the
+      // whole process. AbortSignal.timeout turns that into an ordinary retryable error instead.
+      res = await fetch(url, {
+        headers: { "User-Agent": "lifer-api/0.1 (personal project)" },
+        signal: AbortSignal.timeout(15_000),
+      });
     } catch (err) {
       // A dropped connection ("SocketError: other side closed") throws instead of resolving
       // to a Response at all — this had no handling for that at all (only ever retried a 429
@@ -117,7 +166,15 @@ export async function fetchWithRetry(url: string): Promise<Response> {
       await new Promise((r) => setTimeout(r, 1000 * 2 ** attempt));
       continue;
     }
-    if (res.status !== 429) return res;
+    if (res.status !== 429) {
+      // Only ever cache a genuine success — caching a transient error would freeze it in
+      // place forever instead of letting the next call retry fresh.
+      if (cacheable && res.ok) {
+        const text = await res.clone().text();
+        await setCachedInatResponse(url, text);
+      }
+      return res;
+    }
     const retryAfter = Number(res.headers.get("retry-after"));
     const delayMs = Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : 1000 * 2 ** attempt;
     console.error(`[lazyEnrich] 429 from ${new URL(url).host}, backing off ${Math.round(delayMs / 1000)}s`);

@@ -36,12 +36,19 @@ interface RawUploadOutcome {
 export default function RawUpload({
   speciesId,
   volumeId,
+  matchOnly,
   onFiled,
 }: {
   speciesId: string;
   /** Registered external drive to save into, or "" for the primary drive — see
    *  VolumeDestinationPicker, rendered by the parent dialog above both upload controls. */
   volumeId: string;
+  /** Hides "Choose RAW files…" (the unmatched-fallback picker, which files an orphan RAW
+   *  straight under `speciesId`) — for a context with no single species to fall back to, like
+   *  a trip spanning many species (see TripDetailPage.tsx's build-mode panel). Matching against
+   *  already-uploaded JPEGs (via "Choose a folder…") needs no species hint at all — the match
+   *  itself determines the species — so this only removes the picker that WOULD need one. */
+  matchOnly?: boolean;
   onFiled?: () => void;
 }) {
   const [results, setResults] = useState<RawUploadOutcome[] | null>(null);
@@ -109,23 +116,23 @@ export default function RawUpload({
     <div className="rounded-lg border border-line bg-surface p-4">
       <h2 className="text-sm font-medium text-ink">Upload RAW files</h2>
       <p className="mt-1 text-xs text-muted">
-        Point this at RAW files — each is matched by camera timestamp/serial against your uploads and filed straight
-        into the right species' RAW folder. A RAW with no match still gets filed here, under this species, since
-        that's already known. Point it at a whole export folder instead, though, and only the RAWs that match a JPEG
-        you've kept get imported — a folder could span species this page has no way to know about, so anything else
-        in it is left untouched on your own drive.
+        {matchOnly
+          ? "Point this at a folder of RAWs — each is matched by camera timestamp/serial against photos you've already added and filed into the right species' RAW folder. Anything that doesn't match a photo you've kept is left untouched on your own drive."
+          : "Point this at RAW files — each is matched by camera timestamp/serial against your uploads and filed straight into the right species' RAW folder. A RAW with no match still gets filed here, under this species, since that's already known. Point it at a whole export folder instead, though, and only the RAWs that match a JPEG you've kept get imported — a folder could span species this page has no way to know about, so anything else in it is left untouched on your own drive."}
       </p>
-      <input
-        ref={filesInputRef}
-        type="file"
-        multiple
-        accept={[...RAW_EXTENSIONS].join(",")}
-        className="hidden"
-        id="raw-upload-files-input"
-        onChange={(e) => {
-          if (e.target.files) handleFiles(e.target.files, true);
-        }}
-      />
+      {!matchOnly && (
+        <input
+          ref={filesInputRef}
+          type="file"
+          multiple
+          accept={[...RAW_EXTENSIONS].join(",")}
+          className="hidden"
+          id="raw-upload-files-input"
+          onChange={(e) => {
+            if (e.target.files) handleFiles(e.target.files, true);
+          }}
+        />
+      )}
       <input
         ref={folderInputRef}
         type="file"
@@ -139,9 +146,11 @@ export default function RawUpload({
         }}
       />
       <div className="mt-2 flex gap-4">
-        <label htmlFor="raw-upload-files-input" className="cursor-pointer text-sm text-muted hover:underline">
-          Choose RAW files…
-        </label>
+        {!matchOnly && (
+          <label htmlFor="raw-upload-files-input" className="cursor-pointer text-sm text-muted hover:underline">
+            Choose RAW files…
+          </label>
+        )}
         <label htmlFor="raw-upload-folder-input" className="cursor-pointer text-sm text-muted hover:underline">
           Choose a folder…
         </label>

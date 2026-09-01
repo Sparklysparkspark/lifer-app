@@ -11,6 +11,7 @@ import { enqueueUploads } from "../lib/uploadQueue";
 export default function UploadDropzone({
   speciesId,
   volumeId,
+  tripId,
   onUploaded,
   onClose,
 }: {
@@ -18,6 +19,8 @@ export default function UploadDropzone({
   /** Registered external drive to save into, or "" for the primary drive — see
    *  VolumeDestinationPicker, rendered by the parent dialog above both upload controls. */
   volumeId: string;
+  /** "Build a Trip" destination override — see enqueueUploads' own tripId doc comment. */
+  tripId?: string;
   onUploaded: () => void;
   onClose?: () => void;
 }) {
@@ -27,6 +30,7 @@ export default function UploadDropzone({
     if (files.length === 0) return;
     enqueueUploads(speciesId, files, {
       volumeId: volumeId || undefined,
+      tripId,
       targetsExternalDrive: Boolean(volumeId),
       // Refreshes after EACH photo settles, not just once the whole batch finishes — a
       // multi-photo upload otherwise showed shrinking placeholder squares while every real

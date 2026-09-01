@@ -150,13 +150,26 @@ export async function collectionRoutes(app: FastifyInstance): Promise<void> {
     };
   });
 
-  app.patch<{ Params: { id: string }; Body: { photoId?: string } }>(
+  app.patch<{ Params: { id: string }; Body: { photoId?: string | null } }>(
     "/species/:id/cover",
     { preHandler: requireAuth },
     async (request, reply) => {
       const { id: speciesId } = request.params;
       const { photoId } = request.body ?? {};
       const userId = request.user!.id;
+
+      // photoId: null explicitly un-features a species (no photo to own-check against) — used
+      // by the Gallery page's own featured toggle (see GalleryPage.tsx), which needs to clear a
+      // cover just as often as it sets one, unlike this route's original single caller
+      // (SpeciesDetailPage.tsx), which only ever set a new cover.
+      if (photoId === null) {
+        await pool.query(
+          `UPDATE user_species SET cover_photo_id = NULL, card_crop_x = NULL, card_crop_y = NULL, card_crop_size = NULL
+           WHERE user_id = $1 AND species_id = $2`,
+          [userId, speciesId],
+        );
+        return { ok: true };
+      }
       if (!photoId) return reply.code(400).send({ error: "photoId is required" });
 
       // Confirm this photo belongs to a capture the user owns, for this species.
