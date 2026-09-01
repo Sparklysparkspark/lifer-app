@@ -19,6 +19,11 @@ const REFERENCE_THUMB_WIDTH = 400;
 export interface DerivativePaths {
   displayPath: string;
   thumbPath: string;
+  /** Auto-oriented (EXIF-rotated) source dimensions — the aspect ratio every derivative
+   *  actually renders at. Used to size a masonry grid tile before the image itself has
+   *  loaded, instead of guessing (see MasonryGrid.tsx). */
+  width: number | null;
+  height: number | null;
 }
 
 // Under APP_DATA_DIR, not DATA_DIR — these are disposable, regenerable-from-the-original
@@ -38,7 +43,12 @@ export async function generateDerivatives(buffer: Buffer, photoId: string): Prom
 
   const image = sharp(buffer).rotate(); // auto-orient from EXIF before resizing
 
-  await image
+  // sharp's plain metadata() reports the SOURCE file's raw width/height, not swapped for EXIF
+  // orientation — toFile()'s own returned info, by contrast, reflects the real output pixels
+  // after the rotate+resize pipeline actually ran, so its aspect ratio is the correct one to
+  // size a masonry tile with (the resize preserves aspect ratio; withoutEnlargement only ever
+  // shrinks, never distorts it).
+  const displayInfo = await image
     .clone()
     .resize({ width: DISPLAY_WIDTH, withoutEnlargement: true })
     .webp({ quality: 85 })
@@ -50,7 +60,7 @@ export async function generateDerivatives(buffer: Buffer, photoId: string): Prom
     .webp({ quality: 80 })
     .toFile(thumbPath);
 
-  return { displayPath, thumbPath };
+  return { displayPath, thumbPath, width: displayInfo.width ?? null, height: displayInfo.height ?? null };
 }
 
 // Same shape as generateDerivatives above, just under APP_DATA_DIR instead of DATA_DIR (this
@@ -72,7 +82,7 @@ export async function generateDerivatives(buffer: Buffer, photoId: string): Prom
 // applied at render time, never re-encoded away. species.reference_focal_x/y (migration 043)
 // is that stored focal point — computed automatically (see scripts/fix-portrait-reference-
 // photos.ts), never something a user needs to set by hand.
-export async function generateReferenceDerivatives(buffer: Buffer, key: string): Promise<DerivativePaths> {
+export async function generateReferenceDerivatives(buffer: Buffer, key: string): Promise<{ displayPath: string; thumbPath: string }> {
   const displayDir = path.join(APP_DATA_DIR, "reference-display");
   const thumbDir = path.join(APP_DATA_DIR, "reference-thumb");
   mkdirSync(displayDir, { recursive: true });
