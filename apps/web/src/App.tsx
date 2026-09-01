@@ -4,6 +4,7 @@ import LoginPage from "./pages/LoginPage";
 import CollectionPage from "./pages/CollectionPage";
 import SpeciesDetailPage from "./pages/SpeciesDetailPage";
 import GalleryPage from "./pages/GalleryPage";
+import StatsPage from "./pages/StatsPage";
 import RegionPage from "./pages/RegionPage";
 import BulkImportPage from "./pages/BulkImportPage";
 import SettingsPage from "./pages/SettingsPage";
@@ -60,6 +61,14 @@ export default function App() {
         element={
           <RequireAuth>
             <GalleryPage />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/stats"
+        element={
+          <RequireAuth>
+            <StatsPage />
           </RequireAuth>
         }
       />

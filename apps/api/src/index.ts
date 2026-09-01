@@ -22,6 +22,7 @@ import { archiveRoutes } from "./archive/routes.js";
 import { tripsRoutes } from "./trips/routes.js";
 import { libraryRoutes } from "./library/routes.js";
 import { storageVolumesRoutes } from "./storageVolumes/routes.js";
+import { statsRoutes } from "./stats/routes.js";
 import { runEmbeddingBackfill } from "./species/embeddingBackfill.js";
 
 // Checked before anything else starts, so an interrupted storage-location move (see
@@ -84,6 +85,7 @@ await app.register(async (api) => {
   await api.register(tripsRoutes);
   await api.register(libraryRoutes);
   await api.register(storageVolumesRoutes);
+  await api.register(statsRoutes);
 }, { prefix: "/api" });
 
 app.get("/health", async () => ({ ok: true }));
