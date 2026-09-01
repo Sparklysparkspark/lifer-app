@@ -344,6 +344,16 @@ async function buildRegionPack(regionName: string, outDir: string, taxon: TaxonC
     [region.id],
   );
 
+  // A per-taxon build (e.g. --taxon=corals for a landlocked country) legitimately has nothing
+  // to ship most of the time — skip writing an empty archive rather than publishing a
+  // near-zero-byte pack nobody would ever want to download. Only applies to taxon-scoped
+  // builds; an "all taxa" build always writes even if a region turns out to have 0 species,
+  // same as before this check existed.
+  if (taxon !== null && speciesRes.rows.length === 0) {
+    console.log(`[build-region-pack] ${regionName}-${taxon}: 0 species, skipping`);
+    return;
+  }
+
   // See TAXA_WITH_SEA_ZONE_DATA's own comment — only fish/sharks/aquatic mammals currently
   // have any sea zone data computed at all.
   const includeSeaZones = taxon === null || TAXA_WITH_SEA_ZONE_DATA.includes(taxon);
