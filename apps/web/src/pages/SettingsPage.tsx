@@ -89,6 +89,7 @@ export default function SettingsPage() {
             <LibraryReimportSection />
             <ServerSection />
             <AppUpdatesSection />
+            <CatalogUpdateSection />
             <MapSection />
           </>
         )}
@@ -1569,6 +1570,76 @@ function AppUpdatesSection() {
           </Link>
         </p>
       )}
+    </Card>
+  );
+}
+
+// Refreshes the species/region catalog data itself (occurrence stats, rarity tiers, endemic
+// labels, reference-photo metadata) from the latest published catalog seed — see
+// catalogSeedUpdate.ts's own header comment on why this is needed at all: the fresh-install-only
+// restore path never reaches an already-running install on its own. Never touches your own
+// downloaded reference photos (see that same file) — only the catalog metadata itself.
+function CatalogUpdateSection() {
+  const [status, setStatus] = useState<"idle" | "checking" | "up-to-date" | "available" | "applying" | "done" | "error">("idle");
+  const [error, setError] = useState<string | null>(null);
+  const [mergedCount, setMergedCount] = useState<number | null>(null);
+
+  async function checkForUpdate() {
+    setStatus("checking");
+    setError(null);
+    try {
+      const result = await api.get<{ available: boolean }>("/settings/catalog-update");
+      setStatus(result.available ? "available" : "up-to-date");
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't check for a catalog update");
+      setStatus("error");
+    }
+  }
+
+  useEffect(() => {
+    void checkForUpdate();
+  }, []);
+
+  async function applyUpdate() {
+    setStatus("applying");
+    setError(null);
+    try {
+      const result = await api.post<{ merged: Record<string, number> }>("/settings/catalog-update/apply", {});
+      setMergedCount(result.merged.species ?? null);
+      setStatus("done");
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't apply the catalog update");
+      setStatus("error");
+    }
+  }
+
+  return (
+    <Card
+      title="Species catalog updates"
+      description="Refreshes rarity tiers, occurrence stats, and endemic labels from the latest published data — never touches your own downloaded reference photos."
+    >
+      {status === "idle" || status === "checking" ? (
+        <p className="text-sm text-muted">Checking…</p>
+      ) : status === "up-to-date" ? (
+        <div className="space-y-2">
+          <p className="text-sm text-muted">Your species catalog is up to date.</p>
+          <button type="button" onClick={checkForUpdate} className="text-sm text-ink underline">
+            Check again
+          </button>
+        </div>
+      ) : status === "available" ? (
+        <div className="space-y-2">
+          <p className="text-sm font-medium text-ink">A newer species catalog is available.</p>
+          <button type="button" onClick={applyUpdate} className={buttonClass}>
+            Update catalog
+          </button>
+        </div>
+      ) : status === "applying" ? (
+        <p className="text-sm text-muted">Updating, this can take a minute…</p>
+      ) : status === "done" ? (
+        <p className="text-sm text-muted">Done, {mergedCount?.toLocaleString() ?? "your"} species refreshed.</p>
+      ) : null}
+      <FormMessage error={error} success={null} />
     </Card>
   );
 }
