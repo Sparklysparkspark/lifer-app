@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import PhotoPlaceholder from "./PhotoPlaceholder";
 
 export interface LightboxSlide {
   url: string;
@@ -25,8 +26,8 @@ function InfoRow({ label, value }: { label: string; value: string | number | nul
   if (value == null || value === "") return null;
   return (
     <div className="flex justify-between gap-4 border-b border-line py-1.5 text-sm last:border-0">
-      <span className="text-muted">{label}</span>
-      <span className="text-ink">{value}</span>
+      <span className="shrink-0 text-muted">{label}</span>
+      <span className="min-w-0 break-words text-right text-ink">{value}</span>
     </div>
   );
 }
@@ -55,6 +56,11 @@ export default function Lightbox({
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const dragRef = useRef<{ startX: number; startY: number; panX: number; panY: number } | null>(null);
   const [dragging, setDragging] = useState(false);
+  // A slide whose file has moved/been deleted/never existed shouldn't take the whole viewer
+  // down with it — falls back to a placeholder for just that one slide, keeping close/arrows
+  // fully working so a broken photo is never a dead end you have to reload the page to escape.
+  const [imageFailed, setImageFailed] = useState(false);
+  useEffect(() => setImageFailed(false), [index]);
 
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
@@ -168,7 +174,16 @@ export default function Lightbox({
 
       {showInfo ? (
         <div className="mx-auto w-full max-w-2xl" onClick={(e) => e.stopPropagation()}>
-          <img src={slide.url} alt="" className="mx-auto max-h-[60vh] max-w-full rounded-lg object-contain shadow-sm" />
+          {imageFailed ? (
+            <PhotoPlaceholder className="mx-auto h-64 max-h-[60vh] w-64 max-w-full rounded-lg" />
+          ) : (
+            <img
+              src={slide.url}
+              alt=""
+              className="mx-auto max-h-[60vh] max-w-full rounded-lg object-contain shadow-sm"
+              onError={() => setImageFailed(true)}
+            />
+          )}
           <div className="mt-4 rounded-lg border border-line p-4">
             {slide.caption && <p className="mb-2 text-sm font-medium text-ink">{slide.caption}</p>}
             <InfoRow label="Camera" value={slide.info?.cameraModel} />
@@ -213,25 +228,30 @@ export default function Lightbox({
         </div>
       ) : (
         <>
-          <img
-            src={slide.url}
-            alt=""
-            draggable={false}
-            className="max-h-[85vh] max-w-full select-none object-contain"
-            style={{
-              transform: `translate(${pan.x}px, ${pan.y}px) scale(${scale})`,
-              transition: dragging ? "none" : "transform 0.05s ease-out",
-              cursor: scale > 1 ? (dragging ? "grabbing" : "grab") : "zoom-in",
-            }}
-            onClick={(e) => e.stopPropagation()}
-            onDoubleClick={onDoubleClickZoom}
-            onWheel={onWheelZoom}
-            onMouseDown={onDragStart}
-            onMouseMove={onDragMove}
-            onMouseUp={onDragEnd}
-            onMouseLeave={onDragEnd}
-          />
-          {scale > 1 && (
+          {imageFailed ? (
+            <PhotoPlaceholder className="h-64 max-h-[85vh] w-64 max-w-full" onClick={(e) => e.stopPropagation()} />
+          ) : (
+            <img
+              src={slide.url}
+              alt=""
+              draggable={false}
+              className="max-h-[85vh] max-w-full select-none object-contain"
+              style={{
+                transform: `translate(${pan.x}px, ${pan.y}px) scale(${scale})`,
+                transition: dragging ? "none" : "transform 0.05s ease-out",
+                cursor: scale > 1 ? (dragging ? "grabbing" : "grab") : "zoom-in",
+              }}
+              onClick={(e) => e.stopPropagation()}
+              onDoubleClick={onDoubleClickZoom}
+              onWheel={onWheelZoom}
+              onMouseDown={onDragStart}
+              onMouseMove={onDragMove}
+              onMouseUp={onDragEnd}
+              onMouseLeave={onDragEnd}
+              onError={() => setImageFailed(true)}
+            />
+          )}
+          {!imageFailed && scale > 1 && (
             <button
               onClick={(e) => {
                 e.stopPropagation();
