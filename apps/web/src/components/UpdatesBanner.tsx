@@ -81,7 +81,11 @@ export default function UpdatesBanner() {
     api
       .get<PackUpdatesSummary>("/offline-packs/updates-summary")
       .then((res) => {
-        if (!cancelled && res.updateCount > 0) setPackSummary(res);
+        // Always sync to the fresh result, including back to null when updateCount is 0 —
+        // previously this only ever set a nonzero summary and never cleared it, so a stale
+        // "N updates available" banner stuck around forever once shown once, even after the
+        // user updated everything (e.g. from the Offline Packs page directly).
+        if (!cancelled) setPackSummary(res.updateCount > 0 ? res : null);
       })
       .catch(() => {
         // Silent — same reasoning as above.

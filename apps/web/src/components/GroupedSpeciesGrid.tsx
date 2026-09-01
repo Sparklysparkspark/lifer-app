@@ -145,16 +145,31 @@ export default function GroupedSpeciesGrid({
     return [...pinned, ...named];
   }, [items, groupBy, sortBy, collectedFirst, seenFirst]);
 
-  // How many of EACH group's items are actually rendered as cards right now — a running
-  // budget consumed in group order, so the cap applies to the page as a whole (not per group),
-  // while a group's header/bulk-archive action still sees its true, uncapped item list.
+  // How many of EACH group's items are actually rendered as cards right now — the cap applies
+  // to the page as a whole (not per group), while a group's header/bulk-archive action still
+  // sees its true, uncapped item list. Distributed round-robin (one item per group per pass)
+  // rather than drained sequentially in group order — sequential draining starved any group
+  // sitting later in order once earlier groups alone exceeded the budget (concretely: sorting/
+  // grouping by rarity tier put "Common" last, and since it's usually the single largest tier
+  // by far, Legendary+Epic+Rare+Uncommon combined routinely exceeded the whole budget on their
+  // own, leaving Common permanently empty no matter how much the user scrolled — the group
+  // never got a turn). Round-robin guarantees every group gets a fair initial share.
   const visibleCountByKey = useMemo(() => {
-    let remaining = visibleCount;
     const map = new Map<string, number>();
-    for (const g of groups) {
-      const take = Math.max(0, Math.min(g.items.length, remaining));
-      map.set(g.key, take);
-      remaining -= take;
+    for (const g of groups) map.set(g.key, 0);
+    let remaining = visibleCount;
+    let madeProgress = true;
+    while (remaining > 0 && madeProgress) {
+      madeProgress = false;
+      for (const g of groups) {
+        if (remaining <= 0) break;
+        const current = map.get(g.key)!;
+        if (current < g.items.length) {
+          map.set(g.key, current + 1);
+          remaining--;
+          madeProgress = true;
+        }
+      }
     }
     return map;
   }, [groups, visibleCount]);
@@ -207,8 +222,17 @@ export default function GroupedSpeciesGrid({
   const pinnedGroups = groups.filter((g) => pinnedKeys.has(g.key));
   const rest = groups.filter((g) => !pinnedKeys.has(g.key));
   const collapsedGroups = rest.filter((g) => collapsed.has(g.key));
-  const expandedGroups = rest.filter((g) => !collapsed.has(g.key));
-  const expandedPinnedGroups = pinnedGroups.filter((g) => !collapsed.has(g.key));
+  // A group whose visible-item budget ran out (see visibleCountByKey — a shared budget consumed
+  // in group order, so most groups get 0 once there are more groups than fit in visibleCount)
+  // still incurs full section layout cost — header, grid, and CSS `columns` placement — for
+  // literally nothing visible. With dozens of family groups this was the actual source of the
+  // "family grouping" lag spike: WebKit's multi-column balancing algorithm scales with the
+  // number of break-inside-avoid blocks in the container, not just visible card count, so
+  // rendering ~80 empty sections alongside a handful of real ones was real, measurable cost for
+  // zero visual benefit — the IntersectionObserver sentinel reveals more of them on scroll
+  // anyway, at which point they start rendering for real.
+  const expandedGroups = rest.filter((g) => !collapsed.has(g.key) && (visibleCountByKey.get(g.key) ?? 0) > 0);
+  const expandedPinnedGroups = pinnedGroups.filter((g) => !collapsed.has(g.key) && (visibleCountByKey.get(g.key) ?? 0) > 0);
   const collapsedPinnedGroups = pinnedGroups.filter((g) => collapsed.has(g.key));
 
   return (
