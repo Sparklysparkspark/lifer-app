@@ -8,6 +8,16 @@
 // that actually caught the Bream. Re-runnable: only ever queries species not yet checked
 // (migration 039), so it can be re-run periodically as fetch-occurrence-stats.ts's backfill
 // fills in more species and the candidate pool grows.
+//
+// ALSO flags extinct_in_wild directly from this same GBIF/IUCN call (threatStatus
+// "EXTINCT_IN_THE_WILD", confirmed live for Cyanopsitta spixii/Spix's Macaw) — this used to be
+// detect-implausible-regions.ts's own job, done by fetching each candidate's full Wikipedia
+// article via iNaturalist and pattern-matching the phrase "extinct in the wild" in free text.
+// That approach was both less reliable (regex against prose vs. IUCN's own structured
+// vocabulary) and the actual cause of that script getting stuck in sustained iNaturalist
+// rate-limit throttling on a 20k+ candidate run — GBIF's distributions endpoint has shown no
+// such throttling problem anywhere in this codebase. Zero extra cost here: the same per-species
+// call already made for the fully_extinct check carries this field too.
 import { pool } from "../db.js";
 import { mapWithConcurrency } from "data-pipeline/src/concurrency.js";
 
@@ -72,6 +82,7 @@ async function main() {
 
   let checked = 0;
   let flagged = 0;
+  let flaggedEw = 0;
   await mapWithConcurrency(res.rows, CONCURRENCY, async (row) => {
     const status = await fetchIucnThreatStatus(Number(row.gbif_key));
     if (status === "EXTINCT") {
@@ -81,14 +92,25 @@ async function main() {
       );
       console.log(`  EXTINCT: ${row.common_name ?? row.scientific_name} (${row.scientific_name})`);
       flagged++;
+    } else if (status === "EXTINCT_IN_THE_WILD") {
+      // Purely additive, informational — never excludes the species from a checklist, since a
+      // real reintroduction population (Spix's Macaw itself) can make a species both
+      // extinct-in-the-wild AND a legitimately findable target. See this file's own top
+      // comment on why this lives here now instead of detect-implausible-regions.ts.
+      await pool.query(
+        `UPDATE species_traits SET extinct_in_wild = true, iucn_status = 'extinct_in_wild', extinction_checked_at = now() WHERE species_id = $1`,
+        [row.species_id],
+      );
+      console.log(`  EXTINCT IN WILD: ${row.common_name ?? row.scientific_name} (${row.scientific_name})`);
+      flaggedEw++;
     } else {
       await pool.query(`UPDATE species_traits SET extinction_checked_at = now() WHERE species_id = $1`, [row.species_id]);
     }
     checked++;
-    if (checked % 100 === 0) console.log(`[check-extinction] ${checked}/${res.rows.length} (${flagged} flagged extinct so far)`);
+    if (checked % 100 === 0) console.log(`[check-extinction] ${checked}/${res.rows.length} (${flagged} extinct, ${flaggedEw} extinct-in-wild so far)`);
   });
 
-  console.log(`[check-extinction] done. ${checked} checked, ${flagged} newly flagged extinct.`);
+  console.log(`[check-extinction] done. ${checked} checked, ${flagged} newly flagged extinct, ${flaggedEw} newly flagged extinct-in-wild.`);
   await pool.end();
 }
 

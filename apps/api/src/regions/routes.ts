@@ -268,6 +268,53 @@ export async function regionRoutes(app: FastifyInstance): Promise<void> {
     };
   });
 
+  // Every country's own boundary polygon at once, for the offline-packs map picker — GET
+  // /regions above deliberately EXCLUDES boundary_geojson for every other caller's sake (see
+  // its own comment: hundreds of KB per region, nothing else reads it). This is the one real
+  // caller that needs all of them simultaneously, so it gets its own endpoint rather than
+  // reopening that endpoint's fast/small contract for everyone else. Country-level only (not
+  // provinces) — external_codes[1] matching a bare 3-letter code (no dot, not a WKT polygon
+  // string) is exactly how gbifRegionParam/compute-all-regions-bulk.ts already distinguish a
+  // country row from a province row elsewhere in this codebase.
+  app.get<{ Querystring: { level?: string } }>("/regions/boundaries", { preHandler: requireAuth }, async (request, reply) => {
+    if (request.query.level && request.query.level !== "country") {
+      return reply.code(400).send({ error: 'only level=country is supported' });
+    }
+    const res = await pool.query<{ id: string; name: string; parent_id: string | null; boundary_geojson: unknown }>(
+      `SELECT id, name, parent_id, boundary_geojson FROM regions
+       WHERE external_codes IS NOT NULL AND array_length(external_codes, 1) > 0
+         AND external_codes[1] ~ '^[A-Z]{3}$' AND boundary_geojson IS NOT NULL`,
+    );
+    return {
+      regions: res.rows.map((r) => ({ id: r.id, name: r.name, parentId: r.parent_id, boundaryGeoJson: r.boundary_geojson })),
+    };
+  });
+
+  // Which taxon groups a set of regions actually has ANY species in, for the offline-packs
+  // download picker to hide a taxon pill that would just download zero species (e.g. no
+  // "Crocodilians" pill for Canada) — while still showing it if ANY other selected region has
+  // it (the frontend unions this response across every selected region itself; this endpoint
+  // just answers per-region, once, in a single batched query rather than per-taxon-per-region
+  // round trips). Answers "does this taxon exist at all for this region" from the region's own
+  // seeded checklist — a broader signal than "is this taxon's pack downloaded" (see
+  // TAXON_PACK_DOWNLOADED_SQL's own comment on that distinction), which is exactly what's
+  // wanted here: deciding whether a DOWNLOAD option makes sense, not whether one's already
+  // been exercised.
+  app.get<{ Querystring: { regionIds?: string } }>("/regions/taxon-presence", { preHandler: requireAuth }, async (request, reply) => {
+    const regionIds = request.query.regionIds?.split(",").filter(Boolean) ?? [];
+    if (regionIds.length === 0) return reply.code(400).send({ error: "regionIds is required" });
+    const res = await pool.query<{ region_id: string; taxon_class: string }>(
+      `SELECT DISTINCT rs.region_id, s.taxon_class
+       FROM region_species rs JOIN species s ON s.id = rs.species_id
+       WHERE rs.region_id = ANY($1)`,
+      [regionIds],
+    );
+    const byRegion: Record<string, string[]> = {};
+    for (const id of regionIds) byRegion[id] = [];
+    for (const row of res.rows) byRegion[row.region_id]?.push(row.taxon_class);
+    return byRegion;
+  });
+
   // Countries have the fish found locally in their actual land area by default, with an
   // option to include nearby major sources of water. This list is
   // only for surfacing reasonable checkbox options; the species themselves are counted from
@@ -555,8 +602,8 @@ export async function regionRoutes(app: FastifyInstance): Promise<void> {
     let created = 0;
     for (const province of provinces) {
       await pool.query(
-        `INSERT INTO regions (name, parent_id, external_codes, ebird_region_code, boundary_geojson)
-         VALUES ($1, $2, $3, $4, $5)
+        `INSERT INTO regions (name, parent_id, external_codes, ebird_region_code, boundary_geojson, is_overseas_territory)
+         VALUES ($1, $2, $3, $4, $5, $6)
          ON CONFLICT (name, parent_id) DO NOTHING`,
         [
           province.name,
@@ -564,6 +611,7 @@ export async function regionRoutes(app: FastifyInstance): Promise<void> {
           province.iso3166_2 ? [province.iso3166_2] : [],
           province.iso3166_2 ?? null,
           JSON.stringify(province.feature),
+          province.isOverseasTerritory,
         ],
       );
       created++;

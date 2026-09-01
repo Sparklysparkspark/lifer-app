@@ -267,7 +267,7 @@ async function main() {
       const res = await client.query(
         `INSERT INTO regions (name, parent_id, external_codes, ebird_region_code, boundary_geojson)
          VALUES ($1,$2,$3,$4,$5)
-         ON CONFLICT (name) DO UPDATE SET
+         ON CONFLICT (name, parent_id) DO UPDATE SET
            parent_id = EXCLUDED.parent_id,
            external_codes = EXCLUDED.external_codes,
            ebird_region_code = EXCLUDED.ebird_region_code,

@@ -64,6 +64,14 @@ export interface CountryEntry {
   feature: GeoJsonFeature;
 }
 
+// "-99" is a non-empty, truthy STRING — `a || b` never falls through to `b` for it, so the
+// sentinel needs an explicit check, not falsy-coercion (a first pass at this fix got bitten by
+// exactly that and silently kept returning "-99" for France).
+function normalizeIso2(value: string | undefined): string | null {
+  if (!value || value === "-99") return null;
+  return value;
+}
+
 /** Every country in the world, grouped by continent — local file filtering, no network calls beyond the initial cache fetch. */
 export async function fetchAllCountries(): Promise<CountryEntry[]> {
   const data = await loadAdmin0();
@@ -71,7 +79,16 @@ export async function fetchAllCountries(): Promise<CountryEntry[]> {
     .filter((f) => f.properties.ADM0_A3 && f.properties.NAME)
     .map((f) => ({
       iso3: f.properties.ADM0_A3 as string,
-      iso2: (f.properties.ISO_A2 as string) ?? null,
+      // ISO_A2 is "-99" (Natural Earth's own sentinel for "complex sovereignty," same class of
+      // case as Taiwan's compound code elsewhere in this codebase) for several ordinary
+      // countries with overseas territories — France among them, confirmed live: this silently
+      // broke France's `country=FR` GBIF query, quietly falling back to the narrower
+      // gadmGid=FRA land-polygon query instead (the exact under-counting problem gadmGid's own
+      // comment above describes for Egypt) for as long as this code has existed. ISO_A2_EH
+      // ("de facto" extended field) carries the real code in every such case and is only
+      // missing where ISO_A2 would have been meaningful anyway, so it's a strict improvement,
+      // never a regression, as the fallback.
+      iso2: normalizeIso2(f.properties.ISO_A2 as string) ?? normalizeIso2(f.properties.ISO_A2_EH as string) ?? null,
       name: f.properties.NAME as string,
       continent: (f.properties.CONTINENT as string) ?? "Other",
       feature: f,
@@ -82,7 +99,16 @@ export interface ProvinceEntry {
   iso3166_2: string | null; // not every province has one in the source data
   name: string;
   feature: GeoJsonFeature;
+  isOverseasTerritory: boolean;
 }
+
+// Natural Earth's admin1 `type` field distinguishes this per-country in different wording (no
+// single universal enum) — confirmed live for France ("Overseas département" vs "Metropolitan
+// département"). Deliberately a narrow allowlist, not a blind `type.includes("Territory")`:
+// that would misfire on e.g. India's ordinary "Union Territory" or Malaysia's "Federal
+// Territory", which are normal domestic administrative units, not overseas dependencies in the
+// sense meant here. First pass — extend as other countries' equivalents are found.
+const OVERSEAS_TERRITORY_TYPES = new Set(["Overseas département", "Overseas Territory", "Dependency", "Island Area"]);
 
 /** All provinces/states for one country (Natural Earth's `adm0_a3` property), for lazy drill-down. */
 export async function fetchProvincesForCountry(iso3: string): Promise<ProvinceEntry[]> {
@@ -93,5 +119,6 @@ export async function fetchProvincesForCountry(iso3: string): Promise<ProvinceEn
       iso3166_2: (f.properties.iso_3166_2 as string) ?? null,
       name: f.properties.name as string,
       feature: f,
+      isOverseasTerritory: OVERSEAS_TERRITORY_TYPES.has(f.properties.type as string),
     }));
 }
