@@ -1,7 +1,7 @@
 // Assembles apps/desktop/resources-staging/ — everything the packaged Tauri app needs bundled
 // alongside the Rust binary: the (unmodified) API source run via tsx, the built web app, and a
 // pruned copy of node_modules holding only what's actually needed at runtime.
-import { mkdirSync, rmSync, cpSync, readFileSync, readdirSync } from "node:fs";
+import { mkdirSync, rmSync, cpSync, readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -68,6 +68,39 @@ function copyNodeModules(exclude) {
   }
 }
 
+// onnxruntime-node ships GPU execution provider .so files (CUDA/TensorRT/ROCm) alongside the
+// CPU one it actually needs — species/embeddings.ts only ever asks for the CPU provider (see
+// that file's own comment: no Python runtime, CPU inference by design), so these are pure dead
+// weight. Worse than dead weight on Linux specifically: linuxdeploy resolves every ELF's shared
+// library dependencies as it bundles the AppImage, and libonnxruntime_providers_tensorrt.so
+// needs libcublas.so.13 (an NVIDIA CUDA library no CI runner or most end-user Linux desktops
+// have installed) — linuxdeploy can't find it and hard-fails the whole bundle rather than just
+// warning. Stripping these before staging fixes the Linux build and trims real bytes off every
+// platform's shipped app for a feature (GPU inference) this app never uses.
+function stripOnnxGpuProviders(stagingNodeModulesDir) {
+  const binDir = path.join(stagingNodeModulesDir, "onnxruntime-node", "bin");
+  let removed = 0;
+  function walk(dir) {
+    for (const name of readdirSync(dir)) {
+      const full = path.join(dir, name);
+      if (statSync(full).isDirectory()) {
+        walk(full);
+        continue;
+      }
+      if (/providers_(cuda|tensorrt|rocm)/i.test(name)) {
+        rmSync(full);
+        removed++;
+      }
+    }
+  }
+  try {
+    walk(binDir);
+  } catch {
+    // No onnxruntime-node/bin in this build (e.g. it wasn't in the dependency closure) — fine.
+  }
+  if (removed > 0) console.log(`[prepare-resources] stripped ${removed} onnxruntime GPU provider file(s)`);
+}
+
 function main() {
   rmSync(STAGING, { recursive: true, force: true });
   mkdirSync(STAGING, { recursive: true });
@@ -88,6 +121,7 @@ function main() {
   // that generated node-modules-exclude.json already keeps them).
   const exclude = loadNodeModulesExcludeSet();
   copyNodeModules(exclude);
+  stripOnnxGpuProviders(path.join(STAGING, "node_modules"));
 
   console.log(`[prepare-resources] staged at ${STAGING}`);
 }
