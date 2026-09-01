@@ -33,6 +33,23 @@ export interface CollectionItem {
    *  258 countries the elusiveness crawl covers. Which country isn't carried here (grid
    *  cards don't need it); the species detail page resolves the name. */
   endemic: boolean;
+  /** Global GBIF documentation is sparse (few total records ever, or no reference photo found)
+   *  but the species is verified reachable — not deep-sea, not silent since before 1950. See
+   *  collectionItem.ts's own isGhostSpecies for the exact thresholds. A "you'd be one of few
+   *  who's photographed this" badge, distinct from isLost (time-based) and from the Hide
+   *  Obscure toggle (which hides genuinely unreachable species, not just under-documented
+   *  ones). */
+  isGhost: boolean;
+  /** Nothing recorded anywhere (global GBIF) in 25+ years, but not so old (pre-1950) that it's
+   *  already covered by Hide Obscure's own default exclusion. */
+  isLost: boolean;
+  /** Was flagged isGhost the moment you collected it (migration 069's DB trigger snapshot), but
+   *  no longer is — the "you helped find this" story that isGhost alone can't tell once fresh
+   *  occurrence data catches up and the live flag naturally clears. Never true at the same time
+   *  as isGhost. */
+  rediscoveredGhost: boolean;
+  /** Same idea as rediscoveredGhost, for isLost. */
+  rediscoveredLost: boolean;
   /** The user's cover photo (collected) or the Phase-1 reference photo (seen/unseen). */
   coverPhotoUrl: string | null;
   coverPhotoCredit: string | null;

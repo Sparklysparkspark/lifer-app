@@ -180,7 +180,7 @@ export default function SpeciesCard({
           {displayName}
         </p>
         <p className="truncate text-xs italic text-muted">{item.scientificName}</p>
-        {(item.tier || item.localTier || item.endemic || item.vagrant) && (
+        {(item.tier || item.localTier || item.endemic || item.vagrant || item.isGhost || item.isLost || item.rediscoveredGhost || item.rediscoveredLost) && (
           <div className="mt-1 flex flex-wrap items-center gap-1">
             {item.tier && (
               <span
@@ -222,6 +222,37 @@ export default function SpeciesCard({
                 title="Records here are concentrated in very few years — likely a vagrant, not an established local presence"
               >
                 Vagrant
+              </span>
+            )}
+            {/* Global documentation is sparse (few total records anywhere, or no reference
+               photo found) but the species is verified reachable — not deep-sea, not silent
+               since before 1950. A "you'd be one of few who's photographed this" badge. */}
+            {item.isGhost && (
+              <span
+                className="inline-block rounded-full bg-violet-100 px-2 py-0.5 text-[10px] uppercase tracking-wide text-violet-700"
+                title="Rarely documented anywhere, but still out there to find"
+              >
+                Ghost
+              </span>
+            )}
+            {/* Nothing recorded anywhere in 25+ years. */}
+            {item.isLost && (
+              <span
+                className="inline-block rounded-full bg-rose-100 px-2 py-0.5 text-[10px] uppercase tracking-wide text-rose-700"
+                title="Not recorded anywhere in over 25 years"
+              >
+                Lost
+              </span>
+            )}
+            {/* Was Ghost/Lost the moment you collected it, but isn't anymore — a permanent
+               record of that moment (migration 069), even after fresh global data catches up
+               and clears the live badge above. */}
+            {(item.rediscoveredGhost || item.rediscoveredLost) && (
+              <span
+                className="inline-block rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] uppercase tracking-wide text-emerald-700"
+                title="Rare or undocumented when you found it — you helped rediscover this species"
+              >
+                Rediscovered
               </span>
             )}
           </div>

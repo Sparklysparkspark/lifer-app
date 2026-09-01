@@ -5,7 +5,6 @@ import { api, ApiError } from "../api/client";
 import { useAuth } from "../hooks/useAuth";
 import { useDesktopMode } from "../hooks/useDesktopMode";
 import SpeciesPicker from "../components/SpeciesPicker";
-import CollectionStatsPanel from "../components/CollectionStats";
 import GroupedSpeciesGrid, { type GroupBy, type SortBy } from "../components/GroupedSpeciesGrid";
 import RegionMap from "../components/RegionMap";
 import { Logo } from "../components/Logo";
@@ -133,6 +132,8 @@ export default function CollectionPage() {
   const collectedFirst = searchParams.get("collectedFirst") !== "0";
   const seenFirst = searchParams.get("seenFirst") === "1";
   const stateFilter = (searchParams.get("show") as StateFilter) || "all";
+  const ghostOnly = searchParams.get("ghostOnly") === "1";
+  const lostOnly = searchParams.get("lostOnly") === "1";
   const taxonFilter = (searchParams.get("taxon") as TaxonFilter) || "all";
   // Lets a region's checklist optionally include species from nearby marine zones. Multiple
   // zones can be checked at once (e.g. Red Sea AND Gulf of Aqaba) — each backed by a real
@@ -202,7 +203,6 @@ export default function CollectionPage() {
   const [quickCount, setQuickCount] = useState<{ total: number; collected: number } | null>(null);
   const [allRegions, setAllRegions] = useState<RegionSummary[]>([]);
   const [drillingDown, setDrillingDown] = useState(false);
-  const [showStats, setShowStats] = useState(false);
   const [loadError, setLoadError] = useState(false);
   // In-view search filters whatever's already on screen (all species, or the current
   // region's checklist), not a separate global lookup like the header's SpeciesPicker (which
@@ -564,9 +564,17 @@ export default function CollectionPage() {
     }
   }
 
+  // Ghost/Lost are rare enough that most photographers will never have one — only worth
+  // surfacing the filter checkboxes at all once the current checklist actually contains one,
+  // same "don't take up space nobody cares about" reasoning as the Stats page's own gating.
+  const hasGhost = items ? items.some((i) => i.isGhost) : false;
+  const hasLost = items ? items.some((i) => i.isLost) : false;
+
   const visibleItems = useMemo(() => {
     if (!items) return null;
     let filtered = stateFilter === "all" ? items : items.filter((i) => i.state === stateFilter);
+    if (ghostOnly) filtered = filtered.filter((i) => i.isGhost);
+    if (lostOnly) filtered = filtered.filter((i) => i.isLost);
     const query = search.trim().toLowerCase();
     if (query) {
       filtered = filtered.filter(
@@ -574,7 +582,7 @@ export default function CollectionPage() {
       );
     }
     return filtered;
-  }, [items, stateFilter, search]);
+  }, [items, stateFilter, ghostOnly, lostOnly, search]);
 
   // Prefers the already-arrived full item list once it's in (it reflects any client-side
   // filtering nuance exactly), but falls back to the fast count-only fetch so the header
@@ -598,9 +606,9 @@ export default function CollectionPage() {
           <Link to="/import" className="text-sm text-muted hover:underline">
             Import
           </Link>
-          <button onClick={() => setShowStats((s) => !s)} className="text-sm text-muted hover:underline">
+          <Link to="/stats" className="text-sm text-muted hover:underline">
             Stats
-          </button>
+          </Link>
           <Link to="/gallery" className="text-sm text-muted hover:underline">
             Gallery
           </Link>
@@ -792,6 +800,18 @@ export default function CollectionPage() {
             ))}
           </select>
         </label>
+        {hasGhost && (
+          <label className="flex items-center gap-1.5 text-muted" title="Rarely documented anywhere, but still out there to find">
+            <input type="checkbox" checked={ghostOnly} onChange={(e) => updateParam("ghostOnly", e.target.checked ? "1" : null)} />
+            Ghost only
+          </label>
+        )}
+        {hasLost && (
+          <label className="flex items-center gap-1.5 text-muted" title="Not recorded anywhere in over 25 years">
+            <input type="checkbox" checked={lostOnly} onChange={(e) => updateParam("lostOnly", e.target.checked ? "1" : null)} />
+            Lost only
+          </label>
+        )}
         {seaZonesRelevant && seaZones.length > 0 && (
           <div className="flex flex-wrap items-center gap-2 text-muted">
             <span>Include nearby water:</span>
@@ -835,8 +855,6 @@ export default function CollectionPage() {
       </div>
 
       <main className="space-y-6 p-6">
-        {showStats && <CollectionStatsPanel />}
-
         {regionId && regionMeta && <RegionMap boundaryGeoJson={regionMeta.boundaryGeoJson} regionKey={regionMeta.id} />}
 
         {firstRunPrompt ? (

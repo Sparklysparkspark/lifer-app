@@ -168,14 +168,20 @@ export async function recoverInterruptedStorageMigration(): Promise<void> {
 // the user put it, and is never Lifer's to relocate.
 export async function settingsRoutes(app: FastifyInstance): Promise<void> {
   app.get("/settings", { preHandler: requireAuth }, async (request) => {
-    const res = await pool.query<{ organize_originals_by_year: boolean; hide_obscure_species: boolean; species_suggest_enabled: boolean }>(
-      `SELECT organize_originals_by_year, hide_obscure_species, species_suggest_enabled FROM users WHERE id = $1`,
+    const res = await pool.query<{
+      organize_originals_by_year: boolean;
+      hide_obscure_species: boolean;
+      species_suggest_enabled: boolean;
+      technical_diving: boolean;
+    }>(
+      `SELECT organize_originals_by_year, hide_obscure_species, species_suggest_enabled, technical_diving FROM users WHERE id = $1`,
       [request.user!.id],
     );
     return {
       organizeOriginalsByYear: res.rows[0]?.organize_originals_by_year ?? false,
       hideObscureSpecies: res.rows[0]?.hide_obscure_species ?? true,
       speciesSuggestEnabled: res.rows[0]?.species_suggest_enabled ?? true,
+      technicalDiving: res.rows[0]?.technical_diving ?? false,
     };
   });
 
@@ -193,6 +199,16 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
     if (typeof enabled !== "boolean") return reply.code(400).send({ error: "enabled must be a boolean" });
     await pool.query(`UPDATE users SET hide_obscure_species = $1 WHERE id = $2`, [enabled, request.user!.id]);
     return { hideObscureSpecies: enabled };
+  });
+
+  // See migration 068's own comment — a separate toggle from hide-obscure-species itself, since
+  // this changes WHICH depth counts as obscure (recreational ~60m vs technical diving's 120m)
+  // rather than whether obscurity hiding is on at all.
+  app.put<{ Body: { enabled?: boolean } }>("/settings/technical-diving", { preHandler: requireAuth }, async (request, reply) => {
+    const { enabled } = request.body ?? {};
+    if (typeof enabled !== "boolean") return reply.code(400).send({ error: "enabled must be a boolean" });
+    await pool.query(`UPDATE users SET technical_diving = $1 WHERE id = $2`, [enabled, request.user!.id]);
+    return { technicalDiving: enabled };
   });
 
   // Experimental (see species/embeddings.ts) — on by default since it's purely local/on-device,
