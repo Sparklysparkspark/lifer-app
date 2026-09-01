@@ -1,7 +1,7 @@
 // Assembles apps/desktop/resources-staging/ — everything the packaged Tauri app needs bundled
 // alongside the Rust binary: the (unmodified) API source run via tsx, the built web app, and a
 // pruned copy of node_modules holding only what's actually needed at runtime.
-import { mkdirSync, rmSync, cpSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { mkdirSync, rmSync, cpSync, readFileSync, readdirSync, statSync, existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -101,6 +101,27 @@ function stripOnnxGpuProviders(stagingNodeModulesDir) {
   if (removed > 0) console.log(`[prepare-resources] stripped ${removed} onnxruntime GPU provider file(s)`);
 }
 
+// sharp lists a platform/libc-specific optionalDependency for every combination it supports
+// (linux-x64-gnu, linuxmusl-x64, darwin-arm64, ...) — npm is supposed to install only the one
+// matching the current host, but this has a known history of installing extra variants anyway
+// in some npm-version/lockfile combos. Harmless on its own (an unused platform folder just sits
+// there), except linuxdeploy hard-fails the WHOLE AppImage bundle on the first native binary it
+// can't resolve every shared-library dependency for, and a musl-linked libvips pulls in musl's
+// own libc (libc.musl-x86_64.so.1), which a glibc-based Ubuntu runner doesn't have. Preemptive:
+// only actually removes anything if npm really did install the mismatched variant.
+function stripMismatchedSharpVariants(stagingNodeModulesDir) {
+  const isMusl = process.platform === "linux"; // musl is the one exotic case; nothing to strip on darwin/win32
+  if (!isMusl) return;
+  let removed = 0;
+  for (const pkg of ["@img/sharp-libvips-linuxmusl-x64", "@img/sharp-linuxmusl-x64", "@img/sharp-libvips-linuxmusl-arm64", "@img/sharp-linuxmusl-arm64"]) {
+    const dir = path.join(stagingNodeModulesDir, pkg);
+    if (!existsSync(dir)) continue;
+    rmSync(dir, { recursive: true, force: true });
+    removed++;
+  }
+  if (removed > 0) console.log(`[prepare-resources] stripped ${removed} mismatched (musl) sharp variant dir(s)`);
+}
+
 function main() {
   rmSync(STAGING, { recursive: true, force: true });
   mkdirSync(STAGING, { recursive: true });
@@ -122,6 +143,7 @@ function main() {
   const exclude = loadNodeModulesExcludeSet();
   copyNodeModules(exclude);
   stripOnnxGpuProviders(path.join(STAGING, "node_modules"));
+  stripMismatchedSharpVariants(path.join(STAGING, "node_modules"));
 
   console.log(`[prepare-resources] staged at ${STAGING}`);
 }
