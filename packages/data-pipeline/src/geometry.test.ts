@@ -107,7 +107,7 @@ describe("exteriorRingsFromGeometry", () => {
 
   it("correctly extracts rings once a Feature wrapper is unwrapped to its .geometry", () => {
     const feature = { type: "Feature", geometry: { type: "Polygon", coordinates: [SQUARE] } };
-    const rings = exteriorRingsFromGeometry((feature as { geometry: never }).geometry);
+    const rings = exteriorRingsFromGeometry(feature.geometry);
     expect(rings).toEqual([SQUARE]);
   });
 });
