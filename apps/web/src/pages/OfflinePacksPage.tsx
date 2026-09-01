@@ -80,7 +80,6 @@ export default function OfflinePacksPage() {
   const [selectedCountryIds, setSelectedCountryIds] = useState<Set<string>>(new Set());
   const [openContinentIds, setOpenContinentIds] = useState<Set<string>>(new Set());
   const [selectedTaxa, setSelectedTaxa] = useState<Set<TaxonClass>>(new Set());
-  const [focusCountryIds, setFocusCountryIds] = useState<string[] | undefined>(undefined);
   const [searchTerm, setSearchTerm] = useState("");
   const [availableTaxaByRegion, setAvailableTaxaByRegion] = useState<Record<string, TaxonClass[]>>({});
   const [starting, setStarting] = useState(false);
@@ -93,7 +92,14 @@ export default function OfflinePacksPage() {
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [selectedOffloadIds, setSelectedOffloadIds] = useState<Set<string>>(new Set());
-  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+  // Empty = every group collapsed by default — with several countries downloaded, starting
+  // fully expanded meant scrolling past (and manually closing) every one just to see the list.
+  // Tracks which are explicitly EXPANDED rather than collapsed, so "expand all"/"collapse all"
+  // is just "set this to every group name" / "set this to empty".
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
+  // Which tab ("main" packs vs. "seaZones") is showing for a group that has both — only
+  // relevant for a country with downloaded sea-zone dependency packs (see downloadedGroups).
+  const [groupTab, setGroupTab] = useState<Map<string, "main" | "seaZones">>(new Map());
   const [provinceManagerPackId, setProvinceManagerPackId] = useState<string | null>(null);
   const [provinceList, setProvinceList] = useState<ProvinceEntry[] | null>(null);
   // "States" for the US, "Regions" for Thailand, "Provinces" for most others — computed
@@ -239,6 +245,21 @@ export default function OfflinePacksPage() {
     return set;
   }, [openContinentIds, countriesByContinent]);
 
+  // Everything the map should currently be fit to — every open continent's countries UNION every
+  // individually selected country. Derived (not manually set per-action) so the view always
+  // reflects exactly what's on screen right now, whichever way it got there: opening a second
+  // continent while the first is still open widens the fit to cover both instead of replacing it,
+  // and closing/deselecting narrows it back down to whatever's left, rather than only ever
+  // fitting forward and never back. A fresh array reference here (via useMemo, recomputed only
+  // when the underlying sets actually change) is exactly what re-triggers PacksMap's own fit
+  // effect — see that component's own doc comment on focusCountryIds.
+  const focusCountryIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const id of openCountryIds) ids.add(id);
+    for (const id of selectedCountryIds) ids.add(id);
+    return ids.size > 0 ? [...ids] : undefined;
+  }, [openCountryIds, selectedCountryIds]);
+
   const searchResults = useMemo(() => {
     if (searchTerm.trim().length < 2) return [];
     const term = searchTerm.trim().toLowerCase();
@@ -274,7 +295,7 @@ export default function OfflinePacksPage() {
     }
   }
 
-  function toggleContinent(continentId: string, countries: RegionSummary[]) {
+  function toggleContinent(continentId: string) {
     const willOpen = !openContinentIds.has(continentId);
     setOpenContinentIds((prev) => {
       const next = new Set(prev);
@@ -282,10 +303,9 @@ export default function OfflinePacksPage() {
       else next.delete(continentId);
       return next;
     });
-    // Opening a continent's pill group focuses the map on it (an outline, not a selection —
-    // see PacksMap's continentOpen paint state); closing it doesn't re-fit anywhere, it just
-    // stops showing that outline.
-    if (willOpen) setFocusCountryIds(countries.map((c) => c.id));
+    // The map's own fit is handled by the focusCountryIds memo above (derived from
+    // openContinentIds + selectedCountryIds) — opening OR closing a continent here just changes
+    // that memo's inputs, which widens or narrows the fit to match automatically.
   }
 
   function toggleAllInContinent(countries: RegionSummary[]) {
@@ -302,7 +322,6 @@ export default function OfflinePacksPage() {
 
   function selectSearchResult(region: RegionSummary) {
     setSelectedCountryIds((prev) => new Set(prev).add(region.id));
-    setFocusCountryIds([region.id]);
     setSearchTerm("");
     if (region.parentId) setOpenContinentIds((prev) => new Set(prev).add(region.parentId!));
     // Scrolled to on the next tick, after the row actually renders (it may not exist yet this
@@ -488,7 +507,7 @@ export default function OfflinePacksPage() {
   }
 
   function toggleGroupCollapsed(name: string) {
-    setCollapsedGroups((prev) => {
+    setExpandedGroups((prev) => {
       const next = new Set(prev);
       if (next.has(name)) next.delete(name);
       else next.add(name);
@@ -521,16 +540,22 @@ export default function OfflinePacksPage() {
     return map;
   }, [downloadedPacks]);
 
+  // A country's downloaded sea-zone dependency packs now live as a SECOND TAB on that same
+  // country's own card ("Packs" / "Sea zones") instead of a separate "<Country> - Sea zones"
+  // top-level group — one card per country/region instead of two adjacent-but-disconnected ones.
   const downloadedGroups = useMemo(() => {
-    const map = new Map<string, PackEntry[]>();
+    const map = new Map<string, { main: PackEntry[]; seaZones: PackEntry[] }>();
     for (const p of downloadedPacks) {
       const owner = p.type === "seaZone" && p.seaZone ? seaZoneOwner.get(p.seaZone) : null;
-      const name = owner ? `${owner} - Sea zones` : (p.region ?? p.seaZone ?? "Other");
-      if (!map.has(name)) map.set(name, []);
-      map.get(name)!.push(p);
+      const name = owner ?? (p.region ?? p.seaZone ?? "Other");
+      if (!map.has(name)) map.set(name, { main: [], seaZones: [] });
+      const entry = map.get(name)!;
+      if (owner) entry.seaZones.push(p);
+      else entry.main.push(p);
     }
-    for (const group of map.values()) {
-      group.sort((a, b) => (a.seaZone ?? a.region ?? "").localeCompare(b.seaZone ?? b.region ?? ""));
+    for (const entry of map.values()) {
+      entry.main.sort((a, b) => (a.region ?? a.seaZone ?? "").localeCompare(b.region ?? b.seaZone ?? ""));
+      entry.seaZones.sort((a, b) => (a.seaZone ?? "").localeCompare(b.seaZone ?? ""));
     }
     return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0]));
   }, [downloadedPacks, seaZoneOwner]);
@@ -634,7 +659,7 @@ export default function OfflinePacksPage() {
                   <button
                     key={continent.id}
                     type="button"
-                    onClick={() => toggleContinent(continent.id, countries)}
+                    onClick={() => toggleContinent(continent.id)}
                     className={`rounded-full border px-3 py-1.5 text-sm transition-colors ${
                       isOpen ? "border-ink bg-ink text-canvas" : "border-line bg-surface-muted text-ink hover:bg-line"
                     }`}
@@ -890,6 +915,21 @@ export default function OfflinePacksPage() {
                 <div className="flex items-center justify-between">
                   <p className="text-sm font-semibold text-ink">Downloaded</p>
                   <div className="flex gap-2">
+                    {downloadedGroups.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setExpandedGroups(
+                            expandedGroups.size === downloadedGroups.length
+                              ? new Set()
+                              : new Set(downloadedGroups.map(([name]) => name)),
+                          )
+                        }
+                        className="rounded-md border border-line px-2 py-1 text-xs text-muted hover:bg-surface-muted"
+                      >
+                        {expandedGroups.size === downloadedGroups.length ? "Collapse all" : "Expand all"}
+                      </button>
+                    )}
                     {downloadedPacks.some((p) => p.updateAvailable) && (
                       <button
                         type="button"
@@ -915,11 +955,15 @@ export default function OfflinePacksPage() {
                   </div>
                 </div>
                 <div className="mt-2 divide-y divide-line">
-                  {downloadedGroups.map(([groupName, groupPacks]) => {
-                    const groupIds = groupPacks.map((p) => p.id);
+                  {downloadedGroups.map(([groupName, { main, seaZones }]) => {
+                    const allPacks = [...main, ...seaZones];
+                    const groupIds = allPacks.map((p) => p.id);
                     const groupSelected = groupIds.every((id) => selectedOffloadIds.has(id));
-                    const groupBytes = groupPacks.reduce((sum, p) => sum + p.sizeBytes, 0);
-                    const collapsed = collapsedGroups.has(groupName);
+                    const groupBytes = allPacks.reduce((sum, p) => sum + p.sizeBytes, 0);
+                    const collapsed = !expandedGroups.has(groupName);
+                    const hasBothTabs = main.length > 0 && seaZones.length > 0;
+                    const activeTab = groupTab.get(groupName) ?? (main.length > 0 ? "main" : "seaZones");
+                    const activePacks = activeTab === "seaZones" ? seaZones : main;
                     return (
                       <div key={groupName} className="py-2">
                         <div className="flex items-center gap-2 text-sm">
@@ -944,16 +988,38 @@ export default function OfflinePacksPage() {
                             className="flex flex-1 items-center justify-between text-left text-ink"
                           >
                             <span>
-                              {groupName} <span className="text-xs text-muted">({groupPacks.length} pack{groupPacks.length === 1 ? "" : "s"})</span>
+                              {groupName} <span className="text-xs text-muted">({allPacks.length} pack{allPacks.length === 1 ? "" : "s"})</span>
                             </span>
                             <span className="text-xs text-muted">
                               {formatBytes(groupBytes)} {collapsed ? "▸" : "▾"}
                             </span>
                           </button>
                         </div>
+                        {!collapsed && hasBothTabs && (
+                          <div className="mt-1.5 ml-6 flex gap-1 text-xs">
+                            <button
+                              type="button"
+                              onClick={() => setGroupTab(new Map(groupTab).set(groupName, "main"))}
+                              className={`rounded-full border px-2.5 py-1 transition-colors ${
+                                activeTab === "main" ? "border-ink bg-ink text-canvas" : "border-line text-muted hover:bg-surface-muted"
+                              }`}
+                            >
+                              Packs ({main.length})
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setGroupTab(new Map(groupTab).set(groupName, "seaZones"))}
+                              className={`rounded-full border px-2.5 py-1 transition-colors ${
+                                activeTab === "seaZones" ? "border-ink bg-ink text-canvas" : "border-line text-muted hover:bg-surface-muted"
+                              }`}
+                            >
+                              Sea zones ({seaZones.length})
+                            </button>
+                          </div>
+                        )}
                         {!collapsed && (
                           <ul className="mt-1 ml-6 divide-y divide-line">
-                            {groupPacks.map((p) => (
+                            {activePacks.map((p) => (
                               <li key={p.id} className="py-1.5">
                                 <div className="flex items-center gap-2 text-sm">
                                   <input
