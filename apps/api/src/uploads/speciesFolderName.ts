@@ -7,7 +7,7 @@
 // land in — or be read from — the same folder.
 import { pool } from "../db.js";
 
-function sanitizeForFilesystem(name: string): string {
+export function sanitizeForFilesystem(name: string): string {
   // Slashes would create unintended subfolders; the rest are characters Windows/macOS/Linux
   // either forbid outright or that just make a folder name awkward to look at/type.
   return name.replace(/[/\\:*?"<>|]/g, "").trim();

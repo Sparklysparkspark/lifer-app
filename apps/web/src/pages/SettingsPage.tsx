@@ -8,6 +8,7 @@ import { useTheme } from "../hooks/useTheme";
 import { pickFolderNative, FolderBrowser } from "../components/FolderPicker";
 import { useStorageVolumes } from "../hooks/useStorageVolumes";
 import EbirdImport from "../components/EbirdImport";
+import { useOnline } from "../hooks/useOnline";
 
 interface AccountSettings {
   email: string;
@@ -79,6 +80,7 @@ export default function SettingsPage() {
             <LibraryLinksSection />
             <AppearanceSection />
             <HideObscureSpeciesSection />
+            <SpeciesSuggestSection />
             <EbirdImportSection />
             <OrganizePhotosSection />
             <StorageLocationSection />
@@ -105,6 +107,9 @@ function LibraryLinksSection() {
         </Link>
         <Link to="/archived" className="rounded-md border border-line px-3 py-1.5 text-sm text-ink hover:bg-surface-muted">
           Archived species
+        </Link>
+        <Link to="/trash" className="rounded-md border border-line px-3 py-1.5 text-sm text-ink hover:bg-surface-muted">
+          Trash
         </Link>
       </div>
     </Card>
@@ -181,6 +186,57 @@ function HideObscureSpeciesSection() {
   );
 }
 
+// Experimental (see species/embeddings.ts) — on by default since suggestions are computed
+// entirely on-device from your own photos (and, for species you haven't shot yet, a shipped
+// reference-photo embedding), never sent anywhere. The model behind it improves for YOU
+// specifically over time: every time you confirm or correct a suggestion during import, that
+// photo's embedding gets stored under whatever species you actually picked, so your own past
+// photos become part of what future suggestions are compared against.
+function SpeciesSuggestSection() {
+  const [enabled, setEnabled] = useState<boolean | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    api.get<{ speciesSuggestEnabled: boolean }>("/settings").then((res) => setEnabled(res.speciesSuggestEnabled));
+  }, []);
+
+  async function toggle(next: boolean) {
+    setSaving(true);
+    setError(null);
+    try {
+      await api.put("/settings/species-suggest", { enabled: next });
+      setEnabled(next);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't update this setting");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (enabled === null) return null;
+
+  return (
+    <Card
+      title={
+        <>
+          Species suggestions{" "}
+          <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700">
+            Experimental
+          </span>
+        </>
+      }
+      description="While importing photos, Lifer suggests likely species for each one based on visual similarity to your own past photos and to reference photos for that region. Nothing ever leaves your device. It gets better for you specifically over time: whenever you confirm or correct a suggestion, that photo becomes one more example it learns from."
+    >
+      <label className="flex items-start gap-2 text-sm text-ink">
+        <input type="checkbox" checked={enabled} disabled={saving} onChange={(e) => toggle(e.target.checked)} className="mt-0.5" />
+        <span>Suggest species while importing photos</span>
+      </label>
+      <FormMessage error={error} success={null} />
+    </Card>
+  );
+}
+
 // Moved here from CollectionPage (previously shown any time a region was selected, whether or
 // not you actually had eBird data to import) — a one-off action, not something that needs to
 // sit on the main browsing screen. Doesn't need onImported to refresh anything on this page;
@@ -189,7 +245,7 @@ function EbirdImportSection() {
   return <EbirdImport onImported={() => {}} />;
 }
 
-function Card({ title, description, children }: { title: string; description: string; children: React.ReactNode }) {
+function Card({ title, description, children }: { title: React.ReactNode; description: string; children: React.ReactNode }) {
   return (
     <section className="rounded-xl border border-line bg-surface p-5">
       <h2 className="text-sm font-semibold text-ink">{title}</h2>
@@ -472,6 +528,12 @@ function OrganizePhotosSection() {
   );
 }
 
+interface UnmatchedFile {
+  relativePath: string;
+  contentHash: string | null;
+  scientificNames: string[] | null;
+}
+
 interface ReimportStatus {
   running: boolean;
   processedJpegs: number;
@@ -483,8 +545,8 @@ interface ReimportStatus {
   jpegsRecovered: number;
   jpegsAlreadyKnown: number;
   jpegsRelinked: number;
-  jpegsUnrecognized: string[];
-  jpegsAmbiguous: Array<{ file: string; scientificNames: string[] }>;
+  jpegsIgnored: number;
+  unmatched: UnmatchedFile[];
   rawsRecovered: number;
   rawsAlreadyKnown: number;
   rawsRelinked: number;
@@ -497,6 +559,69 @@ interface ReimportStatus {
 // recovery path (see apps/api/src/library/reimport.ts's own comment on why this reads embedded
 // file metadata rather than trusting folder names). Desktop-only for the same reason as
 // StorageLocationSection above: it walks the server's own filesystem directly.
+// One at a time — the API only ever runs a single reimport job (library/routes.ts's module-
+// level `job`), so there's no reason to let the UI imply otherwise with two independent forms.
+type ReimportMode = "existing" | "foreign";
+
+function UnmatchedReviewPanel({ files, onIgnored }: { files: UnmatchedFile[]; onIgnored: (contentHash: string) => void }) {
+  const [ignoringHash, setIgnoringHash] = useState<string | null>(null);
+
+  async function ignore(contentHash: string) {
+    setIgnoringHash(contentHash);
+    try {
+      await api.post("/library/ignore", { contentHash });
+      onIgnored(contentHash);
+    } finally {
+      setIgnoringHash(null);
+    }
+  }
+
+  return (
+    <div className="max-h-96 space-y-1 overflow-y-auto rounded-md border border-line bg-canvas p-2">
+      {files.map((f, i) => (
+        <div key={`${f.relativePath}-${i}`} className="flex items-center gap-3 rounded-md p-1.5 hover:bg-surface-muted">
+          {f.contentHash ? (
+            <img
+              src={`/api/library/reimport/unmatched-preview/${i}`}
+              alt=""
+              className="h-12 w-12 shrink-0 rounded object-cover"
+              onError={(e) => {
+                (e.target as HTMLImageElement).style.visibility = "hidden";
+              }}
+            />
+          ) : (
+            <div className="h-12 w-12 shrink-0 rounded bg-surface-muted" />
+          )}
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-xs text-ink">{f.relativePath}</p>
+            <p className="truncate text-[11px] text-muted">
+              {f.scientificNames ? `Matched more than one species: ${f.scientificNames.join(", ")}` : "No species tag found"}
+            </p>
+          </div>
+          {f.contentHash && (
+            <button
+              type="button"
+              onClick={() => ignore(f.contentHash!)}
+              disabled={ignoringHash === f.contentHash}
+              className="shrink-0 rounded-md border border-line px-2 py-1 text-[11px] text-ink hover:bg-surface-muted disabled:opacity-50"
+            >
+              {ignoringHash === f.contentHash ? "Ignoring…" : "Ignore"}
+            </button>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// Rebuilds captures/photos/user_species/originals from photos already on disk but not yet in
+// the database — either recovering Lifer's OWN previously-organized library (fresh install,
+// server migration, a drive reconnected under a different name), or importing a library kept
+// in a totally different app/folder convention for the first time (see
+// apps/api/src/library/reimport.ts's own comment on why this reads embedded file metadata
+// rather than trusting folder names — the same matching works for both cases, foreign folder
+// structures included). Desktop-only for the same reason as StorageLocationSection above: it
+// walks the server's own filesystem directly.
 function LibraryReimportSection() {
   const [status, setStatus] = useState<ReimportStatus | null>(null);
   const [starting, setStarting] = useState(false);
@@ -504,6 +629,11 @@ function LibraryReimportSection() {
   const { volumes } = useStorageVolumes();
   const connectedVolumes = volumes.filter((v) => v.connected);
   const [volumeId, setVolumeId] = useState("");
+  const [mode, setMode] = useState<ReimportMode>("existing");
+  const [foreignPath, setForeignPath] = useState("");
+  const [browsingForeignPath, setBrowsingForeignPath] = useState(false);
+  const [organize, setOrganize] = useState(true);
+  const [showUnmatched, setShowUnmatched] = useState(false);
 
   useEffect(() => {
     api
@@ -538,20 +668,33 @@ function LibraryReimportSection() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status?.running]);
 
+  async function chooseForeignPath() {
+    const native = await pickFolderNative();
+    if (native === undefined) {
+      setBrowsingForeignPath(true);
+      return;
+    }
+    if (native === null) return;
+    setForeignPath(native);
+  }
+
   async function start() {
     const targetLabel = volumeId ? connectedVolumes.find((v) => v.id === volumeId)?.label : null;
-    if (
-      !confirm(
-        targetLabel
+    const confirmMessage =
+      mode === "foreign"
+        ? `This walks "${foreignPath}", matches each photo to a species using tags already embedded in the file (species name, common name, or a past alias), and ${
+            organize ? "moves matched photos into your library's own species folders" : "adds matched photos to your library without moving them"
+          }. Anything it can't confidently match is left untouched on disk and listed below for you to review. Continue?`
+        : targetLabel
           ? `This walks "${targetLabel}"'s own photo folder and rebuilds any missing records, and repairs any already-known photo whose saved location has drifted (e.g. this drive remounting under a different name). It never modifies or moves your files. Continue?`
-          : "This walks your whole photo library on disk and rebuilds any captures/species records missing from the database. It never modifies or moves your files. Continue?",
-      )
-    )
-      return;
+          : "This walks your whole photo library on disk and rebuilds any captures/species records missing from the database. It never modifies or moves your files. Continue?";
+    if (!confirm(confirmMessage)) return;
     setStarting(true);
     setError(null);
+    setShowUnmatched(false);
     try {
-      await api.post("/library/reimport", volumeId ? { volumeId } : undefined);
+      const body = mode === "foreign" ? { path: foreignPath, organize } : volumeId ? { volumeId } : undefined;
+      await api.post("/library/reimport", body);
       setStatus(await api.get<ReimportStatus>("/library/reimport/status"));
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Couldn't start the reimport");
@@ -565,40 +708,116 @@ function LibraryReimportSection() {
   return (
     <Card
       title="Reimport library"
-      description="Rebuild your species records straight from the photos already organized on disk, for after a fresh install or server migration where the database doesn't know about them yet, or to repair links after a drive got reconnected under a different name."
+      description="Rebuild your species records straight from photos already on disk, for after a fresh install or server migration, to repair links after a drive got reconnected under a different name, or to bring in a library you've been keeping in a different app or folder layout."
     >
-      <p className="text-xs text-muted">
-        This only scans the one location you pick below, either your computer's own library folder, or a single
-        connected external drive, never everything at once. Pick "This computer's library" for a fresh install or
-        server migration; pick a specific drive if that drive's own photos have gone stale (path drifted after
-        reconnecting under a different name, for example).
-      </p>
-      {connectedVolumes.length > 0 && (
-        <div className="space-y-1">
-          <label className="text-xs font-medium text-muted">Reimport from</label>
-          <select
-            value={volumeId}
-            onChange={(e) => setVolumeId(e.target.value)}
-            disabled={starting || status.running}
-            className="w-full rounded-md border border-line bg-surface px-2 py-1.5 text-sm text-ink"
-          >
-            <option value="">This computer's library</option>
-            {connectedVolumes.map((v) => (
-              <option key={v.id} value={v.id}>
-                {v.label}
-              </option>
-            ))}
-          </select>
-        </div>
+      <div className="flex rounded-md border border-line text-xs">
+        <button
+          type="button"
+          onClick={() => setMode("existing")}
+          disabled={starting || status.running}
+          className={`flex-1 rounded-l-md px-2.5 py-1.5 ${mode === "existing" ? "bg-accent text-accent-fg" : "text-muted hover:bg-surface-muted"}`}
+        >
+          Reimport my existing library
+        </button>
+        <button
+          type="button"
+          onClick={() => setMode("foreign")}
+          disabled={starting || status.running}
+          className={`flex-1 rounded-r-md px-2.5 py-1.5 ${mode === "foreign" ? "bg-accent text-accent-fg" : "text-muted hover:bg-surface-muted"}`}
+        >
+          Import a library organized differently
+        </button>
+      </div>
+
+      {mode === "existing" ? (
+        <>
+          <p className="text-xs text-muted">
+            This only scans the one location you pick below, either your computer's own library folder, or a single
+            connected external drive, never everything at once. Pick "This computer's library" for a fresh install or
+            server migration; pick a specific drive if that drive's own photos have gone stale (path drifted after
+            reconnecting under a different name, for example).
+          </p>
+          {connectedVolumes.length > 0 && (
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-muted">Reimport from</label>
+              <select
+                value={volumeId}
+                onChange={(e) => setVolumeId(e.target.value)}
+                disabled={starting || status.running}
+                className="w-full rounded-md border border-line bg-surface px-2 py-1.5 text-sm text-ink"
+              >
+                <option value="">This computer's library</option>
+                {connectedVolumes.map((v) => (
+                  <option key={v.id} value={v.id}>
+                    {v.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+        </>
+      ) : (
+        <>
+          <p className="text-xs text-muted">
+            Point this at any folder of photos, however it's organized — Lightroom exports, a flat dump by date,
+            whatever. We'll match each photo to a species using tags already embedded in the file: its species name,
+            common name, or an older name it may have been tagged with before a taxonomic rename. Anything we can't
+            confidently match won't be touched — it's left in place and listed below, where you can review it or mark
+            it "Ignore" so it stops showing up on future scans (handy for e.g. a folder of insect photos this app
+            doesn't track).
+          </p>
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-muted">Folder to import</label>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={foreignPath}
+                onChange={(e) => setForeignPath(e.target.value)}
+                placeholder="/path/to/your/photos"
+                disabled={starting || status.running}
+                className="w-full min-w-0 flex-1 rounded-md border border-line bg-surface px-2 py-1.5 text-sm text-ink"
+              />
+              <button
+                type="button"
+                onClick={chooseForeignPath}
+                disabled={starting || status.running}
+                className="shrink-0 rounded-md border border-line px-3 py-1.5 text-sm text-ink hover:bg-surface-muted disabled:opacity-50"
+              >
+                Browse…
+              </button>
+            </div>
+            {browsingForeignPath && (
+              <FolderBrowser
+                onChoose={(p) => {
+                  setForeignPath(p);
+                  setBrowsingForeignPath(false);
+                }}
+                onCancel={() => setBrowsingForeignPath(false)}
+              />
+            )}
+          </div>
+          <label className="flex items-center gap-2 text-xs text-ink">
+            <input
+              type="checkbox"
+              checked={organize}
+              onChange={(e) => setOrganize(e.target.checked)}
+              disabled={starting || status.running}
+              className="h-3.5 w-3.5"
+            />
+            Organize matched photos into species folders in my library (recommended — leave off to add them to Lifer
+            without moving the files from where they are now)
+          </label>
+        </>
       )}
+
       <div>
         <button
           type="button"
           onClick={start}
-          disabled={starting || status.running}
+          disabled={starting || status.running || (mode === "foreign" && !foreignPath)}
           className="rounded-md border border-line px-3 py-1.5 text-sm text-ink hover:bg-surface-muted disabled:opacity-50"
         >
-          {status.running ? "Reimporting…" : "Reimport library now"}
+          {status.running ? "Importing…" : mode === "foreign" ? "Import library now" : "Reimport library now"}
         </button>
       </div>
       {status.running && (
@@ -619,17 +838,31 @@ function LibraryReimportSection() {
               saved location had drifted.
             </p>
           )}
-          {status.jpegsUnrecognized.length > 0 && (
+          {status.jpegsIgnored > 0 && (
             <p>
-              {status.jpegsUnrecognized.length} photo{status.jpegsUnrecognized.length === 1 ? "" : "s"} had no recognizable species
-              metadata and were skipped.
+              Skipped {status.jpegsIgnored} previously-ignored file{status.jpegsIgnored === 1 ? "" : "s"}.
             </p>
           )}
-          {status.jpegsAmbiguous.length > 0 && (
-            <p>
-              {status.jpegsAmbiguous.length} photo{status.jpegsAmbiguous.length === 1 ? "" : "s"} matched more than one possible
-              species and were skipped for manual review.
-            </p>
+          {status.unmatched.length > 0 && (
+            <div>
+              <button
+                type="button"
+                onClick={() => setShowUnmatched((v) => !v)}
+                className="text-ink underline hover:no-underline"
+              >
+                {showUnmatched ? "Hide" : "Review"} Unmatched ({status.unmatched.length})
+              </button>
+              {showUnmatched && (
+                <div className="mt-2">
+                  <UnmatchedReviewPanel
+                    files={status.unmatched}
+                    onIgnored={(hash) =>
+                      setStatus((prev) => (prev ? { ...prev, unmatched: prev.unmatched.filter((f) => f.contentHash !== hash) } : prev))
+                    }
+                  />
+                </div>
+              )}
+            </div>
           )}
           {status.rawsUnmatched > 0 && (
             <p>
@@ -1161,8 +1394,16 @@ function AppUpdatesSection() {
   const [update, setUpdate] = useState<CheckResult | null>(null);
   const [progress, setProgress] = useState<{ downloaded: number; total: number | null } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [currentVersion, setCurrentVersion] = useState<string | null>(null);
+  const [packUpdateCount, setPackUpdateCount] = useState<number>(0);
+  const online = useOnline();
 
   async function checkForUpdate() {
+    if (!online) {
+      setError("You're offline — connect to the internet to check for updates.");
+      setStatus("error");
+      return;
+    }
     setStatus("checking");
     setError(null);
     try {
@@ -1180,6 +1421,37 @@ function AppUpdatesSection() {
       setStatus("error");
     }
   }
+
+  // Auto-checked once on mount (rather than waiting for a manual click) — same reasoning as
+  // UpdatesBanner's own launch-time check, just also surfaced here for anyone who navigates
+  // straight to Settings without having seen the banner. Current version is shown alongside so
+  // "Update Available" always states both the version you're on and the one you'd move to.
+  useEffect(() => {
+    if (!window.liferSetup) return;
+    import("@tauri-apps/api/app")
+      .then(({ getVersion }) => getVersion())
+      .then(setCurrentVersion)
+      .catch(() => {
+        // Silent — purely cosmetic (the version label), not worth an error state of its own.
+      });
+  }, []);
+
+  useEffect(() => {
+    if (!window.liferSetup || !online) return;
+    void checkForUpdate();
+    // Only re-run when connectivity is regained after being offline, not on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [online]);
+
+  useEffect(() => {
+    if (!online) return;
+    api
+      .get<{ updateCount: number }>("/offline-packs/updates-summary")
+      .then((res) => setPackUpdateCount(res.updateCount))
+      .catch(() => {
+        // Silent — same reasoning as UpdatesBanner's own pack-summary check.
+      });
+  }, [online]);
 
   async function installUpdate() {
     if (!update) return;
@@ -1211,6 +1483,7 @@ function AppUpdatesSection() {
 
   return (
     <Card title="App updates" description="Check for and install a newer version of Lifer.">
+      {currentVersion && <p className="text-sm text-muted">You're on version {currentVersion}.</p>}
       {status === "idle" && (
         <button type="button" onClick={checkForUpdate} className={buttonClass}>
           Check for updates
@@ -1227,10 +1500,12 @@ function AppUpdatesSection() {
       )}
       {status === "available" && update && (
         <div className="space-y-2">
-          <p className="text-sm text-ink">Version {update.version} is available.</p>
+          <p className="text-sm font-medium text-ink">
+            Update Available{currentVersion ? ` — v${currentVersion} → v${update.version}` : ` — v${update.version}`}
+          </p>
           {update.body && <p className="text-sm text-muted">{update.body}</p>}
           <button type="button" onClick={installUpdate} className={buttonClass}>
-            Download and install
+            Update Now
           </button>
         </div>
       )}
@@ -1244,6 +1519,14 @@ function AppUpdatesSection() {
         </p>
       )}
       <FormMessage error={error} success={null} />
+      {packUpdateCount > 0 && (
+        <p className="mt-3 border-t border-line pt-3 text-sm text-ink">
+          Pack Update Available — {packUpdateCount} offline pack{packUpdateCount === 1 ? "" : "s"} ready to update.{" "}
+          <Link to="/offline-packs" className="font-medium text-accent hover:underline">
+            View packs
+          </Link>
+        </p>
+      )}
     </Card>
   );
 }
