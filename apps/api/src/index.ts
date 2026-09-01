@@ -22,6 +22,7 @@ import { archiveRoutes } from "./archive/routes.js";
 import { tripsRoutes } from "./trips/routes.js";
 import { libraryRoutes } from "./library/routes.js";
 import { storageVolumesRoutes } from "./storageVolumes/routes.js";
+import { runEmbeddingBackfill } from "./species/embeddingBackfill.js";
 
 // Checked before anything else starts, so an interrupted storage-location move (see
 // settings/routes.ts) gets resolved one way or the other before the app serves a single
@@ -87,6 +88,13 @@ await app.register(async (api) => {
 
 app.get("/health", async () => ({ ok: true }));
 
+// Baked in at Docker build time from the release tag (see Dockerfile/release.yml's
+// docker-image job) — read by the self-hosted web app's own DockerUpdateBanner.tsx to compare
+// against the latest GitHub release tag. "dev" for a local build with no APP_VERSION passed
+// (docker-compose's own default `build: .` with no --build-arg), which the banner treats as
+// "never show an update" rather than a false positive against a real version string.
+app.get("/version", async () => ({ version: process.env.APP_VERSION ?? "dev" }));
+
 // Offline basemap tiles (PMTiles) — @fastify/static (via @fastify/send)
 // serves Range requests out of the box, which the pmtiles JS library needs to fetch only the
 // byte ranges for tiles actually in view rather than the whole file. decorateReply: false
@@ -130,3 +138,10 @@ try {
   app.log.error(err);
   process.exit(1);
 }
+
+// Species auto-suggest backfill (Phase 2 — on by default, no toggle): fires after the server is
+// already listening so a slow first-ever run (model download + embedding every existing photo)
+// never delays startup. Best-effort — a failure here (no network for the one-time model
+// download, e.g.) just means suggestions stay unavailable until the next server restart retries,
+// never a startup failure.
+runEmbeddingBackfill().catch((err) => app.log.warn({ err }, "Species-suggestion embedding backfill failed to start"));

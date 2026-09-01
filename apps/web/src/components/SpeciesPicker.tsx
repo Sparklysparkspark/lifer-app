@@ -8,6 +8,11 @@ export interface SpeciesResult {
   common_name: string | null;
 }
 
+export interface SuggestedSpecies extends SpeciesResult {
+  /** Cosine similarity, 0-1 — shown to the user as a rounded percent match. */
+  score: number;
+}
+
 // Fuzzy search across common + scientific name, recently-used pinned when the query is empty
 // (lifer-spec.md §9 Phase 2 checklist). Keyboard-driven: arrow keys + enter to jump.
 //
