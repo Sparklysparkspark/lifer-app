@@ -79,10 +79,10 @@ export async function importTripFile(
     const captureId = captureRes.rows[0].id;
 
     const photoId = randomUUID();
-    const { displayPath, thumbPath } = await generateDerivatives(buffer, photoId);
+    const { displayPath, thumbPath, width, height } = await generateDerivatives(buffer, photoId);
     const photoRes = await client.query<{ id: string }>(
-      `INSERT INTO photos (id, capture_id, display_path, thumb_path) VALUES ($1,$2,$3,$4) RETURNING id`,
-      [photoId, captureId, displayPath, thumbPath],
+      `INSERT INTO photos (id, capture_id, display_path, thumb_path, width, height) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
+      [photoId, captureId, displayPath, thumbPath, width, height],
     );
     await client.query(`UPDATE captures SET current_photo_id = $1 WHERE id = $2`, [photoRes.rows[0].id, captureId]);
 

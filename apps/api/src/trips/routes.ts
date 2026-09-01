@@ -1,9 +1,11 @@
 import type { FastifyInstance } from "fastify";
-import { createReadStream, existsSync, statSync } from "node:fs";
+import { createReadStream, existsSync, statSync, mkdirSync } from "node:fs";
+import path from "node:path";
 import { pool } from "../db.js";
 import { requireAuth } from "../auth/session.js";
 import { requireDesktopMode } from "../settings/routes.js";
 import { scanTrip, resolveWithinTripFolder } from "./scan.js";
+import { sanitizeForFilesystem } from "../uploads/speciesFolderName.js";
 import { importTripFile } from "./import.js";
 import { mapWithConcurrency } from "data-pipeline/src/concurrency.js";
 import { toCollectionItem } from "../collection/collectionItem.js";
@@ -145,6 +147,32 @@ export async function tripsRoutes(app: FastifyInstance): Promise<void> {
       [userId, name, sourceFolder],
     );
     return reply.code(201).send({ id: res.rows[0].id });
+  });
+
+  // "Build a Trip" — the OPPOSITE of the route above: instead of pointing at a folder the user
+  // already organized by hand, this creates a brand-new empty one and hands back a trip whose
+  // source_folder is that fresh "Wildlife" folder. Every existing trip route (scan/detail/
+  // photos/cover) keeps working unchanged from here — as far as the DB is concerned this is
+  // just a trip whose folder happens to start empty, not a different kind of trip. Photos land
+  // in it via the main upload flow's own tripId destination override (uploads/routes.ts), not
+  // via this route or Trips' own scan/import — the client is expected to navigate straight to
+  // the normal upload/import UI after this call, scoped to the new trip.
+  app.post<{ Body: { name?: string; parentDir?: string } }>("/trips/build", { preHandler: requireAuth }, async (request, reply) => {
+    if (!requireDesktopMode(reply)) return;
+    const userId = request.user!.id;
+    const { name, parentDir } = request.body ?? {};
+    if (!name || !parentDir) return reply.code(400).send({ error: "name and parentDir are required" });
+
+    const folderName = sanitizeForFilesystem(name);
+    if (!folderName) return reply.code(400).send({ error: "That name can't be used as a folder name" });
+    const sourceFolder = path.join(parentDir, folderName, "Wildlife");
+    mkdirSync(sourceFolder, { recursive: true });
+
+    const res = await pool.query<{ id: string }>(
+      `INSERT INTO trips (user_id, name, source_folder) VALUES ($1, $2, $3) RETURNING id`,
+      [userId, name, sourceFolder],
+    );
+    return reply.code(201).send({ id: res.rows[0].id, sourceFolder });
   });
 
   app.get("/trips", { preHandler: requireAuth }, async (request, reply) => {
@@ -373,7 +401,7 @@ export async function tripsRoutes(app: FastifyInstance): Promise<void> {
     if (tripRes.rows.length === 0) return reply.code(404).send({ error: "Trip not found" });
 
     const res = await pool.query(
-      `SELECT p.id AS photo_id, c.id AS capture_id, c.species_id, s.scientific_name, s.common_name, c.taken_at, c.created_at,
+      `SELECT p.id AS photo_id, p.width, p.height, c.id AS capture_id, c.species_id, s.scientific_name, s.common_name, c.taken_at, c.created_at,
               c.camera_model, c.lens, c.focal_length_mm, c.aperture, c.shutter, c.iso,
               EXISTS (SELECT 1 FROM originals ro WHERE ro.capture_id = c.id AND ro.kind = 'raw') AS has_raw
        FROM captures c
@@ -387,6 +415,8 @@ export async function tripsRoutes(app: FastifyInstance): Promise<void> {
     return {
       items: res.rows.map((row) => ({
         photoId: row.photo_id,
+        width: row.width,
+        height: row.height,
         captureId: row.capture_id,
         speciesId: row.species_id,
         scientificName: row.scientific_name,
