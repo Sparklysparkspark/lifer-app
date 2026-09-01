@@ -27,6 +27,12 @@ COPY . .
 # so there's nothing to compile for them.
 RUN npm run build -w web
 
+# Baked in at build time from the pushed release tag (see .github/workflows/release.yml's
+# docker-image job) so a running container can report its own version — GET /version, read by
+# the self-hosted web app's own update-available banner (DockerUpdateBanner.tsx) to compare
+# against the latest GitHub release. Empty/"dev" for a local `docker build` with no arg passed.
+ARG APP_VERSION=dev
+ENV APP_VERSION=${APP_VERSION}
 ENV NODE_ENV=production
 EXPOSE 4000
 

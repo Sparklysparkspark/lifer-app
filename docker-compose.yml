@@ -32,6 +32,27 @@ services:
       - "${PORT:-4000}:${PORT:-4000}"
     volumes:
       - ${LIFER_STORAGE_DIR:-./data/lifer}:/data
+    # Opts this container into Watchtower below (label-scoped — see that service's own
+    # comment). Leave this label off, or set watchtower's own image to a no-op, if you'd
+    # rather update manually (docker compose pull && docker compose up -d).
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+
+  # Optional, opt-in auto-update for the api service above: polls ghcr.io for a newer image on
+  # this same tag (":latest" by default) and pulls + recreates the container automatically —
+  # avoids needing to SSH into a NAS and run `docker compose pull` by hand after every release.
+  # `--label-enable` restricts Watchtower to ONLY containers carrying the label above (this
+  # compose file's own postgres service is deliberately NOT labeled — a database container
+  # auto-restarting on a schedule is not something to opt into blindly). Comment this whole
+  # service out (or `docker compose up -d api postgres` without it) if you'd rather control
+  # updates manually — GET /version always reports the running version either way, and the
+  # in-app banner (self-hosted web build only) still tells you when a newer release exists.
+  watchtower:
+    image: containrrr/watchtower
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: --label-enable --cleanup --interval 3600
 
 volumes:
   lifer-postgres-data:

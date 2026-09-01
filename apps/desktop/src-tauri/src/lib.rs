@@ -1,6 +1,5 @@
 mod api;
 mod embedded_db;
-mod mac_window;
 mod store;
 
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
@@ -55,40 +54,6 @@ fn platform() -> &'static str {
         "win32"
     } else {
         "linux"
-    }
-}
-
-// Backs the custom-drawn traffic lights (see apps/web's TrafficLights.tsx) — native buttons
-// have no public API for an exact custom color, so light theme hides them and draws its own
-// (see mac_window.rs), which then needs these to actually do anything on click.
-#[tauri::command]
-fn set_traffic_lights_hidden(window: WebviewWindow, hidden: bool) {
-    // AppKit calls (NSWindow.standardWindowButton/setHidden) are only well-defined on the
-    // main thread. Tauri commands run on a worker thread pool by default, so calling into
-    // mac_window directly here was undefined behavior — it could silently no-op, which reads
-    // as the native buttons intermittently still showing through behind the custom dots.
-    let _ = window.clone().run_on_main_thread(move || {
-        mac_window::set_traffic_lights_hidden(&window, hidden);
-    });
-}
-
-#[tauri::command]
-fn window_control(window: WebviewWindow, action: String) {
-    match action.as_str() {
-        "close" => {
-            let _ = window.close();
-        }
-        "minimize" => {
-            let _ = window.minimize();
-        }
-        "toggle-maximize" => {
-            if let Ok(true) = window.is_maximized() {
-                let _ = window.unmaximize();
-            } else {
-                let _ = window.maximize();
-            }
-        }
-        _ => {}
     }
 }
 
@@ -285,8 +250,6 @@ pub fn run() {
             get_config,
             choose_setup,
             platform,
-            set_traffic_lights_hidden,
-            window_control,
             set_window_theme_background
         ])
         .setup(|app| {
@@ -314,9 +277,10 @@ pub fn run() {
             // title_bar_style/hidden_title/traffic_light_position are macOS-only builder
             // methods (calling them unconditionally fails to COMPILE on Windows/Linux, not
             // just a runtime no-op — confirmed against the tauri crate source) — this whole
-            // block, including forcing the native window chrome to dark appearance, only
-            // makes sense on macOS's frameless-with-native-traffic-lights window anyway.
-            // Windows/Linux get Tauri's normal decorated window with no special handling.
+            // block only makes sense on macOS's frameless-with-native-traffic-lights window
+            // anyway. Windows/Linux get Tauri's normal decorated window with no special
+            // handling. Standard native traffic lights, no custom override, no forced
+            // appearance — same as any other native macOS app.
             #[cfg(target_os = "macos")]
             {
                 window_builder = window_builder
@@ -326,18 +290,7 @@ pub fn run() {
                     // Electron's — validated in the Phase 1 spike with no blur-visibility bug.
                     .title_bar_style(tauri::TitleBarStyle::Overlay)
                     .hidden_title(true)
-                    .traffic_light_position(tauri::LogicalPosition::new(20.0, 20.0))
-                    // Forces AppKit to draw the traffic lights using dark-appearance styling —
-                    // independent of the app's own light/dark theme (apps/web's ThemeProvider),
-                    // which only ever affects our own web content, never the native window chrome.
-                    // Confirmed: dark-mode's inactive/unfocused traffic lights are a genuinely
-                    // more visible grey than light mode's (which reads as barely-there/near-white
-                    // no matter what color sits behind them — every header-tint attempt only ever
-                    // nudged this, never fixed it, because the dots' own color was never the
-                    // adjustable part). Always using the dark rendering sidesteps that entirely,
-                    // with no visible side effect since our own header/content still render
-                    // whatever theme the user actually picked.
-                    .theme(Some(tauri::Theme::Dark));
+                    .traffic_light_position(tauri::LogicalPosition::new(20.0, 20.0));
             }
 
             let window = window_builder

@@ -4,3 +4,6 @@ node_modules
 data
 .git
 *.log
+apps/desktop/src-tauri/target
+apps/desktop/src-tauri/resources-staging
+archive
