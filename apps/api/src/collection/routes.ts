@@ -3,11 +3,11 @@ import { pool } from "../db.js";
 import { requireAuth } from "../auth/session.js";
 import { toCollectionItem } from "./collectionItem.js";
 import {
-  OBSCURE_SPECIES_SQL,
+  obscureSpeciesSql,
   ALREADY_OWNED_SQL,
   NOT_ARCHIVED_SQL,
   SPECIES_UNLOCKED_SQL,
-  getHideObscurePreference,
+  getObscurityPreferences,
 } from "../species/obscurity.js";
 
 export async function collectionRoutes(app: FastifyInstance): Promise<void> {
@@ -17,7 +17,7 @@ export async function collectionRoutes(app: FastifyInstance): Promise<void> {
     async (request) => {
       const userId = request.user!.id;
       const { taxon } = request.query;
-      const hideObscure = await getHideObscurePreference(userId);
+      const { hideObscure, maxDepthM } = await getObscurityPreferences(userId);
 
       // state per lifer-spec.md §1: collected (user_species row with state='collected'),
       // seen (state='seen' — nothing sets this yet, that's Phase 3's eBird import), else unseen.
@@ -39,7 +39,12 @@ export async function collectionRoutes(app: FastifyInstance): Promise<void> {
            r.tier,
            t.endemic_country_iso3,
            t.endemic_region_label,
+           t.occurrence_count,
+           t.last_occurrence_year,
+           t.depth_min_m,
            us.state,
+           us.was_ghost_when_collected,
+           us.was_lost_when_collected,
            us.cover_photo_id,
            us.card_crop_x,
            us.card_crop_y,
@@ -55,14 +60,14 @@ export async function collectionRoutes(app: FastifyInstance): Promise<void> {
          LEFT JOIN storage_volumes sv ON sv.id = o.volume_id
          LEFT JOIN user_archived_species uas ON uas.user_id = $1 AND uas.species_id = s.id
          WHERE ($2::text IS NULL OR s.taxon_class = $2) AND COALESCE(t.fully_extinct, false) = false
-           AND ($3 = false OR ${ALREADY_OWNED_SQL} OR NOT ${OBSCURE_SPECIES_SQL})
+           AND ($3 = false OR ${ALREADY_OWNED_SQL} OR NOT ${obscureSpeciesSql(maxDepthM)})
            AND ${NOT_ARCHIVED_SQL}
            AND (${ALREADY_OWNED_SQL} OR ${SPECIES_UNLOCKED_SQL})
          ORDER BY s.sort_order NULLS LAST, s.scientific_name`,
         [userId, taxon ?? null, hideObscure],
       );
 
-      const items = res.rows.map(toCollectionItem);
+      const items = res.rows.map((row) => toCollectionItem(row, maxDepthM));
 
       return { items };
     },
@@ -78,7 +83,7 @@ export async function collectionRoutes(app: FastifyInstance): Promise<void> {
     async (request) => {
       const userId = request.user!.id;
       const { taxon } = request.query;
-      const hideObscure = await getHideObscurePreference(userId);
+      const { hideObscure, maxDepthM } = await getObscurityPreferences(userId);
 
       const res = await pool.query<{ total: string; collected: string; seen: string }>(
         `SELECT
@@ -90,7 +95,7 @@ export async function collectionRoutes(app: FastifyInstance): Promise<void> {
          LEFT JOIN user_species us ON us.user_id = $1 AND us.species_id = s.id
          LEFT JOIN user_archived_species uas ON uas.user_id = $1 AND uas.species_id = s.id
          WHERE ($2::text IS NULL OR s.taxon_class = $2) AND COALESCE(t.fully_extinct, false) = false
-           AND ($3 = false OR ${ALREADY_OWNED_SQL} OR NOT ${OBSCURE_SPECIES_SQL})
+           AND ($3 = false OR ${ALREADY_OWNED_SQL} OR NOT ${obscureSpeciesSql(maxDepthM)})
            AND ${NOT_ARCHIVED_SQL}
            AND (${ALREADY_OWNED_SQL} OR ${SPECIES_UNLOCKED_SQL})`,
         [userId, taxon ?? null, hideObscure],

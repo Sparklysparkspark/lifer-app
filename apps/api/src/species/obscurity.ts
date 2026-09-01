@@ -27,22 +27,45 @@ import { pool } from "../db.js";
 // exactly the tier philosophy's own "photographability, not conservation status" standard —
 // and tends to correlate with exactly the kind of GBIF-noise/geographic-outlier species this
 // whole obscurity filter exists to hide by default (rarely enriched with real gallery data).
-export const OBSCURE_SPECIES_SQL = `(
-  (s.taxon_class = 'actinopterygii' AND t.depth_min_m IS NOT NULL AND t.depth_min_m >= 120)
+// Recreational scuba's realistic practical range — open-water/advanced certs, no trimix/technical
+// gear. A fish only occasionally seen shallower (an off-chance individual up around 40m) doesn't
+// change its OWN shallowest-known-depth record, which is what depth_min_m tracks — the cutoff is
+// deliberately about what's realistic to plan a dive around, not the rare exception.
+export const RECREATIONAL_MAX_DEPTH_M = 60;
+// Technical diving's own real limit — see migration 068's own comment on why this isn't the
+// default: true technical divers (trimix-certified, going past 60m) are a small minority of this
+// app's users, so defaulting to their range would routinely show fish nobody else realistically
+// has a shot at.
+export const TECHNICAL_MAX_DEPTH_M = 120;
+
+export function obscureSpeciesSql(maxDepthM: number): string {
+  return `(
+  (s.taxon_class = 'actinopterygii' AND t.depth_min_m IS NOT NULL AND t.depth_min_m >= ${maxDepthM})
   OR (t.occurrence_count IS NOT NULL AND t.occurrence_count < 20)
   OR (t.last_occurrence_year IS NOT NULL AND t.last_occurrence_year < 1950)
   OR s.reference_photo IS NULL
 )`;
+}
 
-// Moved off the collection page's per-view filter bar and into a persisted account preference
-// (migration 038 — users.hide_obscure_species, default true) — decided once from Settings
-// rather than re-checked on every region.
-export async function getHideObscurePreference(userId: string): Promise<boolean> {
-  const res = await pool.query<{ hide_obscure_species: boolean }>(
-    `SELECT hide_obscure_species FROM users WHERE id = $1`,
+// Moved off the collection page's per-view filter bar and into persisted account preferences
+// (migration 038 — users.hide_obscure_species, default true; migration 068 —
+// users.technical_diving, default false) — decided once from Settings rather than re-checked on
+// every region. One query since both live on the same row and are almost always read together.
+export async function getObscurityPreferences(userId: string): Promise<{ hideObscure: boolean; maxDepthM: number }> {
+  const res = await pool.query<{ hide_obscure_species: boolean; technical_diving: boolean }>(
+    `SELECT hide_obscure_species, technical_diving FROM users WHERE id = $1`,
     [userId],
   );
-  return res.rows[0]?.hide_obscure_species ?? true;
+  const row = res.rows[0];
+  return {
+    hideObscure: row?.hide_obscure_species ?? true,
+    maxDepthM: row?.technical_diving ? TECHNICAL_MAX_DEPTH_M : RECREATIONAL_MAX_DEPTH_M,
+  };
+}
+
+// Kept for any caller that only ever needs the hide/show boolean, not the depth threshold too.
+export async function getHideObscurePreference(userId: string): Promise<boolean> {
+  return (await getObscurityPreferences(userId)).hideObscure;
 }
 
 // Never hide a species the user has already collected/seen — us.state is only non-null once a

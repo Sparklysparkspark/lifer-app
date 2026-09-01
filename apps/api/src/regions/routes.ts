@@ -3,11 +3,11 @@ import { pool } from "../db.js";
 import { requireAuth } from "../auth/session.js";
 import { toCollectionItem } from "../collection/collectionItem.js";
 import {
-  OBSCURE_SPECIES_SQL,
+  obscureSpeciesSql,
   REGION_VAGRANT_SQL,
   ALREADY_OWNED_SQL,
   NOT_ARCHIVED_SQL,
-  getHideObscurePreference,
+  getObscurityPreferences,
 } from "../species/obscurity.js";
 // Cross-package import, deliberately — this is pure GBIF-fetching logic with no heavy
 // runtime deps, unlike the exiftool/sharp-laden upload pipeline code kept duplicated
@@ -253,7 +253,12 @@ export async function regionRoutes(app: FastifyInstance): Promise<void> {
     // GET /regions/:id/species below. Pulling and serializing all ~300 regions' full polygons
     // on every app load for data nothing uses was most of this endpoint's own latency.
     const res = await pool.query(
-      `SELECT id, name, parent_id, ebird_region_code, has_children, external_codes FROM regions ORDER BY parent_id NULLS FIRST, name`,
+      // USNB Guantanamo Bay ("USG") excluded — it's a small leased naval base with no civilian
+      // access, not a real photography destination like Puerto Rico or the Galapagos, and its
+      // Cuba-vs-US sovereignty distinction (see migration 066's own comment) isn't a useful one
+      // to surface here even though Natural Earth's data models it correctly.
+      `SELECT id, name, parent_id, ebird_region_code, has_children, external_codes, sovereignty_group, is_sovereign_dependency
+       FROM regions WHERE external_codes[1] IS DISTINCT FROM 'USG' ORDER BY parent_id NULLS FIRST, name`,
     );
     return {
       regions: res.rows.map((r) => ({
@@ -264,6 +269,13 @@ export async function regionRoutes(app: FastifyInstance): Promise<void> {
         boundaryGeoJson: null,
         hasChildren: r.has_children,
         hasScopedChecklist: (r.external_codes?.length ?? 0) > 0,
+        // Country-level only (null for World/continents/provinces) — see migration 065's own
+        // comment. Lets the picker group a country with its own geographically-separate
+        // territories (Puerto Rico under "United States of America", New Caledonia under
+        // "France") without a second, hand-curated continent mapping.
+        sovereigntyGroup: r.sovereignty_group,
+        // Country-level only — see migration 066's own comment.
+        isSovereignDependency: r.is_sovereign_dependency,
       })),
     };
   });
@@ -281,9 +293,10 @@ export async function regionRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(400).send({ error: 'only level=country is supported' });
     }
     const res = await pool.query<{ id: string; name: string; parent_id: string | null; boundary_geojson: unknown }>(
+      // USG (USNB Guantanamo Bay) excluded — see GET /regions's own comment above.
       `SELECT id, name, parent_id, boundary_geojson FROM regions
        WHERE external_codes IS NOT NULL AND array_length(external_codes, 1) > 0
-         AND external_codes[1] ~ '^[A-Z]{3}$' AND boundary_geojson IS NOT NULL`,
+         AND external_codes[1] ~ '^[A-Z]{3}$' AND external_codes[1] != 'USG' AND boundary_geojson IS NOT NULL`,
     );
     return {
       regions: res.rows.map((r) => ({ id: r.id, name: r.name, parentId: r.parent_id, boundaryGeoJson: r.boundary_geojson })),
@@ -376,7 +389,7 @@ export async function regionRoutes(app: FastifyInstance): Promise<void> {
       const sort = request.query.sort ?? "taxonomic";
       const filter = request.query.filter ?? "all";
       const taxon = request.query.taxon ?? null;
-      const hideObscure = await getHideObscurePreference(userId);
+      const { hideObscure, maxDepthM } = await getObscurityPreferences(userId);
       // Multiple sea zones can be toggled on at once (e.g. Red Sea AND Gulf of Aqaba) —
       // comma-separated, same simple-string-param convention already used for `taxon` etc.
       // in this file, rather than adding array querystring parsing.
@@ -455,7 +468,12 @@ export async function regionRoutes(app: FastifyInstance): Promise<void> {
            rs.is_vagrant,
            t.endemic_country_iso3,
            t.endemic_region_label,
+           t.occurrence_count,
+           t.last_occurrence_year,
+           t.depth_min_m,
            us.state,
+           us.was_ghost_when_collected,
+           us.was_lost_when_collected,
            us.cover_photo_id,
            us.card_crop_x,
            us.card_crop_y,
@@ -473,14 +491,14 @@ export async function regionRoutes(app: FastifyInstance): Promise<void> {
          LEFT JOIN storage_volumes sv ON sv.id = o.volume_id
          LEFT JOIN user_archived_species uas ON uas.user_id = $1 AND uas.species_id = s.id
          WHERE ($3::text IS NULL OR s.taxon_class = $3) AND COALESCE(t.fully_extinct, false) = false
-           AND ($6 = false OR ${ALREADY_OWNED_SQL} OR NOT (${OBSCURE_SPECIES_SQL} OR ${REGION_VAGRANT_SQL}))
+           AND ($6 = false OR ${ALREADY_OWNED_SQL} OR NOT (${obscureSpeciesSql(maxDepthM)} OR ${REGION_VAGRANT_SQL}))
            AND ${NOT_ARCHIVED_SQL}
            AND (rs.region_id IS NULL OR ${TAXON_PACK_DOWNLOADED_SQL})
          ORDER BY s.sort_order NULLS LAST, s.scientific_name`,
         [userId, regionId, taxon, seaZoneIds, includeLand, hideObscure, packRegionName],
       );
 
-      let items = res.rows.map(toCollectionItem);
+      let items = res.rows.map((row) => toCollectionItem(row, maxDepthM));
 
       // Distinguishes "this taxon genuinely has nothing here" from "this taxon's pack just
       // isn't downloaded" for the UI's own prompt — only relevant when a specific taxon was
@@ -548,7 +566,7 @@ export async function regionRoutes(app: FastifyInstance): Promise<void> {
       const taxon = request.query.taxon ?? null;
       const seaZoneIds = request.query.seaZoneIds ? request.query.seaZoneIds.split(",").filter(Boolean) : [];
       const includeLand = request.query.includeLand !== "0";
-      const hideObscure = await getHideObscurePreference(userId);
+      const { hideObscure, maxDepthM } = await getObscurityPreferences(userId);
 
       const regionRes = await pool.query(`SELECT id FROM regions WHERE id = $1`, [regionId]);
       if (!regionRes.rows[0]) return reply.code(404).send({ error: "Region not found" });
@@ -572,7 +590,7 @@ export async function regionRoutes(app: FastifyInstance): Promise<void> {
          LEFT JOIN user_species us ON us.user_id = $1 AND us.species_id = s.id
          LEFT JOIN user_archived_species uas ON uas.user_id = $1 AND uas.species_id = s.id
          WHERE ($3::text IS NULL OR s.taxon_class = $3) AND COALESCE(t.fully_extinct, false) = false
-           AND ($6 = false OR ${ALREADY_OWNED_SQL} OR NOT (${OBSCURE_SPECIES_SQL} OR ${REGION_VAGRANT_SQL}))
+           AND ($6 = false OR ${ALREADY_OWNED_SQL} OR NOT (${obscureSpeciesSql(maxDepthM)} OR ${REGION_VAGRANT_SQL}))
            AND ${NOT_ARCHIVED_SQL}
            AND (rs.region_id IS NULL OR ${TAXON_PACK_DOWNLOADED_SQL})`,
         [userId, regionId, taxon, seaZoneIds, includeLand, hideObscure, packRegionName],
@@ -602,8 +620,8 @@ export async function regionRoutes(app: FastifyInstance): Promise<void> {
     let created = 0;
     for (const province of provinces) {
       await pool.query(
-        `INSERT INTO regions (name, parent_id, external_codes, ebird_region_code, boundary_geojson, is_overseas_territory)
-         VALUES ($1, $2, $3, $4, $5, $6)
+        `INSERT INTO regions (name, parent_id, external_codes, ebird_region_code, boundary_geojson, is_overseas_territory, subdivision_type)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
          ON CONFLICT (name, parent_id) DO NOTHING`,
         [
           province.name,
@@ -612,6 +630,7 @@ export async function regionRoutes(app: FastifyInstance): Promise<void> {
           province.iso3166_2 ?? null,
           JSON.stringify(province.feature),
           province.isOverseasTerritory,
+          province.type,
         ],
       );
       created++;

@@ -80,6 +80,7 @@ export default function SettingsPage() {
             <LibraryLinksSection />
             <AppearanceSection />
             <HideObscureSpeciesSection />
+            <TechnicalDivingSection />
             <SpeciesSuggestSection />
             <EbirdImportSection />
             <OrganizePhotosSection />
@@ -180,6 +181,47 @@ function HideObscureSpeciesSection() {
       <label className="flex items-start gap-2 text-sm text-ink">
         <input type="checkbox" checked={enabled} disabled={saving} onChange={(e) => toggle(e.target.checked)} className="mt-0.5" />
         <span>Hide obscure/inaccessible species from region checklists</span>
+      </label>
+      <FormMessage error={error} success={null} />
+    </Card>
+  );
+}
+
+// Changes the depth cutoff the obscurity filter above uses for fish (60m recreational vs 120m
+// technical diving) — a separate toggle since most photographers never see anywhere close to
+// 120m, so defaulting to it would routinely surface fish nobody realistically has a shot at.
+function TechnicalDivingSection() {
+  const [enabled, setEnabled] = useState<boolean | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    api.get<{ technicalDiving: boolean }>("/settings").then((res) => setEnabled(res.technicalDiving));
+  }, []);
+
+  async function toggle(next: boolean) {
+    setSaving(true);
+    setError(null);
+    try {
+      await api.put("/settings/technical-diving", { enabled: next });
+      setEnabled(next);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't update this setting");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (enabled === null) return null;
+
+  return (
+    <Card
+      title="Technical diving"
+      description="Recreational diving tops out around 50-60m, so that's the default range for the obscure-species filter above. Turn this on if you're technical-certified and want the deeper 120m range instead."
+    >
+      <label className="flex items-start gap-2 text-sm text-ink">
+        <input type="checkbox" checked={enabled} disabled={saving} onChange={(e) => toggle(e.target.checked)} className="mt-0.5" />
+        <span>Use technical diving depth range (120m) instead of recreational (60m)</span>
       </label>
       <FormMessage error={error} success={null} />
     </Card>
