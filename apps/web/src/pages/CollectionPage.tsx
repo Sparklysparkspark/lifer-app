@@ -862,7 +862,7 @@ export default function CollectionPage() {
             <h2 className="text-lg font-semibold text-ink">Welcome to Lifer</h2>
             <p className="mx-auto mt-2 max-w-sm text-sm text-muted">
               Download a region's offline pack to see its checklist and start tracking what you've photographed
-              there — a region only shows real data once its pack is downloaded.
+              there.
             </p>
             <div className="mt-4 flex items-center justify-center gap-4">
               <Link

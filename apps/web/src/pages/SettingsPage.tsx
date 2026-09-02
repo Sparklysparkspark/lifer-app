@@ -8,6 +8,7 @@ import { useTheme } from "../hooks/useTheme";
 import { pickFolderNative, FolderBrowser } from "../components/FolderPicker";
 import { useStorageVolumes } from "../hooks/useStorageVolumes";
 import EbirdImport from "../components/EbirdImport";
+import PasswordInput from "../components/PasswordInput";
 import { useOnline } from "../hooks/useOnline";
 
 interface AccountSettings {
@@ -343,12 +344,12 @@ function EmailSection({ currentEmail, onChanged }: { currentEmail: string; onCha
           required
           className={inputClass}
         />
-        <input
-          type="password"
+        <PasswordInput
           placeholder="Current password"
           value={currentPassword}
-          onChange={(e) => setCurrentPassword(e.target.value)}
+          onChange={setCurrentPassword}
           required
+          autoComplete="current-password"
           className={inputClass}
         />
         <FormMessage error={error} success={success} />
@@ -393,30 +394,30 @@ function PasswordSection() {
   return (
     <Card title="Password" description="Change your account password.">
       <form onSubmit={handleSubmit} className="space-y-3">
-        <input
-          type="password"
+        <PasswordInput
           placeholder="Current password"
           value={currentPassword}
-          onChange={(e) => setCurrentPassword(e.target.value)}
+          onChange={setCurrentPassword}
           required
+          autoComplete="current-password"
           className={inputClass}
         />
-        <input
-          type="password"
+        <PasswordInput
           placeholder="New password"
           value={newPassword}
-          onChange={(e) => setNewPassword(e.target.value)}
+          onChange={setNewPassword}
           required
           minLength={8}
+          autoComplete="new-password"
           className={inputClass}
         />
-        <input
-          type="password"
+        <PasswordInput
           placeholder="Confirm new password"
           value={confirmPassword}
-          onChange={(e) => setConfirmPassword(e.target.value)}
+          onChange={setConfirmPassword}
           required
           minLength={8}
+          autoComplete="new-password"
           className={inputClass}
         />
         <FormMessage error={error} success={success} />
@@ -474,12 +475,12 @@ function RecoveryEmailSection({
           onChange={(e) => setRecoveryEmail(e.target.value)}
           className={inputClass}
         />
-        <input
-          type="password"
+        <PasswordInput
           placeholder="Current password"
           value={currentPassword}
-          onChange={(e) => setCurrentPassword(e.target.value)}
+          onChange={setCurrentPassword}
           required
+          autoComplete="current-password"
           className={inputClass}
         />
         <FormMessage error={error} success={success} />
@@ -1370,12 +1371,12 @@ function ServerSection() {
             required
             className={inputClass}
           />
-          <input
-            type="password"
+          <PasswordInput
             placeholder="Password"
             value={password}
-            onChange={(e) => setPassword(e.target.value)}
+            onChange={setPassword}
             required
+            autoComplete="current-password"
             className={inputClass}
           />
           <label className="flex items-start gap-2 text-sm text-ink">

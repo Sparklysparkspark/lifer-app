@@ -94,7 +94,19 @@ export const MAX_UPLOAD_REQUEST_BYTES = Number(process.env.MAX_UPLOAD_REQUEST_BY
 export const WEB_DIST_DIR = process.env.WEB_DIST_DIR ?? path.join(REPO_ROOT, "apps", "web", "dist");
 export const SESSION_COOKIE_NAME = "lifer_session";
 export const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
-export const COOKIE_SECURE = process.env.NODE_ENV === "production";
+// NOT process.env.NODE_ENV === "production" (the previous version of this line) — Docker
+// Compose always sets NODE_ENV=production regardless of whether anything is actually served
+// over HTTPS, so that tied the `Secure` cookie flag to "running in Docker" rather than "running
+// behind TLS." A `Secure` cookie is silently refused by the browser over plain HTTP — since the
+// most common self-hosted deployment is plain HTTP on a home LAN (no reverse proxy, no
+// certificate), that meant login never actually persisted a session for anyone in that setup
+// (confirmed live: a real TrueNAS SCALE deploy over plain http://<lan-ip>:4000 hit "Not
+// authenticated" on every request past login, since the cookie was never stored). Deriving this
+// from APP_URL's own scheme instead reflects whether THIS deployment is actually behind TLS.
+// COOKIE_SECURE env var is an explicit override for a reverse-proxy setup that terminates TLS
+// upstream and forwards to this app over plain HTTP internally, where APP_URL is still (and
+// should stay) the public https:// address — the common case that inference alone can't cover.
+export const COOKIE_SECURE = process.env.COOKIE_SECURE != null ? process.env.COOKIE_SECURE === "1" : (process.env.APP_URL ?? "").startsWith("https://");
 // Desktop mode: a single person on their own laptop, server bound to localhost only, no
 // other party who could ever reach it — a login screen there is pure friction with no real
 // security benefit. Sessions/first-run setup stay fully intact for the
