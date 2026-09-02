@@ -9,6 +9,26 @@ services:
       - "5432:5432"
     volumes:
       - lifer-postgres-data:/var/lib/postgresql/data
+    # Plain `depends_on: [postgres]` (an earlier version of this file) only waits for the
+    # postgres CONTAINER to start, not for Postgres itself to be ready to accept connections —
+    # on a fresh volume, initdb's first-run setup takes a few seconds, and api's own migration
+    # step raced ahead of it every time (confirmed live: ECONNREFUSED on a real TrueNAS SCALE
+    # deploy). This healthcheck, paired with api's `condition: service_healthy` below, makes
+    # Compose actually wait — but ONLY once `-h 127.0.0.1` is specified. The official postgres
+    # image's entrypoint starts Postgres TWICE on first run: once temporarily with
+    # listen_addresses='' (Unix socket only, no TCP) just to run init scripts (this project's
+    # PostGIS setup among them), then shuts it down and starts it again for real with the actual
+    # TCP listener. `pg_isready` with no `-h` defaults to the Unix socket, which is already up
+    # during that FIRST temporary phase — so it reported "healthy" before TCP was ever
+    # listening, api started, and got ECONNREFUSED anyway (confirmed live via the postgres
+    # container's own log: "listening on Unix socket" during the first startup, "listening on
+    # IPv4 address 0.0.0.0, port 5432" only appearing on the second one, ~10s later). Forcing a
+    # real TCP check here is what actually closes that gap.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U lifer -d lifer"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
 
   # Serves the API and the built web UI on one port. Put a reverse proxy in front for
   # TLS/a domain — that's configured on your end, not part of this repo.
@@ -16,7 +36,8 @@ services:
     image: ghcr.io/sparklysparkspark/lifer-app:latest
     build: .
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
     environment:
       DATABASE_URL: postgres://lifer:lifer@postgres:5432/lifer
       NODE_ENV: production

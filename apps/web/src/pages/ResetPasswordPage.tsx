@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { api, ApiError } from "../api/client";
+import PasswordInput from "../components/PasswordInput";
 
 export default function ResetPasswordPage() {
   const [searchParams] = useSearchParams();
@@ -49,22 +50,22 @@ export default function ResetPasswordPage() {
         className="w-full max-w-sm space-y-4 rounded-xl border border-line bg-surface p-8 shadow-sm"
       >
         <h1 className="text-xl font-semibold text-ink">Choose a new password</h1>
-        <input
-          type="password"
+        <PasswordInput
           placeholder="New password"
           value={newPassword}
-          onChange={(e) => setNewPassword(e.target.value)}
+          onChange={setNewPassword}
           required
           minLength={8}
+          autoComplete="new-password"
           className="w-full rounded-md border border-line px-3 py-2 text-sm"
         />
-        <input
-          type="password"
+        <PasswordInput
           placeholder="Confirm new password"
           value={confirmPassword}
-          onChange={(e) => setConfirmPassword(e.target.value)}
+          onChange={setConfirmPassword}
           required
           minLength={8}
+          autoComplete="new-password"
           className="w-full rounded-md border border-line px-3 py-2 text-sm"
         />
         {error && <p className="text-sm text-red-600">{error}</p>}
