@@ -27,8 +27,6 @@ import {
   existsSync,
   copyFileSync,
   mkdirSync,
-  writeFileSync,
-  readFileSync,
   statSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -176,84 +174,93 @@ const GBIF_COUNTRY_CACHE_DIR = path.join(REPO_ROOT, "packages/data-pipeline/data
 // this doesn't try to auto-detect it.
 const PROVINCE_AGGREGATE_CACHE_DIR = path.join(REPO_ROOT, "packages/data-pipeline/data/province-aggregate-cache");
 
-interface SerializedSpeciesProvinceEntry {
-  class: string;
-  years: Array<[number, number]>;
-  pointBbox: BoundingBox | null;
-  // Parallel arrays, not Array<{lon,lat,weight,year,week}> — see SpeciesProvinceEntry's own
-  // comment on why. year/week use 0 as a "null" sentinel (real years are always > 1000, real
-  // weeks are 1-52) so these stay plain number[] end to end, including through this JSON
-  // round-trip, rather than forcing a holey/tagged array just to carry the occasional null.
-  clusterLons: number[];
-  clusterLats: number[];
-  clusterWeights: number[];
-  clusterYears: number[];
-  clusterWeeks: number[];
-  weekCounts: Array<[number, number]>;
+// One small TSV file per province, not one combined structure holding every province's matched
+// points in memory at once — a real production OOM crash on the United States (19.6GB heap,
+// crashed after 7.5 hours with zero output) confirmed the previous "hold perProvince: Map<
+// provinceId, Map<species, entry>> for ALL provinces live for the whole scan, only free each
+// one's memory after ITS OWN write" approach still isn't enough at the US's scale: freeing after
+// write only helps once writing has started, and the scan phase alone accumulates every
+// province's matched points before a single write happens. Writing each matched row straight to
+// its own province's file as it's found means the scan phase itself never holds more than a
+// handful of open file handles in memory — the interpretation step below then reads back and
+// fully processes ONE province's own file at a time (bounded to that one province's data, same
+// as any other country), never all of them simultaneously. Also doubles as this file's existing
+// point-matched-aggregate cache (a re-run with unchanged scoring logic skips the raw GBIF scan
+// entirely if a province's own partition file is already fresh) — no separate cache format needed.
+function partitionFilePath(aggregateCacheKey: string, provinceId: string): string {
+  return path.join(PROVINCE_AGGREGATE_CACHE_DIR, `${aggregateCacheKey}__${provinceId}.tsv`);
 }
 
-// One JSON line per (province, species) entry — NOT one giant JSON.stringify of the whole
-// aggregate. Confirmed live: Costa Rica (13.8M scanned rows) threw "Invalid string length" (V8's
-// hard ceiling on a single JS string, ~1GB/~512M UTF-16 code units) building one JSON object for
-// its whole aggregate, losing that country's ENTIRE computation — the cache write happens before
-// the real region_species writes below, so a failure here previously meant real, correct scoring
-// work never got a chance to run at all. Streaming one small line per species entry keeps every
-// individual string trivially far from that ceiling regardless of how large the country is —
-// exactly the countries where this cache matters most (huge, slow-to-scan ones) are the ones a
-// single-string approach fails hardest on.
-async function serializePerProvinceToFile(perProvince: Map<string, Map<string, SpeciesProvinceEntry>>, destPath: string): Promise<void> {
-  const stream = createWriteStream(destPath);
-  try {
-    for (const [provinceId, bySpecies] of perProvince) {
-      for (const [species, entry] of bySpecies) {
-        const line: SerializedSpeciesProvinceEntry & { provinceId: string; species: string } = {
-          provinceId,
-          species,
-          class: entry.class,
-          years: [...entry.years.entries()],
-          pointBbox: entry.pointBbox,
-          clusterLons: entry.clusterLons,
-          clusterLats: entry.clusterLats,
-          clusterWeights: entry.clusterWeights,
-          clusterYears: entry.clusterYears,
-          clusterWeeks: entry.clusterWeeks,
-          weekCounts: [...entry.weekCounts.entries()],
-        };
-        if (!stream.write(JSON.stringify(line) + "\n")) {
-          await new Promise<void>((resolve) => stream.once("drain", resolve));
-        }
-      }
-    }
-  } finally {
-    await new Promise<void>((resolve, reject) => stream.end((err: Error | null | undefined) => (err ? reject(err) : resolve())));
+// Builds/updates one species' aggregate entry from a single matched occurrence row — shared by
+// both the raw-scan-to-partition-file pass and the per-province partition-file replay pass below,
+// so the exact same accumulation logic runs regardless of which one produced the row.
+function applyRowToEntry(
+  bySpecies: Map<string, SpeciesProvinceEntry>,
+  species: string,
+  cls: string,
+  lon: number,
+  lat: number,
+  year: number | null,
+  week: number | null,
+  recordCount: number,
+  basisOfRecord: string,
+): void {
+  let entry = bySpecies.get(species);
+  if (!entry) {
+    entry = {
+      class: cls,
+      years: new Map(),
+      pointBbox: null,
+      clusterLons: [],
+      clusterLats: [],
+      clusterWeights: [],
+      clusterYears: [],
+      clusterWeeks: [],
+      weekCounts: new Map(),
+    };
+    bySpecies.set(species, entry);
+  }
+  if (year != null) entry.years.set(year, (entry.years.get(year) ?? 0) + recordCount);
+  if (entry.pointBbox) {
+    if (lon < entry.pointBbox.minLon) entry.pointBbox.minLon = lon;
+    if (lon > entry.pointBbox.maxLon) entry.pointBbox.maxLon = lon;
+    if (lat < entry.pointBbox.minLat) entry.pointBbox.minLat = lat;
+    if (lat > entry.pointBbox.maxLat) entry.pointBbox.maxLat = lat;
+  } else {
+    entry.pointBbox = { minLon: lon, maxLon: lon, minLat: lat, maxLat: lat };
+  }
+  if (week != null && week >= 1 && week <= 52) {
+    entry.weekCounts.set(week, (entry.weekCounts.get(week) ?? 0) + recordCount);
+  }
+  if (basisOfRecord && LIVE_OBSERVATION_BASIS_OF_RECORD.has(basisOfRecord)) {
+    entry.clusterLons.push(lon);
+    entry.clusterLats.push(lat);
+    entry.clusterWeights.push(recordCount);
+    entry.clusterYears.push(year ?? 0);
+    entry.clusterWeeks.push(week ?? 0);
   }
 }
 
-async function deserializePerProvinceFromFile(
-  srcPath: string,
-  provinceIds: Set<string>,
-): Promise<Map<string, Map<string, SpeciesProvinceEntry>>> {
-  const perProvince = new Map<string, Map<string, SpeciesProvinceEntry>>();
-  for (const id of provinceIds) perProvince.set(id, new Map());
-  const rl = readline.createInterface({ input: createReadStream(srcPath), crlfDelay: Infinity });
+async function loadProvinceEntriesFromPartition(partitionPath: string): Promise<Map<string, SpeciesProvinceEntry>> {
+  const bySpecies = new Map<string, SpeciesProvinceEntry>();
+  if (!existsSync(partitionPath)) return bySpecies;
+  const rl = readline.createInterface({ input: createReadStream(partitionPath), crlfDelay: Infinity });
   for await (const line of rl) {
     if (!line) continue;
-    const entry = JSON.parse(line) as SerializedSpeciesProvinceEntry & { provinceId: string; species: string };
-    const bySpecies = perProvince.get(entry.provinceId);
-    if (!bySpecies) continue; // a province this country no longer has (re-drilled-down since) — skip its stale rows
-    bySpecies.set(entry.species, {
-      class: entry.class,
-      years: new Map(entry.years),
-      pointBbox: entry.pointBbox,
-      clusterLons: entry.clusterLons,
-      clusterLats: entry.clusterLats,
-      clusterWeights: entry.clusterWeights,
-      clusterYears: entry.clusterYears,
-      clusterWeeks: entry.clusterWeeks,
-      weekCounts: new Map(entry.weekCounts),
-    });
+    const [species, cls, lonStr, latStr, yearStr, weekStr, recordCountStr, basisOfRecord] = line.split("\t");
+    applyRowToEntry(
+      bySpecies,
+      species,
+      cls,
+      Number(lonStr),
+      Number(latStr),
+      yearStr ? Number(yearStr) : null,
+      weekStr ? Number(weekStr) : null,
+      Number(recordCountStr),
+      basisOfRecord ?? "",
+    );
   }
-  return perProvince;
+  return bySpecies;
 }
 
 function authHeader(): string {
@@ -769,20 +776,15 @@ async function computeCountryProvinces(
   // what was nominally "AU.json," and Australia's own run then found that file already fresh
   // and reused it verbatim — every single Australian province wrote zero species as a result.
   const aggregateCacheKey = `${iso2}-${countryName.replace(/[^a-zA-Z0-9]+/g, "_")}`;
-  const aggregateCachePath = path.join(PROVINCE_AGGREGATE_CACHE_DIR, `${aggregateCacheKey}.json`);
-  let cachedPerProvince: Map<string, Map<string, SpeciesProvinceEntry>> | null = null;
-  if (!refreshAggregateCache && existsSync(aggregateCachePath) && statSync(aggregateCachePath).mtimeMs >= statSync(cachedZipPath).mtimeMs) {
-    try {
-      cachedPerProvince = await deserializePerProvinceFromFile(aggregateCachePath, new Set(provinces.map((p) => p.id)));
-      console.log(`[compute-provinces-bulk] ${countryName}: reusing cached point-matched aggregate (skipping the raw GBIF scan)`);
-    } catch (err) {
-      // The cache is purely an optimization — a corrupt/unreadable cache file falls back to a
-      // fresh scan rather than failing this country outright.
-      console.error(`[compute-provinces-bulk] ${countryName}: cached aggregate unreadable (${(err as Error).message}), re-scanning`);
-      cachedPerProvince = null;
-    }
-  }
-  {
+  const partitionPaths = new Map(provinces.map((p) => [p.id, partitionFilePath(aggregateCacheKey, p.id)] as const));
+  const zipMtimeMs = statSync(cachedZipPath).mtimeMs;
+  const allPartitionsFresh =
+    !refreshAggregateCache &&
+    [...partitionPaths.values()].every((p) => existsSync(p) && statSync(p).mtimeMs >= zipMtimeMs);
+
+  if (allPartitionsFresh) {
+    console.log(`[compute-provinces-bulk] ${countryName}: reusing cached point-matched partitions (skipping the raw GBIF scan)`);
+  } else {
     // Single-threaded scan, inline on this thread — the worker_threads pool (still present in
     // provinceMatchWorker.ts) turned out to deadlock unpredictably under real load (confirmed
     // live: hung silently with zero CPU on two separate Canada runs, and OOM-crashed deserializing
@@ -800,121 +802,93 @@ async function computeCountryProvinces(
       return matches;
     }
 
-    const perProvince = cachedPerProvince ?? new Map<string, Map<string, SpeciesProvinceEntry>>();
-    if (!cachedPerProvince) {
-      for (const p of provinces) perProvince.set(p.id, new Map());
+    mkdirSync(PROVINCE_AGGREGATE_CACHE_DIR, { recursive: true });
+    // One write stream per province, open for the whole scan — a handful of file descriptors
+    // and their own small internal buffers, nowhere near the memory cost of holding every
+    // matched point for every province as live JS objects (see partitionFilePath's own comment
+    // on the OOM this replaced). Matched rows are written straight through as they're found;
+    // nothing about a row survives past this loop iteration.
+    const writeStreams = new Map(provinces.map((p) => [p.id, createWriteStream(partitionPaths.get(p.id)!)] as const));
 
-      const unzipProc = spawn("unzip", ["-p", cachedZipPath]);
-      // Exit code was never checked before — a corrupt/truncated zip makes `unzip -p` print an
-      // error to stderr (never surfaced; nothing reads that pipe) and emit nothing on stdout, which
-      // the loop below couldn't tell apart from a country that legitimately has zero occurrences.
-      // The byte-count check in downloadZip should catch a truncated download before this even
-      // runs, but this stays as a second, independent guard against a zip that's corrupt for some
-      // other reason.
-      let unzipStderr = "";
-      unzipProc.stderr.on("data", (chunk) => (unzipStderr += chunk));
-      const rl = readline.createInterface({ input: unzipProc.stdout, crlfDelay: Infinity });
-      let header: string[] | null = null;
-      // Column positions looked up once from the header, not a fresh { [name]: value } object
-      // built for every one of a country's 100M+ rows — a GBIF occurrence dump has 40-50+
-      // columns, and most rows here are never anything this script tracks (insects, plants,
-      // fungi, ...), so building the full row object before the class check even runs was
-      // real, avoidable per-row cost paid on rows about to be thrown away immediately after.
-      // Reading the handful of columns actually used, by index, and checking class FIRST (a
-      // plain array read, not an object-property one) skips that construction for every row
-      // that was going to be discarded anyway — same values, same filtering, just reordered so
-      // the cheap check runs before the expensive one.
-      let colIndex: Record<string, number> = {};
-      let rowCount = 0;
-      let matchedCount = 0;
-      for await (const line of rl) {
-        if (!line) continue;
-        const cols = line.split("\t");
-        if (!header) {
-          header = cols;
-          colIndex = Object.fromEntries(header.map((h, i) => [h, i]));
-          continue;
-        }
-        rowCount++;
-        const cls = cols[colIndex.class] ?? "";
-        if (!BIRD_MAMMAL_CLASSES.has(cls) && !FISH_CLASSES.has(cls)) continue;
-        const species = cols[colIndex.species];
-        const lat = Number(cols[colIndex.decimallatitude]);
-        const lon = Number(cols[colIndex.decimallongitude]);
-        if (!species || !Number.isFinite(lat) || !Number.isFinite(lon)) continue;
-        const yearRaw = cols[colIndex.year];
-        const year = yearRaw ? Number(yearRaw) : null;
-        const weekRaw = cols[colIndex.week];
-        const week = weekRaw ? Number(weekRaw) : null;
-        const basisOfRecord = cols[colIndex.basisofrecord];
-        const recordCountRaw = cols[colIndex.record_count];
-        const recordCount = recordCountRaw ? Number(recordCountRaw) : 1;
-
-        const matched = findProvinces([lon, lat]);
-        if (matched.length === 0) continue;
-        matchedCount++;
-        for (const province of matched) {
-          const bySpecies = perProvince.get(province.id)!;
-          let entry = bySpecies.get(species);
-          if (!entry) {
-            entry = {
-              class: cls,
-              years: new Map(),
-              pointBbox: null,
-              clusterLons: [],
-              clusterLats: [],
-              clusterWeights: [],
-              clusterYears: [],
-              clusterWeeks: [],
-              weekCounts: new Map(),
-            };
-            bySpecies.set(species, entry);
-          }
-          if (year != null) entry.years.set(year, (entry.years.get(year) ?? 0) + recordCount);
-          if (entry.pointBbox) {
-            if (lon < entry.pointBbox.minLon) entry.pointBbox.minLon = lon;
-            if (lon > entry.pointBbox.maxLon) entry.pointBbox.maxLon = lon;
-            if (lat < entry.pointBbox.minLat) entry.pointBbox.minLat = lat;
-            if (lat > entry.pointBbox.maxLat) entry.pointBbox.maxLat = lat;
-          } else {
-            entry.pointBbox = { minLon: lon, maxLon: lon, minLat: lat, maxLat: lat };
-          }
-          if (week != null && week >= 1 && week <= 52) {
-            entry.weekCounts.set(week, (entry.weekCounts.get(week) ?? 0) + recordCount);
-          }
-          if (basisOfRecord && LIVE_OBSERVATION_BASIS_OF_RECORD.has(basisOfRecord)) {
-            entry.clusterLons.push(lon);
-            entry.clusterLats.push(lat);
-            entry.clusterWeights.push(recordCount);
-            entry.clusterYears.push(year ?? 0);
-            entry.clusterWeeks.push(week ?? 0);
-          }
-        }
+    const unzipProc = spawn("unzip", ["-p", cachedZipPath]);
+    // Exit code was never checked before — a corrupt/truncated zip makes `unzip -p` print an
+    // error to stderr (never surfaced; nothing reads that pipe) and emit nothing on stdout, which
+    // the loop below couldn't tell apart from a country that legitimately has zero occurrences.
+    // The byte-count check in downloadZip should catch a truncated download before this even
+    // runs, but this stays as a second, independent guard against a zip that's corrupt for some
+    // other reason.
+    let unzipStderr = "";
+    unzipProc.stderr.on("data", (chunk) => (unzipStderr += chunk));
+    const rl = readline.createInterface({ input: unzipProc.stdout, crlfDelay: Infinity });
+    let header: string[] | null = null;
+    // Column positions looked up once from the header, not a fresh { [name]: value } object
+    // built for every one of a country's 100M+ rows — a GBIF occurrence dump has 40-50+
+    // columns, and most rows here are never anything this script tracks (insects, plants,
+    // fungi, ...), so building the full row object before the class check even runs was
+    // real, avoidable per-row cost paid on rows about to be thrown away immediately after.
+    // Reading the handful of columns actually used, by index, and checking class FIRST (a
+    // plain array read, not an object-property one) skips that construction for every row
+    // that was going to be discarded anyway — same values, same filtering, just reordered so
+    // the cheap check runs before the expensive one.
+    let colIndex: Record<string, number> = {};
+    let rowCount = 0;
+    let matchedCount = 0;
+    for await (const line of rl) {
+      if (!line) continue;
+      const cols = line.split("\t");
+      if (!header) {
+        header = cols;
+        colIndex = Object.fromEntries(header.map((h, i) => [h, i]));
+        continue;
       }
+      rowCount++;
+      const cls = cols[colIndex.class] ?? "";
+      if (!BIRD_MAMMAL_CLASSES.has(cls) && !FISH_CLASSES.has(cls)) continue;
+      const species = cols[colIndex.species];
+      const lat = Number(cols[colIndex.decimallatitude]);
+      const lon = Number(cols[colIndex.decimallongitude]);
+      if (!species || !Number.isFinite(lat) || !Number.isFinite(lon)) continue;
+      const yearRaw = cols[colIndex.year];
+      const year = yearRaw ? Number(yearRaw) : null;
+      const weekRaw = cols[colIndex.week];
+      const week = weekRaw ? Number(weekRaw) : null;
+      const basisOfRecord = cols[colIndex.basisofrecord] ?? "";
+      const recordCountRaw = cols[colIndex.record_count];
+      const recordCount = recordCountRaw ? Number(recordCountRaw) : 1;
 
-      const unzipExit = await new Promise<number | null>((resolve) => unzipProc.on("close", resolve));
-      if (unzipExit !== 0) {
-        throw new Error(`unzip -p on ${cachedZipPath} exited ${unzipExit}: ${unzipStderr.trim()}`);
-      }
-
-      console.log(`[compute-provinces-bulk] ${countryName}: scanned ${rowCount.toLocaleString()} rows, ${matchedCount.toLocaleString()} matched a province`);
-
-      // The cache is purely an optimization for FUTURE runs — a failure writing it (disk full,
-      // some other unexpected serialization edge case) must never cost this country its real,
-      // already-computed scan result. Caught and logged, not re-thrown, so the interpretation
-      // loop below always gets a chance to run regardless of whether caching succeeded.
-      try {
-        mkdirSync(PROVINCE_AGGREGATE_CACHE_DIR, { recursive: true });
-        await serializePerProvinceToFile(perProvince, aggregateCachePath);
-        console.log(`[compute-provinces-bulk] ${countryName}: cached point-matched aggregate for future re-scoring runs`);
-      } catch (err) {
-        console.error(`[compute-provinces-bulk] ${countryName}: failed to write aggregate cache (${(err as Error).message}), continuing anyway`);
+      const matched = findProvinces([lon, lat]);
+      if (matched.length === 0) continue;
+      matchedCount++;
+      for (const province of matched) {
+        const stream = writeStreams.get(province.id)!;
+        stream.write(`${species}\t${cls}\t${lon}\t${lat}\t${year ?? ""}\t${week ?? ""}\t${recordCount}\t${basisOfRecord}\n`);
       }
     }
 
+    const unzipExit = await new Promise<number | null>((resolve) => unzipProc.on("close", resolve));
+    if (unzipExit !== 0) {
+      throw new Error(`unzip -p on ${cachedZipPath} exited ${unzipExit}: ${unzipStderr.trim()}`);
+    }
+
+    await Promise.all(
+      [...writeStreams.values()].map(
+        (stream) => new Promise<void>((resolve, reject) => stream.end((err?: Error | null) => (err ? reject(err) : resolve()))),
+      ),
+    );
+
+    console.log(`[compute-provinces-bulk] ${countryName}: scanned ${rowCount.toLocaleString()} rows, ${matchedCount.toLocaleString()} matched a province`);
+    console.log(`[compute-provinces-bulk] ${countryName}: cached point-matched partitions for future re-scoring runs`);
+  }
+
+  {
     const currentYear = new Date().getFullYear();
     for (const province of provinces) {
-      const bySpecies = perProvince.get(province.id)!;
+      // Read back and fully aggregate ONE province's own partition file here, at the top of
+      // this loop iteration — not a shared structure populated for every province up front. Goes
+      // out of scope (eligible for GC) the moment this iteration ends, so at most one province's
+      // worth of matched points is ever live in memory at once, regardless of how many provinces
+      // a country has or how large its raw GBIF data was.
+      const bySpecies = await loadProvinceEntriesFromPartition(partitionPaths.get(province.id)!);
       const included: Array<{ species: string; recordCount: number; isVagrant: boolean }> = [];
 
       // Per-taxon-class baseline for the recurrence check's record-count floor (see
@@ -1259,11 +1233,10 @@ async function computeCountryProvinces(
       } finally {
         client.release();
       }
-      // Freed as soon as this province is done, not left alive for the rest of the write loop —
-      // for a country with the US's occurrence volume, every other province's own cluster-point
-      // arrays sitting in memory for the whole remainder of this loop was real, avoidable
-      // pressure on top of the scan phase's own footprint (see SpeciesProvinceEntry's comment).
-      perProvince.delete(province.id);
+      // No explicit cleanup needed here — bySpecies was built fresh from this province's own
+      // partition file at the top of this iteration (see loadProvinceEntriesFromPartition's own
+      // comment) and never shared with any other province, so it's simply eligible for GC the
+      // moment the next iteration reassigns it.
     }
   }
   // Deliberately no cleanup here — cachedZipPath is the persistent GBIF cache (see

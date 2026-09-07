@@ -138,6 +138,17 @@ async function downloadCatalogSeedSql(): Promise<string> {
   return gunzipSync(gz).toString("utf8");
 }
 
+// `regions` self-references (a province's parent_id points at its country, which points at its
+// continent) — confirmed live: a fresh-database restore crashed with "insert or update on table
+// regions violates foreign key constraint regions_parent_id_fkey" because the generic batched
+// upsert below has no guarantee a parent row lands in an earlier batch than its children (pg_dump's
+// COPY order reflects the source table's physical row order, not a topological one, and years of
+// re-parenting/cleanup scripts on this table only made that less likely to hold by accident). The
+// standard fix for a self-referencing table: insert every row with parent_id forced NULL first (no
+// row can violate the FK when nothing points at anything yet), then a second pass sets every row's
+// real parent_id once every id it could possibly reference already exists in the table.
+const SELF_REFERENCING_PARENT_COLUMN: Record<string, string> = { regions: "parent_id" };
+
 async function mergeCatalogTables(pool: Pool, sql: string): Promise<Record<string, number>> {
   const merged: Record<string, number> = {};
   for (const { table, pkColumns, excludeFromUpdate } of MERGE_TABLES) {
@@ -147,7 +158,11 @@ async function mergeCatalogTables(pool: Pool, sql: string): Promise<Record<strin
       continue;
     }
     const { columns, rows } = parsed;
-    const updateColumns = columns.filter((c) => !pkColumns.includes(c) && !excludeFromUpdate.includes(c));
+    const selfRefColumn = SELF_REFERENCING_PARENT_COLUMN[table];
+    const selfRefIdx = selfRefColumn ? columns.indexOf(selfRefColumn) : -1;
+    const updateColumns = columns.filter(
+      (c) => !pkColumns.includes(c) && !excludeFromUpdate.includes(c) && c !== selfRefColumn,
+    );
     const conflictTarget = pkColumns.join(", ");
     const setClause =
       updateColumns.length > 0
@@ -159,8 +174,12 @@ async function mergeCatalogTables(pool: Pool, sql: string): Promise<Record<strin
       const batch = rows.slice(i, i + BATCH_SIZE);
       const values: unknown[] = [];
       const rowPlaceholders = batch.map((row, rowIdx) => {
-        const placeholders = row.map((_, colIdx) => `$${rowIdx * columns.length + colIdx + 1}`);
-        values.push(...row);
+        // The self-referencing column's own real value is deliberately NOT sent here (see this
+        // function's own comment above) — every other column still gets its real value on this
+        // pass; only the parent pointer is deferred to the second pass below.
+        const effectiveRow = selfRefIdx === -1 ? row : row.map((v, idx) => (idx === selfRefIdx ? null : v));
+        const placeholders = effectiveRow.map((_, colIdx) => `$${rowIdx * columns.length + colIdx + 1}`);
+        values.push(...effectiveRow);
         return `(${placeholders.join(", ")})`;
       });
       await pool.query(
@@ -170,6 +189,26 @@ async function mergeCatalogTables(pool: Pool, sql: string): Promise<Record<strin
       );
       count += batch.length;
     }
+
+    if (selfRefColumn && selfRefIdx !== -1) {
+      const pkIdx = columns.indexOf(pkColumns[0]);
+      const rowsWithParent = rows.filter((row) => row[selfRefIdx] != null);
+      for (let i = 0; i < rowsWithParent.length; i += BATCH_SIZE) {
+        const batch = rowsWithParent.slice(i, i + BATCH_SIZE);
+        const values: unknown[] = [];
+        const rowPlaceholders = batch.map((row, rowIdx) => {
+          values.push(row[pkIdx], row[selfRefIdx]);
+          return `($${rowIdx * 2 + 1}, $${rowIdx * 2 + 2})`;
+        });
+        await pool.query(
+          `UPDATE ${table} AS t SET ${selfRefColumn} = v.parent_id::uuid
+           FROM (VALUES ${rowPlaceholders.join(", ")}) AS v(id, parent_id)
+           WHERE t.${pkColumns[0]} = v.id::uuid`,
+          values,
+        );
+      }
+    }
+
     merged[table] = count;
   }
   return merged;

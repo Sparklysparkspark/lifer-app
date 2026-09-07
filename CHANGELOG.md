@@ -23,6 +23,8 @@ Categories: `Added`, `Changed`, `Fixed`, `Removed` — omit any with nothing to 
 - The catalog-update check and download no longer hang forever if the server's network can't
   reach GitHub — they now time out and show a real error instead of a permanently stuck
   "Updating..." message.
+- Fixed a crash restoring the catalog on a genuinely fresh database (a foreign key violation on
+  the self-referencing regions table, hit only on a truly empty install).
 
 ## [0.4.0] - 2026-09-07
 
