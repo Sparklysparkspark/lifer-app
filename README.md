@@ -1,4 +1,9 @@
-# Lifer
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="./assets/branding/Dark%20Wordmark.png">
+    <img src="./assets/branding/Wordmark.png" alt="Lifer" width="360">
+  </picture>
+</p>
 
 Lifer is a self-hosted, species-indexed life list for wildlife photography. Instead of a
 sightings log, it's photo-verified: a species only counts as "collected" once you've actually
@@ -46,10 +51,26 @@ doesn't reflect how rare or endangered it actually is.
   useful without a live connection.
 - **Archive**: hide species you don't care about photographing from your checklist and counts,
   without losing any history; unarchive any time.
-- **Gallery**: every photo you've taken, across every species, in one browsable, sortable grid.
+- **Gallery**: every photo you've taken, across every species, in one browsable, sortable grid,
+  searchable by name, focal length, or natural-language description of what's in the shot.
+- **Albums**: group photos across species/trips into a named collection you curate yourself.
+- **Sharing** (server mode only): turn an album into a public link — optional password,
+  expiration, and download permission, revocable any time. Never exposes GPS location data.
+- **Stats**: most-photographed species, gear-and-species breakdowns, year-over-year comparisons,
+  archive health, and more, all computed from your own library.
 
 Full checklist and reference-photo coverage is live for **birds, mammals, and fish** today, with
 more taxonomic groups (reptiles, amphibians, marine invertebrates, and others) being added.
+
+## Screenshots
+
+<!--
+  TODO: drop screenshots into ./assets/screenshots/ and reference them below, e.g.:
+  ![Collection view](./assets/screenshots/collection.png)
+  ![Species detail](./assets/screenshots/species-detail.png)
+  ![Gallery](./assets/screenshots/gallery.png)
+  ![Stats](./assets/screenshots/stats.png)
+-->
 
 ## Which one do you want?
 
@@ -126,6 +147,11 @@ for Docker.
 | `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASS` / `SMTP_FROM` | unset | Outgoing mail for password-reset links. Unset, the reset link is just logged to the server console instead. |
 | `APP_URL` | `http://localhost:$PORT` | The address you actually reach this instance at (e.g. `http://192.168.1.50:4000`, or your domain), used in password-reset emails. Set this; the default only works for the machine running the server. |
 | `MAX_UPLOAD_BYTES` | 2GB | Per-file upload size ceiling. |
+
+## Contributing
+
+Working on Lifer itself, not just running it? See [CONTRIBUTING.md](./CONTRIBUTING.md) for local
+setup (Postgres, migrations, seeding, running the dev servers).
 
 ## License
 
