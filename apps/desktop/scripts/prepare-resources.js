@@ -231,6 +231,54 @@ function dedupeIdenticalOnnxDylibs(stagingNodeModulesDir) {
   }
 }
 
+// Several packages (bare-path, bare-fs, bare-url — pulled in transitively via tar-fs, needed by
+// sharp/prebuild-install) use the "prebuildify" convention: shipping a native addon prebuilt for
+// EVERY platform+arch they support under prebuilds/<platform>-<arch>/, same idea as onnxruntime's
+// per-platform bin/ dirs above but a much wider set (13 combos observed for bare-path, including
+// android-ia32, ios-arm64, win32-x64...). A build for one host only ever needs its own
+// platform-arch subfolder. Worse than mere dead weight on Linux specifically (mirrors the
+// onnxruntime GPU-provider problem): linuxdeploy resolves shared-library dependencies for every
+// ELF it finds while bundling the AppImage, and a foreign-platform native binary (e.g.
+// android-ia32's .bare file, built against Android's bionic libc) references libraries
+// (libm.so) that don't exist in that form on a glibc Linux host — linuxdeploy can't resolve it
+// and hard-fails the whole bundle. Confirmed this exact failure in CI:
+// "node_modules/bare-path/prebuilds/android-ia32/bare-path.bare — Could not find dependency:
+// libm.so". Generic across any package using this same prebuilds/ convention, not just bare-path.
+function stripNonHostPrebuilds(stagingNodeModulesDir) {
+  const hostDir = `${process.platform}-${process.arch}`;
+  let removed = 0;
+  function stripIn(pkgDir) {
+    const prebuildsDir = path.join(pkgDir, "prebuilds");
+    let entries;
+    try {
+      entries = readdirSync(prebuildsDir);
+    } catch {
+      return; // no prebuilds/ dir in this package — fine
+    }
+    for (const platformDir of entries) {
+      if (platformDir === hostDir) continue;
+      const full = path.join(prebuildsDir, platformDir);
+      if (!statSync(full).isDirectory()) continue;
+      rmSync(full, { recursive: true, force: true });
+      removed++;
+    }
+  }
+  for (const name of readdirSync(stagingNodeModulesDir)) {
+    const entryPath = path.join(stagingNodeModulesDir, name);
+    if (!statSync(entryPath).isDirectory()) continue;
+    if (name.startsWith("@")) {
+      for (const scopedName of readdirSync(entryPath)) {
+        stripIn(path.join(entryPath, scopedName));
+      }
+      continue;
+    }
+    stripIn(entryPath);
+  }
+  if (removed > 0) {
+    console.log(`[prepare-resources] stripped ${removed} non-host prebuilds/ platform dir(s)`);
+  }
+}
+
 // data-pipeline is a real workspace package the packaged app imports from at runtime (see
 // main()'s own comment on copyNodeModules resolving its symlink into a real file copy) — but
 // its package directory ALSO holds dev/build-only artifacts that have no business shipping:
@@ -282,6 +330,7 @@ function main() {
   stripOnnxGpuProviders(path.join(STAGING, "node_modules"));
   stripMuslVariants(path.join(STAGING, "node_modules"));
   stripNonHostOnnxPlatforms(path.join(STAGING, "node_modules"));
+  stripNonHostPrebuilds(path.join(STAGING, "node_modules"));
   dedupeIdenticalOnnxDylibs(path.join(STAGING, "node_modules"));
 
   console.log(`[prepare-resources] staged at ${STAGING}`);
