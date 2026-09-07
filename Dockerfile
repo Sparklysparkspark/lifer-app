@@ -27,6 +27,14 @@ COPY . .
 # so there's nothing to compile for them.
 RUN npm run build -w web
 
+# Bundles the species/region catalog seed into the image at build time — the same "fetch once
+# at build time, ship it, work offline on first launch" pattern the desktop build already uses
+# (apps/desktop/scripts/fetch-catalog-seed.js). Without this, a fresh container's very first
+# launch needed live network access to GitHub before Offline Packs/checklists showed anything
+# (see catalogSeedUpdate.ts's seedCatalogIfEmpty, which prefers this bundled copy and only
+# falls back to a live download if it's missing).
+RUN node apps/api/scripts/fetch-catalog-seed.js
+
 # Baked in at build time from the pushed release tag (see .github/workflows/release.yml's
 # docker-image job) so a running container can report its own version — GET /version, read by
 # the self-hosted web app's own update-available banner (DockerUpdateBanner.tsx) to compare

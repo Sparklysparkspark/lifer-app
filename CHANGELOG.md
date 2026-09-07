@@ -15,6 +15,15 @@ Categories: `Added`, `Changed`, `Fixed`, `Removed` — omit any with nothing to 
 
 ## [Unreleased]
 
+### Fixed
+
+- Docker/self-hosted deployments now bundle the species/region catalog into the image and
+  restore it automatically on first start, instead of leaving the Offline Packs map and
+  checklists blank until someone knew to click Settings > Species catalog updates.
+- The catalog-update check and download no longer hang forever if the server's network can't
+  reach GitHub — they now time out and show a real error instead of a permanently stuck
+  "Updating..." message.
+
 ## [0.4.0] - 2026-09-07
 
 ### Added

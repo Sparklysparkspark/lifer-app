@@ -107,7 +107,11 @@ No source checkout needed, just two files and a running Docker.
 The API serves the built web app on one port (`PORT` in `.env`, `4000` by default). Put a
 reverse proxy in front for TLS/a domain; that's configured on your end, not part of this repo.
 
-First launch asks you to create the one account this instance has.
+First launch asks you to create the one account this instance has. The species/region catalog
+(Offline Packs map, checklists) is bundled into the image and restored automatically on first
+start — no network wait needed. If it ever looks empty (a custom image built without network
+access, say), check `docker compose logs api` for a "Catalog auto-seed failed" line, and retry
+manually from Settings > Species catalog updates once network access is available.
 
 ## Desktop app setup
 

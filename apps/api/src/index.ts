@@ -28,6 +28,8 @@ import { albumRoutes } from "./albums/routes.js";
 import { albumShareRoutes } from "./shares/routes.js";
 import { inaturalistRoutes } from "./inaturalist/routes.js";
 import { runEmbeddingBackfill } from "./species/embeddingBackfill.js";
+import { seedCatalogIfEmpty } from "./species/catalogSeedUpdate.js";
+import { pool } from "./db.js";
 import { friendlyFsErrorMessage } from "./lib/friendlyFsError.js";
 
 // Checked before anything else starts, so an interrupted storage-location move (see
@@ -174,3 +176,18 @@ try {
 // download, e.g.) just means suggestions stay unavailable until the next server restart retries,
 // never a startup failure.
 runEmbeddingBackfill().catch((err) => app.log.warn({ err }, "Species-suggestion embedding backfill failed to start"));
+
+// The desktop app has always self-seeded its catalog (species/regions/etc) the moment it finds
+// an empty database — see embedded_db.rs's restore_catalog_seed_if_needed — but the Docker/self-
+// hosted image had no equivalent, leaving a brand-new deployment's catalog genuinely empty
+// (blank Offline Packs map, empty checklists everywhere) until someone happened to know to click
+// Settings > Update. This closes that gap the same way the embedding backfill above does: fires
+// after the server is already listening (never delays startup) and is a no-op instantly if the
+// catalog isn't actually empty (an existing install restarting, or the desktop build where
+// embedded_db.rs already seeded it first). Best-effort — a failed download here just means the
+// catalog stays empty until Settings > Update is retried manually, same as before this existed.
+seedCatalogIfEmpty(pool)
+  .then((result) => {
+    if (result.seeded) app.log.info({ merged: result.merged }, "Auto-seeded an empty catalog on first boot");
+  })
+  .catch((err) => app.log.warn({ err }, "Catalog auto-seed failed — Settings > Update can still be run manually"));
