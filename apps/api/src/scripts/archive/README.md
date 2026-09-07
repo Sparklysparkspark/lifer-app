@@ -1,0 +1,3 @@
+One-time backfill/fix/cleanup scripts that already ran to completion against production data. Kept for reference (the git history shows why each existed) rather than deleted outright, but none of these are meant to be run again — the data problem each one fixed is fixed. Not wired into any package.json script or imported by anything live.
+
+Excluded from the TypeScript project (see ../../../tsconfig.json) and NOT runnable as-is: their relative imports (`../db.js` etc.) resolved correctly from `src/scripts/`, not from this one-level-deeper folder. Frozen reference material, not working code — resurrect (fix the imports) rather than run directly if one is ever genuinely needed again.
