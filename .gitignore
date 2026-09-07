@@ -11,4 +11,6 @@ data/junk_species_candidates.tsv
 /archive/
 packs/
 packages/data-pipeline/data/build/refresh-all-provinces-checkpoint.json
+packages/data-pipeline/data/gbif-country-cache/
+packages/data-pipeline/data/province-aggregate-cache/
 .cache/

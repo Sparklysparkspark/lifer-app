@@ -1,9 +1,12 @@
 // exiftool-vendored bundles its own exiftool binary, so there's no system-install dependency
-// (lifer-spec.md §4: "Image processing: sharp... EXIF via exiftool"). It reads metadata only —
-// per spec §6 rule 3, Lifer never decodes the image itself for this.
+// (: "Image processing: sharp... EXIF via exiftool"). It reads metadata only —
+//rule 3, Lifer never decodes the image itself for this.
 import { availableParallelism } from "node:os";
 import { createHash } from "node:crypto";
+import { existsSync } from "node:fs";
+import path from "node:path";
 import { ExifTool } from "exiftool-vendored";
+import { composeSpeciesName } from "./speciesFolderName.js";
 
 // The library's default singleton caps concurrent exiftool worker processes at 1/4 of the
 // CPU count, tuned for a shared multi-tenant server. Lifer is a single-user desktop app where
@@ -81,6 +84,39 @@ export async function extractKeywords(filePath: string, tags?: ExifTags): Promis
   return [...new Set(leaves)];
 }
 
+// Many tools (Lightroom especially, for RAW formats it won't write into directly) keep a
+// photo's tags in a companion ".xmp" file next to the image rather than embedding them —
+// same information, different place, and easy to miss if only the image file itself ever
+// gets read. Two conventions both see real use: "IMG_0001.xmp" (sidecar named after the bare
+// stem) and "IMG_0001.CR2.xmp" (sidecar named after the full original filename) — checked in
+// that order since the bare-stem form is the more common Lightroom/digiKam default.
+export function findSidecarPath(imagePath: string): string | null {
+  const dir = path.dirname(imagePath);
+  const ext = path.extname(imagePath);
+  const stem = path.basename(imagePath, ext);
+  const bareStemSidecar = path.join(dir, `${stem}.xmp`);
+  if (existsSync(bareStemSidecar)) return bareStemSidecar;
+  const fullNameSidecar = path.join(dir, `${path.basename(imagePath)}.xmp`);
+  if (existsSync(fullNameSidecar)) return fullNameSidecar;
+  return null;
+}
+
+// Same keyword extraction as extractKeywords, but unions in a sidecar's own tags (see
+// findSidecarPath) when one exists next to the image — a photo tagged entirely in its sidecar
+// (no embedded metadata at all) would otherwise look completely untagged.
+export async function extractKeywordsWithSidecar(filePath: string, tags?: ExifTags): Promise<string[]> {
+  const own = await extractKeywords(filePath, tags);
+  const sidecarPath = findSidecarPath(filePath);
+  if (!sidecarPath) return own;
+  try {
+    const sidecarKeywords = await extractKeywords(sidecarPath);
+    return [...new Set([...own, ...sidecarKeywords])];
+  } catch {
+    // A malformed/unreadable sidecar shouldn't block matching on the image's own tags.
+    return own;
+  }
+}
+
 // This EXIF-based "fingerprint" is distinct from `captures.fingerprint`, a sha256 content
 // hash used for upload dedup (a different concept). This hashes the handful of EXIF fields
 // that should be identical between a camera's RAW and its JPEG sibling for the same shutter
@@ -145,14 +181,33 @@ export interface SpeciesMetadata {
   scientificName: string;
   taxonClass: string | null;
   family: string | null;
+  abaCode?: string | null;
+  ebirdCode?: string | null;
 }
 
 // Supports multi-species photos (e.g. a hawk catching a fish): every depicted species is
 // written, not just the primary one, so the file itself reflects all of them even outside
 // Lifer. `metas[0]` is treated as the primary for ObjectName/title purposes.
-export async function writeSpeciesMetadata(filePath: string, metas: SpeciesMetadata[]): Promise<void> {
-  const labels = metas.map((m) => m.commonName ?? m.scientificName);
-  const keywords = metas.flatMap((m) => [m.commonName, m.scientificName]).filter((v): v is string => !!v);
+//
+// namingStyles only ever changes the PRIMARY label (ObjectName + the last HierarchicalSubject
+// segment) — Keywords/Subject always keep the plain common + scientific name regardless of
+// this setting, since matchSpeciesByKeywords (reimport.ts) matches incoming files against
+// those two fields specifically; silently replacing them here would break that round-trip for
+// anyone using the code-based naming styles. The resolved code(s) (when this species actually
+// has them) are still added as EXTRA keywords either way, so they're searchable in external
+// tools too. Common name is always the base label; any selected style(s) get appended alongside
+// it rather than replacing it (composeSpeciesName, shared with speciesFolderName.ts).
+export async function writeSpeciesMetadata(
+  filePath: string,
+  metas: SpeciesMetadata[],
+  namingStyles: string[] = [],
+): Promise<void> {
+  const labels = metas.map((m) =>
+    composeSpeciesName(m.commonName, m.scientificName, namingStyles, { abaCode: m.abaCode ?? null, ebirdCode: m.ebirdCode ?? null }),
+  );
+  const keywords = metas
+    .flatMap((m) => [m.commonName, m.scientificName, m.abaCode, m.ebirdCode])
+    .filter((v): v is string => !!v);
   const hierarchies = metas.map((m, i) =>
     ["Species", m.taxonClass, m.family, labels[i]].filter(Boolean).join("/"),
   );

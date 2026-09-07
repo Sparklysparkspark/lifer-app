@@ -6,6 +6,7 @@ import multipart from "@fastify/multipart";
 import staticFiles from "@fastify/static";
 import { MAX_UPLOAD_BYTES, MAX_UPLOAD_REQUEST_BYTES, PORT, SINGLE_USER_MODE, WEB_DIST_DIR, MAPS_DIR } from "./config.js";
 import { authRoutes } from "./auth/routes.js";
+import { apiKeyRoutes } from "./auth/apiKeyRoutes.js";
 import { speciesRoutes } from "./species/routes.js";
 import { uploadRoutes } from "./uploads/routes.js";
 import { photoRoutes } from "./photos/routes.js";
@@ -23,7 +24,11 @@ import { tripsRoutes } from "./trips/routes.js";
 import { libraryRoutes } from "./library/routes.js";
 import { storageVolumesRoutes } from "./storageVolumes/routes.js";
 import { statsRoutes } from "./stats/routes.js";
+import { albumRoutes } from "./albums/routes.js";
+import { albumShareRoutes } from "./shares/routes.js";
+import { inaturalistRoutes } from "./inaturalist/routes.js";
 import { runEmbeddingBackfill } from "./species/embeddingBackfill.js";
+import { friendlyFsErrorMessage } from "./lib/friendlyFsError.js";
 
 // Checked before anything else starts, so an interrupted storage-location move (see
 // settings/routes.ts) gets resolved one way or the other before the app serves a single
@@ -61,6 +66,24 @@ if (Number.isInteger(watchParentPid) && watchParentPid > 0) {
 // comment: a batch upload of many RAW files needed a much larger ceiling than any one file).
 const app = Fastify({ logger: true, bodyLimit: MAX_UPLOAD_REQUEST_BYTES, trustProxy: true });
 
+// A raw fs EPERM/EACCES (macOS denying folder access — see friendlyFsError.ts's own comment)
+// previously reached the client as a crash-looking dump of the Node error object from whichever
+// route happened to hit it, rather than the one, same, actionable instruction every such error
+// actually needs. One handler here covers every route uniformly instead of retrofitting each
+// try/catch individually.
+app.setErrorHandler((err, _request, reply) => {
+  const code = (err as NodeJS.ErrnoException).code;
+  const statusCode = (err as { statusCode?: number }).statusCode ?? 500;
+  if (code === "EPERM" || code === "EACCES" || code === "ENOENT") {
+    return reply.code(statusCode).send({ error: friendlyFsErrorMessage(err) });
+  }
+  // Every hand-written route responds { error: string } on failure — an uncaught exception
+  // falling through to Fastify's own default formatting would instead send
+  // { statusCode, error, message }, a different shape any frontend code checking body.error
+  // wouldn't recognize. Normalized to the same contract here so that assumption always holds.
+  reply.code(statusCode).send({ error: (err as Error).message || "Internal server error" });
+});
+
 await app.register(cookie);
 // @fastify/multipart's fileSize limit is separate — the PER-FILE cap (MAX_UPLOAD_BYTES),
 // distinct from the bodyLimit above which bounds the request as a whole.
@@ -86,6 +109,10 @@ await app.register(async (api) => {
   await api.register(libraryRoutes);
   await api.register(storageVolumesRoutes);
   await api.register(statsRoutes);
+  await api.register(albumRoutes);
+  await api.register(albumShareRoutes);
+  await api.register(apiKeyRoutes);
+  await api.register(inaturalistRoutes);
 }, { prefix: "/api" });
 
 app.get("/health", async () => ({ ok: true }));

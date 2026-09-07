@@ -50,7 +50,7 @@ export interface CollectionRow {
    *  instead of that history silently disappearing once fresh occurrence data catches up. */
   was_ghost_when_collected?: boolean | null;
   was_lost_when_collected?: boolean | null;
-  state: "collected" | "seen" | null;
+  state: "collected" | "seen" | "target" | null;
   cover_photo_id: string | null;
   card_crop_x: string | number | null;
   card_crop_y: string | number | null;

@@ -25,7 +25,9 @@ export async function matchSpeciesByKeywords(pool: Pool, candidates: string[]): 
      WHERE lower(s.scientific_name) = ANY($1)
         OR lower(s.common_name) = ANY($1)
         OR EXISTS (SELECT 1 FROM unnest(s.common_name_aliases) a WHERE lower(a) = ANY($1))
-        OR EXISTS (SELECT 1 FROM species_synonyms syn WHERE syn.species_id = s.id AND lower(syn.synonym_name) = ANY($1))`,
+        OR EXISTS (SELECT 1 FROM species_synonyms syn WHERE syn.species_id = s.id AND lower(syn.synonym_name) = ANY($1))
+        OR lower(s.aba_code) = ANY($1)
+        OR lower(s.ebird_code) = ANY($1)`,
     [lowerCandidates],
   );
   return res.rows;

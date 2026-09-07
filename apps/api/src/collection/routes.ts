@@ -19,7 +19,7 @@ export async function collectionRoutes(app: FastifyInstance): Promise<void> {
       const { taxon } = request.query;
       const { hideObscure, maxDepthM } = await getObscurityPreferences(userId);
 
-      // state per lifer-spec.md §1: collected (user_species row with state='collected'),
+      // state: collected (user_species row with state='collected'),
       // seen (state='seen' — nothing sets this yet, that's Phase 3's eBird import), else unseen.
       // Phase 8: ?taxon= filters by species.taxon_class (aves/mammalia/actinopterygii) — a
       // plain query param rather than a route segment, since "all taxa" (no filter) is a

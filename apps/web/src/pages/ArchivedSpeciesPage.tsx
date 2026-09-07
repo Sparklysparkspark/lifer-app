@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api/client";
-import BackToCollectionLink from "../components/BackToCollectionLink";
+import PageHeader from "../components/PageHeader";
 import InfoTip from "../components/InfoTip";
 import { Spinner } from "../components/LoadingScreen";
 import PhotoPlaceholder from "../components/PhotoPlaceholder";
+import SearchInput from "../components/SearchInput";
 
 const ARCHIVED_INFO_PARAGRAPHS = [
   "Archiving a species just hides it from your collection and region checklists. It doesn't delete any photos or history, and unarchiving brings it right back.",
@@ -78,7 +79,7 @@ export default function ArchivedSpeciesPage() {
     try {
       await api.delete("/archive/bulk", { speciesIds: [speciesId] });
     } catch {
-      alert("Couldn't unarchive that species — try again.");
+      alert("Couldn't unarchive that species. Try again.");
     } finally {
       load();
     }
@@ -99,7 +100,7 @@ export default function ArchivedSpeciesPage() {
     try {
       await api.delete("/archive/bulk", { speciesIds });
     } catch {
-      alert("Couldn't unarchive that group — try again.");
+      alert("Couldn't unarchive that group. Try again.");
     } finally {
       setBusyFamily(null);
       load();
@@ -111,34 +112,22 @@ export default function ArchivedSpeciesPage() {
   // the back link never needs to come from LoadingScreen's own copy of it here.
   return (
     <div className="min-h-screen bg-canvas">
-      <header className="page-header flex items-center justify-between border-b border-line bg-surface px-6 py-4">
-        <div>
-          <BackToCollectionLink fallbackTo="/settings" label="Settings" className="text-sm text-muted hover:underline" />
-          <div className="mt-1 flex items-center gap-2">
-            <h1 className="text-xl font-semibold text-ink">Archived species</h1>
-            <InfoTip paragraphs={ARCHIVED_INFO_PARAGRAPHS} />
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search archived…"
-            className="w-48 rounded-md border border-line px-2 py-1 text-sm text-ink"
-          />
-          {search && (
-            <button onClick={() => setSearch("")} className="text-muted hover:text-muted" aria-label="Clear search">
-              ✕
-            </button>
-          )}
-          {data && (
-            <p className="text-sm text-muted">
-              {visibleItems.length !== data.items.length ? `${visibleItems.length} of ${data.items.length}` : data.items.length} archived
-            </p>
-          )}
-        </div>
-      </header>
+      <PageHeader
+        title="Archived species"
+        backFallbackTo="/settings"
+        backLabel="Settings"
+        titleAddon={<InfoTip paragraphs={ARCHIVED_INFO_PARAGRAPHS} />}
+        actions={
+          <>
+            <SearchInput value={search} onChange={setSearch} placeholder="Search archived…" className="w-48" />
+            {data && (
+              <p className="text-sm text-muted">
+                {visibleItems.length !== data.items.length ? `${visibleItems.length} of ${data.items.length}` : data.items.length} archived
+              </p>
+            )}
+          </>
+        }
+      />
 
       {loadError ? (
         <div className="flex flex-col items-center justify-center gap-3 py-24">
@@ -153,7 +142,7 @@ export default function ArchivedSpeciesPage() {
         <main className="space-y-8 p-6">
           {data.items.length === 0 ? (
             <p className="text-muted">
-              Nothing archived yet — use the "Archive" button on a species card, or "Archive group" when a collection
+              Nothing archived yet. Use the "Archive" button on a species card, or "Archive group" when a collection
               view is grouped by family, to keep species you don't care about completing off your to-collect count.
             </p>
           ) : visibleItems.length === 0 ? (

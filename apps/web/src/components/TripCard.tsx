@@ -1,9 +1,11 @@
 import { Link } from "react-router-dom";
+import type { RefObject } from "react";
 import type { TripSummary } from "@lifer/shared";
 import { useFitText } from "../hooks/useFitText";
 import { cropToImageStyle } from "../lib/crop";
 import ProgressiveImg from "./ProgressiveImg";
 import PhotoPlaceholder from "./PhotoPlaceholder";
+import DotMenu from "./DotMenu";
 
 function formatDateRange(earliest: string | null, latest: string | null): string | null {
   if (!earliest) return null;
@@ -17,7 +19,16 @@ function formatDateRange(earliest: string | null, latest: string | null): string
 // Mirrors SpeciesCard.tsx's shape (cover image block, useFitText title, badge row) — swaps
 // species-specific badges (tier/endemic/vagrant) for trip-relevant ones (date range, species
 // count), since those concepts don't apply here.
-export default function TripCard({ trip }: { trip: TripSummary }) {
+interface TripCardProps {
+  trip: TripSummary;
+  menuOpen?: boolean;
+  onToggleMenu?: () => void;
+  menuRef?: RefObject<HTMLDivElement | null>;
+  onRename?: () => void;
+  onDelete?: () => void;
+}
+
+export default function TripCard({ trip, menuOpen, onToggleMenu, menuRef, onRename, onDelete }: TripCardProps) {
   const { ref: nameRef, fontSize: nameFontSize } = useFitText([trip.name]);
   const dateRange = formatDateRange(trip.earliestTakenAt, trip.latestTakenAt);
 
@@ -27,6 +38,36 @@ export default function TripCard({ trip }: { trip: TripSummary }) {
       className="group block overflow-hidden rounded-lg border border-line bg-surface transition hover:shadow-md"
     >
       <div className="relative aspect-square overflow-hidden bg-surface-muted">
+        {onToggleMenu && (
+          <DotMenu open={!!menuOpen} onToggle={onToggleMenu} menuRef={menuRef}>
+            <div className="absolute right-0 top-full z-10 mt-1 w-36 rounded-md border border-line bg-surface py-1 shadow-lg">
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onToggleMenu();
+                  onRename?.();
+                }}
+                className="block w-full px-3 py-1.5 text-left text-xs text-ink hover:bg-surface-muted"
+              >
+                Rename
+              </button>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onToggleMenu();
+                  onDelete?.();
+                }}
+                className="block w-full px-3 py-1.5 text-left text-xs text-red-600 hover:bg-surface-muted"
+              >
+                Delete
+              </button>
+            </div>
+          </DotMenu>
+        )}
         {trip.processing ? (
           // A scan or import is running — the cover photo may not exist yet, or is about to
           // change, so a spinner reads more honestly here than a placeholder or a stale image.

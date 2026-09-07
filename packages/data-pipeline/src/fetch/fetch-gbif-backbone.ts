@@ -1,5 +1,5 @@
 // Source: GBIF Backbone Taxonomy, via the public GBIF species API (api.gbif.org).
-// License: CC0 (per lifer-spec.md §5 — reverify on GBIF's own page before shipping, per §5 checklist).
+// License: CC0 — reverify on GBIF's own page before shipping.
 // Paginates species/search filtered to class Aves (classKey=212) and status=ACCEPTED,
 // since synonyms and doubtful names would otherwise duplicate real species.
 
@@ -78,7 +78,7 @@ export async function fetchGbifBackboneForKeys(higherTaxonKeys: number[]): Promi
 
       for (const r of data.results) {
         if (r.rank !== "SPECIES" || r.taxonomicStatus !== "ACCEPTED") continue;
-        // Exclude hybrids (spec §7's rarity model implicitly assumes real, findable
+        // Exclude hybrids (the rarity model implicitly assumes real, findable
         // populations — a hybrid like "Cygnus cygnus x olor" is a one-off cross, not a
         // species anyone can realistically go looking for, and its noisy/tiny GBIF
         // occurrence counts would otherwise skew rarity for nothing). GBIF's own API flags

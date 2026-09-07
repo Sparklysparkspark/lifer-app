@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { enqueueRawUploads } from "../lib/uploadQueue";
-import BackToCollectionLink from "../components/BackToCollectionLink";
+import PageHeader from "../components/PageHeader";
 import PhotoImportRows from "../components/PhotoImportRows";
 import { RAW_EXTENSIONS, extname } from "../lib/rawExtensions";
 
@@ -70,12 +70,7 @@ export default function BulkImportPage() {
 
   return (
     <div className="min-h-screen bg-canvas">
-      <header className="page-header flex items-center justify-between border-b border-line bg-surface px-6 py-4">
-        <div>
-          <BackToCollectionLink className="text-sm text-muted hover:underline" />
-          <h1 className="mt-1 text-lg font-semibold text-ink">Bulk import</h1>
-        </div>
-      </header>
+      <PageHeader title="Bulk import" />
 
       <main className="space-y-4 p-6">
         <PhotoImportRows />
@@ -130,7 +125,7 @@ export default function BulkImportPage() {
                     {r.error ? (
                       <span className="text-red-600">{r.error}</span>
                     ) : r.collision ? (
-                      <span className="text-amber-600">matched more than one photo with the same camera fingerprint — skipped</span>
+                      <span className="text-amber-600">matched more than one photo with the same camera fingerprint, skipped</span>
                     ) : (
                       <span className="text-emerald-700">filed under {r.speciesCommonName ?? r.speciesScientificName}</span>
                     )}

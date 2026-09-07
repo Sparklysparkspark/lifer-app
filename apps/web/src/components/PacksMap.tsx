@@ -15,13 +15,22 @@ const SOURCE_ID = "packs-countries";
 const FILL_LAYER_ID = "packs-countries-fill";
 const LINE_LAYER_ID = "packs-countries-line";
 
-function extendBoundsFromCoordinates(bounds: LngLatBounds, coords: unknown): void {
+function extendBoundsFromCoordinates(bounds: LngLatBounds, coords: unknown, maxLng?: number): void {
   if (Array.isArray(coords) && typeof coords[0] === "number") {
-    bounds.extend(coords as [number, number]);
+    const [lng] = coords as [number, number];
+    if (maxLng === undefined || lng <= maxLng) bounds.extend(coords as [number, number]);
   } else if (Array.isArray(coords)) {
-    coords.forEach((c) => extendBoundsFromCoordinates(bounds, c));
+    coords.forEach((c) => extendBoundsFromCoordinates(bounds, c, maxLng));
   }
 }
+
+// Russia's own polygon stretches to the Pacific — fine for the map's rendered outline, but
+// fitting a continent's bounds around its FULL extent (e.g. picking "Europe") drags the fit out
+// to cover Siberia too, leaving Europe itself a small sliver in the middle of a mostly-empty
+// view. Clamping to just past the Urals for bounds purposes only keeps the fit centered on
+// Europe, with just the western edge of Russia included, matching what "Europe" visually means
+// here even though the country itself continues well past this line.
+const RUSSIA_EUROPE_MAX_LNG = 60;
 
 // Renders every country as one clickable layer (unlike RegionMap.tsx, which only ever shows a
 // single region's own boundary) — clicking toggles that country in/out of `selectedIds`, whose
@@ -34,10 +43,15 @@ export default function PacksMap({
   onToggleCountry,
   focusCountryIds,
   openCountryIds,
+  onDeselectAll,
 }: {
   countries: CountryBoundary[];
   selectedIds: Set<string>;
   onToggleCountry: (id: string) => void;
+  // Clicking open water/unclaimed area — nothing else on the map to select — clears the whole
+  // selection instead of doing nothing, the same "click empty space to deselect" convention as
+  // most map/canvas UIs.
+  onDeselectAll?: () => void;
   // Passing a NEW array reference (even with the same ids) re-triggers the fit — callers should
   // only construct a fresh array when they actually want a fly-to (a continent pill click or a
   // search result pick), not on every render.
@@ -54,6 +68,8 @@ export default function PacksMap({
   const { theme } = useTheme();
   const onToggleCountryRef = useRef(onToggleCountry);
   onToggleCountryRef.current = onToggleCountry;
+  const onDeselectAllRef = useRef(onDeselectAll);
+  onDeselectAllRef.current = onDeselectAll;
 
   useEffect(() => {
     checkPmtilesAvailable().then(setMapAvailable);
@@ -126,6 +142,14 @@ export default function PacksMap({
         const id = e.features?.[0]?.properties?.id as string | undefined;
         if (id) onToggleCountryRef.current(id);
       });
+      // A plain (layer-unfiltered) click handler fires for EVERY map click, including the
+      // country-fill one above — queryRenderedFeatures at the click point is what actually
+      // distinguishes "hit a country" from "hit open ocean/an unclaimed area": only clear
+      // selection in the latter case, so this never fights with the per-country toggle.
+      map.on("click", (e) => {
+        const hits = map.queryRenderedFeatures(e.point, { layers: [FILL_LAYER_ID] });
+        if (hits.length === 0) onDeselectAllRef.current?.();
+      });
       map.on("mouseenter", FILL_LAYER_ID, () => (map.getCanvas().style.cursor = "pointer"));
       map.on("mouseleave", FILL_LAYER_ID, () => (map.getCanvas().style.cursor = ""));
       setLoaded(true);
@@ -183,7 +207,9 @@ export default function PacksMap({
     const bounds = new LngLatBounds();
     for (const id of focusCountryIds) {
       const country = countries.find((c) => c.id === id);
-      if (country) extendBoundsFromCoordinates(bounds, country.boundaryGeoJson.geometry.coordinates);
+      if (!country) continue;
+      const maxLng = /^Russia/.test(country.name) ? RUSSIA_EUROPE_MAX_LNG : undefined;
+      extendBoundsFromCoordinates(bounds, country.boundaryGeoJson.geometry.coordinates, maxLng);
     }
     if (!bounds.isEmpty()) map.fitBounds(bounds, { padding: 32, maxZoom: 5 });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- focusCountryIds is intentionally
@@ -193,7 +219,7 @@ export default function PacksMap({
   if (mapAvailable === false) {
     return (
       <div className="flex h-80 w-full items-center justify-center rounded-lg border border-line bg-surface-muted text-sm text-muted">
-        The offline world map isn't downloaded yet — see Settings to enable it, or use the search box below instead.
+        The offline world map isn't downloaded yet. See Settings to enable it, or use the search box below instead.
       </div>
     );
   }

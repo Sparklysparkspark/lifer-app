@@ -1,6 +1,13 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { TAXON_CLASS_LABEL, type CollectionItem, type RegionSpeciesResponse, type RegionSpeciesResult, type RegionSummary } from "@lifer/shared";
+import {
+  TAXON_CLASS_LABEL,
+  type TaxonClass,
+  type CollectionItem,
+  type RegionSpeciesResponse,
+  type RegionSpeciesResult,
+  type RegionSummary,
+} from "@lifer/shared";
 import { api, ApiError } from "../api/client";
 import { useAuth } from "../hooks/useAuth";
 import { useDesktopMode } from "../hooks/useDesktopMode";
@@ -10,14 +17,15 @@ import RegionMap from "../components/RegionMap";
 import { Logo } from "../components/Logo";
 import InfoTip from "../components/InfoTip";
 import { Spinner } from "../components/LoadingScreen";
+import Pill from "../components/Pill";
 
 const RARITY_INFO_PARAGRAPHS = [
   '"Rarity" ranks how hard a species is to get a good photo of overall. It\'s not conservation status. A common species that\'s hard to photograph can rank higher than an endangered species that\'s easy to photograph.',
   '"Rarity here" is a completely different, region-specific measure. It\'s how often that species actually turns up in the region you\'ve selected, based on real sighting records for that area.',
 ];
 
-type StateFilter = "all" | "collected" | "seen" | "unseen";
-type TaxonFilter = "all" | "aves" | "mammalia" | "actinopterygii";
+type StateFilter = "all" | "collected" | "seen" | "target" | "unseen";
+type TaxonFilter = "all" | TaxonClass;
 
 // Species detail is a SIBLING route (see App.tsx), not nested under this page, so navigating
 // there and back fully unmounts/remounts CollectionPage — every `useState` resets to its
@@ -42,14 +50,13 @@ function collectionCacheKey(
   return JSON.stringify([regionId, taxonFilter, [...seaZoneIds].sort(), includeLand]);
 }
 
-// "Fish" (not the shared map's "Bony Fish") is kept here deliberately — this filter only ever
-// offers actinopterygii on its own, with no sibling "Sharks & Rays" etc. to disambiguate from
-// yet, so the shorter, more casual label reads better in this narrower context.
+// All 18 taxon groups (same source GalleryPage/OfflinePacksPage already use) — not just the
+// three (birds/mammals/fish) that had checklist data first. A taxon with no region_species
+// computed for it yet just shows an empty grid, same as any other region with nothing behind
+// it, rather than being hidden from the picker.
 const TAXON_LABEL: Record<TaxonFilter, string> = {
   all: "All taxa",
-  aves: TAXON_CLASS_LABEL.aves,
-  mammalia: TAXON_CLASS_LABEL.mammalia,
-  actinopterygii: "Fish",
+  ...TAXON_CLASS_LABEL,
 };
 
 // Region drill-down lives on the main screen — no region selected means "everything
@@ -65,23 +72,13 @@ export default function CollectionPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const regionId = searchParams.get("region");
 
-  // Opening Lifer fresh (no ?region= in the URL at all) used to default to "every species in
-  // the world," which tries to load the full worldwide checklist rather than the region a
-  // user actually cares about. Restores the last-viewed region from
-  // localStorage exactly once, on first mount — never overrides a URL that's already there
-  // (a bookmarked/shared link, or a deliberate navigation back to World within this session),
-  // and never fights a user who explicitly clears the region afterward.
-  //
-  // A genuinely first-ever login (fresh account, so no lastRegionId has ever been stored) has
-  // nothing to restore — that's the case the fix above doesn't cover, and where "every
-  // species in the world" was still silently loading on load. firstRunPrompt covers that gap:
-  // when true, `load()` skips the worldwide fetch and the region grid below shows a "browse
-  // by region to get started" prompt instead, until the user actually picks something.
-  //
-  // regionResolved gates the fetch-triggering effect further down until THIS effect has had a
-  // chance to run — without it, the very first render (before this effect's restore/prompt
-  // decision lands) still has regionId=null and firstRunPrompt=false, and `load()` would fire
-  // the full worldwide fetch on that render before ever getting overridden.
+  // Restores the last-viewed region from localStorage once on mount, so opening Lifer fresh
+  // (no ?region= in the URL) doesn't default to loading the full worldwide checklist. Never
+  // overrides a URL that's already there, and never fights a user who clears the region after.
+  // A genuinely first-ever login has nothing to restore — firstRunPrompt covers that gap by
+  // skipping the worldwide fetch and showing a "browse by region to get started" prompt instead.
+  // regionResolved gates the fetch effect below until this effect has run once, so the very
+  // first render (before the restore/prompt decision lands) doesn't fire the worldwide fetch.
   const restoredLastRegion = useRef(false);
   const [firstRunPrompt, setFirstRunPrompt] = useState(false);
   // A genuinely first-ever login (no lastRegionId to restore) can't decide between "show the
@@ -122,6 +119,14 @@ export default function CollectionPage() {
   }, [regionId]);
   const sortBy = (searchParams.get("sort") as SortBy) || "taxonomic";
   const groupBy = (searchParams.get("group") as GroupBy) || "none";
+  // Re-grouping/re-sorting a large checklist (GroupedSpeciesGrid's own re-bucketing plus, for
+  // family grouping especially, WebKit's multi-column layout cost across dozens of sections —
+  // see that component's own comment) is a real, synchronous chunk of work — enough to freeze
+  // the page for close to a second with nothing on screen acknowledging the click happened.
+  // Wrapping the param update in a transition doesn't make that work any faster, but it lets
+  // React keep the OLD grid painted and interactive while the new one computes in the
+  // background, with isPending driving a small "Updating…" indicator instead of a hard freeze.
+  const [isGroupingPending, startGroupingTransition] = useTransition();
   // "Collected first" and "Seen first" (everything shown, collected/seen pinned at top) are
   // independent toggles — either can be on alone, or both (collected always pins above seen
   // when both are on; see GroupedSpeciesGrid's floatRank). Distinct from the "Show: Collected
@@ -131,6 +136,7 @@ export default function CollectionPage() {
   // default.
   const collectedFirst = searchParams.get("collectedFirst") !== "0";
   const seenFirst = searchParams.get("seenFirst") === "1";
+  const targetFirst = searchParams.get("targetFirst") === "1";
   const stateFilter = (searchParams.get("show") as StateFilter) || "all";
   const ghostOnly = searchParams.get("ghostOnly") === "1";
   const lostOnly = searchParams.get("lostOnly") === "1";
@@ -217,6 +223,32 @@ export default function CollectionPage() {
   }
   const [seaZones, setSeaZones] = useState<Array<{ id: string; name: string }>>([]);
 
+  // "Filters" consolidates the collected/seen/target-first toggles and the Show state select
+  // behind one Pill+panel, same pattern GalleryPage's own Filters button already uses — these
+  // five controls used to sit as their own separate labels/checkboxes directly in the toolbar
+  // row, which read as cluttered next to Group/Sort/Taxon. Ghost/Lost-only (also filter
+  // checkboxes, just conditionally shown) move in here too for the same reason.
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const filtersRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!filtersOpen) return;
+    const closeIfOutside = (e: MouseEvent) => {
+      if (filtersRef.current && !filtersRef.current.contains(e.target as Node)) setFiltersOpen(false);
+    };
+    document.addEventListener("click", closeIfOutside);
+    return () => document.removeEventListener("click", closeIfOutside);
+  }, [filtersOpen]);
+  // collectedFirst defaults to true, so it only counts toward the badge when turned OFF
+  // (the non-default state) — same "count only departures from default" rule Gallery's own
+  // activeFilterCount uses.
+  const activeFilterCount =
+    (collectedFirst ? 0 : 1) +
+    (seenFirst ? 1 : 0) +
+    (targetFirst ? 1 : 0) +
+    (stateFilter !== "all" ? 1 : 0) +
+    (ghostOnly ? 1 : 0) +
+    (lostOnly ? 1 : 0);
+
   // Fetched once, up front, independent of regionId — the region list is cheap (it's just
   // names/hierarchy, not species), and `load()` below needs to know whether the CURRENT
   // region actually has a scoped checklist before deciding whether to fetch one at all (see
@@ -275,13 +307,24 @@ export default function CollectionPage() {
   // direct parent (the country) does. Good enough for gating UI decisions defensively: if it
   // ever mismatches the server's own resolution, the worst case is skipping a helpful prompt
   // or auto-select, never showing data that isn't actually unlocked.
+  //
+  // Walks up until it finds the country itself (identified by its own sovereigntyGroup —
+  // migration 065, set only on country rows, null for World/continents/provinces/informal
+  // regions), not just one level up unconditionally. A plain one-level walk treated a
+  // COUNTRY's own id as if it were a province (a country's own parent is its continent, not
+  // another country), resolving e.g. Canada to "North America" — every isTaxonPackDownloaded
+  // check for a country-level regionId then missed, so availableTaxonFilters silently
+  // collapsed to just "All taxa" the moment you viewed a whole downloaded country instead of
+  // a specific province.
   const packRegionNameFor = useCallback(
     (id: string): string | null => {
-      const region = allRegions.find((r) => r.id === id);
-      if (!region) return null;
-      if (!region.parentId) return region.name;
-      const parent = allRegions.find((r) => r.id === region.parentId);
-      return parent ? parent.name : region.name;
+      let region = allRegions.find((r) => r.id === id);
+      while (region && region.sovereigntyGroup == null && region.parentId) {
+        const parent = allRegions.find((r) => r.id === region!.parentId);
+        if (!parent) break;
+        region = parent;
+      }
+      return region?.name ?? null;
     },
     [allRegions],
   );
@@ -379,6 +422,61 @@ export default function CollectionPage() {
     const region = allRegions.find((r) => r.id === regionId);
     return !!region && !region.hasScopedChecklist;
   }, [regionId, regionsLoaded, allRegions]);
+
+  // Which taxon classes the CURRENT region's checklist actually has any species in — the
+  // dropdown below shouldn't offer "Reptiles" for a region with no reptiles at all, same
+  // reasoning as the sea-zone/pack-download gating elsewhere on this page. Null (no region, or
+  // not fetched yet) means "don't restrict by presence," not "restrict to nothing."
+  const [taxaPresentForRegion, setTaxaPresentForRegion] = useState<Set<string> | null>(null);
+  useEffect(() => {
+    if (!regionId || regionKnownHub) {
+      setTaxaPresentForRegion(null);
+      return;
+    }
+    let cancelled = false;
+    api
+      .get<Record<string, string[]>>(`/regions/taxon-presence?regionIds=${regionId}`)
+      .then((res) => {
+        if (!cancelled) setTaxaPresentForRegion(new Set(res[regionId] ?? []));
+      })
+      .catch(() => {
+        if (!cancelled) setTaxaPresentForRegion(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [regionId, regionKnownHub]);
+
+  // Downloaded ANYWHERE — used only for the no-region ("all species") view, where "available
+  // for the selected region" doesn't apply; a taxon whose pack you've grabbed for at least one
+  // region is worth offering here rather than hiding it entirely just because no region is
+  // currently selected.
+  const taxaDownloadedAnywhere = useMemo(() => {
+    const set = new Set<string>();
+    if (downloadedRegionTaxons) {
+      for (const taxons of downloadedRegionTaxons.values()) {
+        for (const t of taxons) if (t) set.add(t);
+      }
+    }
+    return set;
+  }, [downloadedRegionTaxons]);
+
+  // Downloaded-and-relevant only — offering "Reptiles" when nothing's downloaded for them, or
+  // when the selected region genuinely has none, is a dead end (an empty view with no obvious
+  // reason why). The currently-selected value always stays visible even if it stops qualifying
+  // (e.g. switching regions out from under it), so the dropdown never shows a value with no
+  // matching option.
+  const availableTaxonFilters = useMemo(
+    () =>
+      (Object.keys(TAXON_LABEL) as TaxonFilter[]).filter((t) => {
+        if (t === "all" || t === taxonFilter) return true;
+        if (regionId) {
+          return isTaxonPackDownloaded(regionId, t) && (!taxaPresentForRegion || taxaPresentForRegion.has(t));
+        }
+        return taxaDownloadedAnywhere.has(t);
+      }),
+    [regionId, taxonFilter, isTaxonPackDownloaded, taxaPresentForRegion, taxaDownloadedAnywhere],
+  );
 
   const load = useCallback(() => {
     setLoadError(false);
@@ -612,11 +710,9 @@ export default function CollectionPage() {
           <Link to="/gallery" className="text-sm text-muted hover:underline">
             Gallery
           </Link>
-          {isDesktopMode && (
-            <Link to="/trips" className="text-sm text-muted hover:underline">
-              Trips
-            </Link>
-          )}
+          <Link to="/albums" className="text-sm text-muted hover:underline">
+            {isDesktopMode ? "Albums & Trips" : "Albums"}
+          </Link>
           <Link to="/settings" className="text-sm text-muted hover:underline">
             Settings
           </Link>
@@ -729,7 +825,10 @@ export default function CollectionPage() {
           Group
           <select
             value={groupBy}
-            onChange={(e) => updateParam("group", e.target.value === "none" ? null : e.target.value)}
+            onChange={(e) => {
+              const value = e.target.value === "none" ? null : e.target.value;
+              startGroupingTransition(() => updateParam("group", value));
+            }}
             className="rounded-md border border-line px-2 py-1 text-ink"
           >
             <option value="none">No grouping</option>
@@ -744,7 +843,10 @@ export default function CollectionPage() {
           Sort
           <select
             value={sortBy}
-            onChange={(e) => updateParam("sort", e.target.value === "taxonomic" ? null : e.target.value)}
+            onChange={(e) => {
+              const value = e.target.value === "taxonomic" ? null : e.target.value;
+              startGroupingTransition(() => updateParam("sort", value));
+            }}
             className="rounded-md border border-line px-2 py-1 text-ink"
           >
             <option value="taxonomic">Taxonomic</option>
@@ -756,36 +858,6 @@ export default function CollectionPage() {
             {regionId && <option value="localRarity">Rarity here</option>}
           </select>
         </label>
-        <InfoTip paragraphs={RARITY_INFO_PARAGRAPHS} />
-        <label className="flex items-center gap-1.5 text-muted">
-          <input
-            type="checkbox"
-            checked={collectedFirst}
-            onChange={(e) => updateParam("collectedFirst", e.target.checked ? null : "0")}
-          />
-          Collected first
-        </label>
-        <label className="flex items-center gap-1.5 text-muted">
-          <input
-            type="checkbox"
-            checked={seenFirst}
-            onChange={(e) => updateParam("seenFirst", e.target.checked ? "1" : null)}
-          />
-          Seen first
-        </label>
-        <label className="flex items-center gap-1.5 text-muted">
-          Show
-          <select
-            value={stateFilter}
-            onChange={(e) => updateParam("show", e.target.value === "all" ? null : e.target.value)}
-            className="rounded-md border border-line px-2 py-1 text-ink"
-          >
-            <option value="all">All</option>
-            <option value="collected">Collected</option>
-            <option value="seen">Seen only</option>
-            <option value="unseen">Not yet collected</option>
-          </select>
-        </label>
         <label className="flex items-center gap-1.5 text-muted">
           Taxon
           <select
@@ -793,25 +865,97 @@ export default function CollectionPage() {
             onChange={(e) => updateParam("taxon", e.target.value === "all" ? null : e.target.value)}
             className="rounded-md border border-line px-2 py-1 text-ink"
           >
-            {(Object.keys(TAXON_LABEL) as TaxonFilter[]).map((t) => (
+            {availableTaxonFilters.map((t) => (
               <option key={t} value={t}>
                 {TAXON_LABEL[t]}
               </option>
             ))}
           </select>
         </label>
-        {hasGhost && (
-          <label className="flex items-center gap-1.5 text-muted" title="Rarely documented anywhere, but still out there to find">
-            <input type="checkbox" checked={ghostOnly} onChange={(e) => updateParam("ghostOnly", e.target.checked ? "1" : null)} />
-            Ghost only
-          </label>
-        )}
-        {hasLost && (
-          <label className="flex items-center gap-1.5 text-muted" title="Not recorded anywhere in over 25 years">
-            <input type="checkbox" checked={lostOnly} onChange={(e) => updateParam("lostOnly", e.target.checked ? "1" : null)} />
-            Lost only
-          </label>
-        )}
+        <div className="relative" ref={filtersRef}>
+          <Pill active={activeFilterCount > 0} onClick={() => setFiltersOpen((v) => !v)}>
+            Filters{activeFilterCount > 0 ? ` (${activeFilterCount})` : ""}
+          </Pill>
+          {filtersOpen && (
+            <div className="absolute left-0 top-full z-20 mt-1 w-56 space-y-3 rounded-md border border-line bg-surface p-3 shadow-lg">
+              <div className="space-y-1.5">
+                <label className="flex items-center gap-1.5 text-xs text-ink">
+                  <input
+                    type="checkbox"
+                    checked={collectedFirst}
+                    onChange={(e) => updateParam("collectedFirst", e.target.checked ? null : "0")}
+                    className="accent-ink"
+                  />
+                  Collected first
+                </label>
+                <label className="flex items-center gap-1.5 text-xs text-ink">
+                  <input
+                    type="checkbox"
+                    checked={seenFirst}
+                    onChange={(e) => updateParam("seenFirst", e.target.checked ? "1" : null)}
+                    className="accent-ink"
+                  />
+                  Seen first
+                </label>
+                <label className="flex items-center gap-1.5 text-xs text-ink">
+                  <input
+                    type="checkbox"
+                    checked={targetFirst}
+                    onChange={(e) => updateParam("targetFirst", e.target.checked ? "1" : null)}
+                    className="accent-ink"
+                  />
+                  Targets first
+                </label>
+              </div>
+              <div className="border-t border-line pt-2">
+                <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted">Show</p>
+                <select
+                  value={stateFilter}
+                  onChange={(e) => updateParam("show", e.target.value === "all" ? null : e.target.value)}
+                  className="w-full rounded-md border border-line px-2 py-1 text-xs text-ink"
+                >
+                  <option value="all">All</option>
+                  <option value="collected">Collected</option>
+                  <option value="seen">Seen only</option>
+                  <option value="target">Targets</option>
+                  <option value="unseen">Not yet collected</option>
+                </select>
+              </div>
+              {(hasGhost || hasLost) && (
+                <div className="space-y-1.5 border-t border-line pt-2">
+                  {hasGhost && (
+                    <label
+                      className="flex items-center gap-1.5 text-xs text-ink"
+                      title="Rarely documented anywhere, but still out there to find"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={ghostOnly}
+                        onChange={(e) => updateParam("ghostOnly", e.target.checked ? "1" : null)}
+                        className="accent-ink"
+                      />
+                      Ghost only
+                    </label>
+                  )}
+                  {hasLost && (
+                    <label
+                      className="flex items-center gap-1.5 text-xs text-ink"
+                      title="Not recorded anywhere in over 25 years"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={lostOnly}
+                        onChange={(e) => updateParam("lostOnly", e.target.checked ? "1" : null)}
+                        className="accent-ink"
+                      />
+                      Lost only
+                    </label>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
         {seaZonesRelevant && seaZones.length > 0 && (
           <div className="flex flex-wrap items-center gap-2 text-muted">
             <span>Include nearby water:</span>
@@ -852,6 +996,10 @@ export default function CollectionPage() {
             )}
           </div>
         )}
+        {/* ml-auto pins this to the far right of the toolbar row regardless of how much the
+           rest of the row fills — align="right" so its popover grows leftward and doesn't run
+           off the viewport edge from all the way over here. */}
+        <InfoTip paragraphs={RARITY_INFO_PARAGRAPHS} align="right" className="ml-auto" />
       </div>
 
       <main className="space-y-6 p-6">
@@ -900,15 +1048,18 @@ export default function CollectionPage() {
         ) : visibleItems.length === 0 ? (
           <p className="text-muted">Nothing matches that filter.</p>
         ) : (
-          <GroupedSpeciesGrid
-            items={visibleItems}
-            regionId={regionId ?? undefined}
-            groupBy={groupBy}
-            sortBy={sortBy}
-            collectedFirst={collectedFirst}
-            seenFirst={seenFirst}
-            onArchived={handleArchived}
-          />
+          <div className={isGroupingPending ? "opacity-60 transition-opacity" : "transition-opacity"}>
+            <GroupedSpeciesGrid
+              items={visibleItems}
+              regionId={regionId ?? undefined}
+              groupBy={groupBy}
+              sortBy={sortBy}
+              collectedFirst={collectedFirst}
+              seenFirst={seenFirst}
+              targetFirst={targetFirst}
+              onArchived={handleArchived}
+            />
+          </div>
         )}
       </main>
     </div>

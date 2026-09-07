@@ -1,6 +1,6 @@
 // Source: iNaturalist API (api.inaturalist.org/v1). Per-photo license, so every stored
 // image path carries a mandatory reference_credit + reference_license (schema.sql enforces
-// this via a CHECK constraint — see lifer-spec.md §6).
+// this via a CHECK constraint — see).
 // License filter: iNaturalist's open-licensed photos are served from the
 // inaturalist-open-data.s3 domain (AWS Open Data); anything else is not confirmed open,
 // so we skip it rather than guess. Allowed license set (and the LIFER_ALLOW_NONCOMMERCIAL_PHOTOS

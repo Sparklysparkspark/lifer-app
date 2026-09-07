@@ -1,9 +1,8 @@
-// Builds region_species rows for BC from GBIF occurrence data (lifer-spec.md §6, §7 MVP shortcut).
-// Uses GBIF's occurrence/search faceting (facet=speciesKey, limit=0) to get a per-species
-// record count in one call instead of paging through millions of individual occurrence records.
-// A minimum-record threshold filters out one-off vagrants/museum specimens per spec's
-// open question §10.1 — this is exactly the "too noisy?" question the spec flags as needing
-// a real-data spike, so MIN_RECORDS is deliberately visible and easy to tune once we see counts.
+// Builds region_species rows from GBIF occurrence data. Uses GBIF's occurrence/search
+// faceting (facet=speciesKey, limit=0) to get a per-species record count in one call instead
+// of paging through millions of individual occurrence records. A minimum-record threshold
+// filters out one-off vagrants/museum specimens — MIN_RECORDS is deliberately visible and easy
+// to tune as real data comes in.
 
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -141,8 +140,8 @@ export interface RegionSpeciesCount {
 // A real case that illustrates why this window is needed: Anhinga shows 143 all-time GBIF
 // records in Canada, but 133 of them are from the single year 2000 — one vagrant individual
 // generating a burst of observer reports, not a real population. This is exactly the
-// citizen-science effort-bias problem spec §10.1 flags ("without eBird's effort data this is
-// weaker than ideal"), and a raw MIN_RECORDS threshold can't catch it (143 clears any
+// citizen-science effort-bias problem (without eBird's own effort data, this is weaker than
+// ideal), and a raw MIN_RECORDS threshold can't catch it (143 clears any
 // reasonable bar). The real fix — counting DISTINCT YEARS per species — needs a per-year
 // facet loop (like fetchMonthlySeasonality's per-month one) that's too expensive to run live
 // for every region view (100+ years of history × every country). Restricting to a recent
@@ -235,30 +234,67 @@ export function looksTypeSpecimenOnly(records: OccurrenceLocalitySample[]): bool
   return records.every((r) => !!r.typeStatus);
 }
 
-// Recurrence rescue: the recent-window MIN_RECORDS threshold treats a
-// genuinely-present-but-rarely-recorded resident (Northern Goshawk in BC: 8 records in 15
-// years, 411 all-time, spread over 102 different years) exactly like a one-off vagrant burst
-// (Anhinga in Canada: 143 records, but 133 from a single year — one excited flurry of
-// reports, not a population). The real distinguishing signal, checked against both of those
-// cases plus Whooping Crane (present in Saskatchewan, absent from Nova Scotia): does this
-// species turn up across several DIFFERENT years, with no single year dominating its
-// all-time total? That's recurring presence; a single-year spike, however large, isn't.
-// Was 3 — exactly RECURRENCE_MIN_DISTINCT_YEARS, i.e. the loosest possible pass ("one record
-// in each of 3 different years") carried no real evidence beyond the distinct-years check
-// itself. That let sporadic escaped-game-bird sightings slip onto checklists where they don't
-// belong: Chukar (Alectoris chukar, genuinely established/countable in BC and the western US)
-// and Swan Goose (Anser cygnoides) both showed up in New Brunswick off exactly 3 all-time
-// records, one per year, from perfectly ordinary-looking locality text (a residential street,
-// a train station) — neither eBird's own review nor iNaturalist's "captive" flag catches this
-// class of case (checked both against the real GBIF/iNaturalist records: no establishmentMeans
-// data, and iNaturalist's captive flag is false since the bird genuinely wasn't in a cage when
-// spotted, it just isn't part of a real local population). Raising the floor to noticeably more
-// than the distinct-years minimum requires more than "once per qualifying year" before treating
-// scattered sightings as a real population — Northern Goshawk's 411 all-time records clear this
-// by two orders of magnitude, unaffected.
+// Recurrence rescue: the recent-window MIN_RECORDS threshold treats a genuinely-present-but-
+// rarely-recorded resident the same as a one-off vagrant burst (many records, but nearly all
+// from a single year — one excited flurry of reports, not a population). The distinguishing
+// signal is whether a species turns up across several DIFFERENT years with no single year
+// dominating its all-time total. RECURRENCE_ALLTIME_FLOOR is set above
+// RECURRENCE_MIN_DISTINCT_YEARS on purpose: at exactly the distinct-years minimum, "one record
+// per year for 3 years" let sporadic escaped-game-bird sightings (with no establishmentMeans
+// data and no captive flag, since the bird wasn't literally in a cage) slip onto checklists as
+// if they were an established population — requiring meaningfully more than the bare minimum
+// closes that gap while leaving genuinely recurring residents (hundreds of all-time records)
+// unaffected.
 export const RECURRENCE_ALLTIME_FLOOR = 8;
 export const RECURRENCE_MIN_DISTINCT_YEARS = 3;
 export const RECURRENCE_MAX_YEAR_CONCENTRATION = 0.5;
+
+// Confirmed live: Emperor Goose in British Columbia — 83 all-time records spread across enough
+// distinct years to pass the check above (correctly tiered "legendary," genuinely hard to find),
+// but 83 records over years of data is exactly what a real rare wanderer looks like, not a sparse
+// but expected local population. The check above has no sense of MAGNITUDE, only pattern — a
+// species can look "recurring" on a small handful of records just as easily as on a few hundred.
+//
+// A FIXED minimum record count doesn't work here either: a genuinely resident species in an
+// under-birded region (e.g. a nightjar in Morocco) can have just as few total records as a real
+// vagrant, purely because far fewer people submit GBIF records there at all — the same regional-
+// effort confound that broke the country-level vagrant check (see compute-elusiveness.ts's own
+// comment on coreScore). The floor has to scale with how much data this SPECIFIC region/taxon
+// combination typically has, not an absolute number that means something different in Iceland
+// than in Morocco.
+//
+// So: require a species' own total to clear a fraction of its region's own median species total
+// (same taxon class only — birds and mammals have wildly different volumes even in the same
+// region, see the cross-taxon-volume regression test). Calibrated against BC's real distribution:
+// median species total ≈4216, so a species needs ≈211 records here to count as "enough data to
+// judge by pattern rather than assume vagrant" — comfortably below what a real, if scarce,
+// resident clears, comfortably above Emperor Goose's 83.
+export const RECURRENCE_MIN_RECORDS_FRACTION_OF_MEDIAN = 0.05;
+
+// Confirmed live: Great Gray Owl, Northern Hawk Owl, and Barn Owl in British Columbia — all
+// genuine (if scarce) residents recorded across 18-47 distinct years apiece, spread evenly
+// enough that no single year comes close to dominating, yet all three still failed the median-
+// based floor above and got flagged vagrant. The floor assumes "how many records a species has"
+// tracks "how present it is," but that's only true for similarly-detectable species — a nocturnal
+// or irruptive bird will always accumulate far fewer GBIF records than a common daytime songbird
+// with the exact same real presence, so a flat count floor systematically penalizes low-
+// detectability residents relative to common ones. A species recorded across MANY distinct years
+// (well beyond the bare pattern minimum) with a low year-concentration has already demonstrated
+// the thing the floor exists to protect against — this isn't a burst or a fluke, it recurs — so
+// it can bypass the floor entirely rather than needing raw volume to also clear a bar tuned to
+// common species. RECURRENCE_STRONG_PATTERN_MIN_YEARS is set well above RECURRENCE_MIN_DISTINCT_
+// YEARS specifically so this bypass can't be reached by a short, thin run of records (see the
+// Red-Flanked Bluetail case below, a genuine one-off invasion confined to 3 consecutive years —
+// nowhere close to 15 distinct years, so it still falls through to the floor and fails on
+// concentration anyway).
+export const RECURRENCE_STRONG_PATTERN_MIN_YEARS = 15;
+
+export function medianOf(values: number[]): number {
+  if (values.length === 0) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
+}
 
 export async function fetchYearCountsForSpecies(
   externalCode: string,
@@ -278,12 +314,20 @@ export async function fetchYearCountsForSpecies(
   return (facet?.counts ?? []).map((c) => ({ year: Number(c.name), count: c.count }));
 }
 
-export function passesRecurrenceCheck(yearCounts: Array<{ year: number; count: number }>): boolean {
+// minTotalRecords (see RECURRENCE_MIN_RECORDS_FRACTION_OF_MEDIAN's own comment) defaults to 0 —
+// a caller that hasn't computed a region/taxon-specific baseline yet gets the old pattern-only
+// behavior rather than an error, but every real call site below now passes a real floor.
+export function passesRecurrenceCheck(yearCounts: Array<{ year: number; count: number }>, minTotalRecords = 0): boolean {
   const total = yearCounts.reduce((sum, c) => sum + c.count, 0);
   if (total === 0) return false;
   const distinctYears = yearCounts.length;
   const maxShare = Math.max(...yearCounts.map((c) => c.count)) / total;
-  return distinctYears >= RECURRENCE_MIN_DISTINCT_YEARS && maxShare <= RECURRENCE_MAX_YEAR_CONCENTRATION;
+  if (maxShare > RECURRENCE_MAX_YEAR_CONCENTRATION) return false;
+  // See RECURRENCE_STRONG_PATTERN_MIN_YEARS's own comment: a long, well-spread record history is
+  // itself proof of recurrence, regardless of whether raw volume clears a floor tuned to common,
+  // easily-detected species.
+  if (distinctYears >= RECURRENCE_STRONG_PATTERN_MIN_YEARS) return true;
+  return total >= minTotalRecords && distinctYears >= RECURRENCE_MIN_DISTINCT_YEARS;
 }
 
 // Swinhoe's Pheasant, a Taiwan endemic, was found "present" in Canada, revealing that the
@@ -481,8 +525,8 @@ export async function fetchOccurrenceCountForSpecies(gbifKey: number, externalCo
 }
 
 /**
- * Monthly seasonality per species for one region. The spec calls for a "52-week sparkline",
- * but GBIF's occurrence API only facets by month, with no week-of-year facet to get real
+ * Monthly seasonality per species for one region. A weekly sparkline would be nicer, but
+ * GBIF's occurrence API only facets by month, with no week-of-year facet to get real
  * weekly granularity from, so this uses 12 monthly bins instead.
  * 12 requests total (one per month), each a full per-species facet over that month — far
  * cheaper than looping per-species, and reuses the exact faceting technique already proven

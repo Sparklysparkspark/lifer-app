@@ -1,4 +1,4 @@
-// In-memory sliding-window rate limiter for the login route (lifer-spec.md §8: "rate-limit
+// In-memory sliding-window rate limiter for the login route (: "rate-limit
 // the login route in the application, not only at the proxy"). In-memory is a stated MVP
 // limit — a single-process personal deployment doesn't need a shared store, but this resets
 // on restart and wouldn't coordinate across multiple API instances.

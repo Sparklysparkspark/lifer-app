@@ -29,6 +29,7 @@ const TIER_LABEL: Record<string, string> = {
 };
 const COLLECTED_GROUP_KEY = "__collected__";
 const SEEN_GROUP_KEY = "__seen__";
+const TARGET_GROUP_KEY = "__target__";
 
 // groupBy and sortBy are independent: group by folk-taxonomy or rarity tier, then sort
 // within (or across, if ungrouped) by whichever of taxonomic/name/rarity order. Array.sort
@@ -58,6 +59,7 @@ export default function GroupedSpeciesGrid({
   sortBy,
   collectedFirst,
   seenFirst,
+  targetFirst,
   onArchived,
 }: {
   items: CollectionItem[];
@@ -69,6 +71,12 @@ export default function GroupedSpeciesGrid({
    *  are on is always Collected above Seen, since a photographed species is a stronger signal
    *  than a merely-seen one, not because the two toggles are coupled. */
   seenFirst: boolean;
+  /** Independent of the other two — pins your wishlist (still-uncollected) species instead of
+   *  requiring the per-card star badge to spot them, same reasoning SpeciesCard's own removal
+   *  of that badge had: a dedicated toggle finds every target at once instead of scanning for
+   *  one icon across a whole grid. Sorts last when stacked with the other two (collected/seen
+   *  are real progress; a target is a to-do, not an achievement to lead with). */
+  targetFirst: boolean;
   /** Called after an archive/unarchive action succeeds (single or bulk) so the parent can
    *  refetch — archived species are excluded server-side, so the only correct way to reflect
    *  a change here is to reload, not to guess at how to patch local state. */
@@ -80,28 +88,48 @@ export default function GroupedSpeciesGrid({
   const { multiDriveInUse } = useStorageVolumes();
 
   // A fresh filter/sort/region change should start back at the cap, not keep whatever was
-  // revealed for a totally different, possibly much larger, previous list.
-  useEffect(() => {
-    setVisibleCount(INITIAL_VISIBLE);
-  }, [items, groupBy, sortBy, collectedFirst, seenFirst]);
+  // revealed for a totally different, possibly much larger, previous list. This used to be a
+  // useEffect, which only runs AFTER the commit/paint — so the very first render after e.g.
+  // switching groupBy still used the stale, possibly thousands-large visibleCount from whatever
+  // infinite-scroll had grown it to, round-robined across the newly regrouped buckets below.
+  // On the ungrouped "All species" view (60k+ rows), that one transient render could mount
+  // thousands of cards at once, each forcing a synchronous layout reflow in useFitText — a
+  // multi-minute freeze. Resetting during render (the React-documented pattern for exactly this
+  // "derived state" case) means the reset lands before anything below ever sees the stale count.
+  const resetKeyRef = useRef({ items, groupBy, sortBy, collectedFirst, seenFirst, targetFirst });
+  const resetKeyChanged =
+    resetKeyRef.current.items !== items ||
+    resetKeyRef.current.groupBy !== groupBy ||
+    resetKeyRef.current.sortBy !== sortBy ||
+    resetKeyRef.current.collectedFirst !== collectedFirst ||
+    resetKeyRef.current.seenFirst !== seenFirst ||
+    resetKeyRef.current.targetFirst !== targetFirst;
+  if (resetKeyChanged) {
+    resetKeyRef.current = { items, groupBy, sortBy, collectedFirst, seenFirst, targetFirst };
+    if (visibleCount !== INITIAL_VISIBLE) setVisibleCount(INITIAL_VISIBLE);
+  }
 
   // Rank used for the ungrouped "float to top" sort below — only ranks a state ahead of
-  // "everything else" when its own toggle is actually on, so collectedFirst/seenFirst stay
-  // fully independent (either can be on without the other) while still cooperating correctly
-  // when both are on at once (collected above seen, seen above the rest).
+  // "everything else" when its own toggle is actually on, so collectedFirst/seenFirst/
+  // targetFirst stay fully independent (any subset can be on) while still cooperating
+  // correctly when several are on at once (collected above seen above target above the rest).
   function floatRank(state: string): number {
-    if (state === "collected") return collectedFirst ? 0 : 2;
-    if (state === "seen") return seenFirst ? (collectedFirst ? 1 : 0) : 2;
-    return 2;
+    if (state === "collected") return collectedFirst ? 0 : 3;
+    if (state === "seen") return seenFirst ? (collectedFirst ? 1 : 0) : 3;
+    if (state === "target") return targetFirst ? (collectedFirst ? 1 : 0) + (seenFirst ? 1 : 0) : 3;
+    return 3;
   }
 
   const groups = useMemo(() => {
     const sorted = sortItems(items, sortBy);
 
     if (groupBy === "none") {
-      // "Collected first" / "Seen first" float their own state to the top of the single list
-      // — independent toggles, so either can be on alone, or both (collected above seen).
-      const list = collectedFirst || seenFirst ? [...sorted].sort((a, b) => floatRank(a.state) - floatRank(b.state)) : sorted;
+      // "Collected first" / "Seen first" / "Targets first" float their own state to the top of
+      // the single list — independent toggles, any subset can be on at once.
+      const list =
+        collectedFirst || seenFirst || targetFirst
+          ? [...sorted].sort((a, b) => floatRank(a.state) - floatRank(b.state))
+          : sorted;
       return [{ key: "", label: "", items: list }];
     }
 
@@ -129,10 +157,10 @@ export default function GroupedSpeciesGrid({
       items: byKey.get(key)!,
     }));
 
-    // "Collected first" / "Seen first" while grouped: independent pinned groups up top
-    // showing everything already found and/or seen, on top of — not instead of — the normal
-    // family/tier breakdown below, which still lists every species in its usual group. Order
-    // is always Collected above Seen when both are on, same reasoning as floatRank above.
+    // "Collected first" / "Seen first" / "Targets first" while grouped: independent pinned
+    // groups up top, on top of — not instead of — the normal family/tier breakdown below,
+    // which still lists every species in its usual group. Order is always Collected above
+    // Seen above Targets when more than one is on, same reasoning as floatRank above.
     const pinned: typeof named = [];
     if (collectedFirst) {
       const collectedItems = sorted.filter((i) => i.state === "collected");
@@ -142,8 +170,12 @@ export default function GroupedSpeciesGrid({
       const seenItems = sorted.filter((i) => i.state === "seen");
       if (seenItems.length > 0) pinned.push({ key: SEEN_GROUP_KEY, label: "Seen", items: seenItems });
     }
+    if (targetFirst) {
+      const targetItems = sorted.filter((i) => i.state === "target");
+      if (targetItems.length > 0) pinned.push({ key: TARGET_GROUP_KEY, label: "Targets", items: targetItems });
+    }
     return [...pinned, ...named];
-  }, [items, groupBy, sortBy, collectedFirst, seenFirst]);
+  }, [items, groupBy, sortBy, collectedFirst, seenFirst, targetFirst]);
 
   // How many of EACH group's items are actually rendered as cards right now — the cap applies
   // to the page as a whole (not per group), while a group's header/bulk-archive action still
@@ -218,7 +250,7 @@ export default function GroupedSpeciesGrid({
 
   // `groups` above only ever contains a pinned entry when its own toggle was actually on, so
   // this doesn't need to re-check collectedFirst/seenFirst itself.
-  const pinnedKeys = new Set([COLLECTED_GROUP_KEY, SEEN_GROUP_KEY]);
+  const pinnedKeys = new Set([COLLECTED_GROUP_KEY, SEEN_GROUP_KEY, TARGET_GROUP_KEY]);
   const pinnedGroups = groups.filter((g) => pinnedKeys.has(g.key));
   const rest = groups.filter((g) => !pinnedKeys.has(g.key));
   const collapsedGroups = rest.filter((g) => collapsed.has(g.key));
@@ -344,7 +376,7 @@ function GroupSection({
       await api.post("/archive/bulk", { speciesIds: group.items.map((i) => i.speciesId) });
       onArchived?.();
     } catch {
-      alert("Couldn't archive this group — try again.");
+      alert("Couldn't archive this group. Try again.");
     } finally {
       setArchiving(false);
     }
@@ -362,7 +394,7 @@ function GroupSection({
           <button
             onClick={archiveGroup}
             disabled={archiving}
-            title="Archive every species in this group — they'll stop counting toward your to-collect total, and you can unarchive them later"
+            title="Archive every species in this group. They'll stop counting toward your to-collect total, and you can unarchive them later."
             className="shrink-0 text-xs text-muted hover:text-ink hover:underline disabled:opacity-50"
           >
             {archiving ? "Archiving…" : "Archive group"}

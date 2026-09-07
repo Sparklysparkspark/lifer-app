@@ -4,18 +4,23 @@ import RawUpload from "../components/RawUpload";
 import PhotoImportRows from "../components/PhotoImportRows";
 import type { CollectionItem } from "@lifer/shared";
 import { api, ApiError } from "../api/client";
-import { Spinner } from "../components/LoadingScreen";
-import BackToCollectionLink from "../components/BackToCollectionLink";
+import { LoadingScreen, Spinner } from "../components/LoadingScreen";
+import PageHeader from "../components/PageHeader";
 import SpeciesPicker, { type SpeciesResult } from "../components/SpeciesPicker";
 import SpeciesCard from "../components/SpeciesCard";
 import MasonryGrid from "../components/MasonryGrid";
-import ProgressiveImg from "../components/ProgressiveImg";
+import PhotoTile from "../components/PhotoTile";
+import SearchInput from "../components/SearchInput";
 import Lightbox, { type LightboxSlide } from "../components/Lightbox";
 import CardCropEditor from "../components/CardCropEditor";
 import { FolderBrowser, pickFolderNative } from "../components/FolderPicker";
 import InfoTip from "../components/InfoTip";
+import RenameModal from "../components/RenameModal";
 import { usePhotoGridSize } from "../hooks/usePhotoGridSize";
+import { useShowLabels } from "../hooks/useShowLabels";
 import { useStorageVolumes } from "../hooks/useStorageVolumes";
+import { useDropdownMenu } from "../hooks/useDropdownMenu";
+import { downloadFile } from "../lib/downloadFile";
 
 const RELOCATE_INFO_PARAGRAPHS = [
   "Use this if this trip's folder moved: a new computer, a reinstall, a renamed drive.",
@@ -32,6 +37,16 @@ interface TripDetail {
   coverCropSize: number | null;
 }
 
+// GET /api/trips/:id/summary — "lifers gained + rare/endemic species encountered", the layer
+// the main trip list/species views don't compute (those answer "what's in this trip", not "what
+// was NEW or notable about it").
+interface TripSummary {
+  speciesCount: number;
+  liferCount: number;
+  rareCount: number;
+  endemicCount: number;
+}
+
 interface TripPhoto {
   photoId: string;
   width: number | null;
@@ -42,6 +57,12 @@ interface TripPhoto {
   commonName: string | null;
   takenAt: string | null;
   hasRaw: boolean;
+  cameraModel: string | null;
+  lens: string | null;
+  focalLengthMm: number | null;
+  aperture: number | null;
+  shutter: string | null;
+  iso: number | null;
 }
 
 interface ScanStatus {
@@ -92,6 +113,7 @@ export default function TripDetailPage() {
   const [searchParams] = useSearchParams();
   const buildMode = searchParams.get("mode") === "build";
   const [trip, setTrip] = useState<TripDetail | null>(null);
+  const [summary, setSummary] = useState<TripSummary | null>(null);
   const [photos, setPhotos] = useState<TripPhoto[] | null>(null);
   const [speciesItems, setSpeciesItems] = useState<CollectionItem[] | null>(null);
   const [view, setView] = useState<View>("gallery");
@@ -99,10 +121,9 @@ export default function TripDetailPage() {
   const [thumbSizePx, updateThumbSize] = usePhotoGridSize();
   const { multiDriveInUse } = useStorageVolumes();
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
-  const [showLabels, setShowLabels] = useState(true);
+  const [showLabels, setShowLabels] = useShowLabels();
   const [search, setSearch] = useState("");
   const [settingCover, setSettingCover] = useState<string | null>(null);
-  const [openMenuCaptureId, setOpenMenuCaptureId] = useState<string | null>(null);
   const [croppingCoverPhotoUrl, setCroppingCoverPhotoUrl] = useState<string | null>(null);
   // Filled the instant an import starts and drained as each file's result comes back — lets
   // the grid show a loading tile per in-flight photo instead of the review table staying open
@@ -123,6 +144,7 @@ export default function TripDetailPage() {
 
   const [relocating, setRelocating] = useState(false);
   const [relocateError, setRelocateError] = useState<string | null>(null);
+  const [renaming, setRenaming] = useState(false);
 
   // Gallery multi-select delete — same pattern as GalleryPage/SpeciesDetailPage: a "Select"
   // toggle for the photo grid (distinct from `selected`, which is the import-review-row
@@ -135,17 +157,7 @@ export default function TripDetailPage() {
   const [deletingPhoto, setDeletingPhoto] = useState(false);
   const [deleteRawTooPhotos, setDeleteRawTooPhotos] = useState(false);
 
-  // Same dismiss-on-outside-click as SpeciesDetailPage's own "⋯" photo menu — scoped to
-  // clicks outside the menu itself so its own buttons still work normally.
-  const openMenuRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!openMenuCaptureId) return;
-    const closeIfOutside = (e: MouseEvent) => {
-      if (openMenuRef.current && !openMenuRef.current.contains(e.target as Node)) setOpenMenuCaptureId(null);
-    };
-    document.addEventListener("click", closeIfOutside);
-    return () => document.removeEventListener("click", closeIfOutside);
-  }, [openMenuCaptureId]);
+  const { openKey: openMenuCaptureId, setOpenKey: setOpenMenuCaptureId, ref: openMenuRef } = useDropdownMenu<string>();
 
   function load() {
     if (!id) return;
@@ -161,6 +173,9 @@ export default function TripDetailPage() {
         setSpeciesItems(speciesRes.items);
       })
       .catch(() => setLoadError(true));
+    // Independent of the Promise.all above — a failure here shouldn't block the trip itself
+    // from loading, it's a supplementary "what was notable about this trip" summary layer.
+    api.get<TripSummary>(`/trips/${id}/summary`).then(setSummary);
   }
 
   useEffect(load, [id]);
@@ -188,6 +203,15 @@ export default function TripDetailPage() {
       visiblePhotos.map((p) => ({
         url: `/api/photos/${p.photoId}/display`,
         caption: `${p.commonName ?? p.scientificName}${p.takenAt ? " · " + new Date(p.takenAt).toLocaleDateString() : ""}`,
+        info: {
+          cameraModel: p.cameraModel,
+          lens: p.lens,
+          focalLengthMm: p.focalLengthMm,
+          aperture: p.aperture,
+          shutter: p.shutter,
+          iso: p.iso,
+          takenAt: p.takenAt,
+        },
       })),
     [visiblePhotos],
   );
@@ -389,6 +413,13 @@ export default function TripDetailPage() {
     }
   }
 
+  async function renameTrip(name: string) {
+    if (!id) return;
+    await api.patch(`/trips/${id}`, { name });
+    setRenaming(false);
+    load();
+  }
+
   async function relocateFolder() {
     if (!id) return;
     setRelocateError(null);
@@ -429,7 +460,7 @@ export default function TripDetailPage() {
       </div>
     );
   }
-  if (!trip || !photos || !speciesItems) return <Spinner />;
+  if (!trip || !photos || !speciesItems) return <LoadingScreen />;
 
   type GridItem = { kind: "placeholder"; key: string } | { kind: "photo"; photo: TripPhoto; photoIndex: number };
   const gridItems: GridItem[] = [
@@ -439,75 +470,107 @@ export default function TripDetailPage() {
 
   return (
     <div className="min-h-screen bg-canvas">
-      <header className="page-header flex items-center justify-between border-b border-line bg-surface px-6 py-4">
-        <div>
-          <BackToCollectionLink fallbackTo="/trips" label="Trips" className="text-sm text-muted hover:underline" />
-          <h1 className="mt-1 text-lg font-semibold text-ink">{trip.name}</h1>
-          <div className="flex min-w-0 items-center gap-2 text-xs text-muted">
-            <span className="min-w-0 truncate">{trip.sourceFolder}</span>
-            <button onClick={relocateFolder} className="shrink-0 underline hover:text-ink">
-              Relocate…
-            </button>
-            <InfoTip paragraphs={RELOCATE_INFO_PARAGRAPHS} className="shrink-0" />
-            <span>
-              · {photos.length} photo{photos.length === 1 ? "" : "s"}
-            </span>
-          </div>
-        </div>
-        <div className="flex items-center gap-4">
-          <div className="flex rounded-md border border-line text-xs">
+      <PageHeader
+        title={trip.name}
+        backFallbackTo="/trips"
+        backLabel="Trips"
+        actions={
+          <div className="flex items-center gap-4">
+            <div className="flex rounded-md border border-line text-xs">
+              <button
+                onClick={() => setView("gallery")}
+                className={`rounded-l-md px-2.5 py-1 ${view === "gallery" ? "bg-accent text-accent-fg" : "text-muted hover:bg-surface-muted"}`}
+              >
+                Gallery
+              </button>
+              <button
+                onClick={() => setView("species")}
+                className={`rounded-r-md px-2.5 py-1 ${view === "species" ? "bg-accent text-accent-fg" : "text-muted hover:bg-surface-muted"}`}
+              >
+                Species view
+              </button>
+            </div>
+            {view === "gallery" && photos.length > 0 && (
+              <>
+                <label className="flex items-center gap-1.5 text-xs text-muted">
+                  <input type="checkbox" checked={showLabels} onChange={(e) => setShowLabels(e.target.checked)} className="accent-ink" />
+                  Labels
+                </label>
+                <label className="flex items-center gap-1.5 text-xs text-muted">
+                  Size
+                  <input
+                    type="range"
+                    min={120}
+                    max={800}
+                    step={20}
+                    value={thumbSizePx}
+                    onChange={(e) => updateThumbSize(Number(e.target.value))}
+                    className="w-24 accent-ink"
+                    aria-label="Photo grid thumbnail size"
+                  />
+                </label>
+                {gallerySelectMode ? (
+                  <button onClick={exitGallerySelectMode} className="text-xs text-muted hover:underline">
+                    Cancel
+                  </button>
+                ) : (
+                  <button onClick={() => setGallerySelectMode(true)} className="text-xs text-muted hover:underline">
+                    Select
+                  </button>
+                )}
+              </>
+            )}
             <button
-              onClick={() => setView("gallery")}
-              className={`rounded-l-md px-2.5 py-1 ${view === "gallery" ? "bg-accent text-accent-fg" : "text-muted hover:bg-surface-muted"}`}
+              onClick={() => setRenaming(true)}
+              className="rounded-md border border-line px-3 py-1.5 text-sm text-ink hover:bg-surface-muted"
             >
-              Gallery
+              Edit trip
             </button>
             <button
-              onClick={() => setView("species")}
-              className={`rounded-r-md px-2.5 py-1 ${view === "species" ? "bg-accent text-accent-fg" : "text-muted hover:bg-surface-muted"}`}
+              onClick={startScan}
+              disabled={scanning}
+              className="rounded-md border border-line px-3 py-1.5 text-sm text-ink hover:bg-surface-muted disabled:opacity-50"
             >
-              Species view
+              {scanning ? "Looking for photos…" : "Add more photos"}
             </button>
           </div>
-          {view === "gallery" && photos.length > 0 && (
-            <>
-              <label className="flex items-center gap-1.5 text-xs text-muted">
-                <input type="checkbox" checked={showLabels} onChange={(e) => setShowLabels(e.target.checked)} className="accent-ink" />
-                Labels
-              </label>
-              <label className="flex items-center gap-1.5 text-xs text-muted">
-                Size
-                <input
-                  type="range"
-                  min={120}
-                  max={800}
-                  step={20}
-                  value={thumbSizePx}
-                  onChange={(e) => updateThumbSize(Number(e.target.value))}
-                  className="w-24 accent-ink"
-                  aria-label="Photo grid thumbnail size"
-                />
-              </label>
-              {gallerySelectMode ? (
-                <button onClick={exitGallerySelectMode} className="text-xs text-muted hover:underline">
-                  Cancel
-                </button>
-              ) : (
-                <button onClick={() => setGallerySelectMode(true)} className="text-xs text-muted hover:underline">
-                  Select
-                </button>
-              )}
-            </>
-          )}
-          <button
-            onClick={startScan}
-            disabled={scanning}
-            className="rounded-md border border-line px-3 py-1.5 text-sm text-ink hover:bg-surface-muted disabled:opacity-50"
-          >
-            {scanning ? "Looking for photos…" : "Add more photos"}
+        }
+      >
+        <div className="flex min-w-0 items-center gap-2 text-xs text-muted">
+          <span className="min-w-0 truncate">{trip.sourceFolder}</span>
+          <button onClick={relocateFolder} className="shrink-0 underline hover:text-ink">
+            Relocate…
           </button>
+          <InfoTip paragraphs={RELOCATE_INFO_PARAGRAPHS} className="shrink-0" />
+          <span>
+            · {photos.length} photo{photos.length === 1 ? "" : "s"}
+          </span>
         </div>
-      </header>
+        {/* "Lifers gained + rare/endemic species encountered" — what's NEW/notable about this
+            trip, not just what's in it (species count/photo count already show above). */}
+        {summary && summary.speciesCount > 0 && (
+          <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-muted">
+            <span>
+              <span className="font-medium text-ink">{summary.speciesCount}</span> species
+            </span>
+            {summary.liferCount > 0 && (
+              <span>
+                <span className="font-medium text-ink">{summary.liferCount}</span> lifer{summary.liferCount === 1 ? "" : "s"}
+              </span>
+            )}
+            {summary.rareCount > 0 && (
+              <span>
+                <span className="font-medium text-ink">{summary.rareCount}</span> rare/legendary
+              </span>
+            )}
+            {summary.endemicCount > 0 && (
+              <span>
+                <span className="font-medium text-ink">{summary.endemicCount}</span> endemic
+              </span>
+            )}
+          </div>
+        )}
+      </PageHeader>
 
       {relocating && (
         <div className="border-b border-line bg-surface px-6 py-3">
@@ -516,18 +579,7 @@ export default function TripDetailPage() {
       )}
 
       <div className="flex items-center gap-3 border-b border-line bg-surface px-6 py-2 text-sm">
-        <input
-          type="text"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search this trip's species…"
-          className="w-56 rounded-md border border-line px-2 py-1 text-ink"
-        />
-        {search && (
-          <button onClick={() => setSearch("")} className="text-muted hover:text-muted" aria-label="Clear search">
-            ✕
-          </button>
-        )}
+        <SearchInput value={search} onChange={setSearch} placeholder="Search this trip's species…" className="w-56" />
       </div>
 
       {gallerySelectMode && (
@@ -656,7 +708,7 @@ export default function TripDetailPage() {
           </div>
         ) : photos.length === 0 && pendingImports.length === 0 ? (
           <p className="text-muted">
-            Nothing imported yet — {reviewRows.length === 0 ? '"Add more photos" to scan this trip\'s folder.' : "assign species above and import."}
+            Nothing imported yet. {reviewRows.length === 0 ? '"Add more photos" to scan this trip\'s folder.' : "Assign species above and import."}
           </p>
         ) : visiblePhotos.length === 0 && pendingImports.length === 0 ? (
           <p className="text-muted">No photos match "{search}".</p>
@@ -664,11 +716,12 @@ export default function TripDetailPage() {
           <MasonryGrid
             items={gridItems}
             columnWidth={thumbSizePx}
+            extraHeightPx={showLabels ? 19 : 0}
             keyFor={(gi) => (gi.kind === "placeholder" ? `pending-${gi.key}` : gi.photo.photoId)}
             aspectRatioFor={(gi) =>
               gi.kind === "photo" && gi.photo.width && gi.photo.height ? gi.photo.width / gi.photo.height : null
             }
-            renderItem={(gi) => {
+            renderItem={(gi, aspectRatio) => {
               if (gi.kind === "placeholder") {
                 // A newly-added photo is still being processed (exif read, thumbnail
                 // generation) — a greyed-out box with a spinner is more honest than either
@@ -682,46 +735,20 @@ export default function TripDetailPage() {
               const { photo, photoIndex } = gi;
               const isCover = trip.coverCaptureId === photo.captureId;
               return (
-                <div className="group relative">
-                  <ProgressiveImg
-                    thumbSrc={`/api/photos/${photo.photoId}/thumb`}
-                    fullSrc={`/api/photos/${photo.photoId}/display`}
-                    alt={photo.commonName ?? photo.scientificName}
-                    onClick={() =>
-                      gallerySelectMode ? togglePhotoSelected(photo.captureId) : setLightboxIndex(photoIndex)
-                    }
-                    className={`block w-full cursor-pointer rounded-md ${
-                      gallerySelectMode && selectedPhotoCaptureIds.has(photo.captureId)
-                        ? "ring-2 ring-accent ring-offset-2"
-                        : ""
-                    }`}
-                  />
-                  {gallerySelectMode && (
-                    <input
-                      type="checkbox"
-                      checked={selectedPhotoCaptureIds.has(photo.captureId)}
-                      onChange={() => togglePhotoSelected(photo.captureId)}
-                      className="absolute left-2 top-2 h-4 w-4 accent-accent"
-                      aria-label="Select photo"
-                    />
-                  )}
-                  {showLabels && <p className="mt-1 truncate text-[11px] text-muted">{photo.commonName ?? photo.scientificName}</p>}
-                  {/* Same "⋯" hover-menu pattern as SpeciesDetailPage's own photo gallery —
-                     parity means the same interaction, not just the same end result. */}
-                  {!gallerySelectMode && (
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setOpenMenuCaptureId(openMenuCaptureId === photo.captureId ? null : photo.captureId);
-                    }}
-                    className="absolute right-1 top-1 rounded-full bg-black/40 px-1.5 text-xs text-white opacity-0 group-hover:opacity-100"
-                    aria-label="Photo options"
-                  >
-                    ⋯
-                  </button>
-                  )}
-                  {!gallerySelectMode && openMenuCaptureId === photo.captureId && (
-                    <div ref={openMenuRef} className="absolute right-1 top-7 z-10 whitespace-nowrap rounded-md border border-line bg-surface py-1 text-xs shadow-lg">
+                <PhotoTile
+                  key={photo.photoId}
+                  photoId={photo.photoId}
+                  alt={photo.commonName ?? photo.scientificName}
+                  onOpen={() => setLightboxIndex(photoIndex)}
+                  selectMode={gallerySelectMode}
+                  selected={selectedPhotoCaptureIds.has(photo.captureId)}
+                  aspectRatio={aspectRatio}
+                  onToggleSelect={() => togglePhotoSelected(photo.captureId)}
+                  menuOpen={openMenuCaptureId === photo.captureId}
+                  onToggleMenu={() => setOpenMenuCaptureId(openMenuCaptureId === photo.captureId ? null : photo.captureId)}
+                  menuRef={openMenuRef}
+                  menuContent={
+                    <div className="absolute right-0 top-full z-10 mt-1 whitespace-nowrap rounded-md border border-line bg-surface py-1 text-xs shadow-lg">
                       <button
                         onClick={() =>
                           isCover
@@ -745,13 +772,15 @@ export default function TripDetailPage() {
                         </button>
                       )}
                       {photo.hasRaw && (
-                        <a
-                          href={`/api/photos/${photo.photoId}/original-raw?download=1`}
-                          onClick={() => setOpenMenuCaptureId(null)}
+                        <button
+                          onClick={() => {
+                            setOpenMenuCaptureId(null);
+                            downloadFile(`/api/photos/${photo.photoId}/original-raw?download=1`, "original.raw");
+                          }}
                           className="block w-full px-3 py-1.5 text-left text-ink hover:bg-surface-muted"
                         >
                           Download RAW
-                        </a>
+                        </button>
                       )}
                       <button
                         onClick={() => {
@@ -763,8 +792,13 @@ export default function TripDetailPage() {
                         Delete Photo
                       </button>
                     </div>
-                  )}
-                </div>
+                  }
+                  label={
+                    showLabels && (
+                      <p className="mt-1 truncate text-[11px] text-muted">{photo.commonName ?? photo.scientificName}</p>
+                    )
+                  }
+                />
               );
             }}
           />
@@ -773,6 +807,10 @@ export default function TripDetailPage() {
 
       {lightboxIndex !== null && (
         <Lightbox slides={slides} index={lightboxIndex} onIndexChange={setLightboxIndex} onClose={() => setLightboxIndex(null)} />
+      )}
+
+      {renaming && (
+        <RenameModal title="Rename trip" initialName={trip.name} onCancel={() => setRenaming(false)} onSave={renameTrip} />
       )}
 
       {croppingCoverPhotoUrl && (

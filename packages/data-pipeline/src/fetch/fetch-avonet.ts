@@ -1,5 +1,5 @@
 // Source: AVONET (Tobias, J.A. et al. 2022, Ecology Letters 25(3), 581-597, DOI 10.1111/ele.13898).
-// License: CC BY 4.0 — cite per lifer-spec.md §11.
+// License: CC BY 4.0 — cite the source.
 // Figshare item 16586228 (verified by hand): the record zip contains
 // "AVONET Supplementary dataset 1.xlsx" with sheets AVONET2_eBird (morphology, trophic niche,
 // primary lifestyle, keyed to eBird/Clements names) and AVONET1_BirdLife (has Range.Size, but

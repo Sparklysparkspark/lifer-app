@@ -1,0 +1,27 @@
+# Override for standalone local testing (e.g. verifying the cookie/healthcheck fixes against a
+# genuine fresh install) WITHOUT touching the main dev stack's postgres — that one has real
+# in-progress work connected to it (the country recompute + species enrichment jobs) that a
+# container recreate would disconnect. Different host ports + a different named volume means
+# this can run fully isolated, side by side, with zero risk to the other one.
+#
+# Usage: docker compose -f docker-compose.yml -f docker-compose.test.yml -p lifer-test up -d --build
+# Teardown (including the throwaway data): docker compose -p lifer-test down -v
+services:
+  postgres:
+    # !override, not a plain list — Compose MERGES `ports:` arrays across -f files by default
+    # (additive, not replace), so without this tag postgres would try to publish BOTH 5432 AND
+    # 5433, and still fail to start on this same host since 5432 is already taken by the main
+    # dev stack's own postgres container.
+    ports: !override
+      - "5433:5432"
+    volumes:
+      - lifer-postgres-data-test:/var/lib/postgresql/data
+
+  api:
+    ports: !override
+      - "4001:4000"
+    environment:
+      APP_URL: http://192.168.1.253:4001
+
+volumes:
+  lifer-postgres-data-test:

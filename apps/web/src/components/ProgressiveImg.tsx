@@ -43,7 +43,14 @@ export default function ProgressiveImg({
       src={loadedSrc}
       alt={alt}
       onClick={onClick}
-      className={className}
+      // bg-surface-muted (the same "empty" tone PhotoPlaceholder uses) matters here: a browser
+      // paints an <img>'s own background color immediately, before the image itself has loaded
+      // over the network — without it, every tile in a freshly opened grid is blank/invisible
+      // until its own thumbnail finishes loading, so only whichever photos happen to already be
+      // browser-cached appear right away and the rest of the grid reads as a jarring "flash of
+      // near-empty" for however long the rest take to arrive. The color is fully covered once
+      // the image paints, so this is invisible in the already-loaded steady state.
+      className={`bg-surface-muted ${className ?? ""}`}
       style={style}
       onError={() => setFailed(true)}
     />

@@ -1,0 +1,37 @@
+# systemd service for the twice-a-year world-data refresh (see scheduled-refresh.sh in this
+# same directory for what it actually does). Triggered by lifer-refresh.timer, alongside this
+# file — NOT enabled/started as part of building this project; installing and enabling both
+# units is a deliberate step you take on the actual machine this should run on, not something
+# done for you here.
+#
+# To install (as root, on the machine that should run this):
+#   cp lifer-refresh.service lifer-refresh.timer /etc/systemd/system/
+#   # Edit the User=, WorkingDirectory=, and ExecStart= path below to match where this repo
+#   # actually lives and which user should own the process first.
+#   systemctl daemon-reload
+#   systemctl enable --now lifer-refresh.timer
+#
+# To run it once by hand (e.g. to sanity-check the install before waiting 6 months for the
+# timer to fire):
+#   systemctl start lifer-refresh.service
+#   journalctl -u lifer-refresh.service -f
+#
+# Type=oneshot: this unit runs to completion and exits, rather than staying resident — the
+# right shape for a job that runs for hours twice a year, not a long-lived daemon.
+[Unit]
+Description=Lifer world-data refresh (rarity tiers, hotspots, weekly frequency)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+# CHANGE THIS to whatever user should own the process (not root — this only needs whatever
+# permissions the Postgres connection and this repo checkout already require).
+User=CHANGE_ME
+WorkingDirectory=/CHANGE/ME/lifer-app
+ExecStart=/CHANGE/ME/lifer-app/packages/data-pipeline/ops/scheduled-refresh.sh
+# A generous ceiling, not an expected runtime — the full 251-country pass took multiple hours
+# even before accounting for GBIF being slow some days; this exists only to eventually kill a
+# run that's truly hung (e.g. GBIF itself wedged) rather than block every future scheduled
+# trigger forever. scheduled-refresh.sh's own lock file is what actually prevents overlap.
+TimeoutStartSec=86400

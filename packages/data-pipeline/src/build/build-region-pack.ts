@@ -1,31 +1,22 @@
 // Bundles one region's already-enriched reference photos + habitat descriptions into a single
-// downloadable archive hosted on GitHub, so every self-hosted Lifer install can pull ONE
-// canonical pack instead of each independently re-hitting iNaturalist/Wikipedia for the same
-// species. Meant to be run by hand, occasionally, as enrich-all-species.ts covers more
-// species — not something a self-hosted install runs itself.
+// downloadable archive, so every self-hosted install can pull ONE canonical pack instead of
+// each independently re-hitting iNaturalist/Wikipedia for the same species. Run by hand,
+// occasionally, as enrich-all-species.ts covers more species.
 //
-// Species are keyed by scientific_name in the pack, never by species.id — every install seeds
-// its own species table with a fresh gen_random_uuid() per row, even from the same source
-// data, so a pack's contents can only ever be matched back up by name (the same cross-install
-// identity problem the desktop-to-server migration feature has to handle).
+// Species are keyed by scientific_name, never species.id — every install seeds its own table
+// with a fresh gen_random_uuid() per row, so a pack's contents can only be matched back up by name.
 //
-// A sea zone (e.g. the Red Sea) is its OWN separate, standalone pack (see --sea-zone below),
-// never embedded inside a country pack, so that a country's download can include the nearby
-// sea zones its fish may reference without duplicating that data across multiple countries. A
-// country pack's manifest just lists which sea zone packs are relevant (seaZoneDependencies)
-// so the client knows to also fetch those — once, shared across every neighboring country that
-// references the same zone, not re-downloaded per country.
+// A sea zone (e.g. the Red Sea) is its own standalone pack (--sea-zone below), never embedded
+// inside a country pack, so multiple neighboring countries can share one download instead of
+// duplicating it — a country pack's manifest just lists which sea zone packs it depends on.
 //
-// --taxon scopes a build to one taxon class, producing a separate, independently downloadable
-// file per group (see TAXON_CLASSES below for the full fine-grained list — sharks split from
-// bony fish, aquatic mammals split from both, reptile/cnidarian/mollusk subgroups, plus the
-// newer invertebrate-only groups), so installs can download exactly the groups they care
-// about; omit it to build every taxon together.
+// --taxon scopes a build to one taxon class (see TAXON_CLASSES below for the full fine-grained
+// list), producing a separate downloadable file per group; omit it to build every taxon together.
 //
 // Usage:
 //   npm run build-region-pack -w data-pipeline -- "Canada" [outputDir] [--taxon=<TaxonClass>]
 //   npm run build-region-pack -w data-pipeline -- --sea-zone "Red Sea" [outputDir]
-import { existsSync, mkdirSync, writeFileSync, copyFileSync, rmSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync, copyFileSync, rmSync, statSync, readdirSync } from "node:fs";
 import { createHash } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -110,6 +101,18 @@ interface ManifestSpecies {
   localTier?: string | null;
   isVagrant?: boolean;
   recordCount?: number;
+  weeklyFrequency?: number[] | null;
+  // Gap-finder hotspot clusters (migration 074) — province-level only, never populated at
+  // country level (hotspots are computed per-province; see compute-provinces-bulk.ts). Omitted
+  // entirely for a country's own top-level species list and for sea-zone packs.
+  hotspots?: Array<{
+    centroidLat: number;
+    centroidLon: number;
+    pointCount: number;
+    bboxDiagonalKm: number;
+    lastSeenYear: number | null;
+    distinctYears: number | null;
+  }>;
 }
 
 interface SpeciesRow {
@@ -125,6 +128,7 @@ interface SpeciesRow {
   local_tier?: string | null;
   is_vagrant?: boolean;
   record_count?: number;
+  weekly_frequency?: number[] | null;
 }
 
 async function nearbyZonesForRegion(boundaryGeoJson: {
@@ -171,7 +175,11 @@ async function nearbyZonesForRegion(boundaryGeoJson: {
     .map((z) => ({ id: z.id, name: z.name }));
 }
 
-function packSpecies(stagingDir: string, rows: SpeciesRow[]): { manifestSpecies: ManifestSpecies[]; photoCount: number } {
+function packSpecies(
+  stagingDir: string,
+  rows: SpeciesRow[],
+  hotspotsByScientificName?: Map<string, ManifestSpecies["hotspots"]>,
+): { manifestSpecies: ManifestSpecies[]; photoCount: number } {
   const manifestSpecies: ManifestSpecies[] = [];
   let photoCount = 0;
   for (const row of rows) {
@@ -205,9 +213,26 @@ function packSpecies(stagingDir: string, rows: SpeciesRow[]): { manifestSpecies:
       ...(row.local_tier !== undefined && { localTier: row.local_tier }),
       ...(row.is_vagrant !== undefined && { isVagrant: row.is_vagrant }),
       ...(row.record_count !== undefined && { recordCount: row.record_count }),
+      ...(row.weekly_frequency !== undefined && { weeklyFrequency: row.weekly_frequency }),
+      ...(hotspotsByScientificName?.has(row.scientific_name) && {
+        hotspots: hotspotsByScientificName.get(row.scientific_name),
+      }),
     });
   }
   return { manifestSpecies, photoCount };
+}
+
+// Uncompressed byte counts for the two things that actually make up a pack's size — photos
+// (species reference images) vs. the checklist itself (species/habitat/rarity JSON, no
+// images). Both are measured pre-gzip: the archive is a single gzip stream over both together
+// (see writeArchive), so there's no way to recover an exact post-compression split from the
+// finished .tar.gz — this is an estimate of relative weight, good enough for "would offloading
+// this pack's photos free up meaningfully more space than its checklist," which is what
+// OfflinePacksPage's offload-impact UI actually needs.
+function photoBytesInStaging(stagingDir: string): number {
+  const photosDir = path.join(stagingDir, "photos");
+  if (!existsSync(photosDir)) return 0;
+  return readdirSync(photosDir).reduce((sum, file) => sum + statSync(path.join(photosDir, file)).size, 0);
 }
 
 async function writeArchive(stagingDir: string, outDir: string, archiveName: string): Promise<number> {
@@ -248,7 +273,13 @@ async function buildSeaZonePack(zoneName: string, outDir: string): Promise<void>
     speciesCount: manifestSpecies.length,
     species: manifestSpecies,
   };
-  const manifest = { ...manifestCore, generatedAt: new Date().toISOString(), contentVersion: contentHash(manifestCore) };
+  const manifest = {
+    ...manifestCore,
+    generatedAt: new Date().toISOString(),
+    contentVersion: contentHash(manifestCore),
+    photoBytes: photoBytesInStaging(stagingDir),
+    checklistBytes: Buffer.byteLength(JSON.stringify(manifestCore)),
+  };
   writeFileSync(path.join(stagingDir, "manifest.json"), JSON.stringify(manifest, null, 2));
 
   const archiveName = seaZonePackFileName(zoneName);
@@ -295,16 +326,47 @@ async function fetchChildRegionsWithSpecies(
     const childSpeciesRes = await pool.query<SpeciesRow>(
       `SELECT s.scientific_name, s.common_name, s.habitat_description,
               s.reference_display_path, s.reference_thumb_path, s.reference_credit, s.reference_license,
-              rs.local_frequency, rs.seasonality, rs.local_tier, rs.is_vagrant
+              rs.local_frequency, rs.seasonality, rs.local_tier, rs.is_vagrant, rs.weekly_frequency
        FROM region_species rs
        JOIN species s ON s.id = rs.species_id
        WHERE rs.region_id = $1 ${taxonFilter}
        ORDER BY s.scientific_name`,
       [child.id],
     );
+    // Gap-finder hotspot clusters only ever exist at this province level (see
+    // compute-provinces-bulk.ts) — fetched once per province and matched back onto its own
+    // species by scientific_name, the same cross-install identity every other pack field uses.
+    const hotspotsRes = await pool.query<{
+      scientific_name: string;
+      centroid_lat: number;
+      centroid_lon: number;
+      point_count: number;
+      bbox_diagonal_km: number;
+      last_seen_year: number | null;
+      distinct_years: number | null;
+    }>(
+      `SELECT s.scientific_name, h.centroid_lat, h.centroid_lon, h.point_count, h.bbox_diagonal_km,
+              h.last_seen_year, h.distinct_years
+       FROM region_species_hotspots h
+       JOIN species s ON s.id = h.species_id
+       WHERE h.region_id = $1`,
+      [child.id],
+    );
+    const hotspotsByScientificName = new Map<string, ManifestSpecies["hotspots"]>();
+    for (const h of hotspotsRes.rows) {
+      if (!hotspotsByScientificName.has(h.scientific_name)) hotspotsByScientificName.set(h.scientific_name, []);
+      hotspotsByScientificName.get(h.scientific_name)!.push({
+        centroidLat: h.centroid_lat,
+        centroidLon: h.centroid_lon,
+        pointCount: h.point_count,
+        bboxDiagonalKm: h.bbox_diagonal_km,
+        lastSeenYear: h.last_seen_year,
+        distinctYears: h.distinct_years,
+      });
+    }
     // Reuses the parent's own staging/photos dir — a species shared between the country and
     // one of its provinces (the common case) writes its photo once, not once per region.
-    const { manifestSpecies } = packSpecies(currentStagingDir, childSpeciesRes.rows);
+    const { manifestSpecies } = packSpecies(currentStagingDir, childSpeciesRes.rows, hotspotsByScientificName);
     children.push({
       name: child.name,
       ebirdRegionCode: child.ebird_region_code,
@@ -336,7 +398,7 @@ async function buildRegionPack(regionName: string, outDir: string, taxon: TaxonC
   const speciesRes = await pool.query<SpeciesRow>(
     `SELECT s.scientific_name, s.common_name, s.habitat_description,
             s.reference_display_path, s.reference_thumb_path, s.reference_credit, s.reference_license,
-            rs.local_frequency, rs.seasonality, rs.local_tier, rs.is_vagrant
+            rs.local_frequency, rs.seasonality, rs.local_tier, rs.is_vagrant, rs.weekly_frequency
      FROM region_species rs
      JOIN species s ON s.id = rs.species_id
      WHERE rs.region_id = $1 ${taxonFilter}
@@ -382,7 +444,17 @@ async function buildRegionPack(regionName: string, outDir: string, taxon: TaxonC
     // region's neighbors also depend on it) — see this file's own top comment.
     seaZoneDependencies: seaZones.map((z) => ({ name: z.name, packFile: seaZonePackFileName(z.name) })),
   };
-  const manifest = { ...manifestCore, generatedAt: new Date().toISOString(), contentVersion: contentHash(manifestCore) };
+  const manifest = {
+    ...manifestCore,
+    generatedAt: new Date().toISOString(),
+    contentVersion: contentHash(manifestCore),
+    // Sums the WHOLE staging photos/ folder, which by this point also includes every bundled
+    // child province's own reference photos (packed in via fetchChildRegionsWithSpecies above)
+    // — the total for the entire archive this manifest ends up inside, not just this region's
+    // own top-level species.
+    photoBytes: photoBytesInStaging(stagingDir),
+    checklistBytes: Buffer.byteLength(JSON.stringify(manifestCore)),
+  };
   writeFileSync(path.join(stagingDir, "manifest.json"), JSON.stringify(manifest, null, 2));
 
   const archiveName = regionPackFileName(regionName, taxon);

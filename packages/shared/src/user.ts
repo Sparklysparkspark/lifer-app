@@ -1,4 +1,4 @@
-// Mirrors the Phase-2 subset of lifer-spec.md §6 (users, captures, photos, user_species).
+// Mirrors the Phase-2 subset of(users, captures, photos, user_species).
 // `sessions`/`invite_codes` are server-internal — no client-facing type for those.
 
 export interface User {
@@ -7,12 +7,12 @@ export interface User {
   createdAt: string;
 }
 
-export type CollectionState = "collected" | "seen" | "unseen";
+export type CollectionState = "collected" | "seen" | "target" | "unseen";
 
 export interface UserSpecies {
   userId: string;
   speciesId: string;
-  state: "collected" | "seen";
+  state: "collected" | "seen" | "target";
   coverPhotoId: string | null;
   firstCollected: string | null;
   bestQuality: number | null;

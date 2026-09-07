@@ -34,7 +34,7 @@ export default function EbirdImport({ onImported }: { onImported: () => void }) 
         <a href="https://ebird.org/downloadMyData" target="_blank" rel="noreferrer" className="underline">
           Download My Data
         </a>{" "}
-        page — species you've seen but haven't photographed will show as <em>seen</em> instead of{" "}
+        page. Species you've seen but haven't photographed will show as <em>seen</em> instead of{" "}
         <em>unseen</em>. Already-photographed species are never downgraded.
       </p>
       <input

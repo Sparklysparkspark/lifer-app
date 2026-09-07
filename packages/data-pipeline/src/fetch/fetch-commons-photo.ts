@@ -1,4 +1,4 @@
-// Source: Wikimedia Commons (commons.wikimedia.org). License: CC/PD per file (lifer-spec.md §5).
+// Source: Wikimedia Commons (commons.wikimedia.org). License: CC/PD per file.
 // Fallback reference photo for species where iNaturalist has no usable default photo — takes
 // the Commons file Wikidata already points at (P18, fetched in fetch-wikidata.ts) and pulls its
 // real license + photographer credit from the Commons API, same allowlist as iNaturalist

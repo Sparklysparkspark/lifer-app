@@ -1,35 +1,24 @@
 // Builds the desktop app's "catalog seed" — the one-time database snapshot every fresh install
 // restores on first launch (see apps/desktop/src-tauri/src/embedded_db.rs's
-// restore_catalog_seed_if_needed), published as the `catalog-latest` GitHub Release asset and
-// fetched at build time by apps/desktop/scripts/fetch-catalog-seed.js.
+// restore_catalog_seed_if_needed), published as the `catalog-latest` GitHub Release asset.
 //
-// Only these 8 tables belong here — pure reference/catalog data, nothing per-user or
-// per-install (confirmed against the currently-published seed before writing this script):
-//   species, species_reference_photos, species_traits, species_rarity,
-//   regions, region_species, sea_zones, sea_zone_species
+// Only pure reference/catalog data belongs here, nothing per-user or per-install: species,
+// species_reference_photos, species_traits, species_rarity, regions, region_species,
+// sea_zones, sea_zone_species.
 //
-// Critically, this NULLS OUT every local filesystem path column before dumping
-// (species.reference_display_path/reference_thumb_path, species_reference_photos.display_path/
-// thumb_path) — those are absolute paths into WHATEVER machine happened to run enrichment
-// (this one), and baking them in verbatim is exactly the bug that left ~86k reference photos
-// silently unreachable on every real install (paths that only ever resolved on the dev
-// machine that built the seed). The species/region METADATA (name, description, credit,
-// license, the remote photo_url) is genuinely portable and stays; only the local cache paths
-// are stripped. A fresh install ends up with reference_display_path/thumb_path = NULL for
-// every species — exactly the same as a species that hasn't been enriched yet, which
-// species/routes.ts's existing lazy-enrichment path already knows how to fill in correctly
-// (from a downloaded region pack's own bundled photos when one covers that species — see
-// build-region-pack.ts, which copies real image bytes, not path strings — or a one-time live
-// fetch otherwise).
+// NULLS OUT every local filesystem path column before dumping (reference_display_path/
+// thumb_path on both species and species_reference_photos) — those are absolute paths on
+// whatever machine ran enrichment, and baking them in verbatim leaves every real install with
+// unreachable file paths. Portable metadata (name, description, credit, license, remote
+// photo_url) stays; a fresh install ends up with those path columns NULL, same as a
+// not-yet-enriched species — species/routes.ts's lazy-enrichment path already fills them in
+// from a downloaded region pack or a live fetch.
 //
-// Also writes a small companion `<outputPath's dir>/catalog-manifest.json` — {version, publishedAt}
-// — published to the SAME catalog-latest release alongside the seed itself. An already-installed
-// app (see apps/api/src/species/catalogSeedUpdate.ts) fetches this manifest to check whether a
-// newer catalog is available before downloading the (much larger) seed itself, and to know which
-// version it just applied. `version` is a plain epoch-ms timestamp, not a content hash — pg_dump's
-// own output isn't byte-stable run to run even for identical data (row order, etc), so a hash
-// would falsely read as "always changed"; a build timestamp instead means "was rebuilt at least
-// this recently," which is all a merge-update check actually needs.
+// Also writes a companion `catalog-manifest.json` ({version, publishedAt}) so an installed app
+// (species/catalogSeedUpdate.ts) can check for a newer catalog before downloading the much
+// larger seed itself. `version` is an epoch-ms timestamp, not a content hash — pg_dump's output
+// isn't byte-stable run to run even for identical data, so a hash would falsely read as always
+// changed.
 //
 // Usage: DATABASE_URL=postgres://... npx tsx packages/data-pipeline/src/scripts/build-catalog-seed.ts <outputPath.sql.gz>
 // After running, publish both files to the catalog-latest release:

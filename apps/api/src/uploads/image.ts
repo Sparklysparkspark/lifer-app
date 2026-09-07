@@ -1,6 +1,5 @@
-// Derivative generation via sharp/libvips (lifer-spec.md §4, §6). The app always renders
-// from display_path per §6 rule 1 — the original upload buffer is discarded after this runs,
-// per the storage model in §8 ("host display copies, not originals").
+// Derivative generation via sharp/libvips. The app always renders from display_path — the
+// original upload buffer is discarded after this runs; only the display/thumb copies are kept.
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import sharp from "sharp";
@@ -63,25 +62,14 @@ export async function generateDerivatives(buffer: Buffer, photoId: string): Prom
   return { displayPath, thumbPath, width: displayInfo.width ?? null, height: displayInfo.height ?? null };
 }
 
-// Same shape as generateDerivatives above, just under APP_DATA_DIR instead of DATA_DIR (this
-// is a shared species-reference cache, not part of any one photo library — see that
-// constant's own comment) and a smaller target size — reference photos are sourced from
-// external URLs (iNaturalist/Wikimedia Commons, see lazyEnrich.ts), keyed by their own id (a
-// species id for the primary photo, a species_reference_photos row id for a gallery photo)
-// rather than a photos.id.
-//
-// Width-only resize, full aspect preserved — deliberately NOT baking a crop into the stored
-// file (a previous version of this function did, cropping to each display shape — 16:9 hero,
-// square card — with sharp's attention-region heuristic). That was destructive: once a crop
-// is baked into the only copy on disk, recovering the parts it cut off means re-fetching the
-// original from its source all over again, and the heuristic itself wasn't reliable enough
-// to be trusted running once, unsupervised, over the whole catalog (it can fixate on a bright
-// twig or a textured background patch instead of the actual subject). The correct model —
-// confirmed against how CardCropEditor.tsx already handles a USER's own cover photo — is to
-// always keep the full source image on disk and store the crop as data (a focal point)
-// applied at render time, never re-encoded away. species.reference_focal_x/y (migration 043)
-// is that stored focal point — computed automatically (see scripts/fix-portrait-reference-
-// photos.ts), never something a user needs to set by hand.
+// Same shape as generateDerivatives above, under APP_DATA_DIR (a shared species-reference
+// cache, not part of any one photo library) and keyed by species/gallery-photo id rather than
+// a photos.id. Width-only resize, full aspect preserved — never bakes a crop into the stored
+// file, since a baked-in crop can't be recovered later without re-fetching the source, and an
+// automatic attention-region heuristic isn't reliable enough to trust unsupervised across the
+// whole catalog. Instead the full image stays on disk and the crop is stored as data
+// (species.reference_focal_x/y, migration 043) applied at render time — same model
+// CardCropEditor.tsx uses for a user's own cover photo.
 export async function generateReferenceDerivatives(buffer: Buffer, key: string): Promise<{ displayPath: string; thumbPath: string }> {
   const displayDir = path.join(APP_DATA_DIR, "reference-display");
   const thumbDir = path.join(APP_DATA_DIR, "reference-thumb");

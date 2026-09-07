@@ -1,4 +1,4 @@
-// Phase-1 rarity per lifer-spec.md §7 MVP shortcut: range size + IUCN status only,
+// Phase-1 rarityMVP shortcut: range size + IUCN status only,
 // no elusiveness (that's Phase 4). Tiers assigned by percentile so the distribution
 // is deliberate (common 50% / uncommon 25% / rare 15% / epic 8% / legendary 2%).
 
@@ -72,35 +72,19 @@ export function tierForPercentile(percentile: number): RarityTier {
 
 // Absolute composite-value thresholds, not a fixed PERCENTILE quota (top 2%/8%/15%/25%/50%,
 // above): a fixed quota forces exactly those shares regardless of the real score
-// distribution's shape, so a species with a genuinely earned, high composite could still
-// miss "rare" purely because enough OTHER species also cleared a similar bar, and a real
-// one-off mega-rarity effect couldn't move a tier if the quota was already full. Tier is
-// meant to track how hard a species is to photograph, not to fill a fixed number of slots,
-// so a species should earn its tier on its own merit rather than compete for one.
-//
-// First calibrated to roughly match the old percentile quota's shape (common ~77%, uncommon
-// ~12%, rare ~8%, epic ~3%, legendary ~0.6%) as a safe baseline, but that baseline was still
-// too common-skewed: genuine rare-visitor/hard-to-see birds were still landing as
-// common/uncommon. Shifted down ~0.05 across the board: common ~68%, uncommon ~15.5%, rare
-// ~9%, epic ~5.5%, legendary ~1.6% (14,153 wild species). Birds specifically, not mammals —
-// mammals have no real range-size source at all (every mammal gets the same flat 0.5 filler
-// for that axis — see build-seed-mammals.ts), so their composite scale isn't comparable to
-// birds' and needs its own calibration.
-//
-// Recalibrated a second time: a 5-species BC-only anchor ladder produced technically-correct
-// local ordering but a globally meaningless distribution (31.5% of ALL birds landed
-// "legendary"). Percentiles should VALIDATE thresholds, not determine them, but a
-// wildly-skewed global share is itself evidence the cutoffs don't mean what the tier name
-// says — so this was recalibrated against a much broader ~34-species global anchor set
-// (House Sparrow/Mallard/Robin through Boreal Owl/California Condor/Harpy Eagle/Great
-// Philippine Eagle), using the real gaps in their actual composite scores as the cutoffs,
-// THEN checked against the full 14,550-bird distribution (common ~65% / uncommon ~14% / rare
-// ~14% / epic ~4% / legendary ~3% — within the target smell-test bands). Two disclosed
-// near-ties survive this calibration, not threshold artifacts but real signal gaps: Great
-// Gray Owl vs. Black-backed Woodpecker (genuinely scarce/localized vs.
-// hard-to-see-despite-widespread aren't yet distinguished), and Great Tit vs. Pileated
-// Woodpecker (dense-canopy-but-readily-visits-feeders isn't distinguished from
-// dense-canopy-and-genuinely-hard-to-see — AVONET's Habitat.Density alone conflates the two).
+// distribution's shape, so a species with a genuinely earned high composite could still miss
+// "rare" purely because other species also cleared a similar bar. Tier is meant to track how
+// hard a species is to photograph, not to fill a fixed number of slots — a species earns its
+// tier on its own merit. Calibrated against a ~34-species global anchor ladder (House
+// Sparrow/Mallard/Robin through Boreal Owl/California Condor/Harpy Eagle/Great Philippine
+// Eagle), using the real gaps between their composite scores as cutoffs, then checked against
+// the full bird distribution for a sane overall shape (not backwards-derived from it). Birds
+// only, not mammals — mammals have no real range-size source (every mammal gets the same flat
+// filler for that axis, see build-seed-mammals.ts), so the composite scales aren't comparable.
+// Two disclosed near-ties are real signal gaps, not threshold artifacts: Great Gray Owl vs.
+// Black-backed Woodpecker (scarce/localized vs. hard-to-see-despite-widespread aren't yet
+// distinguished), and Great Tit vs. Pileated Woodpecker (AVONET's Habitat.Density alone
+// conflates "visits feeders despite dense canopy" with "genuinely hard to see").
 export const BIRD_ABSOLUTE_TIER_THRESHOLDS: Array<{ tier: RarityTier; minScore: number }> = [
   { tier: "legendary", minScore: 0.6 },
   { tier: "epic", minScore: 0.555 },
@@ -109,35 +93,19 @@ export const BIRD_ABSOLUTE_TIER_THRESHOLDS: Array<{ tier: RarityTier; minScore: 
   { tier: "common", minScore: 0 },
 ];
 
-// Mammals — same treatment as birds: a fixed percentile-quota system forces exactly
-// 50/25/15/8/2% shares onto the documented pool regardless of what the real scores mean,
-// which produced genuinely backwards results (Snow Leopard landing "common," Coyote/Striped
-// Skunk/American Bison landing "epic"). Calibrated against a real anchor ladder checked in
-// the DB after MAMMAL_WEIGHTS/MAMMAL_DENSITY_ELUSIVENESS_BOOST_WEIGHT were rebalanced (see
-// apply-rarity-phase4.ts): Coyote 0.632/Puma 0.636 (common/uncommon border — see below),
-// White-tailed Deer 0.612, Gray Wolf 0.651, American Black Bear 0.691, Wolverine 0.763
-// (anchor: a genuinely elusive species that belongs at "legendary"), Giant Panda 0.807,
-// Tiger 0.887, Black Rhinoceros 0.905.
-//
-// Two disclosed, real limitations survive this calibration, same spirit as birds' own
-// near-ties: (1) Coyote and Puma land in the SAME composite band (0.63-0.64) because nothing
-// in the available data (IUCN status: both effectively "least concern"; density_per_km2:
-// both genuinely low) distinguishes "low density but human-tolerant/bold" from "low density
-// and genuinely elusive" — that would need real behavioral data (diel activity pattern,
-// synanthropy) this pipeline doesn't have. Both land "uncommon" here, which undersells Puma's
-// real difficulty but doesn't overclaim Coyote's. (2) Snow Leopard has NO species_traits
-// signal at all in our DB (its GBIF-backbone name, "Uncia uncia," doesn't match Wikidata's
-// modern taxonomic placement "Panthera uncia" — a real, disclosed synonym-matching gap, not a
-// weight problem) and lands "common" purely on a middling raw elusiveness percentile. A
-// species-name synonym-resolution pass would fix this; out of scope for this rebalance.
-//
-// Re-calibrated after adding the home-range boost + CASUAL_OBSERVATION_BASIS_OF_RECORD
-// filter — both shifted the whole composite scale upward, so the earlier cutoffs
-// (0.55/0.65/0.72/0.75) let White-tailed Deer cross into "rare." Re-anchored against the same
-// ladder: Eastern Gray Squirrel 0.552/Red Fox 0.608/Moose 0.650/White-tailed Deer 0.658 stay
-// common; Coyote 0.677/Puma 0.688/Gray Wolf 0.696 uncommon; American Black Bear 0.708/Bobcat
-// 0.726 rare; Striped Skunk 0.734/American Bison 0.745 epic; Wolverine 0.754 (anchor) through
-// Black Rhinoceros 0.925 legendary.
+// Mammals — same treatment as birds: a fixed percentile quota produced backwards results
+// (Snow Leopard "common," Coyote/Striped Skunk/American Bison "epic"). Calibrated against a
+// real anchor ladder (Eastern Gray Squirrel/Red Fox/Moose through Wolverine/Giant
+// Panda/Tiger/Black Rhinoceros) rechecked after MAMMAL_WEIGHTS/MAMMAL_DENSITY_ELUSIVENESS_
+// BOOST_WEIGHT rebalances (see apply-rarity-phase4.ts) shifted the whole composite scale.
+// Two disclosed real limitations: (1) Coyote and Puma land in the same composite band —
+// nothing in the available data (IUCN status, density_per_km2) distinguishes "low density but
+// human-tolerant" from "low density and genuinely elusive," which would need behavioral data
+// (diel activity, synanthropy) this pipeline doesn't have. (2) Snow Leopard has no
+// species_traits signal at all (its GBIF-backbone name "Uncia uncia" doesn't match Wikidata's
+// modern placement "Panthera uncia" — a disclosed synonym-matching gap) and lands "common"
+// purely on a middling raw elusiveness percentile; a species-name synonym-resolution pass
+// would fix this.
 export const MAMMAL_ABSOLUTE_TIER_THRESHOLDS: Array<{ tier: RarityTier; minScore: number }> = [
   { tier: "legendary", minScore: 0.75 },
   { tier: "epic", minScore: 0.73 },
@@ -281,6 +249,22 @@ export const HOME_RANGE_ELUSIVENESS_BOOST_WEIGHT = 0.4;
 export function boostElusivenessForHomeRange(score: number, homeRangeRarityScore: number | null): number {
   if (homeRangeRarityScore == null) return score;
   return boostTowardHarderToDetect(score, homeRangeRarityScore * HOME_RANGE_ELUSIVENESS_BOOST_WEIGHT);
+}
+
+// A Mallard can have hundreds of thousands of local records and still be genuinely common,
+// because those records are smeared across the entire region; a Sage Thrasher can have a
+// fraction of that record count concentrated into one small, famous, easy-to-reach spot (a
+// single valley) and still require real travel/searching to see. Raw record-count percentile
+// alone can't tell those apart — this compares how much of the region's own area a species'
+// occurrences actually span (bounding-box diagonal of its points ÷ the region's own bounding-box
+// diagonal) against every other species checked in the same region, so "concentrated in one
+// hotspot" reads as harder-to-find regardless of how many times that one hotspot got visited.
+// Same weight scale as the other 0.4 boosts above — a real signal, not the dominant one.
+export const DISTRIBUTION_ELUSIVENESS_BOOST_WEIGHT = 0.4;
+
+export function boostElusivenessForDistribution(score: number, distributionRarityScore: number | null): number {
+  if (distributionRarityScore == null) return score;
+  return boostTowardHarderToDetect(score, distributionRarityScore * DISTRIBUTION_ELUSIVENESS_BOOST_WEIGHT);
 }
 
 // Percentile rank against every OTHER entry with a known value, not a linear ratio against

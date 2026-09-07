@@ -23,7 +23,7 @@ export function Spinner({ label = "Loading…" }: { label?: string }) {
 // back link) around this — SpeciesDetailPage's loading state does, so its two links would
 // otherwise stack; ArchivedSpeciesPage's loading state has no header yet at that point, so it
 // keeps this one.
-export function LoadingScreen({ showBackLink = true }: { showBackLink?: boolean }) {
+export function LoadingScreen({ showBackLink = true, label }: { showBackLink?: boolean; label?: string }) {
   return (
     <div className="relative flex min-h-screen items-center justify-center bg-canvas">
       {showBackLink && (
@@ -31,7 +31,7 @@ export function LoadingScreen({ showBackLink = true }: { showBackLink?: boolean 
           ← Back to collection
         </Link>
       )}
-      <Spinner />
+      <Spinner label={label} />
     </div>
   );
 }

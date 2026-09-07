@@ -9,8 +9,12 @@ import RegionPage from "./pages/RegionPage";
 import BulkImportPage from "./pages/BulkImportPage";
 import SettingsPage from "./pages/SettingsPage";
 import OfflinePacksPage from "./pages/OfflinePacksPage";
-import TripsPage from "./pages/TripsPage";
+import CollectionsPage from "./pages/CollectionsPage";
 import TripDetailPage from "./pages/TripDetailPage";
+import AlbumDetailPage from "./pages/AlbumDetailPage";
+import SharePage from "./pages/SharePage";
+import ApiKeysPage from "./pages/ApiKeysPage";
+import InaturalistPage from "./pages/InaturalistPage";
 import ArchivedSpeciesPage from "./pages/ArchivedSpeciesPage";
 import TrashedPhotosPage from "./pages/TrashedPhotosPage";
 import GuidePage from "./pages/GuidePage";
@@ -40,6 +44,7 @@ export default function App() {
       <Route path="/login" element={<LoginPage />} />
       <Route path="/forgot-password" element={<ForgotPasswordPage />} />
       <Route path="/reset-password" element={<ResetPasswordPage />} />
+      <Route path="/share/:token" element={<SharePage />} />
       <Route
         path="/"
         element={
@@ -116,7 +121,7 @@ export default function App() {
         path="/trips"
         element={
           <RequireAuth>
-            <TripsPage />
+            <CollectionsPage />
           </RequireAuth>
         }
       />
@@ -125,6 +130,38 @@ export default function App() {
         element={
           <RequireAuth>
             <TripDetailPage />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/albums"
+        element={
+          <RequireAuth>
+            <CollectionsPage />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/albums/:id"
+        element={
+          <RequireAuth>
+            <AlbumDetailPage />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/settings/api-keys"
+        element={
+          <RequireAuth>
+            <ApiKeysPage />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/inaturalist"
+        element={
+          <RequireAuth>
+            <InaturalistPage />
           </RequireAuth>
         }
       />

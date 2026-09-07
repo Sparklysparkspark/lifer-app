@@ -14,7 +14,7 @@ export interface SuggestedSpecies extends SpeciesResult {
 }
 
 // Fuzzy search across common + scientific name, recently-used pinned when the query is empty
-// (lifer-spec.md §9 Phase 2 checklist). Keyboard-driven: arrow keys + enter to jump.
+// (Phase 2 checklist). Keyboard-driven: arrow keys + enter to jump.
 //
 // Defaults to navigating to the species page (header "jump to species" usage) — the bulk
 // import picker (Phase 5) passes onSelect/autoFocus instead, to assign a row inline and move

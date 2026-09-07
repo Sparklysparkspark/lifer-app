@@ -31,9 +31,23 @@ export async function fetchS3Object(key: string): Promise<Buffer> {
   return Buffer.concat(chunks);
 }
 
-export async function signedS3Url(key: string): Promise<string> {
+// downloadFilename, when passed, sets ResponseContentDisposition on the presigned URL itself —
+// S3 echoes that back as the response's real Content-Disposition header, so the browser saves
+// the file instead of navigating to it directly (this is the ONLY way to get that behavior for
+// an S3 redirect: the app's own /photos/:id/original route can set headers on ITS OWN response,
+// but a signed S3 URL is served straight from S3, not proxied through this app, so a header set
+// here would never reach the client).
+export async function signedS3Url(key: string, downloadFilename?: string): Promise<string> {
   if (!S3_BUCKET) throw new Error("LIFER_S3_BUCKET is not configured");
-  return getSignedUrl(client(), new GetObjectCommand({ Bucket: S3_BUCKET, Key: key }), { expiresIn: 3600 });
+  return getSignedUrl(
+    client(),
+    new GetObjectCommand({
+      Bucket: S3_BUCKET,
+      Key: key,
+      ...(downloadFilename ? { ResponseContentDisposition: `attachment; filename="${downloadFilename}"` } : {}),
+    }),
+    { expiresIn: 3600 },
+  );
 }
 
 export class S3PhotoSource implements PhotoSource {
