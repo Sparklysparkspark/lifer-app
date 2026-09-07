@@ -34,9 +34,16 @@ fn is_trusted_sender(window: &WebviewWindow) -> bool {
     let config = store::read_config(&app_data_dir(window.app_handle()));
     if let Some(cfg) = config {
         if cfg.mode.as_deref() == Some("remote") {
-            if let Some(server_url) = cfg.server_url {
-                if let Ok(server) = url::Url::parse(&server_url) {
-                    return url.host_str() == server.host_str() && url.scheme() == server.scheme();
+            // Either the single-URL config or, with IP switching on, whichever of
+            // local_url/external_url we're currently pointed at — a window navigated to either
+            // one is equally "our own configured server," not just whichever URL happens to be
+            // stored under the legacy single-field name.
+            let candidates = [cfg.server_url, cfg.local_url, cfg.external_url];
+            for candidate in candidates.into_iter().flatten() {
+                if let Ok(server) = url::Url::parse(&candidate) {
+                    if url.host_str() == server.host_str() && url.scheme() == server.scheme() {
+                        return true;
+                    }
                 }
             }
         }
@@ -86,6 +93,13 @@ struct ChooseSetupInput {
     mode: String,
     #[serde(rename = "serverUrl")]
     server_url: Option<String>,
+    // Only present when the "Enable IP switching" checkbox is on — see picker.html. Both are
+    // required together in that case; ip_switching itself isn't persisted (its presence is
+    // implied by local_url/external_url both being set in the saved config).
+    #[serde(rename = "localUrl")]
+    local_url: Option<String>,
+    #[serde(rename = "externalUrl")]
+    external_url: Option<String>,
     #[serde(rename = "offlineMode")]
     offline_mode: Option<bool>,
 }
@@ -111,6 +125,41 @@ async fn choose_setup(window: WebviewWindow, app: AppHandle, config: ChooseSetup
     }
 
     if config.mode == "remote" {
+        // IP switching: both fields present means the checkbox was on. Validate each URL
+        // independently (a network can genuinely only reach one of the two right now — e.g.
+        // setting this up while at home, the external/nginx-forwarded address may not resolve
+        // at all) and navigate to whichever answered, same "try local first" preference
+        // apply_config uses on every later launch.
+        if let (Some(local_url), Some(external_url)) = (&config.local_url, &config.external_url) {
+            let local_trimmed = local_url.trim_end_matches('/').to_string();
+            let external_trimmed = external_url.trim_end_matches('/').to_string();
+            let local_ok = api::is_reachable(&format!("{local_trimmed}/health")).await;
+            let external_ok = if local_ok { true } else { api::is_reachable(&format!("{external_trimmed}/health")).await };
+            if !local_ok && !external_ok {
+                return ChooseSetupResult {
+                    ok: None,
+                    canceled: None,
+                    error: Some("Couldn't reach either address. Check the URLs and that the server is running.".into()),
+                };
+            }
+            let data_dir = app_data_dir(&app);
+            let _ = store::write_config(
+                &data_dir,
+                &store::DesktopConfig {
+                    mode: Some("remote".into()),
+                    data_dir: None,
+                    server_url: None,
+                    local_url: Some(local_trimmed.clone()),
+                    external_url: Some(external_trimmed.clone()),
+                    offline_mode: config.offline_mode,
+                },
+            );
+            api::stop_api(&app);
+            let target = if local_ok { local_trimmed } else { external_trimmed };
+            let _ = window.navigate(target.parse().unwrap());
+            return ChooseSetupResult { ok: Some(true), canceled: None, error: None };
+        }
+
         let Some(server_url) = config.server_url else {
             return ChooseSetupResult { ok: None, canceled: None, error: Some("serverUrl is required".into()) };
         };
@@ -129,6 +178,8 @@ async fn choose_setup(window: WebviewWindow, app: AppHandle, config: ChooseSetup
                 mode: Some("remote".into()),
                 data_dir: None,
                 server_url: Some(trimmed.clone()),
+                local_url: None,
+                external_url: None,
                 offline_mode: config.offline_mode,
             },
         );
@@ -150,6 +201,8 @@ async fn choose_setup(window: WebviewWindow, app: AppHandle, config: ChooseSetup
             mode: Some("local".into()),
             data_dir: Some(data_dir.clone()),
             server_url: None,
+            local_url: None,
+            external_url: None,
             offline_mode: None,
         },
     );
@@ -227,7 +280,18 @@ async fn apply_config(app: AppHandle, window: WebviewWindow) {
             }
         }
         Some(cfg) if cfg.mode.as_deref() == Some("remote") => {
-            if let Some(server_url) = cfg.server_url {
+            // IP switching on: try the local-network address first with a short timeout (see
+            // api::fetch_ok's own 2s client timeout) — on the home network this resolves almost
+            // immediately; anywhere else it fails fast and falls through to the external
+            // (nginx-forwarded) address instead. Neither answering just navigates to the
+            // external one anyway (same permissive "let the webview show its own connection
+            // error" behavior the single-URL path below already had) rather than blocking setup
+            // on a dialog here — a transient network hiccup shouldn't be harder to get past than
+            // it was before this feature existed.
+            if let (Some(local_url), Some(external_url)) = (&cfg.local_url, &cfg.external_url) {
+                let target = if api::is_reachable(&format!("{local_url}/health")).await { local_url.clone() } else { external_url.clone() };
+                let _ = window.navigate(target.parse().unwrap());
+            } else if let Some(server_url) = cfg.server_url {
                 let _ = window.navigate(server_url.parse().unwrap());
             }
         }
@@ -313,6 +377,7 @@ pub fn run() {
                 // browser instead of navigating this window away — mirrors main.js's
                 // setWindowOpenHandler.
                 .on_navigation(move |url| {
+                    eprintln!("[lifer-debug] on_navigation fired for: {url}");
                     let is_local_asset = url.scheme() == "tauri";
                     let is_local_api = url.host_str() == Some("127.0.0.1") && url.port() == Some(api::LOCAL_PORT);
                     let is_configured_remote = store::read_config(&app_data_dir(&nav_handle))
@@ -336,6 +401,7 @@ pub fn run() {
                 // on_navigation comment above always described the intent, but target="_blank"
                 // links never actually went through that hook at all.
                 .on_new_window(move |url, _features| {
+                    eprintln!("[lifer-debug] on_new_window fired for: {url}");
                     let _ = new_window_handle.opener().open_url(url.to_string(), None::<&str>);
                     tauri::webview::NewWindowResponse::Deny
                 })
