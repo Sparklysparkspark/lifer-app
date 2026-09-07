@@ -15,8 +15,25 @@ Categories: `Added`, `Changed`, `Fixed`, `Removed` — omit any with nothing to 
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-09-07
+
 ### Added
 
+- Albums: create, rename, and delete albums; add photos to them from the gallery; share an album
+  publicly via a link, no account required to view.
+- API keys: generate scoped, revocable keys in Settings for programmatic access to your library.
+- A target/wishlist list: mark a species you haven't found yet as one you're after, separate from
+  collected/seen, and filter the collection view down to just your targets.
+- Hotspot clusters and weekly sighting frequency per region/species: species detail now shows
+  roughly where within a region a species is actually found (not just the province-wide tier) and
+  a week-by-week chart of when it's typically recorded.
+- iNaturalist sync: connect an account, push a confirmed capture as an observation, and pull its
+  GPS back onto the matching photo.
+- Central America is now its own continent grouping on the Offline Packs map, instead of being
+  folded into North America.
+- Desktop: an "Enable IP switching" option when connecting to a self-hosted server — store both a
+  local-network address and an external (nginx-forwarded) one, and the app tries the local address
+  first at every launch, falling back to the external one automatically when you're away from home.
 - Species suggestions on import: uploading a photo now suggests likely species (learned from your
   own past photos and reference photos), narrowed to what's actually plausible for the region and
   season you're importing into. Marked experimental, with an off switch in Settings. A single
@@ -58,6 +75,15 @@ Categories: `Added`, `Changed`, `Fixed`, `Removed` — omit any with nothing to 
 - Dozens of overseas territories (French Guiana, Hong Kong, Galápagos, and many more) no longer
   show up as their own fake "country" in the Offline Packs picker — they were duplicated data,
   now cleaned up.
+- Species incorrectly flagged as vagrant in a region purely because GBIF's own record density was
+  thin there (not because they're actually rare) are being corrected, cross-checked against real
+  range data (GBIF's curated distributions, FishBase's country-status records) rather than raw
+  occurrence counts alone.
+- France's and Netherlands' overseas territories (Guadeloupe, Guyane, Martinique, Réunion,
+  Mayotte, Bonaire/Saba/St. Eustatius) were missing their own real species data in the checklist
+  recompute — GBIF tags their records with the territory's own country code, not the parent
+  country's, so a country-level download never saw them.
+- Swept all user-visible text for stray em dashes.
 
 ## [0.2.2] - 2026-08-20
 
