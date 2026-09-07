@@ -1,4 +1,4 @@
-// Argon2id is @node-rs/argon2's default algorithm, matching lifer-spec.md §4/§8's requirement.
+// Argon2id is @node-rs/argon2's default algorithm.
 import { hash, verify } from "@node-rs/argon2";
 
 export async function hashPassword(password: string): Promise<string> {

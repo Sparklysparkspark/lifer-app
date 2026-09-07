@@ -97,7 +97,8 @@ export async function matchAgainstKnownOriginals(tripId: string, candidates: Can
     // round-trip here matters: this runs once per unclaimed candidate for every missing
     // original, so it's the one place in this file where EXIF overhead would multiply fastest.
     const unclaimed = candidates.filter((c) => !claimedAbsolutePaths.has(c.absolutePath));
-    const hashMatches = unclaimed.filter((candidate) => computeContentHash(candidate.absolutePath) === original.content_hash);
+    const unclaimedHashes = await Promise.all(unclaimed.map((c) => computeContentHash(c.absolutePath)));
+    const hashMatches = unclaimed.filter((_, i) => unclaimedHashes[i] === original.content_hash);
 
     if (hashMatches.length === 1) {
       // Silent relink — the DB record is updated, the file itself is never touched, moved, or

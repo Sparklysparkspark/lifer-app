@@ -67,35 +67,16 @@ export async function downloadAndCacheImage(url: string, key: string): Promise<{
   }
 }
 
-// Per-host pacing — a bulk pass (enrich-all-species.ts) at even modest concurrency turned out
-// to still draw 429s from api.inaturalist.org: a single enrichSpecies call fires several
-// requests back-to-back on its own (taxon search, taxon detail, sometimes a subspecies/taxon-
-// change lookup), so concurrency alone doesn't cap the real request rate to that host. This
-// serializes every call to the SAME host at least MIN_INTERVAL_MS apart, regardless of how
-// many concurrent callers (or how many sequential calls within one enrichSpecies) are asking —
-// a chained-promise queue per host, same pattern as trips/tripIndex.ts's own per-folder write
-// queue. iNaturalist's own API guidance suggests roughly 1 request/second unauthenticated.
-// Measured against a real bulk run (~5,400 species): 1000ms still drew frequent 429s, but a
-// slower 2500ms interval measured WORSE real throughput (fewer errors, but a lower net
-// species/hour — the errors' own short backoffs cost less than the wider base interval does),
-// so 1000ms is the deliberately-kept value despite the visible 429 log noise. Re-measure
-// against the database directly (species enriched per minute), not just the 429 count, before
-// changing this again. The S3 photo bucket is a different host and queues (and paces)
-// separately, so this doesn't slow down image downloads. A single species page's first-ever
-// view (the lazy
-// path) pays a few seconds of this once, cached in the DB forever after — a fine trade for not
-// getting blocked.
-//
-// Overridable via INAT_MIN_HOST_INTERVAL_MS — confirmed live (see this constant's own recent
-// history) that sustained 1000ms is enough to pin this app's IP in iNaturalist's real
-// "normal_throttling" state indefinitely: a live burst test 429'd immediately, but the SAME
-// test succeeded cleanly after 90s of total silence, proving it's a real rolling debt that
-// accumulates faster than it drains at this pace, not a one-off. A long-running bulk pass
-// (detect-implausible-regions.ts, enrich-all-species.ts, etc.) should set this env var to
-// something slower (e.g. 2500-3000) before it ever gets stuck in that steady state — the
-// single on-demand call a live species-page view makes (SINGLE_USER_MODE off, i.e. self-hosted
-// multi-user installs) stays at the fast default, since one request in isolation was never
-// the problem.
+// Per-host pacing: one enrichSpecies call fires several requests back-to-back (taxon search,
+// taxon detail, sometimes a subspecies lookup), so limiting concurrency alone doesn't cap the
+// real request rate to iNaturalist. Serializes every call to the same host at least
+// MIN_HOST_INTERVAL_MS apart, chained-promise queue per host (same pattern as
+// trips/tripIndex.ts's per-folder write queue). 1000ms still draws occasional 429s but measured
+// higher net throughput than a slower interval (short 429 backoffs cost less than a wider base
+// interval) — re-measure species-enriched-per-minute, not just 429 count, before retuning.
+// Overridable via INAT_MIN_HOST_INTERVAL_MS: a long-running bulk pass should set this to
+// something slower (e.g. 2500-3000) since sustained load at 1000ms can pin this app's IP in
+// iNaturalist's throttled state; a single on-demand species-page view never hits that regime.
 const MIN_HOST_INTERVAL_MS = Number(process.env.INAT_MIN_HOST_INTERVAL_MS) || 1000;
 const hostQueues = new Map<string, Promise<void>>();
 const lastCallAtByHost = new Map<string, number>();
@@ -342,7 +323,7 @@ export async function fetchINaturalistWikipediaSummary(
   // description with nothing to back it.
   if (!summary || !taxon?.wikipedia_url) return null;
   const truncated = truncateToSentences(stripHtml(summary), 4);
-  return truncated ? { summary: truncated, wikipediaUrl: taxon.wikipedia_url } : null;
+  return isSubstantiveText(truncated) ? { summary: truncated, wikipediaUrl: taxon.wikipedia_url } : null;
 }
 
 async function fetchINaturalistTaxonDetail(
@@ -379,8 +360,9 @@ async function fetchINaturalistTaxonDetail(
   // gentilis and Aeorestes cinereus) — a summary with no wikipedia_url is treated as absent
   // rather than risking that constraint violation, now that Wikipedia is no longer called
   // unconditionally as a fallback source for descriptionSourceUrl.
-  const wikipediaSummary =
+  const rawWikipediaSummary =
     taxon?.wikipedia_summary && taxon.wikipedia_url ? truncateToSentences(stripHtml(taxon.wikipedia_summary), 4) : null;
+  const wikipediaSummary = rawWikipediaSummary && isSubstantiveText(rawWikipediaSummary) ? rawWikipediaSummary : null;
   const wikipediaUrl = wikipediaSummary ? taxon!.wikipedia_url! : null;
   return { gallery, wikipediaSummary: wikipediaSummary || null, wikipediaUrl };
 }
@@ -390,6 +372,17 @@ function truncateToSentences(text: string, maxSentences: number): string {
   const marked = normalized.replace(/(\d)\.(\d)/g, "$1" + DECIMAL_MARKER + "$2");
   const sentences = marked.split(/(?<=[.!?])\s+(?=[A-Z])/);
   return sentences.slice(0, maxSentences).join(" ").split(DECIMAL_MARKER).join(".").trim();
+}
+
+// A non-empty result from truncateToSentences isn't automatically a real sentence — iNaturalist
+// sometimes hands back a Wikipedia stub whose "summary" is just an ellipsis or a stray
+// punctuation mark (confirmed live: Sage Thrasher's own wikipedia_summary was exactly "..."),
+// which used to sail straight through the truthiness check below and render as a description
+// that was just "... (Wikipedia)" — worse than showing nothing. Requiring an actual letter and
+// a minimum length is a cheap, reliable way to tell "a real sentence" from "not one," without
+// needing real NLP for what's ultimately just a garbage-in filter.
+function isSubstantiveText(text: string): boolean {
+  return text.length >= 15 && /\p{L}/u.test(text);
 }
 
 // Shared by enrichSpecies (below) and species/routes.ts's gallery-backfill branch for

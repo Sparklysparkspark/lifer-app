@@ -20,6 +20,22 @@ interface OrganizeBody {
   enabled?: boolean;
 }
 
+// ABA (really IBP/AOS) alpha codes only exist for birds in North America, Mexico, Central
+// America, and the Caribbean (see backfill-aba-codes.ts) — gating this setting's availability
+// on whether the user's OWN downloaded packs actually reach that coverage, rather than always
+// offering it, since it'd otherwise silently do nothing for someone who's only ever downloaded,
+// say, an Australia or Kenya pack. Data-driven (checks whether any downloaded pack's species
+// actually got an aba_code) rather than a hardcoded country list, so it stays correct as pack
+// coverage changes without needing to be kept in sync by hand.
+async function abaCodesAvailable(): Promise<boolean> {
+  const res = await pool.query(
+    `SELECT EXISTS (
+       SELECT 1 FROM pack_species ps JOIN species s ON s.id = ps.species_id WHERE s.aba_code IS NOT NULL
+     ) AS available`,
+  );
+  return res.rows[0]?.available ?? false;
+}
+
 interface StorageBody {
   dataDir?: string;
 }
@@ -111,25 +127,13 @@ async function relinkAbsolutePaths(client: PoolClient, oldDir: string, newDir: s
   );
 }
 
-// Called once at server startup (see index.ts), before anything else touches DATA_DIR —
-// recovers from a crash mid-migration (e.g. a closed laptop lid or a NAS losing power). The
-// PUT /settings/storage handler below
-// writes a `migration` marker to disk BEFORE moving a single file, and only clears it after
-// the move AND the database relink have both fully succeeded — so if the process dies
-// anywhere in between, this marker is still sitting there on the next boot, and exactly where
-// things got to is fully determined by one simple, durable fact: does the OLD folder still
-// exist with content in it?
-//
-//   - Yes → the move itself never finished (crashed before the rename/copy completed, or
-//     mid-copy on a cross-device move). The original data is still safe at `from` untouched;
-//     any partial junk that landed at `to` is discarded, and the migration is rolled back to
-//     "still on `from`" — never resumed blind with nobody watching. Retrying is left to the
-//     user, from Settings, whenever they're ready.
-//   - No → the move already completed before the crash; only the database relink and/or
-//     clearing the marker were still pending. Both are safe to just finish now — the relink's
-//     `WHERE ref LIKE from || '/%'` naturally matches nothing once already applied, so
-//     re-running it is a no-op rather than a double-move, not something that needs its own
-//     "did this already happen" check.
+// Called once at server startup (see index.ts), before anything touches DATA_DIR — recovers
+// from a crash mid-migration. PUT /settings/storage writes a `migration` marker before moving
+// any file and clears it only after the move AND db relink both succeed, so a marker still
+// present on boot means resume based on one fact: does the OLD folder still exist with content?
+// Yes → the move never finished; roll back to "still on `from`" and let the user retry from
+// Settings. No → the move finished, only the relink/marker-clear were pending; safe to finish
+// now (the relink's WHERE clause naturally matches nothing once already applied).
 export async function recoverInterruptedStorageMigration(): Promise<void> {
   const { migration } = readLocalSettings();
   if (!migration) return;
@@ -174,8 +178,9 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
       hide_obscure_species: boolean;
       species_suggest_enabled: boolean;
       technical_diving: boolean;
+      species_naming_styles: string[];
     }>(
-      `SELECT organize_originals_by_year, hide_obscure_species, species_suggest_enabled, technical_diving FROM users WHERE id = $1`,
+      `SELECT organize_originals_by_year, hide_obscure_species, species_suggest_enabled, technical_diving, species_naming_styles FROM users WHERE id = $1`,
       [request.user!.id],
     );
     return {
@@ -183,6 +188,8 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
       hideObscureSpecies: res.rows[0]?.hide_obscure_species ?? true,
       speciesSuggestEnabled: res.rows[0]?.species_suggest_enabled ?? true,
       technicalDiving: res.rows[0]?.technical_diving ?? false,
+      speciesNamingStyles: res.rows[0]?.species_naming_styles ?? [],
+      abaCodesAvailable: await abaCodesAvailable(),
     };
   });
 
@@ -210,6 +217,27 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
     if (typeof enabled !== "boolean") return reply.code(400).send({ error: "enabled must be a boolean" });
     await pool.query(`UPDATE users SET technical_diving = $1 WHERE id = $2`, [enabled, request.user!.id]);
     return { technicalDiving: enabled };
+  });
+
+  // Controls folder naming + EXIF species tags app-wide (see speciesFolderName.ts and exif.ts).
+  // Common name is always the base; any styles selected here get appended alongside it (e.g.
+  // "Mallard (MALL)"), rather than replacing it — both eBird and ABA codes can be selected at
+  // once. 'aba_code' is only ever accepted when abaCodesAvailable() is true — a species without
+  // either code (most non-North-American birds, or anything outside the eBird taxonomy
+  // entirely) still falls back to just the common name regardless of this setting, handled in
+  // application code, not here; this check just stops the setting from being turned on when it
+  // would never do anything.
+  app.put<{ Body: { styles?: string[] } }>("/settings/species-naming-style", { preHandler: requireAuth }, async (request, reply) => {
+    const { styles } = request.body ?? {};
+    if (!Array.isArray(styles) || styles.some((s) => s !== "aba_code" && s !== "ebird_code")) {
+      return reply.code(400).send({ error: "styles must be an array containing only: aba_code, ebird_code" });
+    }
+    if (styles.includes("aba_code") && !(await abaCodesAvailable())) {
+      return reply.code(400).send({ error: "No downloaded pack has any ABA-coded species yet" });
+    }
+    const deduped = [...new Set(styles)];
+    await pool.query(`UPDATE users SET species_naming_styles = $1 WHERE id = $2`, [deduped, request.user!.id]);
+    return { speciesNamingStyles: deduped };
   });
 
   // Experimental (see species/embeddings.ts) — on by default since it's purely local/on-device,
@@ -249,12 +277,14 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
       ref: string;
       kind: "raw" | "jpeg";
       capture_id: string | null;
+      species_id: string | null;
       common_name: string | null;
       scientific_name: string | null;
       taxon_class: string | null;
       taken_at: Date | null;
     }>(
       `SELECT o.id, o.ref, o.kind, o.capture_id,
+              COALESCE(c.species_id, o.species_id) AS species_id,
               COALESCE(s1.common_name, s2.common_name) AS common_name,
               COALESCE(s1.scientific_name, s2.scientific_name) AS scientific_name,
               COALESCE(s1.taxon_class, s2.taxon_class) AS taxon_class,
@@ -271,7 +301,7 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
     let skipped = 0;
     let failed = 0;
     for (const original of originalsRes.rows) {
-      if (!original.scientific_name || !existsSync(original.ref)) {
+      if (!original.species_id || !original.scientific_name || !existsSync(original.ref)) {
         skipped++;
         continue;
       }
@@ -282,7 +312,7 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
 
       const folder = originalsFolder(ORIGINALS_DIR, {
         organizeByYear,
-        speciesFolderName: await resolveSpeciesFolderName(original.common_name, original.scientific_name),
+        speciesFolderName: await resolveSpeciesFolderName(userId, original.species_id),
         taxonClass: original.taxon_class,
         takenAt,
         subfolder: original.kind === "raw" ? "RAW" : "Adjusted",

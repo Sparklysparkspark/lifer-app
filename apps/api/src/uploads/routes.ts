@@ -90,8 +90,8 @@ function uniqueDestination(dir: string, filename: string): string {
 export async function moveManagedOriginalToSpeciesFolder(
   currentRef: string,
   managed: boolean,
-  commonName: string | null,
-  scientificName: string,
+  userId: string,
+  speciesId: string,
   kind: "raw" | "jpeg",
   organizeByYear: boolean,
   taxonClass: string | null,
@@ -100,7 +100,7 @@ export async function moveManagedOriginalToSpeciesFolder(
   if (!managed || !existsSync(currentRef)) return currentRef;
   const folder = originalsFolder(ORIGINALS_DIR, {
     organizeByYear,
-    speciesFolderName: await resolveSpeciesFolderName(commonName, scientificName),
+    speciesFolderName: await resolveSpeciesFolderName(userId, speciesId),
     taxonClass,
     takenAt,
     subfolder: kind === "raw" ? "RAW" : "Adjusted",
@@ -407,7 +407,7 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
       // no extra plumbing on the /uploads/raw request itself.
       const folder = originalsFolder(match.trip_folder ?? chosenVolume?.baseDir ?? ORIGINALS_DIR, {
         organizeByYear,
-        speciesFolderName: await resolveSpeciesFolderName(match.common_name, match.scientific_name),
+        speciesFolderName: await resolveSpeciesFolderName(userId, match.id),
         taxonClass: match.taxon_class,
         takenAt: exif.takenAt,
         subfolder: "RAW",
@@ -465,7 +465,7 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
 
         const folder = originalsFolder(chosenVolume?.baseDir ?? ORIGINALS_DIR, {
           organizeByYear,
-          speciesFolderName: await resolveSpeciesFolderName(species.common_name, species.scientific_name),
+          speciesFolderName: await resolveSpeciesFolderName(userId, speciesId),
           taxonClass: species.taxon_class,
           takenAt: exif.takenAt,
           subfolder: "RAW",
@@ -554,7 +554,7 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
       const match = matches[0];
       const folder = originalsFolder(match.trip_folder ?? chosenVolume?.baseDir ?? ORIGINALS_DIR, {
         organizeByYear,
-        speciesFolderName: await resolveSpeciesFolderName(match.common_name, match.scientific_name),
+        speciesFolderName: await resolveSpeciesFolderName(userId, match.id),
         taxonClass: match.taxon_class,
         takenAt: exif.takenAt,
         subfolder: "RAW",
@@ -633,7 +633,7 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
 
       const folder = originalsFolder(tripBaseDir ?? chosenVolume?.baseDir ?? ORIGINALS_DIR, {
         organizeByYear,
-        speciesFolderName: await resolveSpeciesFolderName(species.common_name, species.scientific_name),
+        speciesFolderName: await resolveSpeciesFolderName(userId, species.id),
         taxonClass: species.taxon_class,
         takenAt: exif.takenAt,
         subfolder: "RAW",
@@ -792,7 +792,9 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
       scientific_name: string;
       taxon_class: string | null;
       family: string | null;
-    }>(`SELECT id, common_name, scientific_name, taxon_class, family FROM species WHERE id = $1`, [speciesId]);
+      aba_code: string | null;
+      ebird_code: string | null;
+    }>(`SELECT id, common_name, scientific_name, taxon_class, family, aba_code, ebird_code FROM species WHERE id = $1`, [speciesId]);
     if (speciesRes.rows.length === 0) return reply.code(400).send({ error: "Unknown species" });
     const species = speciesRes.rows[0];
 
@@ -961,7 +963,7 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
       if (mode === "store") {
         const folder = originalsFolder(tripBaseDir ?? chosenVolume?.baseDir ?? ORIGINALS_DIR, {
           organizeByYear,
-          speciesFolderName: await resolveSpeciesFolderName(species.common_name, species.scientific_name),
+          speciesFolderName: await resolveSpeciesFolderName(userId, species.id),
           taxonClass: species.taxon_class,
           takenAt: exif.takenAt,
           subfolder: "Adjusted",
@@ -969,14 +971,24 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
         mkdirSync(folder, { recursive: true });
         finalOriginalRef = uniqueDestination(folder, originalFilename(fileName, exif.takenAt, photoExtension));
         writeFileSync(finalOriginalRef, buffer);
-        await writeSpeciesMetadata(finalOriginalRef, [
-          {
-            commonName: species.common_name,
-            scientificName: species.scientific_name,
-            taxonClass: species.taxon_class,
-            family: species.family,
-          },
-        ]);
+        const namingStyleRes = await pool.query<{ species_naming_styles: string[] }>(
+          `SELECT species_naming_styles FROM users WHERE id = $1`,
+          [userId],
+        );
+        await writeSpeciesMetadata(
+          finalOriginalRef,
+          [
+            {
+              commonName: species.common_name,
+              scientificName: species.scientific_name,
+              taxonClass: species.taxon_class,
+              family: species.family,
+              abaCode: species.aba_code,
+              ebirdCode: species.ebird_code,
+            },
+          ],
+          namingStyleRes.rows[0]?.species_naming_styles ?? [],
+        );
         managed = true;
       }
       const refType = mode === "s3" ? "s3" : "path";
@@ -1015,7 +1027,7 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
       if (rawBuffer && rawFileName) {
         const rawFolder = originalsFolder(tripBaseDir ?? ORIGINALS_DIR, {
           organizeByYear,
-          speciesFolderName: await resolveSpeciesFolderName(species.common_name, species.scientific_name),
+          speciesFolderName: await resolveSpeciesFolderName(userId, species.id),
           taxonClass: species.taxon_class,
           takenAt: exif.takenAt,
           subfolder: "RAW",
@@ -1059,8 +1071,8 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
             const newRef = await moveManagedOriginalToSpeciesFolder(
               filenameVerifiedRaw.ref,
               filenameVerifiedRaw.managed,
-              species.common_name,
-              species.scientific_name,
+              userId,
+              speciesId,
               "raw",
               organizeByYear,
               species.taxon_class,
@@ -1094,8 +1106,8 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
             const newRef = await moveManagedOriginalToSpeciesFolder(
               match.ref,
               match.managed,
-              species.common_name,
-              species.scientific_name,
+              userId,
+              speciesId,
               "raw",
               organizeByYear,
               species.taxon_class,

@@ -1,5 +1,5 @@
 // Source: EltonTraits 1.0 (Wilman, H. et al. 2014, Ecology 95:2027), figshare collection
-// 10.6084/m9.figshare.c.3306933.v1. License: CC BY 4.0 — cite per lifer-spec.md §11.
+// 10.6084/m9.figshare.c.3306933.v1. License: CC BY 4.0 — cite the source.
 // Only used to fill diet/foraging-stratum/nocturnality gaps AVONET doesn't cover (spec §5).
 // Real column layout (verified against the actual BirdFuncDat.txt, tab-separated):
 // "Scientific" is the binomial; "Diet-5Cat" is a ready-made category; foraging stratum is

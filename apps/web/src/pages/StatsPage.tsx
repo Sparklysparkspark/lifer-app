@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import {
   ResponsiveContainer,
   AreaChart,
@@ -14,11 +15,12 @@ import {
   Cell,
 } from "recharts";
 import { api } from "../api/client";
-import BackToCollectionLink from "../components/BackToCollectionLink";
+import PageHeader from "../components/PageHeader";
 import CollectionStatsPanel from "../components/CollectionStats";
-import { Spinner } from "../components/LoadingScreen";
+import { LoadingScreen, Spinner } from "../components/LoadingScreen";
 import Lightbox, { type LightboxSlide } from "../components/Lightbox";
 import InfoTip from "../components/InfoTip";
+import { TAXON_CLASS_LABEL } from "@lifer/shared";
 
 interface StatsResponse {
   totalKeepers: number;
@@ -51,6 +53,35 @@ interface StatsResponse {
   ghostSpecies: Array<{ speciesId: string; scientificName: string; commonName: string | null }>;
   lostSpecies: Array<{ speciesId: string; scientificName: string; commonName: string | null }>;
   rediscoveredSpecies: Array<{ speciesId: string; scientificName: string; commonName: string | null }>;
+}
+
+interface SpeciesPortfolioResponse {
+  species: Array<{
+    speciesId: string;
+    commonName: string | null;
+    scientificName: string;
+    taxonClass: string;
+    totalPhotos: number;
+    rated4Plus: number;
+    bestRating: number | null;
+    earliestTakenAt: string | null;
+    latestTakenAt: string | null;
+  }>;
+}
+interface ArchiveHealthResponse {
+  total: number;
+  missingDate: number;
+}
+interface PhotographyDnaResponse {
+  taxonBreakdown: Array<{ taxonClass: string; count: number; percent: number }>;
+  categoryBreakdown: Array<{ key: string; count: number; percent: number }>;
+  medianFocalLengthMm: number | null;
+  medianShutterSeconds: number | null;
+  medianIso: number | null;
+}
+interface YearComparisonResponse {
+  a: { year: number; speciesCount: number; photoCount: number; avgFocalLength: number | null; avgIso: number | null };
+  b: { year: number; speciesCount: number; photoCount: number; avgFocalLength: number | null; avgIso: number | null };
 }
 
 type PhotoFilter = "all" | "featured" | "topRated";
@@ -194,6 +225,12 @@ export default function StatsPage() {
   const [lightboxSlide, setLightboxSlide] = useState<LightboxSlide | null>(null);
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
+  const [portfolio, setPortfolio] = useState<SpeciesPortfolioResponse | null>(null);
+  const [archiveHealth, setArchiveHealth] = useState<ArchiveHealthResponse | null>(null);
+  const [photographyDna, setPhotographyDna] = useState<PhotographyDnaResponse | null>(null);
+  const [yearA, setYearA] = useState<number | null>(null);
+  const [yearB, setYearB] = useState<number | null>(null);
+  const [yearComparison, setYearComparison] = useState<YearComparisonResponse | null>(null);
 
   useEffect(() => {
     setLoading(true);
@@ -202,6 +239,51 @@ export default function StatsPage() {
       .then(setStats)
       .finally(() => setLoading(false));
   }, [filter]);
+
+  // Independent of the filter-scoped /stats fetch above — these views are always over the
+  // WHOLE library (every confirmed photo), not "keepers" or whatever filter happens to be
+  // selected, since "how many photos of this species do I have" is a raw fact, not something a
+  // top-rated/featured filter should ever narrow.
+  useEffect(() => {
+    api.get<SpeciesPortfolioResponse>("/stats/species-portfolio").then(setPortfolio);
+    api.get<ArchiveHealthResponse>("/stats/archive-health").then(setArchiveHealth);
+    api.get<PhotographyDnaResponse>("/stats/photography-dna").then(setPhotographyDna);
+  }, []);
+
+  // Years available to compare are derived from the portfolio's own earliest/latest photo
+  // dates, not hardcoded — defaults to the two most recent distinct years once known.
+  const availableYears = useMemo(() => {
+    if (!portfolio) return [];
+    const years = new Set<number>();
+    for (const s of portfolio.species) {
+      if (s.earliestTakenAt) years.add(new Date(s.earliestTakenAt).getFullYear());
+      if (s.latestTakenAt) years.add(new Date(s.latestTakenAt).getFullYear());
+    }
+    return [...years].sort((a, b) => b - a);
+  }, [portfolio]);
+
+  useEffect(() => {
+    if (availableYears.length > 0 && yearA === null) setYearA(availableYears[0]);
+    if (availableYears.length > 1 && yearB === null) setYearB(availableYears[1]);
+  }, [availableYears, yearA, yearB]);
+
+  useEffect(() => {
+    if (yearA === null || yearB === null) return;
+    api.get<YearComparisonResponse>(`/stats/year-comparison?yearA=${yearA}&yearB=${yearB}`).then(setYearComparison);
+  }, [yearA, yearB]);
+
+  const mostPhotographed = useMemo(
+    () => (portfolio ? [...portfolio.species].sort((a, b) => b.totalPhotos - a.totalPhotos).slice(0, 10) : []),
+    [portfolio],
+  );
+  const oneAndDone = useMemo(() => (portfolio ? portfolio.species.filter((s) => s.totalPhotos === 1) : []), [portfolio]);
+  // A single photo you've already rated 1 star yourself is a real, self-flagged "I know this
+  // one isn't good" — worth surfacing specifically because you're the one who said so, rather
+  // than guessing at a quality bar from photo count/rating-distribution heuristics.
+  const needsBetterPhoto = useMemo(
+    () => (portfolio ? portfolio.species.filter((s) => s.totalPhotos === 1 && s.bestRating === 1) : []),
+    [portfolio],
+  );
 
   const scatterPoints = useMemo(
     () => (stats?.scatter ?? []).filter((p) => p[scatterX] != null && p[scatterY] != null),
@@ -259,8 +341,18 @@ export default function StatsPage() {
     }
   }
 
-  if (loading && !stats) return <Spinner label="Loading stats…" />;
-  if (!stats) return null;
+  // The header (with its BackToCollectionLink) renders unconditionally below, same pattern as
+  // SpeciesDetailPage's own loading/error states — a slow /stats fetch (e.g. while a background
+  // recompute is hogging the DB/CPU) shouldn't make the whole page, header included, blink out
+  // of existence while it waits; only the body swaps between loading/loaded.
+  if (!stats) {
+    return (
+      <div className="min-h-screen bg-canvas">
+        <PageHeader title="Stats" />
+        <LoadingScreen showBackLink={false} label="Loading stats…" />
+      </div>
+    );
+  }
 
   const topCamera = stats.gearUsage.cameras[0];
   const topFocalLength = [...stats.exifDistributions.focalLength].sort((a, b) => b.count - a.count)[0];
@@ -269,31 +361,30 @@ export default function StatsPage() {
 
   return (
     <div className="min-h-screen bg-canvas">
-      <header className="page-header flex items-center justify-between border-b border-line bg-surface px-6 py-4">
-        <div>
-          <BackToCollectionLink className="text-sm text-muted hover:underline" />
-          <h1 className="mt-1 text-lg font-semibold text-ink">Stats</h1>
-        </div>
-        <div className="flex items-center gap-2">
-          <Select
-            value={filter}
-            onChange={(v) => setFilter(v as PhotoFilter)}
-            options={[
-              { value: "all", label: "All keepers" },
-              { value: "featured", label: "Featured only" },
-              { value: "topRated", label: "Top rated (5-star)" },
-            ]}
-          />
-          <button
-            type="button"
-            onClick={handleExport}
-            disabled={exporting}
-            className="rounded-md border border-line px-2 py-1 text-xs text-muted hover:bg-surface-muted disabled:opacity-50"
-          >
-            {exporting ? "Exporting…" : "Export CSV"}
-          </button>
-        </div>
-      </header>
+      <PageHeader
+        title="Stats"
+        actions={
+          <>
+            <Select
+              value={filter}
+              onChange={(v) => setFilter(v as PhotoFilter)}
+              options={[
+                { value: "all", label: "All keepers" },
+                { value: "featured", label: "Featured only" },
+                { value: "topRated", label: "Top rated (5-star)" },
+              ]}
+            />
+            <button
+              type="button"
+              onClick={handleExport}
+              disabled={exporting}
+              className="rounded-md border border-line px-2 py-1 text-xs text-muted hover:bg-surface-muted disabled:opacity-50"
+            >
+              {exporting ? "Exporting…" : "Export CSV"}
+            </button>
+          </>
+        }
+      />
       {exportError && <p className="border-b border-line bg-surface px-6 py-2 text-sm text-red-600">{exportError}</p>}
 
       {stats.totalKeepers === 0 ? (
@@ -536,6 +627,180 @@ export default function StatsPage() {
               </ul>
             )}
           </ChartCard>
+
+          {/* Collection intelligence — "how good/complete is my collection," not just raw
+              counts. Always over the WHOLE library (see the fetch effect's own comment), so
+              this section doesn't jump around as the filter dropdown above changes. */}
+          <div>
+            <h2 className="mb-2 text-sm font-semibold text-ink">Collection intelligence</h2>
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+              <ChartCard title="Most photographed">
+                {mostPhotographed.length === 0 ? (
+                  <p className="text-sm text-muted">No photos yet.</p>
+                ) : (
+                  <ol className="space-y-1 text-sm">
+                    {mostPhotographed.map((s, i) => (
+                      <li key={s.speciesId} className="flex items-center justify-between gap-2">
+                        <span className="truncate text-ink">
+                          <span className="text-muted">{i + 1}.</span> {s.commonName ?? s.scientificName}
+                        </span>
+                        <span className="shrink-0 text-xs text-muted">{s.totalPhotos} photos</span>
+                      </li>
+                    ))}
+                  </ol>
+                )}
+              </ChartCard>
+
+              <ChartCard title="One-and-done species" controls={<InfoTip align="right" paragraphs={["Species you've photographed exactly once. Candidates for going back for a better shot."]} />}>
+                {oneAndDone.length === 0 ? (
+                  <p className="text-sm text-muted">Every species you've photographed has 2+ photos.</p>
+                ) : (
+                  <>
+                    <p className="mb-2 text-sm text-ink">
+                      <span className="font-semibold">{oneAndDone.length}</span> species represented by only one photograph.
+                    </p>
+                    <ul className="grid grid-cols-2 gap-1 text-xs text-muted sm:grid-cols-3">
+                      {oneAndDone.slice(0, 30).map((s) => (
+                        <li key={s.speciesId} className="truncate">
+                          {s.commonName ?? s.scientificName}
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                )}
+              </ChartCard>
+
+              <ChartCard
+                title="Could use a better photo"
+                controls={<InfoTip paragraphs={["Species with only one photo, and you've rated it 1 star yourself."]} />}
+              >
+                {needsBetterPhoto.length === 0 ? (
+                  <p className="text-sm text-muted">Nothing stands out. No single-photo species is rated 1 star.</p>
+                ) : (
+                  <ul className="space-y-1 text-sm">
+                    {needsBetterPhoto.slice(0, 10).map((s) => (
+                      <li key={s.speciesId} className="flex items-center justify-between gap-2 text-ink">
+                        <span className="truncate">{s.commonName ?? s.scientificName}</span>
+                        <span className="shrink-0 text-xs text-muted">1 photo, rated ★</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </ChartCard>
+
+              <ChartCard title="Archive health" controls={<InfoTip align="right" paragraphs={["How much of your library is missing data a normal photo would have."]} />}>
+                {!archiveHealth ? (
+                  <Spinner />
+                ) : (
+                  <ul className="space-y-1.5 text-sm text-ink">
+                    <li className="flex items-center justify-between">
+                      {archiveHealth.missingDate > 0 ? (
+                        <Link to="/gallery?missingDate=1" className="text-accent hover:underline">
+                          Missing date
+                        </Link>
+                      ) : (
+                        <span>Missing date</span>
+                      )}
+                      <span className="text-muted">{archiveHealth.missingDate} / {archiveHealth.total}</span>
+                    </li>
+                  </ul>
+                )}
+              </ChartCard>
+
+              <ChartCard title="Photography DNA" controls={<InfoTip paragraphs={["A statistical fingerprint of how you shoot wildlife: what you photograph and what kind of shot you tend to get."]} />}>
+                {!photographyDna ? (
+                  <Spinner />
+                ) : (
+                  <div className="space-y-3 text-sm">
+                    <div>
+                      <p className="mb-1 text-xs font-medium uppercase tracking-wide text-muted">By taxon</p>
+                      {photographyDna.taxonBreakdown.slice(0, 5).map((t) => (
+                        <div key={t.taxonClass} className="flex items-center justify-between text-ink">
+                          <span>{TAXON_CLASS_LABEL[t.taxonClass as keyof typeof TAXON_CLASS_LABEL] ?? t.taxonClass}</span>
+                          <span className="text-muted">{t.percent}%</span>
+                        </div>
+                      ))}
+                    </div>
+                    <div>
+                      <p className="mb-1 text-xs font-medium uppercase tracking-wide text-muted">By kind of shot</p>
+                      {photographyDna.categoryBreakdown.map((c) => (
+                        <div key={c.key} className="flex items-center justify-between text-ink">
+                          <span className="capitalize">{c.key}</span>
+                          <span className="text-muted">{c.percent}%</span>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted">
+                      {photographyDna.medianFocalLengthMm != null && <span>Median focal length: {Math.round(photographyDna.medianFocalLengthMm)}mm</span>}
+                      {photographyDna.medianShutterSeconds != null && (
+                        <span>Median shutter: {SCATTER_AXES.shutterSeconds.format(photographyDna.medianShutterSeconds)}</span>
+                      )}
+                      {photographyDna.medianIso != null && <span>Median ISO: {Math.round(photographyDna.medianIso)}</span>}
+                    </div>
+                  </div>
+                )}
+              </ChartCard>
+
+              <ChartCard
+                title="Year over year"
+                controls={
+                  availableYears.length > 1 && (
+                    <div className="flex items-center gap-1.5 text-xs">
+                      <select value={yearA ?? ""} onChange={(e) => setYearA(Number(e.target.value))} className="rounded border border-line bg-surface px-1.5 py-0.5 text-ink">
+                        {availableYears.map((y) => (
+                          <option key={y} value={y}>{y}</option>
+                        ))}
+                      </select>
+                      <span className="text-muted">vs</span>
+                      <select value={yearB ?? ""} onChange={(e) => setYearB(Number(e.target.value))} className="rounded border border-line bg-surface px-1.5 py-0.5 text-ink">
+                        {availableYears.map((y) => (
+                          <option key={y} value={y}>{y}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )
+                }
+              >
+                {availableYears.length < 2 ? (
+                  <p className="text-sm text-muted">Need photos from at least two different years to compare.</p>
+                ) : !yearComparison ? (
+                  <Spinner />
+                ) : (
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="text-left text-xs text-muted">
+                        <th className="pb-1 font-medium"></th>
+                        <th className="pb-1 font-medium">{yearComparison.a.year}</th>
+                        <th className="pb-1 font-medium">{yearComparison.b.year}</th>
+                      </tr>
+                    </thead>
+                    <tbody className="text-ink">
+                      <tr>
+                        <td className="text-muted">Species</td>
+                        <td>{yearComparison.a.speciesCount}</td>
+                        <td>{yearComparison.b.speciesCount}</td>
+                      </tr>
+                      <tr>
+                        <td className="text-muted">Photos</td>
+                        <td>{yearComparison.a.photoCount}</td>
+                        <td>{yearComparison.b.photoCount}</td>
+                      </tr>
+                      <tr>
+                        <td className="text-muted">Avg focal length</td>
+                        <td>{yearComparison.a.avgFocalLength != null ? `${yearComparison.a.avgFocalLength}mm` : "—"}</td>
+                        <td>{yearComparison.b.avgFocalLength != null ? `${yearComparison.b.avgFocalLength}mm` : "—"}</td>
+                      </tr>
+                      <tr>
+                        <td className="text-muted">Avg ISO</td>
+                        <td>{yearComparison.a.avgIso ?? "—"}</td>
+                        <td>{yearComparison.b.avgIso ?? "—"}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                )}
+              </ChartCard>
+            </div>
+          </div>
 
           {/* Existing rarity/year breakdown — a filter/collection view, not a photographer
               story, but still useful, so it stays here rather than being cut entirely. */}

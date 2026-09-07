@@ -1,4 +1,4 @@
-// Orchestrates the FAST CORE of the Phase-1 ETL (lifer-spec.md §5, §6) and writes versioned
+// Orchestrates the FAST CORE of the Phase-1 ETL (§6) and writes versioned
 // seed files to data/build/<date>/ plus a manifest, so the dataset is reproducible per spec.
 //
 // Deliberately excludes per-species enrichment (iNaturalist photo, Commons fallback,

@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api/client";
-import BackToCollectionLink from "../components/BackToCollectionLink";
+import PageHeader from "../components/PageHeader";
 import { Spinner } from "../components/LoadingScreen";
 import Lightbox, { type LightboxSlide } from "../components/Lightbox";
 import MasonryGrid from "../components/MasonryGrid";
 import PhotoPlaceholder from "../components/PhotoPlaceholder";
 import ProgressiveImg from "../components/ProgressiveImg";
+import { useShowLabels } from "../hooks/useShowLabels";
 
 interface TrashItem {
   captureId: string;
@@ -45,13 +46,14 @@ export default function TrashedPhotosPage() {
   const [openMenuKey, setOpenMenuKey] = useState<string | null>(null);
   const [selectMode, setSelectMode] = useState(false);
   const [selectedCaptureIds, setSelectedCaptureIds] = useState<Set<string>>(new Set());
+  const [showLabels, setShowLabels] = useShowLabels();
   const openMenuRef = useRef<HTMLDivElement>(null);
 
   function load() {
     api
       .get<TrashResponse>("/trash")
       .then(setData)
-      .catch(() => setError("Couldn't load Trash — try again."));
+      .catch(() => setError("Couldn't load Trash. Try again."));
   }
 
   useEffect(load, []);
@@ -71,7 +73,7 @@ export default function TrashedPhotosPage() {
       await api.post(`/trash/${captureId}/restore`, {});
       load();
     } catch {
-      alert("Couldn't restore this photo — try again.");
+      alert("Couldn't restore this photo. Try again.");
     } finally {
       setBusyId(null);
     }
@@ -92,7 +94,7 @@ export default function TrashedPhotosPage() {
       setConfirmingEmpty(false);
       load();
     } catch {
-      alert("Couldn't empty Trash — try again.");
+      alert("Couldn't empty Trash. Try again.");
     } finally {
       setEmptying(false);
     }
@@ -115,37 +117,43 @@ export default function TrashedPhotosPage() {
 
   return (
     <div className="min-h-screen bg-canvas">
-      <header className="page-header flex items-center justify-between border-b border-line bg-surface px-6 py-4">
-        <div>
-          <BackToCollectionLink fallbackTo="/settings" label="Settings" className="text-sm text-muted hover:underline" />
-          <h1 className="mt-1 text-xl font-semibold text-ink">Trash</h1>
-        </div>
-        {data && data.items.length > 0 && (
-          <div className="flex items-center gap-4">
-            {selectMode ? (
+      <PageHeader
+        title="Trash"
+        backFallbackTo="/settings"
+        backLabel="Settings"
+        actions={
+          data &&
+          data.items.length > 0 && (
+            <div className="flex items-center gap-4">
+              <label className="flex items-center gap-1.5 text-xs text-muted">
+                <input type="checkbox" checked={showLabels} onChange={(e) => setShowLabels(e.target.checked)} />
+                Labels
+              </label>
+              {selectMode ? (
+                <button
+                  onClick={() => {
+                    setSelectMode(false);
+                    setSelectedCaptureIds(new Set());
+                  }}
+                  className="text-xs text-muted hover:underline"
+                >
+                  Cancel
+                </button>
+              ) : (
+                <button onClick={() => setSelectMode(true)} className="text-xs text-muted hover:underline">
+                  Select
+                </button>
+              )}
               <button
-                onClick={() => {
-                  setSelectMode(false);
-                  setSelectedCaptureIds(new Set());
-                }}
-                className="text-xs text-muted hover:underline"
+                onClick={() => setConfirmingEmpty(true)}
+                className="rounded-md border border-red-600 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50"
               >
-                Cancel
+                Empty Trash
               </button>
-            ) : (
-              <button onClick={() => setSelectMode(true)} className="text-xs text-muted hover:underline">
-                Select
-              </button>
-            )}
-            <button
-              onClick={() => setConfirmingEmpty(true)}
-              className="rounded-md border border-red-600 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50"
-            >
-              Empty Trash
-            </button>
-          </div>
-        )}
-      </header>
+            </div>
+          )
+        }
+      />
 
       {selectMode && (
         <div className="flex items-center justify-between border-b border-line bg-surface-muted px-6 py-2 text-xs">
@@ -175,23 +183,25 @@ export default function TrashedPhotosPage() {
               <MasonryGrid
                 items={data.items}
                 columnWidth={220}
+                extraHeightPx={showLabels ? 32 : 0}
                 keyFor={(item) => item.captureId}
                 aspectRatioFor={(item) => (item.width && item.height ? item.width / item.height : null)}
-                renderItem={(item) => {
+                renderItem={(item, aspectRatio) => {
                   const photoIndex = itemsWithPhoto.findIndex((it) => it.captureId === item.captureId);
                   return (
                     <div key={item.captureId} className="group relative w-full min-w-0">
                       {item.photoId ? (
                         <button
                           onClick={() => (selectMode ? toggleSelected(item.captureId) : setLightboxIndex(photoIndex))}
-                          className="block w-full text-left"
+                          className="block w-full overflow-hidden text-left"
+                          style={{ aspectRatio }}
                         >
                           <ProgressiveImg
                             thumbSrc={`/api/photos/${item.photoId}/thumb`}
                             fullSrc={`/api/photos/${item.photoId}/display`}
                             alt={item.speciesName}
-                            className={`block w-full cursor-pointer rounded-md ${
-                              selectMode && selectedCaptureIds.has(item.captureId) ? "ring-2 ring-accent ring-offset-2" : ""
+                            className={`block h-full w-full cursor-pointer rounded-md object-cover ${
+                              selectMode && selectedCaptureIds.has(item.captureId) ? "ring-2 ring-inset ring-blue-500" : ""
                             }`}
                           />
                         </button>
@@ -202,7 +212,7 @@ export default function TrashedPhotosPage() {
                         >
                           <PhotoPlaceholder
                             className={`aspect-square w-full rounded-md ${
-                              selectMode && selectedCaptureIds.has(item.captureId) ? "ring-2 ring-accent ring-offset-2" : ""
+                              selectMode && selectedCaptureIds.has(item.captureId) ? "ring-2 ring-inset ring-blue-500" : ""
                             }`}
                           />
                         </button>
@@ -252,11 +262,15 @@ export default function TrashedPhotosPage() {
                           )}
                         </div>
                       )}
-                      <p className="mt-1 truncate text-[11px] text-muted">{item.speciesName}</p>
-                      <p className="truncate text-[10px] text-muted">
-                        {daysLeft(item.purgesAt)} day{daysLeft(item.purgesAt) === 1 ? "" : "s"} left
-                        {item.hasRawOriginal && (item.pendingDeleteRaw ? " · RAW will also be deleted" : " · RAW will be kept")}
-                      </p>
+                      {showLabels && (
+                        <>
+                          <p className="mt-1 truncate text-[11px] text-muted">{item.speciesName}</p>
+                          <p className="truncate text-[10px] text-muted">
+                            {daysLeft(item.purgesAt)} day{daysLeft(item.purgesAt) === 1 ? "" : "s"} left
+                            {item.hasRawOriginal && (item.pendingDeleteRaw ? " · RAW will also be deleted" : " · RAW will be kept")}
+                          </p>
+                        </>
+                      )}
                     </div>
                   );
                 }}

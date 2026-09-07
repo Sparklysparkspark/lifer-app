@@ -86,6 +86,17 @@ interface ManifestSpecies {
   localTier?: string | null;
   isVagrant?: boolean;
   recordCount?: number;
+  weeklyFrequency?: number[] | null;
+  // Province-level only — see build-region-pack.ts's identical field for why this is never
+  // populated for a country's own top-level species list.
+  hotspots?: Array<{
+    centroidLat: number;
+    centroidLon: number;
+    pointCount: number;
+    bboxDiagonalKm: number;
+    lastSeenYear: number | null;
+    distinctYears: number | null;
+  }>;
 }
 
 interface ManifestChildRegion {
@@ -202,15 +213,41 @@ async function applyChecklist(
 
     if ("regionId" in target) {
       await pool.query(
-        `INSERT INTO region_species (region_id, species_id, local_frequency, seasonality, local_tier, is_vagrant)
-         VALUES ($1, $2, $3, $4, $5, $6)
+        `INSERT INTO region_species (region_id, species_id, local_frequency, seasonality, local_tier, is_vagrant, weekly_frequency)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
          ON CONFLICT (region_id, species_id) DO UPDATE SET
            local_frequency = EXCLUDED.local_frequency,
            seasonality = EXCLUDED.seasonality,
            local_tier = EXCLUDED.local_tier,
-           is_vagrant = EXCLUDED.is_vagrant`,
-        [target.regionId, row.id, sp.localFrequency ?? null, sp.seasonality ?? null, sp.localTier ?? null, sp.isVagrant ?? false],
+           is_vagrant = EXCLUDED.is_vagrant,
+           weekly_frequency = EXCLUDED.weekly_frequency`,
+        [
+          target.regionId,
+          row.id,
+          sp.localFrequency ?? null,
+          sp.seasonality ?? null,
+          sp.localTier ?? null,
+          sp.isVagrant ?? false,
+          sp.weeklyFrequency ?? null,
+        ],
       );
+      // Gap-finder hotspot clusters — province-level only (sp.hotspots is undefined for a
+      // country's own top-level species list, so this never runs there). Delete-then-reinsert
+      // per species, same freshness pattern as compute-provinces-bulk.ts's own write.
+      if (sp.hotspots) {
+        await pool.query(`DELETE FROM region_species_hotspots WHERE region_id = $1 AND species_id = $2`, [
+          target.regionId,
+          row.id,
+        ]);
+        for (const h of sp.hotspots) {
+          await pool.query(
+            `INSERT INTO region_species_hotspots
+               (region_id, species_id, centroid_lat, centroid_lon, point_count, bbox_diagonal_km, last_seen_year, distinct_years)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+            [target.regionId, row.id, h.centroidLat, h.centroidLon, h.pointCount, h.bboxDiagonalKm, h.lastSeenYear, h.distinctYears],
+          );
+        }
+      }
     } else {
       await pool.query(
         `INSERT INTO sea_zone_species (sea_zone_id, species_id, record_count)

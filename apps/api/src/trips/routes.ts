@@ -2,13 +2,14 @@ import type { FastifyInstance } from "fastify";
 import { createReadStream, existsSync, statSync, mkdirSync } from "node:fs";
 import path from "node:path";
 import { pool } from "../db.js";
-import { requireAuth } from "../auth/session.js";
+import { requireAuth, requireScope } from "../auth/session.js";
 import { requireDesktopMode } from "../settings/routes.js";
 import { scanTrip, resolveWithinTripFolder } from "./scan.js";
 import { sanitizeForFilesystem } from "../uploads/speciesFolderName.js";
 import { importTripFile } from "./import.js";
 import { mapWithConcurrency } from "data-pipeline/src/concurrency.js";
 import { toCollectionItem } from "../collection/collectionItem.js";
+import { nextDefaultName } from "../lib/defaultName.js";
 
 // Same concurrency BulkImportPage's own client-side upload loop uses — each file pays a real
 // exiftool round-trip plus a sharp resize, so importing even a handful sequentially (the
@@ -139,8 +140,16 @@ export async function tripsRoutes(app: FastifyInstance): Promise<void> {
   app.post<{ Body: { name?: string; sourceFolder?: string } }>("/trips", { preHandler: requireAuth }, async (request, reply) => {
     if (!requireDesktopMode(reply)) return;
     const userId = request.user!.id;
-    const { name, sourceFolder } = request.body ?? {};
-    if (!name || !sourceFolder) return reply.code(400).send({ error: "name and sourceFolder are required" });
+    const { sourceFolder } = request.body ?? {};
+    let name = request.body?.name?.trim();
+    if (!sourceFolder) return reply.code(400).send({ error: "sourceFolder is required" });
+    if (!name) {
+      const countRes = await pool.query(
+        `SELECT count(*) FROM trips WHERE user_id = $1 AND name ~ '^Untitled Trip( [A-Za-z-]+)?$'`,
+        [userId],
+      );
+      name = nextDefaultName("Trip", Number(countRes.rows[0].count));
+    }
 
     const res = await pool.query<{ id: string }>(
       `INSERT INTO trips (user_id, name, source_folder) VALUES ($1, $2, $3) RETURNING id`,
@@ -160,8 +169,16 @@ export async function tripsRoutes(app: FastifyInstance): Promise<void> {
   app.post<{ Body: { name?: string; parentDir?: string } }>("/trips/build", { preHandler: requireAuth }, async (request, reply) => {
     if (!requireDesktopMode(reply)) return;
     const userId = request.user!.id;
-    const { name, parentDir } = request.body ?? {};
-    if (!name || !parentDir) return reply.code(400).send({ error: "name and parentDir are required" });
+    const { parentDir } = request.body ?? {};
+    let name = request.body?.name?.trim();
+    if (!parentDir) return reply.code(400).send({ error: "parentDir is required" });
+    if (!name) {
+      const countRes = await pool.query(
+        `SELECT count(*) FROM trips WHERE user_id = $1 AND name ~ '^Untitled Trip( [A-Za-z-]+)?$'`,
+        [userId],
+      );
+      name = nextDefaultName("Trip", Number(countRes.rows[0].count));
+    }
 
     const folderName = sanitizeForFilesystem(name);
     if (!folderName) return reply.code(400).send({ error: "That name can't be used as a folder name" });
@@ -175,7 +192,7 @@ export async function tripsRoutes(app: FastifyInstance): Promise<void> {
     return reply.code(201).send({ id: res.rows[0].id, sourceFolder });
   });
 
-  app.get("/trips", { preHandler: requireAuth }, async (request, reply) => {
+  app.get("/trips", { preHandler: requireScope("trips.read") }, async (request, reply) => {
     if (!requireDesktopMode(reply)) return;
     const userId = request.user!.id;
     const res = await pool.query(
@@ -224,7 +241,7 @@ export async function tripsRoutes(app: FastifyInstance): Promise<void> {
     };
   });
 
-  app.get<{ Params: { id: string } }>("/trips/:id", { preHandler: requireAuth }, async (request, reply) => {
+  app.get<{ Params: { id: string } }>("/trips/:id", { preHandler: requireScope("trips.read") }, async (request, reply) => {
     if (!requireDesktopMode(reply)) return;
     const userId = request.user!.id;
     const res = await pool.query(
@@ -252,24 +269,45 @@ export async function tripsRoutes(app: FastifyInstance): Promise<void> {
   // whatever's now in the new folder, the exact same matchAgainstKnownOriginals logic that
   // already handles a file moving WITHIN a trip's own folder (scan.ts) — a relocated folder
   // is really just every file "moving" at once.
-  app.patch<{ Params: { id: string }; Body: { sourceFolder?: string } }>(
+  app.patch<{ Params: { id: string }; Body: { sourceFolder?: string; name?: string } }>(
     "/trips/:id",
     { preHandler: requireAuth },
     async (request, reply) => {
       if (!requireDesktopMode(reply)) return;
       const userId = request.user!.id;
-      const { sourceFolder } = request.body ?? {};
-      if (!sourceFolder) return reply.code(400).send({ error: "sourceFolder is required" });
-      if (!existsSync(sourceFolder) || !statSync(sourceFolder).isDirectory()) {
+      const { sourceFolder, name } = request.body ?? {};
+      if (sourceFolder === undefined && name === undefined) {
+        return reply.code(400).send({ error: "sourceFolder or name is required" });
+      }
+      if (sourceFolder !== undefined && (!existsSync(sourceFolder) || !statSync(sourceFolder).isDirectory())) {
         return reply.code(400).send({ error: "That folder doesn't exist on this server" });
+      }
+      if (name !== undefined && !name.trim()) {
+        return reply.code(400).send({ error: "name can't be empty" });
       }
       const tripRes = await pool.query(`SELECT id FROM trips WHERE id = $1 AND user_id = $2`, [request.params.id, userId]);
       if (tripRes.rows.length === 0) return reply.code(404).send({ error: "Trip not found" });
 
-      await pool.query(`UPDATE trips SET source_folder = $1 WHERE id = $2`, [sourceFolder, request.params.id]);
+      await pool.query(
+        `UPDATE trips SET
+           source_folder = COALESCE($2, source_folder),
+           name = COALESCE($3, name)
+         WHERE id = $1`,
+        [request.params.id, sourceFolder ?? null, name?.trim() ?? null],
+      );
       return { ok: true };
     },
   );
+
+  // Detaches every capture from this trip (ON DELETE SET NULL, migration 046) and removes the
+  // trip row itself — never touches the underlying photos, same "delete the grouping, not the
+  // content" behavior as an album delete.
+  app.delete<{ Params: { id: string } }>("/trips/:id", { preHandler: requireAuth }, async (request, reply) => {
+    if (!requireDesktopMode(reply)) return;
+    const res = await pool.query(`DELETE FROM trips WHERE id = $1 AND user_id = $2`, [request.params.id, request.user!.id]);
+    if (res.rowCount === 0) return reply.code(404).send({ error: "Trip not found" });
+    return { ok: true };
+  });
 
   // Manual cover pick — trips.cover_capture_id (migration 046) sat unused until now (the
   // default was always "most recent capture with a photo," same as reference photos'
@@ -347,7 +385,7 @@ export async function tripsRoutes(app: FastifyInstance): Promise<void> {
   // this mirrors) — scoped to species with at least one capture on this trip. The "Species
   // view" toggle on the trip page (vs. the default photo-grid gallery view) renders these as
   // plain SpeciesCards, same as the collection page.
-  app.get<{ Params: { id: string } }>("/trips/:id/species", { preHandler: requireAuth }, async (request, reply) => {
+  app.get<{ Params: { id: string } }>("/trips/:id/species", { preHandler: requireScope("trips.read") }, async (request, reply) => {
     if (!requireDesktopMode(reply)) return;
     const userId = request.user!.id;
     const tripRes = await pool.query(`SELECT id FROM trips WHERE id = $1 AND user_id = $2`, [request.params.id, userId]);
@@ -389,12 +427,59 @@ export async function tripsRoutes(app: FastifyInstance): Promise<void> {
     return { items: res.rows.map(toCollectionItem) };
   });
 
+  // "Lifers gained + rare/endemic species encountered on this trip" — the summary layer the
+  // main trip list/species views don't compute (those answer "what's in this trip," not "what
+  // was NEW or notable about it"). A species counts as a lifer here when its very first-ever
+  // confirmed capture (user_species.first_collected) IS one of this trip's own captures — not
+  // just "first_collected falls within the trip's date range," which would also catch a species
+  // first seen elsewhere on the same calendar day.
+  app.get<{ Params: { id: string } }>("/trips/:id/summary", { preHandler: requireScope("trips.read") }, async (request, reply) => {
+    if (!requireDesktopMode(reply)) return;
+    const userId = request.user!.id;
+    const tripId = request.params.id;
+    const tripRes = await pool.query(`SELECT id FROM trips WHERE id = $1 AND user_id = $2`, [tripId, userId]);
+    if (tripRes.rows.length === 0) return reply.code(404).send({ error: "Trip not found" });
+
+    const res = await pool.query<{
+      species_count: string;
+      lifer_count: string;
+      rare_count: string;
+      endemic_count: string;
+    }>(
+      `WITH trip_species AS (
+         SELECT DISTINCT c.species_id FROM captures c WHERE c.trip_id = $1
+       )
+       SELECT
+         (SELECT COUNT(*) FROM trip_species) AS species_count,
+         (SELECT COUNT(*) FROM trip_species ts
+            JOIN user_species us ON us.user_id = $2 AND us.species_id = ts.species_id
+            WHERE EXISTS (
+              SELECT 1 FROM captures c
+              WHERE c.trip_id = $1 AND c.species_id = ts.species_id AND c.taken_at = us.first_collected
+            )) AS lifer_count,
+         (SELECT COUNT(*) FROM trip_species ts
+            JOIN species_rarity r ON r.species_id = ts.species_id
+            WHERE r.tier IN ('rare', 'epic', 'legendary')) AS rare_count,
+         (SELECT COUNT(*) FROM trip_species ts
+            JOIN species_traits t ON t.species_id = ts.species_id
+            WHERE t.endemic_country_iso3 IS NOT NULL OR t.endemic_region_label IS NOT NULL) AS endemic_count`,
+      [tripId, userId],
+    );
+    const row = res.rows[0];
+    return {
+      speciesCount: Number(row.species_count),
+      liferCount: Number(row.lifer_count),
+      rareCount: Number(row.rare_count),
+      endemicCount: Number(row.endemic_count),
+    };
+  });
+
   // The trip's default view is a plain photo grid (every capture from this trip, like
   // GalleryPage.tsx's own /gallery — not the collection page's per-species cards, since a trip
   // is "what did I photograph on this trip," not "what have I ever collected"). Same shape as
   // GalleryPage's GalleryItem so the frontend can reuse its MasonryGrid/ProgressiveImg/Lightbox
   // rendering as-is.
-  app.get<{ Params: { id: string } }>("/trips/:id/photos", { preHandler: requireAuth }, async (request, reply) => {
+  app.get<{ Params: { id: string } }>("/trips/:id/photos", { preHandler: requireScope("trips.read") }, async (request, reply) => {
     if (!requireDesktopMode(reply)) return;
     const userId = request.user!.id;
     const tripRes = await pool.query(`SELECT id FROM trips WHERE id = $1 AND user_id = $2`, [request.params.id, userId]);
@@ -462,14 +547,14 @@ export async function tripsRoutes(app: FastifyInstance): Promise<void> {
     return { started: true };
   });
 
-  app.get<{ Params: { id: string } }>("/trips/:id/scan/status", { preHandler: requireAuth }, async (request, reply) => {
+  app.get<{ Params: { id: string } }>("/trips/:id/scan/status", { preHandler: requireScope("trips.read") }, async (request, reply) => {
     if (!requireDesktopMode(reply)) return;
     return jobFor(request.params.id);
   });
 
   app.get<{ Params: { id: string }; Querystring: { file?: string } }>(
     "/trips/:id/scan-preview",
-    { preHandler: requireAuth },
+    { preHandler: requireScope("trips.read") },
     async (request, reply) => {
       if (!requireDesktopMode(reply)) return;
       const userId = request.user!.id;
@@ -521,7 +606,7 @@ export async function tripsRoutes(app: FastifyInstance): Promise<void> {
     },
   );
 
-  app.get<{ Params: { id: string } }>("/trips/:id/import/status", { preHandler: requireAuth }, async (request, reply) => {
+  app.get<{ Params: { id: string } }>("/trips/:id/import/status", { preHandler: requireScope("trips.read") }, async (request, reply) => {
     if (!requireDesktopMode(reply)) return;
     return importJobFor(request.params.id);
   });

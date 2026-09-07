@@ -1,7 +1,8 @@
 // Assembles apps/desktop/resources-staging/ — everything the packaged Tauri app needs bundled
 // alongside the Rust binary: the (unmodified) API source run via tsx, the built web app, and a
 // pruned copy of node_modules holding only what's actually needed at runtime.
-import { mkdirSync, rmSync, cpSync, readFileSync, readdirSync, statSync, existsSync } from "node:fs";
+import { mkdirSync, rmSync, cpSync, readFileSync, readdirSync, statSync, existsSync, linkSync } from "node:fs";
+import { createHash } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -21,6 +22,14 @@ const STAGING = path.join(__dirname, "..", "src-tauri", "resources-staging");
 // generation: same lockfile-closure approach used for the old Electron build, after two rounds
 // of fixing real misses there (fs-minipass, the whole @fastify scope) — kept as a separate,
 // regeneratable data file now that there's no sibling Electron config left to read it from.
+//
+// One hand-added carve-out beyond the lockfile closure: "exceljs" (~25MB) is a real dependency
+// edge (data-pipeline/src/fetch/fetch-avonet.ts imports it) but that file is only ever run
+// directly as a one-off data-enrichment script (via build-seed.ts/build-seed-test.ts, both
+// dev/build tooling) — no route the shipped app actually serves imports it, so it's excluded
+// here even though a pure lockfile-closure walk would keep it. If a future regeneration of this
+// file drops this entry, re-add it (or re-verify fetch-avonet.ts really is still unreachable at
+// runtime and remove this comment instead).
 function loadNodeModulesExcludeSet() {
   const names = JSON.parse(readText(path.join(__dirname, "node-modules-exclude.json")));
   // This app's OWN workspace symlink in root node_modules (npm names it after whatever
@@ -43,7 +52,11 @@ function copyNodeModules(exclude) {
   const src = path.join(REPO_ROOT, "node_modules");
   for (const name of readdirSync(src)) {
     if (exclude.has(name)) continue;
-    cpSync(path.join(src, name), path.join(dest, name), { recursive: true, dereference: true });
+    cpSync(path.join(src, name), path.join(dest, name), {
+      recursive: true,
+      dereference: true,
+      filter: (s) => !shouldSkipDuringCopy(s),
+    });
   }
 
   // npm doesn't always hoist every package to the root — a workspace whose own required
@@ -60,7 +73,11 @@ function copyNodeModules(exclude) {
     const nested = path.join(REPO_ROOT, workspaceDir, "node_modules");
     try {
       for (const name of readdirSync(nested)) {
-        cpSync(path.join(nested, name), path.join(dest, name), { recursive: true, dereference: true });
+        cpSync(path.join(nested, name), path.join(dest, name), {
+          recursive: true,
+          dereference: true,
+          filter: (s) => !shouldSkipDuringCopy(s),
+        });
       }
     } catch {
       // No nested node_modules for this workspace — everything it needs was hoisted. Fine.
@@ -133,6 +150,115 @@ function stripMuslVariants(stagingNodeModulesDir) {
   if (removed > 0) console.log(`[prepare-resources] stripped ${removed} musl-linked package dir(s)`);
 }
 
+// onnxruntime-node ships prebuilt native bindings for EVERY platform it supports
+// (bin/napi-v6/{darwin,linux,win32}/...) inside the single npm package — normal for a package
+// meant to be installed once and run cross-platform, but a build FOR one specific host only
+// ever needs its own platform's subfolder. Confirmed via `du -sh`: darwin/linux/win32 sum to
+// ~283MB combined in a real install, so shipping the other two platforms' binaries alongside
+// the one this build actually runs on is real, substantial dead weight — not the ~1-2MB a naive
+// glance at file COUNT would suggest.
+function stripNonHostOnnxPlatforms(stagingNodeModulesDir) {
+  const napiDir = path.join(stagingNodeModulesDir, "onnxruntime-node", "bin", "napi-v6");
+  let removedBytes = 0;
+  function dirSizeBytes(dir) {
+    let total = 0;
+    for (const name of readdirSync(dir)) {
+      const full = path.join(dir, name);
+      const st = statSync(full);
+      total += st.isDirectory() ? dirSizeBytes(full) : st.size;
+    }
+    return total;
+  }
+  try {
+    for (const platformDir of readdirSync(napiDir)) {
+      if (platformDir === process.platform) continue;
+      const full = path.join(napiDir, platformDir);
+      if (!statSync(full).isDirectory()) continue;
+      removedBytes += dirSizeBytes(full);
+      rmSync(full, { recursive: true, force: true });
+    }
+  } catch {
+    // No onnxruntime-node/bin/napi-v6 in this build (e.g. excluded from the dependency
+    // closure entirely) — fine, nothing to strip.
+  }
+  if (removedBytes > 0) {
+    console.log(`[prepare-resources] stripped ${(removedBytes / 1024 / 1024).toFixed(0)}MB of non-host onnxruntime platform binaries`);
+  }
+}
+
+// onnxruntime-node's own package ships BOTH the fully-versioned dylib (e.g.
+// libonnxruntime.1.29.0.dylib, the real file) and an unversioned/major-version-only name
+// (libonnxruntime.1.dylib) that's a symlink to it, following normal shared-library versioning
+// convention — but copyNodeModules above uses `dereference: true` (needed elsewhere so Tauri's
+// resource bundler doesn't just silently drop symlinks — see its own comment), which turns that
+// symlink into a second, byte-identical real file copy (confirmed via MD5: 42MB duplicated in a
+// real build). Both filenames still need to actually exist on disk (the loader may reference
+// either), so this can't just delete one — replacing the duplicate with a hard link to the
+// first copy keeps both names resolvable while sharing the same on-disk bytes. Hard links (not
+// symlinks) survive Tauri's resource-copy step because they're indistinguishable from a normal
+// file to anything that isn't specifically checking inode counts.
+function dedupeIdenticalOnnxDylibs(stagingNodeModulesDir) {
+  const binDir = path.join(stagingNodeModulesDir, "onnxruntime-node", "bin");
+  const byHash = new Map();
+  let savedBytes = 0;
+  function walk(dir) {
+    for (const name of readdirSync(dir)) {
+      const full = path.join(dir, name);
+      if (statSync(full).isDirectory()) {
+        walk(full);
+        continue;
+      }
+      if (!name.endsWith(".dylib") && !name.endsWith(".so")) continue;
+      const hash = createHash("md5").update(readFileSync(full)).digest("hex");
+      const existing = byHash.get(hash);
+      if (!existing) {
+        byHash.set(hash, full);
+        continue;
+      }
+      const size = statSync(full).size;
+      rmSync(full);
+      linkSync(existing, full);
+      savedBytes += size;
+    }
+  }
+  try {
+    walk(binDir);
+  } catch {
+    // No onnxruntime-node/bin in this build — fine, nothing to dedupe.
+  }
+  if (savedBytes > 0) {
+    console.log(`[prepare-resources] hard-linked ${(savedBytes / 1024 / 1024).toFixed(0)}MB of duplicate onnxruntime native library file(s)`);
+  }
+}
+
+// data-pipeline is a real workspace package the packaged app imports from at runtime (see
+// main()'s own comment on copyNodeModules resolving its symlink into a real file copy) — but
+// its package directory ALSO holds dev/build-only artifacts that have no business shipping:
+// data/ (raw + cached GBIF downloads, e.g. gbif-country-cache/ — 40GB+ locally, confirmed the
+// single largest thing in the entire staged app by two orders of magnitude), packs/ (built pack
+// tarballs — these get published to a GitHub Release and downloaded on demand by the running
+// app, never read from the local package directory), and coverage/ (vitest coverage reports).
+// None of these are ever imported by any runtime code path (only src/, migrations/, and
+// package.json are). Confirmed this exact bug live TWICE: a built .app measured 43GB, of which
+// 42GB was this one package directory's dev artifacts, not actual app code — and a first fix
+// attempt that copied everything and then deleted these dirs afterward still needed enough free
+// disk to hold the full 41GB+ copy at its peak, which exhausted this machine's disk entirely
+// (ENOSPC mid-copy) before the delete step ever ran. Filtering these paths OUT during the copy
+// itself (cpSync's own `filter` option, below) avoids that peak entirely — the bytes are never
+// written in the first place, not written then removed.
+const DATA_PIPELINE_DEV_ONLY_DIRS = ["data", "packs", "coverage"];
+
+// Source maps (1,300+ files, ~80MB across the staged node_modules in a real measured build) are
+// purely a debugging aid for whoever authored the package — nothing in this app's own runtime
+// ever reads a .js.map file, so they're dead weight in every shipped build.
+function shouldSkipDuringCopy(srcPath) {
+  if (srcPath.endsWith(".map")) return true;
+  const segments = srcPath.split(path.sep);
+  const idx = segments.lastIndexOf("data-pipeline");
+  if (idx === -1) return false;
+  return DATA_PIPELINE_DEV_ONLY_DIRS.includes(segments[idx + 1]);
+}
+
 function main() {
   rmSync(STAGING, { recursive: true, force: true });
   mkdirSync(STAGING, { recursive: true });
@@ -155,6 +281,8 @@ function main() {
   copyNodeModules(exclude);
   stripOnnxGpuProviders(path.join(STAGING, "node_modules"));
   stripMuslVariants(path.join(STAGING, "node_modules"));
+  stripNonHostOnnxPlatforms(path.join(STAGING, "node_modules"));
+  dedupeIdenticalOnnxDylibs(path.join(STAGING, "node_modules"));
 
   console.log(`[prepare-resources] staged at ${STAGING}`);
 }

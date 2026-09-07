@@ -6,9 +6,9 @@
 // sentence, which tends to be taxonomic/range boilerplate ("X is a small bird that breeds
 // in..."). Falls back to the lead paragraph when no Description section exists. Still NOT
 // sourced from Merlin itself, whose text is proprietary and explicitly excluded
-// (lifer-spec.md section 5) - Wikipedia is the approved, differently-licensed substitute.
+// - Wikipedia is the approved, differently-licensed substitute.
 // Kept to a couple of sentences, not the full section, per the product's own non-goal of
-// not being a field guide (lifer-spec.md section 2) - a quick-glance caption, not
+// not being a field guide - a quick-glance caption, not
 // encyclopedic content reproduced wholesale.
 
 import { mkdirSync, writeFileSync } from "node:fs";

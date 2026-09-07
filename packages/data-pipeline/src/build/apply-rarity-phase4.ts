@@ -116,6 +116,7 @@ export function resolveRawElusivenessScore(elusivenessByGbifKey: Map<number, num
 export async function applyElusiveness(
   elusivenessByGbifKey: Map<number, number>,
   endemicCountryIso3ByGbifKey: Map<number, string> = new Map(),
+  vagrantCountriesByGbifKey: Map<number, Set<string>> = new Map(),
 ): Promise<void> {
   // Range score is recomputed fresh from species_traits here rather than trusted from the
   // stored species_rarity.range_score — that stored value could still carry the old, broken
@@ -366,6 +367,7 @@ export async function applyElusiveness(
   }
 
   const iso3ById = new Map(rows.map((r) => [r.id, endemicCountryIso3ByGbifKey.get(Number(r.gbif_key)) ?? null]));
+  const vagrantCountriesById = new Map(rows.map((r) => [r.id, vagrantCountriesByGbifKey.get(Number(r.gbif_key)) ?? null]));
 
   const client = await pool.connect();
   try {
@@ -381,6 +383,17 @@ export async function applyElusiveness(
         iso3ById.get(row.id) ?? null,
         row.id,
       ]);
+      // Rewritten wholesale from this species' fresh crawl result, not merged with whatever a
+      // previous crawl left — a country that's since been reclassified as native-range (or vice
+      // versa) needs its old flag to actually disappear, not linger alongside the new one.
+      await client.query(`DELETE FROM species_nonnative_countries WHERE species_id = $1`, [row.id]);
+      const vagrantCountries = vagrantCountriesById.get(row.id);
+      if (vagrantCountries && vagrantCountries.size > 0) {
+        await client.query(
+          `INSERT INTO species_nonnative_countries (species_id, country_iso3) SELECT $1, unnest($2::text[])`,
+          [row.id, [...vagrantCountries]],
+        );
+      }
     }
     await client.query("COMMIT");
   } catch (err) {

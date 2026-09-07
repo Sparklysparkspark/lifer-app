@@ -5,18 +5,20 @@
 // instead: a Trip's source folder isn't Lifer's own organized tree, so it has no embedded-
 // metadata-plus-folder-structure combination this reimport tool otherwise relies on).
 //
-// Every managed JPEG already carries its own species in embedded metadata (writeSpeciesMetadata,
-// uploads/exif.ts) specifically for this scenario — folder names are NEVER trusted as the
-// source of truth (no DB uniqueness on common_name, so two species could historically have
-// shared one — see speciesFolderName.ts), only as a last-resort tiebreaker for the one case
-// embedded metadata alone can't resolve on its own: a multi-species photo (secondary species
-// tagging embeds every tagged name into the same flat Keywords/Subject list, with no tag
-// distinguishing which one is primary). A file's own folder was chosen for its PRIMARY species
-// at upload time and never moves after that (secondary tagging only edits metadata, never
-// relocates the file — see captures/routes.ts's resyncSpeciesMetadata), so "which of these
-// candidate species does this file's own folder resolve to" is a real, deterministic signal,
-// not a guess — reusing speciesFolderName.ts's own resolver keeps the tiebreak logic identical
-// to how that folder was written in the first place.
+// A managed JPEG Lifer itself wrote already carries its species in embedded metadata
+// (writeSpeciesMetadata, uploads/exif.ts) — the reliable case. But a library brought in from a
+// DIFFERENT tool (Lightroom, digiKam, a plain folder-naming convention, or all three at once
+// across years of accumulated habits) may have that same information anywhere: embedded
+// EXIF/IPTC, a companion XMP sidecar file instead of embedded (common for RAW formats
+// Lightroom won't write into directly — see uploads/exif.ts's findSidecarPath), or nowhere but
+// the file/folder name itself (scientific name, common name, an ABA/eBird code, or a mix,
+// sometimes combined with a location name). Every one of those is unioned into ONE candidate
+// set before matching, not tried in a fixed priority order — a real photo may only have ONE of
+// them, and there's no reliable way to know in advance which. Folder name ALSO still serves its
+// original, narrower purpose: the tiebreaker when embedded/sidecar keywords match more than one
+// species (a multi-species photo's flat Keywords list has no tag distinguishing which one is
+// primary) — reusing speciesFolderName.ts's own resolver keeps that tiebreak identical to how
+// the folder was written in the first place, when the folder was actually written by Lifer.
 //
 // Species ids are NOT stable across a fresh reseed (only gbif_key is UNIQUE — see
 // tripIndex.ts's identical note), so every match here goes through scientific_name, and a
@@ -27,11 +29,12 @@ import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { pool } from "../db.js";
 import { generateDerivatives } from "../uploads/image.js";
-import { extractExif, extractKeywords, readExifTags, type ExifTags } from "../uploads/exif.js";
+import { extractExif, extractKeywordsWithSidecar, readExifTags, type ExifTags } from "../uploads/exif.js";
 import { computeContentHash, computeFileFingerprint } from "../uploads/fileFingerprint.js";
 import { resolveSpeciesFolderName } from "../uploads/speciesFolderName.js";
 import { RAW_EXTENSIONS } from "../uploads/rawExtensions.js";
-import { matchSpeciesByKeywords, groupByScientificName } from "../species/matchByKeywords.js";
+import { matchSpeciesByKeywords, groupByScientificName, type KeywordMatchedSpecies } from "../species/matchByKeywords.js";
+import { matchSpeciesFromFilename } from "../species/matchByFilename.js";
 import { moveManagedOriginalToSpeciesFolder } from "../uploads/routes.js";
 
 const JPEG_EXTENSIONS = new Set([".jpg", ".jpeg"]);
@@ -136,10 +139,10 @@ async function repairIfStale(
 
 // Only reached when embedded keywords matched more than one distinct scientific name — picks
 // whichever one this file's OWN folder was actually written for (see this file's top comment).
-async function findRowMatchingFolder(absolutePath: string, byName: Map<string, SpeciesRow[]>): Promise<SpeciesRow[] | null> {
+async function findRowMatchingFolder(userId: string, absolutePath: string, byName: Map<string, SpeciesRow[]>): Promise<SpeciesRow[] | null> {
   const parentFolder = path.basename(path.dirname(path.dirname(absolutePath)));
   for (const rows of byName.values()) {
-    const folderName = await resolveSpeciesFolderName(rows[0].common_name, rows[0].scientific_name);
+    const folderName = await resolveSpeciesFolderName(userId, rows[0].id);
     if (folderName === parentFolder) return rows;
   }
   return null;
@@ -161,7 +164,7 @@ export async function recoverJpeg(
   organize = false,
   organizeByYear = false,
 ): Promise<JpegOutcome> {
-  const contentHash = computeContentHash(absolutePath);
+  const contentHash = await computeContentHash(absolutePath);
   const known = await pool.query<{ id: string; ref: string; volume_id: string | null }>(
     `SELECT id, ref, volume_id FROM originals WHERE content_hash = $1 LIMIT 1`,
     [contentHash],
@@ -175,12 +178,23 @@ export async function recoverJpeg(
   if (await isIgnoredLibraryFile(userId, contentHash)) return { status: "ignored" };
 
   const tags: ExifTags = await readExifTags(absolutePath);
-  const candidates = await extractKeywords(absolutePath, tags);
-  if (candidates.length === 0) return { status: "unrecognized", candidates: [], contentHash };
+  // Embedded tags, unioned with a companion XMP sidecar's own tags when one exists (see
+  // findSidecarPath) — either, both, or neither may carry real information depending on how
+  // this particular file was tagged.
+  const candidates = await extractKeywordsWithSidecar(absolutePath, tags);
+  const keywordMatches = candidates.length > 0 ? await matchSpeciesByKeywords(pool, candidates) : [];
 
-  // See matchSpeciesByKeywords for what counts as a match (common name, alias, or a
-  // superseded scientific name via species_synonyms, not just the current scientific name).
-  const matchedRows = await matchSpeciesByKeywords(pool, candidates);
+  // Filename/folder-name fallback (matchSpeciesFromFilename's own comment covers exactly what
+  // counts as a safe match here) — tried unconditionally, not just when keyword matching came
+  // up empty, since a file's name can independently corroborate (or, if it names a DIFFERENT
+  // species, flag a real ambiguity worth a human's attention) whatever the embedded tags say.
+  const fileStem = path.basename(absolutePath, path.extname(absolutePath));
+  const parentFolder = path.basename(path.dirname(absolutePath));
+  const filenameMatches = await matchSpeciesFromFilename(pool, `${fileStem} ${parentFolder}`);
+
+  const matchedById = new Map<string, KeywordMatchedSpecies>();
+  for (const row of [...keywordMatches, ...filenameMatches]) matchedById.set(row.id, row);
+  const matchedRows = [...matchedById.values()];
   if (matchedRows.length === 0) return { status: "unrecognized", candidates, contentHash };
 
   const byName = groupByScientificName(matchedRows);
@@ -189,7 +203,7 @@ export async function recoverJpeg(
   if (byName.size === 1) {
     primaryRows = [...byName.values()][0];
   } else {
-    const matched = await findRowMatchingFolder(absolutePath, byName);
+    const matched = await findRowMatchingFolder(userId, absolutePath, byName);
     if (!matched) return { status: "ambiguous", scientificNames: [...byName.keys()], contentHash };
     primaryRows = matched;
   }
@@ -209,8 +223,8 @@ export async function recoverJpeg(
     ? await moveManagedOriginalToSpeciesFolder(
         absolutePath,
         true,
-        species.common_name,
-        species.scientific_name,
+        userId,
+        species.id,
         "jpeg",
         organizeByYear,
         species.taxon_class,
@@ -317,7 +331,7 @@ export async function recoverRaw(
   organize = false,
   organizeByYear = false,
 ): Promise<RawOutcome> {
-  const contentHash = computeContentHash(absolutePath);
+  const contentHash = await computeContentHash(absolutePath);
   const known = await pool.query<{ id: string; ref: string; volume_id: string | null }>(
     `SELECT id, ref, volume_id FROM originals WHERE content_hash = $1 LIMIT 1`,
     [contentHash],
@@ -337,12 +351,13 @@ export async function recoverRaw(
 
   const candidates = await pool.query<{
     id: string;
+    species_id: string;
     taken_at: string | null;
     common_name: string | null;
     scientific_name: string;
     taxon_class: string | null;
   }>(
-    `SELECT c.id, c.taken_at, s.common_name, s.scientific_name, s.taxon_class
+    `SELECT c.id, s.id AS species_id, c.taken_at, s.common_name, s.scientific_name, s.taxon_class
      FROM captures c
      JOIN originals o ON o.capture_id = c.id AND o.kind = 'jpeg'
      JOIN species s ON s.id = c.species_id
@@ -363,8 +378,8 @@ export async function recoverRaw(
     ? await moveManagedOriginalToSpeciesFolder(
         absolutePath,
         true,
-        match.common_name,
-        match.scientific_name,
+        userId,
+        match.species_id,
         "raw",
         organizeByYear,
         match.taxon_class,

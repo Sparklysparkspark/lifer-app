@@ -23,6 +23,7 @@ import {
   type VolumeContext,
 } from "./reimport.js";
 import { resolveChosenVolumeDestination } from "../storageVolumes/resolve.js";
+import { friendlyFsErrorMessage } from "../lib/friendlyFsError.js";
 
 // Same concurrency Trips' import job uses (trips/routes.ts) — each file pays a real exiftool
 // round-trip plus (for a recovered JPEG) a sharp resize, so running this sequentially over a
@@ -61,6 +62,7 @@ interface ReimportJobState {
   // Distinct scientific names this run recovered that have no reference photo/description in
   // the current catalog — the direct input to the pack-recommendation feature.
   missingReferenceData: string[];
+  cancelled: boolean;
 }
 
 function freshJobState(): ReimportJobState {
@@ -82,6 +84,7 @@ function freshJobState(): ReimportJobState {
     rawsRelinked: 0,
     rawsUnmatched: 0,
     missingReferenceData: [],
+    cancelled: false,
   };
 }
 
@@ -90,6 +93,10 @@ let job: ReimportJobState = freshJobState();
 // inside) the polled job state since the client never needs to see it, only used server-side
 // to resolve an unmatched entry's relativePath back to a real file for the preview endpoint.
 let jobWalkDir: string | null = null;
+// Checked between files rather than aborting in-flight work — a file already mid-exiftool-call
+// or mid-hash-stream finishes normally, but no NEW file starts once this is set. Reset at the
+// top of every fresh run so a later reimport isn't born already cancelled.
+let cancelRequested = false;
 
 async function runReimportJob(
   userId: string,
@@ -98,6 +105,7 @@ async function runReimportJob(
   organize: boolean,
   organizeByYear: boolean,
 ): Promise<void> {
+  cancelRequested = false;
   try {
     const { jpegs, raws } = listManagedFiles(walkDir);
     job.totalJpegs = jpegs.length;
@@ -108,6 +116,10 @@ async function runReimportJob(
     // JPEGs first, in full — RAW recovery below matches against JPEG captures already
     // committed to the database, so it needs this pass finished, not interleaved with it.
     await mapWithConcurrency(jpegs, CONCURRENCY, async (absolutePath) => {
+      if (cancelRequested) {
+        job.processedJpegs++;
+        return;
+      }
       const relativePath = path.relative(walkDir, absolutePath);
       try {
         const outcome = await recoverJpeg(userId, absolutePath, volumeContext, organize, organizeByYear);
@@ -137,6 +149,10 @@ async function runReimportJob(
     });
 
     await mapWithConcurrency(raws, CONCURRENCY, async (absolutePath) => {
+      if (cancelRequested) {
+        job.processedRaws++;
+        return;
+      }
       try {
         const outcome = await recoverRaw(userId, absolutePath, volumeContext, organize, organizeByYear);
         if (outcome.status === "recovered") job.rawsRecovered++;
@@ -150,11 +166,12 @@ async function runReimportJob(
       }
     });
 
-    job.missingReferenceData = await findMissingReferenceData([...recoveredScientificNames]);
+    if (!cancelRequested) job.missingReferenceData = await findMissingReferenceData([...recoveredScientificNames]);
   } catch (err) {
-    job.error = (err as Error).message;
+    job.error = friendlyFsErrorMessage(err);
   } finally {
     job.running = false;
+    job.cancelled = cancelRequested;
     job.finishedAt = Date.now();
   }
 }
@@ -220,6 +237,16 @@ export async function libraryRoutes(app: FastifyInstance): Promise<void> {
   app.get("/library/reimport/status", { preHandler: requireAuth }, async (request, reply) => {
     if (!requireDesktopMode(reply)) return;
     return job;
+  });
+
+  // Stops the run between files rather than mid-file — whatever's already in flight (up to
+  // CONCURRENCY files) finishes normally, everything queued behind it is left completely
+  // untouched on disk, same as it would be if the scan simply hadn't reached it yet.
+  app.post("/library/reimport/cancel", { preHandler: requireAuth }, async (request, reply) => {
+    if (!requireDesktopMode(reply)) return;
+    if (!job.running) return reply.code(409).send({ error: "No reimport is running" });
+    cancelRequested = true;
+    return { ok: true };
   });
 
   // Marks one unmatched file so it stops resurfacing on future scans (migration 063) — e.g. a

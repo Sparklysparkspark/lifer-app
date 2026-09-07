@@ -20,13 +20,15 @@ interface SpeciesRow {
   scientific_name: string;
   taxon_class: string | null;
   family: string | null;
+  aba_code: string | null;
+  ebird_code: string | null;
 }
 
 /** Re-embeds the full, current species list (primary + every tagged secondary) into a
  *  capture's managed JPEG original, if it has one — a linked/external file is never
  *  touched, same rule as the upload flow. Best-effort: a photo with no managed JPEG (RAW-
  *  only, or link/s3 mode) just skips this, nothing to write metadata into. */
-async function resyncSpeciesMetadata(captureId: string): Promise<void> {
+async function resyncSpeciesMetadata(userId: string, captureId: string): Promise<void> {
   const originalRes = await pool.query<{ ref: string }>(
     `SELECT ref FROM originals WHERE capture_id = $1 AND kind = 'jpeg' AND managed = true`,
     [captureId],
@@ -35,12 +37,16 @@ async function resyncSpeciesMetadata(captureId: string): Promise<void> {
   if (!original) return;
 
   const speciesRes = await pool.query<SpeciesRow>(
-    `SELECT s.id, s.common_name, s.scientific_name, s.taxon_class, s.family
+    `SELECT s.id, s.common_name, s.scientific_name, s.taxon_class, s.family, s.aba_code, s.ebird_code
      FROM species s WHERE s.id = (SELECT species_id FROM captures WHERE id = $1)
      UNION ALL
-     SELECT s.id, s.common_name, s.scientific_name, s.taxon_class, s.family
+     SELECT s.id, s.common_name, s.scientific_name, s.taxon_class, s.family, s.aba_code, s.ebird_code
      FROM species s JOIN capture_species cs ON cs.species_id = s.id WHERE cs.capture_id = $1`,
     [captureId],
+  );
+  const namingStyleRes = await pool.query<{ species_naming_styles: string[] }>(
+    `SELECT species_naming_styles FROM users WHERE id = $1`,
+    [userId],
   );
 
   await writeSpeciesMetadata(
@@ -50,7 +56,10 @@ async function resyncSpeciesMetadata(captureId: string): Promise<void> {
       scientificName: s.scientific_name,
       taxonClass: s.taxon_class,
       family: s.family,
+      abaCode: s.aba_code,
+      ebirdCode: s.ebird_code,
     })),
+    namingStyleRes.rows[0]?.species_naming_styles ?? [],
   );
 }
 
@@ -96,7 +105,7 @@ export async function captureRoutes(app: FastifyInstance): Promise<void> {
         [userId, speciesId, capture.current_photo_id, capture.taken_at],
       );
 
-      await resyncSpeciesMetadata(captureId);
+      await resyncSpeciesMetadata(userId, captureId);
       return reply.code(201).send({ ok: true });
     },
   );
@@ -118,7 +127,7 @@ export async function captureRoutes(app: FastifyInstance): Promise<void> {
       // Deliberately NOT touching user_species/collected state here — untagging a photo
       // doesn't retroactively decide whether you've "really" seen that species; that's a
       // separate, explicit decision the collection UI already has its own controls for.
-      await resyncSpeciesMetadata(captureId);
+      await resyncSpeciesMetadata(userId, captureId);
       return { ok: true };
     },
   );
@@ -171,8 +180,8 @@ export async function captureRoutes(app: FastifyInstance): Promise<void> {
         const newRef = await moveManagedOriginalToSpeciesFolder(
           original.ref,
           original.managed,
-          newSpecies.common_name,
-          newSpecies.scientific_name,
+          userId,
+          newSpecies.id,
           original.kind,
           organizeByYear,
           newSpecies.taxon_class,
@@ -193,7 +202,33 @@ export async function captureRoutes(app: FastifyInstance): Promise<void> {
         [userId, speciesId, capture.current_photo_id, capture.taken_at],
       );
 
-      await resyncSpeciesMetadata(captureId);
+      await resyncSpeciesMetadata(userId, captureId);
+      return { ok: true };
+    },
+  );
+
+  // Backfilling a missing taken_at — reachable from the Stats page's Archive health "Missing
+  // date" drill-down (GET /gallery?missingDate=1), so a photo that never had EXIF date data (a
+  // scan, a screenshot, a corrupted file) can get a real date instead of sitting unfixable.
+  app.patch<{ Params: { id: string }; Body: { takenAt: string | null } }>(
+    "/captures/:id/taken-at",
+    { preHandler: requireAuth },
+    async (request, reply) => {
+      const { id: captureId } = request.params;
+      const { takenAt } = request.body ?? {};
+      const userId = request.user!.id;
+
+      if (takenAt !== null && Number.isNaN(new Date(takenAt).getTime())) {
+        return reply.code(400).send({ error: "takenAt must be a valid date, or null to clear" });
+      }
+
+      const res = await pool.query(`UPDATE captures SET taken_at = $1 WHERE id = $2 AND user_id = $3 RETURNING id`, [
+        takenAt,
+        captureId,
+        userId,
+      ]);
+      if (res.rows.length === 0) return reply.code(404).send({ error: "Capture not found" });
+
       return { ok: true };
     },
   );

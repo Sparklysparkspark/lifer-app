@@ -31,9 +31,11 @@ import {
   FISH_MIN_RECORDS,
   FISH_YEARS_WINDOW,
   RECURRENCE_ALLTIME_FLOOR,
+  RECURRENCE_MIN_RECORDS_FRACTION_OF_MEDIAN,
+  medianOf,
   type RegionSpeciesCount,
 } from "data-pipeline/src/build/build-region-species.js";
-import { fetchProvincesForCountry } from "data-pipeline/src/fetch/fetch-region-boundary.js";
+import { fetchProvincesForCountry, fetchAllCountries } from "data-pipeline/src/fetch/fetch-region-boundary.js";
 import { AVES_CLASS_KEY, MAMMALIA_CLASS_KEY } from "data-pipeline/src/fetch/fetch-gbif-backbone.js";
 import { fetchFishTaxonKeys } from "data-pipeline/src/fetch/fetch-fish-orders.js";
 import {
@@ -48,7 +50,10 @@ import {
   type Point,
 } from "data-pipeline/src/geometry.js";
 import {
-  tierForPercentile,
+  tierForScore,
+  BIRD_ABSOLUTE_TIER_THRESHOLDS,
+  MAMMAL_ABSOLUTE_TIER_THRESHOLDS,
+  FISH_ABSOLUTE_TIER_THRESHOLDS,
   percentileRankScores,
   boostElusivenessForNocturnal,
   boostElusivenessForDensity,
@@ -211,6 +216,7 @@ type StateFilter = "all" | "missing" | "collected" | "seen";
 
 const TIER_RANK: Record<string, number> = { legendary: 0, epic: 1, rare: 2, uncommon: 3, common: 4 };
 
+
 // Packs are only ever built at country level (bundling every province inside), so a downloaded
 // pack's own `downloaded_packs.region` value is always a country name — resolves regionId
 // (which might be that country itself, or one of its provinces) up to whichever one that is.
@@ -328,23 +334,13 @@ export async function regionRoutes(app: FastifyInstance): Promise<void> {
     return byRegion;
   });
 
-  // Countries have the fish found locally in their actual land area by default, with an
-  // option to include nearby major sources of water. This list is
-  // only for surfacing reasonable checkbox options; the species themselves are counted from
-  // each sea zone's real, unbuffered polygon (see fetchSpeciesCountsForZone).
-  //
-  // Reads regions.nearby_sea_zone_ids (migration 052) — precomputed once by
-  // backfill-nearby-sea-zones.ts, not live here. nearbyZones (below, still used by that script
-  // and by computeRegionOccurrences' own build-time call) does real ring-distance geometry
-  // against every candidate sea zone's polygon — synchronous, CPU-bound, and expensive enough
-  // for a large/complex coastline (confirmed live: Canada took 2.5+ SECONDS) that running it on
-  // every request was blocking Node's single event loop long enough to stall every OTHER
-  // concurrent request behind it too. The result is a pure function of static reference data
-  // that never changes while the app is running, so a self-hosted install should never compute
-  // it at all — same "packs bring the data, the app never recomputes it live" principle as
-  // everything else in this file. NULL (not backfilled yet — an older catalog seed/pack
-  // predating migration 052) falls back to the old live computation exactly once, rather than
-  // silently showing zero options on an install that hasn't picked up the backfill yet.
+  // Surfaces nearby sea zones as checkbox options (species counts themselves come from each
+  // zone's real polygon via fetchSpeciesCountsForZone). Reads the precomputed
+  // regions.nearby_sea_zone_ids (migration 052, backfill-nearby-sea-zones.ts) rather than
+  // running nearbyZones' real ring-distance geometry live — that's CPU-bound enough on a large
+  // coastline to block the event loop for other requests, and it's a pure function of static
+  // data that never changes at runtime anyway. NULL (pre-migration-052 pack) falls back to the
+  // old live computation once, rather than showing zero options.
   app.get<{ Params: { id: string } }>("/regions/:id/sea-zones", { preHandler: requireAuth }, async (request, reply) => {
     const { id: regionId } = request.params;
     const regionRes = await pool.query<{
@@ -641,6 +637,45 @@ export async function regionRoutes(app: FastifyInstance): Promise<void> {
   });
 }
 
+// Walks up from any region (province or country) to the country-level ancestor's own ISO3 —
+// countries are the level where `sovereignty_group` is set (see CollectionPage.tsx's
+// packRegionNameFor for the same walk on the frontend); a province's own row always has it
+// null. Used to look up species_nonnative_countries below, which is keyed by country, not
+// province.
+interface RegionAncestryRow {
+  external_codes: string[] | null;
+  sovereignty_group: string | null;
+  parent_id: string | null;
+}
+
+async function resolveCountryIso3(regionId: string, depth = 0): Promise<string | null> {
+  if (depth >= 5) return null;
+  const ancestorRes = await pool.query<RegionAncestryRow>(
+    `SELECT external_codes, sovereignty_group, parent_id FROM regions WHERE id = $1`,
+    [regionId],
+  );
+  const ancestorRow = ancestorRes.rows[0];
+  if (!ancestorRow) return null;
+  if (ancestorRow.sovereignty_group != null) {
+    const iso2 = ancestorRow.external_codes?.[0] ?? null;
+    if (!iso2) return null;
+    return (await fetchAllCountries()).find((c) => c.iso2 === iso2)?.iso3 ?? null;
+  }
+  if (!ancestorRow.parent_id) return null;
+  return resolveCountryIso3(ancestorRow.parent_id, depth + 1);
+}
+
+// Species flagged as an escapee/introduced population in this country by the elusiveness
+// crawl's geographic-distance check (compute-elusiveness.ts) — see compute-provinces-bulk.ts's
+// own loadNonNativeSpeciesNames for the bulk-pipeline equivalent of this same lookup.
+async function loadNonNativeGbifKeys(iso3: string): Promise<Set<number>> {
+  const res = await pool.query<{ gbif_key: string }>(
+    `SELECT s.gbif_key FROM species_nonnative_countries snc JOIN species s ON s.id = snc.species_id WHERE snc.country_iso3 = $1`,
+    [iso3],
+  );
+  return new Set(res.rows.map((r) => Number(r.gbif_key)));
+}
+
 // Factored out of the /regions/:id/species lazy-compute block so it can also be called
 // eagerly by a script (see scripts/prioritize-region.ts — North America prioritization),
 // not just triggered by a user's first view of a region.
@@ -799,12 +834,41 @@ export async function computeRegionOccurrences(region: {
   // that failed the recent-window MIN_RECORDS threshold could get "rescued" right back onto
   // Egypt's land checklist via its real, but entirely marine, all-time record spread.
   const allTimeBirdMammalCounts = allTimeBirdMammalCountsRaw.filter((c) => !marineMammalGbifKeys.has(c.gbifKey));
+
+  // Per-taxon-class recurrence-check floor (see build-region-species.ts's own comment on
+  // RECURRENCE_MIN_RECORDS_FRACTION_OF_MEDIAN) — birds and mammals have wildly different record
+  // volumes even in the same region, so each gets its own median, computed only from species
+  // that already clearly passed (recordCount >= MIN_RECORDS in the recent window) rather than
+  // the whole candidate pool, which is mostly noise.
+  const classByGbifKey = new Map<number, string>();
+  if (birdMammalCounts.length > 0) {
+    const classRes = await pool.query<{ gbif_key: string; taxon_class: string }>(
+      `SELECT gbif_key, taxon_class FROM species WHERE gbif_key = ANY($1)`,
+      [birdMammalCounts.map((c) => c.gbifKey)],
+    );
+    for (const row of classRes.rows) classByGbifKey.set(Number(row.gbif_key), row.taxon_class);
+  }
+  const allTimeByGbifKey = new Map(allTimeBirdMammalCounts.map((c) => [c.gbifKey, c.recordCount]));
+  const allTimeTotalsByClass = new Map<string, number[]>();
+  for (const c of birdMammalCounts) {
+    if (c.recordCount < MIN_RECORDS) continue;
+    const cls = classByGbifKey.get(c.gbifKey);
+    const allTime = allTimeByGbifKey.get(c.gbifKey);
+    if (!cls || allTime == null) continue;
+    if (!allTimeTotalsByClass.has(cls)) allTimeTotalsByClass.set(cls, []);
+    allTimeTotalsByClass.get(cls)!.push(allTime);
+  }
+  const recurrenceFloorByClass = new Map(
+    [...allTimeTotalsByClass.entries()].map(([cls, totals]) => [cls, medianOf(totals) * RECURRENCE_MIN_RECORDS_FRACTION_OF_MEDIAN]),
+  );
+  const recurrenceFloorFor = (gbifKey: number): number => recurrenceFloorByClass.get(classByGbifKey.get(gbifKey) ?? "") ?? 0;
+
   const rescueCandidates = allTimeBirdMammalCounts.filter(
     (c) => !passedGbifKeys.has(c.gbifKey) && c.recordCount >= RECURRENCE_ALLTIME_FLOOR,
   );
   for (const candidate of rescueCandidates) {
     const yearCounts = await fetchYearCountsForSpecies(code, candidate.gbifKey);
-    if (!passesRecurrenceCheck(yearCounts)) continue;
+    if (!passesRecurrenceCheck(yearCounts, recurrenceFloorFor(candidate.gbifKey))) continue;
     // Second check (see fetchRecordSampleForSpecies/looksCaptiveOnly's own comments — this
     // catches cases like Swinhoe's Pheasant "found" in Canada via Calgary Zoo/Hancock
     // Wildlife Centre specimens) — recurrence alone can't tell a genuine sparse resident from a
@@ -904,15 +968,18 @@ export async function computeRegionOccurrences(region: {
   // the actual bottleneck making region computation take a very long time under GBIF's rate
   // limits — hundreds of sequential per-species calls for a well-recorded region.
   const yearlyCountsByGbifKey = await fetchYearlyRecordCounts(code, BIRD_MAMMAL_TAXON_KEYS);
+  const countryIso3 = await resolveCountryIso3(regionId);
+  const nonNativeGbifKeys = countryIso3 ? await loadNonNativeGbifKeys(countryIso3) : new Set<number>();
   for (const c of wildFiltered) {
+    const isNonNative = nonNativeGbifKeys.has(c.gbifKey);
     if (fishGbifKeys.has(c.gbifKey)) {
       const recordCount = fishRecordCountByGbifKey.get(c.gbifKey) ?? 0;
-      isVagrantByGbifKey.set(c.gbifKey, recordCount < FISH_VAGRANT_MIN_RECORDS);
+      isVagrantByGbifKey.set(c.gbifKey, isNonNative || recordCount < FISH_VAGRANT_MIN_RECORDS);
       continue;
     }
     const yearCounts = yearlyCountsByGbifKey.get(c.gbifKey) ?? [];
     const total = yearCounts.reduce((sum, y) => sum + y.count, 0);
-    const isVagrant = total > 0 && !passesRecurrenceCheck(yearCounts);
+    const isVagrant = isNonNative || (total > 0 && !passesRecurrenceCheck(yearCounts, recurrenceFloorFor(c.gbifKey)));
     isVagrantByGbifKey.set(c.gbifKey, isVagrant);
     // How concentrated into a single year, continuous (0 = spread evenly, 1 = literally
     // every record from one year) — a species that JUST misses the recurrence bar (maxShare
@@ -923,10 +990,9 @@ export async function computeRegionOccurrences(region: {
 
   // Base score from record-count rank (0 = most-recorded/easiest here, 1 = rarest
   // here), then nocturnal + low-density species (real EltonTraits/Callaghan-et-al.
-  // data, not a guess — see compute-rarity-phase1.ts) get boosted before tiers are
-  // assigned, not after, so re-ranking by the boosted score still means something for
-  // the tier shares. Domestic species are excluded from this ranking pool entirely
-  // (see above) — their own record counts would be meaningless noise in it either way.
+  // data, not a guess — see compute-rarity-phase1.ts) get boosted into a single composite.
+  // Domestic species are excluded from this ranking pool entirely (see above) — their own
+  // record counts would be meaningless noise in it either way.
   const baseScoreByIdx = percentileRankScores(wildFiltered.map((c, idx) => ({ idx, value: c.recordCount })));
   const VAGRANT_BURST_BOOST_WEIGHT = 0.6;
   const boostedScores = wildFiltered.map((c, idx) => {
@@ -938,12 +1004,28 @@ export async function computeRegionOccurrences(region: {
       yearConcentration != null ? boostTowardHarderToDetect(habitatBoosted, yearConcentration * VAGRANT_BURST_BOOST_WEIGHT) : habitatBoosted;
     return { gbifKey: c.gbifKey, score: vagrantBoosted };
   });
-  const sortedByBoostedScore = [...boostedScores].sort((a, b) => b.score - a.score);
+  // Mirrors the GLOBAL tier logic (apply-rarity-phase4.ts) — and the same fix just applied to
+  // compute-provinces-bulk.ts's province-level tier — instead of the old rank-based
+  // tierForPercentile(idx/n): comparing the boosted score against the same taxon-calibrated
+  // absolute thresholds used globally, so a species doesn't get bumped down a tier just because
+  // other species in this SAME region happen to rank even higher on the same boosted scale. This
+  // endpoint has no per-occurrence lat/lon (unlike the bulk province path), so there's no spatial
+  // concentration axis available here — the fully-boosted record-count/elusiveness score above is
+  // the best available composite, used directly rather than invented from scratch.
+  const taxonClassRes = await pool.query<{ gbif_key: string; taxon_class: string | null }>(
+    `SELECT gbif_key, taxon_class FROM species WHERE gbif_key = ANY($1)`,
+    [wildFiltered.map((c) => c.gbifKey)],
+  );
+  const taxonClassByGbifKey = new Map(taxonClassRes.rows.map((r) => [Number(r.gbif_key), r.taxon_class]));
   const localTierByGbifKey = new Map<number, string>();
-  const localN = sortedByBoostedScore.length;
-  sortedByBoostedScore.forEach((row, idx) => {
-    // idx 0 = highest boosted score (rarest here) -> smallest percentile -> legendary.
-    localTierByGbifKey.set(row.gbifKey, tierForPercentile((idx + 1) / localN));
+  boostedScores.forEach(({ gbifKey, score }) => {
+    const taxonClass = taxonClassByGbifKey.get(gbifKey);
+    const thresholds = fishGbifKeys.has(gbifKey)
+      ? FISH_ABSOLUTE_TIER_THRESHOLDS
+      : taxonClass === "mammalia"
+        ? MAMMAL_ABSOLUTE_TIER_THRESHOLDS
+        : BIRD_ABSOLUTE_TIER_THRESHOLDS;
+    localTierByGbifKey.set(gbifKey, tierForScore(score, thresholds));
   });
 
   // Local tier ranks purely by in-region record-count percentile, which can badly
@@ -957,6 +1039,16 @@ export async function computeRegionOccurrences(region: {
   // tier (rewarding "this is comparatively the spot for it") but never further than that —
   // "easier to find here" should never mean "not actually rare," just "less rare than usual."
   const LOCAL_TIER_GLOBAL_FLOOR_STEPS = 1;
+  // The floor above stops local from reading too EASY relative to global, but nothing
+  // originally stopped it reading too HARD — a globally "common" species has no valid "one
+  // step easier than common" to floor against (Math.min(localRank, globalRank+1) is a no-op
+  // once globalRank is already the last tier), so a species like Mallard, genuinely common
+  // worldwide, could still swing all the way to "legendary" locally purely from thin-data
+  // noise in one under-birded region. Confirmed live in South Africa. Caps the OTHER
+  // direction too: local can't read more than this many steps harder than global — a real
+  // regional scarcity is plausible, but a globally-abundant species reading as one of the
+  // single hardest-to-find things on Earth almost never is.
+  const LOCAL_TIER_GLOBAL_CEILING_STEPS = 2;
   const TIER_ORDER = ["legendary", "epic", "rare", "uncommon", "common"];
   const globalTierRes = await pool.query<{ gbif_key: string; tier: string }>(
     `SELECT s.gbif_key, r.tier FROM species s JOIN species_rarity r ON r.species_id = s.id WHERE s.gbif_key = ANY($1)`,
@@ -968,8 +1060,11 @@ export async function computeRegionOccurrences(region: {
     if (!globalTier || globalTier === "unrated") continue;
     const globalRank = TIER_ORDER.indexOf(globalTier);
     const localRank = TIER_ORDER.indexOf(localTier);
-    const flooredRank = Math.min(localRank, globalRank + LOCAL_TIER_GLOBAL_FLOOR_STEPS);
-    if (flooredRank !== localRank) localTierByGbifKey.set(gbifKey, TIER_ORDER[flooredRank]);
+    const clampedRank = Math.min(
+      Math.max(localRank, globalRank - LOCAL_TIER_GLOBAL_CEILING_STEPS),
+      globalRank + LOCAL_TIER_GLOBAL_FLOOR_STEPS,
+    );
+    if (clampedRank !== localRank) localTierByGbifKey.set(gbifKey, TIER_ORDER[clampedRank]);
   }
 
   for (const gbifKey of domesticGbifKeys) localTierByGbifKey.set(gbifKey, "common");

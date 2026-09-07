@@ -37,6 +37,12 @@ interface PackManifestCore {
   // something already done by the time the manifest is read here.
   children?: Array<{ species: Array<{ scientificName: string }> }>;
   seaZoneDependencies?: Array<{ name: string; packFile: string }>;
+  // Uncompressed byte counts computed at build time (see build-region-pack.ts's
+  // photoBytesInStaging) — an ESTIMATE of relative weight, not an exact post-gzip split (the
+  // archive compresses both together in one stream, so there's no way to recover an exact
+  // split from the finished file). Absent on any pack built before this field existed.
+  photoBytes?: number;
+  checklistBytes?: number;
 }
 
 function readManifest(archivePath: string): PackManifestCore {
@@ -88,6 +94,8 @@ async function main() {
       scientificNames,
       url: `https://github.com/${GITHUB_REPO}/releases/download/${PACKS_RELEASE_TAG}/${file}`,
       seaZoneDependencies: manifest.seaZoneDependencies?.map((d) => d.name),
+      photoBytes: manifest.photoBytes,
+      checklistBytes: manifest.checklistBytes,
     };
   });
 

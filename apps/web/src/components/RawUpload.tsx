@@ -117,8 +117,8 @@ export default function RawUpload({
       <h2 className="text-sm font-medium text-ink">Upload RAW files</h2>
       <p className="mt-1 text-xs text-muted">
         {matchOnly
-          ? "Point this at a folder of RAWs — each is matched by camera timestamp/serial against photos you've already added and filed into the right species' RAW folder. Anything that doesn't match a photo you've kept is left untouched on your own drive."
-          : "Point this at RAW files — each is matched by camera timestamp/serial against your uploads and filed straight into the right species' RAW folder. A RAW with no match still gets filed here, under this species, since that's already known. Point it at a whole export folder instead, though, and only the RAWs that match a JPEG you've kept get imported — a folder could span species this page has no way to know about, so anything else in it is left untouched on your own drive."}
+          ? "Point this at a folder of RAWs. Each is matched by camera timestamp/serial against photos you've already added and filed into the right species' RAW folder. Anything that doesn't match a photo you've kept is left untouched on your own drive."
+          : "Point this at RAW files. Each is matched by camera timestamp/serial against your uploads and filed straight into the right species' RAW folder. A RAW with no match still gets filed here, under this species, since that's already known. Point it at a whole export folder instead, though, and only the RAWs that match a JPEG you've kept get imported. A folder could span species this page has no way to know about, so anything else in it is left untouched on your own drive."}
       </p>
       {!matchOnly && (
         <input
@@ -173,9 +173,9 @@ export default function RawUpload({
                 {r.error ? (
                   <span className="text-red-600">{r.error}</span>
                 ) : r.collision ? (
-                  <span className="text-amber-600">matched more than one photo with the same camera fingerprint — skipped</span>
+                  <span className="text-amber-600">matched more than one photo with the same camera fingerprint, skipped</span>
                 ) : r.duplicate ? (
-                  <span className="text-muted">already added — skipped</span>
+                  <span className="text-muted">already added, skipped</span>
                 ) : r.filed ? (
                   <span className="text-emerald-700">added to {r.speciesCommonName ?? r.speciesScientificName}'s RAW folder</span>
                 ) : (

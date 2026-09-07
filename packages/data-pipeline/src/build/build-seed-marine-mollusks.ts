@@ -5,7 +5,10 @@
 // Nudibranchia (its own bucket). Not scoped to the whole Mollusca phylum (~178k GBIF
 // entries, bigger than the entire rest of this app's catalog combined) — that's a
 // deliberate, disclosed scope limit, not an oversight: bivalves (clams/oysters/mussels),
-// chitons, and the vast un-common-named tail of Gastropoda are out of scope for now.
+// chitons, and the vast un-common-named tail of Gastropoda are out of scope for now. A small,
+// explicitly curated exception list (NOTABLE_BIVALVE_FAMILY_KEYS below) exists for specific
+// bivalve families that are just as findable/photographable as the gastropods this bucket
+// already covers and small enough not to reopen the "thousands of obscure species" problem.
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fetchGbifBackboneForKeys, type GbifSpeciesRow } from "../fetch/fetch-gbif-backbone.js";
@@ -18,6 +21,18 @@ import { BUILD_DIR } from "../raw-cache.js";
 const NEOGASTROPODA_KEY = 982;
 const LITTORINIMORPHA_KEY = 7390893;
 const TROCHIDA_KEY = 9715180;
+
+// Bivalves are out of scope for this bucket as a whole (see this file's own header comment —
+// clams/oysters/mussels are excluded en masse, thousands of mostly-obscure species), but a
+// handful of specific bivalve families are exactly as easy to find/identify/photograph as the
+// gastropods this bucket already covers, and small enough that including them doesn't reopen
+// the "thousands of obscure species" problem the blanket exclusion exists to avoid. Each
+// addition here should be genuinely small (family key, not the whole class) and genuinely
+// notable — verified via GBIF's own species API before adding (e.g. Tridacnidae has only 6
+// species total), not assumed.
+const NOTABLE_BIVALVE_FAMILY_KEYS = [
+  3247671, // Tridacnidae — giant clams, ~6 species, unmistakable and easy to find on reef flats
+];
 
 // Same family list as build-seed-collector-shells.ts, by name (GbifSpeciesRow only carries
 // the family NAME, not its key) — excluded here so a species isn't double-loaded under two
@@ -53,8 +68,8 @@ async function main() {
   const outDir = path.join(BUILD_DIR, dateStamp());
   mkdirSync(outDir, { recursive: true });
 
-  console.log("[build-seed-marine-mollusks] step 1/4: GBIF backbone (Neogastropoda, Littorinimorpha, Trochida)");
-  const gbifAll = await fetchGbifBackboneForKeys([NEOGASTROPODA_KEY, LITTORINIMORPHA_KEY, TROCHIDA_KEY]);
+  console.log("[build-seed-marine-mollusks] step 1/4: GBIF backbone (Neogastropoda, Littorinimorpha, Trochida, + notable bivalve families)");
+  const gbifAll = await fetchGbifBackboneForKeys([NEOGASTROPODA_KEY, LITTORINIMORPHA_KEY, TROCHIDA_KEY, ...NOTABLE_BIVALVE_FAMILY_KEYS]);
   const gbif = gbifAll.filter((g) => !g.family || !COLLECTOR_SHELL_FAMILIES.has(g.family));
   console.log(`[build-seed-marine-mollusks] excluded ${gbifAll.length - gbif.length} species already covered by collector_shells`);
 

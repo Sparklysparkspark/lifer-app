@@ -1,8 +1,8 @@
 import { createReadStream, existsSync, statSync } from "node:fs";
-import { access as fsAccess } from "node:fs/promises";
+import { access as fsAccess, readFile as fsReadFile } from "node:fs/promises";
 import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import { pool } from "../db.js";
-import { requireAuth } from "../auth/session.js";
+import { requireAuth, requireScope } from "../auth/session.js";
 import {
   enrichSpecies,
   persistEnrichment,
@@ -10,15 +10,20 @@ import {
   persistGalleryPromotingMainIfMissing,
   downloadAndCacheImage,
 } from "./lazyEnrich.js";
-import { MEDIA_CACHE_BUST, SINGLE_USER_MODE } from "../config.js";
+import { MEDIA_CACHE_BUST, SINGLE_USER_MODE, EMBEDDING_MODEL_VERSION } from "../config.js";
 import { resolveOriginalPath } from "../storageVolumes/resolve.js";
+import { clusterIntoEncounters } from "../lib/clusterEncounters.js";
+import { cosineSimilarity } from "./embeddings.js";
+import { computeSharpness } from "../lib/sharpness.js";
+import { bboxDiagonalDegrees, ringBoundingBox, type BoundingBox } from "data-pipeline/src/geometry.js";
+import { SENSITIVE_CLUSTER_DIAGONAL_KM } from "data-pipeline/src/sensitive-species.js";
 
 interface SearchQuery {
   q?: string;
 }
 
 export async function speciesRoutes(app: FastifyInstance): Promise<void> {
-  app.get<{ Querystring: SearchQuery }>("/species", { preHandler: requireAuth }, async (request) => {
+  app.get<{ Querystring: SearchQuery }>("/species", { preHandler: requireScope("species.read") }, async (request) => {
     const q = (request.query.q ?? "").trim();
     const userId = request.user!.id;
 
@@ -55,6 +60,11 @@ export async function speciesRoutes(app: FastifyInstance): Promise<void> {
                 similarity(s.common_name, $1),
                 similarity(s.scientific_name, $1),
                 COALESCE((SELECT MAX(similarity(a, $1)) FROM unnest(s.common_name_aliases) a), 0),
+                -- ABA (4-letter, US/Canada/Mexico/Central America/Caribbean only) and eBird
+                -- (6-letter, every bird worldwide) alpha codes — ranked alongside a real
+                -- name/alias match, not just the lower genus/family tier, since someone typing
+                -- a code already knows exactly which species they mean.
+                CASE WHEN s.aba_code ILIKE $1 || '%' OR s.ebird_code ILIKE $1 || '%' THEN 1 ELSE 0 END,
                 CASE WHEN s.genus ILIKE $1 || '%' OR s.family ILIKE $1 || '%' THEN 0.3 ELSE 0 END
               ) AS rank
        FROM species s
@@ -63,6 +73,7 @@ export async function speciesRoutes(app: FastifyInstance): Promise<void> {
          s.common_name % $1 OR s.scientific_name % $1 OR s.common_name ILIKE '%' || $1 || '%'
          OR EXISTS (SELECT 1 FROM unnest(s.common_name_aliases) a WHERE a % $1 OR a ILIKE '%' || $1 || '%')
          OR s.genus ILIKE $1 || '%' OR s.family ILIKE $1 || '%'
+         OR s.aba_code ILIKE $1 || '%' OR s.ebird_code ILIKE $1 || '%'
        )
          AND COALESCE(t.fully_extinct, false) = false
        ORDER BY rank DESC
@@ -74,11 +85,67 @@ export async function speciesRoutes(app: FastifyInstance): Promise<void> {
 
   app.get<{ Params: { id: string }; Querystring: { regionId?: string } }>(
     "/species/:id",
-    { preHandler: requireAuth },
+    { preHandler: requireScope("species.read") },
     async (request, reply) => {
       const { id } = request.params;
-      const { regionId } = request.query;
       const userId = request.user!.id;
+
+      // Most navigation paths to this page (Collection's default "all regions" view, Gallery,
+      // search) never set ?regionId= — only a drilled-into-one-region view does (see
+      // SpeciesCard.tsx's `to={regionId ? ... : ...}`). Falling back to a real region (rather
+      // than leaving every region-scoped section of the page — seasonality, local tier, and the
+      // hotspot map — permanently blank outside that one narrow navigation path) makes "where to
+      // find it" actually reachable from anywhere. A region only ever has data here if its own
+      // pack was downloaded, so this never surfaces a region the user doesn't actually have
+      // installed.
+      //
+      // Prefer a region with actual hotspot clusters first — those only ever exist at PROVINCE
+      // granularity (compute-provinces-bulk.ts), never at the country level. A plain "most
+      // records" pick over region_species would almost always land on a country's own
+      // aggregated row instead (aggregate-country-from-provinces.ts sums every province into
+      // it, so it dwarfs any single province's count) — a region that can never have hotspot
+      // rows, silently blanking the map for most species despite real province-level data
+      // existing right underneath it.
+      const regionId =
+        request.query.regionId ??
+        (
+          await pool.query<{ region_id: string }>(
+            `SELECT region_id FROM region_species_hotspots WHERE species_id = $1
+             GROUP BY region_id ORDER BY SUM(point_count) DESC LIMIT 1`,
+            [id],
+          )
+        ).rows[0]?.region_id ??
+        (
+          await pool.query<{ region_id: string }>(
+            `SELECT region_id FROM region_species WHERE species_id = $1 ORDER BY local_frequency DESC NULLS LAST LIMIT 1`,
+            [id],
+          )
+        ).rows[0]?.region_id ??
+        null;
+
+      // The fallback above only ever fires when NO ?regionId= was given at all — but the far
+      // more common path (drilled into a country's own checklist, e.g. "South Africa," and
+      // clicking a species from there) DOES pass one explicitly, and that's very often the
+      // country's own top-level row, which NEVER has hotspot data (see the comment above —
+      // hotspots only ever exist at province granularity). Confirmed live: Rufous-chested
+      // Sparrowhawk has real hotspot clusters in every one of South Africa's own provinces, but
+      // browsing it from South Africa's own checklist view still showed no map at all, because
+      // the explicit country-level regionId silently beat the auto-resolve fallback above every
+      // time. Seasonality/local tier below still use the region the user actually navigated
+      // to (unchanged) — only the hotspot map itself needs a region that could ever have one.
+      const givenRegionHasHotspots =
+        regionId != null &&
+        (await pool.query(`SELECT 1 FROM region_species_hotspots WHERE region_id = $1 AND species_id = $2 LIMIT 1`, [regionId, id]))
+          .rowCount! > 0;
+      const hotspotRegionId = givenRegionHasHotspots
+        ? regionId
+        : ((
+            await pool.query<{ region_id: string }>(
+              `SELECT region_id FROM region_species_hotspots WHERE species_id = $1
+               GROUP BY region_id ORDER BY SUM(point_count) DESC LIMIT 1`,
+              [id],
+            )
+          ).rows[0]?.region_id ?? regionId);
 
       let speciesRes = await pool.query(
         `SELECT s.*, t.*, r.tier, r.composite
@@ -156,8 +223,16 @@ export async function speciesRoutes(app: FastifyInstance): Promise<void> {
       // fetched above feeds any of them) — firing them together instead of one-at-a-time
       // turns 5 sequential DB round-trips into 1 wait for the slowest, which is most of what
       // made this "everything's local" page feel slower than it had any reason to.
-      const [capturesRes, userSpeciesRes, archivedRes, referencePhotosRes, regionSpeciesRes, endemicRes] =
-        await Promise.all([
+      const [
+        capturesRes,
+        userSpeciesRes,
+        archivedRes,
+        referencePhotosRes,
+        regionSpeciesRes,
+        endemicRes,
+        hotspotsRes,
+        regionBboxRes,
+      ] = await Promise.all([
           pool.query(
             `SELECT c.*, p.id AS photo_id, p.display_path, p.thumb_path, p.width, p.height,
                     o.ref AS original_ref, o.managed AS original_managed, o.kind AS original_kind,
@@ -192,7 +267,7 @@ export async function speciesRoutes(app: FastifyInstance): Promise<void> {
           // viewing the species from a specific region page.
           regionId
             ? pool.query(
-                `SELECT seasonality, local_tier, is_vagrant FROM region_species WHERE region_id = $1 AND species_id = $2`,
+                `SELECT seasonality, local_tier, is_vagrant, is_invasive, weekly_frequency FROM region_species WHERE region_id = $1 AND species_id = $2`,
                 [regionId, id],
               )
             : Promise.resolve(null),
@@ -212,6 +287,29 @@ export async function speciesRoutes(app: FastifyInstance): Promise<void> {
                 species.endemic_country_iso3,
               ])
             : Promise.resolve(null),
+          // Gap-finder hotspot clusters (migration 074) — "which town/park/lake," not just
+          // "which province." Only fetched in a region context, same gating as seasonality
+          // above, and only useful for a species not yet collected (a collected species
+          // doesn't need to be told where to find it).
+          hotspotRegionId
+            ? pool.query(
+                `SELECT centroid_lat, centroid_lon, point_count, bbox_diagonal_km, last_seen_year, distinct_years
+                 FROM region_species_hotspots WHERE region_id = $1 AND species_id = $2
+                 ORDER BY point_count DESC`,
+                [hotspotRegionId, id],
+              )
+            : Promise.resolve(null),
+          // Needed to tell "found everywhere" apart from "found in many spots that are all
+          // themselves clustered in one part of the region" (e.g. a bird that only occurs
+          // along a province's coastline) — cluster *count* alone can't distinguish these,
+          // since a coastal species can easily produce just as many clusters as a truly
+          // ubiquitous one. Only the region's own bbox lets us tell whether the clusters
+          // collectively cover a small corner of the region or genuinely span all of it. Uses
+          // hotspotRegionId, not regionId — the two can differ (see hotspotRegionId's own
+          // comment), and a mismatched bbox would silently miscompute widespread-vs-clustered.
+          hotspotRegionId
+            ? pool.query(`SELECT boundary_geojson FROM regions WHERE id = $1`, [hotspotRegionId])
+            : Promise.resolve(null),
         ]);
       const isArchived = archivedRes.rows.length > 0;
       const seasonality: number[] | null = regionSpeciesRes?.rows[0]?.seasonality ?? null;
@@ -219,6 +317,9 @@ export async function speciesRoutes(app: FastifyInstance): Promise<void> {
       // checklist, alongside (not instead of) the fixed global tier.
       const localTier: string | null = regionSpeciesRes?.rows[0]?.local_tier ?? null;
       const isVagrant = regionSpeciesRes?.rows[0]?.is_vagrant === true;
+      const isInvasive = regionSpeciesRes?.rows[0]?.is_invasive === true;
+      const weeklyFrequency: number[] | null = regionSpeciesRes?.rows[0]?.weekly_frequency ?? null;
+      const hotspots = hotspotsRes?.rows ?? [];
 
       // 7c "unavailable original" state — a link-mode original's path can go stale (moved,
       // renamed, drive unmounted) independently of Lifer's own DB row, so this is checked
@@ -277,10 +378,84 @@ export async function speciesRoutes(app: FastifyInstance): Promise<void> {
         userSpecies: userSpeciesRes.rows[0] ?? null,
         referencePhotos,
         seasonality,
+        weeklyFrequency,
         localTier,
         isVagrant,
+        isInvasive,
         endemicCountryName: endemicLabel,
         isArchived,
+        // Reused for the hotspot map — same row this handler already fetches for the
+        // widespread/clustered span-ratio check below, no second query needed.
+        regionBoundaryGeoJson: regionBboxRes?.rows[0]?.boundary_geojson ?? null,
+        ...(() => {
+          const totalPoints = hotspots.reduce((sum: number, h) => sum + h.point_count, 0);
+          const topShare = hotspots.length > 0 ? hotspots[0].point_count / totalPoints : 0;
+          // Cluster count/dominance alone can't tell "found everywhere" apart from "found in
+          // many spots that are all themselves confined to one part of the region" (e.g. a
+          // bird found only along a province's coastline can easily produce just as many
+          // clusters as a truly ubiquitous one). So also check how much of the region's own
+          // area the clusters actually span — a species is only "widespread" if its clusters
+          // are both numerous/non-dominant AND spread across most of the region's own extent.
+          let spanRatio = 1; // no region bbox available — assume it could span the whole thing
+          const bbox = regionBboxRes?.rows[0]?.boundary_geojson?.bbox as
+            | [number, number, number, number]
+            | undefined;
+          if (bbox && hotspots.length > 1) {
+            const regionDiagonal = bboxDiagonalDegrees({ minLon: bbox[0], minLat: bbox[1], maxLon: bbox[2], maxLat: bbox[3] });
+            const centroidBbox: BoundingBox = ringBoundingBox(
+              hotspots.map((h): [number, number] => [h.centroid_lon, h.centroid_lat]),
+            );
+            const centroidSpread = bboxDiagonalDegrees(centroidBbox);
+            spanRatio = regionDiagonal > 0 ? centroidSpread / regionDiagonal : 1;
+          }
+          const isWidespread = hotspots.length >= 6 && topShare < 0.25 && spanRatio >= 0.6;
+          // A cluster seen in only one or two distinct years could just be coincidence (a
+          // vagrant blown off course, a single lucky report); three or more separate years
+          // hitting the same spot is a real repeated pattern worth calling out as a strong bet.
+          // But that pattern is only useful if it's still current — NOT judged against today's
+          // wall-clock date (a fixed cutoff like "within 10 years" is wrong at both ends: too
+          // strict for a genuinely rarely-recorded species where 10-year-old data may be the
+          // best available, too lenient for a well-recorded one where fresher data elsewhere in
+          // the region makes an old cluster stale by comparison). Instead, compare each cluster
+          // against the freshest record this species actually has anywhere in the region — a
+          // cluster that's basically as current as the best data available stays reliable
+          // regardless of the absolute year; one that's stale relative to fresher clusters
+          // elsewhere isn't, even if it's "only" a few years behind.
+          const RELIABLE_MIN_DISTINCT_YEARS = 3;
+          const RELIABLE_MAX_YEARS_BEHIND_FRESHEST = 5;
+          const freshestYear = hotspots.reduce<number | null>(
+            (max, h) => (h.last_seen_year != null && (max == null || h.last_seen_year > max) ? h.last_seen_year : max),
+            null,
+          );
+          return {
+            hotspotDistribution: hotspots.length > 0 ? (isWidespread ? "widespread" : "clustered") : null,
+            hotspots: hotspots.map((h) => ({
+              centroidLat: h.centroid_lat,
+              centroidLon: h.centroid_lon,
+              pointCount: h.point_count,
+              bboxDiagonalKm: h.bbox_diagonal_km,
+              // A cluster this exact size is one compute-provinces-bulk.ts deliberately blurred
+              // for an eBird-published sensitive species (see sensitive-species.ts) rather than a
+              // real, precise locality — surfaced so the UI can say why the location is vague
+              // instead of silently showing a suspiciously round, oddly generic-looking spot.
+              isSensitive: h.bbox_diagonal_km === SENSITIVE_CLUSTER_DIAGONAL_KM,
+              lastSeenYear: h.last_seen_year,
+              distinctYears: h.distinct_years,
+              recordShare: totalPoints > 0 ? h.point_count / totalPoints : 0,
+              // isVagrant (region_species.is_vagrant) is exactly "fails the same recurrence
+              // check used to decide this" at the whole-species level — a vagrant is a vagrant
+              // precisely because it hasn't shown a real repeating pattern here. No hotspot
+              // cluster stat should ever override that and call it a "good chance" location.
+              isReliable:
+                !isVagrant &&
+                h.distinct_years != null &&
+                h.distinct_years >= RELIABLE_MIN_DISTINCT_YEARS &&
+                h.last_seen_year != null &&
+                freshestYear != null &&
+                freshestYear - h.last_seen_year <= RELIABLE_MAX_YEARS_BEHIND_FRESHEST,
+            })),
+          };
+        })(),
       };
     },
   );
@@ -309,6 +484,29 @@ export async function speciesRoutes(app: FastifyInstance): Promise<void> {
     return { ok: true };
   });
 
+  // Target/wishlist marking (migration 073) — same never-downgrade rule as /seen: only inserts
+  // when no user_species row exists yet, so it can never demote an already-collected/seen species.
+  app.patch<{ Params: { id: string } }>("/species/:id/target", { preHandler: requireAuth }, async (request) => {
+    const { id: speciesId } = request.params;
+    const userId = request.user!.id;
+    await pool.query(
+      `INSERT INTO user_species (user_id, species_id, state) VALUES ($1, $2, 'target')
+       ON CONFLICT (user_id, species_id) DO NOTHING`,
+      [userId, speciesId],
+    );
+    return { ok: true };
+  });
+
+  app.delete<{ Params: { id: string } }>("/species/:id/target", { preHandler: requireAuth }, async (request) => {
+    const { id: speciesId } = request.params;
+    const userId = request.user!.id;
+    await pool.query(`DELETE FROM user_species WHERE user_id = $1 AND species_id = $2 AND state = 'target'`, [
+      userId,
+      speciesId,
+    ]);
+    return { ok: true };
+  });
+
   // A lightweight, enrichment-side-effect-free list of every reference photo (main + gallery)
   // for one species — used by the species-suggestion cards during import so a user can flip
   // through every photo this app has of a candidate species to visually compare against their
@@ -316,7 +514,7 @@ export async function speciesRoutes(app: FastifyInstance): Promise<void> {
   // enrichSpecies/fetchAnyGallery like GET /species/:id does — by the time embedding-based
   // suggestions surface a species at all, it's already been enriched (the reference embedding
   // that made the match possible is itself derived from these same cached photos).
-  app.get<{ Params: { id: string } }>("/species/:id/reference-photos", { preHandler: requireAuth }, async (request, reply) => {
+  app.get<{ Params: { id: string } }>("/species/:id/reference-photos", { preHandler: requireScope("species.read") }, async (request, reply) => {
     const { id } = request.params;
     const speciesRes = await pool.query<{
       reference_photo: string | null;
@@ -354,7 +552,7 @@ export async function speciesRoutes(app: FastifyInstance): Promise<void> {
   // (species_id set, capture_id null) have no capture to show up alongside in the normal
   // captures list, so they get their own small listing instead of silently existing only on
   // disk.
-  app.get<{ Params: { id: string } }>("/species/:id/unmatched-raws", { preHandler: requireAuth }, async (request) => {
+  app.get<{ Params: { id: string } }>("/species/:id/unmatched-raws", { preHandler: requireScope("species.read") }, async (request) => {
     const res = await pool.query<{ id: string; ref: string; file_size: string; last_seen_at: string }>(
       `SELECT id, ref, file_size, last_seen_at FROM originals
        WHERE species_id = $1 AND user_id = $2 AND capture_id IS NULL AND kind = 'raw'
@@ -373,13 +571,102 @@ export async function speciesRoutes(app: FastifyInstance): Promise<void> {
     };
   });
 
+  // "183 photos / 7 encounters / 4 locations / 3 cameras / 2 lenses" — a photo count alone
+  // can't tell a real 20-minute encounter with one bird from 400 photos apart from 7 genuinely
+  // separate sightings; clusterIntoEncounters (see its own header comment) is what makes that
+  // distinction. Locations/cameras/lenses are plain distinct-value counts over the same capture
+  // set — no new query complexity, just numbers worth surfacing next to the encounter count.
+  app.get<{ Params: { id: string } }>("/species/:id/encounters", { preHandler: requireScope("species.read") }, async (request) => {
+    const res = await pool.query<{
+      id: string;
+      taken_at: string | null;
+      region_id: string | null;
+      camera_model: string | null;
+      lens: string | null;
+    }>(
+      `SELECT id, taken_at, region_id, camera_model, lens FROM captures WHERE species_id = $1 AND user_id = $2`,
+      [request.params.id, request.user!.id],
+    );
+    const encounters = clusterIntoEncounters(res.rows.map((r) => ({ id: r.id, takenAt: r.taken_at })));
+    const takenDates = res.rows.map((r) => r.taken_at).filter((t): t is string => t !== null);
+    return {
+      totalPhotos: res.rows.length,
+      encounterCount: encounters.length,
+      locationCount: new Set(res.rows.map((r) => r.region_id).filter(Boolean)).size,
+      cameraCount: new Set(res.rows.map((r) => r.camera_model).filter(Boolean)).size,
+      lensCount: new Set(res.rows.map((r) => r.lens).filter(Boolean)).size,
+      firstPhotographedAt: takenDates.length ? takenDates.reduce((a, b) => (a < b ? a : b)) : null,
+      lastPhotographedAt: takenDates.length ? takenDates.reduce((a, b) => (a > b ? a : b)) : null,
+    };
+  });
+
+  // Burst/sequence collapsing — 47 near-identical frames from one continuous burst read as
+  // clutter, not 47 separate photos worth reviewing individually. Two signals decide whether
+  // consecutive-in-time captures are "the same moment": a very high (>0.97) cosine similarity
+  // between their already-computed CLIP embeddings (near-identical framing/subject/pose — the
+  // same signal the Gallery search reuses, not a new one), AND a tight time gap (a real burst,
+  // not two separate encounters that happen to look similar). Only sequences of 3+ frames are
+  // returned — a pair of similar photos isn't the "collapse this" problem the 30fps-burst
+  // complaint this addresses is actually about. Sharpness (see lib/sharpness.ts) breaks the tie
+  // on which frame to show as the sequence's representative — a proxy for "which frame is least
+  // blurry," not a full best-frame model (eye contact/pose aren't evaluated — see the product
+  // scoping discussion on why that full version isn't feasible without new ML components).
+  const SEQUENCE_SIMILARITY_THRESHOLD = 0.97;
+  const SEQUENCE_MAX_GAP_MS = 120_000;
+  app.get<{ Params: { id: string } }>("/species/:id/sequences", { preHandler: requireScope("species.read") }, async (request) => {
+    const res = await pool.query<{
+      photo_id: string;
+      taken_at: string | null;
+      display_path: string | null;
+      embedding: number[] | null;
+    }>(
+      `SELECT p.id AS photo_id, c.taken_at, p.display_path, ce.embedding
+       FROM captures c
+       JOIN photos p ON p.id = c.current_photo_id
+       LEFT JOIN capture_embeddings ce ON ce.capture_id = c.id AND ce.model_version = $3
+       WHERE c.species_id = $1 AND c.user_id = $2 AND c.taken_at IS NOT NULL
+       ORDER BY c.taken_at`,
+      [request.params.id, request.user!.id, EMBEDDING_MODEL_VERSION],
+    );
+
+    const groups: (typeof res.rows)[number][][] = [];
+    for (const row of res.rows) {
+      const prevGroup = groups[groups.length - 1];
+      const prev = prevGroup?.[prevGroup.length - 1];
+      const gapMs = prev ? new Date(row.taken_at!).getTime() - new Date(prev.taken_at!).getTime() : Infinity;
+      const similar = prev?.embedding && row.embedding && cosineSimilarity(prev.embedding, row.embedding) > SEQUENCE_SIMILARITY_THRESHOLD;
+      if (prevGroup && similar && gapMs <= SEQUENCE_MAX_GAP_MS) prevGroup.push(row);
+      else groups.push([row]);
+    }
+
+    const burstGroups = groups.filter((g) => g.length >= 3);
+    const sequences = await Promise.all(
+      burstGroups.map(async (group) => {
+        const scored = await Promise.all(
+          group.map(async (row) => {
+            if (!row.display_path || !existsSync(row.display_path)) return { photoId: row.photo_id, sharpness: 0 };
+            try {
+              const buffer = await fsReadFile(row.display_path);
+              return { photoId: row.photo_id, sharpness: await computeSharpness(buffer) };
+            } catch {
+              return { photoId: row.photo_id, sharpness: 0 };
+            }
+          }),
+        );
+        const best = scored.reduce((a, b) => (b.sharpness > a.sharpness ? b : a));
+        return { photoIds: group.map((r) => r.photo_id), bestPhotoId: best.photoId, count: group.length };
+      }),
+    );
+    return { sequences };
+  });
+
   // Powers the import destination picker's "recommended drive" hint (see
   // ~/.claude/plans/multi-drive-storage.md) — which registered drives already hold photos of
   // this species, so a new upload can default to keeping them together rather than scattering
   // one species across drives by accident. A species can legitimately have photos split
   // across more than one drive (e.g. shot on different trips), so this returns every drive in
   // use, not just a single "the" answer — the frontend picks the top one as the default.
-  app.get<{ Params: { id: string } }>("/species/:id/volume-usage", { preHandler: requireAuth }, async (request) => {
+  app.get<{ Params: { id: string } }>("/species/:id/volume-usage", { preHandler: requireScope("species.read") }, async (request) => {
     const res = await pool.query<{ volume_id: string | null; label: string | null; count: string }>(
       `SELECT sv.id AS volume_id, sv.label, COUNT(*) AS count
        FROM captures c
@@ -422,7 +709,7 @@ export async function speciesRoutes(app: FastifyInstance): Promise<void> {
   // serving — a species' reference photo isn't private to anyone).
   for (const kind of ["display", "thumb"] as const) {
     const column = kind === "display" ? "reference_display_path" : "reference_thumb_path";
-    app.get<{ Params: { id: string } }>(`/species/:id/reference-photo/${kind}`, { preHandler: requireAuth }, async (request, reply) => {
+    app.get<{ Params: { id: string } }>(`/species/:id/reference-photo/${kind}`, { preHandler: requireScope("species.read") }, async (request, reply) => {
       const res = await pool.query<{ path: string | null; photo_url: string | null }>(
         `SELECT ${column} AS path, reference_photo AS photo_url FROM species WHERE id = $1`,
         [request.params.id],
@@ -461,7 +748,7 @@ export async function speciesRoutes(app: FastifyInstance): Promise<void> {
     const galleryColumn = kind === "display" ? "display_path" : "thumb_path";
     app.get<{ Params: { photoId: string } }>(
       `/species/reference-gallery-photo/:photoId/${kind}`,
-      { preHandler: requireAuth },
+      { preHandler: requireScope("species.read") },
       async (request, reply) => {
         const res = await pool.query<{ path: string | null; photo_url: string }>(
           `SELECT ${galleryColumn} AS path, photo_url FROM species_reference_photos WHERE id = $1`,

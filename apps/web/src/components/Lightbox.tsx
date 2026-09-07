@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import PhotoPlaceholder from "./PhotoPlaceholder";
+import { markDragBlocked } from "../lib/modalDragBlock";
 
 export interface LightboxSlide {
   url: string;
@@ -56,6 +57,36 @@ export default function Lightbox({
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const dragRef = useRef<{ startX: number; startY: number; panX: number; panY: number } | null>(null);
   const [dragging, setDragging] = useState(false);
+  // A continuous wheel/trackpad-pinch gesture fires many events per second, each setting a new
+  // scale — applying the transform transition to EVERY one of those meant each new value
+  // interrupted the previous one's still-running 50ms transition and restarted it, which is
+  // what actually read as stutter (not the state updates themselves being slow). Tracked as a
+  // ref, not state, since it only gates a style value and shouldn't itself trigger a render;
+  // cleared shortly after the gesture goes quiet so a later discrete change (e.g. double-click)
+  // still gets its smooth transition back.
+  const wheelZoomingRef = useRef(false);
+  const wheelZoomTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Body scroll was never actually locked while the lightbox is open — its own backdrop
+  // scrolls (overflow-y-auto, for the info panel's tall layout), but the page underneath kept
+  // scrolling right along with it on any wheel/trackpad input that missed the photo itself.
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, []);
+  // The close/info buttons live in the same top-of-window band TitleBarDragRegion always sits
+  // above (see its own comment) — without this, that region wins the browser's hit-test there
+  // and both buttons silently do nothing.
+  useEffect(() => {
+    markDragBlocked(true);
+    return () => markDragBlocked(false);
+  }, []);
+  useEffect(() => () => {
+    if (wheelZoomTimeoutRef.current) clearTimeout(wheelZoomTimeoutRef.current);
+  }, []);
   // A slide whose file has moved/been deleted/never existed shouldn't take the whole viewer
   // down with it — falls back to a placeholder for just that one slide, keeping close/arrows
   // fully working so a broken photo is never a dead end you have to reload the page to escape.
@@ -77,14 +108,30 @@ export default function Lightbox({
     setPan({ x: 0, y: 0 });
   }, [index, showInfo]);
 
-  function onWheelZoom(e: React.WheelEvent) {
+  // Trackpads report a two-finger pinch as a wheel event with ctrlKey set to true — a browser
+  // convention that exists specifically so a page can tell a pinch apart from an ordinary
+  // two-finger scroll (which fires the same event type, just without ctrlKey). Zoom only reacts
+  // to the former; a plain scroll instead pans the photo horizontally/vertically once zoomed in,
+  // matching how a photo viewer is expected to behave rather than zooming on every scroll.
+  function onWheel(e: React.WheelEvent) {
     e.preventDefault();
     e.stopPropagation();
-    setScale((s) => {
-      const next = Math.min(4, Math.max(1, s - e.deltaY * 0.01));
-      if (next === 1) setPan({ x: 0, y: 0 });
-      return next;
-    });
+    if (e.ctrlKey) {
+      wheelZoomingRef.current = true;
+      if (wheelZoomTimeoutRef.current) clearTimeout(wheelZoomTimeoutRef.current);
+      wheelZoomTimeoutRef.current = setTimeout(() => {
+        wheelZoomingRef.current = false;
+      }, 150);
+      setScale((s) => {
+        const next = Math.min(4, Math.max(1, s - e.deltaY * 0.01));
+        if (next === 1) setPan({ x: 0, y: 0 });
+        return next;
+      });
+      return;
+    }
+    if (scale > 1) {
+      setPan((p) => ({ x: p.x - e.deltaX, y: p.y - e.deltaY }));
+    }
   }
 
   function onDoubleClickZoom(e: React.MouseEvent) {
@@ -238,30 +285,18 @@ export default function Lightbox({
               className="max-h-[85vh] max-w-full select-none object-contain"
               style={{
                 transform: `translate(${pan.x}px, ${pan.y}px) scale(${scale})`,
-                transition: dragging ? "none" : "transform 0.05s ease-out",
+                transition: dragging || wheelZoomingRef.current ? "none" : "transform 0.05s ease-out",
                 cursor: scale > 1 ? (dragging ? "grabbing" : "grab") : "zoom-in",
               }}
               onClick={(e) => e.stopPropagation()}
               onDoubleClick={onDoubleClickZoom}
-              onWheel={onWheelZoom}
+              onWheel={onWheel}
               onMouseDown={onDragStart}
               onMouseMove={onDragMove}
               onMouseUp={onDragEnd}
               onMouseLeave={onDragEnd}
               onError={() => setImageFailed(true)}
             />
-          )}
-          {!imageFailed && scale > 1 && (
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                setScale(1);
-                setPan({ x: 0, y: 0 });
-              }}
-              className="absolute bottom-4 left-1/2 -translate-x-1/2 rounded-full bg-black/40 px-3 py-1 text-xs text-white hover:bg-black/60"
-            >
-              Reset zoom
-            </button>
           )}
           {(slide.caption || slides.length > 1) && (
             <div className="mt-3 text-center text-sm text-white/70" onClick={(e) => e.stopPropagation()}>

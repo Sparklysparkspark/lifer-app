@@ -1,42 +1,15 @@
 import { pool } from "../db.js";
 
 // Shared "hide obscure/inaccessible species" rule for checklist endpoints (regions/routes.ts,
-// collection/routes.ts). Two independent reasons a species counts as obscure by default:
-//
-// 1. Depth: a fish whose shallowest known depth (species_traits.depth_min_m) is 120m+ is beyond
-//    even technical scuba diving — nobody photographing on a life-list app will realistically
-//    ever see it. Fish only, since a pelagic seabird still has to come to land eventually.
-// 2. Historical rarity: species_traits.occurrence_count/last_occurrence_year (migration 036,
-//    backed by GBIF's global occurrence records, which reach back to the 1800s) — fewer than 20
-//    records ever, or none since 1950, reads as "no longer findable in practice" regardless of
-//    taxon.
-//
-// Species missing this data entirely (traits not yet backfilled) are never hidden — absence of
-// evidence isn't evidence of obscurity, and hiding on missing data would make the filter's
-// blast radius grow silently as new gaps appear rather than shrink as data fills in.
-//
-// Callers must LEFT JOIN species_traits AS t (and select species AS s) for this fragment to
-// resolve; it's a boolean SQL expression, not a full WHERE clause, so it composes with
-// `NOT (...)` when the caller wants to hide obscure species, or is skipped entirely (via the
-// $-parameterized toggle) when the caller wants to reveal them.
-// s.reference_photo (the enrichment-discovered photo URL, NOT a locally-cached file path) is
-// null only when enrichment genuinely never found ANY usable photo anywhere (iNaturalist,
-// Wikipedia, Commons) — unlike reference_display_path, it's never null just because a pack
-// hasn't delivered its cached copy yet, so this can't misfire on a species merely waiting on a
-// download. A species nobody can even see a picture of isn't realistically photographable —
-// exactly the tier philosophy's own "photographability, not conservation status" standard —
-// and tends to correlate with exactly the kind of GBIF-noise/geographic-outlier species this
-// whole obscurity filter exists to hide by default (rarely enriched with real gallery data).
-// Recreational scuba's realistic practical range — open-water/advanced certs, no trimix/technical
-// gear. A fish only occasionally seen shallower (an off-chance individual up around 40m) doesn't
-// change its OWN shallowest-known-depth record, which is what depth_min_m tracks — the cutoff is
-// deliberately about what's realistic to plan a dive around, not the rare exception.
-export const RECREATIONAL_MAX_DEPTH_M = 60;
-// Technical diving's own real limit — see migration 068's own comment on why this isn't the
-// default: true technical divers (trimix-certified, going past 60m) are a small minority of this
-// app's users, so defaulting to their range would routinely show fish nobody else realistically
-// has a shot at.
-export const TECHNICAL_MAX_DEPTH_M = 120;
+// collection/routes.ts) — a species is obscure if it's too deep for the given depth cutoff
+// (fish only; species_traits.depth_min_m), historically unfindable (species_traits
+// occurrence_count < 20 or last_occurrence_year < 1950), or has no photo anywhere from
+// enrichment (s.reference_photo, distinct from the locally-cached reference_display_path).
+// Species missing traits entirely are never hidden — absence of evidence isn't obscurity.
+// A boolean expression, not a full WHERE clause: callers LEFT JOIN species_traits AS t and
+// wrap in NOT(...) to hide obscure species, or skip it to reveal them.
+export const RECREATIONAL_MAX_DEPTH_M = 60; // realistic no-trimix recreational scuba range
+export const TECHNICAL_MAX_DEPTH_M = 120; // technical (trimix) divers are a small minority — not the default
 
 export function obscureSpeciesSql(maxDepthM: number): string {
   return `(
@@ -68,13 +41,15 @@ export async function getHideObscurePreference(userId: string): Promise<boolean>
   return (await getObscurityPreferences(userId)).hideObscure;
 }
 
-// Never hide a species the user has already collected/seen — us.state is only non-null once a
-// user_species row exists (collected or seen; "unseen" is the absence of a row, not a state
-// value), so this exempts anything already on their life list. Without this, turning the
-// toggle on after adding a rare/vagrant species would make that species vanish from their own
-// collection view even though the underlying capture/user_species data is untouched — the
-// filter is meant to keep new noise out of a checklist, not un-list something already earned.
-export const ALREADY_OWNED_SQL = `us.state IS NOT NULL`;
+// Never hide a species the user has already collected/seen — "unseen" is the absence of a
+// user_species row, not a state value, so this exempts anything already on their life list.
+// Without this, turning the toggle on after adding a rare/vagrant species would make that
+// species vanish from their own collection view even though the underlying capture/user_species
+// data is untouched — the filter is meant to keep new noise out of a checklist, not un-list
+// something already earned. Deliberately excludes 'target' (migration 073) — wanting to find a
+// species someday shouldn't bypass the archive/obscurity/pack-unlock gates the way actually
+// having collected or seen it does.
+export const ALREADY_OWNED_SQL = `us.state IN ('collected', 'seen')`;
 
 // Region-only counterpart to OBSCURE_SPECIES_SQL: a species region_species.is_vagrant marked
 // true (see migration 024 — computed via passesRecurrenceCheck in regions/routes.ts, e.g. a

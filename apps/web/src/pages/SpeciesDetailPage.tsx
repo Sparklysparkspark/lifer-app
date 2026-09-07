@@ -8,15 +8,33 @@ import { useVolumeDestination, VolumeDestinationPicker } from "../components/Vol
 import Lightbox, { type LightboxSlide } from "../components/Lightbox";
 import CardCropEditor from "../components/CardCropEditor";
 import SeasonalityBar from "../components/SeasonalityBar";
+import WeeklyBar from "../components/WeeklyBar";
+import SpeciesHotspotMap from "../components/SpeciesHotspotMap";
 import SpeciesPicker from "../components/SpeciesPicker";
 import ProgressiveImg from "../components/ProgressiveImg";
-import BackToCollectionLink from "../components/BackToCollectionLink";
+import PhotoTile from "../components/PhotoTile";
+import DotMenu from "../components/DotMenu";
+import AddToAlbumModal from "../components/AddToAlbumModal";
+import PageHeader from "../components/PageHeader";
 import { LoadingScreen } from "../components/LoadingScreen";
 import PhotoPlaceholder from "../components/PhotoPlaceholder";
 import MasonryGrid from "../components/MasonryGrid";
 import { usePhotoGridSize } from "../hooks/usePhotoGridSize";
+import { useDropdownMenu } from "../hooks/useDropdownMenu";
 import { useUploadQueue } from "../lib/uploadQueue";
-import { shotDataLine } from "../lib/shotData";
+import { shotDataLine, estimateShotDataWrapExtraPx } from "../lib/shotData";
+import { downloadFile } from "../lib/downloadFile";
+
+// GET /api/species/:id/encounters — "183 photos / 7 encounters / 4 locations" style summary.
+interface EncountersResponse {
+  totalPhotos: number;
+  encounterCount: number;
+  locationCount: number;
+  cameraCount: number;
+  lensCount: number;
+  firstPhotographedAt: string | null;
+  lastPhotographedAt: string | null;
+}
 
 // GET /api/species/:id/unmatched-raws — RAWs filed under this species with no capture (see
 // loadUnmatchedRaws' own comment).
@@ -86,7 +104,7 @@ interface SpeciesDetail {
     has_raw_original: boolean;
   }>;
   userSpecies: {
-    state: "collected" | "seen";
+    state: "collected" | "seen" | "target";
     cover_photo_id: string | null;
     card_crop_x: string | number | null;
     card_crop_y: string | number | null;
@@ -101,10 +119,25 @@ interface SpeciesDetail {
     focal_y: number | string | null;
   }>;
   seasonality: number[] | null;
+  weeklyFrequency: number[] | null;
   localTier: string | null;
   isVagrant: boolean;
+  isInvasive: boolean;
   endemicCountryName: string | null;
   isArchived: boolean;
+  regionBoundaryGeoJson: unknown;
+  hotspotDistribution: "widespread" | "clustered" | null;
+  hotspots: Array<{
+    centroidLat: number;
+    centroidLon: number;
+    pointCount: number;
+    bboxDiagonalKm: number;
+    lastSeenYear: number | null;
+    distinctYears: number | null;
+    recordShare: number;
+    isReliable: boolean;
+    isSensitive: boolean;
+  }>;
 }
 
 // "Show me this photo big" prefers the full-resolution original when one exists (store or
@@ -122,6 +155,11 @@ function fullSizeUrl(capture: { photo_id: string | null; original_ref: string | 
   return `/api/photos/${capture.photo_id}/display`;
 }
 
+// Matches GalleryPage's own constant of the same name/purpose — the fixed one-line height
+// budgeted for the camera-info caption; extraHeightPxFor below adds a matching second line's
+// worth on top of this, per capture, only when that specific capture's line is estimated to wrap.
+const CAMERA_INFO_LINE_HEIGHT_PX = 13;
+
 
 export default function SpeciesDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -131,7 +169,7 @@ export default function SpeciesDetailPage() {
   const regionId = searchParams.get("regionId");
   const [detail, setDetail] = useState<SpeciesDetail | null>(null);
   const [lightbox, setLightbox] = useState<{ slides: LightboxSlide[]; index: number } | null>(null);
-  const [openMenuCaptureId, setOpenMenuCaptureId] = useState<string | null>(null);
+  const { openKey: openMenuCaptureId, setOpenKey: setOpenMenuCaptureId, ref: openMenuRef } = useDropdownMenu<string>();
   const [taggingCaptureId, setTaggingCaptureId] = useState<string | null>(null);
   const [croppingCover, setCroppingCover] = useState(false);
   const [showUploadDialog, setShowUploadDialog] = useState(false);
@@ -139,6 +177,7 @@ export default function SpeciesDetailPage() {
   const [selectMode, setSelectMode] = useState(false);
   const [selectedCaptureIds, setSelectedCaptureIds] = useState<Set<string>>(new Set());
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [addingToAlbumCaptureId, setAddingToAlbumCaptureId] = useState<string | null>(null);
   // "Correct the ID" — reassigns a mis-identified photo (or a whole batch of them) to a
   // different species after the fact. Reuses PATCH /captures/:id/reassign per-capture (there's
   // no batch endpoint for this — the set of reassignments is small and interactive, so a
@@ -186,39 +225,12 @@ export default function SpeciesDetailPage() {
     });
   }
 
-  // The photo-options "⋯" menu should close on a click anywhere else on the page, not just
-  // its own toggle button. The toggle button's own click already calls
-  // stopPropagation (see below), so this document-level listener never sees that click and
-  // can't immediately re-close a menu the same click just opened. Scoped to clicks OUTSIDE
-  // the menu itself (via openMenuRef, attached to whichever menu is currently rendered) —
-  // the menu can contain its own interactive content (the "also features another species"
-  // picker's text input), which needs clicks to reach it rather than closing the menu first.
-  const openMenuRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!openMenuCaptureId) return;
-    const closeIfOutside = (e: MouseEvent) => {
-      if (openMenuRef.current && !openMenuRef.current.contains(e.target as Node)) {
-        setOpenMenuCaptureId(null);
-      }
-    };
-    document.addEventListener("click", closeIfOutside);
-    return () => document.removeEventListener("click", closeIfOutside);
-  }, [openMenuCaptureId]);
+  // The photo-options "⋯" menu should close on a click anywhere else on the page — handled by
+  // useDropdownMenu now (openMenuRef above), same mechanism GalleryPage's own photo menu uses.
 
   // A RAW file browser with the same "⋯" menu pattern as the photo grid above, just its own
   // independent open/close state since it's a separate list.
-  const [openRawMenuId, setOpenRawMenuId] = useState<string | null>(null);
-  const openRawMenuRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!openRawMenuId) return;
-    const closeIfOutside = (e: MouseEvent) => {
-      if (openRawMenuRef.current && !openRawMenuRef.current.contains(e.target as Node)) {
-        setOpenRawMenuId(null);
-      }
-    };
-    document.addEventListener("click", closeIfOutside);
-    return () => document.removeEventListener("click", closeIfOutside);
-  }, [openRawMenuId]);
+  const { openKey: openRawMenuId, setOpenKey: setOpenRawMenuId, ref: openRawMenuRef } = useDropdownMenu<string>();
 
   const load = useCallback(() => {
     if (!id) return;
@@ -249,6 +261,13 @@ export default function SpeciesDetailPage() {
     load();
     loadUnmatchedRaws();
   }, [load, loadUnmatchedRaws]);
+
+  const [encounters, setEncounters] = useState<EncountersResponse | null>(null);
+  useEffect(() => {
+    if (!id) return;
+    setEncounters(null);
+    api.get<EncountersResponse>(`/species/${id}/encounters`).then(setEncounters);
+  }, [id]);
 
   // A drive that was disconnected when this page first loaded might get plugged back in while
   // you're still sitting here — without this, "connect the drive" only ever gets rechecked by
@@ -321,9 +340,7 @@ export default function SpeciesDetailPage() {
   if (loadError) {
     return (
       <div className="min-h-screen bg-canvas">
-        <header className="page-header border-b border-line bg-surface px-6 py-4">
-          <BackToCollectionLink fallbackTo={regionId ? `/?region=${regionId}` : "/"} className="text-sm text-muted hover:underline" />
-        </header>
+        <PageHeader backFallbackTo={regionId ? `/?region=${regionId}` : "/"} />
         <div className="p-8 text-muted">
           Couldn't load this species.{" "}
           <button onClick={load} className="text-ink underline">
@@ -336,9 +353,7 @@ export default function SpeciesDetailPage() {
   if (!detail) {
     return (
       <div className="min-h-screen bg-canvas">
-        <header className="page-header border-b border-line bg-surface px-6 py-4">
-          <BackToCollectionLink fallbackTo={regionId ? `/?region=${regionId}` : "/"} className="text-sm text-muted hover:underline" />
-        </header>
+        <PageHeader backFallbackTo={regionId ? `/?region=${regionId}` : "/"} />
         <LoadingScreen showBackLink={false} />
       </div>
     );
@@ -352,6 +367,9 @@ export default function SpeciesDetailPage() {
   }
 
   async function markSeen() {
+    // The backend's INSERT ... ON CONFLICT DO NOTHING can't switch a "target" row straight
+    // into "seen" — undo the old state first so the patch below actually lands.
+    if (detail?.userSpecies?.state === "target") await api.delete(`/species/${id}/target`);
     await api.patch(`/species/${id}/seen`);
     load();
   }
@@ -361,12 +379,25 @@ export default function SpeciesDetailPage() {
     load();
   }
 
+  async function addToTargets() {
+    // Same never-downgrade gating as markSeen above, the other direction — a "seen" species
+    // needs its seen row cleared before it can become a target.
+    if (detail?.userSpecies?.state === "seen") await api.delete(`/species/${id}/seen`);
+    await api.patch(`/species/${id}/target`);
+    load();
+  }
+
+  async function removeFromTargets() {
+    await api.delete(`/species/${id}/target`);
+    load();
+  }
+
   async function archive() {
     try {
       await api.post(`/species/${id}/archive`);
       load();
     } catch {
-      alert("Couldn't archive this species — try again.");
+      alert("Couldn't archive this species. Try again.");
     }
   }
 
@@ -375,13 +406,13 @@ export default function SpeciesDetailPage() {
       await api.delete(`/species/${id}/archive`);
       load();
     } catch {
-      alert("Couldn't unarchive this species — try again.");
+      alert("Couldn't unarchive this species. Try again.");
     }
   }
 
   async function revealInFinder(path: string) {
     setOpenMenuCaptureId(null);
-    await api.post("/originals/reveal", { path }).catch(() => alert("Couldn't reveal that file — it may be unavailable."));
+    await api.post("/originals/reveal", { path }).catch(() => alert("Couldn't reveal that file. It may be unavailable."));
   }
 
   async function rateCapture(captureId: string, rating: number | null) {
@@ -497,12 +528,7 @@ export default function SpeciesDetailPage() {
          viewport made it easy to end up scrolled a long way down with no quick way back up
          to it. z-20 keeps it above the page content but still under the mac title-bar drag
          strip's own z-index (see index.css). */}
-      <header className="page-header sticky top-0 z-20 border-b border-line bg-surface px-6 py-4">
-        <BackToCollectionLink
-          fallbackTo={regionId ? `/?region=${regionId}` : "/"}
-          className="text-sm text-muted hover:underline"
-        />
-      </header>
+      <PageHeader backFallbackTo={regionId ? `/?region=${regionId}` : "/"} sticky />
 
       {/* <main> itself is full width (the photo grid below spreads out across it, keeping
          the masonry/progressive-loading layout), while the reference photo and species info
@@ -567,15 +593,28 @@ export default function SpeciesDetailPage() {
                   Adjust card preview
                 </button>
               )}
-              {detail.userSpecies?.state === "seen" ? (
-                <button onClick={unmarkSeen} className="text-xs text-muted hover:underline">
-                  ✓ Seen (undo)
-                </button>
-              ) : !detail.userSpecies ? (
-                <button onClick={markSeen} className="text-xs text-muted hover:underline">
-                  Mark as seen
-                </button>
-              ) : null}
+              {detail.userSpecies?.state !== "collected" && (
+                <>
+                  {detail.userSpecies?.state === "seen" ? (
+                    <button onClick={unmarkSeen} className="text-xs text-muted hover:underline">
+                      Mark as unseen
+                    </button>
+                  ) : (
+                    <button onClick={markSeen} className="text-xs text-muted hover:underline">
+                      Mark as seen
+                    </button>
+                  )}
+                  {detail.userSpecies?.state === "target" ? (
+                    <button onClick={removeFromTargets} className="text-xs text-muted hover:underline">
+                      ★ Target (remove)
+                    </button>
+                  ) : (
+                    <button onClick={addToTargets} className="text-xs text-muted hover:underline">
+                      Add to targets
+                    </button>
+                  )}
+                </>
+              )}
               {/* Archived species are excluded from checklists (see NOT_ARCHIVED_SQL) but stay
                  reachable via search/this page, exactly so they can be unarchived here — the
                  button always reflects the real archived row, not the exemption that lets a
@@ -591,7 +630,8 @@ export default function SpeciesDetailPage() {
               ) : null}
             </div>
           </div>
-          {!galleryView && (species.tier || detail.localTier || detail.endemicCountryName || detail.isVagrant) && (
+          {!galleryView &&
+            (species.tier || detail.localTier || detail.endemicCountryName || detail.isVagrant || detail.isInvasive) && (
             <div className="mt-1 flex flex-wrap items-center gap-1.5">
               {species.tier && (
                 <span
@@ -608,7 +648,7 @@ export default function SpeciesDetailPage() {
               {detail.localTier && (
                 <span
                   className="inline-block rounded-full border border-line px-2 py-0.5 text-xs uppercase tracking-wide text-muted"
-                  title="Rarity ranked against other species in this region specifically"
+                  title="How rare and hard to find this species is in this region specifically"
                 >
                   {detail.localTier} here
                 </span>
@@ -624,16 +664,75 @@ export default function SpeciesDetailPage() {
               {detail.isVagrant && (
                 <span
                   className="inline-block rounded-full bg-sky-100 px-2 py-0.5 text-xs uppercase tracking-wide text-sky-700"
-                  title="Records here are concentrated in very few years — likely a vagrant, not an established local presence"
+                  title="Records here are concentrated in very few years, likely a vagrant, not an established local presence"
                 >
                   Vagrant here
+                </span>
+              )}
+              {detail.isInvasive && (
+                <span
+                  className="inline-block rounded-full bg-rose-100 px-2 py-0.5 text-xs uppercase tracking-wide text-rose-700"
+                  title="A real, established population here, but non-native and considered invasive"
+                >
+                  Invasive here
                 </span>
               )}
             </div>
           )}
         </div>
 
+        {/* "183 photos / 7 encounters / 4 locations" — the encounter-vs-photograph distinction:
+            a burst of 400 photos from one sighting isn't 400 wildlife experiences. */}
+        {encounters && encounters.totalPhotos > 0 && (
+          <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted">
+            <span>
+              <span className="font-medium text-ink">{encounters.totalPhotos}</span> photos
+            </span>
+            <span>
+              <span className="font-medium text-ink">{encounters.encounterCount}</span> encounter{encounters.encounterCount === 1 ? "" : "s"}
+            </span>
+            {encounters.locationCount > 0 && (
+              <span>
+                <span className="font-medium text-ink">{encounters.locationCount}</span> location{encounters.locationCount === 1 ? "" : "s"}
+              </span>
+            )}
+            {encounters.cameraCount > 0 && (
+              <span>
+                <span className="font-medium text-ink">{encounters.cameraCount}</span> camera{encounters.cameraCount === 1 ? "" : "s"}
+              </span>
+            )}
+            {encounters.lensCount > 0 && (
+              <span>
+                <span className="font-medium text-ink">{encounters.lensCount}</span> lens{encounters.lensCount === 1 ? "" : "es"}
+              </span>
+            )}
+            {encounters.firstPhotographedAt && (
+              <span>First: {new Date(encounters.firstPhotographedAt).toLocaleDateString()}</span>
+            )}
+          </div>
+        )}
+
         <SeasonalityBar seasonality={detail.seasonality} />
+        <WeeklyBar weeklyFrequency={detail.weeklyFrequency} />
+        {detail.hotspots.length > 0 && (
+          <div>
+            {detail.hotspotDistribution === "widespread" ? (
+              <>
+                <p className="mb-1 text-[10px] uppercase tracking-wide text-muted">Where to find it</p>
+                <p className="text-sm text-ink">
+                  Recorded broadly across this region rather than a few specific spots. Keep an eye
+                  out anywhere you go, not just at particular locations.
+                </p>
+              </>
+            ) : (
+              <SpeciesHotspotMap
+                boundaryGeoJson={detail.regionBoundaryGeoJson}
+                hotspots={detail.hotspots}
+                scientificName={species.scientific_name}
+              />
+            )}
+          </div>
+        )}
         {species.description && (
           <p className="text-sm text-ink">
             {species.description}{" "}
@@ -730,7 +829,7 @@ export default function SpeciesDetailPage() {
               <button
                 onClick={toggleGalleryView}
                 className={`text-xs hover:underline ${galleryView ? "font-medium text-ink" : "text-muted"}`}
-                title="Hide rarity, rating, and camera info — just the photos"
+                title="Hide rarity, rating, and camera info: just the photos"
               >
                 {galleryView ? "Gallery view ✓" : "Gallery view"}
               </button>
@@ -847,11 +946,26 @@ export default function SpeciesDetailPage() {
                 ...Array.from({ length: pendingUploadCount }, (_, idx) => ({ kind: "placeholder" as const, key: `pending-${idx}` })),
               ]}
               columnWidth={thumbSizePx}
+              // Not shown at all in gallery view (label above only renders the two absolutely-
+              // positioned overlays then, which add no real layout height) — see MasonryGrid's
+              // own extraHeightPx comment for why an unbudgeted caption overlaps the row below.
+              // Camera info's wrap-to-2-lines case is handled per-item via extraHeightPxFor
+              // below instead of a flat number here (a fixed camera+lens string's length varies
+              // a lot capture to capture) — see GalleryPage's matching comment.
+              extraHeightPx={galleryView ? 0 : 19 + 18 + CAMERA_INFO_LINE_HEIGHT_PX}
+              extraHeightPxFor={
+                galleryView
+                  ? undefined
+                  : (item, columnWidthPx) =>
+                      item.kind === "capture"
+                        ? estimateShotDataWrapExtraPx(shotDataLine(item.c), columnWidthPx, CAMERA_INFO_LINE_HEIGHT_PX)
+                        : 0
+              }
               keyFor={(item) => (item.kind === "placeholder" ? item.key : item.c.id)}
               aspectRatioFor={(item) =>
                 item.kind === "capture" && item.c.width && item.c.height ? item.c.width / item.c.height : null
               }
-              renderItem={(item) => {
+              renderItem={(item, aspectRatio) => {
                 if (item.kind === "placeholder") {
                   return (
                     <div
@@ -864,50 +978,44 @@ export default function SpeciesDetailPage() {
                 }
                 const { c, i } = item;
                 return (
-                  <div
+                  <PhotoTile
                     key={c.id}
-                    className="group relative min-w-0"
-                  >
-                    <ProgressiveImg
-                      thumbSrc={`/api/photos/${c.photo_id}/thumb`}
-                      fullSrc={`/api/photos/${c.photo_id}/display`}
-                      alt=""
-                      onClick={() => (selectMode ? toggleSelected(c.id) : setLightbox({ slides: captureSlides, index: i }))}
-                      className={`block w-full cursor-pointer rounded-md ${
-                        selectMode && selectedCaptureIds.has(c.id) ? "ring-2 ring-accent ring-offset-2" : ""
-                      }`}
-                    />
-                    {selectMode && (
-                      <input
-                        type="checkbox"
-                        checked={selectedCaptureIds.has(c.id)}
-                        onChange={() => toggleSelected(c.id)}
-                        className="absolute left-2 top-2 h-4 w-4 accent-accent"
-                        aria-label="Select photo"
-                      />
-                    )}
-                    {!selectMode && (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setOpenMenuCaptureId(openMenuCaptureId === c.id ? null : c.id);
-                      }}
-                      className="absolute right-1 top-1 rounded-full bg-black/40 px-1.5 text-xs text-white opacity-0 group-hover:opacity-100"
-                      aria-label="Photo options"
-                    >
-                      ⋯
-                    </button>
-                    )}
-                    {!selectMode && openMenuCaptureId === c.id && (
-                      <div
-                        ref={openMenuRef}
-                        className="absolute right-1 top-7 z-10 whitespace-nowrap rounded-md border border-line bg-surface py-1 text-xs shadow-lg"
-                      >
+                    photoId={c.photo_id!}
+                    alt=""
+                    onOpen={() => setLightbox({ slides: captureSlides, index: i })}
+                    selectMode={selectMode}
+                    selected={selectedCaptureIds.has(c.id)}
+                    onToggleSelect={() => toggleSelected(c.id)}
+                    aspectRatio={aspectRatio}
+                    menuOpen={openMenuCaptureId === c.id}
+                    onToggleMenu={() => setOpenMenuCaptureId(openMenuCaptureId === c.id ? null : c.id)}
+                    menuRef={openMenuRef}
+                    menuContent={
+                      <div className="absolute right-0 top-full z-10 mt-1 whitespace-nowrap rounded-md border border-line bg-surface py-1 text-xs shadow-lg">
+                        {/* Same rateCapture/StarRating this page already uses in gallery view's
+                           own label overlay — surfaced here too so rating doesn't require
+                           switching gallery view off just to reach the star row underneath a
+                           thumbnail. Doesn't close the menu on click (unlike the one-shot
+                           actions below) so adjusting a rating up or down doesn't mean
+                           reopening the menu for every star. */}
+                        <div className="flex items-center justify-between gap-2 border-b border-line px-3 py-1.5">
+                          <span className="text-muted">Rate</span>
+                          <StarRating rating={c.quality_rating} onRate={(rating) => rateCapture(c.id, rating)} />
+                        </div>
                         <button
                           onClick={() => setCover(c.photo_id!)}
                           className="block w-full px-3 py-1.5 text-left text-ink hover:bg-surface-muted"
                         >
                           {detail.userSpecies?.cover_photo_id === c.photo_id ? "Featured photo ✓" : "Set as featured photo"}
+                        </button>
+                        <button
+                          onClick={() => {
+                            setAddingToAlbumCaptureId(c.id);
+                            setOpenMenuCaptureId(null);
+                          }}
+                          className="block w-full px-3 py-1.5 text-left text-ink hover:bg-surface-muted"
+                        >
+                          Add to album…
                         </button>
                         {c.original_ref && c.original_available === false ? (
                           <p className="w-full px-3 py-1.5 text-left text-muted">
@@ -918,19 +1026,27 @@ export default function SpeciesDetailPage() {
                         ) : (
                           c.original_ref && (
                             <>
-                              <a
-                                href={`/api/photos/${c.photo_id}/original?download=1`}
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setOpenMenuCaptureId(null);
+                                  downloadFile(`/api/photos/${c.photo_id}/original?download=1`, "original.jpg");
+                                }}
                                 className="block w-full px-3 py-1.5 text-left text-ink hover:bg-surface-muted"
                               >
                                 Download original
-                              </a>
+                              </button>
                               {c.has_raw_original && (
-                                <a
-                                  href={`/api/photos/${c.photo_id}/original-raw?download=1`}
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setOpenMenuCaptureId(null);
+                                    downloadFile(`/api/photos/${c.photo_id}/original-raw?download=1`, "original.raw");
+                                  }}
                                   className="block w-full px-3 py-1.5 text-left text-ink hover:bg-surface-muted"
                                 >
                                   Download RAW
-                                </a>
+                                </button>
                               )}
                               {!c.original_managed && (
                                 <>
@@ -993,35 +1109,41 @@ export default function SpeciesDetailPage() {
                           Delete Photo
                         </button>
                       </div>
-                    )}
-                    {!galleryView && detail.userSpecies?.best_quality != null && c.quality_rating === detail.userSpecies.best_quality && (
-                      <span className="absolute left-1 top-1 rounded-full bg-black/40 px-1.5 py-0.5 text-[9px] text-white">
-                        Best shot
-                      </span>
-                    )}
-                    {/* A small status dot, not a full text label — the actual explanation
-                       (and, when it's a disconnected drive, which one) lives in the ⋯ menu
-                       above rather than crowding the thumbnail itself. */}
-                    {c.original_available === false && (
-                      <span
-                        className="absolute left-1.5 bottom-1.5 h-2.5 w-2.5 rounded-full bg-red-600 shadow"
-                        title={
-                          c.original_volume_label
-                            ? `Original unavailable — connect "${c.original_volume_label}" to view it`
-                            : "Original unavailable — the file couldn't be found at its saved location"
-                        }
-                      />
-                    )}
-                    {!galleryView && (
-                      <div className="mt-1">
-                        <StarRating rating={c.quality_rating} onRate={(rating) => rateCapture(c.id, rating)} />
-                      </div>
-                    )}
-                    {!galleryView && c.taken_at && (
-                      <p className="mt-0.5 text-[10px] text-muted">{new Date(c.taken_at).toLocaleDateString()}</p>
-                    )}
-                    {!galleryView && shotDataLine(c) && <p className="text-[9px] text-muted">{shotDataLine(c)}</p>}
-                  </div>
+                    }
+                    label={
+                      <>
+                        {!galleryView && detail.userSpecies?.best_quality != null && c.quality_rating === detail.userSpecies.best_quality && (
+                          <span className="absolute left-1 top-1 rounded-full bg-black/40 px-1.5 py-0.5 text-[9px] text-white">
+                            Best shot
+                          </span>
+                        )}
+                        {/* A small status dot, not a full text label — the actual explanation
+                           (and, when it's a disconnected drive, which one) lives in the ⋯ menu
+                           above rather than crowding the thumbnail itself. */}
+                        {c.original_available === false && (
+                          <span
+                            className="absolute left-1.5 bottom-1.5 h-2.5 w-2.5 rounded-full bg-red-600 shadow"
+                            title={
+                              c.original_volume_label
+                                ? `Original unavailable. Connect "${c.original_volume_label}" to view it`
+                                : "Original unavailable. The file couldn't be found at its saved location"
+                            }
+                          />
+                        )}
+                        {!galleryView && (
+                          <div className="mt-1">
+                            <StarRating rating={c.quality_rating} onRate={(rating) => rateCapture(c.id, rating)} />
+                          </div>
+                        )}
+                        {!galleryView && c.taken_at && (
+                          <p className="mt-0.5 text-[10px] text-muted">{new Date(c.taken_at).toLocaleDateString()}</p>
+                        )}
+                        {!galleryView && shotDataLine(c) && (
+                          <p className="text-[9px] text-muted">{shotDataLine(c)}</p>
+                        )}
+                      </>
+                    }
+                  />
                 );
               }}
             />
@@ -1041,29 +1163,23 @@ export default function SpeciesDetailPage() {
               {unmatchedRaws.map((r) => (
                 <div key={r.id} className="group relative w-32 rounded-md border border-line bg-surface p-2 text-center">
                   <img src={r.previewUrl} alt="" className="aspect-square w-full rounded-sm bg-surface-muted object-cover" />
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setOpenRawMenuId(openRawMenuId === r.id ? null : r.id);
-                    }}
-                    className="absolute right-1 top-1 rounded-full bg-black/40 px-1.5 text-xs text-white opacity-0 group-hover:opacity-100"
-                    aria-label="RAW file options"
+                  <DotMenu
+                    open={openRawMenuId === r.id}
+                    onToggle={() => setOpenRawMenuId(openRawMenuId === r.id ? null : r.id)}
+                    menuRef={openRawMenuRef}
                   >
-                    ⋯
-                  </button>
-                  {openRawMenuId === r.id && (
-                    <div
-                      ref={openRawMenuRef}
-                      className="absolute right-1 top-7 z-10 whitespace-nowrap rounded-md border border-line bg-surface py-1 text-xs shadow-lg"
-                    >
-                      <a
-                        href={r.downloadUrl}
+                    <div className="absolute right-0 top-full z-10 mt-1 whitespace-nowrap rounded-md border border-line bg-surface py-1 text-xs shadow-lg">
+                      <button
+                        onClick={() => {
+                          setOpenRawMenuId(null);
+                          downloadFile(r.downloadUrl, r.filename ?? "original.raw");
+                        }}
                         className="block w-full px-3 py-1.5 text-left text-ink hover:bg-surface-muted"
                       >
                         Download
-                      </a>
+                      </button>
                     </div>
-                  )}
+                  </DotMenu>
                   <p className="mt-1 truncate text-[10px] text-muted">{r.filename}</p>
                   <p className="text-[9px] text-muted">{(r.fileSize / (1024 * 1024)).toFixed(1)} MB</p>
                 </div>
@@ -1115,6 +1231,10 @@ export default function SpeciesDetailPage() {
           onIndexChange={(index) => setLightbox({ slides: lightbox.slides, index })}
           onClose={() => setLightbox(null)}
         />
+      )}
+
+      {addingToAlbumCaptureId && (
+        <AddToAlbumModal captureIds={[addingToAlbumCaptureId]} onClose={() => setAddingToAlbumCaptureId(null)} />
       )}
 
       {croppingCover && detail.userSpecies?.cover_photo_id && (

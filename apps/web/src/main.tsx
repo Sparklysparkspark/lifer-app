@@ -28,6 +28,31 @@ if (window.liferSetup?.platform === "darwin") {
   document.documentElement.setAttribute("data-mac-app", "");
 }
 
+// Tauri's webview intercepts <a target="_blank"> (and window.open) links itself and routes
+// them through tauri-plugin-shell's "open" command — a different plugin than tauri-plugin-opener
+// (see SettingsPage.tsx's own openUrl usage for the iNaturalist connect flow), and one this app
+// deliberately doesn't grant permission to (capabilities/default.json only allows shell:allow-execute
+// /allow-spawn, scoped to the bundled node sidecar, not arbitrary URLs). Every plain external
+// link across the app (Wikipedia credits, eBird import instructions, iNat edit links, etc.) hit
+// that same "not allowed by ACL" rejection as a result. Intercepting clicks here and routing them
+// through the already-permitted opener plugin fixes every such link at once, rather than
+// special-casing each one the way the iNat connect flow already had to.
+if ((window as unknown as { __TAURI__?: unknown }).__TAURI__) {
+  document.addEventListener(
+    "click",
+    (event) => {
+      if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      const anchor = (event.target as Element).closest?.("a[href]") as HTMLAnchorElement | null;
+      if (!anchor || anchor.target !== "_blank") return;
+      const href = anchor.href;
+      if (!href.startsWith("http://") && !href.startsWith("https://")) return;
+      event.preventDefault();
+      import("@tauri-apps/plugin-opener").then(({ openUrl }) => openUrl(href));
+    },
+    true,
+  );
+}
+
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <ThemeProvider>

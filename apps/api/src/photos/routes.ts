@@ -1,4 +1,4 @@
-// Authenticated file streaming — per lifer-spec.md §8 security requirement, display/thumb
+// Authenticated file streaming —security requirement, display/thumb
 // paths are never served via a static mount. Every request is checked against ownership here.
 import { createReadStream, existsSync } from "node:fs";
 import path from "node:path";
@@ -73,9 +73,11 @@ export async function photoRoutes(app: FastifyInstance): Promise<void> {
       if (!original) return reply.code(404).send({ error: "Original not found" });
 
       if (original.refType === "s3") {
-        // A signed URL is time-limited and only usable directly, so ?download=1 can't add a
-        // Content-Disposition header here the way the local-file branch does below.
-        return reply.redirect(await signedS3Url(original.ref!));
+        // ResponseContentDisposition on the presigned URL itself is the only way to make S3
+        // serve this as a download — see signedS3Url's own comment on why a header set on THIS
+        // response never reaches the client for a redirect target.
+        const downloadFilename = request.query.download === "1" ? path.basename(original.ref!) : undefined;
+        return reply.redirect(await signedS3Url(original.ref!, downloadFilename));
       }
 
       if (!original.connected) {
@@ -109,7 +111,8 @@ export async function photoRoutes(app: FastifyInstance): Promise<void> {
       if (!original) return reply.code(404).send({ error: "No RAW original for this photo" });
 
       if (original.refType === "s3") {
-        return reply.redirect(await signedS3Url(original.ref!));
+        const downloadFilename = request.query.download === "1" ? path.basename(original.ref!) : undefined;
+        return reply.redirect(await signedS3Url(original.ref!, downloadFilename));
       }
 
       if (!original.connected) {

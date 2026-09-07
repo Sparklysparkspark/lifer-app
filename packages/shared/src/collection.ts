@@ -1,5 +1,5 @@
 // Response shape for GET /api/collection — one row per species, with the viewing user's
-// state computed server-side (lifer-spec.md §1's three card states).
+// state computed server-side ().
 
 import type { RarityTier, TaxonClass } from "./species.js";
 import type { CollectionState } from "./user.js";

@@ -1,5 +1,5 @@
 // Shared CC-license allowlist for anything sourced from iNaturalist or Wikimedia Commons
-// (lifer-spec.md §5). Commercial-safe by default. Set LIFER_ALLOW_NONCOMMERCIAL_PHOTOS=1
+//. Commercial-safe by default. Set LIFER_ALLOW_NONCOMMERCIAL_PHOTOS=1
 // to additionally allow CC-BY-NC/CC-BY-NC-SA/CC-BY-ND/CC-BY-NC-ND for local dev/test runs
 // on a personal, non-commercial MVP. The actual license code is always stored alongside the
 // photo (species.reference_license), so tightening back to commercial-safe-only later is a

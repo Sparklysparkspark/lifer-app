@@ -1,4 +1,4 @@
-// Mirrors the Phase-1 subset of lifer-spec.md §6 (species, species_traits, species_rarity).
+// Mirrors the Phase-1 subset of(species, species_traits, species_rarity).
 
 // Fine-grained on purpose — every value here is independently downloadable/filterable (see
 // build-region-pack.ts's --taxon flag and the collection page's taxon picker), not just a

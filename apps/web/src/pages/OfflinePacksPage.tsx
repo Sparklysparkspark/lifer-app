@@ -1,15 +1,52 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { RegionSummary, TaxonClass } from "@lifer/shared";
-import { TAXON_CLASS_LABEL } from "@lifer/shared";
+import { TAXON_CLASS_LABEL, TAXON_GROUPS, GROUPED_TAXON_CLASSES } from "@lifer/shared";
 import { api, ApiError } from "../api/client";
 import { Spinner } from "../components/LoadingScreen";
-import BackToCollectionLink from "../components/BackToCollectionLink";
+import Pill from "../components/Pill";
+import PageHeader from "../components/PageHeader";
 import InfoTip from "../components/InfoTip";
 import PacksMap, { type CountryBoundary } from "../components/PacksMap";
 
 const PACKS_INFO_PARAGRAPHS = [
   '"Update available" means the pack\'s checklist data (which species occur there, and how often) has changed since you downloaded it. Re-downloading refreshes that.',
 ];
+
+// Natural Earth's own CONTINENT field (what build-regions.ts groups countries by) has no
+// "Central America" value at all — every one of these sits under the same "North America" as
+// Canada/the US/Mexico, geographically correct but not how most people actually browse for
+// them. A synthetic, frontend-only pseudo-continent (no matching region row, no backend id)
+// pulls just these countries into their own pill group purely for browsing — everything else
+// (selection, download, checklist data) still operates on each country's own real region id,
+// untouched by this regrouping.
+const CENTRAL_AMERICA_COUNTRY_NAMES = new Set([
+  "Guatemala",
+  "Belize",
+  "Honduras",
+  "El Salvador",
+  "Nicaragua",
+  "Costa Rica",
+  "Panama",
+]);
+const CENTRAL_AMERICA_CONTINENT_ID = "central-america";
+// Single source of truth for "which continent group does this country actually display
+// under" — used both to build countriesByContinent and to open the right group from a search
+// result, so the two never disagree about where a Central American country actually lives.
+function continentIdForCountry(country: RegionSummary): string | null {
+  if (CENTRAL_AMERICA_COUNTRY_NAMES.has(country.name)) return CENTRAL_AMERICA_CONTINENT_ID;
+  return country.parentId;
+}
+const CENTRAL_AMERICA_CONTINENT: RegionSummary = {
+  id: CENTRAL_AMERICA_CONTINENT_ID,
+  name: "Central America",
+  parentId: null,
+  ebirdRegionCode: null,
+  boundaryGeoJson: null,
+  hasChildren: false,
+  hasScopedChecklist: false,
+  sovereigntyGroup: null,
+  isSovereignDependency: false,
+};
 
 interface PackEntry {
   id: string;
@@ -23,6 +60,11 @@ interface PackEntry {
   updateAvailable: boolean;
   /** Sea zone pack names this (region-type) pack depends on — see build-pack-index.ts. */
   seaZoneDependencies?: string[];
+  // Uncompressed byte counts from build time (build-region-pack.ts's photoBytesInStaging) — an
+  // estimate of relative weight (photos vs. checklist JSON), not an exact post-gzip split.
+  // Absent on any pack built before this field existed.
+  photoBytes?: number;
+  checklistBytes?: number;
 }
 
 interface DownloadStatus {
@@ -78,11 +120,24 @@ export default function OfflinePacksPage() {
   const [packs, setPacks] = useState<PackEntry[] | null>(null);
   const [indexError, setIndexError] = useState<string | null>(null);
   const [selectedCountryIds, setSelectedCountryIds] = useState<Set<string>>(new Set());
+  // Separate from openContinentIds (which drives the pill LIST's expand/collapse) — this drives
+  // ONLY the map's own outline/fit widening, so a continent explicitly opened via its own pill
+  // click still previews on the map, but clicking a country directly ON THE MAP (which also
+  // auto-opens that continent's pill group purely to reveal its territories panel — see
+  // toggleCountry below) no longer also widens the map out to the whole continent, stealing
+  // focus from the one country actually clicked.
+  const [mapWidenedContinentIds, setMapWidenedContinentIds] = useState<Set<string>>(new Set());
   const [openContinentIds, setOpenContinentIds] = useState<Set<string>>(new Set());
   const [selectedTaxa, setSelectedTaxa] = useState<Set<TaxonClass>>(new Set());
+  const [openTaxonGroups, setOpenTaxonGroups] = useState<Set<string>>(new Set());
   const [searchTerm, setSearchTerm] = useState("");
   const [availableTaxaByRegion, setAvailableTaxaByRegion] = useState<Record<string, TaxonClass[]>>({});
   const [starting, setStarting] = useState(false);
+  // Which specific pack(s) THIS component just asked to update, tracked separately from the
+  // shared `starting`/`status.running` flags — those flip true for ANY in-flight download job
+  // (including an unrelated brand-new pack via startDownload), which made every pack's own
+  // "Update" button say "Updating…" the moment any download of any kind was running.
+  const [pendingUpdatePackIds, setPendingUpdatePackIds] = useState<Set<string>>(new Set());
   const [startError, setStartError] = useState<string | null>(null);
   const [status, setStatus] = useState<DownloadStatus | null>(null);
   const [recommendation, setRecommendation] = useState<Recommendation | null>(null);
@@ -147,7 +202,10 @@ export default function OfflinePacksPage() {
         const res = await api.get<DownloadStatus>("/offline-packs/download/status");
         if (!cancelled) {
           setStatus(res);
-          if (wasRunning.current && !res.running) refreshPacks();
+          if (wasRunning.current && !res.running) {
+            refreshPacks();
+            setPendingUpdatePackIds(new Set());
+          }
           wasRunning.current = res.running;
         }
       } catch {
@@ -175,7 +233,13 @@ export default function OfflinePacksPage() {
   }, [selectedCountryIds, availableTaxaByRegion]);
 
   const world = regions?.find((r) => r.parentId === null);
-  const continents = useMemo(() => (regions ?? []).filter((r) => r.parentId === world?.id), [regions, world]);
+  const continents = useMemo(() => {
+    const real = (regions ?? []).filter((r) => r.parentId === world?.id);
+    const northAmericaIndex = real.findIndex((c) => c.name === "North America");
+    if (northAmericaIndex === -1) return real;
+    // Right after North America, since that's where these countries would otherwise be found.
+    return [...real.slice(0, northAmericaIndex + 1), CENTRAL_AMERICA_CONTINENT, ...real.slice(northAmericaIndex + 1)];
+  }, [regions, world]);
   // Split each continent's children into primary countries (the main pill list) and
   // dependencies/territories (moved to a separate "Other Territories" catch-all at the end of
   // that continent's group instead — a territory that isn't obviously "part of" a country
@@ -186,8 +250,10 @@ export default function OfflinePacksPage() {
     const map = new Map<string, RegionSummary[]>();
     for (const r of regions ?? []) {
       if (!r.parentId || r.isSovereignDependency) continue;
-      if (!map.has(r.parentId)) map.set(r.parentId, []);
-      map.get(r.parentId)!.push(r);
+      const bucketId = continentIdForCountry(r);
+      if (!bucketId) continue;
+      if (!map.has(bucketId)) map.set(bucketId, []);
+      map.get(bucketId)!.push(r);
     }
     return map;
   }, [regions]);
@@ -239,11 +305,11 @@ export default function OfflinePacksPage() {
   // outline them (a distinct, weaker visual than "selected") without implying they're selected.
   const openCountryIds = useMemo(() => {
     const set = new Set<string>();
-    for (const continentId of openContinentIds) {
+    for (const continentId of mapWidenedContinentIds) {
       for (const c of countriesByContinent.get(continentId) ?? []) set.add(c.id);
     }
     return set;
-  }, [openContinentIds, countriesByContinent]);
+  }, [mapWidenedContinentIds, countriesByContinent]);
 
   // Everything the map should currently be fit to — every open continent's countries UNION every
   // individually selected country. Derived (not manually set per-action) so the view always
@@ -286,18 +352,28 @@ export default function OfflinePacksPage() {
     });
     // A country selected by clicking it on the map (PacksMap's onToggleCountry, this same
     // function) previously left its pill + territories panel invisible unless that continent's
-    // group already happened to be open — same fix as selectSearchResult already had for the
-    // search box, so every way of selecting a country consistently surfaces its territories.
+    // group already happened to be open — still auto-opened here so the pill/territories exist
+    // to look at, but no longer auto-SCROLLS the page down to them (that jumped the user's view
+    // away from the map they were just looking at, not something a map click should do).
     if (willSelect) {
       const region = countryById.get(id);
-      if (region?.parentId) setOpenContinentIds((prev) => new Set(prev).add(region.parentId!));
-      setTimeout(() => countryRowRefs.current.get(id)?.scrollIntoView({ behavior: "smooth", block: "nearest" }), 0);
+      const continentId = region && continentIdForCountry(region);
+      if (continentId) setOpenContinentIds((prev) => new Set(prev).add(continentId));
     }
   }
 
   function toggleContinent(continentId: string) {
     const willOpen = !openContinentIds.has(continentId);
     setOpenContinentIds((prev) => {
+      const next = new Set(prev);
+      if (willOpen) next.add(continentId);
+      else next.delete(continentId);
+      return next;
+    });
+    // An explicit continent-pill click (unlike toggleCountry's own auto-open, which only ever
+    // touches openContinentIds above) is the one case that should also widen the map to preview
+    // the whole continent.
+    setMapWidenedContinentIds((prev) => {
       const next = new Set(prev);
       if (willOpen) next.add(continentId);
       else next.delete(continentId);
@@ -323,7 +399,8 @@ export default function OfflinePacksPage() {
   function selectSearchResult(region: RegionSummary) {
     setSelectedCountryIds((prev) => new Set(prev).add(region.id));
     setSearchTerm("");
-    if (region.parentId) setOpenContinentIds((prev) => new Set(prev).add(region.parentId!));
+    const continentId = continentIdForCountry(region);
+    if (continentId) setOpenContinentIds((prev) => new Set(prev).add(continentId));
     // Scrolled to on the next tick, after the row actually renders (it may not exist yet this
     // render if this country's continent wasn't already open).
     setTimeout(() => countryRowRefs.current.get(region.id)?.scrollIntoView({ behavior: "smooth", block: "nearest" }), 0);
@@ -395,6 +472,7 @@ export default function OfflinePacksPage() {
   async function updatePacks(packIds: string[]) {
     setStartError(null);
     setStarting(true);
+    setPendingUpdatePackIds((prev) => new Set([...prev, ...packIds]));
     try {
       await api.post("/offline-packs/download", { packIds });
       refreshPacks();
@@ -402,6 +480,15 @@ export default function OfflinePacksPage() {
       setStartError(err instanceof ApiError ? err.message : "Couldn't start the update");
     } finally {
       setStarting(false);
+      // Real progress from here on is tracked via polled status.currentPack, not this
+      // request-in-flight flag — but keep it until the poll first reflects the job as
+      // finished, so the button doesn't flicker to "Update" for a moment mid-job.
+      setPendingUpdatePackIds((prev) => {
+        if (status?.running) return prev;
+        const next = new Set(prev);
+        for (const id of packIds) next.delete(id);
+        return next;
+      });
     }
   }
 
@@ -562,16 +649,16 @@ export default function OfflinePacksPage() {
 
   return (
     <div className="min-h-screen bg-canvas">
-      <header className="page-header border-b border-line bg-surface px-6 py-4">
-        <BackToCollectionLink fallbackTo="/settings" label="Settings" className="text-sm text-muted hover:underline" />
-        <div className="mt-1 flex items-center gap-2">
-          <h1 className="text-lg font-semibold text-ink">Offline packs</h1>
-          <InfoTip paragraphs={PACKS_INFO_PARAGRAPHS} />
-        </div>
+      <PageHeader
+        title="Offline packs"
+        backFallbackTo="/settings"
+        backLabel="Settings"
+        titleAddon={<InfoTip paragraphs={PACKS_INFO_PARAGRAPHS} />}
+      >
         <p className="mt-1 text-sm text-muted">
           Download reference photos and habitat info for a region so it's usable without an internet connection.
         </p>
-      </header>
+      </PageHeader>
 
       <main className="mx-auto max-w-3xl space-y-6 p-6">
         {indexError && <p className="text-sm text-red-600">{indexError}</p>}
@@ -581,7 +668,7 @@ export default function OfflinePacksPage() {
           <div className="rounded-xl border border-line bg-surface p-4">
             {recommendation.recommended.length === 0 ? (
               <p className="text-sm text-muted">
-                None of the available packs cover the missing species from your library — they may not have offline packs yet.
+                None of the available packs cover the missing species from your library. They may not have offline packs yet.
               </p>
             ) : (
               <>
@@ -589,7 +676,7 @@ export default function OfflinePacksPage() {
                 <ul className="mt-2 space-y-1 text-sm text-muted">
                   {recommendation.recommended.map((p) => (
                     <li key={p.id}>
-                      {p.region ?? p.seaZone} {p.taxon ? `(${TAXON_CLASS_LABEL[p.taxon]})` : ""} — covers {p.covers} species,{" "}
+                      {p.region ?? p.seaZone} {p.taxon ? `(${TAXON_CLASS_LABEL[p.taxon]})` : ""}: covers {p.covers} species,{" "}
                       {formatBytes(p.sizeBytes)}
                     </li>
                   ))}
@@ -633,9 +720,11 @@ export default function OfflinePacksPage() {
           </div>
         )}
         {status && !status.running && status.finishedAt && Date.now() - status.finishedAt < 15000 && (
-          <p className={`text-sm ${status.error ? "text-red-600" : "text-green-700"}`}>
-            {status.error ? `Download failed: ${status.error}` : `Done — ${status.processed} pack(s) applied.`}
-          </p>
+          <div className={`rounded-xl border p-4 ${status.error ? "border-red-200 bg-red-50" : "border-line bg-surface"}`}>
+            <p className={`text-sm ${status.error ? "text-red-600" : "text-ink"}`}>
+              {status.error ? `Download failed: ${status.error}` : `Done — ${status.processed} pack(s) applied.`}
+            </p>
+          </div>
         )}
 
         {!regions || !countryBoundaries || !packs ? (
@@ -648,6 +737,7 @@ export default function OfflinePacksPage() {
               onToggleCountry={toggleCountry}
               focusCountryIds={focusCountryIds}
               openCountryIds={openCountryIds}
+              onDeselectAll={() => setSelectedCountryIds(new Set())}
             />
 
             <div className="flex flex-wrap gap-2">
@@ -875,7 +965,7 @@ export default function OfflinePacksPage() {
               <div className="rounded-xl border border-line bg-surface p-4">
                 <div className="flex items-center justify-between">
                   <p className="text-sm font-semibold text-ink">
-                    {selectedCountryIds.size} region(s) selected — choose taxon groups
+                    {selectedCountryIds.size} region(s) selected. Choose taxon groups
                   </p>
                   {availableTaxaForSelection.length > 0 && (
                     <button
@@ -891,22 +981,75 @@ export default function OfflinePacksPage() {
                   {availableTaxaForSelection.length === 0 && (
                     <p className="text-xs text-muted">No taxon data available yet for the selected region(s).</p>
                   )}
-                  {availableTaxaForSelection.map((taxon) => {
-                    const isSelected = selectedTaxa.has(taxon);
-                    return (
-                      <button
-                        key={taxon}
-                        type="button"
-                        onClick={() => toggleTaxon(taxon)}
-                        className={`rounded-full border px-3 py-1 text-xs transition-colors ${
-                          isSelected ? "border-ink bg-ink text-canvas" : "border-line text-muted hover:bg-surface-muted"
-                        }`}
-                      >
-                        {TAXON_CLASS_LABEL[taxon]}
-                      </button>
-                    );
-                  })}
+                  {availableTaxaForSelection
+                    .filter((taxon) => !GROUPED_TAXON_CLASSES.has(taxon))
+                    .map((taxon) => {
+                      const isSelected = selectedTaxa.has(taxon);
+                      return (
+                        <button
+                          key={taxon}
+                          type="button"
+                          onClick={() => toggleTaxon(taxon)}
+                          className={`rounded-full border px-3 py-1 text-xs transition-colors ${
+                            isSelected ? "border-ink bg-ink text-canvas" : "border-line text-muted hover:bg-surface-muted"
+                          }`}
+                        >
+                          {TAXON_CLASS_LABEL[taxon]}
+                        </button>
+                      );
+                    })}
                 </div>
+                {/* Each group is purely a disclosure wrapper — every taxon inside stays
+                    individually toggleable, opening the section never selects anything by
+                    itself, since (confirmed with the user) shell collectors, mollusk
+                    photographers, and other marine-life pursuers are different audiences who
+                    each want to pick only their own specific taxa, not a bundle. */}
+                {TAXON_GROUPS.map((group) => {
+                  const availableInGroup = group.taxa.filter((t) => availableTaxaForSelection.includes(t));
+                  if (availableInGroup.length === 0) return null;
+                  const selectedCount = availableInGroup.filter((t) => selectedTaxa.has(t)).length;
+                  const isOpen = openTaxonGroups.has(group.key);
+                  return (
+                    <div key={group.key} className="mt-2 border-t border-line pt-2">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setOpenTaxonGroups((prev) => {
+                            const next = new Set(prev);
+                            if (next.has(group.key)) next.delete(group.key);
+                            else next.add(group.key);
+                            return next;
+                          })
+                        }
+                        className="flex w-full items-center justify-between text-xs font-medium text-ink"
+                      >
+                        <span>
+                          {group.label} ({selectedCount}/{availableInGroup.length} selected)
+                        </span>
+                        <span className="text-muted">{isOpen ? "▾" : "▸"}</span>
+                      </button>
+                      {isOpen && (
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {availableInGroup.map((taxon) => {
+                            const isSelected = selectedTaxa.has(taxon);
+                            return (
+                              <button
+                                key={taxon}
+                                type="button"
+                                onClick={() => toggleTaxon(taxon)}
+                                className={`rounded-full border px-3 py-1 text-xs transition-colors ${
+                                  isSelected ? "border-ink bg-ink text-canvas" : "border-line text-muted hover:bg-surface-muted"
+                                }`}
+                              >
+                                {TAXON_CLASS_LABEL[taxon]}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             )}
 
@@ -996,24 +1139,38 @@ export default function OfflinePacksPage() {
                           </button>
                         </div>
                         {!collapsed && hasBothTabs && (
-                          <div className="mt-1.5 ml-6 flex gap-1 text-xs">
-                            <button
-                              type="button"
-                              onClick={() => setGroupTab(new Map(groupTab).set(groupName, "main"))}
-                              className={`rounded-full border px-2.5 py-1 transition-colors ${
-                                activeTab === "main" ? "border-ink bg-ink text-canvas" : "border-line text-muted hover:bg-surface-muted"
-                              }`}
-                            >
+                          <div className="mt-1.5 ml-6 flex gap-1">
+                            <Pill size="sm" active={activeTab === "main"} onClick={() => setGroupTab(new Map(groupTab).set(groupName, "main"))}>
                               Packs ({main.length})
-                            </button>
-                            <button
-                              type="button"
+                            </Pill>
+                            <Pill
+                              size="sm"
+                              active={activeTab === "seaZones"}
                               onClick={() => setGroupTab(new Map(groupTab).set(groupName, "seaZones"))}
-                              className={`rounded-full border px-2.5 py-1 transition-colors ${
-                                activeTab === "seaZones" ? "border-ink bg-ink text-canvas" : "border-line text-muted hover:bg-surface-muted"
-                              }`}
                             >
                               Sea zones ({seaZones.length})
+                            </Pill>
+                          </div>
+                        )}
+                        {!collapsed && activePacks.length > 1 && (
+                          <div className="mt-1.5 ml-6">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setSelectedOffloadIds((prev) => {
+                                  const next = new Set(prev);
+                                  const activeIds = activePacks.map((p) => p.id);
+                                  const allActiveSelected = activeIds.every((id) => next.has(id));
+                                  for (const id of activeIds) {
+                                    if (allActiveSelected) next.delete(id);
+                                    else next.add(id);
+                                  }
+                                  return next;
+                                })
+                              }
+                              className="text-xs text-muted hover:underline"
+                            >
+                              {activePacks.every((p) => selectedOffloadIds.has(p.id)) ? "Deselect all" : "Select all"}
                             </button>
                           </div>
                         )}
@@ -1032,7 +1189,16 @@ export default function OfflinePacksPage() {
                                     {p.type === "seaZone" ? p.seaZone : p.taxon ? TAXON_CLASS_LABEL[p.taxon] : "All taxa"}
                                     {p.updateAvailable && <span className="ml-2 text-xs text-accent">update available</span>}
                                   </span>
-                                  <span className="text-xs text-muted">{formatBytes(p.sizeBytes)}</span>
+                                  <span
+                                    className="text-xs text-muted"
+                                    title={
+                                      p.photoBytes != null && p.checklistBytes != null
+                                        ? `~${formatBytes(p.photoBytes)} photos, ~${formatBytes(p.checklistBytes)} checklist (uncompressed estimate)`
+                                        : undefined
+                                    }
+                                  >
+                                    {formatBytes(p.sizeBytes)}
+                                  </span>
                                   {p.updateAvailable && (
                                     <button
                                       type="button"
@@ -1040,10 +1206,10 @@ export default function OfflinePacksPage() {
                                       onClick={() => updatePacks([p.id])}
                                       className="flex items-center gap-1.5 rounded-md border border-accent px-2 py-1 text-xs font-medium text-accent hover:bg-surface-muted disabled:opacity-50"
                                     >
-                                      {(starting || status?.running) && (
+                                      {(pendingUpdatePackIds.has(p.id) || status?.currentPack === p.id) && (
                                         <span className="h-3 w-3 animate-spin rounded-full border-2 border-accent/40 border-t-accent" />
                                       )}
-                                      {starting || status?.running ? "Updating…" : "Update"}
+                                      {pendingUpdatePackIds.has(p.id) || status?.currentPack === p.id ? "Updating…" : "Update"}
                                     </button>
                                   )}
                                   {p.type === "region" && (
@@ -1112,7 +1278,7 @@ export default function OfflinePacksPage() {
           <p className="text-sm text-muted">
             {selectedCountryIds.size === 0
               ? "Nothing selected"
-              : `${selectedCountryIds.size} region(s), ${selectedTaxa.size === 0 ? "all taxa" : `${selectedTaxa.size} taxon group(s)`} — ${formatBytes(selectionSizeBytes)}`}
+              : `${selectedCountryIds.size} region(s), ${selectedTaxa.size === 0 ? "all taxa" : `${selectedTaxa.size} taxon group(s)`}, ${formatBytes(selectionSizeBytes)}`}
           </p>
           <div className="flex items-center gap-3">
             {startError && <span className="text-sm text-red-600">{startError}</span>}

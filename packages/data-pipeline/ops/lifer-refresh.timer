@@ -1,0 +1,17 @@
+# Fires lifer-refresh.service twice a year (Jan 1 and Jul 1, 03:00 local) — GBIF's underlying
+# data doesn't meaningfully change fast enough to warrant refreshing more often than that; see
+# scheduled-refresh.sh's own header for the equivalent plain-crontab line if you'd rather not
+# use systemd at all. Not installed/enabled by default — see lifer-refresh.service's own header
+# for the install steps.
+[Unit]
+Description=Twice-yearly trigger for the Lifer world-data refresh
+
+[Timer]
+OnCalendar=*-01,07-01 03:00:00
+# Persistent=true: if the machine was off/asleep at the scheduled time (a home NAS that gets
+# power-cycled, say), this runs the missed job at the next boot instead of silently skipping
+# straight to the NEXT scheduled date six months later.
+Persistent=true
+
+[Install]
+WantedBy=timers.target

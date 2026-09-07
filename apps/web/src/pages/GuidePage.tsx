@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import BackToCollectionLink from "../components/BackToCollectionLink";
+import PageHeader from "../components/PageHeader";
 
 interface Step {
   title: string;
@@ -77,15 +77,27 @@ const STEPS: Step[] = [
       </>
     ),
   },
+  {
+    title: "6. Browse, search, and organize",
+    body: (
+      <>
+        The <PageLink to="/gallery">Gallery</PageLink> shows every photo you've taken across every
+        species, searchable by species name, camera details (try "600mm"), or a natural-language
+        description of what's in the shot ("fox playing", "bird eating"). Group your favorites into a
+        named <PageLink to="/albums">Album</PageLink>. On a server install, an album can also be turned
+        into a public link to share, with an optional password and expiration. <PageLink to="/stats">
+        Stats
+        </PageLink>{" "}
+        breaks down your collection by gear, species, and year.
+      </>
+    ),
+  },
 ];
 
 export default function GuidePage() {
   return (
     <div className="min-h-screen bg-canvas">
-      <header className="page-header border-b border-line bg-surface px-6 py-4">
-        <BackToCollectionLink fallbackTo="/settings" label="Settings" className="text-sm text-muted hover:underline" />
-        <h1 className="mt-1 text-xl font-semibold text-ink">Getting started</h1>
-      </header>
+      <PageHeader title="Getting started" backFallbackTo="/settings" backLabel="Settings" />
       <main className="mx-auto max-w-2xl space-y-8 p-6">
         <section className="space-y-4">
           <h2 className="text-lg font-semibold text-ink">Recommended usage flow</h2>
@@ -159,6 +171,18 @@ export default function GuidePage() {
               that region's pack before showing reference photos or habitat info. Lifer never fetches from
               iNaturalist or GBIF directly on your device, all of that data is compiled ahead of time into
               the packs you download from <PageLink to="/offline-packs">Settings → Offline packs</PageLink>.
+            </FaqItem>
+            <FaqItem question="Can I share photos with someone who doesn't use Lifer?">
+              On a server/self-hosted install, yes: group photos into an <PageLink to="/albums">Album</PageLink>{" "}
+              and share it as a public link, no account needed to view. You control whether the link
+              requires a password, when it expires, and whether visitors can download the photos. Location
+              data is never included in a shared link, even if you turn on the camera-info option. This
+              isn't available in desktop mode, since a local install has no public address to hand out.
+            </FaqItem>
+            <FaqItem question="I archived a species by mistake, or don't want to see it anymore. What now?">
+              Archiving only hides a species from your checklist and counts, it never deletes anything.
+              Find it again any time from <PageLink to="/archived">Settings → Archived species</PageLink> and
+              unarchive it.
             </FaqItem>
           </div>
         </section>

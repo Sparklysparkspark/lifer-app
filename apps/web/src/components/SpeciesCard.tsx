@@ -1,11 +1,13 @@
-import { useEffect, useRef, useState } from "react";
+import { memo, useState } from "react";
 import { Link } from "react-router-dom";
 import type { CollectionItem } from "@lifer/shared";
 import { api } from "../api/client";
 import { cropToImageStyle } from "../lib/crop";
 import { useFitText } from "../hooks/useFitText";
+import { useDropdownMenu } from "../hooks/useDropdownMenu";
 import ProgressiveImg from "./ProgressiveImg";
 import PhotoPlaceholder from "./PhotoPlaceholder";
+import DotMenu from "./DotMenu";
 
 const TIER_LABEL: Record<string, string> = {
   common: "Common",
@@ -16,7 +18,12 @@ const TIER_LABEL: Record<string, string> = {
   unrated: "Unrated",
 };
 
-export default function SpeciesCard({
+// Memoized — grouped views (GroupedSpeciesGrid) can have many groups mounting cards
+// concurrently; without this, every scroll-triggered visibleCount bump re-rendered EVERY
+// already-mounted card across every group (not just the newly revealed ones), each re-running
+// useFitText's synchronous layout reflow. That's what turned ordinary scrolling in a grouped
+// view into a sustained freeze, not just the one-time switch (see the visibleCount reset above).
+function SpeciesCard({
   item,
   regionId,
   backLabel,
@@ -41,45 +48,51 @@ export default function SpeciesCard({
 }) {
   const isUnseen = item.state === "unseen";
   const isSeen = item.state === "seen";
+  const isTarget = item.state === "target";
   // A reference photo whose file has since moved or been deleted would otherwise show the
   // browser's own broken-image icon — falls back to the same "no photo" placeholder instead.
   const [referencePhotoFailed, setReferencePhotoFailed] = useState(false);
   const [archiving, setArchiving] = useState(false);
-  const [menuOpen, setMenuOpen] = useState(false);
-  const menuRef = useRef<HTMLDivElement>(null);
+  const [busy, setBusy] = useState(false);
+  const { openKey: menuOpen, setOpenKey: setMenuOpen, ref: menuRef } = useDropdownMenu<true>();
   const displayName = item.commonName ?? item.scientificName;
   const { ref: nameRef, fontSize: nameFontSize } = useFitText([displayName]);
 
-  // A hover-only affordance never surfaces on touch devices, and clicking a button stacked
-  // over a whole-card <Link> is fragile — a small always-visible menu button, closed by any
-  // outside click, is discoverable everywhere and only navigates when its own item is chosen.
-  useEffect(() => {
-    if (!menuOpen) return;
-    function onClickOutside(e: MouseEvent) {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false);
-    }
-    document.addEventListener("click", onClickOutside);
-    return () => document.removeEventListener("click", onClickOutside);
-  }, [menuOpen]);
-
-  function toggleMenu(e: React.MouseEvent) {
-    e.preventDefault();
-    e.stopPropagation();
-    setMenuOpen((open) => !open);
+  function toggleMenu() {
+    setMenuOpen(menuOpen ? null : true);
   }
 
   async function archive(e: React.MouseEvent) {
     e.preventDefault();
     e.stopPropagation();
-    setMenuOpen(false);
+    setMenuOpen(null);
     setArchiving(true);
     try {
       await api.post(`/species/${item.speciesId}/archive`);
       onArchived?.();
     } catch {
-      alert("Couldn't archive this species — try again.");
+      alert("Couldn't archive this species. Try again.");
     } finally {
       setArchiving(false);
+    }
+  }
+
+  // The backend's INSERT ... ON CONFLICT DO NOTHING can't switch a "seen" row straight into
+  // "target" (or vice versa) — undoOtherState clears whichever one is currently set before the
+  // real patch, so switching between them is one click here even though it's two requests.
+  async function runStateChange(e: React.MouseEvent, method: "patch" | "delete", path: "seen" | "target", undoOtherState?: "seen" | "target") {
+    e.preventDefault();
+    e.stopPropagation();
+    setMenuOpen(null);
+    setBusy(true);
+    try {
+      if (undoOtherState) await api.delete(`/species/${item.speciesId}/${undoOtherState}`);
+      await api[method](`/species/${item.speciesId}/${path}`);
+      onArchived?.();
+    } catch {
+      alert("Couldn't update this species. Try again.");
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -88,7 +101,7 @@ export default function SpeciesCard({
       to={regionId ? `/species/${item.speciesId}?regionId=${regionId}` : `/species/${item.speciesId}`}
       state={backLabel ? { backLabel } : undefined}
       className={`group block overflow-hidden rounded-lg border border-line bg-surface transition hover:shadow-md ${
-        isUnseen ? "opacity-60" : ""
+        isUnseen || isTarget ? "opacity-60" : ""
       }`}
     >
       <div className={`relative aspect-square overflow-hidden bg-surface-muted ${isSeen ? "grayscale" : ""}`}>
@@ -134,41 +147,56 @@ export default function SpeciesCard({
             {item.coverVolumeLabel}
           </span>
         )}
-        {/* Archiving a species you've already collected/seen would be a no-op server-side
-           (see ALREADY_OWNED_SQL), so the menu doesn't offer it there at all. */}
-        {/* On a real pointer (hover-capable) device, the button sits top-right and only
-           appears on card hover, so it doesn't compete for attention with the whole grid
-           visible at once. A touch device has no hover to reveal it with, so there it's
-           pinned bottom-right and always visible instead — same reasoning that made
-           bottom-right the natural "always-on" corner. The dropdown opens the opposite
-           direction from wherever the button sits, so it never gets clipped by this
-           container's own overflow-hidden. */}
+        {/* Archiving a species you've already collected would be a no-op server-side (see
+           ALREADY_OWNED_SQL), so the menu doesn't offer it there at all — but seen/target
+           marking still make sense right up until it's actually collected. */}
         {item.state !== "collected" && (
-          <div ref={menuRef} className="absolute bottom-1.5 right-1.5 [@media(hover:hover)]:bottom-auto [@media(hover:hover)]:top-1.5">
-            <button
-              onClick={toggleMenu}
-              title="More actions"
-              className={`flex h-6 w-6 items-center justify-center rounded-full bg-white/90 text-sm leading-none text-stone-600 shadow transition hover:bg-white ${
-                menuOpen
-                  ? "opacity-100"
-                  : "opacity-100 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100"
-              }`}
-            >
-              ⋮
-            </button>
-            {menuOpen && (
-              <div className="absolute bottom-7 right-0 z-10 min-w-[8rem] rounded-md border border-line bg-surface py-1 shadow-lg [@media(hover:hover)]:bottom-auto [@media(hover:hover)]:top-7">
+          <DotMenu open={!!menuOpen} onToggle={toggleMenu} menuRef={menuRef}>
+            <div className="absolute right-0 top-full z-10 mt-1 min-w-[9rem] rounded-md border border-line bg-surface py-1 shadow-lg">
+              {item.state === "seen" ? (
                 <button
-                  onClick={archive}
-                  disabled={archiving}
-                  title="Stop counting this toward your to-collect total (can be undone from the Archived page)"
+                  onClick={(e) => runStateChange(e, "delete", "seen")}
+                  disabled={busy}
                   className="block w-full px-3 py-1.5 text-left text-xs text-ink hover:bg-surface-muted disabled:opacity-50"
                 >
-                  {archiving ? "Archiving…" : "Archive"}
+                  Mark as unseen
                 </button>
-              </div>
-            )}
-          </div>
+              ) : (
+                <button
+                  onClick={(e) => runStateChange(e, "patch", "seen", item.state === "target" ? "target" : undefined)}
+                  disabled={busy}
+                  className="block w-full px-3 py-1.5 text-left text-xs text-ink hover:bg-surface-muted disabled:opacity-50"
+                >
+                  Mark as seen
+                </button>
+              )}
+              {item.state === "target" ? (
+                <button
+                  onClick={(e) => runStateChange(e, "delete", "target")}
+                  disabled={busy}
+                  className="block w-full px-3 py-1.5 text-left text-xs text-ink hover:bg-surface-muted disabled:opacity-50"
+                >
+                  Remove from targets
+                </button>
+              ) : (
+                <button
+                  onClick={(e) => runStateChange(e, "patch", "target", item.state === "seen" ? "seen" : undefined)}
+                  disabled={busy}
+                  className="block w-full px-3 py-1.5 text-left text-xs text-ink hover:bg-surface-muted disabled:opacity-50"
+                >
+                  Add to targets
+                </button>
+              )}
+              <button
+                onClick={archive}
+                disabled={archiving}
+                title="Stop counting this toward your to-collect total (can be undone from the Archived page)"
+                className="block w-full border-t border-line px-3 py-1.5 text-left text-xs text-ink hover:bg-surface-muted disabled:opacity-50"
+              >
+                {archiving ? "Archiving…" : "Archive"}
+              </button>
+            </div>
+          </DotMenu>
         )}
       </div>
       <div className="p-3">
@@ -200,7 +228,7 @@ export default function SpeciesCard({
             {item.localTier && (
               <span
                 className="inline-block rounded-full border border-line px-2 py-0.5 text-[10px] uppercase tracking-wide text-muted"
-                title="Rarity ranked against other species in this region specifically"
+                title="How rare and hard to find this species is in this region specifically"
               >
                 {TIER_LABEL[item.localTier] ?? item.localTier} here
               </span>
@@ -219,7 +247,7 @@ export default function SpeciesCard({
             {item.vagrant && (
               <span
                 className="inline-block rounded-full bg-sky-100 px-2 py-0.5 text-[10px] uppercase tracking-wide text-sky-700"
-                title="Records here are concentrated in very few years — likely a vagrant, not an established local presence"
+                title="Records here are concentrated in very few years, likely a vagrant, not an established local presence"
               >
                 Vagrant
               </span>
@@ -250,7 +278,7 @@ export default function SpeciesCard({
             {(item.rediscoveredGhost || item.rediscoveredLost) && (
               <span
                 className="inline-block rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] uppercase tracking-wide text-emerald-700"
-                title="Rare or undocumented when you found it — you helped rediscover this species"
+                title="Rare or undocumented when you found it. You helped rediscover this species."
               >
                 Rediscovered
               </span>
@@ -261,3 +289,5 @@ export default function SpeciesCard({
     </Link>
   );
 }
+
+export default memo(SpeciesCard);

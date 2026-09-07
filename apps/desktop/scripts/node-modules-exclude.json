@@ -35,6 +35,7 @@
   "enhanced-resolve",
   "es-module-lexer",
   "estree-walker",
+  "exceljs",
   "expect-type",
   "fdir",
   "fflate",

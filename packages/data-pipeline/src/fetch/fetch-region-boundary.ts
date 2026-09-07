@@ -83,9 +83,14 @@ export interface CountryEntry {
 
 // "-99" is a non-empty, truthy STRING — `a || b` never falls through to `b` for it, so the
 // sentinel needs an explicit check, not falsy-coercion (a first pass at this fix got bitten by
-// exactly that and silently kept returning "-99" for France).
+// exactly that and silently kept returning "-99" for France). A real ISO 3166-1 alpha-2 code is
+// always exactly two letters — Taiwan's own ISO_A2 comes back as "CN-TW" (Natural Earth's
+// politically-hedged compound value for a contested territory, not the "-99" sentinel), which
+// passed the truthy/sentinel checks and silently broke `country=CN-TW` GBIF queries the same
+// way "-99" broke France's, before this shape check existed. Confirmed live: Taiwan's own
+// ISO_A2_EH correctly holds "TW" and is exactly this fallback's job to reach.
 function normalizeIso2(value: string | undefined): string | null {
-  if (!value || value === "-99") return null;
+  if (!value || value === "-99" || !/^[A-Z]{2}$/.test(value)) return null;
   return value;
 }
 
@@ -117,10 +122,66 @@ export function isSovereignDependencyFromType(properties: { TYPE?: string; SOVER
   }
 }
 
+// Natural Earth's admin-0 layer includes a handful of uninhabited, disputed administrative
+// artifacts alongside real countries — e.g. "Southern Patagonian Ice Field" (TYPE:
+// "Indeterminate", POP_EST: 0, no real ISO code), a glacier field between Chile and Argentina
+// that's still under survey, not a place anyone lives or a country either government actually
+// claims as a distinct state. TYPE="Indeterminate" alone isn't enough to exclude (a genuinely
+// populated disputed territory like Western Sahara also carries an ambiguous TYPE), so this only
+// filters the narrower case: indeterminate AND uninhabited.
+function isUninhabitedDisputedArtifact(properties: { TYPE?: string; POP_EST?: number }): boolean {
+  return properties.TYPE === "Indeterminate" && (properties.POP_EST ?? 0) === 0;
+}
+
+// A second class of admin-0 entry that isn't a real, independently browsable "country" for this
+// app's purposes: a UN buffer zone / disputed sliver / uninhabited ice field that Natural Earth
+// still models as its own polygon, but that no wildlife-photography checklist should ever list
+// as a destination in its own right — nobody browses "Bir Tawil" or "Cyprus U.N. Buffer Zone" as
+// a place to go find species. Excluding these here (rather than deleting their leftover `regions`
+// rows once and leaving the underlying fetch behavior unfixed) means they never come back as
+// orphan uncomputed "countries" again. This does NOT lose any real occurrence data: GBIF's own
+// records carry a country code assigned by whoever reported the sighting (eBird/iNat's own
+// political-reality country field), not a lookup against Natural Earth's polygon — a bird seen
+// in the buffer zone is already filed under Cyprus (or wherever) in GBIF's own data, so folding
+// these into their real neighbor here doesn't change what GBIF actually returns for that country.
+//
+// Real-world justification per entry (not a generic "nearest by centroid" rule — tried that,
+// and it picked Djibouti for Somaliland and Tajikistan for Siachen Glacier, neither of which
+// has any actual claim; genuinely wrong shapes for that math, not just close calls):
+//   - Cyprus U.N. Buffer Zone, N. Cyprus, Dhekelia: all three sit on the one island of Cyprus,
+//     already covered end to end by the real "Cyprus" entry — folded there, not into whichever
+//     side of the Green Line is nearest.
+//   - Bir Tawil: an unclaimed desert wedge between Egypt and Sudan (an artifact of the two
+//     countries' non-matching border claims, not disputed BY either government) — folded into
+//     Egypt, the nearer of the two real neighbors.
+//   - Siachen Glacier: disputed between India and Pakistan, currently under Indian
+//     administration — folded into India.
+//   - Southern Patagonian Ice Field: disputed between Chile and Argentina — folded into Chile,
+//     the nearer of the two.
+//   - Spratly Is.: disputed among several South China Sea claimants — folded into Brunei, the
+//     nearest real claimant.
+//   - Scarborough Reef: disputed between the Philippines and China — folded into the
+//     Philippines, the nearer real claimant.
+//   - Somaliland: not disputed between two neighbors — Somalia is the one government that
+//     claims it as its own territory — folded into Somalia.
+const FOLD_INTO_REAL_COUNTRY = new Set([
+  "Cyprus U.N. Buffer Zone",
+  "N. Cyprus",
+  "Dhekelia",
+  "Bir Tawil",
+  "Siachen Glacier",
+  "Southern Patagonian Ice Field",
+  "Spratly Is.",
+  "Scarborough Reef",
+  "Somaliland",
+]);
+
 export async function fetchAllCountries(): Promise<CountryEntry[]> {
   const data = await loadAdmin0();
   return data.features
     .filter((f) => f.properties.ADM0_A3 && f.properties.NAME)
+    .filter((f) => !isUninhabitedDisputedArtifact(f.properties as { TYPE?: string; POP_EST?: number }))
+    .filter((f) => !FOLD_INTO_REAL_COUNTRY.has(f.properties.NAME as string))
     .map((f) => ({
       iso3: f.properties.ADM0_A3 as string,
       // ISO_A2 is "-99" (Natural Earth's own sentinel for "complex sovereignty," same class of
