@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, ApiError } from "../api/client";
-import BackToCollectionLink from "../components/BackToCollectionLink";
+import PageHeader from "../components/PageHeader";
 import { useDesktopMode } from "../hooks/useDesktopMode";
 import { useMigrationStatus } from "../hooks/useMigrationStatus";
 import { useTheme } from "../hooks/useTheme";
@@ -22,7 +22,13 @@ interface AccountSettings {
 interface DesktopBridgeConfig {
   mode: "local" | "remote";
   dataDir?: string;
+  // Single-URL remote connection (IP switching off). See localUrl/externalUrl below for the
+  // dual-endpoint alternative — a given config has either this, or those two, never both.
   serverUrl?: string;
+  // Immich-style local/external auto-switching, set together when enabled at setup — see
+  // apps/desktop/src-tauri/src/store.rs's own comment.
+  localUrl?: string;
+  externalUrl?: string;
   offlineMode?: boolean;
 }
 declare global {
@@ -31,6 +37,8 @@ declare global {
       choose: (config: {
         mode: "local" | "remote";
         serverUrl?: string;
+        localUrl?: string;
+        externalUrl?: string;
         offlineMode?: boolean;
       }) => Promise<{ ok?: boolean; canceled?: boolean; error?: string }>;
       getConfig: () => Promise<DesktopBridgeConfig | null>;
@@ -52,15 +60,14 @@ export default function SettingsPage() {
 
   return (
     <div className="min-h-screen bg-canvas">
-      <header className="page-header flex items-start justify-between border-b border-line bg-surface px-6 py-4">
-        <div>
-          <BackToCollectionLink className="text-sm text-muted hover:underline" />
-          <h1 className="mt-1 text-lg font-semibold text-ink">Settings</h1>
-        </div>
-        <Link to="/guide" className="text-sm text-muted hover:underline">
-          Getting started guide
-        </Link>
-      </header>
+      <PageHeader
+        title="Settings"
+        actions={
+          <Link to="/guide" className="text-sm text-muted hover:underline">
+            Getting started guide
+          </Link>
+        }
+      />
 
       <main className="mx-auto max-w-5xl space-y-8 p-6">
         {settings && (
@@ -76,15 +83,19 @@ export default function SettingsPage() {
                   currentRecoveryEmail={settings.recoveryEmail}
                   onChanged={(recoveryEmail) => setSettings({ ...settings, recoveryEmail })}
                 />
+                <ApiKeysSection />
               </>
             )}
             <LibraryLinksSection />
+            <InaturalistSection />
+            {!isDesktopMode && <InaturalistServerConfigSection />}
             <AppearanceSection />
             <HideObscureSpeciesSection />
             <TechnicalDivingSection />
             <SpeciesSuggestSection />
             <EbirdImportSection />
             <OrganizePhotosSection />
+            <SpeciesNamingSection />
             <StorageLocationSection />
             <StorageVolumesSection />
             <LibraryReimportSection />
@@ -101,6 +112,184 @@ export default function SettingsPage() {
 
 // Moved out of the main collection page's nav bar to declutter it — these are occasional,
 // not everyday actions, so Settings is a better home than a permanent top-bar link.
+function ApiKeysSection() {
+  return (
+    <Card title="API keys" description="Personal access tokens for your own scripts and integrations to use, scoped to exactly what they need.">
+      <Link to="/settings/api-keys" className="rounded-md border border-line px-3 py-1.5 text-sm text-ink hover:bg-surface-muted">
+        Manage API keys
+      </Link>
+    </Card>
+  );
+}
+
+interface InaturalistStatus {
+  available: boolean;
+  connected: boolean;
+  username: string | null;
+}
+
+// Feature-gated on the API having an effective client_id (env var, or a server-mode admin's
+// own override just below) — renders nothing at all rather than a "Connect" button that would
+// just 501 if clicked, since there's nothing a user could meaningfully do about that from here.
+function InaturalistSection() {
+  const [status, setStatus] = useState<InaturalistStatus | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  function load() {
+    api
+      .get<InaturalistStatus>("/inaturalist/status")
+      .then(setStatus)
+      .catch(() => setStatus(null));
+  }
+  useEffect(load, []);
+  // The OAuth approval happens in the system browser, outside this window — re-checking status
+  // when the user tabs back is the simplest way to notice it finished, no polling needed.
+  useEffect(() => {
+    function onFocus() {
+      load();
+    }
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, []);
+
+  if (!status?.available) return null;
+
+  async function connect() {
+    setError(null);
+    setBusy(true);
+    try {
+      const { authorizeUrl } = await api.post<{ authorizeUrl: string }>("/inaturalist/connect");
+      // A plain window.open() gets routed through Tauri's shell plugin, which this app doesn't
+      // grant permission to (see capabilities/default.json) — the opener plugin (already
+      // granted) is the one actually wired up to open external links in the real browser.
+      if (window.liferSetup) {
+        const { openUrl } = await import("@tauri-apps/plugin-opener");
+        await openUrl(authorizeUrl);
+      } else {
+        window.open(authorizeUrl, "_blank");
+      }
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't start the iNaturalist sign-in");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function disconnect() {
+    setBusy(true);
+    try {
+      await api.post("/inaturalist/disconnect");
+      load();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Card title="iNaturalist" description="Optionally link your iNaturalist account to send sightings there as draft observations.">
+      {status.connected ? (
+        <>
+          <p className="text-sm text-ink">Connected as {status.username}</p>
+          <div className="flex gap-3">
+            <Link to="/inaturalist" className="rounded-md border border-line px-3 py-1.5 text-sm text-ink hover:bg-surface-muted">
+              Open iNaturalist
+            </Link>
+            <button
+              type="button"
+              onClick={disconnect}
+              disabled={busy}
+              className="rounded-md border border-line px-3 py-1.5 text-sm text-ink hover:bg-surface-muted disabled:opacity-50"
+            >
+              Disconnect
+            </button>
+          </div>
+        </>
+      ) : (
+        <button
+          type="button"
+          onClick={connect}
+          disabled={busy}
+          className="rounded-md border border-line px-3 py-1.5 text-sm text-ink hover:bg-surface-muted disabled:opacity-50"
+        >
+          Connect iNaturalist account
+        </button>
+      )}
+      <FormMessage error={error} success={null} />
+    </Card>
+  );
+}
+
+interface InaturalistServerConfig {
+  hasClientId: boolean;
+  redirectUri: string;
+}
+
+// Server-mode only: no single shared "Lifer app" registration can work for every self-hosted
+// domain (OAuth requires an exact pre-registered redirect URI per app), so each deployment
+// registers its own iNaturalist application and pastes the client ID in here — this just writes
+// migration 075's inat_server_config row rather than requiring an env var + restart.
+function InaturalistServerConfigSection() {
+  const [config, setConfig] = useState<InaturalistServerConfig | null>(null);
+  const [clientId, setClientId] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  function load() {
+    api.get<InaturalistServerConfig>("/inaturalist/server-config").then(setConfig);
+  }
+  useEffect(load, []);
+
+  async function save() {
+    setError(null);
+    setSuccess(null);
+    setSaving(true);
+    try {
+      await api.put("/inaturalist/server-config", { clientId: clientId.trim() || null, redirectUri: config?.redirectUri ?? null });
+      setClientId("");
+      setSuccess("Saved.");
+      load();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't save this");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (!config) return null;
+
+  return (
+    <Card
+      title="iNaturalist app registration"
+      description="Register your own application at inaturalist.org/oauth/applications with the redirect URI below, then paste its client ID here."
+    >
+      <p className="text-xs text-muted">
+        Redirect URI to register: <code className="rounded bg-surface-muted px-1 py-0.5">{config.redirectUri}</code>
+      </p>
+      <p className="text-sm text-ink">{config.hasClientId ? "A client ID is currently set." : "No client ID set yet."}</p>
+      <div className="flex gap-2">
+        <input
+          type="text"
+          value={clientId}
+          onChange={(e) => setClientId(e.target.value)}
+          placeholder="Client ID"
+          className="flex-1 rounded-md border border-line px-3 py-1.5 text-sm"
+        />
+        <button
+          type="button"
+          onClick={save}
+          disabled={saving}
+          className="rounded-md border border-line px-3 py-1.5 text-sm text-ink hover:bg-surface-muted disabled:opacity-50"
+        >
+          Save
+        </button>
+      </div>
+      <FormMessage error={error} success={success} />
+    </Card>
+  );
+}
+
 function LibraryLinksSection() {
   return (
     <Card title="Library" description="Manage your offline reference data and archived species.">
@@ -492,6 +681,83 @@ function RecoveryEmailSection({
   );
 }
 
+// What a bird species' folder name / EXIF species tag actually reads — the plain common name
+// (default), or a short standardized code instead: ABA (really IBP/AOS — see
+// backfill-aba-codes.ts) 4-letter codes, only ever assigned to birds in North America, Mexico,
+// Central America, and the Caribbean, or eBird's own 6-letter codes, which cover every bird
+// species worldwide. A species without the chosen code (any non-bird, always; a bird outside
+// ABA's coverage, for that option specifically) still falls back to its common name regardless
+// — this only changes what's used WHEN a code exists, never hides a species that lacks one.
+// The ABA option itself only appears once abaCodesAvailable is true (settings/routes.ts) —
+// gated on whether any downloaded pack actually has an ABA-coded species, so it's not offered
+// as a dead option to someone who's never downloaded a pack from that part of the world.
+function SpeciesNamingSection() {
+  const [styles, setStyles] = useState<string[] | null>(null);
+  const [abaAvailable, setAbaAvailable] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    api.get<{ speciesNamingStyles: string[]; abaCodesAvailable: boolean }>("/settings").then((res) => {
+      setStyles(res.speciesNamingStyles);
+      setAbaAvailable(res.abaCodesAvailable);
+    });
+  }, []);
+
+  async function toggle(style: "aba_code" | "ebird_code") {
+    if (!styles) return;
+    const next = styles.includes(style) ? styles.filter((s) => s !== style) : [...styles, style];
+    setSaving(true);
+    setError(null);
+    try {
+      await api.put("/settings/species-naming-style", { styles: next });
+      setStyles(next);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't update this setting");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (styles === null) return null;
+
+  return (
+    <Card
+      title="Bird species naming"
+      description="Codes to show alongside a bird's common name in its folder name and embedded photo tags. Both can be on at once."
+    >
+      <div className="flex flex-col gap-2 text-sm text-ink">
+        <label className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            checked={styles.includes("ebird_code")}
+            disabled={saving}
+            onChange={() => toggle("ebird_code")}
+          />
+          <span>
+            eBird code <span className="text-xs text-muted">(6 letters, every bird worldwide)</span>
+          </span>
+        </label>
+        {abaAvailable && (
+          <label className="flex items-center gap-2">
+            <input type="checkbox" checked={styles.includes("aba_code")} disabled={saving} onChange={() => toggle("aba_code")} />
+            <span>
+              ABA code <span className="text-xs text-muted">(4 letters, North America/Mexico/Central America/Caribbean birds only)</span>
+            </span>
+          </label>
+        )}
+        {!abaAvailable && (
+          <p className="text-xs text-muted">
+            ABA codes will show up here once you've downloaded a region pack covering North America, Mexico, Central America, or the
+            Caribbean.
+          </p>
+        )}
+        <FormMessage error={error} success={null} />
+      </div>
+    </Card>
+  );
+}
+
 // Optionally organizes stored originals into year/taxon-class folders (handy for importing
 // into other photo tools). Toggling only changes where future uploads land — existing files
 // need the separate, explicit "Reorganize now" action (see settings/routes.ts's own comment
@@ -596,6 +862,7 @@ interface ReimportStatus {
   rawsRelinked: number;
   rawsUnmatched: number;
   missingReferenceData: string[];
+  cancelled: boolean;
 }
 
 // Rebuilds captures/photos/user_species/originals from a species-organized library that's
@@ -669,6 +936,7 @@ function UnmatchedReviewPanel({ files, onIgnored }: { files: UnmatchedFile[]; on
 function LibraryReimportSection() {
   const [status, setStatus] = useState<ReimportStatus | null>(null);
   const [starting, setStarting] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const { volumes } = useStorageVolumes();
   const connectedVolumes = volumes.filter((v) => v.connected);
@@ -747,6 +1015,19 @@ function LibraryReimportSection() {
     }
   }
 
+  async function cancel() {
+    if (!confirm("Stop this reimport? Files already in progress will finish, but nothing queued behind them will be touched.")) return;
+    setCancelling(true);
+    try {
+      await api.post("/library/reimport/cancel", {});
+    } catch {
+      // The 1.5s poll below will just keep showing it as running if this failed — not worth a
+      // separate error banner for a background job the user can simply try cancelling again.
+    } finally {
+      setCancelling(false);
+    }
+  }
+
   if (status === null) return null;
 
   return (
@@ -803,10 +1084,10 @@ function LibraryReimportSection() {
       ) : (
         <>
           <p className="text-xs text-muted">
-            Point this at any folder of photos, however it's organized — Lightroom exports, a flat dump by date,
+            Point this at any folder of photos, however it's organized: Lightroom exports, a flat dump by date,
             whatever. We'll match each photo to a species using tags already embedded in the file: its species name,
             common name, or an older name it may have been tagged with before a taxonomic rename. Anything we can't
-            confidently match won't be touched — it's left in place and listed below, where you can review it or mark
+            confidently match won't be touched. It's left in place and listed below, where you can review it or mark
             it "Ignore" so it stops showing up on future scans (handy for e.g. a folder of insect photos this app
             doesn't track).
           </p>
@@ -848,13 +1129,13 @@ function LibraryReimportSection() {
               disabled={starting || status.running}
               className="h-3.5 w-3.5"
             />
-            Organize matched photos into species folders in my library (recommended — leave off to add them to Lifer
+            Organize matched photos into species folders in my library (recommended; leave off to add them to Lifer
             without moving the files from where they are now)
           </label>
         </>
       )}
 
-      <div>
+      <div className="flex items-center gap-2">
         <button
           type="button"
           onClick={start}
@@ -863,11 +1144,24 @@ function LibraryReimportSection() {
         >
           {status.running ? "Importing…" : mode === "foreign" ? "Import library now" : "Reimport library now"}
         </button>
+        {status.running && (
+          <button
+            type="button"
+            onClick={cancel}
+            disabled={cancelling}
+            className="rounded-md border border-line px-3 py-1.5 text-sm text-red-600 hover:bg-surface-muted disabled:opacity-50"
+          >
+            {cancelling ? "Cancelling…" : "Cancel"}
+          </button>
+        )}
       </div>
       {status.running && (
         <p className="text-xs text-muted">
           Photos: {status.processedJpegs}/{status.totalJpegs} · RAW files: {status.processedRaws}/{status.totalRaws}
         </p>
+      )}
+      {!status.running && status.finishedAt !== null && status.cancelled && (
+        <p className="text-xs text-muted">Cancelled. Files already in progress when you cancelled were still recorded below.</p>
       )}
       {!status.running && status.finishedAt !== null && (
         <div className="space-y-2 text-xs text-muted">
@@ -1328,8 +1622,12 @@ function ServerSection() {
   const cleanMigration = status && !status.running && status.finishedAt != null && status.failed === 0;
 
   if (config.mode === "remote") {
+    const connectionDescription =
+      config.localUrl && config.externalUrl
+        ? `Showing the library on ${config.localUrl} (or ${config.externalUrl} away from home).`
+        : `Showing the library on ${config.serverUrl}.`;
     return (
-      <Card title="Connect a server" description={`Showing the library on ${config.serverUrl}.`}>
+      <Card title="Connect a server" description={connectionDescription}>
         {error && <p className="text-sm text-red-600">{error}</p>}
         <button
           type="button"
@@ -1444,7 +1742,7 @@ function AppUpdatesSection() {
 
   async function checkForUpdate() {
     if (!online) {
-      setError("You're offline — connect to the internet to check for updates.");
+      setError("You're offline. Connect to the internet to check for updates.");
       setStatus("error");
       return;
     }
@@ -1545,7 +1843,7 @@ function AppUpdatesSection() {
       {status === "available" && update && (
         <div className="space-y-2">
           <p className="text-sm font-medium text-ink">
-            Update Available{currentVersion ? ` — v${currentVersion} → v${update.version}` : ` — v${update.version}`}
+            Update Available{currentVersion ? `: v${currentVersion} → v${update.version}` : `: v${update.version}`}
           </p>
           {update.body && <p className="text-sm text-muted">{update.body}</p>}
           <button type="button" onClick={installUpdate} className={buttonClass}>
@@ -1565,7 +1863,7 @@ function AppUpdatesSection() {
       <FormMessage error={error} success={null} />
       {packUpdateCount > 0 && (
         <p className="mt-3 border-t border-line pt-3 text-sm text-ink">
-          Pack Update Available — {packUpdateCount} offline pack{packUpdateCount === 1 ? "" : "s"} ready to update.{" "}
+          Pack Update Available: {packUpdateCount} offline pack{packUpdateCount === 1 ? "" : "s"} ready to update.{" "}
           <Link to="/offline-packs" className="font-medium text-accent hover:underline">
             View packs
           </Link>
@@ -1617,7 +1915,7 @@ function CatalogUpdateSection() {
   return (
     <Card
       title="Species catalog updates"
-      description="Refreshes rarity tiers, occurrence stats, and endemic labels from the latest published data — never touches your own downloaded reference photos."
+      description="Refreshes rarity tiers, occurrence stats, and endemic labels from the latest published data. Never touches your own downloaded reference photos."
     >
       {status === "idle" || status === "checking" ? (
         <p className="text-sm text-muted">Checking…</p>

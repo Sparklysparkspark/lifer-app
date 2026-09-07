@@ -81,6 +81,31 @@
         font-size: 12px;
         margin: -4px 0 10px;
       }
+      .checkbox-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin: 2px 0 12px;
+      }
+      .checkbox-row input[type="checkbox"] {
+        margin: 0;
+      }
+      .checkbox-row label {
+        font-size: 13px;
+        cursor: pointer;
+      }
+      label.field-label {
+        display: block;
+        font-size: 12px;
+        color: #78716c;
+        margin: 0 0 4px;
+      }
+      .external-field {
+        display: none;
+      }
+      .external-field.open {
+        display: block;
+      }
     </style>
   </head>
   <body>
@@ -97,7 +122,19 @@
       </button>
 
       <div class="server-form" id="server-form">
+        <label class="field-label" id="server-url-label" for="server-url">Server address</label>
         <input type="text" id="server-url" placeholder="https://lifer.example.com" />
+
+        <div class="checkbox-row">
+          <input type="checkbox" id="ip-switching" />
+          <label for="ip-switching">Enable IP switching for local network</label>
+        </div>
+
+        <div class="external-field" id="external-field">
+          <label class="field-label" for="external-url">External address (away from home)</label>
+          <input type="text" id="external-url" placeholder="https://lifer.example.com" />
+        </div>
+
         <div class="error" id="error" style="display: none"></div>
         <button class="primary" id="connect">Connect</button>
       </div>
@@ -142,16 +179,55 @@
       document.getElementById("show-server-form").addEventListener("click", () => {
         document.getElementById("server-form").classList.add("open");
       });
+
+      const ipSwitchingCheckbox = document.getElementById("ip-switching");
+      const externalField = document.getElementById("external-field");
+      const serverUrlLabel = document.getElementById("server-url-label");
+      const serverUrlInput = document.getElementById("server-url");
+      ipSwitchingCheckbox.addEventListener("change", () => {
+        const on = ipSwitchingCheckbox.checked;
+        externalField.classList.toggle("open", on);
+        serverUrlLabel.textContent = on ? "Local address (home network)" : "Server address";
+        serverUrlInput.placeholder = on ? "192.168.1.50:4000" : "https://lifer.example.com";
+      });
+
+      function normalizeUrl(raw) {
+        // The local address is often a bare host:port on a LAN (no scheme) — Immich's own
+        // local-address field works the same way. The external address is always a real
+        // https:// domain (nginx-forwarded), so that one still requires an explicit scheme.
+        if (!raw) return null;
+        return /^https?:\/\//.test(raw) ? raw : `http://${raw}`;
+      }
+
       document.getElementById("connect").addEventListener("click", async () => {
-        const url = document.getElementById("server-url").value.trim();
         const errorEl = document.getElementById("error");
         errorEl.style.display = "none";
-        if (!/^https?:\/\//.test(url)) {
-          errorEl.textContent = "Enter a full URL, starting with http:// or https://";
+        const rawServerUrl = serverUrlInput.value.trim();
+        if (!rawServerUrl) {
+          errorEl.textContent = ipSwitchingCheckbox.checked ? "Enter your local address." : "Enter a full URL, starting with http:// or https://";
           errorEl.style.display = "block";
           return;
         }
-        const result = await window.liferSetup.choose({ mode: "remote", serverUrl: url });
+
+        let payload;
+        if (ipSwitchingCheckbox.checked) {
+          const rawExternalUrl = document.getElementById("external-url").value.trim();
+          if (!rawExternalUrl) {
+            errorEl.textContent = "Enter your external address too, or turn off IP switching.";
+            errorEl.style.display = "block";
+            return;
+          }
+          payload = { mode: "remote", localUrl: normalizeUrl(rawServerUrl), externalUrl: normalizeUrl(rawExternalUrl) };
+        } else {
+          if (!/^https?:\/\//.test(rawServerUrl)) {
+            errorEl.textContent = "Enter a full URL, starting with http:// or https://";
+            errorEl.style.display = "block";
+            return;
+          }
+          payload = { mode: "remote", serverUrl: rawServerUrl };
+        }
+
+        const result = await window.liferSetup.choose(payload);
         if (result && result.error) {
           errorEl.textContent = result.error;
           errorEl.style.display = "block";
