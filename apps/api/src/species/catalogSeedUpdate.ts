@@ -23,16 +23,34 @@
 // parameterized INSERT ... ON CONFLICT batches works identically in both deployment shapes with
 // zero new external dependencies.
 import { gunzipSync } from "node:zlib";
+import { existsSync, readFileSync } from "node:fs";
+import path from "node:path";
 import type { Pool } from "pg";
-import { CATALOG_MANIFEST_URL, CATALOG_SEED_URL } from "../config.js";
+import { CATALOG_MANIFEST_URL, CATALOG_SEED_URL, BUNDLED_CATALOG_SEED_DIR } from "../config.js";
 
 export interface CatalogManifest {
   version: number;
   publishedAt: string;
 }
 
+// Neither fetch() call here previously had a timeout — on a deployment whose outbound network
+// can't reach GitHub at all (a restrictive NAS/firewall setup, confirmed as a real case), the
+// request just hung forever with no error and no success, leaving the Settings "Updating..."
+// button stuck indefinitely. AbortSignal.timeout() turns that into an actual thrown error the
+// UI can show instead.
+const MANIFEST_TIMEOUT_MS = 15_000;
+const SEED_DOWNLOAD_TIMEOUT_MS = 120_000; // the seed itself can be tens of MB gzipped
+
 export async function fetchCatalogManifest(): Promise<CatalogManifest> {
-  const res = await fetch(CATALOG_MANIFEST_URL);
+  let res: Response;
+  try {
+    res = await fetch(CATALOG_MANIFEST_URL, { signal: AbortSignal.timeout(MANIFEST_TIMEOUT_MS) });
+  } catch (err) {
+    if (err instanceof Error && err.name === "TimeoutError") {
+      throw new Error("Couldn't check for a catalog update: the request timed out — check this server's network access");
+    }
+    throw err;
+  }
   if (!res.ok) throw new Error(`Couldn't check for a catalog update: HTTP ${res.status}`);
   return (await res.json()) as CatalogManifest;
 }
@@ -105,13 +123,22 @@ function parseCopyBlock(sql: string, table: string): ParsedCopyBlock | null {
 // ~25 columns).
 const BATCH_SIZE = 500;
 
-export async function applyCatalogUpdate(pool: Pool, userId: string): Promise<{ merged: Record<string, number> }> {
-  const manifest = await fetchCatalogManifest();
-  const res = await fetch(CATALOG_SEED_URL);
+async function downloadCatalogSeedSql(): Promise<string> {
+  let res: Response;
+  try {
+    res = await fetch(CATALOG_SEED_URL, { signal: AbortSignal.timeout(SEED_DOWNLOAD_TIMEOUT_MS) });
+  } catch (err) {
+    if (err instanceof Error && err.name === "TimeoutError") {
+      throw new Error("Couldn't download the catalog update: the download timed out — check this server's network access");
+    }
+    throw err;
+  }
   if (!res.ok) throw new Error(`Couldn't download the catalog update: HTTP ${res.status}`);
   const gz = Buffer.from(await res.arrayBuffer());
-  const sql = gunzipSync(gz).toString("utf8");
+  return gunzipSync(gz).toString("utf8");
+}
 
+async function mergeCatalogTables(pool: Pool, sql: string): Promise<Record<string, number>> {
   const merged: Record<string, number> = {};
   for (const { table, pkColumns, excludeFromUpdate } of MERGE_TABLES) {
     const parsed = parseCopyBlock(sql, table);
@@ -145,7 +172,43 @@ export async function applyCatalogUpdate(pool: Pool, userId: string): Promise<{ 
     }
     merged[table] = count;
   }
+  return merged;
+}
 
+export async function applyCatalogUpdate(pool: Pool, userId: string): Promise<{ merged: Record<string, number> }> {
+  const manifest = await fetchCatalogManifest();
+  const sql = await downloadCatalogSeedSql();
+  const merged = await mergeCatalogTables(pool, sql);
   await pool.query(`UPDATE users SET catalog_seed_version = $1 WHERE id = $2`, [manifest.version, userId]);
   return { merged };
+}
+
+function readBundledCatalogSeedSql(): string | null {
+  const seedPath = path.join(BUNDLED_CATALOG_SEED_DIR, "lifer-catalog-seed.sql.gz");
+  if (!existsSync(seedPath)) return null;
+  return gunzipSync(readFileSync(seedPath)).toString("utf8");
+}
+
+// Fills a brand-new, empty catalog automatically on server startup — the desktop app has always
+// done this itself (embedded_db.rs's restore_catalog_seed_if_needed, bundling a seed at build
+// time and restoring it the moment species is found empty), but the Docker/self-hosted image had
+// no equivalent: a fresh deployment left `regions`/`species` genuinely empty (blank Offline Packs
+// map, empty checklists everywhere) until a user happened to know to click Settings > Update —
+// which the README never actually told them to do. Runs the same merge path applyCatalogUpdate
+// uses (UPSERT is safe to run against empty tables too — it's just a full seed in that case),
+// but skips the per-user catalog_seed_version bookkeeping since there may be no user account yet.
+//
+// Prefers scripts/fetch-catalog-seed.js's bundled copy (baked into the Docker image at build
+// time — see BUNDLED_CATALOG_SEED_DIR's own comment) so first launch works instantly, offline,
+// exactly like the desktop app's own bundled restore — a live network fetch only happens as a
+// fallback when that bundled file is missing (a local `docker build` run without network, or a
+// non-Docker dev setup). Best-effort either way: logged and swallowed on failure so a failed
+// auto-seed never blocks the server from starting — Settings > Update remains available as a
+// manual retry.
+export async function seedCatalogIfEmpty(pool: Pool): Promise<{ seeded: boolean; merged?: Record<string, number> }> {
+  const res = await pool.query<{ count: string }>(`SELECT count(*) FROM species`);
+  if (Number(res.rows[0].count) > 0) return { seeded: false };
+  const sql = readBundledCatalogSeedSql() ?? (await downloadCatalogSeedSql());
+  const merged = await mergeCatalogTables(pool, sql);
+  return { seeded: true, merged };
 }
