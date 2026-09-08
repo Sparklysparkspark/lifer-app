@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, ApiError } from "../api/client";
 import PageHeader from "../components/PageHeader";
@@ -1878,10 +1878,25 @@ function AppUpdatesSection() {
 // catalogSeedUpdate.ts's own header comment on why this is needed at all: the fresh-install-only
 // restore path never reaches an already-running install on its own. Never touches your own
 // downloaded reference photos (see that same file) — only the catalog metadata itself.
+interface CatalogUpdateJobState {
+  running: boolean;
+  merged: Record<string, number> | null;
+  error: string | null;
+  finishedAt: number | null;
+}
+
 function CatalogUpdateSection() {
   const [status, setStatus] = useState<"idle" | "checking" | "up-to-date" | "available" | "applying" | "done" | "error">("idle");
   const [error, setError] = useState<string | null>(null);
   const [mergedCount, setMergedCount] = useState<number | null>(null);
+  const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Stops the poll on unmount specifically (not on every navigation away and back — the server-
+  // side job itself keeps running regardless; this only stops THIS mount's own polling loop) so
+  // a dangling timer doesn't keep calling setState after the component's gone.
+  useEffect(() => () => {
+    if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+  }, []);
 
   async function checkForUpdate() {
     setStatus("checking");
@@ -1895,19 +1910,61 @@ function CatalogUpdateSection() {
     }
   }
 
+  // The merge itself runs as a real background job server-side (see catalogSeedUpdate.ts's
+  // catalogUpdateJob) — this polls its status instead of awaiting one long request, so an update
+  // kicked off here keeps running (and its result is still recoverable) even if the user
+  // navigates away from Settings and back, unmounting/remounting this whole component. Runs at
+  // the same 2s cadence the offline-packs download status polling already uses elsewhere.
+  function pollJobStatus() {
+    setStatus("applying");
+    setError(null);
+    if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+    pollIntervalRef.current = setInterval(async () => {
+      try {
+        const job = await api.get<CatalogUpdateJobState>("/settings/catalog-update/status");
+        if (job.running) return;
+        if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+        if (job.error) {
+          setError(job.error);
+          setStatus("error");
+        } else {
+          setMergedCount(job.merged?.species ?? null);
+          setStatus("done");
+        }
+      } catch {
+        // A transient network blip mid-poll isn't worth surfacing as an error — the next tick
+        // just tries again.
+      }
+    }, 2000);
+  }
+
+  // On mount (including remounting after navigating back to Settings), check whether an update
+  // kicked off earlier is still running before doing the normal up-to-date/available check — a
+  // job started, then abandoned by navigating away, is exactly the case that used to strand the
+  // UI on a stale "Updating..." with no way to ever learn it had actually finished.
   useEffect(() => {
-    void checkForUpdate();
+    (async () => {
+      try {
+        const job = await api.get<CatalogUpdateJobState>("/settings/catalog-update/status");
+        if (job.running) {
+          pollJobStatus();
+          return;
+        }
+      } catch {
+        // Status endpoint unreachable — fall through to the normal check below.
+      }
+      void checkForUpdate();
+    })();
   }, []);
 
   async function applyUpdate() {
     setStatus("applying");
     setError(null);
     try {
-      const result = await api.post<{ merged: Record<string, number> }>("/settings/catalog-update/apply", {});
-      setMergedCount(result.merged.species ?? null);
-      setStatus("done");
+      await api.post("/settings/catalog-update/apply", {});
+      pollJobStatus();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Couldn't apply the catalog update");
+      setError(err instanceof ApiError ? err.message : "Couldn't start the catalog update");
       setStatus("error");
     }
   }

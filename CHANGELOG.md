@@ -25,6 +25,12 @@ Categories: `Added`, `Changed`, `Fixed`, `Removed` — omit any with nothing to 
   "Updating..." message.
 - Fixed a crash restoring the catalog on a genuinely fresh database (a foreign key violation on
   the self-referencing regions table, hit only on a truly empty install).
+- Docker/self-hosted's "a newer version is available" notice no longer links to a dead Settings
+  page (that update UI only exists on desktop) — it now links out to the release notes instead.
+- The species catalog update now runs as a real background job instead of one long request —
+  navigating away from Settings and back no longer strands it on "Updating..." forever with no
+  way to tell whether it actually finished.
+- Offline pack downloads no longer hang indefinitely if the connection to the pack host stalls.
 
 ## [0.4.0] - 2026-09-07
 

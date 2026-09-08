@@ -421,7 +421,20 @@ async function runDownloadJob(requestedPackIds: string[], force = false): Promis
 
       assertTrustedPackUrl(entry.url);
       const tmpFile = path.join(os.tmpdir(), `${id}.pack.tar.gz`);
-      const res = await fetch(entry.url);
+      // No timeout here previously — a stalled/slow connection to the pack host just hung this
+      // whole job forever with no error and no way to tell "still downloading" apart from "will
+      // never finish" (same class of bug already fixed for the catalog-seed fetches). 5 minutes
+      // is generous for even a large pack on a slow connection, while still turning a genuine
+      // stall into a real, visible error instead of an indefinite hang.
+      let res: Response;
+      try {
+        res = await fetch(entry.url, { signal: AbortSignal.timeout(300_000) });
+      } catch (err) {
+        if (err instanceof Error && err.name === "TimeoutError") {
+          throw new Error(`Downloading "${id}" timed out — check this server's network access`);
+        }
+        throw err;
+      }
       if (!res.ok) throw new Error(`Couldn't download "${id}": ${res.status}`);
       const buf = Buffer.from(await res.arrayBuffer());
       writeFileSync(tmpFile, buf);
