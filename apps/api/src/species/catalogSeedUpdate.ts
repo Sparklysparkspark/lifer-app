@@ -222,6 +222,41 @@ export async function applyCatalogUpdate(pool: Pool, userId: string): Promise<{ 
   return { merged };
 }
 
+// Runs applyCatalogUpdate as a real background job with pollable status, the same shape
+// offlinePacks/routes.ts's own downloadJob/runDownloadJob already uses for pack downloads —
+// mirrored here because the catalog update had none of that: the whole download+merge used to
+// run synchronously inside one HTTP request/response, so navigating away from Settings (which
+// unmounts CatalogUpdateSection) lost all knowledge of whether it was still running or had
+// finished, and the UI could sit on "Updating..." forever even after the update had actually
+// completed (or failed) server-side. Module-level state, not per-request — deliberately a
+// single account's worth of state at a time (SINGLE_USER_MODE's usual shape), same as
+// downloadJob.
+export interface CatalogUpdateJobState {
+  running: boolean;
+  merged: Record<string, number> | null;
+  error: string | null;
+  finishedAt: number | null;
+}
+export const catalogUpdateJob: CatalogUpdateJobState = { running: false, merged: null, error: null, finishedAt: null };
+
+export function startCatalogUpdateJob(pool: Pool, userId: string): void {
+  catalogUpdateJob.running = true;
+  catalogUpdateJob.merged = null;
+  catalogUpdateJob.error = null;
+  catalogUpdateJob.finishedAt = null;
+  applyCatalogUpdate(pool, userId)
+    .then(({ merged }) => {
+      catalogUpdateJob.merged = merged;
+    })
+    .catch((err) => {
+      catalogUpdateJob.error = (err as Error).message;
+    })
+    .finally(() => {
+      catalogUpdateJob.running = false;
+      catalogUpdateJob.finishedAt = Date.now();
+    });
+}
+
 function readBundledCatalogSeedSql(): string | null {
   const seedPath = path.join(BUNDLED_CATALOG_SEED_DIR, "lifer-catalog-seed.sql.gz");
   if (!existsSync(seedPath)) return null;

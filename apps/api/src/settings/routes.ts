@@ -10,7 +10,7 @@ import { originalsFolder } from "../uploads/organizedPath.js";
 import { resolveSpeciesFolderName } from "../uploads/speciesFolderName.js";
 import { extractExif } from "../uploads/exif.js";
 import { readLocalSettings, writeLocalSettings } from "../localSettings.js";
-import { checkCatalogUpdate, applyCatalogUpdate } from "../species/catalogSeedUpdate.js";
+import { checkCatalogUpdate, startCatalogUpdateJob, catalogUpdateJob } from "../species/catalogSeedUpdate.js";
 
 // Lifer's own subfolders under DATA_DIR (see config.ts) — implementation detail, never
 // something a user should navigate into when picking a library folder.
@@ -256,13 +256,19 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
     return checkCatalogUpdate(pool, request.user!.id);
   });
 
+  // Fire-and-forget + poll, same shape as offlinePacks/routes.ts's own downloadJob — the merge
+  // can take a while (a large seed, a slow connection), and running it synchronously inside this
+  // one request previously meant navigating away from Settings (unmounting the component holding
+  // that fetch's result) lost all knowledge of whether it had finished or was still running,
+  // sometimes leaving the UI stuck on "Updating..." forever even after the update had actually
+  // long since succeeded (or failed) server-side. See catalogUpdateJob's own comment.
   app.post("/settings/catalog-update/apply", { preHandler: requireAuth }, async (request, reply) => {
-    try {
-      return await applyCatalogUpdate(pool, request.user!.id);
-    } catch (err) {
-      return reply.code(502).send({ error: err instanceof Error ? err.message : "Couldn't apply the catalog update" });
-    }
+    if (catalogUpdateJob.running) return reply.code(409).send({ error: "A catalog update is already running" });
+    startCatalogUpdateJob(pool, request.user!.id);
+    return { started: true };
   });
+
+  app.get("/settings/catalog-update/status", { preHandler: requireAuth }, async () => catalogUpdateJob);
 
   app.post("/settings/reorganize-originals", { preHandler: requireAuth }, async (request) => {
     const userId = request.user!.id;

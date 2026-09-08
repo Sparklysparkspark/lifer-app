@@ -119,10 +119,26 @@ export default function UpdatesBanner() {
           </>
         )}
       </span>
-      {showApp && (
+      {showApp && window.liferSetup && (
         <Link to="/settings" className="font-medium text-accent hover:underline">
           Update
         </Link>
+      )}
+      {showApp && !window.liferSetup && (
+        // Self-hosted/Docker has no in-app way to apply an update at all — it only ever happens
+        // by pulling a new image externally (Docker Compose, TrueNAS, etc.), so a "Update" link
+        // into Settings was a dead end (AppUpdatesSection there is desktop-only and renders
+        // nothing here — see its own window.liferSetup guard). Links out to the release notes
+        // instead, which is genuinely useful information this banner can offer even though it
+        // can't perform the update itself.
+        <a
+          href={`https://github.com/${GITHUB_REPO}/releases/latest`}
+          target="_blank"
+          rel="noreferrer"
+          className="font-medium text-accent hover:underline"
+        >
+          See what's new
+        </a>
       )}
       {showPacks && packSummary && (
         <Link
