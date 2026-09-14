@@ -127,12 +127,17 @@
 
         <div class="checkbox-row">
           <input type="checkbox" id="ip-switching" />
-          <label for="ip-switching">Enable IP switching for local network</label>
+          <label for="ip-switching">Automatic URL Switching (connect locally over a designated Wi-Fi network)</label>
         </div>
 
         <div class="external-field" id="external-field">
+          <label class="field-label" for="local-network-name">Wi-Fi network name</label>
+          <input type="text" id="local-network-name" placeholder="HomeWiFi" />
           <label class="field-label" for="external-url">External address (away from home)</label>
           <input type="text" id="external-url" placeholder="https://lifer.example.com" />
+          <p style="font-size: 11px; color: #78716c; margin: -6px 0 10px">
+            Add more external addresses later from Settings &gt; Server.
+          </p>
         </div>
 
         <div class="error" id="error" style="display: none"></div>
@@ -217,7 +222,13 @@
             errorEl.style.display = "block";
             return;
           }
-          payload = { mode: "remote", localUrl: normalizeUrl(rawServerUrl), externalUrl: normalizeUrl(rawExternalUrl) };
+          const networkName = document.getElementById("local-network-name").value.trim();
+          payload = {
+            mode: "remote",
+            localUrl: normalizeUrl(rawServerUrl),
+            localNetworkName: networkName || undefined,
+            externalUrls: [normalizeUrl(rawExternalUrl)],
+          };
         } else {
           if (!/^https?:\/\//.test(rawServerUrl)) {
             errorEl.textContent = "Enter a full URL, starting with http:// or https://";

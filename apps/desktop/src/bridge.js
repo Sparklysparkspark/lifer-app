@@ -11,6 +11,9 @@
   window.liferSetup = {
     choose: (config) => invoke("choose_setup", { config }),
     getConfig: () => invoke("get_config"),
+    currentNetworkInfo: () => invoke("current_network_info"),
+    testEndpoint: (url) => invoke("test_endpoint", { url }),
+    testLogin: (url, email, password) => invoke("test_login", { url, email, password }),
     // window.__LIFER_PLATFORM__ is injected synchronously, before any page script runs, via
     // Rust's WebviewWindowBuilder::initialization_script (see src-tauri/src/lib.rs) — needed
     // as a sync value (not an invoke() Promise) because main.tsx reads it on first paint to
