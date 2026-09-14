@@ -1,3 +1,5 @@
+import { otherTaxaGroupLabel } from "@lifer/shared";
+
 // Folk/birding-style groupings ("Sparrows", "Hawks & Eagles") rather than raw Latin family
 // names — matches how birders actually think about a checklist (same idea eBird/Clements
 // use). Keyed by taxonomic family, which is real data already in the DB (species.family),
@@ -82,7 +84,20 @@ const BIRD_FAMILY_GROUPS: Record<string, string> = {
 // Mammals/fish don't have a curated folk-name map yet (the request that prompted this was
 // bird-specific — "Sparrows", "birds of prey") — grouping by the real family name for those
 // is still a real, useful breakdown, just not renamed to a friendly label yet.
-export function speciesGroupLabel(taxonClass: string | null, family: string | null): string {
+//
+// Other Taxa species (added via Settings > Species & Import's any-taxa search) never have a
+// family on file, so without this they'd all collapse into one generic "Other" bucket —
+// isOtherTaxa/inatIconicTaxon route them into their own per-taxon groups instead ("Insecta",
+// "Fungi", "Plantae", ...), the same "sorted like Birds/Mammals/Fish" treatment every other
+// group already gets.
+export function speciesGroupLabel(
+  taxonClass: string | null,
+  family: string | null,
+  isOtherTaxa?: boolean,
+  inatIconicTaxon?: string | null,
+  namingStyles?: string[],
+): string {
+  if (isOtherTaxa) return inatIconicTaxon ? otherTaxaGroupLabel(inatIconicTaxon, namingStyles ?? []) : "Other";
   if (family && taxonClass === "aves" && BIRD_FAMILY_GROUPS[family]) return BIRD_FAMILY_GROUPS[family];
   return family ?? "Other";
 }

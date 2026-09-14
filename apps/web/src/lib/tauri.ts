@@ -10,3 +10,19 @@ export function tauriInvoke(): TauriInvoke | null {
 export function isTauri(): boolean {
   return tauriInvoke() !== null;
 }
+
+// The actual native window (real macOS/Windows/Linux fullscreen, not the browser Fullscreen
+// API) — see Lightbox.tsx's own comment on why this, not document.requestFullscreen(), is what
+// its fullscreen toggle needs: this app's frameless/traffic-lights window (see desktop's
+// lib.rs) doesn't reliably support the DOM Fullscreen API, but window-manager-level fullscreen
+// (the same thing the native green traffic-light button already does) always works.
+export interface TauriWindow {
+  isFullscreen(): Promise<boolean>;
+  setFullscreen(fullscreen: boolean): Promise<void>;
+}
+
+export function tauriCurrentWindow(): TauriWindow | null {
+  const tauriWindowModule = (window as unknown as { __TAURI__?: { window: { getCurrentWindow: () => TauriWindow } } })
+    .__TAURI__?.window;
+  return tauriWindowModule ? tauriWindowModule.getCurrentWindow() : null;
+}

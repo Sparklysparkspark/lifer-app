@@ -142,6 +142,18 @@ export function enqueueUploads(
     const job = jobs[i];
     pending.push(async () => {
       try {
+        // Videos have no store/link/s3 mode or RAW-sibling story (see /uploads/video's own
+        // comment) and no duplicate-fingerprint check built for them yet — route straight
+        // through, same as PhotoImportRows' own video branch.
+        if (file.type.startsWith("video/")) {
+          const videoForm = new FormData();
+          videoForm.append("speciesId", speciesId);
+          videoForm.append("file", file);
+          if (opts.volumeId) videoForm.append("volumeId", opts.volumeId);
+          if (opts.tripId) videoForm.append("tripId", opts.tripId);
+          await api.post("/uploads/video", videoForm);
+          return;
+        }
         const dup = await checkDuplicate(file);
         if (dup) {
           setState({ pendingDuplicate: { jobId: job.id, fileName: job.fileName, info: dup } });
@@ -222,6 +234,30 @@ export function enqueueRawUploads<T>(
     });
   }
   pump();
+}
+
+/** Lets a caller with its OWN upload transport (PhotoImportRows' bulk import screen — many
+ *  files, each with its own species/region/RAW-vs-video routing that doesn't fit the single-
+ *  species-batch shape enqueueUploads/enqueueRawUploads assume) still show up in the shared
+ *  jobs list the global banner and every species page's own "uploading" placeholder square
+ *  already read from. Only borrows the BOOKKEEPING half of the queue — the caller still fires
+ *  its own request and decides success/failure, then reports the outcome back via
+ *  settleExternalJob so this job settles (and the whole-queue "all done" cleanup still fires)
+ *  exactly like a job the queue uploaded itself. */
+export function registerExternalJob(speciesId: string, fileName: string): string {
+  const job: UploadJob = { id: `${Date.now()}-${Math.random()}`, fileName, speciesId, done: false };
+  setState({ jobs: [...state.jobs, job] });
+  return job.id;
+}
+
+export function settleExternalJob(jobId: string, error?: string): void {
+  const job = state.jobs.find((j) => j.id === jobId);
+  if (job) {
+    job.done = true;
+    if (error) job.error = error;
+  }
+  settleIfDone();
+  setState({ jobs: [...state.jobs] });
 }
 
 function settleIfDone() {

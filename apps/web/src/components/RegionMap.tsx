@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { Map as MapLibreMap, LngLatBounds } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { useTheme } from "../hooks/useTheme";
-import { ensurePmtilesProtocol, pmtilesStyle, checkPmtilesAvailable } from "../lib/pmtiles";
+import { useMapAvailable } from "../hooks/useMapAvailable";
+import { ensurePmtilesProtocol, pmtilesStyle } from "../lib/pmtiles";
 
 // Species detail is a sibling route (see App.tsx/CollectionPage.tsx's own comment on the same
 // issue for its item list), so leaving a region page and coming back destroys this whole
@@ -16,19 +17,13 @@ const lastCameraByRegion = new Map<string, { center: [number, number]; zoom: num
 
 export default function RegionMap({ boundaryGeoJson, regionKey }: { boundaryGeoJson: unknown; regionKey?: string }) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const [mapAvailable, setMapAvailable] = useState<boolean | null>(null);
+  const mapAvailable = useMapAvailable();
   // The basemap style was hardcoded to Protomaps' "light" flavor regardless of app theme — in
   // dark mode its land/water/road colors are all pale tones tuned to sit against a light page,
   // rendering pale-on-pale (barely visible) with only our own boundary overlay (a fixed dark
   // fill, unrelated to this flavor) standing out. Matching the flavor to the app's own theme
   // is the fix, not a rendering bug to chase further.
   const { theme } = useTheme();
-
-  // The basemap file is a large (~500MB) optional download, not guaranteed to be present —
-  // check first rather than letting maplibre fail loudly against a 404.
-  useEffect(() => {
-    checkPmtilesAvailable().then(setMapAvailable);
-  }, []);
 
   useEffect(() => {
     if (!containerRef.current || !boundaryGeoJson || !mapAvailable) return;
@@ -41,6 +36,10 @@ export default function RegionMap({ boundaryGeoJson, regionKey }: { boundaryGeoJ
       ...(cachedCamera ? { center: cachedCamera.center, zoom: cachedCamera.zoom } : {}),
       style: pmtilesStyle(theme === "dark" ? "dark" : "light"),
       interactive: true,
+      // Collapsed to the small "i" toggle by default — the full "MapLibre | © OpenMapTiles..."
+      // bar otherwise opens expanded on every load, permanently covering map content in the
+      // corner until a user notices there's something to click to close it.
+      attributionControl: { compact: true },
     });
 
     map.on("load", () => {
@@ -96,5 +95,5 @@ export default function RegionMap({ boundaryGeoJson, regionKey }: { boundaryGeoJ
   // checking) is treated the same as `false` here so nothing flashes a box then removes it.
   if (!boundaryGeoJson || !mapAvailable) return null;
 
-  return <div ref={containerRef} className="h-64 w-full rounded-lg border border-line" />;
+  return <div ref={containerRef} className="h-80 w-full rounded-lg border border-line" />;
 }

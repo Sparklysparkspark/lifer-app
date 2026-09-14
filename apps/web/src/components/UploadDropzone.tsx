@@ -1,7 +1,8 @@
 import { useRef } from "react";
 import { enqueueUploads } from "../lib/uploadQueue";
 
-// Simple upload control: pick one or more JPEGs/PNGs and queue them in "store" mode. The
+// Simple upload control: pick one or more JPEGs/PNGs/MP4s/MOVs and queue them in "store" mode
+// (enqueueUploads itself routes video files to the separate /uploads/video endpoint). The
 // actual upload happens in the background via lib/uploadQueue — this component just enqueues
 // and gets out of the way (closing immediately), so the user can keep browsing or start
 // another upload elsewhere while these finish. Progress/errors surface via the global banner
@@ -53,12 +54,12 @@ export default function UploadDropzone({
         ref={fileInputRef}
         type="file"
         multiple
-        accept="image/jpeg,image/png"
+        accept="image/jpeg,image/png,video/mp4,video/quicktime"
         className="hidden"
         id="upload-input"
         onChange={(e) => handleUpload(Array.from(e.target.files ?? []))}
       />
-      <span className="text-sm text-muted hover:underline">Choose photos…</span>
+      <span className="text-sm text-muted hover:underline">Choose photos or videos…</span>
     </div>
   );
 }

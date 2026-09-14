@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { RegionSummary } from "@lifer/shared";
 import { api } from "../api/client";
+import RegionPicker from "./RegionPicker";
 
 // Same breadcrumb + "drill in" pill interaction as CollectionPage's own region picker, filtered
 // to the same availableRegionIds set (only regions reachable from an actually-downloaded
@@ -9,7 +10,27 @@ import { api } from "../api/client";
 // from Collection, rather than a second bespoke region UI that behaves differently. Deliberately
 // leaves out CollectionPage-specific pieces (checklist stats bar, sea zones, eBird link,
 // drill-down-into-provinces action) that have nothing to do with just picking a region.
-export default function RegionBrowser({ regionId, onChange }: { regionId: string | null; onChange: (id: string | null) => void }) {
+//
+// allowAnyRegion skips the downloaded-pack restriction entirely — used by AddOtherTaxaModal,
+// where the whole point is adding a species to a region without needing a species pack for it
+// (there's no "checklist" concept being downloaded, just one iNat species dropped onto one
+// region), so gating region choice on pack downloads would defeat the feature.
+export default function RegionBrowser({
+  regionId,
+  onChange,
+  allowAnyRegion,
+  restrictToIds,
+}: {
+  regionId: string | null;
+  onChange: (id: string | null) => void;
+  allowAnyRegion?: boolean;
+  /** A caller-supplied override for which regions are pickable, independent of the downloaded-
+   *  pack restriction — e.g. Gallery's own region filter, which should only ever offer regions
+   *  the user's library actually has photos tagged in, not "has a pack downloaded for." Only
+   *  meaningful together with allowAnyRegion (skips the pack-based restriction so this one wins
+   *  outright instead of being intersected with it). */
+  restrictToIds?: Set<string> | null;
+}) {
   const [allRegions, setAllRegions] = useState<RegionSummary[]>([]);
   const [downloadedCountryNames, setDownloadedCountryNames] = useState<Set<string> | null>(null);
 
@@ -18,19 +39,21 @@ export default function RegionBrowser({ regionId, onChange }: { regionId: string
   }, []);
 
   useEffect(() => {
+    if (allowAnyRegion) return;
     api
       .get<{ packs: Array<{ type: string; region: string | null; downloaded: boolean }> }>("/offline-packs/index")
       .then((res) => {
         setDownloadedCountryNames(new Set(res.packs.filter((p) => p.type === "region" && p.region && p.downloaded).map((p) => p.region!)));
       })
       .catch(() => setDownloadedCountryNames(new Set()));
-  }, []);
+  }, [allowAnyRegion]);
 
   // Identical algorithm to CollectionPage's own availableRegionIds: a downloaded country, every
   // ancestor up to World (so the path TO it stays clickable), and every descendant province/state
   // bundled in the same pack.
   const availableRegionIds = useMemo(() => {
-    if (!downloadedCountryNames) return null;
+    if (restrictToIds) return restrictToIds;
+    if (allowAnyRegion || !downloadedCountryNames) return null;
     const byId = new Map(allRegions.map((r) => [r.id, r]));
     const childrenOf = new Map<string, RegionSummary[]>();
     for (const r of allRegions) {
@@ -55,7 +78,7 @@ export default function RegionBrowser({ regionId, onChange }: { regionId: string
       }
     }
     return available;
-  }, [allRegions, downloadedCountryNames]);
+  }, [allRegions, downloadedCountryNames, restrictToIds]);
 
   const worldRegion = useMemo(() => allRegions.find((r) => r.parentId === null && r.name === "World"), [allRegions]);
   const allChildren = useMemo(() => allRegions.filter((r) => r.parentId === regionId), [allRegions, regionId]);
@@ -112,16 +135,7 @@ export default function RegionBrowser({ regionId, onChange }: { regionId: string
       {regionId && children.length > 0 && (
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-xs uppercase tracking-wide text-muted">Drill in:</span>
-          {children.map((child) => (
-            <button
-              key={child.id}
-              type="button"
-              onClick={() => onChange(child.id)}
-              className="rounded-full border border-line px-3 py-1 text-sm text-ink hover:bg-surface-muted"
-            >
-              {child.name}
-            </button>
-          ))}
+          <RegionPicker mode="single" items={children} selectedId={null} onSelectItem={onChange} />
         </div>
       )}
       {regionId && availableRegionIds && allChildren.length > 0 && children.length === 0 && (

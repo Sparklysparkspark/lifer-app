@@ -1,6 +1,7 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 import { useAuth } from "./hooks/useAuth";
 import LoginPage from "./pages/LoginPage";
+import OnboardingPage from "./pages/OnboardingPage";
 import CollectionPage from "./pages/CollectionPage";
 import SpeciesDetailPage from "./pages/SpeciesDetailPage";
 import GalleryPage from "./pages/GalleryPage";
@@ -16,6 +17,8 @@ import SharePage from "./pages/SharePage";
 import ApiKeysPage from "./pages/ApiKeysPage";
 import InaturalistPage from "./pages/InaturalistPage";
 import ArchivedSpeciesPage from "./pages/ArchivedSpeciesPage";
+import HiddenSpeciesPage from "./pages/HiddenSpeciesPage";
+import ManageTagsPage from "./pages/ManageTagsPage";
 import TrashedPhotosPage from "./pages/TrashedPhotosPage";
 import GuidePage from "./pages/GuidePage";
 import ForgotPasswordPage from "./pages/ForgotPasswordPage";
@@ -42,6 +45,14 @@ export default function App() {
       <UpdatesBanner />
       <Routes>
       <Route path="/login" element={<LoginPage />} />
+      <Route
+        path="/onboarding"
+        element={
+          <RequireAuth>
+            <OnboardingPage />
+          </RequireAuth>
+        }
+      />
       <Route path="/forgot-password" element={<ForgotPasswordPage />} />
       <Route path="/reset-password" element={<ResetPasswordPage />} />
       <Route path="/share/:token" element={<SharePage />} />
@@ -95,6 +106,14 @@ export default function App() {
       />
       <Route
         path="/settings"
+        element={
+          <RequireAuth>
+            <SettingsPage />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/settings/:groupId"
         element={
           <RequireAuth>
             <SettingsPage />
@@ -170,6 +189,22 @@ export default function App() {
         element={
           <RequireAuth>
             <ArchivedSpeciesPage />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/hidden-species"
+        element={
+          <RequireAuth>
+            <HiddenSpeciesPage />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/tags"
+        element={
+          <RequireAuth>
+            <ManageTagsPage />
           </RequireAuth>
         }
       />
