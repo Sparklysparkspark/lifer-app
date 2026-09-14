@@ -7,12 +7,15 @@ export interface User {
   createdAt: string;
 }
 
-export type CollectionState = "collected" | "seen" | "target" | "unseen";
+export type CollectionState = "collected" | "seen" | "unseen";
 
 export interface UserSpecies {
   userId: string;
   speciesId: string;
-  state: "collected" | "seen" | "target";
+  state: "collected" | "seen" | null;
+  // Independent of state (migration 090) — a species already collected/seen can still be
+  // targeted, e.g. "I only have a bad photo of this, I want a better one."
+  isTarget: boolean;
   coverPhotoId: string | null;
   firstCollected: string | null;
   bestQuality: number | null;

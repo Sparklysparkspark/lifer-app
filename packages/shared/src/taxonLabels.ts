@@ -7,7 +7,7 @@ import type { TaxonClass } from "./species.js";
 export const TAXON_CLASS_LABEL: Record<TaxonClass, string> = {
   aves: "Birds",
   mammalia: "Mammals",
-  actinopterygii: "Bony Fish",
+  actinopterygii: "Fish",
   elasmobranchii: "Sharks & Rays",
   aquatic_mammalia: "Marine Mammals",
   amphibia: "Amphibians",
@@ -59,3 +59,56 @@ export const TAXON_GROUPS: Array<{ key: string; label: string; taxa: TaxonClass[
 // (rendered directly) vs. "grouped" (rendered inside its disclosure section) without hardcoding
 // the standalone list separately and risking it drifting out of sync with the groups above.
 export const GROUPED_TAXON_CLASSES: Set<TaxonClass> = new Set(TAXON_GROUPS.flatMap((g) => g.taxa));
+
+// Other Taxa species (Settings > Species & Import's any-taxa search) store one of iNaturalist's
+// own 13 "iconic taxon" names verbatim (species.inat_iconic_taxon, exact iNat casing) — used to
+// group/folder them the same way the 18 built-in classes get real English labels above. Without
+// this, a folder/group would show the bare Latin "Insecta" sitting right next to "Birds"/
+// "Mammals" — inconsistent, and not what a non-scientist would expect. Four of iNat's 13 names
+// collide with a real TaxonClass label on purpose (Aves/Mammalia/Actinopterygii/Amphibia) — an
+// Other Taxa bird/mammal/fish/amphibian folds into that existing folder rather than getting a
+// separate one, since iNat's own naming happens to already match.
+// Follows the user's own species_naming_styles preference (migration 082/091 — the same
+// common/latin/aba_code/ebird_code ordered array used for species folder/EXIF naming), since an
+// Other Taxa group's label has the same "Latin vs common vs both" question a species name does,
+// and iNat's own iconic taxon names (Insecta, Mollusca, ...) are real, clean Latin class names —
+// unlike Lifer's own 18 built-in groups, several of which are curated buckets with no single
+// taxonomic name of their own (e.g. "Collector Shells"), so those stay fixed English labels.
+// codes (aba_code/ebird_code) don't apply to a group label and are ignored here.
+export function otherTaxaGroupLabel(iconicTaxon: string, namingStyles: string[]): string {
+  const english = INAT_ICONIC_TAXON_LABEL[iconicTaxon] ?? iconicTaxon;
+  const commonIdx = namingStyles.indexOf("common");
+  const latinIdx = namingStyles.indexOf("latin");
+  const wantsLatin = latinIdx !== -1;
+  const wantsCommon = commonIdx !== -1 || !wantsLatin; // no explicit preference at all defaults to common
+  if (wantsCommon && wantsLatin) return commonIdx <= latinIdx ? `${english} - ${iconicTaxon}` : `${iconicTaxon} - ${english}`;
+  return wantsLatin ? iconicTaxon : english;
+}
+
+// General-purpose display label for a raw `taxon_class` DB value, covering both the 18 built-in
+// classes and an Other Taxa species' raw lowercased iconic-taxon string (e.g. "insecta") — the
+// latter has no entry in TAXON_CLASS_LABEL and must not be printed verbatim (unlabeled, no
+// naming-style applied, wrong case). Mirrors CollectionPage.tsx's own `taxonFilterLabel`, which
+// predates this shared helper — same iNat-casing restoration (lowercased column value is always a
+// single already-capitalized word, e.g. "insecta" -> "Insecta") needed before `otherTaxaGroupLabel`
+// can look up its English label or return the literal Latin text.
+export function taxonDisplayLabel(taxonClass: string, namingStyles: string[]): string {
+  if (taxonClass in TAXON_CLASS_LABEL) return TAXON_CLASS_LABEL[taxonClass as TaxonClass];
+  return otherTaxaGroupLabel(taxonClass.charAt(0).toUpperCase() + taxonClass.slice(1), namingStyles);
+}
+
+export const INAT_ICONIC_TAXON_LABEL: Record<string, string> = {
+  Animalia: "Animals",
+  Actinopterygii: "Fish",
+  Amphibia: "Amphibians",
+  Arachnida: "Arachnids",
+  Aves: "Birds",
+  Chromista: "Chromists",
+  Fungi: "Fungi",
+  Insecta: "Insects",
+  Mammalia: "Mammals",
+  Mollusca: "Mollusks",
+  Plantae: "Plants",
+  Protozoa: "Protozoans",
+  Reptilia: "Reptiles",
+};
