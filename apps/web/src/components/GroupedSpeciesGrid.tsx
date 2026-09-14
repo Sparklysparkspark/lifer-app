@@ -10,11 +10,37 @@ import { useStorageVolumes } from "../hooks/useStorageVolumes";
 // hundred to a couple thousand — but "All species" / no region selected can be 60,000+, which
 // locks up the main thread badly enough that even clicking "Browse by region" stops responding.
 // Rendered items are capped and revealed incrementally on scroll instead of all at once.
-const INITIAL_VISIBLE = 300;
-const VISIBLE_STEP = 300;
+// Each newly-mounted SpeciesCard runs useFitText's useLayoutEffect — a synchronous, paint-
+// blocking reflow (getComputedStyle + scrollHeight, both force layout) — so mounting a whole
+// batch at once means that many forced reflows back to back on the main thread before the
+// browser can paint anything. 300 was fine for the checklist sizes this was tuned against, but
+// now that region checklists can run into the thousands (see compute-provinces-inat.ts), a
+// group-by/sort change or a scroll-triggered reveal on one of those regions mounts 300 cards in
+// one commit, which is exactly what turned "grouping by rarity" into a multi-second freeze on a
+// large country. Smaller batches trade a few more scroll-triggered reveals for a commit that
+// actually stays responsive.
+const INITIAL_VISIBLE = 60;
+const VISIBLE_STEP = 60;
 
 export type GroupBy = "none" | "group" | "tier" | "localTier";
-export type SortBy = "taxonomic" | "name" | "rarity" | "localRarity";
+export type SortBy = "taxonomic" | "name" | "rarity" | "localRarity" | "seasonality";
+
+// Approximate week-of-year index (0-51), matching WeeklyBar's own 52-bucket indexing (index 0 =
+// week 1). Good enough for "what's most likely to turn up this week" sorting - not meant to be
+// exact ISO-week arithmetic.
+function currentWeekIndex(): number {
+  const now = new Date();
+  const start = new Date(now.getFullYear(), 0, 1);
+  const dayOfYear = Math.floor((now.getTime() - start.getTime()) / 86_400_000);
+  return Math.min(51, Math.floor(dayOfYear / 7));
+}
+
+// Same shrink-with-size formula GalleryPage uses for its own grid gap (thumbSizePx / 30,
+// clamped 3-8px) — at the smallest card size the fixed gap-4 (16px) read as disproportionately
+// wide next to a tiny card, and didn't match how Gallery's own grid tightens up already.
+function gapPxFor(cardMinWidth: number): number {
+  return Math.round(Math.min(8, Math.max(3, cardMinWidth / 30)));
+}
 
 // "unrated" ranks after "common", not before — it isn't easier than common, it's simply
 // unknown (mammals/fish with no real distinguishing data at all).
@@ -47,6 +73,9 @@ function sortItems(items: CollectionItem[], sortBy: SortBy): CollectionItem[] {
     sorted.sort((a, b) => (TIER_RANK[a.localTier ?? a.tier ?? "common"] ?? 5) - (TIER_RANK[b.localTier ?? b.tier ?? "common"] ?? 5));
   } else if (sortBy === "name") {
     sorted.sort((a, b) => (a.commonName ?? a.scientificName).localeCompare(b.commonName ?? b.scientificName));
+  } else if (sortBy === "seasonality") {
+    const week = currentWeekIndex();
+    sorted.sort((a, b) => (b.seasonality?.[week] ?? 0) - (a.seasonality?.[week] ?? 0));
   }
   // "taxonomic" is the server's own default order — no client-side re-sort needed for it.
   return sorted;
@@ -61,11 +90,28 @@ export default function GroupedSpeciesGrid({
   seenFirst,
   targetFirst,
   onArchived,
+  cardMinWidth = 160,
+  regionName,
+  countryRegionId,
+  countryRegionName,
+  hideRarityLabels,
 }: {
   items: CollectionItem[];
   regionId?: string;
   groupBy: GroupBy;
   sortBy: SortBy;
+  /** Minimum card width in px, driven by the page's Size slider — the grid packs as many
+   *  cards per row as fit via auto-fill/minmax rather than a fixed Tailwind breakpoint count. */
+  cardMinWidth?: number;
+  /** Display name of regionId, and the enclosing country's id/name when regionId is a
+   *  province — threaded straight through to SpeciesCard's own province-vs-country hide
+   *  picker (see its own comment). */
+  regionName?: string;
+  countryRegionId?: string;
+  countryRegionName?: string;
+  /** Collections' "Hide rarity labels" display toggle, threaded straight through to every
+   *  SpeciesCard. */
+  hideRarityLabels?: boolean;
   collectedFirst: boolean;
   /** Independent of collectedFirst — either can be on without the other. Pin order when both
    *  are on is always Collected above Seen, since a photographed species is a stronger signal
@@ -86,6 +132,14 @@ export default function GroupedSpeciesGrid({
   const [visibleCount, setVisibleCount] = useState(INITIAL_VISIBLE);
   const sentinelRef = useRef<HTMLDivElement>(null);
   const { multiDriveInUse } = useStorageVolumes();
+  // Other Taxa group labels ("Insects" vs "Insecta" vs "Insects - Insecta") follow the same
+  // species_naming_styles preference used for folder/EXIF naming — a group label has the same
+  // Latin-vs-common question a species name does. Fetched once here rather than threaded down
+  // as a prop, same self-contained pattern SpeciesPicker uses for its own settings-driven bit.
+  const [namingStyles, setNamingStyles] = useState<string[]>([]);
+  useEffect(() => {
+    api.get<{ speciesNamingStyles: string[] }>("/settings").then((res) => setNamingStyles(res.speciesNamingStyles)).catch(() => {});
+  }, []);
 
   // A fresh filter/sort/region change should start back at the cap, not keep whatever was
   // revealed for a totally different, possibly much larger, previous list. This used to be a
@@ -113,10 +167,10 @@ export default function GroupedSpeciesGrid({
   // "everything else" when its own toggle is actually on, so collectedFirst/seenFirst/
   // targetFirst stay fully independent (any subset can be on) while still cooperating
   // correctly when several are on at once (collected above seen above target above the rest).
-  function floatRank(state: string): number {
-    if (state === "collected") return collectedFirst ? 0 : 3;
-    if (state === "seen") return seenFirst ? (collectedFirst ? 1 : 0) : 3;
-    if (state === "target") return targetFirst ? (collectedFirst ? 1 : 0) + (seenFirst ? 1 : 0) : 3;
+  function floatRank(item: CollectionItem): number {
+    if (collectedFirst && item.state === "collected") return 0;
+    if (seenFirst && item.state === "seen") return collectedFirst ? 1 : 0;
+    if (targetFirst && item.isTarget) return (collectedFirst ? 1 : 0) + (seenFirst ? 1 : 0);
     return 3;
   }
 
@@ -128,7 +182,7 @@ export default function GroupedSpeciesGrid({
       // the single list — independent toggles, any subset can be on at once.
       const list =
         collectedFirst || seenFirst || targetFirst
-          ? [...sorted].sort((a, b) => floatRank(a.state) - floatRank(b.state))
+          ? [...sorted].sort((a, b) => floatRank(a) - floatRank(b))
           : sorted;
       return [{ key: "", label: "", items: list }];
     }
@@ -142,7 +196,7 @@ export default function GroupedSpeciesGrid({
         ? item.tier ?? "common"
         : groupBy === "localTier"
           ? item.localTier ?? item.tier ?? "common"
-          : speciesGroupLabel(item.taxonClass, item.family);
+          : speciesGroupLabel(item.taxonClass, item.family, item.isOtherTaxa, item.inatIconicTaxon, namingStyles);
       if (!byKey.has(key)) byKey.set(key, []);
       byKey.get(key)!.push(item);
     }
@@ -171,11 +225,11 @@ export default function GroupedSpeciesGrid({
       if (seenItems.length > 0) pinned.push({ key: SEEN_GROUP_KEY, label: "Seen", items: seenItems });
     }
     if (targetFirst) {
-      const targetItems = sorted.filter((i) => i.state === "target");
+      const targetItems = sorted.filter((i) => i.isTarget);
       if (targetItems.length > 0) pinned.push({ key: TARGET_GROUP_KEY, label: "Targets", items: targetItems });
     }
     return [...pinned, ...named];
-  }, [items, groupBy, sortBy, collectedFirst, seenFirst, targetFirst]);
+  }, [items, groupBy, sortBy, collectedFirst, seenFirst, targetFirst, namingStyles]);
 
   // How many of EACH group's items are actually rendered as cards right now — the cap applies
   // to the page as a whole (not per group), while a group's header/bulk-archive action still
@@ -188,12 +242,33 @@ export default function GroupedSpeciesGrid({
   // never got a turn). Round-robin guarantees every group gets a fair initial share.
   const visibleCountByKey = useMemo(() => {
     const map = new Map<string, number>();
-    for (const g of groups) map.set(g.key, 0);
+    // Smallest group fully satisfied first, THEN move to the next-smallest — a tier like
+    // Legendary is often the smallest by far (that's the whole point of rarity), and an even
+    // round-robin split (1-per-pass-per-group) gave it only its flat 1/Nth share of the shared
+    // budget same as every other group, so it showed up visibly truncated (e.g. "Legendary
+    // (50)" rendering only 10) even though the whole group would easily have fit. Since a group
+    // this small consumes only a sliver of the total budget once actually satisfied, giving it
+    // that sliver up front costs the bigger groups almost nothing, and no group ever needs a
+    // second scroll-triggered reveal just to finish rendering something that already fit.
+    // Whatever's left over after every group that CAN fit within the budget gets fully filled
+    // is still split evenly across the remaining (necessarily larger) groups, same reasoning
+    // the old round-robin used, just applied only to the leftover instead of the whole budget.
+    const bySize = [...groups].sort((a, b) => a.items.length - b.items.length);
     let remaining = visibleCount;
+    const stillGrowing: typeof groups = [];
+    for (const g of bySize) {
+      if (remaining >= g.items.length) {
+        map.set(g.key, g.items.length);
+        remaining -= g.items.length;
+      } else {
+        map.set(g.key, 0);
+        stillGrowing.push(g);
+      }
+    }
     let madeProgress = true;
     while (remaining > 0 && madeProgress) {
       madeProgress = false;
-      for (const g of groups) {
+      for (const g of stillGrowing) {
         if (remaining <= 0) break;
         const current = map.get(g.key)!;
         if (current < g.items.length) {
@@ -238,9 +313,25 @@ export default function GroupedSpeciesGrid({
     const visible = groups[0].items.slice(0, visibleCountByKey.get(groups[0].key) ?? groups[0].items.length);
     return (
       <>
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
+        <div
+          className="grid"
+          style={{
+            gridTemplateColumns: `repeat(auto-fill, minmax(${cardMinWidth}px, 1fr))`,
+            gap: gapPxFor(cardMinWidth),
+          }}
+        >
           {visible.map((item) => (
-            <SpeciesCard key={item.speciesId} item={item} regionId={regionId} onArchived={onArchived} showVolumeBadge={multiDriveInUse} />
+            <SpeciesCard
+              key={item.speciesId}
+              item={item}
+              regionId={regionId}
+              regionName={regionName}
+              countryRegionId={countryRegionId}
+              countryRegionName={countryRegionName}
+              onArchived={onArchived}
+              showVolumeBadge={multiDriveInUse}
+              hideRarityLabels={hideRarityLabels}
+            />
           ))}
         </div>
         {hasMore && <div ref={sentinelRef} className="h-10" />}
@@ -280,6 +371,11 @@ export default function GroupedSpeciesGrid({
           onArchived={onArchived}
           wide
           showVolumeBadge={multiDriveInUse}
+          cardMinWidth={cardMinWidth}
+          regionName={regionName}
+          countryRegionId={countryRegionId}
+          countryRegionName={countryRegionName}
+          hideRarityLabels={hideRarityLabels}
         />
       ))}
 
@@ -326,6 +422,11 @@ export default function GroupedSpeciesGrid({
               onArchived={onArchived}
               archivableGroup={groupBy === "group"}
               showVolumeBadge={multiDriveInUse}
+              cardMinWidth={cardMinWidth}
+              regionName={regionName}
+              countryRegionId={countryRegionId}
+              countryRegionName={countryRegionName}
+              hideRarityLabels={hideRarityLabels}
             />
           </div>
         ))}
@@ -345,6 +446,11 @@ function GroupSection({
   archivableGroup,
   wide,
   showVolumeBadge,
+  cardMinWidth = 160,
+  regionName,
+  countryRegionId,
+  countryRegionName,
+  hideRarityLabels,
 }: {
   group: { key: string; label: string; items: CollectionItem[] };
   /** How many of this group's items to actually render as cards — the header count and the
@@ -363,6 +469,12 @@ function GroupSection({
    *  highlight strip, not one of the packed small-group tiles. */
   wide?: boolean;
   showVolumeBadge?: boolean;
+  /** Minimum card width in px, driven by the page's Size slider. */
+  cardMinWidth?: number;
+  regionName?: string;
+  countryRegionId?: string;
+  countryRegionName?: string;
+  hideRarityLabels?: boolean;
 }) {
   const [archiving, setArchiving] = useState(false);
   const archivable = archivableGroup && group.key !== COLLECTED_GROUP_KEY;
@@ -402,14 +514,24 @@ function GroupSection({
         )}
       </div>
       <div
-        className={
-          wide
-            ? "grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6"
-            : "grid grid-cols-2 gap-4 sm:grid-cols-3"
-        }
+        className="grid"
+        style={{
+          gridTemplateColumns: `repeat(auto-fill, minmax(${wide ? cardMinWidth : Math.min(cardMinWidth, 160)}px, 1fr))`,
+          gap: gapPxFor(cardMinWidth),
+        }}
       >
         {group.items.slice(0, visibleCount).map((item) => (
-          <SpeciesCard key={item.speciesId} item={item} regionId={regionId} onArchived={onArchived} showVolumeBadge={showVolumeBadge} />
+          <SpeciesCard
+            key={item.speciesId}
+            item={item}
+            regionId={regionId}
+            regionName={regionName}
+            countryRegionId={countryRegionId}
+            countryRegionName={countryRegionName}
+            onArchived={onArchived}
+            showVolumeBadge={showVolumeBadge}
+            hideRarityLabels={hideRarityLabels}
+          />
         ))}
       </div>
     </section>

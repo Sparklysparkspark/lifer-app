@@ -35,10 +35,10 @@ export default function PageHeader({
   return (
     <header
       className={`page-header border-b border-line bg-surface px-6 py-4 ${sticky ? "sticky top-0 z-20" : ""} ${
-        actions ? "flex items-start justify-between" : ""
+        actions ? "flex flex-wrap items-start justify-between gap-x-4 gap-y-2" : ""
       }`}
     >
-      <div className="min-w-0">
+      <div className={`min-w-0 ${actions ? "flex-1" : ""}`}>
         <BackToCollectionLink
           {...(backFallbackTo ? { fallbackTo: backFallbackTo } : {})}
           {...(backLabel ? { label: backLabel } : {})}

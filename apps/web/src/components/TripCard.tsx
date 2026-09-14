@@ -2,9 +2,7 @@ import { Link } from "react-router-dom";
 import type { RefObject } from "react";
 import type { TripSummary } from "@lifer/shared";
 import { useFitText } from "../hooks/useFitText";
-import { cropToImageStyle } from "../lib/crop";
-import ProgressiveImg from "./ProgressiveImg";
-import PhotoPlaceholder from "./PhotoPlaceholder";
+import CoverImage from "./CoverImage";
 import DotMenu from "./DotMenu";
 
 function formatDateRange(earliest: string | null, latest: string | null): string | null {
@@ -74,16 +72,16 @@ export default function TripCard({ trip, menuOpen, onToggleMenu, menuRef, onRena
           <div className="flex h-full w-full items-center justify-center">
             <div className="h-6 w-6 animate-spin rounded-full border-2 border-line border-t-accent" />
           </div>
-        ) : trip.coverPhotoUrl ? (
-          <ProgressiveImg
-            thumbSrc={trip.coverPhotoUrl}
-            fullSrc={trip.coverPhotoUrl.replace(/\/thumb$/, "/display")}
-            alt={trip.name}
-            className="h-full w-full"
-            style={cropToImageStyle(trip.coverCropX, trip.coverCropY, trip.coverCropSize)}
-          />
         ) : (
-          <PhotoPlaceholder className="h-full w-full" />
+          <CoverImage
+            layout={trip.coverLayout}
+            coverPhotoUrl={trip.coverPhotoUrl}
+            cropX={trip.coverCropX}
+            cropY={trip.coverCropY}
+            cropSize={trip.coverCropSize}
+            quadSlots={trip.quadPhotoIds.map((photoId) => (photoId ? { photoId, cropX: null, cropY: null, cropSize: null } : null))}
+            alt={trip.name}
+          />
         )}
       </div>
       <div className="p-3">

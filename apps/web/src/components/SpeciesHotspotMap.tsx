@@ -2,7 +2,11 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Map as MapLibreMap, LngLatBounds, Popup } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { useTheme } from "../hooks/useTheme";
-import { ensurePmtilesProtocol, pmtilesStyle, checkPmtilesAvailable } from "../lib/pmtiles";
+import { useMapAvailable } from "../hooks/useMapAvailable";
+import { ensurePmtilesProtocol, pmtilesStyle } from "../lib/pmtiles";
+import { buildInaturalistObservationsUrl } from "../lib/inaturalist";
+import SearchInput from "./SearchInput";
+import Select from "./Select";
 
 export interface SpeciesHotspot {
   centroidLat: number;
@@ -66,30 +70,16 @@ export default function SpeciesHotspotMap({
   const [selectedIdx, setSelectedIdx] = useState<number | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
-  const [mapAvailable, setMapAvailable] = useState<boolean | null>(null);
+  const mapAvailable = useMapAvailable();
   const { theme } = useTheme();
-
-  useEffect(() => {
-    checkPmtilesAvailable().then(setMapAvailable);
-  }, []);
 
   // The bundled hotspot data is a snapshot from whenever this pack was last built — real,
   // but not live. iNaturalist's own map view, scoped to this exact region's bounding box plus
   // this species, is the fastest way to check what's actually been seen more recently than that.
-  const inaturalistUrl = useMemo(() => {
-    const bbox = (boundaryGeoJson as { bbox?: [number, number, number, number] } | null)?.bbox;
-    if (!bbox) return null;
-    const [minLon, minLat, maxLon, maxLat] = bbox;
-    const params = new URLSearchParams({
-      taxon_name: scientificName,
-      swlat: String(minLat),
-      swlng: String(minLon),
-      nelat: String(maxLat),
-      nelng: String(maxLon),
-      subview: "map",
-    });
-    return `https://www.inaturalist.org/observations?${params.toString()}`;
-  }, [boundaryGeoJson, scientificName]);
+  const inaturalistUrl = useMemo(
+    () => buildInaturalistObservationsUrl(boundaryGeoJson, scientificName),
+    [boundaryGeoJson, scientificName],
+  );
 
   // Highlight the single strongest repeat location, if there is one — a cluster hit across 3+
   // separate years is a real recurring pattern (not a one-off/vagrant record), worth calling
@@ -133,6 +123,9 @@ export default function SpeciesHotspotMap({
       container: containerRef.current,
       style: pmtilesStyle(theme === "dark" ? "dark" : "light"),
       interactive: true,
+      // See RegionMap.tsx's matching comment — collapsed by default instead of covering the
+      // corner with the full attribution bar on every load.
+      attributionControl: { compact: true },
     });
     mapRef.current = map;
 
@@ -233,7 +226,7 @@ export default function SpeciesHotspotMap({
               isReliable ? '<div style="font-weight:600;color:#15803d">Good chance of finding it here</div>' : ""
             }${
               isSensitive
-                ? '<div style="font-weight:600;color:#b45309">eBird Sensitive Species — exact location withheld</div>'
+                ? '<div style="font-weight:600;color:#b45309">eBird Sensitive Species, exact location withheld</div>'
                 : ""
             }${Math.round(recordShare * 100)}% of records (${pointCount})${recencyLine ? `<br/>${recencyLine}` : ""}<br/><span style="color:#78716c">~${centroidLat.toFixed(3)}, ${centroidLon.toFixed(3)} (±${areaRadiusKm}km area, not an exact spot)</span></div>`,
           )
@@ -269,11 +262,11 @@ export default function SpeciesHotspotMap({
   }
 
   return (
-    <div className="rounded-lg border border-line">
+    <div className="rounded-lg border border-line bg-surface">
       <button
         type="button"
         onClick={() => setExpanded((v) => !v)}
-        className="flex w-full items-center justify-between px-3 py-2 text-left text-sm text-ink hover:bg-surface-muted"
+        className="flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left text-sm text-ink hover:bg-surface-muted"
       >
         <span className="font-medium">
           Locality map{" "}
@@ -282,14 +275,14 @@ export default function SpeciesHotspotMap({
             {mostRecentYear != null ? `, last seen ${mostRecentYear}` : ""})
           </span>
         </span>
-        <span className="text-muted">{expanded ? "▲ Hide" : "▼ Show"}</span>
+        <span className="rounded-md border border-line px-2 py-0.5 text-xs text-muted">{expanded ? "Hide" : "Show"}</span>
       </button>
       {expanded && (
         <div className="border-t border-line p-3">
           {hasSensitiveHotspot && (
-            <p className="mb-2 rounded-md bg-amber-50 px-2 py-1.5 text-xs text-amber-900">
+            <p className="mb-2 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs text-amber-900">
               This is an eBird Sensitive Species (or sensitive in this region/season). Its exact
-              location can't be shown — the marked area is deliberately widened to protect it from
+              location can't be shown, the marked area is deliberately widened to protect it from
               targeted disturbance, capture, or hunting, matching eBird's own sensitive-species list.
             </p>
           )}
@@ -310,24 +303,14 @@ export default function SpeciesHotspotMap({
             </a>
           )}
           <div className="mb-2 flex flex-wrap items-center gap-2">
-            <select
-              value={yearFilter}
-              onChange={(e) => setYearFilter(e.target.value as YearFilter)}
-              className="rounded-md border border-line bg-surface px-2 py-1 text-xs text-ink"
-            >
+            <Select value={yearFilter} onChange={(e) => setYearFilter(e.target.value as YearFilter)}>
               {(Object.keys(YEAR_FILTER_LABEL) as YearFilter[]).map((f) => (
                 <option key={f} value={f}>
                   {YEAR_FILTER_LABEL[f]}
                 </option>
               ))}
-            </select>
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search coordinates…"
-              className="min-w-0 flex-1 rounded-md border border-line bg-surface px-2 py-1 text-xs text-ink placeholder:text-muted"
-            />
+            </Select>
+            <SearchInput value={search} onChange={setSearch} placeholder="Search coordinates…" className="min-w-0 flex-1" />
           </div>
           {filteredHotspots.length === 0 ? (
             <p className="text-xs text-muted">No locations match this filter.</p>
@@ -349,7 +332,7 @@ export default function SpeciesHotspotMap({
                         <span className="text-muted">(±{Math.max(h.bboxDiagonalKm / 2, 0.5).toFixed(1)}km)</span>
                         {h.isReliable && <span className="ml-1.5 text-green-700">●</span>}
                         {h.isSensitive && (
-                          <span className="ml-1.5 text-amber-700" title="eBird Sensitive Species — exact location withheld">
+                          <span className="ml-1.5 text-amber-700" title="eBird Sensitive Species, exact location withheld">
                             ⚠ sensitive
                           </span>
                         )}

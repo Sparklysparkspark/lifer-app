@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { Map as MapLibreMap, LngLatBounds, type GeoJSONSource } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { useTheme } from "../hooks/useTheme";
-import { ensurePmtilesProtocol, pmtilesStyle, checkPmtilesAvailable } from "../lib/pmtiles";
+import { useMapAvailable } from "../hooks/useMapAvailable";
+import { ensurePmtilesProtocol, pmtilesStyle } from "../lib/pmtiles";
 
 export interface CountryBoundary {
   id: string;
@@ -63,17 +64,13 @@ export default function PacksMap({
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
-  const [mapAvailable, setMapAvailable] = useState<boolean | null>(null);
+  const mapAvailable = useMapAvailable();
   const [loaded, setLoaded] = useState(false);
   const { theme } = useTheme();
   const onToggleCountryRef = useRef(onToggleCountry);
   onToggleCountryRef.current = onToggleCountry;
   const onDeselectAllRef = useRef(onDeselectAll);
   onDeselectAllRef.current = onDeselectAll;
-
-  useEffect(() => {
-    checkPmtilesAvailable().then(setMapAvailable);
-  }, []);
 
   // Map instance created once (not re-created per theme/country-list change) — country data and
   // selection state are pushed into the existing instance via setData/setPaintProperty instead,
@@ -89,6 +86,9 @@ export default function PacksMap({
       zoom: 1.2,
       style: pmtilesStyle(theme === "dark" ? "dark" : "light"),
       interactive: true,
+      // See RegionMap.tsx's matching comment — collapsed by default instead of covering the
+      // corner with the full attribution bar on every load.
+      attributionControl: { compact: true },
     });
     mapRef.current = map;
 

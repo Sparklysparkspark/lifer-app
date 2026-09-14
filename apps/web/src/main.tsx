@@ -18,6 +18,10 @@ if (!window.liferSetup && (window as unknown as { __TAURI__?: { core: { invoke: 
   window.liferSetup = {
     choose: (config) => invoke("choose_setup", { config }) as ReturnType<NonNullable<Window["liferSetup"]>["choose"]>,
     getConfig: () => invoke("get_config") as ReturnType<NonNullable<Window["liferSetup"]>["getConfig"]>,
+    currentNetworkInfo: () => invoke("current_network_info") as ReturnType<NonNullable<Window["liferSetup"]>["currentNetworkInfo"]>,
+    testEndpoint: (url) => invoke("test_endpoint", { url }) as ReturnType<NonNullable<Window["liferSetup"]>["testEndpoint"]>,
+    testLogin: (url, email, password) =>
+      invoke("test_login", { url, email, password }) as ReturnType<NonNullable<Window["liferSetup"]>["testLogin"]>,
     platform: (window as unknown as { __LIFER_PLATFORM__?: string }).__LIFER_PLATFORM__ ?? "",
   };
 }

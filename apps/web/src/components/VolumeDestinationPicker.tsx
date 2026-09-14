@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../api/client";
 import { useStorageVolumes } from "../hooks/useStorageVolumes";
+import Select from "./Select";
 
 interface VolumeUsage {
   volumeId: string | null;
@@ -87,7 +88,7 @@ export function VolumeDestinationPicker({
       {connectedVolumes.length > 0 && (
         <>
           <label className="text-xs font-medium text-muted">Save these photos to</label>
-          <select value={volumeId} onChange={(e) => setVolumeId(e.target.value)} className="w-full rounded-md border border-line bg-surface px-2 py-1.5 text-sm text-ink">
+          <Select variant="form" value={volumeId} onChange={(e) => setVolumeId(e.target.value)}>
             <option value="">This computer (default)</option>
             {connectedVolumes.map((v) => (
               <option key={v.id} value={v.id}>
@@ -95,7 +96,7 @@ export function VolumeDestinationPicker({
                 {v.isDefault ? " (default)" : ""}
               </option>
             ))}
-          </select>
+          </Select>
           {volumeId && recommendedCount > 0 && (
             <p className="text-xs text-muted">
               {recommendedCount} existing photo{recommendedCount === 1 ? "" : "s"} of this species {recommendedCount === 1 ? "is" : "are"} already on this drive.

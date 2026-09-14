@@ -93,7 +93,17 @@ export default function MasonryGrid<T>({
     observer.observe(el);
     return () => observer.disconnect();
   }, []);
-  const numColumns = containerWidth > 0 ? Math.max(1, Math.floor((containerWidth + gap) / (columnWidth + gap))) : 1;
+  // At the largest size preset (GalleryPage's size slider tops out at 800px), a container only a
+  // bit narrower than 2x columnWidth could still fit a cramped, uneven second column under
+  // `auto-fill`/`minmax` — the reported "second photo smaller than the first, then a big gap
+  // before the next row" artifact. One photo per row at this size has no such edge case, so it's
+  // forced outright rather than left to auto-fill's own width-fitting math.
+  const isLargestSizePreset = columnWidth >= 760;
+  const numColumns = isLargestSizePreset
+    ? 1
+    : containerWidth > 0
+      ? Math.max(1, Math.floor((containerWidth + gap) / (columnWidth + gap)))
+      : 1;
   const realColumnWidth = containerWidth > 0 ? (containerWidth - gap * (numColumns - 1)) / numColumns : columnWidth;
 
   return (
@@ -101,7 +111,7 @@ export default function MasonryGrid<T>({
       ref={containerRef}
       style={{
         display: "grid",
-        gridTemplateColumns: `repeat(auto-fill, minmax(${columnWidth}px, 1fr))`,
+        gridTemplateColumns: isLargestSizePreset ? "1fr" : `repeat(auto-fill, minmax(${columnWidth}px, 1fr))`,
         gridAutoRows: `${ROW_UNIT_PX}px`,
         gridAutoFlow: "dense",
         columnGap: gap,
@@ -110,7 +120,7 @@ export default function MasonryGrid<T>({
     >
       {items.map((item) => {
         const naturalRatio = aspectRatioFor?.(item) || FALLBACK_ASPECT_RATIO;
-        const isWide = naturalRatio >= WIDE_ASPECT_RATIO_THRESHOLD;
+        const isWide = !isLargestSizePreset && naturalRatio >= WIDE_ASPECT_RATIO_THRESHOLD;
         // Only the portrait (too-tall) side is clamped — a wide/pano shot already gets its own
         // extra column instead of being squeezed, so its real ratio is left alone.
         const layoutRatio = isWide ? naturalRatio : Math.max(naturalRatio, MIN_ASPECT_RATIO);

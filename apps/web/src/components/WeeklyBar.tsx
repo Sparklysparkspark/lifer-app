@@ -7,7 +7,7 @@ const MONTH_LABELS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "S
 // eBird/Merlin-style weekly observation bar — 52 real ISO-week bars, unlike SeasonalityBar's
 // 12 monthly ones. Only populated by the bulk province-refresh path (compute-provinces-bulk.ts),
 // so most regions still show nothing until that recompute reaches them.
-export default function WeeklyBar({ weeklyFrequency }: { weeklyFrequency: number[] | null }) {
+export default function WeeklyBar({ weeklyFrequency, regionName }: { weeklyFrequency: number[] | null; regionName?: string | null }) {
   const [hoverIdx, setHoverIdx] = useState<number | null>(null);
   if (!weeklyFrequency || weeklyFrequency.every((v) => v === 0)) return null;
 
@@ -15,7 +15,12 @@ export default function WeeklyBar({ weeklyFrequency }: { weeklyFrequency: number
 
   return (
     <div>
-      <p className="mb-1 text-[10px] uppercase tracking-wide text-muted">Observations by week</p>
+      {/* This data is scoped to one region (whichever the page resolved — either the one the
+         user drilled into, or an automatic fallback, see species/routes.ts) — naming it here
+         makes that scope visible instead of reading as a global pattern. */}
+      <p className="mb-1 text-[10px] uppercase tracking-wide text-muted">
+        Observations by week{regionName ? ` in ${regionName}` : ""}
+      </p>
       <div className="relative">
         {hoverIdx != null && (
           <div

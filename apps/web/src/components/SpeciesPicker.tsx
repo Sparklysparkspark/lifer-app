@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../api/client";
+import AddOtherTaxaModal from "./AddOtherTaxaModal";
+import SearchInput from "./SearchInput";
 
 export interface SpeciesResult {
   id: string;
@@ -32,8 +34,21 @@ export default function SpeciesPicker({
   const [results, setResults] = useState<SpeciesResult[]>([]);
   const [open, setOpen] = useState(false);
   const [highlighted, setHighlighted] = useState(0);
+  const [anyTaxaSearchEnabled, setAnyTaxaSearchEnabled] = useState(false);
+  const [otherTaxaModalOpen, setOtherTaxaModalOpen] = useState(false);
   const navigate = useNavigate();
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Only the default "jump to species" usage (header nav) offers the iNaturalist fallback — the
+  // bulk-import picker passes onSelect and has its own region already chosen for the whole
+  // batch, which doesn't fit "search iNaturalist, then pick a region" as a per-row action.
+  useEffect(() => {
+    if (onSelect) return;
+    api
+      .get<{ anyTaxaSearchEnabled: boolean }>("/settings")
+      .then((res) => setAnyTaxaSearchEnabled(res.anyTaxaSearchEnabled))
+      .catch(() => {});
+  }, [onSelect]);
 
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -72,18 +87,16 @@ export default function SpeciesPicker({
 
   return (
     <div className="relative w-64">
-      <input
-        type="text"
+      <SearchInput
         value={query}
+        onChange={setQuery}
         placeholder={placeholder ?? "Jump to species…"}
         autoFocus={autoFocus}
         onFocus={() => setOpen(true)}
         onBlur={() => setTimeout(() => setOpen(false), 100)}
-        onChange={(e) => setQuery(e.target.value)}
         onKeyDown={handleKeyDown}
-        className="w-full rounded-md border border-line px-3 py-1.5 text-sm"
       />
-      {open && results.length > 0 && (
+      {open && (results.length > 0 || (anyTaxaSearchEnabled && query.trim().length >= 2)) && (
         <ul className="absolute z-10 mt-1 max-h-72 w-full overflow-y-auto rounded-md border border-line bg-surface shadow-lg">
           {results.map((r, i) => (
             <li
@@ -96,7 +109,31 @@ export default function SpeciesPicker({
               <span className="italic text-muted">{r.scientific_name}</span>
             </li>
           ))}
+          {anyTaxaSearchEnabled && query.trim().length >= 2 && (
+            <li>
+              <button
+                type="button"
+                onMouseDown={() => {
+                  setOpen(false);
+                  setOtherTaxaModalOpen(true);
+                }}
+                onMouseEnter={() => setHighlighted(-1)}
+                className="w-full px-3 py-2 text-left text-sm text-accent hover:bg-surface-muted"
+              >
+                {results.length === 0 ? `No local match for "${query}", search` : "Search"} iNaturalist ↗
+              </button>
+            </li>
+          )}
         </ul>
+      )}
+      {otherTaxaModalOpen && (
+        <AddOtherTaxaModal
+          initialQuery={query}
+          onClose={() => {
+            setOtherTaxaModalOpen(false);
+            setQuery("");
+          }}
+        />
       )}
     </div>
   );
