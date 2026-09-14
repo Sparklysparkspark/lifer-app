@@ -14,7 +14,7 @@
 // Requires GBIF_USER and GBIF_PWD env vars (a registered GBIF.org account — SQL downloads need
 // authenticated requests, unlike simple occurrence search).
 //
-// Usage: npx tsx src/scripts/compute-provinces-bulk.ts [--countries=France,Germany] [--apply] [--refresh-gbif-cache] [--refresh-aggregate-cache]
+// Usage: npx tsx src/scripts/compute-provinces-bulk.ts [--countries=France,Germany] [--provinces=British Columbia] [--apply] [--refresh-gbif-cache] [--refresh-aggregate-cache]
 // --refresh-aggregate-cache forces a fresh raw-GBIF-zip scan even if a cached point-matched
 // aggregate exists (see PROVINCE_AGGREGATE_CACHE_DIR's own comment) — only needed after a
 // province boundary re-drill-down changes the actual set of provinces for a country; a plain
@@ -28,6 +28,8 @@ import {
   copyFileSync,
   mkdirSync,
   statSync,
+  readFileSync,
+  writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -61,6 +63,7 @@ import {
   FISH_ABSOLUTE_TIER_THRESHOLDS,
 } from "data-pipeline/src/build/compute-rarity-phase1.js";
 import { drillDownAllCountries } from "./compute-all-regions.js";
+import { resolveInatPlaceId, fetchInatResearchGradeTaxonIds, matchedSpeciesIdsForRegion, resolveRemovalRescues } from "./inatChecklist.js";
 import {
   EBIRD_SENSITIVE_SPECIES,
   weekInSeason,
@@ -421,20 +424,65 @@ interface ProvinceRegion {
   name: string;
   rings: Point[][];
   bbox: BoundingBox;
+  ebirdRegionCode: string | null;
 }
 
 async function loadProvinces(countryId: string): Promise<ProvinceRegion[]> {
-  const res = await pool.query<{ id: string; name: string; boundary_geojson: { type: string; coordinates: unknown } }>(
-    `SELECT id, name, boundary_geojson FROM regions WHERE parent_id = $1 AND boundary_geojson IS NOT NULL`,
+  const res = await pool.query<{ id: string; name: string; boundary_geojson: { type: string; coordinates: unknown }; ebird_region_code: string | null }>(
+    `SELECT id, name, boundary_geojson, ebird_region_code FROM regions WHERE parent_id = $1 AND boundary_geojson IS NOT NULL`,
     [countryId],
   );
   return res.rows.map((r) => {
     const geometry = (r.boundary_geojson as { geometry?: unknown }).geometry ?? r.boundary_geojson;
     const rings = exteriorRingsFromGeometry(geometry as { type: string; coordinates: unknown });
     const allPoints = rings.flat();
-    return { id: r.id, name: r.name, rings, bbox: ringBoundingBox(allPoints) };
+    return { id: r.id, name: r.name, rings, bbox: ringBoundingBox(allPoints), ebirdRegionCode: r.ebird_region_code };
   });
 }
+
+// Cross-checks a borderline bird against eBird's own historical species list for this exact
+// province/state (eBird's `/v2/product/spplist/{regionCode}` endpoint accepts subnational1/2
+// region codes, not just country codes — confirmed live with British Columbia's own "CA-BC").
+// Unlike GBIF's raw occurrence records (this file's primary source), eBird pools a much larger,
+// birder-specific observer base, so a species genuinely present but too thinly recorded in GBIF
+// to pass the recurrence check above often still has a real eBird history. This is deliberately
+// ONE-DIRECTIONAL: appearing on eBird's list is used only to RESCUE a species GBIF's own pattern
+// check would otherwise exclude or flag vagrant, never to exclude one GBIF already accepted —
+// eBird is itself citizen-submitted data (see report-vagrant-ebird.ts's own comment on why
+// presence there isn't proof of non-vagrancy either), so this is a second opinion that can only
+// vote to include, matching the "when in doubt, include" policy above.
+const EBIRD_API_KEY = process.env.EBIRD_API_KEY;
+const EBIRD_SPPLIST_CACHE_DIR = path.join(REPO_ROOT, "packages/data-pipeline/data/ebird-spplist-cache");
+const ebirdSpeciesCodesCache = new Map<string, Promise<Set<string> | null>>();
+
+async function fetchEbirdRegionSpeciesCodes(regionCode: string): Promise<Set<string> | null> {
+  if (!EBIRD_API_KEY) return null;
+  if (!ebirdSpeciesCodesCache.has(regionCode)) {
+    ebirdSpeciesCodesCache.set(
+      regionCode,
+      (async () => {
+        mkdirSync(EBIRD_SPPLIST_CACHE_DIR, { recursive: true });
+        const cachePath = path.join(EBIRD_SPPLIST_CACHE_DIR, `${regionCode}.json`);
+        if (existsSync(cachePath)) {
+          return new Set(JSON.parse(readFileSync(cachePath, "utf8")) as string[]);
+        }
+        try {
+          const res = await fetch(`https://api.ebird.org/v2/product/spplist/${regionCode}`, {
+            headers: { "X-eBirdApiToken": EBIRD_API_KEY },
+          });
+          if (!res.ok) return null; // e.g. eBird doesn't recognize this exact region code
+          const codes = (await res.json()) as string[];
+          writeFileSync(cachePath, JSON.stringify(codes));
+          return new Set(codes);
+        } catch {
+          return null; // best-effort — a network hiccup here just means no rescue this run, not a failure
+        }
+      })(),
+    );
+  }
+  return ebirdSpeciesCodesCache.get(regionCode)!;
+}
+
 
 // Math.max(...arr) blows the engine's call-stack/argument limit once arr gets into the hundreds
 // of thousands — exactly what a widespread species' single province (or even a single grid
@@ -752,14 +800,25 @@ async function computeCountryProvinces(
   refreshCache: boolean,
   refreshAggregateCache = false,
 ): Promise<void> {
-  const provinces = await loadProvinces(countryId);
+  const provincesArg = process.argv.find((a) => a.startsWith("--provinces="));
+  // Scoped verification runs (e.g. testing a threshold change against one province before
+  // committing to a world-scale recompute) don't need every OTHER province in the country
+  // reprocessed too — filtering here, right after load, keeps the rest of this function (point
+  // matching, tiering, region_species writes) untouched and oblivious to the filter.
+  const provinceNameFilter = provincesArg ? new Set(provincesArg.split("=")[1].split(",")) : null;
+  const allProvinces = await loadProvinces(countryId);
+  const provinces = provinceNameFilter ? allProvinces.filter((p) => provinceNameFilter.has(p.name)) : allProvinces;
   if (provinces.length === 0) {
-    console.log(`[compute-provinces-bulk] ${countryName}: no province rows found (drill-down produced none) — skipping`);
+    console.log(`[compute-provinces-bulk] ${countryName}: no province rows found (drill-down produced none, or none matched --provinces) — skipping`);
     return;
   }
 
   const iso3 = (await fetchAllCountries()).find((c) => c.iso2 === iso2)?.iso3 ?? null;
   const nonNativeSpeciesNames = iso3 ? await loadNonNativeSpeciesNames(iso3) : new Set<string>();
+  // Resolved once per country, reused for every one of its provinces' own iNat place lookups
+  // below (see resolveInatPlaceId's own comment on why a province's match is filtered against
+  // this).
+  const countryInatPlaceId = await resolveInatPlaceId(countryId, countryName, true, null);
   const manualOverridesByProvince = await loadManualOverrides(provinces.map((p) => p.id));
 
   await waitForOrEnsureGbifZipCached(countryName, iso2, refreshCache);
@@ -943,6 +1002,98 @@ async function computeCountryProvinces(
         // vagrant is exactly what the vagrant flag exists to communicate.
         if (allTimeTotal >= RECURRENCE_ALLTIME_FLOOR) {
           included.push({ species, recordCount: allTimeTotal, isVagrant: isNonNative || !passesRecurrenceCheck(yearCountArr, recurrenceFloor) });
+        }
+      }
+
+      // eBird rescue pass (see fetchEbirdRegionSpeciesCodes' own comment): birds GBIF's own
+      // recurrence check either dropped entirely or flagged vagrant get a second opinion from
+      // eBird's historical species list for this exact province, when one is available.
+      // Deliberately excludes nonnative flags — an introduced species showing up in eBird's
+      // records doesn't make it any less introduced, so that flag stands regardless.
+      if (province.ebirdRegionCode && EBIRD_API_KEY) {
+        const includedByName = new Map(included.map((c) => [c.species, c]));
+        const rescueCandidates: string[] = [];
+        for (const [species, { class: cls }] of bySpecies) {
+          if (cls !== "Aves" || nonNativeSpeciesNames.has(species)) continue;
+          const existing = includedByName.get(species);
+          if (!existing || existing.isVagrant) rescueCandidates.push(species);
+        }
+        if (rescueCandidates.length > 0) {
+          const ebirdCodes = await fetchEbirdRegionSpeciesCodes(province.ebirdRegionCode);
+          if (ebirdCodes) {
+            const codeRes = await pool.query<{ scientific_name: string; ebird_code: string | null }>(
+              `SELECT scientific_name, ebird_code FROM species WHERE scientific_name = ANY($1)`,
+              [rescueCandidates],
+            );
+            let rescued = 0;
+            for (const row of codeRes.rows) {
+              if (!row.ebird_code || !ebirdCodes.has(row.ebird_code)) continue;
+              const existing = includedByName.get(row.scientific_name);
+              if (existing) {
+                existing.isVagrant = false;
+              } else {
+                const entry = bySpecies.get(row.scientific_name)!;
+                const allTimeTotal = [...entry.years.values()].reduce((sum, c) => sum + c, 0);
+                const rescuedEntry = { species: row.scientific_name, recordCount: allTimeTotal, isVagrant: false };
+                included.push(rescuedEntry);
+                includedByName.set(row.scientific_name, rescuedEntry);
+              }
+              rescued++;
+            }
+            if (rescued > 0) {
+              console.log(
+                `[compute-provinces-bulk]   ${province.name}: eBird rescued ${rescued} bird(s) GBIF's own pattern check would have excluded or flagged vagrant`,
+              );
+            }
+          }
+        }
+      }
+
+      // iNaturalist Research Grade rescue pass (see fetchInatResearchGradeTaxonIds' own
+      // comment) — taxon-agnostic, so this is the one that actually helps mammals/reptiles/
+      // amphibians/fish, where eBird has no equivalent at all. Re-reads `included` fresh (not
+      // the eBird pass's own includedByName) since that map may already reflect eBird rescues
+      // above — this pass should still be able to un-flag anything still marked vagrant after
+      // that, and should never re-flag anything eBird already cleared.
+      {
+        const includedByName = new Map(included.map((c) => [c.species, c]));
+        const rescueCandidates: string[] = [];
+        for (const [species] of bySpecies) {
+          if (nonNativeSpeciesNames.has(species)) continue;
+          const existing = includedByName.get(species);
+          if (!existing || existing.isVagrant) rescueCandidates.push(species);
+        }
+        if (rescueCandidates.length > 0) {
+          const provinceInatPlaceId = await resolveInatPlaceId(province.id, province.name, false, countryInatPlaceId);
+          if (provinceInatPlaceId != null) {
+            const researchGradeTaxonIds = await fetchInatResearchGradeTaxonIds(provinceInatPlaceId);
+            if (researchGradeTaxonIds) {
+              const codeRes = await pool.query<{ scientific_name: string; inat_taxon_id: number | null }>(
+                `SELECT scientific_name, inat_taxon_id FROM species WHERE scientific_name = ANY($1)`,
+                [rescueCandidates],
+              );
+              let rescued = 0;
+              for (const row of codeRes.rows) {
+                if (row.inat_taxon_id == null || !researchGradeTaxonIds.has(row.inat_taxon_id)) continue;
+                const existing = includedByName.get(row.scientific_name);
+                if (existing) {
+                  existing.isVagrant = false;
+                } else {
+                  const entry = bySpecies.get(row.scientific_name)!;
+                  const allTimeTotal = [...entry.years.values()].reduce((sum, c) => sum + c, 0);
+                  const rescuedEntry = { species: row.scientific_name, recordCount: allTimeTotal, isVagrant: false };
+                  included.push(rescuedEntry);
+                  includedByName.set(row.scientific_name, rescuedEntry);
+                }
+                rescued++;
+              }
+              if (rescued > 0) {
+                console.log(
+                  `[compute-provinces-bulk]   ${province.name}: iNaturalist Research Grade rescued ${rescued} species GBIF's own pattern check would have excluded or flagged vagrant`,
+                );
+              }
+            }
+          }
         }
       }
 
@@ -1237,12 +1388,93 @@ async function computeCountryProvinces(
       // partition file at the top of this iteration (see loadProvinceEntriesFromPartition's own
       // comment) and never shared with any other province, so it's simply eligible for GC the
       // moment the next iteration reassigns it.
+
+      // True iNat-membership reconcile, layered on top of the GBIF write just above. The two
+      // rescue passes earlier in this loop (eBird, iNat Research Grade) only ever reconsider a
+      // species GBIF's own partition already recorded for this exact province, so a species
+      // iNat confirms with zero GBIF presence here at all was never a candidate at all, and a
+      // species GBIF included that iNat has no record of here was never questioned either. This
+      // is the same "iNat decides membership, GBIF only supplies the data for whichever species
+      // land on the list" swap reconcile-countries-with-inat.ts already runs for countries
+      // (see matchedSpeciesIdsForRegion's own comment), just never extended down to provinces
+      // before. Skips cleanly (falls back to the GBIF-only result written just above) whenever
+      // no iNat place can be resolved for this exact province.
+      await reconcileProvinceMembershipWithInat(province.id, province.name);
     }
   }
   // Deliberately no cleanup here — cachedZipPath is the persistent GBIF cache (see
   // GBIF_COUNTRY_CACHE_DIR's own comment), not a scratch download; ensureGbifZipCached above is
   // the only thing that ever writes to it, and only ever via its own temp workDir, which it
   // already cleans up itself.
+}
+
+// Runs right after a province's GBIF-candidate checklist has already been written (see this
+// function's call site above) - a follow-up pass that lets iNaturalist Research Grade data
+// decide final MEMBERSHIP for this one province, the same authority reconcile-countries-with-
+// inat.ts already gives it at country granularity. Two independent things can happen here that
+// the GBIF-candidate pass and its own eBird/iNat rescue checks above never do:
+//   1. A species iNat confirms here that GBIF's own point-matched partition never recorded at
+//      all gets added, unrated (no GBIF occurrence data to score a tier from - same convention
+//      compute-provinces-inat.ts already uses for a province with zero prior data).
+//   2. A species GBIF's own candidate pool included, that iNat has no Research Grade record of
+//      here at all, gets dropped - unless resolveRemovalRescues confirms that's only a stale
+//      taxon-id mismatch, not a genuine absence.
+// Silently returns without changing anything when no iNat place can be resolved for this exact
+// province - the GBIF-only result already written above stands as the final answer, the same
+// safe fallback the country-level reconcile uses.
+async function reconcileProvinceMembershipWithInat(provinceId: string, provinceName: string): Promise<void> {
+  const inatMatch = await matchedSpeciesIdsForRegion(provinceId, provinceName);
+  if (!inatMatch) return;
+  const { matchedSpeciesIds, rawTaxonIds } = inatMatch;
+
+  const existingRes = await pool.query<{ species_id: string }>(`SELECT species_id FROM region_species WHERE region_id = $1`, [
+    provinceId,
+  ]);
+  const existingIds = new Set(existingRes.rows.map((r) => r.species_id));
+
+  const removalCandidateIds = [...existingIds].filter((id) => !matchedSpeciesIds.has(id));
+  let rescuedIds = new Set<string>();
+  if (removalCandidateIds.length > 0) {
+    const candidateRows = await pool.query<{ id: string; scientific_name: string }>(
+      `SELECT id, scientific_name FROM species WHERE id = ANY($1::uuid[])`,
+      [removalCandidateIds],
+    );
+    rescuedIds = await resolveRemovalRescues(candidateRows.rows, rawTaxonIds);
+  }
+  const toDrop = removalCandidateIds.filter((id) => !rescuedIds.has(id));
+  const toAdd = [...matchedSpeciesIds].filter((id) => !existingIds.has(id));
+  if (toDrop.length === 0 && toAdd.length === 0) return;
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    if (toDrop.length > 0) {
+      await client.query(`DELETE FROM region_species WHERE region_id = $1 AND species_id = ANY($2::uuid[])`, [provinceId, toDrop]);
+      await client.query(`DELETE FROM region_species_hotspots WHERE region_id = $1 AND species_id = ANY($2::uuid[])`, [
+        provinceId,
+        toDrop,
+      ]);
+    }
+    for (const speciesId of toAdd) {
+      await client.query(
+        `INSERT INTO region_species (region_id, species_id, is_vagrant, is_invasive)
+         VALUES ($1, $2, false, false)
+         ON CONFLICT (region_id, species_id) DO NOTHING`,
+        [provinceId, speciesId],
+      );
+    }
+    await client.query("COMMIT");
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
+  if (toDrop.length > 0 || toAdd.length > 0) {
+    console.log(
+      `[compute-provinces-bulk]   ${provinceName}: iNat membership reconcile - dropped ${toDrop.length} (no iNat confirmation), added ${toAdd.length} (iNat-only, unrated)`,
+    );
+  }
 }
 
 async function main() {

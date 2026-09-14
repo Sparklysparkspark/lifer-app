@@ -5,8 +5,8 @@
 // like Canada, synchronously blocking Node's event loop and stalling every other concurrent
 // request behind it too). Re-runnable/idempotent — always recomputes and overwrites, so it's
 // safe to re-run after a sea_zones or region boundary change.
-import { pool } from "../db.js";
-import { nearbyZones } from "../regions/routes.js";
+import { pool } from "../../db.js";
+import { nearbyZones } from "../../regions/routes.js";
 import { exteriorRingsFromGeometry, type BoundingBox } from "data-pipeline/src/geometry.js";
 
 async function main() {
