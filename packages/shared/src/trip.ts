@@ -2,6 +2,14 @@
 // grouping of captures pulled in from an external, reference-in-place folder (see
 // apps/api/src/trips/ for the scan/import/rescan logic behind it).
 
+/** One resolved tile of a "quad" cover grid — shared shape for Albums and Trips. */
+export interface QuadSlot {
+  photoId: string;
+  cropX: number | null;
+  cropY: number | null;
+  cropSize: number | null;
+}
+
 export interface TripSummary {
   id: string;
   name: string;
@@ -26,6 +34,14 @@ export interface TripSummary {
   coverCropX: number | null;
   coverCropY: number | null;
   coverCropSize: number | null;
+  /** "quad" renders quadPhotoIds as a 2x2 grid instead of coverPhotoUrl as one cropped photo —
+   *  an alternate cover style, same concept as Album.coverLayout. Trips doesn't yet support
+   *  manually picking/cropping quad slots the way Albums does (see Album's own quadSlots) —
+   *  always the trip's own most-recently-taken photos, auto-picked with no per-slot crop. */
+  coverLayout: "single" | "quad";
+  /** Only meaningful when coverLayout is "quad" — the trip's own 4 most-recently-taken photos
+   *  (may be fewer than 4, or empty, for a brand new trip). */
+  quadPhotoIds: string[];
   /** A scan or import is currently running for this trip (background jobs — see
    *  apps/api/src/trips/routes.ts) — the card shows a loading state instead of a cover photo
    *  that may not exist yet, or is about to change. */

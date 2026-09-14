@@ -14,6 +14,9 @@ export interface CollectionItem {
    *  apps/web/src/lib/speciesGroups.ts. Null for species with no family on file. */
   family: string | null;
   state: CollectionState;
+  /** Independent of state (migration 090) — a species already collected/seen can still be
+   *  targeted, e.g. "I only have a bad photo of this, I want a better one." */
+  isTarget: boolean;
   tier: RarityTier | null;
   /** Region-scoped rarity — how this species ranks against every other species actually on
    *  the checklist of whichever region is currently being viewed, so a country with
@@ -29,6 +32,12 @@ export interface CollectionItem {
    *  species, just explains why its localTier reads rarer than raw record count alone would
    *  suggest. */
   vagrant: boolean;
+  /** 52 weekly relative-frequency values for the currently-viewed region (region_species.
+   *  seasonality) - the same data SpeciesDetailPage's WeeklyBar already renders per species.
+   *  Only populated on GET /regions/:id/species rows - always null from GET /collection, since
+   *  seasonality is inherently region-scoped. Lets the collection grid sort/filter by "most
+   *  likely to be found this week." */
+  seasonality: number[] | null;
   /** True if this species is only ever recorded (real GBIF presence) in exactly one of the
    *  258 countries the elusiveness crawl covers. Which country isn't carried here (grid
    *  cards don't need it); the species detail page resolves the name. */
@@ -73,6 +82,15 @@ export interface CollectionItem {
    *  cover photo of your own yet. The card only renders this as a badge when the frontend's
    *  own useStorageVolumes() hook reports more than one drive location actually in use. */
   coverVolumeLabel: string | null;
+  /** True for species added via Settings > Species & Import's "any taxa" search (insects,
+   *  arachnids, plants, fungi — taxa Lifer has no real dataset coverage for). Grouped into its
+   *  own "Other Taxa" section on the Collection page rather than any of the 18 real taxon
+   *  groups, and never carries rarity/occurrence data (tier/localTier/vagrant are always
+   *  null/false for these rows, by design — see migration 089). */
+  isOtherTaxa: boolean;
+  /** iNaturalist's own coarse grouping (e.g. "Insecta", "Arachnida") for an isOtherTaxa
+   *  species — sub-heading within the "Other Taxa" section. Null for every ordinary species. */
+  inatIconicTaxon: string | null;
 }
 
 // Response shape for GET /api/collection/stats (spec §9 Phase 4).
