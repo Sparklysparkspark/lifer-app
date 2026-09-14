@@ -68,6 +68,30 @@ function bucketize(values: number[], buckets: Bucket[]): Array<{ label: string; 
   return buckets.map((b) => ({ label: b.label, count: counts.get(b.label) ?? 0 }));
 }
 
+// Same bucketing as bucketize(), but also collects each bucket's photo ids (capped per bucket)
+// so a chart bar can open/download the actual photos behind it, not just show a count. Capped
+// rather than exhaustive to keep the response small for a bucket with thousands of keepers in it
+// — a photographer clicking a bar wants a representative sample to browse/download, not literally
+// every photo they've ever taken in that range.
+const MAX_PHOTO_IDS_PER_BUCKET = 300;
+function bucketizeWithPhotoIds(
+  rows: Array<{ value: number; photoId: string | null }>,
+  buckets: Bucket[],
+): Array<{ label: string; count: number; photoIds: string[] }> {
+  const counts = new Map(buckets.map((b) => [b.label, 0]));
+  const photoIds = new Map(buckets.map((b) => [b.label, [] as string[]]));
+  for (const { value, photoId } of rows) {
+    const bucket = buckets.find((b) => value >= b.min && value < b.max);
+    if (!bucket) continue;
+    counts.set(bucket.label, (counts.get(bucket.label) ?? 0) + 1);
+    if (photoId) {
+      const ids = photoIds.get(bucket.label)!;
+      if (ids.length < MAX_PHOTO_IDS_PER_BUCKET) ids.push(photoId);
+    }
+  }
+  return buckets.map((b) => ({ label: b.label, count: counts.get(b.label) ?? 0, photoIds: photoIds.get(b.label) ?? [] }));
+}
+
 function bucketizeDistinct(rows: Array<{ value: number; speciesId: string }>, buckets: Bucket[]): Array<{ label: string; species: number }> {
   const sets = new Map(buckets.map((b) => [b.label, new Set<string>()]));
   for (const { value, speciesId } of rows) {
@@ -190,8 +214,15 @@ export async function statsRoutes(app: FastifyInstance): Promise<void> {
          GROUP BY hour ORDER BY hour`,
         [userId],
       ),
-      pool.query<{ focal_length_mm: string | null; aperture: string | null; shutter: string | null; iso: number | null; species_id: string }>(
-        `SELECT c.focal_length_mm, c.aperture, c.shutter, c.iso, c.species_id
+      pool.query<{
+        focal_length_mm: string | null;
+        aperture: string | null;
+        shutter: string | null;
+        iso: number | null;
+        species_id: string;
+        photo_id: string | null;
+      }>(
+        `SELECT c.focal_length_mm, c.aperture, c.shutter, c.iso, c.species_id, c.current_photo_id AS photo_id
          FROM captures c WHERE c.user_id = $1 AND ${scope}`,
         [userId],
       ),
@@ -218,11 +249,18 @@ export async function statsRoutes(app: FastifyInstance): Promise<void> {
       // one level up only, since the schema never nests provinces further (World -> continent ->
       // country -> province, flat). See migration 067's own comment on why region_id exists.
       pool.query<{ country_name: string; photo_count: number }>(
+        // Continents and "World" are purely organizational hubs with no GADM code of their own
+        // (external_codes IS NULL) — a capture whose own region IS a continent/World previously
+        // fell through the CASE's parent-walk and got silently counted as its own bogus "country"
+        // entry (e.g. "World"). Requiring the FINAL resolved region to itself carry a real
+        // 3-letter country code excludes those rather than just inferring country-vs-province on
+        // the leaf.
         `SELECT country.name AS country_name, COUNT(*)::int AS photo_count
          FROM captures c
          JOIN regions leaf ON leaf.id = c.region_id
          JOIN regions country ON country.id = (CASE WHEN leaf.external_codes[1] ~ '^[A-Z]{3}$' THEN leaf.id ELSE leaf.parent_id END)
          WHERE c.user_id = $1 AND c.region_id IS NOT NULL AND ${scope}
+           AND country.external_codes[1] ~ '^[A-Z]{3}$'
          GROUP BY country.name ORDER BY photo_count DESC`,
         [userId],
       ),
@@ -290,6 +328,16 @@ export async function statsRoutes(app: FastifyInstance): Promise<void> {
       .filter((r) => r.shutter != null)
       .map((r) => parseShutterSeconds(r.shutter!))
       .filter((s): s is number => s != null);
+    const focalLengthsWithIds = exifRes.rows
+      .filter((r) => r.focal_length_mm != null)
+      .map((r) => ({ value: Number(r.focal_length_mm), photoId: r.photo_id }));
+    const isosWithIds = exifRes.rows.filter((r) => r.iso != null).map((r) => ({ value: r.iso!, photoId: r.photo_id }));
+    const aperturesWithIds = exifRes.rows
+      .filter((r) => r.aperture != null)
+      .map((r) => ({ value: Number(r.aperture), photoId: r.photo_id }));
+    const shuttersWithIds = exifRes.rows
+      .map((r) => (r.shutter != null ? { value: parseShutterSeconds(r.shutter), photoId: r.photo_id } : null))
+      .filter((r): r is { value: number; photoId: string | null } => r != null && r.value != null);
     const focalLengthBySpecies = exifRes.rows
       .filter((r) => r.focal_length_mm != null)
       .map((r) => ({ value: Number(r.focal_length_mm), speciesId: r.species_id }));
@@ -391,10 +439,12 @@ export async function statsRoutes(app: FastifyInstance): Promise<void> {
       },
       timeOfDay,
       exifDistributions: {
-        focalLength: bucketize(focalLengths, FOCAL_LENGTH_BUCKETS),
-        iso: bucketize(isos, ISO_BUCKETS),
-        aperture: bucketize(apertures, APERTURE_BUCKETS),
-        shutter: bucketize(shutters, SHUTTER_BUCKETS),
+        // Each bucket carries a capped sample of photo ids so a chart bar can be clicked to view
+        // or download the photos behind it, not just read its count.
+        focalLength: bucketizeWithPhotoIds(focalLengthsWithIds, FOCAL_LENGTH_BUCKETS),
+        iso: bucketizeWithPhotoIds(isosWithIds, ISO_BUCKETS),
+        aperture: bucketizeWithPhotoIds(aperturesWithIds, APERTURE_BUCKETS),
+        shutter: bucketizeWithPhotoIds(shuttersWithIds, SHUTTER_BUCKETS),
       },
       hitRateByFocalLength: bucketizeDistinct(focalLengthBySpecies, FOCAL_LENGTH_BUCKETS),
       scatter,

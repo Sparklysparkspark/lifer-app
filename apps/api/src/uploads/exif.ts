@@ -180,6 +180,7 @@ export interface SpeciesMetadata {
   commonName: string | null;
   scientificName: string;
   taxonClass: string | null;
+  taxonOrder?: string | null;
   family: string | null;
   abaCode?: string | null;
   ebirdCode?: string | null;
@@ -203,7 +204,14 @@ export async function writeSpeciesMetadata(
   namingStyles: string[] = [],
 ): Promise<void> {
   const labels = metas.map((m) =>
-    composeSpeciesName(m.commonName, m.scientificName, namingStyles, { abaCode: m.abaCode ?? null, ebirdCode: m.ebirdCode ?? null }),
+    composeSpeciesName(
+      m.commonName,
+      m.scientificName,
+      namingStyles,
+      { abaCode: m.abaCode ?? null, ebirdCode: m.ebirdCode ?? null },
+      (part) => part,
+      { taxonClass: m.taxonClass, taxonOrder: m.taxonOrder ?? null, family: m.family },
+    ),
   );
   const keywords = metas
     .flatMap((m) => [m.commonName, m.scientificName, m.abaCode, m.ebirdCode])
@@ -222,6 +230,83 @@ export async function writeSpeciesMetadata(
     } as Record<string, unknown>,
     { writeArgs: ["-overwrite_original"] },
   );
+}
+
+// The bare-stem convention ("IMG_0001.xmp", not "IMG_0001.CR2.xmp") — matches
+// findSidecarPath's own read-side preference order (checked first there since it's "the more
+// common Lightroom/digiKam default"), so a sidecar this app writes is the same one it — and any
+// other tool defaulting to the same convention — would look for on a later read.
+export function sidecarPathFor(imagePath: string): string {
+  const ext = path.extname(imagePath);
+  const stem = path.basename(imagePath, ext);
+  return path.join(path.dirname(imagePath), `${stem}.xmp`);
+}
+
+export interface XmpSidecarData {
+  species: SpeciesMetadata[];
+  namingStyles: string[];
+  rating: number | null;
+  isCover: boolean;
+  takenAt: Date | null;
+  lat: number | null;
+  lon: number | null;
+  cameraModel: string | null;
+  lens: string | null;
+  focalLengthMm: number | null;
+  aperture: number | null;
+  shutter: string | null;
+  iso: number | null;
+}
+
+// A standalone ".xmp" sidecar (created fresh if it doesn't exist — exiftool treats a bare XMP
+// path as a complete, valid file format of its own, not something that requires an image behind
+// it) carrying everything Lifer knows about this photo: species tags (same fields
+// writeSpeciesMetadata embeds directly into a managed JPEG), the full EXIF Lifer already
+// extracted at import time, the star rating, and whether this is the species' current cover
+// photo. This is the ONLY metadata sync a RAW original ever gets — writeSpeciesMetadata only
+// ever embeds into a managed JPEG, so without this, a RAW file browsed in any other tool shows
+// nothing Lifer knows about it at all. Deliberately does NOT attempt to carry the card-crop
+// region: that needs Lightroom's own multi-field crs:Crop* schema (angle/constrain/full
+// before-and-after rectangle, all required together to be honored, none of it exposed by
+// exiftool-vendored's typed Tags and untested against a real config here) — safer to leave
+// crop as a Lifer-only concept than ship a crop tag that silently confuses another tool.
+// "Cover" instead round-trips as a plain, safe keyword any tool already understands.
+export async function writeXmpSidecar(imagePath: string, data: XmpSidecarData): Promise<void> {
+  const labels = data.species.map((m) =>
+    composeSpeciesName(
+      m.commonName,
+      m.scientificName,
+      data.namingStyles,
+      { abaCode: m.abaCode ?? null, ebirdCode: m.ebirdCode ?? null },
+      (part) => part,
+      { taxonClass: m.taxonClass, taxonOrder: m.taxonOrder ?? null, family: m.family },
+    ),
+  );
+  const keywords = data.species
+    .flatMap((m) => [m.commonName, m.scientificName, m.abaCode, m.ebirdCode])
+    .filter((v): v is string => !!v);
+  if (data.isCover) keywords.push("Lifer:Cover");
+  const hierarchies = data.species.map((m, i) => ["Species", m.taxonClass, m.family, labels[i]].filter(Boolean).join("/"));
+
+  const tags: Record<string, unknown> = {
+    Keywords: keywords,
+    Subject: keywords,
+    HierarchicalSubject: hierarchies,
+    ObjectName: labels.join(", "),
+  };
+  if (data.rating != null) tags.Rating = data.rating;
+  if (data.takenAt) tags.DateTimeOriginal = data.takenAt.toISOString();
+  if (data.lat != null) tags.GPSLatitude = data.lat;
+  if (data.lon != null) tags.GPSLongitude = data.lon;
+  if (data.cameraModel) tags.Model = data.cameraModel;
+  if (data.lens) tags.LensModel = data.lens;
+  if (data.focalLengthMm != null) tags.FocalLength = data.focalLengthMm;
+  if (data.aperture != null) tags.FNumber = data.aperture;
+  if (data.shutter) tags.ExposureTime = data.shutter;
+  if (data.iso != null) tags.ISO = data.iso;
+
+  const sidecarPath = sidecarPathFor(imagePath);
+  await exiftool.write(sidecarPath, tags, { writeArgs: ["-overwrite_original"] });
 }
 
 export async function closeExiftool(): Promise<void> {

@@ -27,6 +27,11 @@ export interface CollectionRow {
    *  in very few years rather than spread out — a real vagrancy signature, not a genuine
    *  established presence. */
   is_vagrant?: boolean | null;
+  /** Only present on GET /regions/:id/species rows (region_species.seasonality) - 52 weekly
+   *  relative-frequency values (same data WeeklyBar already renders per species) - lets the
+   *  collection grid sort/filter by "most likely to be found this week" for the drilled-in
+   *  region. */
+  seasonality?: number[] | null;
   /** species_traits.endemic_country_iso3 — set if this species is only ever recorded
    *  (real GBIF presence) in one of the 258 crawled countries. */
   endemic_country_iso3?: string | null;
@@ -50,7 +55,8 @@ export interface CollectionRow {
    *  instead of that history silently disappearing once fresh occurrence data catches up. */
   was_ghost_when_collected?: boolean | null;
   was_lost_when_collected?: boolean | null;
-  state: "collected" | "seen" | "target" | null;
+  state: "collected" | "seen" | null;
+  is_target?: boolean;
   cover_photo_id: string | null;
   card_crop_x: string | number | null;
   card_crop_y: string | number | null;
@@ -65,6 +71,10 @@ export interface CollectionRow {
    *  external drive (see ~/.claude/plans/multi-drive-storage.md) — null for anything living on
    *  the primary drive, same as any other original with no volume_id. */
   cover_volume_label?: string | null;
+  /** species.is_other_taxa/inat_iconic_taxon (migration 089) — see CollectionItem's own field
+   *  comments in packages/shared/src/collection.ts. */
+  is_other_taxa?: boolean;
+  inat_iconic_taxon?: string | null;
 }
 
 // Below this many total GBIF records ever, or with no reference photo found by enrichment, a
@@ -109,9 +119,11 @@ export function toCollectionItem(row: CollectionRow, maxDepthM: number = TECHNIC
     taxonClass: row.taxon_class ?? null,
     family: row.family ?? null,
     state,
+    isTarget: row.is_target === true,
     tier: row.tier,
     localTier: row.local_tier ?? null,
     vagrant: row.is_vagrant === true,
+    seasonality: row.seasonality ?? null,
     endemic: row.endemic_country_iso3 != null || row.endemic_region_label != null,
     isGhost: isGhostSpecies(row, maxDepthM),
     isLost: isLostSpecies(row),
@@ -138,6 +150,8 @@ export function toCollectionItem(row: CollectionRow, maxDepthM: number = TECHNIC
     referenceFocalX: hasOwnCover ? null : numOrNull(row.reference_focal_x),
     referenceFocalY: hasOwnCover ? null : numOrNull(row.reference_focal_y),
     coverVolumeLabel: hasOwnCover ? (row.cover_volume_label ?? null) : null,
+    isOtherTaxa: row.is_other_taxa === true,
+    inatIconicTaxon: row.inat_iconic_taxon ?? null,
   };
 }
 

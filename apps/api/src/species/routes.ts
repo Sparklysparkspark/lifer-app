@@ -18,6 +18,14 @@ import { computeSharpness } from "../lib/sharpness.js";
 import { bboxDiagonalDegrees, ringBoundingBox, type BoundingBox } from "data-pipeline/src/geometry.js";
 import { SENSITIVE_CLUSTER_DIAGONAL_KM } from "data-pipeline/src/sensitive-species.js";
 
+// iNaturalist's own vernacular names are inconsistently cased (e.g. "silver birch" all-lower,
+// vs curated Clements/IOC bird names which already arrive title-cased) — every OTHER species'
+// common_name in this catalog is title-cased, so an Other Taxa addition needs the same
+// normalization or it reads as visibly out of place next to everything else.
+function titleCaseCommonName(name: string): string {
+  return name.replace(/(^|[\s-])([a-z])/g, (_, sep: string, ch: string) => sep + ch.toUpperCase());
+}
+
 interface SearchQuery {
   q?: string;
 }
@@ -137,15 +145,29 @@ export async function speciesRoutes(app: FastifyInstance): Promise<void> {
         regionId != null &&
         (await pool.query(`SELECT 1 FROM region_species_hotspots WHERE region_id = $1 AND species_id = $2 LIMIT 1`, [regionId, id]))
           .rowCount! > 0;
+      // Only fall back to a totally different region when the GIVEN one is a country-level
+      // aggregate row — those never have hotspot clusters at all (see the comment above), so
+      // there's no honest "local" data to show and borrowing the globally-busiest province is
+      // the whole point. A province/state that simply has no computed hotspots yet for THIS one
+      // species is a different situation: it genuinely has no local data, and silently swapping
+      // in some other province's clusters (BC → Ontario, say) with no indication to the user
+      // reads as "here's where it is in BC" when it's nothing of the kind. Only substitute for
+      // the country case; leave the province case with no hotspots at all — the frontend already
+      // just omits the whole "Where to find it" section when `hotspots` comes back empty.
+      const givenRegionIsCountry =
+        regionId != null &&
+        (await pool.query(`SELECT 1 FROM regions WHERE id = $1 AND sovereignty_group IS NOT NULL`, [regionId])).rowCount! > 0;
       const hotspotRegionId = givenRegionHasHotspots
         ? regionId
-        : ((
-            await pool.query<{ region_id: string }>(
-              `SELECT region_id FROM region_species_hotspots WHERE species_id = $1
-               GROUP BY region_id ORDER BY SUM(point_count) DESC LIMIT 1`,
-              [id],
-            )
-          ).rows[0]?.region_id ?? regionId);
+        : givenRegionIsCountry
+          ? ((
+              await pool.query<{ region_id: string }>(
+                `SELECT region_id FROM region_species_hotspots WHERE species_id = $1
+                 GROUP BY region_id ORDER BY SUM(point_count) DESC LIMIT 1`,
+                [id],
+              )
+            ).rows[0]?.region_id ?? regionId)
+          : null;
 
       let speciesRes = await pool.query(
         `SELECT s.*, t.*, r.tier, r.composite
@@ -229,17 +251,20 @@ export async function speciesRoutes(app: FastifyInstance): Promise<void> {
         archivedRes,
         referencePhotosRes,
         regionSpeciesRes,
+        regionNameRes,
         endemicRes,
         hotspotsRes,
         regionBboxRes,
       ] = await Promise.all([
           pool.query(
             `SELECT c.*, p.id AS photo_id, p.display_path, p.thumb_path, p.width, p.height,
+                    p.kind AS photo_kind, p.duration_seconds, reg.name AS region_name,
                     o.ref AS original_ref, o.managed AS original_managed, o.kind AS original_kind,
                     o.volume_id AS original_volume_id, o.volume_relative_path AS original_volume_relative_path,
                     EXISTS (SELECT 1 FROM originals ro WHERE ro.capture_id = c.id AND ro.kind = 'raw') AS has_raw_original
              FROM captures c
              LEFT JOIN photos p ON p.id = c.current_photo_id
+             LEFT JOIN regions reg ON reg.id = c.region_id
              -- A capture can have both a jpeg and a raw original — picking one per capture here
              -- (jpeg preferred, it's the viewable one) instead of a plain LEFT JOIN, which would
              -- otherwise duplicate the capture into two rows and show it twice on the page.
@@ -271,6 +296,11 @@ export async function speciesRoutes(app: FastifyInstance): Promise<void> {
                 [regionId, id],
               )
             : Promise.resolve(null),
+          // Name of whichever region seasonality/weekly-frequency above actually came from
+          // (either the caller's explicit ?regionId= or the auto-resolved fallback) — shown
+          // alongside those charts so "observations by week" doesn't read as global data when
+          // it's really scoped to one region the user may not have picked themselves.
+          regionId ? pool.query(`SELECT name FROM regions WHERE id = $1`, [regionId]) : Promise.resolve(null),
           // Endemic — species_traits.endemic_country_iso3 is set by apply-rarity-phase4.ts
           // from the same 258-country GBIF crawl elusiveness already uses; resolved to a
           // display name here rather than stored denormalized, so a region rename never goes
@@ -319,6 +349,7 @@ export async function speciesRoutes(app: FastifyInstance): Promise<void> {
       const isVagrant = regionSpeciesRes?.rows[0]?.is_vagrant === true;
       const isInvasive = regionSpeciesRes?.rows[0]?.is_invasive === true;
       const weeklyFrequency: number[] | null = regionSpeciesRes?.rows[0]?.weekly_frequency ?? null;
+      const weeklyRegionName: string | null = regionNameRes?.rows[0]?.name ?? null;
       const hotspots = hotspotsRes?.rows ?? [];
 
       // 7c "unavailable original" state — a link-mode original's path can go stale (moved,
@@ -379,6 +410,7 @@ export async function speciesRoutes(app: FastifyInstance): Promise<void> {
         referencePhotos,
         seasonality,
         weeklyFrequency,
+        weeklyRegionName,
         localTier,
         isVagrant,
         isInvasive,
@@ -484,14 +516,16 @@ export async function speciesRoutes(app: FastifyInstance): Promise<void> {
     return { ok: true };
   });
 
-  // Target/wishlist marking (migration 073) — same never-downgrade rule as /seen: only inserts
-  // when no user_species row exists yet, so it can never demote an already-collected/seen species.
+  // Target/wishlist marking (migration 090) — is_target is its own independent flag, not a
+  // value of `state`, specifically so a species you've already collected/seen can still be
+  // targeted (e.g. "I only have a bad photo of this, I want a better one"). No never-downgrade
+  // dance needed here anymore: setting is_target never touches state, and vice versa.
   app.patch<{ Params: { id: string } }>("/species/:id/target", { preHandler: requireAuth }, async (request) => {
     const { id: speciesId } = request.params;
     const userId = request.user!.id;
     await pool.query(
-      `INSERT INTO user_species (user_id, species_id, state) VALUES ($1, $2, 'target')
-       ON CONFLICT (user_id, species_id) DO NOTHING`,
+      `INSERT INTO user_species (user_id, species_id, is_target) VALUES ($1, $2, true)
+       ON CONFLICT (user_id, species_id) DO UPDATE SET is_target = true`,
       [userId, speciesId],
     );
     return { ok: true };
@@ -500,7 +534,10 @@ export async function speciesRoutes(app: FastifyInstance): Promise<void> {
   app.delete<{ Params: { id: string } }>("/species/:id/target", { preHandler: requireAuth }, async (request) => {
     const { id: speciesId } = request.params;
     const userId = request.user!.id;
-    await pool.query(`DELETE FROM user_species WHERE user_id = $1 AND species_id = $2 AND state = 'target'`, [
+    await pool.query(`UPDATE user_species SET is_target = false WHERE user_id = $1 AND species_id = $2`, [userId, speciesId]);
+    // A row that's now neither a real state nor a target is pointless — clean it up so "no row"
+    // still reliably means "unseen" everywhere else that invariant is relied on.
+    await pool.query(`DELETE FROM user_species WHERE user_id = $1 AND species_id = $2 AND state IS NULL AND is_target = false`, [
       userId,
       speciesId,
     ]);
@@ -583,14 +620,22 @@ export async function speciesRoutes(app: FastifyInstance): Promise<void> {
       region_id: string | null;
       camera_model: string | null;
       lens: string | null;
+      kind: string | null;
     }>(
-      `SELECT id, taken_at, region_id, camera_model, lens FROM captures WHERE species_id = $1 AND user_id = $2`,
+      `SELECT c.id, c.taken_at, c.region_id, c.camera_model, c.lens, p.kind
+       FROM captures c LEFT JOIN photos p ON p.id = c.current_photo_id
+       WHERE c.species_id = $1 AND c.user_id = $2`,
       [request.params.id, request.user!.id],
     );
     const encounters = clusterIntoEncounters(res.rows.map((r) => ({ id: r.id, takenAt: r.taken_at })));
     const takenDates = res.rows.map((r) => r.taken_at).filter((t): t is string => t !== null);
+    // A video capture is still one row here (see migration 230's own comment on why kind lives
+    // on photos, not captures) — split out so the stat line can say "N photos, M videos" instead
+    // of silently folding video counts into "photos".
+    const videoCount = res.rows.filter((r) => r.kind === "video").length;
     return {
-      totalPhotos: res.rows.length,
+      totalPhotos: res.rows.length - videoCount,
+      videoCount,
       encounterCount: encounters.length,
       locationCount: new Set(res.rows.map((r) => r.region_id).filter(Boolean)).size,
       cameraCount: new Set(res.rows.map((r) => r.camera_model).filter(Boolean)).size,
@@ -781,4 +826,365 @@ export async function speciesRoutes(app: FastifyInstance): Promise<void> {
       },
     );
   }
+
+  // "Any taxa" search (Settings > Species & Import) — lets a user pull in a species Lifer has
+  // no real dataset coverage for (insects, arachnids, plants, fungi, ...) straight from
+  // iNaturalist by name, gated behind an opt-in setting since it's a live third-party lookup
+  // with no local caching/rate-limit protection beyond the pace of one person typing.
+  const INAT_TAXA_API = "https://api.inaturalist.org/v1/taxa";
+  const OTHER_TAXA_USER_AGENT = "lifer-app/0.1 (personal project; any-taxa search)";
+  // Every conservation_statuses entry — regardless of which authority assessed it (IUCN Red
+  // List, a national Red List, NatureServe's G/S-ranks, Mexico's Norma Oficial 059, ...) or
+  // which place it's scoped to — carries this same normalized numeric `iucn` field, iNat's own
+  // internal equivalent-severity scale. Using IT (not each authority's own differently-shaped
+  // code string, "LC" vs "S4" vs "G3" vs "Amenazada") is what makes one lookup table work for
+  // every authority at once, and is also why a species with no global assessment can still fall
+  // back to a REGIONAL one below and get a sensible label out of it.
+  const IUCN_LEVEL_NAMES: Record<number, string> = {
+    0: "Not Evaluated",
+    5: "Data Deficient",
+    10: "Least Concern",
+    20: "Near Threatened",
+    30: "Vulnerable",
+    40: "Endangered",
+    50: "Critically Endangered",
+    60: "Extinct in the Wild",
+    70: "Extinct",
+  };
+
+  async function requireAnyTaxaSearchEnabled(request: FastifyRequest, reply: FastifyReply): Promise<boolean> {
+    const res = await pool.query<{ any_taxa_search_enabled: boolean }>(`SELECT any_taxa_search_enabled FROM users WHERE id = $1`, [
+      request.user!.id,
+    ]);
+    if (!res.rows[0]?.any_taxa_search_enabled) {
+      reply.code(403).send({ error: "Any-taxa search isn't enabled (Settings > Species & Import)" });
+      return false;
+    }
+    return true;
+  }
+
+  app.get<{ Querystring: { q?: string } }>("/species/inat-search", { preHandler: requireAuth }, async (request, reply) => {
+    if (!(await requireAnyTaxaSearchEnabled(request, reply))) return;
+    const q = (request.query.q ?? "").trim();
+    if (q.length < 2) return { results: [] };
+    const res = await fetch(`${INAT_TAXA_API}?q=${encodeURIComponent(q)}&rank=species&is_active=true&per_page=15`, {
+      headers: { "User-Agent": OTHER_TAXA_USER_AGENT },
+    });
+    if (!res.ok) return reply.code(502).send({ error: "iNaturalist search failed" });
+    const data = (await res.json()) as {
+      results: Array<{
+        id: number;
+        name: string;
+        preferred_common_name?: string;
+        iconic_taxon_name?: string;
+        default_photo?: { square_url?: string } | null;
+      }>;
+    };
+    return {
+      results: data.results.map((t) => ({
+        inatTaxonId: t.id,
+        scientificName: t.name,
+        commonName: t.preferred_common_name ? titleCaseCommonName(t.preferred_common_name) : null,
+        iconicTaxon: t.iconic_taxon_name ?? null,
+        thumbnailUrl: t.default_photo?.square_url ?? null,
+      })),
+    };
+  });
+
+  // Shared by the single add-one-species route below and the bulk CSV/list import — resolves
+  // an iNat taxon id to a species row (creating + enriching it on first use, reusing it on every
+  // later call for the same taxon), but does NOT touch region_species; each caller decides that
+  // for itself since the bulk path needs to know added-vs-already-present per entry.
+  async function resolveOrCreateOtherTaxaSpecies(inatTaxonId: number): Promise<{ speciesId: string; scientificName: string }> {
+    const existing = await pool.query<{ id: string; scientific_name: string }>(
+      `SELECT id, scientific_name FROM species WHERE inat_taxon_id = $1 AND is_other_taxa = true`,
+      [inatTaxonId],
+    );
+    if (existing.rows[0]) return { speciesId: existing.rows[0].id, scientificName: existing.rows[0].scientific_name };
+
+    const taxonRes = await fetch(`${INAT_TAXA_API}/${inatTaxonId}`, { headers: { "User-Agent": OTHER_TAXA_USER_AGENT } });
+    if (!taxonRes.ok) throw new Error("Couldn't look up that species on iNaturalist");
+    const taxonData = (await taxonRes.json()) as {
+      results: Array<{
+        id: number;
+        name: string;
+        preferred_common_name?: string;
+        iconic_taxon_name?: string;
+        // `conservation_status` (singular) is iNat's PLACE-aware "status for wherever you're
+        // browsing from" field — null whenever the request carries no place context, which is
+        // always true here (a species-add lookup has no place in scope). The real data lives in
+        // `conservation_statuses` (plural), one row per authority/place combination.
+        conservation_statuses?: Array<{ status: string; authority: string; place: unknown | null; iucn: number | null }> | null;
+      }>;
+    };
+    const taxon = taxonData.results[0];
+    if (!taxon) throw new Error("Species not found on iNaturalist");
+    // No rarity tier is ever computed for these (no dataset to rank against) — IUCN
+    // conservation status fills that same badge slot on the detail page instead, when
+    // iNaturalist has one on file. A genuinely GLOBAL assessment (place: null) is preferred
+    // when one exists, IUCN Red List's own global entry first — but a true global entry turns
+    // out to be the rare case, not the common one: most species (especially insects/fungi/
+    // plants, exactly what Other Taxa is for) have ONLY regional assessments on file — a
+    // Finnish Red List entry, a scatter of Canadian-province NatureServe S-ranks, Mexico's own
+    // Norma Oficial 059, etc. Requiring place: null (the previous behavior) meant the vast
+    // majority of species silently showed no IUCN status at all despite real conservation data
+    // being right there — falling back to the single most-recently-updated regional entry
+    // (any authority, any place) is a real status, just not a global one, and that's still far
+    // more informative than showing nothing.
+    const statuses = taxon.conservation_statuses ?? [];
+    const globalStatuses = statuses.filter((s) => s.place == null);
+    const best =
+      globalStatuses.find((s) => s.authority === "IUCN Red List") ??
+      globalStatuses[0] ??
+      statuses.find((s) => s.authority === "IUCN Red List") ??
+      statuses[0] ??
+      null;
+    const iucnStatus = best?.iucn != null ? (IUCN_LEVEL_NAMES[best.iucn] ?? best.status) : null;
+
+    // A real GBIF key when one resolves (keeps this species usable anywhere the rest of the
+    // catalog assumes a genuine GBIF identity), falling back to a synthetic negative key —
+    // real GBIF keys are always positive, so this can never collide — for the genuinely
+    // obscure taxa (a lot of insects) GBIF's backbone doesn't have a match for at all.
+    let gbifKey = -taxon.id;
+    // Family/order come along for free from this same match call — the only real, non-fabricated
+    // "facts" available uniformly across every Other Taxa kingdom (no AVONET/EltonTraits-style
+    // trait dataset was ever ingested for insects/fungi/plants/etc., unlike birds/mammals/fish),
+    // so this is what fills the species detail page's stats box for them instead of leaving it
+    // empty (see SpeciesDetailPage's own comment on that box).
+    let family: string | null = null;
+    let order: string | null = null;
+    try {
+      const gbifRes = await fetch(`https://api.gbif.org/v1/species/match?name=${encodeURIComponent(taxon.name)}&strict=false`);
+      const gbifData = (await gbifRes.json()) as { usageKey?: number; family?: string; order?: string };
+      if (gbifData.usageKey) gbifKey = gbifData.usageKey;
+      family = gbifData.family ?? null;
+      order = gbifData.order ?? null;
+    } catch {
+      // best-effort — the synthetic negative key above is a perfectly fine fallback, and a
+      // missing family/order just means those two Stat rows fall back to "—" on the page.
+    }
+
+    const inserted = await pool.query<{ id: string }>(
+      `INSERT INTO species (gbif_key, scientific_name, common_name, taxon_class, is_other_taxa, inat_taxon_id, inat_iconic_taxon, iucn_status, family, taxon_order)
+       VALUES ($1, $2, $3, $4, true, $5, $6, $7, $8, $9)
+       ON CONFLICT (gbif_key) DO UPDATE SET gbif_key = species.gbif_key
+       RETURNING id`,
+      [
+        gbifKey,
+        taxon.name,
+        taxon.preferred_common_name ? titleCaseCommonName(taxon.preferred_common_name) : null,
+        (taxon.iconic_taxon_name ?? "other").toLowerCase(),
+        taxon.id,
+        taxon.iconic_taxon_name ?? null,
+        iucnStatus,
+        family,
+        order,
+      ],
+    );
+    const speciesId = inserted.rows[0].id;
+
+    // Reuses the exact same iNaturalist-sourced photo/description pipeline every other
+    // species on the site goes through on first view (see lazyEnrich.ts's own comment on
+    // why this stays iNaturalist-only, no direct Wikipedia call) — an other-taxa species
+    // looks and reads identically to any other species detail page, just without rarity/
+    // occurrence data, which was never computed for it in the first place. persistEnrichment
+    // also best-effort computes this species' reference embedding right away (see lazyEnrich.ts),
+    // so it's ready for AI import-matching immediately, not just after the next batch backfill.
+    const enrichment = await enrichSpecies({ id: speciesId, scientific_name: taxon.name });
+    await persistEnrichment(speciesId, enrichment);
+    if (enrichment.gallery.length > 0) {
+      await persistGalleryPromotingMainIfMissing(speciesId, enrichment.gallery, enrichment.referencePhoto != null);
+    }
+    return { speciesId, scientificName: taxon.name };
+  }
+
+  app.post<{ Body: { inatTaxonId?: number; regionId?: string } }>(
+    "/species/other-taxa",
+    { preHandler: requireAuth },
+    async (request, reply) => {
+      if (!(await requireAnyTaxaSearchEnabled(request, reply))) return;
+      const { inatTaxonId, regionId } = request.body ?? {};
+      if (!inatTaxonId || !regionId) return reply.code(400).send({ error: "inatTaxonId and regionId are required" });
+
+      const regionRes = await pool.query(`SELECT id FROM regions WHERE id = $1`, [regionId]);
+      if (regionRes.rows.length === 0) return reply.code(404).send({ error: "Region not found" });
+
+      let speciesId: string;
+      try {
+        ({ speciesId } = await resolveOrCreateOtherTaxaSpecies(inatTaxonId));
+      } catch (err) {
+        return reply.code(502).send({ error: (err as Error).message });
+      }
+
+      // No rarity/occurrence pipeline for these — local_frequency/local_tier/weekly_frequency
+      // all stay NULL, matching the migration's own reasoning (never computed, never meant to
+      // be at this taxon's real-world species count).
+      await pool.query(
+        `INSERT INTO region_species (region_id, species_id, is_vagrant, is_invasive)
+         VALUES ($1, $2, false, false)
+         ON CONFLICT (region_id, species_id) DO NOTHING`,
+        [regionId, speciesId],
+      );
+
+      return { speciesId };
+    },
+  );
+
+  // Undoes an Other Taxa add — species added via the any-taxa search have no pack/reseed
+  // story to fall back on, so without this a mis-clicked search result (or one added just to
+  // try the feature) sits in the checklist forever with no way back. Refuses when the user has
+  // actual photos of it (deleting the species row out from under a real capture would orphan
+  // it) rather than silently discarding those — the user has to deal with those photos first
+  // (reassign or delete them), same as any other "this would destroy real data" guard.
+  app.delete<{ Params: { id: string } }>("/species/:id/other-taxa", { preHandler: requireAuth }, async (request, reply) => {
+    const { id: speciesId } = request.params;
+    const userId = request.user!.id;
+
+    const speciesRes = await pool.query<{ is_other_taxa: boolean }>(`SELECT is_other_taxa FROM species WHERE id = $1`, [speciesId]);
+    if (speciesRes.rows.length === 0) return reply.code(404).send({ error: "Species not found" });
+    if (!speciesRes.rows[0].is_other_taxa) {
+      return reply.code(400).send({ error: "Only an Other Taxa species can be removed this way" });
+    }
+
+    const captureCountRes = await pool.query<{ count: string }>(
+      `SELECT count(*) FROM captures_all c
+       WHERE c.user_id = $1 AND (c.species_id = $2 OR EXISTS (SELECT 1 FROM capture_species cs WHERE cs.capture_id = c.id AND cs.species_id = $2))`,
+      [userId, speciesId],
+    );
+    if (Number(captureCountRes.rows[0].count) > 0) {
+      return reply
+        .code(409)
+        .send({ error: "You have photos of this species — delete or reassign them first, then remove it." });
+    }
+
+    await pool.query(`DELETE FROM user_species WHERE user_id = $1 AND species_id = $2`, [userId, speciesId]);
+    await pool.query(`DELETE FROM user_archived_species WHERE user_id = $1 AND species_id = $2`, [userId, speciesId]);
+    // Shared checklist data (see region_species's own schema comment — not per-user), same as
+    // every other region_species row — removing it here means EVERY user on this install stops
+    // seeing it too, which is exactly right for the single-user desktop case this feature is
+    // built for, and an acceptable, rare edge case on a shared server (whoever re-needs it can
+    // just re-add it via the same search).
+    await pool.query(`DELETE FROM region_species WHERE species_id = $1`, [speciesId]);
+
+    // Only actually removes the catalog row once nothing else anywhere still points at it
+    // (another user's own user_species/captures on a shared server, most likely) — the
+    // species/user_species/captures FKs have no cascade specified for exactly this reason, so a
+    // real reference makes this a no-op error, not a silent partial deletion.
+    try {
+      await pool.query(`DELETE FROM species WHERE id = $1`, [speciesId]);
+    } catch (err) {
+      request.log.warn({ err, speciesId }, "Other Taxa species still referenced elsewhere — checklist entry removed, catalog row kept");
+    }
+
+    return { ok: true };
+  });
+
+  // Bulk personal-checklist import: paste/upload a plain list (one entry per line — scientific
+  // names, common names, or raw iNat taxon ids all work, e.g. from an iNat life list/observation
+  // export) and every resolvable one gets added to a region's Other Taxa bucket in one go,
+  // instead of one-by-one through the search modal. Runs as a background job (same shape as
+  // offline-packs' own download job below) rather than blocking the request open for however
+  // long a few hundred iNaturalist lookups take.
+  interface OtherTaxaBulkJobState {
+    running: boolean;
+    processed: number;
+    total: number;
+    added: number;
+    alreadyPresent: number;
+    notFound: string[];
+    error: string | null;
+    finishedAt: number | null;
+  }
+  const otherTaxaBulkJob: OtherTaxaBulkJobState = {
+    running: false,
+    processed: 0,
+    total: 0,
+    added: 0,
+    alreadyPresent: 0,
+    notFound: [],
+    error: null,
+    finishedAt: null,
+  };
+
+  app.get("/species/other-taxa/bulk/status", { preHandler: requireAuth }, async () => otherTaxaBulkJob);
+
+  app.post<{ Body: { regionId?: string; entries?: string[] } }>(
+    "/species/other-taxa/bulk",
+    { preHandler: requireAuth },
+    async (request, reply) => {
+      if (!(await requireAnyTaxaSearchEnabled(request, reply))) return;
+      if (otherTaxaBulkJob.running) return reply.code(409).send({ error: "A bulk import is already running" });
+      const { regionId, entries } = request.body ?? {};
+      if (!regionId || !Array.isArray(entries) || entries.length === 0) {
+        return reply.code(400).send({ error: "regionId and a non-empty entries list are required" });
+      }
+      const regionRes = await pool.query(`SELECT id FROM regions WHERE id = $1`, [regionId]);
+      if (regionRes.rows.length === 0) return reply.code(404).send({ error: "Region not found" });
+
+      // Dedupe + drop blanks (a pasted CSV column or a file with trailing newlines is the
+      // common case) before committing to a total count the status endpoint will report.
+      const lines = [...new Set(entries.map((e) => e.trim()).filter((e) => e.length > 0))];
+      if (lines.length === 0) return reply.code(400).send({ error: "No usable entries found" });
+
+      otherTaxaBulkJob.running = true;
+      otherTaxaBulkJob.processed = 0;
+      otherTaxaBulkJob.total = lines.length;
+      otherTaxaBulkJob.added = 0;
+      otherTaxaBulkJob.alreadyPresent = 0;
+      otherTaxaBulkJob.notFound = [];
+      otherTaxaBulkJob.error = null;
+      otherTaxaBulkJob.finishedAt = null;
+
+      // Deliberately not awaited — the route returns immediately, the frontend polls
+      // /species/other-taxa/bulk/status the same way it already polls offline-pack downloads.
+      (async () => {
+        for (const line of lines) {
+          try {
+            let taxonId: number | null = null;
+            if (/^\d+$/.test(line)) {
+              taxonId = Number(line);
+            } else {
+              const searchRes = await fetch(`${INAT_TAXA_API}?q=${encodeURIComponent(line)}&rank=species&is_active=true&per_page=1`, {
+                headers: { "User-Agent": OTHER_TAXA_USER_AGENT },
+              });
+              if (searchRes.ok) {
+                const searchData = (await searchRes.json()) as { results: Array<{ id: number }> };
+                taxonId = searchData.results[0]?.id ?? null;
+              }
+            }
+            if (taxonId == null) {
+              otherTaxaBulkJob.notFound.push(line);
+            } else {
+              const { speciesId } = await resolveOrCreateOtherTaxaSpecies(taxonId);
+              const insertRes = await pool.query(
+                `INSERT INTO region_species (region_id, species_id, is_vagrant, is_invasive)
+                 VALUES ($1, $2, false, false)
+                 ON CONFLICT (region_id, species_id) DO NOTHING`,
+                [regionId, speciesId],
+              );
+              if (insertRes.rowCount && insertRes.rowCount > 0) otherTaxaBulkJob.added++;
+              else otherTaxaBulkJob.alreadyPresent++;
+            }
+          } catch {
+            otherTaxaBulkJob.notFound.push(line);
+          }
+          otherTaxaBulkJob.processed++;
+          // A small, deliberate pace between entries — this hits iNaturalist's own APIs several
+          // times per line (search/lookup, GBIF match, enrichment's photo+description fetch for
+          // any genuinely new species), and a list of a few hundred names run back-to-back with
+          // no pacing is exactly the kind of burst that drew real 429s from api.inaturalist.org
+          // elsewhere in this codebase (see lazyEnrich.ts's own fetchWithRetry comment).
+          await new Promise((resolve) => setTimeout(resolve, 300));
+        }
+        otherTaxaBulkJob.running = false;
+        otherTaxaBulkJob.finishedAt = Date.now();
+      })().catch((err) => {
+        otherTaxaBulkJob.error = (err as Error).message;
+        otherTaxaBulkJob.running = false;
+        otherTaxaBulkJob.finishedAt = Date.now();
+      });
+
+      return { started: true, total: lines.length };
+    },
+  );
 }

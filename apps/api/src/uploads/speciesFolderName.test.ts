@@ -75,20 +75,35 @@ describe("resolveSpeciesFolderName", () => {
   });
 
   it("appends the ABA code alongside the common name when that naming style is on and the species has one", async () => {
-    mockSpeciesRow({ common_name: "Mallard", scientific_name: "Anas platyrhynchos", aba_code: "MALL", species_naming_styles: ["aba_code"] });
+    mockSpeciesRow({
+      common_name: "Mallard",
+      scientific_name: "Anas platyrhynchos",
+      aba_code: "MALL",
+      species_naming_styles: ["common", "aba_code"],
+    });
     const name = await resolveSpeciesFolderName("user-1", "species-1");
     expect(name).toBe("Mallard (MALL)");
   });
 
   it("falls back to the plain common name when the naming style is aba_code but this species has none", async () => {
-    mockSpeciesRow({ common_name: "Mallard", scientific_name: "Anas platyrhynchos", aba_code: null, species_naming_styles: ["aba_code"] });
+    mockSpeciesRow({
+      common_name: "Mallard",
+      scientific_name: "Anas platyrhynchos",
+      aba_code: null,
+      species_naming_styles: ["common", "aba_code"],
+    });
     vi.mocked(pool.query).mockResolvedValueOnce({ rows: [] } as never);
     const name = await resolveSpeciesFolderName("user-1", "species-1");
     expect(name).toBe("Mallard");
   });
 
   it("appends the eBird code alongside the common name when that naming style is on and the species has one", async () => {
-    mockSpeciesRow({ common_name: "Mallard", scientific_name: "Anas platyrhynchos", ebird_code: "mallar3", species_naming_styles: ["ebird_code"] });
+    mockSpeciesRow({
+      common_name: "Mallard",
+      scientific_name: "Anas platyrhynchos",
+      ebird_code: "mallar3",
+      species_naming_styles: ["common", "ebird_code"],
+    });
     const name = await resolveSpeciesFolderName("user-1", "species-1");
     expect(name).toBe("Mallard (mallar3)");
   });
@@ -99,9 +114,25 @@ describe("resolveSpeciesFolderName", () => {
       scientific_name: "Anas platyrhynchos",
       aba_code: "MALL",
       ebird_code: "mallar3",
-      species_naming_styles: ["ebird_code", "aba_code"],
+      species_naming_styles: ["common", "ebird_code", "aba_code"],
     });
     const name = await resolveSpeciesFolderName("user-1", "species-1");
     expect(name).toBe("Mallard (mallar3 / MALL)");
+  });
+
+  it("puts the Latin name first (unparenthesized) and common name in parens when Latin is ordered before common", async () => {
+    mockSpeciesRow({
+      common_name: "Mallard",
+      scientific_name: "Anas platyrhynchos",
+      species_naming_styles: ["latin", "common"],
+    });
+    const name = await resolveSpeciesFolderName("user-1", "species-1");
+    expect(name).toBe("Anas platyrhynchos (Mallard)");
+  });
+
+  it("falls back to common-name-only when species_naming_styles is empty (unconfigured default)", async () => {
+    mockSpeciesRow({ common_name: "Mallard", scientific_name: "Anas platyrhynchos", species_naming_styles: [] });
+    const name = await resolveSpeciesFolderName("user-1", "species-1");
+    expect(name).toBe("Mallard");
   });
 });

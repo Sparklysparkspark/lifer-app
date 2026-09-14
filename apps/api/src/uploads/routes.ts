@@ -4,7 +4,7 @@ import path from "node:path";
 import type { FastifyInstance } from "fastify";
 import { pool } from "../db.js";
 import { requireAuth } from "../auth/session.js";
-import { generateDerivatives } from "./image.js";
+import { generateDerivatives, generateVideoDerivatives } from "./image.js";
 import {
   extractExif,
   extractKeywords,
@@ -14,6 +14,7 @@ import {
   extractEmbeddedPreview,
   type ExtractedExif,
 } from "./exif.js";
+import { syncCaptureXmpSidecars } from "./xmpSidecarSync.js";
 import { DATA_DIR, APP_DATA_DIR, ORIGINALS_DIR, EMBEDDING_MODEL_VERSION } from "../config.js";
 import { fetchS3Object } from "../photoSources/s3.js";
 import { RAW_EXTENSIONS } from "./rawExtensions.js";
@@ -274,7 +275,14 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
         }
       }
 
-      return { takenAt: exif.takenAt, keywords, possibleDuplicate, suggestions };
+      // A RAW file has no browser-renderable preview of its own (sharp/the browser can't decode
+      // camera sensor data) — embedSourceBuffer above already pulled its embedded JPEG preview
+      // out server-side for the duplicate/suggestion checks, so handing that same buffer back
+      // as a data URL lets the import screen show a REAL preview image instead of a "no preview
+      // available" placeholder, at no extra cost (no second file read, no second exiftool call).
+      const previewDataUrl = isRaw && embedSourceBuffer ? `data:image/jpeg;base64,${embedSourceBuffer.toString("base64")}` : null;
+
+      return { takenAt: exif.takenAt, keywords, possibleDuplicate, suggestions, previewDataUrl };
     } finally {
       rmSync(tmpPath, { force: true });
     }
@@ -299,7 +307,14 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
     duplicate?: boolean;
   }
 
-  type RawCaptureMatch = { id: string; common_name: string | null; scientific_name: string; taxon_class: string | null; trip_folder: string | null };
+  type RawCaptureMatch = {
+    id: string;
+    common_name: string | null;
+    scientific_name: string;
+    taxon_class: string | null;
+    trip_folder: string | null;
+    location_label: string | null;
+  };
 
   // Cameras (and most export workflows) give a RAW and its JPEG sibling the identical
   // base filename — a cheap string comparison across this user's unlinked JPEGs finds the
@@ -317,7 +332,7 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
     // actual match is ever pulled back — not every unlinked JPEG's row, and never any file
     // bytes either; `ref` here is just the stored destination path string.
     const candidates = await pool.query<RawCaptureMatch & { taken_at: Date | null }>(
-      `SELECT c.id, s.common_name, s.scientific_name, s.taxon_class, c.taken_at, t.source_folder AS trip_folder
+      `SELECT c.id, s.common_name, s.scientific_name, s.taxon_class, c.taken_at, t.source_folder AS trip_folder, c.location_label
        FROM captures c
        JOIN species s ON s.id = c.species_id
        JOIN originals o ON o.capture_id = c.id AND o.kind = 'jpeg'
@@ -338,7 +353,7 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
   // SubSecTimeOriginal/SerialNumber, which the strict fingerprint depends on).
   async function findRawFingerprintMatches(userId: string, column: "exif_fingerprint" | "exif_fingerprint_loose", value: string) {
     return pool.query<RawCaptureMatch>(
-      `SELECT c.id, s.common_name, s.scientific_name, s.taxon_class, t.source_folder AS trip_folder
+      `SELECT c.id, s.common_name, s.scientific_name, s.taxon_class, t.source_folder AS trip_folder, c.location_label
        FROM captures c JOIN species s ON s.id = c.species_id
        LEFT JOIN trips t ON t.id = c.trip_id
        WHERE c.user_id = $1 AND c.${column} = $2
@@ -388,11 +403,17 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
       rmSync(tmpPath, { force: true });
     }
 
-    const userRes = await pool.query<{ organize_originals_by_year: boolean }>(
-      `SELECT organize_originals_by_year FROM users WHERE id = $1`,
+    const userRes = await pool.query<{ organize_originals_by_year: boolean; organize_originals_by_location: boolean }>(
+      `SELECT organize_originals_by_year, organize_originals_by_location FROM users WHERE id = $1`,
       [userId],
     );
     const organizeByYear = userRes.rows[0]?.organize_originals_by_year ?? false;
+    // A RAW pulled for an already-imported capture (the matched branch below) should land
+    // alongside that capture's own location-organized folder, same reasoning as trip_folder just
+    // below it — this was the one originalsFolder() call site in the whole upload pipeline that
+    // dropped the location-outermost-folder opt-in entirely instead of just omitting it when the
+    // capture has no location_label to offer.
+    const organizeByLocation = userRes.rows[0]?.organize_originals_by_location ?? false;
 
     const contentHash = createHash("sha256").update(rawBuffer).digest("hex");
 
@@ -407,6 +428,8 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
       // no extra plumbing on the /uploads/raw request itself.
       const folder = originalsFolder(match.trip_folder ?? chosenVolume?.baseDir ?? ORIGINALS_DIR, {
         organizeByYear,
+        organizeByLocation,
+        locationLabel: match.location_label,
         speciesFolderName: await resolveSpeciesFolderName(userId, match.id),
         taxonClass: match.taxon_class,
         takenAt: exif.takenAt,
@@ -542,11 +565,12 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
       rmSync(tmpPath, { force: true });
     }
 
-    const userRes = await pool.query<{ organize_originals_by_year: boolean }>(
-      `SELECT organize_originals_by_year FROM users WHERE id = $1`,
+    const userRes = await pool.query<{ organize_originals_by_year: boolean; organize_originals_by_location: boolean }>(
+      `SELECT organize_originals_by_year, organize_originals_by_location FROM users WHERE id = $1`,
       [userId],
     );
     const organizeByYear = userRes.rows[0]?.organize_originals_by_year ?? false;
+    const organizeByLocation = userRes.rows[0]?.organize_originals_by_location ?? false;
     const rawHash = createHash("sha256").update(rawBuffer).digest("hex");
 
     const matches = await findRawRelatedCaptures(userId, rawFileName, exif, fingerprint);
@@ -554,6 +578,8 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
       const match = matches[0];
       const folder = originalsFolder(match.trip_folder ?? chosenVolume?.baseDir ?? ORIGINALS_DIR, {
         organizeByYear,
+        organizeByLocation,
+        locationLabel: match.location_label,
         speciesFolderName: await resolveSpeciesFolderName(userId, match.id),
         taxonClass: match.taxon_class,
         takenAt: exif.takenAt,
@@ -786,6 +812,22 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
       tripId = tripRes.rows[0].id;
     }
 
+    // Import Album's own destination override - PhotoImportRows sends this the same way it
+    // already sends tripId for a Trip's own "Build a Trip" import mode (see that component's own
+    // comment). Unlike tripId, this never changes where the file is written - an album is just a
+    // curated collection of captures that live wherever they'd normally live, not its own
+    // folder - so it's only ever consulted once, right before COMMIT below, to link the new
+    // capture into album_captures.
+    let albumId: string | null = null;
+    if (fields.albumId) {
+      const albumRes = await pool.query<{ id: string }>(`SELECT id FROM albums WHERE id = $1 AND user_id = $2`, [
+        fields.albumId,
+        request.user!.id,
+      ]);
+      if (albumRes.rows.length === 0) return reply.code(400).send({ error: "Unknown album" });
+      albumId = albumRes.rows[0].id;
+    }
+
     const speciesRes = await pool.query<{
       id: string;
       common_name: string | null;
@@ -794,7 +836,11 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
       family: string | null;
       aba_code: string | null;
       ebird_code: string | null;
-    }>(`SELECT id, common_name, scientific_name, taxon_class, family, aba_code, ebird_code FROM species WHERE id = $1`, [speciesId]);
+      inat_iconic_taxon: string | null;
+    }>(
+      `SELECT id, common_name, scientific_name, taxon_class, family, aba_code, ebird_code, inat_iconic_taxon FROM species WHERE id = $1`,
+      [speciesId],
+    );
     if (speciesRes.rows.length === 0) return reply.code(400).send({ error: "Unknown species" });
     const species = speciesRes.rows[0];
 
@@ -871,11 +917,18 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const userId = request.user!.id;
-    const organizeRes = await pool.query<{ organize_originals_by_year: boolean }>(
-      `SELECT organize_originals_by_year FROM users WHERE id = $1`,
+    const organizeRes = await pool.query<{
+      organize_originals_by_year: boolean;
+      organize_originals_by_location: boolean;
+      species_naming_styles: string[];
+    }>(
+      `SELECT organize_originals_by_year, organize_originals_by_location, species_naming_styles FROM users WHERE id = $1`,
       [userId],
     );
     const organizeByYear = organizeRes.rows[0]?.organize_originals_by_year ?? false;
+    const organizeByLocation = organizeRes.rows[0]?.organize_originals_by_location ?? false;
+    const namingStyles = organizeRes.rows[0]?.species_naming_styles ?? [];
+    const locationLabel = fields.locationLabel?.trim() || null;
 
     // This candidate lookup and its EXIF-verification file read/exiftool call happen BEFORE
     // opening the DB transaction below, not inside it. Filesystem/exiftool I/O has no
@@ -909,8 +962,8 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
 
       const captureRes = await client.query<{ id: string }>(
         `INSERT INTO captures
-           (user_id, species_id, fingerprint, exif_fingerprint, exif_fingerprint_loose, taken_at, lat, lon, camera_model, lens, focal_length_mm, aperture, shutter, iso, trip_id, region_id)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+           (user_id, species_id, fingerprint, exif_fingerprint, exif_fingerprint_loose, taken_at, lat, lon, camera_model, lens, focal_length_mm, aperture, shutter, iso, trip_id, region_id, location_label)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
          RETURNING id`,
         [
           userId,
@@ -929,6 +982,7 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
           exif.iso,
           tripId,
           fields.regionId || null,
+          locationLabel,
         ],
       );
       const captureId = captureRes.rows[0].id;
@@ -963,8 +1017,12 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
       if (mode === "store") {
         const folder = originalsFolder(tripBaseDir ?? chosenVolume?.baseDir ?? ORIGINALS_DIR, {
           organizeByYear,
+          organizeByLocation,
+          locationLabel,
           speciesFolderName: await resolveSpeciesFolderName(userId, species.id),
           taxonClass: species.taxon_class,
+          inatIconicTaxon: species.inat_iconic_taxon,
+          namingStyles,
           takenAt: exif.takenAt,
           subfolder: "Adjusted",
         });
@@ -1027,8 +1085,12 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
       if (rawBuffer && rawFileName) {
         const rawFolder = originalsFolder(tripBaseDir ?? ORIGINALS_DIR, {
           organizeByYear,
+          organizeByLocation,
+          locationLabel,
           speciesFolderName: await resolveSpeciesFolderName(userId, species.id),
           taxonClass: species.taxon_class,
+          inatIconicTaxon: species.inat_iconic_taxon,
+          namingStyles,
           takenAt: exif.takenAt,
           subfolder: "RAW",
         });
@@ -1120,7 +1182,21 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
         }
       }
 
+      if (albumId) {
+        await client.query(
+          `INSERT INTO album_captures (album_id, capture_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+          [albumId, captureId],
+        );
+      }
+
       await client.query("COMMIT");
+
+      // Fire-and-forget, same reasoning as the embedding computation below — writes this
+      // capture's initial XMP sidecar(s) (species/EXIF/rating) rather than leaving it until
+      // the first later edit (reassign/rate/cover) to create one.
+      syncCaptureXmpSidecars(userId, captureId).catch((err) =>
+        request.log.warn({ err, captureId }, "Couldn't write this capture's XMP sidecar"),
+      );
 
       // Fire-and-forget: never let a slow/first-ever (model download) embedding computation
       // hold up the upload response — the response body is exactly what it always was. A
@@ -1137,6 +1213,196 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
       throw err;
     } finally {
       client.release();
+    }
+  });
+
+  // Store-mode only (no link/s3, no RAW-sibling handling — none of that applies to video). A
+  // video capture is otherwise the same shape as a photo capture: one captures row, one photos
+  // row (kind='video', poster-frame stills in the same thumb_path/display_path columns), one
+  // originals row (kind='video') holding the untouched source file. See uploads/image.ts's
+  // generateVideoDerivatives for the poster/transcode logic.
+  const ACCEPTED_VIDEO_EXTENSION_BY_MIMETYPE: Record<string, string> = {
+    "video/mp4": ".mp4",
+    "video/quicktime": ".mov",
+  };
+  app.post("/uploads/video", { preHandler: requireAuth }, async (request, reply) => {
+    const fields: Record<string, string> = {};
+    let fileBuffer: Buffer | null = null;
+    let fileMimetype: string | null = null;
+    let fileName: string | null = null;
+    for await (const part of request.parts()) {
+      if (part.type === "file") {
+        fileBuffer = await part.toBuffer();
+        fileMimetype = part.mimetype;
+        fileName = part.filename;
+      } else {
+        fields[part.fieldname] = String(part.value);
+      }
+    }
+
+    const speciesId = fields.speciesId;
+    if (!speciesId) return reply.code(400).send({ error: "speciesId field is required" });
+    if (!fileBuffer) return reply.code(400).send({ error: "No file uploaded" });
+    if (!fileMimetype || !(fileMimetype in ACCEPTED_VIDEO_EXTENSION_BY_MIMETYPE)) {
+      return reply.code(400).send({ error: "Only MP4 or MOV video uploads are supported" });
+    }
+    const videoExtension = ACCEPTED_VIDEO_EXTENSION_BY_MIMETYPE[fileMimetype];
+
+    let chosenVolume: { baseDir: string; mountPath: string; volumeId: string } | null = null;
+    if (fields.volumeId) {
+      chosenVolume = await resolveChosenVolumeDestination(request.user!.id, fields.volumeId);
+      if (!chosenVolume) return reply.code(400).send({ error: "That drive isn't connected right now" });
+    }
+
+    let tripBaseDir: string | null = null;
+    let tripId: string | null = null;
+    if (fields.tripId) {
+      const tripRes = await pool.query<{ id: string; source_folder: string }>(
+        `SELECT id, source_folder FROM trips WHERE id = $1 AND user_id = $2`,
+        [fields.tripId, request.user!.id],
+      );
+      if (tripRes.rows.length === 0) return reply.code(400).send({ error: "Unknown trip" });
+      tripBaseDir = tripRes.rows[0].source_folder;
+      tripId = tripRes.rows[0].id;
+    }
+
+    let albumId: string | null = null;
+    if (fields.albumId) {
+      const albumRes = await pool.query<{ id: string }>(`SELECT id FROM albums WHERE id = $1 AND user_id = $2`, [
+        fields.albumId,
+        request.user!.id,
+      ]);
+      if (albumRes.rows.length === 0) return reply.code(400).send({ error: "Unknown album" });
+      albumId = albumRes.rows[0].id;
+    }
+
+    const speciesRes = await pool.query<{
+      id: string;
+      common_name: string | null;
+      scientific_name: string;
+      taxon_class: string | null;
+      family: string | null;
+      inat_iconic_taxon: string | null;
+    }>(`SELECT id, common_name, scientific_name, taxon_class, family, inat_iconic_taxon FROM species WHERE id = $1`, [speciesId]);
+    if (speciesRes.rows.length === 0) return reply.code(400).send({ error: "Unknown species" });
+    const species = speciesRes.rows[0];
+
+    const fingerprint = createHash("sha256").update(fileBuffer).digest("hex");
+
+    // ffprobe/ffmpeg and exiftool all need a real file path, not a buffer.
+    const tmpDir = path.join(APP_DATA_DIR, "tmp");
+    mkdirSync(tmpDir, { recursive: true });
+    const tmpPath = path.join(tmpDir, `${randomUUID()}${videoExtension}`);
+    writeFileSync(tmpPath, fileBuffer);
+
+    let exif: ExtractedExif;
+    try {
+      // exiftool reads QuickTime/MP4 metadata too (CreateDate, GPS) — best-effort here, same as
+      // a photo upload; a video with no embedded metadata just gets null takenAt/lat/lon.
+      const tags = await readExifTags(tmpPath);
+      exif = await extractExif(tmpPath, tags);
+    } catch {
+      exif = { takenAt: null, lat: null, lon: null, cameraModel: null, lens: null, focalLengthMm: null, aperture: null, shutter: null, iso: null };
+    }
+
+    const userId = request.user!.id;
+    const organizeRes = await pool.query<{
+      organize_originals_by_year: boolean;
+      organize_originals_by_location: boolean;
+    }>(`SELECT organize_originals_by_year, organize_originals_by_location FROM users WHERE id = $1`, [userId]);
+    const organizeByYear = organizeRes.rows[0]?.organize_originals_by_year ?? false;
+    const organizeByLocation = organizeRes.rows[0]?.organize_originals_by_location ?? false;
+    const locationLabel = fields.locationLabel?.trim() || null;
+
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+
+      const captureRes = await client.query<{ id: string }>(
+        `INSERT INTO captures
+           (user_id, species_id, fingerprint, taken_at, lat, lon, camera_model, lens, focal_length_mm, aperture, shutter, iso, trip_id, region_id, location_label)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+         RETURNING id`,
+        [
+          userId,
+          speciesId,
+          fingerprint,
+          exif.takenAt,
+          exif.lat,
+          exif.lon,
+          exif.cameraModel,
+          exif.lens,
+          exif.focalLengthMm,
+          exif.aperture,
+          exif.shutter,
+          exif.iso,
+          tripId,
+          fields.regionId || null,
+          locationLabel,
+        ],
+      );
+      const captureId = captureRes.rows[0].id;
+
+      const photoId = randomUUID();
+      const { displayPath, thumbPath, width, height, durationSeconds, previewPath } = await generateVideoDerivatives(tmpPath, photoId);
+
+      const photoRes = await client.query<{ id: string }>(
+        `INSERT INTO photos (id, capture_id, display_path, thumb_path, width, height, kind, duration_seconds, preview_path)
+         VALUES ($1,$2,$3,$4,$5,$6,'video',$7,$8) RETURNING id`,
+        [photoId, captureId, displayPath, thumbPath, width, height, durationSeconds, previewPath],
+      );
+
+      await client.query(`UPDATE captures SET current_photo_id = $1 WHERE id = $2`, [photoRes.rows[0].id, captureId]);
+
+      await client.query(
+        `INSERT INTO user_species (user_id, species_id, state, cover_photo_id, first_collected)
+         VALUES ($1, $2, 'collected', $3, COALESCE($4::date, CURRENT_DATE))
+         ON CONFLICT (user_id, species_id) DO UPDATE SET
+           state = 'collected',
+           cover_photo_id = COALESCE(user_species.cover_photo_id, EXCLUDED.cover_photo_id)`,
+        [userId, speciesId, photoRes.rows[0].id, exif.takenAt],
+      );
+
+      const folder = originalsFolder(tripBaseDir ?? chosenVolume?.baseDir ?? ORIGINALS_DIR, {
+        organizeByYear,
+        organizeByLocation,
+        locationLabel,
+        speciesFolderName: await resolveSpeciesFolderName(userId, species.id),
+        taxonClass: species.taxon_class,
+        inatIconicTaxon: species.inat_iconic_taxon,
+        namingStyles: [],
+        takenAt: exif.takenAt,
+        subfolder: "Video",
+      });
+      mkdirSync(folder, { recursive: true });
+      const finalRef = uniqueDestination(folder, originalFilename(fileName, exif.takenAt, videoExtension));
+      copyFileSync(tmpPath, finalRef);
+
+      const volumeTag = chosenVolume
+        ? { volumeId: chosenVolume.volumeId, volumeRelativePath: finalRef.slice(chosenVolume.mountPath.length) }
+        : { volumeId: null, volumeRelativePath: null };
+
+      await client.query(
+        `INSERT INTO originals (capture_id, kind, ref_type, ref, managed, content_hash, file_size, volume_id, volume_relative_path)
+         VALUES ($1, 'video', 'path', $2, true, $3, $4, $5, $6)`,
+        [captureId, finalRef, fingerprint, fileBuffer.length, volumeTag.volumeId, volumeTag.volumeRelativePath],
+      );
+
+      if (albumId) {
+        await client.query(
+          `INSERT INTO album_captures (album_id, capture_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+          [albumId, captureId],
+        );
+      }
+
+      await client.query("COMMIT");
+      return reply.code(201).send({ captureId, photoId: photoRes.rows[0].id });
+    } catch (err) {
+      await client.query("ROLLBACK");
+      throw err;
+    } finally {
+      client.release();
+      rmSync(tmpPath, { force: true });
     }
   });
 }

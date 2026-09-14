@@ -140,16 +140,18 @@ export const CATALOG_SEED_URL =
 // fine — seedCatalogIfEmpty just falls back to a live download in that case.
 export const BUNDLED_CATALOG_SEED_DIR = path.join(REPO_ROOT, "catalog-seed");
 
-// Species auto-suggest (see species/embeddings.ts). A quantized CLIP ViT-L/14 vision encoder —
-// ~307MB, downloaded automatically on first use (or bundled — see resolveModelPath), same
-// "just a URL to a static file" shape as PACK_INDEX_URL/MAP_DOWNLOAD_URL above, so no new
-// hosting infrastructure is needed. Cached under APP_DATA_DIR once fetched (see
-// ensureModelDownloaded), never re-fetched unless EMBEDDING_MODEL_VERSION changes. Upgraded
-// from the original ViT-B/32 after measuring same-species-vs-cross-species cosine similarity
-// gap on this app's own reference photos: B/32 0.174, ViT-B/16 0.179 (marginal), ViT-L/14
-// 0.207 (a real, meaningfully bigger gap — the size/accuracy tradeoff worth paying). Not
-// BioCLIP: BioCLIP has no ready-made ONNX export, and an earlier test of a mislabeled
-// "BioCLIP-2" ONNX port actually measured WORSE than plain CLIP on this app's own data.
+// Species auto-suggest + gallery semantic search (see species/embeddings.ts). A quantized CLIP
+// ViT-L/14 vision encoder — ~307MB, deliberately NOT bundled at build time (Docker image or
+// desktop installer): it's an opt-in, offload-able download fetched into APP_DATA_DIR either
+// the first time it's actually needed or explicitly from Settings > Offline Data, same
+// "just a URL to a static file" shape as PACK_INDEX_URL/MAP_DOWNLOAD_URL above, and the same
+// download/offload UI pattern the offline basemap already has. Cached under APP_DATA_DIR once
+// fetched, never re-fetched unless EMBEDDING_MODEL_VERSION changes. Upgraded from the original
+// ViT-B/32 after measuring same-species-vs-cross-species cosine similarity gap on this app's
+// own reference photos: B/32 0.174, ViT-B/16 0.179 (marginal), ViT-L/14 0.207 (a real,
+// meaningfully bigger gap — the size/accuracy tradeoff worth paying). Not BioCLIP: BioCLIP has
+// no ready-made ONNX export, and an earlier test of a mislabeled "BioCLIP-2" ONNX port actually
+// measured WORSE than plain CLIP on this app's own data.
 export const EMBEDDING_MODEL_URL =
   process.env.EMBEDDING_MODEL_URL ?? "https://huggingface.co/Xenova/clip-vit-large-patch14/resolve/main/onnx/vision_model_quantized.onnx";
 // Bumped whenever EMBEDDING_MODEL_URL points at a different model — every stored vector is

@@ -32,6 +32,11 @@ export async function importTripFile(
   absolutePath: string,
   sourceFolder: string,
   relativePath: string,
+  // One region picked for the whole import batch, same convention PhotoImportRows already uses
+  // for the main upload flow — a scanned trip folder previously had no region concept at all, so
+  // its captures went untagged even when the user picked one (see uploads/routes.ts's own
+  // regionId handling for that flow).
+  regionId: string | null,
 ): Promise<TripImportResult> {
   const speciesRes = await pool.query<{ id: string; scientific_name: string }>(`SELECT id, scientific_name FROM species WHERE id = $1`, [speciesId]);
   if (speciesRes.rows.length === 0) throw new Error("Unknown species");
@@ -55,13 +60,14 @@ export async function importTripFile(
 
     const captureRes = await client.query<{ id: string }>(
       `INSERT INTO captures
-         (user_id, species_id, trip_id, fingerprint, exif_fingerprint, exif_fingerprint_loose, taken_at, lat, lon, camera_model, lens, focal_length_mm, aperture, shutter, iso)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+         (user_id, species_id, trip_id, region_id, fingerprint, exif_fingerprint, exif_fingerprint_loose, taken_at, lat, lon, camera_model, lens, focal_length_mm, aperture, shutter, iso)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
        RETURNING id`,
       [
         userId,
         speciesId,
         tripId,
+        regionId,
         contentHash,
         exifFingerprint.strict,
         exifFingerprint.loose,

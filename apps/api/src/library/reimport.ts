@@ -36,6 +36,7 @@ import { RAW_EXTENSIONS } from "../uploads/rawExtensions.js";
 import { matchSpeciesByKeywords, groupByScientificName, type KeywordMatchedSpecies } from "../species/matchByKeywords.js";
 import { matchSpeciesFromFilename } from "../species/matchByFilename.js";
 import { moveManagedOriginalToSpeciesFolder } from "../uploads/routes.js";
+import { recoverAlbumMembership } from "../albums/albumIndex.js";
 
 const JPEG_EXTENSIONS = new Set([".jpg", ".jpeg"]);
 
@@ -299,6 +300,9 @@ export async function recoverJpeg(
     );
 
     await client.query("COMMIT");
+    // Best-effort — see albumIndex.ts's own comment on why this never fails the whole recovery
+    // over a missing or unreadable manifest.
+    await recoverAlbumMembership(userId, finalPath, captureId).catch(() => {});
     return { status: "recovered", captureId, photoId: photoRes.rows[0].id, scientificName: species.scientific_name };
   } catch (err) {
     await client.query("ROLLBACK");

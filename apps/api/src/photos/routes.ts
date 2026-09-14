@@ -1,8 +1,8 @@
 // Authenticated file streaming —security requirement, display/thumb
 // paths are never served via a static mount. Every request is checked against ownership here.
-import { createReadStream, existsSync } from "node:fs";
+import { createReadStream, existsSync, statSync } from "node:fs";
 import path from "node:path";
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { pool } from "../db.js";
 import { requireAuth } from "../auth/session.js";
 import { signedS3Url } from "../photoSources/s3.js";
@@ -27,7 +27,11 @@ interface ResolvedOriginalRef {
   volumeLabel?: string;
 }
 
-async function resolveOriginal(photoId: string, userId: string, kind: "jpeg" | "raw" = "jpeg"): Promise<ResolvedOriginalRef | null> {
+async function resolveOriginal(
+  photoId: string,
+  userId: string,
+  kind: "jpeg" | "raw" | "video" = "jpeg",
+): Promise<ResolvedOriginalRef | null> {
   // photos.id -> captures.id -> originals.capture_id (originals is keyed by capture, since a
   // capture has at most one original per kind, independent of which rendition is "current").
   const res = await pool.query<{
@@ -49,6 +53,51 @@ async function resolveOriginal(photoId: string, userId: string, kind: "jpeg" | "
 
   const resolved = await resolveOriginalPath({ ref: row.ref, volume_id: row.volume_id, volume_relative_path: row.volume_relative_path });
   return { ref: resolved.path, refType: row.ref_type, connected: resolved.connected, volumeLabel: resolved.volumeLabel };
+}
+
+async function resolveVideoPreviewPath(photoId: string, userId: string): Promise<string | null> {
+  const res = await pool.query<{ preview_path: string | null }>(
+    `SELECT p.preview_path
+     FROM photos p
+     JOIN captures c ON c.id = p.capture_id
+     WHERE p.id = $1 AND c.user_id = $2 AND p.kind = 'video'`,
+    [photoId, userId],
+  );
+  return res.rows[0]?.preview_path ?? null;
+}
+
+// Streams a local file with HTTP Range support (206 Partial Content) — needed for video
+// scrubbing/seeking, which the plain full-file streaming the other routes here use doesn't
+// support. Kept generic (not video-specific) in case another large-file route ever needs it.
+//
+// Every branch must `return reply.send(...)` (not call it and fall through) — an async Fastify
+// handler that doesn't return its reply.send() call has its own resolved value (undefined)
+// race the stream, and Fastify ends up sending a 0-byte response with a stale/absent
+// Content-Length despite the stream itself never erroring.
+function sendRangeableFile(request: FastifyRequest, reply: FastifyReply, filePath: string, contentType: string): FastifyReply {
+  const stat = statSync(filePath);
+  const range = request.headers.range as string | undefined;
+  reply.header("Accept-Ranges", "bytes");
+  reply.header("Content-Type", contentType);
+
+  if (!range) {
+    reply.header("Content-Length", stat.size);
+    return reply.send(createReadStream(filePath));
+  }
+
+  const match = /^bytes=(\d*)-(\d*)$/.exec(range);
+  if (!match) {
+    return reply.code(416).header("Content-Range", `bytes */${stat.size}`).send();
+  }
+  const start = match[1] ? parseInt(match[1], 10) : 0;
+  const end = match[2] ? parseInt(match[2], 10) : stat.size - 1;
+  if (start >= stat.size || end >= stat.size || start > end) {
+    return reply.code(416).header("Content-Range", `bytes */${stat.size}`).send();
+  }
+  reply.code(206);
+  reply.header("Content-Range", `bytes ${start}-${end}/${stat.size}`);
+  reply.header("Content-Length", end - start + 1);
+  return reply.send(createReadStream(filePath, { start, end }));
 }
 
 export async function photoRoutes(app: FastifyInstance): Promise<void> {
@@ -128,4 +177,28 @@ export async function photoRoutes(app: FastifyInstance): Promise<void> {
       return reply.send(createReadStream(original.ref));
     },
   );
+
+  // Playback route — prefers the transcoded preview (photos.preview_path) when one was
+  // generated at upload time (see uploads/image.ts's generateVideoDerivatives); a source
+  // that was already natively web-safe (H.264/AAC-in-MP4) has no preview and is served
+  // directly from `originals`. Range support (sendRangeableFile) is what actually lets
+  // Lightbox's <video> element scrub/seek — a plain full-file stream can only ever play
+  // from the start.
+  app.get<{ Params: { id: string } }>("/photos/:id/video", { preHandler: requireAuth }, async (request, reply) => {
+    const previewPath = await resolveVideoPreviewPath(request.params.id, request.user!.id);
+    if (previewPath && existsSync(previewPath)) {
+      return sendRangeableFile(request, reply, previewPath, "video/mp4");
+    }
+
+    const original = await resolveOriginal(request.params.id, request.user!.id, "video");
+    if (!original) return reply.code(404).send({ error: "No video for this photo" });
+    if (!original.connected) {
+      return reply.code(409).send({ error: "This video's drive isn't connected right now", volumeLabel: original.volumeLabel });
+    }
+    if (!original.ref || !existsSync(original.ref)) {
+      return reply.code(404).send({ error: "Video not found" });
+    }
+    const contentType = original.ref.toLowerCase().endsWith(".mov") ? "video/quicktime" : "video/mp4";
+    return sendRangeableFile(request, reply, original.ref, contentType);
+  });
 }
