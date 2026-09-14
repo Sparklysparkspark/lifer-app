@@ -14,3 +14,5 @@ packages/data-pipeline/data/build/refresh-all-provinces-checkpoint.json
 packages/data-pipeline/data/gbif-country-cache/
 packages/data-pipeline/data/province-aggregate-cache/
 .cache/
+packages/data-pipeline/data/ebird-spplist-cache/
+packages/data-pipeline/data/inat-species-counts-cache/
