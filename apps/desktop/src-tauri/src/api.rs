@@ -114,6 +114,13 @@ pub async fn start_api(app: &AppHandle, data_dir: Option<String>) -> Result<(), 
     // self-exits once it's gone.
     envs.insert("LIFER_WATCH_PARENT_PID".into(), std::process::id().to_string());
     envs.insert("WEB_DIST_DIR".into(), web_dist.to_string_lossy().into_owned());
+    // Same "one dedicated, rolling GitHub Release" shape as CATALOG_SEED_URL (embedded_db.rs) —
+    // re-uploading a new asset to this same "map-latest" tag publishes an update without
+    // needing a new app release. Only inserted when not already set, so a real dev/CI
+    // MAP_DOWNLOAD_URL override (e.g. pointing at a local test file) still wins.
+    envs
+        .entry("MAP_DOWNLOAD_URL".into())
+        .or_insert_with(|| "https://github.com/Sparklysparkspark/lifer-app/releases/download/map-latest/world-z8.pmtiles".into());
 
     // An explicit DATABASE_URL in the environment (development against a real Postgres) is
     // always respected as-is; otherwise local mode is fully self-contained — no separately-
@@ -321,4 +328,34 @@ pub async fn wait_for_server(url: &str, timeout_ms: u64) -> Result<(), String> {
 
 pub async fn is_reachable(url: &str) -> bool {
     fetch_ok(url).await
+}
+
+// Backs Settings' (and the picker's) "Sign in" step — a real credential check against the
+// REMOTE server's own /auth/login, done natively here rather than as a browser fetch() from the
+// renderer, since an arbitrary self-hosted server has no reason to send this app's origin
+// permissive CORS headers. This intentionally does NOT establish the actual browsing session
+// (the cookie login sets here is just discarded with this one-off client) — it only answers
+// "are these credentials good" before the window commits to switching. The real, cookie-backed
+// login still happens the normal way, via LoginPage, once the window has actually navigated to
+// that server's own origin.
+pub async fn test_login(url: &str, email: &str, password: &str) -> Result<(), String> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(8))
+        .build()
+        .map_err(|e| e.to_string())?;
+    let res = client
+        .post(format!("{url}/auth/login"))
+        .json(&serde_json::json!({ "email": email, "password": password }))
+        .send()
+        .await
+        .map_err(|_| "Couldn't reach that server.".to_string())?;
+    if res.status().is_success() {
+        return Ok(());
+    }
+    #[derive(serde::Deserialize)]
+    struct ErrorBody {
+        error: Option<String>,
+    }
+    let message = res.json::<ErrorBody>().await.ok().and_then(|b| b.error).unwrap_or_else(|| "Invalid email or password".into());
+    Err(message)
 }

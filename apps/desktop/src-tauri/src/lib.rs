@@ -1,9 +1,10 @@
 mod api;
 mod embedded_db;
+mod network;
 mod store;
 
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
-use tauri::{AppHandle, Listener, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
+use tauri::{AppHandle, Emitter, Listener, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_opener::OpenerExt;
 
@@ -34,11 +35,12 @@ fn is_trusted_sender(window: &WebviewWindow) -> bool {
     let config = store::read_config(&app_data_dir(window.app_handle()));
     if let Some(cfg) = config {
         if cfg.mode.as_deref() == Some("remote") {
-            // Either the single-URL config or, with IP switching on, whichever of
-            // local_url/external_url we're currently pointed at — a window navigated to either
-            // one is equally "our own configured server," not just whichever URL happens to be
-            // stored under the legacy single-field name.
-            let candidates = [cfg.server_url, cfg.local_url, cfg.external_url];
+            // Either the single-URL config or, with Automatic URL Switching on, whichever of
+            // local_url/external_urls we're currently pointed at — a window navigated to any one
+            // of them is equally "our own configured server," not just whichever URL happens to
+            // be stored under the legacy single-field name.
+            let mut candidates = vec![cfg.server_url, cfg.local_url];
+            candidates.extend(cfg.external_urls.unwrap_or_default().into_iter().map(Some));
             for candidate in candidates.into_iter().flatten() {
                 if let Ok(server) = url::Url::parse(&candidate) {
                     if url.host_str() == server.host_str() && url.scheme() == server.scheme() {
@@ -93,13 +95,16 @@ struct ChooseSetupInput {
     mode: String,
     #[serde(rename = "serverUrl")]
     server_url: Option<String>,
-    // Only present when the "Enable IP switching" checkbox is on — see picker.html. Both are
-    // required together in that case; ip_switching itself isn't persisted (its presence is
-    // implied by local_url/external_url both being set in the saved config).
+    // Only present when "Automatic URL Switching" is on — see picker.html. local_url and
+    // external_urls (at least one entry) are required together in that case; the feature being
+    // on isn't persisted as its own flag, its presence is implied by both being set in the saved
+    // config.
     #[serde(rename = "localUrl")]
     local_url: Option<String>,
-    #[serde(rename = "externalUrl")]
-    external_url: Option<String>,
+    #[serde(rename = "localNetworkName")]
+    local_network_name: Option<String>,
+    #[serde(rename = "externalUrls")]
+    external_urls: Option<Vec<String>>,
     #[serde(rename = "offlineMode")]
     offline_mode: Option<bool>,
 }
@@ -125,23 +130,34 @@ async fn choose_setup(window: WebviewWindow, app: AppHandle, config: ChooseSetup
     }
 
     if config.mode == "remote" {
-        // IP switching: both fields present means the checkbox was on. Validate each URL
-        // independently (a network can genuinely only reach one of the two right now — e.g.
-        // setting this up while at home, the external/nginx-forwarded address may not resolve
-        // at all) and navigate to whichever answered, same "try local first" preference
-        // apply_config uses on every later launch.
-        if let (Some(local_url), Some(external_url)) = (&config.local_url, &config.external_url) {
+        // Automatic URL Switching: local_url + at least one external URL present means it's on.
+        // Validate the local address and every external one (a network can genuinely only reach
+        // some of them right now — e.g. setting this up while at home, an nginx-forwarded
+        // address may not resolve at all) and navigate to whichever answered first, same
+        // local-then-ordered-externals preference apply_config uses on every later launch.
+        if let (Some(local_url), Some(external_urls)) = (&config.local_url, &config.external_urls) {
+            if external_urls.is_empty() {
+                return ChooseSetupResult { ok: None, canceled: None, error: Some("At least one external URL is required.".into()) };
+            }
             let local_trimmed = local_url.trim_end_matches('/').to_string();
-            let external_trimmed = external_url.trim_end_matches('/').to_string();
+            let external_trimmed: Vec<String> = external_urls.iter().map(|u| u.trim_end_matches('/').to_string()).collect();
             let local_ok = api::is_reachable(&format!("{local_trimmed}/health")).await;
-            let external_ok = if local_ok { true } else { api::is_reachable(&format!("{external_trimmed}/health")).await };
-            if !local_ok && !external_ok {
+            let mut target = if local_ok { Some(local_trimmed.clone()) } else { None };
+            if target.is_none() {
+                for url in &external_trimmed {
+                    if api::is_reachable(&format!("{url}/health")).await {
+                        target = Some(url.clone());
+                        break;
+                    }
+                }
+            }
+            let Some(target) = target else {
                 return ChooseSetupResult {
                     ok: None,
                     canceled: None,
-                    error: Some("Couldn't reach either address. Check the URLs and that the server is running.".into()),
+                    error: Some("Couldn't reach any of the addresses. Check the URLs and that the server is running.".into()),
                 };
-            }
+            };
             let data_dir = app_data_dir(&app);
             let _ = store::write_config(
                 &data_dir,
@@ -149,13 +165,14 @@ async fn choose_setup(window: WebviewWindow, app: AppHandle, config: ChooseSetup
                     mode: Some("remote".into()),
                     data_dir: None,
                     server_url: None,
-                    local_url: Some(local_trimmed.clone()),
-                    external_url: Some(external_trimmed.clone()),
+                    local_url: Some(local_trimmed),
+                    local_network_name: config.local_network_name.clone(),
+                    external_urls: Some(external_trimmed),
+                    external_url: None,
                     offline_mode: config.offline_mode,
                 },
             );
             api::stop_api(&app);
-            let target = if local_ok { local_trimmed } else { external_trimmed };
             let _ = window.navigate(target.parse().unwrap());
             return ChooseSetupResult { ok: Some(true), canceled: None, error: None };
         }
@@ -179,6 +196,8 @@ async fn choose_setup(window: WebviewWindow, app: AppHandle, config: ChooseSetup
                 data_dir: None,
                 server_url: Some(trimmed.clone()),
                 local_url: None,
+                local_network_name: None,
+                external_urls: None,
                 external_url: None,
                 offline_mode: config.offline_mode,
             },
@@ -202,6 +221,8 @@ async fn choose_setup(window: WebviewWindow, app: AppHandle, config: ChooseSetup
             data_dir: Some(data_dir.clone()),
             server_url: None,
             local_url: None,
+            local_network_name: None,
+            external_urls: None,
             external_url: None,
             offline_mode: None,
         },
@@ -218,8 +239,56 @@ async fn choose_setup(window: WebviewWindow, app: AppHandle, config: ChooseSetup
     ChooseSetupResult { ok: Some(true), canceled: None, error: None }
 }
 
+#[derive(serde::Serialize)]
+struct CurrentNetworkInfo {
+    #[serde(rename = "localIp")]
+    local_ip: Option<String>,
+    #[serde(rename = "wifiName")]
+    wifi_name: Option<String>,
+}
+
+// Backs Settings' "use current connection" button for Automatic URL Switching's local-network
+// fields — autofills the local URL (from the LAN IP, still requiring the user to add the
+// server's port/scheme) and the network-name field (from the live WiFi SSID) in one click
+// instead of asking the user to go find either value themselves.
+#[tauri::command]
+fn current_network_info(window: WebviewWindow) -> CurrentNetworkInfo {
+    if !is_trusted_sender(&window) {
+        return CurrentNetworkInfo { local_ip: None, wifi_name: None };
+    }
+    CurrentNetworkInfo { local_ip: network::current_lan_ip(), wifi_name: network::current_wifi_ssid() }
+}
+
+// Backs the live green-checkmark test fired the moment a URL is added/edited in Settings —
+// reuses the exact same reachability check apply_config/choose_setup use at connect time, so
+// "tested reachable here" means the same thing it will at the next real launch.
+#[tauri::command]
+async fn test_endpoint(window: WebviewWindow, url: String) -> bool {
+    if !is_trusted_sender(&window) {
+        return false;
+    }
+    let trimmed = url.trim_end_matches('/');
+    api::is_reachable(&format!("{trimmed}/health")).await
+}
+
+// Backs Settings' "Sign in" step for connecting to a remote server — see api::test_login's own
+// comment for why this check runs natively instead of as a renderer fetch().
+#[tauri::command]
+async fn test_login(window: WebviewWindow, url: String, email: String, password: String) -> Result<(), String> {
+    if !is_trusted_sender(&window) {
+        return Err("Not allowed from this page.".into());
+    }
+    let trimmed = url.trim_end_matches('/');
+    api::test_login(trimmed, &email, &password).await
+}
+
 fn build_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     let change_server = MenuItem::with_id(app, "change-server", "Change Server / Library…", true, None::<&str>)?;
+    // Finder-style delete accelerator (CmdOrCtrl+Backspace, not bare Backspace/Delete — those
+    // stay reserved for text-field editing everywhere else in the app). Fires the exact same
+    // frontend handler as the `Delete` DOM keyboard shortcut (see useKeyboardShortcuts usage in
+    // GalleryPage) — one action, two triggers.
+    let delete_selected = MenuItem::with_id(app, "delete-selected", "Delete", true, Some("CmdOrCtrl+Backspace"))?;
     let lifer_menu = Submenu::with_items(
         app,
         "Lifer",
@@ -250,6 +319,8 @@ fn build_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
             &PredefinedMenuItem::copy(app, None)?,
             &PredefinedMenuItem::paste(app, None)?,
             &PredefinedMenuItem::select_all(app, None)?,
+            &PredefinedMenuItem::separator(app)?,
+            &delete_selected,
         ],
     )?;
     let window_menu = Submenu::with_items(
@@ -280,16 +351,35 @@ async fn apply_config(app: AppHandle, window: WebviewWindow) {
             }
         }
         Some(cfg) if cfg.mode.as_deref() == Some("remote") => {
-            // IP switching on: try the local-network address first with a short timeout (see
-            // api::fetch_ok's own 2s client timeout) — on the home network this resolves almost
-            // immediately; anywhere else it fails fast and falls through to the external
-            // (nginx-forwarded) address instead. Neither answering just navigates to the
-            // external one anyway (same permissive "let the webview show its own connection
-            // error" behavior the single-URL path below already had) rather than blocking setup
-            // on a dialog here — a transient network hiccup shouldn't be harder to get past than
-            // it was before this feature existed.
-            if let (Some(local_url), Some(external_url)) = (&cfg.local_url, &cfg.external_url) {
-                let target = if api::is_reachable(&format!("{local_url}/health")).await { local_url.clone() } else { external_url.clone() };
+            // Automatic URL Switching on: prefer the local address only when we're actually on
+            // its designated Wi-Fi network right now (cfg.local_network_name being None means a
+            // config saved before this field existed — keep its old "always try local first"
+            // behavior rather than breaking it). Reachability is still checked even on a network
+            // match, as a safety net for "right network, server's just down right now" — falling
+            // through to the ordered external list either way. Nothing here answering just
+            // navigates to the last external one anyway (same permissive "let the webview show
+            // its own connection error" behavior the single-URL path below already had) rather
+            // than blocking setup on a dialog — a transient network hiccup shouldn't be harder to
+            // get past than it was before this feature existed.
+            if let Some(local_url) = &cfg.local_url {
+                let on_local_network = match &cfg.local_network_name {
+                    Some(name) => network::current_wifi_ssid().as_deref() == Some(name.as_str()),
+                    None => true,
+                };
+                let external_urls = cfg.external_urls.clone().unwrap_or_default();
+                let mut target = None;
+                if on_local_network && api::is_reachable(&format!("{local_url}/health")).await {
+                    target = Some(local_url.clone());
+                }
+                if target.is_none() {
+                    for url in &external_urls {
+                        if api::is_reachable(&format!("{url}/health")).await {
+                            target = Some(url.clone());
+                            break;
+                        }
+                    }
+                }
+                let target = target.or_else(|| external_urls.last().cloned()).unwrap_or_else(|| local_url.clone());
                 let _ = window.navigate(target.parse().unwrap());
             } else if let Some(server_url) = cfg.server_url {
                 let _ = window.navigate(server_url.parse().unwrap());
@@ -315,7 +405,10 @@ pub fn run() {
             get_config,
             choose_setup,
             platform,
-            set_window_theme_background
+            set_window_theme_background,
+            current_network_info,
+            test_endpoint,
+            test_login
         ])
         .setup(|app| {
             let handle = app.handle().clone();
@@ -328,6 +421,8 @@ pub fn run() {
                         api::stop_api(app);
                         let _ = window.navigate("tauri://localhost/picker.html".parse().unwrap());
                     }
+                } else if event.id() == "delete-selected" {
+                    let _ = app.emit("menu:delete-selected", ());
                 }
             });
 
@@ -380,10 +475,18 @@ pub fn run() {
                     eprintln!("[lifer-debug] on_navigation fired for: {url}");
                     let is_local_asset = url.scheme() == "tauri";
                     let is_local_api = url.host_str() == Some("127.0.0.1") && url.port() == Some(api::LOCAL_PORT);
-                    let is_configured_remote = store::read_config(&app_data_dir(&nav_handle))
-                        .and_then(|cfg| cfg.server_url)
-                        .and_then(|s| url::Url::parse(&s).ok())
-                        .is_some_and(|server| server.host_str() == url.host_str() && server.scheme() == url.scheme());
+                    // Any of server_url/local_url/external_urls counts as "our own configured
+                    // server" here — matches is_trusted_sender's own candidate list, since a
+                    // window mid-navigation to any of them is just as legitimate as one already
+                    // sitting on it (Automatic URL Switching's whole point is that this window
+                    // moves between these addresses over its lifetime, not just at launch).
+                    let is_configured_remote = store::read_config(&app_data_dir(&nav_handle)).is_some_and(|cfg| {
+                        let mut candidates = vec![cfg.server_url, cfg.local_url];
+                        candidates.extend(cfg.external_urls.unwrap_or_default().into_iter().map(Some));
+                        candidates.into_iter().flatten().any(|s| {
+                            url::Url::parse(&s).is_ok_and(|server| server.host_str() == url.host_str() && server.scheme() == url.scheme())
+                        })
+                    });
                     if is_local_asset || is_local_api || is_configured_remote {
                         return true;
                     }
