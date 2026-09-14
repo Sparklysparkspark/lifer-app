@@ -12,8 +12,9 @@ export function regionPackFileName(regionName: string, taxon: string | null): st
   return `${sanitize(regionName).toLowerCase()}${suffix}.pack.tar.gz`;
 }
 
-export function seaZonePackFileName(zoneName: string): string {
-  return `seazone-${sanitize(zoneName).toLowerCase()}.pack.tar.gz`;
+export function seaZonePackFileName(zoneName: string, taxon: string | null): string {
+  const suffix = taxon ? `-${taxon}` : "";
+  return `seazone-${sanitize(zoneName).toLowerCase()}${suffix}.pack.tar.gz`;
 }
 
 export function packIdFromFileName(fileName: string): string {

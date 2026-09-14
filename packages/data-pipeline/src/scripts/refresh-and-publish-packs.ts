@@ -37,7 +37,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import * as tar from "tar";
 import { pool } from "../db.js";
-import { regionPackFileName } from "../build/pack-id.js";
+import { regionPackFileName, seaZonePackFileName } from "../build/pack-id.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.join(__dirname, "..", "..", "..", "..");
@@ -68,6 +68,10 @@ const TAXON_CLASSES = [
   "crustacea",
   "sponges_tunicates_other",
 ];
+
+// Mirrors build-region-pack.ts's own TAXA_WITH_SEA_ZONE_DATA — only these taxa currently have
+// any sea_zone_species data at all.
+const SEA_ZONE_TAXA = ["actinopterygii", "elasmobranchii", "aquatic_mammalia"];
 
 interface IndexPack {
   id: string;
@@ -136,6 +140,21 @@ async function taxonReadiness(countryId: string, taxon: string): Promise<{ total
   return { total: Number(res.rows[0].total), enriched: Number(res.rows[0].enriched) };
 }
 
+// Same readiness gate as taxonReadiness, scoped to a sea zone's own species instead of a
+// country's — a zone whose fish aren't all enriched yet stays held back the same way a
+// country's fish pack would.
+async function seaZoneTaxonReadiness(zoneId: string, taxon: string | null): Promise<{ total: number; enriched: number }> {
+  const taxonFilter = taxon ? "AND s.taxon_class = $2" : "";
+  const res = await pool.query<{ total: string; enriched: string }>(
+    `SELECT count(*) AS total, count(*) FILTER (WHERE s.enriched_at IS NOT NULL) AS enriched
+     FROM sea_zone_species zs
+     JOIN species s ON s.id = zs.species_id
+     WHERE zs.sea_zone_id = $1 ${taxonFilter}`,
+    taxon ? [zoneId, taxon] : [zoneId],
+  );
+  return { total: Number(res.rows[0].total), enriched: Number(res.rows[0].enriched) };
+}
+
 async function computedCountries(namesFilter: string[] | null): Promise<Array<{ id: string; name: string }>> {
   const res = await pool.query<{ id: string; name: string }>(
     `SELECT DISTINCT r.id, r.name
@@ -171,7 +190,40 @@ async function main() {
   let unchanged = 0;
   let changed = 0;
 
+  const zones = countriesArg ? [] : (await pool.query<{ id: string; name: string }>(`SELECT id, name FROM sea_zones ORDER BY name`)).rows;
+  if (zones.length > 0) console.log(`[refresh-and-publish-packs] ${zones.length} sea zones to check`);
+
   try {
+    for (const zone of zones) {
+      for (const taxon of [null, ...SEA_ZONE_TAXA]) {
+        const { total, enriched } = await seaZoneTaxonReadiness(zone.id, taxon);
+        if (total === 0) continue;
+        checked++;
+        if (enriched < total) {
+          notReady++;
+          continue;
+        }
+
+        const label = taxon ? `${zone.name} / ${taxon}` : zone.name;
+        const buildArgs = ["tsx", "src/build/build-region-pack.ts", "--sea-zone", zone.name, scratchDir];
+        if (taxon) buildArgs.push(`--taxon=${taxon}`);
+        run(`build sea zone ${label}`, buildArgs, DATA_PIPELINE_DIR);
+        const fileName = seaZonePackFileName(zone.name, taxon);
+        const archivePath = path.join(scratchDir, fileName);
+        if (!existsSync(archivePath)) continue;
+
+        const newVersion = readManifestContentVersion(archivePath);
+        const publishedVersion = publishedById.get(path.basename(fileName, ".pack.tar.gz"))?.contentVersion;
+        if (newVersion === publishedVersion) {
+          unchanged++;
+          rmSync(archivePath);
+        } else {
+          changed++;
+          changedFiles.push(fileName);
+        }
+      }
+    }
+
     for (const country of countries) {
       for (const taxon of TAXON_CLASSES) {
         const { total, enriched } = await taxonReadiness(country.id, taxon);
