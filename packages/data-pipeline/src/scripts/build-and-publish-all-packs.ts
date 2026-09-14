@@ -12,6 +12,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, rmSync, statSync } from "node:fs";
 import path from "node:path";
 import { pool } from "../db.js";
+import { seaZonePackFileName, packIdFromFileName } from "../build/pack-id.js";
 
 // User's own explicit ordering (2026-09-01 conversation): personally-relevant countries first,
 // then a couple of large/biodiverse representatives for the continents nothing else covers yet
@@ -36,6 +37,12 @@ const PRIORITY_COUNTRIES = [
   "Czechia",
 ];
 const CONTINENT_REPRESENTATIVE_COUNTRIES = ["Brazil", "Colombia", "Kenya", "South Africa", "India", "Japan", "Australia", "New Zealand"];
+
+// Mirrors build-region-pack.ts's own TAXA_WITH_SEA_ZONE_DATA — only these taxa currently have
+// any sea_zone_species data at all, so building a sea-zone pack for anything else would always
+// yield 0 species (build-region-pack.ts's own taxon-scoped sea zone build already skips writing
+// an empty archive, but there's no point even invoking it for a taxon that can never have data).
+const SEA_ZONE_TAXA = ["actinopterygii", "elasmobranchii", "aquatic_mammalia"];
 
 // Mirrors build-region-pack.ts's own local TAXON_CLASSES tuple exactly (same duplication
 // pattern that file already uses instead of importing packages/shared's TaxonClass — see its
@@ -97,10 +104,25 @@ async function alreadyPublishedCountryNames(packsDir: string): Promise<Set<strin
   return new Set(index.packs.filter((p) => p.type === "region" && p.region && p.taxon != null).map((p) => p.region!));
 }
 
+// Every published pack's own id (any type) — used to skip a sea zone × taxon combo that's
+// already been built, the same "read from the actual index, not a hardcoded list" reasoning as
+// alreadyPublishedCountryNames above.
+async function alreadyPublishedPackIds(packsDir: string): Promise<Set<string>> {
+  const indexPath = path.join(packsDir, "pack-index.json");
+  if (!existsSync(indexPath)) return new Set();
+  const { readFileSync } = await import("node:fs");
+  const index = JSON.parse(readFileSync(indexPath, "utf8")) as { packs: Array<{ id: string }> };
+  return new Set(index.packs.map((p) => p.id));
+}
+
 async function main() {
   const args = process.argv.slice(2);
   const budgetGb = Number(args.find((a) => a.startsWith("--budget-gb="))?.split("=")[1] ?? "30");
   const packsDir = path.resolve(args.find((a) => a.startsWith("--packs-dir="))?.split("=")[1] ?? path.join(REPO_ROOT, "packages/data-pipeline/packs"));
+  // Rebuilds and republishes EVERY computed country, including ones already in the pack index
+  // — for when the underlying region_species data has changed (a recompute, a new distribution
+  // boost, etc.) and the previously-published packs are stale, not just missing.
+  const refreshPublished = args.includes("--refresh-published");
   const budgetBytes = budgetGb * 1024 * 1024 * 1024;
   mkdirSync(packsDir, { recursive: true });
 
@@ -112,15 +134,40 @@ async function main() {
   const computedNames = computedRes.rows.map((r) => r.name);
   const computedSet = new Set(computedNames);
 
+  // Sea zone packs first — a country pack's manifest lists these as dependencies (see
+  // build-region-pack.ts), so they need to exist (or already be published) by the time a
+  // country pack referencing them ships, though nothing here actually enforces that ordering
+  // strictly since the client applies whatever it can and queues the rest.
+  const publishedPackIds = await alreadyPublishedPackIds(packsDir);
+  const zonesRes = await pool.query<{ name: string }>(`SELECT name FROM sea_zones ORDER BY name`);
+  let seaZonesBuilt = 0;
+  for (const zone of zonesRes.rows) {
+    for (const taxon of [null, ...SEA_ZONE_TAXA]) {
+      const packId = packIdFromFileName(seaZonePackFileName(zone.name, taxon));
+      if (publishedPackIds.has(packId)) continue;
+      try {
+        const args = ["tsx", "src/build/build-region-pack.ts", "--sea-zone", zone.name, packsDir];
+        if (taxon) args.push(`--taxon=${taxon}`);
+        run("npx", args, path.join(REPO_ROOT, "packages/data-pipeline"));
+        seaZonesBuilt++;
+      } catch (err) {
+        console.error(`[build-and-publish-all-packs] FAILED building sea zone ${zone.name}${taxon ? `/${taxon}` : ""}: ${(err as Error).message}`);
+      }
+    }
+  }
+  console.log(`[build-and-publish-all-packs] ${seaZonesBuilt} sea zone pack(s) built (${zonesRes.rows.length} zone(s) checked)`);
+
   const publishedAtStart = await alreadyPublishedCountryNames(packsDir);
 
   const priorityInOrder = [...PRIORITY_COUNTRIES, ...CONTINENT_REPRESENTATIVE_COUNTRIES].filter((n) => computedSet.has(n));
   const prioritySet = new Set(priorityInOrder);
   const everyoneElse = computedNames.filter((n) => !priorityInOrder.includes(n)).sort();
-  const fullOrder = [...priorityInOrder, ...everyoneElse].filter((n) => !publishedAtStart.has(n));
+  const fullOrder = [...priorityInOrder, ...everyoneElse].filter((n) => refreshPublished || !publishedAtStart.has(n));
 
   console.log(
-    `[build-and-publish-all-packs] ${computedNames.length} computed countries total, ${publishedAtStart.size} already published, ${fullOrder.length} to build now (budget ${budgetGb}GB)`,
+    `[build-and-publish-all-packs] ${computedNames.length} computed countries total, ${publishedAtStart.size} already published, ${fullOrder.length} to build now${
+      refreshPublished ? " (--refresh-published: rebuilding all, including already-published)" : ""
+    } (budget ${budgetGb}GB)`,
   );
   if (fullOrder.some((n) => priorityInOrder.includes(n))) {
     console.log(`[build-and-publish-all-packs] priority order: ${fullOrder.filter((n) => priorityInOrder.includes(n)).join(", ")}`);

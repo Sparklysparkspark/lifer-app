@@ -93,7 +93,11 @@ async function main() {
       contentVersion: manifest.contentVersion,
       scientificNames,
       url: `https://github.com/${GITHUB_REPO}/releases/download/${PACKS_RELEASE_TAG}/${file}`,
-      seaZoneDependencies: manifest.seaZoneDependencies?.map((d) => d.name),
+      // Pack IDs, not zone names — a sea zone can now have several packs (one per taxon), so a
+      // dependency has to name the SPECIFIC one this pack needs (e.g. "seazone-red_sea-
+      // actinopterygii"), not just "Red Sea", which would be ambiguous once more than one
+      // taxon-scoped pack exists for the same zone.
+      seaZoneDependencies: manifest.seaZoneDependencies?.map((d) => packIdFromFileName(d.packFile)),
       photoBytes: manifest.photoBytes,
       checklistBytes: manifest.checklistBytes,
     };

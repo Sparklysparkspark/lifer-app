@@ -7,6 +7,12 @@ import { pool } from "./db.js";
 const MAX_RETRIES = 6;
 const BASE_DELAY_MS = 1000;
 const MAX_DELAY_MS = 60_000;
+// No per-request timeout used to exist at all — a single GBIF request that never resolves
+// (confirmed live: a malformed gadmGid for an edge-case territory like "Ashmore and Cartier
+// Is." left fetch() pending indefinitely, silently freezing an entire multi-day 249-country
+// reconcile run on country #14) hung forever instead of ever reaching the retry logic below.
+// This bounds every individual attempt so a stuck request becomes a retryable failure instead.
+const REQUEST_TIMEOUT_MS = 30_000;
 
 // Persistent raw-response cache (migration 040) — every GET call through this function (GBIF
 // occurrence/species-count/seasonality/year-facet queries, the bulk of build-region-species.ts)
@@ -50,7 +56,7 @@ export async function fetchWithRetry(url: string, init: RequestInit): Promise<Re
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     let res: Response;
     try {
-      res = await fetch(url, init);
+      res = await fetch(url, { ...init, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
     } catch (err) {
       // A dropped connection (e.g. "SocketError: other side closed") throws instead of
       // resolving to a Response at all — GBIF's own infra does this often enough on large

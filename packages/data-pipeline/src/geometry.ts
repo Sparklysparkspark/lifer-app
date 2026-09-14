@@ -262,6 +262,32 @@ export function minRingDistance(ringsA: Point[][], ringsB: Point[][]): number {
   return min;
 }
 
+// Same all-pairs scan as minRingDistance, but also returns WHICH point of ringsB was closest —
+// needed by the "does this water actually border MY country, or a neighbor's" land-mask check
+// (see nearbyZones's own comment): knowing only the distance can't tell Arizona (7km from the
+// Cortezian ecoregion, but with Mexico's Sonora coastline sitting in between) apart from a
+// region that's genuinely 7km from its OWN coastline — the closest point itself is what lets
+// that get checked against a country's actual boundary.
+export function closestPointBetweenRings(ringsA: Point[][], ringsB: Point[][]): { distance: number; point: Point } {
+  let min = Infinity;
+  let closest: Point = ringsB[0]?.[0] ?? [0, 0];
+  for (const a of ringsA) {
+    for (const b of ringsB) {
+      for (const [ax, ay] of a) {
+        for (const bp of b) {
+          const [bx, by] = bp;
+          const dist = Math.hypot(ax - bx, ay - by);
+          if (dist < min) {
+            min = dist;
+            closest = bp;
+          }
+        }
+      }
+    }
+  }
+  return { distance: min, point: closest };
+}
+
 // Standard ray-casting point-in-polygon test (even-odd rule) — a genuine gap this file didn't
 // have: minRingDistance/bboxContains answer "how close are two shapes," not "is this exact
 // point inside this one shape," which is what's needed to sanity-check an occurrence record's

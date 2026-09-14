@@ -93,7 +93,21 @@ function iso3ToIso2Map(): Promise<Map<string, string>> {
       // Taiwan get a non-standard compound value ("CN-TW") instead — both cases get
       // rejected with a 400 by GBIF's `country` param, which only accepts a real 2-letter code. A
       // strict regex catches both failure shapes without hand-listing every disputed case.
-      (countries) => new Map(countries.filter((c) => c.iso2 && /^[A-Z]{2}$/.test(c.iso2)).map((c) => [c.iso3, c.iso2!])),
+      //
+      // isSovereignDependency is excluded here too — confirmed live: "Ashmore and Cartier Is."
+      // (our own region row, its own small area) has iso3="ATC" but, having no ISO code of its
+      // own, inherits Australia's iso2="AU" in this dataset. Without this filter, that entry
+      // let a tiny uninhabited reef territory's occurrence query resolve to GBIF's broad
+      // `country=AU` field — pulling ALL of mainland Australia's occurrence data (6,430
+      // species where the real answer is closer to zero), which is exactly the kind of
+      // memory-blowing sweep that crashed the world-scale reconcile job. A dependency has no
+      // safe country-wide shortcut available at all; it falls through to the gadmGid path
+      // below instead, which correctly returns nothing for a code GBIF doesn't recognize
+      // rather than silently mis-attributing its sovereign's entire dataset.
+      (countries) =>
+        new Map(
+          countries.filter((c) => c.iso2 && /^[A-Z]{2}$/.test(c.iso2) && !c.isSovereignDependency).map((c) => [c.iso3, c.iso2!]),
+        ),
     );
   }
   return iso3ToIso2Promise;
@@ -245,9 +259,17 @@ export function looksTypeSpecimenOnly(records: OccurrenceLocalitySample[]): bool
 // if they were an established population — requiring meaningfully more than the bare minimum
 // closes that gap while leaving genuinely recurring residents (hundreds of all-time records)
 // unaffected.
-export const RECURRENCE_ALLTIME_FLOOR = 8;
-export const RECURRENCE_MIN_DISTINCT_YEARS = 3;
-export const RECURRENCE_MAX_YEAR_CONCENTRATION = 0.5;
+// Loosened from the original 8/3/0.5 (confirmed live: Tufted Puffin in British Columbia — a
+// real, permanent breeding colony wrongly flagged vagrant because its offshore colonies are
+// visited by so few birders that even many all-time records still cluster into fewer than 3
+// distinct years, or into one dominant survey-expedition year). Deliberate policy choice: at
+// world scale, obscuring a species that's genuinely present is a worse failure than including
+// one that shouldn't be there — a false "not here" can't be second-guessed by the person
+// reading the checklist, but a false "here" at least shows up and can be judged/archived by
+// hand. So these thresholds are tuned to accept more borderline cases rather than reject them.
+export const RECURRENCE_ALLTIME_FLOOR = 6;
+export const RECURRENCE_MIN_DISTINCT_YEARS = 2;
+export const RECURRENCE_MAX_YEAR_CONCENTRATION = 0.65;
 
 // Confirmed live: Emperor Goose in British Columbia — 83 all-time records spread across enough
 // distinct years to pass the check above (correctly tiered "legendary," genuinely hard to find),
@@ -269,7 +291,9 @@ export const RECURRENCE_MAX_YEAR_CONCENTRATION = 0.5;
 // median species total ≈4216, so a species needs ≈211 records here to count as "enough data to
 // judge by pattern rather than assume vagrant" — comfortably below what a real, if scarce,
 // resident clears, comfortably above Emperor Goose's 83.
-export const RECURRENCE_MIN_RECORDS_FRACTION_OF_MEDIAN = 0.05;
+// Loosened from 0.05 alongside the constants above, same reasoning: a lower bar here means
+// fewer low-detectability-but-real residents get judged as "not enough data, assume vagrant."
+export const RECURRENCE_MIN_RECORDS_FRACTION_OF_MEDIAN = 0.03;
 
 // Confirmed live: Great Gray Owl, Northern Hawk Owl, and Barn Owl in British Columbia — all
 // genuine (if scarce) residents recorded across 18-47 distinct years apiece, spread evenly
@@ -287,7 +311,9 @@ export const RECURRENCE_MIN_RECORDS_FRACTION_OF_MEDIAN = 0.05;
 // Red-Flanked Bluetail case below, a genuine one-off invasion confined to 3 consecutive years —
 // nowhere close to 15 distinct years, so it still falls through to the floor and fails on
 // concentration anyway).
-export const RECURRENCE_STRONG_PATTERN_MIN_YEARS = 15;
+// Loosened from 15 — reachable sooner for a long-tenured but sparsely-recorded resident,
+// same inclusion-biased reasoning as the constants above.
+export const RECURRENCE_STRONG_PATTERN_MIN_YEARS = 10;
 
 export function medianOf(values: number[]): number {
   if (values.length === 0) return 0;

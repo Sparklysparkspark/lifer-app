@@ -9,13 +9,17 @@
 // A sea zone (e.g. the Red Sea) is its own standalone pack (--sea-zone below), never embedded
 // inside a country pack, so multiple neighboring countries can share one download instead of
 // duplicating it — a country pack's manifest just lists which sea zone packs it depends on.
+// --taxon applies to a sea zone build too, same as a country build: a "Canada (Fish)" country
+// pack depends only on that zone's fish-taxon pack, never its other taxon-scoped packs (e.g.
+// nudibranchs someone downloaded separately) — each taxon in a zone is its own independent
+// download, not bundled all-or-nothing with the zone itself.
 //
 // --taxon scopes a build to one taxon class (see TAXON_CLASSES below for the full fine-grained
 // list), producing a separate downloadable file per group; omit it to build every taxon together.
 //
 // Usage:
 //   npm run build-region-pack -w data-pipeline -- "Canada" [outputDir] [--taxon=<TaxonClass>]
-//   npm run build-region-pack -w data-pipeline -- --sea-zone "Red Sea" [outputDir]
+//   npm run build-region-pack -w data-pipeline -- --sea-zone "Red Sea" [outputDir] [--taxon=<TaxonClass>]
 import { existsSync, mkdirSync, writeFileSync, copyFileSync, rmSync, statSync, readdirSync } from "node:fs";
 import { createHash } from "node:crypto";
 import path from "node:path";
@@ -243,7 +247,7 @@ async function writeArchive(stagingDir: string, outDir: string, archiveName: str
   return statSync(archivePath).size;
 }
 
-async function buildSeaZonePack(zoneName: string, outDir: string): Promise<void> {
+async function buildSeaZonePack(zoneName: string, outDir: string, taxon: TaxonClass | null): Promise<void> {
   const zoneRes = await pool.query<{ id: string }>(`SELECT id FROM sea_zones WHERE name = $1`, [zoneName]);
   const zone = zoneRes.rows[0];
   if (!zone) {
@@ -251,18 +255,28 @@ async function buildSeaZonePack(zoneName: string, outDir: string): Promise<void>
     process.exit(1);
   }
 
+  const taxonFilter = taxon ? `AND s.taxon_class = '${taxon}'` : "";
   const speciesRes = await pool.query<SpeciesRow>(
     `SELECT s.scientific_name, s.common_name, s.habitat_description,
             s.reference_display_path, s.reference_thumb_path, s.reference_credit, s.reference_license,
             zs.record_count
      FROM sea_zone_species zs
      JOIN species s ON s.id = zs.species_id
-     WHERE zs.sea_zone_id = $1
+     WHERE zs.sea_zone_id = $1 ${taxonFilter}
      ORDER BY s.scientific_name`,
     [zone.id],
   );
 
-  const stagingDir = path.join(outDir, `.staging-seazone-${sanitize(zoneName)}`);
+  // Same "don't publish a near-empty archive nobody wants" guard as buildRegionPack's own
+  // taxon-scoped check — a sea zone that only ever carries fish (the common case) legitimately
+  // has 0 aquatic_mammalia species most of the time.
+  if (taxon !== null && speciesRes.rows.length === 0) {
+    console.log(`[build-region-pack] sea zone "${zoneName}"-${taxon}: 0 species, skipping`);
+    return;
+  }
+
+  const suffix = taxon ? `-${taxon}` : "";
+  const stagingDir = path.join(outDir, `.staging-seazone-${sanitize(zoneName)}${suffix}`);
   rmSync(stagingDir, { recursive: true, force: true });
   mkdirSync(path.join(stagingDir, "photos"), { recursive: true });
 
@@ -270,6 +284,7 @@ async function buildSeaZonePack(zoneName: string, outDir: string): Promise<void>
   const manifestCore = {
     type: "seaZone",
     seaZone: zoneName,
+    taxon,
     speciesCount: manifestSpecies.length,
     species: manifestSpecies,
   };
@@ -282,9 +297,9 @@ async function buildSeaZonePack(zoneName: string, outDir: string): Promise<void>
   };
   writeFileSync(path.join(stagingDir, "manifest.json"), JSON.stringify(manifest, null, 2));
 
-  const archiveName = seaZonePackFileName(zoneName);
+  const archiveName = seaZonePackFileName(zoneName, taxon);
   const sizeMb = (await writeArchive(stagingDir, outDir, archiveName)) / 1024 / 1024;
-  console.log(`[build-region-pack] sea zone "${zoneName}": ${manifestSpecies.length} species (${photoCount} with photos)`);
+  console.log(`[build-region-pack] sea zone "${zoneName}"${suffix}: ${manifestSpecies.length} species (${photoCount} with photos)`);
   console.log(`[build-region-pack] wrote ${path.join(outDir, archiveName)} (${sizeMb.toFixed(1)} MB)`);
 }
 
@@ -441,8 +456,13 @@ async function buildRegionPack(regionName: string, outDir: string, taxon: TaxonC
     // see fetchChildRegionsWithSpecies's own comment.
     children,
     // The client downloads each of these SEPARATELY (and only once, however many of this
-    // region's neighbors also depend on it) — see this file's own top comment.
-    seaZoneDependencies: seaZones.map((z) => ({ name: z.name, packFile: seaZonePackFileName(z.name) })),
+    // region's neighbors also depend on it) — see this file's own top comment. Scoped to the
+    // SAME taxon as this country build itself: a "Canada (Fish)" pack depends only on the
+    // fish-taxon sea zone packs, never on a sea zone's other taxon-scoped packs (nudibranchs,
+    // etc.) — those are independent downloads a user opts into separately. An "all taxa"
+    // country build (taxon === null) still depends on the "all taxa" sea zone pack, which
+    // covers every taxon in that zone at once, same as before this taxon-scoping existed.
+    seaZoneDependencies: seaZones.map((z) => ({ name: z.name, packFile: seaZonePackFileName(z.name, taxon) })),
   };
   const manifest = {
     ...manifestCore,
@@ -482,13 +502,13 @@ async function main() {
   if (!name) {
     console.error(
       `Usage: npm run build-region-pack -w data-pipeline -- <region name> [outputDir] [--taxon=${TAXON_CLASSES.join("|")}]\n` +
-        "   or: npm run build-region-pack -w data-pipeline -- --sea-zone <sea zone name> [outputDir]",
+        `   or: npm run build-region-pack -w data-pipeline -- --sea-zone <sea zone name> [outputDir] [--taxon=${TAXON_CLASSES.join("|")}]`,
     );
     process.exit(1);
   }
 
   if (seaZoneMode) {
-    await buildSeaZonePack(name, outDir);
+    await buildSeaZonePack(name, outDir, taxonArg as TaxonClass | null);
   } else {
     await buildRegionPack(name, outDir, taxonArg as TaxonClass | null);
   }
