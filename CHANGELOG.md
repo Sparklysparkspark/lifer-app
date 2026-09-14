@@ -17,6 +17,9 @@ Categories: `Added`, `Changed`, `Fixed`, `Removed` — omit any with nothing to 
 
 ### Fixed
 
+- Species suggestions and gallery semantic search now work offline from first launch on both
+  desktop and Docker/self-hosted — the underlying model is bundled at build time instead of
+  quietly downloading itself (~307MB) the first time either feature was actually used.
 - Docker/self-hosted deployments now bundle the species/region catalog into the image and
   restore it automatically on first start, instead of leaving the Offline Packs map and
   checklists blank until someone knew to click Settings > Species catalog updates.
@@ -31,6 +34,26 @@ Categories: `Added`, `Changed`, `Fixed`, `Removed` — omit any with nothing to 
   navigating away from Settings and back no longer strands it on "Updating..." forever with no
   way to tell whether it actually finished.
 - Offline pack downloads no longer hang indefinitely if the connection to the pack host stalls.
+- Applying a large pack (a country with hundreds of thousands of hotspot clusters, e.g. Canada)
+  could take an hour or more with zero visible progress — one database round-trip per cluster
+  is now a handful of batched ones instead.
+
+### Changed
+
+- Settings is now organized into a left-hand sidebar (General, Account, Species & Import,
+  Library, Storage, Server, Integrations, Offline Data) instead of one long scrolling page.
+- Account/logout moved off the main nav bar into a small account-icon menu, matching how API
+  keys were already moved into Settings for the same reason.
+- The Offline Packs country picker and the import flow's region picker now share one component
+  instead of two independently-built ones.
+- First launch now walks through an explicit setup: choose whether to download the offline map
+  (with its real size shown), then pick at least one region to build your checklist for — no
+  more landing on an empty Collection page not knowing where to start.
+- Desktop's "Enable IP switching" is now "Automatic URL Switching": it compares against your
+  actual current Wi-Fi network before preferring the local address, supports multiple external
+  addresses tried in your own chosen order (drag to reorder), and each one is tested live with a
+  green check the moment you add it instead of just being saved blind. A "Use current connection"
+  button fills in your local address and Wi-Fi name for you. Lives in Settings > Server.
 
 ## [0.4.0] - 2026-09-07
 

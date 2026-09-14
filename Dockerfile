@@ -35,6 +35,12 @@ RUN npm run build -w web
 # falls back to a live download if it's missing).
 RUN node apps/api/scripts/fetch-catalog-seed.js
 
+# The CLIP ViT-L/14 embedding model (species suggestions + gallery semantic search) is
+# deliberately NOT bundled into the image — it's a ~307MB opt-in download, fetched into
+# APP_DATA_DIR the first time it's actually needed (or explicitly from Settings), and offloadable
+# from there afterward, same "opt-in, offload later" shape the offline basemap already has. See
+# embeddings.ts's resolveModelPath() and settings/routes.ts's embedding-model endpoints.
+
 # Baked in at build time from the pushed release tag (see .github/workflows/release.yml's
 # docker-image job) so a running container can report its own version — GET /version, read by
 # the self-hosted web app's own update-available banner (DockerUpdateBanner.tsx) to compare
