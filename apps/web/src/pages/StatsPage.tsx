@@ -15,12 +15,13 @@ import {
   Cell,
 } from "recharts";
 import { api } from "../api/client";
+import { downloadFile } from "../lib/downloadFile";
 import PageHeader from "../components/PageHeader";
 import CollectionStatsPanel from "../components/CollectionStats";
 import { LoadingScreen, Spinner } from "../components/LoadingScreen";
 import Lightbox, { type LightboxSlide } from "../components/Lightbox";
 import InfoTip from "../components/InfoTip";
-import { TAXON_CLASS_LABEL } from "@lifer/shared";
+import { taxonDisplayLabel } from "@lifer/shared";
 
 interface StatsResponse {
   totalKeepers: number;
@@ -33,10 +34,10 @@ interface StatsResponse {
   };
   timeOfDay: Array<{ hour: number; label: string; count: number }>;
   exifDistributions: {
-    focalLength: Array<{ label: string; count: number }>;
-    iso: Array<{ label: string; count: number }>;
-    aperture: Array<{ label: string; count: number }>;
-    shutter: Array<{ label: string; count: number }>;
+    focalLength: Array<{ label: string; count: number; photoIds: string[] }>;
+    iso: Array<{ label: string; count: number; photoIds: string[] }>;
+    aperture: Array<{ label: string; count: number; photoIds: string[] }>;
+    shutter: Array<{ label: string; count: number; photoIds: string[] }>;
   };
   hitRateByFocalLength: Array<{ label: string; species: number }>;
   scatter: Array<{
@@ -128,7 +129,7 @@ function Select({ value, onChange, options }: { value: string; onChange: (v: str
     <select
       value={value}
       onChange={(e) => onChange(e.target.value)}
-      className="rounded-md border border-line bg-surface px-2 py-1 text-xs text-ink"
+      className="h-7 rounded-md border border-line bg-surface px-2 py-1 text-xs font-medium text-muted"
     >
       {options.map((o) => (
         <option key={o.value} value={o.value}>
@@ -231,6 +232,12 @@ export default function StatsPage() {
   const [yearA, setYearA] = useState<number | null>(null);
   const [yearB, setYearB] = useState<number | null>(null);
   const [yearComparison, setYearComparison] = useState<YearComparisonResponse | null>(null);
+  // Photography DNA's "By taxon" labels follow the same species_naming_styles preference used
+  // everywhere else (CollectionPage, GroupedSpeciesGrid) — self-fetched, same pattern.
+  const [namingStyles, setNamingStyles] = useState<string[]>([]);
+  useEffect(() => {
+    api.get<{ speciesNamingStyles: string[] }>("/settings").then((res) => setNamingStyles(res.speciesNamingStyles)).catch(() => {});
+  }, []);
 
   useEffect(() => {
     setLoading(true);
@@ -300,11 +307,29 @@ export default function StatsPage() {
     return stats.gearUsage[gearType].map((g) => ({ label: g.model, photoCount: g.photoCount, speciesCount: g.speciesCount }));
   }, [stats, gearType]);
 
-  const exifData: { key: "count" | "species"; rows: Array<{ label: string; count?: number; species?: number }> } = useMemo(() => {
+  const exifData: {
+    key: "count" | "species";
+    rows: Array<{ label: string; count?: number; species?: number; photoIds?: string[] }>;
+  } = useMemo(() => {
     if (!stats) return { key: "count", rows: [] };
     if (exifMetric === "hitRate") return { key: "species", rows: stats.hitRateByFocalLength };
     return { key: "count", rows: stats.exifDistributions[exifMetric] };
   }, [stats, exifMetric]);
+
+  // Clicking an EXIF distribution bar surfaces the actual photos behind it, so this chart
+  // doubles as a photo-management tool, not just a read-only histogram.
+  const [barBucket, setBarBucket] = useState<{ label: string; photoIds: string[] } | null>(null);
+  const [bucketDownloading, setBucketDownloading] = useState(false);
+  async function downloadBucket(photoIds: string[]) {
+    setBucketDownloading(true);
+    try {
+      for (const id of photoIds) {
+        await downloadFile(`/api/photos/${id}/original?download=1`, `${id}.jpg`);
+      }
+    } finally {
+      setBucketDownloading(false);
+    }
+  }
 
   async function handleExport() {
     setExporting(true);
@@ -348,7 +373,7 @@ export default function StatsPage() {
   if (!stats) {
     return (
       <div className="min-h-screen bg-canvas">
-        <PageHeader title="Stats" />
+        <PageHeader sticky title="Stats" />
         <LoadingScreen showBackLink={false} label="Loading stats…" />
       </div>
     );
@@ -361,7 +386,7 @@ export default function StatsPage() {
 
   return (
     <div className="min-h-screen bg-canvas">
-      <PageHeader
+      <PageHeader sticky
         title="Stats"
         actions={
           <>
@@ -588,9 +613,48 @@ export default function StatsPage() {
                 <XAxis dataKey="label" tick={{ fontSize: 10, fill: MUTED }} axisLine={{ stroke: LINE }} tickLine={false} interval={0} angle={-20} textAnchor="end" height={45} />
                 <YAxis tick={{ fontSize: 11, fill: MUTED }} axisLine={false} tickLine={false} allowDecimals={false} />
                 <Tooltip contentStyle={{ background: "var(--color-surface)", border: `1px solid ${LINE}`, borderRadius: 6, fontSize: 12 }} />
-                <Bar dataKey={exifData.key} fill={ACCENT} radius={[3, 3, 0, 0]} />
+                <Bar
+                  dataKey={exifData.key}
+                  fill={ACCENT}
+                  radius={[3, 3, 0, 0]}
+                  cursor={exifMetric === "hitRate" ? undefined : "pointer"}
+                  onClick={(row: { payload?: { label: string; photoIds?: string[] } }) => {
+                    const photoIds = row.payload?.photoIds;
+                    if (!photoIds || photoIds.length === 0) return;
+                    setBarBucket({ label: row.payload!.label, photoIds });
+                  }}
+                />
               </BarChart>
             </ResponsiveContainer>
+            {barBucket && (
+              <div className="mt-3 border-t border-line pt-3">
+                <div className="flex items-center justify-between">
+                  <p className="text-sm text-ink">
+                    {barBucket.label}: {barBucket.photoIds.length} photo{barBucket.photoIds.length === 1 ? "" : "s"}
+                  </p>
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => downloadBucket(barBucket.photoIds)}
+                      disabled={bucketDownloading}
+                      className="text-xs text-accent hover:underline disabled:opacity-50"
+                    >
+                      {bucketDownloading ? "Downloading..." : "Download all"}
+                    </button>
+                    <button type="button" onClick={() => setBarBucket(null)} className="text-xs text-muted hover:underline">
+                      Close
+                    </button>
+                  </div>
+                </div>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {barBucket.photoIds.slice(0, 60).map((id) => (
+                    <button key={id} type="button" onClick={() => setLightboxSlide({ url: `/api/photos/${id}/display` })}>
+                      <img src={`/api/photos/${id}/thumb`} alt="" className="h-16 w-16 rounded object-cover" />
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </ChartCard>
 
           {/* Time of day */}
@@ -716,7 +780,7 @@ export default function StatsPage() {
                       <p className="mb-1 text-xs font-medium uppercase tracking-wide text-muted">By taxon</p>
                       {photographyDna.taxonBreakdown.slice(0, 5).map((t) => (
                         <div key={t.taxonClass} className="flex items-center justify-between text-ink">
-                          <span>{TAXON_CLASS_LABEL[t.taxonClass as keyof typeof TAXON_CLASS_LABEL] ?? t.taxonClass}</span>
+                          <span>{taxonDisplayLabel(t.taxonClass, namingStyles)}</span>
                           <span className="text-muted">{t.percent}%</span>
                         </div>
                       ))}
@@ -746,17 +810,17 @@ export default function StatsPage() {
                 controls={
                   availableYears.length > 1 && (
                     <div className="flex items-center gap-1.5 text-xs">
-                      <select value={yearA ?? ""} onChange={(e) => setYearA(Number(e.target.value))} className="rounded border border-line bg-surface px-1.5 py-0.5 text-ink">
-                        {availableYears.map((y) => (
-                          <option key={y} value={y}>{y}</option>
-                        ))}
-                      </select>
+                      <Select
+                        value={String(yearA ?? "")}
+                        onChange={(v) => setYearA(Number(v))}
+                        options={availableYears.map((y) => ({ value: String(y), label: String(y) }))}
+                      />
                       <span className="text-muted">vs</span>
-                      <select value={yearB ?? ""} onChange={(e) => setYearB(Number(e.target.value))} className="rounded border border-line bg-surface px-1.5 py-0.5 text-ink">
-                        {availableYears.map((y) => (
-                          <option key={y} value={y}>{y}</option>
-                        ))}
-                      </select>
+                      <Select
+                        value={String(yearB ?? "")}
+                        onChange={(v) => setYearB(Number(v))}
+                        options={availableYears.map((y) => ({ value: String(y), label: String(y) }))}
+                      />
                     </div>
                   )
                 }

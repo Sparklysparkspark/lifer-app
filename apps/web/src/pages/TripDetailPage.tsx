@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useParams, useSearchParams } from "react-router-dom";
+import { useParams, useSearchParams, Link } from "react-router-dom";
 import RawUpload from "../components/RawUpload";
 import PhotoImportRows from "../components/PhotoImportRows";
 import type { CollectionItem } from "@lifer/shared";
@@ -13,14 +13,20 @@ import PhotoTile from "../components/PhotoTile";
 import SearchInput from "../components/SearchInput";
 import Lightbox, { type LightboxSlide } from "../components/Lightbox";
 import CardCropEditor from "../components/CardCropEditor";
+import EditableTextField from "../components/EditableTextField";
 import { FolderBrowser, pickFolderNative } from "../components/FolderPicker";
+import RegionBrowser from "../components/RegionBrowser";
 import InfoTip from "../components/InfoTip";
-import RenameModal from "../components/RenameModal";
 import { usePhotoGridSize } from "../hooks/usePhotoGridSize";
 import { useShowLabels } from "../hooks/useShowLabels";
 import { useStorageVolumes } from "../hooks/useStorageVolumes";
 import { useDropdownMenu } from "../hooks/useDropdownMenu";
 import { downloadFile } from "../lib/downloadFile";
+import Select from "../components/Select";
+import FilterPopover, { FilterFieldLabel } from "../components/FilterPopover";
+import SegmentedControl from "../components/SegmentedControl";
+import SelectModeToggle from "../components/SelectModeToggle";
+import { usePersistedState } from "../hooks/usePersistedState";
 
 const RELOCATE_INFO_PARAGRAPHS = [
   "Use this if this trip's folder moved: a new computer, a reinstall, a renamed drive.",
@@ -30,11 +36,13 @@ const RELOCATE_INFO_PARAGRAPHS = [
 interface TripDetail {
   id: string;
   name: string;
+  description: string | null;
   sourceFolder: string;
   coverCaptureId: string | null;
   coverCropX: number | null;
   coverCropY: number | null;
   coverCropSize: number | null;
+  coverLayout: "single" | "quad";
 }
 
 // GET /api/trips/:id/summary — "lifers gained + rare/endemic species encountered", the layer
@@ -57,6 +65,9 @@ interface TripPhoto {
   commonName: string | null;
   takenAt: string | null;
   hasRaw: boolean;
+  originalRef: string | null;
+  originalKind: string | null;
+  qualityRating: number | null;
   cameraModel: string | null;
   lens: string | null;
   focalLengthMm: number | null;
@@ -122,6 +133,9 @@ export default function TripDetailPage() {
   const { multiDriveInUse } = useStorageVolumes();
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const [showLabels, setShowLabels] = useShowLabels();
+  // Same Sort options as Gallery/Album - previously missing here entirely, so a Trip's photos
+  // could only ever be viewed in the backend's own fixed newest-first order.
+  const [sortBy, setSortBy] = usePersistedState<"newest" | "oldest" | "ratingHigh" | "ratingLow">("tripSortBy", "newest");
   const [search, setSearch] = useState("");
   const [settingCover, setSettingCover] = useState<string | null>(null);
   const [croppingCoverPhotoUrl, setCroppingCoverPhotoUrl] = useState<string | null>(null);
@@ -135,6 +149,10 @@ export default function TripDetailPage() {
   const [scanning, setScanning] = useState(false);
   const [scanError, setScanError] = useState<string | null>(null);
   const [reviewRows, setReviewRows] = useState<ReviewRow[]>([]);
+  // One region picked for the whole scanned batch — a scanned trip folder previously had no
+  // region concept at all (unlike the main upload flow's own regionId), so its captures went
+  // untagged even when a region was obviously known for the trip.
+  const [reviewRegionId, setReviewRegionId] = useState<string | null>(null);
   const [focusedRow, setFocusedRow] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
@@ -144,12 +162,18 @@ export default function TripDetailPage() {
 
   const [relocating, setRelocating] = useState(false);
   const [relocateError, setRelocateError] = useState<string | null>(null);
-  const [renaming, setRenaming] = useState(false);
 
   // Gallery multi-select delete — same pattern as GalleryPage/SpeciesDetailPage: a "Select"
   // toggle for the photo grid (distinct from `selected`, which is the import-review-row
   // selection above), a toolbar with the count + Delete selected, and one shared confirmation
   // dialog for both single-photo and batch delete.
+  // Same Filters popover shape as Gallery/Album — Trips have no video support and no per-photo
+  // tags, so only Top Rated, a RAW files control, and a collapsed date range apply here.
+  const [rawFilter, setRawFilter] = usePersistedState<"any" | "with" | "without">("tripRawFilter", "without");
+  const [onlyTopRated, setOnlyTopRated] = useState(false);
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [dateRangeOpen, setDateRangeOpen] = useState(false);
   const [gallerySelectMode, setGallerySelectMode] = useState(false);
   const [selectedPhotoCaptureIds, setSelectedPhotoCaptureIds] = useState<Set<string>>(new Set());
   const [confirmingDeleteCaptureId, setConfirmingDeleteCaptureId] = useState<string | null>(null);
@@ -185,9 +209,32 @@ export default function TripDetailPage() {
   const visiblePhotos = useMemo(() => {
     if (!photos) return [];
     const query = search.trim().toLowerCase();
-    if (!query) return photos;
-    return photos.filter((p) => (p.commonName ?? "").toLowerCase().includes(query) || p.scientificName.toLowerCase().includes(query));
-  }, [photos, search]);
+    let filtered = query
+      ? photos.filter((p) => (p.commonName ?? "").toLowerCase().includes(query) || p.scientificName.toLowerCase().includes(query))
+      : photos;
+    filtered = filtered
+      .filter((p) => rawFilter === "any" || (rawFilter === "with" ? p.hasRaw : !p.hasRaw))
+      .filter((p) => !onlyTopRated || p.qualityRating === 5)
+      .filter((p) => !dateFrom || !p.takenAt || p.takenAt >= dateFrom)
+      .filter((p) => !dateTo || !p.takenAt || p.takenAt <= `${dateTo}T23:59:59`);
+    // The backend's own query already returns newest-first, so that case needs no client-side
+    // re-sort - matches Album/Gallery's same "unrated sits at a middle 3" rating-sort convention.
+    if (sortBy === "newest") return filtered;
+    return [...filtered].sort((a, b) => {
+      if (sortBy === "oldest") {
+        return (a.takenAt ? new Date(a.takenAt).getTime() : 0) - (b.takenAt ? new Date(b.takenAt).getTime() : 0);
+      }
+      const ratingA = a.qualityRating ?? 3;
+      const ratingB = b.qualityRating ?? 3;
+      return sortBy === "ratingHigh" ? ratingB - ratingA : ratingA - ratingB;
+    });
+  }, [photos, search, sortBy, rawFilter, onlyTopRated, dateFrom, dateTo]);
+
+  // rawFilter is a persisted layout preference, not counted here — see Gallery's own matching
+  // comment.
+  // rawFilter still counts toward the badge when off its own default preset ("without") — see
+  // Gallery's own matching comment.
+  const activeFilterCount = (onlyTopRated ? 1 : 0) + (rawFilter !== "without" ? 1 : 0) + (dateFrom || dateTo ? 1 : 0);
 
   const visibleSpecies = useMemo(() => {
     if (!speciesItems) return [];
@@ -295,7 +342,10 @@ export default function TripDetailPage() {
     setPendingImports(toImport.map((r) => r.relativePath));
     setReviewRows([]);
     try {
-      await api.post(`/trips/${id}/import`, { files: toImport.map((r) => ({ relativePath: r.relativePath, speciesId: r.speciesId })) });
+      await api.post(`/trips/${id}/import`, {
+        files: toImport.map((r) => ({ relativePath: r.relativePath, speciesId: r.speciesId })),
+        regionId: reviewRegionId,
+      });
     } catch (err) {
       setImportError(err instanceof ApiError ? err.message : "Couldn't start the import");
       setImporting(false);
@@ -413,10 +463,21 @@ export default function TripDetailPage() {
     }
   }
 
-  async function renameTrip(name: string) {
-    if (!id) return;
+  async function saveName(name: string) {
+    if (!id || !name) return;
     await api.patch(`/trips/${id}`, { name });
-    setRenaming(false);
+    load();
+  }
+
+  async function saveDescription(description: string) {
+    if (!id) return;
+    await api.patch(`/trips/${id}`, { description });
+    load();
+  }
+
+  async function setCoverLayout(coverLayout: "single" | "quad") {
+    if (!id) return;
+    await api.patch(`/trips/${id}`, { coverLayout });
     load();
   }
 
@@ -471,31 +532,93 @@ export default function TripDetailPage() {
   return (
     <div className="min-h-screen bg-canvas">
       <PageHeader
-        title={trip.name}
+        sticky
+        title={
+          <EditableTextField value={trip.name} onSave={saveName} className="text-lg font-semibold text-ink" />
+        }
         backFallbackTo="/trips"
         backLabel="Trips"
         actions={
           <div className="flex items-center gap-4">
-            <div className="flex rounded-md border border-line text-xs">
+            <div className="flex rounded-md border border-line text-sm">
               <button
                 onClick={() => setView("gallery")}
-                className={`rounded-l-md px-2.5 py-1 ${view === "gallery" ? "bg-accent text-accent-fg" : "text-muted hover:bg-surface-muted"}`}
+                className={`rounded-l-md px-3 py-1.5 ${view === "gallery" ? "bg-accent text-accent-fg" : "text-muted hover:bg-surface-muted"}`}
               >
                 Gallery
               </button>
               <button
                 onClick={() => setView("species")}
-                className={`rounded-r-md px-2.5 py-1 ${view === "species" ? "bg-accent text-accent-fg" : "text-muted hover:bg-surface-muted"}`}
+                className={`rounded-r-md px-3 py-1.5 ${view === "species" ? "bg-accent text-accent-fg" : "text-muted hover:bg-surface-muted"}`}
               >
                 Species view
               </button>
             </div>
             {view === "gallery" && photos.length > 0 && (
               <>
-                <label className="flex items-center gap-1.5 text-xs text-muted">
-                  <input type="checkbox" checked={showLabels} onChange={(e) => setShowLabels(e.target.checked)} className="accent-ink" />
-                  Labels
-                </label>
+                <Select label="Sort" value={sortBy} onChange={(e) => setSortBy(e.target.value as typeof sortBy)}>
+                  <option value="newest">Newest first</option>
+                  <option value="oldest">Oldest first</option>
+                  <option value="ratingHigh">Highest rated first</option>
+                  <option value="ratingLow">Lowest rated first</option>
+                </Select>
+                <FilterPopover activeCount={activeFilterCount}>
+                  <div className="space-y-2.5">
+                    <label className="flex items-center gap-1.5 text-xs text-ink">
+                      <input type="checkbox" checked={onlyTopRated} onChange={(e) => setOnlyTopRated(e.target.checked)} className="accent-ink" />
+                      Top Rated
+                    </label>
+                    <div>
+                      <FilterFieldLabel>RAW files</FilterFieldLabel>
+                      <SegmentedControl
+                        value={rawFilter}
+                        onChange={setRawFilter}
+                        options={[
+                          { value: "any", label: "Any" },
+                          { value: "with", label: "With" },
+                          { value: "without", label: "Without" },
+                        ]}
+                      />
+                    </div>
+                    <div>
+                      <FilterFieldLabel>Date</FilterFieldLabel>
+                      {dateRangeOpen || dateFrom || dateTo ? (
+                        <div className="flex items-center gap-1.5">
+                          <input
+                            type="date"
+                            value={dateFrom}
+                            max={dateTo || undefined}
+                            onChange={(e) => setDateFrom(e.target.value)}
+                            className="w-full rounded-md border border-line px-1.5 py-1 text-xs text-ink"
+                            aria-label="From date"
+                          />
+                          <span className="text-xs text-muted">to</span>
+                          <input
+                            type="date"
+                            value={dateTo}
+                            min={dateFrom || undefined}
+                            onChange={(e) => setDateTo(e.target.value)}
+                            className="w-full rounded-md border border-line px-1.5 py-1 text-xs text-ink"
+                            aria-label="To date"
+                          />
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => setDateRangeOpen(true)}
+                          className="w-full rounded-md border border-line px-1.5 py-1 text-left text-xs text-muted hover:bg-surface-muted"
+                        >
+                          Any date
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  <div className="space-y-1.5 border-t border-line pt-2.5">
+                    <label className="flex items-center gap-1.5 text-xs text-ink">
+                      <input type="checkbox" checked={showLabels} onChange={(e) => setShowLabels(e.target.checked)} className="accent-ink" />
+                      Labels
+                    </label>
+                  </div>
+                </FilterPopover>
                 <label className="flex items-center gap-1.5 text-xs text-muted">
                   Size
                   <input
@@ -509,23 +632,9 @@ export default function TripDetailPage() {
                     aria-label="Photo grid thumbnail size"
                   />
                 </label>
-                {gallerySelectMode ? (
-                  <button onClick={exitGallerySelectMode} className="text-xs text-muted hover:underline">
-                    Cancel
-                  </button>
-                ) : (
-                  <button onClick={() => setGallerySelectMode(true)} className="text-xs text-muted hover:underline">
-                    Select
-                  </button>
-                )}
+                <SelectModeToggle active={gallerySelectMode} onEnter={() => setGallerySelectMode(true)} onExit={exitGallerySelectMode} />
               </>
             )}
-            <button
-              onClick={() => setRenaming(true)}
-              className="rounded-md border border-line px-3 py-1.5 text-sm text-ink hover:bg-surface-muted"
-            >
-              Edit trip
-            </button>
             <button
               onClick={startScan}
               disabled={scanning}
@@ -570,6 +679,15 @@ export default function TripDetailPage() {
             )}
           </div>
         )}
+        <div className="mt-2 w-full">
+          <EditableTextField
+            value={trip.description ?? ""}
+            onSave={saveDescription}
+            placeholder="Add a description…"
+            className="text-sm text-ink"
+            multiline
+          />
+        </div>
       </PageHeader>
 
       {relocating && (
@@ -639,6 +757,12 @@ export default function TripDetailPage() {
                 {importing ? "Importing…" : `Import ${readyCount || ""} photo${readyCount === 1 ? "" : "s"}`}
               </button>
             </div>
+            <div className="flex items-center gap-2 text-sm text-muted">
+              <span>Location for this batch (optional):</span>
+              <div className="w-56">
+                <RegionBrowser regionId={reviewRegionId} onChange={setReviewRegionId} allowAnyRegion />
+              </div>
+            </div>
             {importError && <p className="text-sm text-red-600">{importError}</p>}
             {importStatus && importing && (
               <div className="h-1.5 overflow-hidden rounded-full bg-surface-muted">
@@ -707,13 +831,49 @@ export default function TripDetailPage() {
             </p>
           </div>
         ) : photos.length === 0 && pendingImports.length === 0 ? (
-          <p className="text-muted">
-            Nothing imported yet. {reviewRows.length === 0 ? '"Add more photos" to scan this trip\'s folder.' : "Assign species above and import."}
-          </p>
+          <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-line py-16 text-center">
+            <div>
+              <p className="font-medium text-ink">Nothing imported yet</p>
+              <p className="mt-1 text-sm text-muted">
+                {reviewRows.length === 0
+                  ? "Scan this trip's folder to bring in what's there."
+                  : "Assign a species to each photo above, then import."}
+              </p>
+            </div>
+            {reviewRows.length === 0 && (
+              <button
+                onClick={startScan}
+                disabled={scanning}
+                className="mt-1 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-accent-fg hover:opacity-90 disabled:opacity-50"
+              >
+                {scanning ? "Looking for photos…" : "Add more photos"}
+              </button>
+            )}
+          </div>
         ) : visiblePhotos.length === 0 && pendingImports.length === 0 ? (
           <p className="text-muted">No photos match "{search}".</p>
         ) : (
-          <MasonryGrid
+          <>
+            <div className="mb-4 flex items-center gap-2 text-sm text-muted">
+              Cover style
+              <button
+                onClick={() => setCoverLayout("single")}
+                className={`rounded-md border px-2 py-1 text-xs ${
+                  trip.coverLayout === "single" ? "border-ink bg-surface-muted text-ink" : "border-line hover:bg-surface-muted"
+                }`}
+              >
+                Single photo
+              </button>
+              <button
+                onClick={() => setCoverLayout("quad")}
+                className={`rounded-md border px-2 py-1 text-xs ${
+                  trip.coverLayout === "quad" ? "border-ink bg-surface-muted text-ink" : "border-line hover:bg-surface-muted"
+                }`}
+              >
+                Quad grid
+              </button>
+            </div>
+            <MasonryGrid
             items={gridItems}
             columnWidth={thumbSizePx}
             extraHeightPx={showLabels ? 19 : 0}
@@ -749,6 +909,13 @@ export default function TripDetailPage() {
                   menuRef={openMenuRef}
                   menuContent={
                     <div className="absolute right-0 top-full z-10 mt-1 whitespace-nowrap rounded-md border border-line bg-surface py-1 text-xs shadow-lg">
+                      <Link
+                        to={`/species/${photo.speciesId}`}
+                        onClick={() => setOpenMenuCaptureId(null)}
+                        className="block w-full px-3 py-1.5 text-left text-ink hover:bg-surface-muted"
+                      >
+                        View species
+                      </Link>
                       <button
                         onClick={() =>
                           isCover
@@ -760,7 +927,7 @@ export default function TripDetailPage() {
                       >
                         {isCover ? "Featured photo ✓" : "Set as featured photo"}
                       </button>
-                      {isCover && (
+                      {isCover && trip.coverLayout === "single" && (
                         <button
                           onClick={() => {
                             setOpenMenuCaptureId(null);
@@ -769,6 +936,20 @@ export default function TripDetailPage() {
                           className="block w-full px-3 py-1.5 text-left text-ink hover:bg-surface-muted"
                         >
                           Adjust position
+                        </button>
+                      )}
+                      {/* Hidden when the only original on file IS the RAW - Download RAW right
+                         below already covers that exact same file. Same gate every other
+                         photo-management surface (Gallery, species detail, Album) already uses. */}
+                      {photo.originalRef && photo.originalKind !== "raw" && (
+                        <button
+                          onClick={() => {
+                            setOpenMenuCaptureId(null);
+                            downloadFile(`/api/photos/${photo.photoId}/original?download=1`, "original.jpg");
+                          }}
+                          className="block w-full px-3 py-1.5 text-left text-ink hover:bg-surface-muted"
+                        >
+                          Download original
                         </button>
                       )}
                       {photo.hasRaw && (
@@ -787,7 +968,7 @@ export default function TripDetailPage() {
                           setOpenMenuCaptureId(null);
                           setConfirmingDeleteCaptureId(photo.captureId);
                         }}
-                        className="block w-full border-t border-line px-3 py-1.5 text-left text-red-600 hover:bg-red-50"
+                        className="block w-full px-3 py-1.5 text-left text-red-600 hover:bg-red-50"
                       >
                         Delete Photo
                       </button>
@@ -802,15 +983,12 @@ export default function TripDetailPage() {
               );
             }}
           />
+          </>
         )}
       </main>
 
       {lightboxIndex !== null && (
         <Lightbox slides={slides} index={lightboxIndex} onIndexChange={setLightboxIndex} onClose={() => setLightboxIndex(null)} />
-      )}
-
-      {renaming && (
-        <RenameModal title="Rename trip" initialName={trip.name} onCancel={() => setRenaming(false)} onSave={renameTrip} />
       )}
 
       {croppingCoverPhotoUrl && (

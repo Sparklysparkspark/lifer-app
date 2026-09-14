@@ -6,6 +6,7 @@ import InfoTip from "../components/InfoTip";
 import { Spinner } from "../components/LoadingScreen";
 import PhotoPlaceholder from "../components/PhotoPlaceholder";
 import SearchInput from "../components/SearchInput";
+import Pill from "../components/Pill";
 
 const ARCHIVED_INFO_PARAGRAPHS = [
   "Archiving a species just hides it from your collection and region checklists. It doesn't delete any photos or history, and unarchiving brings it right back.",
@@ -44,6 +45,9 @@ export default function ArchivedSpeciesPage() {
   // Same in-view filter pattern as CollectionPage's own search (filters whatever's already on
   // screen, no separate dropdown/catalog lookup) — just scoped to the archived list instead.
   const [search, setSearch] = useState("");
+  // Family-pill drill-down, same pattern as HiddenSpeciesPage's own country pills — family is
+  // this page's natural grouping key (region has no meaning here, archiving isn't region-scoped).
+  const [selectedFamily, setSelectedFamily] = useState<string | null>(null);
 
   // A missing .catch() here previously meant any failure (network hiccup, a stale/mismatched
   // build, whatever) left this page spinning forever with setData never called — this is what
@@ -59,10 +63,17 @@ export default function ArchivedSpeciesPage() {
 
   const visibleItems = useMemo(() => {
     if (!data) return [];
+    let items = data.items;
+    if (selectedFamily) items = items.filter((i) => (i.family ?? "Other") === selectedFamily);
     const query = search.trim().toLowerCase();
-    if (!query) return data.items;
-    return data.items.filter((i) => (i.commonName ?? "").toLowerCase().includes(query) || i.scientificName.toLowerCase().includes(query));
-  }, [data, search]);
+    if (!query) return items;
+    return items.filter(
+      (i) =>
+        (i.commonName ?? "").toLowerCase().includes(query) ||
+        i.scientificName.toLowerCase().includes(query) ||
+        (i.family ?? "").toLowerCase().includes(query),
+    );
+  }, [data, search, selectedFamily]);
 
   const grouped = useMemo(() => {
     const byFamily = new Map<string, ArchivedItem[]>();
@@ -112,7 +123,7 @@ export default function ArchivedSpeciesPage() {
   // the back link never needs to come from LoadingScreen's own copy of it here.
   return (
     <div className="min-h-screen bg-canvas">
-      <PageHeader
+      <PageHeader sticky
         title="Archived species"
         backFallbackTo="/settings"
         backLabel="Settings"
@@ -139,12 +150,41 @@ export default function ArchivedSpeciesPage() {
       ) : !data ? (
         <Spinner />
       ) : (
-        <main className="space-y-8 p-6">
+        <main className="space-y-6 p-6">
+          {data.families.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2">
+              <Pill size="sm" active={selectedFamily === null} onClick={() => setSelectedFamily(null)}>
+                All families
+              </Pill>
+              {[...data.families]
+                .sort((a, b) => a.family.localeCompare(b.family))
+                .map((f) => (
+                  <Pill
+                    key={f.family}
+                    size="sm"
+                    active={selectedFamily === f.family}
+                    onClick={() => setSelectedFamily(selectedFamily === f.family ? null : f.family)}
+                  >
+                    {f.family} ({f.count})
+                  </Pill>
+                ))}
+            </div>
+          )}
           {data.items.length === 0 ? (
-            <p className="text-muted">
-              Nothing archived yet. Use the "Archive" button on a species card, or "Archive group" when a collection
-              view is grouped by family, to keep species you don't care about completing off your to-collect count.
-            </p>
+            <div className="flex flex-col items-center justify-center gap-3 py-24 text-center">
+              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-surface-muted">
+                <svg viewBox="0 0 24 24" className="h-6 w-6 text-muted" fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="3.5" y="4.5" width="17" height="4.5" rx="1.2" />
+                  <path d="M4.5 9v9A1.5 1.5 0 0 0 6 19.5h12A1.5 1.5 0 0 0 19.5 18V9" />
+                  <path d="M10 13h4" />
+                </svg>
+              </div>
+              <p className="text-sm font-medium text-ink">Nothing archived yet</p>
+              <p className="max-w-sm text-sm text-muted">
+                Use the "Archive" button on a species card, or "Archive group" when a collection view is grouped by
+                family, to keep species you don't care about completing off your to-collect count.
+              </p>
+            </div>
           ) : visibleItems.length === 0 ? (
             <p className="text-muted">No archived species match "{search}".</p>
           ) : (

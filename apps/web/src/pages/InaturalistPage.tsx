@@ -46,7 +46,7 @@ export default function InaturalistPage() {
 
   return (
     <div className="min-h-screen bg-canvas">
-      <PageHeader title="iNaturalist" backFallbackTo="/settings" backLabel="Settings">
+      <PageHeader sticky title="iNaturalist" backFallbackTo="/settings" backLabel="Settings">
         <p className="mt-1 text-sm text-muted">Send your sightings to iNaturalist as draft observations, then finish them there.</p>
         <div className="mt-4 flex gap-2">
           {(["import", "pending", "completed"] as const).map((t) => (

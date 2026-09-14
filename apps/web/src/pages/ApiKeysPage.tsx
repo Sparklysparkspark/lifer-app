@@ -73,7 +73,7 @@ export default function ApiKeysPage() {
 
   return (
     <div className="min-h-screen bg-canvas">
-      <PageHeader
+      <PageHeader sticky
         title="API keys"
         backFallbackTo="/settings"
         backLabel="Settings"
