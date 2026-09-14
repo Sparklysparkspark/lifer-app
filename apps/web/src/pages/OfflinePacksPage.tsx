@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { RegionSummary, TaxonClass } from "@lifer/shared";
-import { TAXON_CLASS_LABEL, TAXON_GROUPS, GROUPED_TAXON_CLASSES } from "@lifer/shared";
+import { TAXON_CLASS_LABEL, TAXON_GROUPS, GROUPED_TAXON_CLASSES, taxonDisplayLabel } from "@lifer/shared";
 import { api, ApiError } from "../api/client";
 import { Spinner } from "../components/LoadingScreen";
 import Pill from "../components/Pill";
 import PageHeader from "../components/PageHeader";
 import InfoTip from "../components/InfoTip";
 import PacksMap, { type CountryBoundary } from "../components/PacksMap";
+import RegionPicker from "../components/RegionPicker";
+import DownloadedPacksList, { formatBytes, type PackEntry } from "../components/DownloadedPacksList";
 
 const PACKS_INFO_PARAGRAPHS = [
   '"Update available" means the pack\'s checklist data (which species occur there, and how often) has changed since you downloaded it. Re-downloading refreshes that.',
@@ -48,25 +50,6 @@ const CENTRAL_AMERICA_CONTINENT: RegionSummary = {
   isSovereignDependency: false,
 };
 
-interface PackEntry {
-  id: string;
-  type: "region" | "seaZone";
-  region?: string;
-  seaZone?: string;
-  taxon?: TaxonClass | null;
-  sizeBytes: number;
-  speciesCount: number;
-  downloaded: boolean;
-  updateAvailable: boolean;
-  /** Sea zone pack names this (region-type) pack depends on — see build-pack-index.ts. */
-  seaZoneDependencies?: string[];
-  // Uncompressed byte counts from build time (build-region-pack.ts's photoBytesInStaging) — an
-  // estimate of relative weight (photos vs. checklist JSON), not an exact post-gzip split.
-  // Absent on any pack built before this field existed.
-  photoBytes?: number;
-  checklistBytes?: number;
-}
-
 interface DownloadStatus {
   running: boolean;
   processed: number;
@@ -96,19 +79,6 @@ interface ProvinceEntry {
   applied: boolean;
 }
 
-interface DeletePreview {
-  checklistRegionsAffectedCount: number;
-  speciesToRemoveCount: number;
-  speciesKeptCount: number;
-  bytesToFree: number;
-  isEstimate: boolean;
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)}KB`;
-  return `${(bytes / 1024 / 1024).toFixed(1)}MB`;
-}
-
 // Map + continent pills + country search + a taxon multi-select applied uniformly across every
 // selected country, replacing the old per-pack-checkbox accordion — see this feature's own plan
 // for why: items 3/5/6 need "selected countries" crossed with "selected taxa" as the primary
@@ -133,34 +103,23 @@ export default function OfflinePacksPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [availableTaxaByRegion, setAvailableTaxaByRegion] = useState<Record<string, TaxonClass[]>>({});
   const [starting, setStarting] = useState(false);
-  // Which specific pack(s) THIS component just asked to update, tracked separately from the
-  // shared `starting`/`status.running` flags — those flip true for ANY in-flight download job
-  // (including an unrelated brand-new pack via startDownload), which made every pack's own
-  // "Update" button say "Updating…" the moment any download of any kind was running.
-  const [pendingUpdatePackIds, setPendingUpdatePackIds] = useState<Set<string>>(new Set());
   const [startError, setStartError] = useState<string | null>(null);
   const [status, setStatus] = useState<DownloadStatus | null>(null);
   const [recommendation, setRecommendation] = useState<Recommendation | null>(null);
   const [recommendationError, setRecommendationError] = useState<string | null>(null);
-  const [offloadTargets, setOffloadTargets] = useState<PackEntry[] | null>(null);
-  const [deletePreview, setDeletePreview] = useState<DeletePreview | null>(null);
-  const [deleteError, setDeleteError] = useState<string | null>(null);
-  const [deleting, setDeleting] = useState(false);
-  const [selectedOffloadIds, setSelectedOffloadIds] = useState<Set<string>>(new Set());
-  // Empty = every group collapsed by default — with several countries downloaded, starting
-  // fully expanded meant scrolling past (and manually closing) every one just to see the list.
-  // Tracks which are explicitly EXPANDED rather than collapsed, so "expand all"/"collapse all"
-  // is just "set this to every group name" / "set this to empty".
-  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
-  // Which tab ("main" packs vs. "seaZones") is showing for a group that has both — only
-  // relevant for a country with downloaded sea-zone dependency packs (see downloadedGroups).
-  const [groupTab, setGroupTab] = useState<Map<string, "main" | "seaZones">>(new Map());
   const [provinceManagerPackId, setProvinceManagerPackId] = useState<string | null>(null);
   const [provinceList, setProvinceList] = useState<ProvinceEntry[] | null>(null);
   // "States" for the US, "Regions" for Thailand, "Provinces" for most others — computed
   // server-side from that country's own admin-1 data (see subdivisionLabelFor), not assumed.
   // Defaults to "Provinces" until the first fetch resolves, same as the server-side default.
   const [subdivisionLabel, setSubdivisionLabel] = useState("Provinces");
+  // Taxon pill labels need this for the same reason CollectionPage/StatsPage do — a taxon
+  // available for a region can be an Other Taxa species' raw lowercased iconic-taxon string
+  // (e.g. "insecta"), which has no entry in TAXON_CLASS_LABEL and would otherwise render blank.
+  const [namingStyles, setNamingStyles] = useState<string[]>([]);
+  useEffect(() => {
+    api.get<{ speciesNamingStyles: string[] }>("/settings").then((res) => setNamingStyles(res.speciesNamingStyles)).catch(() => {});
+  }, []);
   const [provinceError, setProvinceError] = useState<string | null>(null);
   const [provinceBusyId, setProvinceBusyId] = useState<string | null>(null);
   const countryRowRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
@@ -202,10 +161,7 @@ export default function OfflinePacksPage() {
         const res = await api.get<DownloadStatus>("/offline-packs/download/status");
         if (!cancelled) {
           setStatus(res);
-          if (wasRunning.current && !res.running) {
-            refreshPacks();
-            setPendingUpdatePackIds(new Set());
-          }
+          if (wasRunning.current && !res.running) refreshPacks();
           wasRunning.current = res.running;
         }
       } catch {
@@ -320,10 +276,14 @@ export default function OfflinePacksPage() {
   // when the underlying sets actually change) is exactly what re-triggers PacksMap's own fit
   // effect — see that component's own doc comment on focusCountryIds.
   const focusCountryIds = useMemo(() => {
-    const ids = new Set<string>();
-    for (const id of openCountryIds) ids.add(id);
-    for (const id of selectedCountryIds) ids.add(id);
-    return ids.size > 0 ? [...ids] : undefined;
+    // Once the user has actually selected specific countries, prioritize those over the open
+    // continent's full country set — clicking one country under an open continent should zoom
+    // in to just that country instead of staying pinned to the whole continent's bounds.
+    // Selecting more countries widens the fit again to encompass all of them. Only falls back to
+    // the full open-continent set (a "preview the whole continent" view) when nothing's actually
+    // selected yet.
+    if (selectedCountryIds.size > 0) return [...selectedCountryIds];
+    return openCountryIds.size > 0 ? [...openCountryIds] : undefined;
   }, [openCountryIds, selectedCountryIds]);
 
   const searchResults = useMemo(() => {
@@ -382,6 +342,16 @@ export default function OfflinePacksPage() {
     // The map's own fit is handled by the focusCountryIds memo above (derived from
     // openContinentIds + selectedCountryIds) — opening OR closing a continent here just changes
     // that memo's inputs, which widens or narrows the fit to match automatically.
+    if (!willOpen) {
+      // Closing a continent pill also deselects any of its countries that were individually
+      // selected — otherwise they stay selected with no visible group left to see or manage them.
+      const countryIdsInContinent = new Set((countriesByContinent.get(continentId) ?? []).map((c) => c.id));
+      setSelectedCountryIds((prev) => {
+        const next = new Set(prev);
+        for (const id of countryIdsInContinent) next.delete(id);
+        return next;
+      });
+    }
   }
 
   function toggleAllInContinent(countries: RegionSummary[]) {
@@ -414,7 +384,14 @@ export default function OfflinePacksPage() {
     const entries = packsByRegion.get(countryName) ?? [];
     const downloaded = entries.filter((p) => p.downloaded);
     if (downloaded.length === 0) return "none";
-    return downloaded.some((p) => p.taxon == null) ? "full" : "partial";
+    // A stale "all taxa" bundle (an update is available) or one that predates newer
+    // taxon-specific splits added to the catalog since should never read as full coverage —
+    // both used to be silently ignored here, showing "fully downloaded" when it wasn't.
+    if (downloaded.some((p) => p.updateAvailable)) return "partial";
+    const hasAllTaxaBundle = downloaded.some((p) => p.taxon == null);
+    if (!hasAllTaxaBundle) return "partial";
+    const hasUndownloadedTaxonPack = entries.some((p) => p.taxon != null && !p.downloaded);
+    return hasUndownloadedTaxonPack ? "partial" : "full";
   }
 
   function toggleTaxon(taxon: TaxonClass) {
@@ -466,29 +443,6 @@ export default function OfflinePacksPage() {
       setStartError(err instanceof ApiError ? err.message : "Couldn't start the download");
     } finally {
       setStarting(false);
-    }
-  }
-
-  async function updatePacks(packIds: string[]) {
-    setStartError(null);
-    setStarting(true);
-    setPendingUpdatePackIds((prev) => new Set([...prev, ...packIds]));
-    try {
-      await api.post("/offline-packs/download", { packIds });
-      refreshPacks();
-    } catch (err) {
-      setStartError(err instanceof ApiError ? err.message : "Couldn't start the update");
-    } finally {
-      setStarting(false);
-      // Real progress from here on is tracked via polled status.currentPack, not this
-      // request-in-flight flag — but keep it until the poll first reflects the job as
-      // finished, so the button doesn't flicker to "Update" for a moment mid-job.
-      setPendingUpdatePackIds((prev) => {
-        if (status?.running) return prev;
-        const next = new Set(prev);
-        for (const id of packIds) next.delete(id);
-        return next;
-      });
     }
   }
 
@@ -556,100 +510,11 @@ export default function OfflinePacksPage() {
     }
   }
 
-  async function openOffloadConfirm(targets: PackEntry[]) {
-    setOffloadTargets(targets);
-    setDeletePreview(null);
-    setDeleteError(null);
-    try {
-      const preview = await api.post<DeletePreview>("/offline-packs/offload-preview", { packIds: targets.map((p) => p.id) });
-      setDeletePreview(preview);
-    } catch (err) {
-      setDeleteError(err instanceof ApiError ? err.message : "Couldn't check what offloading this would affect");
-    }
-  }
-
-  async function confirmOffload() {
-    if (!offloadTargets) return;
-    setDeleting(true);
-    try {
-      await api.post("/offline-packs/offload-batch", { packIds: offloadTargets.map((p) => p.id) });
-      setOffloadTargets(null);
-      setDeletePreview(null);
-      setSelectedOffloadIds(new Set());
-      refreshPacks();
-    } catch (err) {
-      setDeleteError(err instanceof ApiError ? err.message : "Couldn't remove these packs");
-    } finally {
-      setDeleting(false);
-    }
-  }
-
-  function toggleOffloadSelection(id: string) {
-    setSelectedOffloadIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }
-
-  function toggleGroupCollapsed(name: string) {
-    setExpandedGroups((prev) => {
-      const next = new Set(prev);
-      if (next.has(name)) next.delete(name);
-      else next.add(name);
-      return next;
-    });
-  }
-
   const downloadedPacks = (packs ?? []).filter((p) => p.downloaded);
-
-  // A downloaded sea zone pack's "owner" — whichever downloaded country pack listed it as a
-  // dependency (build-region-pack.ts's seaZoneDependencies), so its rows collapse into
-  // "<Country> - Sea zones" instead of every sea zone getting its own top-level group. A sea
-  // zone can legitimately border more than one country (e.g. Gulf of Maine/Bay of Fundy is both
-  // a US and a Canada dependency) — picking whichever owning country sorts first by name keeps
-  // it under exactly one group rather than duplicating the row, since which one "owns" it isn't
-  // actually meaningful (the pack itself doesn't belong to either country specifically).
-  const seaZoneOwner = useMemo(() => {
-    const owners = new Map<string, string[]>();
-    for (const p of downloadedPacks) {
-      if (p.type !== "region" || !p.region || !p.seaZoneDependencies?.length) continue;
-      for (const zoneName of p.seaZoneDependencies) {
-        if (!owners.has(zoneName)) owners.set(zoneName, []);
-        owners.get(zoneName)!.push(p.region);
-      }
-    }
-    const map = new Map<string, string>();
-    for (const [zoneName, countries] of owners) {
-      map.set(zoneName, [...countries].sort((a, b) => a.localeCompare(b))[0]);
-    }
-    return map;
-  }, [downloadedPacks]);
-
-  // A country's downloaded sea-zone dependency packs now live as a SECOND TAB on that same
-  // country's own card ("Packs" / "Sea zones") instead of a separate "<Country> - Sea zones"
-  // top-level group — one card per country/region instead of two adjacent-but-disconnected ones.
-  const downloadedGroups = useMemo(() => {
-    const map = new Map<string, { main: PackEntry[]; seaZones: PackEntry[] }>();
-    for (const p of downloadedPacks) {
-      const owner = p.type === "seaZone" && p.seaZone ? seaZoneOwner.get(p.seaZone) : null;
-      const name = owner ?? (p.region ?? p.seaZone ?? "Other");
-      if (!map.has(name)) map.set(name, { main: [], seaZones: [] });
-      const entry = map.get(name)!;
-      if (owner) entry.seaZones.push(p);
-      else entry.main.push(p);
-    }
-    for (const entry of map.values()) {
-      entry.main.sort((a, b) => (a.region ?? a.seaZone ?? "").localeCompare(b.region ?? b.seaZone ?? ""));
-      entry.seaZones.sort((a, b) => (a.seaZone ?? "").localeCompare(b.seaZone ?? ""));
-    }
-    return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0]));
-  }, [downloadedPacks, seaZoneOwner]);
 
   return (
     <div className="min-h-screen bg-canvas">
-      <PageHeader
+      <PageHeader sticky
         title="Offline packs"
         backFallbackTo="/settings"
         backLabel="Settings"
@@ -740,50 +605,23 @@ export default function OfflinePacksPage() {
               onDeselectAll={() => setSelectedCountryIds(new Set())}
             />
 
-            <div className="flex flex-wrap gap-2">
-              {continents.map((continent) => {
-                const countries = countriesByContinent.get(continent.id) ?? [];
-                if (countries.length === 0) return null;
-                const isOpen = openContinentIds.has(continent.id);
-                return (
-                  <button
-                    key={continent.id}
-                    type="button"
-                    onClick={() => toggleContinent(continent.id)}
-                    className={`rounded-full border px-3 py-1.5 text-sm transition-colors ${
-                      isOpen ? "border-ink bg-ink text-canvas" : "border-line bg-surface-muted text-ink hover:bg-line"
-                    }`}
-                  >
-                    {continent.name}
-                  </button>
-                );
-              })}
-            </div>
+            <RegionPicker
+              mode="multi"
+              items={continents.filter((c) => (countriesByContinent.get(c.id) ?? []).length > 0)}
+              selectedIds={openContinentIds}
+              onToggleItem={toggleContinent}
+            />
 
-            <div className="relative">
-              <input
-                type="text"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                placeholder="Search for a country…"
-                className="w-full rounded-md border border-line bg-surface px-3 py-2 text-sm text-ink"
-              />
-              {searchResults.length > 0 && (
-                <ul className="absolute z-10 mt-1 w-full rounded-md border border-line bg-surface shadow-md">
-                  {searchResults.map((r) => (
-                    <li key={r.id}>
-                      <button
-                        type="button"
-                        onClick={() => selectSearchResult(r)}
-                        className="block w-full px-3 py-2 text-left text-sm text-ink hover:bg-surface-muted"
-                      >
-                        {r.name}
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
+            <RegionPicker
+              mode="multi"
+              search={{
+                term: searchTerm,
+                onTermChange: setSearchTerm,
+                results: searchResults,
+                onSelectResult: (item) => selectSearchResult(item as RegionSummary),
+                placeholder: "Search for a country…",
+              }}
+            />
 
             {openContinents.length > 0 && (
               <div className="space-y-4 rounded-xl border border-line bg-surface p-4">
@@ -818,18 +656,18 @@ export default function OfflinePacksPage() {
                                 }}
                                 onClick={() => toggleCountry(country.id)}
                                 title={coverage === "full" ? "Fully downloaded" : coverage === "partial" ? "Partially downloaded" : undefined}
-                                className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs transition-colors ${
-                                  coverage === "full"
+                                className={`flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs transition-colors ${
+                                  coverage !== "none"
                                     ? isSelected
-                                      ? "border-green-700 bg-green-700 text-white ring-2 ring-green-700/40"
-                                      : "border-green-600 bg-green-600 text-white"
+                                      ? "border-accent bg-accent text-accent-fg ring-2 ring-accent/40"
+                                      : "border-accent bg-accent text-accent-fg"
                                     : isSelected
                                       ? "border-ink bg-ink text-canvas"
                                       : "border-line bg-surface-muted text-ink hover:bg-line"
                                 }`}
                               >
                                 {coverage === "partial" && (
-                                  <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full bg-green-600/50" />
+                                  <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent-fg/70" />
                                 )}
                                 {country.name}
                               </button>
@@ -868,18 +706,18 @@ export default function OfflinePacksPage() {
                                               ? "Partially downloaded"
                                               : undefined
                                         }
-                                        className={`flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] transition-colors ${
-                                          territoryCoverage === "full"
+                                        className={`flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-[11px] transition-colors ${
+                                          territoryCoverage !== "none"
                                             ? territorySelected
-                                              ? "border-green-700 bg-green-700 text-white ring-2 ring-green-700/40"
-                                              : "border-green-600 bg-green-600 text-white"
+                                              ? "border-accent bg-accent text-accent-fg ring-2 ring-accent/40"
+                                              : "border-accent bg-accent text-accent-fg"
                                             : territorySelected
                                               ? "border-ink bg-ink text-canvas"
                                               : "border-line bg-surface-muted text-muted hover:bg-line"
                                         }`}
                                       >
                                         {territoryCoverage === "partial" && (
-                                          <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full bg-green-600/50" />
+                                          <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent-fg/70" />
                                         )}
                                         {territory.name}
                                       </button>
@@ -934,18 +772,18 @@ export default function OfflinePacksPage() {
                                     type="button"
                                     onClick={() => toggleCountry(territory.id)}
                                     title={coverage === "full" ? "Fully downloaded" : coverage === "partial" ? "Partially downloaded" : undefined}
-                                    className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs transition-colors ${
+                                    className={`flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs transition-colors ${
                                       coverage === "full"
                                         ? isSelected
-                                          ? "border-green-700 bg-green-700 text-white ring-2 ring-green-700/40"
-                                          : "border-green-600 bg-green-600 text-white"
+                                          ? "border-accent bg-accent text-accent-fg ring-2 ring-accent/40"
+                                          : "border-accent bg-accent text-accent-fg"
                                         : isSelected
                                           ? "border-ink bg-ink text-canvas"
                                           : "border-line bg-surface-muted text-muted hover:bg-line"
                                     }`}
                                   >
                                     {coverage === "partial" && (
-                                      <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full bg-green-600/50" />
+                                      <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent/50" />
                                     )}
                                     {territory.name}
                                   </button>
@@ -986,16 +824,9 @@ export default function OfflinePacksPage() {
                     .map((taxon) => {
                       const isSelected = selectedTaxa.has(taxon);
                       return (
-                        <button
-                          key={taxon}
-                          type="button"
-                          onClick={() => toggleTaxon(taxon)}
-                          className={`rounded-full border px-3 py-1 text-xs transition-colors ${
-                            isSelected ? "border-ink bg-ink text-canvas" : "border-line text-muted hover:bg-surface-muted"
-                          }`}
-                        >
-                          {TAXON_CLASS_LABEL[taxon]}
-                        </button>
+                        <Pill key={taxon} active={isSelected} onClick={() => toggleTaxon(taxon)}>
+                          {taxonDisplayLabel(taxon, namingStyles)}
+                        </Pill>
                       );
                     })}
                 </div>
@@ -1033,16 +864,9 @@ export default function OfflinePacksPage() {
                           {availableInGroup.map((taxon) => {
                             const isSelected = selectedTaxa.has(taxon);
                             return (
-                              <button
-                                key={taxon}
-                                type="button"
-                                onClick={() => toggleTaxon(taxon)}
-                                className={`rounded-full border px-3 py-1 text-xs transition-colors ${
-                                  isSelected ? "border-ink bg-ink text-canvas" : "border-line text-muted hover:bg-surface-muted"
-                                }`}
-                              >
-                                {TAXON_CLASS_LABEL[taxon]}
-                              </button>
+                              <Pill key={taxon} active={isSelected} onClick={() => toggleTaxon(taxon)}>
+                                {taxonDisplayLabel(taxon, namingStyles)}
+                              </Pill>
                             );
                           })}
                         </div>
@@ -1054,222 +878,53 @@ export default function OfflinePacksPage() {
             )}
 
             {downloadedPacks.length > 0 && (
-              <div className="rounded-xl border border-line bg-surface p-4">
-                <div className="flex items-center justify-between">
-                  <p className="text-sm font-semibold text-ink">Downloaded</p>
-                  <div className="flex gap-2">
-                    {downloadedGroups.length > 0 && (
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setExpandedGroups(
-                            expandedGroups.size === downloadedGroups.length
-                              ? new Set()
-                              : new Set(downloadedGroups.map(([name]) => name)),
-                          )
-                        }
-                        className="rounded-md border border-line px-2 py-1 text-xs text-muted hover:bg-surface-muted"
-                      >
-                        {expandedGroups.size === downloadedGroups.length ? "Collapse all" : "Expand all"}
-                      </button>
-                    )}
-                    {downloadedPacks.some((p) => p.updateAvailable) && (
-                      <button
-                        type="button"
-                        disabled={starting || status?.running}
-                        onClick={() => updatePacks(downloadedPacks.filter((p) => p.updateAvailable).map((p) => p.id))}
-                        className="flex items-center gap-1.5 rounded-md bg-accent px-2 py-1 text-xs font-medium text-accent-fg disabled:opacity-50"
-                      >
-                        {(starting || status?.running) && (
-                          <span className="h-3 w-3 animate-spin rounded-full border-2 border-accent-fg/40 border-t-accent-fg" />
-                        )}
-                        {starting || status?.running ? "Updating…" : "Update all"}
-                      </button>
-                    )}
-                    {selectedOffloadIds.size > 0 && (
-                      <button
-                        type="button"
-                        onClick={() => openOffloadConfirm(downloadedPacks.filter((p) => selectedOffloadIds.has(p.id)))}
-                        className="rounded-md border border-line px-2 py-1 text-xs text-muted hover:bg-surface-muted"
-                      >
-                        Offload selected ({selectedOffloadIds.size})
-                      </button>
-                    )}
-                  </div>
-                </div>
-                <div className="mt-2 divide-y divide-line">
-                  {downloadedGroups.map(([groupName, { main, seaZones }]) => {
-                    const allPacks = [...main, ...seaZones];
-                    const groupIds = allPacks.map((p) => p.id);
-                    const groupSelected = groupIds.every((id) => selectedOffloadIds.has(id));
-                    const groupBytes = allPacks.reduce((sum, p) => sum + p.sizeBytes, 0);
-                    const collapsed = !expandedGroups.has(groupName);
-                    const hasBothTabs = main.length > 0 && seaZones.length > 0;
-                    const activeTab = groupTab.get(groupName) ?? (main.length > 0 ? "main" : "seaZones");
-                    const activePacks = activeTab === "seaZones" ? seaZones : main;
-                    return (
-                      <div key={groupName} className="py-2">
-                        <div className="flex items-center gap-2 text-sm">
-                          <input
-                            type="checkbox"
-                            checked={groupSelected}
-                            onChange={() =>
-                              setSelectedOffloadIds((prev) => {
-                                const next = new Set(prev);
-                                for (const id of groupIds) {
-                                  if (groupSelected) next.delete(id);
-                                  else next.add(id);
+              <DownloadedPacksList
+                packs={packs ?? []}
+                onRefresh={refreshPacks}
+                renderPackExtra={(p) =>
+                  p.type === "region" ? (
+                    <button
+                      type="button"
+                      onClick={() => openProvinceManager(p.id)}
+                      className="rounded-md border border-line px-2 py-1 text-xs text-muted hover:bg-surface-muted"
+                    >
+                      {provinceManagerPackId === p.id ? subdivisionLabel : "Provinces"}
+                    </button>
+                  ) : null
+                }
+                renderPackPanel={(p) =>
+                  provinceManagerPackId === p.id ? (
+                    <div className="mt-2 ml-6 rounded-md border border-line bg-surface-muted p-2">
+                      {provinceError && <p className="text-xs text-red-600">{provinceError}</p>}
+                      {!provinceList && !provinceError && (
+                        <p className="text-xs text-muted">Loading {subdivisionLabel.toLowerCase()}…</p>
+                      )}
+                      {provinceList && provinceList.length === 0 && (
+                        <p className="text-xs text-muted">This pack has no {subdivisionLabel.toLowerCase()}.</p>
+                      )}
+                      {provinceList && provinceList.length > 0 && (
+                        <ul className="max-h-64 space-y-1 overflow-y-auto">
+                          {provinceList.map((province) => (
+                            <li key={province.id} className="flex items-center gap-2 text-xs">
+                              <input
+                                type="checkbox"
+                                checked={province.applied}
+                                disabled={provinceBusyId === province.id}
+                                onChange={() =>
+                                  province.applied ? offloadProvince(p.id, province) : reapplyProvince(p.id, province)
                                 }
-                                return next;
-                              })
-                            }
-                            className="h-4 w-4"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => toggleGroupCollapsed(groupName)}
-                            className="flex flex-1 items-center justify-between text-left text-ink"
-                          >
-                            <span>
-                              {groupName} <span className="text-xs text-muted">({allPacks.length} pack{allPacks.length === 1 ? "" : "s"})</span>
-                            </span>
-                            <span className="text-xs text-muted">
-                              {formatBytes(groupBytes)} {collapsed ? "▸" : "▾"}
-                            </span>
-                          </button>
-                        </div>
-                        {!collapsed && hasBothTabs && (
-                          <div className="mt-1.5 ml-6 flex gap-1">
-                            <Pill size="sm" active={activeTab === "main"} onClick={() => setGroupTab(new Map(groupTab).set(groupName, "main"))}>
-                              Packs ({main.length})
-                            </Pill>
-                            <Pill
-                              size="sm"
-                              active={activeTab === "seaZones"}
-                              onClick={() => setGroupTab(new Map(groupTab).set(groupName, "seaZones"))}
-                            >
-                              Sea zones ({seaZones.length})
-                            </Pill>
-                          </div>
-                        )}
-                        {!collapsed && activePacks.length > 1 && (
-                          <div className="mt-1.5 ml-6">
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setSelectedOffloadIds((prev) => {
-                                  const next = new Set(prev);
-                                  const activeIds = activePacks.map((p) => p.id);
-                                  const allActiveSelected = activeIds.every((id) => next.has(id));
-                                  for (const id of activeIds) {
-                                    if (allActiveSelected) next.delete(id);
-                                    else next.add(id);
-                                  }
-                                  return next;
-                                })
-                              }
-                              className="text-xs text-muted hover:underline"
-                            >
-                              {activePacks.every((p) => selectedOffloadIds.has(p.id)) ? "Deselect all" : "Select all"}
-                            </button>
-                          </div>
-                        )}
-                        {!collapsed && (
-                          <ul className="mt-1 ml-6 divide-y divide-line">
-                            {activePacks.map((p) => (
-                              <li key={p.id} className="py-1.5">
-                                <div className="flex items-center gap-2 text-sm">
-                                  <input
-                                    type="checkbox"
-                                    checked={selectedOffloadIds.has(p.id)}
-                                    onChange={() => toggleOffloadSelection(p.id)}
-                                    className="h-4 w-4"
-                                  />
-                                  <span className="flex-1 text-ink">
-                                    {p.type === "seaZone" ? p.seaZone : p.taxon ? TAXON_CLASS_LABEL[p.taxon] : "All taxa"}
-                                    {p.updateAvailable && <span className="ml-2 text-xs text-accent">update available</span>}
-                                  </span>
-                                  <span
-                                    className="text-xs text-muted"
-                                    title={
-                                      p.photoBytes != null && p.checklistBytes != null
-                                        ? `~${formatBytes(p.photoBytes)} photos, ~${formatBytes(p.checklistBytes)} checklist (uncompressed estimate)`
-                                        : undefined
-                                    }
-                                  >
-                                    {formatBytes(p.sizeBytes)}
-                                  </span>
-                                  {p.updateAvailable && (
-                                    <button
-                                      type="button"
-                                      disabled={starting || status?.running}
-                                      onClick={() => updatePacks([p.id])}
-                                      className="flex items-center gap-1.5 rounded-md border border-accent px-2 py-1 text-xs font-medium text-accent hover:bg-surface-muted disabled:opacity-50"
-                                    >
-                                      {(pendingUpdatePackIds.has(p.id) || status?.currentPack === p.id) && (
-                                        <span className="h-3 w-3 animate-spin rounded-full border-2 border-accent/40 border-t-accent" />
-                                      )}
-                                      {pendingUpdatePackIds.has(p.id) || status?.currentPack === p.id ? "Updating…" : "Update"}
-                                    </button>
-                                  )}
-                                  {p.type === "region" && (
-                                    <button
-                                      type="button"
-                                      onClick={() => openProvinceManager(p.id)}
-                                      className="rounded-md border border-line px-2 py-1 text-xs text-muted hover:bg-surface-muted"
-                                    >
-                                      {provinceManagerPackId === p.id ? subdivisionLabel : "Provinces"}
-                                    </button>
-                                  )}
-                                  <button
-                                    type="button"
-                                    onClick={() => openOffloadConfirm([p])}
-                                    className="rounded-md border border-line px-2 py-1 text-xs text-muted hover:bg-surface-muted"
-                                  >
-                                    Offload
-                                  </button>
-                                </div>
-                                {provinceManagerPackId === p.id && (
-                                  <div className="mt-2 ml-6 rounded-md border border-line bg-surface-muted p-2">
-                                    {provinceError && <p className="text-xs text-red-600">{provinceError}</p>}
-                                    {!provinceList && !provinceError && (
-                                      <p className="text-xs text-muted">Loading {subdivisionLabel.toLowerCase()}…</p>
-                                    )}
-                                    {provinceList && provinceList.length === 0 && (
-                                      <p className="text-xs text-muted">This pack has no {subdivisionLabel.toLowerCase()}.</p>
-                                    )}
-                                    {provinceList && provinceList.length > 0 && (
-                                      <ul className="max-h-64 space-y-1 overflow-y-auto">
-                                        {provinceList.map((province) => (
-                                          <li key={province.id} className="flex items-center gap-2 text-xs">
-                                            <input
-                                              type="checkbox"
-                                              checked={province.applied}
-                                              disabled={provinceBusyId === province.id}
-                                              onChange={() =>
-                                                province.applied
-                                                  ? offloadProvince(p.id, province)
-                                                  : reapplyProvince(p.id, province)
-                                              }
-                                              className="h-3.5 w-3.5"
-                                            />
-                                            <span className="text-ink">{province.name}</span>
-                                            {provinceBusyId === province.id && <span className="text-muted">working…</span>}
-                                          </li>
-                                        ))}
-                                      </ul>
-                                    )}
-                                  </div>
-                                )}
-                              </li>
-                            ))}
-                          </ul>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
+                                className="h-3.5 w-3.5"
+                              />
+                              <span className="text-ink">{province.name}</span>
+                              {provinceBusyId === province.id && <span className="text-muted">working…</span>}
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  ) : null
+                }
+              />
             )}
           </>
         )}
@@ -1293,73 +948,6 @@ export default function OfflinePacksPage() {
         </div>
       </main>
 
-      {offloadTargets && (
-        <div className="fixed inset-0 z-20 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-md rounded-xl border border-line bg-surface p-5">
-            <h2 className="text-base font-semibold text-ink">
-              {offloadTargets.length === 1 ? (
-                <>
-                  Offload {offloadTargets[0].region ?? offloadTargets[0].seaZone}
-                  {offloadTargets[0].taxon ? ` (${TAXON_CLASS_LABEL[offloadTargets[0].taxon]})` : ""}?
-                </>
-              ) : (
-                <>Offload {offloadTargets.length} selected packs?</>
-              )}
-            </h2>
-            {deleteError && <p className="mt-2 text-sm text-red-600">{deleteError}</p>}
-            {!deletePreview && !deleteError && <p className="mt-3 text-sm text-muted">Checking what this would affect…</p>}
-            {deletePreview && (
-              <div className="mt-3 space-y-1 text-sm text-muted">
-                <p>
-                  {deletePreview.isEstimate ? (
-                    <>This pack takes up about {formatBytes(deletePreview.bytesToFree)}. Offloading it will free that space.</>
-                  ) : (
-                    <>
-                      {deletePreview.speciesToRemoveCount} species' reference photos would be removed, freeing{" "}
-                      {formatBytes(deletePreview.bytesToFree)}.
-                    </>
-                  )}
-                </p>
-                {deletePreview.speciesKeptCount > 0 && (
-                  <p>
-                    {deletePreview.speciesKeptCount} species would keep their photos: you've photographed them yourself, or another
-                    downloaded pack still needs them.
-                  </p>
-                )}
-                {deletePreview.checklistRegionsAffectedCount > 0 && (
-                  <p>
-                    {deletePreview.checklistRegionsAffectedCount === 1
-                      ? "This region's checklist"
-                      : `${deletePreview.checklistRegionsAffectedCount} regions' checklists (including this one)`}{" "}
-                    will no longer be available offline.
-                  </p>
-                )}
-                <p className="text-xs text-muted">
-                  This only affects downloaded reference photos and checklist data. Your own captures and Gallery photos are never
-                  touched.
-                </p>
-              </div>
-            )}
-            <div className="mt-4 flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setOffloadTargets(null)}
-                className="rounded-md border border-line px-3 py-1.5 text-sm text-ink hover:bg-surface-muted"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={confirmOffload}
-                disabled={!deletePreview || deleting}
-                className="rounded-md bg-red-600 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
-              >
-                {deleting ? "Removing…" : "Offload"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

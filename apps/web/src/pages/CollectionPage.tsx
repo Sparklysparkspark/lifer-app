@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from
 import { Link, useSearchParams } from "react-router-dom";
 import {
   TAXON_CLASS_LABEL,
+  otherTaxaGroupLabel,
   type TaxonClass,
   type CollectionItem,
   type RegionSpeciesResponse,
@@ -10,22 +11,28 @@ import {
 } from "@lifer/shared";
 import { api, ApiError } from "../api/client";
 import { useAuth } from "../hooks/useAuth";
-import { useDesktopMode } from "../hooks/useDesktopMode";
-import SpeciesPicker from "../components/SpeciesPicker";
+import AppNav from "../components/AppNav";
 import GroupedSpeciesGrid, { type GroupBy, type SortBy } from "../components/GroupedSpeciesGrid";
+import { useSpeciesCardSize } from "../hooks/useSpeciesCardSize";
 import RegionMap from "../components/RegionMap";
-import { Logo } from "../components/Logo";
-import InfoTip from "../components/InfoTip";
+import { useMapAvailable } from "../hooks/useMapAvailable";
 import { Spinner } from "../components/LoadingScreen";
 import Pill from "../components/Pill";
-
-const RARITY_INFO_PARAGRAPHS = [
-  '"Rarity" ranks how hard a species is to get a good photo of overall. It\'s not conservation status. A common species that\'s hard to photograph can rank higher than an endangered species that\'s easy to photograph.',
-  '"Rarity here" is a completely different, region-specific measure. It\'s how often that species actually turns up in the region you\'ve selected, based on real sighting records for that area.',
-];
+import FilterPopover, { FilterFieldLabel } from "../components/FilterPopover";
+import Select from "../components/Select";
+import AddOtherTaxaModal from "../components/AddOtherTaxaModal";
+import SearchInput from "../components/SearchInput";
 
 type StateFilter = "all" | "collected" | "seen" | "target" | "unseen";
-type TaxonFilter = "all" | TaxonClass;
+// "other-taxa" is a real, separate value on the wire (see collection/routes.ts's own comment on
+// the sentinel) — species added via Settings > Species & Import's any-taxa search never carry
+// one of the fixed TaxonClass values, so they need their own filter bucket rather than folding
+// into "all". Widened to plain `string` (not a closed union) because a SPECIFIC Other Taxa
+// iconic-taxon group (e.g. "insecta") is also a real, selectable filter value now (see
+// otherTaxaIconicFiltersPresent below) — the backend's `s.taxon_class = $2` clause already
+// matches it directly, since Other Taxa species store iNat's lowercased iconic taxon name in
+// that exact column (see organizedPath.ts's own comment on this same reuse).
+type TaxonFilter = string;
 
 // Species detail is a SIBLING route (see App.tsx), not nested under this page, so navigating
 // there and back fully unmounts/remounts CollectionPage — every `useState` resets to its
@@ -43,29 +50,40 @@ interface CollectionCacheEntry {
 const collectionCache = new Map<string, CollectionCacheEntry>();
 function collectionCacheKey(
   regionId: string | null,
-  taxonFilter: TaxonFilter,
+  taxonFilters: Set<string>,
   seaZoneIds: string[],
   includeLand: boolean,
 ): string {
-  return JSON.stringify([regionId, taxonFilter, [...seaZoneIds].sort(), includeLand]);
+  return JSON.stringify([regionId, [...taxonFilters].sort(), [...seaZoneIds].sort(), includeLand]);
 }
 
 // All 18 taxon groups (same source GalleryPage/OfflinePacksPage already use) — not just the
 // three (birds/mammals/fish) that had checklist data first. A taxon with no region_species
 // computed for it yet just shows an empty grid, same as any other region with nothing behind
 // it, rather than being hidden from the picker.
-const TAXON_LABEL: Record<TaxonFilter, string> = {
+const TAXON_LABEL: Record<string, string> = {
   all: "All taxa",
   ...TAXON_CLASS_LABEL,
+  "other-taxa": "Other Taxa",
 };
+
+// Label for a specific Other Taxa iconic-taxon filter value (e.g. "insecta") — these aren't in
+// TAXON_LABEL above since they're discovered dynamically per region (see
+// otherTaxaIconicFiltersPresent), not a fixed set. iNat's own iconic taxon names are just the
+// lowercased column value capitalized back (confirmed true for all 13 — "Insecta", "Mollusca",
+// etc. are single already-capitalized words) — otherTaxaGroupLabel needs that real casing both
+// to look up its English label and, when Latin is preferred, as the literal Latin text itself.
+function taxonFilterLabel(t: string, namingStyles: string[]): string {
+  if (t in TAXON_LABEL) return TAXON_LABEL[t];
+  return otherTaxaGroupLabel(t.charAt(0).toUpperCase() + t.slice(1), namingStyles);
+}
 
 // Region drill-down lives on the main screen — no region selected means "everything
 // collected, worldwide"; picking one (via the breadcrumb below) narrows the same grid to
 // that region's checklist without ever leaving this page. `?region=` is a real URL param so
 // a drilled-in view is bookmarkable/shareable, same idea as SpeciesDetailPage's `?regionId=`.
 export default function CollectionPage() {
-  const { user, logout } = useAuth();
-  const isDesktopMode = useDesktopMode();
+  const { user } = useAuth();
   // Every filter/sort/group preference lives in the URL, not plain useState, so sorting and
   // grouping choices never get lost just from navigating between regions, and a specific
   // filtered/grouped view stays shareable and bookmarkable, same as `region` already was.
@@ -140,7 +158,16 @@ export default function CollectionPage() {
   const stateFilter = (searchParams.get("show") as StateFilter) || "all";
   const ghostOnly = searchParams.get("ghostOnly") === "1";
   const lostOnly = searchParams.get("lostOnly") === "1";
-  const taxonFilter = (searchParams.get("taxon") as TaxonFilter) || "all";
+  // Checkbox multi-select (e.g. Birds + Mammals at once) — comma-separated in the URL, same
+  // convention as seaZones below. Empty set means "all taxa" (no filter), same meaning "all"
+  // used to have as the single-select's default value.
+  const taxonFilters = useMemo(() => {
+    const raw = searchParams.get("taxon");
+    return new Set(raw ? raw.split(",").filter(Boolean) : []);
+  }, [searchParams]);
+  // The single-taxon views below (pack-missing prompt, sea-zone relevance) only make sense
+  // pointed at exactly one taxon — undefined for "all" (nothing selected) or a mixed multi-select.
+  const singleTaxonFilter = taxonFilters.size === 1 ? [...taxonFilters][0] : undefined;
   // Lets a region's checklist optionally include species from nearby marine zones. Multiple
   // zones can be checked at once (e.g. Red Sea AND Gulf of Aqaba) — each backed by a real
   // marine polygon's species list, not a country-adjacency guess. Comma-separated in the
@@ -188,7 +215,15 @@ export default function CollectionPage() {
     }, options);
   }
 
-  const cachedEntry = collectionCache.get(collectionCacheKey(regionId, taxonFilter, seaZoneIds, includeLand));
+  // Other Taxa filter-option labels (e.g. "Insects" vs "Insecta") follow the same
+  // species_naming_styles preference used everywhere else this session — self-fetched, same
+  // pattern GroupedSpeciesGrid uses for its own group-label naming preference.
+  const [namingStyles, setNamingStyles] = useState<string[]>([]);
+  useEffect(() => {
+    api.get<{ speciesNamingStyles: string[] }>("/settings").then((res) => setNamingStyles(res.speciesNamingStyles)).catch(() => {});
+  }, []);
+
+  const cachedEntry = collectionCache.get(collectionCacheKey(regionId, taxonFilters, seaZoneIds, includeLand));
   const [items, setItems] = useState<CollectionItem[] | null>(cachedEntry?.items ?? null);
   const [regionMeta, setRegionMeta] = useState<RegionSpeciesResult["region"] | null>(cachedEntry?.regionMeta ?? null);
   const [regionStats, setRegionStats] = useState<RegionSpeciesResult["stats"] | null>(cachedEntry?.regionStats ?? null);
@@ -208,6 +243,10 @@ export default function CollectionPage() {
   // region/taxon switch without waiting for the (much heavier) species grid to load.
   const [quickCount, setQuickCount] = useState<{ total: number; collected: number } | null>(null);
   const [allRegions, setAllRegions] = useState<RegionSummary[]>([]);
+  // Set whenever the current view is a hub (World/continent) aggregate — distinguishes "zero
+  // downloaded countries under here" (a real empty state) from "downloaded countries exist but
+  // none of their species matched the current filter," which needs a different message.
+  const [downloadedHubCountryNames, setDownloadedHubCountryNames] = useState<string[]>([]);
   const [drillingDown, setDrillingDown] = useState(false);
   const [loadError, setLoadError] = useState(false);
   // In-view search filters whatever's already on screen (all species, or the current
@@ -228,26 +267,62 @@ export default function CollectionPage() {
   // five controls used to sit as their own separate labels/checkboxes directly in the toolbar
   // row, which read as cluttered next to Group/Sort/Taxon. Ghost/Lost-only (also filter
   // checkboxes, just conditionally shown) move in here too for the same reason.
-  const [filtersOpen, setFiltersOpen] = useState(false);
-  const filtersRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!filtersOpen) return;
-    const closeIfOutside = (e: MouseEvent) => {
-      if (filtersRef.current && !filtersRef.current.contains(e.target as Node)) setFiltersOpen(false);
-    };
-    document.addEventListener("click", closeIfOutside);
-    return () => document.removeEventListener("click", closeIfOutside);
-  }, [filtersOpen]);
+  const [cardMinWidth, setCardMinWidth] = useSpeciesCardSize();
+  // Purely a display preference (doesn't touch the underlying tier data) — persisted the same
+  // lightweight way as the size slider, so it survives a reload without needing a real
+  // per-user settings round trip.
+  const [hideRarityLabels, setHideRarityLabels] = useState(() => {
+    try {
+      return localStorage.getItem("lifer:hideRarityLabels") === "1";
+    } catch {
+      return false;
+    }
+  });
+  function toggleHideRarityLabels(next: boolean) {
+    setHideRarityLabels(next);
+    try {
+      localStorage.setItem("lifer:hideRarityLabels", next ? "1" : "0");
+    } catch {
+      // Private browsing or storage disabled — the toggle still works this session.
+    }
+  }
+  // Lets the map still be downloaded/kept without it eating screen space on every visit —
+  // same lightweight localStorage persistence as the other display toggles above. Collapsed
+  // state is global (not per-region), matching how the size slider and rarity-label toggle
+  // already behave — one preference, not one saved per region.
+  const [mapCollapsed, setMapCollapsed] = useState(() => {
+    try {
+      return localStorage.getItem("lifer:collectionMapCollapsed") === "1";
+    } catch {
+      return false;
+    }
+  });
+  function toggleMapCollapsed() {
+    setMapCollapsed((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem("lifer:collectionMapCollapsed", next ? "1" : "0");
+      } catch {
+        // Private browsing or storage disabled — the toggle still works this session.
+      }
+      return next;
+    });
+  }
+  const mapAvailable = useMapAvailable();
+
   // collectedFirst defaults to true, so it only counts toward the badge when turned OFF
   // (the non-default state) — same "count only departures from default" rule Gallery's own
-  // activeFilterCount uses.
+  // activeFilterCount uses. Taxon now lives inside this same Filters panel (see its own render
+  // site below) instead of its own separate pill, matching Gallery's "everything behind one
+  // Filters button" convention, so it counts toward this badge too.
   const activeFilterCount =
     (collectedFirst ? 0 : 1) +
     (seenFirst ? 1 : 0) +
     (targetFirst ? 1 : 0) +
     (stateFilter !== "all" ? 1 : 0) +
     (ghostOnly ? 1 : 0) +
-    (lostOnly ? 1 : 0);
+    (lostOnly ? 1 : 0) +
+    taxonFilters.size;
 
   // Fetched once, up front, independent of regionId — the region list is cheap (it's just
   // names/hierarchy, not species), and `load()` below needs to know whether the CURRENT
@@ -328,6 +403,28 @@ export default function CollectionPage() {
     },
     [allRegions],
   );
+  // Same walk-to-country logic as packRegionNameFor just above, but returns the region's id
+  // (and name) rather than just a display string — SpeciesCard's own province-vs-country hide
+  // picker needs the actual country region id to call POST /regions/:id/species/:id/hide with.
+  const countryAncestorFor = useCallback(
+    (id: string): { id: string; name: string } | null => {
+      let region = allRegions.find((r) => r.id === id);
+      while (region && region.sovereigntyGroup == null && region.parentId) {
+        const parent = allRegions.find((r) => r.id === region!.parentId);
+        if (!parent) break;
+        region = parent;
+      }
+      return region ? { id: region.id, name: region.name } : null;
+    },
+    [allRegions],
+  );
+  // Only meaningful once allRegions has actually loaded — before then this briefly returns
+  // null, which SpeciesCard treats as "no country to disambiguate against" (falls back to the
+  // plain one-click hide), never a crash.
+  const countryAncestor = useMemo(
+    () => (regionId ? countryAncestorFor(regionId) : null),
+    [regionId, countryAncestorFor],
+  );
   const isTaxonPackDownloaded = useCallback(
     (id: string | null, taxonClass: string): boolean => {
       if (!id || !downloadedRegionTaxons) return false;
@@ -348,7 +445,7 @@ export default function CollectionPage() {
   // region's own fish pack is installed contradicts "download this region's pack to see its
   // data." Hidden in both cases, not just skipped for auto-select.
   const seaZonesRelevant =
-    (taxonFilter === "all" || taxonFilter === "actinopterygii") &&
+    (taxonFilters.size === 0 || taxonFilters.has("actinopterygii")) &&
     (!regionId || isTaxonPackDownloaded(regionId, "actinopterygii"));
 
   // A region only has real reference data once a pack covers it — see regions/routes.ts's own
@@ -428,23 +525,19 @@ export default function CollectionPage() {
   // reasoning as the sea-zone/pack-download gating elsewhere on this page. Null (no region, or
   // not fetched yet) means "don't restrict by presence," not "restrict to nothing."
   const [taxaPresentForRegion, setTaxaPresentForRegion] = useState<Set<string> | null>(null);
-  useEffect(() => {
+  const loadTaxaPresentForRegion = useCallback(() => {
     if (!regionId || regionKnownHub) {
       setTaxaPresentForRegion(null);
       return;
     }
-    let cancelled = false;
     api
       .get<Record<string, string[]>>(`/regions/taxon-presence?regionIds=${regionId}`)
-      .then((res) => {
-        if (!cancelled) setTaxaPresentForRegion(new Set(res[regionId] ?? []));
-      })
-      .catch(() => {
-        if (!cancelled) setTaxaPresentForRegion(null);
-      });
-    return () => {
-      cancelled = true;
-    };
+      .then((res) => setTaxaPresentForRegion(new Set(res[regionId] ?? [])))
+      .catch(() => setTaxaPresentForRegion(null));
+  }, [regionId, regionKnownHub]);
+  useEffect(() => {
+    loadTaxaPresentForRegion();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [regionId, regionKnownHub]);
 
   // Downloaded ANYWHERE — used only for the no-region ("all species") view, where "available
@@ -466,21 +559,46 @@ export default function CollectionPage() {
   // reason why). The currently-selected value always stays visible even if it stops qualifying
   // (e.g. switching regions out from under it), so the dropdown never shows a value with no
   // matching option.
+  //
+  // A specific Other Taxa iconic-taxon group (e.g. "insecta") is a genuine, separate filter
+  // value alongside the generic "Other Taxa" bucket — /regions/taxon-presence already returns
+  // it (Other Taxa species store their iconic taxon's lowercased name directly in taxon_class,
+  // so it comes back from that same DISTINCT taxon_class query with no extra endpoint needed).
+  // Only offered with a region selected — Other Taxa has no pack/download concept to check
+  // "downloaded anywhere" against for the no-region view, unlike the 18 real taxa above.
+  const otherTaxaIconicFiltersPresent = useMemo(() => {
+    if (!regionId || !taxaPresentForRegion) return [];
+    return [...taxaPresentForRegion].filter((t) => !(t in TAXON_LABEL));
+  }, [regionId, taxaPresentForRegion]);
+
   const availableTaxonFilters = useMemo(
     () =>
-      (Object.keys(TAXON_LABEL) as TaxonFilter[]).filter((t) => {
-        if (t === "all" || t === taxonFilter) return true;
+      [
+        ...(Object.keys(TAXON_LABEL) as TaxonFilter[]).filter((t) => t !== "all" && t !== "other-taxa"),
+        // Specific Other Taxa groups (e.g. "insecta"/"plantae") stand in for the old flat
+        // "Other Taxa" catch-all, which is gone — every Other Taxa species already has its own
+        // iconic taxon, so a single undifferentiated bucket never added anything the per-group
+        // breakdown below didn't already cover.
+        ...otherTaxaIconicFiltersPresent,
+        ...taxonFilters,
+      ].filter(
+        (t, i, arr) => arr.indexOf(t) === i,
+      ).filter((t) => {
+        // No pack concept for other-taxa species (added one at a time, per region, via
+        // Settings > Species & Import) — always offered, unlike the 18 real taxa which are
+        // gated on actually having a downloaded pack for them.
+        if (taxonFilters.has(t) || otherTaxaIconicFiltersPresent.includes(t)) return true;
         if (regionId) {
           return isTaxonPackDownloaded(regionId, t) && (!taxaPresentForRegion || taxaPresentForRegion.has(t));
         }
         return taxaDownloadedAnywhere.has(t);
       }),
-    [regionId, taxonFilter, isTaxonPackDownloaded, taxaPresentForRegion, taxaDownloadedAnywhere],
+    [regionId, taxonFilters, isTaxonPackDownloaded, taxaPresentForRegion, taxaDownloadedAnywhere, otherTaxaIconicFiltersPresent],
   );
 
   const load = useCallback(() => {
     setLoadError(false);
-    const taxonQuery = taxonFilter === "all" ? "" : `taxon=${taxonFilter}`;
+    const taxonQuery = taxonFilters.size === 0 ? "" : `taxon=${[...taxonFilters].join(",")}`;
     // Only sent when relevant (see seaZonesRelevant's comment) — a stale seaZoneIds param
     // left in the URL from a previous "all taxa" view shouldn't silently reapply once the
     // taxon filter narrows to birds/mammals, since it would filter to zero without the
@@ -491,13 +609,30 @@ export default function CollectionPage() {
     setQuickCount(null);
     setNeedsPackFor(null);
     setTaxonPackMissingFor(null);
+    // Every hub (World, or a continent) has no scoped checklist of its own — but rather than
+    // dead-ending on "pick a country," aggregate the checklists of whichever countries
+    // underneath it actually have a pack downloaded (World's include every downloaded country
+    // anywhere; a continent's are scoped to just its own). Zero downloaded countries under this
+    // hub still means nothing to show — see the empty-state branch in the render below.
     if (regionId && regionKnownHub) {
-      // No scoped checklist to show — just the breadcrumb/children pills, already rendered
-      // from `allRegions` below, need nothing fetched here.
-      setItems(null);
-      setRegionMeta(null);
-      setRegionStats(null);
       setSeaZones([]);
+      setQuickCount(null);
+      api
+        .get<{ items: CollectionItem[]; downloadedCountryNames: string[] }>(
+          `/regions/${regionId}/aggregate-species?${taxonQuery}`,
+        )
+        .then((res) => {
+          setItems(res.items);
+          setRegionMeta(null);
+          setRegionStats(null);
+          setDownloadedHubCountryNames(res.downloadedCountryNames);
+          collectionCache.set(collectionCacheKey(regionId, taxonFilters, seaZoneIds, includeLand), {
+            items: res.items,
+            regionMeta: null,
+            regionStats: null,
+          });
+        })
+        .catch(() => setLoadError(true));
     } else if (regionId) {
       api
         .get<{ total: number; collected: number }>(
@@ -520,10 +655,10 @@ export default function CollectionPage() {
           setItems(res.items);
           setRegionMeta(res.region);
           setRegionStats(res.stats);
-          if (res.taxonPackMissing && taxonFilter !== "all") {
-            setTaxonPackMissingFor({ id: res.region.id, name: res.region.name, taxon: taxonFilter });
+          if (res.taxonPackMissing && singleTaxonFilter) {
+            setTaxonPackMissingFor({ id: res.region.id, name: res.region.name, taxon: singleTaxonFilter });
           }
-          collectionCache.set(collectionCacheKey(regionId, taxonFilter, seaZoneIds, includeLand), {
+          collectionCache.set(collectionCacheKey(regionId, taxonFilters, seaZoneIds, includeLand), {
             items: res.items,
             regionMeta: res.region,
             regionStats: res.stats,
@@ -547,7 +682,7 @@ export default function CollectionPage() {
           setItems(res.items);
           setRegionMeta(null);
           setRegionStats(null);
-          collectionCache.set(collectionCacheKey(regionId, taxonFilter, seaZoneIds, includeLand), {
+          collectionCache.set(collectionCacheKey(regionId, taxonFilters, seaZoneIds, includeLand), {
             items: res.items,
             regionMeta: null,
             regionStats: null,
@@ -557,14 +692,21 @@ export default function CollectionPage() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- seaZoneIds is an array; its
     // joined string is the real dependency (stable primitive, avoids reference-identity churn)
-  }, [regionId, taxonFilter, seaZoneIds.join(","), includeLand, firstRunPrompt, regionKnownHub]);
+  }, [regionId, taxonFilters, seaZoneIds.join(","), includeLand, firstRunPrompt, regionKnownHub, allRegions]);
 
   // Archived species are excluded server-side (see apps/api/src/species/obscurity.ts's
   // NOT_ARCHIVED_SQL) — after an archive action succeeds, the simplest correct way to reflect
   // that is just re-running the same fetch this page already does on every filter change,
   // rather than hand-patching `items`/`quickCount` in two places and risking them drifting
   // out of sync with what the server would actually return.
-  const handleArchived = useCallback(() => load(), [load]);
+  // Also re-fetches taxon presence, not just the species list — removing the last remaining
+  // species of an Other Taxa iconic-taxon group (e.g. "Plants") for this region should make
+  // that group's filter pill disappear too, and taxaPresentForRegion was otherwise only ever
+  // refetched on a regionId change, going stale the instant a species is archived or removed.
+  const handleArchived = useCallback(() => {
+    load();
+    loadTaxaPresentForRegion();
+  }, [load, loadTaxaPresentForRegion]);
 
   // Narrowing to birds/mammals hides the sea-zone checkboxes entirely (see seaZonesRelevant),
   // so any zones/includeLand picked under "all taxa" would otherwise sit invisibly in the URL
@@ -670,7 +812,8 @@ export default function CollectionPage() {
 
   const visibleItems = useMemo(() => {
     if (!items) return null;
-    let filtered = stateFilter === "all" ? items : items.filter((i) => i.state === stateFilter);
+    let filtered =
+      stateFilter === "all" ? items : stateFilter === "target" ? items.filter((i) => i.isTarget) : items.filter((i) => i.state === stateFilter);
     if (ghostOnly) filtered = filtered.filter((i) => i.isGhost);
     if (lostOnly) filtered = filtered.filter((i) => i.isLost);
     const query = search.trim().toLowerCase();
@@ -688,44 +831,24 @@ export default function CollectionPage() {
   const collectedCount = items ? items.filter((i) => i.state === "collected").length : (quickCount?.collected ?? 0);
   const totalCount = items ? items.length : (quickCount?.total ?? null);
 
+  // World/continent hubs have no single checklist of their own (see the aggregate-species fetch
+  // above) — regionStats stays null for them, so the breadcrumb progress bar below computes its
+  // own collected/seen/total straight from the aggregated items instead of waiting on a server
+  // stats object that will never arrive for a hub.
+  const hubStats = useMemo(() => {
+    if (!regionKnownHub || !items) return null;
+    let collected = 0;
+    let seen = 0;
+    for (const i of items) {
+      if (i.state === "collected") collected++;
+      else if (i.state === "seen") seen++;
+    }
+    return { collected, seen, total: items.length };
+  }, [regionKnownHub, items]);
+
   return (
     <div className="min-h-screen bg-canvas">
-      <header className="page-header flex items-center justify-between border-b border-line bg-surface px-6 py-4">
-        <div>
-          <Logo variant="wordmark" className="h-7 w-auto" />
-          {totalCount != null && (
-            <p className="text-xs text-muted">
-              {collectedCount} / {totalCount} collected
-            </p>
-          )}
-        </div>
-        <div className="flex items-center gap-4">
-          <SpeciesPicker />
-          <Link to="/import" className="text-sm text-muted hover:underline">
-            Import
-          </Link>
-          <Link to="/stats" className="text-sm text-muted hover:underline">
-            Stats
-          </Link>
-          <Link to="/gallery" className="text-sm text-muted hover:underline">
-            Gallery
-          </Link>
-          <Link to="/albums" className="text-sm text-muted hover:underline">
-            {isDesktopMode ? "Albums & Trips" : "Albums"}
-          </Link>
-          <Link to="/settings" className="text-sm text-muted hover:underline">
-            Settings
-          </Link>
-          {!isDesktopMode && (
-            <div className="flex items-center gap-3 text-sm text-muted">
-              <span>{user?.email}</span>
-              <button onClick={() => logout()} className="hover:underline">
-                Log out
-              </button>
-            </div>
-          )}
-        </div>
-      </header>
+      <AppNav collectedCount={collectedCount} totalCount={totalCount} />
 
       {/* Region breadcrumb — the main-screen drill-down entry point. */}
       <div className="border-b border-line bg-surface px-6 py-2">
@@ -753,19 +876,28 @@ export default function CollectionPage() {
                   )}
                 </span>
               ))}
+              {/* Inline with the breadcrumb rather than its own section below — a map toggle is
+                 page chrome, not a species filter, so it doesn't belong in the Filters dropdown
+                 either; living here means collapsing it doesn't leave behind a whole empty
+                 section's worth of vertical rhythm the way a standalone block would. */}
+              {regionMeta && !!regionMeta.boundaryGeoJson && mapAvailable && (
+                <button onClick={toggleMapCollapsed} className="ml-2 text-xs hover:underline">
+                  {mapCollapsed ? "▸ Show map" : "▾ Hide map"}
+                </button>
+              )}
             </nav>
             {regionMeta && regionStats && (
               <div className="flex items-center gap-3">
                 <div className="h-1.5 w-40 overflow-hidden rounded-full bg-surface-muted">
                   <div
-                    className="h-full bg-ink"
+                    className="h-full bg-accent"
                     style={{ width: `${regionStats.total ? Math.round((regionStats.collected / regionStats.total) * 100) : 0}%` }}
                   />
                 </div>
                 <p className="text-xs text-muted">
                   {regionStats.collected} collected · {regionStats.seen} seen · {regionStats.total} total
                 </p>
-                {regionMeta.ebirdRegionCode && (
+                {regionMeta.ebirdRegionCode && (taxonFilters.size === 0 || taxonFilters.has("aves")) && (
                   <a
                     href={`https://ebird.org/region/${regionMeta.ebirdRegionCode}/illustrated-checklist`}
                     target="_blank"
@@ -777,6 +909,22 @@ export default function CollectionPage() {
                 )}
               </div>
             )}
+            {regionKnownHub && hubStats && (
+              <div className="flex items-center gap-3">
+                <div className="h-1.5 w-40 overflow-hidden rounded-full bg-surface-muted">
+                  <div
+                    className="h-full bg-accent"
+                    style={{ width: `${hubStats.total ? Math.round((hubStats.collected / hubStats.total) * 100) : 0}%` }}
+                  />
+                </div>
+                <p className="text-xs text-muted">
+                  {hubStats.collected} collected · {hubStats.seen} seen · {hubStats.total} total{" "}
+                  <span title="Only counts checklists for countries you've downloaded, not every species in this region.">
+                    (downloaded countries only)
+                  </span>
+                </p>
+              </div>
+            )}
             {(children.length > 0 || (regionMeta?.canDrillDown && !regionMeta.hasChildren)) && (
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-xs uppercase tracking-wide text-muted">Drill in:</span>
@@ -784,7 +932,7 @@ export default function CollectionPage() {
                   <button
                     key={child.id}
                     onClick={() => navigateToRegion(child.id)}
-                    className="rounded-full border border-line px-3 py-1 text-sm text-ink hover:bg-surface-muted"
+                    className="rounded-md border border-line px-3 py-1 text-sm text-ink hover:bg-surface-muted"
                   >
                     {child.name}
                   </button>
@@ -793,7 +941,7 @@ export default function CollectionPage() {
                   <button
                     onClick={drillDown}
                     disabled={drillingDown}
-                    className="rounded-full border border-line px-3 py-1 text-sm text-muted hover:bg-surface-muted disabled:opacity-50"
+                    className="rounded-md border border-line px-3 py-1 text-sm text-muted hover:bg-surface-muted disabled:opacity-50"
                   >
                     {drillingDown ? "Loading provinces/states…" : "Show provinces/states"}
                   </button>
@@ -813,42 +961,34 @@ export default function CollectionPage() {
         )}
       </div>
 
-      <div className="flex flex-wrap items-center gap-3 border-b border-line bg-surface px-6 py-2 text-sm">
-        <input
-          type="text"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search this area…"
-          className="w-48 rounded-md border border-line px-2 py-1 text-ink"
-        />
-        <label className="flex items-center gap-1.5 text-muted">
-          Group
-          <select
-            value={groupBy}
-            onChange={(e) => {
-              const value = e.target.value === "none" ? null : e.target.value;
-              startGroupingTransition(() => updateParam("group", value));
-            }}
-            className="rounded-md border border-line px-2 py-1 text-ink"
-          >
-            <option value="none">No grouping</option>
-            <option value="group">Family group</option>
-            <option value="tier">Rarity tier</option>
-            {/* Only meaningful with a region selected — see the matching "Rarity here" sort
-               option's own comment. */}
-            {regionId && <option value="localTier">Rarity here</option>}
-          </select>
-        </label>
-        <label className="flex items-center gap-1.5 text-muted">
-          Sort
-          <select
-            value={sortBy}
-            onChange={(e) => {
-              const value = e.target.value === "taxonomic" ? null : e.target.value;
-              startGroupingTransition(() => updateParam("sort", value));
-            }}
-            className="rounded-md border border-line px-2 py-1 text-ink"
-          >
+      <div
+        data-header-extension=""
+        className="relative flex flex-wrap items-center gap-3 border-b border-line bg-surface py-2 pl-6 pr-12 text-xs"
+      >
+        <SearchInput value={search} onChange={setSearch} placeholder="Search this area…" className="w-48" />
+        <Select
+          label="Group"
+          value={groupBy}
+          onChange={(e) => {
+            const value = e.target.value === "none" ? null : e.target.value;
+            startGroupingTransition(() => updateParam("group", value));
+          }}
+        >
+          <option value="none">No grouping</option>
+          <option value="group">Family group</option>
+          <option value="tier">Rarity tier</option>
+          {/* Only meaningful with a region selected — see the matching "Rarity here" sort
+             option's own comment. */}
+          {regionId && <option value="localTier">Rarity here</option>}
+        </Select>
+        <Select
+          label="Sort"
+          value={sortBy}
+          onChange={(e) => {
+            const value = e.target.value === "taxonomic" ? null : e.target.value;
+            startGroupingTransition(() => updateParam("sort", value));
+          }}
+        >
             <option value="taxonomic">Taxonomic</option>
             <option value="name">Name</option>
             <option value="rarity">Rarity</option>
@@ -856,106 +996,136 @@ export default function CollectionPage() {
                GET /regions/:id/species, never plain GET /collection (see CollectionItem's
                own comment) — so this option would just silently do nothing without one. */}
             {regionId && <option value="localRarity">Rarity here</option>}
-          </select>
+            {/* Same region-only gate as localRarity above - seasonality only ever comes back
+               from GET /regions/:id/species (region_species.seasonality). */}
+            {regionId && <option value="seasonality">Most likely this week</option>}
+        </Select>
+        <label className="flex items-center gap-1.5 text-xs text-muted">
+          Size
+          <input
+            type="range"
+            min={120}
+            max={320}
+            step={10}
+            value={cardMinWidth}
+            onChange={(e) => setCardMinWidth(Number(e.target.value))}
+            className="w-24 accent-ink"
+            aria-label="Species card size"
+          />
         </label>
-        <label className="flex items-center gap-1.5 text-muted">
-          Taxon
-          <select
-            value={taxonFilter}
-            onChange={(e) => updateParam("taxon", e.target.value === "all" ? null : e.target.value)}
-            className="rounded-md border border-line px-2 py-1 text-ink"
-          >
-            {availableTaxonFilters.map((t) => (
-              <option key={t} value={t}>
-                {TAXON_LABEL[t]}
-              </option>
-            ))}
-          </select>
-        </label>
-        <div className="relative" ref={filtersRef}>
-          <Pill active={activeFilterCount > 0} onClick={() => setFiltersOpen((v) => !v)}>
-            Filters{activeFilterCount > 0 ? ` (${activeFilterCount})` : ""}
-          </Pill>
-          {filtersOpen && (
-            <div className="absolute left-0 top-full z-20 mt-1 w-56 space-y-3 rounded-md border border-line bg-surface p-3 shadow-lg">
-              <div className="space-y-1.5">
-                <label className="flex items-center gap-1.5 text-xs text-ink">
-                  <input
-                    type="checkbox"
-                    checked={collectedFirst}
-                    onChange={(e) => updateParam("collectedFirst", e.target.checked ? null : "0")}
-                    className="accent-ink"
-                  />
-                  Collected first
-                </label>
-                <label className="flex items-center gap-1.5 text-xs text-ink">
-                  <input
-                    type="checkbox"
-                    checked={seenFirst}
-                    onChange={(e) => updateParam("seenFirst", e.target.checked ? "1" : null)}
-                    className="accent-ink"
-                  />
-                  Seen first
-                </label>
-                <label className="flex items-center gap-1.5 text-xs text-ink">
-                  <input
-                    type="checkbox"
-                    checked={targetFirst}
-                    onChange={(e) => updateParam("targetFirst", e.target.checked ? "1" : null)}
-                    className="accent-ink"
-                  />
-                  Targets first
-                </label>
-              </div>
-              <div className="border-t border-line pt-2">
-                <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted">Show</p>
-                <select
-                  value={stateFilter}
-                  onChange={(e) => updateParam("show", e.target.value === "all" ? null : e.target.value)}
-                  className="w-full rounded-md border border-line px-2 py-1 text-xs text-ink"
+        <FilterPopover activeCount={activeFilterCount}>
+          {/* Taxon lives here (not its own separate pill) to match Gallery's own "everything
+             behind one Filters button" convention. */}
+          <div className="space-y-1">
+            <FilterFieldLabel>Taxon</FilterFieldLabel>
+            <div className="flex max-h-56 flex-wrap gap-1 overflow-y-auto">
+              {availableTaxonFilters.map((t) => (
+                <Pill
+                  key={t}
+                  size="sm"
+                  active={taxonFilters.has(t)}
+                  onClick={() => {
+                    const next = new Set(taxonFilters);
+                    if (next.has(t)) next.delete(t);
+                    else next.add(t);
+                    updateParam("taxon", next.size > 0 ? [...next].join(",") : null);
+                  }}
                 >
-                  <option value="all">All</option>
-                  <option value="collected">Collected</option>
-                  <option value="seen">Seen only</option>
-                  <option value="target">Targets</option>
-                  <option value="unseen">Not yet collected</option>
-                </select>
-              </div>
-              {(hasGhost || hasLost) && (
-                <div className="space-y-1.5 border-t border-line pt-2">
-                  {hasGhost && (
-                    <label
-                      className="flex items-center gap-1.5 text-xs text-ink"
-                      title="Rarely documented anywhere, but still out there to find"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={ghostOnly}
-                        onChange={(e) => updateParam("ghostOnly", e.target.checked ? "1" : null)}
-                        className="accent-ink"
-                      />
-                      Ghost only
-                    </label>
-                  )}
-                  {hasLost && (
-                    <label
-                      className="flex items-center gap-1.5 text-xs text-ink"
-                      title="Not recorded anywhere in over 25 years"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={lostOnly}
-                        onChange={(e) => updateParam("lostOnly", e.target.checked ? "1" : null)}
-                        className="accent-ink"
-                      />
-                      Lost only
-                    </label>
-                  )}
-                </div>
+                  {taxonFilterLabel(t, namingStyles)}
+                </Pill>
+              ))}
+            </div>
+            {taxonFilters.size > 0 && (
+              <button onClick={() => updateParam("taxon", null)} className="pt-1 text-[11px] text-muted hover:underline">
+                Clear taxon filter
+              </button>
+            )}
+          </div>
+          <div className="space-y-1.5 border-t border-line pt-2">
+            <label className="flex items-center gap-1.5 text-xs text-ink">
+              <input
+                type="checkbox"
+                checked={collectedFirst}
+                onChange={(e) => updateParam("collectedFirst", e.target.checked ? null : "0")}
+                className="accent-accent"
+              />
+              Collected first
+            </label>
+            <label className="flex items-center gap-1.5 text-xs text-ink">
+              <input
+                type="checkbox"
+                checked={seenFirst}
+                onChange={(e) => updateParam("seenFirst", e.target.checked ? "1" : null)}
+                className="accent-accent"
+              />
+              Seen first
+            </label>
+            <label className="flex items-center gap-1.5 text-xs text-ink">
+              <input
+                type="checkbox"
+                checked={targetFirst}
+                onChange={(e) => updateParam("targetFirst", e.target.checked ? "1" : null)}
+                className="accent-accent"
+              />
+              Targets first
+            </label>
+            <label className="flex items-center gap-1.5 text-xs text-ink">
+              <input
+                type="checkbox"
+                checked={hideRarityLabels}
+                onChange={(e) => toggleHideRarityLabels(e.target.checked)}
+                className="accent-accent"
+              />
+              Hide rarity labels
+            </label>
+          </div>
+          <div className="border-t border-line pt-2">
+            <FilterFieldLabel>Show</FilterFieldLabel>
+            <Select
+              value={stateFilter}
+              onChange={(e) => updateParam("show", e.target.value === "all" ? null : e.target.value)}
+              className="w-full"
+            >
+              <option value="all">All</option>
+              <option value="collected">Collected</option>
+              <option value="seen">Seen only</option>
+              <option value="target">Targets</option>
+              <option value="unseen">Not yet collected</option>
+            </Select>
+          </div>
+          {(hasGhost || hasLost) && (
+            <div className="space-y-1.5 border-t border-line pt-2">
+              {hasGhost && (
+                <label
+                  className="flex items-center gap-1.5 text-xs text-ink"
+                  title="Rarely documented anywhere, but still out there to find"
+                >
+                  <input
+                    type="checkbox"
+                    checked={ghostOnly}
+                    onChange={(e) => updateParam("ghostOnly", e.target.checked ? "1" : null)}
+                    className="accent-accent"
+                  />
+                  Ghost only
+                </label>
+              )}
+              {hasLost && (
+                <label
+                  className="flex items-center gap-1.5 text-xs text-ink"
+                  title="Not recorded anywhere in over 25 years"
+                >
+                  <input
+                    type="checkbox"
+                    checked={lostOnly}
+                    onChange={(e) => updateParam("lostOnly", e.target.checked ? "1" : null)}
+                    className="accent-accent"
+                  />
+                  Lost only
+                </label>
               )}
             </div>
           )}
-        </div>
+        </FilterPopover>
         {seaZonesRelevant && seaZones.length > 0 && (
           <div className="flex flex-wrap items-center gap-2 text-muted">
             <span>Include nearby water:</span>
@@ -996,14 +1166,12 @@ export default function CollectionPage() {
             )}
           </div>
         )}
-        {/* ml-auto pins this to the far right of the toolbar row regardless of how much the
-           rest of the row fills — align="right" so its popover grows leftward and doesn't run
-           off the viewport edge from all the way over here. */}
-        <InfoTip paragraphs={RARITY_INFO_PARAGRAPHS} align="right" className="ml-auto" />
       </div>
 
       <main className="space-y-6 p-6">
-        {regionId && regionMeta && <RegionMap boundaryGeoJson={regionMeta.boundaryGeoJson} regionKey={regionMeta.id} />}
+        {regionId && regionMeta && !!regionMeta.boundaryGeoJson && mapAvailable && !mapCollapsed && (
+          <RegionMap boundaryGeoJson={regionMeta.boundaryGeoJson} regionKey={regionMeta.id} />
+        )}
 
         {firstRunPrompt ? (
           <div className="rounded-xl border border-line bg-surface p-8 text-center">
@@ -1022,8 +1190,17 @@ export default function CollectionPage() {
               </Link>
             </div>
           </div>
-        ) : regionKnownHub ? (
-          <p className="text-muted">Pick a region above to see its checklist.</p>
+        ) : regionKnownHub && items && items.length === 0 && downloadedHubCountryNames.length === 0 ? (
+          <div className="rounded-lg border border-dashed border-line bg-surface-muted p-6 text-center">
+            <p className="text-sm font-medium text-ink">No downloaded countries here yet</p>
+            <p className="mt-1 text-sm text-muted">
+              Pick a country above, or download one from{" "}
+              <Link to="/offline-packs" state={{ backLabel: "Collection" }} className="underline">
+                Offline packs
+              </Link>
+              .
+            </p>
+          </div>
         ) : needsPackFor ? (
           <NeedsPackPrompt region={needsPackFor} onDownloaded={load} />
         ) : loadError ? (
@@ -1037,7 +1214,7 @@ export default function CollectionPage() {
           <Spinner />
         ) : taxonPackMissingFor &&
           taxonPackMissingFor.id === regionId &&
-          taxonPackMissingFor.taxon === taxonFilter &&
+          taxonPackMissingFor.taxon === singleTaxonFilter &&
           visibleItems.length === 0 ? (
           <TaxonPackPrompt
             regionId={taxonPackMissingFor.id}
@@ -1058,6 +1235,11 @@ export default function CollectionPage() {
               seenFirst={seenFirst}
               targetFirst={targetFirst}
               onArchived={handleArchived}
+              cardMinWidth={cardMinWidth}
+              regionName={regionMeta?.name}
+              countryRegionId={countryAncestor?.id}
+              countryRegionName={countryAncestor?.name}
+              hideRarityLabels={hideRarityLabels}
             />
           </div>
         )}
@@ -1178,8 +1360,18 @@ function TaxonPackPrompt({
   );
   const [downloadingZoneId, setDownloadingZoneId] = useState<string | null>(null);
   const [zoneError, setZoneError] = useState<string | null>(null);
+  const [otherTaxaModalOpen, setOtherTaxaModalOpen] = useState(false);
 
   useEffect(() => {
+    // Other Taxa never has a real pack to find — species land here one at a time via the
+    // any-taxa search, not a bulk region download — so skip the pack lookup entirely and go
+    // straight to the manual-add explanation below. A specific iconic-taxon group (e.g.
+    // "insecta") is still Other Taxa under the hood — same no-pack rule applies to it too.
+    if (taxon === "other-taxa" || !(taxon in TAXON_LABEL)) {
+      setPack(null);
+      setSeaZonePacks([]);
+      return;
+    }
     setPack(undefined);
     setSeaZonePacks(null);
     Promise.all([
@@ -1247,20 +1439,47 @@ function TaxonPackPrompt({
     }
   }
 
+  if (taxon === "other-taxa" || !(taxon in TAXON_LABEL)) {
+    return (
+      <div className="rounded-xl border border-line bg-surface p-8 text-center">
+        <h2 className="text-lg font-semibold text-ink">No Other Taxa added for {regionName} yet</h2>
+        <p className="mx-auto mt-2 max-w-sm text-sm text-muted">
+          There's no pack to download for this one, Other Taxa covers whatever Lifer doesn't already have a
+          dataset for (insects, plants, fungi, and more). Jump to a species by scientific name (that matches
+          best) and you'll get the option to search iNaturalist and add it here, or paste in a whole list of
+          names at once from the same search screen.
+        </p>
+        <button
+          onClick={() => setOtherTaxaModalOpen(true)}
+          className="mt-4 rounded-md bg-accent px-4 py-2 text-sm font-medium text-accent-fg"
+        >
+          Search iNaturalist
+        </button>
+        {otherTaxaModalOpen && (
+          <AddOtherTaxaModal
+            initialQuery=""
+            initialRegionId={regionId}
+            onClose={() => setOtherTaxaModalOpen(false)}
+          />
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="rounded-xl border border-line bg-surface p-8 text-center">
       <h2 className="text-lg font-semibold text-ink">
-        {regionName}'s {TAXON_LABEL[taxon].toLowerCase()} pack isn't downloaded yet
+        {regionName}'s {taxonFilterLabel(taxon, []).toLowerCase()} pack isn't downloaded yet
       </h2>
       {pack === undefined ? (
         <p className="mt-2 text-sm text-muted">Checking for a pack…</p>
       ) : pack === null ? (
         <p className="mx-auto mt-2 max-w-sm text-sm text-muted">
-          No offline pack covers {regionName}'s {TAXON_LABEL[taxon].toLowerCase()} yet. Check{" "}
+          No offline pack covers {regionName}'s {taxonFilterLabel(taxon, []).toLowerCase()} yet. Check{" "}
           <Link to="/offline-packs" state={{ backLabel: "Collection" }} className="underline">
             Offline packs
           </Link>{" "}
-          later, or ask whoever runs this Lifer instance about it.
+          later.
         </p>
       ) : (
         <>
@@ -1272,7 +1491,7 @@ function TaxonPackPrompt({
             disabled={downloading}
             className="mt-4 rounded-md bg-accent px-4 py-2 text-sm font-medium text-accent-fg disabled:opacity-50"
           >
-            {downloading ? "Downloading…" : `Download ${regionName}'s ${TAXON_LABEL[taxon].toLowerCase()} pack`}
+            {downloading ? "Downloading…" : "Download Now"}
           </button>
           {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
         </>

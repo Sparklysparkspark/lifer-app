@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link, Navigate } from "react-router-dom";
+import { Link, Navigate, useNavigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { api, ApiError } from "../api/client";
 import { Logo } from "../components/Logo";
@@ -10,18 +10,24 @@ import PasswordInput from "../components/PasswordInput";
 // screen; once that one account exists, it's a plain login form for good.
 export default function LoginPage() {
   const { user, login, register } = useAuth();
+  const navigate = useNavigate();
   const [needsSetup, setNeedsSetup] = useState<boolean | null>(null);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  // Fresh registration navigates to /onboarding explicitly rather than falling through to the
+  // plain `if (user) return <Navigate to="/" />` below — that guard exists for an
+  // already-logged-in user revisiting /login, not for the one-time flow right after creating
+  // the account, which needs a stop at onboarding first (see OnboardingPage.tsx).
+  const [justRegistered, setJustRegistered] = useState(false);
 
   useEffect(() => {
     api.get<{ needsSetup: boolean }>("/auth/setup-status").then((res) => setNeedsSetup(res.needsSetup));
   }, []);
 
-  if (user) return <Navigate to="/" replace />;
+  if (user && !justRegistered) return <Navigate to="/" replace />;
   if (needsSetup === null) return null;
 
   async function handleSubmit(e: React.FormEvent) {
@@ -35,6 +41,8 @@ export default function LoginPage() {
     try {
       if (needsSetup) {
         await register(email, password);
+        setJustRegistered(true);
+        navigate("/onboarding", { replace: true });
       } else {
         await login(email, password);
       }

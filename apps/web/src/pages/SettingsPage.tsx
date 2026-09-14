@@ -1,15 +1,21 @@
 import { useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import { api, ApiError } from "../api/client";
 import PageHeader from "../components/PageHeader";
+import Select from "../components/Select";
+import SegmentedControl from "../components/SegmentedControl";
+import SettingsSidebar from "../components/SettingsSidebar";
 import { useDesktopMode } from "../hooks/useDesktopMode";
 import { useMigrationStatus } from "../hooks/useMigrationStatus";
 import { useTheme } from "../hooks/useTheme";
 import { pickFolderNative, FolderBrowser } from "../components/FolderPicker";
 import { useStorageVolumes } from "../hooks/useStorageVolumes";
 import EbirdImport from "../components/EbirdImport";
+import AddOtherTaxaModal from "../components/AddOtherTaxaModal";
 import PasswordInput from "../components/PasswordInput";
 import { useOnline } from "../hooks/useOnline";
+import { Spinner } from "../components/LoadingScreen";
+import DownloadedPacksList, { formatBytes, type PackEntry } from "../components/DownloadedPacksList";
 
 interface AccountSettings {
   email: string;
@@ -22,13 +28,16 @@ interface AccountSettings {
 interface DesktopBridgeConfig {
   mode: "local" | "remote";
   dataDir?: string;
-  // Single-URL remote connection (IP switching off). See localUrl/externalUrl below for the
-  // dual-endpoint alternative — a given config has either this, or those two, never both.
+  // Single-URL remote connection (Automatic URL Switching off). See localUrl/externalUrls
+  // below for the dual-endpoint alternative — a given config has either this, or those, never
+  // both.
   serverUrl?: string;
-  // Immich-style local/external auto-switching, set together when enabled at setup — see
-  // apps/desktop/src-tauri/src/store.rs's own comment.
+  // "Automatic URL Switching" (Immich-style local/external auto-switching), set together when
+  // enabled at setup — see apps/desktop/src-tauri/src/store.rs's own comment. externalUrls is
+  // ORDERED — array position is try-order, top to bottom.
   localUrl?: string;
-  externalUrl?: string;
+  localNetworkName?: string;
+  externalUrls?: string[];
   offlineMode?: boolean;
 }
 declare global {
@@ -38,10 +47,21 @@ declare global {
         mode: "local" | "remote";
         serverUrl?: string;
         localUrl?: string;
-        externalUrl?: string;
+        localNetworkName?: string;
+        externalUrls?: string[];
         offlineMode?: boolean;
       }) => Promise<{ ok?: boolean; canceled?: boolean; error?: string }>;
       getConfig: () => Promise<DesktopBridgeConfig | null>;
+      // "Use current connection": reads this machine's LAN IP and current Wi-Fi network name
+      // live, to autofill Automatic URL Switching's local-address fields.
+      currentNetworkInfo: () => Promise<{ localIp: string | null; wifiName: string | null }>;
+      // Live reachability check for one URL — backs the green-checkmark test fired the moment
+      // an external endpoint is added or edited in Settings.
+      testEndpoint: (url: string) => Promise<boolean>;
+      // Real credential check against a REMOTE server's own /auth/login, run natively (see
+      // apps/desktop/src-tauri/src/api.rs's own comment on why) — resolves on success, rejects
+      // with a real server-side error message ("Invalid email or password", etc.) on failure.
+      testLogin: (url: string, email: string, password: string) => Promise<void>;
       platform: string;
     };
   }
@@ -50,61 +70,126 @@ declare global {
 // Account management: password, email, and recovery email. Every field here requires the
 // current password to change (see auth/routes.ts) — these are all account-security-sensitive,
 // so a stolen session cookie alone shouldn't be enough to take over the account.
+//
+// Grouped into a left-hand sidebar (General/Account/Species & Import/Library/Storage/Server/
+// Integrations/Offline Data) instead of one long flat scroll of ~20 sections — the previous
+// shape this page had. Single source of truth for both the sidebar's own links AND which
+// sections render for the active group: GROUPS below, filtered by `visible` for the current
+// mode so a desktop-only or server-only group never appears where it wouldn't work. Genuinely
+// thin single-toggle groups (Appearance, App Updates) are folded into one "General" group
+// rather than each getting its own sidebar entry — a whole navigable page for one checkbox reads
+// as navigation overhead, not decluttering.
+interface SettingsGroup {
+  id: string;
+  label: string;
+  visible: (isDesktopMode: boolean) => boolean;
+}
+const GROUPS: SettingsGroup[] = [
+  { id: "general", label: "General", visible: () => true },
+  { id: "account", label: "Account", visible: (isDesktopMode) => !isDesktopMode },
+  { id: "species", label: "Species & Import", visible: () => true },
+  { id: "library", label: "Library", visible: () => true },
+  { id: "storage", label: "Storage", visible: (isDesktopMode) => isDesktopMode },
+  { id: "server", label: "Server", visible: (isDesktopMode) => isDesktopMode },
+  { id: "integrations", label: "Integrations", visible: () => true },
+  { id: "offline-data", label: "Offline Data", visible: () => true },
+];
+
 export default function SettingsPage() {
   const [settings, setSettings] = useState<AccountSettings | null>(null);
   const isDesktopMode = useDesktopMode();
+  const { groupId } = useParams<{ groupId?: string }>();
 
   useEffect(() => {
     api.get<AccountSettings>("/auth/settings").then(setSettings);
   }, []);
 
+  const visibleGroups = GROUPS.filter((g) => g.visible(isDesktopMode));
+  const activeGroupId = groupId && visibleGroups.some((g) => g.id === groupId) ? groupId : (visibleGroups[0]?.id ?? "general");
+
   return (
     <div className="min-h-screen bg-canvas">
-      <PageHeader
-        title="Settings"
-        actions={
-          <Link to="/guide" className="text-sm text-muted hover:underline">
-            Getting started guide
-          </Link>
-        }
-      />
+      <PageHeader sticky title="Settings" />
 
-      <main className="mx-auto max-w-5xl space-y-8 p-6">
-        {settings && (
-          <>
-            {/* Desktop mode's account is an auto-provisioned local user with no real
-               password (see session.ts), so these settings wouldn't even work there;
-               hidden rather than shown broken. */}
-            {!isDesktopMode && (
-              <>
-                <EmailSection currentEmail={settings.email} onChanged={(email) => setSettings({ ...settings, email })} />
-                <PasswordSection />
-                <RecoveryEmailSection
-                  currentRecoveryEmail={settings.recoveryEmail}
-                  onChanged={(recoveryEmail) => setSettings({ ...settings, recoveryEmail })}
-                />
-                <ApiKeysSection />
-              </>
-            )}
-            <LibraryLinksSection />
-            <InaturalistSection />
-            {!isDesktopMode && <InaturalistServerConfigSection />}
-            <AppearanceSection />
-            <HideObscureSpeciesSection />
-            <TechnicalDivingSection />
-            <SpeciesSuggestSection />
-            <EbirdImportSection />
-            <OrganizePhotosSection />
-            <SpeciesNamingSection />
-            <StorageLocationSection />
-            <StorageVolumesSection />
-            <LibraryReimportSection />
-            <ServerSection />
-            <AppUpdatesSection />
-            <CatalogUpdateSection />
-            <MapSection />
-          </>
-        )}
+      <main className="mx-auto flex max-w-6xl flex-col gap-8 p-6 md:flex-row">
+        <SettingsSidebar groups={visibleGroups} activeId={activeGroupId} />
+
+        <div className="min-w-0 flex-1 space-y-8">
+          {settings && (
+            <>
+              {activeGroupId === "general" && (
+                <>
+                  <AppearanceSection />
+                  {isDesktopMode && <AppUpdatesSection />}
+                  <GettingStartedSection />
+                </>
+              )}
+
+              {/* Desktop mode's account is an auto-provisioned local user with no real
+                 password (see session.ts), so these settings wouldn't even work there;
+                 the whole group is hidden from desktop rather than shown broken (see GROUPS). */}
+              {activeGroupId === "account" && (
+                <>
+                  <EmailSection currentEmail={settings.email} onChanged={(email) => setSettings({ ...settings, email })} />
+                  <PasswordSection />
+                  <RecoveryEmailSection
+                    currentRecoveryEmail={settings.recoveryEmail}
+                    onChanged={(recoveryEmail) => setSettings({ ...settings, recoveryEmail })}
+                  />
+                  <ApiKeysSection />
+                </>
+              )}
+
+              {activeGroupId === "species" && (
+                <>
+                  <SpeciesSuggestSection />
+                  <AnyTaxaSearchSection />
+                  <SpeciesNamingSection />
+                  <EbirdImportSection />
+                  <HideObscureSpeciesSection />
+                  <TechnicalDivingSection />
+                </>
+              )}
+
+              {activeGroupId === "library" && (
+                <>
+                  <LibraryLinksSection />
+                  <OrganizePhotosSection />
+                  <LibraryReimportSection />
+                </>
+              )}
+
+              {activeGroupId === "storage" && (
+                <>
+                  <StorageLocationSection />
+                  <StorageVolumesSection />
+                </>
+              )}
+
+              {activeGroupId === "server" && (
+                <>
+                  <ServerSection />
+                  <AutomaticUrlSwitchingSection />
+                </>
+              )}
+
+              {activeGroupId === "integrations" && (
+                <Card title="Integrations" description="">
+                  <p className="text-sm text-muted">Nothing to see here yet, check back on a future update.</p>
+                </Card>
+              )}
+
+              {activeGroupId === "offline-data" && (
+                <>
+                  <CatalogUpdateSection />
+                  <MapSection />
+                  <EmbeddingModelSection />
+                  <OfflinePacksSummarySection />
+                </>
+              )}
+            </>
+          )}
+        </div>
       </main>
     </div>
   );
@@ -300,8 +385,14 @@ function LibraryLinksSection() {
         <Link to="/archived" className="rounded-md border border-line px-3 py-1.5 text-sm text-ink hover:bg-surface-muted">
           Archived species
         </Link>
+        <Link to="/hidden-species" className="rounded-md border border-line px-3 py-1.5 text-sm text-ink hover:bg-surface-muted">
+          Hidden species
+        </Link>
         <Link to="/trash" className="rounded-md border border-line px-3 py-1.5 text-sm text-ink hover:bg-surface-muted">
           Trash
+        </Link>
+        <Link to="/tags" className="rounded-md border border-line px-3 py-1.5 text-sm text-ink hover:bg-surface-muted">
+          Manage tags
         </Link>
       </div>
     </Card>
@@ -317,22 +408,17 @@ function AppearanceSection() {
   ] as const;
   return (
     <Card title="Appearance" description="Light or dark mode, or follow whatever this device is set to.">
-      <div className="flex gap-2">
-        {options.map((opt) => (
-          <button
-            key={opt.value}
-            type="button"
-            onClick={() => setPreference(opt.value)}
-            className={
-              preference === opt.value
-                ? "rounded-md bg-accent px-3 py-1.5 text-sm text-accent-fg"
-                : "rounded-md border border-line px-3 py-1.5 text-sm text-ink hover:bg-surface-muted"
-            }
-          >
-            {opt.label}
-          </button>
-        ))}
-      </div>
+      <SegmentedControl value={preference} onChange={setPreference} options={options} />
+    </Card>
+  );
+}
+
+function GettingStartedSection() {
+  return (
+    <Card title="Getting started" description="A quick tour of how Lifer's collection, import, and offline pack features fit together.">
+      <Link to="/guide" className="rounded-md border border-line px-3 py-1.5 text-sm text-ink hover:bg-surface-muted">
+        Open the guide
+      </Link>
     </Card>
   );
 }
@@ -429,9 +515,14 @@ function SpeciesSuggestSection() {
   const [enabled, setEnabled] = useState<boolean | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [modelDownloaded, setModelDownloaded] = useState<boolean | null>(null);
 
   useEffect(() => {
     api.get<{ speciesSuggestEnabled: boolean }>("/settings").then((res) => setEnabled(res.speciesSuggestEnabled));
+    api
+      .get<{ downloaded: boolean }>("/settings/embedding-model/status")
+      .then((res) => setModelDownloaded(res.downloaded))
+      .catch(() => setModelDownloaded(null));
   }, []);
 
   async function toggle(next: boolean) {
@@ -449,6 +540,11 @@ function SpeciesSuggestSection() {
 
   if (enabled === null) return null;
 
+  // The model is an opt-in download (see the Model download section below) — offloading it
+  // auto-disables this setting server-side (settings/routes.ts's DELETE /settings/embedding-model),
+  // so a stale "enabled" checkbox that can never actually produce a suggestion never shows.
+  const modelMissing = modelDownloaded === false;
+
   return (
     <Card
       title={
@@ -462,10 +558,75 @@ function SpeciesSuggestSection() {
       description="While importing photos, Lifer suggests likely species for each one based on visual similarity to your own past photos and to reference photos for that region. Nothing ever leaves your device. It gets better for you specifically over time: whenever you confirm or correct a suggestion, that photo becomes one more example it learns from."
     >
       <label className="flex items-start gap-2 text-sm text-ink">
-        <input type="checkbox" checked={enabled} disabled={saving} onChange={(e) => toggle(e.target.checked)} className="mt-0.5" />
+        <input
+          type="checkbox"
+          checked={enabled && !modelMissing}
+          disabled={saving || modelMissing}
+          onChange={(e) => toggle(e.target.checked)}
+          className="mt-0.5"
+        />
         <span>Suggest species while importing photos</span>
       </label>
+      {modelMissing && (
+        <p className="text-sm text-muted">
+          Requires the species-matching model, which isn't downloaded. See the Model download section below to re-enable this.
+        </p>
+      )}
       <FormMessage error={error} success={null} />
+    </Card>
+  );
+}
+
+// Off by default (unlike species-suggest above) — a live, uncached iNaturalist lookup with no
+// local dataset behind it, gating a real write path (POST /species/other-taxa creates a
+// species row). Lets Lifer cover taxa it has no real data pipeline for at all (insects,
+// arachnids, plants, fungi) by pulling straight from iNaturalist on demand — see SpeciesPicker's
+// "Search iNaturalist" fallback (jump-to-species with no local match) for where this gets used.
+function AnyTaxaSearchSection() {
+  const [enabled, setEnabled] = useState<boolean | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [modalOpen, setModalOpen] = useState(false);
+
+  useEffect(() => {
+    api.get<{ anyTaxaSearchEnabled: boolean }>("/settings").then((res) => setEnabled(res.anyTaxaSearchEnabled));
+  }, []);
+
+  async function toggle(next: boolean) {
+    setSaving(true);
+    setError(null);
+    try {
+      await api.put("/settings/any-taxa-search", { enabled: next });
+      setEnabled(next);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't update this setting");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (enabled === null) return null;
+
+  return (
+    <Card
+      title="Any-taxa search"
+      description="Lifer doesn't have a real dataset for every taxon (insects, arachnids, plants, fungi, and more), so species tiers and occurrence data aren't offered for these. When enabled, jumping to a species with no local match offers a live iNaturalist search instead. Pick a result and a region to add it under Other Taxa on the Collection page, with its photo and description pulled from iNaturalist."
+    >
+      <label className="flex items-start gap-2 text-sm text-ink">
+        <input type="checkbox" checked={enabled} disabled={saving} onChange={(e) => toggle(e.target.checked)} className="mt-0.5" />
+        <span>Enable any-taxa search</span>
+      </label>
+      {enabled && (
+        <button
+          type="button"
+          onClick={() => setModalOpen(true)}
+          className="rounded-md border border-line px-3 py-1.5 text-sm text-ink hover:bg-surface-muted"
+        >
+          Search iNaturalist for a species to add
+        </button>
+      )}
+      <FormMessage error={error} success={null} />
+      {modalOpen && <AddOtherTaxaModal initialQuery="" onClose={() => setModalOpen(false)} />}
     </Card>
   );
 }
@@ -488,9 +649,24 @@ function Card({ title, description, children }: { title: React.ReactNode; descri
   );
 }
 
+// A small bordered/tinted alert, not just bare colored text — matches the tinted-badge visual
+// language already used elsewhere (endemic/vagrant/invasive badges on SpeciesDetailPage), so an
+// error reads as a real, noticeable status box instead of looking like an afterthought.
 function FormMessage({ error, success }: { error: string | null; success: string | null }) {
-  if (error) return <p className="text-sm text-red-600">{error}</p>;
-  if (success) return <p className="text-sm text-green-700">{success}</p>;
+  if (error) {
+    return (
+      <p className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:border-rose-900/50 dark:bg-rose-950/30 dark:text-rose-400">
+        {error}
+      </p>
+    );
+  }
+  if (success) {
+    return (
+      <p className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700 dark:border-emerald-900/50 dark:bg-emerald-950/30 dark:text-emerald-400">
+        {success}
+      </p>
+    );
+  }
   return null;
 }
 
@@ -691,24 +867,49 @@ function RecoveryEmailSection({
 // The ABA option itself only appears once abaCodesAvailable is true (settings/routes.ts) —
 // gated on whether any downloaded pack actually has an ABA-coded species, so it's not offered
 // as a dead option to someone who's never downloaded a pack from that part of the world.
+type NamingStyle = "common" | "latin" | "ebird_code" | "aba_code" | "tree";
+
+const NAMING_STYLE_LABEL: Record<NamingStyle, string> = {
+  common: "Common name",
+  latin: "Scientific (Latin) name",
+  ebird_code: "eBird code",
+  aba_code: "ABA code",
+  tree: "Full taxonomy tree",
+};
+
+const NAMING_STYLE_HINT: Record<NamingStyle, string> = {
+  common: "e.g. \"American Robin\"",
+  latin: "e.g. \"Turdus migratorius\"",
+  ebird_code: "6 letters, every bird worldwide",
+  aba_code: "4 letters, North America/Mexico/Central America/Caribbean birds only",
+  tree: "e.g. \"Aves / Passeriformes / Turdidae / Turdus migratorius\"",
+};
+
+// The first selected part that a given species actually has becomes the primary (unparenthesized)
+// name, everything after it is appended in parens — see composeSpeciesName's own comment for the
+// exact resolution rules. Reordering (not just toggling) is what lets a user put Latin first,
+// common name in parens, or any other combination — a plain set of independent checkboxes can't
+// express that, so this is a real ordered list with move-up/down controls instead.
 function SpeciesNamingSection() {
-  const [styles, setStyles] = useState<string[] | null>(null);
+  const [styles, setStyles] = useState<NamingStyle[] | null>(null);
   const [abaAvailable, setAbaAvailable] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [updating, setUpdating] = useState(false);
+  const [updateResult, setUpdateResult] = useState<string | null>(null);
 
   useEffect(() => {
     api.get<{ speciesNamingStyles: string[]; abaCodesAvailable: boolean }>("/settings").then((res) => {
-      setStyles(res.speciesNamingStyles);
+      setStyles(res.speciesNamingStyles.length > 0 ? (res.speciesNamingStyles as NamingStyle[]) : ["common"]);
       setAbaAvailable(res.abaCodesAvailable);
     });
   }, []);
 
-  async function toggle(style: "aba_code" | "ebird_code") {
+  async function apply(next: NamingStyle[]) {
     if (!styles) return;
-    const next = styles.includes(style) ? styles.filter((s) => s !== style) : [...styles, style];
     setSaving(true);
     setError(null);
+    setUpdateResult(null);
     try {
       await api.put("/settings/species-naming-style", { styles: next });
       setStyles(next);
@@ -719,40 +920,111 @@ function SpeciesNamingSection() {
     }
   }
 
+  // Changing this setting above only changes what NEW photos get named going forward — it
+  // doesn't touch anything already on disk or in a file's embedded tags by itself. This reuses
+  // the exact same endpoint as Settings > Library > "Reorganize existing photos now" (it
+  // recomputes every managed photo's folder name AND its embedded/XMP species label from
+  // whatever the naming style is at the moment it runs), just surfaced here too since this is
+  // where someone who just changed the style would look for it.
+  async function updateExistingPhotos() {
+    if (!confirm("This renames existing photo folders and refreshes embedded tags to match your current naming style. Continue?")) {
+      return;
+    }
+    setUpdating(true);
+    setError(null);
+    setUpdateResult(null);
+    try {
+      const res = await api.post<{ moved: number; skipped: number; failed: number; total: number }>(
+        "/settings/reorganize-originals",
+      );
+      setUpdateResult(`Updated ${res.moved} of ${res.total} photos to match (${res.skipped} already matched, ${res.failed} failed).`);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't update your existing photos");
+    } finally {
+      setUpdating(false);
+    }
+  }
+
+  function toggle(style: NamingStyle) {
+    if (!styles) return;
+    apply(styles.includes(style) ? styles.filter((s) => s !== style) : [...styles, style]);
+  }
+
+  function move(style: NamingStyle, direction: -1 | 1) {
+    if (!styles) return;
+    const i = styles.indexOf(style);
+    const j = i + direction;
+    if (i < 0 || j < 0 || j >= styles.length) return;
+    const next = [...styles];
+    [next[i], next[j]] = [next[j], next[i]];
+    apply(next);
+  }
+
   if (styles === null) return null;
+  const available: NamingStyle[] = ["common", "latin", "ebird_code", "tree", ...(abaAvailable ? (["aba_code"] as const) : [])];
+  // Selected ones first (in their real order), then whatever's left unselected — keeps the
+  // reorder controls meaningful (only selected items are actually orderable against each other).
+  const ordered = [...styles, ...available.filter((s) => !styles.includes(s))];
 
   return (
     <Card
-      title="Bird species naming"
-      description="Codes to show alongside a bird's common name in its folder name and embedded photo tags. Both can be on at once."
+      title="Species naming"
+      description="What shows in a species' folder name and embedded photo tags: pick any combination, in any order. The first part a species actually has comes first; the rest follow in parens. eBird/ABA codes only apply to birds and are silently skipped for everything else."
     >
-      <div className="flex flex-col gap-2 text-sm text-ink">
-        <label className="flex items-center gap-2">
-          <input
-            type="checkbox"
-            checked={styles.includes("ebird_code")}
-            disabled={saving}
-            onChange={() => toggle("ebird_code")}
-          />
-          <span>
-            eBird code <span className="text-xs text-muted">(6 letters, every bird worldwide)</span>
-          </span>
-        </label>
-        {abaAvailable && (
-          <label className="flex items-center gap-2">
-            <input type="checkbox" checked={styles.includes("aba_code")} disabled={saving} onChange={() => toggle("aba_code")} />
-            <span>
-              ABA code <span className="text-xs text-muted">(4 letters, North America/Mexico/Central America/Caribbean birds only)</span>
-            </span>
-          </label>
-        )}
+      <div className="flex flex-col gap-1.5 text-sm text-ink">
+        {ordered.map((style) => {
+          const selected = styles.includes(style);
+          const selectedIdx = styles.indexOf(style);
+          return (
+            <div key={style} className="flex items-center gap-2 rounded-md px-1.5 py-1 hover:bg-surface-muted">
+              <input type="checkbox" checked={selected} disabled={saving} onChange={() => toggle(style)} />
+              <span className="flex-1">
+                {NAMING_STYLE_LABEL[style]} <span className="text-xs text-muted">({NAMING_STYLE_HINT[style]})</span>
+              </span>
+              {selected && (
+                <div className="flex items-center gap-0.5">
+                  <button
+                    type="button"
+                    disabled={saving || selectedIdx === 0}
+                    onClick={() => move(style, -1)}
+                    className="rounded px-1 text-muted hover:bg-surface disabled:opacity-30"
+                    aria-label={`Move ${NAMING_STYLE_LABEL[style]} up`}
+                  >
+                    ↑
+                  </button>
+                  <button
+                    type="button"
+                    disabled={saving || selectedIdx === styles.length - 1}
+                    onClick={() => move(style, 1)}
+                    className="rounded px-1 text-muted hover:bg-surface disabled:opacity-30"
+                    aria-label={`Move ${NAMING_STYLE_LABEL[style]} down`}
+                  >
+                    ↓
+                  </button>
+                </div>
+              )}
+            </div>
+          );
+        })}
         {!abaAvailable && (
           <p className="text-xs text-muted">
             ABA codes will show up here once you've downloaded a region pack covering North America, Mexico, Central America, or the
             Caribbean.
           </p>
         )}
-        <FormMessage error={error} success={null} />
+        <p className="text-xs text-muted">
+          This only changes what new photos get named. Photos already in your library keep their existing folder name and embedded
+          tags until you update them.
+        </p>
+        <button
+          type="button"
+          onClick={updateExistingPhotos}
+          disabled={updating}
+          className="rounded-md border border-line px-3 py-1.5 text-sm text-ink hover:bg-surface-muted disabled:opacity-50"
+        >
+          {updating ? "Updating…" : "Update existing photos to match"}
+        </button>
+        <FormMessage error={error} success={updateResult} />
       </div>
     </Card>
   );
@@ -764,13 +1036,17 @@ function SpeciesNamingSection() {
 // on why that's not automatic).
 function OrganizePhotosSection() {
   const [enabled, setEnabled] = useState<boolean | null>(null);
+  const [byLocation, setByLocation] = useState<boolean | null>(null);
   const [saving, setSaving] = useState(false);
   const [reorganizing, setReorganizing] = useState(false);
   const [result, setResult] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    api.get<{ organizeOriginalsByYear: boolean }>("/settings").then((res) => setEnabled(res.organizeOriginalsByYear));
+    api.get<{ organizeOriginalsByYear: boolean; organizeOriginalsByLocation: boolean }>("/settings").then((res) => {
+      setEnabled(res.organizeOriginalsByYear);
+      setByLocation(res.organizeOriginalsByLocation);
+    });
   }, []);
 
   async function toggle(next: boolean) {
@@ -779,6 +1055,19 @@ function OrganizePhotosSection() {
     try {
       await api.put("/settings/organize-originals", { enabled: next });
       setEnabled(next);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't update this setting");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function toggleByLocation(next: boolean) {
+    setSaving(true);
+    setError(null);
+    try {
+      await api.put("/settings/organize-originals-by-location", { enabled: next });
+      setByLocation(next);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Couldn't update this setting");
     } finally {
@@ -803,7 +1092,7 @@ function OrganizePhotosSection() {
     }
   }
 
-  if (enabled === null) return null;
+  if (enabled === null || byLocation === null) return null;
 
   return (
     <Card
@@ -819,8 +1108,28 @@ function OrganizePhotosSection() {
           className="mt-0.5"
         />
         <span>
-          Organize into <code className="text-xs text-muted">Wildlife &lt;year taken&gt;/Birds|Mammals|Fish/Species name</code> folders
-          instead of just <code className="text-xs text-muted">Species name</code>, each photo's own year, not the year you uploaded it
+          Organize into <span className="rounded bg-surface-muted px-1 py-0.5 text-xs text-muted">Wildlife &lt;year taken&gt;/Birds|Mammals|Fish/Species name</span> folders
+          instead of just <span className="rounded bg-surface-muted px-1 py-0.5 text-xs text-muted">Species name</span>, using each
+          photo's own year, not the year you uploaded it
+        </span>
+      </label>
+      <label className="flex items-start gap-2 text-sm text-ink">
+        <input
+          type="checkbox"
+          checked={byLocation}
+          disabled={saving}
+          onChange={(e) => toggleByLocation(e.target.checked)}
+          className="mt-0.5"
+        />
+        <span>
+          Add an outermost folder named after the location you type in at import time. Stacks with the year folders above (location
+          comes first): with year folders on, that's{" "}
+          <span className="rounded bg-surface-muted px-1 py-0.5 text-xs text-muted">
+            Prince George/Wildlife &lt;year taken&gt;/Birds/Species name
+          </span>
+          , or just{" "}
+          <span className="rounded bg-surface-muted px-1 py-0.5 text-xs text-muted">Prince George/Birds/Species name</span> with year
+          folders off. Only applies to photos you actually gave a location to; everything else stays where it already would.
         </span>
       </label>
       <div>
@@ -944,7 +1253,7 @@ function LibraryReimportSection() {
   const [mode, setMode] = useState<ReimportMode>("existing");
   const [foreignPath, setForeignPath] = useState("");
   const [browsingForeignPath, setBrowsingForeignPath] = useState(false);
-  const [organize, setOrganize] = useState(true);
+  const [organize, setOrganize] = useState(false);
   const [showUnmatched, setShowUnmatched] = useState(false);
 
   useEffect(() => {
@@ -1065,19 +1374,14 @@ function LibraryReimportSection() {
           {connectedVolumes.length > 0 && (
             <div className="space-y-1">
               <label className="text-xs font-medium text-muted">Reimport from</label>
-              <select
-                value={volumeId}
-                onChange={(e) => setVolumeId(e.target.value)}
-                disabled={starting || status.running}
-                className="w-full rounded-md border border-line bg-surface px-2 py-1.5 text-sm text-ink"
-              >
+              <Select variant="form" value={volumeId} onChange={(e) => setVolumeId(e.target.value)} disabled={starting || status.running}>
                 <option value="">This computer's library</option>
                 {connectedVolumes.map((v) => (
                   <option key={v.id} value={v.id}>
                     {v.label}
                   </option>
                 ))}
-              </select>
+              </Select>
             </div>
           )}
         </>
@@ -1129,8 +1433,9 @@ function LibraryReimportSection() {
               disabled={starting || status.running}
               className="h-3.5 w-3.5"
             />
-            Organize matched photos into species folders in my library (recommended; leave off to add them to Lifer
-            without moving the files from where they are now)
+            Organize matched photos into species folders in my library (leave off to add them to Lifer without moving
+            the files from where they are now: you can migrate them into the folder scheme later from Settings &gt;
+            Library &gt; Photo library organization)
           </label>
         </>
       )}
@@ -1541,9 +1846,16 @@ function StorageVolumesSection() {
 // disk space — each its own explicit action, never automatic.
 function ServerSection() {
   const [config, setConfig] = useState<DesktopBridgeConfig | null>(null);
+  const [signInUrl, setSignInUrl] = useState("");
+  // Reachability-confirmed, but not yet actually signed in — gates whether the email/password
+  // step, and everything below it (migrating a library up), shows at all. Resets to false
+  // whenever the address changes, since "connected" was a claim about THAT address.
+  const [connected, setConnected] = useState(false);
+  const [connecting, setConnecting] = useState(false);
   const [serverUrl, setServerUrl] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [signingIn, setSigningIn] = useState(false);
   const [offlineMode, setOfflineMode] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -1559,14 +1871,45 @@ function ServerSection() {
     window.liferSetup?.getConfig().then(setConfig);
   }, []);
 
-  async function connectToServer() {
+  async function connectToServer(url: string) {
     setError(null);
     setBusy(true);
     try {
-      const result = await window.liferSetup!.choose({ mode: "remote", serverUrl, offlineMode });
+      const result = await window.liferSetup!.choose({ mode: "remote", serverUrl: url, offlineMode });
       if (result.error) setError(result.error);
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function checkConnection(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setConnecting(true);
+    try {
+      const reachable = await window.liferSetup!.testEndpoint(signInUrl);
+      if (reachable) {
+        setConnected(true);
+        setServerUrl(signInUrl);
+      } else {
+        setError("Couldn't reach that address. Check the URL and that the server is running.");
+      }
+    } finally {
+      setConnecting(false);
+    }
+  }
+
+  async function signIn(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setSigningIn(true);
+    try {
+      await window.liferSetup!.testLogin(signInUrl, email, password);
+      await connectToServer(signInUrl);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : typeof err === "string" ? err : "Couldn't sign in");
+    } finally {
+      setSigningIn(false);
     }
   }
 
@@ -1623,12 +1966,12 @@ function ServerSection() {
 
   if (config.mode === "remote") {
     const connectionDescription =
-      config.localUrl && config.externalUrl
-        ? `Showing the library on ${config.localUrl} (or ${config.externalUrl} away from home).`
+      config.localUrl && config.externalUrls?.length
+        ? `Showing the library on ${config.localUrl} (or ${config.externalUrls[0]} away from home).`
         : `Showing the library on ${config.serverUrl}.`;
     return (
       <Card title="Connect a server" description={connectionDescription}>
-        {error && <p className="text-sm text-red-600">{error}</p>}
+        <FormMessage error={error} success={null} />
         <button
           type="button"
           onClick={switchToLocal}
@@ -1642,10 +1985,69 @@ function ServerSection() {
   }
 
   return (
-    <Card
-      title="Connect a server"
-      description="Move your library to a Lifer server you run elsewhere. Migrate your photos up, confirm nothing failed, then switch this window over. Your local copies stay put until you separately choose to delete them."
-    >
+    <>
+      <Card
+        title="Sign in to a server"
+        description="Already have a library on a Lifer server elsewhere? Point the app to view and manage it directly. Connecting a server also enables you to migrate files you have stored locally to the server, allowing you to use Lifer offline on the go in the app, and push your files once you're back online."
+      >
+        {!connected ? (
+          <form onSubmit={checkConnection} className="flex flex-col gap-2 sm:flex-row">
+            <input
+              type="text"
+              placeholder="https://lifer.example.com"
+              value={signInUrl}
+              onChange={(e) => setSignInUrl(e.target.value)}
+              required
+              className={inputClass}
+            />
+            <button type="submit" disabled={connecting} className={`${buttonClass} whitespace-nowrap`}>
+              {connecting ? "Connecting…" : "Connect"}
+            </button>
+          </form>
+        ) : (
+          <form onSubmit={signIn} className="space-y-3">
+            <p className="text-sm text-green-700">Connected to {signInUrl}.</p>
+            <input
+              type="email"
+              placeholder="Email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+              className={inputClass}
+            />
+            <PasswordInput placeholder="Password" value={password} onChange={setPassword} required autoComplete="current-password" className={inputClass} />
+            <label className="flex items-start gap-2 text-sm text-ink">
+              <input type="checkbox" checked={offlineMode} onChange={(e) => setOfflineMode(e.target.checked)} className="mt-0.5" />
+              <span>
+                Keep an offline cache after connecting. Low-res cover photos and your collected/seen status stay
+                browsable here even if this computer loses its connection to the server.
+              </span>
+            </label>
+            <div className="flex items-center gap-3">
+              <button type="submit" disabled={signingIn || busy} className={buttonClass}>
+                {signingIn || busy ? "Signing in…" : "Sign in"}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setConnected(false);
+                  setError(null);
+                }}
+                className="text-sm text-muted underline"
+              >
+                Use a different address
+              </button>
+            </div>
+          </form>
+        )}
+        {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
+      </Card>
+
+      {connected && (
+      <Card
+        title="Migrate your library to a server"
+        description="Move your library to a Lifer server you run elsewhere. Migrate your photos up, confirm nothing failed, then switch this window over. Your local copies stay put until you separately choose to delete them."
+      >
       {status?.running ? (
         <p className="text-sm text-muted">
           Migrating to {status.serverUrl}, {status.migrated + status.skipped + status.failed} of {status.total} processed
@@ -1697,7 +2099,7 @@ function ServerSection() {
             Last run: migrated {status.migrated} of {status.total} ({status.skipped} skipped, {status.failed} failed).
           </p>
           <div className="flex flex-wrap gap-2">
-            <button type="button" onClick={connectToServer} disabled={busy} className={buttonClass}>
+            <button type="button" onClick={() => connectToServer(serverUrl)} disabled={busy} className={buttonClass}>
               Switch this window to the server
             </button>
             {cleanMigration && !deleted && (
@@ -1715,6 +2117,219 @@ function ServerSection() {
           <FormMessage error={deleteError} success={null} />
         </div>
       )}
+      </Card>
+      )}
+    </>
+  );
+}
+
+interface ExternalEndpoint {
+  url: string;
+  status: "idle" | "testing" | "ok" | "error";
+}
+
+// Nested under the same "Server" group as ServerSection above, and only ever rendered once
+// this desktop install is actually connected to a remote server — there's no "which address"
+// question for a purely local embedded database. Lets this window prefer a local-network
+// address (gated on actually being on that Wi-Fi network right now, not just a saved label)
+// and fall back to an ordered list of external addresses otherwise — see store.rs/lib.rs's
+// apply_config for the matching switch-time logic this configures.
+function AutomaticUrlSwitchingSection() {
+  const [config, setConfig] = useState<DesktopBridgeConfig | null>(null);
+  const [enabled, setEnabled] = useState(false);
+  const [localUrl, setLocalUrl] = useState("");
+  const [localNetworkName, setLocalNetworkName] = useState("");
+  const [externalUrls, setExternalUrls] = useState<ExternalEndpoint[]>([]);
+  const [newExternalUrl, setNewExternalUrl] = useState("");
+  const [usingCurrent, setUsingCurrent] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+  const dragIndex = useRef<number | null>(null);
+
+  useEffect(() => {
+    window.liferSetup?.getConfig().then((cfg) => {
+      setConfig(cfg);
+      if (cfg?.localUrl && cfg.externalUrls?.length) {
+        setEnabled(true);
+        setLocalUrl(cfg.localUrl);
+        setLocalNetworkName(cfg.localNetworkName ?? "");
+        setExternalUrls(cfg.externalUrls.map((url) => ({ url, status: "ok" })));
+      }
+    });
+  }, []);
+
+  if (!window.liferSetup || !config || config.mode !== "remote") return null;
+
+  async function useCurrentConnection() {
+    setUsingCurrent(true);
+    try {
+      const info = await window.liferSetup!.currentNetworkInfo();
+      if (info.localIp) setLocalUrl((prev) => prev || `http://${info.localIp}:4310`);
+      if (info.wifiName) setLocalNetworkName(info.wifiName);
+    } finally {
+      setUsingCurrent(false);
+    }
+  }
+
+  async function addExternalUrl() {
+    const url = newExternalUrl.trim();
+    if (!url) return;
+    setNewExternalUrl("");
+    setExternalUrls((prev) => [...prev, { url, status: "testing" }]);
+    const ok = await window.liferSetup!.testEndpoint(url);
+    setExternalUrls((prev) => prev.map((e) => (e.url === url ? { ...e, status: ok ? "ok" : "error" } : e)));
+  }
+
+  function removeExternalUrl(url: string) {
+    setExternalUrls((prev) => prev.filter((e) => e.url !== url));
+  }
+
+  function reorder(from: number, to: number) {
+    setExternalUrls((prev) => {
+      const next = [...prev];
+      const [moved] = next.splice(from, 1);
+      next.splice(to, 0, moved);
+      return next;
+    });
+  }
+
+  async function save() {
+    setError(null);
+    setSaved(false);
+    setSaving(true);
+    try {
+      const result = await window.liferSetup!.choose({
+        mode: "remote",
+        localUrl,
+        localNetworkName: localNetworkName || undefined,
+        externalUrls: externalUrls.map((e) => e.url),
+        offlineMode: config?.offlineMode,
+      });
+      if (result.error) setError(result.error);
+      else setSaved(true);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (!enabled) {
+    return (
+      <Card
+        title="Automatic URL Switching"
+        description="Connect locally over designated Wi-Fi when available and use alternative connections elsewhere."
+      >
+        <button type="button" onClick={() => setEnabled(true)} className={buttonClass}>
+          Set up
+        </button>
+      </Card>
+    );
+  }
+
+  return (
+    <Card
+      title="Automatic URL Switching"
+      description="Connect locally over designated Wi-Fi when available and use alternative connections elsewhere."
+    >
+      <div className="space-y-3">
+        <div>
+          <p className="text-sm font-medium text-ink">Local network</p>
+          <p className="mt-0.5 text-sm text-muted">
+            The app will connect to the server through this URL when using the specified Wi-Fi network.
+          </p>
+          <div className="mt-2 flex flex-col gap-2 sm:flex-row">
+            <input
+              type="text"
+              placeholder="http://192.168.1.10:4310"
+              value={localUrl}
+              onChange={(e) => setLocalUrl(e.target.value)}
+              className={inputClass}
+            />
+            <input
+              type="text"
+              placeholder="Wi-Fi network name"
+              value={localNetworkName}
+              onChange={(e) => setLocalNetworkName(e.target.value)}
+              className={inputClass}
+            />
+          </div>
+          <button
+            type="button"
+            onClick={useCurrentConnection}
+            disabled={usingCurrent}
+            className="mt-2 rounded-md border border-line px-3 py-1.5 text-sm text-ink hover:bg-surface-muted disabled:opacity-50"
+          >
+            {usingCurrent ? "Reading current connection…" : "Use current connection"}
+          </button>
+        </div>
+
+        <div>
+          <p className="text-sm font-medium text-ink">External networks</p>
+          <p className="mt-0.5 text-sm text-muted">
+            When not on the preferred Wi-Fi network, the app will connect to the server through the first of the below
+            URLs it can reach, starting from the top to bottom.
+          </p>
+          <ul className="mt-2 space-y-1.5">
+            {externalUrls.map((entry, index) => (
+              <li
+                key={entry.url}
+                draggable
+                onDragStart={() => {
+                  dragIndex.current = index;
+                }}
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={() => {
+                  if (dragIndex.current !== null && dragIndex.current !== index) reorder(dragIndex.current, index);
+                  dragIndex.current = null;
+                }}
+                className="flex items-center gap-2 rounded-md border border-line bg-surface px-2 py-1.5 text-sm"
+              >
+                <span className="cursor-grab text-muted" aria-hidden="true">
+                  ⠿
+                </span>
+                <span className="flex-1 truncate text-ink">{entry.url}</span>
+                {entry.status === "testing" && <Spinner />}
+                {entry.status === "ok" && <span className="text-green-600">✓</span>}
+                {entry.status === "error" && <span className="text-red-600">✕</span>}
+                <button
+                  type="button"
+                  onClick={() => removeExternalUrl(entry.url)}
+                  className="text-muted hover:text-ink"
+                  aria-label={`Remove ${entry.url}`}
+                >
+                  ✕
+                </button>
+              </li>
+            ))}
+          </ul>
+          <div className="mt-2 flex gap-2">
+            <input
+              type="text"
+              placeholder="https://lifer.example.com"
+              value={newExternalUrl}
+              onChange={(e) => setNewExternalUrl(e.target.value)}
+              className={inputClass}
+            />
+            <button
+              type="button"
+              onClick={addExternalUrl}
+              className="whitespace-nowrap rounded-md border border-line px-3 py-1.5 text-sm text-ink hover:bg-surface-muted"
+            >
+              Add
+            </button>
+          </div>
+        </div>
+
+        <FormMessage error={error} success={saved ? "Saved." : null} />
+        <button
+          type="button"
+          onClick={save}
+          disabled={saving || !localUrl || externalUrls.length === 0}
+          className={buttonClass}
+        >
+          {saving ? "Saving…" : "Save"}
+        </button>
+      </div>
     </Card>
   );
 }
@@ -1841,10 +2456,20 @@ function AppUpdatesSection() {
         </div>
       )}
       {status === "available" && update && (
-        <div className="space-y-2">
-          <p className="text-sm font-medium text-ink">
-            Update Available{currentVersion ? `: v${currentVersion} → v${update.version}` : `: v${update.version}`}
-          </p>
+        <div className="space-y-3 rounded-lg border border-line bg-surface-muted p-3">
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-medium text-ink">Update available</p>
+            <span className="rounded-full bg-accent/15 px-2 py-0.5 text-xs font-medium text-accent">New</span>
+          </div>
+          <div className="flex items-center gap-3 text-sm">
+            <span className="text-muted">Installed</span>
+            <span className="font-medium text-ink">v{currentVersion ?? "?"}</span>
+            <span aria-hidden="true" className="text-muted">
+              →
+            </span>
+            <span className="text-muted">Latest</span>
+            <span className="font-medium text-accent">v{update.version}</span>
+          </div>
           {update.body && <p className="text-sm text-muted">{update.body}</p>}
           <button type="button" onClick={installUpdate} className={buttonClass}>
             Update Now
@@ -2000,9 +2625,54 @@ function CatalogUpdateSection() {
   );
 }
 
+// A quick "what's downloaded, and can I fix it from here" view, sitting right next to the map
+// and catalog cards since a user looking for offline-data controls checks here first, rather
+// than needing to already know the separate Offline Packs page exists. Downloading a NEW region
+// still goes through that page's real continent/country picker, which is deliberately not
+// reimplemented here — this is management of what's already downloaded, not discovery. The
+// actual grouped list/update/offload UI is DownloadedPacksList, shared verbatim with that page.
+function OfflinePacksSummarySection() {
+  const [packs, setPacks] = useState<PackEntry[] | null>(null);
+
+  function refresh() {
+    api
+      .get<{ packs: PackEntry[] }>("/offline-packs/index")
+      .then((res) => setPacks(res.packs))
+      .catch(() => {});
+  }
+
+  useEffect(refresh, []);
+
+  if (!packs) return null;
+  const downloadedCount = packs.filter((p) => p.downloaded).length;
+  const totalBytes = packs.filter((p) => p.downloaded).reduce((sum, p) => sum + p.sizeBytes, 0);
+
+  return (
+    <Card
+      title="Downloaded packs"
+      description={downloadedCount === 0 ? "No region packs downloaded yet." : `${downloadedCount} pack${downloadedCount === 1 ? "" : "s"} downloaded, ${formatBytes(totalBytes)} total.`}
+    >
+      {downloadedCount === 0 ? (
+        <Link to="/offline-packs" className="rounded-md border border-line px-3 py-1.5 text-sm text-ink hover:bg-surface-muted">
+          Browse regions
+        </Link>
+      ) : (
+        <>
+          <DownloadedPacksList packs={packs} onRefresh={refresh} />
+          <Link to="/offline-packs" className="text-sm text-ink underline">
+            Manage in Offline Packs
+          </Link>
+        </>
+      )}
+    </Card>
+  );
+}
+
 // Offline basemap tiles are a large (~500MB) opt-in download, not something every install
-// ships with (see config.ts's MAP_DOWNLOAD_URL) — purely a cosmetic nicety on region/species
-// range maps, not worth doubling the install size for everyone by default.
+// ships with (see config.ts's MAP_DOWNLOAD_URL) — this is what makes locality/occurrence data
+// for a downloaded region's species work at all (it doesn't fall back to a live/online map),
+// not worth doubling the install size for everyone by default. Lifer has no range-map feature;
+// that's not what this powers.
 function MapSection() {
   const [status, setStatus] = useState<{
     available: boolean;
@@ -2010,6 +2680,7 @@ function MapSection() {
     downloading: boolean;
     downloadedBytes: number;
     totalBytes: number | null;
+    sizeBytes: number | null;
     error: string | null;
   } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -2037,7 +2708,11 @@ function MapSection() {
   }, []);
 
   async function download() {
-    if (!confirm("Download the offline basemap? It's about 500MB and only affects range map visuals, nothing else in Lifer needs it.")) {
+    if (
+      !confirm(
+        "Download the offline basemap? It's about 500MB. Also unlocks locality info on species detail pages (roughly where within a region each species is found), everything else in Lifer works the same either way.",
+      )
+    ) {
       return;
     }
     setBusy(true);
@@ -2048,8 +2723,9 @@ function MapSection() {
     }
   }
 
-  async function remove() {
-    if (!confirm("Delete the downloaded offline map to reclaim disk space? You can download it again anytime.")) return;
+  async function offload() {
+    const sizeLabel = status?.sizeBytes ? ` (~${(status.sizeBytes / 1e6).toFixed(0)}MB)` : "";
+    if (!confirm(`Offload the downloaded offline map${sizeLabel}? You can download it again anytime.`)) return;
     setBusy(true);
     try {
       await api.delete("/settings/map");
@@ -2058,12 +2734,16 @@ function MapSection() {
     }
   }
 
-  if (!status || !status.available) return null;
+  // `available` only means "this instance has a download source configured" — a map that's
+  // already downloaded (from back when it was configured, or on another instance's build)
+  // still needs to render here so its offload button stays reachable even if `available` is
+  // now false, rather than trapping the user with a downloaded map they can't ever remove.
+  if (!status || (!status.available && !status.downloaded)) return null;
 
   return (
     <Card
       title="Offline map"
-      description="An offline basemap for range maps, so they render without an internet connection. Purely cosmetic, nothing else in Lifer depends on it."
+      description="An offline basemap: this is what makes locality/occurrence data work at all, showing roughly where within a downloaded region each species is found. It doesn't render without this, even with an internet connection. Everything else in Lifer works the same either way."
     >
       {status.downloading ? (
         <p className="text-sm text-muted">
@@ -2071,20 +2751,121 @@ function MapSection() {
           {status.totalBytes ? ` of ${(status.totalBytes / 1e6).toFixed(0)}MB` : ""}
         </p>
       ) : status.downloaded ? (
-        <div className="space-y-2">
-          <p className="text-sm text-green-700">Downloaded.</p>
-          <button
-            type="button"
-            onClick={remove}
-            disabled={busy}
-            className="rounded-md border border-line px-3 py-1.5 text-sm text-ink hover:bg-surface-muted disabled:opacity-50"
-          >
-            Delete to reclaim space
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={offload}
+          disabled={busy}
+          className="rounded-md border border-line px-3 py-1.5 text-sm text-ink hover:bg-surface-muted disabled:opacity-50"
+        >
+          {busy ? "Offloading…" : `Offload${status.sizeBytes ? ` (frees ${(status.sizeBytes / 1e6).toFixed(0)}MB)` : ""}`}
+        </button>
       ) : (
-        <button type="button" onClick={download} disabled={busy} className={buttonClass}>
+        <button
+          type="button"
+          onClick={download}
+          disabled={busy}
+          className="rounded-md bg-green-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50"
+        >
           Download offline map (~500MB)
+        </button>
+      )}
+      {status.error && <p className="text-sm text-red-600">{status.error}</p>}
+    </Card>
+  );
+}
+
+// The CLIP embedding model — powers species suggestions while importing AND Gallery's content
+// search (typing something like "water bird" to find photos of birds with water in the frame,
+// not just matching species names). Same opt-in/offload shape as the offline map above: not
+// bundled, so the app stays small until a user actually wants either feature.
+function EmbeddingModelSection() {
+  const [status, setStatus] = useState<{
+    downloaded: boolean;
+    downloading: boolean;
+    downloadedBytes: number;
+    totalBytes: number | null;
+    sizeBytes: number | null;
+    error: string | null;
+  } | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout>;
+    async function poll() {
+      let nextDelay = 5000;
+      try {
+        const res = await api.get<NonNullable<typeof status>>("/settings/embedding-model/status");
+        if (!cancelled) setStatus(res);
+        nextDelay = res.downloading ? 1000 : 5000;
+      } catch {
+        if (!cancelled) setStatus(null);
+      }
+      if (!cancelled) timer = setTimeout(poll, nextDelay);
+    }
+    poll();
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function download() {
+    setBusy(true);
+    try {
+      await api.post("/settings/embedding-model/download");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function offload() {
+    const sizeLabel = status?.sizeBytes ? ` (~${(status.sizeBytes / 1e6).toFixed(0)}MB)` : "";
+    if (
+      !confirm(
+        `Offload the species-matching model${sizeLabel}? Species suggestions while importing will turn off, and Gallery search will fall back to matching species names, ABA/eBird codes, and camera info only — a search like "water bird" won't find photos by what's in them anymore. You can download it again anytime.`,
+      )
+    ) {
+      return;
+    }
+    setBusy(true);
+    try {
+      await api.delete("/settings/embedding-model");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!status) return null;
+
+  return (
+    <Card
+      title="Species-matching model"
+      description="Powers species suggestions while importing and Gallery's content search (finding photos by what's in them, like 'water bird', not just by species name). Without it, Lifer stays smaller and search falls back to species names, ABA/eBird codes, and camera info."
+    >
+      {status.downloading ? (
+        <p className="text-sm text-muted">
+          Downloading… {(status.downloadedBytes / 1e6).toFixed(0)}MB
+          {status.totalBytes ? ` of ${(status.totalBytes / 1e6).toFixed(0)}MB` : ""}
+        </p>
+      ) : status.downloaded ? (
+        <button
+          type="button"
+          onClick={offload}
+          disabled={busy}
+          className="rounded-md border border-line px-3 py-1.5 text-sm text-ink hover:bg-surface-muted disabled:opacity-50"
+        >
+          {busy ? "Offloading…" : `Offload${status.sizeBytes ? ` (frees ${(status.sizeBytes / 1e6).toFixed(0)}MB)` : ""}`}
+        </button>
+      ) : (
+        <button
+          type="button"
+          onClick={download}
+          disabled={busy}
+          className="rounded-md bg-green-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50"
+        >
+          {busy ? "Starting…" : "Download model (~310MB)"}
         </button>
       )}
       {status.error && <p className="text-sm text-red-600">{status.error}</p>}

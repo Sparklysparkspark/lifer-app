@@ -70,7 +70,7 @@ export default function BulkImportPage() {
 
   return (
     <div className="min-h-screen bg-canvas">
-      <PageHeader title="Bulk import" />
+      <PageHeader sticky title="Bulk import" />
 
       <main className="space-y-4 p-6">
         <PhotoImportRows />

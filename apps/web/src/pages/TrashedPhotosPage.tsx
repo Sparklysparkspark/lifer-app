@@ -6,6 +6,7 @@ import Lightbox, { type LightboxSlide } from "../components/Lightbox";
 import MasonryGrid from "../components/MasonryGrid";
 import PhotoPlaceholder from "../components/PhotoPlaceholder";
 import ProgressiveImg from "../components/ProgressiveImg";
+import SegmentedControl from "../components/SegmentedControl";
 import { useShowLabels } from "../hooks/useShowLabels";
 
 interface TrashItem {
@@ -18,6 +19,9 @@ interface TrashItem {
   width: number | null;
   height: number | null;
   hasRawOriginal: boolean;
+  kind: "image" | "video";
+  durationSeconds: number | null;
+  originalKind: string | null;
   purgesAt: string;
 }
 
@@ -47,6 +51,7 @@ export default function TrashedPhotosPage() {
   const [selectMode, setSelectMode] = useState(false);
   const [selectedCaptureIds, setSelectedCaptureIds] = useState<Set<string>>(new Set());
   const [showLabels, setShowLabels] = useShowLabels();
+  const [photoFilter, setPhotoFilter] = useState<"all" | "edited" | "raw" | "video">("all");
   const openMenuRef = useRef<HTMLDivElement>(null);
 
   function load() {
@@ -109,15 +114,29 @@ export default function TrashedPhotosPage() {
     });
   }
 
-  const itemsWithPhoto = (data?.items ?? []).filter((it) => it.photoId);
+  const allItems = data?.items ?? [];
+  // Same shape as SpeciesDetailPage's own photoFilter — "edited"/"raw" both explicitly exclude
+  // videos (neither category applies to one), so a trashed video only ever shows under All/Video.
+  const editedCount = allItems.filter((it) => it.photoId && it.kind !== "video" && it.originalKind !== "raw").length;
+  const rawOnlyCount = allItems.filter((it) => it.photoId && it.kind !== "video" && it.originalKind === "raw").length;
+  const videoCount = allItems.filter((it) => it.kind === "video").length;
+  const visibleItems = allItems.filter((it) => {
+    if (photoFilter === "all") return true;
+    if (photoFilter === "video") return it.kind === "video";
+    if (it.kind === "video") return false;
+    return photoFilter === "raw" ? it.originalKind === "raw" : it.originalKind !== "raw";
+  });
+  const itemsWithPhoto = visibleItems.filter((it) => it.photoId);
   const slides: LightboxSlide[] = itemsWithPhoto.map((it) => ({
     url: `/api/photos/${it.photoId}/display`,
+    videoUrl: it.kind === "video" ? `/api/photos/${it.photoId}/video` : null,
     caption: it.speciesName,
+    info: it.kind === "video" ? { durationSeconds: it.durationSeconds } : null,
   }));
 
   return (
     <div className="min-h-screen bg-canvas">
-      <PageHeader
+      <PageHeader sticky
         title="Trash"
         backFallbackTo="/settings"
         backLabel="Settings"
@@ -125,6 +144,19 @@ export default function TrashedPhotosPage() {
           data &&
           data.items.length > 0 && (
             <div className="flex items-center gap-4">
+              {(rawOnlyCount > 0 || videoCount > 0) && (
+                <SegmentedControl
+                  size="sm"
+                  value={photoFilter}
+                  onChange={setPhotoFilter}
+                  options={[
+                    { value: "all", label: `All (${editedCount + rawOnlyCount + videoCount})` },
+                    { value: "edited", label: `Edited (${editedCount})` },
+                    ...(rawOnlyCount > 0 ? [{ value: "raw" as const, label: `RAW (${rawOnlyCount})` }] : []),
+                    ...(videoCount > 0 ? [{ value: "video" as const, label: `Video (${videoCount})` }] : []),
+                  ]}
+                />
+              )}
               <label className="flex items-center gap-1.5 text-xs text-muted">
                 <input type="checkbox" checked={showLabels} onChange={(e) => setShowLabels(e.target.checked)} />
                 Labels
@@ -179,9 +211,11 @@ export default function TrashedPhotosPage() {
             </p>
             {data.items.length === 0 ? (
               <p className="text-sm text-muted">Trash is empty.</p>
+            ) : visibleItems.length === 0 ? (
+              <p className="text-sm text-muted">Nothing matches this filter.</p>
             ) : (
               <MasonryGrid
-                items={data.items}
+                items={visibleItems}
                 columnWidth={220}
                 extraHeightPx={showLabels ? 32 : 0}
                 keyFor={(item) => item.captureId}
@@ -193,7 +227,7 @@ export default function TrashedPhotosPage() {
                       {item.photoId ? (
                         <button
                           onClick={() => (selectMode ? toggleSelected(item.captureId) : setLightboxIndex(photoIndex))}
-                          className="block w-full overflow-hidden text-left"
+                          className="relative block w-full overflow-hidden text-left"
                           style={{ aspectRatio }}
                         >
                           <ProgressiveImg
@@ -204,6 +238,17 @@ export default function TrashedPhotosPage() {
                               selectMode && selectedCaptureIds.has(item.captureId) ? "ring-2 ring-inset ring-blue-500" : ""
                             }`}
                           />
+                          {item.kind === "video" && (
+                            <div className="pointer-events-none absolute bottom-2 right-2 flex items-center gap-1 rounded bg-black/60 px-1.5 py-0.5 text-[11px] text-white">
+                              <span aria-hidden>▶</span>
+                              {item.durationSeconds != null && (
+                                <span>
+                                  {Math.floor(item.durationSeconds / 60)}:
+                                  {String(Math.round(item.durationSeconds % 60)).padStart(2, "0")}
+                                </span>
+                              )}
+                            </div>
+                          )}
                         </button>
                       ) : (
                         <button

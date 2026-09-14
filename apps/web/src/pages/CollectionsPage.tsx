@@ -1,11 +1,10 @@
 import { useEffect, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import type { TripSummary } from "@lifer/shared";
+import type { TripSummary, QuadSlot } from "@lifer/shared";
 import { api, ApiError } from "../api/client";
 import { Spinner } from "../components/LoadingScreen";
 import PageHeader from "../components/PageHeader";
-import ProgressiveImg from "../components/ProgressiveImg";
-import PhotoPlaceholder from "../components/PhotoPlaceholder";
+import CoverImage from "../components/CoverImage";
 import DotMenu from "../components/DotMenu";
 import RenameModal from "../components/RenameModal";
 import TripCard from "../components/TripCard";
@@ -19,6 +18,11 @@ interface Album {
   name: string;
   description: string | null;
   coverPhotoId: string | null;
+  coverLayout: "single" | "quad";
+  coverCropX: number | null;
+  coverCropY: number | null;
+  coverCropSize: number | null;
+  quadSlots: Array<QuadSlot | null>;
   createdAt: string;
   captureCount: number;
 }
@@ -43,7 +47,7 @@ export default function CollectionsPage() {
 
   return (
     <div className="min-h-screen bg-canvas">
-      <PageHeader
+      <PageHeader sticky
         title="Albums & Trips"
         actions={
           isDesktopMode && (
@@ -187,16 +191,15 @@ function AlbumsPanel() {
                 className="group block overflow-hidden rounded-lg border border-line bg-surface transition hover:shadow-md"
               >
                 <div className="relative aspect-square overflow-hidden bg-surface-muted">
-                  {album.coverPhotoId ? (
-                    <ProgressiveImg
-                      thumbSrc={`/api/photos/${album.coverPhotoId}/thumb`}
-                      fullSrc={`/api/photos/${album.coverPhotoId}/display`}
-                      alt={album.name}
-                      className="h-full w-full object-cover"
-                    />
-                  ) : (
-                    <PhotoPlaceholder className="h-full w-full" />
-                  )}
+                  <CoverImage
+                    layout={album.coverLayout}
+                    coverPhotoUrl={album.coverPhotoId ? `/api/photos/${album.coverPhotoId}/thumb` : null}
+                    cropX={album.coverCropX}
+                    cropY={album.coverCropY}
+                    cropSize={album.coverCropSize}
+                    quadSlots={album.quadSlots}
+                    alt={album.name}
+                  />
                   <DotMenu open={openMenuId === album.id} onToggle={() => setOpenMenuId(openMenuId === album.id ? null : album.id)} menuRef={openMenuRef}>
                     <div className="absolute right-0 top-full z-10 mt-1 w-36 rounded-md border border-line bg-surface py-1 shadow-lg">
                       <button

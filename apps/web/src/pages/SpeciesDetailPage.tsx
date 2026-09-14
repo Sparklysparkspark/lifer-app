@@ -1,21 +1,25 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useParams, useSearchParams } from "react-router-dom";
+import { useParams, useSearchParams, useNavigate } from "react-router-dom";
 import { api, ApiError } from "../api/client";
 import UploadDropzone from "../components/UploadDropzone";
 import RawUpload from "../components/RawUpload";
 import StarRating from "../components/StarRating";
 import { useVolumeDestination, VolumeDestinationPicker } from "../components/VolumeDestinationPicker";
-import Lightbox, { type LightboxSlide } from "../components/Lightbox";
+import Lightbox, { TagEditor, type LightboxSlide } from "../components/Lightbox";
 import CardCropEditor from "../components/CardCropEditor";
 import SeasonalityBar from "../components/SeasonalityBar";
 import WeeklyBar from "../components/WeeklyBar";
 import SpeciesHotspotMap from "../components/SpeciesHotspotMap";
 import SpeciesPicker from "../components/SpeciesPicker";
+import RegionBrowser from "../components/RegionBrowser";
 import ProgressiveImg from "../components/ProgressiveImg";
 import PhotoTile from "../components/PhotoTile";
 import DotMenu from "../components/DotMenu";
 import AddToAlbumModal from "../components/AddToAlbumModal";
 import PageHeader from "../components/PageHeader";
+import SegmentedControl from "../components/SegmentedControl";
+import SelectModeToggle from "../components/SelectModeToggle";
+import Select from "../components/Select";
 import { LoadingScreen } from "../components/LoadingScreen";
 import PhotoPlaceholder from "../components/PhotoPlaceholder";
 import MasonryGrid from "../components/MasonryGrid";
@@ -24,10 +28,12 @@ import { useDropdownMenu } from "../hooks/useDropdownMenu";
 import { useUploadQueue } from "../lib/uploadQueue";
 import { shotDataLine, estimateShotDataWrapExtraPx } from "../lib/shotData";
 import { downloadFile } from "../lib/downloadFile";
+import { buildInaturalistObservationsUrl } from "../lib/inaturalist";
 
 // GET /api/species/:id/encounters — "183 photos / 7 encounters / 4 locations" style summary.
 interface EncountersResponse {
   totalPhotos: number;
+  videoCount: number;
   encounterCount: number;
   locationCount: number;
   cameraCount: number;
@@ -68,6 +74,16 @@ interface SpeciesDetail {
     domestic: boolean | null;
     iucn_status: string | null;
     tier: string | null;
+    is_other_taxa: boolean;
+    /** No AVONET/EltonTraits-style trait dataset was ever ingested for Other Taxa's own
+     *  kingdoms (insects, fungi, plants, etc.) the way birds/mammals/fish have — family/order
+     *  (from the GBIF match already done when adding one, see resolveOrCreateOtherTaxaSpecies)
+     *  and genus (a GENERATED column, free on every species) are the only real, non-fabricated
+     *  facts available uniformly across all of them, so they fill the stats box for these
+     *  species instead of leaving it empty. */
+    family: string | null;
+    taxon_order: string | null;
+    genus: string | null;
     reference_photo: string | null;
     /** Ready-to-use — prefers the cached local copy, falls back to the external URL (see
      *  conversation). Always use this, not reference_photo, for rendering. */
@@ -93,6 +109,9 @@ interface SpeciesDetail {
     shutter: string | null;
     iso: number | null;
     quality_rating: number | null;
+    tags: string[];
+    photo_kind: "image" | "video" | null;
+    duration_seconds: number | null;
     original_ref: string | null;
     original_managed: boolean | null;
     original_kind: string | null;
@@ -102,9 +121,16 @@ interface SpeciesDetail {
      *  a genuinely missing file, or one that's on the always-on primary drive. */
     original_volume_label: string | null;
     has_raw_original: boolean;
+    region_id: string | null;
+    region_name: string | null;
+    /** A free-text custom place name nested under region_id ("Prince George" under British
+     *  Columbia) — independent of the exact GPS coordinates, for browsing by a place a human
+     *  actually recognizes rather than a catalog region alone. */
+    location_label: string | null;
   }>;
   userSpecies: {
-    state: "collected" | "seen" | "target";
+    state: "collected" | "seen" | null;
+    is_target: boolean;
     cover_photo_id: string | null;
     card_crop_x: string | number | null;
     card_crop_y: string | number | null;
@@ -120,6 +146,7 @@ interface SpeciesDetail {
   }>;
   seasonality: number[] | null;
   weeklyFrequency: number[] | null;
+  weeklyRegionName: string | null;
   localTier: string | null;
   isVagrant: boolean;
   isInvasive: boolean;
@@ -163,6 +190,7 @@ const CAMERA_INFO_LINE_HEIGHT_PX = 13;
 
 export default function SpeciesDetailPage() {
   const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
   const { jobs: uploadJobs } = useUploadQueue();
   const pendingUploadCount = uploadJobs.filter((j) => j.speciesId === id && !j.done).length;
   const [searchParams] = useSearchParams();
@@ -183,9 +211,23 @@ export default function SpeciesDetailPage() {
   // no batch endpoint for this — the set of reassignments is small and interactive, so a
   // Promise.all loop is simpler than adding a new bulk route).
   const [reassigningCaptureId, setReassigningCaptureId] = useState<string | null>(null);
+  const [settingLocationCaptureId, setSettingLocationCaptureId] = useState<string | null>(null);
+  const [editingTagsCaptureId, setEditingTagsCaptureId] = useState<string | null>(null);
+  const [tagOptions, setTagOptions] = useState<string[]>([]);
+  const [bulkTags, setBulkTags] = useState<string[]>([]);
+  useEffect(() => {
+    api.get<{ tags: string[] }>("/captures/tags").then((res) => setTagOptions(res.tags)).catch(() => {});
+  }, []);
   const [batchReassigning, setBatchReassigning] = useState(false);
   const [reassignError, setReassignError] = useState<string | null>(null);
   const [deleteRawToo, setDeleteRawToo] = useState(false);
+  const [removingOtherTaxa, setRemovingOtherTaxa] = useState(false);
+  // An Other Taxa species already supports living on multiple regions' checklists at the DB
+  // layer (region_species has no one-species-one-region constraint) — this was previously
+  // reachable only via a fresh iNat search per region, never for an already-added species.
+  const [addingToRegion, setAddingToRegion] = useState(false);
+  const [addRegionId, setAddRegionId] = useState<string | null>(null);
+  const [addRegionStatus, setAddRegionStatus] = useState<"idle" | "saving" | "done" | "error">("idle");
   const [deleting, setDeleting] = useState(false);
 
   // Target thumbnail width in px, fed to MasonryGrid instead of fixed Tailwind breakpoint
@@ -210,7 +252,10 @@ export default function SpeciesDetailPage() {
   // Edited vs RAW-only view filter — state declared here (near the other view toggles);
   // derived counts (editedCount/rawOnlyCount) are computed further down, once `captures` is
   // actually in scope.
-  const [photoFilter, setPhotoFilter] = useState<"all" | "edited" | "raw">("edited");
+  const [photoFilter, setPhotoFilter] = useState<"all" | "edited" | "raw" | "video">("edited");
+  // Newest first matches the server's own default order (see species/routes.ts's ORDER BY),
+  // so leaving this at "newest" is a no-op sort, not a surprise reorder on first load.
+  const [photoSort, setPhotoSort] = useState<"newest" | "oldest" | "rating">("newest");
 
   function toggleGalleryView() {
     setGalleryView((prev) => {
@@ -261,6 +306,21 @@ export default function SpeciesDetailPage() {
     load();
     loadUnmatchedRaws();
   }, [load, loadUnmatchedRaws]);
+
+  // If you're already sitting on this species' detail page when an in-flight upload for it
+  // finishes, the placeholder tile disappears (pendingUploadCount reacts to uploadJobs
+  // immediately) but the real capture never showed up — `captures` only ever changes via this
+  // page's own `load()` call, which nothing was re-triggering. Watches for pendingUploadCount
+  // dropping (a job just flipped to done) and reloads then, so the new photo/video appears
+  // without needing to leave and come back.
+  const prevPendingUploadCountRef = useRef(pendingUploadCount);
+  useEffect(() => {
+    if (pendingUploadCount < prevPendingUploadCountRef.current) {
+      load();
+      loadUnmatchedRaws();
+    }
+    prevPendingUploadCountRef.current = pendingUploadCount;
+  }, [pendingUploadCount, load, loadUnmatchedRaws]);
 
   const [encounters, setEncounters] = useState<EncountersResponse | null>(null);
   useEffect(() => {
@@ -367,9 +427,6 @@ export default function SpeciesDetailPage() {
   }
 
   async function markSeen() {
-    // The backend's INSERT ... ON CONFLICT DO NOTHING can't switch a "target" row straight
-    // into "seen" — undo the old state first so the patch below actually lands.
-    if (detail?.userSpecies?.state === "target") await api.delete(`/species/${id}/target`);
     await api.patch(`/species/${id}/seen`);
     load();
   }
@@ -380,9 +437,8 @@ export default function SpeciesDetailPage() {
   }
 
   async function addToTargets() {
-    // Same never-downgrade gating as markSeen above, the other direction — a "seen" species
-    // needs its seen row cleared before it can become a target.
-    if (detail?.userSpecies?.state === "seen") await api.delete(`/species/${id}/seen`);
+    // is_target is independent of state (migration 090) — a species you've already collected
+    // or seen can still be targeted, e.g. "I only have a bad photo of this, I want a better one."
     await api.patch(`/species/${id}/target`);
     load();
   }
@@ -410,6 +466,32 @@ export default function SpeciesDetailPage() {
     }
   }
 
+  async function removeOtherTaxa() {
+    if (!confirm("Remove this species entirely? This can't be undone — you'd need to search and add it again from iNaturalist.")) return;
+    setRemovingOtherTaxa(true);
+    try {
+      await api.delete(`/species/${id}/other-taxa`);
+      navigate("/");
+    } catch (err) {
+      alert(err instanceof ApiError ? err.message : "Couldn't remove this species. Try again.");
+    } finally {
+      setRemovingOtherTaxa(false);
+    }
+  }
+
+  async function addToAnotherRegion() {
+    if (!addRegionId || !species?.inat_taxon_id) return;
+    setAddRegionStatus("saving");
+    try {
+      await api.post("/species/other-taxa", { inatTaxonId: species.inat_taxon_id, regionId: addRegionId });
+      setAddRegionStatus("done");
+      setAddRegionId(null);
+      setTimeout(() => setAddingToRegion(false), 1200);
+    } catch {
+      setAddRegionStatus("error");
+    }
+  }
+
   async function revealInFinder(path: string) {
     setOpenMenuCaptureId(null);
     await api.post("/originals/reveal", { path }).catch(() => alert("Couldn't reveal that file. It may be unavailable."));
@@ -417,6 +499,12 @@ export default function SpeciesDetailPage() {
 
   async function rateCapture(captureId: string, rating: number | null) {
     await api.patch(`/captures/${captureId}/rating`, { rating });
+    load();
+  }
+
+  async function tagCapture(captureId: string, tags: string[]) {
+    setTagOptions((prev) => [...new Set([...prev, ...tags])].sort());
+    await api.patch(`/captures/${captureId}/tags`, { tags });
     load();
   }
 
@@ -441,6 +529,7 @@ export default function SpeciesDetailPage() {
   function exitSelectMode() {
     setSelectMode(false);
     setSelectedCaptureIds(new Set());
+    setBulkTags([]);
   }
 
   // Only offered when at least one selected photo actually has one to delete — asking every
@@ -448,8 +537,33 @@ export default function SpeciesDetailPage() {
   // time.
   const selectedHaveRaw = captures.some((c) => selectedCaptureIds.has(c.id) && c.has_raw_original);
   // See photoFilter's own declaration above for why "edited" means original_kind !== "raw".
-  const editedCount = captures.filter((c) => c.photo_id && c.original_kind !== "raw").length;
-  const rawOnlyCount = captures.filter((c) => c.photo_id && c.original_kind === "raw").length;
+  // Videos are their own fourth bucket — neither "edited" nor "raw" in the photo-editing sense —
+  // so both of those counts explicitly exclude them, same as they already exclude photo-less
+  // captures via the `c.photo_id` check.
+  const editedCount = captures.filter((c) => c.photo_id && c.photo_kind !== "video" && c.original_kind !== "raw").length;
+  const rawOnlyCount = captures.filter((c) => c.photo_id && c.photo_kind !== "video" && c.original_kind === "raw").length;
+  const videoCount = captures.filter((c) => c.photo_kind === "video").length;
+  /** Which Edited/RAW/Video bucket a capture falls into (same predicate as the counts above). */
+  function filterBucketFor(c: SpeciesDetail["captures"][number]): "edited" | "raw" | "video" {
+    if (c.photo_kind === "video") return "video";
+    return c.original_kind === "raw" ? "raw" : "edited";
+  }
+  const hasPhotos = editedCount + rawOnlyCount > 0;
+  const hasVideos = videoCount > 0;
+  // Tracks whatever the Edited/RAW/Video filter is actually showing right now, not just what
+  // exists overall — Edited/RAW both only ever show photos (never videos), so they read "Your
+  // photos" even on a species that also has videos sitting under the Video tab; only "All" (with
+  // both kinds actually present) earns the combined phrasing.
+  const photosSectionTitle =
+    photoFilter === "video"
+      ? "Your videos"
+      : photoFilter === "edited" || photoFilter === "raw"
+        ? "Your photos"
+        : hasPhotos && hasVideos
+          ? "Your photos and videos"
+          : hasVideos
+            ? "Your videos"
+            : "Your photos";
 
   async function confirmDeleteSelected() {
     setDeleting(true);
@@ -496,6 +610,22 @@ export default function SpeciesDetailPage() {
     }
   }
 
+  /** Sets (or clears) a capture's region after the fact — import time was previously the only
+   *  chance to get this right, with no way back in if it was wrong or skipped. Doesn't close the
+   *  menu/editor — RegionBrowser fires this on every drill-down click too, not just a final pick,
+   *  so closing here would kick the user out of the menu partway through navigating regions. */
+  async function setCaptureLocation(captureId: string, regionId: string | null) {
+    await api.patch(`/captures/${captureId}/region`, { regionId });
+    load();
+  }
+
+  /** Sets a capture's free-text custom place name (nested under whatever region_id already is)
+   *  — doesn't close the editor, since the region picker below it is likely still in use. */
+  async function setCaptureLocationLabel(captureId: string, locationLabel: string) {
+    await api.patch(`/captures/${captureId}/region`, { locationLabel });
+    load();
+  }
+
   async function tagSpecies(captureId: string, otherSpeciesId: string) {
     setTaggingCaptureId(null);
     setOpenMenuCaptureId(null);
@@ -505,11 +635,30 @@ export default function SpeciesDetailPage() {
     load();
   }
 
-  const captureSlides: LightboxSlide[] = captures
+  // A copy, sorted per photoSort — captureSlides and the masonry grid below both derive from
+  // this SAME array so the `i` index they share (see the grid's own comment on why it needs to
+  // stay a shared index) stays consistent with each other under any sort order, not just the
+  // server's own default (newest first).
+  const sortedCaptures =
+    photoSort === "newest"
+      ? captures
+      : [...captures].sort((a, b) => {
+          if (photoSort === "oldest") {
+            return (a.taken_at ? new Date(a.taken_at).getTime() : 0) - (b.taken_at ? new Date(b.taken_at).getTime() : 0);
+          }
+          // "rating": highest-rated first; unrated photos sink to the bottom rather than being
+          // treated as a 0-star rating, which would otherwise outrank a genuine 1-star photo.
+          return (b.quality_rating ?? -1) - (a.quality_rating ?? -1);
+        });
+
+  const captureSlides: LightboxSlide[] = sortedCaptures
     .filter((c) => c.photo_id)
     .map((c) => ({
       url: fullSizeUrl(c)!,
+      videoUrl: c.photo_kind === "video" ? `/api/photos/${c.photo_id}/video` : null,
       caption: c.taken_at ? new Date(c.taken_at).toLocaleDateString() : null,
+      tags: c.tags,
+      onTagsChange: (tags: string[]) => tagCapture(c.id, tags),
       info: {
         cameraModel: c.camera_model,
         lens: c.lens,
@@ -518,6 +667,7 @@ export default function SpeciesDetailPage() {
         shutter: c.shutter,
         iso: c.iso,
         takenAt: c.taken_at,
+        durationSeconds: c.duration_seconds,
       },
     }));
 
@@ -593,27 +743,26 @@ export default function SpeciesDetailPage() {
                   Adjust card preview
                 </button>
               )}
-              {detail.userSpecies?.state !== "collected" && (
-                <>
-                  {detail.userSpecies?.state === "seen" ? (
-                    <button onClick={unmarkSeen} className="text-xs text-muted hover:underline">
-                      Mark as unseen
-                    </button>
-                  ) : (
-                    <button onClick={markSeen} className="text-xs text-muted hover:underline">
-                      Mark as seen
-                    </button>
-                  )}
-                  {detail.userSpecies?.state === "target" ? (
-                    <button onClick={removeFromTargets} className="text-xs text-muted hover:underline">
-                      ★ Target (remove)
-                    </button>
-                  ) : (
-                    <button onClick={addToTargets} className="text-xs text-muted hover:underline">
-                      Add to targets
-                    </button>
-                  )}
-                </>
+              {detail.userSpecies?.state !== "collected" &&
+                (detail.userSpecies?.state === "seen" ? (
+                  <button onClick={unmarkSeen} className="text-xs text-muted hover:underline">
+                    Mark as unseen
+                  </button>
+                ) : (
+                  <button onClick={markSeen} className="text-xs text-muted hover:underline">
+                    Mark as seen
+                  </button>
+                ))}
+              {/* Independent of state (migration 090) — even an already-collected species can
+                 still be targeted, e.g. to go back for a better photo. */}
+              {detail.userSpecies?.is_target ? (
+                <button onClick={removeFromTargets} className="text-xs text-muted hover:underline">
+                  ★ Target (remove)
+                </button>
+              ) : (
+                <button onClick={addToTargets} className="text-xs text-muted hover:underline">
+                  Add to targets
+                </button>
               )}
               {/* Archived species are excluded from checklists (see NOT_ARCHIVED_SQL) but stay
                  reachable via search/this page, exactly so they can be unarchived here — the
@@ -628,10 +777,50 @@ export default function SpeciesDetailPage() {
                   Archive
                 </button>
               ) : null}
+              {/* Other Taxa species have no pack/reseed story to fall back on — unlike the
+                 built-in catalog, one added by accident (or just to try the feature) has no
+                 other way back except deleting it outright. Only offered before any photo
+                 exists — once one does, the server itself refuses (see the route's own
+                 comment), so hiding it client-side at that point avoids a guaranteed error. */}
+              {species.is_other_taxa && species.inat_taxon_id && (
+                <button onClick={() => setAddingToRegion((v) => !v)} className="text-xs text-muted hover:underline">
+                  Add to another region
+                </button>
+              )}
+              {species.is_other_taxa && detail.userSpecies?.state !== "collected" && (
+                <button
+                  onClick={removeOtherTaxa}
+                  disabled={removingOtherTaxa}
+                  className="text-xs text-red-600 hover:underline disabled:opacity-50"
+                >
+                  {removingOtherTaxa ? "Removing…" : "Remove Species"}
+                </button>
+              )}
             </div>
           </div>
+          {addingToRegion && (
+            <div className="flex items-center gap-2 rounded-lg border border-line bg-surface p-3 text-sm">
+              <div className="w-56">
+                <RegionBrowser regionId={addRegionId} onChange={setAddRegionId} allowAnyRegion />
+              </div>
+              <button
+                onClick={addToAnotherRegion}
+                disabled={!addRegionId || addRegionStatus === "saving"}
+                className="rounded-md bg-accent px-3 py-1.5 text-xs text-accent-fg disabled:opacity-40"
+              >
+                {addRegionStatus === "saving" ? "Adding…" : "Add"}
+              </button>
+              {addRegionStatus === "done" && <span className="text-xs text-muted">Added.</span>}
+              {addRegionStatus === "error" && <span className="text-xs text-red-600">Couldn't add. Try again.</span>}
+            </div>
+          )}
           {!galleryView &&
-            (species.tier || detail.localTier || detail.endemicCountryName || detail.isVagrant || detail.isInvasive) && (
+            (species.tier ||
+              (species.is_other_taxa && species.iucn_status) ||
+              detail.localTier ||
+              detail.endemicCountryName ||
+              detail.isVagrant ||
+              detail.isInvasive) && (
             <div className="mt-1 flex flex-wrap items-center gap-1.5">
               {species.tier && (
                 <span
@@ -643,6 +832,17 @@ export default function SpeciesDetailPage() {
                   title={species.tier === "unrated" ? "Not enough data yet to rate how hard this is to find" : undefined}
                 >
                   {species.tier === "unrated" ? "Unrated" : species.tier}
+                </span>
+              )}
+              {/* Other Taxa species never get a rarity tier computed (no dataset to rank them
+                 against) — IUCN conservation status fills that same badge slot instead, when
+                 iNaturalist has one on file. */}
+              {species.is_other_taxa && species.iucn_status && (
+                <span
+                  className="inline-block rounded-full bg-surface-muted px-2 py-0.5 text-xs uppercase tracking-wide text-muted"
+                  title="IUCN Red List conservation status, from iNaturalist"
+                >
+                  {titleCase(species.iucn_status)}
                 </span>
               )}
               {detail.localTier && (
@@ -683,11 +883,18 @@ export default function SpeciesDetailPage() {
 
         {/* "183 photos / 7 encounters / 4 locations" — the encounter-vs-photograph distinction:
             a burst of 400 photos from one sighting isn't 400 wildlife experiences. */}
-        {encounters && encounters.totalPhotos > 0 && (
+        {encounters && (encounters.totalPhotos > 0 || encounters.videoCount > 0) && (
           <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted">
-            <span>
-              <span className="font-medium text-ink">{encounters.totalPhotos}</span> photos
-            </span>
+            {encounters.totalPhotos > 0 && (
+              <span>
+                <span className="font-medium text-ink">{encounters.totalPhotos}</span> photo{encounters.totalPhotos === 1 ? "" : "s"}
+              </span>
+            )}
+            {encounters.videoCount > 0 && (
+              <span>
+                <span className="font-medium text-ink">{encounters.videoCount}</span> video{encounters.videoCount === 1 ? "" : "s"}
+              </span>
+            )}
             <span>
               <span className="font-medium text-ink">{encounters.encounterCount}</span> encounter{encounters.encounterCount === 1 ? "" : "s"}
             </span>
@@ -713,7 +920,7 @@ export default function SpeciesDetailPage() {
         )}
 
         <SeasonalityBar seasonality={detail.seasonality} />
-        <WeeklyBar weeklyFrequency={detail.weeklyFrequency} />
+        <WeeklyBar weeklyFrequency={detail.weeklyFrequency} regionName={detail.weeklyRegionName} />
         {detail.hotspots.length > 0 && (
           <div>
             {detail.hotspotDistribution === "widespread" ? (
@@ -723,6 +930,16 @@ export default function SpeciesDetailPage() {
                   Recorded broadly across this region rather than a few specific spots. Keep an eye
                   out anywhere you go, not just at particular locations.
                 </p>
+                {(() => {
+                  const inaturalistUrl = buildInaturalistObservationsUrl(detail.regionBoundaryGeoJson, species.scientific_name);
+                  return (
+                    inaturalistUrl && (
+                      <a href={inaturalistUrl} target="_blank" rel="noreferrer" className="mt-1 inline-block text-xs text-accent hover:underline">
+                        See recent sightings on iNaturalist ↗
+                      </a>
+                    )
+                  );
+                })()}
               </>
             ) : (
               <SpeciesHotspotMap
@@ -753,8 +970,20 @@ export default function SpeciesDetailPage() {
         {/* Per-taxon stats — wingspan/niche only ever had real data for
            birds (AVONET/EltonTraits), so showing them for mammals/fish was always just a
            blank "—" that implied a bird-shaped trait set applies to every taxon. Each taxon
-           shows only the axes it actually has a real source for. */}
+           shows only the axes it actually has a real source for. Other Taxa species (insects,
+           fungi, plants, etc.) have none of that trait data — no AVONET-equivalent dataset was
+           ever ingested for any of their kingdoms — but Family/Order/Genus (from the GBIF match
+           already done when adding one, see resolveOrCreateOtherTaxaSpecies) and IUCN status
+           (below, unconditional) are real, non-fabricated facts available for every one of
+           them, so this box still shows something rather than being hidden outright. */}
         <dl className="grid grid-cols-2 gap-2 rounded-lg border border-line bg-surface p-4 text-sm sm:grid-cols-4">
+          {species.is_other_taxa && (
+            <>
+              <Stat label="Family" value={species.family ?? "—"} />
+              <Stat label="Order" value={species.taxon_order ?? "—"} />
+              <Stat label="Genus" value={species.genus ?? "—"} />
+            </>
+          )}
           {species.taxon_class === "aves" && (
             <>
               <Stat label="Mass" value={species.mass_g ? formatMass(Number(species.mass_g)) : "—"} />
@@ -809,7 +1038,7 @@ export default function SpeciesDetailPage() {
 
         <section>
           <div className="mb-2 flex items-center justify-between gap-4">
-            <h2 className="text-sm font-medium text-ink">Your photos</h2>
+            <h2 className="text-sm font-medium text-ink">{photosSectionTitle}</h2>
             <div className="flex items-center gap-4">
               {captures.length > 0 && (
                 <label className="flex items-center gap-1.5 text-xs text-muted">
@@ -833,31 +1062,29 @@ export default function SpeciesDetailPage() {
               >
                 {galleryView ? "Gallery view ✓" : "Gallery view"}
               </button>
-              {rawOnlyCount > 0 && (
-                <div className="flex items-center gap-1 rounded-md border border-line p-0.5 text-xs">
-                  {(["all", "edited", "raw"] as const).map((option) => (
-                    <button
-                      key={option}
-                      onClick={() => setPhotoFilter(option)}
-                      className={`rounded px-2 py-0.5 ${
-                        photoFilter === option ? "bg-ink text-canvas" : "text-muted hover:bg-surface-muted"
-                      }`}
-                    >
-                      {option === "all" ? `All (${editedCount + rawOnlyCount})` : option === "edited" ? `Edited (${editedCount})` : `RAW (${rawOnlyCount})`}
-                    </button>
-                  ))}
-                </div>
+              {captures.length > 1 && (
+                <Select label="Sort" value={photoSort} onChange={(e) => setPhotoSort(e.target.value as typeof photoSort)}>
+                  <option value="newest">Newest first</option>
+                  <option value="oldest">Oldest first</option>
+                  <option value="rating">Highest rated first</option>
+                </Select>
               )}
-              {captures.length > 0 &&
-                (selectMode ? (
-                  <button onClick={exitSelectMode} className="text-xs text-muted hover:underline">
-                    Cancel
-                  </button>
-                ) : (
-                  <button onClick={() => setSelectMode(true)} className="text-xs text-muted hover:underline">
-                    Select
-                  </button>
-                ))}
+              {(rawOnlyCount > 0 || videoCount > 0) && (
+                <SegmentedControl
+                  size="sm"
+                  value={photoFilter}
+                  onChange={setPhotoFilter}
+                  options={[
+                    { value: "all", label: `All (${editedCount + rawOnlyCount + videoCount})` },
+                    { value: "edited", label: `Edited (${editedCount})` },
+                    ...(rawOnlyCount > 0 ? [{ value: "raw" as const, label: `RAW (${rawOnlyCount})` }] : []),
+                    ...(videoCount > 0 ? [{ value: "video" as const, label: `Video (${videoCount})` }] : []),
+                  ]}
+                />
+              )}
+              {captures.length > 0 && (
+                <SelectModeToggle active={selectMode} onEnter={() => setSelectMode(true)} onExit={exitSelectMode} />
+              )}
               <button
                 onClick={() => setShowUploadDialog(true)}
                 className="rounded-md bg-accent px-3 py-1 text-xs text-accent-fg hover:opacity-90"
@@ -876,6 +1103,29 @@ export default function SpeciesDetailPage() {
                     <SpeciesPicker placeholder="Type a species…" onSelect={(s) => reassignSelected(s.id)} />
                   </div>
                   {batchReassigning && <span className="shrink-0 text-muted">Reassigning…</span>}
+                  <span className="shrink-0 text-muted">Add tag:</span>
+                  <div className="w-48">
+                    <TagEditor
+                      tags={bulkTags}
+                      existingTags={tagOptions}
+                      compact
+                      onChange={(tags) => {
+                        const added = tags.filter((t) => !bulkTags.includes(t));
+                        setBulkTags(tags);
+                        if (added.length > 0) {
+                          api
+                            .patch("/captures/tags", { captureIds: [...selectedCaptureIds], tags: added })
+                            .then(() => setTagOptions((prev) => [...new Set([...prev, ...added])].sort()))
+                            .catch(() => {});
+                        }
+                      }}
+                    />
+                  </div>
+                  {bulkTags.length > 0 && (
+                    <button onClick={exitSelectMode} className="shrink-0 rounded-md bg-accent px-3 py-1 text-xs font-medium text-accent-fg">
+                      Done
+                    </button>
+                  )}
                 </div>
               )}
               <button
@@ -892,7 +1142,13 @@ export default function SpeciesDetailPage() {
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setConfirmingDelete(false)}>
               <div className="w-full max-w-sm rounded-lg border border-line bg-surface p-4 shadow-lg" onClick={(e) => e.stopPropagation()}>
                 <h3 className="text-sm font-medium text-ink">
-                  Delete {selectedCaptureIds.size} photo{selectedCaptureIds.size === 1 ? "" : "s"}?
+                  {(() => {
+                    const selected = captures.filter((c) => selectedCaptureIds.has(c.id));
+                    const hasVideo = selected.some((c) => c.photo_kind === "video");
+                    const hasPhoto = selected.some((c) => c.photo_kind !== "video");
+                    const noun = hasVideo && hasPhoto ? "file" : hasVideo ? "video" : "photo";
+                    return `Delete ${selectedCaptureIds.size} ${noun}${selectedCaptureIds.size === 1 ? "" : "s"}?`;
+                  })()}
                 </h3>
                 <p className="mt-2 text-xs text-muted">
                   Deleted photos go to Trash for 7 days first, where you can still restore them. After 7 days they're
@@ -936,10 +1192,15 @@ export default function SpeciesDetailPage() {
             // within just the photo-having subset.
             <MasonryGrid
               items={[
-                ...captures
+                ...sortedCaptures
                   .map((c, i) => ({ kind: "capture" as const, c, i }))
                   .filter((it) => it.c.photo_id)
-                  .filter((it) => photoFilter === "all" || (photoFilter === "raw" ? it.c.original_kind === "raw" : it.c.original_kind !== "raw")),
+                  .filter((it) => {
+                    if (photoFilter === "all") return true;
+                    if (photoFilter === "video") return it.c.photo_kind === "video";
+                    if (it.c.photo_kind === "video") return false;
+                    return photoFilter === "raw" ? it.c.original_kind === "raw" : it.c.original_kind !== "raw";
+                  }),
                 // A fake tile per photo currently uploading for this species — shown in the
                 // actual photo grid (where the real thing will land) instead of only in the
                 // global corner banner, so it's obvious right where the new photo is going.
@@ -963,14 +1224,20 @@ export default function SpeciesDetailPage() {
               }
               keyFor={(item) => (item.kind === "placeholder" ? item.key : item.c.id)}
               aspectRatioFor={(item) =>
-                item.kind === "capture" && item.c.width && item.c.height ? item.c.width / item.c.height : null
+                // 3:2 is just a stand-in for "an ordinary landscape photo" — the placeholder
+                // can't know the real aspect ratio until the upload actually finishes and a
+                // real width/height comes back, but a square reads as very obviously wrong
+                // (almost nothing you'd photograph in the field is 1:1) where a typical
+                // camera-photo ratio at least looks like the real tile that's about to replace it.
+                item.kind === "capture" && item.c.width && item.c.height ? item.c.width / item.c.height : 3 / 2
               }
               renderItem={(item, aspectRatio) => {
                 if (item.kind === "placeholder") {
                   return (
                     <div
                       key={item.key}
-                      className="flex aspect-square w-full items-center justify-center rounded-md bg-surface-muted"
+                      style={{ aspectRatio: aspectRatio ?? 3 / 2 }}
+                      className="flex w-full items-center justify-center rounded-md bg-surface-muted"
                     >
                       <span className="h-6 w-6 animate-spin rounded-full border-2 border-line border-t-ink" />
                     </div>
@@ -982,6 +1249,8 @@ export default function SpeciesDetailPage() {
                     key={c.id}
                     photoId={c.photo_id!}
                     alt=""
+                    kind={c.photo_kind === "video" ? "video" : "image"}
+                    durationSeconds={c.duration_seconds}
                     onOpen={() => setLightbox({ slides: captureSlides, index: i })}
                     selectMode={selectMode}
                     selected={selectedCaptureIds.has(c.id)}
@@ -991,7 +1260,7 @@ export default function SpeciesDetailPage() {
                     onToggleMenu={() => setOpenMenuCaptureId(openMenuCaptureId === c.id ? null : c.id)}
                     menuRef={openMenuRef}
                     menuContent={
-                      <div className="absolute right-0 top-full z-10 mt-1 whitespace-nowrap rounded-md border border-line bg-surface py-1 text-xs shadow-lg">
+                      <div className="absolute right-0 top-full z-10 mt-1 max-h-[70vh] w-64 overflow-x-hidden overflow-y-auto rounded-md border border-line bg-surface py-1 text-xs shadow-lg">
                         {/* Same rateCapture/StarRating this page already uses in gallery view's
                            own label overlay — surfaced here too so rating doesn't require
                            switching gallery view off just to reach the star row underneath a
@@ -1026,16 +1295,20 @@ export default function SpeciesDetailPage() {
                         ) : (
                           c.original_ref && (
                             <>
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setOpenMenuCaptureId(null);
-                                  downloadFile(`/api/photos/${c.photo_id}/original?download=1`, "original.jpg");
-                                }}
-                                className="block w-full px-3 py-1.5 text-left text-ink hover:bg-surface-muted"
-                              >
-                                Download original
-                              </button>
+                              {/* Hidden when the only original on file IS the RAW — "Download
+                                  RAW" right below already covers that exact same file. */}
+                              {c.original_kind !== "raw" && (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setOpenMenuCaptureId(null);
+                                    downloadFile(`/api/photos/${c.photo_id}/original?download=1`, "original.jpg");
+                                  }}
+                                  className="block w-full px-3 py-1.5 text-left text-ink hover:bg-surface-muted"
+                                >
+                                  Download original
+                                </button>
+                              )}
                               {c.has_raw_original && (
                                 <button
                                   onClick={(e) => {
@@ -1080,7 +1353,10 @@ export default function SpeciesDetailPage() {
                           </div>
                         ) : (
                           <button
-                            onClick={() => setTaggingCaptureId(c.id)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setTaggingCaptureId(c.id);
+                            }}
                             className="block w-full px-3 py-1.5 text-left text-ink hover:bg-surface-muted"
                           >
                             Also features another species…
@@ -1096,17 +1372,78 @@ export default function SpeciesDetailPage() {
                           </div>
                         ) : (
                           <button
-                            onClick={() => setReassigningCaptureId(c.id)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setReassigningCaptureId(c.id);
+                            }}
                             className="block w-full px-3 py-1.5 text-left text-ink hover:bg-surface-muted"
                           >
                             Correct the ID…
                           </button>
                         )}
+                        {settingLocationCaptureId === c.id ? (
+                          <div className="space-y-2 px-3 py-1.5" onClick={(e) => e.stopPropagation()}>
+                            <input
+                              type="text"
+                              autoFocus
+                              defaultValue={c.location_label ?? ""}
+                              placeholder="Custom place name (e.g. Prince George)…"
+                              onBlur={(e) => {
+                                if (e.target.value.trim() !== (c.location_label ?? "")) setCaptureLocationLabel(c.id, e.target.value);
+                              }}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+                              }}
+                              className="w-full rounded-md border border-line bg-surface px-2 py-1 text-xs text-ink outline-none focus:border-accent"
+                            />
+                            <p className="text-[10px] uppercase tracking-wide text-muted">Attached to region</p>
+                            <RegionBrowser regionId={c.region_id} onChange={(regionId) => setCaptureLocation(c.id, regionId)} allowAnyRegion />
+                          </div>
+                        ) : (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSettingLocationCaptureId(c.id);
+                            }}
+                            className="block w-full px-3 py-1.5 text-left text-ink hover:bg-surface-muted"
+                          >
+                            {c.location_label && c.region_name
+                              ? `Location: ${c.location_label}, ${c.region_name}`
+                              : c.location_label
+                                ? `Location: ${c.location_label}`
+                                : c.region_name
+                                  ? `Location: ${c.region_name}`
+                                  : "Set location…"}
+                          </button>
+                        )}
+                        {editingTagsCaptureId === c.id ? (
+                          <div className="px-3 py-1.5">
+                            <TagEditor tags={c.tags} existingTags={tagOptions} onChange={(tags) => tagCapture(c.id, tags)} />
+                          </div>
+                        ) : (
+                          // stopPropagation matters here: this button swaps itself out for the
+                          // TagEditor above SYNCHRONOUSLY (React flushes discrete-event state
+                          // updates before the click finishes bubbling), so by the time
+                          // useDropdownMenu's own document-level click-outside listener runs,
+                          // this button's DOM node has already been removed from the menu.
+                          // ref.current.contains(e.target) then returns false for a detached
+                          // node — even though the click genuinely originated inside the menu —
+                          // and the whole menu closes instead of opening the tag editor.
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setEditingTagsCaptureId(c.id);
+                            }}
+                            className="block w-full px-3 py-1.5 text-left text-ink hover:bg-surface-muted"
+                          >
+                            Edit tags…
+                          </button>
+                        )}
                         <button
                           onClick={() => requestDeleteCapture(c.id)}
-                          className="block w-full border-t border-line px-3 py-1.5 text-left text-red-600 hover:bg-red-50"
+                          className="block w-full px-3 py-1.5 text-left text-red-600 hover:bg-red-50"
                         >
-                          Delete Photo
+                          Delete {c.photo_kind === "video" ? "Video" : "Photo"}
                         </button>
                       </div>
                     }
@@ -1140,6 +1477,13 @@ export default function SpeciesDetailPage() {
                         )}
                         {!galleryView && shotDataLine(c) && (
                           <p className="text-[9px] text-muted">{shotDataLine(c)}</p>
+                        )}
+                        {!galleryView && (c.location_label || c.region_name) && (
+                          <p className="truncate text-[9px] text-muted">
+                            {c.location_label && c.region_name
+                              ? `${c.location_label}, ${c.region_name}`
+                              : c.location_label ?? c.region_name}
+                          </p>
                         )}
                       </>
                     }
@@ -1229,7 +1573,20 @@ export default function SpeciesDetailPage() {
           slides={lightbox.slides}
           index={lightbox.index}
           onIndexChange={(index) => setLightbox({ slides: lightbox.slides, index })}
-          onClose={() => setLightbox(null)}
+          onClose={() => {
+            // The lightbox always browses every kind at once regardless of the grid's own
+            // Edited/RAW/Video filter (see captureSlides' own comment) — so arrowing from a
+            // Video into a RAW and closing there would otherwise leave the grid stuck on
+            // "Video" while showing a filtered set that no longer includes what you were just
+            // looking at. Switches the filter to match, but only when the current one
+            // wouldn't already show it (never overrides "All", and never overrides a match).
+            const captureAtLightbox = sortedCaptures.filter((c) => c.photo_id)[lightbox.index];
+            if (captureAtLightbox && photoFilter !== "all" && filterBucketFor(captureAtLightbox) !== photoFilter) {
+              setPhotoFilter(filterBucketFor(captureAtLightbox));
+            }
+            setLightbox(null);
+          }}
+          tagOptions={tagOptions}
         />
       )}
 
@@ -1265,6 +1622,13 @@ function formatMass(massG: number): string {
   if (massG >= 1_000_000) return `${(massG / 1_000_000).toLocaleString(undefined, { maximumFractionDigits: 1 })} t`;
   if (massG >= 1_000) return `${(massG / 1_000).toLocaleString(undefined, { maximumFractionDigits: 1 })} kg`;
   return `${Math.round(massG)} g`;
+}
+
+// iNaturalist's own conservation_status.status_name comes lowercase ("least concern",
+// "critically endangered") — this is display copy, so it's title-cased once here rather than
+// stored pre-formatted (keeps the raw value stable for anything else that might read it later).
+function titleCase(s: string): string {
+  return s.replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 function Stat({ label, value }: { label: string; value: string }) {
