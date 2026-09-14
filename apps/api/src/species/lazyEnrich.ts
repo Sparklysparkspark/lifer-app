@@ -18,6 +18,9 @@
 // See fetchWithRetry's own comment for the per-host pacing that actually fixes this.
 import { normalizeLicense } from "./licensePolicy.js";
 import { generateReferenceDerivatives } from "../uploads/image.js";
+import { computeEmbedding } from "./embeddings.js";
+import { EMBEDDING_MODEL_VERSION } from "../config.js";
+import { readFile } from "node:fs/promises";
 import { pool } from "../db.js";
 
 const INAT_API = "https://api.inaturalist.org/v1";
@@ -497,6 +500,38 @@ export async function persistEnrichment(speciesId: string, enrichment: Enrichmen
     ],
   );
   await persistGallery(speciesId, enrichment.gallery);
+  await tryComputeReferenceEmbedding(speciesId);
+}
+
+// Species auto-suggest (embeddings.ts's rankSpeciesByEmbedding) only ever surfaces a species
+// that already has a species_reference_embeddings row — without this, a species enriched here
+// (lazy on-view, the Other Taxa add flow, or the overnight enrich-all script) would just sit
+// un-embedded until someone happens to re-run the separate backfill script, so a freshly-added
+// Other Taxa species wouldn't get AI import matches for a while. Best-effort and silent on
+// failure: the embedding model is an opt-in download (Settings > Offline Data), so "not
+// downloaded yet" is an expected, common case here, not an error — the batch backfill script
+// still catches this species once the model IS present.
+async function tryComputeReferenceEmbedding(speciesId: string): Promise<void> {
+  try {
+    const res = await pool.query<{ reference_display_path: string | null }>(
+      `SELECT reference_display_path FROM species
+       WHERE id = $1 AND NOT EXISTS (
+         SELECT 1 FROM species_reference_embeddings sre WHERE sre.species_id = species.id AND sre.model_version = $2
+       )`,
+      [speciesId, EMBEDDING_MODEL_VERSION],
+    );
+    const displayPath = res.rows[0]?.reference_display_path;
+    if (!displayPath) return;
+    const embedding = await computeEmbedding(await readFile(displayPath));
+    await pool.query(
+      `INSERT INTO species_reference_embeddings (species_id, embedding, model_version)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (species_id) DO UPDATE SET embedding = EXCLUDED.embedding, model_version = EXCLUDED.model_version, computed_at = now()`,
+      [speciesId, embedding, EMBEDDING_MODEL_VERSION],
+    );
+  } catch {
+    // model not downloaded, image unreadable, inference timeout, etc. — see comment above
+  }
 }
 
 export async function persistGallery(speciesId: string, gallery: EnrichmentResult["gallery"]): Promise<void> {
@@ -533,4 +568,5 @@ export async function persistGalleryPromotingMainIfMissing(
     [first.photoUrl, first.credit, first.license, first.displayPath, first.thumbPath, speciesId],
   );
   await persistGallery(speciesId, rest);
+  await tryComputeReferenceEmbedding(speciesId);
 }

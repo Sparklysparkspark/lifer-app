@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, copyFileSync, cpSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, copyFileSync, cpSync, rmSync, statSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type { FastifyInstance } from "fastify";
@@ -9,8 +9,13 @@ import { DATA_DIR, ORIGINALS_DIR, APP_DATA_DIR, PORT, SINGLE_USER_MODE, MAPS_DIR
 import { originalsFolder } from "../uploads/organizedPath.js";
 import { resolveSpeciesFolderName } from "../uploads/speciesFolderName.js";
 import { extractExif } from "../uploads/exif.js";
+import { syncCaptureXmpSidecars } from "../uploads/xmpSidecarSync.js";
+import { resyncSpeciesMetadata } from "../captures/routes.js";
 import { readLocalSettings, writeLocalSettings } from "../localSettings.js";
 import { checkCatalogUpdate, startCatalogUpdateJob, catalogUpdateJob } from "../species/catalogSeedUpdate.js";
+import { isModelDownloaded, downloadModel, offloadModel, MODEL_DIR } from "../species/embeddings.js";
+import { isTextModelDownloaded, downloadTextModel } from "../species/textEmbedding.js";
+import { runEmbeddingBackfill, runSpeciesEmbeddingBackfill } from "../species/embeddingBackfill.js";
 
 // Lifer's own subfolders under DATA_DIR (see config.ts) — implementation detail, never
 // something a user should navigate into when picking a library folder.
@@ -175,18 +180,22 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
   app.get("/settings", { preHandler: requireAuth }, async (request) => {
     const res = await pool.query<{
       organize_originals_by_year: boolean;
+      organize_originals_by_location: boolean;
       hide_obscure_species: boolean;
       species_suggest_enabled: boolean;
+      any_taxa_search_enabled: boolean;
       technical_diving: boolean;
       species_naming_styles: string[];
     }>(
-      `SELECT organize_originals_by_year, hide_obscure_species, species_suggest_enabled, technical_diving, species_naming_styles FROM users WHERE id = $1`,
+      `SELECT organize_originals_by_year, organize_originals_by_location, hide_obscure_species, species_suggest_enabled, any_taxa_search_enabled, technical_diving, species_naming_styles FROM users WHERE id = $1`,
       [request.user!.id],
     );
     return {
       organizeOriginalsByYear: res.rows[0]?.organize_originals_by_year ?? false,
+      organizeOriginalsByLocation: res.rows[0]?.organize_originals_by_location ?? false,
       hideObscureSpecies: res.rows[0]?.hide_obscure_species ?? true,
       speciesSuggestEnabled: res.rows[0]?.species_suggest_enabled ?? true,
+      anyTaxaSearchEnabled: res.rows[0]?.any_taxa_search_enabled ?? false,
       technicalDiving: res.rows[0]?.technical_diving ?? false,
       speciesNamingStyles: res.rows[0]?.species_naming_styles ?? [],
       abaCodesAvailable: await abaCodesAvailable(),
@@ -198,6 +207,16 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
     if (typeof enabled !== "boolean") return reply.code(400).send({ error: "enabled must be a boolean" });
     await pool.query(`UPDATE users SET organize_originals_by_year = $1 WHERE id = $2`, [enabled, request.user!.id]);
     return { organizeOriginalsByYear: enabled };
+  });
+
+  // Same "toggle only changes future uploads" contract as organize-originals above — an
+  // outermost folder level named after whatever free-text location label a user typed at
+  // import time (migration 093), not derived from GPS.
+  app.put<{ Body: OrganizeBody }>("/settings/organize-originals-by-location", { preHandler: requireAuth }, async (request, reply) => {
+    const { enabled } = request.body ?? {};
+    if (typeof enabled !== "boolean") return reply.code(400).send({ error: "enabled must be a boolean" });
+    await pool.query(`UPDATE users SET organize_originals_by_location = $1 WHERE id = $2`, [enabled, request.user!.id]);
+    return { organizeOriginalsByLocation: enabled };
   });
 
   // Moved off the collection page's per-view filter bar (migration 038) — a persisted account
@@ -219,23 +238,28 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
     return { technicalDiving: enabled };
   });
 
-  // Controls folder naming + EXIF species tags app-wide (see speciesFolderName.ts and exif.ts).
-  // Common name is always the base; any styles selected here get appended alongside it (e.g.
-  // "Mallard (MALL)"), rather than replacing it — both eBird and ABA codes can be selected at
-  // once. 'aba_code' is only ever accepted when abaCodesAvailable() is true — a species without
-  // either code (most non-North-American birds, or anything outside the eBird taxonomy
-  // entirely) still falls back to just the common name regardless of this setting, handled in
+  // Controls folder naming + EXIF species tags app-wide (see speciesFolderName.ts's own
+  // composeSpeciesName comment for exactly how these four parts combine). Order in the array IS
+  // display order — the first part that actually resolves for a given species becomes the
+  // unparenthesized primary name, the rest are appended in parens. 'aba_code' is only ever
+  // accepted when abaCodesAvailable() is true — a species without a given part (most
+  // non-North-American birds for aba_code; any non-bird, or a bird eBird's own taxonomy doesn't
+  // cover, for ebird_code) still falls back gracefully regardless of this setting, handled in
   // application code, not here; this check just stops the setting from being turned on when it
   // would never do anything.
+  const SPECIES_NAMING_STYLES = new Set(["common", "latin", "aba_code", "ebird_code", "tree"]);
   app.put<{ Body: { styles?: string[] } }>("/settings/species-naming-style", { preHandler: requireAuth }, async (request, reply) => {
     const { styles } = request.body ?? {};
-    if (!Array.isArray(styles) || styles.some((s) => s !== "aba_code" && s !== "ebird_code")) {
-      return reply.code(400).send({ error: "styles must be an array containing only: aba_code, ebird_code" });
+    if (!Array.isArray(styles) || styles.some((s) => !SPECIES_NAMING_STYLES.has(s))) {
+      return reply.code(400).send({ error: "styles must be an array containing only: common, latin, aba_code, ebird_code, tree" });
     }
     if (styles.includes("aba_code") && !(await abaCodesAvailable())) {
       return reply.code(400).send({ error: "No downloaded pack has any ABA-coded species yet" });
     }
-    const deduped = [...new Set(styles)];
+    // De-dupe while preserving the FIRST occurrence's position — order is meaningful now (it's
+    // the display order), unlike a plain Set which would silently keep a later duplicate's
+    // position instead.
+    const deduped = styles.filter((s, i) => styles.indexOf(s) === i);
     await pool.query(`UPDATE users SET species_naming_styles = $1 WHERE id = $2`, [deduped, request.user!.id]);
     return { speciesNamingStyles: deduped };
   });
@@ -247,6 +271,17 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
     if (typeof enabled !== "boolean") return reply.code(400).send({ error: "enabled must be a boolean" });
     await pool.query(`UPDATE users SET species_suggest_enabled = $1 WHERE id = $2`, [enabled, request.user!.id]);
     return { speciesSuggestEnabled: enabled };
+  });
+
+  // Off by default (unlike species-suggest) — this is a live, uncached third-party lookup with
+  // no local dataset behind it (see species/routes.ts's /species/inat-search and
+  // /species/other-taxa), a deliberately different default from the on-device suggestion
+  // feature above.
+  app.put<{ Body: { enabled?: boolean } }>("/settings/any-taxa-search", { preHandler: requireAuth }, async (request, reply) => {
+    const { enabled } = request.body ?? {};
+    if (typeof enabled !== "boolean") return reply.code(400).send({ error: "enabled must be a boolean" });
+    await pool.query(`UPDATE users SET any_taxa_search_enabled = $1 WHERE id = $2`, [enabled, request.user!.id]);
+    return { anyTaxaSearchEnabled: enabled };
   });
 
   // Same "check first, apply on demand" shape as the pack-update flow (offlinePacks/routes.ts) —
@@ -306,6 +341,12 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
     let moved = 0;
     let skipped = 0;
     let failed = 0;
+    // A folder only changes when the resolved species label itself changed (composeSpeciesName
+    // is a pure function of species + the current naming style), so "this file needed to move"
+    // is exactly the same condition as "this capture's embedded EXIF/XMP label is now stale" —
+    // collect distinct captures here and refresh both once the move loop finishes, rather than
+    // redundantly re-writing metadata for every original (RAW + JPEG) of the same capture.
+    const captureIdsToResync = new Set<string>();
     for (const original of originalsRes.rows) {
       if (!original.species_id || !original.scientific_name || !existsSync(original.ref)) {
         skipped++;
@@ -344,8 +385,16 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
           copyFileSync(original.ref, dest);
           rmSync(original.ref, { force: true });
         }
-        await pool.query(`UPDATE originals SET ref = $1 WHERE id = $2`, [dest, original.id]);
+        // Clears volume_id/volume_relative_path too — a foreign-import file organized here now
+        // lives inside ORIGINALS_DIR on the primary library, not on whatever external volume it
+        // was originally tracked against, so keeping those columns set would make drive-
+        // reconnect logic look for it in the wrong place.
+        await pool.query(`UPDATE originals SET ref = $1, volume_id = NULL, volume_relative_path = NULL WHERE id = $2`, [
+          dest,
+          original.id,
+        ]);
         moved++;
+        if (original.capture_id) captureIdsToResync.add(original.capture_id);
         // The move itself already succeeded and is already committed above — a problem
         // tidying up the now-empty old folder afterward is cosmetic, not a failed move, and
         // shouldn't be counted or reported as one.
@@ -357,6 +406,14 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
       } catch {
         failed++;
       }
+    }
+
+    // Best-effort, same as every other call site of these two — a photo's folder having moved
+    // successfully is the important part; a stale embedded label or XMP sidecar is recoverable
+    // (the next reassignment or reorganize pass fixes it) and shouldn't fail the whole request.
+    for (const captureId of captureIdsToResync) {
+      await resyncSpeciesMetadata(userId, captureId).catch(() => {});
+      await syncCaptureXmpSidecars(userId, captureId).catch(() => {});
     }
 
     return { moved, skipped, failed, total: originalsRes.rows.length };
@@ -735,6 +792,10 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
   app.get("/settings/map/status", { preHandler: requireAuth }, async () => ({
     available: MAP_DOWNLOAD_URL != null,
     downloaded: existsSync(MAP_FILE_PATH),
+    // The real on-disk size, not mapJob.downloadedBytes — that's in-memory download-progress
+    // state that resets to 0 on every server restart, so it can't be trusted to still reflect
+    // an already-downloaded map's size once this process has restarted since the download.
+    sizeBytes: existsSync(MAP_FILE_PATH) ? statSync(MAP_FILE_PATH).size : null,
     ...mapJob,
   }));
 
@@ -783,6 +844,82 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
   // Deletes the downloaded map to reclaim disk space — the reverse of the opt-in above.
   app.delete("/settings/map", { preHandler: requireAuth }, async () => {
     rmSync(MAP_FILE_PATH, { force: true });
+    return { ok: true };
+  });
+
+  // The CLIP embedding model (species auto-suggest + Gallery semantic/content search) — same
+  // opt-in/download/offload shape as the offline basemap above, not bundled on any platform (see
+  // config.ts's EMBEDDING_MODEL_URL comment). Two halves are downloaded together here even
+  // though they're fetched by two different mechanisms (embeddings.ts streams the vision .onnx
+  // file directly; textEmbedding.ts defers to @xenova/transformers' own cache-and-fetch) — the
+  // user only ever sees "the model" as one thing.
+  function dirSizeBytes(dir: string): number {
+    if (!existsSync(dir)) return 0;
+    let total = 0;
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const entryPath = path.join(dir, entry.name);
+      total += entry.isDirectory() ? dirSizeBytes(entryPath) : statSync(entryPath).size;
+    }
+    return total;
+  }
+
+  interface EmbeddingModelJobState {
+    downloading: boolean;
+    downloadedBytes: number;
+    totalBytes: number | null;
+    error: string | null;
+  }
+  const embeddingModelJob: EmbeddingModelJobState = { downloading: false, downloadedBytes: 0, totalBytes: null, error: null };
+
+  app.get("/settings/embedding-model/status", { preHandler: requireAuth }, async () => ({
+    downloaded: isModelDownloaded() && isTextModelDownloaded(),
+    sizeBytes: dirSizeBytes(MODEL_DIR) || null,
+    ...embeddingModelJob,
+  }));
+
+  app.post("/settings/embedding-model/download", { preHandler: requireAuth }, async (_request, reply) => {
+    if (embeddingModelJob.downloading) return reply.code(409).send({ error: "The model is already downloading" });
+
+    embeddingModelJob.downloading = true;
+    embeddingModelJob.downloadedBytes = 0;
+    embeddingModelJob.totalBytes = null;
+    embeddingModelJob.error = null;
+
+    void (async () => {
+      try {
+        await downloadModel((downloadedBytes, totalBytes) => {
+          embeddingModelJob.downloadedBytes = downloadedBytes;
+          embeddingModelJob.totalBytes = totalBytes;
+        });
+        await downloadTextModel(); // no byte progress available — UI shows this as a final "finishing up" step
+      } catch (err) {
+        embeddingModelJob.error = (err as Error).message;
+      } finally {
+        embeddingModelJob.downloading = false;
+      }
+      // Anything enriched/imported while the model was missing got its embedding silently
+      // skipped (see lazyEnrich.ts's tryComputeReferenceEmbedding and uploads/routes.ts's
+      // fire-and-forget computeEmbedding calls, both best-effort by design). The model being
+      // absent was the ONLY reason those were skipped, so the moment it's actually downloaded is
+      // exactly when to catch every photo and species back up — not wait for the next server
+      // restart, which is the only other place this ran before.
+      if (!embeddingModelJob.error) {
+        runEmbeddingBackfill().catch((err) => app.log.warn({ err }, "Capture embedding catch-up backfill failed"));
+        runSpeciesEmbeddingBackfill().catch((err) => app.log.warn({ err }, "Species embedding catch-up backfill failed"));
+      }
+    })();
+
+    return { started: true };
+  });
+
+  // Offloading also turns off species-suggest for every user rather than leaving it silently
+  // broken — see SpeciesPicker/PhotoImportRows, which would otherwise keep showing a suggestion
+  // UI that can never return results once the model backing it is gone. Not scoped to
+  // request.user!.id: SINGLE_USER_MODE aside, a shared server deployment offloading the model
+  // affects everyone's suggestions equally, since there's only ever one copy of the model.
+  app.delete("/settings/embedding-model", { preHandler: requireAuth }, async () => {
+    offloadModel();
+    await pool.query(`UPDATE users SET species_suggest_enabled = false`);
     return { ok: true };
   });
 }

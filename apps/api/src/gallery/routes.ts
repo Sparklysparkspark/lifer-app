@@ -10,6 +10,43 @@ import { TAXON_WORD_TO_CLASS } from "./searchTaxonSynonyms.js";
 
 const SEARCH_RESULT_LIMIT = 100;
 
+/** Sentinel passed as `regionId` for the "Uncategorized" filter — not a real region row, just a
+ *  way to ask for captures with no region set at all (so they can be found and assigned one). */
+export const UNCATEGORIZED_REGION_ID = "uncategorized";
+
+/** A region filter matches that region AND every descendant in the regions tree (picking
+ * "World" — or any continent/country — surfaces every photo under it, not just captures
+ * tagged with that exact row) — a recursive walk down parent_id from the picked region.
+ * Picking World itself (the one region with no parent) also pulls in captures with NO region
+ * set at all — otherwise "World" would quietly hide every photo that's never been assigned a
+ * region, which reads as "my library is missing photos" rather than "these aren't tagged yet". */
+function regionMatchClause(paramIdx: number | null): string {
+  if (!paramIdx) return "";
+  return `AND (
+             c.region_id IN (
+               WITH RECURSIVE region_tree AS (
+                 SELECT id FROM regions WHERE id = $${paramIdx}
+                 UNION ALL
+                 SELECT r.id FROM regions r JOIN region_tree rt ON r.parent_id = rt.id
+               )
+               SELECT id FROM region_tree
+             )
+             OR (c.region_id IS NULL AND EXISTS (SELECT 1 FROM regions WHERE id = $${paramIdx} AND parent_id IS NULL))
+           )`;
+}
+
+// The embedding model is an opt-in download (Settings > Offline Data) — embedQueryText throws
+// when it isn't present. Every content-search branch below falls back to a name/quality-only
+// ranking rather than erroring the whole request, same "degrade gracefully" contract the
+// suggest-species and near-duplicate code paths already follow.
+async function tryEmbedQueryText(q: string): Promise<number[] | null> {
+  try {
+    return await embedQueryText(q);
+  } catch {
+    return null;
+  }
+}
+
 // Skipped when tokenizing a query for subject-word detection — short/connector words that
 // would otherwise either falsely "consume" as a leftover descriptor or (for very short ones)
 // risk a coincidental substring hit against an unrelated species name.
@@ -132,7 +169,7 @@ const NAME_MATCH_MIN_SIMILARITY = 0.5;
 export const GALLERY_ITEM_COLUMNS = `
   c.id AS capture_id, p.id AS photo_id, p.width, p.height, c.species_id, s.scientific_name, s.common_name, s.taxon_class,
   c.taken_at, c.created_at, c.camera_model, c.lens, c.focal_length_mm, c.aperture, c.shutter, c.iso, c.quality_rating,
-  c.lat, c.lon,
+  c.lat, c.lon, c.region_id, reg.name AS region_name, p.kind AS photo_kind, p.duration_seconds, c.tags,
   (p.id = us.cover_photo_id) AS is_featured,
   EXISTS (SELECT 1 FROM originals ro WHERE ro.capture_id = c.id AND ro.kind = 'raw') AS has_raw_original,
   o.ref AS original_ref, o.managed AS original_managed, o.kind AS original_kind
@@ -141,6 +178,7 @@ export const GALLERY_ITEM_JOINS = `
   JOIN photos p ON p.id = c.current_photo_id
   JOIN species s ON s.id = c.species_id
   LEFT JOIN user_species us ON us.user_id = c.user_id AND us.species_id = c.species_id
+  LEFT JOIN regions reg ON reg.id = c.region_id
   -- jpeg-preferred tiebreak (same as SpeciesDetailPage's own capture query) — original_kind
   -- from THIS row is what "include RAW-derived photos" filters against: a capture whose only
   -- original is a RAW file has no jpeg to win the tiebreak, so this resolves to 'raw'.
@@ -151,7 +189,20 @@ export const GALLERY_ITEM_JOINS = `
 
 export async function galleryRoutes(app: FastifyInstance): Promise<void> {
   app.get<{
-    Querystring: { q?: string; onlyTopRated?: string; onlyFeatured?: string; taxa?: string; includeRaw?: string };
+    Querystring: {
+      q?: string;
+      onlyTopRated?: string;
+      onlyFeatured?: string;
+      taxa?: string;
+      includeRaw?: string;
+      excludeHasRaw?: string;
+      onlyHasRaw?: string;
+      onlyVideo?: string;
+      excludeVideo?: string;
+      dateFrom?: string;
+      dateTo?: string;
+      regionId?: string;
+    };
   }>("/gallery/search", { preHandler: requireScope("gallery.read") }, async (request) => {
     const userId = request.user!.id;
     const q = request.query.q?.trim();
@@ -165,11 +216,39 @@ export async function galleryRoutes(app: FastifyInstance): Promise<void> {
     // Defaults to including everything — this only narrows the result set when the caller
     // explicitly asks to hide RAW-derived photos, never silently drops photos by default.
     const includeRaw = request.query.includeRaw !== "0";
+    // Distinct from includeRaw: that one hides a capture only when RAW is its WINNING/displayed
+    // original (no JPEG sibling exists at all). These two are "does this capture have a RAW
+    // attached at all" (GALLERY_ITEM_COLUMNS' own has_raw_original) — for finding captures with
+    // no RAW backing them whatsoever, JPEG-only or video, or the opposite: only captures that do
+    // have one.
+    const excludeHasRaw = request.query.excludeHasRaw === "1";
+    const onlyHasRaw = request.query.onlyHasRaw === "1";
+    const hasRawClause = excludeHasRaw
+      ? "AND NOT EXISTS (SELECT 1 FROM originals hr WHERE hr.capture_id = c.id AND hr.kind = 'raw')"
+      : onlyHasRaw
+        ? "AND EXISTS (SELECT 1 FROM originals hr WHERE hr.capture_id = c.id AND hr.kind = 'raw')"
+        : "";
+    const onlyVideo = request.query.onlyVideo === "1";
+    const excludeVideo = request.query.excludeVideo === "1";
+    const videoClause = onlyVideo ? "AND p.kind = 'video'" : excludeVideo ? "AND p.kind IS DISTINCT FROM 'video'" : "";
+    const dateFrom = request.query.dateFrom || null;
+    const dateTo = request.query.dateTo || null;
+    const regionId = request.query.regionId || null;
+    const isUncategorized = regionId === UNCATEGORIZED_REGION_ID;
     const ratingFeaturedClause = `${onlyTopRated ? "AND c.quality_rating = 5" : ""} ${onlyFeatured ? "AND p.id = us.cover_photo_id" : ""}`;
 
     const focalMatch = q.match(FOCAL_LENGTH_PATTERN);
     if (focalMatch) {
       const target = Number(focalMatch[1]);
+      const focalParams: unknown[] = [userId, target, FOCAL_TOLERANCE];
+      if (taxa.length > 0) focalParams.push(taxa);
+      const focalTaxaIdx = taxa.length > 0 ? focalParams.length : null;
+      if (dateFrom) focalParams.push(dateFrom);
+      const focalDateFromIdx = dateFrom ? focalParams.length : null;
+      if (dateTo) focalParams.push(dateTo);
+      const focalDateToIdx = dateTo ? focalParams.length : null;
+      if (regionId && !isUncategorized) focalParams.push(regionId);
+      const focalRegionIdx = regionId && !isUncategorized ? focalParams.length : null;
       const res = await pool.query(
         `SELECT ${GALLERY_ITEM_COLUMNS}
            FROM captures c
@@ -178,9 +257,14 @@ export async function galleryRoutes(app: FastifyInstance): Promise<void> {
              AND c.focal_length_mm IS NOT NULL
              AND c.focal_length_mm BETWEEN $2 * (1 - $3) AND $2 * (1 + $3)
              ${ratingFeaturedClause}
-             ${taxa.length > 0 ? "AND s.taxon_class = ANY($4)" : ""}
-             ${includeRaw ? "" : "AND o.kind IS DISTINCT FROM 'raw'"}`,
-        taxa.length > 0 ? [userId, target, FOCAL_TOLERANCE, taxa] : [userId, target, FOCAL_TOLERANCE],
+             ${focalTaxaIdx ? `AND s.taxon_class = ANY($${focalTaxaIdx})` : ""}
+             ${focalDateFromIdx ? `AND c.taken_at >= $${focalDateFromIdx}::date` : ""}
+             ${focalDateToIdx ? `AND c.taken_at < ($${focalDateToIdx}::date + INTERVAL '1 day')` : ""}
+             ${isUncategorized ? "AND c.region_id IS NULL" : regionMatchClause(focalRegionIdx)}
+             ${includeRaw ? "" : "AND o.kind IS DISTINCT FROM 'raw'"}
+             ${videoClause}
+             ${hasRawClause}`,
+        focalParams,
       );
       const scored = res.rows
         .map((row) => ({ row, score: 1 - Math.abs(Number(row.focal_length_mm) - target) / target }))
@@ -214,10 +298,18 @@ export async function galleryRoutes(app: FastifyInstance): Promise<void> {
     // ALSO match against "Crowned" — a prefix match doesn't know the difference) never even gets
     // consulted for that query. Only a query with no real whole-word competitor falls back to it.
     const prefixPattern = `\\m${escapeRegexForPostgres(q)}`;
+    const searchParams: unknown[] = [userId, q, EMBEDDING_MODEL_VERSION, nameMatchMinSimilarity, wordBoundaryPattern, prefixPattern];
+    if (taxa.length > 0) searchParams.push(taxa);
+    if (dateFrom) searchParams.push(dateFrom);
+    const dateFromParamIdx = dateFrom ? searchParams.length : null;
+    if (dateTo) searchParams.push(dateTo);
+    const dateToParamIdx = dateTo ? searchParams.length : null;
+    if (regionId && !isUncategorized) searchParams.push(regionId);
+    const regionParamIdx = regionId && !isUncategorized ? searchParams.length : null;
     const res = await pool.query(
       `SELECT ${GALLERY_ITEM_COLUMNS},
                 ce.embedding,
-                s.common_name_aliases, s.aba_code, s.ebird_code,
+                s.common_name_aliases, s.aba_code, s.ebird_code, s.taxon_order,
                 (
                   s.common_name ~* $5 OR s.scientific_name ~* $5
                   OR EXISTS (SELECT 1 FROM unnest(s.common_name_aliases) a WHERE a ~* $5)
@@ -246,11 +338,30 @@ export async function galleryRoutes(app: FastifyInstance): Promise<void> {
          WHERE c.user_id = $1
            ${ratingFeaturedClause}
            ${taxa.length > 0 ? "AND s.taxon_class = ANY($7)" : ""}
-           ${includeRaw ? "" : "AND o.kind IS DISTINCT FROM 'raw'"}`,
-      taxa.length > 0
-        ? [userId, q, EMBEDDING_MODEL_VERSION, nameMatchMinSimilarity, wordBoundaryPattern, prefixPattern, taxa]
-        : [userId, q, EMBEDDING_MODEL_VERSION, nameMatchMinSimilarity, wordBoundaryPattern, prefixPattern],
+           ${dateFrom ? `AND c.taken_at >= $${dateFromParamIdx}::date` : ""}
+           ${dateTo ? `AND c.taken_at < ($${dateToParamIdx}::date + INTERVAL '1 day')` : ""}
+           ${isUncategorized ? "AND c.region_id IS NULL" : regionMatchClause(regionParamIdx)}
+           ${includeRaw ? "" : "AND o.kind IS DISTINCT FROM 'raw'"}
+           ${videoClause}
+           ${hasRawClause}`,
+      searchParams,
     );
+
+    // A capture's own free-text tags (set via Gallery's "Add tag" flow) are a direct, user-
+    // authored signal of what's actually in a photo. Previously tags were only ever consulted
+    // as an exact-match FILTER (the plain /gallery listing's `tag` param) — never as a search
+    // signal here — so a query like "yellow flower" that names neither a species nor a taxon
+    // class had no way to surface a photo the user themselves tagged "yellow flower", since
+    // CLIP's cross-modal similarity against a short color+subject phrase isn't reliably strong.
+    // Treated with the same "definite, not coincidental" weight as a literal name match below.
+    const normalizedQuery = q.trim().toLowerCase();
+    for (const row of res.rows) {
+      const tags = (row.tags as string[] | null) ?? [];
+      (row as Record<string, unknown>).tag_match = tags.some((t) => {
+        const nt = t.trim().toLowerCase();
+        return nt.length > 0 && (nt === normalizedQuery || nt.includes(normalizedQuery) || normalizedQuery.includes(nt));
+      });
+    }
 
     // A THIRD kind of query embeds a real subject alongside a scene description — "fox playing",
     // "water aves" — that neither the name-match path below (the whole string never literally
@@ -283,7 +394,17 @@ export async function galleryRoutes(app: FastifyInstance): Promise<void> {
         .replace(/[^\p{L}\p{N}\s]/gu, " ")
         .split(/\s+/)
         .filter(Boolean);
+      // Recognized against the WHOLE catalog's real taxon_order values, not just species
+      // already present in this user's gallery — a query for a real scientific order the user
+      // genuinely has zero photos of (e.g. "Passeriformes" with no passerine captures at all)
+      // still needs to resolve as a hard subject filter with a legitimately EMPTY result, not
+      // fall through to CLIP (see the taxon_order check below for why that matters).
+      const knownTaxonOrders = new Set(
+        (await pool.query<{ taxon_order: string }>(`SELECT DISTINCT lower(taxon_order) AS taxon_order FROM species WHERE taxon_order IS NOT NULL`))
+          .rows.map((r) => r.taxon_order),
+      );
       const matchedTaxonClasses = new Set<string>();
+      const matchedTaxonOrders = new Set<string>();
       const matchedSpeciesIds = new Set<string>();
       const subjectTokenIndexes = new Set<number>();
       for (let i = 0; i < rawTokens.length; i++) {
@@ -295,6 +416,19 @@ export async function galleryRoutes(app: FastifyInstance): Promise<void> {
           matchedTaxonClasses.add(taxonClass);
           subjectTokenIndexes.add(i);
           if (bigram && TAXON_WORD_TO_CLASS.get(bigram)) subjectTokenIndexes.add(i + 1);
+          continue;
+        }
+        // A real scientific taxonomic order (e.g. "Passeriformes", "Anseriformes") is a single
+        // word with an exact, known value in species.taxon_order — checked as a hard subject
+        // filter same as a species name, rather than falling through to CLIP. CLIP's text
+        // encoder has no reliable grasp of Latin taxonomy (unlike an ordinary English word), so
+        // without this an order name with zero real matches in the library still fell through to
+        // the no-floor content-search path below and returned essentially arbitrary photos —
+        // whatever happened to score as a relative outlier in a small sample, not a real match.
+        // This lets "results can be empty" actually hold for this whole class of query.
+        if (knownTaxonOrders.has(token)) {
+          matchedTaxonOrders.add(token);
+          subjectTokenIndexes.add(i);
           continue;
         }
         // Species-name token match against species already present in this result set — a
@@ -350,13 +484,16 @@ export async function galleryRoutes(app: FastifyInstance): Promise<void> {
         }
         if (matchedAny) subjectTokenIndexes.add(i);
       }
-      const hasSubject = matchedTaxonClasses.size > 0 || matchedSpeciesIds.size > 0;
+      const hasSubject = matchedTaxonClasses.size > 0 || matchedSpeciesIds.size > 0 || matchedTaxonOrders.size > 0;
       const hasLeftoverDescriptor = rawTokens.some(
         (token, i) => token.length >= 3 && !STOPWORDS.has(token) && !subjectTokenIndexes.has(i),
       );
       if (hasSubject) {
         const candidates = res.rows.filter(
-          (row) => matchedSpeciesIds.has(String(row.species_id)) || matchedTaxonClasses.has(String(row.taxon_class)),
+          (row) =>
+            matchedSpeciesIds.has(String(row.species_id)) ||
+            matchedTaxonClasses.has(String(row.taxon_class)) ||
+            matchedTaxonOrders.has(String(row.taxon_order ?? "").toLowerCase()),
         );
         let scored: Array<{ row: (typeof res.rows)[number]; score: number }>;
         if (!hasLeftoverDescriptor) {
@@ -367,7 +504,7 @@ export async function galleryRoutes(app: FastifyInstance): Promise<void> {
             .map((row) => ({ row, score: 1 }))
             .sort((a, b) => (b.row.quality_rating ?? 0) - (a.row.quality_rating ?? 0));
         } else {
-          const queryEmbedding = await embedQueryText(q);
+          const queryEmbedding = await tryEmbedQueryText(q);
           // Rank ALL subject-matched candidates by descriptor score — no cutoff. Two different
           // statistical filters were tried and tested against real data here (a z-score test,
           // then a largest-score-gap test), and EACH broke on a different near-synonymous
@@ -384,9 +521,13 @@ export async function galleryRoutes(app: FastifyInstance): Promise<void> {
           // would likely break on the next paraphrase too. Every candidate here is ALREADY a
           // confirmed real subject match — showing all of them, best descriptor match first,
           // means wording can shift the ORDER but can never make a real photo silently vanish.
-          scored = candidates
-            .map((row) => ({ row, score: cosineSimilarity(queryEmbedding, row.embedding) }))
-            .sort((a, b) => b.score - a.score);
+          scored = queryEmbedding
+            ? candidates
+                .map((row) => ({ row, score: cosineSimilarity(queryEmbedding, row.embedding) }))
+                .sort((a, b) => b.score - a.score)
+            : candidates
+                .map((row) => ({ row, score: 1 }))
+                .sort((a, b) => (b.row.quality_rating ?? 0) - (a.row.quality_rating ?? 0));
         }
         const limited = scored.slice(0, SEARCH_RESULT_LIMIT);
         return { items: limited.map(({ row, score }) => toGalleryItem(row, score)) };
@@ -423,12 +564,12 @@ export async function galleryRoutes(app: FastifyInstance): Promise<void> {
     // one or two species names, where those matches alone don't reflect what was probably
     // meant). Name matches still always rank first when present, sparse or not.
     const SPARSE_NAME_MATCH_THRESHOLD = 5;
-    const hasNameMatch = res.rows.some((row) => row.name_match);
+    const hasNameMatch = res.rows.some((row) => row.name_match || row.tag_match);
     let scored: Array<{ row: (typeof res.rows)[number]; score: number }>;
     if (hasNameMatch) {
       const nameMatched = res.rows
-        .filter((row) => row.name_match)
-        .map((row) => ({ row, score: Number(row.name_score) }))
+        .filter((row) => row.name_match || row.tag_match)
+        .map((row) => ({ row, score: row.name_match ? Number(row.name_score) : 1 }))
         .sort((a, b) => b.score - a.score || (b.row.quality_rating ?? 0) - (a.row.quality_rating ?? 0));
       // A LITERAL match (the query is an actual substring of the name/alias, or an exact ABA/
       // eBird code) is never coincidental — it's a real, deliberate species lookup regardless of
@@ -440,16 +581,20 @@ export async function galleryRoutes(app: FastifyInstance): Promise<void> {
       // substring at all (a typo'd search like "pilated" for "Pileated"), where a coincidental,
       // not-actually-intended match really is possible. name_match's own fuzzy-only case is what
       // stays gated by count; a literal hit always stands on its own.
-      const hasLiteralMatch = nameMatched.some(({ row }) => row.literal_match);
+      const hasLiteralMatch = nameMatched.some(({ row }) => row.literal_match || row.tag_match);
       if (!hasLiteralMatch && nameMatched.length < SPARSE_NAME_MATCH_THRESHOLD) {
         const nameMatchedIds = new Set(nameMatched.map(({ row }) => row.capture_id));
-        const queryEmbedding = await embedQueryText(q);
-        const contentMatched = filterToRelevantContentMatches(
-          res.rows
-            .filter((row) => !nameMatchedIds.has(row.capture_id))
-            .map((row) => ({ row, score: cosineSimilarity(queryEmbedding, row.embedding) }))
-            .sort((a, b) => b.score - a.score),
-        );
+        const queryEmbedding = await tryEmbedQueryText(q);
+        // No model available — the name matches already found still stand on their own, just
+        // without a content-search tail to backfill sparse results with.
+        const contentMatched = queryEmbedding
+          ? filterToRelevantContentMatches(
+              res.rows
+                .filter((row) => !nameMatchedIds.has(row.capture_id))
+                .map((row) => ({ row, score: cosineSimilarity(queryEmbedding, row.embedding) }))
+                .sort((a, b) => b.score - a.score),
+            )
+          : [];
         scored = [...nameMatched, ...contentMatched];
       } else {
         scored = nameMatched;
@@ -468,12 +613,18 @@ export async function galleryRoutes(app: FastifyInstance): Promise<void> {
         .map((row) => ({ row, score: 1 }))
         .sort((a, b) => (b.row.quality_rating ?? 0) - (a.row.quality_rating ?? 0));
     } else {
-      const queryEmbedding = await embedQueryText(q);
-      scored = filterToRelevantContentMatches(
-        res.rows
-          .map((row) => ({ row, score: cosineSimilarity(queryEmbedding, row.embedding) }))
-          .sort((a, b) => b.score - a.score),
-      );
+      const queryEmbedding = await tryEmbedQueryText(q);
+      // No name match AND no model available means this query genuinely can't be answered —
+      // an empty result is honest here, not a bug (the frontend distinguishes this from "no
+      // results" via the embeddingModelAvailable status the Gallery page already checks before
+      // showing its search box's placeholder copy).
+      scored = queryEmbedding
+        ? filterToRelevantContentMatches(
+            res.rows
+              .map((row) => ({ row, score: cosineSimilarity(queryEmbedding, row.embedding) }))
+              .sort((a, b) => b.score - a.score),
+          )
+        : [];
     }
     const limited = scored.slice(0, SEARCH_RESULT_LIMIT);
 
@@ -488,7 +639,16 @@ export async function galleryRoutes(app: FastifyInstance): Promise<void> {
       onlyFeatured?: string;
       taxa?: string;
       includeRaw?: string;
+      excludeHasRaw?: string;
+      onlyHasRaw?: string;
       missingDate?: string;
+      dateFrom?: string;
+      dateTo?: string;
+      sort?: string;
+      regionId?: string;
+      tag?: string;
+      onlyVideo?: string;
+      excludeVideo?: string;
     };
   }>("/gallery", { preHandler: requireScope("gallery.read") }, async (request) => {
     const userId = request.user!.id;
@@ -496,10 +656,48 @@ export async function galleryRoutes(app: FastifyInstance): Promise<void> {
     const onlyFeatured = request.query.onlyFeatured === "1";
     const taxa = request.query.taxa?.split(",").filter(Boolean) ?? [];
     const includeRaw = request.query.includeRaw !== "0";
+    const excludeHasRaw = request.query.excludeHasRaw === "1";
+    const onlyHasRaw = request.query.onlyHasRaw === "1";
+    const hasRawClause = excludeHasRaw
+      ? "AND NOT EXISTS (SELECT 1 FROM originals hr WHERE hr.capture_id = c.id AND hr.kind = 'raw')"
+      : onlyHasRaw
+        ? "AND EXISTS (SELECT 1 FROM originals hr WHERE hr.capture_id = c.id AND hr.kind = 'raw')"
+        : "";
+    const onlyVideo = request.query.onlyVideo === "1";
+    const excludeVideo = request.query.excludeVideo === "1";
+    // Unrated (never NULL == 0 stars) sorts as a middle 3 — an unrated photo isn't necessarily
+    // BAD, it's just unrated, so ratingHigh/ratingLow shouldn't sink it to one extreme end.
+    const orderBy =
+      request.query.sort === "oldest"
+        ? "c.taken_at ASC NULLS LAST, c.created_at ASC"
+        : request.query.sort === "ratingHigh"
+          ? "COALESCE(c.quality_rating, 3) DESC, c.taken_at DESC NULLS LAST"
+          : request.query.sort === "ratingLow"
+            ? "COALESCE(c.quality_rating, 3) ASC, c.taken_at DESC NULLS LAST"
+            : "c.taken_at DESC NULLS LAST, c.created_at DESC";
     // Drill-down from the Stats page's Archive health card — every capture with no taken_at,
     // so "41 photos missing a date" turns into an actual view to go fix instead of just a
     // number (see PATCH /captures/:id/taken-at, which this view's date input calls).
     const missingDate = request.query.missingDate === "1";
+    // Plain YYYY-MM-DD from a native <input type="date"> — dateTo is inclusive of the whole day
+    // (< the next day), not just up to midnight, so picking the same day for both ends actually
+    // includes that day's photos instead of showing nothing.
+    const dateFrom = request.query.dateFrom || null;
+    const dateTo = request.query.dateTo || null;
+    const regionId = request.query.regionId || null;
+    const isUncategorized = regionId === UNCATEGORIZED_REGION_ID;
+    const tag = request.query.tag || null;
+    const params: unknown[] = [userId];
+    if (taxa.length > 0) params.push(taxa);
+    const taxaParamIdx = taxa.length > 0 ? params.length : null;
+    if (dateFrom) params.push(dateFrom);
+    const dateFromParamIdx = dateFrom ? params.length : null;
+    if (dateTo) params.push(dateTo);
+    const dateToParamIdx = dateTo ? params.length : null;
+    if (regionId && !isUncategorized) params.push(regionId);
+    const regionParamIdx = regionId && !isUncategorized ? params.length : null;
+    if (tag) params.push(tag);
+    const tagParamIdx = tag ? params.length : null;
 
     // "Featured" compares this photo's id against user_species.cover_photo_id for the SAME
     // species — a per-species single pick (set from either SpeciesDetailPage.tsx or this
@@ -512,13 +710,72 @@ export async function galleryRoutes(app: FastifyInstance): Promise<void> {
            ${onlyTopRated ? "AND c.quality_rating = 5" : ""}
            ${onlyFeatured ? "AND p.id = us.cover_photo_id" : ""}
            ${missingDate ? "AND c.taken_at IS NULL" : ""}
-           ${taxa.length > 0 ? "AND s.taxon_class = ANY($2)" : ""}
+           ${taxaParamIdx ? `AND s.taxon_class = ANY($${taxaParamIdx})` : ""}
+           ${dateFromParamIdx ? `AND c.taken_at >= $${dateFromParamIdx}::date` : ""}
+           ${dateToParamIdx ? `AND c.taken_at < ($${dateToParamIdx}::date + INTERVAL '1 day')` : ""}
+           ${isUncategorized ? "AND c.region_id IS NULL" : regionMatchClause(regionParamIdx)}
+           ${tagParamIdx ? `AND $${tagParamIdx} = ANY(c.tags)` : ""}
            ${includeRaw ? "" : "AND o.kind IS DISTINCT FROM 'raw'"}
-         ORDER BY c.taken_at DESC NULLS LAST, c.created_at DESC`,
-      taxa.length > 0 ? [userId, taxa] : [userId],
+           ${hasRawClause}
+           ${onlyVideo ? "AND p.kind = 'video'" : ""}
+           ${excludeVideo ? "AND p.kind IS DISTINCT FROM 'video'" : ""}
+         ORDER BY ${orderBy}`,
+      params,
     );
 
     return { items: res.rows.map((row) => toGalleryItem(row, null)) };
+  });
+
+  // Existence check for the frontend's "Video" filter — that toggle should only render when the
+  // user actually has at least one video, so this is a cheap `EXISTS` rather than a real count.
+  app.get("/gallery/has-video", { preHandler: requireScope("gallery.read") }, async (request) => {
+    const userId = request.user!.id;
+    const res = await pool.query<{ exists: boolean }>(
+      `SELECT EXISTS (
+         SELECT 1 FROM photos p JOIN captures c ON c.id = p.capture_id
+         WHERE c.user_id = $1 AND p.kind = 'video'
+       ) AS exists`,
+      [userId],
+    );
+    return { hasVideo: res.rows[0]?.exists ?? false };
+  });
+
+  // Which taxon classes the Taxon filter should even offer — the full ALL_TAXON_CLASSES list
+  // includes plenty a given user has never photographed, and checking one of those always
+  // yields zero results, which reads as a bug rather than "this filter is just empty for you".
+  app.get("/gallery/taxa", { preHandler: requireScope("gallery.read") }, async (request) => {
+    const userId = request.user!.id;
+    const res = await pool.query<{ taxon_class: string }>(
+      `SELECT DISTINCT s.taxon_class
+         FROM captures c
+         JOIN species s ON s.id = c.species_id
+         WHERE c.user_id = $1`,
+      [userId],
+    );
+    return { taxa: res.rows.map((r) => r.taxon_class) };
+  });
+
+  // Which regions the Region filter should even offer — Gallery's own picker previously used
+  // RegionBrowser's `allowAnyRegion` mode (meant for admin-style pickers with no downloaded-pack
+  // notion), which showed literally every region in the taxonomy regardless of whether the user's
+  // library has any photos tagged there at all. Includes every ancestor of a region actually used
+  // (so drilling from World -> continent -> country still finds its way to a real leaf) —
+  // RegionBrowser's own tree only renders a node whose id (or an ancestor's) is in this set.
+  app.get("/gallery/regions-with-photos", { preHandler: requireScope("gallery.read") }, async (request) => {
+    const userId = request.user!.id;
+    const res = await pool.query<{ id: string }>(
+      `WITH RECURSIVE used AS (
+         SELECT DISTINCT region_id AS id FROM captures WHERE user_id = $1 AND region_id IS NOT NULL
+       ),
+       ancestors AS (
+         SELECT id FROM used
+         UNION
+         SELECT r.parent_id FROM regions r JOIN ancestors a ON r.id = a.id WHERE r.parent_id IS NOT NULL
+       )
+       SELECT DISTINCT id FROM ancestors`,
+      [userId],
+    );
+    return { regionIds: res.rows.map((r) => r.id) };
   });
 }
 
@@ -544,6 +801,11 @@ export function toGalleryItem(row: Record<string, unknown>, score: number | null
     qualityRating: row.quality_rating,
     lat: row.lat,
     lon: row.lon,
+    regionId: row.region_id,
+    regionName: row.region_name,
+    kind: row.photo_kind ?? "image",
+    durationSeconds: row.duration_seconds,
+    tags: row.tags ?? [],
     isFeatured: row.is_featured,
     hasRawOriginal: row.has_raw_original,
     originalRef: row.original_ref,

@@ -2,11 +2,13 @@ import type { FastifyInstance } from "fastify";
 import { pool } from "../db.js";
 import { requireAuth } from "../auth/session.js";
 import { toCollectionItem } from "../collection/collectionItem.js";
+import { MEDIA_CACHE_BUST } from "../config.js";
 import {
   obscureSpeciesSql,
   REGION_VAGRANT_SQL,
   ALREADY_OWNED_SQL,
   NOT_ARCHIVED_SQL,
+  NOT_REGION_HIDDEN_SQL,
   getObscurityPreferences,
 } from "../species/obscurity.js";
 // Cross-package import, deliberately — this is pure GBIF-fetching logic with no heavy
@@ -38,12 +40,15 @@ import {
 import { fetchProvincesForCountry, fetchAllCountries } from "data-pipeline/src/fetch/fetch-region-boundary.js";
 import { AVES_CLASS_KEY, MAMMALIA_CLASS_KEY } from "data-pipeline/src/fetch/fetch-gbif-backbone.js";
 import { fetchFishTaxonKeys } from "data-pipeline/src/fetch/fetch-fish-orders.js";
+import { matchedSpeciesIdsForRegion, resolveRemovalRescues } from "../scripts/inatChecklist.js";
 import {
   bboxesNear,
   bboxContains,
   bboxDiagonalDegrees,
   SMALL_ISLAND_MAX_BBOX_DIAGONAL_DEGREES,
   minRingDistance,
+  closestPointBetweenRings,
+  pointInAnyRing,
   exteriorRingsFromGeometry,
   parseWktPolygonRing,
   type BoundingBox,
@@ -83,19 +88,82 @@ const BIRD_MAMMAL_TAXON_KEYS = [AVES_CLASS_KEY, MAMMALIA_CLASS_KEY];
 // unconditional, not threshold-gated.
 const MARINE_MAMMAL_ORDER_KEYS = [733, 802];
 
+// The requested region's own COUNTRY's exterior rings — for the land-mask check in
+// nearbyZones (see its own comment). Mirrors resolvePackRegionName's own "no external_codes on
+// the parent means THIS region already is the country" logic, just resolving real boundary
+// geometry instead of a name. Returns null for a region with no resolvable country (shouldn't
+// happen for any real country/province row, but callers treat null as "skip the land-mask
+// check" rather than failing the whole request over it).
+async function resolveCountryRings(regionId: string): Promise<Point[][] | null> {
+  const res = await pool.query<{
+    geometry: { type: string; coordinates: unknown } | null;
+    parent_id: string | null;
+    parent_external_codes: string[] | null;
+  }>(
+    `SELECT r.boundary_geojson->'geometry' AS geometry, r.parent_id, p.external_codes AS parent_external_codes
+     FROM regions r LEFT JOIN regions p ON p.id = r.parent_id
+     WHERE r.id = $1`,
+    [regionId],
+  );
+  const row = res.rows[0];
+  if (!row) return null;
+  // This region itself is already the country (its parent is a continent/World, no code of
+  // its own) — use its own geometry rather than looking one level up.
+  if (!row.parent_external_codes?.length) return row.geometry ? exteriorRingsFromGeometry(row.geometry) : null;
+  const parentRes = await pool.query<{ geometry: { type: string; coordinates: unknown } | null }>(
+    `SELECT boundary_geojson->'geometry' AS geometry FROM regions WHERE id = $1`,
+    [row.parent_id],
+  );
+  const geometry = parentRes.rows[0]?.geometry;
+  return geometry ? exteriorRingsFromGeometry(geometry) : null;
+}
+
 // A generous bbox pre-filter (cheap, avoids computing real point-distance against all ~139
 // zones every time) followed by a real point-to-point distance check with a much tighter
 // threshold — a bbox-only check is wrong for large/irregular seas: Egypt's bbox spuriously
 // "overlapped" the Ionian Sea's (612km away) and Aegean Sea's (545km away) bounding boxes
 // even though their real coastlines are nowhere close, while its genuine neighbors
-// (Mediterranean/Red Sea/Gulf of Suez/Gulf of Aqaba) all measured 0-1km. 2 degrees (~220km)
-// comfortably separates the two groups with margin either side.
+// (Mediterranean/Red Sea/Gulf of Suez/Gulf of Aqaba) all measured 0-1km.
+//
+// 2 degrees (~220km) turned out far too loose once tested against landlocked North American
+// provinces/states: MEOW's own ecoregion polygons are coarse, generalized shapes that don't
+// tightly hug the real coastline (confirmed against the raw shapefile — "Puget Trough/Georgia
+// Basin"'s actual published boundary genuinely extends past Spokane, WA), so a 2° cutoff
+// falsely matched Alberta (193km from Puget Trough), Idaho (201km), Kentucky (152km), Utah
+// (157km), and several more. 0.4 degrees (~44km) was chosen as the tightest threshold that
+// still keeps every CONFIRMED real match (Manitoba/Hudson Complex measured 35km) while
+// excluding all of the above.
+//
+// This is NOT a complete fix: raw point-set distance has no notion of "a whole other country's
+// landmass sits in between" — Arizona (7km from Cortezian/the Gulf of California, but actually
+// separated from it by Mexico) and West Virginia (6km from the Virginian ecoregion, but never
+// reaching the Atlantic) both measured CLOSER than Manitoba's real 35km match, so no single
+// threshold can include one and exclude the others. Properly fixing those remaining cases
+// needs a genuine land-mask/intervening-territory check, not just a tighter number here.
 const BBOX_PREFILTER_BUFFER_DEGREES = 10;
-const NEARBY_MAX_DISTANCE_DEGREES = 2;
+const NEARBY_MAX_DISTANCE_DEGREES = 0.4;
+
+// How close the zone's own closest point needs to sit to the country's boundary to count as
+// "actually on this country's coastline" — not 0, since the country polygon here is itself
+// independently simplified (see fetch-region-boundary.ts) and pointInRing is an exact test, a
+// coastal point sitting fractionally outside the simplified country ring due to that shouldn't
+// fail the check. Small next to NEARBY_MAX_DISTANCE_DEGREES on purpose — this is a tolerance
+// for simplification noise, not a second "how far away is still nearby" threshold.
+const COUNTRY_COASTLINE_TOLERANCE_DEGREES = 0.05;
 
 export async function nearbyZones(
   regionBbox: BoundingBox,
   regionRings: Point[][],
+  // The REGION's own country's exterior ring(s) — optional (some callers, e.g. the archived
+  // one-off backfill script, don't have this handy) but strongly recommended: without it, nearby
+  // water is verified with raw point-set distance only, which has no notion of "a whole other
+  // country's landmass sits in between." Confirmed via real cases: Arizona measured 7km from
+  // the Cortezian ecoregion (the Gulf of California) — closer than Manitoba's genuine 35km
+  // match to Hudson Bay — even though Arizona is landlocked and Mexico's own Sonora coastline
+  // is what's actually 7km away, not Arizona's. Passing the country's rings lets this reject
+  // that: the zone's closest point has to actually fall on/near the SAME country's coastline
+  // the region belongs to, not just be geometrically nearby in the abstract.
+  countryRings?: Point[][],
 ): Promise<Array<{ id: string; name: string; wkt: string }>> {
   const zonesRes = await pool.query(
     `SELECT id, name, wkt, bbox_min_lon, bbox_min_lat, bbox_max_lon, bbox_max_lat FROM sea_zones`,
@@ -124,7 +192,14 @@ export async function nearbyZones(
       return true;
     }
     const zoneRing = parseWktPolygonRing(z.wkt);
-    return minRingDistance(regionRings, [zoneRing]) <= NEARBY_MAX_DISTANCE_DEGREES;
+    const { distance, point: closestZonePoint } = closestPointBetweenRings(regionRings, [zoneRing]);
+    if (distance > NEARBY_MAX_DISTANCE_DEGREES) return false;
+    if (!countryRings) return true;
+    // The zone's closest approach has to actually BE this country's coastline — either
+    // literally inside its landmass polygon (a river mouth/inlet the zone polygon reaches
+    // into) or within simplification tolerance of its boundary ring, not just nearby in the
+    // abstract with no regard for whose territory is actually adjacent there.
+    return pointInAnyRing(closestZonePoint, countryRings) || minRingDistance([[closestZonePoint]], countryRings) <= COUNTRY_COASTLINE_TOLERANCE_DEGREES;
   });
 }
 
@@ -246,8 +321,14 @@ async function resolvePackRegionName(regionId: string): Promise<string | null> {
 // tracked, or this region isn't under any tracked country) means nothing is available yet —
 // callers should treat that as "show nothing" via the returned SQL fragment's own false-y NULL
 // behavior, not "show everything."
-const TAXON_PACK_DOWNLOADED_SQL = `EXISTS (
-  SELECT 1 FROM downloaded_packs dp WHERE dp.region = $7 AND (dp.taxon IS NULL OR dp.taxon = s.taxon_class)
+// Other Taxa species (s.is_other_taxa) have no pack concept at all — no pack is ever built for
+// "other-taxa", so without this carve-out one would only ever pass this check by accident (a
+// user who happens to have an all-taxa pack downloaded for that region), staying invisible on
+// this region's own checklist despite being manually, deliberately added to it.
+const TAXON_PACK_DOWNLOADED_SQL = `(
+  s.is_other_taxa = true OR EXISTS (
+    SELECT 1 FROM downloaded_packs dp WHERE dp.region = $7 AND (dp.taxon IS NULL OR dp.taxon = s.taxon_class)
+  )
 )`;
 
 export async function regionRoutes(app: FastifyInstance): Promise<void> {
@@ -322,15 +403,44 @@ export async function regionRoutes(app: FastifyInstance): Promise<void> {
   app.get<{ Querystring: { regionIds?: string } }>("/regions/taxon-presence", { preHandler: requireAuth }, async (request, reply) => {
     const regionIds = request.query.regionIds?.split(",").filter(Boolean) ?? [];
     if (regionIds.length === 0) return reply.code(400).send({ error: "regionIds is required" });
-    const res = await pool.query<{ region_id: string; taxon_class: string }>(
-      `SELECT DISTINCT rs.region_id, s.taxon_class
-       FROM region_species rs JOIN species s ON s.id = rs.species_id
-       WHERE rs.region_id = ANY($1)`,
+    // Same Other Taxa rollup as GET /regions/:id/species (see its own comment) — an Other
+    // Taxa species added at a province only ever gets ONE region_species row, at that exact
+    // province, so a plain exact-region match here left the "Insects"-style filter pill
+    // missing whenever this same species was actually being shown (via that endpoint's own
+    // rollup) while browsing the country or continent above it. `root_region_id` tracks which
+    // originally-requested region each row's rollup came from, so a country's map back to
+    // itself, not to whichever descendant province the species happened to be added under.
+    const res = await pool.query<{ root_region_id: string; taxon_class: string }>(
+      `WITH RECURSIVE region_tree AS (
+         SELECT id, id AS root_region_id FROM regions WHERE id = ANY($1)
+         UNION ALL
+         SELECT r.id, rt.root_region_id FROM regions r JOIN region_tree rt ON r.parent_id = rt.id
+       )
+       SELECT DISTINCT root_region_id, taxon_class FROM (
+         -- Exact requested region: every taxon, same as before.
+         SELECT rt.root_region_id, s.taxon_class
+         FROM region_tree rt
+         JOIN region_species rs ON rs.region_id = rt.id
+         JOIN species s ON s.id = rs.species_id
+         WHERE rt.id = rt.root_region_id
+         UNION ALL
+         -- A DESCENDANT region: only Other Taxa species roll up — a real taxon's own checklist
+         -- is independently computed at every level already, so bubbling a province's real-taxa
+         -- presence up to its country here would incorrectly offer filter pills (e.g. a taxon
+         -- the country pack itself was never actually given). Kept as its own UNION branch
+         -- (not one OR'd join condition) so each branch can use its own index — an OR here
+         -- forced Postgres to hash/seq-scan the entire species table on every request.
+         SELECT rt.root_region_id, s.taxon_class
+         FROM region_tree rt
+         JOIN region_species rs ON rs.region_id = rt.id
+         JOIN species s ON s.id = rs.species_id AND s.is_other_taxa = true
+         WHERE rt.id != rt.root_region_id
+       ) combined`,
       [regionIds],
     );
     const byRegion: Record<string, string[]> = {};
     for (const id of regionIds) byRegion[id] = [];
-    for (const row of res.rows) byRegion[row.region_id]?.push(row.taxon_class);
+    for (const row of res.rows) byRegion[row.root_region_id]?.push(row.taxon_class);
     return byRegion;
   });
 
@@ -356,7 +466,8 @@ export async function regionRoutes(app: FastifyInstance): Promise<void> {
       const geometry = region.boundary_geojson?.geometry;
       if (!bbox || !geometry) return { zones: [] };
       const regionBbox: BoundingBox = { minLon: bbox[0], minLat: bbox[1], maxLon: bbox[2], maxLat: bbox[3] };
-      const zones = await nearbyZones(regionBbox, exteriorRingsFromGeometry(geometry));
+      const countryRings = await resolveCountryRings(regionId);
+      const zones = await nearbyZones(regionBbox, exteriorRingsFromGeometry(geometry), countryRings ?? undefined);
       zoneIds = zones.map((z) => z.id);
       await pool.query(`UPDATE regions SET nearby_sea_zone_ids = $1 WHERE id = $2`, [zoneIds, regionId]);
     }
@@ -384,7 +495,7 @@ export async function regionRoutes(app: FastifyInstance): Promise<void> {
       const userId = request.user!.id;
       const sort = request.query.sort ?? "taxonomic";
       const filter = request.query.filter ?? "all";
-      const taxon = request.query.taxon ?? null;
+      const taxon = request.query.taxon ? request.query.taxon.split(",").filter(Boolean) : null;
       const { hideObscure, maxDepthM } = await getObscurityPreferences(userId);
       // Multiple sea zones can be toggled on at once (e.g. Red Sea AND Gulf of Aqaba) —
       // comma-separated, same simple-string-param convention already used for `taxon` etc.
@@ -443,8 +554,29 @@ export async function regionRoutes(app: FastifyInstance): Promise<void> {
       // region-scoped rarity: "local tier" specifically means "ranked against this region's
       // OTHER species," and a Red-Sea reef fish was never ranked against Egypt's checklist.
       const res = await pool.query(
-        `WITH species_ids AS (
+        `WITH RECURSIVE region_tree AS (
+           SELECT id FROM regions WHERE id = $2
+           UNION ALL
+           SELECT r.id FROM regions r JOIN region_tree rt ON r.parent_id = rt.id
+         ),
+         species_ids AS (
            SELECT species_id FROM region_species WHERE region_id = $2 AND $5
+           -- An Other Taxa species has no pack/rollup story of its own — its region_species
+           -- row exists ONLY at whichever single region it happened to be added at (see
+           -- POST /species/other-taxa), unlike a real taxon's checklist, which every
+           -- ancestor region gets its OWN independently-computed pack for. Without this,
+           -- an Other Taxa species added while browsing a province never showed up again
+           -- once the user backed out to view the country (or continent/world) it belongs
+           -- to — checking the whole region_tree (this region and all its descendants),
+           -- not just an exact region_id match, is what makes that rollup work. A separate
+           -- UNION branch (not folded into the exact-match WHERE above via OR) so each side
+           -- can use its own index — an OR'd join condition here previously defeated the
+           -- region_species(region_id) index entirely, forcing a multi-hundred-ms sequential
+           -- scan of the whole table on every single region view.
+           UNION
+           SELECT rs.species_id FROM region_species rs
+           JOIN species sp ON sp.id = rs.species_id
+           WHERE sp.is_other_taxa = true AND rs.region_id IN (SELECT id FROM region_tree)
            UNION
            SELECT species_id FROM sea_zone_species WHERE sea_zone_id = ANY($4)
          )
@@ -459,15 +591,19 @@ export async function regionRoutes(app: FastifyInstance): Promise<void> {
            s.reference_thumb_path IS NOT NULL AS has_reference_thumb,
            s.reference_focal_x,
            s.reference_focal_y,
+           s.is_other_taxa,
+           s.inat_iconic_taxon,
            r.tier,
            rs.local_tier,
            rs.is_vagrant,
+           rs.seasonality,
            t.endemic_country_iso3,
            t.endemic_region_label,
            t.occurrence_count,
            t.last_occurrence_year,
            t.depth_min_m,
            us.state,
+           us.is_target,
            us.was_ghost_when_collected,
            us.was_lost_when_collected,
            us.cover_photo_id,
@@ -486,9 +622,11 @@ export async function regionRoutes(app: FastifyInstance): Promise<void> {
          LEFT JOIN originals o ON o.capture_id = p.capture_id AND o.kind = 'jpeg'
          LEFT JOIN storage_volumes sv ON sv.id = o.volume_id
          LEFT JOIN user_archived_species uas ON uas.user_id = $1 AND uas.species_id = s.id
-         WHERE ($3::text IS NULL OR s.taxon_class = $3) AND COALESCE(t.fully_extinct, false) = false
+         LEFT JOIN region_species_hidden rsh ON rsh.user_id = $1 AND rsh.species_id = s.id AND rsh.region_id = $2
+         WHERE (($3::text[] IS NULL) OR ($3 @> ARRAY['other-taxa']::text[] AND s.is_other_taxa = true) OR s.taxon_class = ANY($3)) AND COALESCE(t.fully_extinct, false) = false
            AND ($6 = false OR ${ALREADY_OWNED_SQL} OR NOT (${obscureSpeciesSql(maxDepthM)} OR ${REGION_VAGRANT_SQL}))
            AND ${NOT_ARCHIVED_SQL}
+           AND ${NOT_REGION_HIDDEN_SQL}
            AND (rs.region_id IS NULL OR ${TAXON_PACK_DOWNLOADED_SQL})
          ORDER BY s.sort_order NULLS LAST, s.scientific_name`,
         [userId, regionId, taxon, seaZoneIds, includeLand, hideObscure, packRegionName],
@@ -497,17 +635,19 @@ export async function regionRoutes(app: FastifyInstance): Promise<void> {
       let items = res.rows.map((row) => toCollectionItem(row, maxDepthM));
 
       // Distinguishes "this taxon genuinely has nothing here" from "this taxon's pack just
-      // isn't downloaded" for the UI's own prompt — only relevant when a specific taxon was
-      // requested; region_species existing at all (regardless of taxon) already means the
-      // region overall has some pack (see the needsPack check above), so this only asks
-      // whether THIS taxon specifically is covered.
+      // isn't downloaded" for the UI's own prompt — only relevant when a SINGLE specific taxon
+      // was requested (the checkbox multi-select still allows several at once, e.g. Birds +
+      // Mammals, but there's no single coherent "pack missing" screen to show for a mixed
+      // selection — that view only ever makes sense pointed at one taxon); region_species
+      // existing at all (regardless of taxon) already means the region overall has some pack
+      // (see the needsPack check above), so this only asks whether THIS ONE taxon is covered.
       let taxonPackMissing = false;
-      if (taxon && packRegionName) {
+      if (taxon?.length === 1 && packRegionName) {
         const taxonPackRes = await pool.query<{ exists: boolean }>(
           `SELECT EXISTS (
              SELECT 1 FROM downloaded_packs WHERE region = $1 AND (taxon IS NULL OR taxon = $2)
            ) AS exists`,
-          [packRegionName, taxon],
+          [packRegionName, taxon[0]],
         );
         taxonPackMissing = !taxonPackRes.rows[0]?.exists;
       }
@@ -544,6 +684,127 @@ export async function regionRoutes(app: FastifyInstance): Promise<void> {
     },
   );
 
+  // World and every continent are purely organizational hubs (no GADM code, no scoped
+  // checklist of their own — see regionKnownHub's comment on the frontend) — landing on one
+  // used to mean nothing but a "pick a country" dead end, even though the whole point of
+  // zooming back out is often to see everything collected/available across the countries
+  // already downloaded underneath it. This unions those countries' own checklists instead of
+  // requiring a single scoped region, deliberately restricted to DOWNLOADED countries only —
+  // same "only show what's actually installed" rule the rest of this file already follows.
+  app.get<{
+    Params: { id: string };
+    Querystring: { taxon?: string };
+  }>(
+    "/regions/:id/aggregate-species",
+    { preHandler: requireAuth },
+    async (request, reply) => {
+      const { id: hubId } = request.params;
+      const userId = request.user!.id;
+      const taxon = request.query.taxon ? request.query.taxon.split(",").filter(Boolean) : null;
+      const { hideObscure, maxDepthM } = await getObscurityPreferences(userId);
+
+      const hubRes = await pool.query<{ id: string; name: string }>(`SELECT id, name FROM regions WHERE id = $1`, [hubId]);
+      const hub = hubRes.rows[0];
+      if (!hub) return reply.code(404).send({ error: "Region not found" });
+
+      // Covers both a continent (countries are direct children) and World (countries are
+      // grandchildren, via each continent) in one query — a continent itself never has a
+      // downloaded_packs row (packs are always country-named), so the EXISTS check alone
+      // naturally excludes continents from this list when hubId is World.
+      const countriesRes = await pool.query<{ id: string; name: string }>(
+        `SELECT DISTINCT r.id, r.name
+         FROM regions r
+         WHERE (r.parent_id = $1 OR r.parent_id IN (SELECT id FROM regions WHERE parent_id = $1))
+           AND EXISTS (SELECT 1 FROM downloaded_packs dp WHERE dp.region = r.name)
+         ORDER BY r.name`,
+        [hubId],
+      );
+      const countryIds = countriesRes.rows.map((r) => r.id);
+      const countryNames = countriesRes.rows.map((r) => r.name);
+
+      if (countryIds.length === 0) {
+        return { items: [], downloadedCountryNames: [] };
+      }
+
+      // DISTINCT ON (s.id) collapses a species present in more than one downloaded country
+      // down to a single row — which specific country's local_tier/is_vagrant it keeps is
+      // arbitrary (whichever sorts first after preferring a non-null tier), acceptable here
+      // since this view's whole point is "everything available across these countries," not a
+      // single region's own ranked checklist.
+      const res = await pool.query(
+        `WITH RECURSIVE region_tree AS (
+           SELECT id FROM regions WHERE id = ANY($2)
+           UNION ALL
+           SELECT r.id FROM regions r JOIN region_tree rt ON r.parent_id = rt.id
+         ),
+         species_ids AS (
+           SELECT species_id FROM region_species WHERE region_id = ANY($2)
+           -- Same Other Taxa rollup as GET /regions/:id/species (see its own comment, including
+           -- why this is a separate UNION branch rather than one OR'd condition) — a province-
+           -- level Other Taxa addition under one of these downloaded countries should still
+           -- surface in this World/continent aggregate view.
+           UNION
+           SELECT rs.species_id FROM region_species rs
+           JOIN species sp ON sp.id = rs.species_id
+           WHERE sp.is_other_taxa = true AND rs.region_id IN (SELECT id FROM region_tree)
+         )
+         SELECT DISTINCT ON (s.id)
+           s.id AS species_id,
+           s.scientific_name,
+           s.common_name,
+           s.taxon_class,
+           s.family,
+           s.reference_photo,
+           s.reference_credit,
+           s.reference_thumb_path IS NOT NULL AS has_reference_thumb,
+           s.reference_focal_x,
+           s.reference_focal_y,
+           s.is_other_taxa,
+           s.inat_iconic_taxon,
+           r.tier,
+           rs.local_tier,
+           rs.is_vagrant,
+           rs.seasonality,
+           t.endemic_country_iso3,
+           t.endemic_region_label,
+           t.occurrence_count,
+           t.last_occurrence_year,
+           t.depth_min_m,
+           us.state,
+           us.is_target,
+           us.was_ghost_when_collected,
+           us.was_lost_when_collected,
+           us.cover_photo_id,
+           us.card_crop_x,
+           us.card_crop_y,
+           us.card_crop_size,
+           p.thumb_path IS NOT NULL AS has_cover_photo,
+           sv.label AS cover_volume_label
+         FROM species_ids si
+         JOIN species s ON s.id = si.species_id
+         LEFT JOIN region_species rs ON rs.species_id = s.id AND rs.region_id = ANY($2)
+         LEFT JOIN species_rarity r ON r.species_id = s.id
+         LEFT JOIN species_traits t ON t.species_id = s.id
+         LEFT JOIN user_species us ON us.user_id = $1 AND us.species_id = s.id
+         LEFT JOIN photos p ON p.id = us.cover_photo_id
+         LEFT JOIN originals o ON o.capture_id = p.capture_id AND o.kind = 'jpeg'
+         LEFT JOIN storage_volumes sv ON sv.id = o.volume_id
+         LEFT JOIN user_archived_species uas ON uas.user_id = $1 AND uas.species_id = s.id
+         LEFT JOIN region_species_hidden rsh ON rsh.user_id = $1 AND rsh.species_id = s.id AND rsh.region_id = rs.region_id
+         WHERE (($3::text[] IS NULL) OR ($3 @> ARRAY['other-taxa']::text[] AND s.is_other_taxa = true) OR s.taxon_class = ANY($3)) AND COALESCE(t.fully_extinct, false) = false
+           AND ($4 = false OR ${ALREADY_OWNED_SQL} OR NOT (${obscureSpeciesSql(maxDepthM)} OR ${REGION_VAGRANT_SQL}))
+           AND ${NOT_ARCHIVED_SQL}
+           AND ${NOT_REGION_HIDDEN_SQL}
+           AND EXISTS (SELECT 1 FROM downloaded_packs dp WHERE dp.region = ANY($5) AND (dp.taxon IS NULL OR dp.taxon = s.taxon_class))
+         ORDER BY s.id, (rs.local_tier IS NULL), s.scientific_name`,
+        [userId, countryIds, taxon, hideObscure, countryNames],
+      );
+
+      const items = res.rows.map((row) => toCollectionItem(row, maxDepthM));
+      return { items, downloadedCountryNames: countryNames };
+    },
+  );
+
   // Count-only counterpart to GET /regions/:id/species — same species_ids/taxon/extinct
   // filtering, but skips the reference-photo/tier/rarity joins and per-row mapping the full
   // list needs, so the header can show a total on a region/taxon switch without waiting on
@@ -559,7 +820,7 @@ export async function regionRoutes(app: FastifyInstance): Promise<void> {
     async (request, reply) => {
       const { id: regionId } = request.params;
       const userId = request.user!.id;
-      const taxon = request.query.taxon ?? null;
+      const taxon = request.query.taxon ? request.query.taxon.split(",").filter(Boolean) : null;
       const seaZoneIds = request.query.seaZoneIds ? request.query.seaZoneIds.split(",").filter(Boolean) : [];
       const includeLand = request.query.includeLand !== "0";
       const { hideObscure, maxDepthM } = await getObscurityPreferences(userId);
@@ -570,8 +831,17 @@ export async function regionRoutes(app: FastifyInstance): Promise<void> {
       const packRegionName = await resolvePackRegionName(regionId);
 
       const res = await pool.query<{ total: string; collected: string; seen: string }>(
-        `WITH species_ids AS (
+        `WITH RECURSIVE region_tree AS (
+           SELECT id FROM regions WHERE id = $2
+           UNION ALL
+           SELECT r.id FROM regions r JOIN region_tree rt ON r.parent_id = rt.id
+         ),
+         species_ids AS (
            SELECT species_id FROM region_species WHERE region_id = $2 AND $5
+           UNION
+           SELECT rs.species_id FROM region_species rs
+           JOIN species sp ON sp.id = rs.species_id
+           WHERE sp.is_other_taxa = true AND rs.region_id IN (SELECT id FROM region_tree)
            UNION
            SELECT species_id FROM sea_zone_species WHERE sea_zone_id = ANY($4)
          )
@@ -585,9 +855,11 @@ export async function regionRoutes(app: FastifyInstance): Promise<void> {
          LEFT JOIN region_species rs ON rs.species_id = s.id AND rs.region_id = $2
          LEFT JOIN user_species us ON us.user_id = $1 AND us.species_id = s.id
          LEFT JOIN user_archived_species uas ON uas.user_id = $1 AND uas.species_id = s.id
-         WHERE ($3::text IS NULL OR s.taxon_class = $3) AND COALESCE(t.fully_extinct, false) = false
+         LEFT JOIN region_species_hidden rsh ON rsh.user_id = $1 AND rsh.species_id = s.id AND rsh.region_id = $2
+         WHERE (($3::text[] IS NULL) OR ($3 @> ARRAY['other-taxa']::text[] AND s.is_other_taxa = true) OR s.taxon_class = ANY($3)) AND COALESCE(t.fully_extinct, false) = false
            AND ($6 = false OR ${ALREADY_OWNED_SQL} OR NOT (${obscureSpeciesSql(maxDepthM)} OR ${REGION_VAGRANT_SQL}))
            AND ${NOT_ARCHIVED_SQL}
+           AND ${NOT_REGION_HIDDEN_SQL}
            AND (rs.region_id IS NULL OR ${TAXON_PACK_DOWNLOADED_SQL})`,
         [userId, regionId, taxon, seaZoneIds, includeLand, hideObscure, packRegionName],
       );
@@ -635,6 +907,177 @@ export async function regionRoutes(app: FastifyInstance): Promise<void> {
 
     return { ok: true, created };
   });
+
+  // Region-scoped species archive (migration 100) — hides a species from ONE region's checklist
+  // (e.g. a vagrant entry a user doesn't want cluttering that region) without touching its
+  // global record or its presence on any other region's checklist. Deliberately separate from
+  // POST/DELETE /species/:id/archive, which hides a species everywhere.
+  app.post<{ Params: { regionId: string; speciesId: string } }>(
+    "/regions/:regionId/species/:speciesId/hide",
+    { preHandler: requireAuth },
+    async (request, reply) => {
+      const userId = request.user!.id;
+      const { regionId, speciesId } = request.params;
+      const regionRes = await pool.query<{ id: string; sovereignty_group: string | null }>(
+        `SELECT id, sovereignty_group FROM regions WHERE id = $1`,
+        [regionId],
+      );
+      if (regionRes.rows.length === 0) return reply.code(404).send({ error: "Region not found" });
+      await pool.query(
+        `INSERT INTO region_species_hidden (user_id, region_id, species_id) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
+        [userId, regionId, speciesId],
+      );
+      // Hiding at the country level cascades to every direct child province too — a country
+      // hide is meant to mean "I don't want to see this anywhere in this country," and without
+      // this, unhiding is the only place that actually behaved that way (this asymmetry is
+      // deliberate per the user's own framing: hide cascades automatically, unhide asks first —
+      // hiding is easy to undo from the Hidden species page, so there's no harm defaulting wide).
+      if (regionRes.rows[0].sovereignty_group != null) {
+        await pool.query(
+          `INSERT INTO region_species_hidden (user_id, region_id, species_id)
+           SELECT $1, id, $2 FROM regions WHERE parent_id = $3
+           ON CONFLICT DO NOTHING`,
+          [userId, speciesId, regionId],
+        );
+      }
+      return { ok: true };
+    },
+  );
+
+  // Direct child regions (provinces) that already have their OWN hide row for this species —
+  // used by the Hidden species page to ask "unhide from these too?" before actually cascading
+  // an unhide down from a country, since (unlike hiding) that should never happen silently.
+  app.get<{ Params: { regionId: string; speciesId: string } }>(
+    "/regions/:regionId/species/:speciesId/hidden-children",
+    { preHandler: requireAuth },
+    async (request) => {
+      const userId = request.user!.id;
+      const { regionId, speciesId } = request.params;
+      const res = await pool.query<{ id: string; name: string }>(
+        `SELECT r.id, r.name FROM regions r
+         JOIN region_species_hidden rsh ON rsh.region_id = r.id
+         WHERE r.parent_id = $1 AND rsh.user_id = $2 AND rsh.species_id = $3
+         ORDER BY r.name`,
+        [regionId, userId, speciesId],
+      );
+      return { children: res.rows.map((r) => ({ regionId: r.id, regionName: r.name })) };
+    },
+  );
+
+  app.delete<{ Params: { regionId: string; speciesId: string }; Querystring: { cascadeRegionIds?: string } }>(
+    "/regions/:regionId/species/:speciesId/hide",
+    { preHandler: requireAuth },
+    async (request) => {
+      const userId = request.user!.id;
+      const { regionId, speciesId } = request.params;
+      // The frontend resolves which child regions to also unhide (via the hidden-children
+      // lookup above + a confirm prompt) and passes them back here so the whole cascade commits
+      // as one call — same reasoning as the hide side, just opt-in instead of automatic.
+      const cascadeRegionIds = request.query.cascadeRegionIds ? request.query.cascadeRegionIds.split(",").filter(Boolean) : [];
+      const regionIds = [regionId, ...cascadeRegionIds];
+      await pool.query(`DELETE FROM region_species_hidden WHERE user_id = $1 AND region_id = ANY($2) AND species_id = $3`, [
+        userId,
+        regionIds,
+        speciesId,
+      ]);
+      return { ok: true };
+    },
+  );
+
+  // Global hidden-species management view (mirrors GET /archive, just grouped by region
+  // instead of family — a region-scoped hide can happen from any region's checklist, so a
+  // single dedicated page needs to see all of them at once, not one region at a time).
+  app.get("/regions/hidden-species", { preHandler: requireAuth }, async (request) => {
+    const userId = request.user!.id;
+    const [res, regionsRes] = await Promise.all([
+      pool.query<{
+        species_id: string;
+        scientific_name: string;
+        common_name: string | null;
+        reference_photo: string | null;
+        has_reference_thumb: boolean;
+        hidden_at: Date;
+        region_id: string;
+        region_name: string;
+      }>(
+        `SELECT s.id AS species_id, s.scientific_name, s.common_name,
+                s.reference_photo, s.reference_thumb_path IS NOT NULL AS has_reference_thumb,
+                rsh.hidden_at, r.id AS region_id, r.name AS region_name
+         FROM region_species_hidden rsh
+         JOIN species s ON s.id = rsh.species_id
+         JOIN regions r ON r.id = rsh.region_id
+         WHERE rsh.user_id = $1
+         ORDER BY r.name, s.scientific_name`,
+        [userId],
+      ),
+      // Only fetched to walk each item's own region up to its enclosing country below — same
+      // "walk parent_id until sovereignty_group is set" convention CollectionPage's own
+      // countryAncestorFor uses client-side, just done once here server-side instead of
+      // shipping the whole region tree to the frontend for the same purpose.
+      pool.query<{ id: string; name: string; parent_id: string | null; sovereignty_group: string | null }>(
+        `SELECT id, name, parent_id, sovereignty_group FROM regions`,
+      ),
+    ]);
+    const byId = new Map(regionsRes.rows.map((r) => [r.id, r]));
+    function countryAncestorOf(regionId: string): { id: string; name: string } | null {
+      let region = byId.get(regionId);
+      while (region && region.sovereignty_group == null && region.parent_id) {
+        const parent = byId.get(region.parent_id);
+        if (!parent) break;
+        region = parent;
+      }
+      return region ? { id: region.id, name: region.name } : null;
+    }
+    return {
+      items: res.rows.map((r) => {
+        const country = countryAncestorOf(r.region_id);
+        return {
+          speciesId: r.species_id,
+          scientificName: r.scientific_name,
+          commonName: r.common_name,
+          referencePhoto: r.reference_photo,
+          referenceThumbUrl: r.has_reference_thumb
+            ? `/api/species/${r.species_id}/reference-photo/thumb?v=${MEDIA_CACHE_BUST}`
+            : null,
+          hiddenAt: r.hidden_at,
+          regionId: r.region_id,
+          regionName: r.region_name,
+          countryId: country?.id ?? null,
+          countryName: country?.name ?? null,
+          isCountry: country?.id === r.region_id,
+        };
+      }),
+    };
+  });
+
+  // Small region-scoped management view (mirrors GET /archive's global counterpart) — every
+  // species currently hidden from this one region, so a user can find and unhide one later
+  // (e.g. reconsidering after archiving Japanese Quail off BC/Canada).
+  app.get<{ Params: { id: string } }>("/regions/:id/hidden-species", { preHandler: requireAuth }, async (request) => {
+    const userId = request.user!.id;
+    const { id: regionId } = request.params;
+    const res = await pool.query<{
+      species_id: string;
+      scientific_name: string;
+      common_name: string | null;
+      hidden_at: Date;
+    }>(
+      `SELECT s.id AS species_id, s.scientific_name, s.common_name, rsh.hidden_at
+       FROM region_species_hidden rsh
+       JOIN species s ON s.id = rsh.species_id
+       WHERE rsh.user_id = $1 AND rsh.region_id = $2
+       ORDER BY s.scientific_name`,
+      [userId, regionId],
+    );
+    return {
+      items: res.rows.map((r) => ({
+        speciesId: r.species_id,
+        scientificName: r.scientific_name,
+        commonName: r.common_name,
+        hiddenAt: r.hidden_at,
+      })),
+    };
+  });
 }
 
 // Walks up from any region (province or country) to the country-level ancestor's own ISO3 —
@@ -681,6 +1124,7 @@ async function loadNonNativeGbifKeys(iso3: string): Promise<Set<number>> {
 // not just triggered by a user's first view of a region.
 export async function computeRegionOccurrences(region: {
   id: string;
+  name?: string;
   boundary_geojson: { bbox?: [number, number, number, number]; geometry?: { type: string; coordinates: unknown } } | null;
   external_codes: string[] | null;
 }): Promise<void> {
@@ -1069,33 +1513,118 @@ export async function computeRegionOccurrences(region: {
 
   for (const gbifKey of domesticGbifKeys) localTierByGbifKey.set(gbifKey, "common");
 
+  // iNaturalist Research-Grade records are the sole authority on WHICH species belong on this
+  // region's checklist — everything above (GBIF sweep, fish scrutiny, vagrancy, tier scoring)
+  // still supplies the occurrence DATA for whichever species land here, it just no longer gets
+  // to decide membership by itself. Falls back to the old GBIF-only membership (inatMatchedIds
+  // stays null) when iNat data genuinely can't be resolved for this region, so a lookup hiccup
+  // never empties a real checklist.
+  const inatMatchedIds = region.name ? await matchedSpeciesIdsForRegion(regionId, region.name) : null;
+
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
-    // A species that no longer clears the threshold (e.g. after a threshold/logic
-    // retune — such as Anhinga being removed from Canada's checklist) must actually
-    // disappear, not just sit un-updated forever — the old insert-only loop below never deleted
-    // anything, so a stale row would never leave once written.
-    await client.query(`DELETE FROM region_species WHERE region_id = $1`, [regionId]);
-    for (const c of filtered) {
-      const speciesIdRes = await client.query(`SELECT id FROM species WHERE gbif_key = $1`, [c.gbifKey]);
-      const speciesId = speciesIdRes.rows[0]?.id;
-      if (!speciesId) continue;
-      await client.query(
-        `INSERT INTO region_species (region_id, species_id, local_frequency, seasonality, local_tier, is_vagrant)
-         VALUES ($1,$2,$3,$4,$5,$6)
-         ON CONFLICT (region_id, species_id) DO UPDATE SET
-           local_frequency = EXCLUDED.local_frequency, seasonality = EXCLUDED.seasonality, local_tier = EXCLUDED.local_tier,
-           is_vagrant = EXCLUDED.is_vagrant`,
-        [
-          regionId,
-          speciesId,
-          c.recordCount,
-          seasonality.get(c.gbifKey) ?? null,
-          localTierByGbifKey.get(c.gbifKey) ?? null,
-          isVagrantByGbifKey.get(c.gbifKey) ?? false,
-        ],
+    if (inatMatchedIds) {
+      const { matchedSpeciesIds, rawTaxonIds } = inatMatchedIds;
+
+      // Existing checklist BEFORE any changes — needed both to find removal candidates and to
+      // know which already carry a real tier (see below).
+      const existingRes = await client.query<{ species_id: string; local_tier: string | null }>(
+        `SELECT species_id, local_tier FROM region_species WHERE region_id = $1`,
+        [regionId],
       );
+      const existingIds = new Set(existingRes.rows.map((r) => r.species_id));
+      const alreadyTieredIds = new Set(existingRes.rows.filter((r) => r.local_tier != null).map((r) => r.species_id));
+
+      // On the checklist today but not in iNat's matched set — before actually dropping any of
+      // these, check whether that's a genuine absence or just a scientific name our catalog
+      // hasn't caught up to yet (a species iNat moved to a new genus, say, still reads as
+      // "iNat doesn't confirm this" under exact-name matching alone — see
+      // resolveRemovalRescues's own comment, confirmed live for Kittlitz's Plover: Charadrius
+      // pecuarius -> Anarhynchus pecuarius). Nothing gets removed without this check clearing it
+      // first.
+      const removalCandidateIds = [...existingIds].filter((id) => !matchedSpeciesIds.has(id));
+      let rescuedIds = new Set<string>();
+      if (removalCandidateIds.length > 0) {
+        const candidateRows = await client.query<{ id: string; scientific_name: string }>(
+          `SELECT id, scientific_name FROM species WHERE id = ANY($1::uuid[])`,
+          [removalCandidateIds],
+        );
+        rescuedIds = await resolveRemovalRescues(candidateRows.rows, rawTaxonIds);
+      }
+
+      const idList = [...matchedSpeciesIds, ...rescuedIds];
+      // Species iNat no longer confirms here (after the rescue check above) get dropped
+      // entirely — includes species this region previously carried from an earlier GBIF-only
+      // computation.
+      await client.query(
+        `DELETE FROM region_species WHERE region_id = $1 AND NOT (species_id = ANY($2::uuid[]))`,
+        [regionId, idList],
+      );
+      // Species already on this checklist AND already carrying a real rarity tier are left
+      // completely untouched — no need to recompute a tier we already have (e.g. Mallard in BC:
+      // already tiered, iNat re-confirming its presence there is not a reason to redo the work).
+      // A species that's merely PRESENT but still untiered (every species inserted by the old
+      // iNat-only province fill, which deliberately computes no tier at all) is treated the same
+      // as brand new — otherwise every one of those provinces would stay permanently untiered
+      // forever, since this same reconcile pass would keep seeing them as "already there" and
+      // never give them the GBIF-backed tier computation they were always missing.
+      const needsTierIds = idList.filter((id) => !alreadyTieredIds.has(id));
+      if (needsTierIds.length > 0) {
+        const gbifKeyRes = await client.query<{ id: string; gbif_key: string | null }>(
+          `SELECT id, gbif_key FROM species WHERE id = ANY($1::uuid[])`,
+          [needsTierIds],
+        );
+        const byGbifKey = new Map(filtered.map((c) => [c.gbifKey, c]));
+        for (const row of gbifKeyRes.rows) {
+          const gbifKey = row.gbif_key != null ? Number(row.gbif_key) : null;
+          const match = gbifKey != null ? byGbifKey.get(gbifKey) : undefined;
+          // A species iNat confirms but the GBIF sweep never found (or that never cleared its
+          // own MIN_RECORDS floor) has no percentile score to rank — treated as the rarest
+          // bucket rather than left unrated, since "iNat found it, GBIF barely has it" is itself
+          // a strong hard-to-find signal, not an unknown.
+          const localTier = match ? localTierByGbifKey.get(match.gbifKey) ?? null : "legendary";
+          await client.query(
+            `INSERT INTO region_species (region_id, species_id, local_frequency, seasonality, local_tier, is_vagrant)
+             VALUES ($1,$2,$3,$4,$5,$6)
+             ON CONFLICT (region_id, species_id) DO UPDATE SET
+               local_frequency = EXCLUDED.local_frequency, seasonality = EXCLUDED.seasonality, local_tier = EXCLUDED.local_tier,
+               is_vagrant = EXCLUDED.is_vagrant`,
+            [
+              regionId,
+              row.id,
+              match?.recordCount ?? 0,
+              match ? seasonality.get(match.gbifKey) ?? null : null,
+              localTier,
+              match ? isVagrantByGbifKey.get(match.gbifKey) ?? false : false,
+            ],
+          );
+        }
+      }
+    } else {
+      // Old fallback path, unchanged — GBIF's own discovered set decides membership when iNat
+      // data isn't available for this region at all.
+      await client.query(`DELETE FROM region_species WHERE region_id = $1`, [regionId]);
+      for (const c of filtered) {
+        const speciesIdRes = await client.query(`SELECT id FROM species WHERE gbif_key = $1`, [c.gbifKey]);
+        const speciesId = speciesIdRes.rows[0]?.id;
+        if (!speciesId) continue;
+        await client.query(
+          `INSERT INTO region_species (region_id, species_id, local_frequency, seasonality, local_tier, is_vagrant)
+           VALUES ($1,$2,$3,$4,$5,$6)
+           ON CONFLICT (region_id, species_id) DO UPDATE SET
+             local_frequency = EXCLUDED.local_frequency, seasonality = EXCLUDED.seasonality, local_tier = EXCLUDED.local_tier,
+             is_vagrant = EXCLUDED.is_vagrant`,
+          [
+            regionId,
+            speciesId,
+            c.recordCount,
+            seasonality.get(c.gbifKey) ?? null,
+            localTierByGbifKey.get(c.gbifKey) ?? null,
+            isVagrantByGbifKey.get(c.gbifKey) ?? false,
+          ],
+        );
+      }
     }
     await client.query(`UPDATE regions SET occurrence_computed_at = now() WHERE id = $1`, [regionId]);
     await client.query("COMMIT");

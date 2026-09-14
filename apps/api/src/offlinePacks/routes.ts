@@ -36,11 +36,14 @@ export interface PackIndexEntry {
   // score a pack's coverage against a list of missing species.
   scientificNames: string[];
   url: string;
-  // Sea zone pack NAMES this (region-type) pack depends on (build-region-pack.ts's own
-  // seaZoneDependencies, just names instead of {name, packFile} pairs) — lets the client group
-  // a country's dependency sea zones under "<Country> - Sea zones" instead of each one showing
-  // up as its own top-level entry in the downloaded-packs list. Undefined for sea-zone packs
-  // themselves and any region pack with none.
+  // Sea zone pack IDs this (region-type) pack depends on (build-region-pack.ts's own
+  // seaZoneDependencies, reduced from {name, packFile} pairs to just the pack id derived from
+  // packFile) — lets the client group a country's dependency sea zones under "<Country> - Sea
+  // zones" instead of each one showing up as its own top-level entry in the downloaded-packs
+  // list. IDs, not zone names, because a zone can have several packs now (one per taxon) — a
+  // "Canada (Fish)" pack's dependency here points at that zone's fish-taxon pack specifically,
+  // never its other taxon-scoped packs. Undefined for sea-zone packs themselves and any region
+  // pack with none.
   seaZoneDependencies?: string[];
 }
 
@@ -239,12 +242,36 @@ async function applyChecklist(
           target.regionId,
           row.id,
         ]);
-        for (const h of sp.hotspots) {
+        // One INSERT per cluster here previously — for a country the size of Canada (a single
+        // province can carry 100,000+ clusters across its species), that's up to a million-plus
+        // sequential awaited round-trips to apply one pack, which is exactly why a real download
+        // could sit for 30+ minutes showing zero progress. Batched the same way
+        // catalogSeedUpdate.ts's own mergeCatalogTables already batches its multi-row upserts —
+        // 500 rows (8 columns each) per statement keeps well under Postgres's ~65535
+        // bind-parameter ceiling.
+        const HOTSPOT_BATCH_SIZE = 500;
+        for (let i = 0; i < sp.hotspots.length; i += HOTSPOT_BATCH_SIZE) {
+          const batch = sp.hotspots.slice(i, i + HOTSPOT_BATCH_SIZE);
+          const values: unknown[] = [];
+          const rowPlaceholders = batch.map((h, idx) => {
+            const base = idx * 8;
+            values.push(
+              target.regionId,
+              row.id,
+              h.centroidLat,
+              h.centroidLon,
+              h.pointCount,
+              h.bboxDiagonalKm,
+              h.lastSeenYear,
+              h.distinctYears,
+            );
+            return `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7}, $${base + 8})`;
+          });
           await pool.query(
             `INSERT INTO region_species_hotspots
                (region_id, species_id, centroid_lat, centroid_lon, point_count, bbox_diagonal_km, last_seen_year, distinct_years)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-            [target.regionId, row.id, h.centroidLat, h.centroidLon, h.pointCount, h.bboxDiagonalKm, h.lastSeenYear, h.distinctYears],
+             VALUES ${rowPlaceholders.join(", ")}`,
+            values,
           );
         }
       }
@@ -579,7 +606,15 @@ async function computeDeleteImpact(packId: string): Promise<DeleteImpact | null>
   let speciesKeptCount = 0;
   let bytesToFree = 0;
   for (const row of speciesRes.rows) {
-    if (!row.provided_enrichment) continue;
+    // provided_enrichment used to gate this loop entirely ("only free a species if THIS pack was
+    // the one that introduced its enrichment") — but a species enriched earlier by a bulk script
+    // (rather than through any pack download) never gets that credit for ANY pack, so a
+    // taxon-scoped pack whose species were all already bulk-enriched (e.g. "Canada (Fish)", where
+    // fish get enriched by a standalone bulk pass) always reported 0 species/0 bytes to free,
+    // even when nothing else on disk still needed those reference photos. The otherPackRes/
+    // userHasItRes checks right below already answer the real question — "is this species still
+    // needed by anything else" — regardless of who originally provided its enrichment, so that's
+    // the actual ownership check to gate on, not provided_enrichment.
     const otherPackRes = await pool.query(`SELECT 1 FROM pack_species WHERE species_id = $1 AND pack_id != $2 LIMIT 1`, [
       row.species_id,
       packId,

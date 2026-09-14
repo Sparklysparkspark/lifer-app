@@ -162,7 +162,9 @@ async function autoRecoverFromIndex(
       continue;
     }
     try {
-      await importTripFile(tripId, userId, speciesId, file.absolutePath, sourceFolder, file.relativePath);
+      // Recovery via the .lifer manifest index has no region concept to offer (it isn't a
+      // reviewed batch import) — same as this call site's other omitted per-request context.
+      await importTripFile(tripId, userId, speciesId, file.absolutePath, sourceFolder, file.relativePath, null);
       recovered++;
     } catch {
       // A recovery attempt failing (e.g. a corrupt file) shouldn't be silently swallowed —

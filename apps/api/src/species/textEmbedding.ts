@@ -17,6 +17,7 @@
 // match. Downloaded lazily into APP_DATA_DIR on first real use, same "don't pay this cost unless
 // a self-hosted deployment actually uses image search" reasoning as embeddings.ts's own model.
 import path from "node:path";
+import { existsSync, readdirSync } from "node:fs";
 import type { PreTrainedTokenizer, CLIPTextModelWithProjection } from "@xenova/transformers";
 import { APP_DATA_DIR } from "../config.js";
 
@@ -33,7 +34,30 @@ interface TextModel {
 
 let modelPromise: Promise<TextModel> | null = null;
 
-async function getModel(): Promise<TextModel> {
+/** Whether the text encoder half has already been cached locally — cheap, sync, safe to call
+ * from a status endpoint on every poll. A non-empty directory is the only signal
+ * @xenova/transformers exposes short of re-parsing its own cache-key scheme. */
+export function isTextModelDownloaded(): boolean {
+  return existsSync(CACHE_DIR) && readdirSync(CACHE_DIR).length > 0;
+}
+
+/** Forces the text encoder to download/load now, for the explicit Settings > Offline Data
+ * download flow (embeddings.ts's downloadModel() handles the vision half; this is the other
+ * half of "the embedding model" as far as the user is concerned). No byte-level progress is
+ * available here — @xenova/transformers doesn't expose one — so callers show an indeterminate
+ * step for this part. */
+export async function downloadTextModel(): Promise<void> {
+  await getModel(true);
+}
+
+// Deliberately does NOT auto-download on ordinary use — same opt-in contract as
+// embeddings.ts's resolveModelPath (see its comment). Only downloadTextModel() (the explicit
+// Settings flow) is allowed to trigger @xenova/transformers' own auto-fetch; embedQueryText
+// below refuses to call this at all unless the cache is already populated.
+async function getModel(forceDownload = false): Promise<TextModel> {
+  if (!forceDownload && !isTextModelDownloaded()) {
+    throw new Error("The species-matching model hasn't been downloaded (Settings > Offline Data)");
+  }
   if (!modelPromise) {
     modelPromise = (async () => {
       const { AutoTokenizer, CLIPTextModelWithProjection, env } = await import("@xenova/transformers");

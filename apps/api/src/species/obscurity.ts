@@ -12,11 +12,19 @@ export const RECREATIONAL_MAX_DEPTH_M = 60; // realistic no-trimix recreational 
 export const TECHNICAL_MAX_DEPTH_M = 120; // technical (trimix) divers are a small minority — not the default
 
 export function obscureSpeciesSql(maxDepthM: number): string {
+  // "Other taxa" species (Settings > Species & Import's any-taxa search — insects, arachnids,
+  // plants, fungi) never run through occurrence/depth enrichment at all (see migration 089), so
+  // every OR branch below would otherwise read as true for them by default (no traits row, no
+  // guaranteed reference photo) and hide them from their own "Other Taxa" section the moment
+  // hideObscure's default-on setting applied — excluded up front instead, same reasoning as
+  // rarity/occurrence never being computed for them in the first place.
   return `(
-  (s.taxon_class = 'actinopterygii' AND t.depth_min_m IS NOT NULL AND t.depth_min_m >= ${maxDepthM})
-  OR (t.occurrence_count IS NOT NULL AND t.occurrence_count < 20)
-  OR (t.last_occurrence_year IS NOT NULL AND t.last_occurrence_year < 1950)
-  OR s.reference_photo IS NULL
+  s.is_other_taxa = false AND (
+    (s.taxon_class = 'actinopterygii' AND t.depth_min_m IS NOT NULL AND t.depth_min_m >= ${maxDepthM})
+    OR (t.occurrence_count IS NOT NULL AND t.occurrence_count < 20)
+    OR (t.last_occurrence_year IS NOT NULL AND t.last_occurrence_year < 1950)
+    OR s.reference_photo IS NULL
+  )
 )`;
 }
 
@@ -46,9 +54,10 @@ export async function getHideObscurePreference(userId: string): Promise<boolean>
 // Without this, turning the toggle on after adding a rare/vagrant species would make that
 // species vanish from their own collection view even though the underlying capture/user_species
 // data is untouched — the filter is meant to keep new noise out of a checklist, not un-list
-// something already earned. Deliberately excludes 'target' (migration 073) — wanting to find a
-// species someday shouldn't bypass the archive/obscurity/pack-unlock gates the way actually
-// having collected or seen it does.
+// something already earned. is_target (migration 090) is its own independent column, not a
+// value of state, so it was never part of this check anyway — wanting to find a species someday
+// shouldn't bypass the archive/obscurity/pack-unlock gates the way actually having collected or
+// seen it does.
 export const ALREADY_OWNED_SQL = `us.state IN ('collected', 'seen')`;
 
 // Region-only counterpart to OBSCURE_SPECIES_SQL: a species region_species.is_vagrant marked
@@ -67,6 +76,15 @@ export const REGION_VAGRANT_SQL = `COALESCE(rs.is_vagrant, false)`;
 // ON uas.user_id = $userId AND uas.species_id = s.id.
 export const NOT_ARCHIVED_SQL = `(uas.species_id IS NULL OR ${ALREADY_OWNED_SQL})`;
 
+// Region-scoped counterpart to NOT_ARCHIVED_SQL (migration 100, region_species_hidden) — hides a
+// species from ONE region's checklist (e.g. a vagrant entry a user doesn't want cluttering that
+// region) without touching its global record or any other region's checklist. Same
+// already-owned exemption as the global archive: something actually collected/seen there stays
+// visible rather than silently vanishing. Requires callers to LEFT JOIN region_species_hidden AS
+// rsh ON rsh.user_id = $userId AND rsh.species_id = s.id AND rsh.region_id = <the same region_id
+// column rs itself was joined on>.
+export const NOT_REGION_HIDDEN_SQL = `(rsh.species_id IS NULL OR ${ALREADY_OWNED_SQL})`;
+
 // A species/region row existing in region_species (or sea_zone_species) does NOT by itself
 // mean its pack was ever downloaded — a portable catalog seed (see desktop's embedded_db.rs)
 // brings over the WHOLE region_species/sea_zone_species tables up front, across every taxon
@@ -80,8 +98,14 @@ export const NOT_ARCHIVED_SQL = `(uas.species_id IS NULL OR ${ALREADY_OWNED_SQL}
 // Requires `s` (species) in scope; used for the whole-catalog "All species" view
 // (collection/routes.ts), which — unlike a single region's checklist — has no one regionId to
 // resolve ahead of time the way regions/routes.ts's resolvePackRegionName does.
+//
+// Other Taxa species (is_other_taxa) have no pack concept at all — no pack is ever built for
+// "other-taxa", so without this carve-out one would only ever pass this check by accident (a
+// user who happens to have an all-taxa pack downloaded for that region), staying invisible
+// everywhere otherwise despite being manually, deliberately added.
 export const SPECIES_UNLOCKED_SQL = `(
-  EXISTS (
+  s.is_other_taxa = true
+  OR EXISTS (
     SELECT 1 FROM region_species rs2
     JOIN regions r2 ON r2.id = rs2.region_id
     LEFT JOIN regions parent2 ON parent2.id = r2.parent_id

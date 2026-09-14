@@ -108,6 +108,7 @@ async function runImportJob(
   userId: string,
   sourceFolder: string,
   files: Array<{ relativePath: string; speciesId: string }>,
+  regionId: string | null,
 ): Promise<void> {
   const job = importJobFor(tripId);
   try {
@@ -118,7 +119,7 @@ async function runImportJob(
         result = { relativePath: file.relativePath, error: "File not found" };
       } else {
         try {
-          const { captureId } = await importTripFile(tripId, userId, file.speciesId, absolutePath, sourceFolder, file.relativePath);
+          const { captureId } = await importTripFile(tripId, userId, file.speciesId, absolutePath, sourceFolder, file.relativePath, regionId);
           result = { relativePath: file.relativePath, captureId };
         } catch (err) {
           result = { relativePath: file.relativePath, error: (err as Error).message };
@@ -197,24 +198,43 @@ export async function tripsRoutes(app: FastifyInstance): Promise<void> {
     const userId = request.user!.id;
     const res = await pool.query(
       `SELECT
-         t.id, t.name, t.source_folder, t.cover_crop_x, t.cover_crop_y, t.cover_crop_size,
+         t.id, t.name, t.source_folder, t.cover_layout,
          count(DISTINCT c.species_id) AS species_count,
          count(c.id) AS capture_count,
          min(c.taken_at) AS earliest_taken_at,
          max(c.taken_at) AS latest_taken_at,
          -- The user's explicit pick (trips.cover_capture_id) wins when set; otherwise falls
          -- back to the most recent capture with a photo.
-         cover_c.current_photo_id AS cover_photo_id
+         cover_c.current_photo_id AS cover_photo_id,
+         -- The crop was framed for the SPECIFIC photo the user manually picked — if that
+         -- capture got trashed (soft-deleted, so cover_capture_id itself is still a valid FK and
+         -- wasn't auto-cleared) and cover_c fell back to a different photo instead, applying the
+         -- old crop to a completely different image would be wrong, not just stale. Only surface
+         -- it when cover_c actually resolved to the real manual pick.
+         CASE WHEN cover_c.id = t.cover_capture_id THEN t.cover_crop_x ELSE NULL END AS cover_crop_x,
+         CASE WHEN cover_c.id = t.cover_capture_id THEN t.cover_crop_y ELSE NULL END AS cover_crop_y,
+         CASE WHEN cover_c.id = t.cover_capture_id THEN t.cover_crop_size ELSE NULL END AS cover_crop_size,
+         -- Only actually read when cover_layout = 'quad' (see TripsPage) — parity with Albums'
+         -- own quad_photo_ids in albums/routes.ts.
+         quad.photo_ids AS quad_photo_ids
        FROM trips t
        LEFT JOIN captures c ON c.trip_id = t.id
        LEFT JOIN LATERAL (
-         SELECT cc.current_photo_id FROM captures cc
+         SELECT cc.id, cc.current_photo_id FROM captures cc
          WHERE cc.trip_id = t.id AND cc.current_photo_id IS NOT NULL
          ORDER BY (cc.id = t.cover_capture_id) DESC, cc.taken_at DESC NULLS LAST
          LIMIT 1
        ) cover_c ON true
+       LEFT JOIN LATERAL (
+         SELECT array_agg(sub.photo_id) AS photo_ids FROM (
+           SELECT cc.current_photo_id AS photo_id FROM captures cc
+           WHERE cc.trip_id = t.id AND cc.current_photo_id IS NOT NULL
+           ORDER BY cc.taken_at DESC NULLS LAST
+           LIMIT 4
+         ) sub
+       ) quad ON true
        WHERE t.user_id = $1
-       GROUP BY t.id, cover_c.current_photo_id
+       GROUP BY t.id, cover_c.id, cover_c.current_photo_id, quad.photo_ids
        ORDER BY t.created_at DESC`,
       [userId],
     );
@@ -234,6 +254,8 @@ export async function tripsRoutes(app: FastifyInstance): Promise<void> {
         coverCropX: r.cover_crop_x == null ? null : Number(r.cover_crop_x),
         coverCropY: r.cover_crop_y == null ? null : Number(r.cover_crop_y),
         coverCropSize: r.cover_crop_size == null ? null : Number(r.cover_crop_size),
+        coverLayout: r.cover_layout,
+        quadPhotoIds: r.quad_photo_ids ?? [],
         // A scan or import still running for this trip — the card shows a loading state
         // instead of a cover photo that may not exist yet (or is about to change).
         processing: isTripBusy(r.id),
@@ -245,7 +267,7 @@ export async function tripsRoutes(app: FastifyInstance): Promise<void> {
     if (!requireDesktopMode(reply)) return;
     const userId = request.user!.id;
     const res = await pool.query(
-      `SELECT id, name, source_folder, cover_capture_id, cover_crop_x, cover_crop_y, cover_crop_size
+      `SELECT id, name, description, source_folder, cover_capture_id, cover_crop_x, cover_crop_y, cover_crop_size, cover_layout
        FROM trips WHERE id = $1 AND user_id = $2`,
       [request.params.id, userId],
     );
@@ -254,11 +276,13 @@ export async function tripsRoutes(app: FastifyInstance): Promise<void> {
     return {
       id: trip.id,
       name: trip.name,
+      description: trip.description,
       sourceFolder: trip.source_folder,
       coverCaptureId: trip.cover_capture_id,
       coverCropX: trip.cover_crop_x == null ? null : Number(trip.cover_crop_x),
       coverCropY: trip.cover_crop_y == null ? null : Number(trip.cover_crop_y),
       coverCropSize: trip.cover_crop_size == null ? null : Number(trip.cover_crop_size),
+      coverLayout: trip.cover_layout,
     };
   });
 
@@ -269,15 +293,18 @@ export async function tripsRoutes(app: FastifyInstance): Promise<void> {
   // whatever's now in the new folder, the exact same matchAgainstKnownOriginals logic that
   // already handles a file moving WITHIN a trip's own folder (scan.ts) — a relocated folder
   // is really just every file "moving" at once.
-  app.patch<{ Params: { id: string }; Body: { sourceFolder?: string; name?: string } }>(
+  app.patch<{
+    Params: { id: string };
+    Body: { sourceFolder?: string; name?: string; description?: string | null; coverLayout?: "single" | "quad" };
+  }>(
     "/trips/:id",
     { preHandler: requireAuth },
     async (request, reply) => {
       if (!requireDesktopMode(reply)) return;
       const userId = request.user!.id;
-      const { sourceFolder, name } = request.body ?? {};
-      if (sourceFolder === undefined && name === undefined) {
-        return reply.code(400).send({ error: "sourceFolder or name is required" });
+      const { sourceFolder, name, description, coverLayout } = request.body ?? {};
+      if (sourceFolder === undefined && name === undefined && description === undefined && coverLayout === undefined) {
+        return reply.code(400).send({ error: "sourceFolder, name, description, or coverLayout is required" });
       }
       if (sourceFolder !== undefined && (!existsSync(sourceFolder) || !statSync(sourceFolder).isDirectory())) {
         return reply.code(400).send({ error: "That folder doesn't exist on this server" });
@@ -285,15 +312,27 @@ export async function tripsRoutes(app: FastifyInstance): Promise<void> {
       if (name !== undefined && !name.trim()) {
         return reply.code(400).send({ error: "name can't be empty" });
       }
+      if (coverLayout !== undefined && coverLayout !== "single" && coverLayout !== "quad") {
+        return reply.code(400).send({ error: "coverLayout must be 'single' or 'quad'" });
+      }
       const tripRes = await pool.query(`SELECT id FROM trips WHERE id = $1 AND user_id = $2`, [request.params.id, userId]);
       if (tripRes.rows.length === 0) return reply.code(404).send({ error: "Trip not found" });
 
       await pool.query(
         `UPDATE trips SET
            source_folder = COALESCE($2, source_folder),
-           name = COALESCE($3, name)
+           name = COALESCE($3, name),
+           description = CASE WHEN $4::boolean THEN $5 ELSE description END,
+           cover_layout = COALESCE($6, cover_layout)
          WHERE id = $1`,
-        [request.params.id, sourceFolder ?? null, name?.trim() ?? null],
+        [
+          request.params.id,
+          sourceFolder ?? null,
+          name?.trim() ?? null,
+          description !== undefined,
+          description?.trim() || null,
+          coverLayout ?? null,
+        ],
       );
       return { ok: true };
     },
@@ -407,6 +446,7 @@ export async function tripsRoutes(app: FastifyInstance): Promise<void> {
          t.endemic_country_iso3,
          t.endemic_region_label,
          us.state,
+         us.is_target,
          us.cover_photo_id,
          us.card_crop_x,
          us.card_crop_y,
@@ -487,11 +527,19 @@ export async function tripsRoutes(app: FastifyInstance): Promise<void> {
 
     const res = await pool.query(
       `SELECT p.id AS photo_id, p.width, p.height, c.id AS capture_id, c.species_id, s.scientific_name, s.common_name, c.taken_at, c.created_at,
-              c.camera_model, c.lens, c.focal_length_mm, c.aperture, c.shutter, c.iso,
-              EXISTS (SELECT 1 FROM originals ro WHERE ro.capture_id = c.id AND ro.kind = 'raw') AS has_raw
+              c.camera_model, c.lens, c.focal_length_mm, c.aperture, c.shutter, c.iso, c.quality_rating,
+              EXISTS (SELECT 1 FROM originals ro WHERE ro.capture_id = c.id AND ro.kind = 'raw') AS has_raw,
+              o.ref AS original_ref, o.kind AS original_kind
        FROM captures c
        JOIN photos p ON p.id = c.current_photo_id
        JOIN species s ON s.id = c.species_id
+       -- jpeg-preferred tiebreak (same as Gallery/species detail's own capture query) - a
+       -- capture whose only original is a RAW file has no jpeg to win the tiebreak, so this
+       -- resolves to 'raw', which the frontend uses to hide "Download original" (Download RAW
+       -- already covers that exact same file).
+       LEFT JOIN LATERAL (
+         SELECT * FROM originals lo WHERE lo.capture_id = c.id ORDER BY (lo.kind = 'jpeg') DESC LIMIT 1
+       ) o ON true
        WHERE c.trip_id = $1 AND c.user_id = $2
        ORDER BY c.taken_at DESC NULLS LAST, c.created_at DESC`,
       [request.params.id, userId],
@@ -508,12 +556,15 @@ export async function tripsRoutes(app: FastifyInstance): Promise<void> {
         commonName: row.common_name,
         takenAt: row.taken_at,
         hasRaw: row.has_raw,
+        originalRef: row.original_ref,
+        originalKind: row.original_kind,
         cameraModel: row.camera_model,
         lens: row.lens,
         focalLengthMm: row.focal_length_mm,
         aperture: row.aperture,
         shutter: row.shutter,
         iso: row.iso,
+        qualityRating: row.quality_rating,
       })),
     };
   });
@@ -572,7 +623,7 @@ export async function tripsRoutes(app: FastifyInstance): Promise<void> {
     },
   );
 
-  app.post<{ Params: { id: string }; Body: { files?: Array<{ relativePath: string; speciesId: string }> } }>(
+  app.post<{ Params: { id: string }; Body: { files?: Array<{ relativePath: string; speciesId: string }>; regionId?: string } }>(
     "/trips/:id/import",
     { preHandler: requireAuth },
     async (request, reply) => {
@@ -589,6 +640,7 @@ export async function tripsRoutes(app: FastifyInstance): Promise<void> {
       if (tripRes.rows.length === 0) return reply.code(404).send({ error: "Trip not found" });
       const files = request.body?.files;
       if (!files || files.length === 0) return reply.code(400).send({ error: "files is required" });
+      const regionId = request.body?.regionId ?? null;
 
       job.running = true;
       job.processed = 0;
@@ -600,7 +652,7 @@ export async function tripsRoutes(app: FastifyInstance): Promise<void> {
       // Not awaited — same reasoning as the scan job above: this can take a real amount of
       // time (exiftool + a sharp resize per file), and a client awaiting one giant request
       // directly has no way to show live progress or stay responsive in the meantime.
-      void runImportJob(tripId, userId, tripRes.rows[0].source_folder, files);
+      void runImportJob(tripId, userId, tripRes.rows[0].source_folder, files, regionId);
 
       return { started: true };
     },

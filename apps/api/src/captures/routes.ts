@@ -6,12 +6,18 @@
 // a default. (Known tradeoff: a removed "store"-mode original is now an orphaned file with no
 // DB reference back to it — acceptable for a personal deployment, worth revisiting if this
 // ever needs a "reclaim disk space" story.)
-import { existsSync, unlinkSync } from "node:fs";
+import { existsSync, unlinkSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import path from "node:path";
+import { randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { pool } from "../db.js";
 import { requireAuth } from "../auth/session.js";
 import { writeSpeciesMetadata } from "../uploads/exif.js";
+import { syncCaptureXmpSidecars } from "../uploads/xmpSidecarSync.js";
+import { computeEmbedding, rankSpeciesByEmbeddings } from "../species/embeddings.js";
 import { suggestSpecies } from "../species/embeddings.js";
+import { probeVideo, extractVideoFrame } from "../uploads/image.js";
+import { APP_DATA_DIR } from "../config.js";
 import { moveManagedOriginalToSpeciesFolder } from "../uploads/routes.js";
 
 interface SpeciesRow {
@@ -28,7 +34,7 @@ interface SpeciesRow {
  *  capture's managed JPEG original, if it has one — a linked/external file is never
  *  touched, same rule as the upload flow. Best-effort: a photo with no managed JPEG (RAW-
  *  only, or link/s3 mode) just skips this, nothing to write metadata into. */
-async function resyncSpeciesMetadata(userId: string, captureId: string): Promise<void> {
+export async function resyncSpeciesMetadata(userId: string, captureId: string): Promise<void> {
   const originalRes = await pool.query<{ ref: string }>(
     `SELECT ref FROM originals WHERE capture_id = $1 AND kind = 'jpeg' AND managed = true`,
     [captureId],
@@ -60,6 +66,72 @@ async function resyncSpeciesMetadata(userId: string, captureId: string): Promise
       ebirdCode: s.ebird_code,
     })),
     namingStyleRes.rows[0]?.species_naming_styles ?? [],
+  );
+}
+
+/** Cleans up a species' user_species row once nothing evidences it any more — the same
+ *  "no state, no target, no reason for a row" invariant DELETE /species/:id/target already
+ *  enforces (species/routes.ts), applied here for the two capture-side actions that can also
+ *  empty a species out from under it: correcting a misidentified capture's ID away from it
+ *  (PATCH /captures/:id/reassign), and permanently deleting its last capture (purgeCapture).
+ *  `vacatedPhotoId` is the photo that just stopped counting as evidence — only relevant for
+ *  deciding whether a still-remaining `cover_photo_id` needs repointing, not whether the row
+ *  survives at all. */
+async function cleanupStaleUserSpecies(userId: string, speciesId: string, vacatedPhotoId: string | null): Promise<void> {
+  const userSpeciesRes = await pool.query<{ cover_photo_id: string | null; is_target: boolean }>(
+    `SELECT cover_photo_id, is_target FROM user_species WHERE user_id = $1 AND species_id = $2`,
+    [userId, speciesId],
+  );
+  const row = userSpeciesRes.rows[0];
+  if (!row) return;
+
+  // Primary captures AND secondary (capture_species) tags both count as real evidence for a
+  // species — either can be what a 'collected' state and cover photo are resting on.
+  const remainingRes = await pool.query<{ current_photo_id: string | null }>(
+    `SELECT current_photo_id, taken_at FROM captures WHERE user_id = $1 AND species_id = $2
+     UNION ALL
+     SELECT c.current_photo_id, c.taken_at FROM capture_species cs
+       JOIN captures c ON c.id = cs.capture_id
+       WHERE cs.species_id = $2 AND c.user_id = $1
+     ORDER BY taken_at DESC NULLS LAST LIMIT 1`,
+    [userId, speciesId],
+  );
+  const newestRemaining = remainingRes.rows[0] ?? null;
+
+  if (!newestRemaining) {
+    // Nothing left to justify 'collected' (that state specifically means "I have a photo").
+    // is_target is independent of state/photos (species/routes.ts's own comment on it), so a
+    // target species keeps its row — just stripped of the now-meaningless state/cover/crop —
+    // rather than losing the target flag as a side effect of an unrelated ID correction.
+    if (row.is_target) {
+      await pool.query(
+        `UPDATE user_species SET state = NULL, cover_photo_id = NULL, card_crop_x = NULL, card_crop_y = NULL,
+           card_crop_size = NULL, best_quality = NULL WHERE user_id = $1 AND species_id = $2`,
+        [userId, speciesId],
+      );
+    } else {
+      await pool.query(`DELETE FROM user_species WHERE user_id = $1 AND species_id = $2`, [userId, speciesId]);
+    }
+    return;
+  }
+
+  // Evidence remains, but the cover photo specifically may have been the one that just left —
+  // repoint it at the next-most-recent remaining photo (crop settings don't carry over, since
+  // they were framed for the old cover photo specifically).
+  if (vacatedPhotoId && row.cover_photo_id === vacatedPhotoId) {
+    await pool.query(
+      `UPDATE user_species SET cover_photo_id = $1, card_crop_x = NULL, card_crop_y = NULL, card_crop_size = NULL
+       WHERE user_id = $2 AND species_id = $3`,
+      [newestRemaining.current_photo_id, userId, speciesId],
+    );
+  }
+  // Losing a capture can also remove the current best-rated photo for this species — recompute
+  // rather than leave a stale max (same reasoning as PATCH /captures/:id/rating).
+  await pool.query(
+    `UPDATE user_species SET best_quality = (
+       SELECT MAX(quality_rating) FROM captures WHERE user_id = $1 AND species_id = $2
+     ) WHERE user_id = $1 AND species_id = $2`,
+    [userId, speciesId],
   );
 }
 
@@ -106,6 +178,7 @@ export async function captureRoutes(app: FastifyInstance): Promise<void> {
       );
 
       await resyncSpeciesMetadata(userId, captureId);
+      await syncCaptureXmpSidecars(userId, captureId).catch(() => {});
       return reply.code(201).send({ ok: true });
     },
   );
@@ -128,6 +201,7 @@ export async function captureRoutes(app: FastifyInstance): Promise<void> {
       // doesn't retroactively decide whether you've "really" seen that species; that's a
       // separate, explicit decision the collection UI already has its own controls for.
       await resyncSpeciesMetadata(userId, captureId);
+      await syncCaptureXmpSidecars(userId, captureId).catch(() => {});
       return { ok: true };
     },
   );
@@ -192,6 +266,7 @@ export async function captureRoutes(app: FastifyInstance): Promise<void> {
         }
       }
 
+      const oldSpeciesId = capture.species_id;
       await pool.query(`UPDATE captures SET species_id = $1 WHERE id = $2`, [speciesId, captureId]);
       await pool.query(
         `INSERT INTO user_species (user_id, species_id, state, cover_photo_id, first_collected)
@@ -201,8 +276,13 @@ export async function captureRoutes(app: FastifyInstance): Promise<void> {
            cover_photo_id = COALESCE(user_species.cover_photo_id, EXCLUDED.cover_photo_id)`,
         [userId, speciesId, capture.current_photo_id, capture.taken_at],
       );
+      // The old species may have had ONLY this capture backing it — without this, correcting
+      // a misidentified photo left the wrong species sitting in your collection forever as
+      // "collected," with a cover photo that (confusingly) now shows the corrected species.
+      await cleanupStaleUserSpecies(userId, oldSpeciesId, capture.current_photo_id);
 
       await resyncSpeciesMetadata(userId, captureId);
+      await syncCaptureXmpSidecars(userId, captureId).catch(() => {});
       return { ok: true };
     },
   );
@@ -227,6 +307,33 @@ export async function captureRoutes(app: FastifyInstance): Promise<void> {
         captureId,
         userId,
       ]);
+      if (res.rows.length === 0) return reply.code(404).send({ error: "Capture not found" });
+
+      return { ok: true };
+    },
+  );
+
+  /** Corrects a capture's location after the fact — region_id (a catalog country/province) and
+   * locationLabel (a free-text custom name — "Prince George", "my backyard" — nested under
+   * that region) were previously only ever set at import time (see uploads/routes.ts), with no
+   * way back in if either was wrong or skipped. Each field is independently optional in the
+   * body — sending only one leaves the other untouched. */
+  app.patch<{ Params: { id: string }; Body: { regionId?: string | null; locationLabel?: string | null } }>(
+    "/captures/:id/region",
+    { preHandler: requireAuth },
+    async (request, reply) => {
+      const { id: captureId } = request.params;
+      const { regionId, locationLabel } = request.body ?? {};
+      const userId = request.user!.id;
+
+      const res = await pool.query(
+        `UPDATE captures SET
+           region_id = CASE WHEN $4::boolean THEN $1 ELSE region_id END,
+           location_label = CASE WHEN $5::boolean THEN $2 ELSE location_label END
+         WHERE id = $3 AND user_id = $6
+         RETURNING id`,
+        [regionId ?? null, locationLabel?.trim() || null, captureId, regionId !== undefined, locationLabel !== undefined, userId],
+      );
       if (res.rows.length === 0) return reply.code(404).send({ error: "Capture not found" });
 
       return { ok: true };
@@ -263,9 +370,128 @@ export async function captureRoutes(app: FastifyInstance): Promise<void> {
         [userId, capture.species_id],
       );
 
+      await syncCaptureXmpSidecars(userId, captureId).catch(() => {});
       return { ok: true };
     },
   );
+
+  // Free-text custom tags (e.g. "flight shot", "courtship display") — replaces the whole array
+  // per call, matching how the frontend tag editor always submits the full current list rather
+  // than a single add/remove delta.
+  app.patch<{ Params: { id: string }; Body: { tags: string[] } }>(
+    "/captures/:id/tags",
+    { preHandler: requireAuth },
+    async (request, reply) => {
+      const { id: captureId } = request.params;
+      const userId = request.user!.id;
+      const rawTags = request.body?.tags;
+      if (!Array.isArray(rawTags) || rawTags.some((t) => typeof t !== "string")) {
+        return reply.code(400).send({ error: "tags must be an array of strings" });
+      }
+      const tags = [...new Set(rawTags.map((t) => t.trim()).filter(Boolean))];
+
+      const res = await pool.query<{ tags: string[] }>(
+        `UPDATE captures SET tags = $1 WHERE id = $2 AND user_id = $3 RETURNING tags`,
+        [tags, captureId, userId],
+      );
+      const capture = res.rows[0];
+      if (!capture) return reply.code(404).send({ error: "Capture not found" });
+
+      await syncCaptureXmpSidecars(userId, captureId).catch(() => {});
+      return { tags: capture.tags };
+    },
+  );
+
+  // Every distinct tag this user has ever used, for the tag editor's autocomplete — lets "flight
+  // shot" typed once on one photo get suggested (and reused verbatim, not near-duplicated as
+  // "Flight shot") on the next.
+  app.get("/captures/tags", { preHandler: requireAuth }, async (request) => {
+    const res = await pool.query<{ tag: string }>(
+      `SELECT DISTINCT unnest(tags) AS tag FROM captures WHERE user_id = $1 ORDER BY tag`,
+      [request.user!.id],
+    );
+    return { tags: res.rows.map((r) => r.tag) };
+  });
+
+  // Bulk tagging — adds the given tags to every listed capture WITHOUT touching any tag a
+  // capture already has (a plain overwrite, like the single-capture PATCH above, would wipe out
+  // whatever different tags each selected photo already carried; a batch action has no way to
+  // know what those were per-photo, so it can only ever safely add, never replace).
+  app.patch<{ Body: { captureIds: string[]; tags: string[] } }>(
+    "/captures/tags",
+    { preHandler: requireAuth },
+    async (request, reply) => {
+      const userId = request.user!.id;
+      const { captureIds, tags: rawTags } = request.body ?? {};
+      if (!Array.isArray(captureIds) || captureIds.length === 0) {
+        return reply.code(400).send({ error: "captureIds is required" });
+      }
+      if (!Array.isArray(rawTags) || rawTags.some((t) => typeof t !== "string")) {
+        return reply.code(400).send({ error: "tags must be an array of strings" });
+      }
+      const tags = [...new Set(rawTags.map((t) => t.trim()).filter(Boolean))];
+      if (tags.length === 0) return { ok: true };
+
+      const res = await pool.query(
+        `UPDATE captures SET tags = (
+           SELECT array_agg(DISTINCT t ORDER BY t) FROM unnest(tags || $1::text[]) AS t
+         ) WHERE id = ANY($2) AND user_id = $3`,
+        [tags, captureIds, userId],
+      );
+      for (const captureId of captureIds) {
+        await syncCaptureXmpSidecars(userId, captureId).catch(() => {});
+      }
+      return { ok: true, updated: res.rowCount ?? 0 };
+    },
+  );
+
+  // Every distinct tag plus how many photos carry it — the management page's own data source
+  // (GET /captures/tags above is the lighter-weight autocomplete version, no counts needed
+  // there). Sorted by count descending so the tags actually worth keeping surface first, with
+  // one-off typos naturally sinking to the bottom.
+  app.get("/captures/tags/manage", { preHandler: requireAuth }, async (request) => {
+    const res = await pool.query<{ tag: string; count: string }>(
+      `SELECT unnest(tags) AS tag, count(*) AS count FROM captures WHERE user_id = $1 GROUP BY tag ORDER BY count DESC, tag ASC`,
+      [request.user!.id],
+    );
+    return { tags: res.rows.map((r) => ({ tag: r.tag, count: Number(r.count) })) };
+  });
+
+  // Renames a tag everywhere it's used in one shot — the fix for a typo ("flght shot") or
+  // standardizing casing ("Flight Shot" -> "flight shot") without having to open every photo
+  // that has it individually. array_replace swaps every occurrence in each capture's own tags
+  // array; the DISTINCT re-aggregate afterward merges into the target tag rather than leaving a
+  // duplicate if a capture already happened to have both (e.g. renaming "flght shot" to "flight
+  // shot" on a photo that was already correctly tagged "flight shot" too).
+  app.patch<{ Body: { from: string; to: string } }>("/captures/tags/rename", { preHandler: requireAuth }, async (request, reply) => {
+    const userId = request.user!.id;
+    const from = request.body?.from?.trim();
+    const to = request.body?.to?.trim();
+    if (!from || !to) return reply.code(400).send({ error: "from and to are both required" });
+    if (from === to) return { ok: true, updated: 0 };
+
+    const res = await pool.query(
+      `UPDATE captures SET tags = (
+         SELECT array_agg(DISTINCT t ORDER BY t) FROM unnest(array_replace(tags, $1, $2)) AS t
+       ) WHERE user_id = $3 AND $1 = ANY(tags)`,
+      [from, to, userId],
+    );
+    return { ok: true, updated: res.rowCount ?? 0 };
+  });
+
+  // Deletes a tag everywhere it's used — for a genuine dud (a test tag, one that no longer
+  // means anything) rather than a typo that should become some other tag (see rename above).
+  app.delete<{ Body: { tag: string } }>("/captures/tags", { preHandler: requireAuth }, async (request, reply) => {
+    const userId = request.user!.id;
+    const tag = request.body?.tag?.trim();
+    if (!tag) return reply.code(400).send({ error: "tag is required" });
+
+    const res = await pool.query(
+      `UPDATE captures SET tags = array_remove(tags, $1) WHERE user_id = $2 AND $1 = ANY(tags)`,
+      [tag, userId],
+    );
+    return { ok: true, updated: res.rowCount ?? 0 };
+  });
 
   // "Delete Photo" — moves a capture to Trash rather than removing anything: sets
   // captures_all.deleted_at, which is all it takes for the auto-filtering `captures` view
@@ -335,14 +561,22 @@ export async function captureRoutes(app: FastifyInstance): Promise<void> {
       // cascade, so it must stop pointing at this capture's photo first, or the delete
       // fails. If the deleted capture's photo was the cover, point it at another remaining
       // capture (most recent, excluding this one), or drop back to "unseen" if none are left.
-      const coverRes = await client.query<{ cover_photo_id: string | null }>(
-        `SELECT cover_photo_id FROM user_species WHERE user_id = $1 AND species_id = $2`,
+      const coverRes = await client.query<{ cover_photo_id: string | null; is_target: boolean }>(
+        `SELECT cover_photo_id, is_target FROM user_species WHERE user_id = $1 AND species_id = $2`,
         [userId, capture.species_id],
       );
       if (coverRes.rows[0] && photosRes.rows.some((p) => p.id === coverRes.rows[0].cover_photo_id)) {
+        // A secondary (capture_species) tag on some OTHER capture is real evidence for this
+        // species too, same as a primary capture — checked alongside primary captures rather
+        // than just the latter, so deleting the species' only PRIMARY capture doesn't wipe its
+        // 'collected' state out from under a still-valid secondary tag elsewhere.
         const remaining = await client.query<{ current_photo_id: string | null }>(
-          `SELECT current_photo_id FROM captures WHERE user_id = $1 AND species_id = $2 AND id != $3
-           ORDER BY taken_at DESC NULLS LAST, created_at DESC LIMIT 1`,
+          `SELECT current_photo_id, taken_at FROM captures WHERE user_id = $1 AND species_id = $2 AND id != $3
+           UNION ALL
+           SELECT c.current_photo_id, c.taken_at FROM capture_species cs
+             JOIN captures c ON c.id = cs.capture_id
+             WHERE cs.species_id = $2 AND c.user_id = $1 AND c.id != $3
+           ORDER BY taken_at DESC NULLS LAST LIMIT 1`,
           [userId, capture.species_id, captureId],
         );
         if (remaining.rows[0]?.current_photo_id) {
@@ -351,11 +585,46 @@ export async function captureRoutes(app: FastifyInstance): Promise<void> {
              WHERE user_id = $2 AND species_id = $3`,
             [remaining.rows[0].current_photo_id, userId, capture.species_id],
           );
+        } else if (coverRes.rows[0].is_target) {
+          // is_target is independent of state/photos (species/routes.ts's own comment on it) —
+          // losing the species' last photo shouldn't silently drop an unrelated target flag, so
+          // only the now-meaningless state/cover/crop is cleared, mirroring the downgrade-not-
+          // delete rule DELETE /species/:id/target already enforces for the same invariant.
+          await client.query(
+            `UPDATE user_species SET state = NULL, cover_photo_id = NULL, card_crop_x = NULL, card_crop_y = NULL,
+               card_crop_size = NULL, best_quality = NULL WHERE user_id = $1 AND species_id = $2`,
+            [userId, capture.species_id],
+          );
         } else {
           await client.query(`DELETE FROM user_species WHERE user_id = $1 AND species_id = $2`, [
             userId,
             capture.species_id,
           ]);
+        }
+      }
+
+      // Same "fix the FK before deleting the row it points at" story as user_species above —
+      // albums.cover_photo_id (migration 071) has no ON DELETE clause at all, so purging a
+      // capture that happens to be one of the user's album covers would otherwise fail this
+      // whole transaction outright with a foreign-key violation, not just leave stale data.
+      // Repoint at that album's next-most-recent remaining capture, or clear it if none are left
+      // — same fallback shape ADD (album_captures) already uses to auto-pick a cover.
+      if (photosRes.rows.length > 0) {
+        const affectedAlbums = await client.query<{ id: string }>(
+          `SELECT id FROM albums WHERE user_id = $1 AND cover_photo_id = ANY($2)`,
+          [userId, photosRes.rows.map((p) => p.id)],
+        );
+        for (const album of affectedAlbums.rows) {
+          await client.query(
+            `UPDATE albums SET cover_photo_id = (
+               SELECT c.current_photo_id FROM album_captures ac
+                 JOIN captures c ON c.id = ac.capture_id
+                 WHERE ac.album_id = $1 AND ac.capture_id != $2 AND c.current_photo_id IS NOT NULL
+                 ORDER BY c.taken_at DESC NULLS LAST LIMIT 1
+             ), cover_crop_x = NULL, cover_crop_y = NULL, cover_crop_size = NULL
+             WHERE id = $1`,
+            [album.id, captureId],
+          );
         }
       }
 
@@ -444,13 +713,23 @@ export async function captureRoutes(app: FastifyInstance): Promise<void> {
       width: number | null;
       height: number | null;
       has_raw_original: boolean;
+      photo_kind: "image" | "video" | null;
+      duration_seconds: number | null;
+      original_kind: string | null;
     }>(
       `SELECT c.id, c.species_id, s.common_name, s.scientific_name, c.deleted_at, c.pending_delete_raw,
-              c.current_photo_id AS photo_id, p.width, p.height,
-              EXISTS (SELECT 1 FROM originals o WHERE o.capture_id = c.id AND o.kind = 'raw') AS has_raw_original
+              c.current_photo_id AS photo_id, p.width, p.height, p.kind AS photo_kind, p.duration_seconds,
+              EXISTS (SELECT 1 FROM originals o WHERE o.capture_id = c.id AND o.kind = 'raw') AS has_raw_original,
+              o.kind AS original_kind
        FROM captures_all c
        JOIN species s ON s.id = c.species_id
        LEFT JOIN photos p ON p.id = c.current_photo_id
+       -- Same jpeg-preferred tiebreak every other capture query here uses (SpeciesDetailPage's
+       -- own, GALLERY_ITEM_JOINS) — picks one original per capture instead of duplicating the
+       -- row when both a jpeg and a raw sibling exist.
+       LEFT JOIN LATERAL (
+         SELECT * FROM originals lo WHERE lo.capture_id = c.id ORDER BY (lo.kind = 'jpeg') DESC LIMIT 1
+       ) o ON true
        WHERE c.user_id = $1 AND c.deleted_at IS NOT NULL
        ORDER BY c.deleted_at DESC`,
       [userId],
@@ -467,6 +746,9 @@ export async function captureRoutes(app: FastifyInstance): Promise<void> {
         width: r.width,
         height: r.height,
         hasRawOriginal: r.has_raw_original,
+        kind: r.photo_kind ?? "image",
+        durationSeconds: r.duration_seconds,
+        originalKind: r.original_kind,
         purgesAt: new Date(new Date(r.deleted_at).getTime() + TRASH_RETENTION_DAYS * 24 * 60 * 60 * 1000).toISOString(),
       })),
     };
@@ -528,6 +810,76 @@ export async function captureRoutes(app: FastifyInstance): Promise<void> {
       // species — surface an empty list rather than a scary error the picker has to handle.
       request.log.warn({ err }, "Species suggestion failed");
       return { suggestions: [] };
+    }
+  });
+
+  // Same idea as /captures/suggest-species, for a video clip instead of a single photo — a
+  // still photo already IS the one moment someone chose to capture, but a clip is footage: the
+  // subject might only be clearly on-screen for part of it, mid-motion-blur in some frames,
+  // or out of frame entirely in others. Sampling several frames spread across the clip (with a
+  // little randomness within each spread-out slot, not the exact same fixed instant every
+  // time) and letting the BEST-matching one decide (see rankSpeciesByEmbeddings) covers that —
+  // a single frame grabbed at a fixed point (e.g. always exactly halfway) risks landing on
+  // exactly the one moment nothing is visible.
+  app.post("/captures/suggest-species-from-video", { preHandler: requireAuth }, async (request, reply) => {
+    const settingRes = await pool.query<{ species_suggest_enabled: boolean }>(`SELECT species_suggest_enabled FROM users WHERE id = $1`, [
+      request.user!.id,
+    ]);
+    if (settingRes.rows[0]?.species_suggest_enabled === false) return { suggestions: [] };
+
+    let fileBuffer: Buffer | null = null;
+    let regionId: string | null = null;
+    for await (const part of request.parts()) {
+      if (part.type === "file" && part.fieldname === "file") {
+        fileBuffer = await part.toBuffer();
+      } else if (part.type !== "file" && part.fieldname === "regionId") {
+        regionId = String(part.value) || null;
+      }
+    }
+    if (!fileBuffer) return reply.code(400).send({ error: "No file uploaded" });
+
+    // ffprobe/ffmpeg need a real file path, not a buffer — a scratch tmp file, same pattern
+    // /uploads/video already uses, cleaned up in `finally` below regardless of outcome.
+    const tmpDir = path.join(APP_DATA_DIR, "tmp");
+    mkdirSync(tmpDir, { recursive: true });
+    const tmpPath = path.join(tmpDir, `${randomUUID()}.suggest`);
+    writeFileSync(tmpPath, fileBuffer);
+
+    try {
+      const { durationSeconds } = await probeVideo(tmpPath);
+      const duration = durationSeconds && durationSeconds > 0.5 ? durationSeconds : 1;
+      // Up to 5 frames, spread across evenly-sized time buckets covering the WHOLE clip — a
+      // random point within each bucket (not each bucket's exact midpoint) so two imports of
+      // the same clip don't sample identically, while still guaranteeing the frames are spread
+      // apart rather than clustered. A short clip (under ~2s) gets fewer, since 5 buckets across
+      // 1 second would sample points barely a fifth of a second apart — not meaningfully
+      // different frames.
+      const frameCount = Math.max(1, Math.min(5, Math.floor(duration / 0.4)));
+      const bucketSeconds = duration / frameCount;
+      const timestamps = Array.from({ length: frameCount }, (_, i) => {
+        const bucketStart = i * bucketSeconds;
+        return bucketStart + Math.random() * bucketSeconds;
+      });
+
+      const embeddings: number[][] = [];
+      for (const t of timestamps) {
+        try {
+          const frame = await extractVideoFrame(tmpPath, t);
+          embeddings.push(await computeEmbedding(frame));
+        } catch {
+          // One unreadable timestamp (e.g. right at a keyframe boundary ffmpeg can't seek to
+          // cleanly) shouldn't sink the whole suggestion — the other sampled frames still stand.
+        }
+      }
+      if (embeddings.length === 0) return { suggestions: [] };
+
+      const suggestions = await rankSpeciesByEmbeddings(pool, request.user!.id, embeddings, regionId);
+      return { suggestions };
+    } catch (err) {
+      request.log.warn({ err }, "Video species suggestion failed");
+      return { suggestions: [] };
+    } finally {
+      rmSync(tmpPath, { force: true });
     }
   });
 

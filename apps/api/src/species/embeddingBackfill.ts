@@ -87,3 +87,65 @@ export async function runEmbeddingBackfill(): Promise<void> {
     embeddingBackfillJob.finishedAt = Date.now();
   }
 }
+
+// Species side of the same catch-up problem: a species enriched (built-in or Other Taxa) while
+// the embedding model wasn't downloaded gets its reference embedding skipped (see
+// lazyEnrich.ts's tryComputeReferenceEmbedding, best-effort by design). Previously this only
+// ever got fixed by manually re-running packages/data-pipeline's standalone
+// backfill-reference-embeddings.ts — ported here (same query/insert shape) so it can also run
+// automatically the moment the model actually becomes available, not just on manual invocation.
+interface SpeciesEmbeddingBackfillState {
+  running: boolean;
+  processed: number;
+  total: number;
+  error: string | null;
+  finishedAt: number | null;
+}
+
+export const speciesEmbeddingBackfillJob: SpeciesEmbeddingBackfillState = {
+  running: false,
+  processed: 0,
+  total: 0,
+  error: null,
+  finishedAt: null,
+};
+
+export async function runSpeciesEmbeddingBackfill(): Promise<void> {
+  if (speciesEmbeddingBackfillJob.running) return;
+  speciesEmbeddingBackfillJob.running = true;
+  speciesEmbeddingBackfillJob.error = null;
+  speciesEmbeddingBackfillJob.finishedAt = null;
+  speciesEmbeddingBackfillJob.processed = 0;
+
+  try {
+    const missingRes = await pool.query<{ id: string; reference_display_path: string }>(
+      `SELECT s.id, s.reference_display_path
+       FROM species s
+       LEFT JOIN species_reference_embeddings sre ON sre.species_id = s.id AND sre.model_version = $1
+       WHERE s.reference_display_path IS NOT NULL AND sre.species_id IS NULL`,
+      [EMBEDDING_MODEL_VERSION],
+    );
+    speciesEmbeddingBackfillJob.total = missingRes.rows.length;
+
+    const { readFile } = await import("node:fs/promises");
+    for (const row of missingRes.rows) {
+      try {
+        const embedding = await computeEmbedding(await readFile(row.reference_display_path));
+        await pool.query(
+          `INSERT INTO species_reference_embeddings (species_id, embedding, model_version)
+           VALUES ($1, $2, $3)
+           ON CONFLICT (species_id) DO UPDATE SET embedding = EXCLUDED.embedding, model_version = EXCLUDED.model_version, computed_at = now()`,
+          [row.id, embedding, EMBEDDING_MODEL_VERSION],
+        );
+      } catch {
+        // one unreadable/corrupt reference photo shouldn't stop the whole backfill
+      }
+      speciesEmbeddingBackfillJob.processed++;
+    }
+  } catch (err) {
+    speciesEmbeddingBackfillJob.error = (err as Error).message;
+  } finally {
+    speciesEmbeddingBackfillJob.running = false;
+    speciesEmbeddingBackfillJob.finishedAt = Date.now();
+  }
+}
