@@ -36,6 +36,7 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import readline from "node:readline";
 import { pool } from "../db.js";
+import { NO_RARITY_TIER_TAXON_CLASSES, type TaxonClass } from "@lifer/shared";
 import { fetchAllCountries } from "data-pipeline/src/fetch/fetch-region-boundary.js";
 import {
   exteriorRingsFromGeometry,
@@ -114,6 +115,90 @@ const FISH_CLASSES = new Set([
   "Holostei",
 ]);
 const BIRD_MAMMAL_CLASSES = new Set(["Aves", "Mammalia"]);
+
+// Reptiles, amphibians, and marine invertebrates — added so this script's own province-level
+// local_tier stops being birds/mammals/fish only (see this recompute's own tracked follow-up).
+// GBIF's raw occurrence `class` column is too coarse to bucket these correctly on its own: all
+// reptiles share one class ("Reptilia"), and Gastropoda alone spans two of our own taxon
+// groups (nudibranchs, marine_mollusks) — so this is only a cheap first-pass
+// ADMIT filter (skip the row entirely if its raw class isn't even one of these, same
+// "cheap check before expensive one" reasoning the original bird/mammal/fish gate already
+// uses), not the final bucket — the row-scan loop below resolves the real bucket via this app's
+// own species.taxon_class (already correctly assigned by enrichment) once a row clears this
+// gate. Best-effort GBIF backbone class names, not exhaustively verified against a live
+// download for every one of these — worth a spot-check against a real cached country zip if a
+// taxon's numbers look suspiciously thin after running this.
+const REPTILE_AMPHIBIAN_GBIF_CLASSES = new Set(["Reptilia", "Amphibia"]);
+const MARINE_INVERT_GBIF_CLASSES = new Set([
+  "Anthozoa", // corals + sea anemones
+  "Hydrozoa",
+  "Scyphozoa",
+  "Cubozoa",
+  "Staurozoa", // jellies_and_anemones (jellyfish side)
+  "Echinoidea",
+  "Asteroidea",
+  "Ophiuroidea",
+  "Holothuroidea",
+  "Crinoidea", // echinodermata
+  "Gastropoda", // nudibranchs / marine_mollusks — split by species lookup
+  "Bivalvia",
+  "Polyplacophora",
+  "Scaphopoda", // marine_mollusks
+  "Cephalopoda",
+  "Malacostraca",
+  "Maxillopoda",
+  "Branchiopoda",
+  "Ostracoda",
+  "Thecostraca", // crustacea
+  "Demospongiae",
+  "Hexactinellida",
+  "Calcarea",
+  "Homoscleromorpha", // sponges
+  "Ascidiacea", // tunicates — both fall under sponges_tunicates_other
+]);
+const EXTRA_ADMIT_GBIF_CLASSES = new Set([...REPTILE_AMPHIBIAN_GBIF_CLASSES, ...MARINE_INVERT_GBIF_CLASSES]);
+
+// Our own internal taxon_class values covered by the extra-admit classes above — used both to
+// validate a species-table lookup actually landed on one of these (not some unrelated taxon)
+// and to route them all to FISH_ABSOLUTE_TIER_THRESHOLDS below (this recompute's own starting
+// assumption: comparable data density/obscurity to fish, not birds/mammals — an interim value
+// pending real anchor-species calibration, same as this file's other interim constants).
+const NEW_OBSCURE_TAXON_CLASSES = new Set([
+  "squamata",
+  "testudines",
+  "amphibia",
+  "corals",
+  "jellies_and_anemones",
+  "echinodermata",
+  "nudibranchs",
+  "marine_mollusks",
+  "cephalopoda",
+  "crustacea",
+  "sponges_tunicates_other",
+]);
+
+let taxonClassByScientificNameCache: Map<string, string> | null = null;
+// Loaded once per script run (not per country) — species.taxon_class never changes mid-run, and
+// this is the only way to correctly bucket a Reptilia/Gastropoda/etc. occurrence row into one
+// of our own fine-grained taxon groups (see EXTRA_ADMIT_GBIF_CLASSES's own comment on why GBIF's
+// raw class can't do this alone).
+async function taxonClassByScientificName(): Promise<Map<string, string>> {
+  if (taxonClassByScientificNameCache) return taxonClassByScientificNameCache;
+  const res = await pool.query<{ scientific_name: string; taxon_class: string }>(
+    `SELECT scientific_name, taxon_class FROM species WHERE taxon_class = ANY($1)`,
+    [[...NEW_OBSCURE_TAXON_CLASSES]],
+  );
+  taxonClassByScientificNameCache = new Map(res.rows.map((r) => [r.scientific_name, r.taxon_class]));
+  return taxonClassByScientificNameCache;
+}
+
+// Bucket resolution itself is inlined directly in the row-scan loop below (same "cheap check
+// first" perf reasoning as the rest of that loop) rather than called through a helper here — for
+// birds/mammals/fish the resolved bucket is just the raw GBIF class unchanged, preserving every
+// existing FISH_CLASSES.has(cls)/cls === "Mammalia"/cls === "Aves" check elsewhere in this file
+// exactly as before. A row whose species isn't in our own table under one of
+// NEW_OBSCURE_TAXON_CLASSES (e.g. a Gastropoda record that's a land snail, not a nudibranch or
+// marine mollusk we actually track) resolves to null and gets skipped.
 
 // Hotspot clustering only uses records of a living, current-sighting bird/mammal/fish — not a
 // decades-old museum specimen, which isn't useful "go here today" trip-planning information
@@ -868,6 +953,7 @@ async function computeCountryProvinces(
     // on the OOM this replaced). Matched rows are written straight through as they're found;
     // nothing about a row survives past this loop iteration.
     const writeStreams = new Map(provinces.map((p) => [p.id, createWriteStream(partitionPaths.get(p.id)!)] as const));
+    const taxonClassByName = await taxonClassByScientificName();
 
     const unzipProc = spawn("unzip", ["-p", cachedZipPath]);
     // Exit code was never checked before — a corrupt/truncated zip makes `unzip -p` print an
@@ -901,9 +987,16 @@ async function computeCountryProvinces(
         continue;
       }
       rowCount++;
-      const cls = cols[colIndex.class] ?? "";
-      if (!BIRD_MAMMAL_CLASSES.has(cls) && !FISH_CLASSES.has(cls)) continue;
+      const rawClass = cols[colIndex.class] ?? "";
+      // Cheap check first, same reasoning as before this taxon expansion: a raw class that's
+      // neither a fast-path match (bird/mammal/fish) nor even in the broader admit list gets
+      // skipped before the species column is ever read — still true for the overwhelming
+      // majority of rows (insects, plants, fungi), which never match either set.
+      const isFastPathClass = BIRD_MAMMAL_CLASSES.has(rawClass) || FISH_CLASSES.has(rawClass);
+      if (!isFastPathClass && !EXTRA_ADMIT_GBIF_CLASSES.has(rawClass)) continue;
       const species = cols[colIndex.species];
+      const cls = isFastPathClass ? rawClass : taxonClassByName.get(species) ?? null;
+      if (!cls) continue;
       const lat = Number(cols[colIndex.decimallatitude]);
       const lon = Number(cols[colIndex.decimallongitude]);
       if (!species || !Number.isFinite(lat) || !Number.isFinite(lon)) continue;
@@ -1247,12 +1340,17 @@ async function computeCountryProvinces(
 
       const localTierBySpecies = new Map<string, string>();
       included.forEach((c, idx) => {
+        const cls = bySpecies.get(c.species)!.class;
+        // Marine invertebrates with no reliable data density to rank against (see
+        // NO_RARITY_TIER_TAXON_CLASSES's own comment) stay untiered here regardless of how much
+        // GBIF data this one province happens to have — a consistent "unrated" per taxon group
+        // beats a tier that's real in one well-recorded province and noise in the next.
+        if (NO_RARITY_TIER_TAXON_CLASSES.has(cls as TaxonClass)) return;
         const rangeScore = spreadScoreByIdx.get(idx) ?? 0.5;
         const abundanceScore = baseScoreByIdx.get(idx) ?? 0.5;
         const rawComposite =
           PROVINCE_RANGE_ABUNDANCE_WEIGHTS.range * rangeScore + PROVINCE_RANGE_ABUNDANCE_WEIGHTS.abundance * abundanceScore;
-        const cls = bySpecies.get(c.species)!.class;
-        const thresholds = FISH_CLASSES.has(cls)
+        const thresholds = FISH_CLASSES.has(cls) || NEW_OBSCURE_TAXON_CLASSES.has(cls)
           ? FISH_ABSOLUTE_TIER_THRESHOLDS
           : cls === "Mammalia"
             ? MAMMAL_ABSOLUTE_TIER_THRESHOLDS

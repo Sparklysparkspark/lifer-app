@@ -16,7 +16,6 @@ buildGenericTaxonSeed({
   buildIdEnvVar: "LIFER_BUILD_ID",
   defaultBuildId: "corals-dev",
   logPrefix: "build-seed-corals",
-  requireVisibilitySignal: true,
 }).catch((err) => {
   console.error(err);
   process.exit(1);

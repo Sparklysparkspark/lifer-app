@@ -41,6 +41,7 @@ import { fetchProvincesForCountry, fetchAllCountries } from "data-pipeline/src/f
 import { AVES_CLASS_KEY, MAMMALIA_CLASS_KEY } from "data-pipeline/src/fetch/fetch-gbif-backbone.js";
 import { fetchFishTaxonKeys } from "data-pipeline/src/fetch/fetch-fish-orders.js";
 import { matchedSpeciesIdsForRegion, resolveRemovalRescues } from "../scripts/inatChecklist.js";
+import { NO_RARITY_TIER_TAXON_CLASSES, type TaxonClass } from "@lifer/shared";
 import {
   bboxesNear,
   bboxContains,
@@ -782,7 +783,15 @@ export async function regionRoutes(app: FastifyInstance): Promise<void> {
            sv.label AS cover_volume_label
          FROM species_ids si
          JOIN species s ON s.id = si.species_id
-         LEFT JOIN region_species rs ON rs.species_id = s.id AND rs.region_id = ANY($2)
+         -- region_id = ANY($2) (countries only) matched a plain species fine, but a province-
+         -- level Other Taxa row (see species_ids' own UNION branch above) never lives on a
+         -- country id at all, so this join always missed it -- local_tier/is_vagrant/seasonality
+         -- silently came back null for every rolled-up Other Taxa species even though its real
+         -- region_species row exists. Matching against the whole region_tree (same set
+         -- species_ids already rolls up from) finds it; DISTINCT ON (s.id) below already exists
+         -- to arbitrarily pick one row for a species present in more than one place, same as any
+         -- other multi-region species this view aggregates.
+         LEFT JOIN region_species rs ON rs.species_id = s.id AND rs.region_id IN (SELECT id FROM region_tree)
          LEFT JOIN species_rarity r ON r.species_id = s.id
          LEFT JOIN species_traits t ON t.species_id = s.id
          LEFT JOIN user_species us ON us.user_id = $1 AND us.species_id = s.id
@@ -1464,6 +1473,10 @@ export async function computeRegionOccurrences(region: {
   const localTierByGbifKey = new Map<number, string>();
   boostedScores.forEach(({ gbifKey, score }) => {
     const taxonClass = taxonClassByGbifKey.get(gbifKey);
+    // Marine invertebrates with no reliable data density to rank against (see
+    // NO_RARITY_TIER_TAXON_CLASSES's own comment) stay untiered here too — same reasoning as
+    // compute-provinces-bulk.ts's own province-level computation.
+    if (taxonClass && NO_RARITY_TIER_TAXON_CLASSES.has(taxonClass as TaxonClass)) return;
     const thresholds = fishGbifKeys.has(gbifKey)
       ? FISH_ABSOLUTE_TIER_THRESHOLDS
       : taxonClass === "mammalia"
@@ -1580,10 +1593,14 @@ export async function computeRegionOccurrences(region: {
           const gbifKey = row.gbif_key != null ? Number(row.gbif_key) : null;
           const match = gbifKey != null ? byGbifKey.get(gbifKey) : undefined;
           // A species iNat confirms but the GBIF sweep never found (or that never cleared its
-          // own MIN_RECORDS floor) has no percentile score to rank — treated as the rarest
-          // bucket rather than left unrated, since "iNat found it, GBIF barely has it" is itself
-          // a strong hard-to-find signal, not an unknown.
-          const localTier = match ? localTierByGbifKey.get(match.gbifKey) ?? null : "legendary";
+          // own MIN_RECORDS floor) has no percentile score to rank. Used to default this to the
+          // rarest bucket ("iNat found it, GBIF barely has it" read as a strong hard-to-find
+          // signal) — confirmed live this was wrong: for marine invertebrates, where almost
+          // every checklist species only ever clears the bar via this exact iNat-only path, it
+          // collapsed an entire taxon group to "legendary" uniformly, which reads as broken, not
+          // informative. Left unrated (null) now, same as any other species with no percentile
+          // score to rank.
+          const localTier = match ? localTierByGbifKey.get(match.gbifKey) ?? null : null;
           await client.query(
             `INSERT INTO region_species (region_id, species_id, local_frequency, seasonality, local_tier, is_vagrant)
              VALUES ($1,$2,$3,$4,$5,$6)

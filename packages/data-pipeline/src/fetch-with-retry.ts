@@ -12,7 +12,14 @@ const MAX_DELAY_MS = 60_000;
 // Is." left fetch() pending indefinitely, silently freezing an entire multi-day 249-country
 // reconcile run on country #14) hung forever instead of ever reaching the retry logic below.
 // This bounds every individual attempt so a stuck request becomes a retryable failure instead.
-const REQUEST_TIMEOUT_MS = 30_000;
+// 30s, then 60s, both proved too short for a different, genuine problem: GBIF's own
+// species/search backend gets slower the deeper an offset-based page reaches into a big
+// order (confirmed by hand with a raw curl against offset=10200 of Neogastropoda's ~26k
+// species, PAGE_SIZE=300 in fetch-gbif-backbone.ts -- GBIF itself took over 90s to generate
+// that one page, not a network hang or a proxy issue). Since this is a real, disclosed cost
+// of GBIF's deep pagination (likely to recur, and possibly worse at even deeper offsets, not
+// a one-off), 180s gives real headroom rather than chasing the exact number GBIF needs.
+const REQUEST_TIMEOUT_MS = 180_000;
 
 // Persistent raw-response cache (migration 040) — every GET call through this function (GBIF
 // occurrence/species-count/seasonality/year-facet queries, the bulk of build-region-species.ts)
@@ -44,6 +51,33 @@ async function setCached(url: string, response: string): Promise<void> {
   }
 }
 
+// AbortSignal.timeout() proved not to be a reliable backstop on its own. Confirmed live: a
+// request against GBIF stalled (an established TCP connection that simply stopped sending
+// data, never closing either) for nearly two hours without the 180s timeout ever firing,
+// while a plain `curl` against the identical URL completed normally in under two minutes. Not
+// a timer-pausing issue either (caffeinate's own uptime confirmed the machine never slept).
+// Racing the fetch against an independent timeout promise, instead of trusting fetch() to
+// actually honor an abort signal, means this code moves on and retries even in whatever edge
+// case left that abort signal not doing anything. The orphaned fetch (and its still-open
+// socket) is leaked rather than cleaned up, but a leaked in-flight request is a far smaller
+// problem than the entire multi-hour pipeline silently never coming back at all.
+class FetchTimeoutError extends Error {}
+async function fetchWithHardTimeout(url: string, init: RequestInit, timeoutMs: number): Promise<Response> {
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout>;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      controller.abort();
+      reject(new FetchTimeoutError(`fetch timed out after ${timeoutMs}ms: ${url}`));
+    }, timeoutMs);
+  });
+  try {
+    return await Promise.race([fetch(url, { ...init, signal: controller.signal }), timeout]);
+  } finally {
+    clearTimeout(timer!);
+  }
+}
+
 export async function fetchWithRetry(url: string, init: RequestInit): Promise<Response> {
   const cacheable = !init.method || init.method === "GET";
   if (cacheable) {
@@ -56,7 +90,7 @@ export async function fetchWithRetry(url: string, init: RequestInit): Promise<Re
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     let res: Response;
     try {
-      res = await fetch(url, { ...init, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+      res = await fetchWithHardTimeout(url, init, REQUEST_TIMEOUT_MS);
     } catch (err) {
       // A dropped connection (e.g. "SocketError: other side closed") throws instead of
       // resolving to a Response at all — GBIF's own infra does this often enough on large

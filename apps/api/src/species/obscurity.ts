@@ -3,9 +3,15 @@ import { pool } from "../db.js";
 // Shared "hide obscure/inaccessible species" rule for checklist endpoints (regions/routes.ts,
 // collection/routes.ts) — a species is obscure if it's too deep for the given depth cutoff
 // (fish only; species_traits.depth_min_m), historically unfindable (species_traits
-// occurrence_count < 20 or last_occurrence_year < 1950), or has no photo anywhere from
-// enrichment (s.reference_photo, distinct from the locally-cached reference_display_path).
-// Species missing traits entirely are never hidden — absence of evidence isn't obscurity.
+// occurrence_count < 20 or last_occurrence_year < 1950), or has no photo at all, from either
+// enrichment (s.reference_photo, the remote source URL) or a downloaded pack (s.reference_
+// display_path, the locally-cached file). Confirmed live: a species enriched only via an
+// offline pack (never through the catalog seed or a live lazy-enrichment fetch) has a real,
+// visible local photo but reference_photo stays NULL forever — applyChecklist's own species
+// UPDATE never sets that column, only the local path ones — so checking reference_photo alone
+// wrongly hid the vast majority of a downloaded pack's species (BC's birds: 484 of 498) the
+// moment "Hide Obscure/Inaccessible Species" (on by default) was active. Species missing
+// traits entirely are never hidden — absence of evidence isn't obscurity.
 // A boolean expression, not a full WHERE clause: callers LEFT JOIN species_traits AS t and
 // wrap in NOT(...) to hide obscure species, or skip it to reveal them.
 export const RECREATIONAL_MAX_DEPTH_M = 60; // realistic no-trimix recreational scuba range
@@ -23,7 +29,7 @@ export function obscureSpeciesSql(maxDepthM: number): string {
     (s.taxon_class = 'actinopterygii' AND t.depth_min_m IS NOT NULL AND t.depth_min_m >= ${maxDepthM})
     OR (t.occurrence_count IS NOT NULL AND t.occurrence_count < 20)
     OR (t.last_occurrence_year IS NOT NULL AND t.last_occurrence_year < 1950)
-    OR s.reference_photo IS NULL
+    OR (s.reference_photo IS NULL AND s.reference_display_path IS NULL)
   )
 )`;
 }

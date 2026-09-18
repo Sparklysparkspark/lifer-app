@@ -14,7 +14,6 @@ buildGenericTaxonSeed({
   buildIdEnvVar: "LIFER_BUILD_ID",
   defaultBuildId: "nudibranchs-dev",
   logPrefix: "build-seed-nudibranchs",
-  requireVisibilitySignal: true,
 }).catch((err) => {
   console.error(err);
   process.exit(1);
