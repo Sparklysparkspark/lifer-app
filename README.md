@@ -26,6 +26,33 @@ your whole library stays on hardware you control.
 The rarity tier is meant to approximate how hard it is to go find the subject to photograph, it
 doesn't reflect how rare or endangered it actually is.
 
+## How it works
+
+1. **Download a region's pack** from Settings → Offline packs before you shoot there. A region
+   only shows real reference photos and habitat info once its pack is downloaded; you can still
+   search a species by name without one, but its detail page won't have much to show you yet.
+2. **Browse that region's checklist** to see what you still need, then add photos one of three
+   ways depending on how much you're adding at once:
+   - **A species page's Upload button** for a photo (or a few) of one specific species.
+   - **Import** for a batch from a shoot, where you assign a species to each photo afterward.
+   - **Trips** for a whole folder from an outing. It references the files in place rather than
+     copying them in, and a rescan later picks up anything new (and matching RAWs) automatically.
+
+   Whichever you use, add a RAW alongside its edited JPEG (or on its own) and Lifer links them by
+   filename and capture time automatically; a RAW that doesn't match anything already uploaded is
+   just left alone rather than guessed at.
+3. **Browse everything you've shot** in the Gallery, searchable by species name, camera details
+   ("600mm"), or a natural-language description of the shot ("fox playing"). Group favorites into
+   an Album, and check Stats for a breakdown by gear, species, and year.
+
+Every original lands in a real folder on disk, grouped by taxon then species, so your library
+stays usable outside Lifer too:
+
+```
+Lifer Photos/Birds/<species name>/Adjusted/<your edited JPEG>
+Lifer Photos/Birds/<species name>/RAW/<matching RAW file>
+```
+
 ## Features
 
 - **Region checklists**: browse by country, province/state, or a nearby marine zone for fish,
@@ -64,13 +91,12 @@ more taxonomic groups (reptiles, amphibians, marine invertebrates, and others) b
 
 ## Screenshots
 
-<!--
-  TODO: drop screenshots into ./assets/screenshots/ and reference them below, e.g.:
-  ![Collection view](./assets/screenshots/collection.png)
-  ![Species detail](./assets/screenshots/species-detail.png)
-  ![Gallery](./assets/screenshots/gallery.png)
-  ![Stats](./assets/screenshots/stats.png)
--->
+![Collection view](./assets/Collection%20View.png)
+![Species detail](./assets/Detail%20View.png)
+![Import](./assets/Import.png)
+![Gallery](./assets/Gallery.png)
+![Offline Packs](./assets/Offline%20Packs.png)
+![Stats](./assets/Stats.png)
 
 ## Which one do you want?
 
