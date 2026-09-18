@@ -799,19 +799,19 @@ export default function SpeciesDetailPage() {
             </div>
           </div>
           {addingToRegion && (
-            <div className="flex items-center gap-2 rounded-lg border border-line bg-surface p-3 text-sm">
-              <div className="w-56">
+            <div className="flex flex-wrap items-center gap-2 rounded-lg border border-line bg-surface p-3 text-sm">
+              <div className="min-w-0 flex-1">
                 <RegionBrowser regionId={addRegionId} onChange={setAddRegionId} allowAnyRegion />
               </div>
               <button
                 onClick={addToAnotherRegion}
                 disabled={!addRegionId || addRegionStatus === "saving"}
-                className="rounded-md bg-accent px-3 py-1.5 text-xs text-accent-fg disabled:opacity-40"
+                className="shrink-0 rounded-md bg-accent px-3 py-1.5 text-xs text-accent-fg disabled:opacity-40"
               >
                 {addRegionStatus === "saving" ? "Adding…" : "Add"}
               </button>
-              {addRegionStatus === "done" && <span className="text-xs text-muted">Added.</span>}
-              {addRegionStatus === "error" && <span className="text-xs text-red-600">Couldn't add. Try again.</span>}
+              {addRegionStatus === "done" && <span className="shrink-0 text-xs text-muted">Added.</span>}
+              {addRegionStatus === "error" && <span className="shrink-0 text-xs text-red-600">Couldn't add. Try again.</span>}
             </div>
           )}
           {!galleryView &&
