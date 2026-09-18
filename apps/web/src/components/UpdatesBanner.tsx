@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { api } from "../api/client";
+import { usePackDownloadStatus } from "../hooks/usePackDownloadStatus";
 
 const DISMISSED_KEY = "lifer-dismissed-updates";
 const GITHUB_REPO = "Sparklysparkspark/lifer-app";
@@ -52,6 +53,31 @@ export default function UpdatesBanner() {
   const [appVersion, setAppVersion] = useState<string | null>(null);
   const [packSummary, setPackSummary] = useState<PackUpdatesSummary | null>(null);
   const [dismissed, setDismissed] = useState(false);
+  // Server-truth job status — lets this banner reflect a pack update in progress (started from
+  // here, from Settings, or from the Offline Packs page) instead of only knowing about the
+  // stale "N updates available" count from the last updates-summary fetch.
+  const downloadStatus = usePackDownloadStatus();
+
+  function refetchPackSummary() {
+    api
+      .get<PackUpdatesSummary>("/offline-packs/updates-summary")
+      .then((res) => setPackSummary(res.updateCount > 0 ? res : null))
+      .catch(() => {
+        // Silent — same reasoning as the mount-time fetch below.
+      });
+  }
+
+  // Refetch the instant a job we can see finishes, rather than waiting for the user to leave
+  // the Offline Packs page or reload — this is what makes the pill actually clear once an
+  // update kicked off from HERE (or from Settings) completes, instead of it sitting there
+  // advertising updates that already downloaded.
+  const wasRunning = useRef(false);
+  useEffect(() => {
+    if (downloadStatus === null) return;
+    if (wasRunning.current && !downloadStatus.running) refetchPackSummary();
+    wasRunning.current = downloadStatus.running;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [downloadStatus?.running]);
 
   useEffect(() => {
     if (!online) return;
@@ -140,17 +166,24 @@ export default function UpdatesBanner() {
           See what's new
         </a>
       )}
-      {showPacks && packSummary && (
-        <Link
-          to="/offline-packs"
-          onClick={async () => {
-            await api.post("/offline-packs/download", { packIds: packSummary.packIds });
-          }}
-          className="font-medium text-accent hover:underline"
-        >
-          Update all packs
-        </Link>
-      )}
+      {showPacks &&
+        packSummary &&
+        (downloadStatus?.running ? (
+          <span className="font-medium text-muted">
+            <span className="mr-1 inline-block h-3 w-3 animate-spin rounded-full border-2 border-accent/40 border-t-accent align-[-2px]" />
+            Updating{downloadStatus.total > 0 ? ` ${downloadStatus.processed}/${downloadStatus.total}` : ""}…
+          </span>
+        ) : (
+          <Link
+            to="/offline-packs"
+            onClick={async () => {
+              await api.post("/offline-packs/download", { packIds: packSummary.packIds });
+            }}
+            className="font-medium text-accent hover:underline"
+          >
+            Update all packs
+          </Link>
+        ))}
       <button
         type="button"
         onClick={() => {

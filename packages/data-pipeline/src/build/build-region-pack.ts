@@ -36,7 +36,7 @@ import {
   parseWktPolygonRing,
   type BoundingBox,
 } from "../geometry.js";
-import { sanitize, regionPackFileName, seaZonePackFileName } from "./pack-id.js";
+import { sanitize, regionPackFileName, seaZonePackFileName, type PackVariant } from "./pack-id.js";
 
 // Hash of everything in the manifest EXCEPT generatedAt (a fresh timestamp every run would
 // otherwise make every rebuild look like a content change) — see build-pack-index.ts and
@@ -67,12 +67,10 @@ const TAXON_CLASSES = [
   "amphibia",
   "squamata",
   "testudines",
-  "crocodylia",
   "corals",
   "jellies_and_anemones",
   "echinodermata",
   "nudibranchs",
-  "collector_shells",
   "marine_mollusks",
   "cephalopoda",
   "crustacea",
@@ -94,6 +92,40 @@ interface ManifestSpecies {
   referenceLicense: string | null;
   displayFile: string | null;
   thumbFile: string | null;
+  // The full reference-photo gallery (species_reference_photos), not just the single main
+  // photo above: a self-hosted install used to only ever get the gallery's ROW data (and
+  // only then via the separate, one-time catalog seed, never a region pack), with the actual
+  // image files never bundled anywhere at all. That left every gallery photo dependent on a
+  // live hotlink to Wikimedia/iNaturalist forever, which defeats the entire point of an
+  // offline pack, and a species page should work with no network connection the same way its
+  // main photo already does. Undefined/omitted for a species with no gallery photos.
+  gallery?: Array<{
+    photoUrl: string;
+    credit: string;
+    license: string;
+    sortOrder: number;
+    focalX: number | null;
+    focalY: number | null;
+    displayFile: string | null;
+    thumbFile: string | null;
+    // Per-gallery-photo auto-suggest vector (species_reference_gallery_embeddings), shipped
+    // in BOTH pack variants, same reasoning as the species-level embedding field below:
+    // matching a candidate photo against several reference poses (not just the one main photo)
+    // catches real photos taken at a different angle from that single reference image, which
+    // otherwise could legitimately score below the confidence cutoff despite being an obvious
+    // match to a human. Omitted for a gallery photo that hasn't been embedded yet.
+    embedding?: number[];
+    embeddingModelVersion?: string;
+  }>;
+  // The species' auto-suggest reference vector (species_reference_embeddings), computed
+  // once, server-side, synchronously with enrichment (see lazyEnrich.ts), yet never actually
+  // shipped anywhere before this: not in a region pack (this file had no embedding code at
+  // all), and not even in the one-time catalog seed despite a comment there claiming it was.
+  // Bundling it here means a freshly downloaded region's species are suggestion-ready
+  // immediately, with no separate backfill step the desktop app never runs on its own.
+  // Omitted for a species that hasn't been embedded yet.
+  embedding?: number[];
+  embeddingModelVersion?: string;
   // Checklist membership itself, not just enrichment content — this is what lets a
   // self-hosted install populate a region's checklist from the pack alone, with no live GBIF
   // call ever needed at request time (see offlinePacks/routes.ts's applyPack, which upserts
@@ -120,6 +152,7 @@ interface ManifestSpecies {
 }
 
 interface SpeciesRow {
+  id: string;
   scientific_name: string;
   common_name: string | null;
   habitat_description: string | null;
@@ -179,13 +212,96 @@ async function nearbyZonesForRegion(boundaryGeoJson: {
     .map((z) => ({ id: z.id, name: z.name }));
 }
 
+interface GalleryPhotoRaw {
+  photoUrl: string;
+  credit: string;
+  license: string;
+  sortOrder: number;
+  focalX: number | null;
+  focalY: number | null;
+  displayPath: string | null;
+  thumbPath: string | null;
+  embedding: number[] | null;
+  embeddingModelVersion: string | null;
+}
+
+interface EmbeddingRaw {
+  embedding: number[];
+  modelVersion: string;
+}
+
+// Batch-fetched once per call site (not per species; see this file's own pattern for
+// hotspots) and matched back onto each row by scientific_name, the same cross-install
+// identity every other pack field already uses. Both queries no-op cleanly on an empty
+// speciesIds array (an ANY($1) over an empty array matches nothing, not an error).
+async function fetchGalleryAndEmbeddings(
+  speciesIds: string[],
+): Promise<{ galleryByScientificName: Map<string, GalleryPhotoRaw[]>; embeddingByScientificName: Map<string, EmbeddingRaw> }> {
+  const galleryByScientificName = new Map<string, GalleryPhotoRaw[]>();
+  const galleryRes = await pool.query<{
+    scientific_name: string;
+    photo_url: string;
+    credit: string;
+    license: string;
+    sort_order: number;
+    focal_x: string | null;
+    focal_y: string | null;
+    display_path: string | null;
+    thumb_path: string | null;
+    embedding: number[] | null;
+    embedding_model_version: string | null;
+  }>(
+    `SELECT s.scientific_name, p.photo_url, p.credit, p.license, p.sort_order, p.focal_x, p.focal_y, p.display_path, p.thumb_path,
+            ge.embedding, ge.model_version AS embedding_model_version
+     FROM species_reference_photos p
+     JOIN species s ON s.id = p.species_id
+     LEFT JOIN species_reference_gallery_embeddings ge ON ge.reference_photo_id = p.id
+     WHERE p.species_id = ANY($1)
+     ORDER BY p.species_id, p.sort_order`,
+    [speciesIds],
+  );
+  for (const row of galleryRes.rows) {
+    if (!galleryByScientificName.has(row.scientific_name)) galleryByScientificName.set(row.scientific_name, []);
+    galleryByScientificName.get(row.scientific_name)!.push({
+      photoUrl: row.photo_url,
+      credit: row.credit,
+      license: row.license,
+      sortOrder: row.sort_order,
+      focalX: row.focal_x != null ? Number(row.focal_x) : null,
+      focalY: row.focal_y != null ? Number(row.focal_y) : null,
+      displayPath: row.display_path,
+      thumbPath: row.thumb_path,
+      embedding: row.embedding,
+      embeddingModelVersion: row.embedding_model_version,
+    });
+  }
+
+  const embeddingByScientificName = new Map<string, EmbeddingRaw>();
+  const embeddingRes = await pool.query<{ scientific_name: string; embedding: number[]; model_version: string }>(
+    `SELECT s.scientific_name, e.embedding, e.model_version
+     FROM species_reference_embeddings e
+     JOIN species s ON s.id = e.species_id
+     WHERE e.species_id = ANY($1)`,
+    [speciesIds],
+  );
+  for (const row of embeddingRes.rows) {
+    embeddingByScientificName.set(row.scientific_name, { embedding: row.embedding, modelVersion: row.model_version });
+  }
+
+  return { galleryByScientificName, embeddingByScientificName };
+}
+
 function packSpecies(
   stagingDir: string,
   rows: SpeciesRow[],
   hotspotsByScientificName?: Map<string, ManifestSpecies["hotspots"]>,
-): { manifestSpecies: ManifestSpecies[]; photoCount: number } {
+  galleryByScientificName?: Map<string, GalleryPhotoRaw[]>,
+  embeddingByScientificName?: Map<string, EmbeddingRaw>,
+  variant: PackVariant = "full",
+): { manifestSpecies: ManifestSpecies[]; photoCount: number; galleryPhotoCount: number } {
   const manifestSpecies: ManifestSpecies[] = [];
   let photoCount = 0;
+  let galleryPhotoCount = 0;
   for (const row of rows) {
     // Every checklist member ships, enriched or not — the pack is now the sole source of
     // checklist membership for a self-hosted install (no live GBIF fallback), so a species
@@ -204,6 +320,39 @@ function packSpecies(
       copyFileSync(row.reference_thumb_path, path.join(stagingDir, thumbFile));
     }
 
+    // Fetched regardless of variant now: a "small" pack still ships every gallery photo's
+    // embedding (a few KB each), it just skips copying the image files themselves below.
+    const galleryRaw = galleryByScientificName?.get(row.scientific_name) ?? [];
+    const gallery: ManifestSpecies["gallery"] = [];
+    for (const g of galleryRaw) {
+      let gDisplayFile: string | null = null;
+      let gThumbFile: string | null = null;
+      if (variant !== "small") {
+        if (g.displayPath && existsSync(g.displayPath)) {
+          gDisplayFile = `photos/${key}.gallery-${g.sortOrder}.display.webp`;
+          copyFileSync(g.displayPath, path.join(stagingDir, gDisplayFile));
+          galleryPhotoCount++;
+        }
+        if (g.thumbPath && existsSync(g.thumbPath)) {
+          gThumbFile = `photos/${key}.gallery-${g.sortOrder}.thumb.webp`;
+          copyFileSync(g.thumbPath, path.join(stagingDir, gThumbFile));
+        }
+      }
+      gallery.push({
+        photoUrl: g.photoUrl,
+        credit: g.credit,
+        license: g.license,
+        sortOrder: g.sortOrder,
+        focalX: g.focalX,
+        focalY: g.focalY,
+        displayFile: gDisplayFile,
+        thumbFile: gThumbFile,
+        ...(g.embedding && g.embeddingModelVersion && { embedding: g.embedding, embeddingModelVersion: g.embeddingModelVersion }),
+      });
+    }
+
+    const embeddingEntry = embeddingByScientificName?.get(row.scientific_name);
+
     manifestSpecies.push({
       scientificName: row.scientific_name,
       commonName: row.common_name,
@@ -212,6 +361,8 @@ function packSpecies(
       referenceLicense: row.reference_license,
       displayFile,
       thumbFile,
+      ...(gallery.length > 0 && { gallery }),
+      ...(embeddingEntry && { embedding: embeddingEntry.embedding, embeddingModelVersion: embeddingEntry.modelVersion }),
       ...(row.local_frequency !== undefined && { localFrequency: row.local_frequency != null ? Number(row.local_frequency) : null }),
       ...(row.seasonality !== undefined && { seasonality: row.seasonality }),
       ...(row.local_tier !== undefined && { localTier: row.local_tier }),
@@ -223,7 +374,7 @@ function packSpecies(
       }),
     });
   }
-  return { manifestSpecies, photoCount };
+  return { manifestSpecies, photoCount, galleryPhotoCount };
 }
 
 // Uncompressed byte counts for the two things that actually make up a pack's size — photos
@@ -247,7 +398,7 @@ async function writeArchive(stagingDir: string, outDir: string, archiveName: str
   return statSync(archivePath).size;
 }
 
-async function buildSeaZonePack(zoneName: string, outDir: string, taxon: TaxonClass | null): Promise<void> {
+async function buildSeaZonePack(zoneName: string, outDir: string, taxon: TaxonClass | null, variant: PackVariant = "full"): Promise<void> {
   const zoneRes = await pool.query<{ id: string }>(`SELECT id FROM sea_zones WHERE name = $1`, [zoneName]);
   const zone = zoneRes.rows[0];
   if (!zone) {
@@ -257,7 +408,7 @@ async function buildSeaZonePack(zoneName: string, outDir: string, taxon: TaxonCl
 
   const taxonFilter = taxon ? `AND s.taxon_class = '${taxon}'` : "";
   const speciesRes = await pool.query<SpeciesRow>(
-    `SELECT s.scientific_name, s.common_name, s.habitat_description,
+    `SELECT s.id, s.scientific_name, s.common_name, s.habitat_description,
             s.reference_display_path, s.reference_thumb_path, s.reference_credit, s.reference_license,
             zs.record_count
      FROM sea_zone_species zs
@@ -276,15 +427,18 @@ async function buildSeaZonePack(zoneName: string, outDir: string, taxon: TaxonCl
   }
 
   const suffix = taxon ? `-${taxon}` : "";
-  const stagingDir = path.join(outDir, `.staging-seazone-${sanitize(zoneName)}${suffix}`);
+  const variantSuffix = variant === "small" ? "-small" : "";
+  const stagingDir = path.join(outDir, `.staging-seazone-${sanitize(zoneName)}${suffix}${variantSuffix}`);
   rmSync(stagingDir, { recursive: true, force: true });
   mkdirSync(path.join(stagingDir, "photos"), { recursive: true });
 
-  const { manifestSpecies, photoCount } = packSpecies(stagingDir, speciesRes.rows);
+  const { galleryByScientificName, embeddingByScientificName } = await fetchGalleryAndEmbeddings(speciesRes.rows.map((r) => r.id));
+  const { manifestSpecies, photoCount } = packSpecies(stagingDir, speciesRes.rows, undefined, galleryByScientificName, embeddingByScientificName, variant);
   const manifestCore = {
     type: "seaZone",
     seaZone: zoneName,
     taxon,
+    variant,
     speciesCount: manifestSpecies.length,
     species: manifestSpecies,
   };
@@ -295,9 +449,17 @@ async function buildSeaZonePack(zoneName: string, outDir: string, taxon: TaxonCl
     photoBytes: photoBytesInStaging(stagingDir),
     checklistBytes: Buffer.byteLength(JSON.stringify(manifestCore)),
   };
-  writeFileSync(path.join(stagingDir, "manifest.json"), JSON.stringify(manifest, null, 2));
+  // Compact, not pretty-printed: manifest.json is machine-read only, never hand-edited, and
+  // pretty-printing a large numeric array (a gallery photo's own embedding, now duplicated once
+  // per province a species appears in) adds a newline+indent per float, not per array -- enough
+  // overhead on top of the embeddings themselves to push a big taxon's manifest (aves: ~631
+  // species x up to 6 gallery photos x 768 floats, times every province each species appears in)
+  // past V8's own JSON.stringify string-length ceiling. Confirmed live: this crashed building
+  // Canada's aves pack with "RangeError: Invalid string length" the first time gallery photos
+  // shipped their own embeddings.
+  writeFileSync(path.join(stagingDir, "manifest.json"), JSON.stringify(manifest));
 
-  const archiveName = seaZonePackFileName(zoneName, taxon);
+  const archiveName = seaZonePackFileName(zoneName, taxon, variant);
   const sizeMb = (await writeArchive(stagingDir, outDir, archiveName)) / 1024 / 1024;
   console.log(`[build-region-pack] sea zone "${zoneName}"${suffix}: ${manifestSpecies.length} species (${photoCount} with photos)`);
   console.log(`[build-region-pack] wrote ${path.join(outDir, archiveName)} (${sizeMb.toFixed(1)} MB)`);
@@ -322,6 +484,7 @@ interface ManifestChildRegion {
 async function fetchChildRegionsWithSpecies(
   parentId: string,
   taxonFilter: string,
+  variant: PackVariant = "full",
 ): Promise<ManifestChildRegion[]> {
   const childrenRes = await pool.query<{
     id: string;
@@ -339,7 +502,7 @@ async function fetchChildRegionsWithSpecies(
   const children: ManifestChildRegion[] = [];
   for (const child of childrenRes.rows) {
     const childSpeciesRes = await pool.query<SpeciesRow>(
-      `SELECT s.scientific_name, s.common_name, s.habitat_description,
+      `SELECT s.id, s.scientific_name, s.common_name, s.habitat_description,
               s.reference_display_path, s.reference_thumb_path, s.reference_credit, s.reference_license,
               rs.local_frequency, rs.seasonality, rs.local_tier, rs.is_vagrant, rs.weekly_frequency
        FROM region_species rs
@@ -381,7 +544,17 @@ async function fetchChildRegionsWithSpecies(
     }
     // Reuses the parent's own staging/photos dir — a species shared between the country and
     // one of its provinces (the common case) writes its photo once, not once per region.
-    const { manifestSpecies } = packSpecies(currentStagingDir, childSpeciesRes.rows, hotspotsByScientificName);
+    const { galleryByScientificName, embeddingByScientificName } = await fetchGalleryAndEmbeddings(
+      childSpeciesRes.rows.map((r) => r.id),
+    );
+    const { manifestSpecies } = packSpecies(
+      currentStagingDir,
+      childSpeciesRes.rows,
+      hotspotsByScientificName,
+      galleryByScientificName,
+      embeddingByScientificName,
+      variant,
+    );
     children.push({
       name: child.name,
       ebirdRegionCode: child.ebird_region_code,
@@ -398,7 +571,7 @@ async function fetchChildRegionsWithSpecies(
 // can share the same photos/ staging directory without threading it through every call.
 let currentStagingDir = "";
 
-async function buildRegionPack(regionName: string, outDir: string, taxon: TaxonClass | null): Promise<void> {
+async function buildRegionPack(regionName: string, outDir: string, taxon: TaxonClass | null, variant: PackVariant = "full"): Promise<void> {
   const regionRes = await pool.query<{ id: string; boundary_geojson: unknown }>(
     `SELECT id, boundary_geojson FROM regions WHERE name = $1`,
     [regionName],
@@ -411,7 +584,7 @@ async function buildRegionPack(regionName: string, outDir: string, taxon: TaxonC
 
   const taxonFilter = taxon ? `AND s.taxon_class = '${taxon}'` : "";
   const speciesRes = await pool.query<SpeciesRow>(
-    `SELECT s.scientific_name, s.common_name, s.habitat_description,
+    `SELECT s.id, s.scientific_name, s.common_name, s.habitat_description,
             s.reference_display_path, s.reference_thumb_path, s.reference_credit, s.reference_license,
             rs.local_frequency, rs.seasonality, rs.local_tier, rs.is_vagrant, rs.weekly_frequency
      FROM region_species rs
@@ -439,17 +612,20 @@ async function buildRegionPack(regionName: string, outDir: string, taxon: TaxonC
     : [];
 
   const suffix = taxon ? `-${taxon}` : "";
-  const stagingDir = path.join(outDir, `.staging-${sanitize(regionName)}${suffix}`);
+  const variantSuffix = variant === "small" ? "-small" : "";
+  const stagingDir = path.join(outDir, `.staging-${sanitize(regionName)}${suffix}${variantSuffix}`);
   rmSync(stagingDir, { recursive: true, force: true });
   mkdirSync(path.join(stagingDir, "photos"), { recursive: true });
   currentStagingDir = stagingDir;
 
-  const { manifestSpecies, photoCount } = packSpecies(stagingDir, speciesRes.rows);
-  const children = await fetchChildRegionsWithSpecies(region.id, taxonFilter);
+  const { galleryByScientificName, embeddingByScientificName } = await fetchGalleryAndEmbeddings(speciesRes.rows.map((r) => r.id));
+  const { manifestSpecies, photoCount } = packSpecies(stagingDir, speciesRes.rows, undefined, galleryByScientificName, embeddingByScientificName, variant);
+  const children = await fetchChildRegionsWithSpecies(region.id, taxonFilter, variant);
   const manifestCore = {
     type: "region",
     region: regionName,
     taxon,
+    variant,
     speciesCount: manifestSpecies.length,
     species: manifestSpecies,
     // Provinces/states this country's install can already show once this pack applies —
@@ -462,7 +638,7 @@ async function buildRegionPack(regionName: string, outDir: string, taxon: TaxonC
     // etc.) — those are independent downloads a user opts into separately. An "all taxa"
     // country build (taxon === null) still depends on the "all taxa" sea zone pack, which
     // covers every taxon in that zone at once, same as before this taxon-scoping existed.
-    seaZoneDependencies: seaZones.map((z) => ({ name: z.name, packFile: seaZonePackFileName(z.name, taxon) })),
+    seaZoneDependencies: seaZones.map((z) => ({ name: z.name, packFile: seaZonePackFileName(z.name, taxon, variant) })),
   };
   const manifest = {
     ...manifestCore,
@@ -475,9 +651,17 @@ async function buildRegionPack(regionName: string, outDir: string, taxon: TaxonC
     photoBytes: photoBytesInStaging(stagingDir),
     checklistBytes: Buffer.byteLength(JSON.stringify(manifestCore)),
   };
-  writeFileSync(path.join(stagingDir, "manifest.json"), JSON.stringify(manifest, null, 2));
+  // Compact, not pretty-printed: manifest.json is machine-read only, never hand-edited, and
+  // pretty-printing a large numeric array (a gallery photo's own embedding, now duplicated once
+  // per province a species appears in) adds a newline+indent per float, not per array -- enough
+  // overhead on top of the embeddings themselves to push a big taxon's manifest (aves: ~631
+  // species x up to 6 gallery photos x 768 floats, times every province each species appears in)
+  // past V8's own JSON.stringify string-length ceiling. Confirmed live: this crashed building
+  // Canada's aves pack with "RangeError: Invalid string length" the first time gallery photos
+  // shipped their own embeddings.
+  writeFileSync(path.join(stagingDir, "manifest.json"), JSON.stringify(manifest));
 
-  const archiveName = regionPackFileName(regionName, taxon);
+  const archiveName = regionPackFileName(regionName, taxon, variant);
   const sizeMb = (await writeArchive(stagingDir, outDir, archiveName)) / 1024 / 1024;
   console.log(
     `[build-region-pack] ${regionName}${suffix}: ${manifestSpecies.length} species (${photoCount} with photos)` +
@@ -495,22 +679,28 @@ async function main() {
     process.exit(1);
   }
   const seaZoneMode = args.includes("--sea-zone");
+  const variantArg = args.find((a) => a.startsWith("--variant="))?.slice("--variant=".length) ?? "full";
+  if (variantArg !== "full" && variantArg !== "small") {
+    console.error(`--variant must be "full" or "small"`);
+    process.exit(1);
+  }
+  const variant = variantArg as PackVariant;
   const positional = args.filter((a) => !a.startsWith("--"));
   const name = positional[0];
   const outDir = positional[1] ?? path.join(REPO_ROOT, "packs");
 
   if (!name) {
     console.error(
-      `Usage: npm run build-region-pack -w data-pipeline -- <region name> [outputDir] [--taxon=${TAXON_CLASSES.join("|")}]\n` +
-        `   or: npm run build-region-pack -w data-pipeline -- --sea-zone <sea zone name> [outputDir] [--taxon=${TAXON_CLASSES.join("|")}]`,
+      `Usage: npm run build-region-pack -w data-pipeline -- <region name> [outputDir] [--taxon=${TAXON_CLASSES.join("|")}] [--variant=full|small]\n` +
+        `   or: npm run build-region-pack -w data-pipeline -- --sea-zone <sea zone name> [outputDir] [--taxon=${TAXON_CLASSES.join("|")}] [--variant=full|small]`,
     );
     process.exit(1);
   }
 
   if (seaZoneMode) {
-    await buildSeaZonePack(name, outDir, taxonArg as TaxonClass | null);
+    await buildSeaZonePack(name, outDir, taxonArg as TaxonClass | null, variant);
   } else {
-    await buildRegionPack(name, outDir, taxonArg as TaxonClass | null);
+    await buildRegionPack(name, outDir, taxonArg as TaxonClass | null, variant);
   }
 
   await pool.end();

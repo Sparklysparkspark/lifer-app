@@ -28,6 +28,9 @@ interface PackManifestCore {
   region?: string;
   seaZone?: string;
   taxon?: string | null;
+  // Absent on any pack built before the small-pack variant existed, treated as "full" wherever
+  // read (see offlinePacks/routes.ts's own PackStatus mapping).
+  variant?: "full" | "small";
   speciesCount: number;
   contentVersion: string;
   species: Array<{ scientificName: string }>;
@@ -88,6 +91,7 @@ async function main() {
       region: manifest.region,
       seaZone: manifest.seaZone,
       taxon: manifest.taxon ?? null,
+      variant: manifest.variant ?? "full",
       sizeBytes,
       speciesCount: manifest.speciesCount,
       contentVersion: manifest.contentVersion,

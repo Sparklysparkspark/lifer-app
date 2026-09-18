@@ -536,13 +536,41 @@ async function tryComputeReferenceEmbedding(speciesId: string): Promise<void> {
 
 export async function persistGallery(speciesId: string, gallery: EnrichmentResult["gallery"]): Promise<void> {
   for (const photo of gallery) {
-    await pool.query(
+    const res = await pool.query<{ id: string }>(
       `INSERT INTO species_reference_photos (species_id, photo_url, credit, license, sort_order, display_path, thumb_path)
        VALUES ($1,$2,$3,$4,$5,$6,$7)
        ON CONFLICT (species_id, photo_url) DO UPDATE SET
-         display_path = EXCLUDED.display_path, thumb_path = EXCLUDED.thumb_path`,
+         display_path = EXCLUDED.display_path, thumb_path = EXCLUDED.thumb_path
+       RETURNING id`,
       [speciesId, photo.photoUrl, photo.credit, photo.license, photo.sortOrder, photo.displayPath, photo.thumbPath],
     );
+    await tryComputeGalleryEmbedding(res.rows[0].id, speciesId, photo.displayPath);
+  }
+}
+
+// Same reasoning and same best-effort/silent-failure contract as tryComputeReferenceEmbedding
+// above, just for one gallery photo instead of the species' main photo — without this, a
+// species enriched here would sit with real gallery images but no gallery embeddings until the
+// separate batch backfill script happened to catch it.
+async function tryComputeGalleryEmbedding(referencePhotoId: string, speciesId: string, displayPath: string | null): Promise<void> {
+  if (!displayPath) return;
+  try {
+    const existing = await pool.query<{ exists: boolean }>(
+      `SELECT EXISTS (
+         SELECT 1 FROM species_reference_gallery_embeddings WHERE reference_photo_id = $1 AND model_version = $2
+       ) AS exists`,
+      [referencePhotoId, EMBEDDING_MODEL_VERSION],
+    );
+    if (existing.rows[0].exists) return;
+    const embedding = await computeEmbedding(await readFile(displayPath));
+    await pool.query(
+      `INSERT INTO species_reference_gallery_embeddings (reference_photo_id, species_id, embedding, model_version)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (reference_photo_id) DO UPDATE SET embedding = EXCLUDED.embedding, model_version = EXCLUDED.model_version, computed_at = now()`,
+      [referencePhotoId, speciesId, embedding, EMBEDDING_MODEL_VERSION],
+    );
+  } catch {
+    // model not downloaded, image unreadable, inference timeout, etc. — see tryComputeReferenceEmbedding
   }
 }
 
