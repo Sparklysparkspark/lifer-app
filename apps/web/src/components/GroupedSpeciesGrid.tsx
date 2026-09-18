@@ -94,7 +94,7 @@ export default function GroupedSpeciesGrid({
   regionName,
   countryRegionId,
   countryRegionName,
-  hideRarityLabels,
+  hideLabels,
 }: {
   items: CollectionItem[];
   regionId?: string;
@@ -109,9 +109,9 @@ export default function GroupedSpeciesGrid({
   regionName?: string;
   countryRegionId?: string;
   countryRegionName?: string;
-  /** Collections' "Hide rarity labels" display toggle, threaded straight through to every
+  /** Collections' "Hide labels" display toggle, threaded straight through to every
    *  SpeciesCard. */
-  hideRarityLabels?: boolean;
+  hideLabels?: boolean;
   collectedFirst: boolean;
   /** Independent of collectedFirst — either can be on without the other. Pin order when both
    *  are on is always Collected above Seen, since a photographed species is a stronger signal
@@ -330,7 +330,7 @@ export default function GroupedSpeciesGrid({
               countryRegionName={countryRegionName}
               onArchived={onArchived}
               showVolumeBadge={multiDriveInUse}
-              hideRarityLabels={hideRarityLabels}
+              hideLabels={hideLabels}
             />
           ))}
         </div>
@@ -375,7 +375,7 @@ export default function GroupedSpeciesGrid({
           regionName={regionName}
           countryRegionId={countryRegionId}
           countryRegionName={countryRegionName}
-          hideRarityLabels={hideRarityLabels}
+          hideLabels={hideLabels}
         />
       ))}
 
@@ -426,7 +426,7 @@ export default function GroupedSpeciesGrid({
               regionName={regionName}
               countryRegionId={countryRegionId}
               countryRegionName={countryRegionName}
-              hideRarityLabels={hideRarityLabels}
+              hideLabels={hideLabels}
             />
           </div>
         ))}
@@ -450,7 +450,7 @@ function GroupSection({
   regionName,
   countryRegionId,
   countryRegionName,
-  hideRarityLabels,
+  hideLabels,
 }: {
   group: { key: string; label: string; items: CollectionItem[] };
   /** How many of this group's items to actually render as cards — the header count and the
@@ -474,7 +474,7 @@ function GroupSection({
   regionName?: string;
   countryRegionId?: string;
   countryRegionName?: string;
-  hideRarityLabels?: boolean;
+  hideLabels?: boolean;
 }) {
   const [archiving, setArchiving] = useState(false);
   const archivable = archivableGroup && group.key !== COLLECTED_GROUP_KEY;
@@ -530,7 +530,7 @@ function GroupSection({
             countryRegionName={countryRegionName}
             onArchived={onArchived}
             showVolumeBadge={showVolumeBadge}
-            hideRarityLabels={hideRarityLabels}
+            hideLabels={hideLabels}
           />
         ))}
       </div>

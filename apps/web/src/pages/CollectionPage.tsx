@@ -268,20 +268,22 @@ export default function CollectionPage() {
   // row, which read as cluttered next to Group/Sort/Taxon. Ghost/Lost-only (also filter
   // checkboxes, just conditionally shown) move in here too for the same reason.
   const [cardMinWidth, setCardMinWidth] = useSpeciesCardSize();
-  // Purely a display preference (doesn't touch the underlying tier data) — persisted the same
-  // lightweight way as the size slider, so it survives a reload without needing a real
-  // per-user settings round trip.
-  const [hideRarityLabels, setHideRarityLabels] = useState(() => {
+  // Purely a display preference (doesn't touch the underlying data) — persisted the same
+  // lightweight way as the size slider, so it survives a reload without needing a real per-user
+  // settings round trip. Hides every badge in a card's status row (global/local tier, Endemic,
+  // Vagrant, Ghost, Lost, Rediscovered — see SpeciesCard.tsx), not just the tier ones, for a
+  // user who just wants a cleaner card with no callouts at all.
+  const [hideLabels, setHideLabels] = useState(() => {
     try {
-      return localStorage.getItem("lifer:hideRarityLabels") === "1";
+      return localStorage.getItem("lifer:hideLabels") === "1";
     } catch {
       return false;
     }
   });
-  function toggleHideRarityLabels(next: boolean) {
-    setHideRarityLabels(next);
+  function toggleHideLabels(next: boolean) {
+    setHideLabels(next);
     try {
-      localStorage.setItem("lifer:hideRarityLabels", next ? "1" : "0");
+      localStorage.setItem("lifer:hideLabels", next ? "1" : "0");
     } catch {
       // Private browsing or storage disabled — the toggle still works this session.
     }
@@ -1072,11 +1074,11 @@ export default function CollectionPage() {
             <label className="flex items-center gap-1.5 text-xs text-ink">
               <input
                 type="checkbox"
-                checked={hideRarityLabels}
-                onChange={(e) => toggleHideRarityLabels(e.target.checked)}
+                checked={hideLabels}
+                onChange={(e) => toggleHideLabels(e.target.checked)}
                 className="accent-accent"
               />
-              Hide rarity labels
+              Hide labels
             </label>
           </div>
           <div className="border-t border-line pt-2">
@@ -1239,7 +1241,7 @@ export default function CollectionPage() {
               regionName={regionMeta?.name}
               countryRegionId={countryAncestor?.id}
               countryRegionName={countryAncestor?.name}
-              hideRarityLabels={hideRarityLabels}
+              hideLabels={hideLabels}
             />
           </div>
         )}

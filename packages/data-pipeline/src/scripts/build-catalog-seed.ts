@@ -34,6 +34,16 @@ import { pool } from "../db.js";
 const CATALOG_TABLES = [
   "species",
   "species_reference_photos",
+  // Confirmed live: this table was never actually in this list, despite the auto-suggest
+  // migration's own comment claiming it shipped as part of the catalog seed already ("Centrally
+  // computed... shipped as part of the existing catalog seed download rather than a new download
+  // mechanism"). No install has ever received a precomputed reference embedding this way for any
+  // region -- the only path that ever populated it locally was a species' own lazy enrichment
+  // (which needs the embedding model already downloaded at that exact moment) or manually running
+  // the standalone backfill script, neither of which a normal install ever does on its own.
+  "species_reference_embeddings",
+  "species_reference_gallery_embeddings",
+  "species_text_embeddings",
   "species_traits",
   "species_rarity",
   "regions",

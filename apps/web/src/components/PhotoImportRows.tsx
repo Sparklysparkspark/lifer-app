@@ -36,6 +36,11 @@ interface ImportRow {
   possibleDuplicate?: PossibleDuplicate | null;
   captureId?: string;
   error?: string;
+  /** True while the duplicate-check/species-suggestion request for this row is in flight —
+   *  that call can take a couple seconds (a real inference pass, not a cache hit), so without
+   *  this the row just sits with no suggestions and no indication anything is happening,
+   *  reading as "there's nothing to suggest" rather than "still working on it." */
+  isInspecting?: boolean;
   /** A camera RAW has no browser-renderable preview of its own (sharp/the browser can't decode
    *  raw sensor data) — previewUrl (the raw file's own blob URL) would just be a broken-image
    *  icon. Shown as a plain badge until this fills in, once /uploads/inspect's response comes
@@ -96,7 +101,7 @@ export default function PhotoImportRows({
   // match off one single thumbnail. Fetched fresh per click via GET /species/:id/reference-
   // photos rather than reusing the single `reference-photo/thumb` URL SuggestionCard's own
   // thumbnail already uses.
-  const [speciesGallery, setSpeciesGallery] = useState<{ slides: LightboxSlide[]; label: string } | null>(null);
+  const [speciesGallery, setSpeciesGallery] = useState<{ slides: LightboxSlide[]; label: string; index: number } | null>(null);
 
   async function viewSpeciesGallery(speciesId: string, label: string) {
     const caption = (credit: string | null) => (credit ? `${label} · ${credit}` : label);
@@ -106,11 +111,11 @@ export default function PhotoImportRows({
         res.photos.length > 0
           ? res.photos.map((p) => ({ url: p.url, caption: caption(p.credit) }))
           : [{ url: `/api/species/${speciesId}/reference-photo/display`, caption: caption(null) }];
-      setSpeciesGallery({ slides, label });
+      setSpeciesGallery({ slides, label, index: 0 });
     } catch {
       // Best-effort — fall back to the single photo SuggestionCard's own thumbnail already
       // pointed at, rather than a dead click.
-      setSpeciesGallery({ slides: [{ url: `/api/species/${speciesId}/reference-photo/display`, caption: caption(null) }], label });
+      setSpeciesGallery({ slides: [{ url: `/api/species/${speciesId}/reference-photo/display`, caption: caption(null) }], label, index: 0 });
     }
   }
 
@@ -181,6 +186,7 @@ export default function PhotoImportRows({
       suggestions: [],
       isRaw: isRawFile(file.name),
       isVideo: isVideoFile(file),
+      isInspecting: true,
     }));
     setRows((prev) => [...prev, ...newRows]);
     mapWithConcurrency(newRows, INSPECT_CONCURRENCY, async (row) =>
@@ -209,12 +215,13 @@ export default function PhotoImportRows({
       setRows((prev) =>
         prev.map((r) =>
           r.key === key
-            ? { ...r, possibleDuplicate: res.possibleDuplicate, suggestions: res.suggestions, rawPreviewUrl: res.previewDataUrl }
+            ? { ...r, possibleDuplicate: res.possibleDuplicate, suggestions: res.suggestions, rawPreviewUrl: res.previewDataUrl, isInspecting: false }
             : r,
         ),
       );
     } catch {
       // leave this row unflagged/without suggestions
+      setRows((prev) => prev.map((r) => (r.key === key ? { ...r, isInspecting: false } : r)));
     }
   }
 
@@ -228,9 +235,10 @@ export default function PhotoImportRows({
       form.append("file", file);
       if (forRegionId) form.append("regionId", forRegionId);
       const res = await api.post<{ suggestions: SuggestedSpecies[] }>("/captures/suggest-species-from-video", form);
-      setRows((prev) => prev.map((r) => (r.key === key ? { ...r, suggestions: res.suggestions } : r)));
+      setRows((prev) => prev.map((r) => (r.key === key ? { ...r, suggestions: res.suggestions, isInspecting: false } : r)));
     } catch {
       // leave this row without suggestions
+      setRows((prev) => prev.map((r) => (r.key === key ? { ...r, isInspecting: false } : r)));
     }
   }
 
@@ -261,14 +269,87 @@ export default function PhotoImportRows({
     if (focusedRowKey === key) setFocusedRowKey(null);
   }
 
-  // "type, arrow, enter, next" (spec §9 Phase 5) — after assigning one row, jump straight to
-  // the next row that still needs a species instead of leaving the user to click again.
+  // Assign and close this row's search field — the next unassigned row's top suggestion is
+  // highlighted (see activeRow/highlightIndex below) so the user can keep going via Enter/arrow
+  // keys alone, but nothing about it is actually committed until they do.
   function assignAndAdvance(key: string, result: SpeciesResult) {
     assignSpecies([key], result);
-    const idx = rows.findIndex((r) => r.key === key);
-    const next = rows.slice(idx + 1).find((r) => !r.speciesId);
-    setFocusedRowKey(next ? next.key : null);
+    setFocusedRowKey(null);
   }
+
+  const readyRows = rows.filter((r) => r.speciesId && r.status === "ready");
+  const readyCount = readyRows.length;
+
+  // The row keyboard actions apply to: the first still-unassigned row, in list order. Derived
+  // rather than tracked in its own state so it always stays in sync with assignment/removal.
+  const activeRow = rows.find((r) => !r.speciesId);
+  const [highlightIndex, setHighlightIndex] = useState(0);
+  useEffect(() => {
+    setHighlightIndex(0);
+  }, [activeRow?.key]);
+
+  // Undoes a wrong Enter: clears the most recently assigned row before the current active point
+  // and reopens it as the active row, with the suggestion it was previously assigned highlighted
+  // (not reset to the top guess) — a stray Enter is one Up-arrow-then-Enter away from being
+  // corrected instead of requiring a mouse trip back up the list.
+  function goBackToPreviousRow() {
+    const activeIdx = activeRow ? rows.findIndex((r) => r.key === activeRow.key) : rows.length;
+    for (let i = activeIdx - 1; i >= 0; i--) {
+      const row = rows[i];
+      if (!row.speciesId) continue;
+      const prevIndex = row.suggestions.findIndex((s) => s.id === row.speciesId);
+      setRows((prev) => prev.map((r) => (r.key === row.key ? { ...r, speciesId: null, speciesLabel: null } : r)));
+      setSelected((prev) => {
+        if (!prev.has(row.key)) return prev;
+        const next = new Set(prev);
+        next.delete(row.key);
+        return next;
+      });
+      setHighlightIndex(prevIndex >= 0 ? prevIndex : 0);
+      return;
+    }
+  }
+
+  // Lets a whole batch be assigned without touching the mouse: Left/Right move the highlighted
+  // suggestion (matching the suggestion cards' own horizontal layout), Up reopens the previous
+  // row instead of the current one's top guess (see goBackToPreviousRow), Enter commits the
+  // highlighted suggestion and moves on to the next row. Ignored while a text input has focus
+  // (the manual species search box, or anything else on the page) so normal typing/arrow-key
+  // text editing isn't hijacked.
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      const target = e.target as HTMLElement | null;
+      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) return;
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        goBackToPreviousRow();
+        return;
+      }
+      if (!activeRow) {
+        // Every row already has a species chosen — Enter finishes the batch instead of doing
+        // nothing, so the same type/enter rhythm that assigns species also starts the import.
+        if (e.key === "Enter" && !importing && readyCount > 0) {
+          e.preventDefault();
+          importAll();
+        }
+        return;
+      }
+      if (activeRow.suggestions.length === 0) return;
+      if (e.key === "ArrowRight" || e.key === "ArrowDown") {
+        e.preventDefault();
+        setHighlightIndex((i) => Math.min(i + 1, activeRow.suggestions.length - 1));
+      } else if (e.key === "ArrowLeft") {
+        e.preventDefault();
+        setHighlightIndex((i) => Math.max(i - 1, 0));
+      } else if (e.key === "Enter") {
+        e.preventDefault();
+        const pick = activeRow.suggestions[highlightIndex];
+        if (pick) assignAndAdvance(activeRow.key, pick);
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [activeRow, highlightIndex, importing, readyCount, rows]);
 
   function toggleSelected(key: string) {
     setSelected((prev) => {
@@ -346,9 +427,6 @@ export default function PhotoImportRows({
     );
     setLastBatch([]);
   }
-
-  const readyRows = rows.filter((r) => r.speciesId && r.status === "ready");
-  const readyCount = readyRows.length;
   const doneCount = rows.filter((r) => r.status === "done").length;
   // "Photo(s)"/"Video(s)" when the ready batch is all one kind, "file(s)" for a mixed batch —
   // matches the "N file(s)" wording already used just above for the whole row count.
@@ -475,9 +553,13 @@ export default function PhotoImportRows({
               // A near-certain top match (essentially the same photo as one already embedded,
               // e.g. your own past capture) makes the rest of the ranked list noise rather
               // than a real choice — show just that one instead of a confident 100% match
-              // sitting above four much-less-likely also-rans.
+              // sitting above four much-less-likely also-rans. The margin-based `confident`
+              // flag (embeddings.ts's markConfidence) gets the same treatment for the same
+              // reason: once the top pick has already cleared that bar, a trailing 20-30%
+              // "closest guess" alongside it reads as noise, not a real alternative worth a
+              // second look.
               const topIsCertain = row.suggestions.length > 0 && Math.round(row.suggestions[0].score * 100) >= 100;
-              const visibleSuggestions = topIsCertain ? row.suggestions.slice(0, 1) : row.suggestions;
+              const visibleSuggestions = topIsCertain || row.suggestions[0]?.confident ? row.suggestions.slice(0, 1) : row.suggestions;
               return (
               <div key={row.key} className="p-3">
                 <div className="flex items-center gap-3">
@@ -533,13 +615,21 @@ export default function PhotoImportRows({
                         <SpeciesPicker autoFocus placeholder="Type a species…" onSelect={(r) => assignAndAdvance(row.key, r)} />
                       </div>
                     ) : (
-                      <button
-                        onClick={() => setFocusedRowKey(row.key)}
-                        title={row.speciesId ? "Click to change, or see other suggestions again" : undefined}
-                        className={`mt-0.5 text-xs ${row.speciesId ? "text-ink" : "text-muted"} hover:underline`}
-                      >
-                        {row.speciesId ? row.speciesLabel : "Type a species…"}
-                      </button>
+                      <div className="mt-0.5 flex items-center gap-1.5">
+                        <button
+                          onClick={() => setFocusedRowKey(row.key)}
+                          title={row.speciesId ? "Click to change, or see other suggestions again" : undefined}
+                          className={`text-xs ${row.speciesId ? "text-ink" : "text-muted"} hover:underline`}
+                        >
+                          {row.speciesId ? row.speciesLabel : "Type a species…"}
+                        </button>
+                        {/* Right next to the picker, not off in the row's far-right status column —
+                            this is exactly where the user's eye lands first, so that's where "still
+                            working on a match" needs to show up, not somewhere they have to go looking. */}
+                        {row.isInspecting && !row.speciesId && (
+                          <span className="h-3 w-3 shrink-0 animate-spin rounded-full border-2 border-accent/40 border-t-accent" />
+                        )}
+                      </div>
                     )}
                   </div>
                   <span className="text-xs text-muted">
@@ -580,16 +670,31 @@ export default function PhotoImportRows({
                    suggestions alongside it would just be confusing/redundant, so those wait
                    until the duplicate warning above is actually dismissed. */}
                 {!row.possibleDuplicate && (!row.speciesId || focusedRowKey === row.key) && visibleSuggestions.length > 0 && (
-                  <div className="mt-2 flex gap-2 overflow-x-auto pl-7">
-                    {visibleSuggestions.map((s) => (
+                  <div className="mt-2 pl-7">
+                    {/* The backend always returns its best guesses, confident or not — flagged
+                       here via the margin-based `confident` flag (embeddings.ts's
+                       markConfidence), not a raw score comparison, since blending in the
+                       zero-shot text signal means the score itself no longer sits on a fixed,
+                       intuitively-"percent-like" scale a hardcoded cutoff could compare against. */}
+                    {!topIsCertain && row.suggestions.length > 1 && !row.suggestions[0]?.confident && (
+                      <p className="mb-1 text-xs text-muted">No confident match. Closest guesses:</p>
+                    )}
+                    {/* p-1 -m-1: the highlighted card's ring extends outside its own border box,
+                       so without this padding overflow-x-auto clips the ring on the leftmost
+                       card. The matching negative margin keeps the row's visible left edge in
+                       the same place it was before. */}
+                    <div className="-m-1 flex gap-2 overflow-x-auto p-1">
+                    {visibleSuggestions.map((s, si) => (
                       <SuggestionCard
                         key={s.id}
                         suggestion={s}
-                        matchPercent={topIsCertain || row.suggestions.length === 1 ? 100 : Math.round(s.score * 100)}
+                        matchPercent={topIsCertain ? 100 : s.matchPercent ?? Math.round(s.score * 100)}
+                        highlighted={row.key === activeRow?.key && si === highlightIndex}
                         onSelect={() => assignAndAdvance(row.key, s)}
                         onViewPhoto={() => viewSpeciesGallery(s.id, s.common_name ?? s.scientific_name)}
                       />
                     ))}
+                    </div>
                   </div>
                 )}
               </div>
@@ -616,8 +721,8 @@ export default function PhotoImportRows({
       {speciesGallery && (
         <Lightbox
           slides={speciesGallery.slides}
-          index={0}
-          onIndexChange={() => {}}
+          index={speciesGallery.index}
+          onIndexChange={(index) => setSpeciesGallery({ ...speciesGallery, index })}
           onClose={() => setSpeciesGallery(null)}
         />
       )}

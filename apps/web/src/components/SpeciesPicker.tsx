@@ -11,8 +11,17 @@ export interface SpeciesResult {
 }
 
 export interface SuggestedSpecies extends SpeciesResult {
-  /** Cosine similarity, 0-1 — shown to the user as a rounded percent match. */
+  /** Blended image+text match score, 0-1 — shown to the user as a rounded percent match. */
   score: number;
+  /** Set only on the single top-ranked suggestion when it clears the margin-over-runner-up
+   *  confidence rule (embeddings.ts's markConfidence) — absent on a keyword_tag suggestion,
+   *  which is a certain exact match by construction. Use this, not a raw score comparison, to
+   *  decide whether to show a "no confident match" caption. */
+  confident?: boolean;
+  /** 0-100 — show THIS, not `Math.round(score * 100)`, as the user-facing match percentage.
+   *  See embeddings.ts's assignDisplayPercents for why the raw score no longer reads as an
+   *  intuitive percent once the zero-shot text signal is blended in. */
+  matchPercent?: number;
 }
 
 // Fuzzy search across common + scientific name, recently-used pinned when the query is empty

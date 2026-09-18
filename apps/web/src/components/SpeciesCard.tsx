@@ -32,7 +32,7 @@ function SpeciesCard({
   backLabel,
   onArchived,
   showVolumeBadge,
-  hideRarityLabels,
+  hideLabels,
 }: {
   item: CollectionItem;
   regionId?: string;
@@ -58,9 +58,10 @@ function SpeciesCard({
    *  ever shows up once there's actually more than one place photos could be (see
    *  ~/.claude/plans/multi-drive-storage.md). */
   showVolumeBadge?: boolean;
-  /** Collections' own "Hide rarity labels" display toggle — purely cosmetic, doesn't touch
-   *  the underlying tier data, just skips rendering the Common/Rare/etc. pill. */
-  hideRarityLabels?: boolean;
+  /** Collections' own "Hide labels" display toggle — purely cosmetic, doesn't touch the
+   *  underlying data, just skips rendering every badge in this same row (tier, local tier,
+   *  Endemic, Vagrant, Ghost, Lost, Rediscovered). */
+  hideLabels?: boolean;
 }) {
   const isUnseen = item.state === "unseen";
   const isSeen = item.state === "seen";
@@ -414,7 +415,7 @@ function SpeciesCard({
         <p className="select-text truncate text-xs italic text-muted">{item.scientificName}</p>
         {(item.tier || item.localTier || item.endemic || item.vagrant || item.isGhost || item.isLost || item.rediscoveredGhost || item.rediscoveredLost) && (
           <div className="mt-1 flex flex-wrap items-center gap-1">
-            {!hideRarityLabels && item.tier && (
+            {!hideLabels && item.tier && (
               <span
                 className={
                   item.tier === "unrated"
@@ -429,7 +430,7 @@ function SpeciesCard({
             {/* Region-scoped rarity — only present when viewing a region's checklist,
                ranked against species actually found there instead of the global,
                effort-weighted score. */}
-            {!hideRarityLabels && item.localTier && (
+            {!hideLabels && item.localTier && (
               <span
                 className="inline-block rounded-md border border-line px-2 py-0.5 text-[10px] uppercase tracking-wide text-muted"
                 title="How rare and hard to find this species is in this region specifically"
@@ -437,7 +438,7 @@ function SpeciesCard({
                 {TIER_LABEL[item.localTier] ?? item.localTier} here
               </span>
             )}
-            {item.endemic && (
+            {!hideLabels && item.endemic && (
               <span
                 className="inline-block rounded-md bg-amber-100 px-2 py-0.5 text-[10px] uppercase tracking-wide text-amber-700"
                 title="Only ever recorded in one country"
@@ -448,7 +449,7 @@ function SpeciesCard({
             {/* Region-scoped, same as localTier above — records here cluster in very few
                years rather than spreading out, a real vagrancy signature explaining why
                localTier reads rarer than raw record count alone would suggest. */}
-            {item.vagrant && (
+            {!hideLabels && item.vagrant && (
               <span
                 className="inline-block rounded-md bg-sky-100 px-2 py-0.5 text-[10px] uppercase tracking-wide text-sky-700"
                 title="Records here are concentrated in very few years, likely a vagrant, not an established local presence"
@@ -459,7 +460,7 @@ function SpeciesCard({
             {/* Global documentation is sparse (few total records anywhere, or no reference
                photo found) but the species is verified reachable — not deep-sea, not silent
                since before 1950. A "you'd be one of few who's photographed this" badge. */}
-            {item.isGhost && (
+            {!hideLabels && item.isGhost && (
               <span
                 className="inline-block rounded-md bg-violet-100 px-2 py-0.5 text-[10px] uppercase tracking-wide text-violet-700"
                 title="Rarely documented anywhere, but still out there to find"
@@ -468,7 +469,7 @@ function SpeciesCard({
               </span>
             )}
             {/* Nothing recorded anywhere in 25+ years. */}
-            {item.isLost && (
+            {!hideLabels && item.isLost && (
               <span
                 className="inline-block rounded-md bg-rose-100 px-2 py-0.5 text-[10px] uppercase tracking-wide text-rose-700"
                 title="Not recorded anywhere in over 25 years"
@@ -479,7 +480,7 @@ function SpeciesCard({
             {/* Was Ghost/Lost the moment you collected it, but isn't anymore — a permanent
                record of that moment (migration 069), even after fresh global data catches up
                and clears the live badge above. */}
-            {(item.rediscoveredGhost || item.rediscoveredLost) && (
+            {!hideLabels && (item.rediscoveredGhost || item.rediscoveredLost) && (
               <span
                 className="inline-block rounded-md bg-emerald-100 px-2 py-0.5 text-[10px] uppercase tracking-wide text-emerald-700"
                 title="Rare or undocumented when you found it. You helped rediscover this species."
