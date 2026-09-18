@@ -14,7 +14,6 @@ buildGenericTaxonSeed({
   buildIdEnvVar: "LIFER_BUILD_ID",
   defaultBuildId: "crustacea-dev",
   logPrefix: "build-seed-crustaceans",
-  requireVisibilitySignal: true,
 }).catch((err) => {
   console.error(err);
   process.exit(1);

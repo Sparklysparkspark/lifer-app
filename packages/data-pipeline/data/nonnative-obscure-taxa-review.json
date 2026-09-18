@@ -1,0 +1,2488 @@
+{
+  "generatedAt": "2026-09-17T16:32:17.801Z",
+  "introduced": [
+    {
+      "speciesId": "3f72c5f7-8264-4a8c-a4f1-982636272680",
+      "scientificName": "Agama agama",
+      "commonName": "Common Agama",
+      "countries": [
+        "France"
+      ]
+    },
+    {
+      "speciesId": "040f6fcb-bba1-4068-81b8-0fe390d8d2b6",
+      "scientificName": "Aldabrachelys gigantea",
+      "commonName": "Aldabra Giant Tortoise",
+      "countries": [
+        "Tanzania",
+        "Mauritius"
+      ]
+    },
+    {
+      "speciesId": "c5cbbb9e-d807-4651-a111-56c5f4e41886",
+      "scientificName": "Alpheus rapacida",
+      "commonName": null,
+      "countries": [
+        "Greece"
+      ]
+    },
+    {
+      "speciesId": "5854874d-9846-4841-9fea-463e1ffc426f",
+      "scientificName": "Ambystoma mexicanum",
+      "commonName": "Axolotl",
+      "countries": [
+        "Canada"
+      ]
+    },
+    {
+      "speciesId": "cbb22e28-f0c6-40ed-a942-5638b150f8c4",
+      "scientificName": "Anemonia alicemartinae",
+      "commonName": "Red Sea Anemone",
+      "countries": [
+        "Chile"
+      ]
+    },
+    {
+      "speciesId": "74d7e7a5-0b06-4e4b-87aa-c339f4ce9c1e",
+      "scientificName": "Anguis fragilis",
+      "commonName": "Slow Worm",
+      "countries": [
+        "Ireland"
+      ]
+    },
+    {
+      "speciesId": "1aca3de7-2fe7-4a17-9e5d-0f461f2349b6",
+      "scientificName": "Anolis aeneus",
+      "commonName": "Bronze Anole",
+      "countries": [
+        "Trinidad and Tobago",
+        "Guyana"
+      ]
+    },
+    {
+      "speciesId": "8401d595-6680-40f0-8a48-2af6d93e3703",
+      "scientificName": "Anolis carolinensis",
+      "commonName": "Green Anole",
+      "countries": [
+        "Mexico",
+        "Canada",
+        "Palau",
+        "Guam",
+        "Bahamas",
+        "Japan"
+      ]
+    },
+    {
+      "speciesId": "ae5c9ec4-b296-4bdd-bd55-502d45e546a0",
+      "scientificName": "Anolis cristatellus",
+      "commonName": "Crested Anole",
+      "countries": [
+        "Trinidad and Tobago",
+        "Mexico",
+        "Dominica",
+        "Costa Rica"
+      ]
+    },
+    {
+      "speciesId": "97a325aa-75fa-4112-81c2-e993fa0b22fb",
+      "scientificName": "Anolis equestris",
+      "commonName": "Knight Anole",
+      "countries": [
+        "Bahamas"
+      ]
+    },
+    {
+      "speciesId": "40694568-ff33-4f69-9686-bd276209a73f",
+      "scientificName": "Anolis grahami",
+      "commonName": "Graham's Anole",
+      "countries": [
+        "Bermuda"
+      ]
+    },
+    {
+      "speciesId": "d3199a6c-9423-4f36-9f67-b038c857714a",
+      "scientificName": "Anolis leachii",
+      "commonName": "Barbuda Bank Tree Anole",
+      "countries": [
+        "Bermuda"
+      ]
+    },
+    {
+      "speciesId": "fb60ab8e-448f-4be1-b4f5-ac5d6730be21",
+      "scientificName": "Anolis richardii",
+      "commonName": "Grenada Tree Anole",
+      "countries": [
+        "Trinidad and Tobago"
+      ]
+    },
+    {
+      "speciesId": "e884f084-d7aa-4a53-923d-470c261265f1",
+      "scientificName": "Anolis sagrei",
+      "commonName": "Brown Anole",
+      "countries": [
+        "Honduras",
+        "Singapore",
+        "Trinidad and Tobago",
+        "Malaysia",
+        "Ecuador",
+        "Bermuda",
+        "Mexico",
+        "Canada",
+        "Angola",
+        "Jamaica",
+        "Taiwan",
+        "Israel",
+        "Japan",
+        "Panama",
+        "Barbados"
+      ]
+    },
+    {
+      "speciesId": "d8ad414d-f543-4a40-9def-c9fc52425bad",
+      "scientificName": "Anolis wattsii",
+      "commonName": "Antigua Bank Bush Anole",
+      "countries": [
+        "Trinidad and Tobago",
+        "Saint Lucia"
+      ]
+    },
+    {
+      "speciesId": "19567df3-b145-4851-87fd-6bc6e202e81c",
+      "scientificName": "Apalone ferox",
+      "commonName": "Florida Softshell Turtle",
+      "countries": [
+        "Germany",
+        "Italy",
+        "France",
+        "Japan",
+        "Spain"
+      ]
+    },
+    {
+      "speciesId": "1fd4e9f9-9413-4032-9525-b44a5046c043",
+      "scientificName": "Apalone spinifera",
+      "commonName": "Spiny Softshell Turtle",
+      "countries": [
+        "Italy",
+        "Argentina",
+        "Portugal"
+      ]
+    },
+    {
+      "speciesId": "17638e0e-2d9f-46c8-b129-32d931fa43cc",
+      "scientificName": "Ariadnaria borealis",
+      "commonName": "Boreal Hairysnail",
+      "countries": [
+        "Canada"
+      ]
+    },
+    {
+      "speciesId": "9d9483d0-6472-4f6b-80a4-c13bcf56a6cd",
+      "scientificName": "Astacus astacus",
+      "commonName": "Noble Crayfish",
+      "countries": [
+        "United Kingdom"
+      ]
+    },
+    {
+      "speciesId": "dd38de06-6f6d-40bc-bdfc-5a272dc37689",
+      "scientificName": "Asterias amurensis",
+      "commonName": "Northern Pacific Seastar",
+      "countries": [
+        "Australia"
+      ]
+    },
+    {
+      "speciesId": "666ac7b7-83b1-457a-96f0-1313b1efe204",
+      "scientificName": "Astrochelys radiata",
+      "commonName": "Radiated Tortoise",
+      "countries": [
+        "Mauritius"
+      ]
+    },
+    {
+      "speciesId": "a9a1074b-52dd-438a-982b-7134b68a96fb",
+      "scientificName": "Austropotamobius pallipes",
+      "commonName": "White-Clawed Crayfish",
+      "countries": [
+        "Ireland"
+      ]
+    },
+    {
+      "speciesId": "4fb75a4e-b385-4d96-85e6-8284e9a53681",
+      "scientificName": "Bithynia tentaculata",
+      "commonName": "Common Bithynia",
+      "countries": [
+        "Canada"
+      ]
+    },
+    {
+      "speciesId": "3e11dc2a-b7b7-4abc-8c37-c2a1d1c2850f",
+      "scientificName": "Boiga irregularis",
+      "commonName": "Brown Tree Snake",
+      "countries": [
+        "Guam"
+      ]
+    },
+    {
+      "speciesId": "e43ec154-a4db-41c4-9599-fc763c97c1d2",
+      "scientificName": "Boreotrophon clathratus",
+      "commonName": "Clathrate Trophon",
+      "countries": [
+        "Canada"
+      ]
+    },
+    {
+      "speciesId": "76722f63-f733-4cf8-87fe-881ada4f7d86",
+      "scientificName": "Buccinum glaciale",
+      "commonName": "Glacial Whelk",
+      "countries": [
+        "Canada"
+      ]
+    },
+    {
+      "speciesId": "252c0a1d-ae75-4b9b-be5d-71767975cc07",
+      "scientificName": "Bufo bufo",
+      "commonName": "Common Toad",
+      "countries": [
+        "Ireland"
+      ]
+    },
+    {
+      "speciesId": "e78ed870-f50d-44b1-8b2a-3d083997f7fe",
+      "scientificName": "Caiman crocodilus",
+      "commonName": "Common Caiman",
+      "countries": [
+        "Puerto Rico"
+      ]
+    },
+    {
+      "speciesId": "64629719-8a93-4f85-947d-d2d05a251a72",
+      "scientificName": "Callinectes sapidus",
+      "commonName": "Blue Crab",
+      "countries": [
+        "Denmark",
+        "Croatia",
+        "Albania",
+        "Algeria",
+        "Italy",
+        "Romania",
+        "Netherlands",
+        "Bulgaria",
+        "Senegal",
+        "Slovenia",
+        "Montenegro",
+        "Tunisia",
+        "Morocco",
+        "France",
+        "Greece",
+        "Portugal",
+        "Israel",
+        "Spain"
+      ]
+    },
+    {
+      "speciesId": "c8d1ab57-a0cc-462f-b2a7-5d9a015b9fb3",
+      "scientificName": "Calotes mystaceus",
+      "commonName": "Indo-Chinese Forest Lizard",
+      "countries": [
+        "Hong Kong"
+      ]
+    },
+    {
+      "speciesId": "71b7f0ad-f250-4086-b3af-d784e705fcec",
+      "scientificName": "Calotes versicolor",
+      "commonName": "Oriental Garden Lizard",
+      "countries": [
+        "Singapore",
+        "Mauritius",
+        "Kenya"
+      ]
+    },
+    {
+      "speciesId": "04df5a3e-387a-48a2-b22b-96f0c38ed677",
+      "scientificName": "Calyptraea chinensis",
+      "commonName": "Chinaman's Hat",
+      "countries": [
+        "United Kingdom",
+        "Netherlands"
+      ]
+    },
+    {
+      "speciesId": "1df9348a-2572-4aab-983f-85e17edfd4ec",
+      "scientificName": "Carcinus maenas",
+      "commonName": "Green Crab",
+      "countries": [
+        "Canada",
+        "Argentina",
+        "South Africa",
+        "Australia"
+      ]
+    },
+    {
+      "speciesId": "4b0de84d-fa53-4e43-bf4f-7e4cecc238bf",
+      "scientificName": "Carlia fusca",
+      "commonName": "Brown Four-Fingered Skink",
+      "countries": [
+        "Guam"
+      ]
+    },
+    {
+      "speciesId": "a3cbdafd-03cf-454f-b615-229421b4a068",
+      "scientificName": "Centrochelys sulcata",
+      "commonName": "African Spurred Tortoise",
+      "countries": [
+        "Mexico",
+        "Canada",
+        "Panama"
+      ]
+    },
+    {
+      "speciesId": "b8cfb855-adec-4cb5-ab59-51afa3efa7aa",
+      "scientificName": "Chamaeleo chamaeleon",
+      "commonName": "Mediterranean Chameleon",
+      "countries": [
+        "Italy",
+        "Malta",
+        "Cyprus",
+        "Akrotiri",
+        "Greece",
+        "Portugal",
+        "Spain"
+      ]
+    },
+    {
+      "speciesId": "450bb5ba-a033-4b7b-b37a-6bc24920e3ed",
+      "scientificName": "Chelydra serpentina",
+      "commonName": "Common Snapping Turtle",
+      "countries": [
+        "Malaysia",
+        "Germany",
+        "Mexico",
+        "Italy",
+        "Argentina",
+        "South Africa",
+        "Ireland",
+        "Vietnam",
+        "South Korea",
+        "France",
+        "Japan",
+        "Hong Kong",
+        "Spain",
+        "China"
+      ]
+    },
+    {
+      "speciesId": "5c3c838f-4b19-4192-b3fb-1da8c2e3cb91",
+      "scientificName": "Chrysemys picta",
+      "commonName": "Painted Turtle",
+      "countries": [
+        "Germany",
+        "South Korea",
+        "Spain"
+      ]
+    },
+    {
+      "speciesId": "51fff670-18b9-409e-8d2b-0560b39d0d14",
+      "scientificName": "Chrysemys dorsalis",
+      "commonName": "Southern Painted Turtle",
+      "countries": [
+        "Austria",
+        "Germany"
+      ]
+    },
+    {
+      "speciesId": "4150ba67-df0c-4111-b0bc-30ad35ca02b9",
+      "scientificName": "Coluber constrictor",
+      "commonName": "North American Racer",
+      "countries": [
+        "Bahamas"
+      ]
+    },
+    {
+      "speciesId": "e3b0443f-7fa3-4a65-b747-13e61923c666",
+      "scientificName": "Colus pubescens",
+      "commonName": "Hairy Whelk",
+      "countries": [
+        "Canada"
+      ]
+    },
+    {
+      "speciesId": "30171788-de08-47d4-a5e4-9096e0c71358",
+      "scientificName": "Cordylophora caspia",
+      "commonName": "Freshwater Hydroid",
+      "countries": [
+        "United Kingdom"
+      ]
+    },
+    {
+      "speciesId": "4b41e52b-5934-4437-99cb-55fc96ce62a3",
+      "scientificName": "Craspedacusta sowerbii",
+      "commonName": "Freshwater Jellyfish",
+      "countries": [
+        "Croatia",
+        "Slovakia",
+        "Belgium",
+        "Germany",
+        "Mexico",
+        "Canada",
+        "Italy",
+        "Poland",
+        "Netherlands",
+        "Sweden",
+        "Hungary",
+        "Luxembourg",
+        "Ukraine",
+        "Czechia",
+        "France",
+        "Portugal",
+        "Spain",
+        "Finland",
+        "Serbia"
+      ]
+    },
+    {
+      "speciesId": "57b4e775-eb9d-4206-baed-3f19ec8127c3",
+      "scientificName": "Crepidula fornicata",
+      "commonName": "Slipper Limpet",
+      "countries": [
+        "Denmark",
+        "Croatia",
+        "Belgium",
+        "Germany",
+        "Italy",
+        "United Kingdom",
+        "Ireland",
+        "Netherlands",
+        "Jersey",
+        "Sweden",
+        "Norway",
+        "France",
+        "Greece",
+        "Portugal",
+        "Spain"
+      ]
+    },
+    {
+      "speciesId": "012a4aac-cb0d-4ab7-a403-21f19bfee99e",
+      "scientificName": "Cryptonatica affinis",
+      "commonName": "Arctic Moonsnail",
+      "countries": [
+        "Canada"
+      ]
+    },
+    {
+      "speciesId": "366d4257-7fe0-40ef-8fb6-bc663869c45d",
+      "scientificName": "Cuora galbinifrons",
+      "commonName": "Indochinese Box Turtle",
+      "countries": [
+        "Hong Kong"
+      ]
+    },
+    {
+      "speciesId": "24912734-edd7-40e5-be90-3f1d454b1df7",
+      "scientificName": "Curtitoma violacea",
+      "commonName": "Two-Corded Lora",
+      "countries": [
+        "Canada"
+      ]
+    },
+    {
+      "speciesId": "a61c5b6d-d245-4643-9878-9aa40987fa78",
+      "scientificName": "Cyrtopodion scabrum",
+      "commonName": "Rough-Tailed Gecko",
+      "countries": [
+        "Algeria",
+        "Egypt",
+        "Sudan",
+        "Jordan",
+        "Djibouti",
+        "Israel"
+      ]
+    },
+    {
+      "speciesId": "fa79052b-3244-4f7f-9cd9-a256b5d41739",
+      "scientificName": "Darevskia caucasica",
+      "commonName": "Caucasian Lizard",
+      "countries": [
+        "Czechia"
+      ]
+    },
+    {
+      "speciesId": "345691af-8a84-48c4-8ee9-618b49ae305c",
+      "scientificName": "Diadema setosum",
+      "commonName": null,
+      "countries": [
+        "Greece"
+      ]
+    },
+    {
+      "speciesId": "6311aa04-84dc-43a8-a21e-86ae24d11072",
+      "scientificName": "Diadumene lineata",
+      "commonName": "Orange-Striped Green Anemone",
+      "countries": [
+        "New Zealand",
+        "Italy",
+        "Argentina",
+        "Brazil"
+      ]
+    },
+    {
+      "speciesId": "7848aa4f-8813-4857-a9ee-05c827b8738c",
+      "scientificName": "Diploderma swinhonis",
+      "commonName": "Taiwan Japalure",
+      "countries": [
+        "Japan"
+      ]
+    },
+    {
+      "speciesId": "10e7989a-94d9-45ae-9a22-a8e50a36fbef",
+      "scientificName": "Discoglossus pictus",
+      "commonName": "Painted Frog",
+      "countries": [
+        "France",
+        "Spain"
+      ]
+    },
+    {
+      "speciesId": "c15eeb15-ad8a-48f1-b071-171dd0a9d5a3",
+      "scientificName": "Dryophytes cinereus",
+      "commonName": "Green Treefrog",
+      "countries": [
+        "Canada",
+        "Bahamas"
+      ]
+    },
+    {
+      "speciesId": "13ba5258-3214-42a8-a6ce-eb6d51d68ab5",
+      "scientificName": "Duttaphrynus melanostictus",
+      "commonName": "Common Sunda Toad",
+      "countries": [
+        "Madagascar",
+        "Australia",
+        "Maldives"
+      ]
+    },
+    {
+      "speciesId": "a96d351a-30a2-4ed7-8969-5d5e5bd7e88a",
+      "scientificName": "Dyspanopeus sayi",
+      "commonName": "Say Mud Crab",
+      "countries": [
+        "Italy"
+      ]
+    },
+    {
+      "speciesId": "474e7f03-d6ed-4a5b-91ac-e296c0e49960",
+      "scientificName": "Ectopleura crocea",
+      "commonName": "Pinkmouth Tubularian",
+      "countries": [
+        "Mexico",
+        "Argentina",
+        "South Africa"
+      ]
+    },
+    {
+      "speciesId": "5a5e4adb-2615-4580-a159-59530702fadf",
+      "scientificName": "Elaphe schrenckii",
+      "commonName": "Manchurian Water Snake",
+      "countries": [
+        "Germany",
+        "Netherlands"
+      ]
+    },
+    {
+      "speciesId": "302290f3-690f-45f8-bf90-021379889797",
+      "scientificName": "Eleutherodactylus coqui",
+      "commonName": "Common Coqui",
+      "countries": [
+        "Costa Rica"
+      ]
+    },
+    {
+      "speciesId": "83c7c82f-2ee3-4e40-b8e8-c8696a5e11ae",
+      "scientificName": "Eleutherodactylus johnstonei",
+      "commonName": "Johnstone's Whistling Frog",
+      "countries": [
+        "Trinidad and Tobago",
+        "Guyana",
+        "Jamaica",
+        "Venezuela",
+        "Colombia",
+        "Curaçao",
+        "Brazil"
+      ]
+    },
+    {
+      "speciesId": "4770ed85-877a-4f76-8bb6-7146a220e10a",
+      "scientificName": "Eleutherodactylus montserratae",
+      "commonName": "Montserrat Whistling Frog",
+      "countries": [
+        "Bermuda"
+      ]
+    },
+    {
+      "speciesId": "b2b9a622-13eb-4ed0-9a09-baa79fc88d2f",
+      "scientificName": "Eleutherodactylus planirostris",
+      "commonName": "Greenhouse Frog",
+      "countries": [
+        "Honduras",
+        "Singapore",
+        "Mexico",
+        "Canada",
+        "Macao",
+        "El Salvador",
+        "Jamaica",
+        "Guam",
+        "Grenada",
+        "Costa Rica",
+        "Taiwan",
+        "Hong Kong",
+        "China",
+        "Panama",
+        "Philippines"
+      ]
+    },
+    {
+      "speciesId": "40eca66b-c6fe-4e71-9861-dc4d8aab2cd6",
+      "scientificName": "Emmericia patula",
+      "commonName": "Wide-Lipped Spring Snail",
+      "countries": [
+        "France"
+      ]
+    },
+    {
+      "speciesId": "3ff31793-e5a0-49e1-9063-ee105dc7f02d",
+      "scientificName": "Eriocheir sinensis",
+      "commonName": "Chinese Mitten Crab",
+      "countries": [
+        "Belgium",
+        "Austria",
+        "Germany",
+        "Canada",
+        "Italy",
+        "United Kingdom",
+        "Poland",
+        "Iraq",
+        "Switzerland",
+        "Netherlands",
+        "Sweden",
+        "Lithuania",
+        "Czechia",
+        "France",
+        "Portugal",
+        "Finland"
+      ]
+    },
+    {
+      "speciesId": "252ce117-0a98-4dc9-8e9a-918bd93c5961",
+      "scientificName": "Euspira pallida",
+      "commonName": "Pale Moonsnail",
+      "countries": [
+        "Canada"
+      ]
+    },
+    {
+      "speciesId": "08f0fc7e-960b-4792-8c26-cb796a54586b",
+      "scientificName": "Faxonius immunis",
+      "commonName": "Calico Crayfish",
+      "countries": [
+        "Germany",
+        "France"
+      ]
+    },
+    {
+      "speciesId": "68ac59d5-0c71-40e8-be06-41a362459fa7",
+      "scientificName": "Faxonius limosus",
+      "commonName": "Spinycheek Crayfish",
+      "countries": [
+        "Croatia",
+        "Slovakia",
+        "Belgium",
+        "Austria",
+        "Germany",
+        "Italy",
+        "United Kingdom",
+        "Romania",
+        "Poland",
+        "Switzerland",
+        "Netherlands",
+        "Bulgaria",
+        "Lithuania",
+        "Hungary",
+        "Luxembourg",
+        "Czechia",
+        "France",
+        "Latvia",
+        "Spain",
+        "Serbia"
+      ]
+    },
+    {
+      "speciesId": "032ae694-7128-4642-acf6-369b53af79ac",
+      "scientificName": "Faxonius obscurus",
+      "commonName": "Allegheny Crayfish",
+      "countries": [
+        "Canada"
+      ]
+    },
+    {
+      "speciesId": "ca6e2050-940a-44f7-b827-ba7869004a91",
+      "scientificName": "Faxonius rusticus",
+      "commonName": "Rusty Crayfish",
+      "countries": [
+        "Canada"
+      ]
+    },
+    {
+      "speciesId": "035dfcbc-660c-4e8c-9b79-b612805d9802",
+      "scientificName": "Faxonius virilis",
+      "commonName": "Virile Crayfish",
+      "countries": [
+        "Mexico",
+        "United Kingdom",
+        "Ireland",
+        "Netherlands"
+      ]
+    },
+    {
+      "speciesId": "10e1404d-6a13-4cd0-8aa6-c21cfb7e9902",
+      "scientificName": "Fejervarya cancrivora",
+      "commonName": "Crab-Eating Frog",
+      "countries": [
+        "Guam",
+        "Taiwan"
+      ]
+    },
+    {
+      "speciesId": "9f442997-8c98-4564-8ad1-a3e56004af6a",
+      "scientificName": "Fejervarya limnocharis",
+      "commonName": "Cricket Frog",
+      "countries": [
+        "Guam"
+      ]
+    },
+    {
+      "speciesId": "6d130eb5-d1ec-4da7-a0c7-43a9f043cf66",
+      "scientificName": "Gehyra mutilata",
+      "commonName": "Stump-Toed Gecko",
+      "countries": [
+        "Mexico",
+        "Madagascar",
+        "Guam",
+        "Nigeria",
+        "Mauritius",
+        "Seychelles",
+        "Australia",
+        "Micronesia"
+      ]
+    },
+    {
+      "speciesId": "39d92e26-e84b-4b1c-b7fe-ab5cee326a9b",
+      "scientificName": "Gehyra oceanica",
+      "commonName": "Oceania Gecko",
+      "countries": [
+        "New Zealand"
+      ]
+    },
+    {
+      "speciesId": "0c84887a-c30d-4653-93f9-25d5dce5e25a",
+      "scientificName": "Gekko gecko",
+      "commonName": "Tokay Gecko",
+      "countries": [
+        "Belize"
+      ]
+    },
+    {
+      "speciesId": "9ee7d4b7-eac4-4d6e-b0c4-5e57a98c1b56",
+      "scientificName": "Godiva quadricolor",
+      "commonName": "Four-Colour Nudibranch",
+      "countries": [
+        "France",
+        "Spain"
+      ]
+    },
+    {
+      "speciesId": "47f12718-b12c-4b02-aba6-47bc241536a2",
+      "scientificName": "Graptemys ouachitensis",
+      "commonName": "Ouachita Map Turtle",
+      "countries": [
+        "Denmark",
+        "Belgium",
+        "Austria",
+        "Germany",
+        "Italy",
+        "Romania",
+        "Cyprus",
+        "Netherlands",
+        "France",
+        "Portugal",
+        "Spain"
+      ]
+    },
+    {
+      "speciesId": "b3300921-fbe5-4e66-9dd2-f22728123948",
+      "scientificName": "Graptemys pseudogeographica",
+      "commonName": "False Map Turtle",
+      "countries": [
+        "Denmark",
+        "Croatia",
+        "Belgium",
+        "Germany",
+        "Canada",
+        "Italy",
+        "United Kingdom",
+        "Romania",
+        "Argentina",
+        "Netherlands",
+        "Vietnam",
+        "Hungary",
+        "Luxembourg",
+        "Taiwan",
+        "France",
+        "Portugal",
+        "Japan",
+        "Hong Kong",
+        "Spain",
+        "China"
+      ]
+    },
+    {
+      "speciesId": "65311aa8-523b-433a-a3a7-2c30af585a45",
+      "scientificName": "Heleobia charruana",
+      "commonName": "Uruguayan Spire Snail",
+      "countries": [
+        "United Kingdom"
+      ]
+    },
+    {
+      "speciesId": "98580571-a723-4622-89ee-bc90ce8a4f62",
+      "scientificName": "Hemidactylus brookii",
+      "commonName": "Brook's House Gecko",
+      "countries": [
+        "Taiwan",
+        "Hong Kong"
+      ]
+    },
+    {
+      "speciesId": "db5a66ab-9622-47bf-94ec-de48fbe336d5",
+      "scientificName": "Hemidactylus garnotii",
+      "commonName": "Indo-Pacific Gecko",
+      "countries": [
+        "Colombia",
+        "Costa Rica",
+        "Australia"
+      ]
+    },
+    {
+      "speciesId": "3e9e81b5-f226-45a7-bf7e-8218f4f3a2d3",
+      "scientificName": "Hemidactylus frenatus",
+      "commonName": "Common House Gecko",
+      "countries": [
+        "Honduras",
+        "Trinidad and Tobago",
+        "Nicaragua",
+        "Peru",
+        "Guatemala",
+        "Ecuador",
+        "Bermuda",
+        "Mexico",
+        "New Zealand",
+        "Palau",
+        "Italy",
+        "Guyana",
+        "Fiji",
+        "El Salvador",
+        "Madagascar",
+        "Tonga",
+        "Haiti",
+        "Guam",
+        "Venezuela",
+        "Colombia",
+        "Belize",
+        "Samoa",
+        "Mauritius",
+        "Grenada",
+        "Costa Rica",
+        "Seychelles",
+        "Curaçao",
+        "Australia",
+        "Taiwan",
+        "France",
+        "Micronesia",
+        "New Caledonia",
+        "Hong Kong",
+        "Brazil",
+        "Panama"
+      ]
+    },
+    {
+      "speciesId": "edcbf9a4-9d74-4ae9-b8ae-d654033cf5be",
+      "scientificName": "Hemidactylus mabouia",
+      "commonName": "Cosmopolitan House Gecko",
+      "countries": [
+        "Honduras",
+        "Aruba",
+        "Trinidad and Tobago",
+        "Nicaragua",
+        "Sint Maarten",
+        "Peru",
+        "Guatemala",
+        "Turks and Caicos Is.",
+        "Montserrat",
+        "Ecuador",
+        "Bermuda",
+        "Mexico",
+        "Canada",
+        "Cuba",
+        "Saint Lucia",
+        "Guyana",
+        "Argentina",
+        "Madagascar",
+        "Jamaica",
+        "Haiti",
+        "Netherlands",
+        "Puerto Rico",
+        "Bahamas",
+        "Venezuela",
+        "Colombia",
+        "Uruguay",
+        "Belize",
+        "Dominica",
+        "Saint Helena",
+        "Mauritius",
+        "Grenada",
+        "Paraguay",
+        "Costa Rica",
+        "Curaçao",
+        "Australia",
+        "France",
+        "British Virgin Is.",
+        "Portugal",
+        "Suriname",
+        "Anguilla",
+        "Hong Kong",
+        "Brazil",
+        "Cayman Is.",
+        "Panama",
+        "Bolivia",
+        "Barbados"
+      ]
+    },
+    {
+      "speciesId": "0f3acc9e-2992-48af-9c21-97d266182558",
+      "scientificName": "Hemidactylus parvimaculatus",
+      "commonName": "Spotted House Gecko",
+      "countries": [
+        "Thailand",
+        "Mexico",
+        "Canada"
+      ]
+    },
+    {
+      "speciesId": "e5abcb66-3bc9-42b5-a418-739217db430f",
+      "scientificName": "Hemidactylus platycephalus",
+      "commonName": "Flathead Leaf-Toed Gecko",
+      "countries": [
+        "Madagascar"
+      ]
+    },
+    {
+      "speciesId": "af44b697-eb97-4342-9c96-b9bb73cf2ede",
+      "scientificName": "Hemidactylus turcicus",
+      "commonName": "Turkish Gecko",
+      "countries": [
+        "Mexico",
+        "Canada",
+        "United Kingdom",
+        "Argentina",
+        "Russia",
+        "Belize"
+      ]
+    },
+    {
+      "speciesId": "4144db50-7089-47d3-9f55-e09d248ddb91",
+      "scientificName": "Hemigrapsus sanguineus",
+      "commonName": "Asian Shore Crab",
+      "countries": [
+        "Denmark",
+        "Belgium",
+        "Germany",
+        "Netherlands",
+        "Jersey",
+        "Sweden",
+        "Australia",
+        "Norway",
+        "France"
+      ]
+    },
+    {
+      "speciesId": "6cbd72e6-c471-47e3-b713-86a26c2167ac",
+      "scientificName": "Hemigrapsus takanoi",
+      "commonName": "Brush-Clawed Shore Crab",
+      "countries": [
+        "Denmark",
+        "Belgium",
+        "Germany",
+        "United Kingdom",
+        "Netherlands",
+        "Sweden",
+        "Norway",
+        "France",
+        "Spain"
+      ]
+    },
+    {
+      "speciesId": "4f0f2f7c-74e1-4c02-a052-d8ab5e825fa4",
+      "scientificName": "Hemiphyllodactylus typus",
+      "commonName": "Small Tree Gecko",
+      "countries": [
+        "Mauritius"
+      ]
+    },
+    {
+      "speciesId": "f737f730-b09c-4716-9144-66fe097cce07",
+      "scientificName": "Hemorrhois hippocrepis",
+      "commonName": "Horseshoe Whip Snake",
+      "countries": [
+        "France"
+      ]
+    },
+    {
+      "speciesId": "b0b8cef7-939c-4c95-86ff-10470d7403c7",
+      "scientificName": "Hierophis viridiflavus",
+      "commonName": "Western Whip Snake",
+      "countries": [
+        "Germany"
+      ]
+    },
+    {
+      "speciesId": "8ddb5422-0afc-4898-aaff-cc59b3580048",
+      "scientificName": "Hoplobatrachus tigerinus",
+      "commonName": "Indian Bullfrog",
+      "countries": [
+        "Madagascar"
+      ]
+    },
+    {
+      "speciesId": "81e9ed4d-3a3a-4f21-b192-e7aaf222cd90",
+      "scientificName": "Hyla meridionalis",
+      "commonName": "Stripeless Tree Frog",
+      "countries": [
+        "Italy",
+        "France",
+        "Portugal",
+        "Spain"
+      ]
+    },
+    {
+      "speciesId": "a3993d3c-ffd6-4b5d-8fe1-37cf98389f23",
+      "scientificName": "Hyla orientalis",
+      "commonName": "Shelkovnikov's Tree Frog",
+      "countries": [
+        "Netherlands"
+      ]
+    },
+    {
+      "speciesId": "18f5c45f-d06e-4118-9faa-95aa4b57fd04",
+      "scientificName": "Indotyphlops braminus",
+      "commonName": "Brahminy Blindsnake",
+      "countries": [
+        "Tanzania",
+        "Cameroon",
+        "Ecuador",
+        "Mexico",
+        "Egypt",
+        "Madagascar",
+        "South Africa",
+        "Cyprus",
+        "Mozambique",
+        "Tonga",
+        "Guam",
+        "Gabon",
+        "Puerto Rico",
+        "Bahamas",
+        "Senegal",
+        "Mauritius",
+        "Costa Rica",
+        "Seychelles",
+        "Australia",
+        "Mauritania",
+        "France",
+        "Micronesia",
+        "New Caledonia",
+        "Portugal",
+        "Spain"
+      ]
+    },
+    {
+      "speciesId": "e55f2313-e464-4d3a-ab8f-1634d657297e",
+      "scientificName": "Intellagama lesueurii",
+      "commonName": "Eastern Water Dragon",
+      "countries": [
+        "New Zealand"
+      ]
+    },
+    {
+      "speciesId": "2220eeca-3307-4dde-953e-d5f773c965b7",
+      "scientificName": "Kaloula pulchra",
+      "commonName": "Malaysian Narrowmouth Toad",
+      "countries": [
+        "Singapore",
+        "Taiwan",
+        "Philippines"
+      ]
+    },
+    {
+      "speciesId": "dcfc7ad8-049a-4fca-8989-09dde1a7f429",
+      "scientificName": "Lacerta agilis",
+      "commonName": "Sand Lizard",
+      "countries": [
+        "Finland"
+      ]
+    },
+    {
+      "speciesId": "eb485e76-64fa-4989-b7c2-ebeb1551b9c5",
+      "scientificName": "Lampropeltis californiae",
+      "commonName": "California Kingsnake",
+      "countries": [
+        "Germany",
+        "Canada",
+        "South Africa",
+        "Australia",
+        "Spain"
+      ]
+    },
+    {
+      "speciesId": "2ca8dea9-4a0d-49cc-b7cb-8265a898aa94",
+      "scientificName": "Lampropholis delicata",
+      "commonName": "Rainbow Skink",
+      "countries": [
+        "New Zealand"
+      ]
+    },
+    {
+      "speciesId": "8bee2cff-0004-4462-994a-48d5163a0ed9",
+      "scientificName": "Lepidodactylus lugubris",
+      "commonName": "Mourning Gecko",
+      "countries": [
+        "Honduras",
+        "Aruba",
+        "Trinidad and Tobago",
+        "Nicaragua",
+        "American Samoa",
+        "Ecuador",
+        "Mexico",
+        "Palau",
+        "Guyana",
+        "Venezuela",
+        "Colombia",
+        "Costa Rica",
+        "Curaçao",
+        "Australia",
+        "New Caledonia",
+        "Suriname",
+        "Brazil",
+        "Panama"
+      ]
+    },
+    {
+      "speciesId": "8a45d360-8d3e-4faa-aee2-23df4f438f62",
+      "scientificName": "Leptodactylus validus",
+      "commonName": "Windward Islands Ditchfrog",
+      "countries": [
+        "Grenada"
+      ]
+    },
+    {
+      "speciesId": "ab0637a6-1dad-4652-8e20-27f37b80e09d",
+      "scientificName": "Lithobates catesbeianus",
+      "commonName": "American Bullfrog",
+      "countries": [
+        "Thailand",
+        "Singapore",
+        "Peru",
+        "Belgium",
+        "Malaysia",
+        "Ecuador",
+        "Germany",
+        "Mexico",
+        "Cuba",
+        "Italy",
+        "United Kingdom",
+        "Argentina",
+        "Jamaica",
+        "Haiti",
+        "Puerto Rico",
+        "Venezuela",
+        "Colombia",
+        "Uruguay",
+        "Indonesia",
+        "Myanmar",
+        "South Korea",
+        "Taiwan",
+        "France",
+        "Greece",
+        "Japan",
+        "Hong Kong",
+        "Brazil",
+        "China",
+        "Bolivia"
+      ]
+    },
+    {
+      "speciesId": "2b6dcd28-01ab-40ab-97ab-379cf0347cca",
+      "scientificName": "Lithobates grylio",
+      "commonName": "Pig Frog",
+      "countries": [
+        "Bahamas"
+      ]
+    },
+    {
+      "speciesId": "3ab88c4e-e338-4473-a885-8e8e61d9e3c5",
+      "scientificName": "Lithobates sphenocephalus",
+      "commonName": "Southern Leopard Frog",
+      "countries": [
+        "Bahamas"
+      ]
+    },
+    {
+      "speciesId": "dafc4f50-8b2f-4af3-b443-b56f02a88106",
+      "scientificName": "Lithoglyphus naticoides",
+      "commonName": "Gravel Snail",
+      "countries": [
+        "France"
+      ]
+    },
+    {
+      "speciesId": "a79bb8c1-18fa-46a8-ac20-3872a859e883",
+      "scientificName": "Littorina littorea",
+      "commonName": "Common Periwinkle",
+      "countries": [
+        "Canada"
+      ]
+    },
+    {
+      "speciesId": "fae3d6e1-ddda-4de1-815b-53f62600a53b",
+      "scientificName": "Lycodon aulicus",
+      "commonName": "Common Wolf Snake",
+      "countries": [
+        "Mauritius"
+      ]
+    },
+    {
+      "speciesId": "835422b9-efe7-48d7-8a59-c340156478f2",
+      "scientificName": "Lysmata californica",
+      "commonName": "Red Rock Shrimp",
+      "countries": [
+        "New Zealand"
+      ]
+    },
+    {
+      "speciesId": "b651c8ce-07f5-4c29-9b1b-12e534f5ff0d",
+      "scientificName": "Macrobrachium nipponense",
+      "commonName": "Oriental River Prawn",
+      "countries": [
+        "Germany",
+        "Romania",
+        "Belarus",
+        "Iraq",
+        "Bulgaria",
+        "Moldova",
+        "Ukraine",
+        "Serbia"
+      ]
+    },
+    {
+      "speciesId": "db2a29d6-674c-41a8-a24a-dd4dc53fbdfa",
+      "scientificName": "Macroprotodon cucullatus",
+      "commonName": "False Smooth Snake",
+      "countries": [
+        "Portugal"
+      ]
+    },
+    {
+      "speciesId": "717441b2-918c-4b3a-b554-cbf82fbbaac5",
+      "scientificName": "Margarites costalis",
+      "commonName": "Boreal Rosy Margarite",
+      "countries": [
+        "Canada"
+      ]
+    },
+    {
+      "speciesId": "28160a93-478e-4796-b04e-9794c75e71aa",
+      "scientificName": "Margarites helicinus",
+      "commonName": "Pearly Top Shell",
+      "countries": [
+        "Canada"
+      ]
+    },
+    {
+      "speciesId": "5edcf1b2-e618-4080-957c-0c0fdc6b6644",
+      "scientificName": "Mastigodryas bruesi",
+      "commonName": "Barbour's Tropical Racer",
+      "countries": [
+        "Barbados"
+      ]
+    },
+    {
+      "speciesId": "3bd96dd8-7142-4ce8-b9ec-e0bfacea4186",
+      "scientificName": "Matuta victor",
+      "commonName": null,
+      "countries": [
+        "Israel"
+      ]
+    },
+    {
+      "speciesId": "a1b358a2-2178-4a36-8edc-6281025991aa",
+      "scientificName": "Mauremys annamensis",
+      "commonName": "Vietnamese Pond Turtle",
+      "countries": [
+        "Hong Kong"
+      ]
+    },
+    {
+      "speciesId": "3b809f79-7fd4-4697-b19c-3549eeebee32",
+      "scientificName": "Mauremys leprosa",
+      "commonName": "Spanish Terrapin",
+      "countries": [
+        "Italy",
+        "Luxembourg"
+      ]
+    },
+    {
+      "speciesId": "fd163ecd-cb47-43ed-a27f-d4c5df34d7f9",
+      "scientificName": "Mauremys sinensis",
+      "commonName": "Chinese Stripe-Necked Turtle",
+      "countries": [
+        "Croatia",
+        "Thailand",
+        "Austria",
+        "Germany",
+        "Canada",
+        "Italy",
+        "Romania",
+        "Poland",
+        "Kosovo",
+        "Switzerland",
+        "Bulgaria",
+        "Hungary",
+        "Luxembourg",
+        "South Korea",
+        "Czechia",
+        "France",
+        "Portugal",
+        "Japan",
+        "Hong Kong",
+        "Spain"
+      ]
+    },
+    {
+      "speciesId": "b013acd4-7606-4e30-bfc2-d6555618aa72",
+      "scientificName": "Metacarcinus novaezelandiae",
+      "commonName": "Zealand Cancer Crab",
+      "countries": [
+        "Australia"
+      ]
+    },
+    {
+      "speciesId": "74edca65-9eef-4ee7-9052-5de9256410ba",
+      "scientificName": "Metapenaeus bennettae",
+      "commonName": "Inshore Greasy Back Prawn",
+      "countries": [
+        "New Zealand"
+      ]
+    },
+    {
+      "speciesId": "65957f86-858d-4c6c-8f98-a28307def1db",
+      "scientificName": "Microhyla pulchra",
+      "commonName": "Beautiful Pygmy Frog",
+      "countries": [
+        "Guam"
+      ]
+    },
+    {
+      "speciesId": "4a7e0e88-d951-44a5-8359-e43929d0ef81",
+      "scientificName": "Mitrella bicincta",
+      "commonName": null,
+      "countries": [
+        "Australia"
+      ]
+    },
+    {
+      "speciesId": "88f76c3d-afc0-4536-a711-4ca2b28279fd",
+      "scientificName": "Nassarius foveolatus",
+      "commonName": null,
+      "countries": [
+        "Brazil"
+      ]
+    },
+    {
+      "speciesId": "7890b92c-3863-4421-802b-1c2055ef8016",
+      "scientificName": "Natrix natrix",
+      "commonName": "Grass Snake",
+      "countries": [
+        "United Kingdom"
+      ]
+    },
+    {
+      "speciesId": "85d12b52-10f2-496e-8388-ae7af2715db6",
+      "scientificName": "Neocaridina davidi",
+      "commonName": "Cherry Shrimp",
+      "countries": [
+        "Canada",
+        "Hungary"
+      ]
+    },
+    {
+      "speciesId": "25e7b025-cbbf-4391-aa8d-059ffa79667c",
+      "scientificName": "Obelia dichotoma",
+      "commonName": "Sea Thread Hydroid",
+      "countries": [
+        "South Africa"
+      ]
+    },
+    {
+      "speciesId": "2b345baf-22d0-4fea-8230-0340cf9ab166",
+      "scientificName": "Obelia geniculata",
+      "commonName": "Knotted Thread Hydroid",
+      "countries": [
+        "South Africa"
+      ]
+    },
+    {
+      "speciesId": "0913c66a-55d1-4bcb-8655-6e30257b32b5",
+      "scientificName": "Ocinebrellus inornatus",
+      "commonName": "Japanese Oyster Drill",
+      "countries": [
+        "Denmark",
+        "Netherlands",
+        "France",
+        "Portugal",
+        "Spain"
+      ]
+    },
+    {
+      "speciesId": "bcbea31c-ad95-4887-812a-5a1469b57c6f",
+      "scientificName": "Osteopilus septentrionalis",
+      "commonName": "Cuban Treefrog",
+      "countries": [
+        "Sint Maarten",
+        "Turks and Caicos Is.",
+        "Puerto Rico",
+        "Curaçao",
+        "British Virgin Is."
+      ]
+    },
+    {
+      "speciesId": "5e88d48c-df19-4269-b574-5505afdbefce",
+      "scientificName": "Pacifastacus leniusculus",
+      "commonName": "Signal Crayfish",
+      "countries": [
+        "Denmark",
+        "Croatia",
+        "Slovakia",
+        "Belgium",
+        "Austria",
+        "Germany",
+        "Italy",
+        "United Kingdom",
+        "Poland",
+        "Switzerland",
+        "Sweden",
+        "Lithuania",
+        "Hungary",
+        "Luxembourg",
+        "Norway",
+        "Czechia",
+        "France",
+        "Latvia",
+        "Portugal",
+        "Japan",
+        "Spain",
+        "Finland"
+      ]
+    },
+    {
+      "speciesId": "3e045f6b-3378-4aab-b4b1-34d34162893f",
+      "scientificName": "Pagurus longicarpus",
+      "commonName": "Longwrist Hermit",
+      "countries": [
+        "Germany"
+      ]
+    },
+    {
+      "speciesId": "3ffa0dc7-bf7b-48fc-b852-7788779e170b",
+      "scientificName": "Pagurus traversi",
+      "commonName": null,
+      "countries": [
+        "Australia"
+      ]
+    },
+    {
+      "speciesId": "5e69f6ca-8a70-4346-ab29-f248b70cc973",
+      "scientificName": "Palaemon macrodactylus",
+      "commonName": "Oriental Shrimp",
+      "countries": [
+        "Germany",
+        "Canada",
+        "Argentina",
+        "Netherlands",
+        "France",
+        "Portugal"
+      ]
+    },
+    {
+      "speciesId": "109d783a-da94-4c4d-a2e3-75393663ee6c",
+      "scientificName": "Palaemon elegans",
+      "commonName": "Rockpool Prawn",
+      "countries": [
+        "Finland"
+      ]
+    },
+    {
+      "speciesId": "5fe0155e-5391-4fd7-a36d-c45531297536",
+      "scientificName": "Palea steindachneri",
+      "commonName": "Wattle-Necked Softshell Turtle",
+      "countries": [
+        "Mauritius"
+      ]
+    },
+    {
+      "speciesId": "9fa12dce-c946-4298-8bd5-95d63784aa9d",
+      "scientificName": "Pantherophis guttatus",
+      "commonName": "Corn Snake",
+      "countries": [
+        "Germany",
+        "Italy",
+        "South Africa",
+        "Bahamas",
+        "Hungary",
+        "France",
+        "Spain"
+      ]
+    },
+    {
+      "speciesId": "5f74ec60-0a13-49e6-863b-3fdb081eec87",
+      "scientificName": "Pelomedusa subrufa",
+      "commonName": "Helmeted Turtle",
+      "countries": [
+        "Madagascar",
+        "France"
+      ]
+    },
+    {
+      "speciesId": "4299312d-b7c4-4b14-82f7-8aa877faeaa5",
+      "scientificName": "Pelophylax saharicus",
+      "commonName": "Sahara Frog",
+      "countries": [
+        "France",
+        "Spain"
+      ]
+    },
+    {
+      "speciesId": "db0827c8-d28a-4c1b-87dc-63c0ab48166f",
+      "scientificName": "Pelophylax ridibundus",
+      "commonName": "Marsh Frog",
+      "countries": [
+        "Belgium",
+        "United Kingdom",
+        "Switzerland",
+        "France",
+        "Finland"
+      ]
+    },
+    {
+      "speciesId": "381e89d4-a288-425b-b59e-a2029a4dd9b4",
+      "scientificName": "Pelusios castaneus",
+      "commonName": "West African Mud Turtle",
+      "countries": [
+        "France"
+      ]
+    },
+    {
+      "speciesId": "fcba7f26-6711-4703-a918-1e9713e0b382",
+      "scientificName": "Penaeus aztecus",
+      "commonName": "Brown Shrimp",
+      "countries": [
+        "Albania",
+        "Italy"
+      ]
+    },
+    {
+      "speciesId": "4c6c0226-0162-47bf-8db2-e3ab8bd11d0c",
+      "scientificName": "Penaeus indicus",
+      "commonName": "Indian White Prawn",
+      "countries": [
+        "South Africa"
+      ]
+    },
+    {
+      "speciesId": "c012665b-bac3-4908-a9de-34168d45ee13",
+      "scientificName": "Pelusios subniger",
+      "commonName": "East African Black Mud Turtle",
+      "countries": [
+        "Seychelles"
+      ]
+    },
+    {
+      "speciesId": "b304db8e-9b7a-4a41-8c3e-6201845924ea",
+      "scientificName": "Penaeus monodon",
+      "commonName": "Asian Tiger Shrimp",
+      "countries": [
+        "Trinidad and Tobago",
+        "Mexico",
+        "South Africa"
+      ]
+    },
+    {
+      "speciesId": "be5b6f50-6cee-45b8-9a5c-b6c72844b692",
+      "scientificName": "Penaeus stylirostris",
+      "commonName": "Pacific Blue Shrimp",
+      "countries": [
+        "Mexico"
+      ]
+    },
+    {
+      "speciesId": "736e202c-a5c4-4528-87c9-4c12054df3b1",
+      "scientificName": "Pennaria disticha",
+      "commonName": "Feather Hydroid",
+      "countries": [
+        "South Africa"
+      ]
+    },
+    {
+      "speciesId": "40ff6129-4de2-4376-b259-6c4ba9fd71b7",
+      "scientificName": "Percnon gibbesi",
+      "commonName": "Nimble Spray Crab",
+      "countries": [
+        "Croatia",
+        "Albania",
+        "Italy",
+        "Malta",
+        "Cyprus",
+        "Akrotiri",
+        "France",
+        "Spain"
+      ]
+    },
+    {
+      "speciesId": "12478f59-9ff8-4f9f-9bcb-caac13044038",
+      "scientificName": "Petrolisthes elongatus",
+      "commonName": "Elongated Porcelain Crab",
+      "countries": [
+        "Australia"
+      ]
+    },
+    {
+      "speciesId": "005cf629-89df-4b3b-9953-29b3ec04f71e",
+      "scientificName": "Phelsuma grandis",
+      "commonName": "Giant Madagascar Day Gecko",
+      "countries": [
+        "Mauritius"
+      ]
+    },
+    {
+      "speciesId": "ae418ab0-9659-4c64-8ac0-dbb2515be9bf",
+      "scientificName": "Phoenicolacerta laevis",
+      "commonName": "Lebanon Lizard",
+      "countries": [
+        "Georgia"
+      ]
+    },
+    {
+      "speciesId": "92c0acf3-6213-49aa-b60e-25165b86aff2",
+      "scientificName": "Phyllorhiza punctata",
+      "commonName": "Australian Spotted Jellyfish",
+      "countries": [
+        "Mexico",
+        "Italy",
+        "Greece",
+        "Spain"
+      ]
+    },
+    {
+      "speciesId": "bce1fefb-e04a-4a63-8d2a-513d45fb83c9",
+      "scientificName": "Physignathus cocincinus",
+      "commonName": "Chinese Water Dragon",
+      "countries": [
+        "Hong Kong"
+      ]
+    },
+    {
+      "speciesId": "dfbcc4ca-304e-4f8c-b823-747fd60523e6",
+      "scientificName": "Plestiodon laticeps",
+      "commonName": "Broad-Headed Skink",
+      "countries": [
+        "Canada"
+      ]
+    },
+    {
+      "speciesId": "4cd2847a-d91d-47ae-b821-f9bf71c36af3",
+      "scientificName": "Pleurodema brachyops",
+      "commonName": "Colombian Four-Eyed Frog",
+      "countries": [
+        "Curaçao"
+      ]
+    },
+    {
+      "speciesId": "f9fa7ae4-85b1-47a0-b3fc-5c80be2e2de1",
+      "scientificName": "Plicifusus kroyeri",
+      "commonName": "Arctic Whelk",
+      "countries": [
+        "Canada"
+      ]
+    },
+    {
+      "speciesId": "6d66ad95-fae1-4883-8f66-2a32f4548c2b",
+      "scientificName": "Podarcis muralis",
+      "commonName": "Common Wall Lizard",
+      "countries": [
+        "Canada",
+        "United Kingdom"
+      ]
+    },
+    {
+      "speciesId": "8ddc90c5-3f46-4c7d-a697-41b5c9b3c881",
+      "scientificName": "Podarcis siculus",
+      "commonName": "Italian Wall Lizard",
+      "countries": [
+        "Belgium",
+        "Germany",
+        "Canada",
+        "United Kingdom",
+        "Romania",
+        "Switzerland",
+        "Russia",
+        "France",
+        "Portugal",
+        "Spain"
+      ]
+    },
+    {
+      "speciesId": "e384e8f3-0e02-43b5-a939-5527ed478135",
+      "scientificName": "Podarcis liolepis",
+      "commonName": "Catalonian Wall Lizard",
+      "countries": [
+        "Germany"
+      ]
+    },
+    {
+      "speciesId": "bec04055-cf50-4143-b882-345c343dbeba",
+      "scientificName": "Polycera capensis",
+      "commonName": "Crowned Nudibranch",
+      "countries": [
+        "Australia"
+      ]
+    },
+    {
+      "speciesId": "08db3fd5-6605-4602-a2c6-13c0a8ea7d81",
+      "scientificName": "Polycera hedgpethi",
+      "commonName": "Dark Crowned Dorid",
+      "countries": [
+        "Italy",
+        "Australia",
+        "France",
+        "Greece",
+        "Portugal"
+      ]
+    },
+    {
+      "speciesId": "48f7ff45-44d3-4271-b5ce-409b547b7fd1",
+      "scientificName": "Polypedates megacephalus",
+      "commonName": "Hong Kong Whipping Frog",
+      "countries": [
+        "Guam",
+        "Taiwan"
+      ]
+    },
+    {
+      "speciesId": "bb357c66-d1cb-4697-ba30-109e48de075d",
+      "scientificName": "Pontastacus leptodactylus",
+      "commonName": "Turkish Crayfish",
+      "countries": [
+        "Germany",
+        "Italy",
+        "United Kingdom",
+        "Luxembourg",
+        "France"
+      ]
+    },
+    {
+      "speciesId": "6714b20a-3eb3-4beb-ae8a-d6d88376d0f0",
+      "scientificName": "Portunus segnis",
+      "commonName": null,
+      "countries": [
+        "Greece"
+      ]
+    },
+    {
+      "speciesId": "f76a242b-0efc-45e4-ad0b-e8d697842ab9",
+      "scientificName": "Potamon ibericum",
+      "commonName": "Bieberstein's Freshwater Crab",
+      "countries": [
+        "France"
+      ]
+    },
+    {
+      "speciesId": "ff199c89-c157-4e97-966b-9c99c9ef02a3",
+      "scientificName": "Potamopyrgus antipodarum",
+      "commonName": "New Zealand Mud Snail",
+      "countries": [
+        "Denmark",
+        "Croatia",
+        "Slovakia",
+        "Belgium",
+        "Austria",
+        "Germany",
+        "Canada",
+        "Italy",
+        "United Kingdom",
+        "Ireland",
+        "Poland",
+        "Switzerland",
+        "Estonia",
+        "Netherlands",
+        "Sweden",
+        "Bulgaria",
+        "Lithuania",
+        "Hungary",
+        "Isle of Man",
+        "Australia",
+        "Luxembourg",
+        "Norway",
+        "Ukraine",
+        "Czechia",
+        "France",
+        "Latvia",
+        "Portugal",
+        "Japan",
+        "Spain",
+        "Finland",
+        "Serbia"
+      ]
+    },
+    {
+      "speciesId": "633c9f2d-0c63-4f98-810c-1e2d8194c47d",
+      "scientificName": "Procambarus acutus",
+      "commonName": "White River Crayfish",
+      "countries": [
+        "Canada",
+        "Netherlands"
+      ]
+    },
+    {
+      "speciesId": "13de4f18-3e00-4a47-97a3-a186e087e26d",
+      "scientificName": "Procambarus clarkii",
+      "commonName": "Red Swamp Crayfish",
+      "countries": [
+        "Slovakia",
+        "Germany",
+        "Albania",
+        "Canada",
+        "Italy",
+        "United Kingdom",
+        "South Africa",
+        "Cyprus",
+        "Netherlands",
+        "Colombia",
+        "Montenegro",
+        "Hungary",
+        "Costa Rica",
+        "Luxembourg",
+        "Taiwan",
+        "France",
+        "Portugal",
+        "Israel",
+        "Japan",
+        "Spain",
+        "China"
+      ]
+    },
+    {
+      "speciesId": "42f32d4e-0df5-40b4-8fae-fe7b0c561528",
+      "scientificName": "Procambarus virginalis",
+      "commonName": "Marbled Crayfish",
+      "countries": [
+        "Croatia",
+        "Slovakia",
+        "Belgium",
+        "Austria",
+        "Germany",
+        "Canada",
+        "Italy",
+        "Poland",
+        "Hungary",
+        "Ukraine",
+        "Czechia"
+      ]
+    },
+    {
+      "speciesId": "97d7ca0a-1ecd-4251-bc9b-903a96578ca7",
+      "scientificName": "Pseudemys concinna",
+      "commonName": "Eastern River Cooter",
+      "countries": [
+        "Denmark",
+        "Croatia",
+        "Slovakia",
+        "Austria",
+        "Germany",
+        "Canada",
+        "Italy",
+        "United Kingdom",
+        "Romania",
+        "Cyprus",
+        "Switzerland",
+        "Netherlands",
+        "Hungary",
+        "Luxembourg",
+        "South Korea",
+        "France",
+        "Portugal",
+        "Japan",
+        "Spain"
+      ]
+    },
+    {
+      "speciesId": "358781c7-4313-4b55-9e89-789156bb6bb1",
+      "scientificName": "Pseudemys nelsoni",
+      "commonName": "Florida Red-Bellied Cooter",
+      "countries": [
+        "Croatia",
+        "Slovakia",
+        "Austria",
+        "Germany",
+        "Canada",
+        "Italy",
+        "Argentina",
+        "Poland",
+        "Switzerland",
+        "Netherlands",
+        "Hungary",
+        "South Korea",
+        "Czechia",
+        "France",
+        "Greece",
+        "Portugal",
+        "Japan",
+        "Hong Kong",
+        "Spain",
+        "China"
+      ]
+    },
+    {
+      "speciesId": "1512948a-1b1e-4dee-8040-a1b973625b15",
+      "scientificName": "Pseudemys peninsularis",
+      "commonName": "Peninsula Cooter",
+      "countries": [
+        "Germany",
+        "Canada",
+        "Italy",
+        "United Kingdom",
+        "Netherlands",
+        "South Korea",
+        "Portugal",
+        "Spain"
+      ]
+    },
+    {
+      "speciesId": "28bed7c4-bf34-48d8-ba81-2d388cb53e26",
+      "scientificName": "Pseudemys rubriventris",
+      "commonName": "American Red-Bellied Turtle",
+      "countries": [
+        "Germany",
+        "Italy",
+        "Romania",
+        "South Korea",
+        "Spain"
+      ]
+    },
+    {
+      "speciesId": "e45b979b-f5bd-43a9-9944-af1e7a8ec082",
+      "scientificName": "Pyromaia tuberculata",
+      "commonName": "Tuberculate Pear Crab",
+      "countries": [
+        "New Zealand",
+        "Australia"
+      ]
+    },
+    {
+      "speciesId": "adb9593c-4c20-442f-b706-c319b8bd10d7",
+      "scientificName": "Python regius",
+      "commonName": "Ball Python",
+      "countries": [
+        "Italy"
+      ]
+    },
+    {
+      "speciesId": "8e7293a3-c798-4755-9ecd-e63662a5cb49",
+      "scientificName": "Rana dalmatina",
+      "commonName": "Agile Frog",
+      "countries": [
+        "Netherlands"
+      ]
+    },
+    {
+      "speciesId": "a3ba7e25-837b-47aa-9386-64672c503b92",
+      "scientificName": "Ranoidea aurea",
+      "commonName": "Green And Golden Bell Frog",
+      "countries": [
+        "New Zealand",
+        "New Caledonia"
+      ]
+    },
+    {
+      "speciesId": "19972f01-ded9-41cb-bb61-31915b034d76",
+      "scientificName": "Ranoidea raniformis",
+      "commonName": "Green And Gold Frog",
+      "countries": [
+        "New Zealand"
+      ]
+    },
+    {
+      "speciesId": "44c981f9-b5eb-4427-9486-864b17959df1",
+      "scientificName": "Rhinella marina",
+      "commonName": "Cane Toad",
+      "countries": [
+        "Aruba",
+        "Guatemala",
+        "American Samoa",
+        "Montserrat",
+        "Bermuda",
+        "New Zealand",
+        "Saint Lucia",
+        "Palau",
+        "Papua New Guinea",
+        "Fiji",
+        "El Salvador",
+        "Jamaica",
+        "Haiti",
+        "Guam",
+        "Puerto Rico",
+        "Solomon Is.",
+        "Grenada",
+        "Australia",
+        "Taiwan",
+        "Micronesia",
+        "Japan",
+        "Philippines",
+        "Barbados"
+      ]
+    },
+    {
+      "speciesId": "50a8d4b7-33ce-42de-a2fc-14f71127da60",
+      "scientificName": "Rhithropanopeus harrisii",
+      "commonName": "Harris Mud Crab",
+      "countries": [
+        "Denmark",
+        "Belgium",
+        "Germany",
+        "Mexico",
+        "Italy",
+        "Romania",
+        "Poland",
+        "Estonia",
+        "Netherlands",
+        "Åland",
+        "Sweden",
+        "Lithuania",
+        "Ukraine",
+        "France",
+        "Latvia",
+        "Spain",
+        "Finland"
+      ]
+    },
+    {
+      "speciesId": "c0cf37b9-4142-4910-b7f0-fa9d8852218a",
+      "scientificName": "Rhopilema nomadica",
+      "commonName": "Indo-Pacific Nomadic Jellyfish",
+      "countries": [
+        "Greece",
+        "Israel"
+      ]
+    },
+    {
+      "speciesId": "7938726f-9fb1-46ea-9a72-a290dfd3f6d3",
+      "scientificName": "Rochia nilotica",
+      "commonName": "Commercial Trochus",
+      "countries": [
+        "Israel"
+      ]
+    },
+    {
+      "speciesId": "be26371e-77cc-43c5-a600-5a0d1124a589",
+      "scientificName": "Sacalia quadriocellata",
+      "commonName": "Four-Eyed Turtle",
+      "countries": [
+        "Hong Kong"
+      ]
+    },
+    {
+      "speciesId": "41917a43-1b6b-4ceb-8706-6869c1370fe2",
+      "scientificName": "Scabrotrophon maltzani",
+      "commonName": null,
+      "countries": [
+        "Canada"
+      ]
+    },
+    {
+      "speciesId": "a0bb8ae2-ed40-4382-b87c-84091abc7d7c",
+      "scientificName": "Scelarcis perspicillata",
+      "commonName": "Moroccan Rock Lizard",
+      "countries": [
+        "Spain"
+      ]
+    },
+    {
+      "speciesId": "c95d2f04-f821-446a-805a-f14cfd9da30a",
+      "scientificName": "Sceloporus occidentalis",
+      "commonName": "Western Fence Lizard",
+      "countries": [
+        "Canada"
+      ]
+    },
+    {
+      "speciesId": "68e1e72d-8762-4b26-a98f-b6dbeb412364",
+      "scientificName": "Scinax ruber",
+      "commonName": "Red Snouted Treefrog",
+      "countries": [
+        "Saint Lucia",
+        "Panama"
+      ]
+    },
+    {
+      "speciesId": "845c0b94-ce06-4679-ac74-fdf035f45b42",
+      "scientificName": "Sclerophrys gutturalis",
+      "commonName": "African Common Toad",
+      "countries": [
+        "Mauritius"
+      ]
+    },
+    {
+      "speciesId": "e35882bd-58fd-47cd-8568-51df84b13858",
+      "scientificName": "Speleomantes italicus",
+      "commonName": "Italian Cave Salamander",
+      "countries": [
+        "Germany"
+      ]
+    },
+    {
+      "speciesId": "176d7325-4dea-4b2a-b5f4-cb7fbd3558bd",
+      "scientificName": "Sphaerodactylus copei",
+      "commonName": "Cope's Least Gecko",
+      "countries": [
+        "Bahamas"
+      ]
+    },
+    {
+      "speciesId": "3909efcb-f406-42a9-af4a-233991ef8db1",
+      "scientificName": "Spurilla braziliana",
+      "commonName": "Brazilian Aeolid",
+      "countries": [
+        "Australia"
+      ]
+    },
+    {
+      "speciesId": "907a8ccb-df48-452f-8074-9cba235366b0",
+      "scientificName": "Sternotherus carinatus",
+      "commonName": "Razor-Backed Musk Turtle",
+      "countries": [
+        "Germany",
+        "Italy",
+        "Japan"
+      ]
+    },
+    {
+      "speciesId": "93dc378e-efcf-46c4-91d0-2dfdd5184eb2",
+      "scientificName": "Sternotherus odoratus",
+      "commonName": "Common Musk Turtle",
+      "countries": [
+        "Austria",
+        "Germany",
+        "Italy",
+        "Luxembourg",
+        "Portugal"
+      ]
+    },
+    {
+      "speciesId": "e17ac806-12e1-451a-b997-0d4d7893fe14",
+      "scientificName": "Strongylopus grayii",
+      "commonName": "Gray's Stream Frog",
+      "countries": [
+        "Saint Helena"
+      ]
+    },
+    {
+      "speciesId": "acb70b80-939f-427e-8d9c-9a66a9b59554",
+      "scientificName": "Tarentola annularis",
+      "commonName": "White-Spotted Wall Gecko",
+      "countries": [
+        "Israel"
+      ]
+    },
+    {
+      "speciesId": "abab36a8-4539-4216-aa4e-fd819344a2d8",
+      "scientificName": "Teira dugesii",
+      "commonName": "Madeira Lizard",
+      "countries": [
+        "Portugal",
+        "Spain"
+      ]
+    },
+    {
+      "speciesId": "57e05940-6f32-4e6c-8e6e-9e15dff20016",
+      "scientificName": "Tenuidactylus bogdanovi",
+      "commonName": "Bogdanov’s Thin-Toed Gecko",
+      "countries": [
+        "Ukraine"
+      ]
+    },
+    {
+      "speciesId": "f2276e03-a23e-4cd9-9f62-697bdf80ca63",
+      "scientificName": "Terrapene triunguis",
+      "commonName": "Three-Toed Box Turtle",
+      "countries": [
+        "France"
+      ]
+    },
+    {
+      "speciesId": "e03f8d69-cb0e-4711-a601-bd56facd07cd",
+      "scientificName": "Testudo hermanni",
+      "commonName": "Hermann's Tortoise",
+      "countries": [
+        "Switzerland"
+      ]
+    },
+    {
+      "speciesId": "801b2c49-9cc1-4cc5-bf05-2eaf0ceaf8da",
+      "scientificName": "Testudo horsfieldii",
+      "commonName": "Central Asian Tortoise",
+      "countries": [
+        "Belarus",
+        "Russia",
+        "France",
+        "Spain"
+      ]
+    },
+    {
+      "speciesId": "0ee6a62e-b864-490b-823b-12e649d5282f",
+      "scientificName": "Testudo marginata",
+      "commonName": "Marginated Tortoise",
+      "countries": [
+        "Italy",
+        "France"
+      ]
+    },
+    {
+      "speciesId": "04fee653-b8d9-4289-ac2d-73e5f09c5783",
+      "scientificName": "Thecacera pennigera",
+      "commonName": "Thecacera",
+      "countries": [
+        "New Zealand"
+      ]
+    },
+    {
+      "speciesId": "c27645fd-a576-4aea-9a5a-376cd461ac33",
+      "scientificName": "Trachemys decussata",
+      "commonName": "North Antillean Slider",
+      "countries": [
+        "Cayman Is."
+      ]
+    },
+    {
+      "speciesId": "e4067f46-d532-4331-8bad-03310b842e7e",
+      "scientificName": "Trachemys scripta",
+      "commonName": "Slider",
+      "countries": [
+        "Qatar",
+        "Denmark",
+        "Cambodia",
+        "Croatia",
+        "Slovakia",
+        "Thailand",
+        "Kazakhstan",
+        "Aruba",
+        "Lebanon",
+        "Singapore",
+        "Trinidad and Tobago",
+        "Tanzania",
+        "Sint Maarten",
+        "Belgium",
+        "Malaysia",
+        "Austria",
+        "Germany",
+        "Albania",
+        "New Zealand",
+        "Canada",
+        "Algeria",
+        "United Arab Emirates",
+        "Pakistan",
+        "Italy",
+        "United Kingdom",
+        "North Macedonia",
+        "Romania",
+        "Argentina",
+        "Malta",
+        "Macao",
+        "South Africa",
+        "Ireland",
+        "Cyprus",
+        "Poland",
+        "Brunei",
+        "Switzerland",
+        "Laos",
+        "Jamaica",
+        "Chile",
+        "Russia",
+        "Guam",
+        "Netherlands",
+        "Puerto Rico",
+        "Bangladesh",
+        "Bahamas",
+        "Colombia",
+        "Uruguay",
+        "Indonesia",
+        "Sweden",
+        "Georgia",
+        "Kuwait",
+        "Iran",
+        "Myanmar",
+        "Uzbekistan",
+        "Bulgaria",
+        "Senegal",
+        "India",
+        "Sri Lanka",
+        "Mauritius",
+        "Lithuania",
+        "Slovenia",
+        "Paraguay",
+        "Montenegro",
+        "Vietnam",
+        "Hungary",
+        "Moldova",
+        "Costa Rica",
+        "Curaçao",
+        "Australia",
+        "Luxembourg",
+        "South Korea",
+        "Gibraltar",
+        "Ukraine",
+        "Taiwan",
+        "Morocco",
+        "Kenya",
+        "France",
+        "Greece",
+        "New Caledonia",
+        "Portugal",
+        "Ghana",
+        "Israel",
+        "Japan",
+        "Saudi Arabia",
+        "Hong Kong",
+        "Brazil",
+        "Spain",
+        "China",
+        "Oman",
+        "Serbia",
+        "Philippines",
+        "Armenia",
+        "Bolivia"
+      ]
+    },
+    {
+      "speciesId": "7d2c318e-57db-492a-bf25-b949a4b91d0b",
+      "scientificName": "Trachemys stejnegeri",
+      "commonName": "Central Antillean Slider",
+      "countries": [
+        "France"
+      ]
+    },
+    {
+      "speciesId": "2355751d-884a-4ca3-afdd-a6f004727989",
+      "scientificName": "Trachemys terrapen",
+      "commonName": "Jamaican Slider",
+      "countries": [
+        "Bahamas"
+      ]
+    },
+    {
+      "speciesId": "61c1aff4-2cd3-4b2c-9e60-9bdfd256d1e3",
+      "scientificName": "Trachemys venusta",
+      "commonName": "Eastern Meso-American Slider",
+      "countries": [
+        "Italy",
+        "Hungary",
+        "Portugal",
+        "Spain",
+        "China"
+      ]
+    },
+    {
+      "speciesId": "467da609-abc5-40f4-b721-42480100d17a",
+      "scientificName": "Tritia burchardi",
+      "commonName": "Burchard's Dog Whelk",
+      "countries": [
+        "New Zealand"
+      ]
+    },
+    {
+      "speciesId": "4ec947db-fdd5-42e9-8a19-40a4e8681683",
+      "scientificName": "Triturus carnifex",
+      "commonName": "Italian Crested Newt",
+      "countries": [
+        "Germany",
+        "France"
+      ]
+    },
+    {
+      "speciesId": "3a224108-4819-40c1-b7a2-c594d660a834",
+      "scientificName": "Tudorella sulcata",
+      "commonName": null,
+      "countries": [
+        "Portugal"
+      ]
+    },
+    {
+      "speciesId": "613d2516-f0b6-4b33-8ce3-4ac17130f86f",
+      "scientificName": "Urosalpinx cinerea",
+      "commonName": "American Sting Winkle",
+      "countries": [
+        "United Kingdom",
+        "Portugal"
+      ]
+    },
+    {
+      "speciesId": "c57df52e-0308-470b-a3ec-9ea03d317741",
+      "scientificName": "Varanus niloticus",
+      "commonName": "Nile Monitor",
+      "countries": [
+        "Canada"
+      ]
+    },
+    {
+      "speciesId": "3cf687f3-962d-4e43-b575-20727d537b92",
+      "scientificName": "Xenochrophis vittatus",
+      "commonName": "Striped Keelback",
+      "countries": [
+        "Singapore",
+        "Puerto Rico"
+      ]
+    },
+    {
+      "speciesId": "f8b2980b-1ac1-4034-8cdf-b9cb13cc9ae8",
+      "scientificName": "Xenopus laevis",
+      "commonName": "African Clawed Frog",
+      "countries": [
+        "Mexico",
+        "Italy",
+        "Chile",
+        "France",
+        "Portugal",
+        "Japan",
+        "Hong Kong",
+        "China"
+      ]
+    }
+  ],
+  "naturalizedOrInvasive": []
+}

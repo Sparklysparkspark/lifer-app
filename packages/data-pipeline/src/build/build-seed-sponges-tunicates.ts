@@ -17,7 +17,6 @@ buildGenericTaxonSeed({
   buildIdEnvVar: "LIFER_BUILD_ID",
   defaultBuildId: "sponges-tunicates-dev",
   logPrefix: "build-seed-sponges-tunicates",
-  requireVisibilitySignal: true,
 }).catch((err) => {
   console.error(err);
   process.exit(1);

@@ -11,15 +11,13 @@ export const TAXON_CLASS_LABEL: Record<TaxonClass, string> = {
   elasmobranchii: "Sharks & Rays",
   aquatic_mammalia: "Marine Mammals",
   amphibia: "Amphibians",
-  squamata: "Lizards & Snakes",
+  squamata: "Reptiles",
   testudines: "Turtles",
-  crocodylia: "Crocodilians",
   corals: "Corals",
   jellies_and_anemones: "Jellies & Anemones",
   echinodermata: "Echinoderms",
   nudibranchs: "Nudibranchs",
-  collector_shells: "Collector Shells",
-  marine_mollusks: "Marine Mollusks",
+  marine_mollusks: "Shells & Marine Mollusks",
   cephalopoda: "Cephalopods",
   crustacea: "Crustaceans",
   sponges_tunicates_other: "Sponges & Tunicates",
@@ -30,28 +28,18 @@ export const ALL_TAXON_CLASSES: TaxonClass[] = Object.keys(TAXON_CLASS_LABEL) as
 
 // Purely a UI organizing device — collapses a cluttered flat list into two disclosure sections
 // in taxon pickers (see OfflinePacksPage.tsx). Every taxon inside stays individually selectable;
-// this is NOT a "select all at once" grouping. Deliberately does NOT group individual marine-
-// invertebrate categories together beyond this one umbrella label — collector shells and marine
-// mollusks in particular are pursued by different audiences (shell collectors vs. mollusk
-// photographers) and must stay independently pickable, not bundled. Reptiles/amphibians and the
-// standalone taxa (birds, mammals, marine mammals, fish, sharks & rays) have no clutter problem
-// on their own and aren't part of this map.
+// this is NOT a "select all at once" grouping. Used to keep "collector_shells" and
+// "marine_mollusks" apart as independently pickable categories for their different audiences
+// (shell collectors vs. mollusk photographers), merged back into one "marine_mollusks" bucket
+// (see species.ts's own comment) once the split turned out not to be functionally meaningful to
+// users. Reptiles/amphibians and the standalone taxa (birds, mammals, marine mammals, fish,
+// sharks & rays) have no clutter problem on their own and aren't part of this map.
 export const TAXON_GROUPS: Array<{ key: string; label: string; taxa: TaxonClass[] }> = [
-  { key: "reptiles_and_amphibians", label: "Reptiles & Amphibians", taxa: ["squamata", "testudines", "crocodylia", "amphibia"] },
+  { key: "reptiles_and_amphibians", label: "Reptiles & Amphibians", taxa: ["squamata", "testudines", "amphibia"] },
   {
     key: "marine_invertebrates",
     label: "Marine Invertebrates",
-    taxa: [
-      "corals",
-      "jellies_and_anemones",
-      "echinodermata",
-      "nudibranchs",
-      "collector_shells",
-      "marine_mollusks",
-      "cephalopoda",
-      "crustacea",
-      "sponges_tunicates_other",
-    ],
+    taxa: ["corals", "jellies_and_anemones", "echinodermata", "nudibranchs", "marine_mollusks", "cephalopoda", "crustacea", "sponges_tunicates_other"],
   },
 ];
 
@@ -59,6 +47,30 @@ export const TAXON_GROUPS: Array<{ key: string; label: string; taxa: TaxonClass[
 // (rendered directly) vs. "grouped" (rendered inside its disclosure section) without hardcoding
 // the standalone list separately and risking it drifting out of sync with the groups above.
 export const GROUPED_TAXON_CLASSES: Set<TaxonClass> = new Set(TAXON_GROUPS.flatMap((g) => g.taxa));
+
+// These taxon classes never get a computed rarity tier, regardless of how much GBIF/iNat data
+// happens to exist for a given species — confirmed live against Egypt's checklist: because so
+// few marine-invertebrate species ever clear GBIF's own record-count floor, almost every one
+// that DOES make a checklist only got there through the "iNat confirms it, GBIF barely has it"
+// rescue path, which (see regions/routes.ts's own reconcile pass) used to default every one of
+// those straight to "legendary" — collapsing an entire taxon group to the rarest tier, which
+// reads as broken rather than informative. Rather than keep tuning thresholds for a category
+// that structurally can't support a meaningful percentile ranking yet, these stay unrated and
+// fall back to IUCN conservation status instead (same pattern Other Taxa species already use) —
+// species_traits.iucn_status just isn't populated for any of these yet, a disclosed, separate
+// gap from this one. Reptiles/amphibians are NOT included here — their GBIF/iNat data density
+// turned out to support a real tier distribution once given the same computation fish get (see
+// compute-provinces-bulk.ts's own NEW_OBSCURE_TAXON_CLASSES).
+export const NO_RARITY_TIER_TAXON_CLASSES: Set<TaxonClass> = new Set([
+  "corals",
+  "jellies_and_anemones",
+  "echinodermata",
+  "nudibranchs",
+  "marine_mollusks",
+  "cephalopoda",
+  "crustacea",
+  "sponges_tunicates_other",
+]);
 
 // Other Taxa species (Settings > Species & Import's any-taxa search) store one of iNaturalist's
 // own 13 "iconic taxon" names verbatim (species.inat_iconic_taxon, exact iNat casing) — used to

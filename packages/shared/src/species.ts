@@ -7,14 +7,16 @@
 //   - "actinopterygii" (bony fish) vs "elasmobranchii" (sharks/rays) vs "aquatic_mammalia"
 //     (whales/dolphins/dugongs — real Mammalia taxonomically, reclassified out of both
 //     "mammalia" and "actinopterygii" since they're neither a land mammal nor a fish)
-//   - "reptilia" split into "squamata" (lizards/snakes), "testudines" (turtles),
-//     "crocodylia" (crocodilians + the 2 living tuatara species)
+//   - "reptilia" split into "squamata" (lizards/snakes, now also crocodilians + the 2 living
+//     tuatara species, merged back in, see build-seed-squamata.ts) vs "testudines" (turtles)
 //   - "cnidaria" split into "corals" (Scleractinia) vs "jellies_and_anemones"
 //     (Actiniaria/Scyphozoa/Cubozoa/Hydrozoa)
-//   - "mollusca" split into "nudibranchs" (Nudibranchia), "collector_shells" (the specific
-//     families shell collectors universally recognize — cowries, cones, murex, volutes,
-//     etc., see build-seed-collector-shells.ts), and "marine_mollusks" (the rest of the same
-//     marine gastropod orders, minus those two)
+//   - "mollusca" split into "nudibranchs" (Nudibranchia) and "marine_mollusks" (the rest of
+//     the same marine gastropod orders, minus nudibranchs). Used to also split out a
+//     "collector_shells" bucket for the specific families shell collectors universally
+//     recognize (cowries, cones, murex, volutes, etc.) — merged back into "marine_mollusks"
+//     since the distinction wasn't functionally meaningful to users and made an already
+//     thin-on-real-photographable-species area feel even thinner split in two.
 // New invertebrate groups with no prior bucket at all: "cephalopoda", "crustacea" (scoped to
 // Decapoda — crabs/lobsters/shrimp — not the whole Malacostraca class),
 // "sponges_tunicates_other". "echinodermata" (sea stars + sea urchins) is unchanged.
@@ -27,12 +29,10 @@ export type TaxonClass =
   | "amphibia"
   | "squamata"
   | "testudines"
-  | "crocodylia"
   | "corals"
   | "jellies_and_anemones"
   | "echinodermata"
   | "nudibranchs"
-  | "collector_shells"
   | "marine_mollusks"
   | "cephalopoda"
   | "crustacea"

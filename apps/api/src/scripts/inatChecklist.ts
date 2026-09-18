@@ -25,6 +25,29 @@ const INAT_PLACES_API = "https://api.inaturalist.org/v1/places";
 const INAT_OBSERVATIONS_API = "https://api.inaturalist.org/v1/observations";
 const INAT_TAXA_API = "https://api.inaturalist.org/v1/taxa";
 const INAT_USER_AGENT = "lifer-app/0.1 (personal project; region checklist verification)";
+
+// AbortSignal.timeout() alone proved not to be a reliable backstop -- confirmed live: a
+// flag-nonnative-obscure-taxa.ts run stalled on a handful of its last few hundred species for
+// many minutes with near-zero CPU, an established-but-silent iNat connection, and no timeout
+// ever firing, in the exact same way a GBIF backbone fetch elsewhere in this codebase did
+// (see data-pipeline's fetch-with-retry.ts for that investigation). Racing the fetch against
+// an independent timeout promise, instead of trusting fetch() to honor the abort signal, means
+// every caller here moves on and retries even in whatever edge case leaves that signal inert.
+export async function fetchWithHardTimeout(url: string, init: RequestInit, timeoutMs = 30_000): Promise<Response> {
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout>;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      controller.abort();
+      reject(new Error(`fetch timed out after ${timeoutMs}ms: ${url}`));
+    }, timeoutMs);
+  });
+  try {
+    return await Promise.race([fetch(url, { ...init, signal: controller.signal }), timeout]);
+  } finally {
+    clearTimeout(timer!);
+  }
+}
 const inatPlaceIdCache = new Map<string, Promise<number | null>>();
 const inatResearchGradeTaxaCache = new Map<number, Promise<InatTaxon[] | null>>();
 const inatCurrentTaxonIdCache = new Map<string, Promise<number | null>>();
@@ -103,8 +126,14 @@ export async function resolveInatPlaceId(
       (async () => {
         const existing = await pool.query<{ inat_place_id: number | null }>(`SELECT inat_place_id FROM regions WHERE id = $1`, [regionId]);
         if (existing.rows[0]?.inat_place_id != null) return existing.rows[0].inat_place_id;
+        // Same shared pacing gate as resolveCurrentInatTaxonId, and for the same reason: several
+        // concurrent callers (flag-nonnative-obscure-taxa.ts's per-species workers, each walking
+        // its own list of countries) hitting this endpoint unpaced reproduced the exact
+        // burst-then-crawl degradation already diagnosed above, just against places/autocomplete
+        // instead of taxa search.
+        await paceInatTaxaRequest();
         try {
-          const res = await fetch(`${INAT_PLACES_API}/autocomplete?q=${encodeURIComponent(regionName)}&per_page=20`, {
+          const res = await fetchWithHardTimeout(`${INAT_PLACES_API}/autocomplete?q=${encodeURIComponent(regionName)}&per_page=20`, {
             headers: { "User-Agent": INAT_USER_AGENT },
           });
           if (!res.ok) return null;
@@ -180,11 +209,21 @@ const ICONIC_TAXA_PARAM = RELEVANT_ICONIC_TAXA.map((t) => `&iconic_taxa[]=${t}`)
 async function fetchOnePage(placeId: number, page: number, extraParams: string): Promise<Response | null> {
   for (let attempt = 0; attempt < PAGE_FETCH_RETRIES; attempt++) {
     if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, 1000 * 2 ** attempt)); // 2s, 4s, 8s
-    const res = await fetch(
-      `${INAT_OBSERVATIONS_API}/species_counts?place_id=${placeId}&quality_grade=research&verifiable=true&per_page=500&page=${page}${ICONIC_TAXA_PARAM}${extraParams}`,
-      { headers: { "User-Agent": INAT_USER_AGENT } },
-    );
-    if (res.ok) return res;
+    try {
+      // A bare `fetch` with no timeout hung indefinitely, zero CPU, zero log output, when
+      // iNaturalist's API accepted the connection but never responded — confirmed live, blocking
+      // this file's single-threaded caller (compute-provinces-bulk.ts) for over an hour with no
+      // way to tell it apart from a real deadlock elsewhere. fetchWithHardTimeout (see its own
+      // comment above) turns that silent hang into a loud, retried failure instead -- plain
+      // AbortSignal.timeout alone reproduced the exact same silent-hang symptom again later.
+      const res = await fetchWithHardTimeout(
+        `${INAT_OBSERVATIONS_API}/species_counts?place_id=${placeId}&quality_grade=research&verifiable=true&per_page=500&page=${page}${ICONIC_TAXA_PARAM}${extraParams}`,
+        { headers: { "User-Agent": INAT_USER_AGENT } },
+      );
+      if (res.ok) return res;
+    } catch {
+      // timed out or a network-level failure — fall through to the backoff/retry above
+    }
   }
   return null;
 }
@@ -306,7 +345,7 @@ export async function resolveCurrentInatTaxonId(scientificName: string): Promise
           if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, 1000 * 2 ** attempt));
           await paceInatTaxaRequest();
           try {
-            const res = await fetch(
+            const res = await fetchWithHardTimeout(
               `${INAT_TAXA_API}?q=${encodeURIComponent(scientificName)}&per_page=10&is_active=any&rank=species`,
               { headers: { "User-Agent": INAT_USER_AGENT } },
             );

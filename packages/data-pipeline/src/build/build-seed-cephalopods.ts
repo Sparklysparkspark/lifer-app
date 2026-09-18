@@ -12,7 +12,6 @@ buildGenericTaxonSeed({
   buildIdEnvVar: "LIFER_BUILD_ID",
   defaultBuildId: "cephalopoda-dev",
   logPrefix: "build-seed-cephalopods",
-  requireVisibilitySignal: true,
 }).catch((err) => {
   console.error(err);
   process.exit(1);
