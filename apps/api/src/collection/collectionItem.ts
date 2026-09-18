@@ -80,7 +80,11 @@ export interface CollectionRow {
 // Below this many total GBIF records ever, or with no reference photo found by enrichment, a
 // species counts as Ghost's "almost nobody's documented this" signal — the inverse of
 // OBSCURE_SPECIES_SQL's own occurrence_count<20 threshold, reused as the actual criterion
-// instead of an exclusion here.
+// instead of an exclusion here. Same "no photo" check as obscureSpeciesSql: reference_photo
+// alone isn't proof of anything, since a downloaded pack's own species UPDATE never sets that
+// column, only reference_thumb_path/reference_display_path (see that file's own comment) -
+// checking has_reference_thumb too is what stops every pack-enriched species from reading as
+// ghost purely because reference_photo stayed null.
 const GHOST_MAX_OCCURRENCE_COUNT = 20;
 // A species not recorded anywhere in this many years counts as Lost — a narrower, purely
 // time-based signal distinct from Ghost's documentation-volume one. Species with nothing since
@@ -100,7 +104,7 @@ export function isGhostSpecies(row: CollectionRow, maxDepthM: number): boolean {
     row.taxon_class === "actinopterygii" && row.depth_min_m != null && Number(row.depth_min_m) >= maxDepthM;
   if (depthDisqualified) return false;
   if (row.last_occurrence_year != null && row.last_occurrence_year < LOST_MIN_YEAR) return false; // that's Lost territory, not Ghost
-  return row.occurrence_count < GHOST_MAX_OCCURRENCE_COUNT || row.reference_photo == null;
+  return row.occurrence_count < GHOST_MAX_OCCURRENCE_COUNT || (row.reference_photo == null && !row.has_reference_thumb);
 }
 
 export function isLostSpecies(row: CollectionRow): boolean {
