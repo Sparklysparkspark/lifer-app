@@ -23,6 +23,7 @@ import { resolveSpeciesFolderName } from "./speciesFolderName.js";
 import { tagWithRegisteredVolume, resolveChosenVolumeDestination } from "../storageVolumes/resolve.js";
 import {
   computeEmbedding,
+  computeSuggestionEmbedding,
   cosineSimilarity,
   rankSpeciesByEmbedding,
   storeCaptureEmbedding,
@@ -237,8 +238,12 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
       let suggestions: SpeciesSuggestion[] = [];
       if (!possibleDuplicate && regionId && embedSourceBuffer) {
         try {
-          embedding ??= await computeEmbedding(embedSourceBuffer);
-          suggestions = await rankSpeciesByEmbedding(pool, request.user!.id, embedding, regionId);
+          // A dedicated, CROPPED embedding — deliberately not the same `embedding` used for
+          // near-duplicate detection above, which needs to stay uncropped to mean anything
+          // against other uncropped capture_embeddings rows. See computeSuggestionEmbedding's
+          // own comment for why cropping the query photo measurably improves matching.
+          const suggestionEmbedding = await computeSuggestionEmbedding(embedSourceBuffer);
+          suggestions = await rankSpeciesByEmbedding(pool, request.user!.id, suggestionEmbedding, regionId, 5, exif.takenAt);
         } catch {
           // Best-effort, same reasoning as the near-duplicate check above — no suggestions
           // rather than a failed request.

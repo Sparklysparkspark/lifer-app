@@ -1,8 +1,10 @@
+import { readFile } from "node:fs/promises";
 import type { FastifyInstance } from "fastify";
 import { pool } from "../db.js";
 import { requireAuth } from "../auth/session.js";
 import { toCollectionItem } from "./collectionItem.js";
 import { syncCaptureXmpSidecars } from "../uploads/xmpSidecarSync.js";
+import { detectDefaultCardCrop } from "../species/detectAndCrop.js";
 import {
   obscureSpeciesSql,
   ALREADY_OWNED_SQL,
@@ -205,8 +207,8 @@ export async function collectionRoutes(app: FastifyInstance): Promise<void> {
       if (!photoId) return reply.code(400).send({ error: "photoId is required" });
 
       // Confirm this photo belongs to a capture the user owns, for this species.
-      const ownershipRes = await pool.query<{ capture_id: string }>(
-        `SELECT c.id AS capture_id FROM photos p
+      const ownershipRes = await pool.query<{ capture_id: string; display_path: string | null }>(
+        `SELECT c.id AS capture_id, p.display_path FROM photos p
          JOIN captures c ON c.id = p.capture_id
          WHERE p.id = $1 AND c.user_id = $2 AND c.species_id = $3`,
         [photoId, userId, speciesId],
@@ -215,12 +217,22 @@ export async function collectionRoutes(app: FastifyInstance): Promise<void> {
         return reply.code(403).send({ error: "That photo doesn't belong to you for this species" });
       }
 
-      // Clear any saved crop — it was framed for whichever photo was previously the cover,
-      // and carrying it over onto a different photo would look wrong.
+      // Clear any saved crop — it was framed for whichever photo was previously the cover, and
+      // carrying it over onto a different photo would look wrong. Then try to replace it with a
+      // sensible default: object detection centered on the actual subject rather than the plain
+      // dead-center square cropToImageStyle falls back to when these columns are null. Best-
+      // effort — a detection miss (or no animal in frame at all) just leaves the old center-crop
+      // fallback in place, same as before this existed.
+      const displayPath = ownershipRes.rows[0].display_path;
+      const defaultCrop = displayPath
+        ? await readFile(displayPath)
+            .then((buf) => detectDefaultCardCrop(buf))
+            .catch(() => null)
+        : null;
       await pool.query(
-        `UPDATE user_species SET cover_photo_id = $1, card_crop_x = NULL, card_crop_y = NULL, card_crop_size = NULL
-         WHERE user_id = $2 AND species_id = $3`,
-        [photoId, userId, speciesId],
+        `UPDATE user_species SET cover_photo_id = $1, card_crop_x = $2, card_crop_y = $3, card_crop_size = $4
+         WHERE user_id = $5 AND species_id = $6`,
+        [photoId, defaultCrop?.x ?? null, defaultCrop?.y ?? null, defaultCrop?.size ?? null, userId, speciesId],
       );
       await syncCoverCaptureXmp(userId, priorCoverPhotoId);
       await syncCaptureXmpSidecars(userId, ownershipRes.rows[0].capture_id).catch(() => {});

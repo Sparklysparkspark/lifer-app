@@ -14,7 +14,7 @@ import { pool } from "../db.js";
 import { requireAuth } from "../auth/session.js";
 import { writeSpeciesMetadata } from "../uploads/exif.js";
 import { syncCaptureXmpSidecars } from "../uploads/xmpSidecarSync.js";
-import { computeEmbedding, rankSpeciesByEmbeddings } from "../species/embeddings.js";
+import { computeSuggestionEmbedding, rankSpeciesByEmbeddings } from "../species/embeddings.js";
 import { suggestSpecies } from "../species/embeddings.js";
 import { probeVideo, extractVideoFrame } from "../uploads/image.js";
 import { APP_DATA_DIR } from "../config.js";
@@ -865,7 +865,7 @@ export async function captureRoutes(app: FastifyInstance): Promise<void> {
       for (const t of timestamps) {
         try {
           const frame = await extractVideoFrame(tmpPath, t);
-          embeddings.push(await computeEmbedding(frame));
+          embeddings.push(await computeSuggestionEmbedding(frame));
         } catch {
           // One unreadable timestamp (e.g. right at a keyframe boundary ffmpeg can't seek to
           // cleanly) shouldn't sink the whole suggestion — the other sampled frames still stand.

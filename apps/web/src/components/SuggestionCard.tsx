@@ -11,6 +11,7 @@ import PhotoPlaceholder from "./PhotoPlaceholder";
 export default function SuggestionCard({
   suggestion,
   matchPercent,
+  highlighted,
   onSelect,
   onViewPhoto,
 }: {
@@ -19,6 +20,9 @@ export default function SuggestionCard({
    *  raw (and often much lower, since cosine similarity across unrelated photos rarely
    *  approaches 1.0) score the model happened to produce for it alone. */
   matchPercent: number;
+  /** True when this is the keyboard-arrow-selected card for its row — Enter assigns it. Purely
+   *  visual; assignment itself still only happens via onSelect (click or Enter). */
+  highlighted?: boolean;
   onSelect: () => void;
   onViewPhoto: () => void;
 }) {
@@ -26,7 +30,11 @@ export default function SuggestionCard({
   const displayName = suggestion.common_name ?? suggestion.scientific_name;
 
   return (
-    <div className="w-28 shrink-0 overflow-hidden rounded-lg border border-line bg-surface transition hover:border-accent hover:shadow-md">
+    <div
+      className={`w-28 shrink-0 overflow-hidden rounded-lg border bg-surface transition hover:border-accent hover:shadow-md ${
+        highlighted ? "border-accent ring-2 ring-accent" : "border-line"
+      }`}
+    >
       <button type="button" onClick={onViewPhoto} className="block aspect-square w-full bg-surface-muted">
         {!photoFailed ? (
           <img

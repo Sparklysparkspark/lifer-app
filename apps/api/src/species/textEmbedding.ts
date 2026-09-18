@@ -26,6 +26,11 @@ import { APP_DATA_DIR } from "../config.js";
 // capture_embeddings row (both tagged with this same EMBEDDING_MODEL_VERSION for that reason).
 const TEXT_MODEL_ID = "Xenova/clip-vit-large-patch14";
 const CACHE_DIR = path.join(APP_DATA_DIR, "models", "clip-text-cache");
+// Versions species_text_embeddings rows (migration 102) the same way EMBEDDING_MODEL_VERSION
+// versions image ones — a distinct string since these two tables hold different halves of the
+// same underlying CLIP model, so a future text-model swap can't accidentally collide with a
+// vision-model version bump.
+export const TEXT_MODEL_VERSION = "clip-vit-l14-text-v1";
 
 interface TextModel {
   tokenizer: PreTrainedTokenizer;
