@@ -15,8 +15,55 @@ Categories: `Added`, `Changed`, `Fixed`, `Removed` — omit any with nothing to 
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-09-18
+
+### Added
+
+- Offline packs now offer a "small" download variant that skips reference-photo galleries
+  (checklist and auto-suggest embeddings are still included) for a much smaller download —
+  gallery photos still fetch on demand once you're online.
+- Species auto-suggest now stores an embedding for every gallery photo, not just a species' one
+  main reference photo, so a real photo taken from a different angle or pose can still match
+  confidently.
+- Import: species suggestions can now be assigned entirely from the keyboard — Enter accepts the
+  highlighted suggestion and moves to the next photo, arrow keys pick a different suggestion
+  first, and Up undoes the previous photo's pick if you hit Enter on the wrong one.
+- Setting one of your photos as a species' featured image now centers the default crop on the
+  actual animal (using the same object-detection model species auto-suggest uses) instead of a
+  plain center crop.
+
+### Changed
+
+- Species auto-suggest accuracy: photos are now cropped to the detected subject before matching
+  (with a tiled fallback pass for small or distant subjects), blended with a zero-shot text
+  signal, and gated by a data-derived confidence margin instead of a flat score cutoff — plus
+  low-relevance trailing suggestions and species with no displayable photo no longer show up in
+  the list.
+- Collection's "Hide rarity labels" toggle is now "Hide labels" and also hides Endemic, Vagrant,
+  Ghost, Lost, and Rediscovered badges, not just the rarity tier ones.
+- Albums and Trips' empty states and Albums' card badges now match the rest of the app's visual
+  style instead of being a single plain sentence.
+- Settings is now organized into a left-hand sidebar (General, Account, Species & Import,
+  Library, Storage, Server, Integrations, Offline Data) instead of one long scrolling page.
+- Account/logout moved off the main nav bar into a small account-icon menu, matching how API
+  keys were already moved into Settings for the same reason.
+- The Offline Packs country picker and the import flow's region picker now share one component
+  instead of two independently-built ones.
+- First launch now walks through an explicit setup: choose whether to download the offline map
+  (with its real size shown), then pick at least one region to build your checklist for — no
+  more landing on an empty Collection page not knowing where to start.
+- Desktop's "Enable IP switching" is now "Automatic URL Switching": it compares against your
+  actual current Wi-Fi network before preferring the local address, supports multiple external
+  addresses tried in your own chosen order (drag to reorder), and each one is tested live with a
+  green check the moment you add it instead of just being saved blind. A "Use current connection"
+  button fills in your local address and Wi-Fi name for you. Lives in Settings > Server.
+
 ### Fixed
 
+- A suggested species' photo viewer (during import) now actually steps through that species'
+  other reference photos with its arrow buttons/keys instead of doing nothing.
+- The pack-update "Updating…" banner and per-pack update list now reflect the real in-progress
+  download instead of resetting on navigation.
 - Species suggestions and gallery semantic search now work offline from first launch on both
   desktop and Docker/self-hosted — the underlying model is bundled at build time instead of
   quietly downloading itself (~307MB) the first time either feature was actually used.
@@ -37,23 +84,6 @@ Categories: `Added`, `Changed`, `Fixed`, `Removed` — omit any with nothing to 
 - Applying a large pack (a country with hundreds of thousands of hotspot clusters, e.g. Canada)
   could take an hour or more with zero visible progress — one database round-trip per cluster
   is now a handful of batched ones instead.
-
-### Changed
-
-- Settings is now organized into a left-hand sidebar (General, Account, Species & Import,
-  Library, Storage, Server, Integrations, Offline Data) instead of one long scrolling page.
-- Account/logout moved off the main nav bar into a small account-icon menu, matching how API
-  keys were already moved into Settings for the same reason.
-- The Offline Packs country picker and the import flow's region picker now share one component
-  instead of two independently-built ones.
-- First launch now walks through an explicit setup: choose whether to download the offline map
-  (with its real size shown), then pick at least one region to build your checklist for — no
-  more landing on an empty Collection page not knowing where to start.
-- Desktop's "Enable IP switching" is now "Automatic URL Switching": it compares against your
-  actual current Wi-Fi network before preferring the local address, supports multiple external
-  addresses tried in your own chosen order (drag to reorder), and each one is tested live with a
-  green check the moment you add it instead of just being saved blind. A "Use current connection"
-  button fills in your local address and Wi-Fi name for you. Lives in Settings > Server.
 
 ## [0.4.0] - 2026-09-07
 
