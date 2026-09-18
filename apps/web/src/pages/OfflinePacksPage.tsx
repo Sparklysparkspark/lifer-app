@@ -99,9 +99,13 @@ export default function OfflinePacksPage() {
   const [mapWidenedContinentIds, setMapWidenedContinentIds] = useState<Set<string>>(new Set());
   const [openContinentIds, setOpenContinentIds] = useState<Set<string>>(new Set());
   const [selectedTaxa, setSelectedTaxa] = useState<Set<TaxonClass>>(new Set());
+  // "full" bundles every reference gallery photo per species; "small" ships only the single
+  // featured photo (plus embeddings, same as full) and fetches the rest on demand once online,
+  // a much smaller download for anyone fine with that trade. Applies to the whole selection at
+  // once, matching how taxa/regions are already picked in bulk rather than per pack.
+  const [downloadVariant, setDownloadVariant] = useState<"full" | "small">("full");
   const [openTaxonGroups, setOpenTaxonGroups] = useState<Set<string>>(new Set());
   const [searchTerm, setSearchTerm] = useState("");
-  const [availableTaxaByRegion, setAvailableTaxaByRegion] = useState<Record<string, TaxonClass[]>>({});
   const [starting, setStarting] = useState(false);
   const [startError, setStartError] = useState<string | null>(null);
   const [status, setStatus] = useState<DownloadStatus | null>(null);
@@ -179,14 +183,31 @@ export default function OfflinePacksPage() {
   // Which taxa this selection could even offer — unioned across every selected country so a
   // taxon present in only ONE of several selected countries still shows up (item 6's own
   // requirement), not just taxa common to all of them.
-  useEffect(() => {
-    if (selectedCountryIds.size === 0) return;
-    const missing = [...selectedCountryIds].filter((id) => !(id in availableTaxaByRegion));
-    if (missing.length === 0) return;
-    api
-      .get<Record<string, TaxonClass[]>>(`/regions/taxon-presence?regionIds=${missing.join(",")}`)
-      .then((res) => setAvailableTaxaByRegion((prev) => ({ ...prev, ...res })));
-  }, [selectedCountryIds, availableTaxaByRegion]);
+  //
+  // Derived straight from the already-loaded pack catalog (`packs`, from /offline-packs/index)
+  // rather than /regions/taxon-presence, which was the wrong data source for this: it reflects
+  // this INSTALL's own local region_species table, which only has rows for taxa already
+  // downloaded (a taxon that's never been fetched yet has no local checklist data to find at
+  // all — that's exactly the point of downloading it). That made "available to download" read
+  // as "already downloaded," e.g. Canada showing only Birds/Mammals since those were the only
+  // ones downloaded, even though canada-actinopterygii.pack.tar.gz etc. genuinely exist and are
+  // waiting to be fetched. The pack catalog already lists every published region×taxon
+  // combination regardless of local download state, which is the actual question being asked
+  // here — no per-country network round trip needed once packs are loaded once at mount.
+  const availableTaxaByRegion = useMemo(() => {
+    const byRegionName = new Map<string, Set<TaxonClass>>();
+    for (const p of packs ?? []) {
+      if (p.type !== "region" || !p.region || !p.taxon) continue;
+      if (!byRegionName.has(p.region)) byRegionName.set(p.region, new Set());
+      byRegionName.get(p.region)!.add(p.taxon);
+    }
+    const byRegionId: Record<string, TaxonClass[]> = {};
+    for (const r of regions ?? []) {
+      const taxa = byRegionName.get(r.name);
+      if (taxa) byRegionId[r.id] = [...taxa];
+    }
+    return byRegionId;
+  }, [packs, regions]);
 
   const world = regions?.find((r) => r.parentId === null);
   const continents = useMemo(() => {
@@ -408,11 +429,15 @@ export default function OfflinePacksPage() {
     for (const p of packs ?? []) {
       const region = p.region ?? p.seaZone;
       if (!region) continue;
+      // Full and small packs cover the same species, so only the currently-chosen variant should
+      // count toward the selection's size/eligibility, or every region would look 2x its real
+      // download size.
+      if ((p.variant ?? "full") !== downloadVariant) continue;
       if (!map.has(region)) map.set(region, []);
       map.get(region)!.push(p);
     }
     return map;
-  }, [packs]);
+  }, [packs, downloadVariant]);
 
   const selectionSizeBytes = useMemo(() => {
     let total = 0;
@@ -428,6 +453,26 @@ export default function OfflinePacksPage() {
     return total;
   }, [selectedCountryIds, selectedTaxa, packsByRegion, countryById]);
 
+  // Same computation as selectionSizeBytes, but for the OTHER variant, shown alongside the
+  // toggle so switching between Full/Small previews the size difference before committing.
+  const otherVariantSizeBytes = useMemo(() => {
+    const otherVariant = downloadVariant === "full" ? "small" : "full";
+    let total = 0;
+    for (const id of selectedCountryIds) {
+      const name = countryById.get(id)?.name;
+      if (!name) continue;
+      for (const p of packs ?? []) {
+        const region = p.region ?? p.seaZone;
+        if (region !== name) continue;
+        if ((p.variant ?? "full") !== otherVariant) continue;
+        if (selectedTaxa.size > 0 && p.taxon && !selectedTaxa.has(p.taxon)) continue;
+        if (p.downloaded && !p.updateAvailable) continue;
+        total += p.sizeBytes;
+      }
+    }
+    return total;
+  }, [selectedCountryIds, selectedTaxa, packs, countryById, downloadVariant]);
+
   async function startDownload() {
     setStartError(null);
     setStarting(true);
@@ -436,6 +481,7 @@ export default function OfflinePacksPage() {
       await api.post("/offline-packs/download-batch", {
         regionNames,
         taxa: selectedTaxa.size > 0 ? [...selectedTaxa] : "all",
+        variant: downloadVariant,
       });
       setSelectedCountryIds(new Set());
       setSelectedTaxa(new Set());
@@ -808,10 +854,14 @@ export default function OfflinePacksPage() {
                   {availableTaxaForSelection.length > 0 && (
                     <button
                       type="button"
-                      onClick={() => setSelectedTaxa(new Set(availableTaxaForSelection))}
+                      onClick={() =>
+                        setSelectedTaxa(
+                          availableTaxaForSelection.every((t) => selectedTaxa.has(t)) ? new Set() : new Set(availableTaxaForSelection),
+                        )
+                      }
                       className="text-xs text-accent hover:underline"
                     >
-                      Select all
+                      {availableTaxaForSelection.every((t) => selectedTaxa.has(t)) ? "Deselect all" : "Select all"}
                     </button>
                   )}
                 </div>
@@ -840,25 +890,44 @@ export default function OfflinePacksPage() {
                   if (availableInGroup.length === 0) return null;
                   const selectedCount = availableInGroup.filter((t) => selectedTaxa.has(t)).length;
                   const isOpen = openTaxonGroups.has(group.key);
+                  const allInGroupSelected = availableInGroup.every((t) => selectedTaxa.has(t));
                   return (
                     <div key={group.key} className="mt-2 border-t border-line pt-2">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setOpenTaxonGroups((prev) => {
-                            const next = new Set(prev);
-                            if (next.has(group.key)) next.delete(group.key);
-                            else next.add(group.key);
-                            return next;
-                          })
-                        }
-                        className="flex w-full items-center justify-between text-xs font-medium text-ink"
-                      >
-                        <span>
-                          {group.label} ({selectedCount}/{availableInGroup.length} selected)
-                        </span>
-                        <span className="text-muted">{isOpen ? "▾" : "▸"}</span>
-                      </button>
+                      <div className="flex w-full items-center justify-between gap-2">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setOpenTaxonGroups((prev) => {
+                              const next = new Set(prev);
+                              if (next.has(group.key)) next.delete(group.key);
+                              else next.add(group.key);
+                              return next;
+                            })
+                          }
+                          className="flex flex-1 items-center justify-between text-xs font-medium text-ink"
+                        >
+                          <span>
+                            {group.label} ({selectedCount}/{availableInGroup.length} selected)
+                          </span>
+                          <span className="text-muted">{isOpen ? "▾" : "▸"}</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setSelectedTaxa((prev) => {
+                              const next = new Set(prev);
+                              for (const t of availableInGroup) {
+                                if (allInGroupSelected) next.delete(t);
+                                else next.add(t);
+                              }
+                              return next;
+                            })
+                          }
+                          className="shrink-0 text-xs text-accent hover:underline"
+                        >
+                          {allInGroupSelected ? "Deselect all" : "Select all"}
+                        </button>
+                      </div>
                       {isOpen && (
                         <div className="mt-2 flex flex-wrap gap-2">
                           {availableInGroup.map((taxon) => {
@@ -929,21 +998,45 @@ export default function OfflinePacksPage() {
           </>
         )}
 
-        <div className="sticky bottom-4 flex items-center justify-between rounded-xl border border-line bg-surface p-4 shadow-sm">
-          <p className="text-sm text-muted">
-            {selectedCountryIds.size === 0
-              ? "Nothing selected"
-              : `${selectedCountryIds.size} region(s), ${selectedTaxa.size === 0 ? "all taxa" : `${selectedTaxa.size} taxon group(s)`}, ${formatBytes(selectionSizeBytes)}`}
-          </p>
-          <div className="flex items-center gap-3">
-            {startError && <span className="text-sm text-red-600">{startError}</span>}
-            <button
-              onClick={startDownload}
-              disabled={selectedCountryIds.size === 0 || starting || status?.running}
-              className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-accent-fg disabled:opacity-50"
-            >
-              {starting ? "Starting…" : "Download selected"}
-            </button>
+        <div className="sticky bottom-4 space-y-3 rounded-xl border border-line bg-surface p-4 shadow-sm">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-1 rounded-md border border-line p-0.5 text-sm">
+              <button
+                onClick={() => setDownloadVariant("full")}
+                className={`rounded px-2.5 py-1 ${downloadVariant === "full" ? "bg-accent text-accent-fg" : "text-muted hover:text-ink"}`}
+              >
+                Full
+              </button>
+              <button
+                onClick={() => setDownloadVariant("small")}
+                className={`rounded px-2.5 py-1 ${downloadVariant === "small" ? "bg-accent text-accent-fg" : "text-muted hover:text-ink"}`}
+              >
+                Small
+              </button>
+            </div>
+            <p className="text-xs text-muted">
+              {downloadVariant === "full"
+                ? "Bundles every reference photo, fully usable offline."
+                : "Only the featured photo per species; extra gallery photos load when you're online."}
+              {selectedCountryIds.size > 0 && ` Switching would make this ${formatBytes(otherVariantSizeBytes)}.`}
+            </p>
+          </div>
+          <div className="flex items-center justify-between">
+            <p className="text-sm text-muted">
+              {selectedCountryIds.size === 0
+                ? "Nothing selected"
+                : `${selectedCountryIds.size} region(s), ${selectedTaxa.size === 0 ? "all taxa" : `${selectedTaxa.size} taxon group(s)`}, ${formatBytes(selectionSizeBytes)}`}
+            </p>
+            <div className="flex items-center gap-3">
+              {startError && <span className="text-sm text-red-600">{startError}</span>}
+              <button
+                onClick={startDownload}
+                disabled={selectedCountryIds.size === 0 || starting || status?.running}
+                className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-accent-fg disabled:opacity-50"
+              >
+                {starting ? "Starting…" : "Download selected"}
+              </button>
+            </div>
           </div>
         </div>
       </main>

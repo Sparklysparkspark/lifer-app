@@ -24,6 +24,11 @@ export interface PackIndexEntry {
   region?: string;
   seaZone?: string;
   taxon?: string | null;
+  // "small" ships the same checklist/embeddings as "full" but without the reference-photo
+  // gallery (only the single featured photo per species), a much smaller download for anyone
+  // fine fetching extra gallery photos on demand once online. Absent on any pack built before
+  // this existed, which always means "full".
+  variant?: "full" | "small";
   sizeBytes: number;
   speciesCount: number;
   // Content hash of the pack's manifest (see build-region-pack.ts's contentHash) — lets an
@@ -81,6 +86,24 @@ interface ManifestSpecies {
   referenceLicense: string | null;
   displayFile: string | null;
   thumbFile: string | null;
+  // Mirrors build-region-pack.ts's own ManifestSpecies.gallery/embedding. See that file's
+  // comment for why these are here at all (a pack used to ship neither, leaving both
+  // dependent on a live network call or a lazy per-view fetch that never happens for most of
+  // a freshly downloaded region's species).
+  gallery?: Array<{
+    photoUrl: string;
+    credit: string;
+    license: string;
+    sortOrder: number;
+    focalX: number | null;
+    focalY: number | null;
+    displayFile: string | null;
+    thumbFile: string | null;
+    embedding?: number[];
+    embeddingModelVersion?: string;
+  }>;
+  embedding?: number[];
+  embeddingModelVersion?: string;
   // Checklist membership — see build-region-pack.ts's ManifestSpecies for why this rides
   // along in the same entry rather than a separate list. Omitted entirely for a sea-zone
   // pack except recordCount.
@@ -144,6 +167,8 @@ async function applyChecklist(
   extractDir: string,
   displayDir: string,
   thumbDir: string,
+  galleryDisplayDir: string,
+  galleryThumbDir: string,
 ): Promise<{ applied: number; skipped: number; touched: Array<{ speciesId: string; providedEnrichment: boolean }> }> {
   let applied = 0;
   let skipped = 0;
@@ -211,6 +236,81 @@ async function applyChecklist(
            enriched_at = now()
          WHERE id = $6`,
         [sp.habitatDescription, sp.referenceCredit, sp.referenceLicense, displayPath, thumbPath, row.id],
+      );
+    }
+
+    // Gallery photos and the auto-suggest reference embedding, independent of the
+    // providedEnrichment gate above: a species can already have its main photo (enriched by
+    // an earlier, gallery/embedding-less pack, or this app's own version before this feature
+    // existed) while still missing either of these entirely. Each checked and applied on its
+    // own terms rather than folded into the "already enriched, skip" branch.
+    if (sp.gallery && sp.gallery.length > 0) {
+      const existingGalleryRes = await pool.query<{ id: string; photo_url: string; display_path: string | null; thumb_path: string | null }>(
+        `SELECT id, photo_url, display_path, thumb_path FROM species_reference_photos WHERE species_id = $1`,
+        [row.id],
+      );
+      const existingGalleryByUrl = new Map(existingGalleryRes.rows.map((r) => [r.photo_url, r]));
+      for (const g of sp.gallery) {
+        const existingGalleryRow = existingGalleryByUrl.get(g.photoUrl);
+        let referencePhotoId = existingGalleryRow?.id ?? null;
+        const galleryFileMissing =
+          !existingGalleryRow ||
+          (existingGalleryRow.display_path != null && !existsSync(existingGalleryRow.display_path)) ||
+          (existingGalleryRow.thumb_path != null && !existsSync(existingGalleryRow.thumb_path));
+
+        if (galleryFileMissing) {
+          const gDisplaySource = g.displayFile ? resolveWithinDir(extractDir, g.displayFile) : null;
+          const gThumbSource = g.thumbFile ? resolveWithinDir(extractDir, g.thumbFile) : null;
+          let gDisplayPath: string | null = existingGalleryRow?.display_path ?? null;
+          let gThumbPath: string | null = existingGalleryRow?.thumb_path ?? null;
+          if (gDisplaySource && existsSync(gDisplaySource)) {
+            gDisplayPath = path.join(galleryDisplayDir, `${row.id}-${g.sortOrder}.webp`);
+            copyFileSync(gDisplaySource, gDisplayPath);
+          }
+          if (gThumbSource && existsSync(gThumbSource)) {
+            gThumbPath = path.join(galleryThumbDir, `${row.id}-${g.sortOrder}.webp`);
+            copyFileSync(gThumbSource, gThumbPath);
+          }
+
+          const upsertRes = await pool.query<{ id: string }>(
+            `INSERT INTO species_reference_photos (species_id, photo_url, credit, license, sort_order, focal_x, focal_y, display_path, thumb_path)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+             ON CONFLICT (species_id, photo_url) DO UPDATE SET
+               display_path = COALESCE(EXCLUDED.display_path, species_reference_photos.display_path),
+               thumb_path = COALESCE(EXCLUDED.thumb_path, species_reference_photos.thumb_path)
+             RETURNING id`,
+            [row.id, g.photoUrl, g.credit, g.license, g.sortOrder, g.focalX, g.focalY, gDisplayPath, gThumbPath],
+          );
+          referencePhotoId = upsertRes.rows[0].id;
+        }
+
+        // Independent of the file-presence gate above (same reasoning as the main species
+        // embedding block below): a gallery photo's embedding is worth having even on a
+        // "small" pack that never bundled that photo's actual file, and even on a re-run where
+        // the photo row and its files already exist but this photo was never embedded before.
+        if (referencePhotoId && g.embedding && g.embeddingModelVersion) {
+          await pool.query(
+            `INSERT INTO species_reference_gallery_embeddings (reference_photo_id, species_id, embedding, model_version)
+             VALUES ($1, $2, $3, $4)
+             ON CONFLICT (reference_photo_id) DO NOTHING`,
+            [referencePhotoId, row.id, g.embedding, g.embeddingModelVersion],
+          );
+        }
+      }
+    }
+
+    // Never overwrites an existing row: a species already embedded (this app's own lazy
+    // enrichment, or an earlier pack) already has a usable vector; the pack's copy only fills
+    // in a genuinely missing one. A version mismatch against this install's current model
+    // isn't a concern to guard against here either: rankSpeciesByEmbedding/rankSpeciesByEmbeddings
+    // only ever join on the CURRENT EMBEDDING_MODEL_VERSION, so a stale-version row would
+    // simply sit unused, not get matched against by mistake.
+    if (sp.embedding && sp.embeddingModelVersion) {
+      await pool.query(
+        `INSERT INTO species_reference_embeddings (species_id, embedding, model_version)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (species_id) DO NOTHING`,
+        [row.id, sp.embedding, sp.embeddingModelVersion],
       );
     }
 
@@ -304,8 +404,12 @@ async function applyPack(archivePath: string): Promise<{
 
     const displayDir = path.join(APP_DATA_DIR, "reference-display");
     const thumbDir = path.join(APP_DATA_DIR, "reference-thumb");
+    const galleryDisplayDir = path.join(APP_DATA_DIR, "reference-gallery-display");
+    const galleryThumbDir = path.join(APP_DATA_DIR, "reference-gallery-thumb");
     mkdirSync(displayDir, { recursive: true });
     mkdirSync(thumbDir, { recursive: true });
+    mkdirSync(galleryDisplayDir, { recursive: true });
+    mkdirSync(galleryThumbDir, { recursive: true });
 
     // Resolved once, not per species — the checklist membership a pack carries is applied
     // against this install's own local region/sea-zone row, matched by name (the same
@@ -325,12 +429,12 @@ async function applyPack(archivePath: string): Promise<{
     let skipped = 0;
     const touched: Array<{ speciesId: string; providedEnrichment: boolean }> = [];
     if (regionId) {
-      const result = await applyChecklist(manifest.species, { regionId }, extractDir, displayDir, thumbDir);
+      const result = await applyChecklist(manifest.species, { regionId }, extractDir, displayDir, thumbDir, galleryDisplayDir, galleryThumbDir);
       applied += result.applied;
       skipped += result.skipped;
       touched.push(...result.touched);
     } else if (seaZoneId) {
-      const result = await applyChecklist(manifest.species, { seaZoneId }, extractDir, displayDir, thumbDir);
+      const result = await applyChecklist(manifest.species, { seaZoneId }, extractDir, displayDir, thumbDir, galleryDisplayDir, galleryThumbDir);
       applied += result.applied;
       skipped += result.skipped;
       touched.push(...result.touched);
@@ -364,7 +468,15 @@ async function applyPack(archivePath: string): Promise<{
         if (!childRegionId) continue;
         allChildRegionIds.push(childRegionId);
         if (child.isOverseasTerritory) territoryChildRegionIds.push(childRegionId);
-        const result = await applyChecklist(child.species, { regionId: childRegionId }, extractDir, displayDir, thumbDir);
+        const result = await applyChecklist(
+          child.species,
+          { regionId: childRegionId },
+          extractDir,
+          displayDir,
+          thumbDir,
+          galleryDisplayDir,
+          galleryThumbDir,
+        );
         applied += result.applied;
         skipped += result.skipped;
         touched.push(...result.touched);
@@ -394,6 +506,11 @@ interface DownloadJobState {
   currentPack: string | null;
   error: string | null;
   finishedAt: number | null;
+  // The exact pack ids this job was started with — lets a client that mounts (or remounts, e.g.
+  // after navigating away and back to Settings/Offline Packs) mid-job reconstruct which packs to
+  // show as "updating" from /download/status alone, instead of only knowing that ONE unspecified
+  // pack (currentPack) is in flight.
+  packIds: string[];
 }
 const downloadJob: DownloadJobState = {
   running: false,
@@ -402,6 +519,7 @@ const downloadJob: DownloadJobState = {
   currentPack: null,
   error: null,
   finishedAt: null,
+  packIds: [],
 };
 
 async function runDownloadJob(requestedPackIds: string[], force = false): Promise<void> {
@@ -798,7 +916,11 @@ export async function offlinePacksRoutes(app: FastifyInstance): Promise<void> {
       const downloadedIds = new Set(downloadedRes.rows.map((r) => r.pack_id));
 
       let remaining = new Set(scientificNames);
-      const candidates = index.packs.filter((p) => !downloadedIds.has(p.id));
+      // Small-variant packs cover the exact same species as their full counterpart, so including
+      // both here would just double the candidate set for no coverage gain. Recommending the
+      // full pack keeps this endpoint's job (auto-suggest coverage) simple; a user who wants the
+      // small download instead picks it themselves via the regular pack browser.
+      const candidates = index.packs.filter((p) => !downloadedIds.has(p.id) && (p.variant ?? "full") === "full");
       const picked: Array<{ id: string; region?: string; seaZone?: string; taxon: string | null; sizeBytes: number; covers: number }> = [];
 
       while (remaining.size > 0) {
@@ -843,6 +965,7 @@ export async function offlinePacksRoutes(app: FastifyInstance): Promise<void> {
       downloadJob.currentPack = null;
       downloadJob.error = null;
       downloadJob.finishedAt = null;
+      downloadJob.packIds = packIds;
 
       // Deliberately not awaited — see settings/routes.ts's migrate-to-server job for the same
       // pattern and the same reasoning (a large download shouldn't hold one HTTP request open).
@@ -857,7 +980,7 @@ export async function offlinePacksRoutes(app: FastifyInstance): Promise<void> {
   // countries, pick taxa once, one download action) rather than pack-id-by-pack-id. "All of
   // Europe" is handled entirely client-side (the UI expands a continent pill to every country
   // under it and sends the full regionNames list here) — no continent-level pack exists.
-  app.post<{ Body: { regionNames?: string[]; taxa?: string[] | "all" } }>(
+  app.post<{ Body: { regionNames?: string[]; taxa?: string[] | "all"; variant?: "full" | "small" } }>(
     "/offline-packs/download-batch",
     { preHandler: requireAuth },
     async (request, reply) => {
@@ -866,6 +989,7 @@ export async function offlinePacksRoutes(app: FastifyInstance): Promise<void> {
       }
       const regionNames = request.body?.regionNames;
       const taxa = request.body?.taxa;
+      const variant = request.body?.variant ?? "full";
       if (!regionNames || regionNames.length === 0) {
         return reply.code(400).send({ error: "regionNames is required" });
       }
@@ -880,6 +1004,9 @@ export async function offlinePacksRoutes(app: FastifyInstance): Promise<void> {
             // A pack with no taxon (covers every taxon for its region) always matches; otherwise
             // the pack's own taxon must be one of the requested ones.
             if (taxaSet && p.taxon && !taxaSet.has(p.taxon)) return false;
+            // Full and small variants of the same region/taxon both pass every filter above, so
+            // without this a batch would try to download both at once.
+            if ((p.variant ?? "full") !== variant) return false;
             return !p.downloaded || p.updateAvailable;
           })
           .map((p) => p.id);
@@ -892,6 +1019,7 @@ export async function offlinePacksRoutes(app: FastifyInstance): Promise<void> {
         downloadJob.currentPack = null;
         downloadJob.error = null;
         downloadJob.finishedAt = null;
+        downloadJob.packIds = packIds;
         void runDownloadJob(packIds);
 
         return { started: true, packIds };

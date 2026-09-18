@@ -7,14 +7,23 @@ export function sanitize(name: string): string {
   return name.replace(/[^a-zA-Z0-9._-]/g, "_");
 }
 
-export function regionPackFileName(regionName: string, taxon: string | null): string {
-  const suffix = taxon ? `-${taxon}` : "";
-  return `${sanitize(regionName).toLowerCase()}${suffix}.pack.tar.gz`;
+// "small" ships the same checklist/embeddings as "full" but skips the reference-photo gallery
+// (only the single featured photo per species), a much smaller download for users who accept
+// fetching extra gallery photos on demand once online, per species.
+export type PackVariant = "full" | "small";
+
+function variantSuffix(variant: PackVariant): string {
+  return variant === "small" ? ".small" : "";
 }
 
-export function seaZonePackFileName(zoneName: string, taxon: string | null): string {
+export function regionPackFileName(regionName: string, taxon: string | null, variant: PackVariant = "full"): string {
   const suffix = taxon ? `-${taxon}` : "";
-  return `seazone-${sanitize(zoneName).toLowerCase()}${suffix}.pack.tar.gz`;
+  return `${sanitize(regionName).toLowerCase()}${suffix}${variantSuffix(variant)}.pack.tar.gz`;
+}
+
+export function seaZonePackFileName(zoneName: string, taxon: string | null, variant: PackVariant = "full"): string {
+  const suffix = taxon ? `-${taxon}` : "";
+  return `seazone-${sanitize(zoneName).toLowerCase()}${suffix}${variantSuffix(variant)}.pack.tar.gz`;
 }
 
 export function packIdFromFileName(fileName: string): string {

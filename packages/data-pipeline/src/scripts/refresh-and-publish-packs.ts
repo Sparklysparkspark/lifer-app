@@ -37,7 +37,13 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import * as tar from "tar";
 import { pool } from "../db.js";
-import { regionPackFileName, seaZonePackFileName } from "../build/pack-id.js";
+import { regionPackFileName, seaZonePackFileName, type PackVariant } from "../build/pack-id.js";
+
+// Every ready combo gets built as both variants: "full" (bundled reference gallery + embeddings)
+// and "small" (single featured photo + embeddings, extra gallery photos fetched on demand once
+// online). Same DB fetch, same readiness gate; only packSpecies' gallery-copy step differs
+// between them, so building both here is cheap relative to a single taxon's DB round trip.
+const VARIANTS: PackVariant[] = ["full", "small"];
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.join(__dirname, "..", "..", "..", "..");
@@ -57,12 +63,10 @@ const TAXON_CLASSES = [
   "amphibia",
   "squamata",
   "testudines",
-  "crocodylia",
   "corals",
   "jellies_and_anemones",
   "echinodermata",
   "nudibranchs",
-  "collector_shells",
   "marine_mollusks",
   "cephalopoda",
   "crustacea",
@@ -79,6 +83,7 @@ interface IndexPack {
   region?: string;
   seaZone?: string;
   taxon?: string | null;
+  variant?: "full" | "small";
   sizeBytes: number;
   speciesCount: number;
   contentVersion: string;
@@ -205,21 +210,24 @@ async function main() {
         }
 
         const label = taxon ? `${zone.name} / ${taxon}` : zone.name;
-        const buildArgs = ["tsx", "src/build/build-region-pack.ts", "--sea-zone", zone.name, scratchDir];
-        if (taxon) buildArgs.push(`--taxon=${taxon}`);
-        run(`build sea zone ${label}`, buildArgs, DATA_PIPELINE_DIR);
-        const fileName = seaZonePackFileName(zone.name, taxon);
-        const archivePath = path.join(scratchDir, fileName);
-        if (!existsSync(archivePath)) continue;
+        for (const variant of VARIANTS) {
+          const buildArgs = ["tsx", "src/build/build-region-pack.ts", "--sea-zone", zone.name, scratchDir];
+          if (taxon) buildArgs.push(`--taxon=${taxon}`);
+          if (variant === "small") buildArgs.push(`--variant=small`);
+          run(`build sea zone ${label}${variant === "small" ? " (small)" : ""}`, buildArgs, DATA_PIPELINE_DIR);
+          const fileName = seaZonePackFileName(zone.name, taxon, variant);
+          const archivePath = path.join(scratchDir, fileName);
+          if (!existsSync(archivePath)) continue;
 
-        const newVersion = readManifestContentVersion(archivePath);
-        const publishedVersion = publishedById.get(path.basename(fileName, ".pack.tar.gz"))?.contentVersion;
-        if (newVersion === publishedVersion) {
-          unchanged++;
-          rmSync(archivePath);
-        } else {
-          changed++;
-          changedFiles.push(fileName);
+          const newVersion = readManifestContentVersion(archivePath);
+          const publishedVersion = publishedById.get(path.basename(fileName, ".pack.tar.gz"))?.contentVersion;
+          if (newVersion === publishedVersion) {
+            unchanged++;
+            rmSync(archivePath);
+          } else {
+            changed++;
+            changedFiles.push(fileName);
+          }
         }
       }
     }
@@ -234,23 +242,23 @@ async function main() {
           continue;
         }
 
-        run(
-          `build ${country.name} / ${taxon}`,
-          ["tsx", "src/build/build-region-pack.ts", country.name, scratchDir, `--taxon=${taxon}`],
-          DATA_PIPELINE_DIR,
-        );
-        const fileName = regionPackFileName(country.name, taxon);
-        const archivePath = path.join(scratchDir, fileName);
-        if (!existsSync(archivePath)) continue; // build-region-pack.ts itself decided there's nothing to write.
+        for (const variant of VARIANTS) {
+          const buildArgs = ["tsx", "src/build/build-region-pack.ts", country.name, scratchDir, `--taxon=${taxon}`];
+          if (variant === "small") buildArgs.push(`--variant=small`);
+          run(`build ${country.name} / ${taxon}${variant === "small" ? " (small)" : ""}`, buildArgs, DATA_PIPELINE_DIR);
+          const fileName = regionPackFileName(country.name, taxon, variant);
+          const archivePath = path.join(scratchDir, fileName);
+          if (!existsSync(archivePath)) continue; // build-region-pack.ts itself decided there's nothing to write.
 
-        const newVersion = readManifestContentVersion(archivePath);
-        const publishedVersion = publishedById.get(path.basename(fileName, ".pack.tar.gz"))?.contentVersion;
-        if (newVersion === publishedVersion) {
-          unchanged++;
-          rmSync(archivePath);
-        } else {
-          changed++;
-          changedFiles.push(fileName);
+          const newVersion = readManifestContentVersion(archivePath);
+          const publishedVersion = publishedById.get(path.basename(fileName, ".pack.tar.gz"))?.contentVersion;
+          if (newVersion === publishedVersion) {
+            unchanged++;
+            rmSync(archivePath);
+          } else {
+            changed++;
+            changedFiles.push(fileName);
+          }
         }
       }
     }
