@@ -8,6 +8,7 @@ import CoverImage from "../components/CoverImage";
 import DotMenu from "../components/DotMenu";
 import RenameModal from "../components/RenameModal";
 import TripCard from "../components/TripCard";
+import EmptyState from "../components/EmptyState";
 import { FolderBrowser, pickFolderNative } from "../components/FolderPicker";
 import InfoTip from "../components/InfoTip";
 import { useDropdownMenu } from "../hooks/useDropdownMenu";
@@ -179,9 +180,17 @@ function AlbumsPanel() {
         ) : !albums ? (
           <Spinner />
         ) : albums.length === 0 ? (
-          <p className="text-muted">
-            No albums yet. Group your favorite photos into a named collection you can browse or share.
-          </p>
+          <EmptyState
+            icon={
+              <svg viewBox="0 0 24 24" className="h-6 w-6 text-muted" fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round">
+                <path d="M3 15.5V5.5A2 2 0 0 1 5 3.5h10" />
+                <rect x="6" y="6" width="14" height="14" rx="2" />
+              </svg>
+            }
+            title="No albums yet"
+            description="Group your favorite photos into a named collection you can browse or share."
+            action={{ label: "New album", onClick: () => setCreating(true) }}
+          />
         ) : (
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
             {albums.map((album) => (
@@ -231,9 +240,13 @@ function AlbumsPanel() {
                 </div>
                 <div className="p-3">
                   <p className="truncate font-medium leading-tight text-ink">{album.name}</p>
-                  <p className="mt-0.5 text-xs text-muted">
-                    {album.captureCount} photo{album.captureCount === 1 ? "" : "s"}
-                  </p>
+                  {/* Same neutral pill TripCard uses for its own photo count — Albums had
+                     plain text here, reading noticeably plainer next to a Trip card. */}
+                  <div className="mt-1 flex flex-wrap items-center gap-1">
+                    <span className="inline-block rounded-full bg-surface-muted px-2 py-0.5 text-[10px] uppercase tracking-wide text-muted">
+                      {album.captureCount} photo{album.captureCount === 1 ? "" : "s"}
+                    </span>
+                  </div>
                 </div>
               </Link>
             ))}
@@ -469,7 +482,25 @@ function TripsPanel() {
         ) : !trips ? (
           <Spinner />
         ) : trips.length === 0 ? (
-          <p className="text-muted">No trips yet. Create one to start referencing wildlife photos from an external folder.</p>
+          <EmptyState
+            icon={
+              <svg viewBox="0 0 24 24" className="h-6 w-6 text-muted" fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 21s-7-6.5-7-11.5A7 7 0 0 1 19 9.5C19 14.5 12 21 12 21Z" />
+                <circle cx="12" cy="9.5" r="2.25" />
+              </svg>
+            }
+            title="No trips yet"
+            description="Create one to start referencing wildlife photos from an external folder."
+            action={{
+              label: "Build a Trip",
+              onClick: () => {
+                setCreating(false);
+                setBuilding(true);
+                setChosenFolder(null);
+                setError(null);
+              },
+            }}
+          />
         ) : (
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
             {trips.map((trip) => (
