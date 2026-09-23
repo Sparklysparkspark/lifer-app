@@ -1,9 +1,10 @@
-// Combines the arm64 and x86_64 macOS jobs' partial updater manifests (see
-// build-update-manifest.js) into the single real latest.json a release actually ships —
-// tauri-plugin-updater expects ONE manifest with both platform keys present, and uploading two
-// same-named latest.json release assets would just have the second job's upload silently
-// clobber the first. Run from the repo root after downloading both jobs' `latest-*.json`
-// artifacts into a single directory: node merge-update-manifests.js <dir> <outputPath>
+// Combines every matrix job's partial updater manifest (see build-update-manifest.js — one per
+// macOS/Windows/Linux job, named latest-<platformKey>.json, e.g. latest-darwin-aarch64.json,
+// latest-windows-x86_64.json, latest-linux-x86_64.json) into the single real latest.json a
+// release actually ships — tauri-plugin-updater expects ONE manifest with every platform key
+// present, and uploading several same-named latest.json release assets would just have the last
+// job's upload silently clobber the rest. Run from the repo root after downloading every job's
+// `latest-*.json` artifacts into a single directory: node merge-update-manifests.js <dir> <outputPath>
 import { readdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
@@ -14,7 +15,7 @@ if (!inputDir || !outputPath) {
 }
 
 const manifestFiles = readdirSync(inputDir, { recursive: true }).filter(
-  (f) => typeof f === "string" && /^latest-(aarch64|x86_64)\.json$/.test(path.basename(f)),
+  (f) => typeof f === "string" && /^latest-.+\.json$/.test(path.basename(f)),
 );
 if (manifestFiles.length === 0) {
   console.error(`[merge-update-manifests] no latest-*.json found under ${inputDir}`);
