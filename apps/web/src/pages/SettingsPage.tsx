@@ -2795,14 +2795,11 @@ function MapSection() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // No confirm() popup — the button's own label ("Download offline map (~500MB)") and this
+  // section's Card description already say exactly what this does and how big it is; the
+  // browser-native confirm dialog was just redundant friction on top of an already-deliberate
+  // click, not a real decision point.
   async function download() {
-    if (
-      !confirm(
-        "Download the offline basemap? It's about 500MB. Also unlocks locality info on species detail pages (roughly where within a region each species is found), everything else in Lifer works the same either way.",
-      )
-    ) {
-      return;
-    }
     setBusy(true);
     try {
       await api.post("/settings/map/download");

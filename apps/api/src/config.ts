@@ -152,8 +152,23 @@ export const BUNDLED_CATALOG_SEED_DIR = path.join(REPO_ROOT, "catalog-seed");
 // meaningfully bigger gap — the size/accuracy tradeoff worth paying). Not BioCLIP: BioCLIP has
 // no ready-made ONNX export, and an earlier test of a mislabeled "BioCLIP-2" ONNX port actually
 // measured WORSE than plain CLIP on this app's own data.
+// Pinned to a specific commit, not `resolve/main` — confirmed live as a real bug, not a
+// theoretical one: `main` on a Hugging Face repo is a mutable git ref, so a Docker install that
+// downloads this model fresh gets whatever's on `main` AT THAT MOMENT, which is NOT guaranteed
+// to be byte-identical to whatever an older desktop install downloaded months ago. Both sides
+// still tag their vectors with the same EMBEDDING_MODEL_VERSION string (that's a constant WE
+// control, unrelated to what Hugging Face happens to be serving), so two installs can end up
+// silently comparing vectors from two different underlying model weights with no version
+// mismatch ever detected — cosine similarity between them is meaningless. Confirmed exactly this
+// live: a species matched at 60% confidence, #1 result, on an existing desktop install; the
+// same species didn't even crack the top 5 on a freshly-wiped Docker install that downloaded the
+// model fresh. Pinning to this commit (the one live on `main` as of 2026-09-23, verified via
+// this repo's own X-Repo-Commit response header) makes every future download byte-identical
+// regardless of when or where it happens — upgrading to a genuinely different model checkpoint
+// still means bumping EMBEDDING_MODEL_VERSION below and updating this commit hash together.
 export const EMBEDDING_MODEL_URL =
-  process.env.EMBEDDING_MODEL_URL ?? "https://huggingface.co/Xenova/clip-vit-large-patch14/resolve/main/onnx/vision_model_quantized.onnx";
+  process.env.EMBEDDING_MODEL_URL ??
+  "https://huggingface.co/Xenova/clip-vit-large-patch14/resolve/c307790166907339eed5a9a53a249af534102536/onnx/vision_model_quantized.onnx";
 // Bumped whenever EMBEDDING_MODEL_URL points at a different model — every stored vector is
 // tagged with the version it was computed under (capture_embeddings/species_reference_embeddings
 // .model_version) so vectors from two different models are never compared against each other

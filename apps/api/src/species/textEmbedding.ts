@@ -25,6 +25,14 @@ import { APP_DATA_DIR } from "../config.js";
 // different model, so its text embeddings land in the exact same space as every already-stored
 // capture_embeddings row (both tagged with this same EMBEDDING_MODEL_VERSION for that reason).
 const TEXT_MODEL_ID = "Xenova/clip-vit-large-patch14";
+// Pinned to the exact same commit EMBEDDING_MODEL_URL pins its vision half to — @xenova/
+// transformers' from_pretrained defaults to the `main` branch (a mutable git ref) when no
+// revision is given, the same real bug fixed on the vision side: two installs downloading this
+// text model at different times could otherwise silently get different underlying weights while
+// both still claim the same TEXT_MODEL_VERSION, since that string is a constant WE control, not
+// something tied to what Hugging Face actually serves. Keep in sync with config.ts's
+// EMBEDDING_MODEL_URL commit hash — they're the two halves of the same repo/model.
+const MODEL_REVISION = "c307790166907339eed5a9a53a249af534102536";
 const CACHE_DIR = path.join(APP_DATA_DIR, "models", "clip-text-cache");
 // Versions species_text_embeddings rows (migration 102) the same way EMBEDDING_MODEL_VERSION
 // versions image ones — a distinct string since these two tables hold different halves of the
@@ -96,8 +104,8 @@ async function getModel(forceDownload = false): Promise<TextModel> {
       const { AutoTokenizer, CLIPTextModelWithProjection, env } = await import("@xenova/transformers");
       env.cacheDir = CACHE_DIR;
       const [tokenizer, textModel] = await Promise.all([
-        AutoTokenizer.from_pretrained(TEXT_MODEL_ID),
-        CLIPTextModelWithProjection.from_pretrained(TEXT_MODEL_ID, { quantized: true }),
+        AutoTokenizer.from_pretrained(TEXT_MODEL_ID, { revision: MODEL_REVISION }),
+        CLIPTextModelWithProjection.from_pretrained(TEXT_MODEL_ID, { quantized: true, revision: MODEL_REVISION }),
       ]);
       return { tokenizer, textModel };
     })().catch((err) => {

@@ -56,6 +56,35 @@ const PATH_COLUMNS: Record<string, string[]> = {
   species_reference_photos: ["display_path", "thumb_path"],
 };
 
+// Other Taxa species (Settings > Species & Import's any-taxa search, species.is_other_taxa) are
+// deliberately personal: one install's own "I found this specific insect, it's not in the base
+// checklist" addition, written into the same shared species/region_species tables every OTHER
+// catalog table lives in — see species/routes.ts's own POST /species/other-taxa. pg_dump --table
+// dumps a table's ENTIRE contents with no row-level filter available, so without this, any Other
+// Taxa species added on whatever machine last ran this script rides along in the NEXT published
+// catalog seed and ends up in every fresh install's database — confirmed live: a bumble bee added
+// once, on a test/dev machine, while checking the Other Taxa feature, showed up in a completely
+// unrelated, freshly-wiped Docker install's Canada checklist after that install picked up the
+// seed. Offline PACKS were never the vector (build-region-pack.ts filters by taxon_class, and an
+// Other Taxa species' taxon_class is never one of the 18 built-in classes a pack is built for) —
+// only the catalog seed's unfiltered whole-table dump was.
+//
+// Listed children-before-parent (safe DELETE order); reinsertion in main() below walks this
+// list in reverse (safe INSERT order, parent before children). Every entry here is a table this
+// script's own CATALOG_TABLES list already dumps and that carries a species_id (or, for
+// `species` itself, `id`) referencing species.is_other_taxa.
+const OTHER_TAXA_TABLES: Array<{ table: string; speciesIdColumn: string }> = [
+  { table: "species_reference_gallery_embeddings", speciesIdColumn: "species_id" },
+  { table: "species_reference_embeddings", speciesIdColumn: "species_id" },
+  { table: "species_text_embeddings", speciesIdColumn: "species_id" },
+  { table: "species_reference_photos", speciesIdColumn: "species_id" },
+  { table: "species_traits", speciesIdColumn: "species_id" },
+  { table: "species_rarity", speciesIdColumn: "species_id" },
+  { table: "region_species", speciesIdColumn: "species_id" },
+  { table: "sea_zone_species", speciesIdColumn: "species_id" },
+  { table: "species", speciesIdColumn: "id" },
+];
+
 async function main() {
   const outputPath = process.argv[2];
   if (!outputPath) {
@@ -76,7 +105,28 @@ async function main() {
   // so the brief real window where these columns are NULL is safe — and restoring afterward
   // means this script never leaves the source database actually changed.
   const backups: { table: string; idColumn: string; rows: Record<string, unknown>[] }[] = [];
+  // Same "back up the rows, temporarily remove what shouldn't be in the dump, restore
+  // afterward" shape as the path-column backup below — pg_dump --table has no row-level filter,
+  // so the only way to keep Other Taxa species out of the dump without a hand-written COPY
+  // parser is to make them briefly not exist in the source tables while pg_dump runs. Ordered
+  // children-first so the delete pass never trips a foreign-key violation; restored in reverse
+  // (parents first) so the reinsert pass doesn't either. This machine's dev DB has no concurrent
+  // writers during a manual export run (same assumption the path-column step already makes), so
+  // the brief real window where these rows are gone is safe, and the source database ends up
+  // completely unchanged once this script finishes.
+  const otherTaxaBackups: Array<{ table: string; rows: Record<string, unknown>[] }> = [];
   try {
+    for (const { table, speciesIdColumn } of OTHER_TAXA_TABLES) {
+      const whereOtherTaxa = `EXISTS (SELECT 1 FROM species s WHERE s.id = t.${speciesIdColumn} AND s.is_other_taxa)`;
+      const res = await pool.query(`SELECT t.* FROM ${table} t WHERE ${whereOtherTaxa}`);
+      otherTaxaBackups.push({ table, rows: res.rows });
+      if (res.rows.length > 0) await pool.query(`DELETE FROM ${table} t WHERE ${whereOtherTaxa}`);
+    }
+    const otherTaxaSpeciesCount = otherTaxaBackups.find((b) => b.table === "species")?.rows.length ?? 0;
+    if (otherTaxaSpeciesCount > 0) {
+      console.log(`[build-catalog-seed] excluding ${otherTaxaSpeciesCount} Other Taxa species (and their dependent rows) from the dump`);
+    }
+
     for (const [table, columns] of Object.entries(PATH_COLUMNS)) {
       const idColumn = "id";
       const res = await pool.query(`SELECT ${idColumn}, ${columns.join(", ")} FROM ${table}`);
@@ -136,6 +186,16 @@ async function main() {
           row[idColumn],
           ...columns.map((c) => row[c]),
         ]);
+      }
+    }
+    // Reverse of the delete order above — species (the parent every other table here
+    // references) goes back in first, then everything that points at it.
+    for (const { table, rows } of [...otherTaxaBackups].reverse()) {
+      for (const row of rows) {
+        const columns = Object.keys(row);
+        if (columns.length === 0) continue;
+        const placeholders = columns.map((_, i) => `$${i + 1}`);
+        await pool.query(`INSERT INTO ${table} (${columns.join(", ")}) VALUES (${placeholders.join(", ")})`, Object.values(row));
       }
     }
     await pool.end();
