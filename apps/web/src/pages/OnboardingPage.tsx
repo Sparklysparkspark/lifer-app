@@ -1,10 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import type { RegionSummary } from "@lifer/shared";
+import type { RegionSummary, TaxonClass } from "@lifer/shared";
+import { taxonDisplayLabel } from "@lifer/shared";
 import { api, ApiError } from "../api/client";
 import { Logo } from "../components/Logo";
 import RegionPicker from "../components/RegionPicker";
 import { Spinner } from "../components/LoadingScreen";
+import Pill from "../components/Pill";
+import type { PackEntry } from "../components/DownloadedPacksList";
 
 interface MapStatus {
   available: boolean;
@@ -91,9 +94,19 @@ export default function OnboardingPage() {
   const [startError, setStartError] = useState<string | null>(null);
   const [status, setStatus] = useState<DownloadStatus | null>(null);
 
+  // Which taxon groups (birds, mammals, reptiles, etc.) to include for the region(s) picked
+  // above — same idea as Offline Packs' own picker, kept to a flat pill list here (no nested
+  // disclosure groups) since this is a one-time setup step, not the full management screen.
+  // Empty selection means "all taxa," same convention download-batch's own `taxa: "all"` uses.
+  const [packs, setPacks] = useState<PackEntry[] | null>(null);
+  const [selectedTaxa, setSelectedTaxa] = useState<Set<TaxonClass>>(new Set());
+  const [namingStyles, setNamingStyles] = useState<string[]>([]);
+
   useEffect(() => {
     if (step !== "pack") return;
     api.get<{ regions: RegionSummary[] }>("/regions").then((res) => setRegions(res.regions));
+    api.get<{ packs: PackEntry[] }>("/offline-packs/index").then((res) => setPacks(res.packs));
+    api.get<{ speciesNamingStyles: string[] }>("/settings").then((res) => setNamingStyles(res.speciesNamingStyles));
   }, [step]);
 
   useEffect(() => {
@@ -128,6 +141,36 @@ export default function OnboardingPage() {
     return map;
   }, [regions, continents]);
   const countryById = useMemo(() => new Map((regions ?? []).map((r) => [r.id, r])), [regions]);
+  // Same "read taxa off the pack catalog, not local region_species" reasoning as Offline Packs'
+  // own availableTaxaByRegion — the catalog already lists every published region×taxon
+  // combination regardless of what (if anything) is downloaded locally yet.
+  const availableTaxaByRegion = useMemo(() => {
+    const byRegionName = new Map<string, Set<TaxonClass>>();
+    for (const p of packs ?? []) {
+      if (p.type !== "region" || !p.region || !p.taxon) continue;
+      if (!byRegionName.has(p.region)) byRegionName.set(p.region, new Set());
+      byRegionName.get(p.region)!.add(p.taxon);
+    }
+    const byRegionId: Record<string, TaxonClass[]> = {};
+    for (const r of regions ?? []) {
+      const taxa = byRegionName.get(r.name);
+      if (taxa) byRegionId[r.id] = [...taxa];
+    }
+    return byRegionId;
+  }, [packs, regions]);
+  const availableTaxaForSelection = useMemo(() => {
+    const set = new Set<TaxonClass>();
+    for (const id of selectedCountryIds) for (const t of availableTaxaByRegion[id] ?? []) set.add(t);
+    return [...set].sort((a, b) => taxonDisplayLabel(a, namingStyles).localeCompare(taxonDisplayLabel(b, namingStyles)));
+  }, [selectedCountryIds, availableTaxaByRegion, namingStyles]);
+  function toggleTaxon(taxon: TaxonClass) {
+    setSelectedTaxa((prev) => {
+      const next = new Set(prev);
+      if (next.has(taxon)) next.delete(taxon);
+      else next.add(taxon);
+      return next;
+    });
+  }
   const searchResults = useMemo(() => {
     if (searchTerm.trim().length < 2) return [];
     const term = searchTerm.trim().toLowerCase();
@@ -142,7 +185,10 @@ export default function OnboardingPage() {
     setStarting(true);
     try {
       const regionNames = [...selectedCountryIds].map((id) => countryById.get(id)?.name).filter((n): n is string => !!n);
-      await api.post("/offline-packs/download-batch", { regionNames, taxa: "all" });
+      await api.post("/offline-packs/download-batch", {
+        regionNames,
+        taxa: selectedTaxa.size > 0 ? [...selectedTaxa] : "all",
+      });
     } catch (err) {
       setStartError(err instanceof ApiError ? err.message : "Couldn't start the download");
     } finally {
@@ -166,7 +212,8 @@ export default function OnboardingPage() {
               </p>
             </div>
             {startingMap || mapStatus?.downloading ? (
-              <p className="text-sm text-muted">
+              <p className="flex items-center gap-2 text-sm text-muted">
+                <span className="h-3 w-3 shrink-0 animate-spin rounded-full border-2 border-accent/40 border-t-accent" />
                 Downloading…
                 {mapStatus?.downloadedBytes ? ` ${(mapStatus.downloadedBytes / 1e6).toFixed(0)}MB` : ""}
                 {mapStatus?.totalBytes ? ` of ${(mapStatus.totalBytes / 1e6).toFixed(0)}MB` : ""}
@@ -271,6 +318,41 @@ export default function OnboardingPage() {
                       />
                     </div>
                   ))}
+                {selectedCountryIds.size > 0 && (
+                  <div className="rounded-lg border border-line bg-surface-muted p-3">
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs font-semibold text-ink">Taxon groups</p>
+                      {availableTaxaForSelection.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setSelectedTaxa(
+                              availableTaxaForSelection.every((t) => selectedTaxa.has(t)) ? new Set() : new Set(availableTaxaForSelection),
+                            )
+                          }
+                          className="text-xs text-accent hover:underline"
+                        >
+                          {availableTaxaForSelection.every((t) => selectedTaxa.has(t)) ? "Deselect all" : "Select all"}
+                        </button>
+                      )}
+                    </div>
+                    <p className="mt-0.5 text-xs text-muted">
+                      Leave none checked for everything (birds, mammals, reptiles, and every other group) — you can add or
+                      drop specific groups anytime later from Offline Packs.
+                    </p>
+                    {availableTaxaForSelection.length === 0 ? (
+                      <p className="mt-2 text-xs text-muted">No taxon data available yet for the selected region(s).</p>
+                    ) : (
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {availableTaxaForSelection.map((taxon) => (
+                          <Pill key={taxon} size="sm" active={selectedTaxa.has(taxon)} onClick={() => toggleTaxon(taxon)}>
+                            {taxonDisplayLabel(taxon, namingStyles)}
+                          </Pill>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
                 {startError && <p className="text-sm text-red-600">{startError}</p>}
                 {status?.error && <p className="text-sm text-red-600">Download failed: {status.error}</p>}
                 <button
@@ -279,7 +361,11 @@ export default function OnboardingPage() {
                   disabled={selectedCountryIds.size === 0 || starting}
                   className="w-full rounded-md bg-accent py-2 text-sm font-medium text-accent-fg disabled:opacity-50"
                 >
-                  {starting ? "Starting…" : `Download ${selectedCountryIds.size || ""} region${selectedCountryIds.size === 1 ? "" : "s"}`}
+                  {starting
+                    ? "Starting…"
+                    : `Download ${selectedCountryIds.size || ""} region${selectedCountryIds.size === 1 ? "" : "s"}${
+                        selectedTaxa.size > 0 ? ` (${selectedTaxa.size} group${selectedTaxa.size === 1 ? "" : "s"})` : ""
+                      }`}
                 </button>
               </>
             )}
