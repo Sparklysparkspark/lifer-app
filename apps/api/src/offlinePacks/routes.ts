@@ -161,6 +161,17 @@ function resolveWithinDir(dir: string, relativePath: string): string | null {
 // region a pack is named after and any provinces/states bundled into it (see
 // build-region-pack.ts's fetchChildRegionsWithSpecies) — a province is applied exactly the
 // same way, just against its own local region row instead of the country's.
+// Row-batch size for every bulk statement below — keeps well under Postgres's ~65535
+// bind-parameter ceiling regardless of how many columns a given statement uses (same 500 the
+// hotspot batching below already validated safe at 8 columns/row).
+const BULK_BATCH_SIZE = 500;
+
+function chunkRows<T>(items: T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
+  return out;
+}
+
 async function applyChecklist(
   species: ManifestSpecies[],
   target: { regionId: string } | { seaZoneId: string },
@@ -170,20 +181,69 @@ async function applyChecklist(
   galleryDisplayDir: string,
   galleryThumbDir: string,
 ): Promise<{ applied: number; skipped: number; touched: Array<{ speciesId: string; providedEnrichment: boolean }> }> {
-  let applied = 0;
   let skipped = 0;
   const touched: Array<{ speciesId: string; providedEnrichment: boolean }> = [];
+
+  // Every write below used to happen one species (and one gallery photo) at a time — for a
+  // country the size of Canada (900+ species, several gallery photos each once the per-photo
+  // embedding feature shipped), that's tens of thousands of sequential awaited round-trips to
+  // apply a single pack, the exact reason a real update could sit for a long time with the
+  // progress bar barely moving. Fixed the same way the hotspot batching further down already
+  // fixed its own version of this problem: read everything this function needs in a handful of
+  // bulk queries up front, do all the per-species/per-photo DECISION-MAKING in memory (no DB
+  // calls at all in the loop below), then write everything back in a handful of bulk
+  // statements at the end instead of one round-trip per row.
+  const existingRes = await pool.query<{
+    id: string;
+    scientific_name: string;
+    enriched_at: string | null;
+    reference_display_path: string | null;
+    reference_thumb_path: string | null;
+  }>(
+    `SELECT id, scientific_name, enriched_at, reference_display_path, reference_thumb_path
+     FROM species WHERE scientific_name = ANY($1)`,
+    [species.map((sp) => sp.scientificName)],
+  );
+  const speciesByName = new Map(existingRes.rows.map((r) => [r.scientific_name, r]));
+
+  const speciesIds = existingRes.rows.map((r) => r.id);
+  const existingGalleryRes = speciesIds.length
+    ? await pool.query<{ id: string; species_id: string; photo_url: string; display_path: string | null; thumb_path: string | null }>(
+        `SELECT id, species_id, photo_url, display_path, thumb_path FROM species_reference_photos WHERE species_id = ANY($1)`,
+        [speciesIds],
+      )
+    : { rows: [] as Array<{ id: string; species_id: string; photo_url: string; display_path: string | null; thumb_path: string | null }> };
+  const existingGalleryByKey = new Map(existingGalleryRes.rows.map((r) => [`${r.species_id}:${r.photo_url}`, r]));
+  // Resolves every gallery photo's final row id once the bulk upsert below runs — a photo that
+  // didn't need re-upserting keeps its prefetched id; one that did gets it filled in from that
+  // upsert's own RETURNING.
+  const galleryPhotoIdByKey = new Map([...existingGalleryByKey.entries()].map(([k, r]) => [k, r.id] as const));
+
+  const enrichmentUpdates: Array<{
+    id: string;
+    habitat: string | null;
+    credit: string | null;
+    license: string | null;
+    display: string | null;
+    thumb: string | null;
+  }> = [];
+  const galleryUpserts: Array<{
+    speciesId: string;
+    photoUrl: string;
+    credit: string;
+    license: string;
+    sortOrder: number;
+    focalX: number | null;
+    focalY: number | null;
+    display: string | null;
+    thumb: string | null;
+  }> = [];
+  const galleryEmbeddingCandidates: Array<{ speciesId: string; photoUrl: string; embedding: number[]; modelVersion: string }> = [];
+  const speciesEmbeddings: Array<{ speciesId: string; embedding: number[]; modelVersion: string }> = [];
+  const checklistRows: Array<{ speciesId: string; sp: ManifestSpecies }> = [];
+
   for (const sp of species) {
-    const existing = await pool.query<{
-      id: string;
-      enriched_at: string | null;
-      reference_display_path: string | null;
-      reference_thumb_path: string | null;
-    }>(
-      `SELECT id, enriched_at, reference_display_path, reference_thumb_path FROM species WHERE scientific_name = $1`,
-      [sp.scientificName],
-    );
-    const row = existing.rows[0];
+    const row = speciesByName.get(sp.scientificName);
     // No local match — a pack can reference species this install's own seed doesn't have
     // (different taxonomy version, etc.) — nothing at all to apply for this entry.
     if (!row) {
@@ -226,17 +286,14 @@ async function applyChecklist(
         copyFileSync(thumbSource, thumbPath);
       }
 
-      await pool.query(
-        `UPDATE species SET
-           habitat_description = COALESCE(habitat_description, $1),
-           reference_credit = COALESCE(reference_credit, $2),
-           reference_license = COALESCE(reference_license, $3),
-           reference_display_path = COALESCE($4, reference_display_path),
-           reference_thumb_path = COALESCE($5, reference_thumb_path),
-           enriched_at = now()
-         WHERE id = $6`,
-        [sp.habitatDescription, sp.referenceCredit, sp.referenceLicense, displayPath, thumbPath, row.id],
-      );
+      enrichmentUpdates.push({
+        id: row.id,
+        habitat: sp.habitatDescription,
+        credit: sp.referenceCredit,
+        license: sp.referenceLicense,
+        display: displayPath,
+        thumb: thumbPath,
+      });
     }
 
     // Gallery photos and the auto-suggest reference embedding, independent of the
@@ -245,14 +302,8 @@ async function applyChecklist(
     // existed) while still missing either of these entirely. Each checked and applied on its
     // own terms rather than folded into the "already enriched, skip" branch.
     if (sp.gallery && sp.gallery.length > 0) {
-      const existingGalleryRes = await pool.query<{ id: string; photo_url: string; display_path: string | null; thumb_path: string | null }>(
-        `SELECT id, photo_url, display_path, thumb_path FROM species_reference_photos WHERE species_id = $1`,
-        [row.id],
-      );
-      const existingGalleryByUrl = new Map(existingGalleryRes.rows.map((r) => [r.photo_url, r]));
       for (const g of sp.gallery) {
-        const existingGalleryRow = existingGalleryByUrl.get(g.photoUrl);
-        let referencePhotoId = existingGalleryRow?.id ?? null;
+        const existingGalleryRow = existingGalleryByKey.get(`${row.id}:${g.photoUrl}`);
         const galleryFileMissing =
           !existingGalleryRow ||
           (existingGalleryRow.display_path != null && !existsSync(existingGalleryRow.display_path)) ||
@@ -271,30 +322,25 @@ async function applyChecklist(
             gThumbPath = path.join(galleryThumbDir, `${row.id}-${g.sortOrder}.webp`);
             copyFileSync(gThumbSource, gThumbPath);
           }
-
-          const upsertRes = await pool.query<{ id: string }>(
-            `INSERT INTO species_reference_photos (species_id, photo_url, credit, license, sort_order, focal_x, focal_y, display_path, thumb_path)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-             ON CONFLICT (species_id, photo_url) DO UPDATE SET
-               display_path = COALESCE(EXCLUDED.display_path, species_reference_photos.display_path),
-               thumb_path = COALESCE(EXCLUDED.thumb_path, species_reference_photos.thumb_path)
-             RETURNING id`,
-            [row.id, g.photoUrl, g.credit, g.license, g.sortOrder, g.focalX, g.focalY, gDisplayPath, gThumbPath],
-          );
-          referencePhotoId = upsertRes.rows[0].id;
+          galleryUpserts.push({
+            speciesId: row.id,
+            photoUrl: g.photoUrl,
+            credit: g.credit,
+            license: g.license,
+            sortOrder: g.sortOrder,
+            focalX: g.focalX,
+            focalY: g.focalY,
+            display: gDisplayPath,
+            thumb: gThumbPath,
+          });
         }
 
         // Independent of the file-presence gate above (same reasoning as the main species
         // embedding block below): a gallery photo's embedding is worth having even on a
         // "small" pack that never bundled that photo's actual file, and even on a re-run where
         // the photo row and its files already exist but this photo was never embedded before.
-        if (referencePhotoId && g.embedding && g.embeddingModelVersion) {
-          await pool.query(
-            `INSERT INTO species_reference_gallery_embeddings (reference_photo_id, species_id, embedding, model_version)
-             VALUES ($1, $2, $3, $4)
-             ON CONFLICT (reference_photo_id) DO NOTHING`,
-            [referencePhotoId, row.id, g.embedding, g.embeddingModelVersion],
-          );
+        if (g.embedding && g.embeddingModelVersion) {
+          galleryEmbeddingCandidates.push({ speciesId: row.id, photoUrl: g.photoUrl, embedding: g.embedding, modelVersion: g.embeddingModelVersion });
         }
       }
     }
@@ -306,87 +352,155 @@ async function applyChecklist(
     // only ever join on the CURRENT EMBEDDING_MODEL_VERSION, so a stale-version row would
     // simply sit unused, not get matched against by mistake.
     if (sp.embedding && sp.embeddingModelVersion) {
-      await pool.query(
-        `INSERT INTO species_reference_embeddings (species_id, embedding, model_version)
-         VALUES ($1, $2, $3)
-         ON CONFLICT (species_id) DO NOTHING`,
-        [row.id, sp.embedding, sp.embeddingModelVersion],
-      );
+      speciesEmbeddings.push({ speciesId: row.id, embedding: sp.embedding, modelVersion: sp.embeddingModelVersion });
     }
 
-    if ("regionId" in target) {
+    checklistRows.push({ speciesId: row.id, sp });
+    touched.push({ speciesId: row.id, providedEnrichment });
+  }
+
+  // --- Bulk writes below — replaces what used to be one query per species/photo above. ---
+
+  for (const batch of chunkRows(enrichmentUpdates, BULK_BATCH_SIZE)) {
+    const values: unknown[] = [];
+    const rows = batch.map((u, i) => {
+      const base = i * 6;
+      values.push(u.id, u.habitat, u.credit, u.license, u.display, u.thumb);
+      return `($${base + 1}::uuid, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6})`;
+    });
+    await pool.query(
+      `UPDATE species AS s SET
+         habitat_description = COALESCE(s.habitat_description, v.habitat),
+         reference_credit = COALESCE(s.reference_credit, v.credit),
+         reference_license = COALESCE(s.reference_license, v.license),
+         reference_display_path = COALESCE(v.display, s.reference_display_path),
+         reference_thumb_path = COALESCE(v.thumb, s.reference_thumb_path),
+         enriched_at = now()
+       FROM (VALUES ${rows.join(", ")}) AS v(id, habitat, credit, license, display, thumb)
+       WHERE s.id = v.id`,
+      values,
+    );
+  }
+
+  for (const batch of chunkRows(galleryUpserts, BULK_BATCH_SIZE)) {
+    const values: unknown[] = [];
+    const rows = batch.map((g, i) => {
+      const base = i * 9;
+      values.push(g.speciesId, g.photoUrl, g.credit, g.license, g.sortOrder, g.focalX, g.focalY, g.display, g.thumb);
+      return `($${base + 1}::uuid, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7}, $${base + 8}, $${base + 9})`;
+    });
+    const res = await pool.query<{ id: string; species_id: string; photo_url: string }>(
+      `INSERT INTO species_reference_photos (species_id, photo_url, credit, license, sort_order, focal_x, focal_y, display_path, thumb_path)
+       VALUES ${rows.join(", ")}
+       ON CONFLICT (species_id, photo_url) DO UPDATE SET
+         display_path = COALESCE(EXCLUDED.display_path, species_reference_photos.display_path),
+         thumb_path = COALESCE(EXCLUDED.thumb_path, species_reference_photos.thumb_path)
+       RETURNING id, species_id, photo_url`,
+      values,
+    );
+    for (const r of res.rows) galleryPhotoIdByKey.set(`${r.species_id}:${r.photo_url}`, r.id);
+  }
+
+  const galleryEmbeddingRows = galleryEmbeddingCandidates
+    .map((e) => ({ ...e, referencePhotoId: galleryPhotoIdByKey.get(`${e.speciesId}:${e.photoUrl}`) ?? null }))
+    .filter((e): e is typeof e & { referencePhotoId: string } => e.referencePhotoId != null);
+  for (const batch of chunkRows(galleryEmbeddingRows, BULK_BATCH_SIZE)) {
+    const values: unknown[] = [];
+    const rows = batch.map((e, i) => {
+      const base = i * 4;
+      values.push(e.referencePhotoId, e.speciesId, e.embedding, e.modelVersion);
+      return `($${base + 1}::uuid, $${base + 2}::uuid, $${base + 3}, $${base + 4})`;
+    });
+    await pool.query(
+      `INSERT INTO species_reference_gallery_embeddings (reference_photo_id, species_id, embedding, model_version)
+       VALUES ${rows.join(", ")}
+       ON CONFLICT (reference_photo_id) DO NOTHING`,
+      values,
+    );
+  }
+
+  for (const batch of chunkRows(speciesEmbeddings, BULK_BATCH_SIZE)) {
+    const values: unknown[] = [];
+    const rows = batch.map((e, i) => {
+      const base = i * 3;
+      values.push(e.speciesId, e.embedding, e.modelVersion);
+      return `($${base + 1}::uuid, $${base + 2}, $${base + 3})`;
+    });
+    await pool.query(
+      `INSERT INTO species_reference_embeddings (species_id, embedding, model_version)
+       VALUES ${rows.join(", ")}
+       ON CONFLICT (species_id) DO NOTHING`,
+      values,
+    );
+  }
+
+  if ("regionId" in target) {
+    for (const batch of chunkRows(checklistRows, BULK_BATCH_SIZE)) {
+      const values: unknown[] = [];
+      const rows = batch.map(({ speciesId, sp }, i) => {
+        const base = i * 7;
+        values.push(target.regionId, speciesId, sp.localFrequency ?? null, sp.seasonality ?? null, sp.localTier ?? null, sp.isVagrant ?? false, sp.weeklyFrequency ?? null);
+        return `($${base + 1}::uuid, $${base + 2}::uuid, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7})`;
+      });
       await pool.query(
         `INSERT INTO region_species (region_id, species_id, local_frequency, seasonality, local_tier, is_vagrant, weekly_frequency)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)
+         VALUES ${rows.join(", ")}
          ON CONFLICT (region_id, species_id) DO UPDATE SET
            local_frequency = EXCLUDED.local_frequency,
            seasonality = EXCLUDED.seasonality,
            local_tier = EXCLUDED.local_tier,
            is_vagrant = EXCLUDED.is_vagrant,
            weekly_frequency = EXCLUDED.weekly_frequency`,
-        [
-          target.regionId,
-          row.id,
-          sp.localFrequency ?? null,
-          sp.seasonality ?? null,
-          sp.localTier ?? null,
-          sp.isVagrant ?? false,
-          sp.weeklyFrequency ?? null,
-        ],
-      );
-      // Gap-finder hotspot clusters — province-level only (sp.hotspots is undefined for a
-      // country's own top-level species list, so this never runs there). Delete-then-reinsert
-      // per species, same freshness pattern as compute-provinces-bulk.ts's own write.
-      if (sp.hotspots) {
-        await pool.query(`DELETE FROM region_species_hotspots WHERE region_id = $1 AND species_id = $2`, [
-          target.regionId,
-          row.id,
-        ]);
-        // One INSERT per cluster here previously — for a country the size of Canada (a single
-        // province can carry 100,000+ clusters across its species), that's up to a million-plus
-        // sequential awaited round-trips to apply one pack, which is exactly why a real download
-        // could sit for 30+ minutes showing zero progress. Batched the same way
-        // catalogSeedUpdate.ts's own mergeCatalogTables already batches its multi-row upserts —
-        // 500 rows (8 columns each) per statement keeps well under Postgres's ~65535
-        // bind-parameter ceiling.
-        const HOTSPOT_BATCH_SIZE = 500;
-        for (let i = 0; i < sp.hotspots.length; i += HOTSPOT_BATCH_SIZE) {
-          const batch = sp.hotspots.slice(i, i + HOTSPOT_BATCH_SIZE);
-          const values: unknown[] = [];
-          const rowPlaceholders = batch.map((h, idx) => {
-            const base = idx * 8;
-            values.push(
-              target.regionId,
-              row.id,
-              h.centroidLat,
-              h.centroidLon,
-              h.pointCount,
-              h.bboxDiagonalKm,
-              h.lastSeenYear,
-              h.distinctYears,
-            );
-            return `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7}, $${base + 8})`;
-          });
-          await pool.query(
-            `INSERT INTO region_species_hotspots
-               (region_id, species_id, centroid_lat, centroid_lon, point_count, bbox_diagonal_km, last_seen_year, distinct_years)
-             VALUES ${rowPlaceholders.join(", ")}`,
-            values,
-          );
-        }
-      }
-    } else {
-      await pool.query(
-        `INSERT INTO sea_zone_species (sea_zone_id, species_id, record_count)
-         VALUES ($1, $2, $3)
-         ON CONFLICT (sea_zone_id, species_id) DO UPDATE SET record_count = EXCLUDED.record_count`,
-        [target.seaZoneId, row.id, sp.recordCount ?? 0],
+        values,
       );
     }
-    touched.push({ speciesId: row.id, providedEnrichment });
-    applied++;
+
+    // Gap-finder hotspot clusters — province-level only (sp.hotspots is undefined for a
+    // country's own top-level species list, so this never runs there). Delete-then-reinsert
+    // per species, same freshness pattern as compute-provinces-bulk.ts's own write.
+    for (const { speciesId, sp } of checklistRows) {
+      if (!sp.hotspots) continue;
+      await pool.query(`DELETE FROM region_species_hotspots WHERE region_id = $1 AND species_id = $2`, [target.regionId, speciesId]);
+      // One INSERT per cluster here previously — for a country the size of Canada (a single
+      // province can carry 100,000+ clusters across its species), that's up to a million-plus
+      // sequential awaited round-trips to apply one pack, which is exactly why a real download
+      // could sit for 30+ minutes showing zero progress. Batched the same way
+      // catalogSeedUpdate.ts's own mergeCatalogTables already batches its multi-row upserts —
+      // 500 rows (8 columns each) per statement keeps well under Postgres's ~65535
+      // bind-parameter ceiling.
+      for (const hotspotBatch of chunkRows(sp.hotspots, BULK_BATCH_SIZE)) {
+        const values: unknown[] = [];
+        const rowPlaceholders = hotspotBatch.map((h, idx) => {
+          const base = idx * 8;
+          values.push(target.regionId, speciesId, h.centroidLat, h.centroidLon, h.pointCount, h.bboxDiagonalKm, h.lastSeenYear, h.distinctYears);
+          return `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7}, $${base + 8})`;
+        });
+        await pool.query(
+          `INSERT INTO region_species_hotspots
+             (region_id, species_id, centroid_lat, centroid_lon, point_count, bbox_diagonal_km, last_seen_year, distinct_years)
+           VALUES ${rowPlaceholders.join(", ")}`,
+          values,
+        );
+      }
+    }
+  } else {
+    for (const batch of chunkRows(checklistRows, BULK_BATCH_SIZE)) {
+      const values: unknown[] = [];
+      const rows = batch.map(({ speciesId, sp }, i) => {
+        const base = i * 3;
+        values.push(target.seaZoneId, speciesId, sp.recordCount ?? 0);
+        return `($${base + 1}::uuid, $${base + 2}::uuid, $${base + 3})`;
+      });
+      await pool.query(
+        `INSERT INTO sea_zone_species (sea_zone_id, species_id, record_count)
+         VALUES ${rows.join(", ")}
+         ON CONFLICT (sea_zone_id, species_id) DO UPDATE SET record_count = EXCLUDED.record_count`,
+        values,
+      );
+    }
   }
-  return { applied, skipped, touched };
+
+  return { applied: checklistRows.length, skipped, touched };
 }
 
 async function applyPack(archivePath: string): Promise<{
@@ -511,6 +625,19 @@ interface DownloadJobState {
   // show as "updating" from /download/status alone, instead of only knowing that ONE unspecified
   // pack (currentPack) is in flight.
   packIds: string[];
+  // Set by POST /offline-packs/download/cancel — checked at the top of every loop iteration in
+  // runDownloadJob AND aborts the in-flight fetch (via `abortController` below) so cancelling
+  // stops the CURRENT pack's download too, not just whatever hasn't started yet. Packs already
+  // fully applied before the cancel stay applied (each iteration commits its own pack fully or
+  // not at all) — cancelling only stops starting further packs.
+  cancelRequested: boolean;
+  // True only when the job actually stopped because of a cancel (as opposed to finishing
+  // normally or erroring) — lets the client show "Cancelled" instead of treating an empty
+  // `error` as success.
+  cancelled: boolean;
+  // The AbortController backing the CURRENT pack's fetch, if any is in flight — cancel calls
+  // `.abort()` on it directly rather than waiting for the current download to finish on its own.
+  abortController: AbortController | null;
 }
 const downloadJob: DownloadJobState = {
   running: false,
@@ -520,6 +647,9 @@ const downloadJob: DownloadJobState = {
   error: null,
   finishedAt: null,
   packIds: [],
+  cancelRequested: false,
+  cancelled: false,
+  abortController: null,
 };
 
 async function runDownloadJob(requestedPackIds: string[], force = false): Promise<void> {
@@ -531,6 +661,10 @@ async function runDownloadJob(requestedPackIds: string[], force = false): Promis
     const seen = new Set<string>();
 
     while (queue.length > 0) {
+      if (downloadJob.cancelRequested) {
+        downloadJob.cancelled = true;
+        break;
+      }
       const id = queue.shift()!;
       if (seen.has(id)) continue;
       seen.add(id);
@@ -571,14 +705,24 @@ async function runDownloadJob(requestedPackIds: string[], force = false): Promis
       // never finish" (same class of bug already fixed for the catalog-seed fetches). 5 minutes
       // is generous for even a large pack on a slow connection, while still turning a genuine
       // stall into a real, visible error instead of an indefinite hang.
+      // Combined with the cancel controller below (AbortSignal.any) so a cancel takes effect on
+      // THIS pack's in-flight download immediately, not just on whatever hasn't started yet.
+      const cancelController = new AbortController();
+      downloadJob.abortController = cancelController;
       let res: Response;
       try {
-        res = await fetch(entry.url, { signal: AbortSignal.timeout(300_000) });
+        res = await fetch(entry.url, { signal: AbortSignal.any([AbortSignal.timeout(300_000), cancelController.signal]) });
       } catch (err) {
+        if (cancelController.signal.aborted) {
+          downloadJob.cancelled = true;
+          break;
+        }
         if (err instanceof Error && err.name === "TimeoutError") {
           throw new Error(`Downloading "${id}" timed out — check this server's network access`);
         }
         throw err;
+      } finally {
+        downloadJob.abortController = null;
       }
       if (!res.ok) throw new Error(`Couldn't download "${id}": ${res.status}`);
       const buf = Buffer.from(await res.arrayBuffer());
@@ -649,6 +793,8 @@ async function runDownloadJob(requestedPackIds: string[], force = false): Promis
     downloadJob.running = false;
     downloadJob.currentPack = null;
     downloadJob.finishedAt = Date.now();
+    downloadJob.cancelRequested = false;
+    downloadJob.abortController = null;
   }
 }
 
@@ -847,24 +993,57 @@ async function computePackStatuses(): Promise<{
   packs: Array<PackIndexEntry & { downloaded: boolean; updateAvailable: boolean }>;
 }> {
   const index = await fetchPackIndex();
-  const downloadedRes = await pool.query<{ pack_id: string; content_version: string | null }>(
-    `SELECT pack_id, content_version FROM downloaded_packs`,
-  );
-  const downloadedVersions = new Map(downloadedRes.rows.map((r) => [r.pack_id, r.content_version]));
-  return {
-    generatedAt: index.generatedAt,
-    packs: index.packs.map((p) => {
-      const downloadedVersion = downloadedVersions.get(p.id);
-      return {
-        ...p,
-        downloaded: downloadedVersion !== undefined,
-        // A pack downloaded before content_version existed (downloadedVersion === null) reads
-        // as "no update available" rather than a false positive — there's no real signal to
-        // compare against yet, and it'll self-correct the next time it's actually re-applied.
-        updateAvailable: downloadedVersion != null && downloadedVersion !== p.contentVersion,
-      };
-    }),
-  };
+  const downloadedRes = await pool.query<{
+    pack_id: string;
+    content_version: string | null;
+    region: string | null;
+    taxon: string | null;
+    species_count: number;
+    bytes: string;
+  }>(`SELECT pack_id, content_version, region, taxon, species_count, bytes FROM downloaded_packs`);
+  const downloadedByPackId = new Map(downloadedRes.rows.map((r) => [r.pack_id, r]));
+
+  const packs = index.packs.map((p) => {
+    const downloaded = downloadedByPackId.get(p.id);
+    return {
+      ...p,
+      downloaded: downloaded !== undefined,
+      // A pack downloaded before content_version existed (downloaded.content_version === null)
+      // reads as "no update available" rather than a false positive — there's no real signal to
+      // compare against yet, and it'll self-correct the next time it's actually re-applied.
+      updateAvailable: downloaded?.content_version != null && downloaded.content_version !== p.contentVersion,
+    };
+  });
+
+  // A pack this user has already downloaded and applied can go missing from the CURRENT remote
+  // index — not just from a bug (see build-pack-index.ts's own comment on the "index only
+  // reflects the last local batch" regression this fixed), but even in ordinary steady state a
+  // region's pack briefly drops out of the index mid-republish. Without this, index.packs.map
+  // above silently drops that pack from the response entirely — a fully working, already-applied
+  // region would just vanish from the Offline Packs page, looking like it was never downloaded.
+  // Local DB state (this user's own downloaded_packs rows) is the actual source of truth for
+  // "do I have this" and must never depend on what the remote catalog happens to list right now.
+  const indexedIds = new Set(index.packs.map((p) => p.id));
+  const missingFromIndex = downloadedRes.rows
+    .filter((r) => !indexedIds.has(r.pack_id))
+    .map((r) => ({
+      id: r.pack_id,
+      type: (r.pack_id.startsWith("seazone-") ? "seaZone" : "region") as "region" | "seaZone",
+      region: r.region ?? undefined,
+      seaZone: r.pack_id.startsWith("seazone-") ? (r.region ?? undefined) : undefined,
+      taxon: r.taxon,
+      sizeBytes: Number(r.bytes),
+      speciesCount: r.species_count,
+      contentVersion: r.content_version ?? "",
+      scientificNames: [],
+      url: "",
+      downloaded: true,
+      // Can't compare against a version the current index doesn't carry — same "no real signal
+      // yet" reasoning as the content_version === null case above.
+      updateAvailable: false,
+    }));
+
+  return { generatedAt: index.generatedAt, packs: [...packs, ...missingFromIndex] };
 }
 
 export async function offlinePacksRoutes(app: FastifyInstance): Promise<void> {
@@ -966,6 +1145,8 @@ export async function offlinePacksRoutes(app: FastifyInstance): Promise<void> {
       downloadJob.error = null;
       downloadJob.finishedAt = null;
       downloadJob.packIds = packIds;
+      downloadJob.cancelRequested = false;
+      downloadJob.cancelled = false;
 
       // Deliberately not awaited — see settings/routes.ts's migrate-to-server job for the same
       // pattern and the same reasoning (a large download shouldn't hold one HTTP request open).
@@ -974,6 +1155,17 @@ export async function offlinePacksRoutes(app: FastifyInstance): Promise<void> {
       return { started: true };
     },
   );
+
+  // Cancels the CURRENT pack's in-flight fetch (aborts it directly) and stops the job from
+  // starting any further packs in its queue — see runDownloadJob's own cancelRequested/
+  // abortController comments. A no-op (200, not an error) when nothing is running, so a client
+  // racing the job's own natural completion doesn't need to handle a 404/409 specially.
+  app.post("/offline-packs/download/cancel", { preHandler: requireAuth }, async () => {
+    if (!downloadJob.running) return { cancelled: false };
+    downloadJob.cancelRequested = true;
+    downloadJob.abortController?.abort();
+    return { cancelled: true };
+  });
 
   // Resolves a (countries × taxa) selection to a set of pack ids and starts the same download
   // job as /offline-packs/download — a convenience layer for the map-based picker (multi-select
@@ -1020,6 +1212,8 @@ export async function offlinePacksRoutes(app: FastifyInstance): Promise<void> {
         downloadJob.error = null;
         downloadJob.finishedAt = null;
         downloadJob.packIds = packIds;
+        downloadJob.cancelRequested = false;
+        downloadJob.cancelled = false;
         void runDownloadJob(packIds);
 
         return { started: true, packIds };
