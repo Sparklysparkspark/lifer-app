@@ -15,6 +15,36 @@ Categories: `Added`, `Changed`, `Fixed`, `Removed` — omit any with nothing to 
 
 ## [Unreleased]
 
+## [0.5.3] - 2026-09-23
+
+### Changed
+
+- The first-run setup screen's taxon-group picker now matches Offline Packs' own picker exactly
+  (including the Marine Invertebrates/Reptiles & Amphibians groupings), instead of a simplified
+  version that looked like a different feature.
+- Settings' "species-matching model isn't downloaded" notice now links straight to Offline Data
+  instead of vaguely pointing at a "section below" that isn't even on the same page.
+
+### Fixed
+
+- The first-run setup screen's in-progress download card no longer uses mismatched colors that
+  made the progress bar nearly invisible against its own background.
+- Opening the Getting Started guide from first-run setup and then going back no longer drops you
+  on Collection with a misleading "Settings" label — it now returns you to setup.
+- Applying a downloaded pack no longer copies reference photos one file at a time — file copies
+  now run concurrently, and a further fix ensures a species' photo path is never recorded as
+  ready before the actual file has finished copying.
+- Fixed the same "thousands of one-at-a-time database writes" problem in gap-finder hotspot data
+  that the previous release fixed for the rest of a pack's checklist — this was the remaining
+  cause of a pack still taking many minutes to apply even after that fix.
+- A one-time cleanup script removes leftover stale `collector_shells`/`crocodylia` entries from
+  the published offline-pack catalog (merged into other taxon groups a while back, but never
+  actually removed from the index).
+- Applying a pack no longer risks leaving a checklist half-written if the server restarts
+  mid-apply (a redeploy, a container running out of memory) — a pack's checklist now either
+  fully applies or leaves nothing behind to retry, instead of silently committing whatever had
+  finished at the moment of interruption.
+
 ## [0.5.2] - 2026-09-23
 
 ### Added
