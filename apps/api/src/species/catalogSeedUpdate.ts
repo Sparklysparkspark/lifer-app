@@ -73,9 +73,11 @@ export async function checkCatalogUpdate(
 // sea_zone_species — same order build-catalog-seed.ts's own CATALOG_TABLES list already
 // established (proven to replay correctly for the fresh-install case), reused here rather than
 // re-derived.
+// species_reference_photos and species_reference_gallery_embeddings are deliberately NOT in
+// this list — see mergeReferencePhotosAndGalleryEmbeddings below for why a plain
+// upsert-by-declared-pkColumns can't handle either of them correctly.
 const MERGE_TABLES: Array<{ table: string; pkColumns: string[]; excludeFromUpdate: string[] }> = [
   { table: "species", pkColumns: ["id"], excludeFromUpdate: ["reference_display_path", "reference_thumb_path"] },
-  { table: "species_reference_photos", pkColumns: ["id"], excludeFromUpdate: ["display_path", "thumb_path"] },
   { table: "species_traits", pkColumns: ["species_id"], excludeFromUpdate: [] },
   { table: "species_rarity", pkColumns: ["species_id"], excludeFromUpdate: [] },
   { table: "regions", pkColumns: ["id"], excludeFromUpdate: [] },
@@ -91,7 +93,6 @@ const MERGE_TABLES: Array<{ table: string; pkColumns: string[]; excludeFromUpdat
   // published seed was — this is the actual root cause the Great Blue Heron/Cedar Waxwing
   // mismatch traced back to, not just a formatting issue in how the seed got parsed.
   { table: "species_reference_embeddings", pkColumns: ["species_id"], excludeFromUpdate: [] },
-  { table: "species_reference_gallery_embeddings", pkColumns: ["reference_photo_id"], excludeFromUpdate: [] },
   { table: "species_text_embeddings", pkColumns: ["species_id"], excludeFromUpdate: [] },
 ];
 
@@ -204,6 +205,101 @@ function parseCopyBlockFromBuffer(buf: Buffer, table: string): ParsedCopyBlock |
 // real parent_id once every id it could possibly reference already exists in the table.
 const SELF_REFERENCING_PARENT_COLUMN: Record<string, string> = { regions: "parent_id" };
 
+// species_reference_photos can't use the generic upsert-by-pkColumns loop above: its real
+// natural key is (species_id, photo_url) — see migration 003's own UNIQUE constraint — not the
+// `id` column build-catalog-seed.ts happens to dump. `id` is a per-install-generated UUID with
+// no cross-install meaning: a gallery photo that first arrived here via a downloaded PACK (not
+// the original catalog seed) was assigned its own locally-generated id, completely unrelated to
+// whatever id the SAME (species_id, photo_url) pair carries in the maintainer's own published
+// seed. Upserting by `id` (the bug this replaces — confirmed live: "duplicate key value
+// violates unique constraint species_reference_photos_species_id_photo_url_key") never finds
+// that existing local row (the ids don't match), so it tries to INSERT a second one instead,
+// which then collides with the real (species_id, photo_url) constraint on every gallery photo
+// that ever arrived via a pack rather than the original seed — which, after months of pack
+// downloads, is most of them.
+//
+// The correct fix upserts by (species_id, photo_url) and NEVER touches `id` on conflict — this
+// install's own local id must survive untouched, since capture_embeddings-adjacent
+// species_reference_gallery_embeddings rows already reference it by FK. That in turn means the
+// SEED's own species_reference_gallery_embeddings rows (which reference the SEED's id for the
+// same photo, not this install's) need their reference_photo_id translated before insertion —
+// resolved here via the photos upsert's own RETURNING (species_id, photo_url) -> local id,
+// joined against the seed's parsed id -> (species_id, photo_url) mapping. A gallery-embedding
+// row whose photo isn't in this same seed batch (shouldn't happen — the two tables are always
+// published together — but not guaranteed) is skipped rather than failing the whole update.
+async function mergeReferencePhotosAndGalleryEmbeddings(pool: Pool, buf: Buffer): Promise<{ photos: number; galleryEmbeddings: number }> {
+  const photosParsed = parseCopyBlockFromBuffer(buf, "species_reference_photos");
+  const galleryParsed = parseCopyBlockFromBuffer(buf, "species_reference_gallery_embeddings");
+
+  let photoCount = 0;
+  const seedIdToKey = new Map<string, string>();
+  const keyToLocalId = new Map<string, string>();
+
+  if (photosParsed && photosParsed.rows.length > 0) {
+    const { columns, rows } = photosParsed;
+    const idIdx = columns.indexOf("id");
+    const speciesIdIdx = columns.indexOf("species_id");
+    const photoUrlIdx = columns.indexOf("photo_url");
+    const updateColumns = columns.filter((c) => !["id", "species_id", "photo_url", "display_path", "thumb_path"].includes(c));
+    const setClause =
+      updateColumns.length > 0 ? `DO UPDATE SET ${updateColumns.map((c) => `${c} = EXCLUDED.${c}`).join(", ")}` : "DO NOTHING";
+
+    for (let i = 0; i < rows.length; i += BATCH_SIZE) {
+      const batch = rows.slice(i, i + BATCH_SIZE);
+      const values: unknown[] = [];
+      const rowPlaceholders = batch.map((row, rowIdx) => {
+        const placeholders = row.map((_, colIdx) => `$${rowIdx * columns.length + colIdx + 1}`);
+        values.push(...row);
+        return `(${placeholders.join(", ")})`;
+      });
+      const res = await pool.query<{ id: string; species_id: string; photo_url: string }>(
+        `INSERT INTO species_reference_photos (${columns.join(", ")}) VALUES ${rowPlaceholders.join(", ")}
+         ON CONFLICT (species_id, photo_url) ${setClause}
+         RETURNING id, species_id, photo_url`,
+        values,
+      );
+      for (const r of res.rows) keyToLocalId.set(`${r.species_id}:${r.photo_url}`, r.id);
+      for (const row of batch) seedIdToKey.set(row[idIdx]!, `${row[speciesIdIdx]}:${row[photoUrlIdx]}`);
+      photoCount += batch.length;
+    }
+  }
+
+  let galleryCount = 0;
+  if (galleryParsed && galleryParsed.rows.length > 0 && keyToLocalId.size > 0) {
+    const { columns, rows } = galleryParsed;
+    const refIdIdx = columns.indexOf("reference_photo_id");
+    const remapped = rows
+      .map((row) => {
+        const seedRefId = row[refIdIdx];
+        const key = seedRefId ? seedIdToKey.get(seedRefId) : undefined;
+        const localId = key ? keyToLocalId.get(key) : undefined;
+        if (!localId) return null;
+        const next = [...row];
+        next[refIdIdx] = localId;
+        return next;
+      })
+      .filter((r): r is (string | null)[] => r != null);
+
+    for (let i = 0; i < remapped.length; i += BATCH_SIZE) {
+      const batch = remapped.slice(i, i + BATCH_SIZE);
+      const values: unknown[] = [];
+      const rowPlaceholders = batch.map((row, rowIdx) => {
+        const placeholders = row.map((_, colIdx) => `$${rowIdx * columns.length + colIdx + 1}`);
+        values.push(...row);
+        return `(${placeholders.join(", ")})`;
+      });
+      await pool.query(
+        `INSERT INTO species_reference_gallery_embeddings (${columns.join(", ")}) VALUES ${rowPlaceholders.join(", ")}
+         ON CONFLICT (reference_photo_id) DO NOTHING`,
+        values,
+      );
+      galleryCount += batch.length;
+    }
+  }
+
+  return { photos: photoCount, galleryEmbeddings: galleryCount };
+}
+
 async function mergeCatalogTables(pool: Pool, buf: Buffer): Promise<Record<string, number>> {
   const merged: Record<string, number> = {};
   for (const { table, pkColumns, excludeFromUpdate } of MERGE_TABLES) {
@@ -266,6 +362,14 @@ async function mergeCatalogTables(pool: Pool, buf: Buffer): Promise<Record<strin
 
     merged[table] = count;
   }
+
+  // Runs after the generic loop above, not interleaved — needs `species` (for its own FK) to
+  // already exist locally, which the generic loop's own table ordering already guarantees since
+  // it processes MERGE_TABLES in FK-safe order.
+  const { photos, galleryEmbeddings } = await mergeReferencePhotosAndGalleryEmbeddings(pool, buf);
+  merged.species_reference_photos = photos;
+  merged.species_reference_gallery_embeddings = galleryEmbeddings;
+
   return merged;
 }
 
