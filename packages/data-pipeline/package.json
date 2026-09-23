@@ -21,6 +21,7 @@
     "build-pack-index": "tsx src/build/build-pack-index.ts",
     "backup": "tsx src/scripts/backup.ts",
     "publish-packs": "tsx src/scripts/publish-packs.ts",
+    "prune-stale-taxon-packs": "tsx src/scripts/prune-stale-taxon-packs.ts",
     "test": "vitest run",
     "test:unit": "vitest run --exclude '**/*.integration.test.ts'",
     "test:integration": "vitest run integration"
