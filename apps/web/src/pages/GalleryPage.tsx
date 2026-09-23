@@ -3,6 +3,7 @@ import { useSearchParams, useNavigate, Link } from "react-router-dom";
 import { api, ApiError } from "../api/client";
 import Lightbox, { TagEditor, type LightboxSlide } from "../components/Lightbox";
 import { Spinner } from "../components/LoadingScreen";
+import EmptyState from "../components/EmptyState";
 import PageHeader from "../components/PageHeader";
 import MasonryGrid from "../components/MasonryGrid";
 import PhotoTile from "../components/PhotoTile";
@@ -1063,15 +1064,27 @@ export default function GalleryPage() {
         {!items ? (
           <Spinner />
         ) : items.length === 0 ? (
-          <p className="text-muted">
-            {missingDate
-              ? "Every photo has a date. Nothing to fix here."
-              : searchQuery
-                ? `No photos match "${searchQuery}".`
-                : onlyTopRated || onlyFeatured
-                  ? "No photos match the selected filters."
-                  : "No photos yet. Upload one from a species page to get started."}
-          </p>
+          missingDate || searchQuery || onlyTopRated || onlyFeatured ? (
+            <p className="text-muted">
+              {missingDate
+                ? "Every photo has a date. Nothing to fix here."
+                : searchQuery
+                  ? `No photos match "${searchQuery}".`
+                  : "No photos match the selected filters."}
+            </p>
+          ) : (
+            <EmptyState
+              icon={
+                <svg viewBox="0 0 24 24" className="h-6 w-6 text-muted" fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="3" y="5" width="18" height="14" rx="2" />
+                  <circle cx="9" cy="11" r="2" />
+                  <path d="m21 16-4.5-4.5L9 19" />
+                </svg>
+              }
+              title="No photos yet"
+              description="Upload one from a species page to get started."
+            />
+          )
         ) : groupByRegion && regionGroups ? (
           <div className="space-y-8">
             {regionGroups.map((group) => (

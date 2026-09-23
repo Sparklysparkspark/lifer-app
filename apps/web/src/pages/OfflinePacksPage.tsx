@@ -57,6 +57,7 @@ interface DownloadStatus {
   currentPack: string | null;
   error: string | null;
   finishedAt: number | null;
+  cancelled: boolean;
 }
 
 interface RecommendedPack {
@@ -492,6 +493,16 @@ export default function OfflinePacksPage() {
     }
   }
 
+  const [cancelling, setCancelling] = useState(false);
+  async function cancelDownload() {
+    setCancelling(true);
+    try {
+      await api.post("/offline-packs/download/cancel", {});
+    } finally {
+      setCancelling(false);
+    }
+  }
+
   async function openProvinceManager(packId: string) {
     if (provinceManagerPackId === packId) {
       setProvinceManagerPackId(null);
@@ -618,10 +629,20 @@ export default function OfflinePacksPage() {
 
         {status?.running && (
           <div className="rounded-xl border border-line bg-surface p-4">
-            <p className="text-sm text-ink">
-              Downloading… {status.processed}/{status.total}
-              {status.currentPack ? ` (${status.currentPack})` : ""}
-            </p>
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-sm text-ink">
+                Downloading… {status.processed}/{status.total}
+                {status.currentPack ? ` (${status.currentPack})` : ""}
+              </p>
+              <button
+                type="button"
+                onClick={cancelDownload}
+                disabled={cancelling}
+                className="shrink-0 rounded-md border border-line px-3 py-1 text-xs text-ink hover:bg-surface-muted disabled:opacity-50"
+              >
+                {cancelling ? "Cancelling…" : "Cancel"}
+              </button>
+            </div>
             <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-surface-muted">
               <div
                 className="h-full bg-accent transition-all"
@@ -633,7 +654,11 @@ export default function OfflinePacksPage() {
         {status && !status.running && status.finishedAt && Date.now() - status.finishedAt < 15000 && (
           <div className={`rounded-xl border p-4 ${status.error ? "border-red-200 bg-red-50" : "border-line bg-surface"}`}>
             <p className={`text-sm ${status.error ? "text-red-600" : "text-ink"}`}>
-              {status.error ? `Download failed: ${status.error}` : `Done — ${status.processed} pack(s) applied.`}
+              {status.error
+                ? `Download failed: ${status.error}`
+                : status.cancelled
+                  ? `Cancelled — ${status.processed} pack(s) had already finished applying before you stopped it.`
+                  : `Done — ${status.processed} pack(s) applied.`}
             </p>
           </div>
         )}

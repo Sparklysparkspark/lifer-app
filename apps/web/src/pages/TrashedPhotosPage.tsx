@@ -8,6 +8,7 @@ import PhotoPlaceholder from "../components/PhotoPlaceholder";
 import ProgressiveImg from "../components/ProgressiveImg";
 import SegmentedControl from "../components/SegmentedControl";
 import { useShowLabels } from "../hooks/useShowLabels";
+import EmptyState from "../components/EmptyState";
 
 interface TrashItem {
   captureId: string;
@@ -210,7 +211,16 @@ export default function TrashedPhotosPage() {
               of them before then.
             </p>
             {data.items.length === 0 ? (
-              <p className="text-sm text-muted">Trash is empty.</p>
+              <EmptyState
+                icon={
+                  <svg viewBox="0 0 24 24" className="h-6 w-6 text-muted" fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0-1 14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2L4 6" />
+                    <path d="M10 11v6M14 11v6" />
+                  </svg>
+                }
+                title="Trash is empty"
+                description="Deleted photos show up here for a while before they're gone for good."
+              />
             ) : visibleItems.length === 0 ? (
               <p className="text-sm text-muted">Nothing matches this filter.</p>
             ) : (

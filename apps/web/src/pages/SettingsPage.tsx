@@ -375,9 +375,30 @@ function InaturalistServerConfigSection() {
   );
 }
 
+// Server/Docker deployments have no "move my library" concept (see config.ts's own comment on
+// APP_DATA_DIR) — the full Storage tab (native folder picker, multi-drive registration) only
+// shows on desktop (isDesktopMode gate, see visibleGroups above), and rightly so, since neither
+// action has a browser/Docker equivalent. But "where IS my library mounted right now" is still a
+// meaningful question on every deployment shape, and there was previously no in-app answer to it
+// on Docker short of `docker inspect`/checking your own compose file — GET /settings has no
+// desktop gate, so this stays visible everywhere the Storage tab isn't.
+function LibraryLocationLine() {
+  const [dataDir, setDataDir] = useState<string | null>(null);
+  useEffect(() => {
+    api.get<{ dataDir: string }>("/settings").then((res) => setDataDir(res.dataDir)).catch(() => {});
+  }, []);
+  if (!dataDir) return null;
+  return (
+    <p className="mb-3 truncate font-mono text-xs text-muted" title={dataDir}>
+      {dataDir}
+    </p>
+  );
+}
+
 function LibraryLinksSection() {
   return (
     <Card title="Library" description="Manage your offline reference data and archived species.">
+      <LibraryLocationLine />
       <div className="flex flex-wrap gap-3">
         <Link to="/offline-packs" className="rounded-md border border-line px-3 py-1.5 text-sm text-ink hover:bg-surface-muted">
           Offline packs
@@ -408,7 +429,7 @@ function AppearanceSection() {
   ] as const;
   return (
     <Card title="Appearance" description="Light or dark mode, or follow whatever this device is set to.">
-      <SegmentedControl value={preference} onChange={setPreference} options={options} />
+      <SegmentedControl value={preference} onChange={setPreference} options={options} size="md" />
     </Card>
   );
 }
@@ -2351,9 +2372,21 @@ function AppUpdatesSection() {
   const [update, setUpdate] = useState<CheckResult | null>(null);
   const [progress, setProgress] = useState<{ downloaded: number; total: number | null } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Distinct from a plain checkForUpdate error: an in-place install can fail for reasons wholly
+  // outside this app's control (most commonly macOS refusing to swap in a bundle that isn't
+  // notarized under a Developer ID) — this flags exactly that case so the UI can point at a
+  // manual download instead of just showing a dead-end error string.
+  const [installFailed, setInstallFailed] = useState(false);
   const [currentVersion, setCurrentVersion] = useState<string | null>(null);
   const [packUpdateCount, setPackUpdateCount] = useState<number>(0);
   const online = useOnline();
+  // Same navigator.platform check useKeyboardShortcuts.ts already uses — good enough for "which
+  // manual-recovery instructions apply," no need for @tauri-apps/plugin-os just for this.
+  const platform = navigator.platform.toUpperCase().includes("MAC")
+    ? "mac"
+    : navigator.platform.toUpperCase().includes("WIN")
+      ? "windows"
+      : "other";
 
   async function checkForUpdate() {
     if (!online) {
@@ -2363,6 +2396,7 @@ function AppUpdatesSection() {
     }
     setStatus("checking");
     setError(null);
+    setInstallFailed(false);
     try {
       const { check } = await import("@tauri-apps/plugin-updater");
       const result = await check();
@@ -2432,6 +2466,7 @@ function AppUpdatesSection() {
       await relaunch();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn't install the update");
+      setInstallFailed(true);
       setStatus("error");
     }
   }
@@ -2446,7 +2481,12 @@ function AppUpdatesSection() {
           Check for updates
         </button>
       )}
-      {status === "checking" && <p className="text-sm text-muted">Checking…</p>}
+      {status === "checking" && (
+        <p className="flex items-center gap-2 text-sm text-muted">
+          <span className="h-3 w-3 shrink-0 animate-spin rounded-full border-2 border-accent/40 border-t-accent" />
+          Checking…
+        </p>
+      )}
       {status === "up-to-date" && (
         <div className="space-y-2">
           <p className="text-sm text-muted">You're on the latest version.</p>
@@ -2477,7 +2517,8 @@ function AppUpdatesSection() {
         </div>
       )}
       {(status === "downloading" || status === "installing") && (
-        <p className="text-sm text-muted">
+        <p className="flex items-center gap-2 text-sm text-muted">
+          <span className="h-3 w-3 shrink-0 animate-spin rounded-full border-2 border-accent/40 border-t-accent" />
           {status === "installing"
             ? "Installing, Lifer will restart shortly…"
             : progress?.total
@@ -2486,6 +2527,41 @@ function AppUpdatesSection() {
         </p>
       )}
       <FormMessage error={error} success={null} />
+      {installFailed && (
+        <div className="space-y-1 text-sm text-muted">
+          <p>
+            You can also download the latest version directly from the{" "}
+            <a
+              href="https://github.com/Sparklysparkspark/lifer-app/releases/latest"
+              target="_blank"
+              rel="noreferrer"
+              className="font-medium text-accent hover:underline"
+            >
+              Releases page
+            </a>
+            .
+          </p>
+          {/* A fresh manual download hits the exact same wall this install just did — Lifer
+             isn't notarized (macOS) or signed with a paid certificate (Windows), so each new
+             version needs re-approving once, same as this one repeats the first-launch warning
+             already noted in this app's own README. Spelling out where that approval lives
+             turns "download didn't help either" into an actual path forward instead of a
+             second dead end. */}
+          {platform === "mac" && (
+            <p>
+              This is expected — macOS blocks a new version until you approve it once: open{" "}
+              <strong>System Settings → Privacy &amp; Security</strong>, scroll down, click{" "}
+              <strong>Open Anyway</strong>, then open Lifer again.
+            </p>
+          )}
+          {platform === "windows" && (
+            <p>
+              This is expected — Windows will warn "Windows protected your PC" on the new
+              installer; click <strong>More info → Run anyway</strong>.
+            </p>
+          )}
+        </div>
+      )}
       {packUpdateCount > 0 && (
         <p className="mt-3 border-t border-line pt-3 text-sm text-ink">
           Pack Update Available: {packUpdateCount} offline pack{packUpdateCount === 1 ? "" : "s"} ready to update.{" "}
@@ -2746,7 +2822,8 @@ function MapSection() {
       description="An offline basemap: this is what makes locality/occurrence data work at all, showing roughly where within a downloaded region each species is found. It doesn't render without this, even with an internet connection. Everything else in Lifer works the same either way."
     >
       {status.downloading ? (
-        <p className="text-sm text-muted">
+        <p className="flex items-center gap-2 text-sm text-muted">
+          <span className="h-3 w-3 shrink-0 animate-spin rounded-full border-2 border-accent/40 border-t-accent" />
           Downloading… {(status.downloadedBytes / 1e6).toFixed(0)}MB
           {status.totalBytes ? ` of ${(status.totalBytes / 1e6).toFixed(0)}MB` : ""}
         </p>
@@ -2760,12 +2837,7 @@ function MapSection() {
           {busy ? "Offloading…" : `Offload${status.sizeBytes ? ` (frees ${(status.sizeBytes / 1e6).toFixed(0)}MB)` : ""}`}
         </button>
       ) : (
-        <button
-          type="button"
-          onClick={download}
-          disabled={busy}
-          className="rounded-md bg-green-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50"
-        >
+        <button type="button" onClick={download} disabled={busy} className={buttonClass}>
           Download offline map (~500MB)
         </button>
       )}
@@ -2845,7 +2917,8 @@ function EmbeddingModelSection() {
       description="Powers species suggestions while importing and Gallery's content search (finding photos by what's in them, like 'water bird', not just by species name). Without it, Lifer stays smaller and search falls back to species names, ABA/eBird codes, and camera info."
     >
       {status.downloading ? (
-        <p className="text-sm text-muted">
+        <p className="flex items-center gap-2 text-sm text-muted">
+          <span className="h-3 w-3 shrink-0 animate-spin rounded-full border-2 border-accent/40 border-t-accent" />
           Downloading… {(status.downloadedBytes / 1e6).toFixed(0)}MB
           {status.totalBytes ? ` of ${(status.totalBytes / 1e6).toFixed(0)}MB` : ""}
         </p>
@@ -2859,12 +2932,7 @@ function EmbeddingModelSection() {
           {busy ? "Offloading…" : `Offload${status.sizeBytes ? ` (frees ${(status.sizeBytes / 1e6).toFixed(0)}MB)` : ""}`}
         </button>
       ) : (
-        <button
-          type="button"
-          onClick={download}
-          disabled={busy}
-          className="rounded-md bg-green-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50"
-        >
+        <button type="button" onClick={download} disabled={busy} className={buttonClass}>
           {busy ? "Starting…" : "Download model (~310MB)"}
         </button>
       )}

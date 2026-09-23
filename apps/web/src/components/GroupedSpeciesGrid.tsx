@@ -25,14 +25,13 @@ const VISIBLE_STEP = 60;
 export type GroupBy = "none" | "group" | "tier" | "localTier";
 export type SortBy = "taxonomic" | "name" | "rarity" | "localRarity" | "seasonality";
 
-// Approximate week-of-year index (0-51), matching WeeklyBar's own 52-bucket indexing (index 0 =
-// week 1). Good enough for "what's most likely to turn up this week" sorting - not meant to be
-// exact ISO-week arithmetic.
-function currentWeekIndex(): number {
-  const now = new Date();
-  const start = new Date(now.getFullYear(), 0, 1);
-  const dayOfYear = Math.floor((now.getTime() - start.getTime()) / 86_400_000);
-  return Math.min(51, Math.floor(dayOfYear / 7));
+// CollectionItem.seasonality (region_species.seasonality) is a 12-entry MONTHLY relative-
+// frequency array, not the 52-entry weekly one WeeklyBar renders (that's a separate column,
+// weekly_frequency, never sent to this page) - this indexes with the current month (0-11), not
+// a week-of-year number. An earlier version of this indexed 0-51 into this same 12-entry array,
+// which silently returned 0 (no signal) for any date from April onward.
+function currentMonthIndex(): number {
+  return new Date().getMonth();
 }
 
 // Same shrink-with-size formula GalleryPage uses for its own grid gap (thumbSizePx / 30,
@@ -74,8 +73,8 @@ function sortItems(items: CollectionItem[], sortBy: SortBy): CollectionItem[] {
   } else if (sortBy === "name") {
     sorted.sort((a, b) => (a.commonName ?? a.scientificName).localeCompare(b.commonName ?? b.scientificName));
   } else if (sortBy === "seasonality") {
-    const week = currentWeekIndex();
-    sorted.sort((a, b) => (b.seasonality?.[week] ?? 0) - (a.seasonality?.[week] ?? 0));
+    const month = currentMonthIndex();
+    sorted.sort((a, b) => (b.seasonality?.[month] ?? 0) - (a.seasonality?.[month] ?? 0));
   }
   // "taxonomic" is the server's own default order — no client-side re-sort needed for it.
   return sorted;

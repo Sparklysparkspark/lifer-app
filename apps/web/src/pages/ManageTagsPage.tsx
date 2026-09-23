@@ -4,6 +4,7 @@ import { api, ApiError } from "../api/client";
 import PageHeader from "../components/PageHeader";
 import { Spinner } from "../components/LoadingScreen";
 import SearchInput from "../components/SearchInput";
+import EmptyState from "../components/EmptyState";
 
 interface TagRow {
   tag: string;
@@ -94,7 +95,19 @@ export default function ManageTagsPage() {
         {error && <p className="text-sm text-red-600">{error}</p>}
         {!tags && !error && <Spinner />}
 
-        {tags && tags.length === 0 && <p className="text-sm text-muted">You haven't tagged any photos yet.</p>}
+        {tags && tags.length === 0 && (
+          <EmptyState
+            icon={
+              <svg viewBox="0 0 24 24" className="h-6 w-6 text-muted" fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round">
+                <path d="M20.59 13.41 11 22.99l-9-9L11 4.4 20.59 13.4Z" />
+                <path d="M11 4.41V2h9.59L22 3.41V11" />
+                <circle cx="16.5" cy="7.5" r="1" />
+              </svg>
+            }
+            title="No tags yet"
+            description="You haven't tagged any photos yet. Add a tag from any photo's menu and it'll show up here."
+          />
+        )}
         {tags && tags.length > 0 && visibleTags.length === 0 && (
           <p className="text-sm text-muted">No tags match "{search}".</p>
         )}

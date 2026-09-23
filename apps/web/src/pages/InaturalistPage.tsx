@@ -2,6 +2,24 @@ import { useEffect, useState } from "react";
 import { api, ApiError } from "../api/client";
 import PageHeader from "../components/PageHeader";
 import { Spinner } from "../components/LoadingScreen";
+import EmptyState from "../components/EmptyState";
+
+const sendIcon = (
+  <svg viewBox="0 0 24 24" className="h-6 w-6 text-muted" fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round">
+    <path d="M22 2 11 13M22 2l-7 20-4-9-9-4 20-7Z" />
+  </svg>
+);
+const pendingIcon = (
+  <svg viewBox="0 0 24 24" className="h-6 w-6 text-muted" fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="12" cy="12" r="9" />
+    <path d="M12 7v5l3 3" />
+  </svg>
+);
+const completedIcon = (
+  <svg viewBox="0 0 24 24" className="h-6 w-6 text-muted" fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round">
+    <path d="M20 6 9 17l-5-5" />
+  </svg>
+);
 
 interface ImportCluster {
   speciesId: string;
@@ -118,7 +136,8 @@ function ImportTab() {
 
   if (error) return <p className="text-sm text-red-600">{error}</p>;
   if (!clusters) return <Spinner />;
-  if (clusters.length === 0) return <p className="text-sm text-muted">Nothing waiting to be sent. Every sighting has already been submitted.</p>;
+  if (clusters.length === 0)
+    return <EmptyState icon={sendIcon} title="Nothing waiting to be sent" description="Every sighting has already been submitted." />;
 
   return (
     <div className="space-y-4">
@@ -201,7 +220,8 @@ function PendingTab() {
 
   if (error) return <p className="text-sm text-red-600">{error}</p>;
   if (!observations) return <Spinner />;
-  if (observations.length === 0) return <p className="text-sm text-muted">Nothing pending. Every observation you've sent has been confirmed complete.</p>;
+  if (observations.length === 0)
+    return <EmptyState icon={pendingIcon} title="Nothing pending" description="Every observation you've sent has been confirmed complete." />;
 
   return (
     <div className="space-y-3">
@@ -250,7 +270,8 @@ function CompletedTab() {
 
   if (error) return <p className="text-sm text-red-600">{error}</p>;
   if (!observations) return <Spinner />;
-  if (observations.length === 0) return <p className="text-sm text-muted">Nothing here yet. Confirmed observations will show up in this list.</p>;
+  if (observations.length === 0)
+    return <EmptyState icon={completedIcon} title="Nothing here yet" description="Confirmed observations will show up in this list." />;
 
   return (
     <div className="space-y-3">

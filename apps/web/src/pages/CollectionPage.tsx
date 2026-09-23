@@ -158,6 +158,13 @@ export default function CollectionPage() {
   const stateFilter = (searchParams.get("show") as StateFilter) || "all";
   const ghostOnly = searchParams.get("ghostOnly") === "1";
   const lostOnly = searchParams.get("lostOnly") === "1";
+  // Only meaningful with a region selected — seasonality is region-scoped, same gate the
+  // "Most likely this month" sort option already uses.
+  const likelyThisMonthOnly = searchParams.get("likelyThisMonth") === "1";
+  // "Big year" style filter — a specific calendar year the species must have a real capture
+  // in, not just user_species.first_collected (see CollectionItem.capturedYears' own comment).
+  // Empty string means "all years" (no filter), same convention as taxonFilters' empty set.
+  const yearFilter = searchParams.get("year") || "";
   // Checkbox multi-select (e.g. Birds + Mammals at once) — comma-separated in the URL, same
   // convention as seaZones below. Empty set means "all taxa" (no filter), same meaning "all"
   // used to have as the single-select's default value.
@@ -324,6 +331,8 @@ export default function CollectionPage() {
     (stateFilter !== "all" ? 1 : 0) +
     (ghostOnly ? 1 : 0) +
     (lostOnly ? 1 : 0) +
+    (likelyThisMonthOnly ? 1 : 0) +
+    (yearFilter ? 1 : 0) +
     taxonFilters.size;
 
   // Fetched once, up front, independent of regionId — the region list is cheap (it's just
@@ -812,12 +821,31 @@ export default function CollectionPage() {
   const hasGhost = items ? items.some((i) => i.isGhost) : false;
   const hasLost = items ? items.some((i) => i.isLost) : false;
 
+  // Every year that has at least one real capture somewhere in the current checklist — only
+  // worth offering a year the user could actually pick something for, same "don't take up
+  // space nobody cares about" reasoning as hasGhost/hasLost above. Sorted newest first, since
+  // that's the direction a "how many species so far this year" check usually runs.
+  const availableYears = useMemo(() => {
+    if (!items) return [];
+    const years = new Set<number>();
+    for (const i of items) for (const y of i.capturedYears ?? []) years.add(y);
+    return [...years].sort((a, b) => b - a);
+  }, [items]);
+
   const visibleItems = useMemo(() => {
     if (!items) return null;
     let filtered =
       stateFilter === "all" ? items : stateFilter === "target" ? items.filter((i) => i.isTarget) : items.filter((i) => i.state === stateFilter);
     if (ghostOnly) filtered = filtered.filter((i) => i.isGhost);
     if (lostOnly) filtered = filtered.filter((i) => i.isLost);
+    if (likelyThisMonthOnly) {
+      const month = new Date().getMonth();
+      filtered = filtered.filter((i) => (i.seasonality?.[month] ?? 0) > 0);
+    }
+    if (yearFilter) {
+      const year = Number(yearFilter);
+      filtered = filtered.filter((i) => i.capturedYears?.includes(year));
+    }
     const query = search.trim().toLowerCase();
     if (query) {
       filtered = filtered.filter(
@@ -825,7 +853,7 @@ export default function CollectionPage() {
       );
     }
     return filtered;
-  }, [items, stateFilter, ghostOnly, lostOnly, search]);
+  }, [items, stateFilter, ghostOnly, lostOnly, likelyThisMonthOnly, yearFilter, search]);
 
   // Prefers the already-arrived full item list once it's in (it reflects any client-side
   // filtering nuance exactly), but falls back to the fast count-only fetch so the header
@@ -999,8 +1027,9 @@ export default function CollectionPage() {
                own comment) — so this option would just silently do nothing without one. */}
             {regionId && <option value="localRarity">Rarity here</option>}
             {/* Same region-only gate as localRarity above - seasonality only ever comes back
-               from GET /regions/:id/species (region_species.seasonality). */}
-            {regionId && <option value="seasonality">Most likely this week</option>}
+               from GET /regions/:id/species (region_species.seasonality, a 12-entry MONTHLY
+               array - see GroupedSpeciesGrid's currentMonthIndex). */}
+            {regionId && <option value="seasonality">Most likely this month</option>}
         </Select>
         <label className="flex items-center gap-1.5 text-xs text-muted">
           Size
@@ -1095,6 +1124,37 @@ export default function CollectionPage() {
               <option value="unseen">Not yet collected</option>
             </Select>
           </div>
+          {(regionId || availableYears.length > 0) && (
+            <div className="space-y-1.5 border-t border-line pt-2">
+              {regionId && (
+                <label
+                  className="flex items-center gap-1.5 text-xs text-ink"
+                  title="Ranks this region's own seasonal frequency data for the current month"
+                >
+                  <input
+                    type="checkbox"
+                    checked={likelyThisMonthOnly}
+                    onChange={(e) => updateParam("likelyThisMonth", e.target.checked ? "1" : null)}
+                    className="accent-accent"
+                  />
+                  Likely this month
+                </label>
+              )}
+              {availableYears.length > 0 && (
+                <div className="space-y-1">
+                  <FilterFieldLabel>Found in year</FilterFieldLabel>
+                  <Select value={yearFilter} onChange={(e) => updateParam("year", e.target.value || null)} className="w-full">
+                    <option value="">Any year</option>
+                    {availableYears.map((y) => (
+                      <option key={y} value={y}>
+                        {y}
+                      </option>
+                    ))}
+                  </Select>
+                </div>
+              )}
+            </div>
+          )}
           {(hasGhost || hasLost) && (
             <div className="space-y-1.5 border-t border-line pt-2">
               {hasGhost && (
