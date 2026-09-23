@@ -69,7 +69,14 @@ export async function collectionRoutes(app: FastifyInstance): Promise<void> {
            -- species card from keeping a soft-deleted photo as its cover for the whole trash
            -- retention window.
            (p.thumb_path IS NOT NULL AND cc.id IS NOT NULL) AS has_cover_photo,
-           sv.label AS cover_volume_label
+           sv.label AS cover_volume_label,
+           -- Every distinct calendar year this user has ANY real capture of this species (not
+           -- just the first-ever one, which us.first_collected already captures) — lets a "big
+           -- year" style filter show a species again in a later year even if it was first found
+           -- long before. Deliberately from captures, not captures_all — a trashed photo
+           -- shouldn't count as "found this year" any more than it counts as a cover photo above.
+           (SELECT array_agg(DISTINCT EXTRACT(YEAR FROM cy.taken_at)::int)
+              FROM captures cy WHERE cy.user_id = $1 AND cy.species_id = s.id AND cy.taken_at IS NOT NULL) AS captured_years
          FROM species s
          LEFT JOIN species_rarity r ON r.species_id = s.id
          LEFT JOIN species_traits t ON t.species_id = s.id

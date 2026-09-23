@@ -82,6 +82,17 @@ const MERGE_TABLES: Array<{ table: string; pkColumns: string[]; excludeFromUpdat
   { table: "region_species", pkColumns: ["region_id", "species_id"], excludeFromUpdate: [] },
   { table: "sea_zones", pkColumns: ["id"], excludeFromUpdate: [] },
   { table: "sea_zone_species", pkColumns: ["sea_zone_id", "species_id"], excludeFromUpdate: [] },
+  // Added 2026-09-23: build-catalog-seed.ts's own CATALOG_TABLES has included these three since
+  // the zero-shot text-embedding/per-gallery-photo-embedding features shipped, but they were
+  // never added here — every catalog-update apply (the manual Settings button AND the automatic
+  // fresh-install seed on Docker/self-hosted) silently dropped every embedding the seed carried,
+  // regardless of the string-length bug fixed alongside this. A fresh install's species
+  // auto-suggest had no photo/text embeddings to compare against no matter how current the
+  // published seed was — this is the actual root cause the Great Blue Heron/Cedar Waxwing
+  // mismatch traced back to, not just a formatting issue in how the seed got parsed.
+  { table: "species_reference_embeddings", pkColumns: ["species_id"], excludeFromUpdate: [] },
+  { table: "species_reference_gallery_embeddings", pkColumns: ["reference_photo_id"], excludeFromUpdate: [] },
+  { table: "species_text_embeddings", pkColumns: ["species_id"], excludeFromUpdate: [] },
 ];
 
 interface ParsedCopyBlock {
@@ -101,19 +112,54 @@ function unescapeCopyField(raw: string): string {
   });
 }
 
-function parseCopyBlock(sql: string, table: string): ParsedCopyBlock | null {
-  const headerMatch = sql.match(new RegExp(`^COPY (?:public\\.)?${table} \\(([^)]+)\\) FROM stdin;\\n`, "m"));
-  if (!headerMatch) return null;
-  const columns = headerMatch[1].split(",").map((c) => c.trim());
-  const startIdx = headerMatch.index! + headerMatch[0].length;
-  const endIdx = sql.indexOf("\n\\.\n", startIdx);
-  if (endIdx === -1) throw new Error(`Malformed COPY block for ${table}: no terminator found`);
-  const body = sql.slice(startIdx, endIdx);
-  if (!body) return { columns, rows: [] };
-  const rows = body.split("\n").map((line) =>
-    line.split("\t").map((field) => (field === "\\N" ? null : unescapeCopyField(field))),
-  );
-  return { columns, rows };
+// Locates a table's "COPY ... FROM stdin;" block within the decompressed dump WITHOUT ever
+// decoding the whole buffer (or even the whole block) to a string — see this file's own comment
+// on findCopyBlock/mergeCatalogTables for why that matters at this data volume. Only the single
+// header LINE gets decoded here; parseCopyRows below decodes the body one line at a time.
+function findCopyBlock(buf: Buffer, table: string): { columns: string[]; bodyStart: number; bodyEnd: number } | null {
+  for (const needle of [`COPY public.${table} (`, `COPY ${table} (`]) {
+    const needleBuf = Buffer.from(needle, "utf8");
+    let searchFrom = 0;
+    while (true) {
+      const idx = buf.indexOf(needleBuf, searchFrom);
+      if (idx === -1) break;
+      // Must start a line (pg_dump statements always do) — guards against matching a table name
+      // that's a suffix of another (e.g. "species" inside "species_reference_photos" never
+      // collides here since the needle includes the trailing " (", but this stays defensive).
+      if (idx === 0 || buf[idx - 1] === 0x0a) {
+        const lineEnd = buf.indexOf(0x0a, idx);
+        if (lineEnd === -1) return null;
+        const headerLine = buf.toString("utf8", idx, lineEnd);
+        const colMatch = headerLine.match(/\(([^)]+)\)/);
+        if (!colMatch) return null;
+        const columns = colMatch[1].split(",").map((c) => c.trim());
+        const bodyStart = lineEnd + 1;
+        const bodyEnd = buf.indexOf(Buffer.from("\n\\.\n", "utf8"), bodyStart);
+        if (bodyEnd === -1) throw new Error(`Malformed COPY block for ${table}: no terminator found`);
+        return { columns, bodyStart, bodyEnd };
+      }
+      searchFrom = idx + 1;
+    }
+  }
+  return null;
+}
+
+// Decodes one row at a time from the raw byte range — the body of a single table's COPY block
+// (species_reference_gallery_embeddings' alone, at this app's current data volume, decompresses
+// to well over a gigabyte of tab-separated float text) can itself exceed V8's ~512MB single-
+// string ceiling, so even a per-table (not just per-dump) string conversion isn't safe; only a
+// per-LINE decode is guaranteed small regardless of how large the table grows.
+function* parseCopyRows(buf: Buffer, bodyStart: number, bodyEnd: number): Generator<(string | null)[]> {
+  let pos = bodyStart;
+  while (pos < bodyEnd) {
+    let nl = buf.indexOf(0x0a, pos);
+    if (nl === -1 || nl > bodyEnd) nl = bodyEnd;
+    if (nl > pos) {
+      const line = buf.toString("utf8", pos, nl);
+      yield line.split("\t").map((field) => (field === "\\N" ? null : unescapeCopyField(field)));
+    }
+    pos = nl + 1;
+  }
 }
 
 // Downloads + decompresses the seed, parses each catalog table's COPY block, and UPSERTs every
@@ -123,7 +169,11 @@ function parseCopyBlock(sql: string, table: string): ParsedCopyBlock | null {
 // ~25 columns).
 const BATCH_SIZE = 500;
 
-async function downloadCatalogSeedSql(): Promise<string> {
+// Kept as one Buffer end-to-end (never `.toString()`'d in full — see findCopyBlock/parseCopyRows
+// above) — gunzipSync's own output isn't subject to V8's string-length ceiling the way a decoded
+// string is, so decompressing into a Buffer is safe even once the compressed download itself
+// grows past what a single JS string could ever hold.
+async function downloadCatalogSeedGzip(): Promise<Buffer> {
   let res: Response;
   try {
     res = await fetch(CATALOG_SEED_URL, { signal: AbortSignal.timeout(SEED_DOWNLOAD_TIMEOUT_MS) });
@@ -134,8 +184,13 @@ async function downloadCatalogSeedSql(): Promise<string> {
     throw err;
   }
   if (!res.ok) throw new Error(`Couldn't download the catalog update: HTTP ${res.status}`);
-  const gz = Buffer.from(await res.arrayBuffer());
-  return gunzipSync(gz).toString("utf8");
+  return Buffer.from(await res.arrayBuffer());
+}
+
+function parseCopyBlockFromBuffer(buf: Buffer, table: string): ParsedCopyBlock | null {
+  const block = findCopyBlock(buf, table);
+  if (!block) return null;
+  return { columns: block.columns, rows: [...parseCopyRows(buf, block.bodyStart, block.bodyEnd)] };
 }
 
 // `regions` self-references (a province's parent_id points at its country, which points at its
@@ -149,10 +204,10 @@ async function downloadCatalogSeedSql(): Promise<string> {
 // real parent_id once every id it could possibly reference already exists in the table.
 const SELF_REFERENCING_PARENT_COLUMN: Record<string, string> = { regions: "parent_id" };
 
-async function mergeCatalogTables(pool: Pool, sql: string): Promise<Record<string, number>> {
+async function mergeCatalogTables(pool: Pool, buf: Buffer): Promise<Record<string, number>> {
   const merged: Record<string, number> = {};
   for (const { table, pkColumns, excludeFromUpdate } of MERGE_TABLES) {
-    const parsed = parseCopyBlock(sql, table);
+    const parsed = parseCopyBlockFromBuffer(buf, table);
     if (!parsed || parsed.rows.length === 0) {
       merged[table] = 0;
       continue;
@@ -216,8 +271,9 @@ async function mergeCatalogTables(pool: Pool, sql: string): Promise<Record<strin
 
 export async function applyCatalogUpdate(pool: Pool, userId: string): Promise<{ merged: Record<string, number> }> {
   const manifest = await fetchCatalogManifest();
-  const sql = await downloadCatalogSeedSql();
-  const merged = await mergeCatalogTables(pool, sql);
+  const gz = await downloadCatalogSeedGzip();
+  const buf = gunzipSync(gz);
+  const merged = await mergeCatalogTables(pool, buf);
   await pool.query(`UPDATE users SET catalog_seed_version = $1 WHERE id = $2`, [manifest.version, userId]);
   return { merged };
 }
@@ -257,10 +313,10 @@ export function startCatalogUpdateJob(pool: Pool, userId: string): void {
     });
 }
 
-function readBundledCatalogSeedSql(): string | null {
+function readBundledCatalogSeedBuffer(): Buffer | null {
   const seedPath = path.join(BUNDLED_CATALOG_SEED_DIR, "lifer-catalog-seed.sql.gz");
   if (!existsSync(seedPath)) return null;
-  return gunzipSync(readFileSync(seedPath)).toString("utf8");
+  return gunzipSync(readFileSync(seedPath));
 }
 
 // Fills a brand-new, empty catalog automatically on server startup — the desktop app has always
@@ -282,7 +338,7 @@ function readBundledCatalogSeedSql(): string | null {
 export async function seedCatalogIfEmpty(pool: Pool): Promise<{ seeded: boolean; merged?: Record<string, number> }> {
   const res = await pool.query<{ count: string }>(`SELECT count(*) FROM species`);
   if (Number(res.rows[0].count) > 0) return { seeded: false };
-  const sql = readBundledCatalogSeedSql() ?? (await downloadCatalogSeedSql());
-  const merged = await mergeCatalogTables(pool, sql);
+  const buf = readBundledCatalogSeedBuffer() ?? gunzipSync(await downloadCatalogSeedGzip());
+  const merged = await mergeCatalogTables(pool, buf);
   return { seeded: true, merged };
 }

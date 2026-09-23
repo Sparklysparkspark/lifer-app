@@ -612,7 +612,9 @@ export async function regionRoutes(app: FastifyInstance): Promise<void> {
            us.card_crop_y,
            us.card_crop_size,
            p.thumb_path IS NOT NULL AS has_cover_photo,
-           sv.label AS cover_volume_label
+           sv.label AS cover_volume_label,
+           (SELECT array_agg(DISTINCT EXTRACT(YEAR FROM cy.taken_at)::int)
+              FROM captures cy WHERE cy.user_id = $1 AND cy.species_id = s.id AND cy.taken_at IS NOT NULL) AS captured_years
          FROM species_ids si
          JOIN species s ON s.id = si.species_id
          LEFT JOIN region_species rs ON rs.species_id = s.id AND rs.region_id = $2
@@ -780,7 +782,9 @@ export async function regionRoutes(app: FastifyInstance): Promise<void> {
            us.card_crop_y,
            us.card_crop_size,
            p.thumb_path IS NOT NULL AS has_cover_photo,
-           sv.label AS cover_volume_label
+           sv.label AS cover_volume_label,
+           (SELECT array_agg(DISTINCT EXTRACT(YEAR FROM cy.taken_at)::int)
+              FROM captures cy WHERE cy.user_id = $1 AND cy.species_id = s.id AND cy.taken_at IS NOT NULL) AS captured_years
          FROM species_ids si
          JOIN species s ON s.id = si.species_id
          -- region_id = ANY($2) (countries only) matched a plain species fine, but a province-
