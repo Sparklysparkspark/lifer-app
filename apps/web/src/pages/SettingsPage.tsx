@@ -2682,7 +2682,10 @@ function CatalogUpdateSection() {
       description="Refreshes rarity tiers, occurrence stats, and endemic labels from the latest published data. Never touches your own downloaded reference photos."
     >
       {status === "idle" || status === "checking" ? (
-        <p className="text-sm text-muted">Checking…</p>
+        <p className="flex items-center gap-2 text-sm text-muted">
+          <span className="h-3 w-3 shrink-0 animate-spin rounded-full border-2 border-accent/40 border-t-accent" />
+          Checking…
+        </p>
       ) : status === "up-to-date" ? (
         <div className="space-y-2">
           <p className="text-sm text-muted">Your species catalog is up to date.</p>
@@ -2698,7 +2701,10 @@ function CatalogUpdateSection() {
           </button>
         </div>
       ) : status === "applying" ? (
-        <p className="text-sm text-muted">Updating, this can take a minute…</p>
+        <p className="flex items-center gap-2 text-sm text-muted">
+          <span className="h-3 w-3 shrink-0 animate-spin rounded-full border-2 border-accent/40 border-t-accent" />
+          Updating, this can take a minute…
+        </p>
       ) : status === "done" ? (
         <p className="text-sm text-muted">Done, {mergedCount?.toLocaleString() ?? "your"} species refreshed.</p>
       ) : null}
