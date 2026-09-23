@@ -5,11 +5,13 @@
 // range spans two packs (e.g. present in both a "North America" and "Central America" pack)
 // only ever gets its photo/description written once (a species already enriched, by ANY
 // earlier pack or the app's own lazy path, is left alone — see applyPack's dedup check).
-import { existsSync, mkdirSync, readFileSync, writeFileSync, copyFileSync, rmSync, mkdtempSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync, rmSync, mkdtempSync, statSync } from "node:fs";
+import { copyFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import * as tar from "tar";
 import type { FastifyInstance } from "fastify";
+import type { PoolClient } from "pg";
 import { pool } from "../db.js";
 import { requireAuth } from "../auth/session.js";
 import { APP_DATA_DIR, PACK_INDEX_URL } from "../config.js";
@@ -172,7 +174,34 @@ function chunkRows<T>(items: T[], size: number): T[][] {
   return out;
 }
 
+// Reference/gallery photo copies used to happen one at a time via the synchronous copyFileSync,
+// blocking the event loop for each individual file — for a pack with hundreds of species
+// carrying several gallery photos each, that's roughly a thousand sequential filesystem round
+// trips, real cost on a bind-mounted Docker volume or NAS-backed storage (each syscall's own
+// latency, not overlapped with the next). Every source->destination pair is already fully known
+// by the time copying starts (species matching already ran, in bulk, before this) — there's no
+// dependency between one photo's copy and another's, so there's no reason to serialize them.
+// Runs with bounded concurrency, not fully unbounded: a pack can carry thousands of files, and
+// firing them all as one Promise.all would open that many file descriptors/reads at once.
+async function copyFilesConcurrently(tasks: Array<{ src: string; dest: string }>, concurrency = 24): Promise<void> {
+  if (tasks.length === 0) return;
+  let next = 0;
+  async function worker() {
+    while (next < tasks.length) {
+      const task = tasks[next++];
+      await copyFile(task.src, task.dest);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(concurrency, tasks.length) }, worker));
+}
+
+// `db` is always a checked-out transaction client (see runDownloadJob's own BEGIN/COMMIT), never
+// the raw pool — every write below must live or die with the rest of this SAME pack's apply, so
+// a crash or restart mid-apply (a server redeploy, a container OOM — not something a user can be
+// relied on to never trigger) rolls back to nothing-applied instead of leaving a checklist
+// half-written, the exact shape of bug a partial British Columbia checklist turned out to be.
 async function applyChecklist(
+  db: PoolClient,
   species: ManifestSpecies[],
   target: { regionId: string } | { seaZoneId: string },
   extractDir: string,
@@ -193,7 +222,7 @@ async function applyChecklist(
   // bulk queries up front, do all the per-species/per-photo DECISION-MAKING in memory (no DB
   // calls at all in the loop below), then write everything back in a handful of bulk
   // statements at the end instead of one round-trip per row.
-  const existingRes = await pool.query<{
+  const existingRes = await db.query<{
     id: string;
     scientific_name: string;
     enriched_at: string | null;
@@ -208,7 +237,7 @@ async function applyChecklist(
 
   const speciesIds = existingRes.rows.map((r) => r.id);
   const existingGalleryRes = speciesIds.length
-    ? await pool.query<{ id: string; species_id: string; photo_url: string; display_path: string | null; thumb_path: string | null }>(
+    ? await db.query<{ id: string; species_id: string; photo_url: string; display_path: string | null; thumb_path: string | null }>(
         `SELECT id, species_id, photo_url, display_path, thumb_path FROM species_reference_photos WHERE species_id = ANY($1)`,
         [speciesIds],
       )
@@ -241,6 +270,11 @@ async function applyChecklist(
   const galleryEmbeddingCandidates: Array<{ speciesId: string; photoUrl: string; embedding: number[]; modelVersion: string }> = [];
   const speciesEmbeddings: Array<{ speciesId: string; embedding: number[]; modelVersion: string }> = [];
   const checklistRows: Array<{ speciesId: string; sp: ManifestSpecies }> = [];
+  // Every file copy this loop decides on gets queued here instead of run inline — the
+  // destination path is deterministic (derived from row.id, computable with zero I/O), so
+  // there's nothing gained by actually copying bytes synchronously mid-loop. Run once, all at
+  // once, after every species has been decided (see copyFilesConcurrently's own comment).
+  const copyTasks: Array<{ src: string; dest: string }> = [];
 
   for (const sp of species) {
     const row = speciesByName.get(sp.scientificName);
@@ -279,11 +313,11 @@ async function applyChecklist(
       let thumbPath: string | null = null;
       if (displaySource && existsSync(displaySource)) {
         displayPath = path.join(displayDir, `${row.id}.webp`);
-        copyFileSync(displaySource, displayPath);
+        copyTasks.push({ src: displaySource, dest: displayPath });
       }
       if (thumbSource && existsSync(thumbSource)) {
         thumbPath = path.join(thumbDir, `${row.id}.webp`);
-        copyFileSync(thumbSource, thumbPath);
+        copyTasks.push({ src: thumbSource, dest: thumbPath });
       }
 
       enrichmentUpdates.push({
@@ -316,11 +350,11 @@ async function applyChecklist(
           let gThumbPath: string | null = existingGalleryRow?.thumb_path ?? null;
           if (gDisplaySource && existsSync(gDisplaySource)) {
             gDisplayPath = path.join(galleryDisplayDir, `${row.id}-${g.sortOrder}.webp`);
-            copyFileSync(gDisplaySource, gDisplayPath);
+            copyTasks.push({ src: gDisplaySource, dest: gDisplayPath });
           }
           if (gThumbSource && existsSync(gThumbSource)) {
             gThumbPath = path.join(galleryThumbDir, `${row.id}-${g.sortOrder}.webp`);
-            copyFileSync(gThumbSource, gThumbPath);
+            copyTasks.push({ src: gThumbSource, dest: gThumbPath });
           }
           galleryUpserts.push({
             speciesId: row.id,
@@ -359,6 +393,15 @@ async function applyChecklist(
     touched.push({ speciesId: row.id, providedEnrichment });
   }
 
+  // Every copy runs concurrently with every OTHER copy (see copyFilesConcurrently's own
+  // comment) but this whole batch is awaited BEFORE any DB write below starts, not after —
+  // each bulk UPDATE/INSERT commits as soon as its own await resolves, independent of
+  // anything else in this function, so a row claiming a display/thumb path must not go live
+  // until the actual file at that path exists. A concurrent request (another user's page load,
+  // mid-download) reading a species' reference_display_path the instant after this species'
+  // row commits must always find a real file there.
+  await copyFilesConcurrently(copyTasks);
+
   // --- Bulk writes below — replaces what used to be one query per species/photo above. ---
 
   for (const batch of chunkRows(enrichmentUpdates, BULK_BATCH_SIZE)) {
@@ -368,7 +411,7 @@ async function applyChecklist(
       values.push(u.id, u.habitat, u.credit, u.license, u.display, u.thumb);
       return `($${base + 1}::uuid, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6})`;
     });
-    await pool.query(
+    await db.query(
       `UPDATE species AS s SET
          habitat_description = COALESCE(s.habitat_description, v.habitat),
          reference_credit = COALESCE(s.reference_credit, v.credit),
@@ -389,7 +432,7 @@ async function applyChecklist(
       values.push(g.speciesId, g.photoUrl, g.credit, g.license, g.sortOrder, g.focalX, g.focalY, g.display, g.thumb);
       return `($${base + 1}::uuid, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7}, $${base + 8}, $${base + 9})`;
     });
-    const res = await pool.query<{ id: string; species_id: string; photo_url: string }>(
+    const res = await db.query<{ id: string; species_id: string; photo_url: string }>(
       `INSERT INTO species_reference_photos (species_id, photo_url, credit, license, sort_order, focal_x, focal_y, display_path, thumb_path)
        VALUES ${rows.join(", ")}
        ON CONFLICT (species_id, photo_url) DO UPDATE SET
@@ -411,7 +454,7 @@ async function applyChecklist(
       values.push(e.referencePhotoId, e.speciesId, e.embedding, e.modelVersion);
       return `($${base + 1}::uuid, $${base + 2}::uuid, $${base + 3}, $${base + 4})`;
     });
-    await pool.query(
+    await db.query(
       `INSERT INTO species_reference_gallery_embeddings (reference_photo_id, species_id, embedding, model_version)
        VALUES ${rows.join(", ")}
        ON CONFLICT (reference_photo_id) DO NOTHING`,
@@ -426,7 +469,7 @@ async function applyChecklist(
       values.push(e.speciesId, e.embedding, e.modelVersion);
       return `($${base + 1}::uuid, $${base + 2}, $${base + 3})`;
     });
-    await pool.query(
+    await db.query(
       `INSERT INTO species_reference_embeddings (species_id, embedding, model_version)
        VALUES ${rows.join(", ")}
        ON CONFLICT (species_id) DO NOTHING`,
@@ -442,7 +485,7 @@ async function applyChecklist(
         values.push(target.regionId, speciesId, sp.localFrequency ?? null, sp.seasonality ?? null, sp.localTier ?? null, sp.isVagrant ?? false, sp.weeklyFrequency ?? null);
         return `($${base + 1}::uuid, $${base + 2}::uuid, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7})`;
       });
-      await pool.query(
+      await db.query(
         `INSERT INTO region_species (region_id, species_id, local_frequency, seasonality, local_tier, is_vagrant, weekly_frequency)
          VALUES ${rows.join(", ")}
          ON CONFLICT (region_id, species_id) DO UPDATE SET
@@ -456,26 +499,35 @@ async function applyChecklist(
     }
 
     // Gap-finder hotspot clusters — province-level only (sp.hotspots is undefined for a
-    // country's own top-level species list, so this never runs there). Delete-then-reinsert
-    // per species, same freshness pattern as compute-provinces-bulk.ts's own write.
-    for (const { speciesId, sp } of checklistRows) {
-      if (!sp.hotspots) continue;
-      await pool.query(`DELETE FROM region_species_hotspots WHERE region_id = $1 AND species_id = $2`, [target.regionId, speciesId]);
-      // One INSERT per cluster here previously — for a country the size of Canada (a single
-      // province can carry 100,000+ clusters across its species), that's up to a million-plus
-      // sequential awaited round-trips to apply one pack, which is exactly why a real download
-      // could sit for 30+ minutes showing zero progress. Batched the same way
-      // catalogSeedUpdate.ts's own mergeCatalogTables already batches its multi-row upserts —
-      // 500 rows (8 columns each) per statement keeps well under Postgres's ~65535
-      // bind-parameter ceiling.
-      for (const hotspotBatch of chunkRows(sp.hotspots, BULK_BATCH_SIZE)) {
+    // country's own top-level species list, so this never runs there). Delete-then-reinsert,
+    // same freshness pattern as compute-provinces-bulk.ts's own write.
+    //
+    // This used to loop per SPECIES (one DELETE + a batched INSERT per species) — the row
+    // batching inside each species' own insert didn't help because the loop itself, and the
+    // DELETE, stayed sequential across species. For a province-bundling country pack (Canada's
+    // aves pack alone reapplies birds' hotspot data across 13 provinces, each with hundreds of
+    // species carrying hotspot clusters), that's thousands of sequential awaited round-trips —
+    // confirmed live as the actual cause of a "small" pack selection (a few hundred MB) still
+    // taking 10+ minutes to apply, far longer than an unrelated flat file download of several
+    // times that size. Batched across every species in this region/province at once instead,
+    // same bulk-write pattern as everything else in this function.
+    const speciesWithHotspots = checklistRows.filter(({ sp }) => sp.hotspots && sp.hotspots.length > 0);
+    if (speciesWithHotspots.length > 0) {
+      for (const idBatch of chunkRows(
+        speciesWithHotspots.map((r) => r.speciesId),
+        BULK_BATCH_SIZE,
+      )) {
+        await db.query(`DELETE FROM region_species_hotspots WHERE region_id = $1 AND species_id = ANY($2)`, [target.regionId, idBatch]);
+      }
+      const hotspotRows = speciesWithHotspots.flatMap(({ speciesId, sp }) => sp.hotspots!.map((h) => ({ speciesId, h })));
+      for (const hotspotBatch of chunkRows(hotspotRows, BULK_BATCH_SIZE)) {
         const values: unknown[] = [];
-        const rowPlaceholders = hotspotBatch.map((h, idx) => {
+        const rowPlaceholders = hotspotBatch.map(({ speciesId, h }, idx) => {
           const base = idx * 8;
           values.push(target.regionId, speciesId, h.centroidLat, h.centroidLon, h.pointCount, h.bboxDiagonalKm, h.lastSeenYear, h.distinctYears);
-          return `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7}, $${base + 8})`;
+          return `($${base + 1}::uuid, $${base + 2}::uuid, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7}, $${base + 8})`;
         });
-        await pool.query(
+        await db.query(
           `INSERT INTO region_species_hotspots
              (region_id, species_id, centroid_lat, centroid_lon, point_count, bbox_diagonal_km, last_seen_year, distinct_years)
            VALUES ${rowPlaceholders.join(", ")}`,
@@ -491,7 +543,7 @@ async function applyChecklist(
         values.push(target.seaZoneId, speciesId, sp.recordCount ?? 0);
         return `($${base + 1}::uuid, $${base + 2}::uuid, $${base + 3})`;
       });
-      await pool.query(
+      await db.query(
         `INSERT INTO sea_zone_species (sea_zone_id, species_id, record_count)
          VALUES ${rows.join(", ")}
          ON CONFLICT (sea_zone_id, species_id) DO UPDATE SET record_count = EXCLUDED.record_count`,
@@ -503,7 +555,7 @@ async function applyChecklist(
   return { applied: checklistRows.length, skipped, touched };
 }
 
-async function applyPack(archivePath: string): Promise<{
+async function applyPack(db: PoolClient, archivePath: string): Promise<{
   speciesCount: number;
   skipped: number;
   manifest: PackManifest;
@@ -532,10 +584,10 @@ async function applyPack(archivePath: string): Promise<{
     let regionId: string | null = null;
     let seaZoneId: string | null = null;
     if (manifest.type === "region" && manifest.region) {
-      const res = await pool.query<{ id: string }>(`SELECT id FROM regions WHERE name = $1`, [manifest.region]);
+      const res = await db.query<{ id: string }>(`SELECT id FROM regions WHERE name = $1`, [manifest.region]);
       regionId = res.rows[0]?.id ?? null;
     } else if (manifest.type === "seaZone" && manifest.seaZone) {
-      const res = await pool.query<{ id: string }>(`SELECT id FROM sea_zones WHERE name = $1`, [manifest.seaZone]);
+      const res = await db.query<{ id: string }>(`SELECT id FROM sea_zones WHERE name = $1`, [manifest.seaZone]);
       seaZoneId = res.rows[0]?.id ?? null;
     }
 
@@ -543,12 +595,12 @@ async function applyPack(archivePath: string): Promise<{
     let skipped = 0;
     const touched: Array<{ speciesId: string; providedEnrichment: boolean }> = [];
     if (regionId) {
-      const result = await applyChecklist(manifest.species, { regionId }, extractDir, displayDir, thumbDir, galleryDisplayDir, galleryThumbDir);
+      const result = await applyChecklist(db, manifest.species, { regionId }, extractDir, displayDir, thumbDir, galleryDisplayDir, galleryThumbDir);
       applied += result.applied;
       skipped += result.skipped;
       touched.push(...result.touched);
     } else if (seaZoneId) {
-      const result = await applyChecklist(manifest.species, { seaZoneId }, extractDir, displayDir, thumbDir, galleryDisplayDir, galleryThumbDir);
+      const result = await applyChecklist(db, manifest.species, { seaZoneId }, extractDir, displayDir, thumbDir, galleryDisplayDir, galleryThumbDir);
       applied += result.applied;
       skipped += result.skipped;
       touched.push(...result.touched);
@@ -561,7 +613,7 @@ async function applyPack(archivePath: string): Promise<{
     const allChildRegionIds: string[] = [];
     if (regionId && manifest.children) {
       for (const child of manifest.children) {
-        await pool.query(
+        await db.query(
           `INSERT INTO regions (name, parent_id, ebird_region_code, boundary_geojson, external_codes, occurrence_computed_at, is_overseas_territory)
            VALUES ($1, $2, $3, $4, $5, now(), $6)
            ON CONFLICT (name, parent_id) DO UPDATE SET is_overseas_territory = EXCLUDED.is_overseas_territory`,
@@ -574,7 +626,7 @@ async function applyPack(archivePath: string): Promise<{
             child.isOverseasTerritory ?? false,
           ],
         );
-        const childRegionRes = await pool.query<{ id: string }>(`SELECT id FROM regions WHERE name = $1 AND parent_id = $2`, [
+        const childRegionRes = await db.query<{ id: string }>(`SELECT id FROM regions WHERE name = $1 AND parent_id = $2`, [
           child.name,
           regionId,
         ]);
@@ -583,6 +635,7 @@ async function applyPack(archivePath: string): Promise<{
         allChildRegionIds.push(childRegionId);
         if (child.isOverseasTerritory) territoryChildRegionIds.push(childRegionId);
         const result = await applyChecklist(
+          db,
           child.species,
           { regionId: childRegionId },
           extractDir,
@@ -594,17 +647,17 @@ async function applyPack(archivePath: string): Promise<{
         applied += result.applied;
         skipped += result.skipped;
         touched.push(...result.touched);
-        await pool.query(`UPDATE regions SET occurrence_computed_at = now(), has_children = false WHERE id = $1`, [childRegionId]);
+        await db.query(`UPDATE regions SET occurrence_computed_at = now(), has_children = false WHERE id = $1`, [childRegionId]);
       }
-      await pool.query(`UPDATE regions SET has_children = true WHERE id = $1`, [regionId]);
+      await db.query(`UPDATE regions SET has_children = true WHERE id = $1`, [regionId]);
     }
 
     // Checklist membership is now real, downloaded data — the region no longer needs (and,
     // going forward, should never trigger) a live GBIF computation of its own.
     if (regionId) {
-      await pool.query(`UPDATE regions SET occurrence_computed_at = now() WHERE id = $1`, [regionId]);
+      await db.query(`UPDATE regions SET occurrence_computed_at = now() WHERE id = $1`, [regionId]);
     } else if (seaZoneId) {
-      await pool.query(`UPDATE sea_zones SET occurrence_computed_at = now() WHERE id = $1`, [seaZoneId]);
+      await db.query(`UPDATE sea_zones SET occurrence_computed_at = now() WHERE id = $1`, [seaZoneId]);
     }
 
     return { speciesCount: applied, skipped, manifest, touched, allChildRegionIds, territoryChildRegionIds };
@@ -728,58 +781,83 @@ async function runDownloadJob(requestedPackIds: string[], force = false): Promis
       const buf = Buffer.from(await res.arrayBuffer());
       writeFileSync(tmpFile, buf);
 
-      const { speciesCount, manifest, touched, allChildRegionIds, territoryChildRegionIds } = await applyPack(tmpFile);
-      rmSync(tmpFile, { force: true });
+      // Everything from here through the territory cleanup below runs inside ONE transaction —
+      // a pack (country + every bundled province) is either fully applied or not applied at
+      // all. Without this, a server restart mid-apply (a redeploy, a container OOM — a real
+      // Docker/NAS scenario, not just a user hitting refresh) commits whatever batches had
+      // already run and abandons the rest, leaving a genuinely half-written checklist behind
+      // with no obvious sign anything went wrong (confirmed live: exactly how a British Columbia
+      // checklist ended up with a small fraction of its real species count). A page reload on
+      // its own was never the actual risk — this job runs server-side, entirely independent of
+      // any client connection — but a restart of the server itself absolutely was.
+      const client = await pool.connect();
+      let speciesCount = 0;
+      let manifest: PackManifest;
+      try {
+        await client.query("BEGIN");
+        const applyResult = await applyPack(client, tmpFile);
+        speciesCount = applyResult.speciesCount;
+        manifest = applyResult.manifest;
+        const { touched, allChildRegionIds, territoryChildRegionIds } = applyResult;
 
-      // applied_province_region_ids resets on every (re)download — applyPack's children loop
-      // unconditionally restores every province each time, so any prior per-province exclusion
-      // (Fix 8) no longer reflects reality once this runs. Defaults to excluding overseas
-      // territories specifically (NULL/"all applied" only when there are none) rather than
-      // requiring the user to manually offload each one after every fresh download — they can
-      // still opt one back in via the same province checklist Fix 8 already built.
-      const defaultAppliedProvinceIds =
-        territoryChildRegionIds.length > 0 ? JSON.stringify(allChildRegionIds.filter((rid) => !territoryChildRegionIds.includes(rid))) : null;
-      await pool.query(
-        `INSERT INTO downloaded_packs (pack_id, region, taxon, species_count, bytes, content_version, applied_province_region_ids)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)
-         ON CONFLICT (pack_id) DO UPDATE SET
-           species_count = EXCLUDED.species_count, bytes = EXCLUDED.bytes, content_version = EXCLUDED.content_version,
-           downloaded_at = now(), applied_province_region_ids = EXCLUDED.applied_province_region_ids`,
-        [id, entry.region ?? entry.seaZone ?? null, entry.taxon ?? null, speciesCount, buf.length, entry.contentVersion, defaultAppliedProvinceIds],
-      );
-
-      // A species can appear more than once within one pack (e.g. a country's own checklist
-      // AND one of its bundled provinces' checklists) — deduped here by species id before the
-      // bulk upsert below, since a single INSERT's VALUES list can't ON CONFLICT-update the
-      // same row twice. providedEnrichment=true wins the dedup (a species is "provided by this
-      // pack" if ANY of its checklist entries within the pack triggered the actual file copy).
-      const touchedBySpeciesId = new Map<string, boolean>();
-      for (const t of touched) {
-        touchedBySpeciesId.set(t.speciesId, touchedBySpeciesId.get(t.speciesId) || t.providedEnrichment);
-      }
-      if (touchedBySpeciesId.size > 0) {
-        const speciesIds = [...touchedBySpeciesId.keys()];
-        const providedFlags = speciesIds.map((sid) => touchedBySpeciesId.get(sid)!);
-        await pool.query(
-          `INSERT INTO pack_species (pack_id, species_id, provided_enrichment)
-           SELECT $1, unnest($2::uuid[]), unnest($3::boolean[])
-           ON CONFLICT (pack_id, species_id) DO UPDATE SET provided_enrichment = EXCLUDED.provided_enrichment`,
-          [id, speciesIds, providedFlags],
+        // applied_province_region_ids resets on every (re)download — applyPack's children loop
+        // unconditionally restores every province each time, so any prior per-province exclusion
+        // (Fix 8) no longer reflects reality once this runs. Defaults to excluding overseas
+        // territories specifically (NULL/"all applied" only when there are none) rather than
+        // requiring the user to manually offload each one after every fresh download — they can
+        // still opt one back in via the same province checklist Fix 8 already built.
+        const defaultAppliedProvinceIds =
+          territoryChildRegionIds.length > 0 ? JSON.stringify(allChildRegionIds.filter((rid) => !territoryChildRegionIds.includes(rid))) : null;
+        await client.query(
+          `INSERT INTO downloaded_packs (pack_id, region, taxon, species_count, bytes, content_version, applied_province_region_ids)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)
+           ON CONFLICT (pack_id) DO UPDATE SET
+             species_count = EXCLUDED.species_count, bytes = EXCLUDED.bytes, content_version = EXCLUDED.content_version,
+             downloaded_at = now(), applied_province_region_ids = EXCLUDED.applied_province_region_ids`,
+          [id, entry.region ?? entry.seaZone ?? null, entry.taxon ?? null, speciesCount, buf.length, entry.contentVersion, defaultAppliedProvinceIds],
         );
-      }
 
-      // Territories excluded by default (seeded above, before pack_species existed for this
-      // pack) must actually have their region_species rows removed too — applyChecklist's
-      // children loop just wrote them unconditionally like any other province, so without this
-      // they'd show `applied: false` yet still count toward checklists/downloads until the user
-      // happens to toggle them off manually. Uses this pack's own species (just upserted above),
-      // not a stale/empty read from before this pack existed in pack_species at all.
-      if (territoryChildRegionIds.length > 0 && touchedBySpeciesId.size > 0) {
-        const speciesIds = [...touchedBySpeciesId.keys()];
-        for (const territoryRegionId of territoryChildRegionIds) {
-          await pool.query(`DELETE FROM region_species WHERE region_id = $1 AND species_id = ANY($2)`, [territoryRegionId, speciesIds]);
+        // A species can appear more than once within one pack (e.g. a country's own checklist
+        // AND one of its bundled provinces' checklists) — deduped here by species id before the
+        // bulk upsert below, since a single INSERT's VALUES list can't ON CONFLICT-update the
+        // same row twice. providedEnrichment=true wins the dedup (a species is "provided by this
+        // pack" if ANY of its checklist entries within the pack triggered the actual file copy).
+        const touchedBySpeciesId = new Map<string, boolean>();
+        for (const t of touched) {
+          touchedBySpeciesId.set(t.speciesId, touchedBySpeciesId.get(t.speciesId) || t.providedEnrichment);
         }
+        if (touchedBySpeciesId.size > 0) {
+          const speciesIds = [...touchedBySpeciesId.keys()];
+          const providedFlags = speciesIds.map((sid) => touchedBySpeciesId.get(sid)!);
+          await client.query(
+            `INSERT INTO pack_species (pack_id, species_id, provided_enrichment)
+             SELECT $1, unnest($2::uuid[]), unnest($3::boolean[])
+             ON CONFLICT (pack_id, species_id) DO UPDATE SET provided_enrichment = EXCLUDED.provided_enrichment`,
+            [id, speciesIds, providedFlags],
+          );
+        }
+
+        // Territories excluded by default (seeded above, before pack_species existed for this
+        // pack) must actually have their region_species rows removed too — applyChecklist's
+        // children loop just wrote them unconditionally like any other province, so without this
+        // they'd show `applied: false` yet still count toward checklists/downloads until the user
+        // happens to toggle them off manually. Uses this pack's own species (just upserted above),
+        // not a stale/empty read from before this pack existed in pack_species at all.
+        if (territoryChildRegionIds.length > 0 && touchedBySpeciesId.size > 0) {
+          const speciesIds = [...touchedBySpeciesId.keys()];
+          for (const territoryRegionId of territoryChildRegionIds) {
+            await client.query(`DELETE FROM region_species WHERE region_id = $1 AND species_id = ANY($2)`, [territoryRegionId, speciesIds]);
+          }
+        }
+
+        await client.query("COMMIT");
+      } catch (err) {
+        await client.query("ROLLBACK").catch(() => {});
+        throw err;
+      } finally {
+        client.release();
       }
+      rmSync(tmpFile, { force: true });
 
       downloadJob.processed++;
       for (const dep of manifest.seaZoneDependencies ?? []) {
