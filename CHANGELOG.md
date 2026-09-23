@@ -15,6 +15,17 @@ Categories: `Added`, `Changed`, `Fixed`, `Removed` — omit any with nothing to 
 
 ## [Unreleased]
 
+### Fixed
+
+- Applying a Species catalog update in Settings could fail with "the download timed out" on an
+  ordinary connection — the download had a 2-minute cap sized for when the seed file was tens of
+  MB; it's been over 1GB since per-gallery-photo embeddings joined it, and any real self-hosted
+  connection needed longer than that to finish. Raised to 30 minutes.
+- Republished `catalog-latest`: the version live since 2026-09-22 had an incomplete Canada
+  checklist (902 of 2,056 species) from a recompute that wasn't followed by a fresh seed publish
+  — likely affected every country's checklist proportionally, not just Canada's, on any install
+  that bootstrapped or updated from that version.
+
 ## [0.5.5] - 2026-09-23
 
 ### Changed
@@ -31,6 +42,14 @@ Categories: `Added`, `Changed`, `Fixed`, `Removed` — omit any with nothing to 
   catalog — confirmed live with a bumble bee, added once on a dev machine, showing up in an
   unrelated freshly-wiped install's Canada checklist. Offline packs were never affected by this;
   only the catalog seed was.
+- Species-matching suggestions could come back inconsistent between machines for the same photo
+  (confirmed live with a Cedar Waxwing scoring a confident #1 match on one install and missing
+  from the top 5 entirely on another) — quantized model inference isn't guaranteed bit-identical
+  across CPU architectures, and two separate spots in the matching pipeline were sensitive enough
+  to that tiny variance to flip results: the subject-detection step could fall on either side of
+  its confidence threshold and skip cropping to the animal entirely, and the suggestion list could
+  drop a genuinely close alternative based on its rank position rather than how close its actual
+  score was to the top pick.
 
 ## [0.5.4] - 2026-09-23
 

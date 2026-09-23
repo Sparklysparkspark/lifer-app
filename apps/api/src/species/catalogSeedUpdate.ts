@@ -39,7 +39,15 @@ export interface CatalogManifest {
 // button stuck indefinitely. AbortSignal.timeout() turns that into an actual thrown error the
 // UI can show instead.
 const MANIFEST_TIMEOUT_MS = 15_000;
-const SEED_DOWNLOAD_TIMEOUT_MS = 120_000; // the seed itself can be tens of MB gzipped
+// The seed itself has been over 1GB gzipped since species_reference_gallery_embeddings joined it
+// (see build-catalog-seed.ts's own comment on that table pushing the dump past pg_dump's old
+// execFileSync buffer ceiling) — confirmed live at 1.2GB. A 120s cap (sized for this file's
+// original "tens of MB" comment, now stale) aborted a real self-hosted apply on ordinary
+// broadband well before it could finish, surfacing as "The operation was aborted due to timeout"
+// with no way to tell whether the server was actually hung or just still downloading. 30 minutes
+// comfortably covers even a slow/asymmetric NAS connection without masking a genuinely hung
+// request forever.
+const SEED_DOWNLOAD_TIMEOUT_MS = 1_800_000;
 
 export async function fetchCatalogManifest(): Promise<CatalogManifest> {
   let res: Response;
