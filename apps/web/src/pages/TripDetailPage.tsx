@@ -12,6 +12,7 @@ import MasonryGrid from "../components/MasonryGrid";
 import PhotoTile from "../components/PhotoTile";
 import SearchInput from "../components/SearchInput";
 import Lightbox, { type LightboxSlide } from "../components/Lightbox";
+import EmptyState from "../components/EmptyState";
 import CardCropEditor from "../components/CardCropEditor";
 import EditableTextField from "../components/EditableTextField";
 import { FolderBrowser, pickFolderNative } from "../components/FolderPicker";
@@ -831,25 +832,21 @@ export default function TripDetailPage() {
             </p>
           </div>
         ) : photos.length === 0 && pendingImports.length === 0 ? (
-          <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-line py-16 text-center">
-            <div>
-              <p className="font-medium text-ink">Nothing imported yet</p>
-              <p className="mt-1 text-sm text-muted">
-                {reviewRows.length === 0
-                  ? "Scan this trip's folder to bring in what's there."
-                  : "Assign a species to each photo above, then import."}
-              </p>
-            </div>
-            {reviewRows.length === 0 && (
-              <button
-                onClick={startScan}
-                disabled={scanning}
-                className="mt-1 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-accent-fg hover:opacity-90 disabled:opacity-50"
-              >
-                {scanning ? "Looking for photos…" : "Add more photos"}
-              </button>
-            )}
-          </div>
+          <EmptyState
+            icon={
+              <svg viewBox="0 0 24 24" className="h-6 w-6 text-muted" fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round">
+                <path d="M3 15.5V5.5A2 2 0 0 1 5 3.5h10" />
+                <rect x="6" y="6" width="14" height="14" rx="2" />
+              </svg>
+            }
+            title="Nothing imported yet"
+            description={
+              reviewRows.length === 0
+                ? "Scan this trip's folder to bring in what's there."
+                : "Assign a species to each photo above, then import."
+            }
+            action={reviewRows.length === 0 ? { label: scanning ? "Looking for photos…" : "Add more photos", onClick: startScan } : undefined}
+          />
         ) : visiblePhotos.length === 0 && pendingImports.length === 0 ? (
           <p className="text-muted">No photos match "{search}".</p>
         ) : (

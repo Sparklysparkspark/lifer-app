@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api, ApiError } from "../api/client";
 import { Spinner } from "../components/LoadingScreen";
 import PageHeader from "../components/PageHeader";
+import EmptyState from "../components/EmptyState";
 
 // Grouped the same way the create form's checkboxes are laid out — one row per resource, a
 // Read and/or Write column. Kept in sync with apps/api/src/auth/apiKeyRoutes.ts's own
@@ -161,7 +162,17 @@ export default function ApiKeysPage() {
         {!keys ? (
           <Spinner />
         ) : keys.length === 0 ? (
-          <p className="text-muted">No API keys yet.</p>
+          <EmptyState
+            icon={
+              <svg viewBox="0 0 24 24" className="h-6 w-6 text-muted" fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="8" cy="15" r="4" />
+                <path d="M10.5 12.5 20 3M17 6l2 2M14 9l2 2" />
+              </svg>
+            }
+            title="No API keys yet"
+            description="Create a key to let another app or script read (and, for some resources, write) your data over the API."
+            action={{ label: "New key", onClick: () => setCreating(true) }}
+          />
         ) : (
           <ul className="divide-y divide-line rounded-lg border border-line bg-surface">
             {keys.map((key) => (

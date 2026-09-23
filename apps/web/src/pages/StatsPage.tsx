@@ -17,6 +17,7 @@ import {
 import { api } from "../api/client";
 import { downloadFile } from "../lib/downloadFile";
 import PageHeader from "../components/PageHeader";
+import EmptyState from "../components/EmptyState";
 import CollectionStatsPanel from "../components/CollectionStats";
 import { LoadingScreen, Spinner } from "../components/LoadingScreen";
 import Lightbox, { type LightboxSlide } from "../components/Lightbox";
@@ -413,12 +414,15 @@ export default function StatsPage() {
       {exportError && <p className="border-b border-line bg-surface px-6 py-2 text-sm text-red-600">{exportError}</p>}
 
       {stats.totalKeepers === 0 ? (
-        <div className="p-6">
-          <p className="text-sm text-muted">
-            No stats yet. Stats are built from your edited photos (RAW-only imports don't count), so import and edit a few
-            to see them here.
-          </p>
-        </div>
+        <EmptyState
+          icon={
+            <svg viewBox="0 0 24 24" className="h-6 w-6 text-muted" fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round">
+              <path d="M4 20V10M12 20V4M20 20v-6" />
+            </svg>
+          }
+          title="No stats yet"
+          description="Stats are built from your edited photos (RAW-only imports don't count), so import and edit a few to see them here."
+        />
       ) : (
         <div className="mx-auto max-w-5xl space-y-6 p-6">
           {/* Insight cards — the "how do I shoot" fingerprint. */}

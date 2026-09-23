@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import type { AlbumPhoto, CollectionItem, QuadSlot } from "@lifer/shared";
 import { api, ApiError } from "../api/client";
 import { LoadingScreen, Spinner } from "../components/LoadingScreen";
@@ -13,6 +13,7 @@ import Lightbox, { type LightboxSlide } from "../components/Lightbox";
 import CardCropEditor from "../components/CardCropEditor";
 import { cropToImageStyle } from "../lib/crop";
 import EditableTextField from "../components/EditableTextField";
+import EmptyState from "../components/EmptyState";
 import { useDropdownMenu } from "../hooks/useDropdownMenu";
 import { usePhotoGridSize } from "../hooks/usePhotoGridSize";
 import { useShowLabels } from "../hooks/useShowLabels";
@@ -52,6 +53,7 @@ interface ShareLink {
 
 export default function AlbumDetailPage() {
   const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
   const [album, setAlbum] = useState<AlbumDetail | null>(null);
   const [loadError, setLoadError] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
@@ -562,23 +564,31 @@ export default function AlbumDetailPage() {
 
       <main className="p-6">
         {album.items.length === 0 ? (
-          <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-line py-16 text-center">
-            <div>
-              <p className="font-medium text-ink">Nothing in this album yet</p>
-              <p className="mt-1 text-sm text-muted">Add photos from the Gallery, a Trip, or a species page.</p>
-            </div>
-            <Link
-              to={`/gallery?select=1&albumId=${album.id}`}
-              className="mt-1 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-accent-fg hover:opacity-90"
-            >
-              Add photos
-            </Link>
-          </div>
+          <EmptyState
+            icon={
+              <svg viewBox="0 0 24 24" className="h-6 w-6 text-muted" fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="5" width="18" height="14" rx="2" />
+                <circle cx="9" cy="11" r="2" />
+                <path d="m21 16-4.5-4.5L9 19" />
+              </svg>
+            }
+            title="Nothing in this album yet"
+            description="Add photos from the Gallery, a Trip, or a species page."
+            action={{ label: "Add photos", onClick: () => navigate(`/gallery?select=1&albumId=${album.id}`) }}
+          />
         ) : view === "species" ? (
           speciesItems == null ? (
             <Spinner />
           ) : speciesItems.length === 0 ? (
-            <p className="text-muted">No species in this album yet.</p>
+            <EmptyState
+              icon={
+                <svg viewBox="0 0 24 24" className="h-6 w-6 text-muted" fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 2 2 7l10 5 10-5-10-5ZM2 17l10 5 10-5M2 12l10 5 10-5" />
+                </svg>
+              }
+              title="No species in this album yet"
+              description="Photos in this album haven't been identified to species."
+            />
           ) : (
             <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
               {speciesItems.map((item) => (

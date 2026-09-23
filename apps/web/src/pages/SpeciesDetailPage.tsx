@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useSearchParams, useNavigate } from "react-router-dom";
 import { api, ApiError } from "../api/client";
 import UploadDropzone from "../components/UploadDropzone";
+import EmptyState from "../components/EmptyState";
 import RawUpload from "../components/RawUpload";
 import StarRating from "../components/StarRating";
 import { useVolumeDestination, VolumeDestinationPicker } from "../components/VolumeDestinationPicker";
@@ -1182,7 +1183,17 @@ export default function SpeciesDetailPage() {
             </div>
           )}
           {captures.length === 0 && pendingUploadCount === 0 ? (
-            <p className="text-sm text-muted">Not photographed yet.</p>
+            <EmptyState
+              icon={
+                <svg viewBox="0 0 24 24" className="h-6 w-6 text-muted" fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="3" y="5" width="18" height="14" rx="2" />
+                  <circle cx="9" cy="11" r="2" />
+                  <path d="m21 16-4.5-4.5L9 19" />
+                </svg>
+              }
+              title="Not photographed yet"
+              description="Upload a photo below to add this species to your collection."
+            />
           ) : (
             // No gap at all, in either direction; see MasonryGrid's own comment for why
             // this is a manually
