@@ -321,21 +321,36 @@ function markConfidence(scored: SpeciesSuggestion[]): void {
 const DISPLAY_MARGIN_SCALE = 0.05;
 const DISPLAY_BASE_PERCENT = 50;
 const DISPLAY_TOP_PERCENT = 99;
-// Below this, a trailing alternative isn't a real second guess any more — it's just whatever
-// happened to be 4th or 5th by raw score, often trailing the top pick by a wide margin. Once one
-// item in the (already sorted, monotonically non-increasing) list falls below this, everything
-// after it does too, so trimLowRelevance below can stop at the first one rather than checking
-// each individually.
-const MIN_DISPLAY_PERCENT = 15;
 
-/** Cuts the ranked, percent-assigned list off at the first item below MIN_DISPLAY_PERCENT (the
- * top pick, index 0, is always kept regardless) — showing a 2% "alternative" next to a 50%+ top
- * pick isn't a real choice, just padding the list out to `limit` for its own sake. Expects
- * `scored` already sorted descending with assignDisplayPercents already run. */
+// How far a candidate's own RAW score can trail the top pick's before it stops being a real
+// alternative — same scale DISPLAY_MARGIN_SCALE uses ("roughly as decisive as this data ever
+// gets"), reused here as a real relevance cutoff rather than a display-only constant.
+//
+// This used to be decided from the cascading matchPercent instead (see assignDisplayPercents):
+// every rank step subtracts AT LEAST 5 display points regardless of how close the real scores
+// actually are, so a tight cluster of genuinely similar candidates (visually close species —
+// confirmed live with Cedar/Bohemian Waxwing) could lose 20+ points by sheer rank position alone
+// and cross MIN_DISPLAY_PERCENT even though their raw scores were barely distinguishable from
+// the top pick's. That made the whole suggestion list fragile to tiny reordering: quantized ONNX
+// inference isn't guaranteed bit-identical across CPU architectures (confirmed live — the exact
+// same photo scored Cedar Waxwing #1 at 60% on one machine and outside the top 5 on another),
+// and a display-position-based cutoff turned that small, expected numerical noise into a
+// candidate vanishing from the list entirely rather than just shuffling within it. Comparing
+// against the WINNER's own raw score directly is immune to that: a close cluster stays a close
+// cluster (and stays visible) no matter which member tiny platform noise happens to rank first.
+const RELEVANCE_MARGIN = DISPLAY_MARGIN_SCALE;
+
+/** Cuts the ranked list off at the first item whose RAW score trails the top pick's by more than
+ * RELEVANCE_MARGIN (the top pick, index 0, is always kept regardless) — a candidate that's
+ * genuinely close to the winner stays visible regardless of its rank position; one that's
+ * genuinely far behind gets cut regardless of how small the gap to ITS OWN neighbor looks.
+ * Expects `scored` already sorted descending by score. */
 function trimLowRelevance(scored: SpeciesSuggestion[], limit: number): SpeciesSuggestion[] {
+  if (scored.length === 0) return [];
+  const topScore = scored[0].score;
   let cutoff = scored.length;
   for (let i = 1; i < scored.length; i++) {
-    if ((scored[i].matchPercent ?? 0) < MIN_DISPLAY_PERCENT) {
+    if (topScore - scored[i].score >= RELEVANCE_MARGIN) {
       cutoff = i;
       break;
     }

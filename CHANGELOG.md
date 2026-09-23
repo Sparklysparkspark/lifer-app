@@ -15,6 +15,23 @@ Categories: `Added`, `Changed`, `Fixed`, `Removed` — omit any with nothing to 
 
 ## [Unreleased]
 
+## [0.5.5] - 2026-09-23
+
+### Changed
+
+- Downloading the offline basemap in Settings no longer shows a redundant confirmation popup —
+  the button's own label and description already say exactly what it does.
+
+### Fixed
+
+- The published species catalog seed no longer includes Other Taxa species (Settings > Species
+  & Import's any-taxa search) added on whichever machine last built it. Those are meant to be
+  personal, install-specific additions, but the seed's underlying dump had no way to exclude
+  them, so one added while testing the feature could ride along into every fresh install's
+  catalog — confirmed live with a bumble bee, added once on a dev machine, showing up in an
+  unrelated freshly-wiped install's Canada checklist. Offline packs were never affected by this;
+  only the catalog seed was.
+
 ## [0.5.4] - 2026-09-23
 
 ### Changed

@@ -26,7 +26,26 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const MODEL_PATH = path.join(__dirname, "models", "yolov8n.onnx");
 
 const INPUT_SIZE = 640;
+// Only gates the GENERIC "something distinct from background, even if not an animal class"
+// fallback in pickBestDetection below — a real quality bar makes sense there, since that path
+// has no class restriction to lean on. It deliberately does NOT gate an animal-class detection
+// (see pickBestDetection's own comment) — a confidence score sitting right at this line is
+// exactly the kind of value that isn't guaranteed to land on the same side of it across CPU
+// architectures (quantized ONNX inference isn't bit-identical between ARM and x86_64), and this
+// whole detect-and-crop step is all-or-nothing: missing the bar here doesn't mean "a slightly
+// worse crop," it means "no crop at all, embed the raw background-heavy frame instead" — which
+// this file's own measurement shows can be the difference between a species' clean #1 match and
+// not cracking the top 10. Confirmed live: the exact same photo, byte-identical model weights,
+// crossed this exact line on one CPU architecture and not the other, changing a confident species
+// match into a completely different (and wrong) top-5 list on the other machine.
 const CONF_THRESHOLD = 0.25;
+// Floor for an ANIMAL-class candidate specifically — deliberately much lower than
+// CONF_THRESHOLD (see that constant's own comment for why the animal path doesn't use the same
+// bar). Not zero: still screens out an anchor with no real signal at all, just doesn't demand
+// the same "confident enough to stand on its own, unrestricted class" bar the generic fallback
+// needs. The tiling fallback's own comment notes real detections as low as 0.05 for a small,
+// distant, genuinely-real bird — this sits just under that observed floor.
+const ANIMAL_FLOOR = 0.03;
 const CROP_PADDING_FRACTION = 0.125;
 // Standard COCO class order (index -> name) that ultralytics' YOLOv8 export uses. Only the
 // subset relevant to wildlife photography is named here; every other index just isn't in
@@ -100,12 +119,15 @@ async function letterbox(buffer: Buffer): Promise<{ floats: Float32Array; scale:
 }
 
 /** Finds the single best detection in one letterboxed pass: the highest-confidence ANIMAL-class
- * box if one clears the confidence threshold, else the highest-confidence box of any class (a
- * generic "something distinct from background" box still beats no cropping at all), else null.
- * Only the single best box is ever needed — unlike a general object detector, this never returns
- * multiple boxes, so no NMS pass is required (argmax over a class subset serves the same purpose
- * more simply). Returned box coordinates are still in the LETTERBOXED 640x640 space — callers
- * undo that themselves, since a tile pass needs an extra offset step a whole-image pass doesn't. */
+ * box that clears ANIMAL_FLOOR, else the highest-confidence box of any class that clears the
+ * much higher CONF_THRESHOLD (a generic "something distinct from background" box still beats no
+ * cropping at all), else null. Deliberately two different bars, not one — see ANIMAL_FLOOR's own
+ * comment for why a class-restricted candidate doesn't need to clear the same bar an unrestricted
+ * one does. Only the single best box is ever needed — unlike a general object detector, this
+ * never returns multiple boxes, so no NMS pass is required (argmax over a class subset serves the
+ * same purpose more simply). Returned box coordinates are still in the LETTERBOXED 640x640 space
+ * — callers undo that themselves, since a tile pass needs an extra offset step a whole-image pass
+ * doesn't. */
 function pickBestDetection(output: Float32Array, numAnchors: number, numClasses: number): Detection | null {
   let bestAnimal: Detection | null = null;
   let bestAny: Detection | null = null;
@@ -119,15 +141,19 @@ function pickBestDetection(output: Float32Array, numAnchors: number, numClasses:
         bestClassIndex = c;
       }
     }
-    if (bestClassScore < CONF_THRESHOLD) continue;
+    const isAnimal = ANIMAL_CLASS_INDICES.has(bestClassIndex);
+    if (bestClassScore < (isAnimal ? ANIMAL_FLOOR : CONF_THRESHOLD)) continue;
     const cx = output[0 * numAnchors + i];
     const cy = output[1 * numAnchors + i];
     const w = output[2 * numAnchors + i];
     const h = output[3 * numAnchors + i];
     const box: [number, number, number, number] = [cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2];
     const detection: Detection = { score: bestClassScore, classIndex: bestClassIndex, box };
-    if (!bestAny || bestClassScore > bestAny.score) bestAny = detection;
-    if (ANIMAL_CLASS_INDICES.has(bestClassIndex) && (!bestAnimal || bestClassScore > bestAnimal.score)) bestAnimal = detection;
+    if (isAnimal) {
+      if (!bestAnimal || bestClassScore > bestAnimal.score) bestAnimal = detection;
+    } else if (!bestAny || bestClassScore > bestAny.score) {
+      bestAny = detection;
+    }
   }
   return bestAnimal ?? bestAny;
 }
@@ -184,10 +210,21 @@ function buildTiles(width: number, height: number): TileRect[] {
   return tiles;
 }
 
-/** Only called when the whole-image pass found nothing at all — runs detection on each of a
- * TILE_GRID x TILE_GRID overlapping grid of crops (each much closer to native resolution than
- * the whole image was) and returns the single best detection across all of them, already mapped
- * into full-image coordinates, or null if every tile also came up empty. */
+/** Same animal-class-first, then-higher-score preference pickBestDetection uses WITHIN one pass
+ * (see that function's own comment), reused here to compare detections ACROSS passes/tiles — a
+ * lower-confidence animal detection still beats a higher-confidence non-animal one. */
+function isBetterDetection(candidate: Detection, current: Detection): boolean {
+  const candidateAnimal = ANIMAL_CLASS_INDICES.has(candidate.classIndex);
+  const currentAnimal = ANIMAL_CLASS_INDICES.has(current.classIndex);
+  if (candidateAnimal !== currentAnimal) return candidateAnimal;
+  return candidate.score > current.score;
+}
+
+/** Runs detection on each of a TILE_GRID x TILE_GRID overlapping grid of crops (each much closer
+ * to native resolution than the whole image was) and returns the single best detection across
+ * all of them, already mapped into full-image coordinates, or null if every tile came up empty.
+ * Tried whenever the whole-image pass didn't already find a confident detection — see
+ * detectSubjectBox's own comment. */
 async function detectByTiling(buffer: Buffer, width: number, height: number): Promise<Detection | null> {
   const tiles = buildTiles(width, height);
   let best: Detection | null = null;
@@ -195,12 +232,7 @@ async function detectByTiling(buffer: Buffer, width: number, height: number): Pr
     const tileBuffer = await sharp(buffer).rotate().extract(tile).toBuffer();
     const detection = await runDetection(tileBuffer, tile.left, tile.top);
     if (!detection) continue;
-    const isBestAnimal = best && ANIMAL_CLASS_INDICES.has(best.classIndex);
-    const isThisAnimal = ANIMAL_CLASS_INDICES.has(detection.classIndex);
-    // Same animal-class-first preference pickBestDetection uses within one pass, applied again
-    // ACROSS tiles — a lower-confidence animal detection in one tile still beats a higher-
-    // confidence non-animal detection in another.
-    if (!best || (isThisAnimal && !isBestAnimal) || (isThisAnimal === isBestAnimal && detection.score > best.score)) best = detection;
+    if (!best || isBetterDetection(detection, best)) best = detection;
   }
   return best;
 }
@@ -224,7 +256,17 @@ async function detectSubjectBox(buffer: Buffer): Promise<SubjectBox | null> {
     const origHeight = meta.height ?? INPUT_SIZE;
 
     let detection = await runDetection(buffer, 0, 0);
-    if (!detection) detection = await detectByTiling(buffer, origWidth, origHeight);
+    // Also tries tiling whenever the whole-image pass didn't clear CONF_THRESHOLD, not only when
+    // it found nothing at all — pickBestDetection's ANIMAL_FLOOR means a weak whole-image guess
+    // (a small/distant subject barely registering at 9x downscale) now almost always "succeeds"
+    // instead of returning null, which would otherwise silently skip the one fallback built
+    // specifically to rescue that exact case. Keeps whichever result actually looks better
+    // (animal-class first, then score — same preference detectByTiling already applies across
+    // its own tiles) rather than assuming tiling is always the winner.
+    if (!detection || detection.score < CONF_THRESHOLD) {
+      const tiled = await detectByTiling(buffer, origWidth, origHeight);
+      if (tiled && (!detection || isBetterDetection(tiled, detection))) detection = tiled;
+    }
     if (!detection) return null;
 
     const [x1, y1, x2, y2] = detection.box;
