@@ -17,6 +17,7 @@ import { useSpeciesCardSize } from "../hooks/useSpeciesCardSize";
 import RegionMap from "../components/RegionMap";
 import { useMapAvailable } from "../hooks/useMapAvailable";
 import { Spinner } from "../components/LoadingScreen";
+import EmptyState from "../components/EmptyState";
 import Pill from "../components/Pill";
 import FilterPopover, { FilterFieldLabel } from "../components/FilterPopover";
 import Select from "../components/Select";
@@ -1266,12 +1267,17 @@ export default function CollectionPage() {
         ) : needsPackFor ? (
           <NeedsPackPrompt region={needsPackFor} onDownloaded={load} />
         ) : loadError ? (
-          <p className="text-muted">
-            Couldn't load this view.{" "}
-            <button onClick={load} className="text-ink underline">
-              Retry
-            </button>
-          </p>
+          <EmptyState
+            icon={
+              <svg viewBox="0 0 24 24" className="h-6 w-6 text-muted" fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="9" />
+                <path d="M12 8v5M12 16h.01" />
+              </svg>
+            }
+            title="Couldn't load this view"
+            description="Something went wrong fetching your collection. Try again."
+            action={{ label: "Retry", onClick: load }}
+          />
         ) : !visibleItems ? (
           <Spinner />
         ) : taxonPackMissingFor &&
