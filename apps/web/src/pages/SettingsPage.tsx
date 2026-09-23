@@ -561,9 +561,11 @@ function SpeciesSuggestSection() {
 
   if (enabled === null) return null;
 
-  // The model is an opt-in download (see the Model download section below) — offloading it
-  // auto-disables this setting server-side (settings/routes.ts's DELETE /settings/embedding-model),
-  // so a stale "enabled" checkbox that can never actually produce a suggestion never shows.
+  // The model is an opt-in download (EmbeddingModelSection, on the Offline Data tab — a
+  // different sidebar group than this Species & Import card, so "below" would be wrong; this
+  // card links there directly instead) — offloading it auto-disables this setting server-side
+  // (settings/routes.ts's DELETE /settings/embedding-model), so a stale "enabled" checkbox that
+  // can never actually produce a suggestion never shows.
   const modelMissing = modelDownloaded === false;
 
   return (
@@ -590,7 +592,11 @@ function SpeciesSuggestSection() {
       </label>
       {modelMissing && (
         <p className="text-sm text-muted">
-          Requires the species-matching model, which isn't downloaded. See the Model download section below to re-enable this.
+          Requires the species-matching model, which isn't downloaded.{" "}
+          <Link to="/settings/offline-data" className="text-accent hover:underline">
+            Download it from Offline Data
+          </Link>{" "}
+          to re-enable this.
         </p>
       )}
       <FormMessage error={error} success={null} />
