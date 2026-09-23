@@ -10,6 +10,40 @@ All scripts are run with `npx tsx <path>` from the relevant package (`apps/api` 
 root, or exported directly). Several also need `GBIF_USER`/`GBIF_PWD` (a GBIF.org account, used
 for bulk SQL Downloads) — see `.env`.
 
+## Full release checklist
+
+For "I want every fresh install — desktop or Docker — to actually have today's best data," in
+order. Skipping the last two steps is the mistake that's bitten this project the most: the region
+packs can be perfect and a fresh install still ships wrong species matches, because it bootstraps
+from a completely separate, easy-to-forget artifact.
+
+1. **Recompute occurrence data** for whatever regions changed — `compute-provinces-bulk.ts` /
+   `compute-all-regions-bulk.ts` / `update-pack.ts` (see below).
+2. **Enrich species** — `enrich-all-species.ts` (photos, habitat text), plus any of the data-quality
+   cleanup scripts relevant to what changed.
+3. **Backfill vectors** — `backfill-reference-embeddings.ts` (species + gallery photo embeddings)
+   and `backfill-text-embeddings.ts` (zero-shot text blend). Both are safe to re-run; they skip
+   already-embedded rows.
+4. **Fetch/refresh occurrence stats** — `fetch-occurrence-stats.ts --only-missing` (powers
+   Hide-Obscure/Ghost/Lost).
+5. **Build and publish region/sea-zone packs** — `build-and-publish-all-packs.ts` (or
+   `update-pack.ts` for a scoped set of countries). Remember: this SKIPS any country the index
+   already lists, even if that country's underlying data changed in steps 1-4 — see "Refreshing an
+   already-published region" above for the manual force-rebuild recipe when that applies.
+6. **Rebuild and republish the catalog seed** — `build-catalog-seed.ts` against the same database
+   everything above just updated, then `gh release upload catalog-latest <seed>.sql.gz
+   <dir>/catalog-manifest.json --clobber`. **Do this every time steps 1-4 touch data that isn't
+   purely per-region** (species traits, rarity tiers, embeddings, endemic labels) — packs alone
+   don't carry this to a fresh install; only the catalog seed does, and only if it's actually
+   rebuilt.
+7. **Spot-check a fresh install's actual data**, not just that the scripts exited 0 — e.g. pull a
+   just-published pack and confirm a species you expect to have embeddings actually has one
+   (`tar -xzf <pack>.pack.tar.gz manifest.json -O | node -e '...find species, check .embedding...'`).
+   Every stale-data bug this session turned up (Canada/Finland's zero-embedding packs, the
+   17-day-stale catalog seed, 180 orphaned pack assets missing from the index) looked completely
+   fine from the script's own log output — the scripts ran, printed success, and moved on. Only
+   pulling the actual published artifact and checking its content caught any of them.
+
 ## The pack-update sequence
 
 **`update-pack.ts` chains all of this into one command:**
@@ -58,6 +92,22 @@ published" check only looks at the pack index, not whether the underlying checkl
 **Known gap:** refreshing one specific already-published region currently requires manually
 removing its entry from the published index first, or a `--force`/`--only=` flag on the build
 stage that doesn't exist yet.
+
+**This bit us for real on 2026-09-22**: Canada and Finland were published back before per-gallery-
+photo embeddings existed at all — every rebuild since then treated them as "already published" and
+skipped them, so their live packs sat with **zero embeddings and zero gallery photos** for weeks
+while every other country got the new data. Nothing in the tooling flags this kind of drift
+automatically. Manual recipe until the `--only=`/staleness-check gap above gets closed:
+```
+for taxon in aves mammalia actinopterygii ...; do
+  npx tsx src/build/build-region-pack.ts "<Country>" <tmpOutDir> --taxon="$taxon"
+done
+npx tsx src/build/build-pack-index.ts <tmpOutDir>   # merges with the currently-published index
+npx tsx src/scripts/publish-packs.ts <tmpOutDir>
+```
+Whenever a change touches how packs are BUILT (a new field in the manifest, a new embedding kind,
+a new derived stat) — not just new checklist data — audit whether already-published regions need
+this same manual refresh, since the automated sequence will never do it on its own.
 
 ## Script inventory by category
 
@@ -119,9 +169,51 @@ stage that doesn't exist yet.
   country list, builds, publishes, and cleans up unattended. Resumable. `--budget-gb=`,
   `--packs-dir=`
 - `build/build-pack-index.ts` — builds `pack-index.json` from already-built packs' manifests.
-- `scripts/publish-packs.ts` — uploads packs + index to the GitHub Release.
-- `scripts/build-catalog-seed.ts` — builds the fresh-install DB snapshot shipped as `catalog-latest`
-  (every new install downloads this once). Needs `DATABASE_URL`, `PG_DUMP_BIN`.
+  **Also decides which GitHub Release each pack uploads to** (`build/release-groups.ts`): one
+  release per continent (`packs-europe`, `packs-asia`, ...) plus `packs-seazones`, rolling over to
+  `packs-<group>-2`/`-3`/... automatically once a release nears GitHub's hard 1000-asset cap —
+  `packs-latest` hit that ceiling for real on 2026-09-22 with everything dumped on one release, which
+  is why this split exists. `pack-index.json` itself always stays on `packs-latest` (the one URL
+  `PACK_INDEX_URL` is hardcoded to); only the individual pack files moved. **Merges with the
+  currently-published index**, not just the local batch just built — a plain overwrite here is what
+  let 180 already-published pack assets (across 107 countries, including most of Canada's own taxa)
+  quietly vanish from the catalog while their files stayed live on GitHub, undetected until a user
+  reported wrong species-match results. If a build ever needs to run against a fresh/scratch
+  `packsDir` with nothing else in it, this merge is exactly what makes that safe.
+- `scripts/publish-packs.ts` — uploads packs + `pack-index.json` to their respective releases (reads
+  each pack's target release straight out of the index `build-pack-index.ts` just built — never
+  re-derives continent/overflow assignment itself, so the two scripts can't disagree about where a
+  pack lives).
+- `scripts/build-catalog-seed.ts` — builds the **shared bootstrap DB snapshot** every fresh install
+  (desktop AND self-hosted Docker alike) restores on first launch, published as `catalog-latest`.
+  Needs `DATABASE_URL` pointed at a real, fully-enriched database and `PG_DUMP_BIN` (no system-wide
+  `pg_dump` on a machine that only has the embedded Postgres theseus manages — point this at
+  `~/.theseus/postgresql/<version>/bin/pg_dump`, matching version). Streams `pg_dump`'s output
+  straight through gzip to disk rather than buffering it — this dump can now run past 1GB once
+  `species_reference_gallery_embeddings` is included, well past `execFileSync`'s old buffer ceiling.
+  **This is the single easiest piece of the whole pipeline to forget.** It is not part of
+  `update-pack.ts`'s sequence or `build-and-publish-all-packs.ts` at all — nothing else in this repo
+  ever re-triggers it. Any session of enrichment, embedding backfills, or trait recomputation that
+  isn't followed by a fresh `build-catalog-seed.ts` + `gh release upload catalog-latest ...` leaves
+  every brand-new install (on any platform) bootstrapping from whatever was published last —
+  `catalog-latest` sat 17+ days stale here, published *before the zero-shot text-embedding feature
+  existed at all*, so `species_text_embeddings` was completely empty for every fresh install despite
+  the feature having shipped and been tested for over two weeks. **Danger**: this script NULLs out
+  every local file-path column before dumping and restores the real values afterward in a `finally`
+  block — if the process dies mid-run in a way that skips that `finally` (an unhandled rejection, an
+  event-listener race causing a silent early exit — both hit for real building this doc), the source
+  database is left with those path columns permanently NULL. If that happens: the files are still on
+  disk (named by id, e.g. `reference-display/<species.id>.webp`,
+  `reference-display/<species_reference_photos.species_id>-gallery-<sort_order>.webp`) — walk every
+  `species`/`species_reference_photos` row, check for a matching file, and restore the path column
+  if one exists; verify with `SELECT count(*) FILTER (WHERE reference_display_path IS NOT NULL) ...`
+  before and after. Always let this script finish cleanly (check its exit code) before trusting the
+  source DB's path columns again.
+- `scripts/backfill-text-embeddings.ts` (also in `apps/api/src/scripts/`) — computes
+  `species_text_embeddings` (the zero-shot text blend `embeddings.ts`'s `blendWithText` uses to
+  strengthen a match when a species has no photo embedding yet). Not part of `update-pack.ts` or
+  `build-and-publish-all-packs.ts` either — same "nothing automatically re-triggers this" risk as
+  the catalog seed above, and its output only ever reaches a fresh install through that same seed.
 
 ### Verification / cleanup / recurring ops
 - `backup.ts` (data-pipeline) — the one genuinely cron-worthy recurring script outside the pack

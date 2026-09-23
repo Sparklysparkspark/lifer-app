@@ -12,16 +12,11 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import * as tar from "tar";
 import { packIdFromFileName } from "./pack-id.js";
+import { GITHUB_REPO, INDEX_RELEASE_TAG, baseReleaseTagFor, planReleaseAssignments } from "./release-groups.js";
+import { pool } from "../db.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.join(__dirname, "..", "..", "..", "..");
-
-// Same "one dedicated, rolling GitHub Release, assets replaced on each rebuild" shape already
-// used for MAP_DOWNLOAD_URL (see apps/api/src/config.ts) — packs aren't tied to a specific app
-// version/tag the way the desktop build's release assets are, so they get their own tag rather
-// than living on a numbered app release.
-const PACKS_RELEASE_TAG = "packs-latest";
-const GITHUB_REPO = "Sparklysparkspark/lifer-app";
 
 interface PackManifestCore {
   type: "region" | "seaZone";
@@ -48,10 +43,14 @@ interface PackManifestCore {
   checklistBytes?: number;
 }
 
+// `filter` limits extraction to manifest.json alone — a pack's photos/ directory can run to
+// hundreds of MB, and extracting the whole archive to disk just to read one small JSON file out
+// of it (the original shape of this function) was always wasteful; it also means readManifest
+// no longer needs its own temp-dir cleanup dance for files it never touches.
 function readManifest(archivePath: string): PackManifestCore {
   const extractDir = mkdtempSync(path.join(os.tmpdir(), "lifer-pack-index-"));
   try {
-    tar.extract({ file: archivePath, cwd: extractDir, sync: true });
+    tar.extract({ file: archivePath, cwd: extractDir, sync: true, filter: (p) => p === "manifest.json" });
     const manifestPath = path.join(extractDir, "manifest.json");
     return JSON.parse(readFileSync(manifestPath, "utf8")) as PackManifestCore;
   } finally {
@@ -72,7 +71,29 @@ async function main() {
     process.exit(1);
   }
 
-  const packs = files.map((file) => {
+  // Each pack's real target release (continent for a country, packs-seazones for a sea zone,
+  // rolling over to base-2/base-3/... once a release nears GitHub's 1000-asset cap) — computed
+  // ONCE across this whole local batch so files destined for the same release share the same
+  // capacity accounting instead of each independently guessing it has room. A first pass just for
+  // {type, region, seaZone} rather than holding every full manifest (species lists + embeddings)
+  // in memory at once for the whole batch — a batch of ~1000 packs' worth of gallery-photo
+  // embeddings blew the default heap doing exactly that (see this file's own git history).
+  const assignmentItems: Array<{ baseTag: string; fileName: string }> = [];
+  for (const file of files) {
+    const { type, region, seaZone } = readManifest(path.join(packsDir, file));
+    assignmentItems.push({ baseTag: await baseReleaseTagFor({ type, region, seaZone }), fileName: file });
+  }
+  const releaseTagByFile = planReleaseAssignments(assignmentItems);
+
+  // Second pass re-reads each manifest one at a time (sequentially, not files.map — same reason
+  // as above: never more than one full manifest live in memory at once) to build the real index
+  // entries.
+  const packs: Array<ReturnType<typeof buildPackEntry>> = [];
+  for (const file of files) {
+    packs.push(buildPackEntry(packsDir, file, releaseTagByFile.get(file)!));
+  }
+
+  function buildPackEntry(packsDir: string, file: string, releaseTag: string) {
     const archivePath = path.join(packsDir, file);
     const manifest = readManifest(archivePath);
     const sizeBytes = statSync(archivePath).size;
@@ -83,7 +104,8 @@ async function main() {
       ]),
     ];
     console.log(
-      `[build-pack-index] ${file}: ${manifest.speciesCount} species, ${scientificNames.length} distinct, ${(sizeBytes / 1024 / 1024).toFixed(1)} MB`,
+      `[build-pack-index] ${file}: ${manifest.speciesCount} species, ${scientificNames.length} distinct, ` +
+        `${(sizeBytes / 1024 / 1024).toFixed(1)} MB -> ${releaseTag}`,
     );
     return {
       id: packIdFromFileName(file),
@@ -96,7 +118,7 @@ async function main() {
       speciesCount: manifest.speciesCount,
       contentVersion: manifest.contentVersion,
       scientificNames,
-      url: `https://github.com/${GITHUB_REPO}/releases/download/${PACKS_RELEASE_TAG}/${file}`,
+      url: `https://github.com/${GITHUB_REPO}/releases/download/${releaseTag}/${file}`,
       // Pack IDs, not zone names — a sea zone can now have several packs (one per taxon), so a
       // dependency has to name the SPECIFIC one this pack needs (e.g. "seazone-red_sea-
       // actinopterygii"), not just "Red Sea", which would be ambiguous once more than one
@@ -105,12 +127,34 @@ async function main() {
       photoBytes: manifest.photoBytes,
       checklistBytes: manifest.checklistBytes,
     };
-  });
+  }
 
-  const index = { generatedAt: new Date().toISOString(), packs };
+  // pack-index.json is regenerated from ONLY the current local batch (packsDir is cleared after
+  // every publish flush — see build-and-publish-all-packs.ts) — without merging in whatever was
+  // already published, every flush would silently drop every earlier batch's packs from the
+  // index a client actually reads, even though their real files stay live on GitHub. Fetches the
+  // currently-published index and keeps any entry this batch didn't just rebuild; falls back to
+  // local-only (a warning, not a hard failure) if the fetch fails, e.g. first run / offline dev.
+  const localIds = new Set(packs.map((p) => p.id));
+  let carriedForward: typeof packs = [];
+  try {
+    const res = await fetch(`https://github.com/${GITHUB_REPO}/releases/download/${INDEX_RELEASE_TAG}/pack-index.json`);
+    if (res.ok) {
+      const existing = (await res.json()) as { packs: typeof packs };
+      carriedForward = existing.packs.filter((p) => !localIds.has(p.id));
+      console.log(`[build-pack-index] merging in ${carriedForward.length} previously-published pack(s) not in this batch`);
+    } else {
+      console.warn(`[build-pack-index] no existing published index found (${res.status}) — writing local-only index`);
+    }
+  } catch (err) {
+    console.warn(`[build-pack-index] couldn't fetch existing published index (${(err as Error).message}) — writing local-only index`);
+  }
+
+  const index = { generatedAt: new Date().toISOString(), packs: [...carriedForward, ...packs] };
   const indexPath = path.join(packsDir, "pack-index.json");
   writeFileSync(indexPath, JSON.stringify(index, null, 2));
-  console.log(`[build-pack-index] wrote ${indexPath} (${packs.length} packs)`);
+  console.log(`[build-pack-index] wrote ${indexPath} (${index.packs.length} packs, ${packs.length} from this batch)`);
+  await pool.end();
 }
 
 main().catch((err) => {

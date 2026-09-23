@@ -298,6 +298,17 @@ function packSpecies(
   galleryByScientificName?: Map<string, GalleryPhotoRaw[]>,
   embeddingByScientificName?: Map<string, EmbeddingRaw>,
   variant: PackVariant = "full",
+  // Species already carrying their embedding (species-level + every gallery photo's own) in
+  // the COUNTRY's own top-level manifestSpecies entry — a province's checklist is normally a
+  // subset of its country's, so re-embedding the same floats once per province multiplied the
+  // manifest size by however many provinces a species appeared in (13-18x for a country like
+  // France) and is exactly what pushed JSON.stringify(manifestCore) past V8's own string-length
+  // ceiling building France's aves pack ("RangeError: Invalid string length"). The client
+  // upserts embeddings keyed by species_id/photo_url regardless of which pack entry supplied
+  // them, so skipping the duplicate here loses nothing — a species NOT in this set (present in
+  // a province's checklist but somehow absent from the country's own top-level one) still gets
+  // its embedding from this call, same as before.
+  skipEmbeddingFor?: Set<string>,
 ): { manifestSpecies: ManifestSpecies[]; photoCount: number; galleryPhotoCount: number } {
   const manifestSpecies: ManifestSpecies[] = [];
   let photoCount = 0;
@@ -347,11 +358,13 @@ function packSpecies(
         focalY: g.focalY,
         displayFile: gDisplayFile,
         thumbFile: gThumbFile,
-        ...(g.embedding && g.embeddingModelVersion && { embedding: g.embedding, embeddingModelVersion: g.embeddingModelVersion }),
+        ...(g.embedding &&
+          g.embeddingModelVersion &&
+          !skipEmbeddingFor?.has(row.scientific_name) && { embedding: g.embedding, embeddingModelVersion: g.embeddingModelVersion }),
       });
     }
 
-    const embeddingEntry = embeddingByScientificName?.get(row.scientific_name);
+    const embeddingEntry = skipEmbeddingFor?.has(row.scientific_name) ? undefined : embeddingByScientificName?.get(row.scientific_name);
 
     manifestSpecies.push({
       scientificName: row.scientific_name,
@@ -485,6 +498,9 @@ async function fetchChildRegionsWithSpecies(
   parentId: string,
   taxonFilter: string,
   variant: PackVariant = "full",
+  // See packSpecies' own comment on skipEmbeddingFor — every province reuses this same set so
+  // its species entries don't re-embed floats the country's own top-level list already shipped.
+  topLevelScientificNames?: Set<string>,
 ): Promise<ManifestChildRegion[]> {
   const childrenRes = await pool.query<{
     id: string;
@@ -554,6 +570,7 @@ async function fetchChildRegionsWithSpecies(
       galleryByScientificName,
       embeddingByScientificName,
       variant,
+      topLevelScientificNames,
     );
     children.push({
       name: child.name,
@@ -620,7 +637,12 @@ async function buildRegionPack(regionName: string, outDir: string, taxon: TaxonC
 
   const { galleryByScientificName, embeddingByScientificName } = await fetchGalleryAndEmbeddings(speciesRes.rows.map((r) => r.id));
   const { manifestSpecies, photoCount } = packSpecies(stagingDir, speciesRes.rows, undefined, galleryByScientificName, embeddingByScientificName, variant);
-  const children = await fetchChildRegionsWithSpecies(region.id, taxonFilter, variant);
+  const children = await fetchChildRegionsWithSpecies(
+    region.id,
+    taxonFilter,
+    variant,
+    new Set(speciesRes.rows.map((r) => r.scientific_name)),
+  );
   const manifestCore = {
     type: "region",
     region: regionName,
