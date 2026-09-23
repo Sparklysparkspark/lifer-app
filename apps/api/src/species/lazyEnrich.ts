@@ -120,6 +120,15 @@ async function setCachedInatResponse(url: string, response: string): Promise<voi
   }
 }
 
+// Thrown only when every retry AND the final fallback attempt below all came back 429 — a
+// genuine "iNaturalist is still throttling us" failure, not "this species has no photo." Callers
+// (enrich-all-species.ts, the lazy per-view path) must NOT treat this the same as a normal
+// enrichment failure: setting enriched_at on it would permanently lock in "no photo" for a
+// species iNaturalist may have had all along, exactly the bug this class exists to prevent (see
+// this file's own recheck-null-photo-species.ts sibling script, built after this happened once
+// already for real, for Green Pheasant).
+export class PersistentRateLimitError extends Error {}
+
 export async function fetchWithRetry(url: string): Promise<Response> {
   const cacheable = CACHEABLE_HOSTS.has(new URL(url).host);
   if (cacheable) {
@@ -165,9 +174,19 @@ export async function fetchWithRetry(url: string): Promise<Response> {
     await new Promise((r) => setTimeout(r, delayMs));
   }
   try {
-    return await fetch(url);
+    const finalRes = await fetch(url, {
+      headers: { "User-Agent": "lifer-api/0.1 (personal project)" },
+      signal: AbortSignal.timeout(15_000),
+    });
+    // This used to be returned as-is even when still 429 — a real, confirmed bug: sustained
+    // throttling made this look exactly like a normal "no photo found" response to every caller,
+    // permanently marking genuinely common species (Bank Swallow, Common Cuckoo, Emperor Goose,
+    // and others) as photoless once enriched_at got set. Throwing here instead lets callers tell
+    // "still rate-limited, try again later" apart from "actually checked, nothing there."
+    if (finalRes.status === 429) throw new PersistentRateLimitError(`still rate-limited after retries: ${url}`);
+    return finalRes;
   } catch (err) {
-    throw lastError ?? err;
+    throw err instanceof PersistentRateLimitError ? err : (lastError ?? err);
   }
 }
 

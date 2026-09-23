@@ -1,5 +1,5 @@
 import { randomUUID, createHash } from "node:crypto";
-import { mkdirSync, rmSync, writeFileSync, readFileSync, existsSync, renameSync, copyFileSync } from "node:fs";
+import { mkdirSync, rmSync, rmdirSync, writeFileSync, readFileSync, readdirSync, existsSync, renameSync, copyFileSync } from "node:fs";
 import path from "node:path";
 import type { FastifyInstance } from "fastify";
 import { pool } from "../db.js";
@@ -110,13 +110,33 @@ export async function moveManagedOriginalToSpeciesFolder(
   mkdirSync(folder, { recursive: true });
   const dest = uniqueDestination(folder, path.basename(currentRef));
   if (dest === currentRef) return currentRef;
+  const sourceDir = path.dirname(currentRef);
   try {
     renameSync(currentRef, dest);
   } catch {
     copyFileSync(currentRef, dest);
     rmSync(currentRef, { force: true });
   }
+  removeIfEmptySpeciesFolder(sourceDir);
   return dest;
+}
+
+// A reassignment (or RAW auto-link) that moves the last file out of a species' own folder
+// (".../<Species>/RAW" or ".../<Species>/Adjusted") used to leave that now-empty folder sitting
+// on disk forever — nothing ever revisited the SOURCE side of a move. Removes the emptied
+// subfolder and, if that was the species folder's only content, the species folder itself.
+// Deliberately stops there: the parent taxon/"Wildlife <year>"/location folder is shared across
+// many species and almost never actually empty, so this never reaches for rmdirSync on it.
+function removeIfEmptySpeciesFolder(subfolderDir: string): void {
+  try {
+    if (!existsSync(subfolderDir) || readdirSync(subfolderDir).length > 0) return;
+    rmdirSync(subfolderDir);
+    const speciesDir = path.dirname(subfolderDir);
+    if (existsSync(speciesDir) && readdirSync(speciesDir).length === 0) rmdirSync(speciesDir);
+  } catch {
+    // Best-effort — a locked file or a concurrent write into the same folder shouldn't fail
+    // the reassignment itself over a cosmetic empty-folder cleanup.
+  }
 }
 
 export async function uploadRoutes(app: FastifyInstance): Promise<void> {

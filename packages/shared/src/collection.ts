@@ -38,6 +38,11 @@ export interface CollectionItem {
    *  seasonality is inherently region-scoped. Lets the collection grid sort/filter by "most
    *  likely to be found this week." */
   seasonality: number[] | null;
+  /** Every distinct calendar year the user has a real (non-trashed) capture of this species —
+   *  not just the year it was first ever collected (see user's own big-year framing: someone
+   *  can find X species in a single calendar year even if they'd found far more across every
+   *  other year combined). Null if never captured. */
+  capturedYears: number[] | null;
   /** True if this species is only ever recorded (real GBIF presence) in exactly one of the
    *  258 countries the elusiveness crawl covers. Which country isn't carried here (grid
    *  cards don't need it); the species detail page resolves the name. */

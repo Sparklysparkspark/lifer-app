@@ -75,6 +75,11 @@ export interface CollectionRow {
    *  comments in packages/shared/src/collection.ts. */
   is_other_taxa?: boolean;
   inat_iconic_taxon?: string | null;
+  /** Every distinct calendar year this user has a real (non-trashed) capture of this species —
+   *  see the captured_years subquery in collection/routes.ts and regions/routes.ts. Deliberately
+   *  not just the year of user_species.first_collected: a "big year" style filter needs to know
+   *  a species was seen again in a later year too, not only when it was first ever found. */
+  captured_years?: number[] | null;
 }
 
 // Below this many total GBIF records ever, or with no reference photo found by enrichment, a
@@ -156,6 +161,7 @@ export function toCollectionItem(row: CollectionRow, maxDepthM: number = TECHNIC
     coverVolumeLabel: hasOwnCover ? (row.cover_volume_label ?? null) : null,
     isOtherTaxa: row.is_other_taxa === true,
     inatIconicTaxon: row.inat_iconic_taxon ?? null,
+    capturedYears: row.captured_years ?? null,
   };
 }
 

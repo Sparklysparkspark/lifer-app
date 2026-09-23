@@ -15,7 +15,7 @@
 // processing one species at a time — 4 in flight balances real speedup against staying
 // polite to iNaturalist/Wikipedia's public APIs.
 import { pool } from "../db.js";
-import { enrichSpecies, persistEnrichment } from "../species/lazyEnrich.js";
+import { enrichSpecies, persistEnrichment, PersistentRateLimitError } from "../species/lazyEnrich.js";
 import { computeRegionOccurrences } from "../regions/routes.js";
 import { mapWithConcurrency } from "data-pipeline/src/concurrency.js";
 
@@ -134,10 +134,15 @@ async function main() {
     } catch (err) {
       failed++;
       console.error(`[enrich-all] FAILED ${row.scientific_name}:`, err);
-      // Still mark enriched_at so a species that errors out (e.g. malformed Wikipedia
-      // page) doesn't retry forever on the next overnight pass — same "already tried"
-      // semantics as the lazy path.
-      await pool.query(`UPDATE species SET enriched_at = now() WHERE id = $1`, [row.id]);
+      // A persistent 429 means iNaturalist never actually answered — marking enriched_at here
+      // would permanently record "no photo" for a species that was simply never checked (the
+      // real bug behind Bank Swallow, Common Cuckoo, Emperor Goose, and others silently ending
+      // up "enriched, no photo"; see PersistentRateLimitError's own comment). Leave it null so
+      // the next pass (or the lazy on-view path) picks it back up. Every OTHER failure (e.g. a
+      // malformed Wikipedia page) still marks enriched_at so it doesn't retry forever.
+      if (!(err instanceof PersistentRateLimitError)) {
+        await pool.query(`UPDATE species SET enriched_at = now() WHERE id = $1`, [row.id]);
+      }
     }
     done++;
     if (done % 100 === 0) {

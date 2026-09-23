@@ -199,6 +199,13 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
       technicalDiving: res.rows[0]?.technical_diving ?? false,
       speciesNamingStyles: res.rows[0]?.species_naming_styles ?? [],
       abaCodesAvailable: await abaCodesAvailable(),
+      // Unlike /settings/storage (requireDesktopMode-gated — the move/browse/multi-volume UI
+      // genuinely has no Docker equivalent, no native folder dialog in a browser), just SEEING
+      // where the library is mounted is meaningful on every deployment shape, and this route
+      // already reaches every client regardless of SINGLE_USER_MODE. A Docker user otherwise had
+      // no in-app way to answer "which volume is my library actually pointed at" short of
+      // `docker inspect`/their own compose file.
+      dataDir: APP_DATA_DIR,
     };
   });
 
