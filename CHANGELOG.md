@@ -15,6 +15,42 @@ Categories: `Added`, `Changed`, `Fixed`, `Removed` — omit any with nothing to 
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-09-22
+
+### Added
+
+- Collection page: a "found in year X" filter, using every calendar year you've actually
+  captured a species in (not just the year you first found it) — useful for a "big year" style
+  check.
+- Offline Packs: a Cancel button while a download is in progress, instead of only being able to
+  wait it out.
+
+### Changed
+
+- Empty states across Gallery, Trash, Albums, API Keys, the iNaturalist tabs, and species detail
+  now match the rest of the app's styled icon + message pattern instead of a single plain
+  sentence.
+- Settings now shows your library's data directory (useful on Docker/self-hosted to confirm which
+  volume is actually mounted) and, if an in-app update install fails, points you at a manual
+  download plus the exact steps macOS/Windows need to approve it.
+- Desktop's in-app auto-update now covers Windows and Linux (AppImage) as well as macOS, instead
+  of only prompting Mac users to update in-app.
+
+### Fixed
+
+- Applying a large offline pack (e.g. a big country) no longer sits for a long time with the
+  progress bar barely moving — writes are batched instead of one at a time.
+- A downloaded offline pack no longer disappears from the Offline Packs page if it briefly drops
+  out of the published catalog.
+- Collection's "Most likely this month" sort/filter now actually reflects the current month —
+  it silently stopped returning any signal from April onward.
+- Species enrichment no longer permanently records "no photo found" for a species when
+  iNaturalist was just temporarily rate-limiting requests.
+- The catalog update (Settings > Species catalog updates) no longer fails once the bundled
+  reference-photo/text embeddings push it past a size limit.
+- Reassigning or moving a photo's species no longer leaves an empty, orphaned folder behind on
+  disk.
+
 ## [0.5.0] - 2026-09-18
 
 ### Added
