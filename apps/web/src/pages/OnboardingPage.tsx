@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type { RegionSummary, TaxonClass } from "@lifer/shared";
-import { taxonDisplayLabel } from "@lifer/shared";
+import { taxonDisplayLabel, TAXON_GROUPS, GROUPED_TAXON_CLASSES } from "@lifer/shared";
 import { api, ApiError } from "../api/client";
 import { Logo } from "../components/Logo";
 import RegionPicker from "../components/RegionPicker";
@@ -95,11 +95,12 @@ export default function OnboardingPage() {
   const [status, setStatus] = useState<DownloadStatus | null>(null);
 
   // Which taxon groups (birds, mammals, reptiles, etc.) to include for the region(s) picked
-  // above — same idea as Offline Packs' own picker, kept to a flat pill list here (no nested
-  // disclosure groups) since this is a one-time setup step, not the full management screen.
+  // above — same picker as Offline Packs' own (identical markup, copied deliberately so the two
+  // don't visually diverge), including its grouped/disclosure sections for things like molluscs.
   // Empty selection means "all taxa," same convention download-batch's own `taxa: "all"` uses.
   const [packs, setPacks] = useState<PackEntry[] | null>(null);
   const [selectedTaxa, setSelectedTaxa] = useState<Set<TaxonClass>>(new Set());
+  const [openTaxonGroups, setOpenTaxonGroups] = useState<Set<string>>(new Set());
   const [namingStyles, setNamingStyles] = useState<string[]>([]);
 
   useEffect(() => {
@@ -161,8 +162,8 @@ export default function OnboardingPage() {
   const availableTaxaForSelection = useMemo(() => {
     const set = new Set<TaxonClass>();
     for (const id of selectedCountryIds) for (const t of availableTaxaByRegion[id] ?? []) set.add(t);
-    return [...set].sort((a, b) => taxonDisplayLabel(a, namingStyles).localeCompare(taxonDisplayLabel(b, namingStyles)));
-  }, [selectedCountryIds, availableTaxaByRegion, namingStyles]);
+    return [...set];
+  }, [selectedCountryIds, availableTaxaByRegion]);
   function toggleTaxon(taxon: TaxonClass) {
     setSelectedTaxa((prev) => {
       const next = new Set(prev);
@@ -262,12 +263,17 @@ export default function OnboardingPage() {
                 </button>
               </>
             ) : status?.running ? (
-              <div className="rounded-xl border border-line bg-surface-muted p-4">
+              // Same bg-surface/bg-surface-muted pairing as Offline Packs' own running-download
+              // block (OfflinePacksPage.tsx) — this previously used bg-surface-muted for the
+              // outer card AND bg-canvas for the progress track, which not only didn't match but
+              // meant the track and its surrounding card were nearly the same color, making the
+              // bar hard to see against it.
+              <div className="rounded-xl border border-line bg-surface p-4">
                 <p className="text-sm text-ink">
                   Downloading… {status.processed}/{status.total}
                   {status.currentPack ? ` (${status.currentPack})` : ""}
                 </p>
-                <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-canvas">
+                <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-surface-muted">
                   <div
                     className="h-full bg-accent transition-all"
                     style={{ width: `${status.total ? Math.round((status.processed / status.total) * 100) : 0}%` }}
@@ -319,9 +325,11 @@ export default function OnboardingPage() {
                     </div>
                   ))}
                 {selectedCountryIds.size > 0 && (
-                  <div className="rounded-lg border border-line bg-surface-muted p-3">
+                  <div className="rounded-xl border border-line bg-surface p-4">
                     <div className="flex items-center justify-between">
-                      <p className="text-xs font-semibold text-ink">Taxon groups</p>
+                      <p className="text-sm font-semibold text-ink">
+                        {selectedCountryIds.size} region(s) selected. Choose taxon groups
+                      </p>
                       {availableTaxaForSelection.length > 0 && (
                         <button
                           type="button"
@@ -336,21 +344,82 @@ export default function OnboardingPage() {
                         </button>
                       )}
                     </div>
-                    <p className="mt-0.5 text-xs text-muted">
-                      Leave none checked for everything (birds, mammals, reptiles, and every other group) — you can add or
-                      drop specific groups anytime later from Offline Packs.
-                    </p>
-                    {availableTaxaForSelection.length === 0 ? (
-                      <p className="mt-2 text-xs text-muted">No taxon data available yet for the selected region(s).</p>
-                    ) : (
-                      <div className="mt-2 flex flex-wrap gap-2">
-                        {availableTaxaForSelection.map((taxon) => (
-                          <Pill key={taxon} size="sm" active={selectedTaxa.has(taxon)} onClick={() => toggleTaxon(taxon)}>
-                            {taxonDisplayLabel(taxon, namingStyles)}
-                          </Pill>
-                        ))}
-                      </div>
-                    )}
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {availableTaxaForSelection.length === 0 && (
+                        <p className="text-xs text-muted">No taxon data available yet for the selected region(s).</p>
+                      )}
+                      {availableTaxaForSelection
+                        .filter((taxon) => !GROUPED_TAXON_CLASSES.has(taxon))
+                        .map((taxon) => {
+                          const isSelected = selectedTaxa.has(taxon);
+                          return (
+                            <Pill key={taxon} active={isSelected} onClick={() => toggleTaxon(taxon)}>
+                              {taxonDisplayLabel(taxon, namingStyles)}
+                            </Pill>
+                          );
+                        })}
+                    </div>
+                    {/* Each group is purely a disclosure wrapper — every taxon inside stays
+                        individually toggleable, opening the section never selects anything by
+                        itself, same reasoning as Offline Packs' own identical picker. */}
+                    {TAXON_GROUPS.map((group) => {
+                      const availableInGroup = group.taxa.filter((t) => availableTaxaForSelection.includes(t));
+                      if (availableInGroup.length === 0) return null;
+                      const selectedCount = availableInGroup.filter((t) => selectedTaxa.has(t)).length;
+                      const isOpen = openTaxonGroups.has(group.key);
+                      const allInGroupSelected = availableInGroup.every((t) => selectedTaxa.has(t));
+                      return (
+                        <div key={group.key} className="mt-2 border-t border-line pt-2">
+                          <div className="flex w-full items-center justify-between gap-2">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setOpenTaxonGroups((prev) => {
+                                  const next = new Set(prev);
+                                  if (next.has(group.key)) next.delete(group.key);
+                                  else next.add(group.key);
+                                  return next;
+                                })
+                              }
+                              className="flex flex-1 items-center justify-between text-xs font-medium text-ink"
+                            >
+                              <span>
+                                {group.label} ({selectedCount}/{availableInGroup.length} selected)
+                              </span>
+                              <span className="text-muted">{isOpen ? "▾" : "▸"}</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setSelectedTaxa((prev) => {
+                                  const next = new Set(prev);
+                                  for (const t of availableInGroup) {
+                                    if (allInGroupSelected) next.delete(t);
+                                    else next.add(t);
+                                  }
+                                  return next;
+                                })
+                              }
+                              className="shrink-0 text-xs text-accent hover:underline"
+                            >
+                              {allInGroupSelected ? "Deselect all" : "Select all"}
+                            </button>
+                          </div>
+                          {isOpen && (
+                            <div className="mt-2 flex flex-wrap gap-2">
+                              {availableInGroup.map((taxon) => {
+                                const isSelected = selectedTaxa.has(taxon);
+                                return (
+                                  <Pill key={taxon} active={isSelected} onClick={() => toggleTaxon(taxon)}>
+                                    {taxonDisplayLabel(taxon, namingStyles)}
+                                  </Pill>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
                 {startError && <p className="text-sm text-red-600">{startError}</p>}
@@ -383,7 +452,18 @@ export default function OnboardingPage() {
             </div>
             <button
               type="button"
-              onClick={() => navigate("/guide", { replace: true })}
+              // Deliberately NOT replace:true (unlike every other navigate() in this file) —
+              // GuidePage's own back button is real browser back-navigation (BackToCollectionLink,
+              // which calls navigate(-1) whenever there's an actual history entry to return to).
+              // With replace:true here (and LoginPage's own replace:true landing on /onboarding
+              // in the first place), that back button had NO real entry to return to — it fell
+              // all the way past both replaced entries to whatever was in history before Login
+              // ever loaded, silently dumping the user on Collection despite its label still
+              // reading the unrelated hardcoded "Settings". Pushing a real entry here means back
+              // actually returns to this onboarding flow (its local step state resets to the
+              // first step on remount, same as reloading any other route-based page — there's no
+              // step url/query-param to restore the exact "guide" step from).
+              onClick={() => navigate("/guide", { state: { backLabel: "Setup" } })}
               className="w-full rounded-md bg-accent py-2 text-sm font-medium text-accent-fg"
             >
               Open Getting Started Guide
