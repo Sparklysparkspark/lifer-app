@@ -15,6 +15,24 @@ Categories: `Added`, `Changed`, `Fixed`, `Removed` — omit any with nothing to 
 
 ## [Unreleased]
 
+## [0.5.4] - 2026-09-23
+
+### Changed
+
+- The species-matching model (used for import suggestions and Gallery content search) now
+  unloads from memory after 15 minutes of inactivity instead of staying resident for the entire
+  life of the server process — meaningful on a self-hosted install that isn't always actively
+  matching photos. Reloads automatically, with no user action needed, the next time it's used.
+
+### Fixed
+
+- The Species catalog updates section in Settings now shows the same loading spinner used
+  everywhere else in the app while checking for or applying an update, instead of plain text.
+- Fixed a crash ("duplicate key value violates unique constraint
+  species_reference_photos_species_id_photo_url_key") applying a species catalog update on any
+  install with reference photos that arrived via a downloaded offline pack rather than the
+  original catalog seed — which, after normal use, is most of them.
+
 ## [0.5.3] - 2026-09-23
 
 ### Changed
