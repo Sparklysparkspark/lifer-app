@@ -39,6 +39,33 @@ interface TextModel {
 
 let modelPromise: Promise<TextModel> | null = null;
 
+// Same idle-unload reasoning as embeddings.ts's own vision session (see that file's comment) —
+// this text encoder is the OTHER half of the same "keep it warm while in use, drop it after
+// real inactivity" tradeoff, kept independent of the vision session's own timer since Gallery
+// search and species-suggest are used on different schedules (a library search-heavy session
+// might never touch the vision side, or vice versa).
+const IDLE_UNLOAD_MS = 15 * 60 * 1000;
+let activeInferences = 0;
+let idleUnloadTimer: ReturnType<typeof setTimeout> | null = null;
+
+function cancelIdleUnload(): void {
+  if (idleUnloadTimer) {
+    clearTimeout(idleUnloadTimer);
+    idleUnloadTimer = null;
+  }
+}
+
+function armIdleUnload(): void {
+  cancelIdleUnload();
+  idleUnloadTimer = setTimeout(() => {
+    idleUnloadTimer = null;
+    const promise = modelPromise;
+    modelPromise = null;
+    promise?.then(({ textModel }) => textModel.dispose()).catch(() => {});
+  }, IDLE_UNLOAD_MS);
+  idleUnloadTimer.unref?.();
+}
+
 /** Whether the text encoder half has already been cached locally — cheap, sync, safe to call
  * from a status endpoint on every poll. A non-empty directory is the only signal
  * @xenova/transformers exposes short of re-parsing its own cache-key scheme. */
@@ -60,6 +87,7 @@ export async function downloadTextModel(): Promise<void> {
 // Settings flow) is allowed to trigger @xenova/transformers' own auto-fetch; embedQueryText
 // below refuses to call this at all unless the cache is already populated.
 async function getModel(forceDownload = false): Promise<TextModel> {
+  cancelIdleUnload(); // never unload while a caller is about to (or currently) using it
   if (!forceDownload && !isTextModelDownloaded()) {
     throw new Error("The species-matching model hasn't been downloaded (Settings > Offline Data)");
   }
@@ -95,12 +123,20 @@ const INFERENCE_TIMEOUT_MS = 20_000;
  * ranking. Guarded by the same hard-timeout shape as computeEmbedding, for the same reason: a
  * hung native/WASM inference call must never hang an HTTP request forever. */
 export async function embedQueryText(query: string): Promise<number[]> {
+  // See embeddings.ts's own computeEmbedding for why this is tied to `work` finishing, not to
+  // the race below settling — a timed-out-but-still-running inference must keep the model alive
+  // until it actually completes, not just until this call gives up waiting on it.
+  activeInferences++;
   const work = (async () => {
     const { tokenizer, textModel } = await getModel();
     const inputs = tokenizer(query, { padding: true, truncation: true });
     const output = await textModel(inputs);
     return l2Normalize(output.text_embeds.data);
   })();
+  work.finally(() => {
+    activeInferences--;
+    if (activeInferences === 0) armIdleUnload();
+  });
   work.catch(() => {});
 
   let timer: ReturnType<typeof setTimeout>;

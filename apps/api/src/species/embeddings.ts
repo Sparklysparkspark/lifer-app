@@ -29,6 +29,7 @@ export function isModelDownloaded(): boolean {
  * encoder) to reclaim disk space. Safe to call even if nothing was ever downloaded. */
 export function offloadModel(): void {
   rmSync(MODEL_DIR, { recursive: true, force: true });
+  cancelIdleUnload(); // nothing left to unload once this runs
   sessionPromise = null; // an in-memory session pointing at a now-deleted file must not be reused
 }
 
@@ -40,6 +41,39 @@ const CLIP_MEAN = [0.48145466, 0.4578275, 0.40821073];
 const CLIP_STD = [0.26862954, 0.26130258, 0.27577711];
 
 let sessionPromise: Promise<ort.InferenceSession> | null = null;
+
+// Loading this session costs a real, user-visible amount of time (reading ~307MB off disk and
+// initializing the ONNX runtime), which is why it's kept warm across requests rather than
+// reloaded every call — but "warm forever, even after hours of total inactivity" wastes real
+// memory on a self-hosted server that isn't always actively matching photos (a Docker/NAS
+// deployment can sit idle for days between imports). Unloading after a period of no use gets
+// both: fast while actually in use, small the rest of the time. `activeInferences` guards
+// against unloading out from under a call that's still mid-`session.run()` — the timer only
+// ever arms once nothing is actively using the session, not on a fixed schedule.
+const IDLE_UNLOAD_MS = 15 * 60 * 1000;
+let activeInferences = 0;
+let idleUnloadTimer: ReturnType<typeof setTimeout> | null = null;
+
+function cancelIdleUnload(): void {
+  if (idleUnloadTimer) {
+    clearTimeout(idleUnloadTimer);
+    idleUnloadTimer = null;
+  }
+}
+
+function armIdleUnload(): void {
+  cancelIdleUnload();
+  idleUnloadTimer = setTimeout(() => {
+    idleUnloadTimer = null;
+    const promise = sessionPromise;
+    sessionPromise = null;
+    // Best-effort: if the session never actually finished loading (a prior download/init
+    // failure), there's nothing native to release — getSession()'s own .catch already cleared
+    // sessionPromise in that case, so this is mostly a no-op guard, not the common path.
+    promise?.then((session) => session.release()).catch(() => {});
+  }, IDLE_UNLOAD_MS);
+  idleUnloadTimer.unref?.();
+}
 
 /** Downloads the vision model into MODEL_PATH, streaming to disk (not buffered in memory — this
  * file is ~307MB) with an atomic rename on completion so a killed-mid-download file never looks
@@ -83,6 +117,7 @@ async function resolveModelPath(): Promise<string> {
 // there. Cached as a shared promise so concurrent callers await the same in-flight load rather
 // than racing to download/init twice.
 async function getSession(): Promise<ort.InferenceSession> {
+  cancelIdleUnload(); // never unload while a caller is about to (or currently) using it
   if (!sessionPromise) {
     sessionPromise = (async () => {
       const modelPath = await resolveModelPath();
@@ -132,6 +167,11 @@ const INFERENCE_TIMEOUT_MS = 20_000;
  * hard timeout: a native ONNX/sharp binding hanging on one pathological image must never hang
  * the caller (an HTTP request, or a backfill loop) forever. */
 export async function computeEmbedding(buffer: Buffer): Promise<number[]> {
+  // Counts this call as "active" for the session's whole real lifetime — including the rare
+  // case where `work` loses the race below and keeps running in the background after a
+  // timeout. Tied to `work` itself finishing, not to the race settling, so an idle-unload can
+  // never fire while a `session.run()` call is genuinely still in flight underneath it.
+  activeInferences++;
   const work = (async () => {
     const session = await getSession();
     const inputName = session.inputNames[0];
@@ -140,6 +180,10 @@ export async function computeEmbedding(buffer: Buffer): Promise<number[]> {
     const results = await session.run({ [inputName]: tensor });
     return l2Normalize(results[outputName].data as Float32Array);
   })();
+  work.finally(() => {
+    activeInferences--;
+    if (activeInferences === 0) armIdleUnload();
+  });
   // Silences an unhandled rejection if `work` loses the race below and fails afterward (the
   // pathological-hang case this timeout exists for) — Promise.race still separately sees
   // `work`'s real outcome via its own subscription, this is just an extra listener.
