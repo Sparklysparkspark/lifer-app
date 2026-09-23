@@ -23,11 +23,10 @@
 // Usage: DATABASE_URL=postgres://... npx tsx packages/data-pipeline/src/scripts/build-catalog-seed.ts <outputPath.sql.gz>
 // After running, publish both files to the catalog-latest release:
 //   gh release upload catalog-latest <outputPath> <dir>/catalog-manifest.json --clobber
-import { execFileSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { createGzip } from "node:zlib";
 import { createWriteStream, writeFileSync } from "node:fs";
 import path from "node:path";
-import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { pool } from "../db.js";
 
@@ -101,9 +100,27 @@ async function main() {
     // (see embedded_db.rs) — point PG_DUMP_BIN at its bundled binary in that case, e.g.
     // ~/.theseus/postgresql/<version>/bin/pg_dump, matching the target restore's own version.
     const pgDumpBin = process.env.PG_DUMP_BIN ?? "pg_dump";
-    const dumpBuffer = execFileSync(pgDumpBin, args, { maxBuffer: 1024 * 1024 * 1024 });
-
-    await pipeline(Readable.from(dumpBuffer), createGzip(), createWriteStream(outputPath));
+    // Streamed straight into gzip+file rather than buffered via execFileSync — the dump grew
+    // past execFileSync's 1GB maxBuffer once species_reference_gallery_embeddings (per-gallery-
+    // photo embeddings) joined this seed, killing pg_dump with SIGPIPE the moment its stdout
+    // pipe filled and nothing was reading it. Streaming has no such ceiling and never holds the
+    // whole dump in memory at once.
+    const pgDump = spawn(pgDumpBin, args, { stdio: ["ignore", "pipe", "pipe"] });
+    let stderr = "";
+    pgDump.stderr.on("data", (chunk) => (stderr += chunk.toString()));
+    // Registered BEFORE awaiting the pipeline below, not after — pg_dump's "close" can fire as
+    // soon as its stdout end triggers the pipeline's own completion, so attaching this listener
+    // only once the pipeline await already resolved risked missing an event that already fired.
+    // A missed "close" left this Promise unresolved forever; with nothing else keeping the
+    // event loop alive, node exited quietly mid-await — the dump file was already complete and
+    // valid, but the script never reached its own success log or wrote catalog-manifest.json.
+    const pgDumpExit: Promise<number> = new Promise((resolve, reject) => {
+      pgDump.on("error", reject);
+      pgDump.on("close", (code) => resolve(code ?? 0));
+    });
+    await pipeline(pgDump.stdout, createGzip(), createWriteStream(outputPath));
+    const exitCode = await pgDumpExit;
+    if (exitCode !== 0) throw new Error(`pg_dump exited with code ${exitCode}: ${stderr}`);
     console.log(`[build-catalog-seed] wrote ${outputPath}`);
 
     const version = Date.now();
