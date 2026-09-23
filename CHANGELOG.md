@@ -15,6 +15,21 @@ Categories: `Added`, `Changed`, `Fixed`, `Removed` — omit any with nothing to 
 
 ## [Unreleased]
 
+## [0.5.2] - 2026-09-23
+
+### Added
+
+- The first-run setup screen's region-download step now lets you narrow to specific taxon groups
+  (birds, mammals, reptiles, etc.) instead of always fetching every group for your chosen
+  country/countries.
+
+### Fixed
+
+- Collection's "couldn't load this view" error now shows as a proper styled message with a Retry
+  button instead of a single plain, oddly-formatted sentence.
+- The first-run setup screen's offline-map download step now shows the same spinner used
+  everywhere else in the app instead of plain "Downloading…" text.
+
 ## [0.5.1] - 2026-09-22
 
 ### Added
