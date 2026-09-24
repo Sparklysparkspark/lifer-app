@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createJob, JobCancelledError } from "./job.js";
+import { createJob, describeError, JobCancelledError } from "./job.js";
 
 function deferred<T = void>() {
   let resolve!: (v: T) => void;
@@ -77,5 +77,32 @@ describe("createJob", () => {
     job.start(async () => {});
     expect(job.status.notFound).toEqual([]);
     await job.settled();
+  });
+
+  it("surfaces a Postgres error's detail in the job status, not just the bare message", async () => {
+    const job = createJob<void>("test");
+    const pgErr = Object.assign(new Error('duplicate key value violates unique constraint "regions_name_parent_id_key"'), {
+      detail: "Key (name, parent_id)=(Central, ...) already exists.",
+      code: "23505",
+    });
+    job.start(async () => {
+      throw pgErr;
+    });
+    await job.settled();
+    expect(job.status.error).toBe(
+      'duplicate key value violates unique constraint "regions_name_parent_id_key" (Key (name, parent_id)=(Central, ...) already exists.)',
+    );
+  });
+});
+
+describe("describeError", () => {
+  it("appends a Postgres error's detail when present", () => {
+    const err = Object.assign(new Error("boom"), { detail: "extra context" });
+    expect(describeError(err)).toBe("boom (extra context)");
+  });
+
+  it("falls back to the plain message when there's no detail", () => {
+    expect(describeError(new Error("boom"))).toBe("boom");
+    expect(describeError("just a string")).toBe("just a string");
   });
 });

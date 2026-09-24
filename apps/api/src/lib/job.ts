@@ -17,6 +17,17 @@ export class JobCancelledError extends Error {
   }
 }
 
+// node-postgres attaches `detail`/`constraint`/`table` to a DB error (e.g. a unique-constraint
+// violation) as plain own properties, not part of `.message` or `.stack`. Without this, a job's
+// error only ever showed the bare "duplicate key value violates unique constraint ..." in
+// Settings, with the actually-useful "which row, which values" part buried in server logs after
+// the stack trace, easy to miss when scrolling past it.
+export function describeError(err: unknown): string {
+  const message = err instanceof Error ? err.message : String(err);
+  const detail = (err as { detail?: unknown })?.detail;
+  return typeof detail === "string" && detail.length > 0 ? `${message} (${detail})` : message;
+}
+
 export interface JobContext<TResult, TExtra extends object = object> {
   signal: AbortSignal;
   // Merge progress fields (including job-specific extras) into the public status.
@@ -76,7 +87,7 @@ export function createJob<TResult = unknown, TExtra extends object = object>(
         if (ctl.signal.aborted || err instanceof JobCancelledError) {
           status.cancelled = true;
         } else {
-          status.error = err instanceof Error ? err.message : String(err);
+          status.error = describeError(err);
           console.error(`[job:${name}]`, err);
         }
       } finally {

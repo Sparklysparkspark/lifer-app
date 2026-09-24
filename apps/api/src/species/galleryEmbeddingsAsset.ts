@@ -19,7 +19,7 @@ import type { Pool } from "pg";
 import { decodeGalleryEmbeddings, type GalleryEmbeddingsHeader } from "@lifer/shared/src/galleryEmbeddingsFormat.js";
 import { APP_DATA_DIR, EMBEDDING_MODEL_VERSION } from "../config.js";
 import { getInstallSetting, setInstallSetting } from "../lib/installSettings.js";
-import { createJob, type JobContext } from "../lib/job.js";
+import { createJob, describeError, type JobContext } from "../lib/job.js";
 import { copyInto, copyTextField } from "../lib/pgCopy.js";
 import { downloadResumable } from "../lib/resumableDownload.js";
 import { fetchCatalogManifest, resolveCatalogAssetUrl, type CatalogManifest } from "./catalogManifest.js";
@@ -62,7 +62,7 @@ export function runGalleryEmbeddingsUpdate(
 }
 
 function toFailed(err: unknown): VectorAssetResult {
-  return { status: "failed", error: err instanceof Error ? err.message : String(err) };
+  return { status: "failed", error: describeError(err) };
 }
 
 async function doUpdate(

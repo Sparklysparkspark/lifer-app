@@ -24,7 +24,7 @@ import { pipeline } from "node:stream/promises";
 import { createGunzip } from "node:zlib";
 import type { Pool, PoolClient } from "pg";
 import { APP_DATA_DIR, BUNDLED_CATALOG_SEED_DIR } from "../config.js";
-import { createJob, JobCancelledError, type JobContext } from "../lib/job.js";
+import { createJob, describeError, JobCancelledError, type JobContext } from "../lib/job.js";
 import { getInstallSetting, setInstallSetting } from "../lib/installSettings.js";
 import { copyInto, readLines } from "../lib/pgCopy.js";
 import { downloadResumable } from "../lib/resumableDownload.js";
@@ -392,7 +392,7 @@ async function runCatalogUpdate(pool: Pool, ctx: JobContext<CatalogMergeResult>)
     } catch (err) {
       if (err instanceof JobCancelledError || ctx.signal.aborted) throw err;
       console.warn("[catalog-update] reference vectors refresh failed", err);
-      const failed = { status: "failed" as const, error: (err as Error).message };
+      const failed = { status: "failed" as const, error: describeError(err) };
       referenceVectors = { gallery: failed, speciesImage: failed, speciesText: failed };
     }
   }
