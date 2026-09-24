@@ -17,6 +17,7 @@ import { cosineSimilarity } from "./embeddings.js";
 import { computeSharpness } from "../lib/sharpness.js";
 import { bboxDiagonalDegrees, ringBoundingBox, type BoundingBox } from "data-pipeline/src/geometry.js";
 import { SENSITIVE_CLUSTER_DIAGONAL_KM } from "data-pipeline/src/sensitive-species.js";
+import { createJob } from "../lib/job.js";
 
 // iNaturalist's own vernacular names are inconsistently cased (e.g. "silver birch" all-lower,
 // vs curated Clements/IOC bird names which already arrive title-cased) — every OTHER species'
@@ -869,7 +870,9 @@ export async function speciesRoutes(app: FastifyInstance): Promise<void> {
     if (q.length < 2) return { results: [] };
     const res = await fetch(`${INAT_TAXA_API}?q=${encodeURIComponent(q)}&rank=species&is_active=true&per_page=15`, {
       headers: { "User-Agent": OTHER_TAXA_USER_AGENT },
-    });
+      signal: AbortSignal.timeout(15_000),
+    }).catch(() => null);
+    if (!res) return reply.code(502).send({ error: "iNaturalist search failed" });
     if (!res.ok) return reply.code(502).send({ error: "iNaturalist search failed" });
     const data = (await res.json()) as {
       results: Array<{
@@ -902,7 +905,10 @@ export async function speciesRoutes(app: FastifyInstance): Promise<void> {
     );
     if (existing.rows[0]) return { speciesId: existing.rows[0].id, scientificName: existing.rows[0].scientific_name };
 
-    const taxonRes = await fetch(`${INAT_TAXA_API}/${inatTaxonId}`, { headers: { "User-Agent": OTHER_TAXA_USER_AGENT } });
+    const taxonRes = await fetch(`${INAT_TAXA_API}/${inatTaxonId}`, {
+      headers: { "User-Agent": OTHER_TAXA_USER_AGENT },
+      signal: AbortSignal.timeout(15_000),
+    });
     if (!taxonRes.ok) throw new Error("Couldn't look up that species on iNaturalist");
     const taxonData = (await taxonRes.json()) as {
       results: Array<{
@@ -954,7 +960,9 @@ export async function speciesRoutes(app: FastifyInstance): Promise<void> {
     let family: string | null = null;
     let order: string | null = null;
     try {
-      const gbifRes = await fetch(`https://api.gbif.org/v1/species/match?name=${encodeURIComponent(taxon.name)}&strict=false`);
+      const gbifRes = await fetch(`https://api.gbif.org/v1/species/match?name=${encodeURIComponent(taxon.name)}&strict=false`, {
+        signal: AbortSignal.timeout(15_000),
+      });
       const gbifData = (await gbifRes.json()) as { usageKey?: number; family?: string; order?: string };
       if (gbifData.usageKey) gbifKey = gbifData.usageKey;
       family = gbifData.family ?? null;
@@ -1085,35 +1093,28 @@ export async function speciesRoutes(app: FastifyInstance): Promise<void> {
   // instead of one-by-one through the search modal. Runs as a background job (same shape as
   // offline-packs' own download job below) rather than blocking the request open for however
   // long a few hundred iNaturalist lookups take.
-  interface OtherTaxaBulkJobState {
-    running: boolean;
-    processed: number;
-    total: number;
+  // Live counters are top-level; `result` repeats them once the run finishes.
+  interface OtherTaxaBulkExtra {
     added: number;
     alreadyPresent: number;
     notFound: string[];
-    error: string | null;
-    finishedAt: number | null;
   }
-  const otherTaxaBulkJob: OtherTaxaBulkJobState = {
-    running: false,
-    processed: 0,
-    total: 0,
+  const otherTaxaBulkJob = createJob<OtherTaxaBulkExtra, OtherTaxaBulkExtra>("other-taxa-bulk", {
     added: 0,
     alreadyPresent: 0,
     notFound: [],
-    error: null,
-    finishedAt: null,
-  };
+  });
 
-  app.get("/species/other-taxa/bulk/status", { preHandler: requireAuth }, async () => otherTaxaBulkJob);
+  app.get("/species/other-taxa/bulk/status", { preHandler: requireAuth }, async () => otherTaxaBulkJob.status);
+
+  app.post("/species/other-taxa/bulk/cancel", { preHandler: requireAuth }, async () => ({ cancelled: otherTaxaBulkJob.cancel() }));
 
   app.post<{ Body: { regionId?: string; entries?: string[] } }>(
     "/species/other-taxa/bulk",
     { preHandler: requireAuth },
     async (request, reply) => {
       if (!(await requireAnyTaxaSearchEnabled(request, reply))) return;
-      if (otherTaxaBulkJob.running) return reply.code(409).send({ error: "A bulk import is already running" });
+      if (otherTaxaBulkJob.status.running) return reply.code(409).send({ error: "A bulk import is already running" });
       const { regionId, entries } = request.body ?? {};
       if (!regionId || !Array.isArray(entries) || entries.length === 0) {
         return reply.code(400).send({ error: "regionId and a non-empty entries list are required" });
@@ -1126,63 +1127,58 @@ export async function speciesRoutes(app: FastifyInstance): Promise<void> {
       const lines = [...new Set(entries.map((e) => e.trim()).filter((e) => e.length > 0))];
       if (lines.length === 0) return reply.code(400).send({ error: "No usable entries found" });
 
-      otherTaxaBulkJob.running = true;
-      otherTaxaBulkJob.processed = 0;
-      otherTaxaBulkJob.total = lines.length;
-      otherTaxaBulkJob.added = 0;
-      otherTaxaBulkJob.alreadyPresent = 0;
-      otherTaxaBulkJob.notFound = [];
-      otherTaxaBulkJob.error = null;
-      otherTaxaBulkJob.finishedAt = null;
-
-      // Deliberately not awaited — the route returns immediately, the frontend polls
-      // /species/other-taxa/bulk/status the same way it already polls offline-pack downloads.
-      (async () => {
-        for (const line of lines) {
-          try {
-            let taxonId: number | null = null;
-            if (/^\d+$/.test(line)) {
-              taxonId = Number(line);
-            } else {
-              const searchRes = await fetch(`${INAT_TAXA_API}?q=${encodeURIComponent(line)}&rank=species&is_active=true&per_page=1`, {
-                headers: { "User-Agent": OTHER_TAXA_USER_AGENT },
-              });
-              if (searchRes.ok) {
-                const searchData = (await searchRes.json()) as { results: Array<{ id: number }> };
-                taxonId = searchData.results[0]?.id ?? null;
+      // Background job; the frontend polls /species/other-taxa/bulk/status.
+      const started = otherTaxaBulkJob.start(
+        async (ctx) => {
+          const job = otherTaxaBulkJob.status;
+          let processed = 0;
+          for (const line of lines) {
+            ctx.throwIfCancelled();
+            ctx.update({ currentItem: line });
+            try {
+              let taxonId: number | null = null;
+              if (/^\d+$/.test(line)) {
+                taxonId = Number(line);
+              } else {
+                const searchRes = await fetch(`${INAT_TAXA_API}?q=${encodeURIComponent(line)}&rank=species&is_active=true&per_page=1`, {
+                  headers: { "User-Agent": OTHER_TAXA_USER_AGENT },
+                  signal: AbortSignal.any([ctx.signal, AbortSignal.timeout(15_000)]),
+                });
+                if (searchRes.ok) {
+                  const searchData = (await searchRes.json()) as { results: Array<{ id: number }> };
+                  taxonId = searchData.results[0]?.id ?? null;
+                }
               }
+              if (taxonId == null) {
+                job.notFound.push(line);
+              } else {
+                const { speciesId } = await resolveOrCreateOtherTaxaSpecies(taxonId);
+                const insertRes = await pool.query(
+                  `INSERT INTO region_species (region_id, species_id, is_vagrant, is_invasive)
+                   VALUES ($1, $2, false, false)
+                   ON CONFLICT (region_id, species_id) DO NOTHING`,
+                  [regionId, speciesId],
+                );
+                if (insertRes.rowCount && insertRes.rowCount > 0) job.added++;
+                else job.alreadyPresent++;
+              }
+            } catch {
+              ctx.throwIfCancelled();
+              job.notFound.push(line);
             }
-            if (taxonId == null) {
-              otherTaxaBulkJob.notFound.push(line);
-            } else {
-              const { speciesId } = await resolveOrCreateOtherTaxaSpecies(taxonId);
-              const insertRes = await pool.query(
-                `INSERT INTO region_species (region_id, species_id, is_vagrant, is_invasive)
-                 VALUES ($1, $2, false, false)
-                 ON CONFLICT (region_id, species_id) DO NOTHING`,
-                [regionId, speciesId],
-              );
-              if (insertRes.rowCount && insertRes.rowCount > 0) otherTaxaBulkJob.added++;
-              else otherTaxaBulkJob.alreadyPresent++;
-            }
-          } catch {
-            otherTaxaBulkJob.notFound.push(line);
+            ctx.update({ processed: ++processed });
+            // A small, deliberate pace between entries, this hits iNaturalist's own APIs several
+            // times per line (search/lookup, GBIF match, enrichment's photo+description fetch for
+            // any genuinely new species), and a list of a few hundred names run back-to-back with
+            // no pacing is exactly the kind of burst that drew real 429s from api.inaturalist.org
+            // elsewhere in this codebase (see lazyEnrich.ts's own fetchWithRetry comment).
+            await new Promise((resolve) => setTimeout(resolve, 300));
           }
-          otherTaxaBulkJob.processed++;
-          // A small, deliberate pace between entries — this hits iNaturalist's own APIs several
-          // times per line (search/lookup, GBIF match, enrichment's photo+description fetch for
-          // any genuinely new species), and a list of a few hundred names run back-to-back with
-          // no pacing is exactly the kind of burst that drew real 429s from api.inaturalist.org
-          // elsewhere in this codebase (see lazyEnrich.ts's own fetchWithRetry comment).
-          await new Promise((resolve) => setTimeout(resolve, 300));
-        }
-        otherTaxaBulkJob.running = false;
-        otherTaxaBulkJob.finishedAt = Date.now();
-      })().catch((err) => {
-        otherTaxaBulkJob.error = (err as Error).message;
-        otherTaxaBulkJob.running = false;
-        otherTaxaBulkJob.finishedAt = Date.now();
-      });
+          return { added: job.added, alreadyPresent: job.alreadyPresent, notFound: [...job.notFound] };
+        },
+        { phase: "importing", processed: 0, total: lines.length },
+      );
+      if (!started) return reply.code(409).send({ error: "A bulk import is already running" });
 
       return { started: true, total: lines.length };
     },

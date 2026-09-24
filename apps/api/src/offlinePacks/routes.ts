@@ -5,7 +5,7 @@
 // range spans two packs (e.g. present in both a "North America" and "Central America" pack)
 // only ever gets its photo/description written once (a species already enriched, by ANY
 // earlier pack or the app's own lazy path, is left alone — see applyPack's dedup check).
-import { existsSync, mkdirSync, readFileSync, writeFileSync, rmSync, mkdtempSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, mkdtempSync, statSync } from "node:fs";
 import { copyFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -19,6 +19,9 @@ import { APP_DATA_DIR, PACK_INDEX_URL } from "../config.js";
 // import — pure id-derivation logic with no heavy runtime deps.
 import { packIdFromFileName } from "data-pipeline/src/build/pack-id.js";
 import { subdivisionLabelFor } from "@lifer/shared";
+import { createJob, type JobContext } from "../lib/job.js";
+import { downloadToFile } from "../lib/download.js";
+import { isSafePackEntry, resolveWithinDir } from "./packPaths.js";
 
 export interface PackIndexEntry {
   id: string;
@@ -61,7 +64,7 @@ export interface PackIndex {
 
 export async function fetchPackIndex(): Promise<PackIndex> {
   if (!PACK_INDEX_URL) throw new Error("No pack index is configured for this instance yet");
-  const res = await fetch(PACK_INDEX_URL);
+  const res = await fetch(PACK_INDEX_URL, { signal: AbortSignal.timeout(30_000) });
   if (!res.ok) throw new Error(`Couldn't fetch the pack index (${res.status})`);
   return (await res.json()) as PackIndex;
 }
@@ -146,16 +149,6 @@ interface PackManifest {
   // against a local province row this install may not have yet (created here if missing).
   children?: ManifestChildRegion[];
   seaZoneDependencies?: Array<{ name: string; packFile: string }>;
-}
-
-// A manifest's displayFile/thumbFile come from inside a downloaded archive, not from this
-// server's own code — an entry like "../../../etc/passwd" (or an absolute path) would
-// otherwise let a malicious or corrupted pack read/copy a file from anywhere on disk. Resolves
-// the joined path and requires it to still land inside extractDir before anything touches it.
-function resolveWithinDir(dir: string, relativePath: string): string | null {
-  const resolved = path.resolve(dir, relativePath);
-  if (resolved !== dir && !resolved.startsWith(dir + path.sep)) return null;
-  return resolved;
 }
 
 // Applies one region/sea-zone's species list — enrichment fields (photo/habitat text) plus
@@ -565,7 +558,7 @@ async function applyPack(db: PoolClient, archivePath: string): Promise<{
 }> {
   const extractDir = mkdtempSync(path.join(os.tmpdir(), "lifer-pack-"));
   try {
-    await tar.extract({ file: archivePath, cwd: extractDir });
+    await tar.extract({ file: archivePath, cwd: extractDir, filter: isSafePackEntry });
     const manifest = JSON.parse(readFileSync(path.join(extractDir, "manifest.json"), "utf-8")) as PackManifest;
 
     const displayDir = path.join(APP_DATA_DIR, "reference-display");
@@ -666,120 +659,80 @@ async function applyPack(db: PoolClient, archivePath: string): Promise<{
   }
 }
 
-interface DownloadJobState {
-  running: boolean;
-  processed: number;
-  total: number;
-  currentPack: string | null;
-  error: string | null;
-  finishedAt: number | null;
-  // The exact pack ids this job was started with — lets a client that mounts (or remounts, e.g.
-  // after navigating away and back to Settings/Offline Packs) mid-job reconstruct which packs to
-  // show as "updating" from /download/status alone, instead of only knowing that ONE unspecified
-  // pack (currentPack) is in flight.
+// Extra status fields on top of JobStatus. `packIds` lets a client that remounts mid-job
+// reconstruct which packs to show as "updating"; `currentPack` mirrors currentItem for older
+// clients. Packs already applied before a cancel stay applied (each commits on its own).
+interface DownloadJobExtra {
   packIds: string[];
-  // Set by POST /offline-packs/download/cancel — checked at the top of every loop iteration in
-  // runDownloadJob AND aborts the in-flight fetch (via `abortController` below) so cancelling
-  // stops the CURRENT pack's download too, not just whatever hasn't started yet. Packs already
-  // fully applied before the cancel stay applied (each iteration commits its own pack fully or
-  // not at all) — cancelling only stops starting further packs.
-  cancelRequested: boolean;
-  // True only when the job actually stopped because of a cancel (as opposed to finishing
-  // normally or erroring) — lets the client show "Cancelled" instead of treating an empty
-  // `error` as success.
-  cancelled: boolean;
-  // The AbortController backing the CURRENT pack's fetch, if any is in flight — cancel calls
-  // `.abort()` on it directly rather than waiting for the current download to finish on its own.
-  abortController: AbortController | null;
+  currentPack: string | null;
 }
-const downloadJob: DownloadJobState = {
-  running: false,
-  processed: 0,
-  total: 0,
-  currentPack: null,
-  error: null,
-  finishedAt: null,
-  packIds: [],
-  cancelRequested: false,
-  cancelled: false,
-  abortController: null,
-};
+const downloadJob = createJob<{ packsApplied: number }, DownloadJobExtra>("pack-download", { packIds: [], currentPack: null });
 
-async function runDownloadJob(requestedPackIds: string[], force = false): Promise<void> {
-  try {
-    const index = await fetchPackIndex();
-    const byId = new Map(index.packs.map((p) => [p.id, p]));
+function startDownloadJob(packIds: string[], force = false): boolean {
+  return downloadJob.start((ctx) => runDownloadJob(ctx, packIds, force), { packIds, total: packIds.length, processed: 0 });
+}
 
-    const queue = [...requestedPackIds];
-    const seen = new Set<string>();
+async function runDownloadJob(ctx: JobContext<{ packsApplied: number }, DownloadJobExtra>, requestedPackIds: string[], force = false): Promise<{ packsApplied: number }> {
+  const job = downloadJob.status;
+  let packsApplied = 0;
+  const index = await fetchPackIndex();
+  const byId = new Map(index.packs.map((p) => [p.id, p]));
 
-    while (queue.length > 0) {
-      if (downloadJob.cancelRequested) {
-        downloadJob.cancelled = true;
-        break;
-      }
-      const id = queue.shift()!;
-      if (seen.has(id)) continue;
-      seen.add(id);
-      downloadJob.currentPack = id;
-      downloadJob.total = seen.size + queue.length;
+  const queue = [...requestedPackIds];
+  const seen = new Set<string>();
+  const done = () => ctx.update({ processed: (job.processed ?? 0) + 1 });
 
-      const entry = byId.get(id);
-      if (!entry) {
-        // Unknown pack id (index changed since the client's copy, a stale dependency
-        // reference) — skip it rather than fail the whole job over one bad entry.
-        downloadJob.processed++;
+  while (queue.length > 0) {
+    ctx.throwIfCancelled();
+    const id = queue.shift()!;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    ctx.update({ currentItem: id, currentPack: id, total: seen.size + queue.length, phase: "downloading", downloadedBytes: 0, totalBytes: null });
+
+    const entry = byId.get(id);
+    if (!entry) {
+      // Unknown pack id (index changed since the client's copy, a stale dependency
+      // reference), skip it rather than fail the whole job over one bad entry.
+      done();
+      continue;
+    }
+
+    // Only skip when the CONTENT hasn't changed, a pack already downloaded at an older
+    // content_version proceeds through the same download+apply flow below to pick up the
+    // update (safe to re-apply: enrichment writes are COALESCE-guarded, checklist upserts
+    // are ON CONFLICT DO UPDATE, see applyPack's own comments). `force` bypasses this check
+    // entirely, needed by Fix 8's "re-add a province" flow, which redownloads an
+    // ALREADY-current-version pack specifically to restore a province whose region_species
+    // rows were individually offloaded (content_version never changed, so the normal skip
+    // would otherwise make this whole flow a no-op, confirmed live).
+    if (!force) {
+      const already = await pool.query<{ content_version: string | null }>(
+        `SELECT content_version FROM downloaded_packs WHERE pack_id = $1`,
+        [id],
+      );
+      if (already.rows.length > 0 && already.rows[0].content_version === entry.contentVersion) {
+        done();
         continue;
       }
+    }
 
-      // Only skip when the CONTENT hasn't changed — a pack already downloaded at an older
-      // content_version proceeds through the same download+apply flow below to pick up the
-      // update (safe to re-apply: enrichment writes are COALESCE-guarded, checklist upserts
-      // are ON CONFLICT DO UPDATE — see applyPack's own comments). `force` bypasses this check
-      // entirely — needed by Fix 8's "re-add a province" flow, which redownloads an
-      // ALREADY-current-version pack specifically to restore a province whose region_species
-      // rows were individually offloaded (content_version never changed, so the normal skip
-      // would otherwise make this whole flow a no-op — confirmed live).
-      if (!force) {
-        const already = await pool.query<{ content_version: string | null }>(
-          `SELECT content_version FROM downloaded_packs WHERE pack_id = $1`,
-          [id],
-        );
-        if (already.rows.length > 0 && already.rows[0].content_version === entry.contentVersion) {
-          downloadJob.processed++;
-          continue;
-        }
-      }
-
-      assertTrustedPackUrl(entry.url);
-      const tmpFile = path.join(os.tmpdir(), `${id}.pack.tar.gz`);
-      // No timeout here previously — a stalled/slow connection to the pack host just hung this
-      // whole job forever with no error and no way to tell "still downloading" apart from "will
-      // never finish" (same class of bug already fixed for the catalog-seed fetches). 5 minutes
-      // is generous for even a large pack on a slow connection, while still turning a genuine
-      // stall into a real, visible error instead of an indefinite hang.
-      // Combined with the cancel controller below (AbortSignal.any) so a cancel takes effect on
-      // THIS pack's in-flight download immediately, not just on whatever hasn't started yet.
-      const cancelController = new AbortController();
-      downloadJob.abortController = cancelController;
-      let res: Response;
+    assertTrustedPackUrl(entry.url);
+    const tmpFile = path.join(os.tmpdir(), `${id}.pack.tar.gz`);
+    try {
+      // Streamed to disk with a stall timeout rather than a total cap, and the job's signal
+      // aborts the body read too, so cancel stops the current pack immediately.
+      let bytes: number;
       try {
-        res = await fetch(entry.url, { signal: AbortSignal.any([AbortSignal.timeout(300_000), cancelController.signal]) });
+        ({ bytes } = await downloadToFile(entry.url, tmpFile, {
+          signal: ctx.signal,
+          onProgress: (downloadedBytes, totalBytes) => ctx.update({ downloadedBytes, totalBytes }),
+        }));
       } catch (err) {
-        if (cancelController.signal.aborted) {
-          downloadJob.cancelled = true;
-          break;
-        }
-        if (err instanceof Error && err.name === "TimeoutError") {
-          throw new Error(`Downloading "${id}" timed out — check this server's network access`);
-        }
-        throw err;
-      } finally {
-        downloadJob.abortController = null;
+        ctx.throwIfCancelled();
+        throw new Error(`Couldn't download "${id}": ${(err as Error).message}`);
       }
-      if (!res.ok) throw new Error(`Couldn't download "${id}": ${res.status}`);
-      const buf = Buffer.from(await res.arrayBuffer());
-      writeFileSync(tmpFile, buf);
+      ctx.throwIfCancelled();
+      ctx.update({ phase: "applying" });
 
       // Everything from here through the territory cleanup below runs inside ONE transaction —
       // a pack (country + every bundled province) is either fully applied or not applied at
@@ -787,16 +740,13 @@ async function runDownloadJob(requestedPackIds: string[], force = false): Promis
       // Docker/NAS scenario, not just a user hitting refresh) commits whatever batches had
       // already run and abandons the rest, leaving a genuinely half-written checklist behind
       // with no obvious sign anything went wrong (confirmed live: exactly how a British Columbia
-      // checklist ended up with a small fraction of its real species count). A page reload on
-      // its own was never the actual risk — this job runs server-side, entirely independent of
-      // any client connection — but a restart of the server itself absolutely was.
+      // checklist ended up with a small fraction of its real species count).
       const client = await pool.connect();
-      let speciesCount = 0;
       let manifest: PackManifest;
       try {
         await client.query("BEGIN");
         const applyResult = await applyPack(client, tmpFile);
-        speciesCount = applyResult.speciesCount;
+        const speciesCount = applyResult.speciesCount;
         manifest = applyResult.manifest;
         const { touched, allChildRegionIds, territoryChildRegionIds } = applyResult;
 
@@ -814,7 +764,7 @@ async function runDownloadJob(requestedPackIds: string[], force = false): Promis
            ON CONFLICT (pack_id) DO UPDATE SET
              species_count = EXCLUDED.species_count, bytes = EXCLUDED.bytes, content_version = EXCLUDED.content_version,
              downloaded_at = now(), applied_province_region_ids = EXCLUDED.applied_province_region_ids`,
-          [id, entry.region ?? entry.seaZone ?? null, entry.taxon ?? null, speciesCount, buf.length, entry.contentVersion, defaultAppliedProvinceIds],
+          [id, entry.region ?? entry.seaZone ?? null, entry.taxon ?? null, speciesCount, bytes, entry.contentVersion, defaultAppliedProvinceIds],
         );
 
         // A species can appear more than once within one pack (e.g. a country's own checklist
@@ -857,23 +807,18 @@ async function runDownloadJob(requestedPackIds: string[], force = false): Promis
       } finally {
         client.release();
       }
-      rmSync(tmpFile, { force: true });
 
-      downloadJob.processed++;
+      packsApplied++;
+      done();
       for (const dep of manifest.seaZoneDependencies ?? []) {
         const depId = packIdFromFileName(dep.packFile);
         if (!seen.has(depId)) queue.push(depId);
       }
+    } finally {
+      rmSync(tmpFile, { force: true });
     }
-  } catch (err) {
-    downloadJob.error = (err as Error).message;
-  } finally {
-    downloadJob.running = false;
-    downloadJob.currentPack = null;
-    downloadJob.finishedAt = Date.now();
-    downloadJob.cancelRequested = false;
-    downloadJob.abortController = null;
   }
+  return { packsApplied };
 }
 
 interface DeleteImpact {
@@ -1050,7 +995,7 @@ async function deletePack(packId: string): Promise<{ deletedSpeciesFiles: number
     await client.query(`DELETE FROM downloaded_packs WHERE pack_id = $1`, [packId]);
     await client.query("COMMIT");
   } catch (err) {
-    await client.query("ROLLBACK");
+    await client.query("ROLLBACK").catch(() => {});
     throw err;
   } finally {
     client.release();
@@ -1202,48 +1147,28 @@ export async function offlinePacksRoutes(app: FastifyInstance): Promise<void> {
     }
   });
 
-  app.get("/offline-packs/download/status", { preHandler: requireAuth }, async () => downloadJob);
+  app.get("/offline-packs/download/status", { preHandler: requireAuth }, async () => downloadJob.status);
 
   app.post<{ Body: { packIds?: string[]; force?: boolean } }>(
     "/offline-packs/download",
     { preHandler: requireAuth },
     async (request, reply) => {
-      if (downloadJob.running) {
-        return reply.code(409).send({ error: "A pack download is already in progress" });
-      }
       const packIds = request.body?.packIds;
       if (!packIds || packIds.length === 0) {
         return reply.code(400).send({ error: "packIds is required" });
       }
-
-      downloadJob.running = true;
-      downloadJob.processed = 0;
-      downloadJob.total = packIds.length;
-      downloadJob.currentPack = null;
-      downloadJob.error = null;
-      downloadJob.finishedAt = null;
-      downloadJob.packIds = packIds;
-      downloadJob.cancelRequested = false;
-      downloadJob.cancelled = false;
-
-      // Deliberately not awaited — see settings/routes.ts's migrate-to-server job for the same
-      // pattern and the same reasoning (a large download shouldn't hold one HTTP request open).
-      void runDownloadJob(packIds, request.body?.force ?? false);
-
+      // Runs in the background (a large download shouldn't hold one HTTP request open).
+      if (!startDownloadJob(packIds, request.body?.force ?? false)) {
+        return reply.code(409).send({ error: "A pack download is already in progress" });
+      }
       return { started: true };
     },
   );
 
-  // Cancels the CURRENT pack's in-flight fetch (aborts it directly) and stops the job from
-  // starting any further packs in its queue — see runDownloadJob's own cancelRequested/
-  // abortController comments. A no-op (200, not an error) when nothing is running, so a client
+  // Cancels the CURRENT pack's in-flight download (via the job's AbortSignal) and stops the job
+  // from starting any further packs in its queue. A no-op (200, not an error) when nothing is running, so a client
   // racing the job's own natural completion doesn't need to handle a 404/409 specially.
-  app.post("/offline-packs/download/cancel", { preHandler: requireAuth }, async () => {
-    if (!downloadJob.running) return { cancelled: false };
-    downloadJob.cancelRequested = true;
-    downloadJob.abortController?.abort();
-    return { cancelled: true };
-  });
+  app.post("/offline-packs/download/cancel", { preHandler: requireAuth }, async () => ({ cancelled: downloadJob.cancel() }));
 
   // Resolves a (countries × taxa) selection to a set of pack ids and starts the same download
   // job as /offline-packs/download — a convenience layer for the map-based picker (multi-select
@@ -1254,7 +1179,7 @@ export async function offlinePacksRoutes(app: FastifyInstance): Promise<void> {
     "/offline-packs/download-batch",
     { preHandler: requireAuth },
     async (request, reply) => {
-      if (downloadJob.running) {
+      if (downloadJob.status.running) {
         return reply.code(409).send({ error: "A pack download is already in progress" });
       }
       const regionNames = request.body?.regionNames;
@@ -1283,16 +1208,7 @@ export async function offlinePacksRoutes(app: FastifyInstance): Promise<void> {
 
         if (packIds.length === 0) return { started: false, packIds: [] };
 
-        downloadJob.running = true;
-        downloadJob.processed = 0;
-        downloadJob.total = packIds.length;
-        downloadJob.currentPack = null;
-        downloadJob.error = null;
-        downloadJob.finishedAt = null;
-        downloadJob.packIds = packIds;
-        downloadJob.cancelRequested = false;
-        downloadJob.cancelled = false;
-        void runDownloadJob(packIds);
+        if (!startDownloadJob(packIds)) return reply.code(409).send({ error: "A pack download is already in progress" });
 
         return { started: true, packIds };
       } catch (err) {
