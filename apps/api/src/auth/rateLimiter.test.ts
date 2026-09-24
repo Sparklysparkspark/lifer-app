@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { isRateLimited, recordAttempt } from "./rateLimiter.js";
+import { clearAttempts, isRateLimited, recordAttempt, trackedKeyCount } from "./rateLimiter.js";
 
 const WINDOW_MS = 15 * 60 * 1000;
 
@@ -55,5 +55,38 @@ describe("rate limiter", () => {
 
     vi.setSystemTime(WINDOW_MS + 1);
     expect(isRateLimited(key)).toBe(false); // all 10 have now aged out
+  });
+});
+
+describe("rate limiter options and cleanup", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(10 * WINDOW_MS);
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("honors a per-call max", () => {
+    const key = "custom-max";
+    for (let i = 0; i < 3; i++) recordAttempt(key);
+    expect(isRateLimited(key, 3)).toBe(true);
+    expect(isRateLimited(key, 4)).toBe(false);
+  });
+
+  it("clearAttempts resets a key", () => {
+    const key = "cleared";
+    for (let i = 0; i < 10; i++) recordAttempt(key);
+    clearAttempts(key);
+    expect(isRateLimited(key)).toBe(false);
+  });
+
+  it("prunes keys whose attempts have all expired", () => {
+    for (let i = 0; i < 20; i++) recordAttempt(`stale-${i}`);
+    const before = trackedKeyCount();
+    vi.setSystemTime(12 * WINDOW_MS);
+    isRateLimited("trigger-sweep");
+    expect(trackedKeyCount()).toBeLessThan(before);
+    expect(trackedKeyCount()).toBe(0);
   });
 });
