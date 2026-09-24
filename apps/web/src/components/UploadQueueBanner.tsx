@@ -5,7 +5,9 @@ import { useUploadQueue, resolveDuplicate } from "../lib/uploadQueue";
 // (see lib/uploadQueue.ts), so this needs to stay visible after that page's own dialog closes
 // or the user navigates elsewhere entirely.
 export default function UploadQueueBanner() {
-  const { jobs, targetsExternalDrive, justFinishedAt, pendingDuplicate } = useUploadQueue();
+  const { jobs, targetsExternalDrive, justFinishedAt, pendingDuplicates } = useUploadQueue();
+  // One prompt at a time; the rest wait their turn in the queue.
+  const pendingDuplicate = pendingDuplicates[0] ?? null;
   const inProgress = jobs.filter((j) => !j.done).length;
   const failed = jobs.filter((j) => j.done && j.error).length;
   const skipped = jobs.filter((j) => j.skipped).length;
@@ -34,7 +36,10 @@ export default function UploadQueueBanner() {
       {pendingDuplicate && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
           <div className="w-full max-w-sm rounded-xl border border-line bg-surface p-5">
-            <h2 className="text-sm font-semibold text-ink">Possible duplicate</h2>
+            <h2 className="text-sm font-semibold text-ink">
+              Possible duplicate
+              {pendingDuplicates.length > 1 && <span className="ml-2 font-normal text-muted">(1 of {pendingDuplicates.length})</span>}
+            </h2>
             <p className="mt-2 text-sm text-muted">
               "{pendingDuplicate.fileName}" looks like a photo you already have of {pendingDuplicate.info.speciesName}
               {pendingDuplicate.info.takenAt ? ` from ${new Date(pendingDuplicate.info.takenAt).toLocaleDateString()}` : ""}.
