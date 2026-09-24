@@ -44,4 +44,8 @@ jobs:
 
       - run: npm test
 
+      # Root `npm test` only covers data-pipeline; the api workspace has its own vitest suite.
+      - run: npm test -w api
+      - run: npm test -w web
+
       - run: npm run build
