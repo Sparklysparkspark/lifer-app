@@ -11,6 +11,7 @@ import * as ort from "onnxruntime-node";
 import type { Pool, PoolClient } from "pg";
 import { APP_DATA_DIR, EMBEDDING_MODEL_URL, EMBEDDING_MODEL_VERSION } from "../config.js";
 import { cropToSubject } from "./detectAndCrop.js";
+import { downloadResumable } from "../lib/resumableDownload.js";
 
 // Opt-in, offload-able download — same shape as the offline basemap (settings/routes.ts's
 // /settings/map/* routes). Not bundled at build time on any platform: this directory (and
@@ -30,7 +31,22 @@ export function isModelDownloaded(): boolean {
 export function offloadModel(): void {
   rmSync(MODEL_DIR, { recursive: true, force: true });
   cancelIdleUnload(); // nothing left to unload once this runs
+  // Free the native session's memory too (it was leaked before), but only once nothing is mid
+  // session.run() on it.
+  const promise = sessionPromise;
   sessionPromise = null; // an in-memory session pointing at a now-deleted file must not be reused
+  if (promise) releaseWhenIdle(promise);
+}
+
+const sessionsAwaitingRelease: Promise<ort.InferenceSession>[] = [];
+
+function releaseWhenIdle(promise: Promise<ort.InferenceSession>): void {
+  sessionsAwaitingRelease.push(promise);
+  if (activeInferences === 0) drainReleases();
+}
+
+function drainReleases(): void {
+  for (const p of sessionsAwaitingRelease.splice(0)) p.then((session) => session.release()).catch(() => {});
 }
 
 const INPUT_SIZE = 224;
@@ -79,26 +95,14 @@ function armIdleUnload(): void {
  * file is ~307MB) with an atomic rename on completion so a killed-mid-download file never looks
  * "ready". `onProgress` (optional) mirrors the map download job's own byte-count reporting so
  * the Settings UI can show a real progress bar instead of a spinner. */
-export async function downloadModel(onProgress?: (downloadedBytes: number, totalBytes: number | null) => void): Promise<void> {
+// Uses downloadResumable: the old `.pipe()` never forwarded a dropped connection's error, which
+// crashed the API or left the download "running" forever. A partial file resumes next time.
+export async function downloadModel(
+  onProgress?: (downloadedBytes: number, totalBytes: number | null) => void,
+  signal?: AbortSignal,
+): Promise<void> {
   mkdirSync(MODEL_DIR, { recursive: true });
-  const res = await fetch(EMBEDDING_MODEL_URL);
-  if (!res.ok || !res.body) throw new Error(`Couldn't download the embedding model (${res.status})`);
-  const contentLength = res.headers.get("content-length");
-  const totalBytes = contentLength ? Number(contentLength) : null;
-  const tmpPath = `${MODEL_PATH}.download`;
-  const { createWriteStream, renameSync } = await import("node:fs");
-  const { Readable } = await import("node:stream");
-  const { finished } = await import("node:stream/promises");
-  const out = createWriteStream(tmpPath);
-  const nodeStream = Readable.fromWeb(res.body as import("node:stream/web").ReadableStream);
-  let downloadedBytes = 0;
-  nodeStream.on("data", (chunk: Buffer) => {
-    downloadedBytes += chunk.length;
-    onProgress?.(downloadedBytes, totalBytes);
-  });
-  nodeStream.pipe(out);
-  await finished(out);
-  renameSync(tmpPath, MODEL_PATH); // atomic swap — a killed-mid-download file never looks "ready"
+  await downloadResumable(EMBEDDING_MODEL_URL, MODEL_PATH, { signal, onProgress, label: "the species-matching model" });
 }
 
 // Deliberately does NOT auto-download — same opt-in contract as the offline basemap: a caller
@@ -161,12 +165,21 @@ export function l2Normalize(vec: Float32Array): number[] {
 }
 
 const INFERENCE_TIMEOUT_MS = 20_000;
+const MAX_STUCK_INFERENCES = 2;
+let stuckInferences = 0;
+
+export function isInferenceStuck(): boolean {
+  return stuckInferences >= MAX_STUCK_INFERENCES;
+}
 
 /** Computes an L2-normalized embedding for one image. Never touches the network beyond the
  * one-time model download above — everything after that is local CPU inference. Guarded by a
  * hard timeout: a native ONNX/sharp binding hanging on one pathological image must never hang
  * the caller (an HTTP request, or a backfill loop) forever. */
 export async function computeEmbedding(buffer: Buffer): Promise<number[]> {
+  // A timed-out native call keeps running in the background. Refuse new work while several are
+  // stuck, instead of piling more hung calls onto the same native session.
+  if (isInferenceStuck()) throw new Error("Species matching is stuck on an earlier photo. Restart Lifer to recover.");
   // Counts this call as "active" for the session's whole real lifetime — including the rare
   // case where `work` loses the race below and keeps running in the background after a
   // timeout. Tied to `work` itself finishing, not to the race settling, so an idle-unload can
@@ -180,9 +193,16 @@ export async function computeEmbedding(buffer: Buffer): Promise<number[]> {
     const results = await session.run({ [inputName]: tensor });
     return l2Normalize(results[outputName].data as Float32Array);
   })();
+  let timedOut = false;
+  let settled = false;
   work.finally(() => {
+    settled = true;
     activeInferences--;
-    if (activeInferences === 0) armIdleUnload();
+    if (timedOut) stuckInferences--;
+    if (activeInferences === 0) {
+      drainReleases();
+      armIdleUnload();
+    }
   });
   // Silences an unhandled rejection if `work` loses the race below and fails afterward (the
   // pathological-hang case this timeout exists for) — Promise.race still separately sees
@@ -191,7 +211,13 @@ export async function computeEmbedding(buffer: Buffer): Promise<number[]> {
 
   let timer: ReturnType<typeof setTimeout>;
   const timeout = new Promise<number[]>((_, reject) => {
-    timer = setTimeout(() => reject(new Error("embedding inference timed out")), INFERENCE_TIMEOUT_MS);
+    timer = setTimeout(() => {
+      if (!settled) {
+        timedOut = true;
+        stuckInferences++;
+      }
+      reject(new Error("embedding inference timed out"));
+    }, INFERENCE_TIMEOUT_MS);
   });
   try {
     return await Promise.race([work, timeout]);
@@ -211,7 +237,14 @@ export async function computeEmbedding(buffer: Buffer): Promise<number[]> {
  * compares against OTHER un-cropped capture_embeddings rows and needs the same preprocessing on
  * both sides to mean anything. */
 export async function computeSuggestionEmbedding(buffer: Buffer): Promise<number[]> {
-  return computeEmbedding(await cropToSubject(buffer));
+  // The crop runs its own detection model, so it gets the same time cap; on timeout, match the
+  // whole photo instead.
+  let timer: ReturnType<typeof setTimeout>;
+  const timeout = new Promise<Buffer>((resolve) => {
+    timer = setTimeout(() => resolve(buffer), INFERENCE_TIMEOUT_MS);
+  });
+  const cropped = await Promise.race([cropToSubject(buffer).catch(() => buffer), timeout]).finally(() => clearTimeout(timer));
+  return computeEmbedding(cropped);
 }
 
 export function cosineSimilarity(a: number[], b: number[]): number {

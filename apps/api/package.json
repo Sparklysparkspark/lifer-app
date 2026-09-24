@@ -30,6 +30,7 @@
     "nodemailer": "^9.0.5",
     "onnxruntime-node": "^1.29.0",
     "pg": "^8.13.0",
+    "pg-copy-streams": "^7.0.0",
     "sharp": "^0.35.3",
     "tar": "^7.5.22"
   },
@@ -37,6 +38,7 @@
     "@types/node": "^20.14.0",
     "@types/nodemailer": "^8.0.1",
     "@types/pg": "^8.11.10",
+    "@types/pg-copy-streams": "^1.2.5",
     "@types/tar": "^6.1.13",
     "@vitest/coverage-v8": "^4.1.11",
     "tsx": "^4.19.0",
