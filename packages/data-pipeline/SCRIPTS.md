@@ -30,9 +30,11 @@ from a completely separate, easy-to-forget artifact.
    `update-pack.ts` for a scoped set of countries). Remember: this SKIPS any country the index
    already lists, even if that country's underlying data changed in steps 1-4 — see "Refreshing an
    already-published region" above for the manual force-rebuild recipe when that applies.
-6. **Rebuild and republish the catalog seed** — `build-catalog-seed.ts` against the same database
-   everything above just updated, then `gh release upload catalog-latest <seed>.sql.gz
-   <dir>/catalog-manifest.json --clobber`. **Do this every time steps 1-4 touch data that isn't
+6. **Rebuild and republish the catalog seed**: run the "Publish catalog seed" GitHub workflow
+   (`.github/workflows/catalog-seed.yml`), or locally run `build-catalog-seed.ts` against the same
+   database everything above just updated, then `gh release upload catalog-latest <seed>.sql.gz
+   <dir>/lifer-gallery-embeddings-*.bin.gz --clobber` followed by
+   `gh release upload catalog-latest <dir>/catalog-manifest.json --clobber` (manifest last). **Do this every time steps 1-4 touch data that isn't
    purely per-region** (species traits, rarity tiers, embeddings, endemic labels) — packs alone
    don't carry this to a fresh install; only the catalog seed does, and only if it's actually
    rebuilt.
@@ -184,7 +186,10 @@ this same manual refresh, since the automated sequence will never do it on its o
   each pack's target release straight out of the index `build-pack-index.ts` just built — never
   re-derives continent/overflow assignment itself, so the two scripts can't disagree about where a
   pack lives).
-- `scripts/build-catalog-seed.ts` — builds the **shared bootstrap DB snapshot** every fresh install
+- `scripts/build-catalog-seed.ts` (writes three files: the seed, `lifer-gallery-embeddings-<model>.bin.gz`
+  with the per-gallery-photo CLIP vectors in compact float16 form, and `catalog-manifest.json` with
+  each file's sha256; the gallery vectors are no longer inside the seed, which keeps it well under
+  the 200MB limit the script enforces) builds the **shared bootstrap DB snapshot** every fresh install
   (desktop AND self-hosted Docker alike) restores on first launch, published as `catalog-latest`.
   Needs `DATABASE_URL` pointed at a real, fully-enriched database and `PG_DUMP_BIN` (no system-wide
   `pg_dump` on a machine that only has the embedded Postgres theseus manages — point this at
