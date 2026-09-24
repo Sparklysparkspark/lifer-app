@@ -89,7 +89,7 @@ export function VolumeDestinationPicker({
         <>
           <label className="text-xs font-medium text-muted">Save these photos to</label>
           <Select variant="form" value={volumeId} onChange={(e) => setVolumeId(e.target.value)}>
-            <option value="">This computer (default)</option>
+            <option value="">Main library</option>
             {connectedVolumes.map((v) => (
               <option key={v.id} value={v.id}>
                 {v.label}

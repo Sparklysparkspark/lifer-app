@@ -19,6 +19,7 @@ import { regionRoutes } from "./regions/routes.js";
 import { importRoutes } from "./imports/routes.js";
 import { settingsRoutes, recoverInterruptedStorageMigration } from "./settings/routes.js";
 import { migrateDerivativesLocation } from "./uploads/migrateDerivativesLocation.js";
+import { syncLibraryRootsFromEnv } from "./storageVolumes/syncLibraryRoots.js";
 import { offlinePacksRoutes } from "./offlinePacks/routes.js";
 import { archiveRoutes } from "./archive/routes.js";
 import { tripsRoutes } from "./trips/routes.js";
@@ -39,6 +40,7 @@ import { friendlyFsErrorMessage } from "./lib/friendlyFsError.js";
 // request against a possibly-inconsistent DATA_DIR.
 await recoverInterruptedStorageMigration();
 await migrateDerivativesLocation();
+await syncLibraryRootsFromEnv();
 
 // Force-quitting the desktop app (or a crash) sends SIGKILL straight to the Tauri process
 // only — Unix doesn't cascade a kill to child processes automatically, so this sidecar would

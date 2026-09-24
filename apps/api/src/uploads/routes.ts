@@ -21,6 +21,7 @@ import { RAW_EXTENSIONS } from "./rawExtensions.js";
 import { originalsFolder } from "./organizedPath.js";
 import { resolveSpeciesFolderName } from "./speciesFolderName.js";
 import { tagWithRegisteredVolume, resolveChosenVolumeDestination } from "../storageVolumes/resolve.js";
+import { assertAllowedPath } from "../lib/allowedPaths.js";
 import {
   computeEmbedding,
   computeSuggestionEmbedding,
@@ -889,11 +890,14 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
       if (!linkPath || !path.isAbsolute(linkPath)) {
         return reply.code(400).send({ error: "path must be an absolute filesystem path" });
       }
-      if (!existsSync(linkPath)) {
+      // Same allowlist as reimport and trips: on a server only DATA_DIR and LIFER_LIBRARY_ROOTS
+      // are readable (403 otherwise, checked before existence so it can't probe the disk).
+      const allowedLinkPath = assertAllowedPath(linkPath);
+      if (!existsSync(allowedLinkPath)) {
         return reply.code(400).send({ error: "That file doesn't exist on this server" });
       }
-      buffer = readFileSync(linkPath);
-      originalRef = linkPath;
+      buffer = readFileSync(allowedLinkPath);
+      originalRef = allowedLinkPath;
     } else if (mode === "s3") {
       // Links an object already sitting in a bucket instead of duplicating it into Lifer's
       // own storage — the object is fetched once here only to derive thumb/display webps
@@ -1120,7 +1124,9 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
       // is known to belong to this exact capture already, so it's linked directly instead
       // of going through the separate fingerprint-matching auto-link below.
       if (rawBuffer && rawFileName) {
-        const rawFolder = originalsFolder(tripBaseDir ?? ORIGINALS_DIR, {
+        // Same base folder as the JPEG above, so a RAW uploaded with it lands on the drive the
+        // user chose instead of always on the main library.
+        const rawFolder = originalsFolder(tripBaseDir ?? chosenVolume?.baseDir ?? ORIGINALS_DIR, {
           organizeByYear,
           organizeByLocation,
           locationLabel,
@@ -1137,10 +1143,11 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
         writeFileSync(rawDest, rawBuffer);
         written.push(rawDest);
         const rawHash = createHash("sha256").update(rawBuffer).digest("hex");
+        const rawVolumeRelativePath = chosenVolume ? rawDest.slice(chosenVolume.mountPath.length) : null;
         await client.query(
-          `INSERT INTO originals (capture_id, kind, ref_type, ref, managed, content_hash, file_size, exif_fingerprint, exif_fingerprint_loose)
-           VALUES ($1, 'raw', 'path', $2, true, $3, $4, $5, $6)`,
-          [captureId, rawDest, rawHash, rawBuffer.length, exifFingerprint.strict, exifFingerprint.loose],
+          `INSERT INTO originals (capture_id, kind, ref_type, ref, managed, content_hash, file_size, exif_fingerprint, exif_fingerprint_loose, volume_id, volume_relative_path)
+           VALUES ($1, 'raw', 'path', $2, true, $3, $4, $5, $6, $7, $8)`,
+          [captureId, rawDest, rawHash, rawBuffer.length, exifFingerprint.strict, exifFingerprint.loose, chosenVolume?.volumeId ?? null, rawVolumeRelativePath],
         );
       }
 

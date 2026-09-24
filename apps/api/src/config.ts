@@ -32,15 +32,21 @@ export const DATA_DIR = process.env.DATA_DIR ?? readLocalSettings().dataDir ?? p
 // so it reads as a real, human-meaningful folder to browse in Finder/Explorer, not an
 // implementation detail — this is the one folder most users will ever actually look inside.
 export const ORIGINALS_DIR = path.join(DATA_DIR, "Lifer Photos");
-// App-managed shared assets (the offline basemap, the species reference-photo cache) that
-// have nothing to do with any particular photo library — they're the same regardless of
-// which folder DATA_DIR currently points at. Kept separate so switching your photo library
-// folder (Settings → Storage location) never loses, hides, or re-requires re-downloading
-// these; the desktop app points this at Electron's own stable per-install userData directory
-// (see apps/desktop/src/main.js), independent of DATA_DIR. Server/Docker deployments have no
-// "switch libraries" concept — one volume covers everything — so this defaults to DATA_DIR
-// there, preserving the single-directory-tree layout that setup already expects.
-export const APP_DATA_DIR = process.env.APP_DATA_DIR ?? DATA_DIR;
+// App-managed shared assets (the offline basemap, the species-matching model, the catalog
+// update's download cache) that have nothing to do with any particular photo library - they're
+// the same regardless of which folder DATA_DIR currently points at, and nothing a user ever
+// needs to see or manage directly. Kept separate from DATA_DIR so switching your photo library
+// folder (Settings → Storage location) never loses, hides, or re-requires re-downloading these;
+// the desktop app points this at Tauri's own stable per-install app-data directory (api.rs's
+// APP_DATA_DIR env var to the API sidecar; see embedded_db.rs for where that directory itself
+// comes from), independent of DATA_DIR. Docker/self-hosted used to default this to DATA_DIR
+// ("one volume covers everything") - confirmed live: that put a `maps/`, `models/`, and
+// `catalog-downloads/` folder directly next to `Lifer Photos` in the one folder a self-hosted
+// admin bind-mounts for their photos, exactly the app-internal clutter in user-facing storage
+// this comment's own first sentence says shouldn't happen. Falls back to its own repo-relative
+// default (a sibling of DATA_DIR's own default, not inside it) for the same reason DATA_DIR has
+// one: local dev with no env vars set still needs somewhere real to write to.
+export const APP_DATA_DIR = process.env.APP_DATA_DIR ?? path.join(REPO_ROOT, "data", "lifer-app-data");
 // Offline basemap tiles (PMTiles — a single-file, range-requested vector tile archive from
 // Protomaps/OpenStreetMap) — not user data, so served unauthenticated like any other static
 // basemap tile source.
@@ -115,6 +121,49 @@ export function parseTrustProxy(raw: string | undefined): boolean | number | str
 }
 // Desktop mode binds to loopback with no proxy in front, so no forwarded header is trusted.
 export const TRUST_PROXY = SINGLE_USER_MODE ? false : parseTrustProxy(process.env.TRUST_PROXY);
+
+// Extra folders a self-hosted admin bind-mounted into the container and wants Lifer to use (for
+// trips, reimport, link uploads, and as storage volumes). Comma-separated `Label=/path` or bare
+// `/path` (label = folder name). The app never accepts an arbitrary user-typed path on a server;
+// these plus DATA_DIR are the whole allowlist (see lib/allowedPaths.ts). Unused on desktop.
+export interface LibraryRoot {
+  label: string;
+  path: string;
+}
+
+export function parseLibraryRoots(raw: string | undefined, dataDir: string): LibraryRoot[] {
+  if (raw == null || raw.trim() === "") return [];
+  const resolvedDataDir = path.resolve(dataDir);
+  const roots: LibraryRoot[] = [];
+  const seen = new Set<string>();
+  for (const entry of raw.split(",")) {
+    const trimmed = entry.trim();
+    if (!trimmed) continue;
+    const eq = trimmed.indexOf("=");
+    const rawLabel = eq === -1 ? "" : trimmed.slice(0, eq).trim();
+    const rawPath = eq === -1 ? trimmed : trimmed.slice(eq + 1).trim();
+    if (!path.isAbsolute(rawPath)) {
+      console.warn(`[config] LIFER_LIBRARY_ROOTS: skipping "${trimmed}", the path must be absolute`);
+      continue;
+    }
+    const resolved = path.resolve(rawPath);
+    if (resolved === path.parse(resolved).root) {
+      console.warn(`[config] LIFER_LIBRARY_ROOTS: skipping "${trimmed}", the filesystem root can't be a library root`);
+      continue;
+    }
+    const rel = path.relative(resolvedDataDir, resolved);
+    if (rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel))) {
+      console.warn(`[config] LIFER_LIBRARY_ROOTS: skipping "${trimmed}", it's inside the main library folder already`);
+      continue;
+    }
+    if (seen.has(resolved)) continue;
+    seen.add(resolved);
+    roots.push({ label: rawLabel || path.basename(resolved), path: resolved });
+  }
+  return roots;
+}
+
+export const LIBRARY_ROOTS = parseLibraryRoots(process.env.LIFER_LIBRARY_ROOTS, DATA_DIR);
 
 // Password-reset emails (see auth/routes.ts's forgot-password/reset-password handlers). No
 // SMTP env vars set is a valid, common state for a fresh self-hosted install — mailer.ts logs

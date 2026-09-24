@@ -3,7 +3,7 @@ import { createReadStream, existsSync, statSync, mkdirSync } from "node:fs";
 import path from "node:path";
 import { pool } from "../db.js";
 import { requireAuth, requireScope } from "../auth/session.js";
-import { requireDesktopMode } from "../settings/routes.js";
+import { assertAllowedPath } from "../lib/allowedPaths.js";
 import { scanTrip, resolveWithinTripFolder } from "./scan.js";
 import { sanitizeForFilesystem } from "../uploads/speciesFolderName.js";
 import { importTripFile } from "./import.js";
@@ -144,13 +144,24 @@ async function runImportJob(
   return { imported, failed };
 }
 
+// Scan/import jobs are keyed by trip id alone; a server has several accounts, so their cancel
+// and status routes must check the trip is the caller's before touching the job.
+async function ownsTrip(tripId: string, userId: string): Promise<boolean> {
+  const res = await pool.query(`SELECT 1 FROM trips WHERE id = $1 AND user_id = $2`, [tripId, userId]);
+  return (res.rowCount ?? 0) > 0;
+}
+
 export async function tripsRoutes(app: FastifyInstance): Promise<void> {
   app.post<{ Body: { name?: string; sourceFolder?: string } }>("/trips", { preHandler: requireAuth }, async (request, reply) => {
-    if (!requireDesktopMode(reply)) return;
     const userId = request.user!.id;
     const { sourceFolder } = request.body ?? {};
     let name = request.body?.name?.trim();
     if (!sourceFolder) return reply.code(400).send({ error: "sourceFolder is required" });
+    if (!path.isAbsolute(sourceFolder)) return reply.code(400).send({ error: "sourceFolder must be an absolute folder path" });
+    const allowedSource = assertAllowedPath(sourceFolder);
+    if (!existsSync(allowedSource) || !statSync(allowedSource).isDirectory()) {
+      return reply.code(400).send({ error: "That folder doesn't exist on this server" });
+    }
     if (!name) {
       const countRes = await pool.query(
         `SELECT count(*) FROM trips WHERE user_id = $1 AND name ~ '^Untitled Trip( [A-Za-z-]+)?$'`,
@@ -161,7 +172,7 @@ export async function tripsRoutes(app: FastifyInstance): Promise<void> {
 
     const res = await pool.query<{ id: string }>(
       `INSERT INTO trips (user_id, name, source_folder) VALUES ($1, $2, $3) RETURNING id`,
-      [userId, name, sourceFolder],
+      [userId, name, allowedSource],
     );
     return reply.code(201).send({ id: res.rows[0].id });
   });
@@ -175,11 +186,12 @@ export async function tripsRoutes(app: FastifyInstance): Promise<void> {
   // via this route or Trips' own scan/import — the client is expected to navigate straight to
   // the normal upload/import UI after this call, scoped to the new trip.
   app.post<{ Body: { name?: string; parentDir?: string } }>("/trips/build", { preHandler: requireAuth }, async (request, reply) => {
-    if (!requireDesktopMode(reply)) return;
     const userId = request.user!.id;
     const { parentDir } = request.body ?? {};
     let name = request.body?.name?.trim();
     if (!parentDir) return reply.code(400).send({ error: "parentDir is required" });
+    if (!path.isAbsolute(parentDir)) return reply.code(400).send({ error: "parentDir must be an absolute folder path" });
+    const allowedParent = assertAllowedPath(parentDir);
     if (!name) {
       const countRes = await pool.query(
         `SELECT count(*) FROM trips WHERE user_id = $1 AND name ~ '^Untitled Trip( [A-Za-z-]+)?$'`,
@@ -190,7 +202,7 @@ export async function tripsRoutes(app: FastifyInstance): Promise<void> {
 
     const folderName = sanitizeForFilesystem(name);
     if (!folderName) return reply.code(400).send({ error: "That name can't be used as a folder name" });
-    const sourceFolder = path.join(parentDir, folderName, "Wildlife");
+    const sourceFolder = path.join(allowedParent, folderName, "Wildlife");
     mkdirSync(sourceFolder, { recursive: true });
 
     const res = await pool.query<{ id: string }>(
@@ -201,7 +213,6 @@ export async function tripsRoutes(app: FastifyInstance): Promise<void> {
   });
 
   app.get("/trips", { preHandler: requireScope("trips.read") }, async (request, reply) => {
-    if (!requireDesktopMode(reply)) return;
     const userId = request.user!.id;
     const res = await pool.query(
       `SELECT
@@ -271,7 +282,6 @@ export async function tripsRoutes(app: FastifyInstance): Promise<void> {
   });
 
   app.get<{ Params: { id: string } }>("/trips/:id", { preHandler: requireScope("trips.read") }, async (request, reply) => {
-    if (!requireDesktopMode(reply)) return;
     const userId = request.user!.id;
     const res = await pool.query(
       `SELECT id, name, description, source_folder, cover_capture_id, cover_crop_x, cover_crop_y, cover_crop_size, cover_layout
@@ -307,14 +317,18 @@ export async function tripsRoutes(app: FastifyInstance): Promise<void> {
     "/trips/:id",
     { preHandler: requireAuth },
     async (request, reply) => {
-      if (!requireDesktopMode(reply)) return;
       const userId = request.user!.id;
       const { sourceFolder, name, description, coverLayout } = request.body ?? {};
       if (sourceFolder === undefined && name === undefined && description === undefined && coverLayout === undefined) {
         return reply.code(400).send({ error: "sourceFolder, name, description, or coverLayout is required" });
       }
-      if (sourceFolder !== undefined && (!existsSync(sourceFolder) || !statSync(sourceFolder).isDirectory())) {
-        return reply.code(400).send({ error: "That folder doesn't exist on this server" });
+      let allowedSource: string | undefined;
+      if (sourceFolder !== undefined) {
+        if (!path.isAbsolute(sourceFolder)) return reply.code(400).send({ error: "sourceFolder must be an absolute folder path" });
+        allowedSource = assertAllowedPath(sourceFolder);
+        if (!existsSync(allowedSource) || !statSync(allowedSource).isDirectory()) {
+          return reply.code(400).send({ error: "That folder doesn't exist on this server" });
+        }
       }
       if (name !== undefined && !name.trim()) {
         return reply.code(400).send({ error: "name can't be empty" });
@@ -334,7 +348,7 @@ export async function tripsRoutes(app: FastifyInstance): Promise<void> {
          WHERE id = $1`,
         [
           request.params.id,
-          sourceFolder ?? null,
+          allowedSource ?? null,
           name?.trim() ?? null,
           description !== undefined,
           description?.trim() || null,
@@ -349,7 +363,6 @@ export async function tripsRoutes(app: FastifyInstance): Promise<void> {
   // trip row itself — never touches the underlying photos, same "delete the grouping, not the
   // content" behavior as an album delete.
   app.delete<{ Params: { id: string } }>("/trips/:id", { preHandler: requireAuth }, async (request, reply) => {
-    if (!requireDesktopMode(reply)) return;
     const res = await pool.query(`DELETE FROM trips WHERE id = $1 AND user_id = $2`, [request.params.id, request.user!.id]);
     if (res.rowCount === 0) return reply.code(404).send({ error: "Trip not found" });
     return { ok: true };
@@ -364,7 +377,6 @@ export async function tripsRoutes(app: FastifyInstance): Promise<void> {
     "/trips/:id/cover",
     { preHandler: requireAuth },
     async (request, reply) => {
-      if (!requireDesktopMode(reply)) return;
       const userId = request.user!.id;
       const { captureId } = request.body ?? {};
       const tripRes = await pool.query(`SELECT id FROM trips WHERE id = $1 AND user_id = $2`, [request.params.id, userId]);
@@ -396,7 +408,6 @@ export async function tripsRoutes(app: FastifyInstance): Promise<void> {
     "/trips/:id/cover-crop",
     { preHandler: requireAuth },
     async (request, reply) => {
-      if (!requireDesktopMode(reply)) return;
       const userId = request.user!.id;
       const { x, y, size, reset } = request.body ?? {};
       const tripRes = await pool.query<{ cover_capture_id: string | null }>(
@@ -432,7 +443,6 @@ export async function tripsRoutes(app: FastifyInstance): Promise<void> {
   // view" toggle on the trip page (vs. the default photo-grid gallery view) renders these as
   // plain SpeciesCards, same as the collection page.
   app.get<{ Params: { id: string } }>("/trips/:id/species", { preHandler: requireScope("trips.read") }, async (request, reply) => {
-    if (!requireDesktopMode(reply)) return;
     const userId = request.user!.id;
     const tripRes = await pool.query(`SELECT id FROM trips WHERE id = $1 AND user_id = $2`, [request.params.id, userId]);
     if (tripRes.rows.length === 0) return reply.code(404).send({ error: "Trip not found" });
@@ -481,7 +491,6 @@ export async function tripsRoutes(app: FastifyInstance): Promise<void> {
   // just "first_collected falls within the trip's date range," which would also catch a species
   // first seen elsewhere on the same calendar day.
   app.get<{ Params: { id: string } }>("/trips/:id/summary", { preHandler: requireScope("trips.read") }, async (request, reply) => {
-    if (!requireDesktopMode(reply)) return;
     const userId = request.user!.id;
     const tripId = request.params.id;
     const tripRes = await pool.query(`SELECT id FROM trips WHERE id = $1 AND user_id = $2`, [tripId, userId]);
@@ -527,7 +536,6 @@ export async function tripsRoutes(app: FastifyInstance): Promise<void> {
   // GalleryPage's GalleryItem so the frontend can reuse its MasonryGrid/ProgressiveImg/Lightbox
   // rendering as-is.
   app.get<{ Params: { id: string } }>("/trips/:id/photos", { preHandler: requireScope("trips.read") }, async (request, reply) => {
-    if (!requireDesktopMode(reply)) return;
     const userId = request.user!.id;
     const tripRes = await pool.query(`SELECT id FROM trips WHERE id = $1 AND user_id = $2`, [request.params.id, userId]);
     if (tripRes.rows.length === 0) return reply.code(404).send({ error: "Trip not found" });
@@ -577,7 +585,6 @@ export async function tripsRoutes(app: FastifyInstance): Promise<void> {
   });
 
   app.post<{ Params: { id: string } }>("/trips/:id/scan", { preHandler: requireAuth }, async (request, reply) => {
-    if (!requireDesktopMode(reply)) return;
     const userId = request.user!.id;
     const tripId = request.params.id;
     if (scanJobs.get(tripId)?.status.running) return reply.code(409).send({ error: "A scan is already running for this trip" });
@@ -600,12 +607,12 @@ export async function tripsRoutes(app: FastifyInstance): Promise<void> {
   });
 
   app.post<{ Params: { id: string } }>("/trips/:id/scan/cancel", { preHandler: requireAuth }, async (request, reply) => {
-    if (!requireDesktopMode(reply)) return;
+    if (!(await ownsTrip(request.params.id, request.user!.id))) return reply.code(404).send({ error: "Trip not found" });
     return { cancelled: scanJobs.get(request.params.id)?.cancel() ?? false };
   });
 
   app.get<{ Params: { id: string } }>("/trips/:id/scan/status", { preHandler: requireScope("trips.read") }, async (request, reply) => {
-    if (!requireDesktopMode(reply)) return;
+    if (!(await ownsTrip(request.params.id, request.user!.id))) return reply.code(404).send({ error: "Trip not found" });
     return scanJobs.get(request.params.id)?.status ?? idleScanStatus(request.params.id);
   });
 
@@ -613,7 +620,6 @@ export async function tripsRoutes(app: FastifyInstance): Promise<void> {
     "/trips/:id/scan-preview",
     { preHandler: requireScope("trips.read") },
     async (request, reply) => {
-      if (!requireDesktopMode(reply)) return;
       const userId = request.user!.id;
       const tripRes = await pool.query<{ source_folder: string }>(
         `SELECT source_folder FROM trips WHERE id = $1 AND user_id = $2`,
@@ -633,7 +639,6 @@ export async function tripsRoutes(app: FastifyInstance): Promise<void> {
     "/trips/:id/import",
     { preHandler: requireAuth },
     async (request, reply) => {
-      if (!requireDesktopMode(reply)) return;
       const userId = request.user!.id;
       const tripId = request.params.id;
       if (importJobs.get(tripId)?.status.running) return reply.code(409).send({ error: "An import is already running for this trip" });
@@ -663,12 +668,12 @@ export async function tripsRoutes(app: FastifyInstance): Promise<void> {
   );
 
   app.post<{ Params: { id: string } }>("/trips/:id/import/cancel", { preHandler: requireAuth }, async (request, reply) => {
-    if (!requireDesktopMode(reply)) return;
+    if (!(await ownsTrip(request.params.id, request.user!.id))) return reply.code(404).send({ error: "Trip not found" });
     return { cancelled: importJobs.get(request.params.id)?.cancel() ?? false };
   });
 
   app.get<{ Params: { id: string } }>("/trips/:id/import/status", { preHandler: requireScope("trips.read") }, async (request, reply) => {
-    if (!requireDesktopMode(reply)) return;
+    if (!(await ownsTrip(request.params.id, request.user!.id))) return reply.code(404).send({ error: "Trip not found" });
     return importJobs.get(request.params.id)?.status ?? idleImportStatus(request.params.id);
   });
 }

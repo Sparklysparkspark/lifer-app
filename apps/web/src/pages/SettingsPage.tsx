@@ -5,7 +5,7 @@ import PageHeader from "../components/PageHeader";
 import Select from "../components/Select";
 import SegmentedControl from "../components/SegmentedControl";
 import SettingsSidebar from "../components/SettingsSidebar";
-import { useDesktopMode } from "../hooks/useDesktopMode";
+import { useDeploymentMode, useIsTauri, useServerInfo, type DeploymentMode } from "../hooks/useDeploymentMode";
 import { useMigrationStatus } from "../hooks/useMigrationStatus";
 import { useTheme } from "../hooks/useTheme";
 import { pickFolderNative, FolderBrowser } from "../components/FolderPicker";
@@ -19,7 +19,7 @@ import DownloadedPacksList, { type PackEntry } from "../components/DownloadedPac
 import FormMessage from "../components/FormMessage";
 import JobProgress from "../components/JobProgress";
 import { useJobPoll } from "../hooks/useJobPoll";
-import type { JobStatus } from "@lifer/shared";
+import type { JobStatus, StorageVolume } from "@lifer/shared";
 import type { PhaseLabels } from "../components/JobProgress";
 import { formatBytes } from "../lib/formatBytes";
 import { errorMessage } from "../lib/errorMessage";
@@ -70,6 +70,9 @@ declare global {
       // apps/desktop/src-tauri/src/api.rs's own comment on why) — resolves on success, rejects
       // with a real server-side error message ("Invalid email or password", etc.) on failure.
       testLogin: (url: string, email: string, password: string) => Promise<void>;
+      // Records a moved library folder in the desktop config, which is what the next launch
+      // actually starts the API with. Optional: missing on desktop builds from before it existed.
+      setLocalDataDir?: (dataDir: string) => Promise<void>;
       platform: string;
     };
   }
@@ -87,40 +90,49 @@ declare global {
 // thin single-toggle groups (Appearance, App Updates) are folded into one "General" group
 // rather than each getting its own sidebar entry — a whole navigable page for one checkbox reads
 // as navigation overhead, not decluttering.
+// `mode` is the API's deployment mode (null while loading); `isTauri` is "inside the desktop
+// shell", which can also be connected to a remote server.
 interface SettingsGroup {
   id: string;
   label: string;
-  visible: (isDesktopMode: boolean) => boolean;
+  visible: (ctx: { mode: DeploymentMode | null; isTauri: boolean }) => boolean;
 }
 const GROUPS: SettingsGroup[] = [
   { id: "general", label: "General", visible: () => true },
-  { id: "account", label: "Account", visible: (isDesktopMode) => !isDesktopMode },
+  { id: "account", label: "Account", visible: ({ mode }) => mode === "server" },
   { id: "species", label: "Species & Import", visible: () => true },
   { id: "library", label: "Library", visible: () => true },
-  { id: "storage", label: "Storage", visible: (isDesktopMode) => isDesktopMode },
-  { id: "server", label: "Server", visible: (isDesktopMode) => isDesktopMode },
+  { id: "storage", label: "Storage", visible: () => true },
+  { id: "server", label: "Server", visible: ({ isTauri }) => isTauri },
   { id: "integrations", label: "Integrations", visible: () => true },
   { id: "offline-data", label: "Offline Data", visible: () => true },
 ];
 
 export default function SettingsPage() {
   const [settings, setSettings] = useState<AccountSettings | null>(null);
-  const isDesktopMode = useDesktopMode();
+  const deploymentMode = useDeploymentMode();
+  const isTauri = useIsTauri();
   const { groupId } = useParams<{ groupId?: string }>();
 
   useEffect(() => {
     api.get<AccountSettings>("/auth/settings").then(setSettings);
   }, []);
 
-  const visibleGroups = GROUPS.filter((g) => g.visible(isDesktopMode));
-  const activeGroupId = groupId && visibleGroups.some((g) => g.id === groupId) ? groupId : (visibleGroups[0]?.id ?? "general");
+  const visibleGroups = GROUPS.filter((g) => g.visible({ mode: deploymentMode, isTauri }));
+  // A deep link to a mode-dependent group waits for the mode instead of bouncing to General.
+  const awaitingMode = deploymentMode === null && !!groupId && GROUPS.some((g) => g.id === groupId) && !visibleGroups.some((g) => g.id === groupId);
+  const activeGroupId = awaitingMode
+    ? null
+    : groupId && visibleGroups.some((g) => g.id === groupId)
+      ? groupId
+      : (visibleGroups[0]?.id ?? "general");
 
   return (
     <div className="min-h-screen bg-canvas">
       <PageHeader sticky title="Settings" />
 
       <main className="mx-auto flex max-w-6xl flex-col gap-8 p-6 md:flex-row">
-        <SettingsSidebar groups={visibleGroups} activeId={activeGroupId} />
+        <SettingsSidebar groups={visibleGroups} activeId={activeGroupId ?? ""} />
 
         <div className="min-w-0 flex-1 space-y-8">
           {settings && (
@@ -128,7 +140,7 @@ export default function SettingsPage() {
               {activeGroupId === "general" && (
                 <>
                   <AppearanceSection />
-                  {isDesktopMode && <AppUpdatesSection />}
+                  {isTauri && <AppUpdatesSection />}
                   <GettingStartedSection />
                 </>
               )}
@@ -383,18 +395,10 @@ function InaturalistServerConfigSection() {
   );
 }
 
-// Server/Docker deployments have no "move my library" concept (see config.ts's own comment on
-// APP_DATA_DIR) — the full Storage tab (native folder picker, multi-drive registration) only
-// shows on desktop (isDesktopMode gate, see visibleGroups above), and rightly so, since neither
-// action has a browser/Docker equivalent. But "where IS my library mounted right now" is still a
-// meaningful question on every deployment shape, and there was previously no in-app answer to it
-// on Docker short of `docker inspect`/checking your own compose file — GET /settings has no
-// desktop gate, so this stays visible everywhere the Storage tab isn't.
+// "Where IS my library right now" is meaningful on every deployment shape; the Storage tab has
+// the details (and, on desktop, the controls to change it).
 function LibraryLocationLine() {
-  const [dataDir, setDataDir] = useState<string | null>(null);
-  useEffect(() => {
-    api.get<{ dataDir: string }>("/settings").then((res) => setDataDir(res.dataDir)).catch(() => {});
-  }, []);
+  const dataDir = useServerInfo()?.dataDir;
   if (!dataDir) return null;
   return (
     <p className="mb-3 truncate font-mono text-xs text-muted" title={dataDir}>
@@ -1263,6 +1267,8 @@ function LibraryReimportSection() {
   const [error, setError] = useState<string | null>(null);
   const { volumes } = useStorageVolumes();
   const connectedVolumes = volumes.filter((v) => v.connected);
+  const serverInfo = useServerInfo();
+  const isServer = serverInfo?.deploymentMode === "server";
   const [volumeId, setVolumeId] = useState("");
   const [mode, setMode] = useState<ReimportMode>("existing");
   const [foreignPath, setForeignPath] = useState("");
@@ -1275,7 +1281,7 @@ function LibraryReimportSection() {
       .get<ReimportStatus>("/library/reimport/status")
       .then(setStatus)
       .catch(() => {
-        // 404s outside desktop mode — this section just won't render (see below).
+        // Unreachable: this section just won't render (see below).
       });
   }, []);
 
@@ -1381,16 +1387,16 @@ function LibraryReimportSection() {
       {mode === "existing" ? (
         <>
           <p className="text-xs text-muted">
-            This only scans the one location you pick below, either your computer's own library folder, or a single
-            connected external drive, never everything at once. Pick "This computer's library" for a fresh install or
-            server migration; pick a specific drive if that drive's own photos have gone stale (path drifted after
+            This only scans the one location you pick below, either your main library folder, or a single connected
+            drive or library folder, never everything at once. Pick "Main library" for a fresh install or server
+            migration; pick a specific drive if that drive's own photos have gone stale (path drifted after
             reconnecting under a different name, for example).
           </p>
           {connectedVolumes.length > 0 && (
             <div className="space-y-1">
               <label className="text-xs font-medium text-muted">Reimport from</label>
               <Select variant="form" value={volumeId} onChange={(e) => setVolumeId(e.target.value)} disabled={starting || status.running}>
-                <option value="">This computer's library</option>
+                <option value="">Main library</option>
                 {connectedVolumes.map((v) => (
                   <option key={v.id} value={v.id}>
                     {v.label}
@@ -1430,6 +1436,12 @@ function LibraryReimportSection() {
                 Browse…
               </button>
             </div>
+            {isServer && serverInfo.libraryRoots.length === 0 && (
+              <p className="text-xs text-muted">
+                On this server you can pick folders inside the library folder. To import from somewhere else, mount it
+                and declare it with LIFER_LIBRARY_ROOTS (see Settings &gt; Storage).
+              </p>
+            )}
             {browsingForeignPath && (
               <FolderBrowser
                 onChoose={(p) => {
@@ -1551,11 +1563,11 @@ function LibraryReimportSection() {
   );
 }
 
-// Desktop-mode only (see settings/routes.ts's requireDesktopMode) — the Docker deployment
-// already has LIFER_STORAGE_DIR for this (see .env.example). GET /settings/storage 404s
-// outside desktop mode, which is how this section knows to just not render at all.
+// Shown in both modes. Only a desktop API can move the library (`changeable`); a self-hosted
+// server's library folder is whatever LIFER_STORAGE_DIR bind-mounts at /data.
 function StorageLocationSection() {
   const [available, setAvailable] = useState(false);
+  const [changeable, setChangeable] = useState(false);
   const [currentDataDir, setCurrentDataDir] = useState<string | null>(null);
   const [browsing, setBrowsing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -1564,9 +1576,10 @@ function StorageLocationSection() {
 
   useEffect(() => {
     api
-      .get<{ dataDir: string }>("/settings/storage")
+      .get<{ dataDir: string; changeable: boolean }>("/settings/storage")
       .then((res) => {
         setAvailable(true);
+        setChangeable(res.changeable);
         setCurrentDataDir(res.dataDir);
       })
       .catch(() => setAvailable(false));
@@ -1585,6 +1598,15 @@ function StorageLocationSection() {
       const res = await api.put<{ dataDir: string; filesMoved: boolean }>("/settings/storage", {
         dataDir: newPath,
       });
+      // The desktop shell starts the API with the folder in its own config, so it has to hear
+      // about the move too or the next launch opens the old, now-empty folder.
+      try {
+        await window.liferSetup?.setLocalDataDir?.(res.dataDir);
+      } catch (err) {
+        setError(
+          `Your library was moved, but Lifer couldn't save the new location for next launch (${String(err)}). After restarting, pick ${res.dataDir} again with the "Change Server / Library" menu item.`,
+        );
+      }
       setResult(
         res.filesMoved
           ? "Your library has been moved. Restart Lifer for the new location to take effect."
@@ -1613,6 +1635,20 @@ function StorageLocationSection() {
 
   if (!available) return null;
 
+  if (!changeable) {
+    return (
+      <Card title="Storage location" description="Where your photo library lives and you can find all the files">
+        <p className="text-sm text-ink">
+          Library folder: <code className="text-xs">{currentDataDir}</code>
+        </p>
+        <p className="text-xs text-muted">
+          This is the folder inside the container. On the host it's whatever LIFER_STORAGE_DIR points at in your
+          docker-compose setup (it's bind-mounted here). To move your library, change LIFER_STORAGE_DIR and redeploy.
+        </p>
+      </Card>
+    );
+  }
+
   return (
     <Card title="Storage location" description="Where your photo library lives and you can find all the files">
       <p className="text-sm text-ink">
@@ -1635,21 +1671,11 @@ function StorageLocationSection() {
   );
 }
 
-interface StorageVolume {
-  id: string;
-  label: string;
-  mountPath: string;
-  connected: boolean;
-  lastSeenAt: string;
-  isDefault: boolean;
-}
-
-// Desktop-only, same gating as StorageLocationSection above (GET /storage-volumes 404s
-// outside desktop mode). A registered external drive shows its live connected/disconnected
-// state — whether it's plugged in right now — rather than a cached guess, since that's exactly
-// what changes between one visit to this page and the next. See
-// ~/.claude/plans/multi-drive-storage.md.
+// Desktop: register external drives, each with its live connected state (whether it's plugged
+// in right now). Server: read-only list of the admin's LIFER_LIBRARY_ROOTS folders, since
+// adding/renaming/removing those happens in docker-compose, not here.
 function StorageVolumesSection() {
+  const isDesktopApi = useDeploymentMode() === "desktop";
   const [available, setAvailable] = useState(false);
   const [volumes, setVolumes] = useState<StorageVolume[] | null>(null);
   const [browsing, setBrowsing] = useState(false);
@@ -1731,6 +1757,46 @@ function StorageVolumesSection() {
 
   if (!available) return null;
 
+  if (!isDesktopApi) {
+    return (
+      <Card
+        title="Library folders"
+        description="Extra folders on this server that Lifer can import from, build trips from, and save photos to, alongside the main library folder."
+      >
+        {volumes && volumes.length > 0 ? (
+          <ul className="space-y-2">
+            {volumes.map((v) => (
+              <li key={v.id} className="flex items-center justify-between gap-3 rounded-md border border-line px-3 py-2 text-sm">
+                <div className="min-w-0 flex-1">
+                  <p className="text-ink">{v.label}</p>
+                  <p className="truncate text-xs text-muted">{v.rootPath ?? v.mountPath}</p>
+                </div>
+                <span className={`text-xs ${v.connected ? "text-green-700" : "text-muted"}`}>
+                  {v.connected ? "Connected" : "Not found"}
+                </span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-xs text-muted">No extra folders are set up. To add one:</p>
+        )}
+        {volumes && volumes.length > 0 ? (
+          <p className="text-xs text-muted">Configured by LIFER_LIBRARY_ROOTS in your docker-compose setup.</p>
+        ) : (
+          <ol className="list-decimal space-y-1 pl-5 text-xs text-muted">
+            <li>
+              Bind-mount the host folder into the container, e.g. <code>/srv/photos:/library/nas</code>.
+            </li>
+            <li>
+              Set <code>LIFER_LIBRARY_ROOTS=NAS=/library/nas</code> (comma-separate several, as Label=/container/path).
+            </li>
+            <li>Redeploy the container.</li>
+          </ol>
+        )}
+      </Card>
+    );
+  }
+
   return (
     <Card
       title="External drives"
@@ -1785,24 +1851,30 @@ function StorageVolumesSection() {
                     <span className={`text-xs ${v.connected ? "text-green-700" : "text-muted"}`}>
                       {v.connected ? "Connected" : "Not connected"}
                     </span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setRenamingId(v.id);
-                        setRenameValue(v.label);
-                      }}
-                      className="text-xs text-muted hover:underline"
-                    >
-                      Rename
-                    </button>
-                    {!v.isDefault && (
-                      <button type="button" onClick={() => setDefault(v.id)} className="text-xs text-muted hover:underline">
-                        Set as default
-                      </button>
+                    {v.managedByEnv ? (
+                      <span className="text-xs text-muted">Configured by LIFER_LIBRARY_ROOTS</span>
+                    ) : (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setRenamingId(v.id);
+                            setRenameValue(v.label);
+                          }}
+                          className="text-xs text-muted hover:underline"
+                        >
+                          Rename
+                        </button>
+                        {!v.isDefault && (
+                          <button type="button" onClick={() => setDefault(v.id)} className="text-xs text-muted hover:underline">
+                            Set as default
+                          </button>
+                        )}
+                        <button type="button" onClick={() => remove(v.id)} className="text-xs text-muted hover:underline">
+                          Remove
+                        </button>
+                      </>
                     )}
-                    <button type="button" onClick={() => remove(v.id)} className="text-xs text-muted hover:underline">
-                      Remove
-                    </button>
                   </div>
                 </div>
               )}

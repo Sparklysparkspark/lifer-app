@@ -1,18 +1,10 @@
 import { useEffect, useState } from "react";
+import type { StorageVolume } from "@lifer/shared";
 import { api } from "../api/client";
 
-export interface StorageVolume {
-  id: string;
-  label: string;
-  mountPath: string;
-  connected: boolean;
-  lastSeenAt: string;
-  isDefault: boolean;
-}
+export type { StorageVolume };
 
-// GET /storage-volumes 404s outside desktop mode (see storageVolumes/routes.ts's
-// requireDesktopMode), same convention as useDesktopMode — that's the signal for "not
-// available here" rather than a second endpoint just to ask the same question.
+// Works in both modes: desktop lists registered drives, a server lists its LIFER_LIBRARY_ROOTS.
 export function useStorageVolumes(): { volumes: StorageVolume[]; multiDriveInUse: boolean } {
   const [volumes, setVolumes] = useState<StorageVolume[]>([]);
 
@@ -23,8 +15,7 @@ export function useStorageVolumes(): { volumes: StorageVolume[]; multiDriveInUse
       .catch(() => setVolumes([]));
   }, []);
 
-  // At least one registered external drive means photos could genuinely be split between it
-  // and the primary drive — with none registered, everything is on the primary drive and a
-  // per-photo "which drive" badge would just be redundant noise (see task feedback).
+  // At least one extra drive/root means photos could genuinely be split between it and the
+  // main library; with none, a per-photo "which drive" badge would just be redundant noise.
   return { volumes, multiDriveInUse: volumes.length > 0 };
 }

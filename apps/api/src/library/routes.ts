@@ -5,12 +5,13 @@
 // settings/routes.ts's migrate-to-server job. Global, not per-trip: there's only ever one
 // library to reimport, gated to desktop mode for the same reason as every other route here
 // that walks the server's own filesystem (settings/routes.ts's own comment).
+import { idleJobStatus } from "@lifer/shared";
 import { existsSync, statSync } from "node:fs";
 import path from "node:path";
 import type { FastifyInstance } from "fastify";
 import sharp from "sharp";
 import { requireAuth } from "../auth/session.js";
-import { requireDesktopMode } from "../settings/routes.js";
+import { assertAllowedPath } from "../lib/allowedPaths.js";
 import { ORIGINALS_DIR } from "../config.js";
 import { pool } from "../db.js";
 import { mapWithConcurrency } from "data-pipeline/src/concurrency.js";
@@ -90,6 +91,13 @@ const reimportJob = createJob<ReimportResult, ReimportExtra>("library-reimport",
 // inside) the polled job state since the client never needs to see it, only used server-side
 // to resolve an unmatched entry's relativePath back to a real file for the preview endpoint.
 let jobWalkDir: string | null = null;
+// Whose scan the shared job belongs to. A server can have several accounts; only the one that
+// started it may see its unmatched files (and their previews), cancel it, or ignore from it.
+let jobUserId: string | null = null;
+
+function isJobOwner(userId: string): boolean {
+  return jobUserId == null || jobUserId === userId;
+}
 
 // Cancel is checked between files rather than aborting in-flight work, a file already
 // mid-exiftool-call or mid-hash-stream finishes normally, but no NEW file starts.
@@ -100,6 +108,7 @@ async function runReimportJob(
   volumeContext: VolumeContext | null,
   organize: boolean,
   organizeByYear: boolean,
+  foreign: boolean,
 ): Promise<ReimportResult> {
   const job = reimportJob.status;
   try {
@@ -115,7 +124,7 @@ async function runReimportJob(
       const relativePath = path.relative(walkDir, absolutePath);
       ctx.update({ currentItem: relativePath });
       try {
-        const outcome = await recoverJpeg(userId, absolutePath, volumeContext, organize, organizeByYear);
+        const outcome = await recoverJpeg(userId, absolutePath, volumeContext, organize, organizeByYear, foreign);
         if (outcome.status === "recovered") {
           job.jpegsRecovered++;
           recoveredScientificNames.add(outcome.scientificName);
@@ -148,7 +157,7 @@ async function runReimportJob(
       if (ctx.signal.aborted) return;
       ctx.update({ currentItem: path.relative(walkDir, absolutePath) });
       try {
-        const outcome = await recoverRaw(userId, absolutePath, volumeContext, organize, organizeByYear);
+        const outcome = await recoverRaw(userId, absolutePath, volumeContext, organize, organizeByYear, foreign);
         if (outcome.status === "recovered") job.rawsRecovered++;
         else if (outcome.status === "already-known") job.rawsAlreadyKnown++;
         else if (outcome.status === "relinked") job.rawsRelinked++;
@@ -174,7 +183,6 @@ export async function libraryRoutes(app: FastifyInstance): Promise<void> {
     "/library/reimport",
     { preHandler: requireAuth },
     async (request, reply) => {
-      if (!requireDesktopMode(reply)) return;
       if (reimportJob.status.running) return reply.code(409).send({ error: "A reimport is already running" });
       const userId = request.user!.id;
 
@@ -193,7 +201,8 @@ export async function libraryRoutes(app: FastifyInstance): Promise<void> {
       let walkDir = ORIGINALS_DIR;
       let volumeContext: VolumeContext | null = null;
       if (request.body?.path) {
-        const candidate = path.resolve(request.body.path);
+        if (!path.isAbsolute(request.body.path)) return reply.code(400).send({ error: "path must be an absolute folder path" });
+        const candidate = assertAllowedPath(request.body.path);
         if (!existsSync(candidate) || !statSync(candidate).isDirectory()) {
           return reply.code(400).send({ error: "That folder doesn't exist" });
         }
@@ -217,26 +226,28 @@ export async function libraryRoutes(app: FastifyInstance): Promise<void> {
 
       // Background job, polled via /status: this can take a real amount of time.
       const started = reimportJob.start(
-        (ctx) => runReimportJob(ctx, userId, walkDir, volumeContext, organize, organizeByYear),
+        (ctx) => runReimportJob(ctx, userId, walkDir, volumeContext, organize, organizeByYear, Boolean(request.body?.path)),
         freshExtra(),
       );
       if (!started) return reply.code(409).send({ error: "A reimport is already running" });
       jobWalkDir = walkDir;
+      jobUserId = userId;
 
       return { started: true };
     },
   );
 
-  app.get("/library/reimport/status", { preHandler: requireAuth }, async (request, reply) => {
-    if (!requireDesktopMode(reply)) return;
-    return reimportJob.status;
+  app.get("/library/reimport/status", { preHandler: requireAuth }, async (request) => {
+    if (isJobOwner(request.user!.id)) return reimportJob.status;
+    // Someone else's scan: report only that one is running, none of its results.
+    return { ...idleJobStatus<ReimportResult>(), ...freshExtra(), running: reimportJob.status.running };
   });
 
   // Stops the run between files rather than mid-file — whatever's already in flight (up to
   // CONCURRENCY files) finishes normally, everything queued behind it is left completely
   // untouched on disk, same as it would be if the scan simply hadn't reached it yet.
   app.post("/library/reimport/cancel", { preHandler: requireAuth }, async (request, reply) => {
-    if (!requireDesktopMode(reply)) return;
+    if (!isJobOwner(request.user!.id)) return reply.code(409).send({ error: "No reimport is running" });
     if (!reimportJob.cancel()) return reply.code(409).send({ error: "No reimport is running" });
     return { ok: true };
   });
@@ -245,11 +256,12 @@ export async function libraryRoutes(app: FastifyInstance): Promise<void> {
   // folder of insect photos this app doesn't track. Also strips it from the CURRENT job's
   // in-memory unmatched list so the review UI updates immediately, without needing a rescan.
   app.post<{ Body: { contentHash?: string } }>("/library/ignore", { preHandler: requireAuth }, async (request, reply) => {
-    if (!requireDesktopMode(reply)) return;
     const contentHash = request.body?.contentHash;
     if (!contentHash) return reply.code(400).send({ error: "contentHash is required" });
     await ignoreLibraryFile(request.user!.id, contentHash);
-    reimportJob.status.unmatched = reimportJob.status.unmatched.filter((f) => f.contentHash !== contentHash);
+    if (isJobOwner(request.user!.id)) {
+      reimportJob.status.unmatched = reimportJob.status.unmatched.filter((f) => f.contentHash !== contentHash);
+    }
     return { ok: true };
   });
 
@@ -261,7 +273,7 @@ export async function libraryRoutes(app: FastifyInstance): Promise<void> {
     "/library/reimport/unmatched-preview/:index",
     { preHandler: requireAuth },
     async (request, reply) => {
-      if (!requireDesktopMode(reply)) return;
+      if (!isJobOwner(request.user!.id)) return reply.code(404).send({ error: "Not found" });
       const index = Number(request.params.index);
       const entry = Number.isInteger(index) ? reimportJob.status.unmatched[index] : undefined;
       if (!entry || !jobWalkDir) return reply.code(404).send({ error: "Not found" });

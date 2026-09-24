@@ -1,5 +1,6 @@
-// Desktop-only: register/list/remove external drives that hold part of the user's photo
-// library (see ~/.claude/plans/multi-drive-storage.md). A registered volume's live
+// Storage volumes: external drives (desktop, registered here) and admin-declared library roots
+// (server, from LIFER_LIBRARY_ROOTS, see syncLibraryRoots.ts). Listing works everywhere; adding,
+// renaming, and removing drives is desktop-only, since roots are managed by the server's env. A registered volume's live
 // connected/disconnected state is always computed fresh on GET, never cached in the DB —
 // whether a drive is plugged in right now is exactly the kind of thing that changes between
 // one request and the next.
@@ -8,30 +9,50 @@ import { pool } from "../db.js";
 import { requireAuth } from "../auth/session.js";
 import { requireDesktopMode } from "../settings/routes.js";
 import { listMountedVolumes, mountPathFor, getVolumeId, isSameVolumeAsDataDir } from "./volumeIdentity.js";
+import { isReadableDir } from "./resolve.js";
 import { DATA_DIR } from "../config.js";
 import path from "node:path";
 
 export async function storageVolumesRoutes(app: FastifyInstance): Promise<void> {
-  app.get("/storage-volumes", { preHandler: requireAuth }, async (request, reply) => {
-    if (!requireDesktopMode(reply)) return;
+  app.get("/storage-volumes", { preHandler: requireAuth }, async (request) => {
     const rows = await pool.query<{
       id: string;
+      kind: "drive" | "root";
       label: string;
-      platform_volume_id: string;
+      platform_volume_id: string | null;
+      root_path: string | null;
       last_known_mount_path: string;
       last_seen_at: string;
       is_default: boolean;
     }>(
-      `SELECT id, label, platform_volume_id, last_known_mount_path, last_seen_at, is_default FROM storage_volumes WHERE user_id = $1 ORDER BY label`,
+      `SELECT id, kind, label, platform_volume_id, root_path, last_known_mount_path, last_seen_at, is_default
+       FROM storage_volumes
+       WHERE (user_id = $1 OR kind = 'root') AND removed_at IS NULL
+       ORDER BY kind DESC, label`,
       [request.user!.id],
     );
 
-    const mounted = await listMountedVolumes();
+    // Drive detection shells out, so only when there's a drive to check.
+    const mounted = rows.rows.some((r) => r.kind === "drive") ? await listMountedVolumes() : [];
     const results = [];
     for (const row of rows.rows) {
+      if (row.kind === "root") {
+        results.push({
+          id: row.id,
+          label: row.label,
+          kind: row.kind,
+          mountPath: row.root_path!,
+          rootPath: row.root_path,
+          connected: isReadableDir(row.root_path!),
+          lastSeenAt: row.last_seen_at,
+          isDefault: false,
+          managedByEnv: true,
+        });
+        continue;
+      }
       const match = mounted.find((v) => v.platformVolumeId === row.platform_volume_id);
       const connected = match !== undefined;
-      // Refresh last_known_mount_path/last_seen_at while we already know it's connected —
+      // Refresh last_known_mount_path/last_seen_at while we already know it's connected:
       // keeps the stored path from going stale for anything reading it directly, and means a
       // drive that changed its mount name since last seen is corrected here rather than
       // silently drifting.
@@ -46,10 +67,13 @@ export async function storageVolumesRoutes(app: FastifyInstance): Promise<void> 
       results.push({
         id: row.id,
         label: row.label,
+        kind: row.kind,
         mountPath: connected ? match!.mountPath : row.last_known_mount_path,
+        rootPath: null,
         connected,
         lastSeenAt: connected ? new Date().toISOString() : row.last_seen_at,
         isDefault: row.is_default,
+        managedByEnv: false,
       });
     }
     return { volumes: results };
@@ -79,7 +103,7 @@ export async function storageVolumesRoutes(app: FastifyInstance): Promise<void> 
     const res = await pool.query<{ id: string }>(
       `INSERT INTO storage_volumes (user_id, label, platform_volume_id, last_known_mount_path)
        VALUES ($1, $2, $3, $4)
-       ON CONFLICT (user_id, platform_volume_id) DO UPDATE SET
+       ON CONFLICT (user_id, platform_volume_id) WHERE kind = 'drive' DO UPDATE SET
          label = EXCLUDED.label, last_known_mount_path = EXCLUDED.last_known_mount_path, last_seen_at = now()
        RETURNING id`,
       [request.user!.id, label.trim(), platformVolumeId, mountPath],

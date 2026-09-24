@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
-import { useDesktopMode } from "../hooks/useDesktopMode";
+import { useDeploymentMode } from "../hooks/useDeploymentMode";
 import SpeciesPicker from "./SpeciesPicker";
 import { Logo } from "./Logo";
 import AccountMenu from "./AccountMenu";
@@ -13,7 +13,7 @@ import AccountMenu from "./AccountMenu";
 // same bar into Settings for the same "occasional action, not everyday nav" reason.
 export default function AppNav({ collectedCount, totalCount }: { collectedCount: number; totalCount: number | null }) {
   const { user, logout } = useAuth();
-  const isDesktopMode = useDesktopMode();
+  const deploymentMode = useDeploymentMode();
 
   return (
     <header className="page-header flex items-center justify-between border-b border-line bg-surface px-6 py-4">
@@ -37,12 +37,13 @@ export default function AppNav({ collectedCount, totalCount }: { collectedCount:
           Gallery
         </Link>
         <Link to="/albums" className="text-sm text-muted hover:underline">
-          {isDesktopMode ? "Albums & Trips" : "Albums"}
+          Albums & Trips
         </Link>
         <Link to="/settings" className="text-sm text-muted hover:underline">
           Settings
         </Link>
-        {!isDesktopMode && user?.email && <AccountMenu email={user.email} onLogout={() => logout()} />}
+        {/* Desktop's auto-provisioned local user has no real account to manage. */}
+        {deploymentMode === "server" && user?.email && <AccountMenu email={user.email} onLogout={() => logout()} />}
       </div>
     </header>
   );

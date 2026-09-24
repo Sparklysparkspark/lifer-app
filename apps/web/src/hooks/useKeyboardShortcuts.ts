@@ -36,7 +36,8 @@ export function useKeyboardShortcuts(map: Record<string, (e: KeyboardEvent) => v
   useEffect(() => {
     if (!enabled) return;
     function handleKeyDown(e: KeyboardEvent) {
-      if (isTypingTarget(e.target)) return;
+      // defaultPrevented: an open dialog/menu already handled this key (see useEscapeToClose).
+      if (isTypingTarget(e.target) || e.defaultPrevented) return;
       const normalized = normalizeKey(e);
       const handler = mapRef.current[normalized];
       if (handler) handler(e);

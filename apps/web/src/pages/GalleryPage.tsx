@@ -16,6 +16,9 @@ import { usePhotoGridSize } from "../hooks/usePhotoGridSize";
 import { useSelectMode } from "../hooks/useSelectMode";
 import { useKeyboardShortcuts } from "../hooks/useKeyboardShortcuts";
 import { isTauri } from "../lib/tauri";
+import { useEnterToConfirm } from "../hooks/useEnterToConfirm";
+import { useEscapeToClose } from "../hooks/useEscapeToClose";
+import { useDeploymentMode, useIsTauri } from "../hooks/useDeploymentMode";
 import { useShowLabels } from "../hooks/useShowLabels";
 import { shotDataLine, estimateShotDataWrapExtraPx } from "../lib/shotData";
 import { ALL_TAXON_CLASSES, taxonDisplayLabel } from "@lifer/shared";
@@ -239,6 +242,18 @@ export default function GalleryPage() {
   } = useSelectMode(items, (item) => item.captureId, startInSelectMode);
   const [confirmingBatchDelete, setConfirmingBatchDelete] = useState(false);
   const [deleteRawToo, setDeleteRawToo] = useState(false);
+  // These take Escape before the select-mode shortcut below (it skips handled events).
+  useEnterToConfirm(() => confirmingDeleteKey && void confirmDelete(confirmingDeleteKey), !!confirmingDeleteKey && !deleting);
+  useEscapeToClose(() => setConfirmingDeleteKey(null), !!confirmingDeleteKey);
+  useEnterToConfirm(() => void confirmDeleteSelected(), confirmingBatchDelete && !deleting);
+  useEscapeToClose(() => {
+    setConfirmingBatchDelete(false);
+    setDeleteRawToo(false);
+  }, confirmingBatchDelete);
+  // Reveal runs on the API's machine, so it only makes sense for the desktop app's own local API.
+  const inTauriShell = useIsTauri();
+  const deploymentMode = useDeploymentMode();
+  const canRevealInFinder = inTauriShell && deploymentMode === "desktop";
   // "Correct the ID" — same reassign-in-place pattern as SpeciesDetailPage: no batch endpoint,
   // just a Promise.allSettled loop over PATCH /captures/:id/reassign per selected photo.
   const [reassigningCaptureId, setReassigningCaptureId] = useState<string | null>(null);
@@ -662,7 +677,7 @@ export default function GalleryPage() {
                     Download RAW
                   </button>
                 )}
-                {item.originalRef && !item.originalManaged && (
+                {canRevealInFinder && item.originalRef && !item.originalManaged && (
                   <button
                     type="button"
                     onClick={(e) => {

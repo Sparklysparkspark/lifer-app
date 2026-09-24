@@ -27,6 +27,9 @@ import PhotoPlaceholder from "../components/PhotoPlaceholder";
 import MasonryGrid from "../components/MasonryGrid";
 import { usePhotoGridSize } from "../hooks/usePhotoGridSize";
 import { useDropdownMenu } from "../hooks/useDropdownMenu";
+import { useEnterToConfirm } from "../hooks/useEnterToConfirm";
+import { useEscapeToClose } from "../hooks/useEscapeToClose";
+import { useDeploymentMode, useIsTauri } from "../hooks/useDeploymentMode";
 import { useUploadQueue } from "../lib/uploadQueue";
 import { shotDataLine, estimateShotDataWrapExtraPx } from "../lib/shotData";
 import { downloadFile } from "../lib/downloadFile";
@@ -231,6 +234,17 @@ export default function SpeciesDetailPage() {
   const [addRegionId, setAddRegionId] = useState<string | null>(null);
   const [addRegionStatus, setAddRegionStatus] = useState<"idle" | "saving" | "done" | "error">("idle");
   const [deleting, setDeleting] = useState(false);
+  useEnterToConfirm(() => void confirmDeleteSelected(), confirmingDelete && !deleting);
+  useEscapeToClose(() => {
+    setConfirmingDelete(false);
+    setDeleteRawToo(false);
+  }, confirmingDelete);
+  // The upload dialog has no single primary action, so Escape only.
+  useEscapeToClose(() => setShowUploadDialog(false), showUploadDialog);
+  // Reveal runs on the API's machine, so it only makes sense for the desktop app's own local API.
+  const isTauri = useIsTauri();
+  const deploymentMode = useDeploymentMode();
+  const canRevealInFinder = isTauri && deploymentMode === "desktop";
 
   // Target thumbnail width in px, fed to MasonryGrid instead of fixed Tailwind breakpoint
   // column counts, so it's a true continuous size control rather than a handful of discrete
@@ -1335,12 +1349,14 @@ export default function SpeciesDetailPage() {
                               )}
                               {!c.original_managed && (
                                 <>
-                                  <button
-                                    onClick={() => revealInFinder(c.original_ref!)}
-                                    className="block w-full px-3 py-1.5 text-left text-ink hover:bg-surface-muted"
-                                  >
-                                    Reveal in Finder
-                                  </button>
+                                  {canRevealInFinder && (
+                                    <button
+                                      onClick={() => revealInFinder(c.original_ref!)}
+                                      className="block w-full px-3 py-1.5 text-left text-ink hover:bg-surface-muted"
+                                    >
+                                      Reveal in Finder
+                                    </button>
+                                  )}
                                   <button
                                     onClick={() => {
                                       navigator.clipboard.writeText(c.original_ref!);

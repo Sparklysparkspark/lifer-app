@@ -153,6 +153,29 @@ fn get_config(window: WebviewWindow) -> Option<store::DesktopConfig> {
     store::read_config(&app_data_dir(window.app_handle()))
 }
 
+// Settings > Storage moves the library and then calls this so the next launch starts the API on
+// the new folder. The API also records the choice in its own settings file, but start_api always
+// passes DATA_DIR from this config and the env var wins, so without this the app came back up
+// pointed at the old, now-emptied folder. Only the local API's own page may call it, and only
+// while this install is in local mode.
+#[tauri::command]
+fn set_local_data_dir(window: WebviewWindow, data_dir: String) -> Result<(), String> {
+    let url = window.url().map_err(|e| e.to_string())?;
+    if !is_local_api(&url) {
+        return Err("Not allowed from this page.".into());
+    }
+    if !std::path::Path::new(&data_dir).is_absolute() {
+        return Err("The library folder must be an absolute path.".into());
+    }
+    let app_data = app_data_dir(window.app_handle());
+    let mut config = store::read_config(&app_data).unwrap_or_default();
+    if config.mode.as_deref() != Some("local") {
+        return Err("This install isn't using a local library.".into());
+    }
+    config.data_dir = Some(data_dir);
+    store::write_config(&app_data, &config).map_err(|e| e.to_string())
+}
+
 #[derive(serde::Deserialize)]
 struct ChooseSetupInput {
     mode: String,
@@ -504,7 +527,8 @@ pub fn run() {
             current_network_info,
             test_endpoint,
             test_login,
-            app_install_info
+            app_install_info,
+            set_local_data_dir
         ])
         .setup(|app| {
             let handle = app.handle().clone();

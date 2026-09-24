@@ -1,5 +1,6 @@
 import type { JobStatus } from "@lifer/shared";
 import { useJobPoll, type JobPoll } from "./useJobPoll";
+import { useDeploymentMode } from "./useDeploymentMode";
 
 export interface MigrationResult {
   migrated: number;
@@ -16,8 +17,9 @@ export type MigrationStatus = JobStatus<MigrationResult> & {
 };
 
 // Polled independently wherever it's used (the header indicator and the Settings migrate card)
-// since it's a cheap read of in-memory job status. 404s outside desktop mode, where status
-// stays null.
+// since it's a cheap read of in-memory job status. The endpoint only exists on a desktop API, so
+// nothing polls until the mode is known to be desktop.
 export function useMigrationStatus(pollMs = 3000): JobPoll<MigrationStatus> {
-  return useJobPoll<MigrationStatus>("/settings/migrate-to-server/status", { intervalMs: pollMs, idleIntervalMs: pollMs });
+  const enabled = useDeploymentMode() === "desktop";
+  return useJobPoll<MigrationStatus>("/settings/migrate-to-server/status", { intervalMs: pollMs, idleIntervalMs: pollMs, enabled });
 }

@@ -14,6 +14,7 @@
     currentNetworkInfo: () => invoke("current_network_info"),
     testEndpoint: (url) => invoke("test_endpoint", { url }),
     testLogin: (url, email, password) => invoke("test_login", { url, email, password }),
+    setLocalDataDir: (dataDir) => invoke("set_local_data_dir", { dataDir }),
     // window.__LIFER_PLATFORM__ is injected synchronously, before any page script runs, via
     // Rust's WebviewWindowBuilder::initialization_script (see src-tauri/src/lib.rs) — needed
     // as a sync value (not an invoke() Promise) because main.tsx reads it on first paint to

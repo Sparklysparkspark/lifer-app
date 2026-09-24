@@ -130,6 +130,8 @@ const STEPS: Step[] = [
         Trips references an existing folder you have in place. It never copies or moves your photos. The{" "}
         <PageLink to="/trips">Trips</PageLink> page lets you point Lifer at an entire trip folder, and
         re-scanning the same trip later picks up any new photos, and their matching RAWs, automatically.
+        On a server install, the folder has to be inside the library folder or a folder the admin declared
+        with LIFER_LIBRARY_ROOTS.
         <br />
         <br />
         For this feature you'll want to organize the files into "Adjusted" and "RAW" folders so that the
@@ -209,6 +211,10 @@ export default function GuidePage() {
             instead of just breaking. When you're ready to consolidate onto one drive or a NAS,{" "}
             <PageLink to="/settings/library">Settings → Library → Reimport library</PageLink> can move
             everything over in one step.
+          </p>
+          <p className="mt-2">
+            On a server install, the admin declares extra folders with LIFER_LIBRARY_ROOTS instead, and{" "}
+            <PageLink to="/settings/storage">Settings → Storage</PageLink> lists them.
           </p>
         </div>
 

@@ -31,6 +31,13 @@ export interface JobPoll<S> {
   clearActionError: () => void;
 }
 
+// Keep polling through a transient failure mid-run; otherwise follow the idle cadence. A 404
+// means the endpoint doesn't exist here, and waiting won't turn it into a 200.
+export function nextPollDelay(opts: { notFound: boolean; running: boolean; intervalMs: number; idleIntervalMs: number | null }): number | null {
+  if (opts.notFound) return null;
+  return opts.running ? opts.intervalMs : opts.idleIntervalMs;
+}
+
 // Polls a JobStatus endpoint (see packages/shared/src/job.ts) while its job runs. One recursive
 // setTimeout per mounted hook, torn down on unmount or URL change, and responses that arrive
 // after that are dropped, so nothing calls setState on an unmounted component.
@@ -62,6 +69,7 @@ export function useJobPoll<S extends JobStatus<unknown> = JobStatus<unknown>>(
     if (timer.current) clearTimeout(timer.current);
     timer.current = null;
     let next: S | null = null;
+    let notFound = false;
     try {
       next = await api.get<S>(statusUrl);
       if (mySession !== session.current) return null;
@@ -72,11 +80,11 @@ export function useJobPoll<S extends JobStatus<unknown> = JobStatus<unknown>>(
     } catch (err) {
       if (mySession !== session.current) return null;
       setLoadError(errorMessage(err, "Couldn't reach the server"));
+      notFound = err instanceof ApiError && err.status === 404;
     }
     if (mySession === session.current && mySeq === pollSeq.current) {
-      // Keep polling through a transient failure mid-run; otherwise follow the idle cadence.
       const running = next ? next.running : wasRunning.current;
-      const delay = running ? intervalMs : idleIntervalMs;
+      const delay = nextPollDelay({ notFound, running, intervalMs, idleIntervalMs });
       if (delay != null) timer.current = setTimeout(() => void poll(), delay);
     }
     return next;

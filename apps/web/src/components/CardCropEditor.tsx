@@ -1,5 +1,7 @@
 import { useRef, useState } from "react";
 import { cropToImageStyle } from "../lib/crop";
+import { useEnterToConfirm } from "../hooks/useEnterToConfirm";
+import { useEscapeToClose } from "../hooks/useEscapeToClose";
 
 const MIN_SIZE_PX = 40;
 
@@ -111,6 +113,10 @@ export default function CardCropEditor({
       setSaving(false);
     }
   }
+
+  // Enter saves (the main action; there's no text field to submit a <form> with), Escape cancels.
+  useEnterToConfirm(save, !saving && !!box);
+  useEscapeToClose(onClose);
 
   const previewCrop = box && imgSize
     ? { x: (box.left / imgSize.width) * 100, y: (box.top / imgSize.width) * 100, size: (box.size / imgSize.width) * 100 }

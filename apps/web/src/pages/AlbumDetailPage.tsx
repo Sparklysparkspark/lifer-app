@@ -17,7 +17,7 @@ import EmptyState from "../components/EmptyState";
 import { useDropdownMenu } from "../hooks/useDropdownMenu";
 import { usePhotoGridSize } from "../hooks/usePhotoGridSize";
 import { useShowLabels } from "../hooks/useShowLabels";
-import { useDesktopMode } from "../hooks/useDesktopMode";
+import { useDeploymentMode } from "../hooks/useDeploymentMode";
 import Select from "../components/Select";
 import { downloadFile } from "../lib/downloadFile";
 import FilterPopover, { FilterFieldLabel } from "../components/FilterPopover";
@@ -76,7 +76,7 @@ export default function AlbumDetailPage() {
   const [dateTo, setDateTo] = useState("");
   const [dateRangeOpen, setDateRangeOpen] = useState(false);
   const { openKey: openMenuKey, setOpenKey: setOpenMenuKey, ref: openMenuRef } = useDropdownMenu<string>();
-  const isDesktopMode = useDesktopMode();
+  const isServerMode = useDeploymentMode() === "server";
   const [view, setView] = useState<AlbumView>("gallery");
   const [speciesItems, setSpeciesItems] = useState<CollectionItem[] | null>(null);
   const [croppingCoverPhotoUrl, setCroppingCoverPhotoUrl] = useState<string | null>(null);
@@ -426,7 +426,7 @@ export default function AlbumDetailPage() {
                with no public URL to hand out, and SINGLE_USER_MODE has no real session system
                underneath the owner-side management endpoints to protect (see the plan this was
                built from). */}
-            {!isDesktopMode && (
+            {isServerMode && (
               <button
                 onClick={() => {
                   setShowSharePanel((s) => !s);
@@ -484,7 +484,7 @@ export default function AlbumDetailPage() {
         </div>
       )}
 
-      {showSharePanel && !isDesktopMode && (
+      {showSharePanel && isServerMode && (
         <div className="border-b border-line bg-surface-muted px-6 py-4">
           <div className="max-w-lg space-y-3">
             <form onSubmit={createShare} className="space-y-2 rounded-lg border border-line bg-surface p-3">

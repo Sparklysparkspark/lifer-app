@@ -6,6 +6,7 @@ import { requireAuth } from "../auth/session.js";
 import { revealFile } from "./browse.js";
 import { resolveOriginalPath } from "../storageVolumes/resolve.js";
 import { contentDisposition } from "../lib/httpFile.js";
+import { requireDesktopMode } from "../settings/routes.js";
 
 interface OriginalRow {
   ref: string;
@@ -40,6 +41,9 @@ export async function originalsRoutes(app: FastifyInstance): Promise<void> {
   });
 
   app.post<{ Body: { path?: string } }>("/originals/reveal", { preHandler: requireAuth }, async (request, reply) => {
+    // Shells out to open/xdg-open on the machine running the API, which is only the user's
+    // own screen on desktop. On a server it would fail, or pop a window on the server itself.
+    if (!requireDesktopMode(reply)) return;
     const { path: filePath } = request.body ?? {};
     if (!filePath) return reply.code(400).send({ error: "path is required" });
 
