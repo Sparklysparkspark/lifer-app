@@ -32,7 +32,8 @@ RUN npm run build -w web
 # (apps/desktop/scripts/fetch-catalog-seed.js). Without this, a fresh container's very first
 # launch needed live network access to GitHub before Offline Packs/checklists showed anything
 # (see catalogSeedUpdate.ts's seedCatalogIfEmpty, which prefers this bundled copy and only
-# falls back to a live download if it's missing).
+# falls back to a live download if it's missing). Also writes a small regions-only copy, so a
+# fresh container's onboarding can list countries within a second of starting.
 RUN node apps/api/scripts/fetch-catalog-seed.js
 
 # The CLIP ViT-L/14 embedding model (species suggestions + gallery semantic search) is

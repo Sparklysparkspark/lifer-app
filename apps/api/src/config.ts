@@ -46,7 +46,13 @@ export const ORIGINALS_DIR = path.join(DATA_DIR, "Lifer Photos");
 // this comment's own first sentence says shouldn't happen. Falls back to its own repo-relative
 // default (a sibling of DATA_DIR's own default, not inside it) for the same reason DATA_DIR has
 // one: local dev with no env vars set still needs somewhere real to write to.
-export const APP_DATA_DIR = process.env.APP_DATA_DIR ?? path.join(REPO_ROOT, "data", "lifer-app-data");
+//
+// But when DATA_DIR is set and APP_DATA_DIR isn't (a Docker compose file from before the
+// /app-data volume existed), keep the old shared-folder behavior. The repo-relative default
+// would sit inside the container's own filesystem there, which every image update wipes, so
+// the map and model would re-download after each update and thumbnails would be lost.
+export const APP_DATA_DIR =
+  process.env.APP_DATA_DIR ?? (process.env.DATA_DIR ? DATA_DIR : path.join(REPO_ROOT, "data", "lifer-app-data"));
 // Offline basemap tiles (PMTiles — a single-file, range-requested vector tile archive from
 // Protomaps/OpenStreetMap) — not user data, so served unauthenticated like any other static
 // basemap tile source.

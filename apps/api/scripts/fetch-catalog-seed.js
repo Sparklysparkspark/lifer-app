@@ -9,6 +9,8 @@ import path from "node:path";
 import { Readable } from "node:stream";
 import { fileURLToPath } from "node:url";
 import { pipeline } from "node:stream/promises";
+import { createGunzip, createGzip } from "node:zlib";
+import readline from "node:readline";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.join(__dirname, "..", "..", "..");
@@ -54,6 +56,47 @@ async function main() {
     throw new Error("Seed checksum doesn't match the manifest");
   }
   console.log(`[fetch-catalog-seed] wrote ${dest} (${(bytes / 1048576).toFixed(1)} MB)`);
+  await extractRegions(dest, path.join(destDir, "lifer-catalog-regions.sql.gz"));
+}
+
+// A light copy of the seed's regions table (names and hierarchy, no map outlines), so a fresh
+// server can list countries in onboarding within a second while the full catalog is still
+// loading (see catalogSeedUpdate.ts's seedEmptyCatalog). The outlines are most of the table's
+// ~100 MB and the full load fills them in right after. COPY text format escapes tabs inside
+// values, so splitting a row on tabs is exact.
+const HEAVY_REGION_COLUMNS = new Set(["boundary_geojson", "gbif_area_wkt"]);
+
+async function extractRegions(seedPath, outPath) {
+  const lines = readline.createInterface({ input: createReadStream(seedPath).pipe(createGunzip()), crlfDelay: Infinity });
+  const out = [];
+  let keep = null; // column indexes to keep, once the regions header is found
+  for await (const line of lines) {
+    if (!keep) {
+      const header = /^(COPY (?:public\.)?regions) \((.*)\) FROM stdin;$/.exec(line);
+      if (header) {
+        const columns = header[2].split(",").map((c) => c.trim());
+        keep = columns.map((c, i) => (HEAVY_REGION_COLUMNS.has(c.replace(/"/g, "")) ? -1 : i)).filter((i) => i >= 0);
+        out.push(`${header[1]} (${keep.map((i) => columns[i]).join(", ")}) FROM stdin;`);
+      }
+      continue;
+    }
+    if (line === "\\.") {
+      out.push(line);
+      break;
+    }
+    const fields = line.split("\t");
+    out.push(keep.map((i) => fields[i]).join("\t"));
+  }
+  lines.close();
+  if (!keep || out[out.length - 1] !== "\\.") {
+    console.warn("[fetch-catalog-seed] no complete regions table in the seed; skipping the regions-only file");
+    return;
+  }
+  const gzip = createGzip();
+  const done = pipeline(gzip, createWriteStream(outPath));
+  gzip.end(out.join("\n") + "\n");
+  await done;
+  console.log(`[fetch-catalog-seed] wrote ${outPath} (${out.length - 2} regions)`);
 }
 
 main().catch((err) => {

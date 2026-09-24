@@ -15,6 +15,19 @@ Categories: `Added`, `Changed`, `Fixed`, `Removed` — omit any with nothing to 
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-09-24
+
+### Fixed
+
+- On a brand-new self-hosted install, the first-run "Download a region" step lists every country
+  right away instead of showing an empty list while Lifer loads its species catalog in the
+  background. You can pick countries and start a download immediately; if the catalog is still
+  loading, the download shows "Finishing setup" and continues on its own when it's ready.
+- Upgrading a self-hosted install with an older `docker-compose.yml` (no `APP_DATA_DIR` line) no
+  longer puts the offline map, model, and thumbnails inside the container, where each update
+  would wipe them. They stay next to your photos as before. To move them out of your photo folder,
+  add `APP_DATA_DIR: /app-data` and a volume for it, as in the current `docker-compose.yml`.
+
 ## [0.6.0] - 2026-09-24
 
 ### Added

@@ -95,8 +95,14 @@ type Progress = Pick<JobContext<CatalogMergeResult>, "update" | "throwIfCancelle
 
 /** Streams the gzipped dump into one temp table per catalog table. Returns the column list
  * (unquoted) each table's COPY block carried. */
-async function loadSeedIntoTempTables(client: PoolClient, seedPath: string, progress: Progress): Promise<Map<string, string[]>> {
+async function loadSeedIntoTempTables(
+  client: PoolClient,
+  seedPath: string,
+  progress: Progress,
+  onlyTables?: Set<string>,
+): Promise<Map<string, string[]>> {
   const loaded = new Map<string, string[]>();
+  const wanted = (table: string) => LOADED_TABLES.has(table) && (!onlyTables || onlyTables.has(table));
   const totalBytes = statSync(seedPath).size;
   let readBytes = 0;
   const counter = new Transform({
@@ -135,7 +141,7 @@ async function loadSeedIntoTempTables(client: PoolClient, seedPath: string, prog
       const table = unquote(match[1]);
       const columns = match[2].split(",").map((c) => unquote(c.trim()));
 
-      if (!LOADED_TABLES.has(table)) {
+      if (!wanted(table)) {
         for await (const _ of blockBody()) void _; // skip
         continue;
       }
@@ -146,6 +152,8 @@ async function loadSeedIntoTempTables(client: PoolClient, seedPath: string, prog
       );
       await copyInto(client, `COPY ${ident(tmpName(table))} (${columns.map(ident).join(", ")}) FROM STDIN`, blockBody());
       loaded.set(table, columns);
+      // A partial load can stop reading as soon as it has everything it asked for.
+      if (onlyTables && [...onlyTables].every((t) => loaded.has(t))) break;
     }
   } finally {
     gunzip.destroy();
@@ -359,17 +367,20 @@ async function mergeLegacyGalleryEmbeddings(client: PoolClient): Promise<number>
 
 /** Applies a seed file already on disk, in one transaction. `version` (when known) is recorded
  * as applied in that same transaction. */
+/** `onlyTables` merges just those tables (used to get regions in first on a fresh server) and
+ *  never records a catalog version, since the catalog isn't complete after it. */
 export async function applyCatalogSeedFile(
   pool: Pool,
   seedPath: string,
   version: number | null,
   progress: Progress,
+  onlyTables?: string[],
 ): Promise<Record<string, number>> {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
     progress.update({ phase: "applying", processed: 0, total: null });
-    const loaded = await loadSeedIntoTempTables(client, seedPath, progress);
+    const loaded = await loadSeedIntoTempTables(client, seedPath, progress, onlyTables ? new Set(onlyTables) : undefined);
 
     const steps = MERGE_TABLES.filter((t) => loaded.has(t.table));
     const total = steps.length + (loaded.has(PHOTOS_TABLE) ? 1 : 0) + (loaded.has(LEGACY_GALLERY_TABLE) ? 1 : 0);
@@ -397,7 +408,7 @@ export async function applyCatalogSeedFile(
     }
 
     progress.throwIfCancelled();
-    if (version != null) await setInstallSetting(client, CATALOG_SEED_VERSION_KEY, version);
+    if (version != null && !onlyTables) await setInstallSetting(client, CATALOG_SEED_VERSION_KEY, version);
     await client.query("COMMIT");
     progress.update({ processed: total, currentItem: null });
     return merged;
@@ -490,20 +501,70 @@ function bundledSeed(): { path: string; version: number | null } | null {
   return { path: seedPath, version };
 }
 
+// First-boot seed progress. A fresh server loads its catalog in the background right after it
+// starts: regions first (about a second) so onboarding can list countries immediately, then
+// everything else (a minute on a laptop, several on a NAS). Pack downloads wait for the whole
+// thing before writing anything (waitForFirstBootCatalog), so a user can pick and start a
+// download without ever seeing this.
+let firstBootSeedState: "running" | "failed" | null = null;
+let firstBootSeed: Promise<unknown> = Promise.resolve();
+export function catalogFirstBootState(): "running" | "failed" | null {
+  return firstBootSeedState;
+}
+
+/** Resolves once any first-boot catalog load has finished; throws if it failed. */
+export async function waitForFirstBootCatalog(): Promise<void> {
+  await firstBootSeed.catch(() => {});
+  if (firstBootSeedState === "failed") {
+    throw new Error("Lifer couldn't load its species catalog. Restart the server to try again.");
+  }
+}
+
 /** Fills an empty catalog on server startup (Docker/self-hosted first boot). Prefers the seed
  * baked into the image; falls back to downloading it. Callers log and swallow failures so a
  * failed auto-seed never blocks startup. */
-export async function seedCatalogIfEmpty(pool: Pool): Promise<{ seeded: boolean; merged?: Record<string, number> }> {
-  const res = await pool.query<{ count: string }>(`SELECT count(*) FROM species`);
-  if (Number(res.rows[0].count) > 0) return { seeded: false };
+export function seedCatalogIfEmpty(pool: Pool): Promise<{ seeded: boolean; merged?: Record<string, number> }> {
+  // Marked running before the first await so nothing asking in between sees "not loading".
+  firstBootSeedState = "running";
+  const run = (async () => {
+    const res = await pool.query<{ count: string }>(`SELECT count(*) FROM species`);
+    if (Number(res.rows[0].count) > 0) return { seeded: false };
+    return seedEmptyCatalog(pool);
+  })().then(
+    (result) => {
+      firstBootSeedState = null;
+      return result;
+    },
+    (err) => {
+      firstBootSeedState = "failed";
+      throw err;
+    },
+  );
+  firstBootSeed = run;
+  return run;
+}
+
+async function seedEmptyCatalog(pool: Pool): Promise<{ seeded: boolean; merged?: Record<string, number> }> {
   const bundled = bundledSeed();
+  let seedPath: string;
+  let version: number | null;
   if (bundled) {
-    const merged = await applyCatalogSeedFile(pool, bundled.path, bundled.version, noProgress);
-    return { seeded: true, merged };
+    ({ path: seedPath, version } = bundled);
+  } else {
+    const manifest = await fetchCatalogManifest();
+    seedPath = await downloadSeed(manifest, { signal: new AbortController().signal, update: () => {} });
+    version = manifest.version;
   }
-  const manifest = await fetchCatalogManifest();
-  const seedPath = await downloadSeed(manifest, { signal: new AbortController().signal, update: () => {} });
-  const merged = await applyCatalogSeedFile(pool, seedPath, manifest.version, noProgress);
-  rmSync(seedPath, { force: true });
-  return { seeded: true, merged };
+  try {
+    // Regions on their own first, committed, so the country list works while the rest loads.
+    // The Docker image ships a regions-only copy for this (fetch-catalog-seed.js), which reads
+    // in well under a second; the full file works too, just slower. The full pass below merges
+    // regions again by id, which is a no-op for identical rows.
+    const regionsOnly = path.join(BUNDLED_CATALOG_SEED_DIR, "lifer-catalog-regions.sql.gz");
+    await applyCatalogSeedFile(pool, bundled && existsSync(regionsOnly) ? regionsOnly : seedPath, null, noProgress, ["regions"]);
+    const merged = await applyCatalogSeedFile(pool, seedPath, version, noProgress);
+    return { seeded: true, merged };
+  } finally {
+    if (!bundled) rmSync(seedPath, { force: true });
+  }
 }

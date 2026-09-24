@@ -13,7 +13,7 @@ import { extractExif } from "../uploads/exif.js";
 import { syncCaptureXmpSidecarsLogged } from "../uploads/xmpSidecarSync.js";
 import { resyncSpeciesMetadata } from "../captures/routes.js";
 import { readLocalSettings, writeLocalSettings } from "../localSettings.js";
-import { checkCatalogUpdate, startCatalogUpdateJob, catalogUpdate } from "../species/catalogSeedUpdate.js";
+import { checkCatalogUpdate, startCatalogUpdateJob, catalogUpdate, catalogFirstBootState } from "../species/catalogSeedUpdate.js";
 import { modelDownload, startModelDownloadJob } from "../species/modelDownloadJob.js";
 import { isModelDownloaded, offloadModel, MODEL_DIR } from "../species/embeddings.js";
 import { isTextModelDownloaded } from "../species/textEmbedding.js";
@@ -206,6 +206,8 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
       // which kind of install this is, so the web app never has to infer the mode from a 404.
       dataDir: DATA_DIR,
       deploymentMode: SINGLE_USER_MODE ? "desktop" : "server",
+      // "running" while a fresh server is still loading its species/region catalog.
+      catalogLoading: catalogFirstBootState(),
       libraryRoots: SINGLE_USER_MODE ? [] : LIBRARY_ROOTS,
     };
   });
