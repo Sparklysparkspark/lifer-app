@@ -9,7 +9,27 @@ permissions:
   packages: write
 
 jobs:
+  # Creates the release as a DRAFT up front, so "latest" never points at a release whose
+  # latest.json hasn't been uploaded yet (a failed Windows leg once left v0.5.6 published with no
+  # manifest, which 404'd the updater for every user). merge-update-manifest publishes it.
+  create-release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          node apps/desktop/scripts/extract-changelog-section.js "${GITHUB_REF_NAME#v}" > "$RUNNER_TEMP/notes.md"
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            echo "Release $GITHUB_REF_NAME already exists (re-run), reusing it"
+          else
+            gh release create "$GITHUB_REF_NAME" --draft --verify-tag --title "$GITHUB_REF_NAME" \
+              --notes-file "$RUNNER_TEMP/notes.md" --generate-notes
+          fi
+
   desktop:
+    needs: create-release
     strategy:
       # Each OS builds only its own installer format (zipped .app + signed updater artifact on
       # macOS — see below, tauri-bundler's dmg target hits a bundle_dmg.sh bug on current
@@ -22,15 +42,8 @@ jobs:
       # so .deb stays download-and-reinstall-to-update; AppImage and every other platform get a
       # real in-app update check).
       #
-      # Intel Mac (x86_64) support used to be its own matrix entry (macos-13) but GitHub has
-      # since retired that hosted runner image entirely — its job never gets a runner assigned
-      # (confirmed via the Actions API: runner_id stays 0 indefinitely) and just queues forever,
-      # which in turn means merge-update-manifest below (needs: desktop, i.e. every matrix leg)
-      # never runs either, silently breaking the auto-updater manifest for EVERY release since
-      # macos-13 was added — the per-OS installer uploads still happened fine since those are
-      # separate steps inside this same job, just not the updater manifest merge. Only Apple
-      # Silicon (macos-14) is buildable on GitHub-hosted runners now; Intel Mac support is
-      # dropped from CI until/unless a self-hosted x86_64 macOS runner is set up.
+      # Intel Mac (x86_64) is dropped from CI: GitHub retired the macos-13 runner, so that leg
+      # queued forever. Only Apple Silicon (macos-14) builds on hosted runners now.
       fail-fast: false
       matrix:
         os: [macos-14, windows-latest, ubuntu-latest]
@@ -69,26 +82,6 @@ jobs:
           jq --arg v "$VERSION" '.version = $v' apps/desktop/src-tauri/tauri.conf.json > /tmp/tauri.conf.json
           mv /tmp/tauri.conf.json apps/desktop/src-tauri/tauri.conf.json
           echo "LIFER_RELEASE_VERSION=$VERSION" >> "$GITHUB_ENV"
-      # Pulled into the GitHub release body below (see CHANGELOG.md's own header comment) — this
-      # is what apps/web/src/pages/SettingsPage.tsx's AppUpdatesSection actually shows the user
-      # (`update.body`, from the Tauri updater manifest, which is sourced from the release this
-      # same tag creates). Prefers a heading already renamed to this version
-      # (`## [$VERSION]`); falls back to `## [Unreleased]` if whoever cut this release forgot to
-      # rename it first, rather than shipping an empty body.
-      - name: Extract this version's changelog section
-        shell: bash
-        run: |
-          awk -v ver="$LIFER_RELEASE_VERSION" '
-            /^## \[/ { if (found) exit; if ($0 ~ "\\[" ver "\\]") found=1; next }
-            found { print }
-          ' CHANGELOG.md > /tmp/changelog-section.md
-          if [ ! -s /tmp/changelog-section.md ]; then
-            awk '
-              /^## \[Unreleased\]/ { found=1; next }
-              /^## \[/ { if (found) exit; next }
-              found { print }
-            ' CHANGELOG.md > /tmp/changelog-section.md
-          fi
       # Linux only: linuxdeploy (and its bundled AppImage plugins) ship as legacy AppImages that
       # self-mount via FUSE when executed — current ubuntu-latest (24.04) runners block
       # unprivileged FUSE mounts via AppArmor even with libfuse2 installed and /dev/fuse
@@ -103,6 +96,34 @@ jobs:
       # no-op elsewhere) makes tauri-bundler print linuxdeploy's actual stdout/stderr instead of
       # its generic wrapper error, since that's the only way to see the real failure short of
       # attaching a debugger to a hosted runner.
+      # Signs the macOS app with a stable self-signed "Lifer" identity (see resign-macos.js) so
+      # macOS folder permissions and the updater's code requirement survive across versions.
+      # Skipped (ad-hoc signing) when the secret isn't set.
+      - name: Import macOS signing certificate
+        if: startsWith(matrix.os, 'macos')
+        env:
+          MACOS_CERT_P12_BASE64: ${{ secrets.MACOS_CERT_P12_BASE64 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+        shell: bash
+        run: |
+          if [ -z "$MACOS_CERT_P12_BASE64" ]; then
+            echo "MACOS_CERT_P12_BASE64 not set, falling back to ad-hoc signing"
+            exit 0
+          fi
+          KEYCHAIN="$RUNNER_TEMP/lifer-signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -hex 16)"
+          echo "$MACOS_CERT_P12_BASE64" | base64 --decode > "$RUNNER_TEMP/lifer.p12"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security import "$RUNNER_TEMP/lifer.p12" -k "$KEYCHAIN" -P "$MACOS_CERT_PASSWORD" -T /usr/bin/codesign
+          rm "$RUNNER_TEMP/lifer.p12"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
+          # codesign will sign with this identity by name even though it isn't in the system
+          # trust store (confirmed: `security find-identity -v` reports it untrusted, but a
+          # plain `codesign -s Lifer` still signs fine), so no system trust step is needed here.
+          echo "MACOS_SIGNING_IDENTITY=Lifer" >> "$GITHUB_ENV"
       - run: npm run dist -w desktop
         env:
           APPIMAGE_EXTRACT_AND_RUN: "1"
@@ -131,40 +152,41 @@ jobs:
         with:
           name: update-manifest-${{ matrix.os }}
           path: apps/desktop/src-tauri/target/release/bundle/update-manifest/latest-*.json
-      - name: Upload macOS installers to the release
-        if: startsWith(matrix.os, 'macos')
-        uses: softprops/action-gh-release@v2
-        with:
-          body_path: /tmp/changelog-section.md
-          generate_release_notes: true
-          files: |
-            apps/desktop/src-tauri/target/release/bundle/macos/Lifer-macos-*.zip
-            apps/desktop/src-tauri/target/release/bundle/macos/Lifer-*.app.tar.gz
-            apps/desktop/src-tauri/target/release/bundle/macos/Lifer-*.app.tar.gz.sig
-      - name: Upload Windows installer to the release
-        if: matrix.os == 'windows-latest'
-        uses: softprops/action-gh-release@v2
-        with:
-          body_path: /tmp/changelog-section.md
-          generate_release_notes: true
-          files: |
-            apps/desktop/src-tauri/target/release/bundle/nsis/*.exe
-      - name: Upload Linux installers to the release
-        if: matrix.os == 'ubuntu-latest'
-        uses: softprops/action-gh-release@v2
-        with:
-          body_path: /tmp/changelog-section.md
-          generate_release_notes: true
-          files: |
-            apps/desktop/src-tauri/target/release/bundle/deb/*.deb
-            apps/desktop/src-tauri/target/release/bundle/appimage/*.AppImage
+      # NSIS can't build an installer over 2GB, and anything near that makes every update a huge
+      # download. Fail early with a clear message instead of an opaque makensis error.
+      - name: Check installer sizes
+        shell: bash
+        run: |
+          big=$(find apps/desktop/src-tauri/target/release/bundle -maxdepth 2 -type f \
+            \( -name '*.exe' -o -name '*.zip' -o -name '*.tar.gz' -o -name '*.AppImage' -o -name '*.deb' \) -size +1536M)
+          if [ -n "$big" ]; then
+            echo "::error::Installer over 1.5GB (is the catalog seed or a model being bundled?):"
+            ls -lh $big
+            exit 1
+          fi
+      - name: Upload installers to the draft release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          B=apps/desktop/src-tauri/target/release/bundle
+          case "${{ matrix.os }}" in
+            macos-*) files=("$B"/macos/Lifer-macos-*.zip "$B"/macos/Lifer-*.app.tar.gz "$B"/macos/Lifer-*.app.tar.gz.sig) ;;
+            windows-*) files=("$B"/nsis/*.exe) ;;
+            ubuntu-*) files=("$B"/deb/*.deb "$B"/appimage/*.AppImage) ;;
+          esac
+          gh release upload "$GITHUB_REF_NAME" "${files[@]}" --clobber
 
   # Combines every matrix job's partial updater manifest (macOS, Windows, Linux) into the single
   # real latest.json the release ships — see merge-update-manifests.js's own comment for why this
   # can't just be another step inside the `desktop` matrix job (each matrix job only ever sees
   # its own platform's output; this needs all of them).
+  # Runs even when a platform leg failed (one broken OS must not break updates for the others);
+  # merge-update-manifests.js warns about missing platforms instead of failing. Publishing the
+  # draft happens only here, after latest.json is attached.
   merge-update-manifest:
-    needs: desktop
+    needs: [create-release, desktop]
+    if: ${{ !cancelled() && needs.create-release.result == 'success' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -172,10 +194,14 @@ jobs:
         with:
           pattern: update-manifest-*
           path: /tmp/update-manifests
-      - run: node apps/desktop/scripts/merge-update-manifests.js /tmp/update-manifests /tmp/latest.json
-      - uses: softprops/action-gh-release@v2
-        with:
-          files: /tmp/latest.json
+      - run: node apps/desktop/scripts/extract-changelog-section.js "${GITHUB_REF_NAME#v}" > /tmp/notes.md
+      - run: node apps/desktop/scripts/merge-update-manifests.js /tmp/update-manifests /tmp/latest.json /tmp/notes.md
+      - name: Attach latest.json and publish the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "$GITHUB_REF_NAME" /tmp/latest.json --clobber
+          gh release edit "$GITHUB_REF_NAME" --draft=false --latest
 
   docker-image:
     runs-on: ubuntu-latest
