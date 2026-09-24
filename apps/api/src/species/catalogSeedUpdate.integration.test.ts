@@ -158,6 +158,55 @@ describe.skipIf(!url)("applyCatalogSeedFile (integration)", () => {
     await expect(applyCatalogSeedFile(pool, file, null, noProgress)).resolves.toBeTruthy();
   });
 
+  it("matches an existing region by name+parent when the seed uses a different id for it, and remaps region_species to the local id", async () => {
+    // Real bug, confirmed live: a region's canonical id can change upstream (this project has a
+    // whole migration, 004_dedupe_regions.sql, for exactly this kind of cleanup). An install that
+    // last synced before such a change has the existing row under the OLD id; the seed now
+    // publishes it under a NEW id. Naive insert-by-id sees no id match and tries to insert a
+    // second row, colliding on (name, parent_id) with the one that's already there.
+    const OLD_GEORGIA = "77777777-7777-4777-8777-777777777701";
+    const SEED_GEORGIA = "77777777-7777-4777-8777-777777777702";
+    const OTHER_SPECIES = "77777777-7777-4777-8777-777777777703";
+    await client_cleanup();
+    async function client_cleanup() {
+      await pool.query(`DELETE FROM region_species WHERE region_id = ANY($1)`, [[OLD_GEORGIA, SEED_GEORGIA]]);
+      await pool.query(`DELETE FROM regions WHERE id = ANY($1)`, [[OLD_GEORGIA, SEED_GEORGIA]]);
+      await pool.query(`DELETE FROM species WHERE id = $1`, [OTHER_SPECIES]);
+    }
+    await pool.query(
+      `INSERT INTO species (id, gbif_key, scientific_name, taxon_class) VALUES ($1, 999, 'Testus otherus', 'Aves')`,
+      [OTHER_SPECIES],
+    );
+    // The existing local row, under the OLD id, with real region_species data already attached.
+    await pool.query(`INSERT INTO regions (id, name, parent_id) VALUES ($1, 'Georgia', NULL)`, [OLD_GEORGIA]);
+    await pool.query(`INSERT INTO region_species (region_id, species_id, local_tier) VALUES ($1, $2, 'common')`, [OLD_GEORGIA, OTHER_SPECIES]);
+
+    const dump = [
+      "COPY public.regions (id, name, parent_id) FROM stdin;",
+      `${SEED_GEORGIA}\tGeorgia\t\\N`,
+      "\\.",
+      "",
+      "COPY public.region_species (region_id, species_id, is_vagrant, is_invasive) FROM stdin;",
+      `${SEED_GEORGIA}\t${OTHER_SPECIES}\tf\tf`,
+      "\\.",
+      "",
+    ].join("\n");
+    const file = path.join(mkdtempSync(path.join(os.tmpdir(), "lifer-region-remap-test-")), "seed.sql.gz");
+    writeFileSync(file, gzipSync(dump));
+
+    await expect(applyCatalogSeedFile(pool, file, null, noProgress)).resolves.toBeTruthy();
+
+    // Still exactly one Georgia, under its original (old) id -- nothing new was inserted.
+    const regions = await pool.query(`SELECT id FROM regions WHERE name = 'Georgia'`);
+    expect(regions.rows).toEqual([{ id: OLD_GEORGIA }]);
+
+    // The seed's region_species row (naming the NEW id) followed the remap onto the OLD, real id.
+    const rs = await pool.query(`SELECT region_id FROM region_species WHERE species_id = $1`, [OTHER_SPECIES]);
+    expect(rs.rows).toEqual([{ region_id: OLD_GEORGIA }]);
+
+    await client_cleanup();
+  });
+
   it("rolls back on bad data without leaving partial rows", async () => {
     const file = seedFile([
       [SPECIES, "1", "Ardea herodias", "Aves", "\\N", "x"],

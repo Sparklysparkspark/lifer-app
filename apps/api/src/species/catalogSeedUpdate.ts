@@ -181,9 +181,12 @@ async function mergeGenericTable(
   client: PoolClient,
   spec: (typeof MERGE_TABLES)[number],
   seedColumns: string[],
+  loadedTables: Set<string>,
 ): Promise<number> {
   const { table, pkColumns, excludeFromUpdate } = spec;
-  if (table in SELF_REFERENCING_PARENT_COLUMN) return mergeSelfReferencingTable(client, table, SELF_REFERENCING_PARENT_COLUMN[table], seedColumns);
+  if (table in SELF_REFERENCING_PARENT_COLUMN) {
+    return mergeSelfReferencingTable(client, table, SELF_REFERENCING_PARENT_COLUMN[table], seedColumns, loadedTables);
+  }
 
   const cols = await sharedColumns(client, table, seedColumns);
   const select = cols.map((c) => `${ident(c.name)}::${c.type}`);
@@ -201,49 +204,115 @@ async function mergeGenericTable(
 }
 
 // regions has both a self-reference (a province's parent_id points at its country) and a
-// UNIQUE(name, parent_id) constraint (migration 049), checked immediately, not deferred. The
-// old approach (insert every row with parent_id forced NULL, then a second pass to set the
-// real value) could insert two DIFFERENT brand-new regions that happen to share a name with
-// parent_id NULL at the same instant, which collided with that constraint even though their
-// real, final parents were never the same — confirmed live: "duplicate key value violates
-// unique constraint regions_name_parent_id_key" partway through a real update, on a real
-// install. Fixed by inserting in topological order (parent before child) so every row's REAL
-// parent_id is used from the moment it's inserted, and no row is ever transiently orphaned.
-async function mergeSelfReferencingTable(client: PoolClient, table: string, selfRefColumn: string, seedColumns: string[]): Promise<number> {
+// UNIQUE(name, parent_id) constraint (migration 049), checked immediately, not deferred, which
+// created two separate real failures:
+//
+// 1. The old approach (insert every row with parent_id forced NULL, then fix it up in a second
+//    pass) could insert two DIFFERENT brand-new regions that happen to share a name with
+//    parent_id NULL at the same instant, colliding even though their real, final parents were
+//    never the same. Fixed by inserting in topological order (parent before child) so every
+//    row's REAL parent_id is used from the moment it's inserted - see the round-based loop below.
+//
+// 2. Separately (confirmed live, on a real update against a real install): a region's canonical
+//    id can change upstream (this project has a whole migration, 004_dedupe_regions.sql, for
+//    exactly this kind of cleanup) - an install that last synced before such a change has an
+//    existing row for, say, Georgia under an OLD id, while the current seed publishes Georgia
+//    under a NEW id. Neither the old NULL-parent approach nor the topological-order fix above
+//    caught this: `id` doesn't match, so it tries to INSERT a second Georgia, which collides on
+//    (name, parent_id) with the first. Same fix species_reference_photos already uses for its
+//    own id-mismatch problem: match the existing row by its real natural key (name + parent)
+//    when the id doesn't, and keep the LOCAL id rather than the seed's. Every other table that
+//    references a region by id (currently just region_species) gets that mapping applied to its
+//    own temp table before it merges, so a region_species row that names the seed's "new"
+//    Georgia id ends up attached to the existing local row instead of a FK a region that was
+//    never inserted.
+async function mergeSelfReferencingTable(
+  client: PoolClient,
+  table: string,
+  selfRefColumn: string,
+  seedColumns: string[],
+  loadedTables: Set<string>,
+): Promise<number> {
   const cols = await sharedColumns(client, table, seedColumns);
   const pk = "id";
+  const nameCol = "name"; // the natural-key column alongside parent_id; only regions has this shape today.
   const select = cols.map((c) => `${ident(c.name)}::${c.type}`);
-  const colList = cols.map((c) => ident(c.name)).join(", ");
+  const colListNoParent = cols.filter((c) => c.name !== selfRefColumn).map((c) => ident(c.name));
+  const parentCol = cols.find((c) => c.name === selfRefColumn);
+
+  await client.query(`CREATE TEMP TABLE region_id_remap (seed_id uuid PRIMARY KEY, local_id uuid NOT NULL) ON COMMIT DROP`);
+  // Seed identity mappings for every row that already exists locally by id (the common case:
+  // nothing changed). Re-run after each insert pass below to pick up rows just inserted, so a
+  // single piece of SQL covers both "already had it" and "just inserted it".
+  const seedIdentity = () =>
+    client.query(
+      `INSERT INTO region_id_remap (seed_id, local_id)
+       SELECT s.${ident(pk)}::uuid, s.${ident(pk)}::uuid FROM ${ident(tmpName(table))} s
+       WHERE EXISTS (SELECT 1 FROM ${ident(table)} t WHERE t.${ident(pk)} = s.${ident(pk)}::uuid)
+       ON CONFLICT (seed_id) DO NOTHING`,
+    );
+  await seedIdentity();
+
+  const resolvedParent = (alias: string) =>
+    `CASE WHEN ${alias}.${ident(selfRefColumn)} IS NULL THEN NULL
+          ELSE (SELECT local_id FROM region_id_remap WHERE seed_id = ${alias}.${ident(selfRefColumn)}::uuid) END`;
+  const ready = (alias: string) =>
+    `NOT EXISTS (SELECT 1 FROM region_id_remap r WHERE r.seed_id = ${alias}.${ident(pk)}::uuid)
+       AND (${alias}.${ident(selfRefColumn)} IS NULL
+            OR EXISTS (SELECT 1 FROM region_id_remap r WHERE r.seed_id = ${alias}.${ident(selfRefColumn)}::uuid))`;
 
   // Bounded, not unbounded: a real cycle or a parent this seed never sent (data bug, not this
   // code's job to paper over) must fail loudly, via ROLLBACK, rather than loop forever. The
   // real hierarchy here is a handful of levels deep (continent -> country -> province/state ->
   // subdivision at most), so this ceiling is generous headroom, not a tight fit.
   for (let round = 0; round < 20; round++) {
-    const res = await client.query(
-      `INSERT INTO ${ident(table)} (${colList})
-       SELECT ${select.join(", ")} FROM ${ident(tmpName(table))} s
-       WHERE NOT EXISTS (SELECT 1 FROM ${ident(table)} t WHERE t.${ident(pk)} = s.${ident(pk)}::uuid)
-         AND (s.${ident(selfRefColumn)} IS NULL
-              OR EXISTS (SELECT 1 FROM ${ident(table)} p WHERE p.${ident(pk)} = s.${ident(selfRefColumn)}::uuid))
+    // First: does a region with this exact (name, resolved-local-parent) already exist under a
+    // different id? Claim it rather than inserting a duplicate.
+    const matched = await client.query(
+      `INSERT INTO region_id_remap (seed_id, local_id)
+       SELECT s.${ident(pk)}::uuid, t.${ident(pk)}
+         FROM ${ident(tmpName(table))} s
+         JOIN ${ident(table)} t ON t.${ident(nameCol)} = s.${ident(nameCol)} AND t.${ident(selfRefColumn)} IS NOT DISTINCT FROM ${resolvedParent("s")}
+        WHERE ${ready("s")}
+       ON CONFLICT (seed_id) DO NOTHING`,
+    );
+    // Then: genuinely new rows (not matched above), inserted with the resolved local parent id.
+    const inserted = await client.query(
+      `INSERT INTO ${ident(table)} (${colListNoParent.join(", ")}, ${ident(selfRefColumn)})
+       SELECT ${select.filter((_, i) => cols[i].name !== selfRefColumn).join(", ")}, ${resolvedParent("s")}::${parentCol!.type}
+         FROM ${ident(tmpName(table))} s
+        WHERE ${ready("s")}
        ON CONFLICT (${ident(pk)}) DO NOTHING`,
     );
-    if ((res.rowCount ?? 0) === 0) break;
+    await seedIdentity(); // covers the rows `inserted` just added
+    if ((matched.rowCount ?? 0) + (inserted.rowCount ?? 0) === 0) break;
   }
 
-  // Existing rows (including ones the loop above just inserted): update every column, including
-  // parent_id, directly to the seed's real value in one pass. Safe without any NULL step: by now
-  // every parent a seed row could point at already exists, either from before or from the loop
-  // above. One pass over every seed row either way, so the count below is never double-counted
-  // between insert and update the way summing both statements' rowCounts would be.
+  // Existing rows (including newly-inserted and newly-matched-by-name ones): update every other
+  // column to the seed's real value, joined through the remap rather than assuming id equality,
+  // since a name-matched row's local id can differ from the seed's.
   const updatable = cols.filter((c) => c.name !== pk);
   if (updatable.length > 0) {
     await client.query(
-      `UPDATE ${ident(table)} t SET ${updatable.map((c) => `${ident(c.name)} = s.${ident(c.name)}::${c.type}`).join(", ")}
+      `UPDATE ${ident(table)} t SET ${updatable
+        .map((c) => (c.name === selfRefColumn ? `${ident(c.name)} = ${resolvedParent("s")}::${c.type}` : `${ident(c.name)} = s.${ident(c.name)}::${c.type}`))
+        .join(", ")}
          FROM ${ident(tmpName(table))} s
-        WHERE t.${ident(pk)} = s.${ident(pk)}::uuid`,
+         JOIN region_id_remap r ON r.seed_id = s.${ident(pk)}::uuid
+        WHERE t.${ident(pk)} = r.local_id`,
     );
   }
+
+  // Any other loaded table that references this one by id gets the same remap applied to its own
+  // temp table before it merges, so a row naming the seed's id for a since-remapped region lands
+  // on the local id instead. Currently only region_species does.
+  if (loadedTables.has("region_species")) {
+    await client.query(
+      `UPDATE ${ident(tmpName("region_species"))} t SET region_id = r.local_id::text
+         FROM region_id_remap r WHERE r.seed_id = t.region_id::uuid AND r.seed_id != r.local_id`,
+    );
+  }
+
   const countRes = await client.query<{ n: string }>(`SELECT count(*) AS n FROM ${ident(tmpName(table))}`);
   return Number(countRes.rows[0].n);
 }
@@ -311,7 +380,7 @@ export async function applyCatalogSeedFile(
     for (const spec of steps) {
       progress.throwIfCancelled();
       progress.update({ currentItem: spec.table, processed: done });
-      merged[spec.table] = await mergeGenericTable(client, spec, loaded.get(spec.table)!);
+      merged[spec.table] = await mergeGenericTable(client, spec, loaded.get(spec.table)!, new Set(loaded.keys()));
       done++;
     }
     if (loaded.has(PHOTOS_TABLE)) {

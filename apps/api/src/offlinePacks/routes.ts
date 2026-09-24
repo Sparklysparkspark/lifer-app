@@ -262,6 +262,17 @@ async function applyChecklist(
   }> = [];
   const galleryEmbeddingCandidates: Array<{ speciesId: string; photoUrl: string; embedding: number[]; modelVersion: string }> = [];
   const speciesEmbeddings: Array<{ speciesId: string; embedding: number[]; modelVersion: string }> = [];
+  // Every species this pack actually matched locally, regardless of whether providedEnrichment
+  // or galleryUpserts ended up touching it (a species can already be enriched from an earlier,
+  // gallery-less pack and only need its gallery filled in here, or vice versa) - the pack's own
+  // build already ran the same iNaturalist gallery lookup this app would do live, empty result
+  // included, so every one of these species should read as "gallery already tried" the same way
+  // a live lazy-enrich marks it, not just the ones that happened to get new gallery rows this
+  // time. Confirmed live: without this, a self-hosted (non-desktop) install still fired a live,
+  // user-visible iNaturalist gallery fetch on the first view of EVERY pack-covered species,
+  // even ones the pack fully covered - the exact "a pack should work fully offline" guarantee
+  // this field exists to protect, just never actually set by pack apply.
+  const galleryBackfilledIds: string[] = [];
   const checklistRows: Array<{ speciesId: string; sp: ManifestSpecies }> = [];
   // Every file copy this loop decides on gets queued here instead of run inline — the
   // destination path is deterministic (derived from row.id, computable with zero I/O), so
@@ -277,6 +288,7 @@ async function applyChecklist(
       skipped++;
       continue;
     }
+    galleryBackfilledIds.push(row.id);
 
     // Enrichment fields (photo/habitat text) only fill in if this species hasn't already
     // been enriched by something else (its own lazy fetch, or an earlier pack) — see this
@@ -416,6 +428,15 @@ async function applyChecklist(
        WHERE s.id = v.id`,
       values,
     );
+  }
+
+  // See galleryBackfilledIds' own comment above for why every matched species gets this, not
+  // just the ones with new galleryUpserts rows this time. COALESCE keeps a value already set
+  // by a live lazy-enrich (or an earlier pack) rather than clobbering it.
+  for (const batch of chunkRows(galleryBackfilledIds, BULK_BATCH_SIZE)) {
+    await db.query(`UPDATE species SET gallery_backfilled_at = COALESCE(gallery_backfilled_at, now()) WHERE id = ANY($1::uuid[])`, [
+      batch,
+    ]);
   }
 
   for (const batch of chunkRows(galleryUpserts, BULK_BATCH_SIZE)) {
