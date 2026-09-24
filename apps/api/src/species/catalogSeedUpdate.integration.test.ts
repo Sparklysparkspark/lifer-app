@@ -100,6 +100,23 @@ describe.skipIf(!url)("applyCatalogSeedFile (integration)", () => {
     expect(await getAppliedCatalogVersion(pool)).toBe(42);
   });
 
+  it("can merge just the regions first, then the rest, recording the version only at the end", async () => {
+    const file = seedFile([[SPECIES, "1", "Ardea herodias", "Aves", "\\N", "x"]]);
+    const first = await applyCatalogSeedFile(pool, file, 42, noProgress, ["regions"]);
+    expect(first).toEqual({ regions: 2 });
+    const child = await pool.query(`SELECT parent_id FROM regions WHERE id = $1`, [CHILD]);
+    expect(child.rows[0].parent_id).toBe(PARENT);
+    expect((await pool.query(`SELECT 1 FROM species WHERE id = $1`, [SPECIES])).rowCount).toBe(0);
+    expect(await getAppliedCatalogVersion(pool)).toBeNull();
+
+    const full = await applyCatalogSeedFile(pool, file, 42, noProgress);
+    expect(full.species).toBe(1);
+    expect(full.regions).toBe(2);
+    const regions = await pool.query(`SELECT count(*)::int AS n FROM regions WHERE id IN ($1, $2)`, [CHILD, PARENT]);
+    expect(regions.rows[0].n).toBe(2);
+    expect(await getAppliedCatalogVersion(pool)).toBe(42);
+  });
+
   it("rolls everything back when cancelled mid-apply", async () => {
     const file = seedFile([[SPECIES, "1", "Ardea herodias", "Aves", "\\N", "x"]]);
     let calls = 0;

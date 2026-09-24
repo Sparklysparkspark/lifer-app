@@ -23,6 +23,7 @@ interface DownloadStatus {
   processed: number;
   total: number;
   currentPack: string | null;
+  phase?: string | null;
   error: string | null;
   finishedAt: number | null;
 }
@@ -103,12 +104,33 @@ export default function OnboardingPage() {
   const [openTaxonGroups, setOpenTaxonGroups] = useState<Set<string>>(new Set());
   const [namingStyles, setNamingStyles] = useState<string[]>([]);
 
+  const [catalogLoading, setCatalogLoading] = useState<"running" | "failed" | null>(null);
+
   useEffect(() => {
     if (step !== "pack") return;
     api.get<{ regions: RegionSummary[] }>("/regions").then((res) => setRegions(res.regions));
     api.get<{ packs: PackEntry[] }>("/offline-packs/index").then((res) => setPacks(res.packs));
-    api.get<{ speciesNamingStyles: string[] }>("/settings").then((res) => setNamingStyles(res.speciesNamingStyles));
+    api.get<{ speciesNamingStyles: string[]; catalogLoading?: "running" | "failed" | null }>("/settings").then((res) => {
+      setNamingStyles(res.speciesNamingStyles);
+      setCatalogLoading(res.catalogLoading ?? null);
+    });
   }, [step]);
+
+  // A brand-new server loads its species/region catalog in the background right after it
+  // starts (a minute or more, several on a NAS), so this step can open before any country
+  // exists. Keep checking until they show up rather than leaving an empty picker forever.
+  const hasCountries = (regions ?? []).some((r) => r.parentId !== null);
+  useEffect(() => {
+    if (step !== "pack" || regions === null || hasCountries || catalogLoading === "failed") return;
+    const timer = setTimeout(() => {
+      api.get<{ regions: RegionSummary[] }>("/regions").then((res) => setRegions(res.regions)).catch(() => {});
+      api
+        .get<{ catalogLoading?: "running" | "failed" | null }>("/settings")
+        .then((res) => setCatalogLoading(res.catalogLoading ?? null))
+        .catch(() => {});
+    }, 3000);
+    return () => clearTimeout(timer);
+  }, [step, regions, hasCountries, catalogLoading]);
 
   useEffect(() => {
     if (step !== "pack") return;
@@ -270,8 +292,15 @@ export default function OnboardingPage() {
               // bar hard to see against it.
               <div className="rounded-xl border border-line bg-surface p-4">
                 <p className="text-sm text-ink">
-                  Downloading… {status.processed}/{status.total}
-                  {status.currentPack ? ` (${status.currentPack})` : ""}
+                  {status.phase === "preparing" ? (
+                    // First start of a new server: the species catalog is still loading.
+                    "Finishing setup… This only happens the first time and can take a few minutes."
+                  ) : (
+                    <>
+                      Downloading… {status.processed}/{status.total}
+                      {status.currentPack ? ` (${status.currentPack})` : ""}
+                    </>
+                  )}
                 </p>
                 <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-surface-muted">
                   <div
@@ -279,6 +308,20 @@ export default function OnboardingPage() {
                     style={{ width: `${status.total ? Math.round((status.processed / status.total) * 100) : 0}%` }}
                   />
                 </div>
+              </div>
+            ) : regions !== null && !hasCountries ? (
+              <div className="rounded-xl border border-line bg-surface p-4 text-sm text-ink">
+                {catalogLoading === "failed" ? (
+                  <p>
+                    Lifer couldn't load its species catalog. Restart the server to try again, and check its logs if
+                    this keeps happening.
+                  </p>
+                ) : (
+                  <p>
+                    Lifer is loading its species catalog for the first time. This only happens once and can take a
+                    few minutes. Countries will appear here as soon as it's done.
+                  </p>
+                )}
               </div>
             ) : (
               <>

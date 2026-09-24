@@ -10,6 +10,8 @@ export type PackDownloadStatus = JobStatus<{ packsApplied: number }> & {
 export const PACK_DOWNLOAD_PHASES = {
   downloading: { label: "Downloading", progress: "bytes" as const, showItem: true },
   applying: { label: "Applying", progress: "none" as const, showItem: true },
+  // A brand-new server still loading its species catalog; the pack is downloaded and waits.
+  preparing: { label: "Finishing setup", progress: "none" as const, showItem: false },
 };
 
 // Polled independently wherever it's used: the job's real state lives server-side

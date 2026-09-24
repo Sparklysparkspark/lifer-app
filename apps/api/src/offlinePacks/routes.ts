@@ -20,6 +20,7 @@ import { APP_DATA_DIR, PACK_INDEX_URL } from "../config.js";
 import { packIdFromFileName } from "data-pipeline/src/build/pack-id.js";
 import { subdivisionLabelFor } from "@lifer/shared";
 import { createJob, type JobContext } from "../lib/job.js";
+import { catalogFirstBootState, waitForFirstBootCatalog } from "../species/catalogSeedUpdate.js";
 import { downloadToFile } from "../lib/download.js";
 import { isSafePackEntry, resolveWithinDir } from "./packPaths.js";
 
@@ -753,6 +754,15 @@ async function runDownloadJob(ctx: JobContext<{ packsApplied: number }, Download
         throw new Error(`Couldn't download "${id}": ${(err as Error).message}`);
       }
       ctx.throwIfCancelled();
+      // On a brand-new server the species catalog may still be loading (see
+      // seedCatalogIfEmpty). The pack file is already downloaded; only writing it has to wait.
+      if (catalogFirstBootState() === "running") {
+        ctx.update({ phase: "preparing" });
+        await waitForFirstBootCatalog();
+        ctx.throwIfCancelled();
+      } else if (catalogFirstBootState() === "failed") {
+        await waitForFirstBootCatalog();
+      }
       ctx.update({ phase: "applying" });
 
       // Everything from here through the territory cleanup below runs inside ONE transaction —
