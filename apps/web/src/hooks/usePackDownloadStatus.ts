@@ -1,48 +1,29 @@
-import { useEffect, useState } from "react";
-import { api } from "../api/client";
+import type { JobStatus } from "@lifer/shared";
+import { useJobPoll, type JobPoll } from "./useJobPoll";
 
-export interface PackDownloadStatus {
-  running: boolean;
-  processed: number;
-  total: number;
-  currentPack: string | null;
-  error: string | null;
-  finishedAt: number | null;
+export type PackDownloadStatus = JobStatus<{ packsApplied: number }> & {
   packIds: string[];
+  currentPack: string | null;
+};
+
+// "downloading" then "applying" per pack; bytes are per pack, processed/total count packs.
+export const PACK_DOWNLOAD_PHASES = {
+  downloading: { label: "Downloading", progress: "bytes" as const, showItem: true },
+  applying: { label: "Applying", progress: "none" as const, showItem: true },
+};
+
+// Polled independently wherever it's used: the job's real state lives server-side
+// (offlinePacks/routes.ts), so the Settings card, the Offline Packs page and the updates banner
+// all reflect an in-flight download no matter where it was started. Faster while running.
+export function usePackDownloadJob(pollMs = 1000, onFinish?: (status: PackDownloadStatus) => void): JobPoll<PackDownloadStatus> {
+  return useJobPoll<PackDownloadStatus>("/offline-packs/download/status", { intervalMs: pollMs, idleIntervalMs: pollMs * 3, onFinish });
 }
 
-// Polled independently from wherever it's used, same reasoning as useMigrationStatus — the
-// job's real state lives server-side (offlinePacks/routes.ts's downloadJob), so any mount can
-// just ask for current truth instead of relying on whoever's local useState happened to start
-// the download. This is what lets the Offline Data settings card and the floating updates
-// banner both reflect an in-flight pack update even if it was started elsewhere, or survives
-// the user navigating away from and back to whichever page shows it.
 export function usePackDownloadStatus(pollMs = 1000): PackDownloadStatus | null {
-  const [status, setStatus] = useState<PackDownloadStatus | null>(null);
+  return usePackDownloadJob(pollMs).status;
+}
 
-  useEffect(() => {
-    let cancelled = false;
-    let timer: ReturnType<typeof setTimeout>;
-
-    async function poll() {
-      try {
-        const res = await api.get<PackDownloadStatus>("/offline-packs/download/status");
-        if (!cancelled) setStatus(res);
-      } catch {
-        if (!cancelled) setStatus(null);
-      }
-      // Poll faster while a job is actually running so progress feels live, and back off once
-      // idle — no need to hit this endpoint every second when nothing's happening.
-      if (!cancelled) timer = setTimeout(poll, status?.running ? pollMs : pollMs * 3);
-    }
-
-    poll();
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pollMs]);
-
-  return status;
+export function packProgressDetail(status: PackDownloadStatus | null): string | null {
+  if (!status?.running || status.total == null || status.total <= 1) return null;
+  return `Pack ${Math.min((status.processed ?? 0) + 1, status.total)} of ${status.total}`;
 }

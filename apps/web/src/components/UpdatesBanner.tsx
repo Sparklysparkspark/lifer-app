@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { api } from "../api/client";
 import { usePackDownloadStatus } from "../hooks/usePackDownloadStatus";
+import { formatBytes } from "../lib/formatBytes";
 
 const DISMISSED_KEY = "lifer-dismissed-updates";
 const GITHUB_REPO = "Sparklysparkspark/lifer-app";
@@ -12,10 +13,8 @@ interface PackUpdatesSummary {
   packIds: string[];
 }
 
-function formatBytes(bytes: number): string {
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)}KB`;
-  return `${(bytes / 1024 / 1024).toFixed(1)}MB`;
-}
+// Dev builds report this version and would always see an "update".
+const DEV_BUILD_VERSION = "0.1.0";
 
 // Same reasoning as this file's own dismissal key, generalized to cover both facts at once —
 // changing EITHER (a newer app version ships, or the set of stale packs changes) invalidates a
@@ -86,6 +85,8 @@ export default function UpdatesBanner() {
     (async () => {
       try {
         if (window.liferSetup) {
+          const { getVersion } = await import("@tauri-apps/api/app");
+          if ((await getVersion()) === DEV_BUILD_VERSION) return;
           const { check } = await import("@tauri-apps/plugin-updater");
           const update = await check();
           if (!cancelled && update) setAppVersion(update.version);
@@ -98,9 +99,10 @@ export default function UpdatesBanner() {
           const latest = releaseRes.tag_name.replace(/^v/, "");
           if (latest !== versionRes.version) setAppVersion(latest);
         }
-      } catch {
-        // Silent — a background nicety, not worth an error toast if the network's flaky or the
-        // updater/GitHub endpoint is unreachable.
+      } catch (err) {
+        // A background nicety, not worth an error toast if the network's flaky or the
+        // updater/GitHub endpoint is unreachable. Settings shows the real error.
+        console.error("Background update check failed", err);
       }
     })();
 
@@ -171,13 +173,15 @@ export default function UpdatesBanner() {
         (downloadStatus?.running ? (
           <span className="font-medium text-muted">
             <span className="mr-1 inline-block h-3 w-3 animate-spin rounded-full border-2 border-accent/40 border-t-accent align-[-2px]" />
-            Updating{downloadStatus.total > 0 ? ` ${downloadStatus.processed}/${downloadStatus.total}` : ""}…
+            {downloadStatus.total != null && downloadStatus.total > 1
+              ? `Updating packs (${Math.min((downloadStatus.processed ?? 0) + 1, downloadStatus.total)} of ${downloadStatus.total})`
+              : "Updating…"}
           </span>
         ) : (
           <Link
             to="/offline-packs"
-            onClick={async () => {
-              await api.post("/offline-packs/download", { packIds: packSummary.packIds });
+            onClick={() => {
+              api.post("/offline-packs/download", { packIds: packSummary.packIds }).catch((err) => console.error("Couldn't start pack update", err));
             }}
             className="font-medium text-accent hover:underline"
           >

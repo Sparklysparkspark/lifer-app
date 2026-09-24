@@ -1,45 +1,23 @@
-import { useEffect, useState } from "react";
-import { api } from "../api/client";
+import type { JobStatus } from "@lifer/shared";
+import { useJobPoll, type JobPoll } from "./useJobPoll";
 
-export interface MigrationStatus {
-  running: boolean;
-  serverUrl: string | null;
+export interface MigrationResult {
   migrated: number;
   skipped: number;
   failed: number;
   total: number;
-  error: string | null;
-  finishedAt: number | null;
 }
 
-// Polled independently from wherever it's used (the header indicator and the Settings
-// migrate card both use this on their own), rather than threaded through app-wide state,
-// since it's just a cheap read of in-memory job status (see settings/routes.ts's
-// migrationJob) that any page can ask for on its own. 404s outside desktop mode — resolves
-// to null there, same as everywhere else this pattern is used (see useDesktopMode).
-export function useMigrationStatus(pollMs = 3000): MigrationStatus | null {
-  const [status, setStatus] = useState<MigrationStatus | null>(null);
+export type MigrationStatus = JobStatus<MigrationResult> & {
+  serverUrl: string | null;
+  migrated: number;
+  skipped: number;
+  failed: number;
+};
 
-  useEffect(() => {
-    let cancelled = false;
-    let timer: ReturnType<typeof setTimeout>;
-
-    async function poll() {
-      try {
-        const res = await api.get<MigrationStatus>("/settings/migrate-to-server/status");
-        if (!cancelled) setStatus(res);
-      } catch {
-        if (!cancelled) setStatus(null);
-      }
-      if (!cancelled) timer = setTimeout(poll, pollMs);
-    }
-
-    poll();
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
-  }, [pollMs]);
-
-  return status;
+// Polled independently wherever it's used (the header indicator and the Settings migrate card)
+// since it's a cheap read of in-memory job status. 404s outside desktop mode, where status
+// stays null.
+export function useMigrationStatus(pollMs = 3000): JobPoll<MigrationStatus> {
+  return useJobPoll<MigrationStatus>("/settings/migrate-to-server/status", { intervalMs: pollMs, idleIntervalMs: pollMs });
 }

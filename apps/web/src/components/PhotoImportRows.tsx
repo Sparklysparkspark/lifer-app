@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { api, ApiError } from "../api/client";
+import { errorMessage } from "../lib/errorMessage";
 import { mapWithConcurrency } from "../lib/concurrency";
 import { registerExternalJob, settleExternalJob, type PossibleDuplicate } from "../lib/uploadQueue";
 import SpeciesPicker, { type SpeciesResult, type SuggestedSpecies } from "./SpeciesPicker";
@@ -53,6 +54,9 @@ interface ImportRow {
    *  instead of /uploads for the actual import, and suggest-species-from-video (frame sampling)
    *  instead of /uploads/inspect for suggestions (video has no duplicate-check story yet). */
   isVideo?: boolean;
+  /** Set when suggestions couldn't be computed at all (e.g. no readable video frames), so the
+   *  row doesn't read as "no species matched". */
+  suggestError?: string;
 }
 
 const VIDEO_MIME_TYPES = new Set(["video/mp4", "video/quicktime"]);
@@ -234,11 +238,15 @@ export default function PhotoImportRows({
       const form = new FormData();
       form.append("file", file);
       if (forRegionId) form.append("regionId", forRegionId);
-      const res = await api.post<{ suggestions: SuggestedSpecies[] }>("/captures/suggest-species-from-video", form);
-      setRows((prev) => prev.map((r) => (r.key === key ? { ...r, suggestions: res.suggestions, isInspecting: false } : r)));
-    } catch {
-      // leave this row without suggestions
-      setRows((prev) => prev.map((r) => (r.key === key ? { ...r, isInspecting: false } : r)));
+      const res = await api.post<{ suggestions: SuggestedSpecies[]; error?: string }>("/captures/suggest-species-from-video", form);
+      setRows((prev) =>
+        prev.map((r) => (r.key === key ? { ...r, suggestions: res.suggestions, suggestError: res.error, isInspecting: false } : r)),
+      );
+    } catch (err) {
+      console.error(err);
+      setRows((prev) =>
+        prev.map((r) => (r.key === key ? { ...r, suggestError: errorMessage(err, "Couldn't analyze this video"), isInspecting: false } : r)),
+      );
     }
   }
 
@@ -628,6 +636,9 @@ export default function PhotoImportRows({
                             working on a match" needs to show up, not somewhere they have to go looking. */}
                         {row.isInspecting && !row.speciesId && (
                           <span className="h-3 w-3 shrink-0 animate-spin rounded-full border-2 border-accent/40 border-t-accent" />
+                        )}
+                        {!row.isInspecting && !row.speciesId && row.suggestError && (
+                          <span className="text-xs text-muted">{row.suggestError}. Pick a species by hand.</span>
                         )}
                       </div>
                     )}

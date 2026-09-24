@@ -15,7 +15,15 @@ import AddOtherTaxaModal from "../components/AddOtherTaxaModal";
 import PasswordInput from "../components/PasswordInput";
 import { useOnline } from "../hooks/useOnline";
 import { Spinner } from "../components/LoadingScreen";
-import DownloadedPacksList, { formatBytes, type PackEntry } from "../components/DownloadedPacksList";
+import DownloadedPacksList, { type PackEntry } from "../components/DownloadedPacksList";
+import FormMessage from "../components/FormMessage";
+import JobProgress from "../components/JobProgress";
+import { useJobPoll } from "../hooks/useJobPoll";
+import type { JobStatus } from "@lifer/shared";
+import type { PhaseLabels } from "../components/JobProgress";
+import { formatBytes } from "../lib/formatBytes";
+import { errorMessage } from "../lib/errorMessage";
+import { tauriInvoke } from "../lib/tauri";
 
 interface AccountSettings {
   email: string;
@@ -676,27 +684,6 @@ function Card({ title, description, children }: { title: React.ReactNode; descri
   );
 }
 
-// A small bordered/tinted alert, not just bare colored text — matches the tinted-badge visual
-// language already used elsewhere (endemic/vagrant/invasive badges on SpeciesDetailPage), so an
-// error reads as a real, noticeable status box instead of looking like an afterthought.
-function FormMessage({ error, success }: { error: string | null; success: string | null }) {
-  if (error) {
-    return (
-      <p className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:border-rose-900/50 dark:bg-rose-950/30 dark:text-rose-400">
-        {error}
-      </p>
-    );
-  }
-  if (success) {
-    return (
-      <p className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700 dark:border-emerald-900/50 dark:bg-emerald-950/30 dark:text-emerald-400">
-        {success}
-      </p>
-    );
-  }
-  return null;
-}
-
 const inputClass = "w-full rounded-md border border-line px-3 py-2 text-sm";
 const buttonClass = "rounded-md bg-accent px-4 py-2 text-sm font-medium text-accent-fg disabled:opacity-50";
 
@@ -1180,14 +1167,11 @@ interface UnmatchedFile {
   scientificNames: string[] | null;
 }
 
-interface ReimportStatus {
-  running: boolean;
+type ReimportStatus = JobStatus<{ missingReferenceData: string[] }> & {
   processedJpegs: number;
   totalJpegs: number;
   processedRaws: number;
   totalRaws: number;
-  error: string | null;
-  finishedAt: number | null;
   jpegsRecovered: number;
   jpegsAlreadyKnown: number;
   jpegsRelinked: number;
@@ -1197,9 +1181,12 @@ interface ReimportStatus {
   rawsAlreadyKnown: number;
   rawsRelinked: number;
   rawsUnmatched: number;
-  missingReferenceData: string[];
-  cancelled: boolean;
-}
+};
+
+const REIMPORT_PHASES: PhaseLabels = {
+  jpegs: { label: "Reading photos", progress: "count" },
+  raws: { label: "Matching RAW files", progress: "count" },
+};
 
 // Rebuilds captures/photos/user_species/originals from a species-organized library that's
 // already on disk but has no database rows pointing at it — the fresh-install/migrated-server
@@ -1365,6 +1352,7 @@ function LibraryReimportSection() {
   }
 
   if (status === null) return null;
+  const missingReferenceData = status.result?.missingReferenceData ?? [];
 
   return (
     <Card
@@ -1488,9 +1476,12 @@ function LibraryReimportSection() {
         )}
       </div>
       {status.running && (
-        <p className="text-xs text-muted">
-          Photos: {status.processedJpegs}/{status.totalJpegs} · RAW files: {status.processedRaws}/{status.totalRaws}
-        </p>
+        <JobProgress
+          status={status}
+          phases={REIMPORT_PHASES}
+          detail={`Photos: ${status.processedJpegs} of ${status.totalJpegs} · RAW files: ${status.processedRaws} of ${status.totalRaws}`}
+          cancelling={cancelling}
+        />
       )}
       {!status.running && status.finishedAt !== null && status.cancelled && (
         <p className="text-xs text-muted">Cancelled. Files already in progress when you cancelled were still recorded below.</p>
@@ -1539,12 +1530,12 @@ function LibraryReimportSection() {
               {status.rawsUnmatched} RAW file{status.rawsUnmatched === 1 ? "" : "s"} couldn't be matched to a recovered photo.
             </p>
           )}
-          {status.missingReferenceData.length > 0 && (
+          {missingReferenceData.length > 0 && (
             <p>
-              {status.missingReferenceData.length} recovered species {status.missingReferenceData.length === 1 ? "is" : "are"} missing
+              {missingReferenceData.length} recovered species {missingReferenceData.length === 1 ? "is" : "are"} missing
               reference photos/descriptions,{" "}
               <Link
-                to={`/offline-packs?missing=${encodeURIComponent(status.missingReferenceData.join(","))}`}
+                to={`/offline-packs?missing=${encodeURIComponent(missingReferenceData.join(","))}`}
                 className="underline hover:no-underline"
               >
                 see which packs would restore them
@@ -1892,7 +1883,8 @@ function ServerSection() {
   const [deleted, setDeleted] = useState(false);
   // Shares the exact same polled status the header indicator uses, so this card and the
   // header always agree on whether a migration is running and how far along it is.
-  const status = useMigrationStatus();
+  const migrationJob = useMigrationStatus();
+  const status = migrationJob.status;
 
   useEffect(() => {
     window.liferSetup?.getConfig().then(setConfig);
@@ -1934,7 +1926,7 @@ function ServerSection() {
       await window.liferSetup!.testLogin(signInUrl, email, password);
       await connectToServer(signInUrl);
     } catch (err) {
-      setError(err instanceof Error ? err.message : typeof err === "string" ? err : "Couldn't sign in");
+      setError(errorMessage(err, "Couldn't sign in"));
     } finally {
       setSigningIn(false);
     }
@@ -1958,6 +1950,7 @@ function ServerSection() {
     setStarting(true);
     try {
       await api.post("/settings/migrate-to-server", { serverUrl, email, password });
+      void migrationJob.refresh();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Couldn't start the migration");
     } finally {
@@ -1989,7 +1982,9 @@ function ServerSection() {
 
   // "Confirmed fully migrated": the last run finished, is not still running, and had zero
   // failures — anything less and there could be photos the server never actually received.
-  const cleanMigration = status && !status.running && status.finishedAt != null && status.failed === 0;
+  // Mirrors the API's delete gate (settings/deleteLibraryGate.ts).
+  const cleanMigration =
+    status && !status.running && status.finishedAt != null && status.error == null && !status.cancelled && status.failed === 0 && status.skipped === 0;
 
   if (config.mode === "remote") {
     const connectionDescription =
@@ -2076,10 +2071,14 @@ function ServerSection() {
         description="Move your library to a Lifer server you run elsewhere. Migrate your photos up, confirm nothing failed, then switch this window over. Your local copies stay put until you separately choose to delete them."
       >
       {status?.running ? (
-        <p className="text-sm text-muted">
-          Migrating to {status.serverUrl}, {status.migrated + status.skipped + status.failed} of {status.total} processed
-          ({status.migrated} migrated, {status.skipped} skipped, {status.failed} failed so far).
-        </p>
+        <JobProgress
+          status={status}
+          phases={{ uploading: { label: `Migrating to ${status.serverUrl ?? "the server"}`, progress: "count" } }}
+          fallbackLabel={`Migrating to ${status.serverUrl ?? "the server"}`}
+          detail={`${status.migrated} migrated, ${status.skipped} skipped, ${status.failed} failed so far.${status.currentItem ? ` Now: ${status.currentItem}` : ""}`}
+          onCancel={() => void migrationJob.cancel("/settings/migrate-to-server/cancel")}
+          cancelling={migrationJob.cancelling}
+        />
       ) : (
         <form onSubmit={migrate} className="space-y-3">
           <input
@@ -2123,7 +2122,7 @@ function ServerSection() {
       {status && !status.running && status.finishedAt != null && (
         <div className="space-y-3 border-t border-line pt-3">
           <p className={cleanMigration ? "text-sm text-green-700" : "text-sm text-red-600"}>
-            Last run: migrated {status.migrated} of {status.total} ({status.skipped} skipped, {status.failed} failed).
+            {status.cancelled ? "Last run was cancelled: " : "Last run: "}migrated {status.migrated} of {status.total ?? "?"} ({status.skipped} skipped, {status.failed} failed).
           </p>
           <div className="flex flex-wrap gap-2">
             <button type="button" onClick={() => connectToServer(serverUrl)} disabled={busy} className={buttonClass}>
@@ -2368,26 +2367,30 @@ function AutomaticUrlSwitchingSection() {
 // must never run there. A dynamic import keeps that code out of the initial bundle entirely
 // and only ever executes from inside this component's own (already-gated) event handlers.
 function AppUpdatesSection() {
-  type CheckResult = { version: string; body?: string; downloadAndInstall: (onEvent: (e: DownloadEventLike) => void) => Promise<void> };
   type DownloadEventLike =
     | { event: "Started"; data: { contentLength?: number } }
     | { event: "Progress"; data: { chunkLength: number } }
     | { event: "Finished" };
+  type CheckResult = {
+    version: string;
+    body?: string;
+    download: (onEvent: (e: DownloadEventLike) => void) => Promise<void>;
+    install: () => Promise<void>;
+  };
 
-  const [status, setStatus] = useState<"idle" | "checking" | "up-to-date" | "available" | "downloading" | "installing" | "error">("idle");
+  const [status, setStatus] = useState<"idle" | "checking" | "up-to-date" | "available" | "downloading" | "installing" | "error" | "dev">("idle");
   const [update, setUpdate] = useState<CheckResult | null>(null);
   const [progress, setProgress] = useState<{ downloaded: number; total: number | null } | null>(null);
   const [error, setError] = useState<string | null>(null);
-  // Distinct from a plain checkForUpdate error: an in-place install can fail for reasons wholly
-  // outside this app's control (most commonly macOS refusing to swap in a bundle that isn't
-  // notarized under a Developer ID) — this flags exactly that case so the UI can point at a
-  // manual download instead of just showing a dead-end error string.
+  // Only for failures in the install step itself (most often macOS refusing to swap the bundle),
+  // where a manual download is the real way forward. Download and signature errors don't set it.
   const [installFailed, setInstallFailed] = useState(false);
+  const [translocated, setTranslocated] = useState(false);
   const [currentVersion, setCurrentVersion] = useState<string | null>(null);
+  const [versionResolved, setVersionResolved] = useState(false);
   const [packUpdateCount, setPackUpdateCount] = useState<number>(0);
   const online = useOnline();
-  // Same navigator.platform check useKeyboardShortcuts.ts already uses — good enough for "which
-  // manual-recovery instructions apply," no need for @tauri-apps/plugin-os just for this.
+  // Same navigator.platform check useKeyboardShortcuts.ts already uses.
   const platform = navigator.platform.toUpperCase().includes("MAC")
     ? "mac"
     : navigator.platform.toUpperCase().includes("WIN")
@@ -2414,31 +2417,33 @@ function AppUpdatesSection() {
         setStatus("up-to-date");
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Couldn't check for updates");
+      console.error("Update check failed", err);
+      setError(errorMessage(err, "Couldn't check for updates"));
       setStatus("error");
     }
   }
 
-  // Auto-checked once on mount (rather than waiting for a manual click) — same reasoning as
-  // UpdatesBanner's own launch-time check, just also surfaced here for anyone who navigates
-  // straight to Settings without having seen the banner. Current version is shown alongside so
-  // "Update Available" always states both the version you're on and the one you'd move to.
+  // Current version first: dev builds report 0.1.0 and would always see an "update".
   useEffect(() => {
     if (!window.liferSetup) return;
     import("@tauri-apps/api/app")
       .then(({ getVersion }) => getVersion())
-      .then(setCurrentVersion)
+      .then((version) => {
+        setCurrentVersion(version);
+        if (version === DEV_BUILD_VERSION) setStatus("dev");
+      })
       .catch(() => {
-        // Silent — purely cosmetic (the version label), not worth an error state of its own.
-      });
+        // Purely cosmetic (the version label), not worth an error state of its own.
+      })
+      .finally(() => setVersionResolved(true));
   }, []);
 
+  // Auto-checked on mount and again whenever connectivity comes back.
   useEffect(() => {
-    if (!window.liferSetup || !online) return;
+    if (!window.liferSetup || !online || !versionResolved || currentVersion === DEV_BUILD_VERSION) return;
     void checkForUpdate();
-    // Only re-run when connectivity is regained after being offline, not on every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [online]);
+  }, [online, versionResolved]);
 
   useEffect(() => {
     if (!online) return;
@@ -2446,7 +2451,7 @@ function AppUpdatesSection() {
       .get<{ updateCount: number }>("/offline-packs/updates-summary")
       .then((res) => setPackUpdateCount(res.updateCount))
       .catch(() => {
-        // Silent — same reasoning as UpdatesBanner's own pack-summary check.
+        // Silent, same reasoning as UpdatesBanner's own pack-summary check.
       });
   }, [online]);
 
@@ -2454,34 +2459,78 @@ function AppUpdatesSection() {
     if (!update) return;
     setStatus("downloading");
     setError(null);
+    setInstallFailed(false);
+    setProgress(null);
     let totalBytes: number | null = null;
     let downloaded = 0;
+    // Download (which also verifies the signature) and install are separate calls so a failure
+    // can be attributed to the right step.
     try {
-      await update.downloadAndInstall((event) => {
+      await update.download((event) => {
         if (event.event === "Started") {
           totalBytes = event.data.contentLength ?? null;
           setProgress({ downloaded: 0, total: totalBytes });
         } else if (event.event === "Progress") {
           downloaded += event.data.chunkLength;
           setProgress({ downloaded, total: totalBytes });
-        } else if (event.event === "Finished") {
-          setStatus("installing");
         }
       });
+    } catch (err) {
+      console.error("Update download failed", err);
+      setError(errorMessage(err, "Couldn't download the update"));
+      setStatus("error");
+      return;
+    }
+    setStatus("installing");
+    try {
+      await update.install();
+    } catch (err) {
+      console.error("Update install failed", err);
+      setError(errorMessage(err, "Couldn't install the update"));
+      setInstallFailed(true);
+      setStatus("error");
+      if (platform === "mac") {
+        const invoke = tauriInvoke();
+        invoke?.("app_install_info")
+          .then((info) => setTranslocated(Boolean((info as { translocated?: boolean } | null)?.translocated)))
+          .catch((infoErr) => console.error("app_install_info failed", infoErr));
+      }
+      return;
+    }
+    try {
       const { relaunch } = await import("@tauri-apps/plugin-process");
       await relaunch();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Couldn't install the update");
-      setInstallFailed(true);
+      console.error("Relaunch failed", err);
+      setError("The update is installed. Quit and reopen Lifer to finish.");
       setStatus("error");
+    }
+  }
+
+  async function openZipDownload() {
+    if (!update) return;
+    const url = `${RELEASES_URL.replace(/\/latest$/, "")}/download/v${update.version}/Lifer-macos-arm64.zip`;
+    try {
+      const { openUrl } = await import("@tauri-apps/plugin-opener");
+      await openUrl(url);
+    } catch (err) {
+      console.error(err);
+      setError(errorMessage(err, "Couldn't open the download link"));
     }
   }
 
   if (!window.liferSetup) return null;
 
+  const releasesLink = (
+    <a href={RELEASES_URL} target="_blank" rel="noreferrer" className="font-medium text-accent hover:underline">
+      Releases page
+    </a>
+  );
+
   return (
     <Card title="App updates" description="Check for and install a newer version of Lifer.">
       {currentVersion && <p className="text-sm text-muted">You're on version {currentVersion}.</p>}
+      {status === "dev" && <p className="text-sm text-muted">This is a development build, so update checks are off.</p>}
       {status === "idle" && (
         <button type="button" onClick={checkForUpdate} className={buttonClass}>
           Check for updates
@@ -2516,54 +2565,72 @@ function AppUpdatesSection() {
             <span className="text-muted">Latest</span>
             <span className="font-medium text-accent">v{update.version}</span>
           </div>
-          {update.body && <p className="text-sm text-muted">{update.body}</p>}
+          {/* The release's changelog section (markdown), shown as plain text. */}
+          {update.body && (
+            <div className="max-h-60 overflow-y-auto whitespace-pre-wrap break-words text-sm text-muted">{update.body.trim()}</div>
+          )}
           <button type="button" onClick={installUpdate} className={buttonClass}>
             Update Now
           </button>
         </div>
       )}
       {(status === "downloading" || status === "installing") && (
-        <p className="flex items-center gap-2 text-sm text-muted">
-          <span className="h-3 w-3 shrink-0 animate-spin rounded-full border-2 border-accent/40 border-t-accent" />
-          {status === "installing"
-            ? "Installing, Lifer will restart shortly…"
-            : progress?.total
-              ? `Downloading… ${Math.round((progress.downloaded / progress.total) * 100)}%`
-              : "Downloading…"}
-        </p>
+        <JobProgress
+          status={{
+            running: true,
+            phase: status,
+            downloadedBytes: status === "downloading" && progress ? progress.downloaded : null,
+            totalBytes: progress?.total ?? null,
+            processed: null,
+            total: null,
+            currentItem: null,
+            error: null,
+            cancelRequested: false,
+            cancelled: false,
+          }}
+          phases={APP_UPDATE_PHASES}
+        />
       )}
-      <FormMessage error={error} success={null} />
+      {status === "error" && (
+        <div className="space-y-2">
+          <FormMessage error={error} />
+          <button type="button" onClick={update && !installFailed ? installUpdate : checkForUpdate} className="text-sm text-ink underline">
+            {update && !installFailed ? "Retry" : "Check again"}
+          </button>
+        </div>
+      )}
       {installFailed && (
-        <div className="space-y-1 text-sm text-muted">
-          <p>
-            You can also download the latest version directly from the{" "}
-            <a
-              href="https://github.com/Sparklysparkspark/lifer-app/releases/latest"
-              target="_blank"
-              rel="noreferrer"
-              className="font-medium text-accent hover:underline"
-            >
-              Releases page
-            </a>
-            .
-          </p>
-          {/* A fresh manual download hits the exact same wall this install just did — Lifer
-             isn't notarized (macOS) or signed with a paid certificate (Windows), so each new
-             version needs re-approving once, same as this one repeats the first-launch warning
-             already noted in this app's own README. Spelling out where that approval lives
-             turns "download didn't help either" into an actual path forward instead of a
-             second dead end. */}
-          {platform === "mac" && (
+        <div className="space-y-2 text-sm text-muted">
+          {platform === "mac" && translocated && (
             <p>
-              This is expected — macOS blocks a new version until you approve it once: open{" "}
-              <strong>System Settings → Privacy &amp; Security</strong>, scroll down, click{" "}
-              <strong>Open Anyway</strong>, then open Lifer again.
+              Lifer is running from a temporary location. Move Lifer.app into your Applications folder, then try again.
+            </p>
+          )}
+          {platform === "mac" && !translocated && (
+            <>
+              <p>macOS blocked Lifer from replacing itself. You can install the new version by hand:</p>
+              <button type="button" onClick={openZipDownload} className={buttonClass}>
+                Download Lifer {update?.version ?? ""} (.zip)
+              </button>
+              <p>Open the downloaded .zip, then drag Lifer into your Applications folder, replacing the old copy.</p>
+            </>
+          )}
+          {platform === "windows" && <p>Download the installer from the {releasesLink} and run it.</p>}
+          {platform === "other" && <p>Download the latest version from the {releasesLink}.</p>}
+          {platform === "mac" && <p>You can also get it from the {releasesLink}.</p>}
+          {/* A manual download is unsigned by Apple/Microsoft, so it gets the first-launch warning
+             again. The in-app updater never hits this. */}
+          {platform === "mac" && !translocated && (
+            <p>
+              The first time you open the new version, macOS may block it. Open{" "}
+              <strong>System Settings, Privacy &amp; Security</strong>, scroll down, click <strong>Open Anyway</strong>,
+              then open Lifer again.
             </p>
           )}
           {platform === "windows" && (
             <p>
-              This is expected — Windows will warn "Windows protected your PC" on the new
-              installer; click <strong>More info → Run anyway</strong>.
+              Windows may warn "Windows protected your PC" on a manually downloaded installer. Click{" "}
+              <strong>More info</strong>, then <strong>Run anyway</strong>.
             </p>
           )}
         </div>
@@ -2580,135 +2647,152 @@ function AppUpdatesSection() {
   );
 }
 
+const DEV_BUILD_VERSION = "0.1.0";
+const RELEASES_URL = "https://github.com/Sparklysparkspark/lifer-app/releases/latest";
+const APP_UPDATE_PHASES: PhaseLabels = {
+  downloading: { label: "Downloading", progress: "bytes" },
+  installing: { label: "Installing, Lifer will restart shortly…", progress: "none" },
+};
+
 // Refreshes the species/region catalog data itself (occurrence stats, rarity tiers, endemic
 // labels, reference-photo metadata) from the latest published catalog seed — see
 // catalogSeedUpdate.ts's own header comment on why this is needed at all: the fresh-install-only
 // restore path never reaches an already-running install on its own. Never touches your own
 // downloaded reference photos (see that same file) — only the catalog metadata itself.
-interface CatalogUpdateJobState {
-  running: boolean;
-  merged: Record<string, number> | null;
-  error: string | null;
-  finishedAt: number | null;
+type VectorAssetResult =
+  | { status: "applied"; rows: number; matched: number }
+  | { status: "up_to_date" }
+  | { status: "unavailable"; reason: string }
+  | { status: "failed"; error: string };
+
+// Three vector tables (per-gallery-photo, per-species image, per-species zero-shot text) are
+// fetched and applied together as one bundle server-side, reported here as one result each.
+type ReferenceVectorsResult = { gallery: VectorAssetResult; speciesImage: VectorAssetResult; speciesText: VectorAssetResult };
+
+type CatalogUpdateStatus = JobStatus<{ merged: Record<string, number>; referenceVectors?: ReferenceVectorsResult | null }>;
+
+const CATALOG_PHASES: PhaseLabels = {
+  downloading: { label: "Downloading", progress: "bytes" },
+  applying: { label: "Reading catalog data", progress: "bytes" },
+  merging: { label: "Applying", progress: "count", countNoun: "tables", showItem: true },
+  downloading_gallery_embeddings: { label: "Downloading species reference vectors", progress: "bytes" },
+  applying_gallery_embeddings: { label: "Applying species reference vectors", progress: "count" },
+  downloading_species_image_embeddings: { label: "Downloading species reference vectors", progress: "bytes" },
+  applying_species_image_embeddings: { label: "Applying species reference vectors", progress: "count" },
+  downloading_species_text_embeddings: { label: "Downloading species search vectors", progress: "bytes" },
+  applying_species_text_embeddings: { label: "Applying species search vectors", progress: "count" },
+};
+
+// Any sub-result that failed, for a single combined error line instead of three.
+function failedVectorAssets(r: ReferenceVectorsResult | null | undefined): string[] {
+  if (!r) return [];
+  const errors: string[] = [];
+  if (r.gallery.status === "failed") errors.push(r.gallery.error);
+  if (r.speciesImage.status === "failed") errors.push(r.speciesImage.error);
+  if (r.speciesText.status === "failed") errors.push(r.speciesText.error);
+  return errors;
 }
 
 function CatalogUpdateSection() {
-  const [status, setStatus] = useState<"idle" | "checking" | "up-to-date" | "available" | "applying" | "done" | "error">("idle");
-  const [error, setError] = useState<string | null>(null);
-  const [mergedCount, setMergedCount] = useState<number | null>(null);
-  const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [check, setCheck] = useState<"idle" | "checking" | "up-to-date" | "available" | "error">("idle");
+  const [checkError, setCheckError] = useState<string | null>(null);
+  const [downloadBytes, setDownloadBytes] = useState<number | null>(null);
+  // Only a run this mount watched finish gets its outcome shown, not a stale one from earlier.
+  const [finished, setFinished] = useState<CatalogUpdateStatus | null>(null);
+  const job = useJobPoll<CatalogUpdateStatus>("/settings/catalog-update/status", {
+    onFinish: (status) => {
+      setFinished(status);
+      if (!status.error && !status.cancelled) setCheck("up-to-date");
+    },
+  });
 
-  // Stops the poll on unmount specifically (not on every navigation away and back — the server-
-  // side job itself keeps running regardless; this only stops THIS mount's own polling loop) so
-  // a dangling timer doesn't keep calling setState after the component's gone.
-  useEffect(() => () => {
-    if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
-  }, []);
-
-  async function checkForUpdate() {
-    setStatus("checking");
-    setError(null);
+  async function checkForUpdate(clearOutcome = true) {
+    setCheck("checking");
+    setCheckError(null);
+    if (clearOutcome) setFinished(null);
     try {
-      const result = await api.get<{ available: boolean }>("/settings/catalog-update");
-      setStatus(result.available ? "available" : "up-to-date");
+      const result = await api.get<{ available: boolean; downloadBytes?: number | null }>("/settings/catalog-update");
+      setDownloadBytes(result.downloadBytes ?? null);
+      setCheck(result.available ? "available" : "up-to-date");
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Couldn't check for a catalog update");
-      setStatus("error");
+      console.error(err);
+      setCheckError(errorMessage(err, "Couldn't check for a catalog update"));
+      setCheck("error");
     }
   }
 
-  // The merge itself runs as a real background job server-side (see catalogSeedUpdate.ts's
-  // catalogUpdateJob) — this polls its status instead of awaiting one long request, so an update
-  // kicked off here keeps running (and its result is still recoverable) even if the user
-  // navigates away from Settings and back, unmounting/remounting this whole component. Runs at
-  // the same 2s cadence the offline-packs download status polling already uses elsewhere.
-  function pollJobStatus() {
-    setStatus("applying");
-    setError(null);
-    if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
-    pollIntervalRef.current = setInterval(async () => {
-      try {
-        const job = await api.get<CatalogUpdateJobState>("/settings/catalog-update/status");
-        if (job.running) return;
-        if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
-        if (job.error) {
-          setError(job.error);
-          setStatus("error");
-        } else {
-          setMergedCount(job.merged?.species ?? null);
-          setStatus("done");
-        }
-      } catch {
-        // A transient network blip mid-poll isn't worth surfacing as an error — the next tick
-        // just tries again.
-      }
-    }, 2000);
-  }
-
-  // On mount (including remounting after navigating back to Settings), check whether an update
-  // kicked off earlier is still running before doing the normal up-to-date/available check — a
-  // job started, then abandoned by navigating away, is exactly the case that used to strand the
-  // UI on a stale "Updating..." with no way to ever learn it had actually finished.
+  // The job runs server-side and survives navigating away, so a remount first looks for a run
+  // still in progress (the poll above picks it up) before doing the normal check.
+  const initialStatusSeen = job.status !== null || job.loadError !== null;
   useEffect(() => {
-    (async () => {
-      try {
-        const job = await api.get<CatalogUpdateJobState>("/settings/catalog-update/status");
-        if (job.running) {
-          pollJobStatus();
-          return;
-        }
-      } catch {
-        // Status endpoint unreachable — fall through to the normal check below.
-      }
-      void checkForUpdate();
-    })();
-  }, []);
+    if (!initialStatusSeen || check !== "idle") return;
+    if (job.status?.running) return;
+    // Keeps a just-failed run's error visible (with Retry) after the automatic check.
+    void checkForUpdate(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialStatusSeen, job.status?.running]);
 
   async function applyUpdate() {
-    setStatus("applying");
-    setError(null);
-    try {
-      await api.post("/settings/catalog-update/apply", {});
-      pollJobStatus();
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Couldn't start the catalog update");
-      setStatus("error");
-    }
+    setFinished(null);
+    await job.start("/settings/catalog-update/apply");
   }
+
+  const running = job.status?.running === true;
+  const speciesCount = finished?.result?.merged?.species;
+  const vectorErrors = failedVectorAssets(finished?.result?.referenceVectors);
+  const doneOk = finished && !finished.error && !finished.cancelled;
 
   return (
     <Card
       title="Species catalog updates"
       description="Refreshes rarity tiers, occurrence stats, and endemic labels from the latest published data. Never touches your own downloaded reference photos."
     >
-      {status === "idle" || status === "checking" ? (
+      {running ? (
+        <JobProgress
+          status={job.status}
+          phases={CATALOG_PHASES}
+          onCancel={() => void job.cancel("/settings/catalog-update/cancel")}
+          cancelling={job.cancelling}
+        />
+      ) : check === "idle" || check === "checking" ? (
         <p className="flex items-center gap-2 text-sm text-muted">
           <span className="h-3 w-3 shrink-0 animate-spin rounded-full border-2 border-accent/40 border-t-accent" />
           Checking…
         </p>
-      ) : status === "up-to-date" ? (
+      ) : check === "error" ? (
         <div className="space-y-2">
-          <p className="text-sm text-muted">Your species catalog is up to date.</p>
-          <button type="button" onClick={checkForUpdate} className="text-sm text-ink underline">
+          <FormMessage error={checkError} />
+          <button type="button" onClick={() => void checkForUpdate()} className="text-sm text-ink underline">
             Check again
           </button>
         </div>
-      ) : status === "available" ? (
+      ) : check === "up-to-date" ? (
         <div className="space-y-2">
-          <p className="text-sm font-medium text-ink">A newer species catalog is available.</p>
-          <button type="button" onClick={applyUpdate} className={buttonClass}>
-            Update catalog
+          <p className="text-sm text-muted">
+            {doneOk
+              ? `Done, ${speciesCount != null ? speciesCount.toLocaleString() : "your"} species refreshed.`
+              : "Your species catalog is up to date."}
+          </p>
+          {doneOk && vectorErrors.length > 0 && (
+            <p className="text-sm text-muted">Species reference vectors couldn't be fully updated: {vectorErrors.join(" ")}</p>
+          )}
+          <button type="button" onClick={() => void checkForUpdate()} className="text-sm text-ink underline">
+            Check again
           </button>
         </div>
-      ) : status === "applying" ? (
-        <p className="flex items-center gap-2 text-sm text-muted">
-          <span className="h-3 w-3 shrink-0 animate-spin rounded-full border-2 border-accent/40 border-t-accent" />
-          Updating, this can take a minute…
-        </p>
-      ) : status === "done" ? (
-        <p className="text-sm text-muted">Done, {mergedCount?.toLocaleString() ?? "your"} species refreshed.</p>
-      ) : null}
-      <FormMessage error={error} success={null} />
+      ) : (
+        <div className="space-y-2">
+          <p className="text-sm font-medium text-ink">A newer species catalog is available.</p>
+          {!finished && !job.actionError && (
+            <button type="button" onClick={applyUpdate} disabled={job.starting} className={buttonClass}>
+              {job.starting ? "Starting…" : `Update catalog${downloadBytes ? ` (${formatBytes(downloadBytes)})` : ""}`}
+            </button>
+          )}
+        </div>
+      )}
+      {!running && (
+        <JobProgress status={finished} error={job.actionError} onRetry={check === "available" ? applyUpdate : undefined} />
+      )}
     </Card>
   );
 }
@@ -2761,68 +2845,41 @@ function OfflinePacksSummarySection() {
 // for a downloaded region's species work at all (it doesn't fall back to a live/online map),
 // not worth doubling the install size for everyone by default. Lifer has no range-map feature;
 // that's not what this powers.
+type MapStatus = JobStatus<{ bytes: number }> & { available: boolean; downloaded: boolean; sizeBytes: number | null };
+
+const MAP_PHASES: PhaseLabels = { downloading: { label: "Downloading", progress: "bytes" } };
+
 function MapSection() {
-  const [status, setStatus] = useState<{
-    available: boolean;
-    downloaded: boolean;
-    downloading: boolean;
-    downloadedBytes: number;
-    totalBytes: number | null;
-    sizeBytes: number | null;
-    error: string | null;
-  } | null>(null);
+  const job = useJobPoll<MapStatus>("/settings/map/status", { idleIntervalMs: 5000 });
+  const status = job.status;
   const [busy, setBusy] = useState(false);
+  const [offloadError, setOffloadError] = useState<string | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-    let timer: ReturnType<typeof setTimeout>;
-    async function poll() {
-      let nextDelay = 5000;
-      try {
-        const res = await api.get<NonNullable<typeof status>>("/settings/map/status");
-        if (!cancelled) setStatus(res);
-        nextDelay = res.downloading ? 1000 : 5000;
-      } catch {
-        if (!cancelled) setStatus(null);
-      }
-      if (!cancelled) timer = setTimeout(poll, nextDelay);
-    }
-    poll();
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // No confirm() popup — the button's own label ("Download offline map (~500MB)") and this
-  // section's Card description already say exactly what this does and how big it is; the
-  // browser-native confirm dialog was just redundant friction on top of an already-deliberate
-  // click, not a real decision point.
-  async function download() {
-    setBusy(true);
-    try {
-      await api.post("/settings/map/download");
-    } finally {
-      setBusy(false);
-    }
+  // No confirm() popup: the button's own label and this Card's description already say what
+  // this does and how big it is.
+  function download() {
+    setOffloadError(null);
+    void job.start("/settings/map/download");
   }
 
   async function offload() {
-    const sizeLabel = status?.sizeBytes ? ` (~${(status.sizeBytes / 1e6).toFixed(0)}MB)` : "";
+    const sizeLabel = status?.sizeBytes ? ` (~${formatBytes(status.sizeBytes)})` : "";
     if (!confirm(`Offload the downloaded offline map${sizeLabel}? You can download it again anytime.`)) return;
     setBusy(true);
+    setOffloadError(null);
     try {
       await api.delete("/settings/map");
+      await job.refresh();
+    } catch (err) {
+      console.error(err);
+      setOffloadError(errorMessage(err, "Couldn't offload the map"));
     } finally {
       setBusy(false);
     }
   }
 
-  // `available` only means "this instance has a download source configured" — a map that's
-  // already downloaded (from back when it was configured, or on another instance's build)
-  // still needs to render here so its offload button stays reachable even if `available` is
-  // now false, rather than trapping the user with a downloaded map they can't ever remove.
+  // `available` only means "this instance has a download source configured". A map that's
+  // already downloaded still renders so its offload button stays reachable.
   if (!status || (!status.available && !status.downloaded)) return null;
 
   return (
@@ -2830,12 +2887,13 @@ function MapSection() {
       title="Offline map"
       description="An offline basemap: this is what makes locality/occurrence data work at all, showing roughly where within a downloaded region each species is found. It doesn't render without this, even with an internet connection. Everything else in Lifer works the same either way."
     >
-      {status.downloading ? (
-        <p className="flex items-center gap-2 text-sm text-muted">
-          <span className="h-3 w-3 shrink-0 animate-spin rounded-full border-2 border-accent/40 border-t-accent" />
-          Downloading… {(status.downloadedBytes / 1e6).toFixed(0)}MB
-          {status.totalBytes ? ` of ${(status.totalBytes / 1e6).toFixed(0)}MB` : ""}
-        </p>
+      {status.running ? (
+        <JobProgress
+          status={status}
+          phases={MAP_PHASES}
+          onCancel={() => void job.cancel("/settings/map/download/cancel")}
+          cancelling={job.cancelling}
+        />
       ) : status.downloaded ? (
         <button
           type="button"
@@ -2843,14 +2901,17 @@ function MapSection() {
           disabled={busy}
           className="rounded-md border border-line px-3 py-1.5 text-sm text-ink hover:bg-surface-muted disabled:opacity-50"
         >
-          {busy ? "Offloading…" : `Offload${status.sizeBytes ? ` (frees ${(status.sizeBytes / 1e6).toFixed(0)}MB)` : ""}`}
+          {busy ? "Offloading…" : `Offload${status.sizeBytes ? ` (frees ${formatBytes(status.sizeBytes)})` : ""}`}
         </button>
       ) : (
-        <button type="button" onClick={download} disabled={busy} className={buttonClass}>
-          Download offline map (~500MB)
-        </button>
+        <>
+          <button type="button" onClick={download} disabled={job.starting} className={buttonClass}>
+            {job.starting ? "Starting…" : "Download offline map (~500 MB)"}
+          </button>
+          <JobProgress status={status} error={job.actionError} errorPrefix="Download failed" />
+        </>
       )}
-      {status.error && <p className="text-sm text-red-600">{status.error}</p>}
+      <FormMessage error={offloadError} />
     </Card>
   );
 }
@@ -2859,93 +2920,91 @@ function MapSection() {
 // search (typing something like "water bird" to find photos of birds with water in the frame,
 // not just matching species names). Same opt-in/offload shape as the offline map above: not
 // bundled, so the app stays small until a user actually wants either feature.
+type ModelStatus = JobStatus<{ referenceVectors: ReferenceVectorsResult | null }> & { downloaded: boolean; sizeBytes: number | null };
+
+// The reference vectors are the second half of the same download from the user's point of view.
+const MODEL_PHASES: PhaseLabels = {
+  downloading_model: { label: "Downloading model", progress: "bytes" },
+  downloading_text_model: { label: "Downloading text model", progress: "none" },
+  downloading_gallery_embeddings: { label: "Downloading species reference vectors", progress: "bytes" },
+  applying_gallery_embeddings: { label: "Downloading species reference vectors", progress: "count" },
+  downloading_species_image_embeddings: { label: "Downloading species reference vectors", progress: "bytes" },
+  applying_species_image_embeddings: { label: "Downloading species reference vectors", progress: "count" },
+  downloading_species_text_embeddings: { label: "Downloading species search vectors", progress: "bytes" },
+  applying_species_text_embeddings: { label: "Downloading species search vectors", progress: "count" },
+};
+
 function EmbeddingModelSection() {
-  const [status, setStatus] = useState<{
-    downloaded: boolean;
-    downloading: boolean;
-    downloadedBytes: number;
-    totalBytes: number | null;
-    sizeBytes: number | null;
-    error: string | null;
-  } | null>(null);
+  const job = useJobPoll<ModelStatus>("/settings/embedding-model/status", { idleIntervalMs: 5000 });
+  const status = job.status;
   const [busy, setBusy] = useState(false);
+  const [offloadError, setOffloadError] = useState<string | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-    let timer: ReturnType<typeof setTimeout>;
-    async function poll() {
-      let nextDelay = 5000;
-      try {
-        const res = await api.get<NonNullable<typeof status>>("/settings/embedding-model/status");
-        if (!cancelled) setStatus(res);
-        nextDelay = res.downloading ? 1000 : 5000;
-      } catch {
-        if (!cancelled) setStatus(null);
-      }
-      if (!cancelled) timer = setTimeout(poll, nextDelay);
-    }
-    poll();
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  async function download() {
-    setBusy(true);
-    try {
-      await api.post("/settings/embedding-model/download");
-    } finally {
-      setBusy(false);
-    }
+  function download() {
+    setOffloadError(null);
+    void job.start("/settings/embedding-model/download");
   }
 
   async function offload() {
-    const sizeLabel = status?.sizeBytes ? ` (~${(status.sizeBytes / 1e6).toFixed(0)}MB)` : "";
+    const sizeLabel = status?.sizeBytes ? ` (~${formatBytes(status.sizeBytes)})` : "";
     if (
       !confirm(
-        `Offload the species-matching model${sizeLabel}? Species suggestions while importing will turn off, and Gallery search will fall back to matching species names, ABA/eBird codes, and camera info only — a search like "water bird" won't find photos by what's in them anymore. You can download it again anytime.`,
+        `Offload the species-matching model${sizeLabel}? Species suggestions while importing will turn off, and Gallery search will fall back to matching species names, ABA/eBird codes, and camera info only, so a search like "water bird" won't find photos by what's in them anymore. You can download it again anytime.`,
       )
     ) {
       return;
     }
     setBusy(true);
+    setOffloadError(null);
     try {
       await api.delete("/settings/embedding-model");
+      await job.refresh();
+    } catch (err) {
+      console.error(err);
+      setOffloadError(errorMessage(err, "Couldn't offload the model"));
     } finally {
       setBusy(false);
     }
   }
 
   if (!status) return null;
+  const vectorErrors = failedVectorAssets(status.result?.referenceVectors);
 
   return (
     <Card
       title="Species-matching model"
       description="Powers species suggestions while importing and Gallery's content search (finding photos by what's in them, like 'water bird', not just by species name). Without it, Lifer stays smaller and search falls back to species names, ABA/eBird codes, and camera info."
     >
-      {status.downloading ? (
-        <p className="flex items-center gap-2 text-sm text-muted">
-          <span className="h-3 w-3 shrink-0 animate-spin rounded-full border-2 border-accent/40 border-t-accent" />
-          Downloading… {(status.downloadedBytes / 1e6).toFixed(0)}MB
-          {status.totalBytes ? ` of ${(status.totalBytes / 1e6).toFixed(0)}MB` : ""}
-        </p>
+      {status.running ? (
+        <JobProgress
+          status={status}
+          phases={MODEL_PHASES}
+          onCancel={() => void job.cancel("/settings/embedding-model/download/cancel")}
+          cancelling={job.cancelling}
+        />
       ) : status.downloaded ? (
-        <button
-          type="button"
-          onClick={offload}
-          disabled={busy}
-          className="rounded-md border border-line px-3 py-1.5 text-sm text-ink hover:bg-surface-muted disabled:opacity-50"
-        >
-          {busy ? "Offloading…" : `Offload${status.sizeBytes ? ` (frees ${(status.sizeBytes / 1e6).toFixed(0)}MB)` : ""}`}
-        </button>
+        <>
+          <button
+            type="button"
+            onClick={offload}
+            disabled={busy}
+            className="rounded-md border border-line px-3 py-1.5 text-sm text-ink hover:bg-surface-muted disabled:opacity-50"
+          >
+            {busy ? "Offloading…" : `Offload${status.sizeBytes ? ` (frees ${formatBytes(status.sizeBytes)})` : ""}`}
+          </button>
+          {vectorErrors.length > 0 && (
+            <p className="text-sm text-muted">Species reference vectors couldn't be fully downloaded: {vectorErrors.join(" ")}</p>
+          )}
+        </>
       ) : (
-        <button type="button" onClick={download} disabled={busy} className={buttonClass}>
-          {busy ? "Starting…" : "Download model (~310MB)"}
-        </button>
+        <>
+          <button type="button" onClick={download} disabled={job.starting} className={buttonClass}>
+            {job.starting ? "Starting…" : "Download model (~310 MB)"}
+          </button>
+          <JobProgress status={status} error={job.actionError} errorPrefix="Download failed" />
+        </>
       )}
-      {status.error && <p className="text-sm text-red-600">{status.error}</p>}
+      <FormMessage error={offloadError} />
     </Card>
   );
 }

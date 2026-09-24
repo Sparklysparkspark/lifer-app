@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useSearchParams, useNavigate } from "react-router-dom";
 import { api, ApiError } from "../api/client";
+import { formatBytes } from "../lib/formatBytes";
 import UploadDropzone from "../components/UploadDropzone";
 import EmptyState from "../components/EmptyState";
 import RawUpload from "../components/RawUpload";
@@ -1536,7 +1537,7 @@ export default function SpeciesDetailPage() {
                     </div>
                   </DotMenu>
                   <p className="mt-1 truncate text-[10px] text-muted">{r.filename}</p>
-                  <p className="text-[9px] text-muted">{(r.fileSize / (1024 * 1024)).toFixed(1)} MB</p>
+                  <p className="text-[9px] text-muted">{formatBytes(r.fileSize)}</p>
                 </div>
               ))}
             </div>

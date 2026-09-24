@@ -2,7 +2,10 @@ import { useEffect, useRef, useState } from "react";
 import type { TaxonClass } from "@lifer/shared";
 import { TAXON_CLASS_LABEL } from "@lifer/shared";
 import { api, ApiError } from "../api/client";
-import { usePackDownloadStatus } from "../hooks/usePackDownloadStatus";
+import { usePackDownloadJob, packProgressDetail, PACK_DOWNLOAD_PHASES } from "../hooks/usePackDownloadStatus";
+import { formatBytes } from "../lib/formatBytes";
+import { errorMessage } from "../lib/errorMessage";
+import JobProgress from "./JobProgress";
 import Pill from "./Pill";
 
 export interface PackEntry {
@@ -31,10 +34,8 @@ export interface DeletePreview {
   isEstimate: boolean;
 }
 
-export function formatBytes(bytes: number): string {
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)}KB`;
-  return `${(bytes / 1024 / 1024).toFixed(1)}MB`;
-}
+// Re-exported for existing importers; the one shared formatter lives in lib/formatBytes.
+export { formatBytes };
 
 // Same "a country's own pack, plus whichever sea-zone packs it depends on, grouped together"
 // logic OfflinePacksPage's own downloadedGroups used to build inline — a sea zone's "owner" is
@@ -101,6 +102,7 @@ export default function DownloadedPacksList({
   onRefresh,
   renderPackExtra,
   renderPackPanel,
+  showJobProgress = true,
 }: {
   packs: PackEntry[];
   onRefresh: () => void;
@@ -111,6 +113,8 @@ export default function DownloadedPacksList({
    *  expanded list) — separate from renderPackExtra since it needs to sit outside the row's own
    *  flex layout, not inline within it. */
   renderPackPanel?: (pack: PackEntry) => React.ReactNode;
+  /** false when the page already shows its own pack-download progress (Offline Packs). */
+  showJobProgress?: boolean;
 }) {
   const downloadedPacks = packs.filter((p) => p.downloaded);
   const groups = groupPacks(downloadedPacks);
@@ -128,11 +132,11 @@ export default function DownloadedPacksList({
   // Server-truth job status, not local state — so a bulk/per-pack update started before this
   // component mounted (or before the user left and came back to Settings/Offline Packs) still
   // shows its real spinner/progress here instead of resetting to "not updating" on every mount.
-  const downloadStatus = usePackDownloadStatus();
+  const downloadJob = usePackDownloadJob();
+  const downloadStatus = downloadJob.status;
   const jobPackIds = new Set(downloadStatus?.running ? downloadStatus.packIds : []);
   const updatingIds = jobPackIds;
   const bulkUpdating = downloadStatus?.running === true && downloadStatus.packIds.length > 1;
-  const bulkProgress = downloadStatus?.running ? { processed: downloadStatus.processed, total: downloadStatus.total } : null;
 
   // Refresh the pack list the moment a job we can see finishes (running -> not running),
   // rather than only right after the specific click that started it — this is what makes an
@@ -175,8 +179,10 @@ export default function DownloadedPacksList({
       // here. That's also what keeps this reflecting reality if the user navigates away and
       // back while it's still running, instead of a local "done" state that unmounts with them.
       await api.post("/offline-packs/download", { packIds });
+      void downloadJob.refresh();
     } catch (err) {
-      setError(err instanceof ApiError || err instanceof Error ? err.message : "Couldn't start the update");
+      console.error(err);
+      setError(errorMessage(err, "Couldn't start the update"));
     }
   }
 
@@ -200,7 +206,8 @@ export default function DownloadedPacksList({
       await api.post("/offline-packs/offload-batch", { packIds: [smallPack.id] });
       onRefresh();
     } catch (err) {
-      setError(err instanceof ApiError || err instanceof Error ? err.message : "Couldn't get the full version");
+      console.error(err);
+      setError(errorMessage(err, "Couldn't get the full version"));
     } finally {
       setUpgradingIds((prev) => {
         const next = new Set(prev);
@@ -340,11 +347,7 @@ export default function DownloadedPacksList({
               className="flex items-center gap-1.5 rounded-md bg-accent px-2 py-1 text-xs font-medium text-accent-fg disabled:opacity-50"
             >
               {bulkUpdating && <span className="h-3 w-3 animate-spin rounded-full border-2 border-accent-fg/40 border-t-accent-fg" />}
-              {bulkUpdating
-                ? bulkProgress && bulkProgress.total > 0
-                  ? `Updating ${bulkProgress.processed}/${bulkProgress.total}…`
-                  : "Updating…"
-                : "Update all"}
+              {bulkUpdating ? "Updating…" : "Update all"}
             </button>
           )}
           {selectedIds.size > 0 && (
@@ -362,6 +365,17 @@ export default function DownloadedPacksList({
         </div>
       </div>
       {error && <p className="mt-2 text-xs text-red-600">{error}</p>}
+      {showJobProgress && downloadStatus?.running && (
+        <div className="mt-3">
+          <JobProgress
+            status={downloadStatus}
+            phases={PACK_DOWNLOAD_PHASES}
+            detail={packProgressDetail(downloadStatus)}
+            onCancel={() => void downloadJob.cancel("/offline-packs/download/cancel")}
+            cancelling={downloadJob.cancelling}
+          />
+        </div>
+      )}
       <div className="mt-2 divide-y divide-line">
         {groups.map(([groupName, { main, seaZones }]) => {
           const allPacks = [...main, ...seaZones];
