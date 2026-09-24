@@ -15,6 +15,8 @@ Categories: `Added`, `Changed`, `Fixed`, `Removed` — omit any with nothing to 
 
 ## [Unreleased]
 
+## [0.5.8] - 2026-09-24
+
 ## [0.5.7] - 2026-09-24
 
 ### Changed
