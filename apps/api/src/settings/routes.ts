@@ -9,13 +9,16 @@ import { DATA_DIR, ORIGINALS_DIR, APP_DATA_DIR, PORT, SINGLE_USER_MODE, MAPS_DIR
 import { originalsFolder } from "../uploads/organizedPath.js";
 import { resolveSpeciesFolderName } from "../uploads/speciesFolderName.js";
 import { extractExif } from "../uploads/exif.js";
-import { syncCaptureXmpSidecars } from "../uploads/xmpSidecarSync.js";
+import { syncCaptureXmpSidecarsLogged } from "../uploads/xmpSidecarSync.js";
 import { resyncSpeciesMetadata } from "../captures/routes.js";
 import { readLocalSettings, writeLocalSettings } from "../localSettings.js";
-import { checkCatalogUpdate, startCatalogUpdateJob, catalogUpdateJob } from "../species/catalogSeedUpdate.js";
-import { isModelDownloaded, downloadModel, offloadModel, MODEL_DIR } from "../species/embeddings.js";
-import { isTextModelDownloaded, downloadTextModel } from "../species/textEmbedding.js";
-import { runEmbeddingBackfill, runSpeciesEmbeddingBackfill } from "../species/embeddingBackfill.js";
+import { checkCatalogUpdate, startCatalogUpdateJob, catalogUpdate } from "../species/catalogSeedUpdate.js";
+import { modelDownload, startModelDownloadJob } from "../species/modelDownloadJob.js";
+import { isModelDownloaded, offloadModel, MODEL_DIR } from "../species/embeddings.js";
+import { isTextModelDownloaded } from "../species/textEmbedding.js";
+import { createJob, type JobContext } from "../lib/job.js";
+import { downloadToFile } from "../lib/download.js";
+import { deleteLocalLibraryBlockedReason } from "./deleteLibraryGate.js";
 
 // Lifer's own subfolders under DATA_DIR (see config.ts) — implementation detail, never
 // something a user should navigate into when picking a library folder.
@@ -160,7 +163,7 @@ export async function recoverInterruptedStorageMigration(): Promise<void> {
     await relinkAbsolutePaths(client, from, to);
     await client.query("COMMIT");
   } catch (err) {
-    await client.query("ROLLBACK");
+    await client.query("ROLLBACK").catch(() => {});
     throw err;
   } finally {
     client.release();
@@ -298,19 +301,16 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
     return checkCatalogUpdate(pool, request.user!.id);
   });
 
-  // Fire-and-forget + poll, same shape as offlinePacks/routes.ts's own downloadJob — the merge
-  // can take a while (a large seed, a slow connection), and running it synchronously inside this
-  // one request previously meant navigating away from Settings (unmounting the component holding
-  // that fetch's result) lost all knowledge of whether it had finished or was still running,
-  // sometimes leaving the UI stuck on "Updating..." forever even after the update had actually
-  // long since succeeded (or failed) server-side. See catalogUpdateJob's own comment.
-  app.post("/settings/catalog-update/apply", { preHandler: requireAuth }, async (request, reply) => {
-    if (catalogUpdateJob.running) return reply.code(409).send({ error: "A catalog update is already running" });
-    startCatalogUpdateJob(pool, request.user!.id);
+  // Background job + poll (see lib/job.ts): download, then one-transaction apply, then the
+  // gallery vectors when the model is installed.
+  app.post("/settings/catalog-update/apply", { preHandler: requireAuth }, async (_request, reply) => {
+    if (!startCatalogUpdateJob(pool)) return reply.code(409).send({ error: "A catalog update is already running" });
     return { started: true };
   });
 
-  app.get("/settings/catalog-update/status", { preHandler: requireAuth }, async () => catalogUpdateJob);
+  app.get("/settings/catalog-update/status", { preHandler: requireAuth }, async () => catalogUpdate.status);
+
+  app.post("/settings/catalog-update/cancel", { preHandler: requireAuth }, async () => ({ cancelled: catalogUpdate.cancel() }));
 
   app.post("/settings/reorganize-originals", { preHandler: requireAuth }, async (request) => {
     const userId = request.user!.id;
@@ -420,7 +420,7 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
     // (the next reassignment or reorganize pass fixes it) and shouldn't fail the whole request.
     for (const captureId of captureIdsToResync) {
       await resyncSpeciesMetadata(userId, captureId).catch(() => {});
-      await syncCaptureXmpSidecars(userId, captureId).catch(() => {});
+      await syncCaptureXmpSidecarsLogged(userId, captureId);
     }
 
     return { moved, skipped, failed, total: originalsRes.rows.length };
@@ -500,7 +500,7 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
         await relinkAbsolutePaths(client, oldDir, dataDir);
         await client.query("COMMIT");
       } catch (err) {
-        await client.query("ROLLBACK");
+        await client.query("ROLLBACK").catch(() => {});
         // The marker is deliberately left in place here: the files already moved, so this
         // is exactly the state recoverInterruptedStorageMigration knows how to finish
         // automatically on next restart, rather than a state to silently swallow.
@@ -537,141 +537,155 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
   // 'migrated' row for a capture AFTER the remote server confirms the upload — so a dropped
   // connection, a closed app, or a server restart mid-job just means the affected capture(s)
   // stay unmarked and get retried the next time this runs, never double-counted, never
-  // silently dropped. Only one job runs at a time (migrationJob.running guards re-entry).
-  interface MigrationJobState {
-    running: boolean;
+  // silently dropped. Only one job runs at a time (createJob's synchronous claim guards
+  // re-entry). Live counters are top-level fields; `result` holds the final tally.
+  interface MigrationExtra {
     serverUrl: string | null;
     migrated: number;
     skipped: number;
     failed: number;
-    total: number;
-    error: string | null;
-    finishedAt: number | null;
   }
-  const migrationJob: MigrationJobState = {
-    running: false,
+  interface MigrationResult {
+    migrated: number;
+    skipped: number;
+    failed: number;
+    total: number;
+  }
+  const migrationJob = createJob<MigrationResult, MigrationExtra>("migrate-to-server", {
     serverUrl: null,
     migrated: 0,
     skipped: 0,
     failed: 0,
-    total: 0,
-    error: null,
-    finishedAt: null,
-  };
+  });
 
-  async function runMigrationJob(baseUrl: string, cookieHeader: string, userId: string): Promise<void> {
-    try {
-      const capturesRes = await pool.query<{
-        capture_id: string;
-        scientific_name: string;
-        jpeg_ref: string | null;
-        raw_ref: string | null;
-      }>(
-        `SELECT c.id AS capture_id, s.scientific_name,
-                oj.ref AS jpeg_ref,
-                orw.ref AS raw_ref
-         FROM captures c
-         JOIN species s ON s.id = c.species_id
-         LEFT JOIN originals oj ON oj.capture_id = c.id AND oj.kind = 'jpeg'
-         LEFT JOIN originals orw ON orw.capture_id = c.id AND orw.kind = 'raw'
-         WHERE c.user_id = $1
-           AND NOT EXISTS (
-             SELECT 1 FROM capture_migrations cm
-             WHERE cm.capture_id = c.id AND cm.server_url = $2 AND cm.status IN ('migrated', 'skipped')
-           )`,
-        [userId, baseUrl],
-      );
-      migrationJob.total = capturesRes.rows.length;
+  async function runMigrationJob(ctx: JobContext<MigrationResult>, baseUrl: string, cookieHeader: string, userId: string): Promise<MigrationResult> {
+    const job = migrationJob.status;
+    const capturesRes = await pool.query<{
+      capture_id: string;
+      scientific_name: string;
+      jpeg_ref: string | null;
+      raw_ref: string | null;
+    }>(
+      `SELECT c.id AS capture_id, s.scientific_name,
+              oj.ref AS jpeg_ref,
+              orw.ref AS raw_ref
+       FROM captures c
+       JOIN species s ON s.id = c.species_id
+       LEFT JOIN originals oj ON oj.capture_id = c.id AND oj.kind = 'jpeg'
+       LEFT JOIN originals orw ON orw.capture_id = c.id AND orw.kind = 'raw'
+       WHERE c.user_id = $1
+         AND NOT EXISTS (
+           SELECT 1 FROM capture_migrations cm
+           WHERE cm.capture_id = c.id AND cm.server_url = $2 AND cm.status IN ('migrated', 'skipped')
+         )`,
+      [userId, baseUrl],
+    );
+    const total = capturesRes.rows.length;
+    ctx.update({ phase: "uploading", total, processed: 0 });
+    const bump = () => ctx.update({ processed: job.migrated + job.skipped + job.failed });
 
-      const speciesIdCache = new Map<string, string | null>();
-      async function resolveRemoteSpeciesId(scientificName: string): Promise<string | null> {
-        if (speciesIdCache.has(scientificName)) return speciesIdCache.get(scientificName) ?? null;
-        let remoteId: string | null = null;
-        try {
-          const res = await fetch(`${baseUrl}/api/species?q=${encodeURIComponent(scientificName)}`, {
-            headers: { Cookie: cookieHeader },
-          });
-          if (res.ok) {
-            const body = (await res.json()) as { results: Array<{ id: string; scientific_name: string }> };
-            remoteId = body.results.find((r) => r.scientific_name === scientificName)?.id ?? null;
-          }
-        } catch {
-          remoteId = null;
+    const speciesIdCache = new Map<string, string | null>();
+    async function resolveRemoteSpeciesId(scientificName: string): Promise<string | null> {
+      if (speciesIdCache.has(scientificName)) return speciesIdCache.get(scientificName) ?? null;
+      let remoteId: string | null = null;
+      try {
+        const res = await fetch(`${baseUrl}/api/species?q=${encodeURIComponent(scientificName)}`, {
+          headers: { Cookie: cookieHeader },
+          signal: AbortSignal.any([ctx.signal, AbortSignal.timeout(30_000)]),
+        });
+        if (res.ok) {
+          const body = (await res.json()) as { results: Array<{ id: string; scientific_name: string }> };
+          remoteId = body.results.find((r) => r.scientific_name === scientificName)?.id ?? null;
         }
-        speciesIdCache.set(scientificName, remoteId);
-        return remoteId;
+      } catch {
+        ctx.throwIfCancelled();
+        remoteId = null;
       }
-
-      async function markCapture(captureId: string, status: "migrated" | "skipped" | "failed"): Promise<void> {
-        await pool.query(
-          `INSERT INTO capture_migrations (capture_id, server_url, status) VALUES ($1, $2, $3)
-           ON CONFLICT (capture_id, server_url) DO UPDATE SET status = EXCLUDED.status, migrated_at = now()`,
-          [captureId, baseUrl, status],
-        );
-      }
-
-      for (const row of capturesRes.rows) {
-        // Only a real JPEG/PNG original can be re-uploaded as a photo — the /uploads endpoint
-        // only accepts those two formats (see ACCEPTED_PHOTO_EXTENSION_BY_MIMETYPE), so a
-        // capture with no original on disk (only the app's own internal WebP derivative) has
-        // nothing valid to migrate. Permanent, not transient — marked 'skipped' so it's never
-        // retried on a later run.
-        if (!row.jpeg_ref || !existsSync(row.jpeg_ref)) {
-          await markCapture(row.capture_id, "skipped");
-          migrationJob.skipped++;
-          continue;
-        }
-        const remoteSpeciesId = await resolveRemoteSpeciesId(row.scientific_name);
-        if (!remoteSpeciesId) {
-          // Could be transient (remote server hiccup) — 'failed', not 'skipped', so it's
-          // retried on the next run instead of given up on permanently.
-          await markCapture(row.capture_id, "failed");
-          migrationJob.failed++;
-          continue;
-        }
-        try {
-          const photoExt = path.extname(row.jpeg_ref).toLowerCase();
-          const photoMime = photoExt === ".png" ? "image/png" : "image/jpeg";
-          const form = new FormData();
-          form.set("speciesId", remoteSpeciesId);
-          form.set("mode", "store");
-          form.set("file", new Blob([readFileSync(row.jpeg_ref)], { type: photoMime }), path.basename(row.jpeg_ref));
-          if (row.raw_ref && existsSync(row.raw_ref)) {
-            form.set("rawFile", new Blob([readFileSync(row.raw_ref)]), path.basename(row.raw_ref));
-          }
-          const uploadRes = await fetch(`${baseUrl}/api/uploads`, {
-            method: "POST",
-            headers: { Cookie: cookieHeader },
-            body: form,
-          });
-          if (uploadRes.ok) {
-            await markCapture(row.capture_id, "migrated");
-            migrationJob.migrated++;
-          } else {
-            await markCapture(row.capture_id, "failed");
-            migrationJob.failed++;
-          }
-        } catch {
-          await markCapture(row.capture_id, "failed");
-          migrationJob.failed++;
-        }
-      }
-    } catch (err) {
-      migrationJob.error = (err as Error).message;
-    } finally {
-      migrationJob.running = false;
-      migrationJob.finishedAt = Date.now();
+      speciesIdCache.set(scientificName, remoteId);
+      return remoteId;
     }
+
+    async function markCapture(captureId: string, status: "migrated" | "skipped" | "failed"): Promise<void> {
+      await pool.query(
+        `INSERT INTO capture_migrations (capture_id, server_url, status) VALUES ($1, $2, $3)
+         ON CONFLICT (capture_id, server_url) DO UPDATE SET status = EXCLUDED.status, migrated_at = now()`,
+        [captureId, baseUrl, status],
+      );
+    }
+
+    for (const row of capturesRes.rows) {
+      ctx.throwIfCancelled();
+      ctx.update({ currentItem: row.scientific_name });
+      // Only a real JPEG/PNG original can be re-uploaded as a photo, the /uploads endpoint
+      // only accepts those two formats (see ACCEPTED_PHOTO_EXTENSION_BY_MIMETYPE), so a
+      // capture with no original on disk (only the app's own internal WebP derivative) has
+      // nothing valid to migrate. Permanent, not transient, marked 'skipped' so it's never
+      // retried on a later run.
+      if (!row.jpeg_ref || !existsSync(row.jpeg_ref)) {
+        await markCapture(row.capture_id, "skipped");
+        job.skipped++;
+        bump();
+        continue;
+      }
+      const remoteSpeciesId = await resolveRemoteSpeciesId(row.scientific_name);
+      if (!remoteSpeciesId) {
+        // Could be transient (remote server hiccup), 'failed', not 'skipped', so it's
+        // retried on the next run instead of given up on permanently.
+        await markCapture(row.capture_id, "failed");
+        job.failed++;
+        bump();
+        continue;
+      }
+      try {
+        const photoExt = path.extname(row.jpeg_ref).toLowerCase();
+        const photoMime = photoExt === ".png" ? "image/png" : "image/jpeg";
+        const form = new FormData();
+        form.set("speciesId", remoteSpeciesId);
+        form.set("mode", "store");
+        form.set("file", new Blob([readFileSync(row.jpeg_ref)], { type: photoMime }), path.basename(row.jpeg_ref));
+        if (row.raw_ref && existsSync(row.raw_ref)) {
+          form.set("rawFile", new Blob([readFileSync(row.raw_ref)]), path.basename(row.raw_ref));
+        }
+        // Generous: one upload can carry a large RAW over a slow link.
+        const uploadRes = await fetch(`${baseUrl}/api/uploads`, {
+          method: "POST",
+          headers: { Cookie: cookieHeader },
+          body: form,
+          signal: AbortSignal.any([ctx.signal, AbortSignal.timeout(15 * 60_000)]),
+        });
+        if (uploadRes.ok) {
+          await markCapture(row.capture_id, "migrated");
+          job.migrated++;
+        } else {
+          await markCapture(row.capture_id, "failed");
+          job.failed++;
+        }
+      } catch {
+        // A cancel mid-upload isn't a failed capture; it just stays unmarked for next time.
+        ctx.throwIfCancelled();
+        await markCapture(row.capture_id, "failed");
+        job.failed++;
+      }
+      bump();
+    }
+    return { migrated: job.migrated, skipped: job.skipped, failed: job.failed, total };
   }
 
   app.get("/settings/migrate-to-server/status", { preHandler: requireAuth }, async (_request, reply) => {
     if (!requireDesktopMode(reply)) return;
-    return migrationJob;
+    return migrationJob.status;
+  });
+
+  // Stops between captures. The capture in flight either lands (and is marked) or stays
+  // unmarked and is retried next run.
+  app.post("/settings/migrate-to-server/cancel", { preHandler: requireAuth }, async (_request, reply) => {
+    if (!requireDesktopMode(reply)) return;
+    return { cancelled: migrationJob.cancel() };
   });
 
   app.post<{ Body: MigrateBody }>("/settings/migrate-to-server", { preHandler: requireAuth }, async (request, reply) => {
     if (!requireDesktopMode(reply)) return;
-    if (migrationJob.running) {
+    if (migrationJob.status.running) {
       return reply.code(409).send({ error: "A migration to a server is already in progress" });
     }
     const { serverUrl, email, password } = request.body ?? {};
@@ -712,6 +726,7 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password }),
+        signal: AbortSignal.timeout(30_000),
       });
       if (!loginRes.ok) {
         const body = (await loginRes.json().catch(() => ({}))) as { error?: string };
@@ -724,18 +739,11 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(400).send({ error: `Couldn't reach that server: ${(err as Error).message}` });
     }
 
-    migrationJob.running = true;
-    migrationJob.serverUrl = baseUrl;
-    migrationJob.migrated = 0;
-    migrationJob.skipped = 0;
-    migrationJob.failed = 0;
-    migrationJob.total = 0;
-    migrationJob.error = null;
-    migrationJob.finishedAt = null;
-
-    // Deliberately not awaited — the request returns as soon as login is confirmed, and the
-    // actual upload loop runs in the background (see this fn's own comment on why).
-    void runMigrationJob(baseUrl, cookieHeader, request.user!.id);
+    // The claim happens here, after the (slow) login, but start() is atomic: a second request
+    // that also got this far gets false and a 409 instead of a second concurrent run.
+    const userId = request.user!.id;
+    const started = migrationJob.start((ctx) => runMigrationJob(ctx, baseUrl, cookieHeader, userId), { serverUrl: baseUrl });
+    if (!started) return reply.code(409).send({ error: "A migration to a server is already in progress" });
 
     return { started: true };
   });
@@ -749,13 +757,22 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
   app.post<{ Body: { confirm?: boolean } }>("/settings/delete-local-library", { preHandler: requireAuth }, async (request, reply) => {
     if (!requireDesktopMode(reply)) return;
     if (!request.body?.confirm) return reply.code(400).send({ error: "confirm is required" });
-    if (migrationJob.finishedAt == null || migrationJob.running || migrationJob.failed > 0) {
-      return reply.code(409).send({
-        error: "Local files can only be deleted right after a migration that finished with zero failures.",
-      });
-    }
-
     const userId = request.user!.id;
+    const job = migrationJob.status;
+    let unmigrated = 0;
+    if (job.serverUrl) {
+      const res = await pool.query<{ n: number }>(
+        `SELECT count(*)::int AS n FROM captures c
+         WHERE c.user_id = $1 AND NOT EXISTS (
+           SELECT 1 FROM capture_migrations cm WHERE cm.capture_id = c.id AND cm.server_url = $2 AND cm.status = 'migrated'
+         )`,
+        [userId, job.serverUrl],
+      );
+      unmigrated = res.rows[0]?.n ?? 0;
+    }
+    const blocked = deleteLocalLibraryBlockedReason(job, unmigrated);
+    if (blocked) return reply.code(409).send({ error: blocked });
+
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
@@ -763,7 +780,7 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
       await client.query(`DELETE FROM captures WHERE user_id = $1`, [userId]);
       await client.query("COMMIT");
     } catch (err) {
-      await client.query("ROLLBACK");
+      await client.query("ROLLBACK").catch(() => {});
       throw err;
     } finally {
       client.release();
@@ -787,66 +804,43 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
   // need to guess at a total when the server doesn't send Content-Length. Not desktop-only
   // (requireDesktopMode) — a self-hosted server deployment wants this exact same opt-in
   // download, into the same MAPS_DIR the static-file route in index.ts already serves.
-  interface MapJobState {
-    downloading: boolean;
-    downloadedBytes: number;
-    totalBytes: number | null;
-    error: string | null;
-  }
-  const mapJob: MapJobState = { downloading: false, downloadedBytes: 0, totalBytes: null, error: null };
+  const mapJob = createJob<{ bytes: number }>("offline-map");
   const MAP_FILE_PATH = path.join(MAPS_DIR, "world-z8.pmtiles");
 
   app.get("/settings/map/status", { preHandler: requireAuth }, async () => ({
     available: MAP_DOWNLOAD_URL != null,
     downloaded: existsSync(MAP_FILE_PATH),
-    // The real on-disk size, not mapJob.downloadedBytes — that's in-memory download-progress
-    // state that resets to 0 on every server restart, so it can't be trusted to still reflect
+    // The real on-disk size, not the job's downloadedBytes, that's in-memory download-progress
+    // state that resets on every server restart, so it can't be trusted to still reflect
     // an already-downloaded map's size once this process has restarted since the download.
     sizeBytes: existsSync(MAP_FILE_PATH) ? statSync(MAP_FILE_PATH).size : null,
-    ...mapJob,
+    ...mapJob.status,
+    // Legacy alias for `running`, kept until every client reads the shared JobStatus shape.
+    downloading: mapJob.status.running,
   }));
 
   app.post("/settings/map/download", { preHandler: requireAuth }, async (_request, reply) => {
-    if (!MAP_DOWNLOAD_URL) return reply.code(400).send({ error: "No offline map is configured for this instance" });
-    if (mapJob.downloading) return reply.code(409).send({ error: "The map is already downloading" });
-
-    mapJob.downloading = true;
-    mapJob.downloadedBytes = 0;
-    mapJob.totalBytes = null;
-    mapJob.error = null;
-
-    // Not awaited — same "return immediately, poll /status for progress" shape as the
-    // migration job above.
-    void (async () => {
-      const tmpPath = `${MAP_FILE_PATH}.download`;
-      try {
+    const url = MAP_DOWNLOAD_URL;
+    if (!url) return reply.code(400).send({ error: "No offline map is configured for this instance" });
+    const started = mapJob.start(
+      async (ctx) => {
+        const tmpPath = `${MAP_FILE_PATH}.download`;
         mkdirSync(MAPS_DIR, { recursive: true });
-        const res = await fetch(MAP_DOWNLOAD_URL);
-        if (!res.ok || !res.body) throw new Error(`Download failed: HTTP ${res.status}`);
-        const contentLength = res.headers.get("content-length");
-        mapJob.totalBytes = contentLength ? Number(contentLength) : null;
-
-        const { createWriteStream } = await import("node:fs");
-        const { Readable } = await import("node:stream");
-        const { finished } = await import("node:stream/promises");
-        const out = createWriteStream(tmpPath);
-        const nodeStream = Readable.fromWeb(res.body as import("node:stream/web").ReadableStream);
-        nodeStream.on("data", (chunk: Buffer) => {
-          mapJob.downloadedBytes += chunk.length;
+        const { bytes } = await downloadToFile(url, tmpPath, {
+          signal: ctx.signal,
+          onProgress: (downloadedBytes, totalBytes) => ctx.update({ downloadedBytes, totalBytes }),
         });
-        nodeStream.pipe(out);
-        await finished(out);
+        ctx.throwIfCancelled();
         renameSync(tmpPath, MAP_FILE_PATH);
-      } catch (err) {
-        mapJob.error = (err as Error).message;
-        rmSync(tmpPath, { force: true });
-      } finally {
-        mapJob.downloading = false;
-      }
-    })();
-
+        return { bytes };
+      },
+      { phase: "downloading", downloadedBytes: 0 },
+    );
+    if (!started) return reply.code(409).send({ error: "The map is already downloading" });
     return { started: true };
   });
+
+  app.post("/settings/map/download/cancel", { preHandler: requireAuth }, async () => ({ cancelled: mapJob.cancel() }));
 
   // Deletes the downloaded map to reclaim disk space — the reverse of the opt-in above.
   app.delete("/settings/map", { preHandler: requireAuth }, async () => {
@@ -870,54 +864,23 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
     return total;
   }
 
-  interface EmbeddingModelJobState {
-    downloading: boolean;
-    downloadedBytes: number;
-    totalBytes: number | null;
-    error: string | null;
-  }
-  const embeddingModelJob: EmbeddingModelJobState = { downloading: false, downloadedBytes: 0, totalBytes: null, error: null };
-
+  // JobStatus plus `downloaded`/`sizeBytes`; `downloading` stays as an alias of `running` for
+  // older web builds.
   app.get("/settings/embedding-model/status", { preHandler: requireAuth }, async () => ({
+    ...modelDownload.status,
+    downloading: modelDownload.status.running,
     downloaded: isModelDownloaded() && isTextModelDownloaded(),
     sizeBytes: dirSizeBytes(MODEL_DIR) || null,
-    ...embeddingModelJob,
   }));
 
   app.post("/settings/embedding-model/download", { preHandler: requireAuth }, async (_request, reply) => {
-    if (embeddingModelJob.downloading) return reply.code(409).send({ error: "The model is already downloading" });
-
-    embeddingModelJob.downloading = true;
-    embeddingModelJob.downloadedBytes = 0;
-    embeddingModelJob.totalBytes = null;
-    embeddingModelJob.error = null;
-
-    void (async () => {
-      try {
-        await downloadModel((downloadedBytes, totalBytes) => {
-          embeddingModelJob.downloadedBytes = downloadedBytes;
-          embeddingModelJob.totalBytes = totalBytes;
-        });
-        await downloadTextModel(); // no byte progress available — UI shows this as a final "finishing up" step
-      } catch (err) {
-        embeddingModelJob.error = (err as Error).message;
-      } finally {
-        embeddingModelJob.downloading = false;
-      }
-      // Anything enriched/imported while the model was missing got its embedding silently
-      // skipped (see lazyEnrich.ts's tryComputeReferenceEmbedding and uploads/routes.ts's
-      // fire-and-forget computeEmbedding calls, both best-effort by design). The model being
-      // absent was the ONLY reason those were skipped, so the moment it's actually downloaded is
-      // exactly when to catch every photo and species back up — not wait for the next server
-      // restart, which is the only other place this ran before.
-      if (!embeddingModelJob.error) {
-        runEmbeddingBackfill().catch((err) => app.log.warn({ err }, "Capture embedding catch-up backfill failed"));
-        runSpeciesEmbeddingBackfill().catch((err) => app.log.warn({ err }, "Species embedding catch-up backfill failed"));
-      }
-    })();
-
+    if (!startModelDownloadJob(pool, app.log)) return reply.code(409).send({ error: "The model is already downloading" });
     return { started: true };
   });
+
+  app.post("/settings/embedding-model/download/cancel", { preHandler: requireAuth }, async () => ({
+    cancelled: modelDownload.cancel(),
+  }));
 
   // Offloading also turns off species-suggest for every user rather than leaving it silently
   // broken — see SpeciesPicker/PhotoImportRows, which would otherwise keep showing a suggestion
