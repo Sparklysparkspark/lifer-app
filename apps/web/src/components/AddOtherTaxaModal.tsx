@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import type { JobStatus } from "@lifer/shared";
 import { api, ApiError } from "../api/client";
+import { useJobPoll } from "../hooks/useJobPoll";
+import JobProgress from "./JobProgress";
 import RegionBrowser from "./RegionBrowser";
 import SearchInput from "./SearchInput";
 
@@ -12,16 +15,11 @@ interface InatSearchResult {
   thumbnailUrl: string | null;
 }
 
-interface BulkJobStatus {
-  running: boolean;
-  processed: number;
-  total: number;
+type BulkJobStatus = JobStatus & {
   added: number;
   alreadyPresent: number;
   notFound: string[];
-  error: string | null;
-  finishedAt: number | null;
-}
+};
 
 // Settings > Species & Import's "any taxa" search, opened from SpeciesPicker when a jump-to-
 // species query has no local match and the feature is enabled — pulls a species straight from
@@ -52,15 +50,10 @@ export default function AddOtherTaxaModal({
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [bulkText, setBulkText] = useState("");
-  const [bulkStatus, setBulkStatus] = useState<BulkJobStatus | null>(null);
-  const [bulkError, setBulkError] = useState<string | null>(null);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  useEffect(() => {
-    return () => {
-      if (pollRef.current) clearInterval(pollRef.current);
-    };
-  }, []);
+  const bulkJob = useJobPoll<BulkJobStatus>("/species/other-taxa/bulk/status");
+  // Only a run started from this modal is shown, not a finished one from earlier.
+  const [bulkStarted, setBulkStarted] = useState(false);
+  const bulkStatus = bulkStarted || bulkJob.status?.running ? bulkJob.status : null;
 
   // Same scroll lock Lightbox uses — this modal's own content scrolls internally
   // (overflow-y-auto on its panel), but without this the page underneath kept scrolling right
@@ -98,26 +91,7 @@ export default function AddOtherTaxaModal({
       .map((line) => line.trim())
       .filter((line) => line.length > 0);
     if (entries.length === 0 || !regionId) return;
-    setBulkError(null);
-    try {
-      await api.post("/species/other-taxa/bulk", { regionId, entries });
-    } catch (err) {
-      setBulkError(err instanceof ApiError ? err.message : "Couldn't start the import");
-      return;
-    }
-    if (pollRef.current) clearInterval(pollRef.current);
-    pollRef.current = setInterval(() => {
-      api
-        .get<BulkJobStatus>("/species/other-taxa/bulk/status")
-        .then((status) => {
-          setBulkStatus(status);
-          if (!status.running && pollRef.current) {
-            clearInterval(pollRef.current);
-            pollRef.current = null;
-          }
-        })
-        .catch(() => {});
-    }, 1000);
+    if (await bulkJob.start("/species/other-taxa/bulk", { regionId, entries })) setBulkStarted(true);
   }
 
   async function confirmAdd() {
@@ -170,7 +144,7 @@ export default function AddOtherTaxaModal({
         {mode === "bulk" ? (
           <>
             <p className="mb-2 text-xs text-muted">
-              Paste one entry per line — scientific names work best, common names or raw iNaturalist taxon IDs also
+              Paste one entry per line. Scientific names work best, common names or raw iNaturalist taxon IDs also
               work (handy for building your own target list, like every bee species in a region, or sharing one with
               someone else on the same instance).
             </p>
@@ -184,12 +158,19 @@ export default function AddOtherTaxaModal({
             />
             <p className="mb-2 text-xs text-muted">Which region should these appear under?</p>
             <RegionBrowser regionId={regionId} onChange={setRegionId} allowAnyRegion />
-            {bulkError && <p className="mt-2 text-sm text-red-600">{bulkError}</p>}
+            {bulkJob.actionError && <p className="mt-2 text-sm text-red-600">{bulkJob.actionError}</p>}
             {bulkStatus && (
-              <div className="mt-3 rounded-md border border-line px-3 py-2 text-xs text-muted">
+              <div className="mt-3 space-y-2 rounded-md border border-line px-3 py-2 text-xs text-muted">
+                {bulkStatus.running && (
+                  <JobProgress
+                    status={bulkStatus}
+                    phases={{ importing: { label: "Importing", progress: "count" } }}
+                    onCancel={() => void bulkJob.cancel("/species/other-taxa/bulk/cancel")}
+                    cancelling={bulkJob.cancelling}
+                  />
+                )}
                 <p>
-                  {bulkStatus.running ? "Importing…" : "Done."} {bulkStatus.processed}/{bulkStatus.total} processed
-                  {" — "}
+                  {bulkStatus.running ? "" : bulkStatus.cancelled ? "Cancelled. " : "Done. "}
                   {bulkStatus.added} added, {bulkStatus.alreadyPresent} already on the list
                   {bulkStatus.notFound.length > 0 && `, ${bulkStatus.notFound.length} not found`}.
                 </p>

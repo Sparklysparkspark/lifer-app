@@ -8,7 +8,10 @@ import PageHeader from "../components/PageHeader";
 import InfoTip from "../components/InfoTip";
 import PacksMap, { type CountryBoundary } from "../components/PacksMap";
 import RegionPicker from "../components/RegionPicker";
-import DownloadedPacksList, { formatBytes, type PackEntry } from "../components/DownloadedPacksList";
+import DownloadedPacksList, { type PackEntry } from "../components/DownloadedPacksList";
+import JobProgress from "../components/JobProgress";
+import { usePackDownloadJob, packProgressDetail, PACK_DOWNLOAD_PHASES, type PackDownloadStatus } from "../hooks/usePackDownloadStatus";
+import { formatBytes } from "../lib/formatBytes";
 
 const PACKS_INFO_PARAGRAPHS = [
   '"Update available" means the pack\'s checklist data (which species occur there, and how often) has changed since you downloaded it. Re-downloading refreshes that.',
@@ -50,15 +53,6 @@ const CENTRAL_AMERICA_CONTINENT: RegionSummary = {
   isSovereignDependency: false,
 };
 
-interface DownloadStatus {
-  running: boolean;
-  processed: number;
-  total: number;
-  currentPack: string | null;
-  error: string | null;
-  finishedAt: number | null;
-  cancelled: boolean;
-}
 
 interface RecommendedPack {
   id: string;
@@ -109,7 +103,6 @@ export default function OfflinePacksPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [starting, setStarting] = useState(false);
   const [startError, setStartError] = useState<string | null>(null);
-  const [status, setStatus] = useState<DownloadStatus | null>(null);
   const [recommendation, setRecommendation] = useState<Recommendation | null>(null);
   const [recommendationError, setRecommendationError] = useState<string | null>(null);
   const [provinceManagerPackId, setProvinceManagerPackId] = useState<string | null>(null);
@@ -157,29 +150,8 @@ export default function OfflinePacksPage() {
       .catch((err) => setRecommendationError(err instanceof ApiError ? err.message : "Couldn't compute pack recommendations"));
   }, []);
 
-  const wasRunning = useRef(false);
-  useEffect(() => {
-    let cancelled = false;
-    let timer: ReturnType<typeof setTimeout>;
-    async function poll() {
-      try {
-        const res = await api.get<DownloadStatus>("/offline-packs/download/status");
-        if (!cancelled) {
-          setStatus(res);
-          if (wasRunning.current && !res.running) refreshPacks();
-          wasRunning.current = res.running;
-        }
-      } catch {
-        // ignore — status just won't update this tick
-      }
-      if (!cancelled) timer = setTimeout(poll, 2000);
-    }
-    poll();
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
-  }, []);
+  const downloadJob = usePackDownloadJob(1000, () => void refreshPacks());
+  const status = downloadJob.status;
 
   // Which taxa this selection could even offer — unioned across every selected country so a
   // taxon present in only ONE of several selected countries still shows up (item 6's own
@@ -486,6 +458,7 @@ export default function OfflinePacksPage() {
       });
       setSelectedCountryIds(new Set());
       setSelectedTaxa(new Set());
+      void downloadJob.refresh();
     } catch (err) {
       setStartError(err instanceof ApiError ? err.message : "Couldn't start the download");
     } finally {
@@ -493,14 +466,8 @@ export default function OfflinePacksPage() {
     }
   }
 
-  const [cancelling, setCancelling] = useState(false);
-  async function cancelDownload() {
-    setCancelling(true);
-    try {
-      await api.post("/offline-packs/download/cancel", {});
-    } finally {
-      setCancelling(false);
-    }
+  function cancelDownload() {
+    void downloadJob.cancel("/offline-packs/download/cancel");
   }
 
   async function openProvinceManager(packId: string) {
@@ -546,7 +513,7 @@ export default function OfflinePacksPage() {
     try {
       await api.post("/offline-packs/download", { packIds: [packId], force: true });
       for (;;) {
-        const jobStatus = await api.get<DownloadStatus>("/offline-packs/download/status");
+        const jobStatus = await api.get<PackDownloadStatus>("/offline-packs/download/status");
         if (!jobStatus.running) {
           if (jobStatus.error) throw new Error(jobStatus.error);
           break;
@@ -629,26 +596,13 @@ export default function OfflinePacksPage() {
 
         {status?.running && (
           <div className="rounded-xl border border-line bg-surface p-4">
-            <div className="flex items-center justify-between gap-3">
-              <p className="text-sm text-ink">
-                Downloading… {status.processed}/{status.total}
-                {status.currentPack ? ` (${status.currentPack})` : ""}
-              </p>
-              <button
-                type="button"
-                onClick={cancelDownload}
-                disabled={cancelling}
-                className="shrink-0 rounded-md border border-line px-3 py-1 text-xs text-ink hover:bg-surface-muted disabled:opacity-50"
-              >
-                {cancelling ? "Cancelling…" : "Cancel"}
-              </button>
-            </div>
-            <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-surface-muted">
-              <div
-                className="h-full bg-accent transition-all"
-                style={{ width: `${status.total ? Math.round((status.processed / status.total) * 100) : 0}%` }}
-              />
-            </div>
+            <JobProgress
+              status={status}
+              phases={PACK_DOWNLOAD_PHASES}
+              detail={packProgressDetail(status)}
+              onCancel={cancelDownload}
+              cancelling={downloadJob.cancelling}
+            />
           </div>
         )}
         {status && !status.running && status.finishedAt && Date.now() - status.finishedAt < 15000 && (
@@ -657,8 +611,8 @@ export default function OfflinePacksPage() {
               {status.error
                 ? `Download failed: ${status.error}`
                 : status.cancelled
-                  ? `Cancelled — ${status.processed} pack(s) had already finished applying before you stopped it.`
-                  : `Done — ${status.processed} pack(s) applied.`}
+                  ? `Cancelled. ${status.processed ?? 0} pack(s) had already finished applying before you stopped it.`
+                  : `Done, ${status.result?.packsApplied ?? status.processed ?? 0} pack(s) applied.`}
             </p>
           </div>
         )}
@@ -975,6 +929,7 @@ export default function OfflinePacksPage() {
               <DownloadedPacksList
                 packs={packs ?? []}
                 onRefresh={refreshPacks}
+                showJobProgress={false}
                 renderPackExtra={(p) =>
                   p.type === "region" ? (
                     <button

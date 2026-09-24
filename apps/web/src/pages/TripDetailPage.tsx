@@ -2,7 +2,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useSearchParams, Link } from "react-router-dom";
 import RawUpload from "../components/RawUpload";
 import PhotoImportRows from "../components/PhotoImportRows";
-import type { CollectionItem } from "@lifer/shared";
+import type { CollectionItem, JobStatus } from "@lifer/shared";
+import JobProgress, { type PhaseLabels } from "../components/JobProgress";
 import { api, ApiError } from "../api/client";
 import { LoadingScreen, Spinner } from "../components/LoadingScreen";
 import PageHeader from "../components/PageHeader";
@@ -77,26 +78,25 @@ interface TripPhoto {
   iso: number | null;
 }
 
-interface ScanStatus {
-  running: boolean;
-  error: string | null;
-  finishedAt: number | null;
+type ScanStatus = JobStatus & {
   relinked: number;
   markedStale: number;
   collisions: number;
   recovered: number;
   rawsLinked: number;
   newFiles: Array<{ relativePath: string }>;
-}
+};
 
-interface ImportStatus {
-  running: boolean;
-  processed: number;
-  total: number;
-  error: string | null;
-  finishedAt: number | null;
+type ImportStatus = JobStatus<{ imported: number; failed: number }> & {
   results: Array<{ relativePath: string; captureId?: string; error?: string }>;
-}
+};
+
+const SCAN_PHASES: PhaseLabels = {
+  checking: { label: "Checking known photos", progress: "count" },
+  recovering: { label: "Recovering photos", progress: "count" },
+  "linking-raws": { label: "Linking RAW files", progress: "count" },
+};
+const IMPORT_PHASES: PhaseLabels = { importing: { label: "Importing photos", progress: "count" } };
 
 type ReviewRowStatus = "pending" | "ready" | "importing" | "done" | "error";
 
@@ -273,6 +273,32 @@ export default function TripDetailPage() {
     } catch (err) {
       setScanError(err instanceof ApiError ? err.message : "Couldn't start the scan");
       setScanning(false);
+    }
+  }
+
+  const [cancellingScan, setCancellingScan] = useState(false);
+  async function cancelScan() {
+    if (!id) return;
+    setCancellingScan(true);
+    try {
+      await api.post(`/trips/${id}/scan/cancel`, {});
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setCancellingScan(false);
+    }
+  }
+
+  const [cancellingImport, setCancellingImport] = useState(false);
+  async function cancelImport() {
+    if (!id) return;
+    setCancellingImport(true);
+    try {
+      await api.post(`/trips/${id}/import/cancel`, {});
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setCancellingImport(false);
     }
   }
 
@@ -717,11 +743,19 @@ export default function TripDetailPage() {
       <main className="space-y-6 p-6">
         {relocateError && <p className="text-sm text-red-600">{relocateError}</p>}
         {scanError && <p className="text-sm text-red-600">{scanError}</p>}
+        {scanning && scanStatus?.running && (
+          <JobProgress status={scanStatus} phases={SCAN_PHASES} fallbackLabel="Looking for photos…" onCancel={cancelScan} cancelling={cancellingScan} />
+        )}
+        {importing && importStatus?.running && (
+          <JobProgress status={importStatus} phases={IMPORT_PHASES} onCancel={cancelImport} cancelling={cancellingImport} />
+        )}
         {scanStatus && !scanning && scanStatus.finishedAt && reviewRows.length === 0 && (
           <p className="text-sm text-muted">
-            {scanStatus.recovered === 0 && scanStatus.relinked === 0 && scanStatus.markedStale === 0 && scanStatus.rawsLinked === 0
-              ? "No new photos found."
-              : ""}
+            {scanStatus.cancelled
+              ? "Scan cancelled."
+              : scanStatus.recovered === 0 && scanStatus.relinked === 0 && scanStatus.markedStale === 0 && scanStatus.rawsLinked === 0
+                ? "No new photos found."
+                : ""}
             {scanStatus.recovered > 0 && ` ${scanStatus.recovered} photo${scanStatus.recovered === 1 ? "" : "s"} automatically recovered.`}
             {scanStatus.relinked > 0 && ` ${scanStatus.relinked} moved file${scanStatus.relinked === 1 ? "" : "s"} relinked.`}
             {scanStatus.markedStale > 0 && ` ${scanStatus.markedStale} missing (kept, marked stale).`}
@@ -765,14 +799,6 @@ export default function TripDetailPage() {
               </div>
             </div>
             {importError && <p className="text-sm text-red-600">{importError}</p>}
-            {importStatus && importing && (
-              <div className="h-1.5 overflow-hidden rounded-full bg-surface-muted">
-                <div
-                  className="h-full bg-accent transition-all"
-                  style={{ width: `${importStatus.total ? Math.round((importStatus.processed / importStatus.total) * 100) : 0}%` }}
-                />
-              </div>
-            )}
 
             <div className="divide-y divide-line rounded-lg border border-line bg-surface">
               {reviewRows.map((row) => (
