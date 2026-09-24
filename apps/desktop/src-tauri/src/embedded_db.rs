@@ -11,10 +11,11 @@
 // for every OS, via the theseus release archives postgresql_embedded downloads and caches
 // under ~/.theseus/postgresql) viable at all — bundling PostGIS's native GEOS/PROJ/GDAL
 // dependencies portably across three OSes would have been a much harder problem.
+use postgresql_commands::pg_ctl::{Mode, PgCtlBuilder};
 use postgresql_commands::psql::PsqlBuilder;
 use postgresql_commands::traits::{AsyncCommandExecutor, CommandBuilder};
 use postgresql_embedded::{PostgreSQL, Settings};
-use std::io::Read;
+use std::io::Write;
 use std::path::Path;
 use std::time::Duration;
 
@@ -29,11 +30,9 @@ const DB_PASSWORD: &str = "lifer-embedded";
 // reference photos matched against species that must already exist locally) since this is the
 // base species/region taxonomy catalog every install needs before ANY of that makes sense.
 // Same "one dedicated, rolling GitHub Release" shape as PACK_INDEX_URL/MAP_DOWNLOAD_URL.
-// Content is a --data-only, --disable-triggers pg_dump of just the catalog tables (species,
-// species_rarity, species_reference_photos, species_traits, regions, region_species,
-// sea_zones, sea_zone_species) — never user data (captures/photos/users/etc.), and never the
-// PostGIS-dependent tiger/spatial_ref_sys tables the dev Postgres happens to also have, since
-// the embedded instance has no PostGIS extension installed (see this file's top comment).
+// Content is a --data-only, --disable-triggers pg_dump of the catalog tables listed in
+// packages/data-pipeline's build-catalog-seed.ts CATALOG_TABLES. Never user data. Gallery
+// embeddings are a separate asset the API downloads with the CLIP model, not part of this file.
 const CATALOG_SEED_URL: &str =
     "https://github.com/Sparklysparkspark/lifer-app/releases/download/catalog-latest/lifer-catalog-seed.sql.gz";
 
@@ -69,6 +68,50 @@ fn clear_stale_lock_if_dead(data_dir: &Path) {
 #[cfg(not(unix))]
 fn clear_stale_lock_if_dead(_data_dir: &Path) {}
 
+// Unix pid-reuse guard: only treat the lock's pid as ours if it's actually a postgres process.
+#[cfg(unix)]
+fn lock_pid_is_postgres(data_dir: &Path) -> bool {
+    let Ok(contents) = std::fs::read_to_string(data_dir.join("postmaster.pid")) else { return false };
+    let Some(pid) = contents.lines().next().map(str::trim) else { return false };
+    std::process::Command::new("ps")
+        .args(["-p", pid, "-o", "comm="])
+        .output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).contains("postgres"))
+        .unwrap_or(false)
+}
+#[cfg(not(unix))]
+fn lock_pid_is_postgres(_data_dir: &Path) -> bool {
+    // pg_ctl on Windows signals through a per-data-dir named event, not the pid, so a reused
+    // pid can't be hit by the stop below.
+    true
+}
+
+// A force-quit skips stop_api(), leaving the previous launch's postmaster running on this data
+// dir and blocking start(). pg_ctl status checks the lock's pid is alive for this exact data dir;
+// if so, stop it (fast mode) so this launch can start its own instance normally.
+async fn stop_orphaned_postgres(postgresql: &PostgreSQL) {
+    let data_dir = postgresql.settings().data_dir.clone();
+    if !data_dir.join("postmaster.pid").exists() || !lock_pid_is_postgres(&data_dir) {
+        return;
+    }
+    let running = PgCtlBuilder::from(postgresql.settings())
+        .mode(Mode::Status)
+        .pgdata(&data_dir)
+        .build_tokio()
+        .execute(Some(Duration::from_secs(10)))
+        .await
+        .is_ok();
+    if !running {
+        return;
+    }
+    eprintln!("[embedded_db] stopping a postgres left running by a previous launch");
+    match tokio::time::timeout(Duration::from_secs(30), postgresql.stop()).await {
+        Ok(Ok(())) => {}
+        Ok(Err(e)) => eprintln!("[embedded_db] couldn't stop the orphaned postgres: {e}"),
+        Err(_) => eprintln!("[embedded_db] orphaned postgres didn't stop within 30s"),
+    }
+}
+
 /// Sets up (first run only) and starts an embedded Postgres instance rooted under this
 /// install's own app data dir, creating the `lifer` database if it doesn't exist yet. Returns
 /// the running instance (kept alive for the app's lifetime — dropping/stopping it shuts the
@@ -98,6 +141,8 @@ pub async fn start_embedded_postgres(app_data_dir: &Path) -> Result<(PostgreSQL,
         .setup()
         .await
         .map_err(|e| format!("Couldn't set up the embedded database: {e}"))?;
+    // After setup(), since pg_ctl's binary path is only known once setup has resolved it.
+    stop_orphaned_postgres(&postgresql).await;
 
     // A previous instance (this same app relaunched quickly, or a stale process from a prior
     // crash) can still be mid-shutdown at the exact moment this one tries to start — genuinely
@@ -173,38 +218,101 @@ pub async fn restore_catalog_seed_if_needed(postgresql: &PostgreSQL, resources: 
     }
 
     let bundled_path = resources.join("catalog-seed").join("lifer-catalog-seed.sql.gz");
-    let gz_bytes = if bundled_path.exists() {
-        std::fs::read(&bundled_path).map_err(|e| format!("Couldn't read the bundled species catalog: {e}"))?
-    } else {
-        let response = reqwest::get(CATALOG_SEED_URL)
+    let tmp_dir = std::env::temp_dir();
+    let pid = std::process::id();
+    let downloaded_gz = tmp_dir.join(format!("lifer-catalog-seed-{pid}.sql.gz"));
+    let sql_path = tmp_dir.join(format!("lifer-catalog-seed-{pid}.sql"));
+
+    let result = async {
+        let gz_path = if bundled_path.exists() {
+            bundled_path.clone()
+        } else {
+            download_seed(&downloaded_gz).await?;
+            downloaded_gz.clone()
+        };
+
+        eprintln!("[embedded_db] decompressing species catalog from {}", gz_path.display());
+        let (gz, sql) = (gz_path.clone(), sql_path.clone());
+        let sql_bytes = tauri::async_runtime::spawn_blocking(move || decompress_to_file(&gz, &sql))
             .await
-            .map_err(|e| format!("Couldn't download the species catalog: {e}"))?;
-        if !response.status().is_success() {
-            return Err(format!("Couldn't download the species catalog: HTTP {}", response.status()));
-        }
-        response
-            .bytes()
+            .map_err(|e| format!("Couldn't decompress the species catalog: {e}"))??;
+        eprintln!("[embedded_db] loading species catalog ({} MB of SQL)", sql_bytes / 1_000_000);
+
+        // No timeout: a slow disk must not abort first launch. ON_ERROR_STOP makes a bad statement
+        // fail loudly instead of psql exiting 0 after single_transaction silently rolled back.
+        let started = std::time::Instant::now();
+        psql(postgresql)
+            .file(&sql_path)
+            .single_transaction()
+            .variable(("ON_ERROR_STOP", "1"))
+            .quiet()
+            .build_tokio()
+            .execute(None)
             .await
-            .map_err(|e| format!("Couldn't download the species catalog: {e}"))?
-            .to_vec()
-    };
+            .map_err(|e| format!("Couldn't load the species catalog: {e}"))?;
+        eprintln!("[embedded_db] species catalog loaded in {}s", started.elapsed().as_secs());
+        Ok(())
+    }
+    .await;
 
-    let mut decoder = flate2::read::GzDecoder::new(&gz_bytes[..]);
-    let mut sql = String::new();
-    decoder
-        .read_to_string(&mut sql)
-        .map_err(|e| format!("Couldn't decompress the species catalog: {e}"))?;
+    let _ = std::fs::remove_file(&sql_path);
+    let _ = std::fs::remove_file(&downloaded_gz);
+    result
+}
 
-    let tmp_path = std::env::temp_dir().join(format!("lifer-catalog-seed-{}.sql", std::process::id()));
-    std::fs::write(&tmp_path, &sql).map_err(|e| format!("Couldn't stage the species catalog: {e}"))?;
+// Streams gzip -> .sql on disk so neither side is ever held in memory. Returns SQL byte count.
+fn decompress_to_file(gz_path: &Path, sql_path: &Path) -> Result<u64, String> {
+    let input = std::fs::File::open(gz_path).map_err(|e| format!("Couldn't read the species catalog: {e}"))?;
+    let mut decoder = flate2::read::GzDecoder::new(std::io::BufReader::new(input));
+    let output = std::fs::File::create(sql_path).map_err(|e| format!("Couldn't stage the species catalog: {e}"))?;
+    let mut writer = std::io::BufWriter::new(output);
+    let bytes = std::io::copy(&mut decoder, &mut writer).map_err(|e| format!("Couldn't decompress the species catalog: {e}"))?;
+    writer.flush().map_err(|e| format!("Couldn't stage the species catalog: {e}"))?;
+    Ok(bytes)
+}
 
-    let result = psql(postgresql)
-        .file(&tmp_path)
-        .single_transaction()
-        .build_tokio()
-        .execute(Some(Duration::from_secs(300)))
+// Live fallback (`tauri dev` without the bundled copy). Streams to disk and aborts on a 60s stall
+// rather than capping the whole transfer.
+async fn download_seed(dest: &Path) -> Result<(), String> {
+    const STALL: Duration = Duration::from_secs(60);
+    let err = |e: String| format!("Couldn't download the species catalog: {e}");
+    let client = reqwest::Client::builder()
+        .connect_timeout(Duration::from_secs(30))
+        .build()
+        .map_err(|e| err(e.to_string()))?;
+    eprintln!("[embedded_db] downloading species catalog from {CATALOG_SEED_URL}");
+    let mut response = tokio::time::timeout(STALL, client.get(CATALOG_SEED_URL).send())
         .await
-        .map_err(|e| format!("Couldn't load the species catalog: {e}"));
-    let _ = std::fs::remove_file(&tmp_path);
-    result.map(|_| ())
+        .map_err(|_| err("no response from the server".into()))?
+        .map_err(|e| err(e.to_string()))?;
+    if !response.status().is_success() {
+        return Err(err(format!("HTTP {}", response.status())));
+    }
+    let total = response.content_length();
+    let mut file = std::fs::File::create(dest).map_err(|e| err(e.to_string()))?;
+    let mut downloaded: u64 = 0;
+    let mut last_logged: u64 = 0;
+    loop {
+        let chunk = tokio::time::timeout(STALL, response.chunk())
+            .await
+            .map_err(|_| err("the download stalled".into()))?
+            .map_err(|e| err(e.to_string()))?;
+        let Some(chunk) = chunk else { break };
+        file.write_all(&chunk).map_err(|e| err(e.to_string()))?;
+        downloaded += chunk.len() as u64;
+        if downloaded - last_logged >= 10_000_000 {
+            last_logged = downloaded;
+            match total {
+                Some(t) => eprintln!("[embedded_db] downloaded {} of {} MB", downloaded / 1_000_000, t / 1_000_000),
+                None => eprintln!("[embedded_db] downloaded {} MB", downloaded / 1_000_000),
+            }
+        }
+    }
+    file.flush().map_err(|e| err(e.to_string()))?;
+    if let Some(t) = total {
+        if downloaded != t {
+            return Err(err(format!("got {downloaded} of {t} bytes")));
+        }
+    }
+    Ok(())
 }
