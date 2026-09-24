@@ -9,20 +9,38 @@ use postgresql_embedded::PostgreSQL;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex, OnceLock};
+use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter};
+use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 use tauri_plugin_shell::ShellExt;
 
 pub const LOCAL_PORT: u16 = 4310;
 
+// Unexpected mid-session crashes are restarted at most this many times per window before the
+// crash dialog is shown.
+const MAX_RESTARTS: usize = 2;
+const RESTART_WINDOW: Duration = Duration::from_secs(5 * 60);
+
+pub struct RunningChild {
+    child: CommandChild,
+    // Per-child, so a deliberate stop of one child can't be confused with a crash of the next.
+    stopping: Arc<AtomicBool>,
+}
+
+#[derive(Clone)]
+struct SpawnSpec {
+    api_dir: PathBuf,
+    envs: HashMap<String, String>,
+    args: Vec<String>,
+}
+
 #[derive(Default)]
 pub struct ApiState {
-    pub child: Mutex<Option<CommandChild>>,
-    // Set right before stop_api() kills the child on purpose — mirrors main.js's
-    // `stoppingIntentionally` flag, so the exit handler can tell "we did this" apart from a
-    // real crash (a killed-by-signal process also reports a non-zero/null exit code).
-    pub stopping_intentionally: AtomicBool,
+    child: Mutex<Option<RunningChild>>,
+    spawn_spec: Mutex<Option<SpawnSpec>>,
+    restarts: Mutex<Vec<Instant>>,
     // Last 4KB of stderr, for the crash dialog — mirrors main.js's `recentStderr`.
     pub recent_stderr: Mutex<String>,
     // The embedded Postgres instance backing local mode (see embedded_db.rs) — kept alive here
@@ -77,22 +95,80 @@ fn ensure_dev_map(app_data_dir: &std::path::Path) {
     }
 }
 
+// Random per-launch id passed to the API as LIFER_LAUNCH_TOKEN and echoed by its /health, so a
+// previous launch's still-exiting API is never mistaken for ours.
+fn launch_token() -> &'static str {
+    static TOKEN: OnceLock<String> = OnceLock::new();
+    TOKEN.get_or_init(|| {
+        use std::hash::{BuildHasher, Hasher};
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        (0..2u8)
+            .map(|i| {
+                let mut h = std::collections::hash_map::RandomState::new().build_hasher();
+                h.write_u128(nanos);
+                h.write_u32(std::process::id());
+                h.write_u8(i);
+                format!("{:016x}", h.finish())
+            })
+            .collect()
+    })
+}
+
+enum LocalApi {
+    Absent,
+    Ours,
+    // Another launch's API, or an older API that predates launchToken.
+    Foreign,
+}
+
+async fn probe_local_api() -> LocalApi {
+    #[derive(serde::Deserialize)]
+    struct Health {
+        #[serde(rename = "launchToken")]
+        launch_token: Option<String>,
+    }
+    let Ok(client) = reqwest::Client::builder().timeout(Duration::from_secs(2)).build() else {
+        return LocalApi::Absent;
+    };
+    let Ok(res) = client.get(format!("http://127.0.0.1:{LOCAL_PORT}/health")).send().await else {
+        return LocalApi::Absent;
+    };
+    match res.json::<Health>().await {
+        Ok(Health { launch_token: Some(t) }) if t == launch_token() => LocalApi::Ours,
+        _ => LocalApi::Foreign,
+    }
+}
+
+// Waits for a previous launch's API to exit (its parent-pid watchdog polls every 3s) so the new
+// child doesn't die on EADDRINUSE.
+async fn wait_for_port_free(timeout: Duration) -> Result<(), String> {
+    let start = Instant::now();
+    loop {
+        let absent = matches!(probe_local_api().await, LocalApi::Absent);
+        if absent && std::net::TcpListener::bind(("127.0.0.1", LOCAL_PORT)).is_ok() {
+            return Ok(());
+        }
+        if start.elapsed() > timeout {
+            return Err(format!(
+                "Another program (possibly an earlier copy of Lifer) is still using port {LOCAL_PORT}. Quit it and open Lifer again."
+            ));
+        }
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    }
+}
+
 pub async fn start_api(app: &AppHandle, data_dir: Option<String>) -> Result<(), String> {
     use tauri::Manager;
 
-    // A previous launch's sidecar can outlive this app instance (a crash, a force-quit before
-    // stop_api() ran, or simply relaunching quickly enough that the OS hasn't freed the port
-    // yet) — spawning another one on the same port then fails immediately with EADDRINUSE,
-    // which read as "Lifer stopped unexpectedly" with no useful stderr captured (the crash
-    // happens before the child's own stderr pipe produces anything). If something's already
-    // answering on LOCAL_PORT, treat it as already-running and just use it rather than
-    // fighting it for the port.
-    if is_reachable(&format!("http://127.0.0.1:{LOCAL_PORT}/health")).await {
-        return Ok(());
+    match probe_local_api().await {
+        LocalApi::Ours => return Ok(()),
+        LocalApi::Absent | LocalApi::Foreign => wait_for_port_free(Duration::from_secs(20)).await?,
     }
 
     let state = app.state::<ApiState>();
-    state.stopping_intentionally.store(false, Ordering::SeqCst);
 
     let resources = resources_root(app);
     let api_dir = resources.join("api");
@@ -113,6 +189,7 @@ pub async fn start_api(app: &AppHandle, data_dir: Option<String>) -> Result<(), 
     // LOCAL_PORT. The sidecar's own watchdog (see apps/api/src/index.ts) polls this pid and
     // self-exits once it's gone.
     envs.insert("LIFER_WATCH_PARENT_PID".into(), std::process::id().to_string());
+    envs.insert("LIFER_LAUNCH_TOKEN".into(), launch_token().to_string());
     envs.insert("WEB_DIST_DIR".into(), web_dist.to_string_lossy().into_owned());
     // Same "one dedicated, rolling GitHub Release" shape as CATALOG_SEED_URL (embedded_db.rs) —
     // re-uploading a new asset to this same "map-latest" tag publishes an update without
@@ -144,9 +221,16 @@ pub async fn start_api(app: &AppHandle, data_dir: Option<String>) -> Result<(), 
         // species/region taxonomy (a separate one-time "seed" dataset — see this function's own
         // comment). Restoring it here, right after migrations and before the real API starts,
         // is what makes a fresh local library show anything at all instead of an empty shell.
-        embedded_db::restore_catalog_seed_if_needed(&postgresql, &resources)
-            .await
-            .map_err(|e| format!("Couldn't load the species catalog: {e}"))?;
+        // Not fatal: the library still opens, and an empty catalog is retried next launch.
+        if let Err(e) = embedded_db::restore_catalog_seed_if_needed(&postgresql, &resources).await {
+            eprintln!("[start_api] catalog restore failed: {e}");
+            app.dialog()
+                .message(format!(
+                    "Lifer couldn't load the species catalog. It will try again next time Lifer opens, or you can update it from Settings.\n\n{e}"
+                ))
+                .kind(tauri_plugin_dialog::MessageDialogKind::Warning)
+                .show(|_| {});
+        }
         *state.postgres.lock().unwrap() = Some(postgresql);
         url
     };
@@ -165,23 +249,36 @@ pub async fn start_api(app: &AppHandle, data_dir: Option<String>) -> Result<(), 
     let tsx_dir = resources.join("node_modules").join("tsx").join("dist");
     let entry = api_dir.join("src").join("index.ts");
 
-    let (mut rx, child) = app
-        .shell()
-        .sidecar("node")
-        .map_err(|e| format!("Couldn't resolve the node sidecar: {e}"))?
-        .current_dir(&api_dir)
-        .envs(envs)
-        .args([
+    let spec = SpawnSpec {
+        api_dir,
+        envs,
+        args: vec![
             "--require".into(),
             tsx_dir.join("preflight.cjs").to_string_lossy().into_owned(),
             "--import".into(),
             format!("file://{}", tsx_dir.join("loader.mjs").to_string_lossy()),
             entry.to_string_lossy().into_owned(),
-        ])
+        ],
+    };
+    *state.spawn_spec.lock().unwrap() = Some(spec.clone());
+    state.restarts.lock().unwrap().clear();
+    spawn_child(app, &spec)
+}
+
+fn spawn_child(app: &AppHandle, spec: &SpawnSpec) -> Result<(), String> {
+    use tauri::Manager;
+    let (mut rx, child) = app
+        .shell()
+        .sidecar("node")
+        .map_err(|e| format!("Couldn't resolve the node sidecar: {e}"))?
+        .current_dir(&spec.api_dir)
+        .envs(spec.envs.clone())
+        .args(spec.args.clone())
         .spawn()
         .map_err(|e| format!("Couldn't start the API: {e}"))?;
 
-    *state.child.lock().unwrap() = Some(child);
+    let stopping = Arc::new(AtomicBool::new(false));
+    *app.state::<ApiState>().child.lock().unwrap() = Some(RunningChild { child, stopping: stopping.clone() });
 
     let app_handle = app.clone();
     tauri::async_runtime::spawn(async move {
@@ -196,26 +293,19 @@ pub async fn start_api(app: &AppHandle, data_dir: Option<String>) -> Result<(), 
                     let state = app_handle.state::<ApiState>();
                     let mut buf = state.recent_stderr.lock().unwrap();
                     buf.push_str(&text);
-                    let len = buf.len();
-                    if len > 4000 {
-                        *buf = buf.split_off(len - 4000);
+                    if buf.len() > 4000 {
+                        // Cut on a char boundary; split_off panics mid-codepoint.
+                        let mut cut = buf.len() - 4000;
+                        while !buf.is_char_boundary(cut) {
+                            cut += 1;
+                        }
+                        *buf = buf.split_off(cut);
                     }
                 }
                 CommandEvent::Terminated(payload) => {
-                    let state = app_handle.state::<ApiState>();
-                    let intentional = state.stopping_intentionally.load(Ordering::SeqCst);
                     let code = payload.code.unwrap_or(-1);
-                    if code != 0 && !intentional {
-                        let stderr = state.recent_stderr.lock().unwrap().clone();
-                        let detail = if stderr.trim().is_empty() {
-                            "No error output was captured.".to_string()
-                        } else {
-                            stderr
-                        };
-                        let _ = app_handle.emit(
-                            "api-crashed",
-                            format!("The backend process exited with code {code}.\n\n{detail}"),
-                        );
+                    if code != 0 && !stopping.load(Ordering::SeqCst) {
+                        handle_unexpected_exit(&app_handle, &stopping, code).await;
                     }
                 }
                 _ => {}
@@ -224,6 +314,37 @@ pub async fn start_api(app: &AppHandle, data_dir: Option<String>) -> Result<(), 
     });
 
     Ok(())
+}
+
+async fn handle_unexpected_exit(app: &AppHandle, stopping: &AtomicBool, code: i32) {
+    use tauri::Manager;
+    let state = app.state::<ApiState>();
+    let can_restart = {
+        let mut restarts = state.restarts.lock().unwrap();
+        restarts.retain(|t| t.elapsed() < RESTART_WINDOW);
+        let ok = restarts.len() < MAX_RESTARTS;
+        if ok {
+            restarts.push(Instant::now());
+        }
+        ok
+    };
+    let spec = state.spawn_spec.lock().unwrap().clone();
+    let mut failure = format!("The backend process exited with code {code}.");
+    if let (true, Some(spec)) = (can_restart, spec) {
+        eprintln!("[api] backend exited with code {code}, restarting");
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        // stop_api() may have run during the sleep (mode switch or quit): don't resurrect.
+        if stopping.load(Ordering::SeqCst) {
+            return;
+        }
+        match spawn_child(app, &spec) {
+            Ok(()) => return,
+            Err(e) => failure = format!("{failure} Restarting it failed: {e}"),
+        }
+    }
+    let stderr = state.recent_stderr.lock().unwrap().clone();
+    let detail = if stderr.trim().is_empty() { "No error output was captured.".to_string() } else { stderr };
+    let _ = app.emit("api-crashed", format!("{failure}\n\n{detail}"));
 }
 
 // apps/api itself never runs its own migrations (see packages/data-pipeline/src/migrate.ts —
@@ -272,30 +393,36 @@ async fn run_migrations(app: &AppHandle, resources: &Path, database_url: &str) -
     Ok(())
 }
 
-pub fn stop_api(app: &AppHandle) {
+pub async fn stop_api_async(app: &AppHandle) {
     use tauri::Manager;
     let state = app.state::<ApiState>();
-    state.stopping_intentionally.store(true, Ordering::SeqCst);
     let taken = state.child.lock().unwrap().take();
-    if let Some(child) = taken {
-        let _ = child.kill();
+    if let Some(running) = taken {
+        running.stopping.store(true, Ordering::SeqCst);
+        let _ = running.child.kill();
     }
-    // Blocks until this actually finishes (bounded by a timeout), rather than firing an async
-    // task and returning immediately — a fire-and-forget version raced a caller that relaunches
-    // right after this returns (or the whole app process exiting before the spawned task ever
-    // got scheduled) into "another server might be running" on the very next start, which
-    // happened for real: this function returning was no guarantee postgres had actually stopped
-    // yet. block_on is safe here — this always runs on the main/event thread (RunEvent's own
-    // callback, or a plain menu-item handler), never from inside the async runtime's own worker
-    // pool, so there's no risk of deadlocking against it.
     let taken_postgres = state.postgres.lock().unwrap().take();
     if let Some(postgresql) = taken_postgres {
-        let stopped = tauri::async_runtime::block_on(async {
-            tokio::time::timeout(std::time::Duration::from_secs(10), postgresql.stop()).await
-        });
-        if stopped.is_err() {
+        if tokio::time::timeout(Duration::from_secs(10), postgresql.stop()).await.is_err() {
             eprintln!("[stop_api] embedded postgres didn't stop within 10s, proceeding anyway");
         }
+    }
+}
+
+// Blocking wrapper for sync callers (menu, exit, updater drop hook). Runs on its own thread so
+// block_on is never nested inside the async runtime, which panics.
+pub fn stop_api(app: &AppHandle) {
+    let app = app.clone();
+    let _ = std::thread::spawn(move || tauri::async_runtime::block_on(stop_api_async(&app))).join();
+}
+
+// Held in the app's resource table: the updater's pre-install exit hook clears that table
+// (cleanup_before_exit) right before the Windows installer force-exits us, so Drop stops the API.
+pub struct StopApiOnDrop(pub AppHandle);
+impl tauri::Resource for StopApiOnDrop {}
+impl Drop for StopApiOnDrop {
+    fn drop(&mut self) {
+        stop_api(&self.0);
     }
 }
 
