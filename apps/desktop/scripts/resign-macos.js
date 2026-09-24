@@ -81,7 +81,11 @@ for (const [key, value] of Object.entries(usageDescriptions)) {
 }
 console.log("[resign-macos] patched Info.plist with folder-access usage descriptions");
 
-console.log(`[resign-macos] re-signing ${appPath}`);
-execSync(`codesign --deep --force --sign - ${JSON.stringify(appPath)}`, { stdio: "inherit" });
+// A stable identity (CI imports a self-signed "Lifer" cert and sets MACOS_SIGNING_IDENTITY) keeps
+// TCC grants and the updater's designated-requirement check stable across versions. Ad-hoc ("-")
+// when unset, so a local `npm run dist` still works without any certificate.
+const identity = process.env.MACOS_SIGNING_IDENTITY?.trim() || "-";
+console.log(`[resign-macos] re-signing ${appPath} with identity ${identity === "-" ? "ad-hoc (-)" : JSON.stringify(identity)}`);
+execFileSync("codesign", ["--deep", "--force", "--sign", identity, appPath], { stdio: "inherit" });
 execSync(`codesign -dv ${JSON.stringify(appPath)}`, { stdio: "inherit" });
 console.log("[resign-macos] done");

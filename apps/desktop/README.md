@@ -26,11 +26,13 @@ This chains several steps (see `package.json`'s own `dist` script and `scripts/`
 2. `prepare-resources.js` — stages the API + its dependencies as bundled resources.
 3. `fetch-node-sidecar.js` — downloads a vendored Node runtime to execute the API sidecar with.
 4. `fetch-catalog-seed.js` — downloads the pre-built species/region catalog every fresh install
-   restores on first launch.
+   restores on first launch, plus its manifest. Verifies the manifest's sha256 when present and
+   fails the build if the seed is over 200MB.
 5. `tauri-build.js` — the actual Tauri/Rust build, producing a platform-native bundle.
 6. `resign-macos.js` (macOS only) — re-signs the bundle and patches `Info.plist` with the
    folder-access usage descriptions macOS requires before it'll prompt for Desktop/Documents/
-   Downloads access at all.
+   Downloads access at all. Signs with `MACOS_SIGNING_IDENTITY` (release CI sets it to a
+   self-signed "Lifer" certificate), or ad-hoc (`-`) when that's unset.
 
 `scripts/headless-postgres.js` is a separate utility for running the embedded Postgres instance
 standalone (start/stop/status), independent of the GUI app being open — useful for background
