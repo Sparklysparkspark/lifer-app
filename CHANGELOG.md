@@ -15,6 +15,8 @@ Categories: `Added`, `Changed`, `Fixed`, `Removed` — omit any with nothing to 
 
 ## [Unreleased]
 
+## [0.5.7] - 2026-09-24
+
 ### Changed
 
 - The species catalog download is much smaller (about 60 MB instead of 1.2 GB), so installers and
