@@ -305,7 +305,7 @@ export async function recoverJpeg(
     await recoverAlbumMembership(userId, finalPath, captureId).catch(() => {});
     return { status: "recovered", captureId, photoId: photoRes.rows[0].id, scientificName: species.scientific_name };
   } catch (err) {
-    await client.query("ROLLBACK");
+    await client.query("ROLLBACK").catch(() => {});
     throw err;
   } finally {
     client.release();

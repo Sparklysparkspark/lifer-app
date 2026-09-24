@@ -10,22 +10,20 @@ import { importTripFile } from "./import.js";
 import { mapWithConcurrency } from "data-pipeline/src/concurrency.js";
 import { toCollectionItem } from "../collection/collectionItem.js";
 import { nextDefaultName } from "../lib/defaultName.js";
+import { createJob, type Job, type JobContext } from "../lib/job.js";
+import { idleJobStatus, type JobStatus } from "@lifer/shared";
 
 // Same concurrency BulkImportPage's own client-side upload loop uses — each file pays a real
 // exiftool round-trip plus a sharp resize, so importing even a handful sequentially (the
 // original bug here) was slow purely from that per-file I/O latency stacking up.
 const IMPORT_CONCURRENCY = 4;
 
-// In-memory, per-trip scan job state — same pattern as settings/routes.ts's migrate-to-server
-// job: not persisted across a server restart, one job at a time (409 on re-entry), a POST to
-// start and a GET to poll. A folder scan/rescan is I/O-heavy (reads every candidate file's
-// bytes to fingerprint it) but not something the DB needs to remember progress on — a
-// restarted server just re-scans from scratch next time, which is cheap and correct.
-interface ScanJobState {
-  running: boolean;
-  tripId: string | null;
-  error: string | null;
-  finishedAt: number | null;
+// In-memory, per-trip scan and import jobs (createJob), not persisted across a restart: a
+// restarted server just re-scans from scratch next time, which is cheap and correct. Finished
+// entries are pruned after JOB_TTL_MS, and polling an unknown trip id never creates one.
+const JOB_TTL_MS = 60 * 60_000;
+
+interface ScanSummary {
   relinked: number;
   markedStale: number;
   collisions: number;
@@ -33,108 +31,117 @@ interface ScanJobState {
   rawsLinked: number;
   newFiles: Array<{ relativePath: string }>;
 }
-const scanJobs = new Map<string, ScanJobState>();
+// The summary fields are also mirrored top-level for clients that predate `result`.
+type ScanExtra = { tripId: string } & ScanSummary;
+function emptyScanSummary(): ScanSummary {
+  return { relinked: 0, markedStale: 0, collisions: 0, recovered: 0, rawsLinked: 0, newFiles: [] };
+}
 
-function jobFor(tripId: string): ScanJobState {
+type ImportFileResult = { relativePath: string; captureId?: string; error?: string };
+interface ImportExtra {
+  tripId: string;
+  // Grows live as files finish.
+  results: ImportFileResult[];
+}
+
+type ScanJob = Job<ScanSummary, ScanExtra>;
+type ImportJob = Job<{ imported: number; failed: number }, ImportExtra>;
+const scanJobs = new Map<string, ScanJob>();
+const importJobs = new Map<string, ImportJob>();
+
+function pruneFinished<T extends Job<unknown, object>>(jobs: Map<string, T>): void {
+  const cutoff = Date.now() - JOB_TTL_MS;
+  for (const [id, job] of jobs) {
+    if (!job.status.running && job.status.finishedAt != null && job.status.finishedAt < cutoff) jobs.delete(id);
+  }
+}
+
+function scanJobFor(tripId: string): ScanJob {
   let job = scanJobs.get(tripId);
   if (!job) {
-    job = {
-      running: false,
-      tripId,
-      error: null,
-      finishedAt: null,
-      relinked: 0,
-      markedStale: 0,
-      collisions: 0,
-      recovered: 0,
-      rawsLinked: 0,
-      newFiles: [],
-    };
+    pruneFinished(scanJobs);
+    job = createJob<ScanSummary, ScanExtra>(`trip-scan:${tripId}`, { tripId, ...emptyScanSummary() });
     scanJobs.set(tripId, job);
   }
   return job;
 }
 
-async function runScanJob(tripId: string, userId: string, sourceFolder: string): Promise<void> {
-  const job = jobFor(tripId);
-  try {
-    const result = await scanTrip(tripId, userId, sourceFolder);
-    job.relinked = result.relinked;
-    job.markedStale = result.markedStale;
-    job.collisions = result.collisions;
-    job.recovered = result.recovered;
-    job.rawsLinked = result.rawsLinked;
-    job.newFiles = result.newFiles.map((f) => ({ relativePath: f.relativePath }));
-  } catch (err) {
-    job.error = (err as Error).message;
-  } finally {
-    job.running = false;
-    job.finishedAt = Date.now();
-  }
-}
-
-// Same background-job pattern as the scan job above, for the same reason: even with
-// IMPORT_CONCURRENCY, each file still pays a real exiftool round-trip + sharp resize, so a
-// synchronous POST that the client awaits directly would hang the UI on the whole batch
-// instead of letting it show live progress (or just not block at all).
-interface ImportJobState {
-  running: boolean;
-  tripId: string | null;
-  processed: number;
-  total: number;
-  error: string | null;
-  finishedAt: number | null;
-  results: Array<{ relativePath: string; captureId?: string; error?: string }>;
-}
-const importJobs = new Map<string, ImportJobState>();
-
-function importJobFor(tripId: string): ImportJobState {
+function importJobFor(tripId: string): ImportJob {
   let job = importJobs.get(tripId);
   if (!job) {
-    job = { running: false, tripId, processed: 0, total: 0, error: null, finishedAt: null, results: [] };
+    pruneFinished(importJobs);
+    job = createJob<{ imported: number; failed: number }, ImportExtra>(`trip-import:${tripId}`, { tripId, results: [] });
     importJobs.set(tripId, job);
   }
   return job;
 }
 
+function idleScanStatus(tripId: string): JobStatus<ScanSummary> & ScanExtra {
+  return { ...idleJobStatus<ScanSummary>(), tripId, ...emptyScanSummary() };
+}
+
+function idleImportStatus(tripId: string): JobStatus<{ imported: number; failed: number }> & ImportExtra {
+  return { ...idleJobStatus<{ imported: number; failed: number }>(), tripId, results: [] };
+}
+
 // Used by GET /trips to show a loading state on a trip's card while either job is still
 // working, instead of a cover photo that may not exist yet or a stale one mid-update.
 function isTripBusy(tripId: string): boolean {
-  return jobFor(tripId).running || importJobFor(tripId).running;
+  return Boolean(scanJobs.get(tripId)?.status.running || importJobs.get(tripId)?.status.running);
+}
+
+async function runScanJob(ctx: JobContext<ScanSummary, ScanExtra>, tripId: string, userId: string, sourceFolder: string): Promise<ScanSummary> {
+  const result = await scanTrip(tripId, userId, sourceFolder, {
+    signal: ctx.signal,
+    onPhase: (phase) => ctx.update({ phase }),
+  });
+  const summary: ScanSummary = {
+    relinked: result.relinked,
+    markedStale: result.markedStale,
+    collisions: result.collisions,
+    recovered: result.recovered,
+    rawsLinked: result.rawsLinked,
+    newFiles: result.newFiles.map((f) => ({ relativePath: f.relativePath })),
+  };
+  ctx.update(summary);
+  return summary;
 }
 
 async function runImportJob(
+  ctx: JobContext<{ imported: number; failed: number }, ImportExtra>,
+  job: ImportJob,
   tripId: string,
   userId: string,
   sourceFolder: string,
   files: Array<{ relativePath: string; speciesId: string }>,
   regionId: string | null,
-): Promise<void> {
-  const job = importJobFor(tripId);
-  try {
-    await mapWithConcurrency(files, IMPORT_CONCURRENCY, async (file) => {
-      const absolutePath = resolveWithinTripFolder(sourceFolder, file.relativePath);
-      let result: { relativePath: string; captureId?: string; error?: string };
-      if (!absolutePath) {
-        result = { relativePath: file.relativePath, error: "File not found" };
-      } else {
-        try {
-          const { captureId } = await importTripFile(tripId, userId, file.speciesId, absolutePath, sourceFolder, file.relativePath, regionId);
-          result = { relativePath: file.relativePath, captureId };
-        } catch (err) {
-          result = { relativePath: file.relativePath, error: (err as Error).message };
-        }
+): Promise<{ imported: number; failed: number }> {
+  let imported = 0;
+  let failed = 0;
+  // Same concurrency as Bulk Import; cancel stops new files from starting.
+  await mapWithConcurrency(files, IMPORT_CONCURRENCY, async (file) => {
+    if (ctx.signal.aborted) return;
+    ctx.update({ currentItem: file.relativePath });
+    const absolutePath = resolveWithinTripFolder(sourceFolder, file.relativePath);
+    let result: ImportFileResult;
+    if (!absolutePath) {
+      result = { relativePath: file.relativePath, error: "File not found" };
+    } else {
+      try {
+        const { captureId } = await importTripFile(tripId, userId, file.speciesId, absolutePath, sourceFolder, file.relativePath, regionId);
+        result = { relativePath: file.relativePath, captureId };
+      } catch (err) {
+        result = { relativePath: file.relativePath, error: (err as Error).message };
       }
-      job.results.push(result);
-      job.processed++;
-      return result;
-    });
-  } catch (err) {
-    job.error = (err as Error).message;
-  } finally {
-    job.running = false;
-    job.finishedAt = Date.now();
-  }
+    }
+    if (result.error) failed++;
+    else imported++;
+    job.status.results.push(result);
+    ctx.update({ processed: (job.status.processed ?? 0) + 1 });
+    return result;
+  });
+  ctx.throwIfCancelled();
+  return { imported, failed };
 }
 
 export async function tripsRoutes(app: FastifyInstance): Promise<void> {
@@ -573,8 +580,7 @@ export async function tripsRoutes(app: FastifyInstance): Promise<void> {
     if (!requireDesktopMode(reply)) return;
     const userId = request.user!.id;
     const tripId = request.params.id;
-    const job = jobFor(tripId);
-    if (job.running) return reply.code(409).send({ error: "A scan is already running for this trip" });
+    if (scanJobs.get(tripId)?.status.running) return reply.code(409).send({ error: "A scan is already running for this trip" });
 
     const tripRes = await pool.query<{ source_folder: string }>(`SELECT source_folder FROM trips WHERE id = $1 AND user_id = $2`, [
       tripId,
@@ -582,25 +588,25 @@ export async function tripsRoutes(app: FastifyInstance): Promise<void> {
     ]);
     if (tripRes.rows.length === 0) return reply.code(404).send({ error: "Trip not found" });
 
-    job.running = true;
-    job.error = null;
-    job.finishedAt = null;
-    job.relinked = 0;
-    job.markedStale = 0;
-    job.collisions = 0;
-    job.recovered = 0;
-    job.rawsLinked = 0;
-    job.newFiles = [];
-
-    // Deliberately not awaited — same pattern as settings/routes.ts's migrate-to-server job.
-    void runScanJob(tripId, userId, tripRes.rows[0].source_folder);
-
+    const job = scanJobFor(tripId);
+    const sourceFolder = tripRes.rows[0].source_folder;
+    const started = job.start((ctx) => runScanJob(ctx, tripId, userId, sourceFolder), {
+      tripId,
+      ...emptyScanSummary(),
+      phase: "checking",
+    });
+    if (!started) return reply.code(409).send({ error: "A scan is already running for this trip" });
     return { started: true };
+  });
+
+  app.post<{ Params: { id: string } }>("/trips/:id/scan/cancel", { preHandler: requireAuth }, async (request, reply) => {
+    if (!requireDesktopMode(reply)) return;
+    return { cancelled: scanJobs.get(request.params.id)?.cancel() ?? false };
   });
 
   app.get<{ Params: { id: string } }>("/trips/:id/scan/status", { preHandler: requireScope("trips.read") }, async (request, reply) => {
     if (!requireDesktopMode(reply)) return;
-    return jobFor(request.params.id);
+    return scanJobs.get(request.params.id)?.status ?? idleScanStatus(request.params.id);
   });
 
   app.get<{ Params: { id: string }; Querystring: { file?: string } }>(
@@ -630,8 +636,7 @@ export async function tripsRoutes(app: FastifyInstance): Promise<void> {
       if (!requireDesktopMode(reply)) return;
       const userId = request.user!.id;
       const tripId = request.params.id;
-      const job = importJobFor(tripId);
-      if (job.running) return reply.code(409).send({ error: "An import is already running for this trip" });
+      if (importJobs.get(tripId)?.status.running) return reply.code(409).send({ error: "An import is already running for this trip" });
 
       const tripRes = await pool.query<{ source_folder: string }>(
         `SELECT source_folder FROM trips WHERE id = $1 AND user_id = $2`,
@@ -642,24 +647,28 @@ export async function tripsRoutes(app: FastifyInstance): Promise<void> {
       if (!files || files.length === 0) return reply.code(400).send({ error: "files is required" });
       const regionId = request.body?.regionId ?? null;
 
-      job.running = true;
-      job.processed = 0;
-      job.total = files.length;
-      job.error = null;
-      job.finishedAt = null;
-      job.results = [];
-
-      // Not awaited — same reasoning as the scan job above: this can take a real amount of
-      // time (exiftool + a sharp resize per file), and a client awaiting one giant request
-      // directly has no way to show live progress or stay responsive in the meantime.
-      void runImportJob(tripId, userId, tripRes.rows[0].source_folder, files, regionId);
-
+      // Background job (exiftool + a sharp resize per file), polled via /import/status.
+      const job = importJobFor(tripId);
+      const sourceFolder = tripRes.rows[0].source_folder;
+      const started = job.start((ctx) => runImportJob(ctx, job, tripId, userId, sourceFolder, files, regionId), {
+        tripId,
+        results: [],
+        phase: "importing",
+        processed: 0,
+        total: files.length,
+      });
+      if (!started) return reply.code(409).send({ error: "An import is already running for this trip" });
       return { started: true };
     },
   );
 
+  app.post<{ Params: { id: string } }>("/trips/:id/import/cancel", { preHandler: requireAuth }, async (request, reply) => {
+    if (!requireDesktopMode(reply)) return;
+    return { cancelled: importJobs.get(request.params.id)?.cancel() ?? false };
+  });
+
   app.get<{ Params: { id: string } }>("/trips/:id/import/status", { preHandler: requireScope("trips.read") }, async (request, reply) => {
     if (!requireDesktopMode(reply)) return;
-    return importJobFor(request.params.id);
+    return importJobs.get(request.params.id)?.status ?? idleImportStatus(request.params.id);
   });
 }

@@ -24,6 +24,7 @@ import {
 } from "./reimport.js";
 import { resolveChosenVolumeDestination } from "../storageVolumes/resolve.js";
 import { friendlyFsErrorMessage } from "../lib/friendlyFsError.js";
+import { createJob, type JobContext } from "../lib/job.js";
 
 // Same concurrency Trips' import job uses (trips/routes.ts) — each file pays a real exiftool
 // round-trip plus (for a recovered JPEG) a sharp resize, so running this sequentially over a
@@ -38,14 +39,13 @@ interface UnmatchedFile {
   scientificNames: string[] | null;
 }
 
-interface ReimportJobState {
-  running: boolean;
+// Live counters, top-level on the status next to the shared JobStatus fields. Phases are
+// "jpegs" then "raws"; processed/total track the current phase.
+interface ReimportExtra {
   processedJpegs: number;
   totalJpegs: number;
   processedRaws: number;
   totalRaws: number;
-  error: string | null;
-  finishedAt: number | null;
   jpegsRecovered: number;
   jpegsAlreadyKnown: number;
   jpegsRelinked: number;
@@ -59,21 +59,20 @@ interface ReimportJobState {
   rawsAlreadyKnown: number;
   rawsRelinked: number;
   rawsUnmatched: number;
-  // Distinct scientific names this run recovered that have no reference photo/description in
-  // the current catalog — the direct input to the pack-recommendation feature.
-  missingReferenceData: string[];
-  cancelled: boolean;
 }
 
-function freshJobState(): ReimportJobState {
+// Distinct scientific names this run recovered that have no reference photo/description in
+// the current catalog, the direct input to the pack-recommendation feature.
+interface ReimportResult {
+  missingReferenceData: string[];
+}
+
+function freshExtra(): ReimportExtra {
   return {
-    running: false,
     processedJpegs: 0,
     totalJpegs: 0,
     processedRaws: 0,
     totalRaws: 0,
-    error: null,
-    finishedAt: null,
     jpegsRecovered: 0,
     jpegsAlreadyKnown: 0,
     jpegsRelinked: 0,
@@ -83,44 +82,38 @@ function freshJobState(): ReimportJobState {
     rawsAlreadyKnown: 0,
     rawsRelinked: 0,
     rawsUnmatched: 0,
-    missingReferenceData: [],
-    cancelled: false,
   };
 }
 
-let job: ReimportJobState = freshJobState();
+const reimportJob = createJob<ReimportResult, ReimportExtra>("library-reimport", freshExtra());
 // The folder the currently-displayed job's results are relative to — kept alongside (not
 // inside) the polled job state since the client never needs to see it, only used server-side
 // to resolve an unmatched entry's relativePath back to a real file for the preview endpoint.
 let jobWalkDir: string | null = null;
-// Checked between files rather than aborting in-flight work — a file already mid-exiftool-call
-// or mid-hash-stream finishes normally, but no NEW file starts once this is set. Reset at the
-// top of every fresh run so a later reimport isn't born already cancelled.
-let cancelRequested = false;
 
+// Cancel is checked between files rather than aborting in-flight work, a file already
+// mid-exiftool-call or mid-hash-stream finishes normally, but no NEW file starts.
 async function runReimportJob(
+  ctx: JobContext<ReimportResult, ReimportExtra>,
   userId: string,
   walkDir: string,
   volumeContext: VolumeContext | null,
   organize: boolean,
   organizeByYear: boolean,
-): Promise<void> {
-  cancelRequested = false;
+): Promise<ReimportResult> {
+  const job = reimportJob.status;
   try {
     const { jpegs, raws } = listManagedFiles(walkDir);
-    job.totalJpegs = jpegs.length;
-    job.totalRaws = raws.length;
+    ctx.update({ totalJpegs: jpegs.length, totalRaws: raws.length, phase: "jpegs", processed: 0, total: jpegs.length });
 
     const recoveredScientificNames = new Set<string>();
 
     // JPEGs first, in full — RAW recovery below matches against JPEG captures already
     // committed to the database, so it needs this pass finished, not interleaved with it.
     await mapWithConcurrency(jpegs, CONCURRENCY, async (absolutePath) => {
-      if (cancelRequested) {
-        job.processedJpegs++;
-        return;
-      }
+      if (ctx.signal.aborted) return;
       const relativePath = path.relative(walkDir, absolutePath);
+      ctx.update({ currentItem: relativePath });
       try {
         const outcome = await recoverJpeg(userId, absolutePath, volumeContext, organize, organizeByYear);
         if (outcome.status === "recovered") {
@@ -145,14 +138,15 @@ async function runReimportJob(
         });
       } finally {
         job.processedJpegs++;
+        ctx.update({ processed: job.processedJpegs });
       }
     });
+    ctx.throwIfCancelled();
 
+    ctx.update({ phase: "raws", processed: 0, total: raws.length });
     await mapWithConcurrency(raws, CONCURRENCY, async (absolutePath) => {
-      if (cancelRequested) {
-        job.processedRaws++;
-        return;
-      }
+      if (ctx.signal.aborted) return;
+      ctx.update({ currentItem: path.relative(walkDir, absolutePath) });
       try {
         const outcome = await recoverRaw(userId, absolutePath, volumeContext, organize, organizeByYear);
         if (outcome.status === "recovered") job.rawsRecovered++;
@@ -163,16 +157,15 @@ async function runReimportJob(
         job.rawsUnmatched++;
       } finally {
         job.processedRaws++;
+        ctx.update({ processed: job.processedRaws });
       }
     });
+    ctx.throwIfCancelled();
 
-    if (!cancelRequested) job.missingReferenceData = await findMissingReferenceData([...recoveredScientificNames]);
+    return { missingReferenceData: await findMissingReferenceData([...recoveredScientificNames]) };
   } catch (err) {
-    job.error = friendlyFsErrorMessage(err);
-  } finally {
-    job.running = false;
-    job.cancelled = cancelRequested;
-    job.finishedAt = Date.now();
+    if (ctx.signal.aborted) throw err;
+    throw new Error(friendlyFsErrorMessage(err));
   }
 }
 
@@ -182,7 +175,7 @@ export async function libraryRoutes(app: FastifyInstance): Promise<void> {
     { preHandler: requireAuth },
     async (request, reply) => {
       if (!requireDesktopMode(reply)) return;
-      if (job.running) return reply.code(409).send({ error: "A reimport is already running" });
+      if (reimportJob.status.running) return reply.code(409).send({ error: "A reimport is already running" });
       const userId = request.user!.id;
 
       // Pointing this at a registered external drive instead of the primary library walks that
@@ -222,13 +215,13 @@ export async function libraryRoutes(app: FastifyInstance): Promise<void> {
         organizeByYear = userRes.rows[0]?.organize_originals_by_year ?? false;
       }
 
-      job = freshJobState();
-      job.running = true;
+      // Background job, polled via /status: this can take a real amount of time.
+      const started = reimportJob.start(
+        (ctx) => runReimportJob(ctx, userId, walkDir, volumeContext, organize, organizeByYear),
+        freshExtra(),
+      );
+      if (!started) return reply.code(409).send({ error: "A reimport is already running" });
       jobWalkDir = walkDir;
-
-      // Not awaited — same reasoning as Trips' own scan/import jobs: this can take a real
-      // amount of time, and the client polls status instead of holding one giant request open.
-      void runReimportJob(userId, walkDir, volumeContext, organize, organizeByYear);
 
       return { started: true };
     },
@@ -236,7 +229,7 @@ export async function libraryRoutes(app: FastifyInstance): Promise<void> {
 
   app.get("/library/reimport/status", { preHandler: requireAuth }, async (request, reply) => {
     if (!requireDesktopMode(reply)) return;
-    return job;
+    return reimportJob.status;
   });
 
   // Stops the run between files rather than mid-file — whatever's already in flight (up to
@@ -244,8 +237,7 @@ export async function libraryRoutes(app: FastifyInstance): Promise<void> {
   // untouched on disk, same as it would be if the scan simply hadn't reached it yet.
   app.post("/library/reimport/cancel", { preHandler: requireAuth }, async (request, reply) => {
     if (!requireDesktopMode(reply)) return;
-    if (!job.running) return reply.code(409).send({ error: "No reimport is running" });
-    cancelRequested = true;
+    if (!reimportJob.cancel()) return reply.code(409).send({ error: "No reimport is running" });
     return { ok: true };
   });
 
@@ -257,7 +249,7 @@ export async function libraryRoutes(app: FastifyInstance): Promise<void> {
     const contentHash = request.body?.contentHash;
     if (!contentHash) return reply.code(400).send({ error: "contentHash is required" });
     await ignoreLibraryFile(request.user!.id, contentHash);
-    job.unmatched = job.unmatched.filter((f) => f.contentHash !== contentHash);
+    reimportJob.status.unmatched = reimportJob.status.unmatched.filter((f) => f.contentHash !== contentHash);
     return { ok: true };
   });
 
@@ -271,7 +263,7 @@ export async function libraryRoutes(app: FastifyInstance): Promise<void> {
     async (request, reply) => {
       if (!requireDesktopMode(reply)) return;
       const index = Number(request.params.index);
-      const entry = Number.isInteger(index) ? job.unmatched[index] : undefined;
+      const entry = Number.isInteger(index) ? reimportJob.status.unmatched[index] : undefined;
       if (!entry || !jobWalkDir) return reply.code(404).send({ error: "Not found" });
       const absolutePath = path.join(jobWalkDir, entry.relativePath);
       if (!existsSync(absolutePath)) return reply.code(404).send({ error: "Not found" });
