@@ -48,12 +48,21 @@ interface QueueState {
    *  mid-write could actually corrupt a file. */
   targetsExternalDrive: boolean;
   justFinishedAt: number | null;
-  /** A duplicate was found for a file whose upload is paused waiting on the user's choice —
-   *  surfaced through the SAME global banner every other upload state goes through
-   *  (UploadQueueBanner.tsx), not a dialog local to whichever page enqueued the file: that page
+  /** Duplicates found for files whose uploads are paused waiting on the user's choice, oldest
+   *  first. Up to MAX_CONCURRENT uploads can hit one at once, so this is a queue: the banner
+   *  shows the first, and answering it removes only that entry (a single slot let a second
+   *  prompt overwrite the first, whose paused upload then never resumed). Surfaced through the
+   *  SAME global banner every other upload state goes through (UploadQueueBanner.tsx), not a
+   *  dialog local to whichever page enqueued the file: that page
    *  (e.g. UploadDropzone's parent) may have already closed/unmounted by the time this async
    *  check comes back, same reason progress/errors are already global instead of per-caller. */
-  pendingDuplicate: { jobId: string; fileName: string; info: PossibleDuplicate } | null;
+  pendingDuplicates: PendingDuplicate[];
+}
+
+export interface PendingDuplicate {
+  jobId: string;
+  fileName: string;
+  info: PossibleDuplicate;
 }
 
 // A module-level store (not a React context) is deliberate: uploads are fired from whichever
@@ -63,15 +72,24 @@ interface QueueState {
 // already survive a component unmount (see api/client.ts — no AbortController tied to
 // anything); this store just gives every other component a way to see progress they didn't
 // personally kick off.
-let state: QueueState = { jobs: [], targetsExternalDrive: false, justFinishedAt: null, pendingDuplicate: null };
+let state: QueueState = { jobs: [], targetsExternalDrive: false, justFinishedAt: null, pendingDuplicates: [] };
 const duplicateResolvers = new Map<string, (choice: "import" | "skip") => void>();
 
-/** Called by UploadQueueBanner's confirm UI — resolves the paused upload task waiting on this
- *  jobId, and clears the prompt from global state. */
+/** Called by UploadQueueBanner's confirm UI: resolves the paused upload task waiting on this
+ *  jobId and removes just that prompt, leaving any others queued behind it. */
 export function resolveDuplicate(jobId: string, choice: "import" | "skip"): void {
-  duplicateResolvers.get(jobId)?.(choice);
+  const resolve = duplicateResolvers.get(jobId);
   duplicateResolvers.delete(jobId);
-  setState({ pendingDuplicate: null });
+  setState({ pendingDuplicates: state.pendingDuplicates.filter((d) => d.jobId !== jobId) });
+  resolve?.(choice);
+}
+
+/** Pauses an upload until the user answers its duplicate prompt. */
+function askAboutDuplicate(job: UploadJob, info: PossibleDuplicate): Promise<"import" | "skip"> {
+  return new Promise((resolve) => {
+    duplicateResolvers.set(job.id, resolve);
+    setState({ pendingDuplicates: [...state.pendingDuplicates, { jobId: job.id, fileName: job.fileName, info }] });
+  });
 }
 const listeners = new Set<() => void>();
 
@@ -88,6 +106,9 @@ function subscribe(listener: () => void): () => void {
 function getSnapshot(): QueueState {
   return state;
 }
+
+// Non-hook read of the same state, for tests and non-React callers.
+export const getUploadQueueState = getSnapshot;
 
 export function useUploadQueue(): QueueState {
   return useSyncExternalStore(subscribe, getSnapshot);
@@ -156,8 +177,7 @@ export function enqueueUploads(
         }
         const dup = await checkDuplicate(file);
         if (dup) {
-          setState({ pendingDuplicate: { jobId: job.id, fileName: job.fileName, info: dup } });
-          const choice = await new Promise<"import" | "skip">((resolve) => duplicateResolvers.set(job.id, resolve));
+          const choice = await askAboutDuplicate(job, dup);
           if (choice === "skip") {
             job.skipped = true;
             return;

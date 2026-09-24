@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams, useNavigate, Link } from "react-router-dom";
 import { api, ApiError } from "../api/client";
+import { errorMessage } from "../lib/errorMessage";
 import Lightbox, { TagEditor, type LightboxSlide } from "../components/Lightbox";
 import { Spinner } from "../components/LoadingScreen";
 import EmptyState from "../components/EmptyState";
@@ -249,6 +250,7 @@ export default function GalleryPage() {
   }, []);
   const [batchReassigning, setBatchReassigning] = useState(false);
   const [reassignError, setReassignError] = useState<string | null>(null);
+  const [bulkTagError, setBulkTagError] = useState<string | null>(null);
 
   function load() {
     // Cancel whatever search request is still in flight before starting a new one — otherwise a
@@ -361,6 +363,7 @@ export default function GalleryPage() {
   // when this Gallery is a dedicated "add photos to this album" picker (see targetAlbumId).
   function exitSelectMode() {
     setBulkTags([]);
+    setBulkTagError(null);
     if (targetAlbumId) {
       navigate(`/albums/${targetAlbumId}`);
       return;
@@ -1020,11 +1023,17 @@ export default function GalleryPage() {
                         // but redundantly, tags already sent by an earlier keystroke in this batch).
                         const added = tags.filter((t) => !bulkTags.includes(t));
                         setBulkTags(tags);
+                        setBulkTagError(null);
                         if (added.length > 0) {
                           api
                             .patch("/captures/tags", { captureIds: [...selectedCaptureIds], tags: added })
                             .then(() => setTagOptions((prev) => [...new Set([...prev, ...added])].sort()))
-                            .catch(() => {});
+                            .catch((err) => {
+                              // Drop the chip again so a failed tag doesn't read as applied.
+                              console.error(err);
+                              setBulkTags((prev) => prev.filter((t) => !added.includes(t)));
+                              setBulkTagError(errorMessage(err, "Couldn't add that tag"));
+                            });
                         }
                       }}
                     />
@@ -1059,6 +1068,7 @@ export default function GalleryPage() {
         </div>
       )}
       {reassignError && <p className="border-b border-line bg-surface px-6 py-2 text-xs text-red-600">{reassignError}</p>}
+      {bulkTagError && <p className="border-b border-line bg-surface px-6 py-2 text-xs text-red-600">{bulkTagError}</p>}
 
       <main className="p-6">
         {!items ? (

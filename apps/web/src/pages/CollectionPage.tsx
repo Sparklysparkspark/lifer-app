@@ -10,6 +10,7 @@ import {
   type RegionSummary,
 } from "@lifer/shared";
 import { api, ApiError } from "../api/client";
+import { formatBytes } from "../lib/formatBytes";
 import { useAuth } from "../hooks/useAuth";
 import AppNav from "../components/AppNav";
 import GroupedSpeciesGrid, { type GroupBy, type SortBy } from "../components/GroupedSpeciesGrid";
@@ -366,7 +367,8 @@ export default function CollectionPage() {
   // taxon-pack prompt below tell "this taxon's pack isn't downloaded" apart from "downloaded,
   // genuinely empty," neither of which downloadedCountryNames alone can distinguish.
   const [downloadedRegionTaxons, setDownloadedRegionTaxons] = useState<Map<string, Set<string | null>> | null>(null);
-  useEffect(() => {
+  // Re-run after a pack download from this page so taxon gating and counts don't go stale.
+  const loadDownloadedPacks = useCallback(() => {
     api
       .get<{ packs: Array<{ type: string; region: string | null; taxon: string | null; downloaded: boolean }> }>(
         "/offline-packs/index",
@@ -388,6 +390,7 @@ export default function CollectionPage() {
         setDownloadedRegionTaxons(new Map());
       });
   }, []);
+  useEffect(loadDownloadedPacks, [loadDownloadedPacks]);
 
   // Client-side mirror of regions/routes.ts's resolvePackRegionName — packs are always built
   // at country level, so a province's own name never appears in downloaded_packs; only its
@@ -608,7 +611,12 @@ export default function CollectionPage() {
     [regionId, taxonFilters, isTaxonPackDownloaded, taxaPresentForRegion, taxaDownloadedAnywhere, otherTaxaIconicFiltersPresent],
   );
 
+  // Bumped on every load() so a slower, older response (e.g. from before an archive or a
+  // filter change) can't overwrite the counts and list from the newer one.
+  const loadGeneration = useRef(0);
   const load = useCallback(() => {
+    const generation = ++loadGeneration.current;
+    const current = () => generation === loadGeneration.current;
     setLoadError(false);
     const taxonQuery = taxonFilters.size === 0 ? "" : `taxon=${[...taxonFilters].join(",")}`;
     // Only sent when relevant (see seaZonesRelevant's comment) — a stale seaZoneIds param
@@ -634,6 +642,7 @@ export default function CollectionPage() {
           `/regions/${regionId}/aggregate-species?${taxonQuery}`,
         )
         .then((res) => {
+          if (!current()) return;
           setItems(res.items);
           setRegionMeta(null);
           setRegionStats(null);
@@ -644,19 +653,24 @@ export default function CollectionPage() {
             regionStats: null,
           });
         })
-        .catch(() => setLoadError(true));
+        .catch(() => {
+          if (current()) setLoadError(true);
+        });
     } else if (regionId) {
       api
         .get<{ total: number; collected: number }>(
           `/regions/${regionId}/species/count?${taxonQuery}&${seaZoneQuery}&${includeLandQuery}`,
         )
-        .then(setQuickCount)
-        .catch(() => {});
+        .then((res) => {
+          if (current()) setQuickCount(res);
+        })
+        .catch((err) => console.error("Couldn't load species counts", err));
       api
         .get<RegionSpeciesResponse>(
           `/regions/${regionId}/species?filter=all&${taxonQuery}&${seaZoneQuery}&${includeLandQuery}`,
         )
         .then((res) => {
+          if (!current()) return;
           if (res.needsPack) {
             setItems(null);
             setRegionMeta(null);
@@ -676,21 +690,30 @@ export default function CollectionPage() {
             regionStats: res.stats,
           });
         })
-        .catch(() => setLoadError(true));
+        .catch(() => {
+          if (current()) setLoadError(true);
+        });
       api
         .get<{ zones: Array<{ id: string; name: string }> }>(`/regions/${regionId}/sea-zones`)
-        .then((res) => setSeaZones(res.zones))
-        .catch(() => setSeaZones([]));
+        .then((res) => {
+          if (current()) setSeaZones(res.zones);
+        })
+        .catch(() => {
+          if (current()) setSeaZones([]);
+        });
     } else if (!firstRunPrompt) {
       setSeaZones([]);
       const query = taxonQuery ? `?${taxonQuery}` : "";
       api
         .get<{ total: number; collected: number }>(`/collection/count${query}`)
-        .then(setQuickCount)
-        .catch(() => {});
+        .then((res) => {
+          if (current()) setQuickCount(res);
+        })
+        .catch((err) => console.error("Couldn't load species counts", err));
       api
         .get<{ items: CollectionItem[] }>(`/collection${query}`)
         .then((res) => {
+          if (!current()) return;
           setItems(res.items);
           setRegionMeta(null);
           setRegionStats(null);
@@ -700,7 +723,9 @@ export default function CollectionPage() {
             regionStats: null,
           });
         })
-        .catch(() => setLoadError(true));
+        .catch(() => {
+          if (current()) setLoadError(true);
+        });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- seaZoneIds is an array; its
     // joined string is the real dependency (stable primitive, avoids reference-identity churn)
@@ -719,6 +744,13 @@ export default function CollectionPage() {
     load();
     loadTaxaPresentForRegion();
   }, [load, loadTaxaPresentForRegion]);
+
+  // A pack just downloaded from this page changes which taxa are unlocked, not only the list.
+  const handlePackDownloaded = useCallback(() => {
+    load();
+    loadDownloadedPacks();
+    loadTaxaPresentForRegion();
+  }, [load, loadDownloadedPacks, loadTaxaPresentForRegion]);
 
   // Narrowing to birds/mammals hides the sea-zone checkboxes entirely (see seaZonesRelevant),
   // so any zones/includeLand picked under "all taxa" would otherwise sit invisibly in the URL
@@ -759,7 +791,10 @@ export default function CollectionPage() {
       .then((res) => {
         if (res.total === 0) updateParam("seaZones", seaZones.map((z) => z.id).join(","));
       })
-      .catch(() => {});
+      .catch(() => {
+        // Let the next render retry instead of treating a failed check as "has fish".
+        autoSelectedSeaZoneRegions.current.delete(regionId);
+      });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- seaZones is an array; length +
     // regionId together are the real dependency, same reasoning as seaZoneIds elsewhere here.
   }, [regionId, regionKnownHub, seaZonesRelevant, seaZones, seaZoneIds.length, isTaxonPackDownloaded]);
@@ -1265,7 +1300,7 @@ export default function CollectionPage() {
             </p>
           </div>
         ) : needsPackFor ? (
-          <NeedsPackPrompt region={needsPackFor} onDownloaded={load} />
+          <NeedsPackPrompt region={needsPackFor} onDownloaded={handlePackDownloaded} />
         ) : loadError ? (
           <EmptyState
             icon={
@@ -1288,7 +1323,7 @@ export default function CollectionPage() {
             regionId={taxonPackMissingFor.id}
             regionName={taxonPackMissingFor.name}
             taxon={taxonPackMissingFor.taxon}
-            onDownloaded={load}
+            onDownloaded={handlePackDownloaded}
           />
         ) : visibleItems.length === 0 ? (
           <p className="text-muted">Nothing matches that filter.</p>
@@ -1384,7 +1419,7 @@ function NeedsPackPrompt({ region, onDownloaded }: { region: { id: string; name:
       ) : (
         <>
           <p className="mx-auto mt-2 max-w-sm text-sm text-muted">
-            {pack.speciesCount} species, {(pack.sizeBytes / 1024 / 1024).toFixed(0)}MB.
+            {pack.speciesCount} species, {formatBytes(pack.sizeBytes)}.
           </p>
           <button
             onClick={download}
@@ -1552,7 +1587,7 @@ function TaxonPackPrompt({
       ) : (
         <>
           <p className="mx-auto mt-2 max-w-sm text-sm text-muted">
-            {pack.speciesCount} species, {(pack.sizeBytes / 1024 / 1024).toFixed(0)}MB.
+            {pack.speciesCount} species, {formatBytes(pack.sizeBytes)}.
           </p>
           <button
             onClick={download}
