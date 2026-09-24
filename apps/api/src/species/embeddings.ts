@@ -195,19 +195,25 @@ export async function computeEmbedding(buffer: Buffer): Promise<number[]> {
   })();
   let timedOut = false;
   let settled = false;
-  work.finally(() => {
-    settled = true;
-    activeInferences--;
-    if (timedOut) stuckInferences--;
-    if (activeInferences === 0) {
-      drainReleases();
-      armIdleUnload();
-    }
-  });
-  // Silences an unhandled rejection if `work` loses the race below and fails afterward (the
-  // pathological-hang case this timeout exists for) — Promise.race still separately sees
-  // `work`'s real outcome via its own subscription, this is just an extra listener.
-  work.catch(() => {});
+  // .finally() returns its OWN new promise, separate from `work` - chaining .catch() straight
+  // onto work did NOT cover this one, so a rejection (e.g. the model not being downloaded) left
+  // THIS derived promise permanently unhandled. Confirmed live: this crashed the whole API
+  // process on every model-not-downloaded upload, even though the call site itself properly
+  // catches computeEmbedding's own returned promise - Node's unhandled-rejection detection is
+  // per promise OBJECT, and this discarded one was never anyone's. Promise.race below already
+  // subscribes to `work` itself, so chaining .catch() onto the .finally() result here is the
+  // only handler this whole chain was actually missing.
+  work
+    .finally(() => {
+      settled = true;
+      activeInferences--;
+      if (timedOut) stuckInferences--;
+      if (activeInferences === 0) {
+        drainReleases();
+        armIdleUnload();
+      }
+    })
+    .catch(() => {});
 
   let timer: ReturnType<typeof setTimeout>;
   const timeout = new Promise<number[]>((_, reject) => {

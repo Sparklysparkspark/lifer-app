@@ -3,7 +3,7 @@
 // uploads/routes.ts, the same-vs-cross-species gap used to compare CLIP model sizes) rests on
 // these two functions behaving exactly as expected at the edges, not just on "normal" inputs.
 import { describe, expect, it } from "vitest";
-import { cosineSimilarity, l2Normalize } from "./embeddings.js";
+import { computeEmbedding, cosineSimilarity, l2Normalize } from "./embeddings.js";
 
 describe("l2Normalize", () => {
   it("scales a vector to unit length", () => {
@@ -56,5 +56,47 @@ describe("cosineSimilarity", () => {
 
   it("boundary value: empty vectors produce 0, not NaN or a thrown error", () => {
     expect(cosineSimilarity([], [])).toBe(0);
+  });
+});
+
+describe("computeEmbedding", () => {
+  // Regression test for a real crash: getSession's failure (no model downloaded) propagated
+  // through a *separate* promise that work.finally() returns (distinct from `work` itself),
+  // which nothing ever attached a handler to - Node flagged it as unhandled a tick later and
+  // crashed the whole API process on every upload, even with the model genuinely missing and
+  // the call site itself properly wrapped in try/catch. Confirmed live in production.
+  it("never leaves an unhandled rejection when the model isn't downloaded, single call", async () => {
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown) => unhandled.push(reason);
+    process.on("unhandledRejection", onUnhandled);
+    try {
+      // Whatever the reason (model missing, or a genuinely bad image once a model happens to
+      // already be present in this environment), it must reject cleanly, not crash the process.
+      await expect(computeEmbedding(Buffer.from("not a real image"))).rejects.toThrow();
+      // The leaked promise settles on a later microtask/macrotask than the awaited call above,
+      // so this needs a real tick to pass, not just a synchronous check.
+      await new Promise((r) => setTimeout(r, 50));
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+    }
+    expect(unhandled).toEqual([]);
+  });
+
+  it("never leaves an unhandled rejection when the model isn't downloaded, concurrent calls", async () => {
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown) => unhandled.push(reason);
+    process.on("unhandledRejection", onUnhandled);
+    try {
+      const results = await Promise.allSettled([
+        computeEmbedding(Buffer.from("a")),
+        computeEmbedding(Buffer.from("b")),
+        computeEmbedding(Buffer.from("c")),
+      ]);
+      expect(results.every((r) => r.status === "rejected")).toBe(true);
+      await new Promise((r) => setTimeout(r, 50));
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+    }
+    expect(unhandled).toEqual([]);
   });
 });

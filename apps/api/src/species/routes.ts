@@ -10,7 +10,7 @@ import {
   persistGalleryPromotingMainIfMissing,
   downloadAndCacheImage,
 } from "./lazyEnrich.js";
-import { MEDIA_CACHE_BUST, SINGLE_USER_MODE, EMBEDDING_MODEL_VERSION } from "../config.js";
+import { MEDIA_CACHE_BUST, EMBEDDING_MODEL_VERSION } from "../config.js";
 import { resolveOriginalPath } from "../storageVolumes/resolve.js";
 import { clusterIntoEncounters } from "../lib/clusterEncounters.js";
 import { cosineSimilarity } from "./embeddings.js";
@@ -185,19 +185,21 @@ export async function speciesRoutes(app: FastifyInstance): Promise<void> {
       // reference photo + blurb + gallery now instead of the full ~11,000-species backbone
       // having fetched all of them eagerly (8+ hours for species that may never be viewed).
       // enriched_at means "already tried," regardless of outcome, so a species with nothing
-      // usable isn't re-fetched on every view. SINGLE_USER_MODE (the desktop build — see
-      // api.rs) blocks this path ONLY for a species some downloaded pack actually claims to
-      // cover (pack_species, migration 054) — that species missing pack data should read as
-      // "pack not installed," never as a live call the "fully offline" install wasn't supposed
-      // to make for it. A species NOT covered by any downloaded pack at all (e.g. photographed
-      // somewhere with no offline pack downloaded yet, or a taxon group with no pack built yet)
-      // has no offline promise to keep in the first place, so a live call for THAT species is
-      // a real improvement (a real photo/gallery instead of a permanently blank page), not a
-      // violation of the guarantee.
-      const packCoverageRes = SINGLE_USER_MODE
-        ? await pool.query(`SELECT 1 FROM pack_species WHERE species_id = $1 LIMIT 1`, [id])
-        : null;
-      const liveCallsAllowed = !SINGLE_USER_MODE || (packCoverageRes?.rowCount ?? 0) === 0;
+      // usable isn't re-fetched on every view. Blocked ONLY for a species some downloaded pack
+      // actually claims to cover (pack_species, migration 054) - that species missing pack
+      // data should read as "pack not installed," never as a live call "a pack should work
+      // fully offline" wasn't supposed to make for it. This used to be gated on
+      // SINGLE_USER_MODE (desktop only) - confirmed live: a self-hosted Docker/NAS install
+      // has SINGLE_USER_MODE unset, so it fired a live iNaturalist fetch (a real, noticeable
+      // delay) for the first view of ANY unenriched species regardless of whether a downloaded
+      // pack already covered it, which is exactly the "fully offline" guarantee a downloaded
+      // pack is supposed to give on ANY deployment, not just desktop. A species NOT covered by
+      // any downloaded pack at all (e.g. photographed somewhere with no offline pack downloaded
+      // yet, or a taxon group with no pack built yet) has no offline promise to keep in the
+      // first place, so a live call for THAT species is a real improvement (a real photo/
+      // gallery instead of a permanently blank page), not a violation of the guarantee.
+      const packCoverageRes = await pool.query(`SELECT 1 FROM pack_species WHERE species_id = $1 LIMIT 1`, [id]);
+      const liveCallsAllowed = (packCoverageRes.rowCount ?? 0) === 0;
 
       if (!species.enriched_at && liveCallsAllowed) {
         // No skipGallery here (unlike enrich-all-species.ts's bulk pass), so this always runs
