@@ -9,6 +9,56 @@ use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_opener::OpenerExt;
 
 const WINDOW_LABEL: &str = "main";
+const PICKER_URL: &str = "tauri://localhost/picker.html";
+
+fn is_local_api(url: &url::Url) -> bool {
+    url.scheme() == "http"
+        && matches!(url.host_str(), Some("127.0.0.1") | Some("localhost"))
+        && url.port() == Some(api::LOCAL_PORT)
+}
+
+// Full origin (scheme + host + port), so a different service on the same host isn't trusted.
+fn is_configured_server(cfg: store::DesktopConfig, url: &url::Url) -> bool {
+    let mut candidates = vec![cfg.server_url, cfg.local_url];
+    candidates.extend(cfg.external_urls.unwrap_or_default().into_iter().map(Some));
+    candidates
+        .into_iter()
+        .flatten()
+        .any(|s| url::Url::parse(&s).is_ok_and(|server| server.origin() == url.origin()))
+}
+
+// Only hand safe schemes to the OS; file:// or custom schemes could launch local programs.
+fn open_external(app: &AppHandle, url: &url::Url) {
+    if matches!(url.scheme(), "http" | "https" | "mailto") {
+        let _ = app.opener().open_url(url.to_string(), None::<&str>);
+    } else {
+        eprintln!("[lifer] blocked opening {} URL", url.scheme());
+    }
+}
+
+// A saved or typed address that doesn't parse must never panic the shell.
+fn navigate_or_picker(window: &WebviewWindow, target: &str) {
+    match target.parse() {
+        Ok(url) => {
+            let _ = window.navigate(url);
+        }
+        Err(e) => {
+            eprintln!("[lifer] invalid server address {target:?}: {e}, showing setup");
+            if let Ok(picker) = PICKER_URL.parse() {
+                let _ = window.navigate(picker);
+            }
+        }
+    }
+}
+
+// Trims and validates a server address typed into setup/Settings.
+fn normalize_server_url(raw: &str) -> Result<String, String> {
+    let trimmed = raw.trim().trim_end_matches('/');
+    match url::Url::parse(trimmed) {
+        Ok(u) if matches!(u.scheme(), "http" | "https") && u.host_str().is_some() => Ok(trimmed.to_string()),
+        _ => Err(format!("\"{trimmed}\" isn't a valid server address. Use a full address like http://192.168.1.10:4310.")),
+    }
+}
 
 fn app_data_dir(app: &AppHandle) -> std::path::PathBuf {
     app.path().app_data_dir().expect("app data dir must resolve")
@@ -29,28 +79,41 @@ fn is_trusted_sender(window: &WebviewWindow) -> bool {
     if url.scheme() == "tauri" {
         return true; // our own bundled index.html/picker.html
     }
-    if url.host_str() == Some("127.0.0.1") && url.port() == Some(api::LOCAL_PORT) {
+    if is_local_api(&url) {
         return true;
     }
-    let config = store::read_config(&app_data_dir(window.app_handle()));
-    if let Some(cfg) = config {
-        if cfg.mode.as_deref() == Some("remote") {
-            // Either the single-URL config or, with Automatic URL Switching on, whichever of
-            // local_url/external_urls we're currently pointed at — a window navigated to any one
-            // of them is equally "our own configured server," not just whichever URL happens to
-            // be stored under the legacy single-field name.
-            let mut candidates = vec![cfg.server_url, cfg.local_url];
-            candidates.extend(cfg.external_urls.unwrap_or_default().into_iter().map(Some));
-            for candidate in candidates.into_iter().flatten() {
-                if let Ok(server) = url::Url::parse(&candidate) {
-                    if url.host_str() == server.host_str() && url.scheme() == server.scheme() {
-                        return true;
-                    }
-                }
-            }
-        }
+    // Any of server_url/local_url/external_urls counts: Automatic URL Switching moves this
+    // window between them.
+    store::read_config(&app_data_dir(window.app_handle()))
+        .is_some_and(|cfg| cfg.mode.as_deref() == Some("remote") && is_configured_server(cfg, &url))
+}
+
+#[derive(serde::Serialize)]
+struct AppInstallInfo {
+    path: String,
+    translocated: bool,
+}
+
+// The .app bundle on macOS, the executable's folder elsewhere.
+fn install_path() -> Option<std::path::PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    #[cfg(target_os = "macos")]
+    if let Some(bundle) = exe.ancestors().find(|p| p.extension().is_some_and(|e| e == "app")) {
+        return Some(bundle.to_path_buf());
     }
-    false
+    exe.parent().map(|p| p.to_path_buf())
+}
+
+fn is_translocated(path: &std::path::Path) -> bool {
+    path.to_string_lossy().contains("/AppTranslocation/")
+}
+
+// Lets Settings explain a failed in-place update (macOS runs quarantined apps from a read-only
+// temporary copy that can't replace itself).
+#[tauri::command]
+fn app_install_info() -> AppInstallInfo {
+    let path = install_path().unwrap_or_default();
+    AppInstallInfo { translocated: is_translocated(&path), path: path.to_string_lossy().into_owned() }
 }
 
 #[tauri::command]
@@ -139,8 +202,14 @@ async fn choose_setup(window: WebviewWindow, app: AppHandle, config: ChooseSetup
             if external_urls.is_empty() {
                 return ChooseSetupResult { ok: None, canceled: None, error: Some("At least one external URL is required.".into()) };
             }
-            let local_trimmed = local_url.trim_end_matches('/').to_string();
-            let external_trimmed: Vec<String> = external_urls.iter().map(|u| u.trim_end_matches('/').to_string()).collect();
+            let local_trimmed = match normalize_server_url(local_url) {
+                Ok(u) => u,
+                Err(e) => return ChooseSetupResult { ok: None, canceled: None, error: Some(e) },
+            };
+            let external_trimmed = match external_urls.iter().map(|u| normalize_server_url(u)).collect::<Result<Vec<_>, _>>() {
+                Ok(v) => v,
+                Err(e) => return ChooseSetupResult { ok: None, canceled: None, error: Some(e) },
+            };
             let local_ok = api::is_reachable(&format!("{local_trimmed}/health")).await;
             let mut target = if local_ok { Some(local_trimmed.clone()) } else { None };
             if target.is_none() {
@@ -172,15 +241,18 @@ async fn choose_setup(window: WebviewWindow, app: AppHandle, config: ChooseSetup
                     offline_mode: config.offline_mode,
                 },
             );
-            api::stop_api(&app);
-            let _ = window.navigate(target.parse().unwrap());
+            api::stop_api_async(&app).await;
+            navigate_or_picker(&window, &target);
             return ChooseSetupResult { ok: Some(true), canceled: None, error: None };
         }
 
         let Some(server_url) = config.server_url else {
             return ChooseSetupResult { ok: None, canceled: None, error: Some("serverUrl is required".into()) };
         };
-        let trimmed = server_url.trim_end_matches('/').to_string();
+        let trimmed = match normalize_server_url(&server_url) {
+            Ok(u) => u,
+            Err(e) => return ChooseSetupResult { ok: None, canceled: None, error: Some(e) },
+        };
         if !api::is_reachable(&format!("{trimmed}/health")).await {
             return ChooseSetupResult {
                 ok: None,
@@ -202,8 +274,8 @@ async fn choose_setup(window: WebviewWindow, app: AppHandle, config: ChooseSetup
                 offline_mode: config.offline_mode,
             },
         );
-        api::stop_api(&app);
-        let _ = window.navigate(trimmed.parse().unwrap());
+        api::stop_api_async(&app).await;
+        navigate_or_picker(&window, &trimmed);
         return ChooseSetupResult { ok: Some(true), canceled: None, error: None };
     }
 
@@ -227,7 +299,7 @@ async fn choose_setup(window: WebviewWindow, app: AppHandle, config: ChooseSetup
             offline_mode: None,
         },
     );
-    api::stop_api(&app);
+    api::stop_api_async(&app).await;
     if let Err(e) = api::start_api(&app, Some(data_dir)).await {
         return ChooseSetupResult { ok: None, canceled: None, error: Some(e) };
     }
@@ -235,7 +307,7 @@ async fn choose_setup(window: WebviewWindow, app: AppHandle, config: ChooseSetup
     if let Err(e) = api::wait_for_server(&format!("{url}/health"), 30_000).await {
         return ChooseSetupResult { ok: None, canceled: None, error: Some(e) };
     }
-    let _ = window.navigate(url.parse().unwrap());
+    navigate_or_picker(&window, &url);
     ChooseSetupResult { ok: Some(true), canceled: None, error: None }
 }
 
@@ -342,9 +414,7 @@ async fn apply_config(app: AppHandle, window: WebviewWindow) {
             }
             let url = format!("http://127.0.0.1:{}", api::LOCAL_PORT);
             match api::wait_for_server(&format!("{url}/health"), 30_000).await {
-                Ok(()) => {
-                    let _ = window.navigate(url.parse().unwrap());
-                }
+                Ok(()) => navigate_or_picker(&window, &url),
                 Err(e) => {
                     app.dialog().message(e).kind(tauri_plugin_dialog::MessageDialogKind::Error).blocking_show();
                 }
@@ -380,15 +450,40 @@ async fn apply_config(app: AppHandle, window: WebviewWindow) {
                     }
                 }
                 let target = target.or_else(|| external_urls.last().cloned()).unwrap_or_else(|| local_url.clone());
-                let _ = window.navigate(target.parse().unwrap());
+                navigate_or_picker(&window, &target);
             } else if let Some(server_url) = cfg.server_url {
-                let _ = window.navigate(server_url.parse().unwrap());
+                navigate_or_picker(&window, &server_url);
+            } else {
+                navigate_or_picker(&window, PICKER_URL);
             }
         }
-        _ => {
-            let _ = window.navigate("tauri://localhost/picker.html".parse().unwrap());
-        }
+        _ => navigate_or_picker(&window, PICKER_URL),
     }
+}
+
+// Gatekeeper runs a quarantined app from a read-only temporary copy, where updates can't
+// install and folder permissions reset. We can't move the app ourselves, so explain the fix.
+#[cfg(target_os = "macos")]
+fn warn_if_translocated(app: &AppHandle) {
+    if !install_path().is_some_and(|p| is_translocated(&p)) {
+        return;
+    }
+    let opener_handle = app.clone();
+    app.dialog()
+        .message(
+            "Lifer is running from a temporary location, so updates can't install.\n\nQuit Lifer, drag Lifer.app into your Applications folder, then open it from there.",
+        )
+        .title("Move Lifer to Applications")
+        .kind(tauri_plugin_dialog::MessageDialogKind::Warning)
+        .buttons(tauri_plugin_dialog::MessageDialogButtons::OkCancelCustom(
+            "Open Applications Folder".into(),
+            "Not Now".into(),
+        ))
+        .show(move |open| {
+            if open {
+                let _ = opener_handle.opener().open_path("/Applications", None::<&str>);
+            }
+        });
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -408,7 +503,8 @@ pub fn run() {
             set_window_theme_background,
             current_network_info,
             test_endpoint,
-            test_login
+            test_login,
+            app_install_info
         ])
         .setup(|app| {
             let handle = app.handle().clone();
@@ -419,7 +515,7 @@ pub fn run() {
                     let _ = store::clear_config(&app_data_dir(app));
                     if let Some(window) = app.get_webview_window(WINDOW_LABEL) {
                         api::stop_api(app);
-                        let _ = window.navigate("tauri://localhost/picker.html".parse().unwrap());
+                        navigate_or_picker(&window, PICKER_URL);
                     }
                 } else if event.id() == "delete-selected" {
                     let _ = app.emit("menu:delete-selected", ());
@@ -474,26 +570,16 @@ pub fn run() {
                 .on_navigation(move |url| {
                     eprintln!("[lifer-debug] on_navigation fired for: {url}");
                     let is_local_asset = url.scheme() == "tauri";
-                    let is_local_api = url.host_str() == Some("127.0.0.1") && url.port() == Some(api::LOCAL_PORT);
-                    // Any of server_url/local_url/external_urls counts as "our own configured
-                    // server" here — matches is_trusted_sender's own candidate list, since a
-                    // window mid-navigation to any of them is just as legitimate as one already
-                    // sitting on it (Automatic URL Switching's whole point is that this window
-                    // moves between these addresses over its lifetime, not just at launch).
-                    let is_configured_remote = store::read_config(&app_data_dir(&nav_handle)).is_some_and(|cfg| {
-                        let mut candidates = vec![cfg.server_url, cfg.local_url];
-                        candidates.extend(cfg.external_urls.unwrap_or_default().into_iter().map(Some));
-                        candidates.into_iter().flatten().any(|s| {
-                            url::Url::parse(&s).is_ok_and(|server| server.host_str() == url.host_str() && server.scheme() == url.scheme())
-                        })
-                    });
-                    if is_local_asset || is_local_api || is_configured_remote {
+                    // Same candidate list as is_trusted_sender.
+                    let is_configured_remote =
+                        store::read_config(&app_data_dir(&nav_handle)).is_some_and(|cfg| is_configured_server(cfg, url));
+                    if is_local_asset || is_local_api(url) || is_configured_remote {
                         return true;
                     }
                     // Anything else (e.g. the eBird checklist link, target="_blank" in the
                     // real app) is an external link — open it in the user's real browser
                     // instead of navigating this window away, and block the in-app navigation.
-                    let _ = nav_handle.opener().open_url(url.to_string(), None::<&str>);
+                    open_external(&nav_handle, url);
                     false
                 })
                 // on_navigation above only fires for a navigation of THIS window — a real
@@ -505,10 +591,16 @@ pub fn run() {
                 // links never actually went through that hook at all.
                 .on_new_window(move |url, _features| {
                     eprintln!("[lifer-debug] on_new_window fired for: {url}");
-                    let _ = new_window_handle.opener().open_url(url.to_string(), None::<&str>);
+                    open_external(&new_window_handle, &url);
                     tauri::webview::NewWindowResponse::Deny
                 })
                 .build()?;
+
+            // See api::StopApiOnDrop: runs stop_api before the Windows updater force-exits.
+            app.resources_table().add(api::StopApiOnDrop(handle.clone()));
+
+            #[cfg(target_os = "macos")]
+            warn_if_translocated(&handle);
 
             let handle2 = handle.clone();
             let window2 = window.clone();
