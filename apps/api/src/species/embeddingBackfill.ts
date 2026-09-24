@@ -5,7 +5,7 @@
 // offlinePacks/routes.ts's downloadJob — no dedicated jobs table, just a module-level object a
 // status route can read.
 import { pool } from "../db.js";
-import { computeEmbedding, storeCaptureEmbedding } from "./embeddings.js";
+import { computeEmbedding, isInferenceStuck, storeCaptureEmbedding } from "./embeddings.js";
 import { EMBEDDING_MODEL_VERSION } from "../config.js";
 
 interface EmbeddingBackfillState {
@@ -72,6 +72,8 @@ export async function runEmbeddingBackfill(): Promise<void> {
     embeddingBackfillJob.total = missingRes.rows.length;
 
     for (const row of missingRes.rows) {
+      // Stop rather than queue thousands of calls behind a hung native inference.
+      if (isInferenceStuck()) throw new Error("Stopped: species matching is stuck on an earlier photo");
       try {
         await backfillOne(row.id, row.display_path);
       } catch {
@@ -129,6 +131,7 @@ export async function runSpeciesEmbeddingBackfill(): Promise<void> {
 
     const { readFile } = await import("node:fs/promises");
     for (const row of missingRes.rows) {
+      if (isInferenceStuck()) throw new Error("Stopped: species matching is stuck on an earlier photo");
       try {
         const embedding = await computeEmbedding(await readFile(row.reference_display_path));
         await pool.query(
