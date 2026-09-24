@@ -15,15 +15,50 @@ Categories: `Added`, `Changed`, `Fixed`, `Removed` — omit any with nothing to 
 
 ## [Unreleased]
 
+### Changed
+
+- The species catalog download is much smaller (about 60 MB instead of 1.2 GB), so installers and
+  app updates shrink back to a normal size. The per-photo species reference vectors that make
+  suggestions accurate now download automatically right after the species-matching model, as a
+  second step of that same download, and refresh with each catalog update.
+- Species catalog updates in Settings now show real progress, can be cancelled, resume an
+  interrupted download instead of starting over, and apply all at once: if anything goes wrong
+  partway, the catalog is left exactly as it was. The update check is now per install, so a
+  second account no longer sees an update that's already been applied.
+- Long-running downloads and jobs (catalog, map, species-matching model, packs, server migration,
+  library recovery, trip scans and imports) share one progress display with consistent sizes,
+  steps, and Cancel/Retry buttons.
+- In-app update notes now show this changelog instead of a link.
+
 ### Fixed
 
-- Applying a Species catalog update in Settings could fail with "the download timed out" on an
-  ordinary connection — the download had a 2-minute cap sized for when the seed file was tens of
-  MB; it's been over 1GB since per-gallery-photo embeddings joined it, and any real self-hosted
-  connection needed longer than that to finish. Raised to 30 minutes.
+- App updates stopped reaching anyone after 0.5.5: one platform's build failed, which kept the
+  update information for every platform from being published. A failed platform no longer
+  blocks the others, and a release only becomes "latest" once its update information exists.
+- Update failures now show the real reason. On macOS, Lifer tells you when it's running from a
+  temporary location (move it to Applications) and offers the download when macOS blocks the
+  in-place update.
+- Downloads (catalog, map, model, packs) no longer give up on slow but working connections, and
+  no longer crash or hang when the connection drops.
+- Security: remote pages loaded in the desktop app no longer get access to your files or the
+  ability to run programs, the local server rejects requests from other sites, offline packs can't
+  read files outside their folder, share-password and login limits can't be bypassed, and links
+  only open in the browser if they're web or email links.
+- "Delete local library" after moving to a server now refuses if any photo wasn't actually
+  transferred.
+- Fixed: switching modes in Settings could crash the app; Settings "Sign in", "Use current
+  connection" and the server reachability check always failed; a bad saved server address left
+  the app stuck on the splash screen; a quick relaunch or force-quit could leave the app unable
+  to start; photo download from the desktop app did nothing.
+- Species folders for species with several alternate names no longer create nested folders, and
+  folder names that end in a dot or space work on Windows.
+- Uploading several duplicates at once could freeze the upload queue.
+- Download filenames with non-Latin characters, video-seek requests near the end of a file,
+  "Reveal in folder" on Windows and Linux, and RAW files for species-scoped captures.
+- Drives whose name contains a space, and importing a trip from the root of a drive.
 - Republished `catalog-latest`: the version live since 2026-09-22 had an incomplete Canada
-  checklist (902 of 2,056 species) from a recompute that wasn't followed by a fresh seed publish
-  — likely affected every country's checklist proportionally, not just Canada's, on any install
+  checklist (902 of 2,056 species) from a recompute that wasn't followed by a fresh seed publish.
+  It likely affected every country's checklist proportionally, not just Canada's, on any install
   that bootstrapped or updated from that version.
 
 ## [0.5.5] - 2026-09-23
