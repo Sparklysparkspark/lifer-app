@@ -63,7 +63,7 @@ export async function importRoutes(app: FastifyInstance): Promise<void> {
       }
       await client.query("COMMIT");
     } catch (err) {
-      await client.query("ROLLBACK");
+      await client.query("ROLLBACK").catch(() => {});
       throw err;
     } finally {
       client.release();

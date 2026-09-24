@@ -27,12 +27,30 @@ interface LocalSettings {
   migration?: StorageMigration;
 }
 
-export function readLocalSettings(): LocalSettings {
-  try {
-    return JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
-  } catch {
-    return {};
+// Windows can briefly lock the file (AV, indexer): EPERM/EBUSY/EACCES are retried a few times.
+function withRetry<T>(fn: () => T, attempts = 5): T {
+  for (let i = 0; ; i++) {
+    try {
+      return fn();
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (i >= attempts - 1 || (code !== "EPERM" && code !== "EBUSY" && code !== "EACCES")) throw err;
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50 * (i + 1));
+    }
   }
+}
+
+// Only a missing file means "no settings yet". Any other error is thrown, because returning {}
+// here would get persisted by the next write and wipe the saved storage location.
+export function readLocalSettings(): LocalSettings {
+  let text: string;
+  try {
+    text = withRetry(() => readFileSync(CONFIG_PATH, "utf-8"));
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return {};
+    throw err;
+  }
+  return JSON.parse(text) as LocalSettings;
 }
 
 // Writes via a temp file + rename rather than a direct writeFileSync — a plain write can be
@@ -45,5 +63,5 @@ export function writeLocalSettings(patch: LocalSettings): void {
   mkdirSync(CONFIG_DIR, { recursive: true });
   const tmpPath = `${CONFIG_PATH}.tmp`;
   writeFileSync(tmpPath, JSON.stringify({ ...current, ...patch }, null, 2));
-  renameSync(tmpPath, CONFIG_PATH);
+  withRetry(() => renameSync(tmpPath, CONFIG_PATH));
 }

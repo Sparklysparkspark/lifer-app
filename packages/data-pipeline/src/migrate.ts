@@ -6,7 +6,22 @@ import { pool } from "./db.js";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const migrationsDir = path.join(__dirname, "..", "migrations");
 
+// Arbitrary constant key. Serialises concurrent migrate runs (two API processes starting at once).
+const MIGRATION_LOCK_KEY = 4_310_103;
+
 async function main() {
+  const lockClient = await pool.connect();
+  try {
+    await lockClient.query(`SELECT pg_advisory_lock($1)`, [MIGRATION_LOCK_KEY]);
+    await runMigrations();
+  } finally {
+    await lockClient.query(`SELECT pg_advisory_unlock($1)`, [MIGRATION_LOCK_KEY]).catch(() => {});
+    lockClient.release();
+  }
+  await pool.end();
+}
+
+async function runMigrations() {
   await pool.query(`CREATE TABLE IF NOT EXISTS schema_migrations (filename text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())`);
 
   const applied = new Set(
@@ -33,7 +48,7 @@ async function main() {
       console.log(`apply ${file}`);
       appliedCount++;
     } catch (err) {
-      await client.query("ROLLBACK");
+      await client.query("ROLLBACK").catch(() => {});
       throw new Error(`Migration ${file} failed: ${(err as Error).message}`);
     } finally {
       client.release();
@@ -41,7 +56,6 @@ async function main() {
   }
 
   console.log(`Done. ${appliedCount} migration(s) applied, ${files.length - appliedCount} already up to date.`);
-  await pool.end();
 }
 
 main().catch((err) => {

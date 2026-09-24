@@ -631,6 +631,9 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
     // rather than guessing which of several candidates this RAW actually belongs to): a new,
     // unedited capture under the species the user is actively importing into.
     const client = await pool.connect();
+    // Files written inside the transaction, removed again if it rolls back.
+    const written: string[] = [];
+    let committed = false;
     try {
       await client.query("BEGIN");
       const captureRes = await client.query<{ id: string }>(
@@ -662,6 +665,7 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
       if (previewBuffer) {
         photoId = randomUUID();
         const { displayPath, thumbPath, width, height } = await generateDerivatives(previewBuffer, photoId);
+        written.push(displayPath, thumbPath);
         await client.query(`INSERT INTO photos (id, capture_id, display_path, thumb_path, width, height) VALUES ($1,$2,$3,$4,$5,$6)`, [
           photoId,
           captureId,
@@ -692,6 +696,7 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
       mkdirSync(folder, { recursive: true });
       const dest = uniqueDestination(folder, originalFilename(rawFileName, exif.takenAt, path.extname(rawFileName).toLowerCase()));
       writeFileSync(dest, rawBuffer);
+      written.push(dest);
       const volumeRelativePath = chosenVolume ? dest.slice(chosenVolume.mountPath.length) : null;
       await client.query(
         `INSERT INTO originals (capture_id, kind, ref_type, ref, managed, content_hash, file_size, exif_fingerprint, exif_fingerprint_loose, user_id, volume_id, volume_relative_path)
@@ -700,6 +705,7 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
       );
 
       await client.query("COMMIT");
+      committed = true;
 
       if (previewBuffer) {
         computeEmbedding(previewBuffer)
@@ -709,7 +715,8 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
 
       return { captureId, photoId, linkedExisting: false };
     } catch (err) {
-      await client.query("ROLLBACK");
+      await client.query("ROLLBACK").catch(() => {});
+      if (!committed) for (const f of written) rmSync(f, { force: true });
       throw err;
     } finally {
       client.release();
@@ -982,6 +989,9 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const client = await pool.connect();
+    // Files written inside the transaction, removed again if it rolls back.
+    const written: string[] = [];
+    let committed = false;
     try {
       await client.query("BEGIN");
 
@@ -1014,6 +1024,7 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
 
       const photoId = randomUUID();
       const { displayPath, thumbPath, width, height } = await generateDerivatives(buffer, photoId);
+      written.push(displayPath, thumbPath);
 
       const photoRes = await client.query<{ id: string }>(
         `INSERT INTO photos (id, capture_id, display_path, thumb_path, width, height) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
@@ -1054,6 +1065,7 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
         mkdirSync(folder, { recursive: true });
         finalOriginalRef = uniqueDestination(folder, originalFilename(fileName, exif.takenAt, photoExtension));
         writeFileSync(finalOriginalRef, buffer);
+        written.push(finalOriginalRef);
         const namingStyleRes = await pool.query<{ species_naming_styles: string[] }>(
           `SELECT species_naming_styles FROM users WHERE id = $1`,
           [userId],
@@ -1123,6 +1135,7 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
         const rawExt = path.extname(rawFileName).toLowerCase();
         const rawDest = uniqueDestination(rawFolder, originalFilename(rawFileName, exif.takenAt, rawExt));
         writeFileSync(rawDest, rawBuffer);
+        written.push(rawDest);
         const rawHash = createHash("sha256").update(rawBuffer).digest("hex");
         await client.query(
           `INSERT INTO originals (capture_id, kind, ref_type, ref, managed, content_hash, file_size, exif_fingerprint, exif_fingerprint_loose)
@@ -1215,6 +1228,7 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
       }
 
       await client.query("COMMIT");
+      committed = true;
 
       // Fire-and-forget, same reasoning as the embedding computation below — writes this
       // capture's initial XMP sidecar(s) (species/EXIF/rating) rather than leaving it until
@@ -1234,7 +1248,8 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
 
       return reply.code(201).send({ captureId, photoId: photoRes.rows[0].id });
     } catch (err) {
-      await client.query("ROLLBACK");
+      await client.query("ROLLBACK").catch(() => {});
+      if (!committed) for (const f of written) rmSync(f, { force: true });
       throw err;
     } finally {
       client.release();
@@ -1340,6 +1355,8 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
     const locationLabel = fields.locationLabel?.trim() || null;
 
     const client = await pool.connect();
+    const written: string[] = [];
+    let committed = false;
     try {
       await client.query("BEGIN");
 
@@ -1370,6 +1387,7 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
 
       const photoId = randomUUID();
       const { displayPath, thumbPath, width, height, durationSeconds, previewPath } = await generateVideoDerivatives(tmpPath, photoId);
+      written.push(displayPath, thumbPath, ...(previewPath ? [previewPath] : []));
 
       const photoRes = await client.query<{ id: string }>(
         `INSERT INTO photos (id, capture_id, display_path, thumb_path, width, height, kind, duration_seconds, preview_path)
@@ -1402,6 +1420,7 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
       mkdirSync(folder, { recursive: true });
       const finalRef = uniqueDestination(folder, originalFilename(fileName, exif.takenAt, videoExtension));
       copyFileSync(tmpPath, finalRef);
+      written.push(finalRef);
 
       const volumeTag = chosenVolume
         ? { volumeId: chosenVolume.volumeId, volumeRelativePath: finalRef.slice(chosenVolume.mountPath.length) }
@@ -1421,9 +1440,11 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
       }
 
       await client.query("COMMIT");
+      committed = true;
       return reply.code(201).send({ captureId, photoId: photoRes.rows[0].id });
     } catch (err) {
-      await client.query("ROLLBACK");
+      await client.query("ROLLBACK").catch(() => {});
+      if (!committed) for (const f of written) rmSync(f, { force: true });
       throw err;
     } finally {
       client.release();

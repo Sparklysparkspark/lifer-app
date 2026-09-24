@@ -32,6 +32,12 @@ const DUMMY_HASH = "$argon2id$v=19$m=19456,t=2,p=1$AAAAAAAAAAAAAAAAAAAAAA$AAAAAA
 // visitor re-enters the password, not data loss, so a DB table would be overkill here.
 const UNLOCK_TTL_MS = 24 * 60 * 60 * 1000;
 const unlockGrants = new Map<string, { token: string; expiresAt: number }>();
+const SHARE_TOKEN_MAX_ATTEMPTS = 50;
+
+function pruneExpiredGrants(): void {
+  const now = Date.now();
+  for (const [id, grant] of unlockGrants) if (grant.expiresAt < now) unlockGrants.delete(id);
+}
 const UNLOCK_COOKIE_NAME = "share_unlock";
 
 function isLive(row: { revoked_at: Date | null; expires_at: Date | null }): boolean {
@@ -64,6 +70,7 @@ function hasValidUnlock(request: { cookies: Record<string, string | undefined> }
   const grantId = request.cookies[UNLOCK_COOKIE_NAME];
   if (!grantId) return false;
   const grant = unlockGrants.get(grantId);
+  if (grant && grant.expiresAt < Date.now()) unlockGrants.delete(grantId);
   if (!grant || grant.expiresAt < Date.now() || grant.token !== token) return false;
   return true;
 }
@@ -196,11 +203,15 @@ export async function albumShareRoutes(app: FastifyInstance): Promise<void> {
   app.post<{ Params: { token: string }; Body: { password?: string } }>(
     "/share/:token/unlock",
     async (request, reply) => {
-      const rateLimitKey = `${request.params.token}:${request.ip}`;
-      if (isRateLimited(rateLimitKey)) {
+      // Per token+IP, plus a looser per-token cap so rotating IPs (or a spoofed
+      // X-Forwarded-For) can't brute-force one share's password.
+      const ipKey = `${request.params.token}:${request.ip}`;
+      const tokenKey = `share-token:${request.params.token}`;
+      if (isRateLimited(ipKey) || isRateLimited(tokenKey, SHARE_TOKEN_MAX_ATTEMPTS)) {
         return reply.code(429).send({ error: "Too many attempts. Try again later." });
       }
-      recordAttempt(rateLimitKey);
+      recordAttempt(ipKey);
+      recordAttempt(tokenKey);
 
       const share = await resolveShare(request.params.token);
       const validPassword = await verifyPassword(share?.password_hash ?? DUMMY_HASH, request.body?.password ?? "");
@@ -210,6 +221,7 @@ export async function albumShareRoutes(app: FastifyInstance): Promise<void> {
 
       const grantId = randomBytes(32).toString("base64url");
       const expiresAt = Date.now() + UNLOCK_TTL_MS;
+      pruneExpiredGrants();
       unlockGrants.set(grantId, { token: request.params.token, expiresAt });
       reply.setCookie(UNLOCK_COOKIE_NAME, grantId, {
         httpOnly: true,

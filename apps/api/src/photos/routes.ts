@@ -2,6 +2,7 @@
 // paths are never served via a static mount. Every request is checked against ownership here.
 import { createReadStream, existsSync, statSync } from "node:fs";
 import path from "node:path";
+import { contentDisposition, parseRange } from "../lib/httpFile.js";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { pool } from "../db.js";
 import { requireAuth } from "../auth/session.js";
@@ -85,15 +86,15 @@ function sendRangeableFile(request: FastifyRequest, reply: FastifyReply, filePat
     return reply.send(createReadStream(filePath));
   }
 
-  const match = /^bytes=(\d*)-(\d*)$/.exec(range);
-  if (!match) {
+  const parsed = parseRange(range, stat.size);
+  if (parsed.kind === "unsatisfiable") {
     return reply.code(416).header("Content-Range", `bytes */${stat.size}`).send();
   }
-  const start = match[1] ? parseInt(match[1], 10) : 0;
-  const end = match[2] ? parseInt(match[2], 10) : stat.size - 1;
-  if (start >= stat.size || end >= stat.size || start > end) {
-    return reply.code(416).header("Content-Range", `bytes */${stat.size}`).send();
+  if (parsed.kind === "full") {
+    reply.header("Content-Length", stat.size);
+    return reply.send(createReadStream(filePath));
   }
+  const { start, end } = parsed;
   reply.code(206);
   reply.header("Content-Range", `bytes ${start}-${end}/${stat.size}`);
   reply.header("Content-Length", end - start + 1);
@@ -144,7 +145,7 @@ export async function photoRoutes(app: FastifyInstance): Promise<void> {
         // real one. Store/link mode both already name the file on disk after the original
         // filename (see uploads/routes.ts's originalFilename helper), so its basename is the
         // real name and can be reused directly.
-        reply.header("Content-Disposition", `attachment; filename="${path.basename(original.ref)}"`);
+        reply.header("Content-Disposition", contentDisposition(path.basename(original.ref)));
       }
       return reply.send(createReadStream(original.ref));
     },
@@ -172,7 +173,7 @@ export async function photoRoutes(app: FastifyInstance): Promise<void> {
       }
       reply.header("Content-Type", "application/octet-stream");
       if (request.query.download === "1") {
-        reply.header("Content-Disposition", `attachment; filename="${path.basename(original.ref)}"`);
+        reply.header("Content-Disposition", contentDisposition(path.basename(original.ref)));
       }
       return reply.send(createReadStream(original.ref));
     },

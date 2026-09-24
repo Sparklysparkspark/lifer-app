@@ -339,7 +339,7 @@ export async function computeRegionOccurrencesFromCache(
     await client.query(`UPDATE regions SET occurrence_computed_at = now() WHERE id = $1`, [region.id]);
     await client.query("COMMIT");
   } catch (err) {
-    await client.query("ROLLBACK");
+    await client.query("ROLLBACK").catch(() => {});
     throw err;
   } finally {
     client.release();

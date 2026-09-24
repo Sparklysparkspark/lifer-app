@@ -65,7 +65,7 @@ export interface ScanResult {
 /** Step 1 — reconcile every original already linked to this trip against what's actually on
  *  disk right now. `candidates` is the full current file listing (from listCandidateFiles),
  *  reused here so a moved file can be found among files findNewFiles hasn't yet claimed. */
-export async function matchAgainstKnownOriginals(tripId: string, candidates: CandidateFile[]): Promise<{
+export async function matchAgainstKnownOriginals(tripId: string, candidates: CandidateFile[], signal?: AbortSignal): Promise<{
   relinked: number;
   markedStale: number;
   collisions: number;
@@ -84,6 +84,7 @@ export async function matchAgainstKnownOriginals(tripId: string, candidates: Can
   const claimedAbsolutePaths = new Set<string>();
 
   for (const original of knownRes.rows) {
+    signal?.throwIfAborted();
     if (existsSync(original.ref)) {
       claimedAbsolutePaths.add(original.ref);
       await pool.query(`UPDATE originals SET stale = false, last_seen_at = now() WHERE id = $1`, [original.id]);
@@ -146,6 +147,7 @@ async function autoRecoverFromIndex(
   userId: string,
   sourceFolder: string,
   newFiles: CandidateFile[],
+  signal?: AbortSignal,
 ): Promise<{ recovered: number; stillNew: CandidateFile[] }> {
   const speciesByPath = await resolveTripIndexSpecies(
     sourceFolder,
@@ -156,6 +158,7 @@ async function autoRecoverFromIndex(
   let recovered = 0;
   const stillNew: CandidateFile[] = [];
   for (const file of newFiles) {
+    signal?.throwIfAborted();
     const speciesId = speciesByPath.get(file.relativePath);
     if (!speciesId) {
       stillNew.push(file);
@@ -175,15 +178,26 @@ async function autoRecoverFromIndex(
   return { recovered, stillNew };
 }
 
-export async function scanTrip(tripId: string, userId: string, sourceFolder: string): Promise<ScanResult> {
+export interface ScanOptions {
+  signal?: AbortSignal;
+  // Phases: "checking" (relink known files), "recovering" (from the trip index), "linking-raws".
+  onPhase?: (phase: string) => void;
+}
+
+export async function scanTrip(tripId: string, userId: string, sourceFolder: string, opts: ScanOptions = {}): Promise<ScanResult> {
+  const { signal, onPhase } = opts;
+  onPhase?.("checking");
   const imageCandidates = listCandidateFiles(sourceFolder);
   // RAW files join the relink pass (a moved/renamed RAW original needs the same content-hash
   // recovery a moved JPEG gets) but never findNewFiles below — a bare RAW with no JPEG sibling
   // has no species to review it against, so it's only ever handled by autoLinkMissingRaws.
   const allCandidates = [...imageCandidates, ...listRawFiles(sourceFolder)];
-  const { relinked, markedStale, collisions, claimedAbsolutePaths } = await matchAgainstKnownOriginals(tripId, allCandidates);
+  const { relinked, markedStale, collisions, claimedAbsolutePaths } = await matchAgainstKnownOriginals(tripId, allCandidates, signal);
   const newFiles = findNewFiles(imageCandidates, claimedAbsolutePaths);
-  const { recovered, stillNew } = await autoRecoverFromIndex(tripId, userId, sourceFolder, newFiles);
+  onPhase?.("recovering");
+  const { recovered, stillNew } = await autoRecoverFromIndex(tripId, userId, sourceFolder, newFiles, signal);
+  signal?.throwIfAborted();
+  onPhase?.("linking-raws");
   const rawsLinked = await autoLinkMissingRaws(tripId, sourceFolder);
   return { relinked, markedStale, collisions, recovered, rawsLinked, newFiles: stillNew };
 }
@@ -191,9 +205,11 @@ export async function scanTrip(tripId: string, userId: string, sourceFolder: str
 /** Path-traversal guard for GET /trips/:id/scan-preview and POST /trips/:id/import — a
  *  relativePath must resolve to somewhere genuinely inside the trip's own source_folder. */
 export function resolveWithinTripFolder(sourceFolder: string, relativePath: string): string | null {
-  const resolved = path.resolve(sourceFolder, relativePath);
-  const root = path.resolve(sourceFolder) + path.sep;
-  if (!resolved.startsWith(root)) return null;
+  // path.relative, not a startsWith(root + sep) check, which broke on a drive root ("/" or "D:\\").
+  const root = path.resolve(sourceFolder);
+  const resolved = path.resolve(root, relativePath);
+  const rel = path.relative(root, resolved);
+  if (rel === "" || rel === ".." || rel.startsWith(".." + path.sep) || path.isAbsolute(rel)) return null;
   if (!existsSync(resolved) || !statSync(resolved).isFile()) return null;
   return resolved;
 }

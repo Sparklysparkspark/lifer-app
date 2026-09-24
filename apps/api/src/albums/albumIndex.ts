@@ -22,7 +22,8 @@
 // both the add and remove routes) so it always reflects the CURRENT membership, not just
 // additions. Read back during the library reimport tool's recovery pass (recoverJpeg in
 // reimport.ts) to restore album membership for a freshly-recovered capture.
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { writeFileAtomicSync } from "../lib/atomicWrite.js";
 import path from "node:path";
 import { pool } from "../db.js";
 import { resolveOriginalPath } from "../storageVolumes/resolve.js";
@@ -59,9 +60,14 @@ function queueWrite(folder: string, key: string, albumNames: string[]): Promise<
       const index = readAlbumIndex(folder);
       if (albumNames.length === 0) delete index[key];
       else index[key] = albumNames;
-      writeFileSync(indexPath(folder), JSON.stringify(index, null, 2));
+      writeFileAtomicSync(indexPath(folder), JSON.stringify(index, null, 2));
     });
   writeQueues.set(folder, next);
+  // Drop the queue entry once idle so the map doesn't keep one promise per folder forever.
+  const cleanup = () => {
+    if (writeQueues.get(folder) === next) writeQueues.delete(folder);
+  };
+  next.then(cleanup, cleanup);
   return next;
 }
 

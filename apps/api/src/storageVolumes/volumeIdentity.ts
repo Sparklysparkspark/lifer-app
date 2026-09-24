@@ -41,10 +41,16 @@ async function macMountPathFor(absolutePath: string): Promise<string> {
   // anywhere in the filesystem, not just directly under /Volumes — to the real mount point
   // that contains it, without needing to guess based on the path's own shape.
   const output = await run("df", ["-P", absolutePath]);
-  if (!output) return "/";
+  return output ? parseDfMountPath(output) : "/";
+}
+
+// The mount path is everything after the capacity column, so "/Volumes/My Drive" survives
+// intact (a plain whitespace split kept only "Drive").
+export function parseDfMountPath(output: string): string {
   const lines = output.trim().split("\n");
-  const columns = lines[lines.length - 1].trim().split(/\s+/);
-  return columns[columns.length - 1] || "/";
+  const last = lines[lines.length - 1] ?? "";
+  const match = last.match(/\s\d+\s+\d+\s+\d+\s+\d+%\s+(.+)$/);
+  return match?.[1].trim() || "/";
 }
 
 async function macVolumeId(mountPath: string): Promise<string | null> {

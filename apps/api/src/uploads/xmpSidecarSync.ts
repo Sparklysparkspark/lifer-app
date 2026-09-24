@@ -74,3 +74,13 @@ export async function syncCaptureXmpSidecars(userId: string, captureId: string):
 
   await Promise.all(originalsRes.rows.map((o) => writeXmpSidecar(o.ref, data).catch(() => {})));
 }
+
+// Best-effort variant for callers that shouldn't fail on a sidecar write, but where a failure
+// should still show up in the logs instead of letting sidecars drift silently.
+export async function syncCaptureXmpSidecarsLogged(userId: string, captureId: string): Promise<void> {
+  try {
+    await syncCaptureXmpSidecars(userId, captureId);
+  } catch (err) {
+    console.warn(`[xmp] Couldn't sync XMP sidecar for capture ${captureId}:`, err instanceof Error ? err.message : err);
+  }
+}

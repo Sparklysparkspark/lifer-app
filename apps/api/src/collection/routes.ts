@@ -3,7 +3,7 @@ import type { FastifyInstance } from "fastify";
 import { pool } from "../db.js";
 import { requireAuth } from "../auth/session.js";
 import { toCollectionItem } from "./collectionItem.js";
-import { syncCaptureXmpSidecars } from "../uploads/xmpSidecarSync.js";
+import { syncCaptureXmpSidecarsLogged } from "../uploads/xmpSidecarSync.js";
 import { detectDefaultCardCrop } from "../species/detectAndCrop.js";
 import {
   obscureSpeciesSql,
@@ -19,7 +19,7 @@ import {
 async function syncCoverCaptureXmp(userId: string, photoId: string | null): Promise<void> {
   if (!photoId) return;
   const res = await pool.query<{ capture_id: string }>(`SELECT capture_id FROM photos WHERE id = $1`, [photoId]);
-  if (res.rows[0]) await syncCaptureXmpSidecars(userId, res.rows[0].capture_id).catch(() => {});
+  if (res.rows[0]) await syncCaptureXmpSidecarsLogged(userId, res.rows[0].capture_id);
 }
 
 export async function collectionRoutes(app: FastifyInstance): Promise<void> {
@@ -242,7 +242,7 @@ export async function collectionRoutes(app: FastifyInstance): Promise<void> {
         [photoId, defaultCrop?.x ?? null, defaultCrop?.y ?? null, defaultCrop?.size ?? null, userId, speciesId],
       );
       await syncCoverCaptureXmp(userId, priorCoverPhotoId);
-      await syncCaptureXmpSidecars(userId, ownershipRes.rows[0].capture_id).catch(() => {});
+      await syncCaptureXmpSidecarsLogged(userId, ownershipRes.rows[0].capture_id);
       return { ok: true };
     },
   );

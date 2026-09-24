@@ -10,6 +10,12 @@ import { DATABASE_URL } from "./config.js";
 // instant" pattern. idleTimeoutMillis: 0 keeps connections open indefinitely instead.
 export const pool = new Pool({ connectionString: DATABASE_URL, idleTimeoutMillis: 0 });
 
+// An idle client erroring (Postgres restarted) emits "error" on the pool; unhandled, that kills
+// the process. The pool drops the broken client and reconnects on the next query.
+pool.on("error", (err) => {
+  console.error("[db] idle client error:", err.message);
+});
+
 // Pre-warm a handful of connections at startup so even the very FIRST click of a session
 // doesn't pay the cold-connection cost either — without this, the pool only opens connections
 // lazily as queries actually ask for one, so a page that fires several queries at once (see

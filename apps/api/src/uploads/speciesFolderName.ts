@@ -10,7 +10,9 @@ import { pool } from "../db.js";
 export function sanitizeForFilesystem(name: string): string {
   // Slashes would create unintended subfolders; the rest are characters Windows/macOS/Linux
   // either forbid outright or that just make a folder name awkward to look at/type.
-  return name.replace(/[/\\:*?"<>|]/g, "").trim();
+  // Trailing dots/spaces are also stripped: Windows silently drops them, so "Sp." and "Sp"
+  // would otherwise name the same folder there but different ones everywhere else.
+  return name.replace(/[/\\:*?"<>|]/g, "").trim().replace(/[. ]+$/, "");
 }
 
 // Shared by the folder-name and EXIF resolvers. Four pluggable parts — common name, scientific
@@ -25,9 +27,8 @@ export function sanitizeForFilesystem(name: string): string {
 // and if every selected part is unavailable for this specific species, falls back the same way.
 // `transform` runs on each resolved part individually, BEFORE joining them together —
 // resolveSpeciesFolderName passes sanitizeForFilesystem here so a folder-forbidden character in
-// one part can't eat the " / " separator between parts (sanitizing the whole joined string
-// afterward would strip the slash itself, since it's one of the forbidden characters). The EXIF
-// label has no such constraint, so writeSpeciesMetadata leaves this at the identity default.
+// one part is stripped before the parts are joined. Extras are joined with ", " (not " / ",
+// which created nested folders). The EXIF label leaves this at the identity default.
 export function composeSpeciesName(
   commonName: string | null,
   scientificName: string,
@@ -74,7 +75,7 @@ export function composeSpeciesName(
   if (resolved.length === 0) return transform(commonName ?? scientificName);
   const [primary, ...rest] = resolved;
   if (rest.length === 0) return primary;
-  return `${primary} (${rest.join(" / ")})`;
+  return `${primary} (${rest.join(", ")})`;
 }
 
 // speciesId + userId, not raw name strings — species_naming_styles (migration 082) is a
