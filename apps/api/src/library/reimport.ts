@@ -37,6 +37,7 @@ import { matchSpeciesByKeywords, groupByScientificName, type KeywordMatchedSpeci
 import { matchSpeciesFromFilename } from "../species/matchByFilename.js";
 import { moveManagedOriginalToSpeciesFolder } from "../uploads/routes.js";
 import { recoverAlbumMembership } from "../albums/albumIndex.js";
+import { tagWithRegisteredVolume, type VolumeTag } from "../storageVolumes/resolve.js";
 
 const JPEG_EXTENSIONS = new Set([".jpg", ".jpeg"]);
 
@@ -115,6 +116,23 @@ export interface VolumeContext {
   mountPath: string;
 }
 
+// Where a recovered original's row points. Organized files were just moved into the main
+// library, so they're untagged. A folder picked from someone else's layout (foreign) keeps its
+// files in place, so they get tagged against whatever registered drive or declared root holds
+// them, the same as a link-mode upload, and read as "not connected" if it goes away.
+async function recoveredVolumeTag(
+  userId: string,
+  absolutePath: string,
+  volumeContext: VolumeContext | null,
+  organize: boolean,
+  foreign: boolean,
+): Promise<VolumeTag> {
+  if (organize) return { volumeId: null, volumeRelativePath: null };
+  if (volumeContext) return { volumeId: volumeContext.volumeId, volumeRelativePath: absolutePath.slice(volumeContext.mountPath.length) };
+  if (foreign) return tagWithRegisteredVolume(userId, absolutePath);
+  return { volumeId: null, volumeRelativePath: null };
+}
+
 // A file whose bytes are already known (same content_hash as some existing original) isn't
 // necessarily fully up to date — its `ref` might point at a stale absolute path left over
 // from before a drive was unplugged/reconnected under a different mount name, or removed and
@@ -164,6 +182,7 @@ export async function recoverJpeg(
   volumeContext: VolumeContext | null = null,
   organize = false,
   organizeByYear = false,
+  foreign = false,
 ): Promise<JpegOutcome> {
   const contentHash = await computeContentHash(absolutePath);
   const known = await pool.query<{ id: string; ref: string; volume_id: string | null }>(
@@ -279,14 +298,15 @@ export async function recoverJpeg(
       [userId, species.id, photoRes.rows[0].id, exif.takenAt],
     );
 
-    // managed=true, ref=finalPath — for the default (organize=false) reimport-of-Lifer's-own-
-    // tree case, finalPath === absolutePath (already exactly where a normal upload would have
-    // written it, recovering it is never a copy or a move); for an organize=true foreign-
-    // library import, finalPath is the just-relocated destination inside the primary library,
-    // so volumeContext never applies here (see this fn's own comment on organize above).
+    // ref=finalPath: for the default reimport of Lifer's own tree, finalPath === absolutePath
+    // (already exactly where a normal upload would have written it, recovering it is never a
+    // copy or a move); for an organize=true foreign-library import, finalPath is the just-
+    // relocated destination inside the primary library, so it's untagged. A foreign folder
+    // imported in place stays unmanaged (see recoveredVolumeTag).
+    const tag = await recoveredVolumeTag(userId, absolutePath, volumeContext, organize, foreign);
     await client.query(
       `INSERT INTO originals (capture_id, kind, ref_type, ref, managed, content_hash, file_size, exif_fingerprint, exif_fingerprint_loose, volume_id, volume_relative_path)
-       VALUES ($1, 'jpeg', 'path', $2, true, $3, $4, $5, $6, $7, $8)`,
+       VALUES ($1, 'jpeg', 'path', $2, $9, $3, $4, $5, $6, $7, $8)`,
       [
         captureId,
         finalPath,
@@ -294,8 +314,11 @@ export async function recoverJpeg(
         buffer.length,
         exifFingerprint.strict,
         exifFingerprint.loose,
-        organize ? null : (volumeContext?.volumeId ?? null),
-        organize ? null : volumeContext ? absolutePath.slice(volumeContext.mountPath.length) : null,
+        tag.volumeId,
+        tag.volumeRelativePath,
+        // Lifer only owns files it wrote or moved into its own layout, never ones left in place
+        // in someone else's folder (managed files can get renamed or moved by Lifer later).
+        !foreign || organize,
       ],
     );
 
@@ -334,6 +357,7 @@ export async function recoverRaw(
   volumeContext: VolumeContext | null = null,
   organize = false,
   organizeByYear = false,
+  foreign = false,
 ): Promise<RawOutcome> {
   const contentHash = await computeContentHash(absolutePath);
   const known = await pool.query<{ id: string; ref: string; volume_id: string | null }>(
@@ -390,9 +414,10 @@ export async function recoverRaw(
         exif.takenAt,
       )
     : absolutePath;
+  const tag = await recoveredVolumeTag(userId, absolutePath, volumeContext, organize, foreign);
   await pool.query(
     `INSERT INTO originals (capture_id, kind, ref_type, ref, managed, content_hash, file_size, exif_fingerprint, exif_fingerprint_loose, volume_id, volume_relative_path)
-     VALUES ($1, 'raw', 'path', $2, true, $3, $4, $5, $6, $7, $8)`,
+     VALUES ($1, 'raw', 'path', $2, $9, $3, $4, $5, $6, $7, $8)`,
     [
       match.id,
       finalPath,
@@ -400,8 +425,9 @@ export async function recoverRaw(
       fileSize,
       exifFingerprint.strict,
       exifFingerprint.loose,
-      organize ? null : (volumeContext?.volumeId ?? null),
-      organize ? null : volumeContext ? absolutePath.slice(volumeContext.mountPath.length) : null,
+      tag.volumeId,
+      tag.volumeRelativePath,
+      !foreign || organize,
     ],
   );
   return { status: "recovered", captureId: match.id };

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { api } from "../api/client";
 import { usePackDownloadStatus } from "../hooks/usePackDownloadStatus";
+import { useIsTauri } from "../hooks/useDeploymentMode";
 import { formatBytes } from "../lib/formatBytes";
 
 const DISMISSED_KEY = "lifer-dismissed-updates";
@@ -47,6 +48,7 @@ function useOnline(): boolean {
 // silently — there's nothing to check without a connection, and re-checks automatically once
 // back online.
 export default function UpdatesBanner() {
+  const isTauri = useIsTauri();
   const online = useOnline();
   const location = useLocation();
   const [appVersion, setAppVersion] = useState<string | null>(null);
@@ -84,7 +86,7 @@ export default function UpdatesBanner() {
 
     (async () => {
       try {
-        if (window.liferSetup) {
+        if (isTauri) {
           const { getVersion } = await import("@tauri-apps/api/app");
           if ((await getVersion()) === DEV_BUILD_VERSION) return;
           const { check } = await import("@tauri-apps/plugin-updater");
@@ -147,16 +149,16 @@ export default function UpdatesBanner() {
           </>
         )}
       </span>
-      {showApp && window.liferSetup && (
-        <Link to="/settings" className="font-medium text-accent hover:underline">
+      {showApp && isTauri && (
+        <Link to="/settings/general" className="font-medium text-accent hover:underline">
           Update
         </Link>
       )}
-      {showApp && !window.liferSetup && (
+      {showApp && !isTauri && (
         // Self-hosted/Docker has no in-app way to apply an update at all — it only ever happens
         // by pulling a new image externally (Docker Compose, TrueNAS, etc.), so a "Update" link
         // into Settings was a dead end (AppUpdatesSection there is desktop-only and renders
-        // nothing here — see its own window.liferSetup guard). Links out to the release notes
+        // nothing here, see its useIsTauri gate). Links out to the release notes
         // instead, which is genuinely useful information this banner can offer even though it
         // can't perform the update itself.
         <a

@@ -23,6 +23,8 @@ import { usePhotoGridSize } from "../hooks/usePhotoGridSize";
 import { useShowLabels } from "../hooks/useShowLabels";
 import { useStorageVolumes } from "../hooks/useStorageVolumes";
 import { useDropdownMenu } from "../hooks/useDropdownMenu";
+import { useEnterToConfirm } from "../hooks/useEnterToConfirm";
+import { useEscapeToClose } from "../hooks/useEscapeToClose";
 import { downloadFile } from "../lib/downloadFile";
 import Select from "../components/Select";
 import FilterPopover, { FilterFieldLabel } from "../components/FilterPopover";
@@ -180,6 +182,13 @@ export default function TripDetailPage() {
   const [confirmingDeleteCaptureId, setConfirmingDeleteCaptureId] = useState<string | null>(null);
   const [confirmingBatchDeletePhotos, setConfirmingBatchDeletePhotos] = useState(false);
   const [deletingPhoto, setDeletingPhoto] = useState(false);
+  useEnterToConfirm(() => confirmingDeleteCaptureId && void confirmDeletePhoto(confirmingDeleteCaptureId), !!confirmingDeleteCaptureId && !deletingPhoto);
+  useEscapeToClose(() => setConfirmingDeleteCaptureId(null), !!confirmingDeleteCaptureId);
+  useEnterToConfirm(() => void confirmDeleteSelectedPhotos(), confirmingBatchDeletePhotos && !deletingPhoto);
+  useEscapeToClose(() => {
+    setConfirmingBatchDeletePhotos(false);
+    setDeleteRawTooPhotos(false);
+  }, confirmingBatchDeletePhotos);
   const [deleteRawTooPhotos, setDeleteRawTooPhotos] = useState(false);
 
   const { openKey: openMenuCaptureId, setOpenKey: setOpenMenuCaptureId, ref: openMenuRef } = useDropdownMenu<string>();
@@ -200,7 +209,7 @@ export default function TripDetailPage() {
       .catch(() => setLoadError(true));
     // Independent of the Promise.all above — a failure here shouldn't block the trip itself
     // from loading, it's a supplementary "what was notable about this trip" summary layer.
-    api.get<TripSummary>(`/trips/${id}/summary`).then(setSummary);
+    api.get<TripSummary>(`/trips/${id}/summary`).then(setSummary).catch(() => {});
   }
 
   useEffect(load, [id]);

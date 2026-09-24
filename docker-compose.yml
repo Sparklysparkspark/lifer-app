@@ -43,16 +43,30 @@ services:
       NODE_ENV: production
       PORT: ${PORT:-4000}
       DATA_DIR: /data
+      APP_DATA_DIR: /app-data
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT:-587}
       SMTP_USER: ${SMTP_USER:-}
       SMTP_PASS: ${SMTP_PASS:-}
       SMTP_FROM: ${SMTP_FROM:-Lifer <no-reply@lifer.app>}
       APP_URL: ${APP_URL:-http://localhost:4000}
+      # Extra folders Lifer may read and write besides /data: reimporting an existing library,
+      # building trips, and saving uploads to another disk. Comma-separated, each
+      # "Label=/container/path" or just "/container/path". Every entry must also be mounted
+      # below. Anything outside /data and these roots is refused (403).
+      LIFER_LIBRARY_ROOTS: ${LIFER_LIBRARY_ROOTS:-}
     ports:
       - "${PORT:-4000}:${PORT:-4000}"
     volumes:
       - ${LIFER_STORAGE_DIR:-./data/lifer}:/data
+      # App-managed downloads (offline basemap, species-matching model, catalog update cache) -
+      # not user data, so a plain named volume rather than a host bind mount: it survives
+      # restarts/recreates the same as your photos do, but never shows up as clutter in
+      # whatever folder you picked above for LIFER_STORAGE_DIR. See config.ts's own APP_DATA_DIR
+      # comment for why this used to (wrongly) default to the same folder as your photos.
+      - lifer-app-data:/app-data
+      # Example library root (pair with LIFER_LIBRARY_ROOTS=NAS=/library/nas):
+      # - /srv/nas/photos:/library/nas
     # Opts this container into Watchtower below (label-scoped — see that service's own
     # comment). Leave this label off, or set watchtower's own image to a no-op, if you'd
     # rather update manually (docker compose pull && docker compose up -d).
@@ -77,3 +91,4 @@ services:
 
 volumes:
   lifer-postgres-data:
+  lifer-app-data:

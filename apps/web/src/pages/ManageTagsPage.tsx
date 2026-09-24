@@ -5,6 +5,8 @@ import PageHeader from "../components/PageHeader";
 import { Spinner } from "../components/LoadingScreen";
 import SearchInput from "../components/SearchInput";
 import EmptyState from "../components/EmptyState";
+import { useEnterToConfirm } from "../hooks/useEnterToConfirm";
+import { useEscapeToClose } from "../hooks/useEscapeToClose";
 
 interface TagRow {
   tag: string;
@@ -27,6 +29,8 @@ export default function ManageTagsPage() {
   const [renameError, setRenameError] = useState<string | null>(null);
   const [confirmingDeleteTag, setConfirmingDeleteTag] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
+  useEnterToConfirm(() => void confirmDelete(), !!confirmingDeleteTag && !deleting);
+  useEscapeToClose(() => setConfirmingDeleteTag(null), !!confirmingDeleteTag);
 
   function load() {
     api

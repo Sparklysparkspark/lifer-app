@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useEscapeToClose } from "../hooks/useEscapeToClose";
 
 interface RenameModalProps {
   title: string;
@@ -14,6 +15,8 @@ export default function RenameModal({ title, initialName, onCancel, onSave }: Re
   const [name, setName] = useState(initialName);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Enter already saves via the <form>.
+  useEscapeToClose(onCancel);
 
   async function save(e: React.FormEvent) {
     e.preventDefault();

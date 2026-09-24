@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useEscapeToClose } from "./useEscapeToClose";
 
 // The exact "which key is currently open, and close it on any click outside" bookkeeping that
 // was independently reimplemented per page for every hover "⋯" menu (Gallery's photo menu,
@@ -18,6 +19,7 @@ export function useDropdownMenu<T = true>() {
     document.addEventListener("click", onClickOutside);
     return () => document.removeEventListener("click", onClickOutside);
   }, [openKey]);
+  useEscapeToClose(() => setOpenKey(null), openKey !== null);
 
   return { openKey, setOpenKey, ref, close: () => setOpenKey(null) };
 }

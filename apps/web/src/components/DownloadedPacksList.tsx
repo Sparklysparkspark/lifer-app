@@ -6,6 +6,8 @@ import { usePackDownloadJob, packProgressDetail, PACK_DOWNLOAD_PHASES } from "..
 import { formatBytes } from "../lib/formatBytes";
 import { errorMessage } from "../lib/errorMessage";
 import JobProgress from "./JobProgress";
+import { useEnterToConfirm } from "../hooks/useEnterToConfirm";
+import { useEscapeToClose } from "../hooks/useEscapeToClose";
 import Pill from "./Pill";
 
 export interface PackEntry {
@@ -128,6 +130,8 @@ export default function DownloadedPacksList({
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  useEnterToConfirm(() => void confirmOffload(), !!offloadTargets && !!deletePreview && !deleting);
+  useEscapeToClose(() => setOffloadTargets(null), !!offloadTargets);
 
   // Server-truth job status, not local state — so a bulk/per-pack update started before this
   // component mounted (or before the user left and came back to Settings/Offline Packs) still

@@ -1,4 +1,5 @@
 import { useUploadQueue, resolveDuplicate } from "../lib/uploadQueue";
+import { useEscapeToClose } from "../hooks/useEscapeToClose";
 
 // Same fixed-position, render-on-every-page pattern as MigrationStatusIndicator — uploads are
 // enqueued from whichever species page happens to be open and keep running in the background
@@ -11,6 +12,8 @@ export default function UploadQueueBanner() {
   const inProgress = jobs.filter((j) => !j.done).length;
   const failed = jobs.filter((j) => j.done && j.error).length;
   const skipped = jobs.filter((j) => j.skipped).length;
+  // Escape takes the safe answer (Skip). No Enter default: both buttons are real choices.
+  useEscapeToClose(() => pendingDuplicate && resolveDuplicate(pendingDuplicate.jobId, "skip"), !!pendingDuplicate);
   const justFinished = jobs.length === 0 && justFinishedAt != null && Date.now() - justFinishedAt < 6000;
 
   return (

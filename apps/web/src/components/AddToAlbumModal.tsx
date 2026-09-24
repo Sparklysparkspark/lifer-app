@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../api/client";
+import { useEscapeToClose } from "../hooks/useEscapeToClose";
 
 interface AlbumOption {
   id: string;
@@ -22,6 +23,7 @@ export default function AddToAlbumModal({
   const [albums, setAlbums] = useState<AlbumOption[] | null>(null);
   const [newName, setNewName] = useState("");
   const [busy, setBusy] = useState(false);
+  useEscapeToClose(onClose);
 
   useEffect(() => {
     api.get<{ albums: AlbumOption[] }>("/albums").then((res) => setAlbums(res.albums));

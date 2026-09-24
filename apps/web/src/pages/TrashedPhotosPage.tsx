@@ -9,6 +9,8 @@ import ProgressiveImg from "../components/ProgressiveImg";
 import SegmentedControl from "../components/SegmentedControl";
 import { useShowLabels } from "../hooks/useShowLabels";
 import EmptyState from "../components/EmptyState";
+import { useEnterToConfirm } from "../hooks/useEnterToConfirm";
+import { useEscapeToClose } from "../hooks/useEscapeToClose";
 
 interface TrashItem {
   captureId: string;
@@ -54,6 +56,9 @@ export default function TrashedPhotosPage() {
   const [showLabels, setShowLabels] = useShowLabels();
   const [photoFilter, setPhotoFilter] = useState<"all" | "edited" | "raw" | "video">("all");
   const openMenuRef = useRef<HTMLDivElement>(null);
+  useEnterToConfirm(() => void emptyTrash(), confirmingEmpty && !emptying);
+  useEscapeToClose(() => setConfirmingEmpty(false), confirmingEmpty);
+  useEscapeToClose(() => setOpenMenuKey(null), openMenuKey !== null);
 
   function load() {
     api

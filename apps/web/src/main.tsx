@@ -22,6 +22,7 @@ if (!window.liferSetup && (window as unknown as { __TAURI__?: { core: { invoke: 
     testEndpoint: (url) => invoke("test_endpoint", { url }) as ReturnType<NonNullable<Window["liferSetup"]>["testEndpoint"]>,
     testLogin: (url, email, password) =>
       invoke("test_login", { url, email, password }) as ReturnType<NonNullable<Window["liferSetup"]>["testLogin"]>,
+    setLocalDataDir: (dataDir) => invoke("set_local_data_dir", { dataDir }) as Promise<void>,
     platform: (window as unknown as { __LIFER_PLATFORM__?: string }).__LIFER_PLATFORM__ ?? "",
   };
 }

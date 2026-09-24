@@ -5,7 +5,8 @@ import type { FastifyInstance } from "fastify";
 import type { PoolClient } from "pg";
 import { pool } from "../db.js";
 import { requireAuth } from "../auth/session.js";
-import { DATA_DIR, ORIGINALS_DIR, APP_DATA_DIR, PORT, SINGLE_USER_MODE, MAPS_DIR, MAP_DOWNLOAD_URL } from "../config.js";
+import { DATA_DIR, ORIGINALS_DIR, APP_DATA_DIR, PORT, SINGLE_USER_MODE, MAPS_DIR, MAP_DOWNLOAD_URL, LIBRARY_ROOTS } from "../config.js";
+import { allowedRootFor, allowedRoots, assertAllowedPath } from "../lib/allowedPaths.js";
 import { originalsFolder } from "../uploads/organizedPath.js";
 import { resolveSpeciesFolderName } from "../uploads/speciesFolderName.js";
 import { extractExif } from "../uploads/exif.js";
@@ -54,12 +55,11 @@ interface MigrateBody {
   password?: string;
 }
 
-// The folder-browser and "change storage location" endpoints below read/list arbitrary
-// directories on the server's filesystem — fine for desktop mode (this server only ever
-// talks to the one person running it, on their own machine), a real information-disclosure
-// risk for a network-reachable Docker deployment. Docker already has its own documented way
-// to do this (LIFER_STORAGE_DIR — see .env.example), so these routes simply don't exist
-// outside SINGLE_USER_MODE rather than needing their own auth model.
+// For routes that only make sense on a local single-user install: moving the whole library
+// folder (a server's is its LIFER_STORAGE_DIR bind mount), migrating a local library to a
+// server, deleting the local library, and revealing a file in the OS file manager. Routes that
+// merely take a path from the request are NOT gated with this anymore; they go through
+// lib/allowedPaths.ts, which confines a server to DATA_DIR plus LIFER_LIBRARY_ROOTS.
 export function requireDesktopMode(reply: { code: (n: number) => { send: (b: unknown) => void } }): boolean {
   if (!SINGLE_USER_MODE) {
     reply.code(404).send({ error: "Not found" });
@@ -202,13 +202,11 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
       technicalDiving: res.rows[0]?.technical_diving ?? false,
       speciesNamingStyles: res.rows[0]?.species_naming_styles ?? [],
       abaCodesAvailable: await abaCodesAvailable(),
-      // Unlike /settings/storage (requireDesktopMode-gated — the move/browse/multi-volume UI
-      // genuinely has no Docker equivalent, no native folder dialog in a browser), just SEEING
-      // where the library is mounted is meaningful on every deployment shape, and this route
-      // already reaches every client regardless of SINGLE_USER_MODE. A Docker user otherwise had
-      // no in-app way to answer "which volume is my library actually pointed at" short of
-      // `docker inspect`/their own compose file.
-      dataDir: APP_DATA_DIR,
+      // Where the photo library lives (not APP_DATA_DIR, which is app-internal downloads), and
+      // which kind of install this is, so the web app never has to infer the mode from a 404.
+      dataDir: DATA_DIR,
+      deploymentMode: SINGLE_USER_MODE ? "desktop" : "server",
+      libraryRoots: SINGLE_USER_MODE ? [] : LIBRARY_ROOTS,
     };
   });
 
@@ -426,19 +424,28 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
     return { moved, skipped, failed, total: originalsRes.rows.length };
   });
 
-  // Desktop-mode storage location (see this file's top comment on requireDesktopMode).
-  app.get("/settings/storage", { preHandler: requireAuth }, async (_request, reply) => {
-    if (!requireDesktopMode(reply)) return;
-    return { dataDir: DATA_DIR };
+  // Readable on every install; only desktop can change it from the UI (a server's library
+  // folder is its LIFER_STORAGE_DIR bind mount, set in docker-compose).
+  app.get("/settings/storage", { preHandler: requireAuth }, async () => {
+    return { dataDir: DATA_DIR, changeable: SINGLE_USER_MODE };
   });
 
   app.get<{ Querystring: { path?: string } }>(
     "/settings/browse-directory",
     { preHandler: requireAuth },
     async (request, reply) => {
-      if (!requireDesktopMode(reply)) return;
-      const target = request.query.path || os.homedir();
-      if (!path.isAbsolute(target)) return reply.code(400).send({ error: "path must be absolute" });
+      // On a server the browser is confined to the allowed roots: with no path it lists them,
+      // and it can't climb above one (see lib/allowedPaths.ts).
+      if (!SINGLE_USER_MODE && !request.query.path) {
+        return {
+          path: null,
+          parent: null,
+          entries: allowedRoots().map((r) => ({ name: r.label, path: r.path })),
+        };
+      }
+      const requested = request.query.path || os.homedir();
+      if (!path.isAbsolute(requested)) return reply.code(400).send({ error: "path must be absolute" });
+      const target = assertAllowedPath(requested);
       let entries: string[];
       try {
         entries = readdirSync(target, { withFileTypes: true })
@@ -449,9 +456,10 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
         return reply.code(400).send({ error: `Can't read that folder: ${(err as Error).message}` });
       }
       const parent = path.dirname(target);
+      const parentAllowed = parent !== target && (SINGLE_USER_MODE || allowedRootFor(parent) != null);
       return {
         path: target,
-        parent: parent === target ? null : parent,
+        parent: parentAllowed ? parent : null,
         entries: entries.map((name) => ({ name, path: path.join(target, name) })),
       };
     },
@@ -793,6 +801,11 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
     for (const dir of [ORIGINALS_DIR, path.join(APP_DATA_DIR, "display"), path.join(APP_DATA_DIR, "thumb")]) {
       rmSync(dir, { recursive: true, force: true });
       mkdirSync(dir, { recursive: true });
+    }
+    // Pre-fix derivative caches that migrateDerivativesLocation couldn't move, if any. Not
+    // recreated: nothing writes there anymore.
+    if (DATA_DIR !== APP_DATA_DIR) {
+      for (const sub of ["display", "thumb"]) rmSync(path.join(DATA_DIR, sub), { recursive: true, force: true });
     }
 
     return { ok: true };

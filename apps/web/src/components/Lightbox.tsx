@@ -322,7 +322,8 @@ export default function Lightbox({
       return tag === "INPUT" || tag === "TEXTAREA" || target.isContentEditable;
     }
     function handleKey(e: KeyboardEvent) {
-      if (isTypingTarget(e.target)) return;
+      // defaultPrevented: a dialog opened over the lightbox already took this Escape.
+      if (isTypingTarget(e.target) || e.defaultPrevented) return;
       const slide = slides[index];
       // Escape backs out one level at a time — out of fullscreen first (matching every other
       // fullscreen video/media viewer), THEN closes the viewer on a second press, rather than

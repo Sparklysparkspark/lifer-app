@@ -12,7 +12,8 @@ import EmptyState from "../components/EmptyState";
 import { FolderBrowser, pickFolderNative } from "../components/FolderPicker";
 import InfoTip from "../components/InfoTip";
 import { useDropdownMenu } from "../hooks/useDropdownMenu";
-import { useDesktopMode } from "../hooks/useDesktopMode";
+import { useEnterToConfirm } from "../hooks/useEnterToConfirm";
+import { useEscapeToClose } from "../hooks/useEscapeToClose";
 
 interface Album {
   id: string;
@@ -38,35 +39,31 @@ const TRIPS_INFO_PARAGRAPHS = [
 // Albums and Trips are the same underlying idea (a name plus a set of photos you browse as one
 // unit) with different origins (manually curated vs. auto-populated from a scanned folder) — one
 // page with a tab switch instead of two separate nav destinations, so browsing one naturally
-// surfaces the other. Trips stays desktop-only (see useDesktopMode), so the tab switcher itself
-// only shows up there; a server/self-hosted visitor just sees Albums, same as before.
+// surfaces the other. Trips works in both modes (on a server, within the folders it was given).
 export default function CollectionsPage() {
   const location = useLocation();
   const navigate = useNavigate();
-  const isDesktopMode = useDesktopMode();
-  const tab = isDesktopMode && location.pathname.startsWith("/trips") ? "trips" : "albums";
+  const tab = location.pathname.startsWith("/trips") ? "trips" : "albums";
 
   return (
     <div className="min-h-screen bg-canvas">
       <PageHeader sticky
         title="Albums & Trips"
         actions={
-          isDesktopMode && (
-            <div className="flex rounded-md border border-line text-sm">
-              <button
-                onClick={() => navigate("/albums", { replace: true })}
-                className={`rounded-l-md px-3 py-1.5 ${tab === "albums" ? "bg-accent text-accent-fg" : "text-muted hover:bg-surface-muted"}`}
-              >
-                Albums
-              </button>
-              <button
-                onClick={() => navigate("/trips", { replace: true })}
-                className={`rounded-r-md px-3 py-1.5 ${tab === "trips" ? "bg-accent text-accent-fg" : "text-muted hover:bg-surface-muted"}`}
-              >
-                Trips
-              </button>
-            </div>
-          )
+          <div className="flex rounded-md border border-line text-sm">
+            <button
+              onClick={() => navigate("/albums", { replace: true })}
+              className={`rounded-l-md px-3 py-1.5 ${tab === "albums" ? "bg-accent text-accent-fg" : "text-muted hover:bg-surface-muted"}`}
+            >
+              Albums
+            </button>
+            <button
+              onClick={() => navigate("/trips", { replace: true })}
+              className={`rounded-r-md px-3 py-1.5 ${tab === "trips" ? "bg-accent text-accent-fg" : "text-muted hover:bg-surface-muted"}`}
+            >
+              Trips
+            </button>
+          </div>
         }
       />
 
@@ -86,6 +83,8 @@ function AlbumsPanel() {
   const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
   const { openKey: openMenuId, setOpenKey: setOpenMenuId, ref: openMenuRef } = useDropdownMenu<string>();
+  useEnterToConfirm(() => void deleteAlbum(), !!confirmingDeleteId && !deleting);
+  useEscapeToClose(() => setConfirmingDeleteId(null), !!confirmingDeleteId);
   const navigate = useNavigate();
 
   function load() {
@@ -303,6 +302,8 @@ function TripsPanel() {
   const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
   const { openKey: openMenuId, setOpenKey: setOpenMenuId, ref: openMenuRef } = useDropdownMenu<string>();
+  useEnterToConfirm(() => void deleteTrip(), !!confirmingDeleteId && !deleting);
+  useEscapeToClose(() => setConfirmingDeleteId(null), !!confirmingDeleteId);
   const navigate = useNavigate();
 
   function load() {

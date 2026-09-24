@@ -15,4 +15,5 @@ commands.allow = [
   "test_endpoint",
   "test_login",
   "app_install_info",
+  "set_local_data_dir",
 ]

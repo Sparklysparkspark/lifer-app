@@ -89,7 +89,9 @@ export default function SpeciesPicker({
     } else if (e.key === "Enter") {
       e.preventDefault();
       if (results[highlighted]) selectResult(results[highlighted]);
-    } else if (e.key === "Escape") {
+    } else if (e.key === "Escape" && open) {
+      // Close just the suggestions, not an enclosing dialog too.
+      e.preventDefault();
       setOpen(false);
     }
   }

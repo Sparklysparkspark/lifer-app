@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type { JobStatus } from "@lifer/shared";
 import { api, ApiError } from "../api/client";
+import { useEnterToConfirm } from "../hooks/useEnterToConfirm";
+import { useEscapeToClose } from "../hooks/useEscapeToClose";
 import { useJobPoll } from "../hooks/useJobPoll";
 import JobProgress from "./JobProgress";
 import RegionBrowser from "./RegionBrowser";
@@ -54,6 +56,13 @@ export default function AddOtherTaxaModal({
   // Only a run started from this modal is shown, not a finished one from earlier.
   const [bulkStarted, setBulkStarted] = useState(false);
   const bulkStatus = bulkStarted || bulkJob.status?.running ? bulkJob.status : null;
+
+  // Enter confirms whichever step's main action is currently reachable: a species picked and
+  // ready to add, or a pasted list ready to import. Not enabled on the "still searching, nothing
+  // picked yet" step, since there's no single main action to confirm there.
+  useEnterToConfirm(confirmAdd, mode === "search" && !!selected && !!regionId && !adding);
+  useEnterToConfirm(startBulkImport, mode === "bulk" && !!regionId && bulkText.trim().length > 0 && !bulkStatus?.running);
+  useEscapeToClose(onClose);
 
   // Same scroll lock Lightbox uses — this modal's own content scrolls internally
   // (overflow-y-auto on its panel), but without this the page underneath kept scrolling right
