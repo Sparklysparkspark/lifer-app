@@ -15,6 +15,39 @@ Categories: `Added`, `Changed`, `Fixed`, `Removed` — omit any with nothing to 
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-09-24
+
+### Added
+
+- Self-hosted installs can give Lifer extra folders with `LIFER_LIBRARY_ROOTS` (bind-mount a folder,
+  then list it as `Label=/container/path`). Those folders can be used to reimport a library, build
+  and scan trips, and save uploads to another disk. Anything outside your library and the declared
+  folders is refused. See `docker-compose.yml` and `.env.example`.
+- Trips, library reimport, and Settings > Storage now work on self-hosted installs, not only the
+  desktop app.
+- Escape closes every menu and dialog (only the topmost one), and Enter confirms dialogs that have
+  one main action.
+
+### Fixed
+
+- Moving your library to a new folder on desktop no longer reopens the old, empty folder after a
+  restart.
+- A species' featured photo no longer stays blank when its thumbnail goes missing: the thumbnail is
+  rebuilt, or another of your photos of that species is featured instead.
+- On self-hosted installs, the offline map, species-matching model, and catalog downloads no longer
+  land in your photo folder, and existing photo thumbnails move out of it on first start.
+- The server no longer crashes when a photo is uploaded before the species-matching model is
+  downloaded.
+- Species covered by a downloaded pack no longer make live iNaturalist requests on self-hosted
+  installs.
+- Species catalog updates no longer fail on a region name conflict.
+- A RAW uploaded together with its JPEG now goes to the drive you chose.
+- Importing a folder from another app without reorganizing it no longer lets Lifer move or rename
+  those files later.
+- The Settings "Library" line on self-hosted installs shows your photo folder again.
+- Self-hosted server logs no longer fill with 404s from desktop-only features.
+- "Reveal in Finder" only appears in the desktop app.
+
 ## [0.5.8] - 2026-09-24
 
 ## [0.5.7] - 2026-09-24
