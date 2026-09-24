@@ -12,7 +12,8 @@
 // per-folder keeps them serialized without needing a real file lock — losing a recovery entry
 // isn't data loss (the photo just needs manual re-assignment once, same as before this
 // existed), so this only needs to be "good," not airtight.
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { writeFileAtomicSync } from "../lib/atomicWrite.js";
 import path from "node:path";
 import { pool } from "../db.js";
 
@@ -46,9 +47,14 @@ export function recordTripIndexEntry(sourceFolder: string, relativePath: string,
       mkdirSync(dir, { recursive: true });
       const index = readTripIndex(sourceFolder);
       index[relativePath] = { scientificName };
-      writeFileSync(indexPath(sourceFolder), JSON.stringify(index, null, 2));
+      writeFileAtomicSync(indexPath(sourceFolder), JSON.stringify(index, null, 2));
     });
   writeQueues.set(sourceFolder, next);
+  // Drop the queue entry once idle so the map doesn't keep one promise per folder forever.
+  const cleanup = () => {
+    if (writeQueues.get(sourceFolder) === next) writeQueues.delete(sourceFolder);
+  };
+  next.then(cleanup, cleanup);
   return next;
 }
 

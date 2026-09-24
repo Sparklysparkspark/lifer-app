@@ -280,7 +280,7 @@ async function ensureSeaZoneComputed(zoneId: string, wkt: string, alreadyCompute
     await client.query(`UPDATE sea_zones SET occurrence_computed_at = now() WHERE id = $1`, [zoneId]);
     await client.query("COMMIT");
   } catch (err) {
-    await client.query("ROLLBACK");
+    await client.query("ROLLBACK").catch(() => {});
     throw err;
   } finally {
     client.release();
@@ -1650,7 +1650,7 @@ export async function computeRegionOccurrences(region: {
     await client.query(`UPDATE regions SET occurrence_computed_at = now() WHERE id = $1`, [regionId]);
     await client.query("COMMIT");
   } catch (err) {
-    await client.query("ROLLBACK");
+    await client.query("ROLLBACK").catch(() => {});
     throw err;
   } finally {
     client.release();

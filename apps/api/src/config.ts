@@ -102,6 +102,20 @@ export const COOKIE_SECURE = process.env.COOKIE_SECURE != null ? process.env.COO
 // as one auto-provisioned local user instead, skipping login entirely.
 export const SINGLE_USER_MODE = process.env.SINGLE_USER_MODE === "1";
 
+// Fastify trustProxy. Default: trust exactly one hop (the reverse proxy in front of Docker), so
+// request.ip can't be set to anything by a client-supplied X-Forwarded-For chain. TRUST_PROXY
+// accepts a hop count, "true"/"false", or a comma-separated list of proxy IPs/CIDRs.
+export function parseTrustProxy(raw: string | undefined): boolean | number | string[] {
+  if (raw == null || raw.trim() === "") return 1;
+  const v = raw.trim();
+  if (v === "true") return true;
+  if (v === "false") return false;
+  if (/^\d+$/.test(v)) return Number(v);
+  return v.split(",").map((s) => s.trim()).filter(Boolean);
+}
+// Desktop mode binds to loopback with no proxy in front, so no forwarded header is trusted.
+export const TRUST_PROXY = SINGLE_USER_MODE ? false : parseTrustProxy(process.env.TRUST_PROXY);
+
 // Password-reset emails (see auth/routes.ts's forgot-password/reset-password handlers). No
 // SMTP env vars set is a valid, common state for a fresh self-hosted install — mailer.ts logs
 // the reset link to the server console instead of throwing, so "forgot password" still works

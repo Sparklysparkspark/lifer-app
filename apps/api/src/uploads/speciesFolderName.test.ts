@@ -25,6 +25,11 @@ describe("sanitizeForFilesystem", () => {
     expect(sanitizeForFilesystem("///")).toBe("");
   });
 
+  it("strips trailing dots and spaces (Windows drops them silently)", () => {
+    expect(sanitizeForFilesystem("Genus sp.")).toBe("Genus sp");
+    expect(sanitizeForFilesystem("Name. . ")).toBe("Name");
+  });
+
   it("boundary value: an already-empty string stays empty", () => {
     expect(sanitizeForFilesystem("")).toBe("");
   });
@@ -108,7 +113,7 @@ describe("resolveSpeciesFolderName", () => {
     expect(name).toBe("Mallard (mallar3)");
   });
 
-  it("appends both codes together, common name space-separated by a slash, when both styles are on", async () => {
+  it("appends both codes together, comma-separated, when both styles are on", async () => {
     mockSpeciesRow({
       common_name: "Mallard",
       scientific_name: "Anas platyrhynchos",
@@ -117,7 +122,8 @@ describe("resolveSpeciesFolderName", () => {
       species_naming_styles: ["common", "ebird_code", "aba_code"],
     });
     const name = await resolveSpeciesFolderName("user-1", "species-1");
-    expect(name).toBe("Mallard (mallar3 / MALL)");
+    expect(name).toBe("Mallard (mallar3, MALL)");
+    expect(name).not.toContain("/");
   });
 
   it("puts the Latin name first (unparenthesized) and common name in parens when Latin is ordered before common", async () => {
@@ -132,6 +138,7 @@ describe("resolveSpeciesFolderName", () => {
 
   it("falls back to common-name-only when species_naming_styles is empty (unconfigured default)", async () => {
     mockSpeciesRow({ common_name: "Mallard", scientific_name: "Anas platyrhynchos", species_naming_styles: [] });
+    vi.mocked(pool.query).mockResolvedValueOnce({ rows: [] } as never);
     const name = await resolveSpeciesFolderName("user-1", "species-1");
     expect(name).toBe("Mallard");
   });

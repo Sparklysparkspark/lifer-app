@@ -3,7 +3,7 @@ import type { FastifyInstance } from "fastify";
 import { pool } from "../db.js";
 import { hashPassword, verifyPassword } from "./password.js";
 import { createSession, destroySession, getSessionUser, requireAuth } from "./session.js";
-import { isRateLimited, recordAttempt } from "./rateLimiter.js";
+import { clearAttempts, isRateLimited, recordAttempt } from "./rateLimiter.js";
 import { sendMail } from "../email/mailer.js";
 import { APP_URL } from "../config.js";
 
@@ -69,7 +69,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
 
       const existing = await client.query(`SELECT 1 FROM users LIMIT 1`);
       if (existing.rows.length > 0) {
-        await client.query("ROLLBACK");
+        await client.query("ROLLBACK").catch(() => {});
         return reply.code(403).send({ error: "This Lifer instance already has an account set up" });
       }
 
@@ -83,7 +83,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       await createSession(userRes.rows[0].id, reply);
       return { id: userRes.rows[0].id, email: userRes.rows[0].email };
     } catch (err) {
-      await client.query("ROLLBACK");
+      await client.query("ROLLBACK").catch(() => {});
       if ((err as { code?: string }).code === "23505") {
         return reply.code(409).send({ error: "An account with that email already exists" });
       }
@@ -100,10 +100,12 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     }
     const normalizedEmail = email.trim().toLowerCase();
 
-    if (isRateLimited(normalizedEmail)) {
+    // Keyed on email + IP and counting failures only, so someone else guessing at an email
+    // can't lock its owner out from their own machine.
+    const rateLimitKey = `${normalizedEmail}|${request.ip}`;
+    if (isRateLimited(rateLimitKey)) {
       return reply.code(429).send({ error: "Too many login attempts. Try again later." });
     }
-    recordAttempt(normalizedEmail);
 
     const res = await pool.query<{ id: string; email: string; password_hash: string }>(
       `SELECT id, email, password_hash FROM users WHERE email = $1`,
@@ -117,9 +119,11 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       password,
     );
     if (!user || !validPassword) {
+      recordAttempt(rateLimitKey);
       return reply.code(401).send({ error: "Invalid email or password" });
     }
 
+    clearAttempts(rateLimitKey);
     await createSession(user.id, reply);
     return { id: user.id, email: user.email };
   });
@@ -259,7 +263,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       );
       const row = res.rows[0];
       if (!row || row.used_at || row.expires_at < new Date()) {
-        await client.query("ROLLBACK");
+        await client.query("ROLLBACK").catch(() => {});
         return reply.code(400).send({ error: "This reset link is invalid or has expired" });
       }
 
@@ -271,7 +275,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       await client.query(`DELETE FROM sessions WHERE user_id = $1`, [row.user_id]);
       await client.query("COMMIT");
     } catch (err) {
-      await client.query("ROLLBACK");
+      await client.query("ROLLBACK").catch(() => {});
       throw err;
     } finally {
       client.release();

@@ -117,8 +117,11 @@ export async function inaturalistRoutes(app: FastifyInstance): Promise<void> {
       if (error) return page(`<p>iNaturalist sign-in was cancelled or denied. You can close this window.</p>`);
       if (!code || !state) return reply.code(400).send({ error: "Missing code or state" });
       const pending = pendingConnects.get(state);
-      if (!pending) return page(`<p>This sign-in link expired. Close this window and click Connect again.</p>`);
-      pendingConnects.delete(state);
+      if (pending) pendingConnects.delete(state);
+      // The sweep only runs on new connects, so the TTL is enforced here too.
+      if (!pending || Date.now() - pending.createdAt > PENDING_CONNECT_TTL_MS) {
+        return page(`<p>This sign-in link expired. Close this window and click Connect again.</p>`);
+      }
       const { clientId, redirectUri } = await resolveInatConfig();
       if (!clientId) return notAvailable(reply);
 

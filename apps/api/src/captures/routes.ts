@@ -13,7 +13,7 @@ import type { FastifyInstance } from "fastify";
 import { pool } from "../db.js";
 import { requireAuth } from "../auth/session.js";
 import { writeSpeciesMetadata } from "../uploads/exif.js";
-import { syncCaptureXmpSidecars } from "../uploads/xmpSidecarSync.js";
+import { syncCaptureXmpSidecarsLogged } from "../uploads/xmpSidecarSync.js";
 import { computeSuggestionEmbedding, rankSpeciesByEmbeddings } from "../species/embeddings.js";
 import { suggestSpecies } from "../species/embeddings.js";
 import { probeVideo, extractVideoFrame } from "../uploads/image.js";
@@ -178,7 +178,7 @@ export async function captureRoutes(app: FastifyInstance): Promise<void> {
       );
 
       await resyncSpeciesMetadata(userId, captureId);
-      await syncCaptureXmpSidecars(userId, captureId).catch(() => {});
+      await syncCaptureXmpSidecarsLogged(userId, captureId);
       return reply.code(201).send({ ok: true });
     },
   );
@@ -201,7 +201,7 @@ export async function captureRoutes(app: FastifyInstance): Promise<void> {
       // doesn't retroactively decide whether you've "really" seen that species; that's a
       // separate, explicit decision the collection UI already has its own controls for.
       await resyncSpeciesMetadata(userId, captureId);
-      await syncCaptureXmpSidecars(userId, captureId).catch(() => {});
+      await syncCaptureXmpSidecarsLogged(userId, captureId);
       return { ok: true };
     },
   );
@@ -282,7 +282,7 @@ export async function captureRoutes(app: FastifyInstance): Promise<void> {
       await cleanupStaleUserSpecies(userId, oldSpeciesId, capture.current_photo_id);
 
       await resyncSpeciesMetadata(userId, captureId);
-      await syncCaptureXmpSidecars(userId, captureId).catch(() => {});
+      await syncCaptureXmpSidecarsLogged(userId, captureId);
       return { ok: true };
     },
   );
@@ -370,7 +370,7 @@ export async function captureRoutes(app: FastifyInstance): Promise<void> {
         [userId, capture.species_id],
       );
 
-      await syncCaptureXmpSidecars(userId, captureId).catch(() => {});
+      await syncCaptureXmpSidecarsLogged(userId, captureId);
       return { ok: true };
     },
   );
@@ -397,7 +397,7 @@ export async function captureRoutes(app: FastifyInstance): Promise<void> {
       const capture = res.rows[0];
       if (!capture) return reply.code(404).send({ error: "Capture not found" });
 
-      await syncCaptureXmpSidecars(userId, captureId).catch(() => {});
+      await syncCaptureXmpSidecarsLogged(userId, captureId);
       return { tags: capture.tags };
     },
   );
@@ -439,7 +439,7 @@ export async function captureRoutes(app: FastifyInstance): Promise<void> {
         [tags, captureIds, userId],
       );
       for (const captureId of captureIds) {
-        await syncCaptureXmpSidecars(userId, captureId).catch(() => {});
+        await syncCaptureXmpSidecarsLogged(userId, captureId);
       }
       return { ok: true, updated: res.rowCount ?? 0 };
     },
@@ -643,7 +643,7 @@ export async function captureRoutes(app: FastifyInstance): Promise<void> {
 
       await client.query("COMMIT");
     } catch (err) {
-      await client.query("ROLLBACK");
+      await client.query("ROLLBACK").catch(() => {});
       throw err;
     } finally {
       client.release();
@@ -871,13 +871,14 @@ export async function captureRoutes(app: FastifyInstance): Promise<void> {
           // cleanly) shouldn't sink the whole suggestion — the other sampled frames still stand.
         }
       }
-      if (embeddings.length === 0) return { suggestions: [] };
+      // `error` tells "couldn't read the video" apart from "read it, no species matched".
+      if (embeddings.length === 0) return { suggestions: [], error: "Couldn't read any frames from this video" };
 
       const suggestions = await rankSpeciesByEmbeddings(pool, request.user!.id, embeddings, regionId);
       return { suggestions };
     } catch (err) {
       request.log.warn({ err }, "Video species suggestion failed");
-      return { suggestions: [] };
+      return { suggestions: [], error: "Couldn't analyze this video" };
     } finally {
       rmSync(tmpPath, { force: true });
     }

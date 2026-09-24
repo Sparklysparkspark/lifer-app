@@ -4,7 +4,8 @@ import Fastify from "fastify";
 import cookie from "@fastify/cookie";
 import multipart from "@fastify/multipart";
 import staticFiles from "@fastify/static";
-import { MAX_UPLOAD_BYTES, MAX_UPLOAD_REQUEST_BYTES, PORT, SINGLE_USER_MODE, WEB_DIST_DIR, MAPS_DIR } from "./config.js";
+import { MAX_UPLOAD_BYTES, MAX_UPLOAD_REQUEST_BYTES, PORT, SINGLE_USER_MODE, WEB_DIST_DIR, MAPS_DIR, TRUST_PROXY } from "./config.js";
+import { isAllowedLocalHost } from "./auth/hostCheck.js";
 import { authRoutes } from "./auth/routes.js";
 import { apiKeyRoutes } from "./auth/apiKeyRoutes.js";
 import { speciesRoutes } from "./species/routes.js";
@@ -29,6 +30,7 @@ import { albumShareRoutes } from "./shares/routes.js";
 import { inaturalistRoutes } from "./inaturalist/routes.js";
 import { runEmbeddingBackfill } from "./species/embeddingBackfill.js";
 import { seedCatalogIfEmpty } from "./species/catalogSeedUpdate.js";
+import { ensureGalleryEmbeddingsOnStartup } from "./species/galleryEmbeddingsAsset.js";
 import { pool } from "./db.js";
 import { friendlyFsErrorMessage } from "./lib/friendlyFsError.js";
 
@@ -59,14 +61,23 @@ if (Number.isInteger(watchParentPid) && watchParentPid > 0) {
   }, 3000);
 }
 
-// trustProxy: this app is meant to sit behind a reverse proxy (nginx, etc., configured
-// separately) once self-hosted. Nothing here currently branches on request.protocol/
-// request.ip (session.ts's COOKIE_SECURE reads NODE_ENV directly, and rateLimiter.ts keys by
-// email, not IP — see their own comments), so this isn't fixing a live bug, just correct
-// hygiene for whatever relies on X-Forwarded-* later.
+// trustProxy: a hop count (see config.ts TRUST_PROXY), not `true`, since the login and
+// share-password rate limiters key on request.ip and `true` let clients pick their own IP.
 // bodyLimit governs the WHOLE request body (see config.ts — MAX_UPLOAD_REQUEST_BYTES's own
 // comment: a batch upload of many RAW files needed a much larger ceiling than any one file).
-const app = Fastify({ logger: true, bodyLimit: MAX_UPLOAD_REQUEST_BYTES, trustProxy: true });
+// Fastify accepts a hop count at runtime (lib/request.js) but its typings omit number.
+const app = Fastify({ logger: true, bodyLimit: MAX_UPLOAD_REQUEST_BYTES, trustProxy: TRUST_PROXY as boolean | string[] });
+
+// DNS-rebinding guard: in desktop mode every request is the local user, so a web page that
+// rebinds its own hostname to 127.0.0.1 must not be able to talk to us. Only loopback Host
+// headers are accepted. Docker/multi-user mode is unaffected (it has real sessions).
+if (SINGLE_USER_MODE) {
+  app.addHook("onRequest", async (request, reply) => {
+    if (!isAllowedLocalHost(request.headers.host, PORT)) {
+      return reply.code(403).send({ error: "Forbidden host" });
+    }
+  });
+}
 
 // A raw fs EPERM/EACCES (macOS denying folder access — see friendlyFsError.ts's own comment)
 // previously reached the client as a crash-looking dump of the Node error object from whichever
@@ -117,7 +128,9 @@ await app.register(async (api) => {
   await api.register(inaturalistRoutes);
 }, { prefix: "/api" });
 
-app.get("/health", async () => ({ ok: true }));
+// launchToken lets the desktop shell tell this process apart from a previous instance still
+// holding the port.
+app.get("/health", async () => ({ ok: true, launchToken: process.env.LIFER_LAUNCH_TOKEN ?? null }));
 
 // Baked in at Docker build time from the release tag (see Dockerfile/release.yml's
 // docker-image job) — read by the self-hosted web app's own DockerUpdateBanner.tsx to compare
@@ -190,4 +203,7 @@ seedCatalogIfEmpty(pool)
   .then((result) => {
     if (result.seeded) app.log.info({ merged: result.merged }, "Auto-seeded an empty catalog on first boot");
   })
-  .catch((err) => app.log.warn({ err }, "Catalog auto-seed failed — Settings > Update can still be run manually"));
+  .catch((err) => app.log.warn({ err }, "Catalog auto-seed failed. Settings > Update can still be run manually."))
+  // After the seed (gallery vectors attach to catalog photos): fetch newer published vectors if
+  // the model is installed. Runs in the background and only logs on failure.
+  .finally(() => ensureGalleryEmbeddingsOnStartup(pool));

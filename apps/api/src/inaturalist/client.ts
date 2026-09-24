@@ -11,6 +11,7 @@ import { randomBytes, createHash } from "node:crypto";
 const INAT_API = "https://api.inaturalist.org/v1";
 const INAT_SITE = "https://www.inaturalist.org";
 const USER_AGENT = "lifer-app/0.1 (personal project; observation sync)";
+const REQUEST_TIMEOUT_MS = 30_000;
 
 export interface Pkce {
   verifier: string;
@@ -51,6 +52,7 @@ export async function exchangeCodeForToken(clientId: string, redirectUri: string
   const res = await fetch(`${INAT_SITE}/oauth/token`, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded", "User-Agent": USER_AGENT },
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     body: new URLSearchParams({
       client_id: clientId,
       code,
@@ -71,6 +73,7 @@ export async function exchangeCodeForToken(clientId: string, redirectUri: string
 export async function fetchJwt(accessToken: string): Promise<string> {
   const res = await fetch(`${INAT_SITE}/users/api_token`, {
     headers: { Authorization: `Bearer ${accessToken}`, "User-Agent": USER_AGENT },
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
   });
   if (!res.ok) throw new Error(`iNaturalist JWT exchange failed: ${res.status}`);
   const data = (await res.json()) as { api_token: string };
@@ -80,6 +83,7 @@ export async function fetchJwt(accessToken: string): Promise<string> {
 export async function fetchInatIdentity(jwt: string): Promise<{ id: string; login: string }> {
   const res = await fetch(`${INAT_API}/users/me`, {
     headers: { Authorization: jwt, "User-Agent": USER_AGENT },
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
   });
   if (!res.ok) throw new Error(`iNaturalist identity lookup failed: ${res.status}`);
   const data = (await res.json()) as { results: Array<{ id: number; login: string }> };
@@ -100,6 +104,7 @@ export async function createObservation(jwt: string, draft: DraftObservation): P
   const res = await fetch(`${INAT_API}/observations`, {
     method: "POST",
     headers: { Authorization: jwt, "Content-Type": "application/json", "User-Agent": USER_AGENT },
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     body: JSON.stringify({
       observation: {
         taxon_id: draft.taxonId,
@@ -124,6 +129,8 @@ export async function addObservationPhoto(jwt: string, observationId: string, di
     method: "POST",
     headers: { Authorization: jwt, "User-Agent": USER_AGENT },
     body: form,
+    // Photo upload: longer than the plain API calls.
+    signal: AbortSignal.timeout(2 * 60_000),
   });
   if (!res.ok) throw new Error(`iNaturalist observation photo upload failed: ${res.status} ${await res.text()}`);
 }
@@ -137,6 +144,7 @@ export interface RemoteObservationLocation {
 export async function fetchObservationLocation(jwt: string, observationId: string): Promise<RemoteObservationLocation> {
   const res = await fetch(`${INAT_API}/observations/${observationId}`, {
     headers: { Authorization: jwt, "User-Agent": USER_AGENT },
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
   });
   if (!res.ok) throw new Error(`iNaturalist observation lookup failed: ${res.status}`);
   const data = (await res.json()) as {

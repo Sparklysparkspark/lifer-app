@@ -331,7 +331,7 @@ export async function fetchINaturalistWikipediaSummary(
   taxonId: number,
 ): Promise<{ summary: string; wikipediaUrl: string } | null> {
   const url = `${INAT_API}/taxa/${taxonId}`;
-  const res = await fetch(url);
+  const res = await fetch(url, { signal: AbortSignal.timeout(15_000) });
   if (!res.ok) return null;
   const data = (await res.json()) as {
     results: Array<{ wikipedia_summary?: string | null; wikipedia_url?: string | null }>;
@@ -354,7 +354,7 @@ async function fetchINaturalistTaxonDetail(
   speciesId: string,
 ): Promise<{ gallery: EnrichmentResult["gallery"]; wikipediaSummary: string | null; wikipediaUrl: string | null }> {
   const url = `${INAT_API}/taxa/${taxonId}`;
-  const res = await fetch(url);
+  const res = await fetch(url, { signal: AbortSignal.timeout(15_000) });
   if (!res.ok) return { gallery: [], wikipediaSummary: null, wikipediaUrl: null };
   const data = (await res.json()) as {
     results: Array<{

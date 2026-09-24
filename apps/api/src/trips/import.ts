@@ -135,7 +135,7 @@ export async function importTripFile(
     }
     return { captureId, photoId: photoRes.rows[0].id };
   } catch (err) {
-    await client.query("ROLLBACK");
+    await client.query("ROLLBACK").catch(() => {});
     throw err;
   } finally {
     client.release();

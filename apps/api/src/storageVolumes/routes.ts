@@ -124,7 +124,7 @@ export async function storageVolumesRoutes(app: FastifyInstance): Promise<void> 
       if (res.rowCount === 0) return reply.code(404).send({ error: "Drive not found" });
       return { ok: true };
     } catch (err) {
-      await client.query("ROLLBACK");
+      await client.query("ROLLBACK").catch(() => {});
       throw err;
     } finally {
       client.release();
