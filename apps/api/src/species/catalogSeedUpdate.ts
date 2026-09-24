@@ -183,10 +183,11 @@ async function mergeGenericTable(
   seedColumns: string[],
 ): Promise<number> {
   const { table, pkColumns, excludeFromUpdate } = spec;
+  if (table in SELF_REFERENCING_PARENT_COLUMN) return mergeSelfReferencingTable(client, table, SELF_REFERENCING_PARENT_COLUMN[table], seedColumns);
+
   const cols = await sharedColumns(client, table, seedColumns);
-  const selfRef = SELF_REFERENCING_PARENT_COLUMN[table];
-  const select = cols.map((c) => (c.name === selfRef ? `NULL::${c.type}` : `${ident(c.name)}::${c.type}`));
-  const updatable = cols.filter((c) => !pkColumns.includes(c.name) && !excludeFromUpdate.includes(c.name) && c.name !== selfRef);
+  const select = cols.map((c) => `${ident(c.name)}::${c.type}`);
+  const updatable = cols.filter((c) => !pkColumns.includes(c.name) && !excludeFromUpdate.includes(c.name));
   const onConflict =
     updatable.length > 0
       ? `DO UPDATE SET ${updatable.map((c) => `${ident(c.name)} = EXCLUDED.${ident(c.name)}`).join(", ")}`
@@ -196,19 +197,55 @@ async function mergeGenericTable(
      SELECT ${select.join(", ")} FROM ${ident(tmpName(table))}
      ON CONFLICT (${pkColumns.map(ident).join(", ")}) ${onConflict}`,
   );
+  return res.rowCount ?? 0;
+}
 
-  if (selfRef && cols.some((c) => c.name === selfRef)) {
-    const pk = pkColumns[0];
-    const pkType = cols.find((c) => c.name === pk)!.type;
-    const refType = cols.find((c) => c.name === selfRef)!.type;
+// regions has both a self-reference (a province's parent_id points at its country) and a
+// UNIQUE(name, parent_id) constraint (migration 049), checked immediately, not deferred. The
+// old approach (insert every row with parent_id forced NULL, then a second pass to set the
+// real value) could insert two DIFFERENT brand-new regions that happen to share a name with
+// parent_id NULL at the same instant, which collided with that constraint even though their
+// real, final parents were never the same — confirmed live: "duplicate key value violates
+// unique constraint regions_name_parent_id_key" partway through a real update, on a real
+// install. Fixed by inserting in topological order (parent before child) so every row's REAL
+// parent_id is used from the moment it's inserted, and no row is ever transiently orphaned.
+async function mergeSelfReferencingTable(client: PoolClient, table: string, selfRefColumn: string, seedColumns: string[]): Promise<number> {
+  const cols = await sharedColumns(client, table, seedColumns);
+  const pk = "id";
+  const select = cols.map((c) => `${ident(c.name)}::${c.type}`);
+  const colList = cols.map((c) => ident(c.name)).join(", ");
+
+  // Bounded, not unbounded: a real cycle or a parent this seed never sent (data bug, not this
+  // code's job to paper over) must fail loudly, via ROLLBACK, rather than loop forever. The
+  // real hierarchy here is a handful of levels deep (continent -> country -> province/state ->
+  // subdivision at most), so this ceiling is generous headroom, not a tight fit.
+  for (let round = 0; round < 20; round++) {
+    const res = await client.query(
+      `INSERT INTO ${ident(table)} (${colList})
+       SELECT ${select.join(", ")} FROM ${ident(tmpName(table))} s
+       WHERE NOT EXISTS (SELECT 1 FROM ${ident(table)} t WHERE t.${ident(pk)} = s.${ident(pk)}::uuid)
+         AND (s.${ident(selfRefColumn)} IS NULL
+              OR EXISTS (SELECT 1 FROM ${ident(table)} p WHERE p.${ident(pk)} = s.${ident(selfRefColumn)}::uuid))
+       ON CONFLICT (${ident(pk)}) DO NOTHING`,
+    );
+    if ((res.rowCount ?? 0) === 0) break;
+  }
+
+  // Existing rows (including ones the loop above just inserted): update every column, including
+  // parent_id, directly to the seed's real value in one pass. Safe without any NULL step: by now
+  // every parent a seed row could point at already exists, either from before or from the loop
+  // above. One pass over every seed row either way, so the count below is never double-counted
+  // between insert and update the way summing both statements' rowCounts would be.
+  const updatable = cols.filter((c) => c.name !== pk);
+  if (updatable.length > 0) {
     await client.query(
-      `UPDATE ${ident(table)} t SET ${ident(selfRef)} = s.${ident(selfRef)}::${refType}
+      `UPDATE ${ident(table)} t SET ${updatable.map((c) => `${ident(c.name)} = s.${ident(c.name)}::${c.type}`).join(", ")}
          FROM ${ident(tmpName(table))} s
-        WHERE t.${ident(pk)} = s.${ident(pk)}::${pkType}
-          AND t.${ident(selfRef)} IS DISTINCT FROM s.${ident(selfRef)}::${refType}`,
+        WHERE t.${ident(pk)} = s.${ident(pk)}::uuid`,
     );
   }
-  return res.rowCount ?? 0;
+  const countRes = await client.query<{ n: string }>(`SELECT count(*) AS n FROM ${ident(tmpName(table))}`);
+  return Number(countRes.rows[0].n);
 }
 
 // species_reference_photos' real key is (species_id, photo_url) (migration 003), not `id`: ids

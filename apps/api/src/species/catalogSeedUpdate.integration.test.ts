@@ -117,6 +117,47 @@ describe.skipIf(!url)("applyCatalogSeedFile (integration)", () => {
     expect(await getAppliedCatalogVersion(pool)).toBeNull();
   });
 
+  it("inserts two new same-named regions under different parents without a unique-constraint error", async () => {
+    // Regression test for a real bug: forcing parent_id NULL during insert (the old approach)
+    // transiently collided with regions' UNIQUE(name, parent_id) constraint whenever two
+    // brand-new regions shared a name, even though their real final parents differed.
+    const CONTINENT = "66666666-6666-4666-8666-666666666601";
+    const COUNTRY_A = "66666666-6666-4666-8666-666666666602";
+    const COUNTRY_B = "66666666-6666-4666-8666-666666666603";
+    const PROV_A = "66666666-6666-4666-8666-666666666604";
+    const PROV_B = "66666666-6666-4666-8666-666666666605";
+    await pool.query(`DELETE FROM regions WHERE id = ANY($1)`, [[CONTINENT, COUNTRY_A, COUNTRY_B, PROV_A, PROV_B]]);
+
+    const dump = [
+      "COPY public.regions (id, name, parent_id) FROM stdin;",
+      `${CONTINENT}	Continentia	\\N`,
+      `${COUNTRY_A}	Country A	${CONTINENT}`,
+      `${COUNTRY_B}	Country B	${CONTINENT}`,
+      `${PROV_A}	Central	${COUNTRY_A}`,
+      `${PROV_B}	Central	${COUNTRY_B}`,
+      "\\.",
+      "",
+    ].join("\n");
+    const file = path.join(mkdtempSync(path.join(os.tmpdir(), "lifer-regions-test-")), "seed.sql.gz");
+    writeFileSync(file, gzipSync(dump));
+
+    const merged = await applyCatalogSeedFile(pool, file, null, noProgress);
+    expect(merged.regions).toBe(5);
+    const rows = await pool.query(`SELECT name, parent_id FROM regions WHERE id = ANY($1) ORDER BY id`, [
+      [CONTINENT, COUNTRY_A, COUNTRY_B, PROV_A, PROV_B],
+    ]);
+    expect(rows.rows).toEqual([
+      { name: "Continentia", parent_id: null },
+      { name: "Country A", parent_id: CONTINENT },
+      { name: "Country B", parent_id: CONTINENT },
+      { name: "Central", parent_id: COUNTRY_A },
+      { name: "Central", parent_id: COUNTRY_B },
+    ]);
+
+    // Re-applying the same seed (an update, not a fresh install) must also stay clean.
+    await expect(applyCatalogSeedFile(pool, file, null, noProgress)).resolves.toBeTruthy();
+  });
+
   it("rolls back on bad data without leaving partial rows", async () => {
     const file = seedFile([
       [SPECIES, "1", "Ardea herodias", "Aves", "\\N", "x"],
