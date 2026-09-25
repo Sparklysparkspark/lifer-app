@@ -7,6 +7,8 @@ import EmptyState from "../components/EmptyState";
 // Grouped the same way the create form's checkboxes are laid out — one row per resource, a
 // Read and/or Write column. Kept in sync with apps/api/src/auth/apiKeyRoutes.ts's own
 // API_KEY_SCOPES list (the actual source of truth for what's enforceable).
+const API_GUIDE_URL = "https://github.com/Sparklysparkspark/lifer-app/blob/main/docs/API.md";
+
 const SCOPE_GROUPS: Array<{ label: string; read?: string; write?: string }> = [
   { label: "Gallery", read: "gallery.read" },
   { label: "Species", read: "species.read" },
@@ -14,6 +16,9 @@ const SCOPE_GROUPS: Array<{ label: string; read?: string; write?: string }> = [
   { label: "Trips", read: "trips.read" },
   { label: "Albums", read: "album.read", write: "album.write" },
   { label: "Shares", read: "share.read", write: "share.write" },
+  // Integrations (see the API guide): read = photo feed + image files; write = imports + photo edits.
+  { label: "Photos", read: "photos.read", write: "photos.write" },
+  { label: "Life list", read: "collection.read" },
 ];
 
 interface ApiKey {
@@ -86,7 +91,19 @@ export default function ApiKeysPage() {
             {creating ? "Cancel" : "New key"}
           </button>
         }
-      />
+      >
+        <p className="text-sm text-muted">
+          Build your own integrations: life-list counters, new-lifer bots, imports and backups. See the{" "}
+          <a href={API_GUIDE_URL} target="_blank" rel="noreferrer" className="font-medium text-accent hover:underline">
+            API guide
+          </a>{" "}
+          or this server's{" "}
+          <a href="/api/openapi.json" target="_blank" rel="noreferrer" className="font-medium text-accent hover:underline">
+            OpenAPI description
+          </a>
+          .
+        </p>
+      </PageHeader>
 
       <main className="mx-auto max-w-2xl space-y-6 p-6">
         {revealedToken && (
@@ -114,6 +131,13 @@ export default function ApiKeysPage() {
 
         {creating && (
           <form onSubmit={createKey} className="space-y-4 rounded-lg border border-line bg-surface p-4">
+            <p className="text-xs text-muted">
+              Give the key only the permissions your integration needs. The{" "}
+              <a href={API_GUIDE_URL} target="_blank" rel="noreferrer" className="font-medium text-accent hover:underline">
+                API guide
+              </a>{" "}
+              lists what each one allows.
+            </p>
             <div>
               <label className="mb-1 block text-sm font-medium text-ink">Name</label>
               <input
@@ -162,17 +186,29 @@ export default function ApiKeysPage() {
         {!keys ? (
           <Spinner />
         ) : keys.length === 0 ? (
-          <EmptyState
-            icon={
-              <svg viewBox="0 0 24 24" className="h-6 w-6 text-muted" fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="8" cy="15" r="4" />
-                <path d="M10.5 12.5 20 3M17 6l2 2M14 9l2 2" />
-              </svg>
-            }
-            title="No API keys yet"
-            description="Create a key to let another app or script read (and, for some resources, write) your data over the API."
-            action={{ label: "New key", onClick: () => setCreating(true) }}
-          />
+          // Hidden while the new-key form is open: the form is the answer to "no keys yet".
+          creating ? null : (
+            <>
+              <EmptyState
+                icon={
+                  <svg viewBox="0 0 24 24" className="h-6 w-6 text-muted" fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="8" cy="15" r="4" />
+                    <path d="M10.5 12.5 20 3M17 6l2 2M14 9l2 2" />
+                  </svg>
+                }
+                title="No API keys yet"
+                description="Create a key to let another app or script read (and, for some resources, write) your data over the API."
+                action={{ label: "New key", onClick: () => setCreating(true) }}
+              />
+              <p className="text-center text-sm text-muted">
+                New to the API? The{" "}
+                <a href={API_GUIDE_URL} target="_blank" rel="noreferrer" className="font-medium text-accent hover:underline">
+                  API guide
+                </a>{" "}
+                has ready-made recipes: a Home Assistant sensor, a new-lifer bot, imports and backups.
+              </p>
+            </>
+          )
         ) : (
           <ul className="divide-y divide-line rounded-lg border border-line bg-surface">
             {keys.map((key) => (

@@ -16,6 +16,10 @@ export const API_KEY_SCOPES = [
   "album.write",
   "share.read",
   "share.write",
+  // Integrations (docs/API.md): the photo feed and image files; imports and photo edits; the life list.
+  "photos.read",
+  "photos.write",
+  "collection.read",
 ] as const;
 
 interface CreateApiKeyBody {
