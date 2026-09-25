@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams, useNavigate, Link } from "react-router-dom";
 import { api, ApiError } from "../api/client";
 import { errorMessage } from "../lib/errorMessage";
-import Lightbox, { TagEditor, type LightboxSlide } from "../components/Lightbox";
+import Lightbox, { photoFilePaths, TagEditor, type LightboxSlide } from "../components/Lightbox";
 import { Spinner } from "../components/LoadingScreen";
 import EmptyState from "../components/EmptyState";
 import PageHeader from "../components/PageHeader";
@@ -66,6 +66,7 @@ interface GalleryItem {
   originalRef: string | null;
   originalManaged: boolean | null;
   originalKind: string | null;
+  rawRef: string | null;
 }
 
 // Every photo taken, across all species, as one browsable gallery — separate from the
@@ -75,9 +76,31 @@ interface GalleryItem {
 // progressive upgrade instead of settling for a permanently low-res thumbnail. There's no
 // info toggle inside the lightbox here; instead a "Camera info" toggle on the grid itself
 // shows the same shotDataLine caption under each thumbnail that SpeciesDetailPage uses.
+interface SearchInterpretation {
+  species: string[];
+  groups: string[];
+  places: string[];
+  dates: string[];
+  description: string | null;
+}
+
+// "ducks · Washington · 2024 · looks like “swimming”". Null when the search found nothing to
+// read beyond the words themselves, where it would only repeat the query.
+function describeSearchReading(i: SearchInterpretation | undefined): string | null {
+  if (!i) return null;
+  const subject = [...i.species.slice(0, 3), ...(i.species.length > 3 ? [`+${i.species.length - 3} more`] : []), ...i.groups];
+  const parts = [subject.join(", "), ...i.places, ...i.dates].filter(Boolean);
+  if (parts.length === 0) return null;
+  if (i.description) parts.push(`looks like “${i.description}”`);
+  return parts.join(" · ");
+}
+
 export default function GalleryPage() {
   const navigate = useNavigate();
   const [items, setItems] = useState<GalleryItem[] | null>(null);
+  // How the server read the current search ("ducks · Washington · 2024 · swimming"), shown next
+  // to the result count so it's clear why these photos came back.
+  const [searchReading, setSearchReading] = useState<string | null>(null);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const [thumbSizePx, updateThumbSize] = usePhotoGridSize();
   // At small grid sizes, a fixed 8px gap/6px corner radius eats a much bigger proportion of a
@@ -288,8 +311,11 @@ export default function GalleryPage() {
       searchAbortRef.current = controller;
       setSearching(true);
       api
-        .get<{ items: GalleryItem[] }>(`/gallery/search?${params}`, { signal: controller.signal })
-        .then((res) => setItems(res.items))
+        .get<{ items: GalleryItem[]; interpretation?: SearchInterpretation }>(`/gallery/search?${params}`, { signal: controller.signal })
+        .then((res) => {
+          setItems(res.items);
+          setSearchReading(describeSearchReading(res.interpretation));
+        })
         .catch((err) => {
           if (err instanceof Error && err.name === "AbortError") return;
           throw err;
@@ -498,6 +524,7 @@ export default function GalleryPage() {
           iso: i.iso,
           takenAt: i.takenAt,
           durationSeconds: i.durationSeconds,
+          files: photoFilePaths(i.originalRef, i.rawRef),
         },
       })),
     [items],
@@ -708,7 +735,11 @@ export default function GalleryPage() {
                   <p className="mt-1 truncate text-[11px] text-muted">{item.commonName ?? item.scientificName}</p>
                 )}
                 {showRatings && (
-                  <StarRating rating={item.qualityRating} onRate={(rating) => rateCapture(item.captureId, rating)} />
+                  // Its own gap from the photo when it's the first line under it (names hidden),
+                  // matching the species page; tighter under a name so the two read as one caption.
+                  <div className={showLabels ? "mt-0.5" : "mt-1"}>
+                    <StarRating rating={item.qualityRating} onRate={(rating) => rateCapture(item.captureId, rating)} />
+                  </div>
                 )}
                 {showCameraInfo &&
                   shotDataLine({
@@ -768,7 +799,7 @@ export default function GalleryPage() {
             <SearchInput
               value={searchInput}
               onChange={setSearchInput}
-              placeholder="Search your photos… (e.g. “fox playing”)"
+              placeholder="Search your photos… (e.g. “owl flying”, “ducks in Canada 2024”)"
               className="w-96"
               aria-label="Search your photos by what's in them"
             />
@@ -999,7 +1030,7 @@ export default function GalleryPage() {
           <p className="text-xs text-muted">
             {missingDate
               ? `${items.length} photo${items.length === 1 ? "" : "s"} missing a date. Pick one below to fix it`
-              : `${items.length} photos${searchQuery ? ` matching "${searchQuery}"` : ""}`}
+              : `${items.length} photos${searchQuery ? ` matching "${searchQuery}"` : ""}${searchQuery && searchReading ? `: ${searchReading}` : ""}`}
           </p>
         )}
       </PageHeader>
