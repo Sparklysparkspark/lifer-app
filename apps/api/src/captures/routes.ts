@@ -6,18 +6,21 @@
 // a default. (Known tradeoff: a removed "store"-mode original is now an orphaned file with no
 // DB reference back to it — acceptable for a personal deployment, worth revisiting if this
 // ever needs a "reclaim disk space" story.)
-import { existsSync, unlinkSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { existsSync, unlinkSync, writeFileSync, rmSync } from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { pool } from "../db.js";
-import { requireAuth } from "../auth/session.js";
+import { requireAuth, requireScope } from "../auth/session.js";
 import { writeSpeciesMetadata } from "../uploads/exif.js";
 import { syncCaptureXmpSidecarsLogged } from "../uploads/xmpSidecarSync.js";
 import { suggestSpecies, suggestSpeciesForFrames } from "../species/embeddings.js";
+import { ensureDefaultCardCropLater } from "../collection/defaultCardCrop.js";
 import { probeVideo, extractVideoFrame } from "../uploads/image.js";
 import { APP_DATA_DIR } from "../config.js";
 import { moveManagedOriginalToSpeciesFolder } from "../uploads/routes.js";
+import { ensureDir } from "../lib/safeFs.js";
+import { receiveToFile, stageUpload, sweepStagedUploads } from "../lib/stagedUploads.js";
 
 interface SpeciesRow {
   id: string;
@@ -123,6 +126,7 @@ async function cleanupStaleUserSpecies(userId: string, speciesId: string, vacate
        WHERE user_id = $2 AND species_id = $3`,
       [newestRemaining.current_photo_id, userId, speciesId],
     );
+    ensureDefaultCardCropLater(userId, speciesId);
   }
   // Losing a capture can also remove the current best-rated photo for this species — recompute
   // rather than leave a stale max (same reasoning as PATCH /captures/:id/rating).
@@ -140,7 +144,7 @@ export async function captureRoutes(app: FastifyInstance): Promise<void> {
   // and shows up on that species' own detail page alongside its other photos.
   app.post<{ Params: { id: string }; Body: { speciesId?: string } }>(
     "/captures/:id/species",
-    { preHandler: requireAuth },
+    { preHandler: requireScope("photos.write") },
     async (request, reply) => {
       const { id: captureId } = request.params;
       const { speciesId } = request.body ?? {};
@@ -184,7 +188,7 @@ export async function captureRoutes(app: FastifyInstance): Promise<void> {
 
   app.delete<{ Params: { id: string; speciesId: string } }>(
     "/captures/:id/species/:speciesId",
-    { preHandler: requireAuth },
+    { preHandler: requireScope("photos.write") },
     async (request, reply) => {
       const { id: captureId, speciesId } = request.params;
       const userId = request.user!.id;
@@ -214,7 +218,7 @@ export async function captureRoutes(app: FastifyInstance): Promise<void> {
   // path already does.
   app.patch<{ Params: { id: string }; Body: { speciesId?: string } }>(
     "/captures/:id/reassign",
-    { preHandler: requireAuth },
+    { preHandler: requireScope("photos.write") },
     async (request, reply) => {
       const { id: captureId } = request.params;
       const { speciesId } = request.body ?? {};
@@ -291,7 +295,7 @@ export async function captureRoutes(app: FastifyInstance): Promise<void> {
   // scan, a screenshot, a corrupted file) can get a real date instead of sitting unfixable.
   app.patch<{ Params: { id: string }; Body: { takenAt: string | null } }>(
     "/captures/:id/taken-at",
-    { preHandler: requireAuth },
+    { preHandler: requireScope("photos.write") },
     async (request, reply) => {
       const { id: captureId } = request.params;
       const { takenAt } = request.body ?? {};
@@ -319,7 +323,7 @@ export async function captureRoutes(app: FastifyInstance): Promise<void> {
    * body — sending only one leaves the other untouched. */
   app.patch<{ Params: { id: string }; Body: { regionId?: string | null; locationLabel?: string | null } }>(
     "/captures/:id/region",
-    { preHandler: requireAuth },
+    { preHandler: requireScope("photos.write") },
     async (request, reply) => {
       const { id: captureId } = request.params;
       const { regionId, locationLabel } = request.body ?? {};
@@ -345,7 +349,7 @@ export async function captureRoutes(app: FastifyInstance): Promise<void> {
   // correct no matter how many captures get rated/re-rated/cleared over time.
   app.patch<{ Params: { id: string }; Body: { rating: number | null } }>(
     "/captures/:id/rating",
-    { preHandler: requireAuth },
+    { preHandler: requireScope("photos.write") },
     async (request, reply) => {
       const { id: captureId } = request.params;
       const { rating } = request.body ?? {};
@@ -379,7 +383,7 @@ export async function captureRoutes(app: FastifyInstance): Promise<void> {
   // than a single add/remove delta.
   app.patch<{ Params: { id: string }; Body: { tags: string[] } }>(
     "/captures/:id/tags",
-    { preHandler: requireAuth },
+    { preHandler: requireScope("photos.write") },
     async (request, reply) => {
       const { id: captureId } = request.params;
       const userId = request.user!.id;
@@ -641,6 +645,8 @@ export async function captureRoutes(app: FastifyInstance): Promise<void> {
       );
 
       await client.query("COMMIT");
+      // The cover may have moved to another photo above: frame the card on the animal.
+      ensureDefaultCardCropLater(userId, capture.species_id);
     } catch (err) {
       await client.query("ROLLBACK").catch(() => {});
       throw err;
@@ -826,24 +832,30 @@ export async function captureRoutes(app: FastifyInstance): Promise<void> {
     ]);
     if (settingRes.rows[0]?.species_suggest_enabled === false) return { suggestions: [] };
 
-    let fileBuffer: Buffer | null = null;
+    // Streamed straight to a temp file (ffprobe and ffmpeg need a real path), never held in
+    // memory; cleaned up in `finally` below unless it's kept for the import.
+    const tmpDir = path.join(APP_DATA_DIR, "tmp");
+    await ensureDir(tmpDir);
+    const tmpPath = path.join(tmpDir, `${randomUUID()}.suggest`);
+    let fingerprint: string | null = null;
     let regionId: string | null = null;
     for await (const part of request.parts()) {
       if (part.type === "file" && part.fieldname === "file") {
-        fileBuffer = await part.toBuffer();
-      } else if (part.type !== "file" && part.fieldname === "regionId") {
+        ({ fingerprint } = await receiveToFile(part.file, tmpPath));
+      } else if (part.type === "file") {
+        part.file.resume(); // not ours: drain it so the request can finish
+      } else if (part.fieldname === "regionId") {
         regionId = String(part.value) || null;
       }
     }
-    if (!fileBuffer) return reply.code(400).send({ error: "No file uploaded" });
+    if (!fingerprint) return reply.code(400).send({ error: "No file uploaded" });
 
-    // ffprobe/ffmpeg need a real file path, not a buffer — a scratch tmp file, same pattern
-    // /uploads/video already uses, cleaned up in `finally` below regardless of outcome.
-    const tmpDir = path.join(APP_DATA_DIR, "tmp");
-    mkdirSync(tmpDir, { recursive: true });
-    const tmpPath = path.join(tmpDir, `${randomUUID()}.suggest`);
-    writeFileSync(tmpPath, fileBuffer);
-
+    // The video is kept for the import whether or not suggestions work out (no model downloaded,
+    // frames unreadable): the file itself arrived fine, so it shouldn't be sent a second time.
+    const keep = async () => {
+      void sweepStagedUploads();
+      return (await stageUpload(request.user!.id, fingerprint!, tmpPath)) ? fingerprint : null;
+    };
     try {
       const { durationSeconds } = await probeVideo(tmpPath);
       const duration = durationSeconds && durationSeconds > 0.5 ? durationSeconds : 1;
@@ -870,13 +882,13 @@ export async function captureRoutes(app: FastifyInstance): Promise<void> {
         }
       }
       // `error` tells "couldn't read the video" apart from "read it, no species matched".
-      if (frames.length === 0) return { suggestions: [], error: "Couldn't read any frames from this video" };
+      if (frames.length === 0) return { suggestions: [], error: "Couldn't read any frames from this video", stagedId: await keep() };
 
       const suggestions = await suggestSpeciesForFrames(pool, request.user!.id, frames, regionId);
-      return { suggestions };
+      return { suggestions, stagedId: await keep() };
     } catch (err) {
       request.log.warn({ err }, "Video species suggestion failed");
-      return { suggestions: [], error: "Couldn't analyze this video" };
+      return { suggestions: [], error: "Couldn't analyze this video", stagedId: await keep().catch(() => null) };
     } finally {
       rmSync(tmpPath, { force: true });
     }

@@ -31,6 +31,7 @@ import { downloadResumable } from "../lib/resumableDownload.js";
 import { catalogSeedAsset, fetchCatalogManifest, type CatalogManifest } from "./catalogManifest.js";
 import { isModelDownloaded } from "./embeddings.js";
 import { runGalleryEmbeddingsUpdate, type ReferenceVectorsResult } from "./galleryEmbeddingsAsset.js";
+import { invalidateSuggestionCache } from "./embeddings.js";
 
 export { fetchCatalogManifest, type CatalogManifest };
 
@@ -446,6 +447,7 @@ export async function applyCatalogSeedFile(
     progress.throwIfCancelled();
     if (version != null && !onlyTables) await setInstallSetting(client, CATALOG_SEED_VERSION_KEY, version);
     await client.query("COMMIT");
+    invalidateSuggestionCache();
     // Only after the rows are gone for good, so a rollback can't leave rows pointing at deleted files.
     for (const f of blockedFiles) rmSync(f, { force: true });
     progress.update({ processed: total, currentItem: null });

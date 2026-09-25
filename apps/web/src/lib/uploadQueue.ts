@@ -28,17 +28,52 @@ export interface PossibleDuplicate {
  *  reads back its possibleDuplicate field — a real network round trip per file, which is why
  *  this is only ever called when a caller opts in via onDuplicateDetected, never unconditionally
  *  for every upload. */
-async function checkDuplicate(file: File): Promise<PossibleDuplicate | null> {
+async function checkDuplicate(file: File): Promise<{ duplicate: PossibleDuplicate | null; stagedId: string | null }> {
   const form = new FormData();
   form.append("file", file);
   try {
-    const res = await api.post<{ possibleDuplicate: PossibleDuplicate | null }>("/uploads/inspect", form);
-    return res.possibleDuplicate;
+    const res = await api.post<{ possibleDuplicate: PossibleDuplicate | null; stagedId?: string | null }>("/uploads/inspect", form);
+    return { duplicate: res.possibleDuplicate, stagedId: res.stagedId ?? null };
   } catch {
     // Inspection failing (a transient network blip, say) shouldn't block the real upload —
     // worst case, a genuine duplicate goes unflagged this one time.
-    return null;
+    return { duplicate: null, stagedId: null };
   }
+}
+
+/** POSTs a photo to /uploads. When the server kept the copy it was sent for checking (stagedId
+ *  from /uploads/inspect), refers to that instead of sending the file a second time, which
+ *  halves the transfer for a batch; if that copy has expired (410), sends the file after all. */
+export function postPhotoUpload<T>(file: File, stagedId: string | null | undefined, addFields: (form: FormData) => void): Promise<T> {
+  return postUploadPreferringKeptCopy<T>("/uploads", file, stagedId, addFields);
+}
+
+/** The same for any upload endpoint that accepts a kept copy (/uploads, /uploads/video). */
+export async function postUploadPreferringKeptCopy<T>(
+  endpoint: string,
+  file: File,
+  stagedId: string | null | undefined,
+  addFields: (form: FormData) => void,
+): Promise<T> {
+  const build = (withFile: boolean) => {
+    const form = new FormData();
+    addFields(form);
+    if (withFile) form.append("file", file);
+    else {
+      form.append("stagedId", stagedId!);
+      form.append("fileName", file.name);
+      form.append("fileType", file.type);
+    }
+    return form;
+  };
+  if (stagedId) {
+    try {
+      return await api.post<T>(endpoint, build(false));
+    } catch (err) {
+      if (!(err instanceof ApiError && err.status === 410)) throw err;
+    }
+  }
+  return api.post<T>(endpoint, build(true));
 }
 
 interface QueueState {
@@ -175,7 +210,7 @@ export function enqueueUploads(
           await api.post("/uploads/video", videoForm);
           return;
         }
-        const dup = await checkDuplicate(file);
+        const { duplicate: dup, stagedId } = await checkDuplicate(file);
         if (dup) {
           const choice = await askAboutDuplicate(job, dup);
           if (choice === "skip") {
@@ -183,13 +218,12 @@ export function enqueueUploads(
             return;
           }
         }
-        const form = new FormData();
-        form.append("mode", "store");
-        form.append("speciesId", speciesId);
-        form.append("file", file);
-        if (opts.volumeId) form.append("volumeId", opts.volumeId);
-        if (opts.tripId) form.append("tripId", opts.tripId);
-        await api.post("/uploads", form);
+        await postPhotoUpload(file, stagedId, (form) => {
+          form.append("mode", "store");
+          form.append("speciesId", speciesId);
+          if (opts.volumeId) form.append("volumeId", opts.volumeId);
+          if (opts.tripId) form.append("tripId", opts.tripId);
+        });
       } catch (err) {
         job.error = err instanceof ApiError ? err.message : "Upload failed";
       } finally {

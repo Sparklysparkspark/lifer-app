@@ -1,24 +1,27 @@
 // Derivative generation via sharp/libvips. The app always renders from display_path — the
 // original upload buffer is discarded after this runs; only the display/thumb copies are kept.
-import { mkdirSync, writeFileSync } from "node:fs";
+import { writeFileSync } from "node:fs";
+import { utimes } from "node:fs/promises";
 import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { createRequire } from "node:module";
 import sharp from "sharp";
 import { APP_DATA_DIR } from "../config.js";
+import { ensureDir } from "../lib/safeFs.js";
 
 const execFileAsync = promisify(execFile);
-// Both packages are plain CJS (`module.exports = <value>`, no `.default`) — ffmpeg-static's own
+// The package is plain CJS (`module.exports = <value>`, no `.default`): ffmpeg-static's own
 // published .d.ts declares an ESM `export default` that doesn't actually match its CJS runtime
 // shape, which trips up NodeNext+esModuleInterop's default-import synthesis. `require` sidesteps
 // the mismatch entirely instead of fighting the package's own (incorrect) types.
 const require = createRequire(import.meta.url);
 const ffmpegPath = require("ffmpeg-static") as string;
-const ffprobePath = require("ffprobe-static") as { path: string };
 
 const DISPLAY_WIDTH = 2560;
 const THUMB_WIDTH = 400;
+// Grid tiles on a high-density screen; see photos/routes.ts mediumDerivative.
+const MEDIUM_WIDTH = 1024;
 // Reference photos (species-level, not a user's own capture) get a much
 // smaller display size than a user's own trophy shot: nobody zooms into a reference photo
 // the way they would their own upload, it's just "what does this species look like" on a
@@ -46,30 +49,31 @@ export interface DerivativePaths {
 export async function generateDerivatives(buffer: Buffer, photoId: string): Promise<DerivativePaths> {
   const displayDir = path.join(APP_DATA_DIR, "display");
   const thumbDir = path.join(APP_DATA_DIR, "thumb");
-  mkdirSync(displayDir, { recursive: true });
-  mkdirSync(thumbDir, { recursive: true });
+  await ensureDir(displayDir);
+  await ensureDir(thumbDir);
 
   const displayPath = path.join(displayDir, `${photoId}.webp`);
   const thumbPath = path.join(thumbDir, `${photoId}.webp`);
 
-  const image = sharp(buffer).rotate(); // auto-orient from EXIF before resizing
-
-  // sharp's plain metadata() reports the SOURCE file's raw width/height, not swapped for EXIF
-  // orientation — toFile()'s own returned info, by contrast, reflects the real output pixels
-  // after the rotate+resize pipeline actually ran, so its aspect ratio is the correct one to
-  // size a masonry tile with (the resize preserves aspect ratio; withoutEnlargement only ever
-  // shrinks, never distorts it).
-  const displayInfo = await image
-    .clone()
-    .resize({ width: DISPLAY_WIDTH, withoutEnlargement: true })
-    .webp({ quality: 85 })
-    .toFile(displayPath);
-
-  await image
-    .clone()
-    .resize({ width: THUMB_WIDTH, withoutEnlargement: true })
-    .webp({ quality: 80 })
-    .toFile(thumbPath);
+  // Decoded once (auto-oriented from EXIF, resized to display size), then encoded to each size
+  // in parallel: decoding a 24MP JPEG twice, at WebP's default effort, was most of the 350ms
+  // this took per photo. Effort 2 is about twice as fast for files about 7% bigger. The 1,024px
+  // grid copy is made here too, so a new photo never waits for photos/routes.ts to make one.
+  const decoded = await sharp(buffer).rotate().resize({ width: DISPLAY_WIDTH, withoutEnlargement: true }).raw().toBuffer({ resolveWithObject: true });
+  const fromDecoded = () => sharp(decoded.data, { raw: decoded.info });
+  const mediumDir = path.join(APP_DATA_DIR, "medium");
+  await ensureDir(mediumDir);
+  // The output info (not the source's metadata) has the real, EXIF-rotated dimensions, which is
+  // what a masonry tile needs for its aspect ratio.
+  const [displayInfo] = await Promise.all([
+    fromDecoded().webp({ quality: 85, effort: 2 }).toFile(displayPath),
+    fromDecoded().resize({ width: MEDIUM_WIDTH, withoutEnlargement: true }).webp({ quality: 80, effort: 2 }).toFile(path.join(mediumDir, `${photoId}.webp`)),
+    fromDecoded().resize({ width: THUMB_WIDTH, withoutEnlargement: true }).webp({ quality: 80, effort: 2 }).toFile(thumbPath),
+  ]);
+  // Written in parallel, the medium copy can land a moment before the display image, which would
+  // make photos/routes.ts think it's out of date and remake it.
+  const now = new Date();
+  await utimes(path.join(mediumDir, `${photoId}.webp`), now, now);
 
   return { displayPath, thumbPath, width: displayInfo.width ?? null, height: displayInfo.height ?? null };
 }
@@ -82,17 +86,6 @@ export interface VideoDerivativePaths extends DerivativePaths {
   previewPath: string | null;
 }
 
-interface FfprobeStream {
-  codec_type?: string;
-  codec_name?: string;
-  width?: number;
-  height?: number;
-}
-interface FfprobeOutput {
-  format?: { duration?: string; format_name?: string };
-  streams?: FfprobeStream[];
-}
-
 // ffmpeg's own DECODE support isn't the constraint here — it reads nearly any codec/container a
 // camera or phone could produce. The constraint is PLAYBACK: Lightbox's <video> element is
 // decoded by whichever browser engine the current platform's webview embeds, and H.264/AAC-in-
@@ -100,25 +93,31 @@ interface FfprobeOutput {
 // an MKV/WebM with an unsupported codec) gets a transcoded, playback-safe copy generated
 // alongside the untouched original — never rejected outright, never silently re-encoded when
 // it's already fine.
+//
+// Read from ffmpeg's own description of the file ("ffmpeg -i"), not ffprobe: the ffprobe-static
+// package's Apple Silicon build is actually an Intel binary, so on an Apple Silicon Mac without
+// Rosetta every video import and video species check failed. ffmpeg-static's build is native.
 export async function probeVideo(filePath: string): Promise<{ durationSeconds: number | null; isWebSafe: boolean }> {
-  const { stdout } = await execFileAsync(ffprobePath.path, [
-    "-v",
-    "quiet",
-    "-print_format",
-    "json",
-    "-show_format",
-    "-show_streams",
-    filePath,
-  ]);
-  const parsed = JSON.parse(stdout) as FfprobeOutput;
-  const durationRaw = parsed.format?.duration;
-  const durationSeconds = durationRaw ? Number(durationRaw) : null;
-  const videoStream = parsed.streams?.find((s) => s.codec_type === "video");
-  const audioStream = parsed.streams?.find((s) => s.codec_type === "audio");
-  const containerIsMp4 = (parsed.format?.format_name ?? "").split(",").includes("mp4");
-  const isWebSafe =
-    containerIsMp4 && videoStream?.codec_name === "h264" && (!audioStream || audioStream.codec_name === "aac");
-  return { durationSeconds: durationSeconds && Number.isFinite(durationSeconds) ? durationSeconds : null, isWebSafe };
+  if (!ffmpegPath) throw new Error("ffmpeg binary not found: reinstall dependencies");
+  // With no output file ffmpeg exits with an error after printing the description; that's expected.
+  const stderr = await execFileAsync(ffmpegPath, ["-hide_banner", "-i", filePath], { maxBuffer: 1024 * 1024 * 8 }).then(
+    (r) => String(r.stderr),
+    (err: { stderr?: string | Buffer }) => String(err.stderr ?? ""),
+  );
+  return parseFfmpegDescription(stderr);
+}
+
+/** Duration and playback safety from `ffmpeg -i` output. Exported for tests. */
+export function parseFfmpegDescription(text: string): { durationSeconds: number | null; isWebSafe: boolean } {
+  const input = /^Input #0, ([^,\n]+(?:,[^,\n]+)*), from /m.exec(text);
+  if (!input) throw new Error("ffmpeg couldn't read this video");
+  const formats = input[1].split(",").map((f) => f.trim());
+  const duration = /Duration: (\d+):(\d+):(\d+(?:\.\d+)?)/.exec(text);
+  const durationSeconds = duration ? Number(duration[1]) * 3600 + Number(duration[2]) * 60 + Number(duration[3]) : null;
+  const videoCodec = /Stream #\d+:\d+[^:]*: Video: (\w+)/.exec(text)?.[1] ?? null;
+  const audioCodec = /Stream #\d+:\d+[^:]*: Audio: (\w+)/.exec(text)?.[1] ?? null;
+  const isWebSafe = formats.includes("mp4") && videoCodec === "h264" && (audioCodec === null || audioCodec === "aac");
+  return { durationSeconds: durationSeconds && Number.isFinite(durationSeconds) && durationSeconds > 0 ? durationSeconds : null, isWebSafe };
 }
 
 /** Grabs one raw JPEG frame at an arbitrary timestamp — shared by the poster-frame extraction
@@ -149,8 +148,8 @@ export async function generateVideoDerivatives(filePath: string, photoId: string
   const displayDir = path.join(APP_DATA_DIR, "display");
   const thumbDir = path.join(APP_DATA_DIR, "thumb");
   const previewDir = path.join(APP_DATA_DIR, "video-preview");
-  mkdirSync(displayDir, { recursive: true });
-  mkdirSync(thumbDir, { recursive: true });
+  await ensureDir(displayDir);
+  await ensureDir(thumbDir);
 
   const { durationSeconds, isWebSafe } = await probeVideo(filePath);
 
@@ -173,7 +172,7 @@ export async function generateVideoDerivatives(filePath: string, photoId: string
 
   let previewPath: string | null = null;
   if (!isWebSafe) {
-    mkdirSync(previewDir, { recursive: true });
+    await ensureDir(previewDir);
     previewPath = path.join(previewDir, `${photoId}.mp4`);
     await execFileAsync(ffmpegPath, [
       "-y",
@@ -214,8 +213,8 @@ export async function generateVideoDerivatives(filePath: string, photoId: string
 export async function generateReferenceDerivatives(buffer: Buffer, key: string): Promise<{ displayPath: string; thumbPath: string }> {
   const displayDir = path.join(APP_DATA_DIR, "reference-display");
   const thumbDir = path.join(APP_DATA_DIR, "reference-thumb");
-  mkdirSync(displayDir, { recursive: true });
-  mkdirSync(thumbDir, { recursive: true });
+  await ensureDir(displayDir);
+  await ensureDir(thumbDir);
 
   const displayPath = path.join(displayDir, `${key}.webp`);
   const thumbPath = path.join(thumbDir, `${key}.webp`);

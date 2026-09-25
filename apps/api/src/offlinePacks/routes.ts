@@ -23,6 +23,7 @@ import { createJob, type JobContext } from "../lib/job.js";
 import { catalogFirstBootState, waitForFirstBootCatalog } from "../species/catalogSeedUpdate.js";
 import { downloadToFile } from "../lib/download.js";
 import { isSafePackEntry, resolveWithinDir } from "./packPaths.js";
+import { invalidateSuggestionCache } from "../species/embeddings.js";
 
 export interface PackIndexEntry {
   id: string;
@@ -63,11 +64,28 @@ export interface PackIndex {
   packs: PackIndexEntry[];
 }
 
-export async function fetchPackIndex(): Promise<PackIndex> {
+// The published index is several MB and was downloaded again on every page view (the updates
+// banner and the collection page each ask for it), about a second each time. Kept for a few
+// minutes and shared between requests that arrive together; a pack download asks for a fresh
+// copy so it always installs the latest version.
+const PACK_INDEX_TTL_MS = 15 * 60_000;
+let packIndexCache: { at: number; index: PackIndex } | null = null;
+let packIndexInFlight: Promise<PackIndex> | null = null;
+
+export async function fetchPackIndex(opts: { fresh?: boolean } = {}): Promise<PackIndex> {
   if (!PACK_INDEX_URL) throw new Error("No pack index is configured for this instance yet");
-  const res = await fetch(PACK_INDEX_URL, { signal: AbortSignal.timeout(30_000) });
-  if (!res.ok) throw new Error(`Couldn't fetch the pack index (${res.status})`);
-  return (await res.json()) as PackIndex;
+  if (!opts.fresh && packIndexCache && Date.now() - packIndexCache.at < PACK_INDEX_TTL_MS) return packIndexCache.index;
+  if (packIndexInFlight) return packIndexInFlight;
+  packIndexInFlight = (async () => {
+    const res = await fetch(PACK_INDEX_URL!, { signal: AbortSignal.timeout(30_000) });
+    if (!res.ok) throw new Error(`Couldn't fetch the pack index (${res.status})`);
+    const index = (await res.json()) as PackIndex;
+    packIndexCache = { at: Date.now(), index };
+    return index;
+  })().finally(() => {
+    packIndexInFlight = null;
+  });
+  return packIndexInFlight;
 }
 
 // The index itself comes from a trusted, operator-configured URL (PACK_INDEX_URL), but each
@@ -703,7 +721,7 @@ function startDownloadJob(packIds: string[], force = false): boolean {
 async function runDownloadJob(ctx: JobContext<{ packsApplied: number }, DownloadJobExtra>, requestedPackIds: string[], force = false): Promise<{ packsApplied: number }> {
   const job = downloadJob.status;
   let packsApplied = 0;
-  const index = await fetchPackIndex();
+  const index = await fetchPackIndex({ fresh: true });
   const byId = new Map(index.packs.map((p) => [p.id, p]));
 
   const queue = [...requestedPackIds];
@@ -838,6 +856,7 @@ async function runDownloadJob(ctx: JobContext<{ packsApplied: number }, Download
         }
 
         await client.query("COMMIT");
+        invalidateSuggestionCache();
       } catch (err) {
         await client.query("ROLLBACK").catch(() => {});
         throw err;
@@ -1031,6 +1050,7 @@ async function deletePack(packId: string): Promise<{ deletedSpeciesFiles: number
     // pack_species cascades from this delete (ON DELETE CASCADE, migration 054).
     await client.query(`DELETE FROM downloaded_packs WHERE pack_id = $1`, [packId]);
     await client.query("COMMIT");
+    invalidateSuggestionCache();
   } catch (err) {
     await client.query("ROLLBACK").catch(() => {});
     throw err;

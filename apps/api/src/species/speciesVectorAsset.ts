@@ -14,6 +14,7 @@ import { type JobContext } from "../lib/job.js";
 import { copyInto } from "../lib/pgCopy.js";
 import { downloadResumable } from "../lib/resumableDownload.js";
 import { resolveCatalogAssetUrl, type CatalogManifest, type VectorAsset } from "./catalogManifest.js";
+import { invalidateSuggestionCache } from "./embeddings.js";
 
 const DOWNLOAD_DIR = path.join(APP_DATA_DIR, "catalog-downloads");
 
@@ -116,6 +117,7 @@ export async function applySpeciesVectorFile(
     );
     if (appliedTag) await setInstallSetting(client, spec.appliedKey, appliedTag);
     await client.query("COMMIT");
+    invalidateSuggestionCache();
     ctx.update({ processed: rows });
     return { status: "applied", rows, matched: res.rowCount ?? 0 };
   } catch (err) {

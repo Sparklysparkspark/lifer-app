@@ -2,8 +2,8 @@
 // every threshold this session tuned by hand (the 0.95 near-duplicate cutoff in
 // uploads/routes.ts, the same-vs-cross-species gap used to compare CLIP model sizes) rests on
 // these two functions behaving exactly as expected at the edges, not just on "normal" inputs.
-import { describe, expect, it } from "vitest";
-import { CLIP_SPACE, computeEmbedding, cosineSimilarity, ID_SPACE, l2Normalize, matchTargets, rankSpeciesByEmbedding } from "./embeddings.js";
+import { beforeEach, describe, expect, it } from "vitest";
+import { CLIP_SPACE, computeEmbedding, cosineSimilarity, ID_SPACE, invalidateSuggestionCache, l2Normalize, matchTargets, rankSpeciesByEmbedding } from "./embeddings.js";
 
 describe("l2Normalize", () => {
   it("scales a vector to unit length", () => {
@@ -120,35 +120,57 @@ describe("matchTargets", () => {
 });
 
 describe("rankSpeciesByEmbedding", () => {
-  // A stand-in pool that records the SQL and returns fixed candidate rows.
-  function fakePool(rows: object[]) {
+  beforeEach(() => invalidateSuggestionCache());
+
+  // Answers the three queries a regional ranking makes: the region's cached catalog, the ids of
+  // your own photos' vectors, and those vectors themselves.
+  function fakePool(catalog: object[], yours: Array<{ capture_id: string; species_id: string; embedding: number[] }> = []) {
     const calls: Array<{ sql: string; params: unknown[] }> = [];
-    return {
-      calls,
-      pool: { query: async (sql: string, params: unknown[]) => (calls.push({ sql, params }), { rows }) } as never,
+    const query = async (sql: string, params: unknown[]) => {
+      calls.push({ sql, params });
+      if (sql.includes("FROM region_species")) return { rows: catalog };
+      if (sql.includes("row_number()")) return { rows: yours.map((y) => ({ capture_id: y.capture_id, species_id: y.species_id, computed_at: "t1" })) };
+      if (sql.includes("capture_id = ANY")) return { rows: yours.map((y) => ({ capture_id: y.capture_id, embedding: y.embedding, computed_at: "t1" })) };
+      return { rows: [] };
     };
+    return { calls, pool: { query } as never };
   }
   const base = { is_vagrant: null, local_tier: null, seasonality: null, common_name: null };
 
   it("reads only the identification model's tables in ID_SPACE", async () => {
     const { pool, calls } = fakePool([]);
     await rankSpeciesByEmbedding(pool, "u1", [1, 0], "r1", 5, null, ID_SPACE);
-    expect(calls[0].sql).toContain("id_model_capture_embeddings");
-    expect(calls[0].sql).toContain("id_model_gallery_embeddings");
-    expect(calls[0].sql).toContain("id_model_text_embeddings");
-    expect(calls[0].sql).not.toContain("species_reference_gallery_embeddings");
-    expect(calls[0].params).toEqual(["u1", ID_SPACE.modelVersion, ID_SPACE.textModelVersion, "r1"]);
+    const all = calls.map((c) => c.sql).join("\n");
+    expect(all).toContain("id_model_capture_embeddings");
+    expect(all).toContain("id_model_gallery_embeddings");
+    expect(all).toContain("id_model_text_embeddings");
+    expect(all).not.toContain("species_reference_gallery_embeddings");
+    expect(calls.find((c) => c.sql.includes("FROM region_species"))!.params).toEqual([ID_SPACE.modelVersion, ID_SPACE.textModelVersion, "r1"]);
+    expect(calls.find((c) => c.sql.includes("row_number()"))!.params).toEqual(["u1", ID_SPACE.modelVersion]);
   });
 
   it("blends text at the space's weight and still uses the gallery when the user has photos", async () => {
-    const { pool } = fakePool([
-      // Gallery matches perfectly; the user's own photo of it doesn't.
-      { ...base, species_id: "a", scientific_name: "A a", your_embeddings: [[0, 1]], ref_embedding: null, gallery_embeddings: [[1, 0]], text_embedding: [1, 0] },
-      { ...base, species_id: "b", scientific_name: "B b", your_embeddings: null, ref_embedding: [0, 1], gallery_embeddings: null, text_embedding: [0, 1] },
-    ]);
+    const { pool } = fakePool(
+      [
+        // Gallery matches perfectly; the user's own photo of it doesn't.
+        { ...base, species_id: "a", scientific_name: "A a", ref_embedding: null, gallery_embeddings: [[1, 0]], text_embedding: [1, 0] },
+        { ...base, species_id: "b", scientific_name: "B b", ref_embedding: [0, 1], gallery_embeddings: null, text_embedding: [0, 1] },
+      ],
+      [{ capture_id: "cap-a", species_id: "a", embedding: [0, 1] }],
+    );
     const [top] = await rankSpeciesByEmbedding(pool, "u1", [1, 0], "r1", 5, null, CLIP_SPACE);
     expect(top.id).toBe("a");
     expect(top.source).toBe("reference_photo");
     expect(top.score).toBeCloseTo((1 - CLIP_SPACE.textWeight) * 1 + CLIP_SPACE.textWeight * 1);
+  });
+
+  it("reads the region's reference vectors once, then serves them from memory", async () => {
+    const { pool, calls } = fakePool([{ ...base, species_id: "a", scientific_name: "A a", ref_embedding: [1, 0], gallery_embeddings: null, text_embedding: null }]);
+    await rankSpeciesByEmbedding(pool, "u1", [1, 0], "r2", 5, null, CLIP_SPACE);
+    await rankSpeciesByEmbedding(pool, "u1", [1, 0], "r2", 5, null, CLIP_SPACE);
+    expect(calls.filter((c) => c.sql.includes("FROM region_species"))).toHaveLength(1);
+    invalidateSuggestionCache();
+    await rankSpeciesByEmbedding(pool, "u1", [1, 0], "r2", 5, null, CLIP_SPACE);
+    expect(calls.filter((c) => c.sql.includes("FROM region_species"))).toHaveLength(2);
   });
 });
