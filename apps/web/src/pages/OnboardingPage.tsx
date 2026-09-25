@@ -37,7 +37,7 @@ interface DownloadStatus {
 // skippable — see MapSection's own comment on why it's the one genuinely optional download here.
 export default function OnboardingPage() {
   const navigate = useNavigate();
-  const [step, setStep] = useState<"map" | "pack" | "guide">("map");
+  const [step, setStep] = useState<"map" | "matching" | "pack" | "guide">("map");
 
   // --- Step A: optional offline map ---
   const [wantMap, setWantMap] = useState(true);
@@ -65,7 +65,7 @@ export default function OnboardingPage() {
 
   async function continueFromMapStep() {
     if (!wantMap || !mapStatus?.available || mapStatus.downloaded) {
-      setStep("pack");
+      setStep("matching");
       return;
     }
     setStartingMap(true);
@@ -76,15 +76,49 @@ export default function OnboardingPage() {
     } catch {
       // Best-effort — a failed map download here isn't worth blocking setup over; Settings
       // still offers this same download later.
-      setStep("pack");
+      setStep("matching");
     } finally {
       setStartingMap(false);
     }
   }
 
   useEffect(() => {
-    if (mapStatus && !mapStatus.downloading && startingMap === false && mapStatus.downloaded) setStep("pack");
-  }, [mapStatus, startingMap]);
+    if (step === "map" && mapStatus && !mapStatus.downloading && startingMap === false && mapStatus.downloaded) setStep("matching");
+  }, [step, mapStatus, startingMap]);
+
+  // --- Step A2: species matching (optional) ---
+  // Suggestions are on by default but do nothing until the species-matching models are
+  // downloaded, and that download otherwise lives on the Offline Data tab where a new user won't
+  // find it. Asked here once; "yes" starts the download and moves straight on, since it runs as a
+  // server-side job that keeps going while the user picks regions. Skipped when the models are
+  // already there or already downloading (a second account on the same server).
+  const [modelStatus, setModelStatus] = useState<{ downloaded: boolean; running: boolean } | null>(null);
+  const [startingModel, setStartingModel] = useState(false);
+  const [modelError, setModelError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (step !== "matching") return;
+    api
+      .get<{ downloaded: boolean; running: boolean }>("/settings/embedding-model/status")
+      .then((res) => {
+        if (res.downloaded || res.running) setStep("pack");
+        else setModelStatus(res);
+      })
+      .catch(() => setStep("pack")); // no way to check: don't hold up setup over an optional step
+  }, [step]);
+
+  async function enableSpeciesMatching() {
+    setStartingModel(true);
+    setModelError(null);
+    try {
+      await api.post("/settings/embedding-model/download");
+      setStep("pack");
+    } catch (err) {
+      setModelError(err instanceof ApiError ? err.message : "Couldn't start the download");
+    } finally {
+      setStartingModel(false);
+    }
+  }
 
   // --- Step B: mandatory first region pack ---
   const [regions, setRegions] = useState<RegionSummary[] | null>(null);
@@ -258,6 +292,38 @@ export default function OnboardingPage() {
             >
               Continue
             </button>
+          </>
+        )}
+
+        {step === "matching" && modelStatus && (
+          <>
+            <div>
+              <h2 className="text-lg font-semibold text-ink">Species matching</h2>
+              <p className="mt-1 text-sm text-muted">
+                When you import photos, Lifer can suggest which species each one shows, using models that run entirely on your
+                device, so your photos never leave it. It needs a one-time download of about 620MB, which carries on in the background
+                while you finish setting up. You can turn this on or off later in Settings.
+              </p>
+            </div>
+            {modelError && <p className="text-sm text-red-600">{modelError}. You can try again or skip this for now.</p>}
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setStep("pack")}
+                disabled={startingModel}
+                className="flex-1 rounded-md border border-line py-2 text-sm font-medium text-ink hover:bg-surface-muted disabled:opacity-50"
+              >
+                Not now
+              </button>
+              <button
+                type="button"
+                onClick={enableSpeciesMatching}
+                disabled={startingModel}
+                className="flex-1 rounded-md bg-accent py-2 text-sm font-medium text-accent-fg disabled:opacity-50"
+              >
+                {startingModel ? "Starting…" : "Enable species matching"}
+              </button>
+            </div>
           </>
         )}
 

@@ -1,4 +1,5 @@
 import { useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { enqueueRawUploads } from "../lib/uploadQueue";
 import PageHeader from "../components/PageHeader";
 import PhotoImportRows from "../components/PhotoImportRows";
@@ -22,6 +23,7 @@ export default function BulkImportPage() {
   // RawUpload.tsx/uploads/routes.ts's processOneRawUpload) and filed into the matching
   // species' RAW folder automatically. A RAW with no match, or an ambiguous match, is left
   // untouched on disk rather than guessed at.
+  const navigate = useNavigate();
   const [rawResults, setRawResults] = useState<RawImportOutcome[] | null>(null);
   const [rawError, setRawError] = useState<string | null>(null);
   const rawFilesInputRef = useRef<HTMLInputElement>(null);
@@ -73,7 +75,10 @@ export default function BulkImportPage() {
       <PageHeader sticky title="Bulk import" />
 
       <main className="space-y-4 p-6">
-        <PhotoImportRows />
+        {/* Back to the collection once everything here is uploading: the uploads carry on in the
+            background (the upload banner shows progress and any failure). Stays put when some rows
+            weren't included, since leaving would drop them. */}
+        <PhotoImportRows onImportStarted={(everyRowIncluded) => everyRowIncluded && navigate("/")} />
 
         <div className="rounded-lg border border-line bg-surface p-4">
           <h2 className="text-sm font-medium text-ink">Bulk import RAW files</h2>

@@ -23,7 +23,7 @@ import { createJob, describeError, type JobContext } from "../lib/job.js";
 import { copyInto, copyTextField } from "../lib/pgCopy.js";
 import { downloadResumable } from "../lib/resumableDownload.js";
 import { fetchCatalogManifest, resolveCatalogAssetUrl, type CatalogManifest, type VectorAsset } from "./catalogManifest.js";
-import { isModelDownloaded, resetIdModelReadiness } from "./embeddings.js";
+import { invalidateSuggestionCache, isModelDownloaded, resetIdModelReadiness } from "./embeddings.js";
 import { idModel } from "./idModel.js";
 import { fetchAndApplySpeciesVectorAsset, type VectorAssetResult } from "./speciesVectorAsset.js";
 import { TEXT_MODEL_VERSION } from "./textEmbedding.js";
@@ -74,15 +74,20 @@ export interface ReferenceVectorsResult {
 type Ctx = Pick<JobContext<unknown>, "signal" | "update" | "throwIfCancelled">;
 
 let lock: Promise<unknown> = Promise.resolve();
+let running = 0;
 
 /** Downloads and applies the gallery embeddings asset if this install doesn't have the current
- * one. Safe to call from several places; calls run one at a time. */
+ * one. Safe to call from several places; calls run one at a time. A call that has to wait says
+ * so in its job's progress: otherwise that job keeps showing its last step (a catalog update sat
+ * at "9/9 tables" while the model download's vectors went first, which looked stuck). */
 export function runGalleryEmbeddingsUpdate(
   pool: Pool,
   ctx: Ctx,
   opts: { manifest?: CatalogManifest; force?: boolean } = {},
 ): Promise<ReferenceVectorsResult> {
-  const run = lock.then(() => doUpdate(pool, ctx, opts));
+  if (running > 0) ctx.update({ phase: "waiting_for_vectors", downloadedBytes: null, totalBytes: null, processed: null, total: null });
+  running++;
+  const run = lock.then(() => doUpdate(pool, ctx, opts)).finally(() => running--);
   lock = run.catch(() => {});
   return run;
 }
@@ -163,6 +168,7 @@ async function doUpdate(
     result.idModel = await doIdModelUpdate(pool, ctx, manifest, force);
     resetIdModelReadiness();
   }
+  invalidateSuggestionCache();
   return result;
 }
 

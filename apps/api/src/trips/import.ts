@@ -11,6 +11,7 @@ import { readFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { pool } from "../db.js";
+import { ensureDefaultCardCropLater } from "../collection/defaultCardCrop.js";
 import { generateDerivatives } from "../uploads/image.js";
 import { extractExif, readExifTags } from "../uploads/exif.js";
 import { computeFileFingerprint } from "../uploads/fileFingerprint.js";
@@ -123,6 +124,8 @@ export async function importTripFile(
     );
 
     await client.query("COMMIT");
+    // This photo may just have become the species' cover: frame the card on the animal.
+    ensureDefaultCardCropLater(userId, speciesId);
     // Best-effort — recorded after commit succeeds, and never allowed to fail the import
     // itself (see tripIndex.ts's own comment: losing a recovery entry just means one photo
     // needs manual reassignment after a future fresh install, not data loss now).

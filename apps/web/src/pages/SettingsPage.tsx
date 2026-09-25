@@ -2746,6 +2746,8 @@ type ReferenceVectorsResult = VectorBundle & { idModel?: VectorBundle };
 type CatalogUpdateStatus = JobStatus<{ merged: Record<string, number>; referenceVectors?: ReferenceVectorsResult | null }>;
 
 const CATALOG_PHASES: PhaseLabels = {
+  // The two jobs share one queue for reference vectors; this one is waiting its turn.
+  waiting_for_vectors: { label: "Waiting for another download to finish", progress: "none" },
   downloading: { label: "Downloading", progress: "bytes" },
   applying: { label: "Reading catalog data", progress: "bytes" },
   merging: { label: "Applying", progress: "count", countNoun: "tables", showItem: true },
@@ -3006,6 +3008,8 @@ type ModelStatus = JobStatus<{ referenceVectors: ReferenceVectorsResult | null }
 
 // The reference vectors are the second half of the same download from the user's point of view.
 const MODEL_PHASES: PhaseLabels = {
+  // The two jobs share one queue for reference vectors; this one is waiting its turn.
+  waiting_for_vectors: { label: "Waiting for another download to finish", progress: "none" },
   downloading_model: { label: "Downloading model", progress: "bytes" },
   downloading_text_model: { label: "Downloading text model", progress: "none" },
   downloading_gallery_embeddings: { label: "Downloading species reference vectors", progress: "bytes" },
