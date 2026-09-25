@@ -5,11 +5,11 @@ import type { FastifyInstance } from "fastify";
 import type { PoolClient } from "pg";
 import { pool } from "../db.js";
 import { requireAuth } from "../auth/session.js";
-import { DATA_DIR, ORIGINALS_DIR, APP_DATA_DIR, PORT, SINGLE_USER_MODE, MAPS_DIR, MAP_DOWNLOAD_URL, LIBRARY_ROOTS } from "../config.js";
-import { allowedRootFor, allowedRoots, assertAllowedPath } from "../lib/allowedPaths.js";
+import { DATA_DIR, ORIGINALS_DIR, LEGACY_ORIGINALS_DIR, APP_DATA_DIR, PORT, SINGLE_USER_MODE, MAPS_DIR, MAP_DOWNLOAD_URL, LIBRARY_ROOTS } from "../config.js";
+import { allowedRootFor, allowedRoots, assertAllowedPath, isWithin } from "../lib/allowedPaths.js";
 import { originalsFolder } from "../uploads/organizedPath.js";
 import { resolveSpeciesFolderName } from "../uploads/speciesFolderName.js";
-import { extractExif } from "../uploads/exif.js";
+import { extractExif, findSidecarPath } from "../uploads/exif.js";
 import { syncCaptureXmpSidecarsLogged } from "../uploads/xmpSidecarSync.js";
 import { resyncSpeciesMetadata } from "../captures/routes.js";
 import { readLocalSettings, writeLocalSettings } from "../localSettings.js";
@@ -783,6 +783,20 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
     const blocked = deleteLocalLibraryBlockedReason(job, unmigrated);
     if (blocked) return reply.code(409).send({ error: blocked });
 
+    // In the flat layout the library folder is one the user chose, and may hold their own files
+    // too: delete only the originals Lifer saved there (listed before their rows go), never the
+    // folder itself. The older "Lifer Photos" subfolder is Lifer's alone and is cleared whole.
+    const ownsWholeFolder = ORIGINALS_DIR === LEGACY_ORIGINALS_DIR;
+    const managedFiles = ownsWholeFolder
+      ? []
+      : (
+          await pool.query<{ ref: string }>(
+            `SELECT o.ref FROM originals o JOIN captures_all c ON c.id = o.capture_id
+             WHERE c.user_id = $1 AND o.managed = true AND o.ref_type = 'path'`,
+            [userId],
+          )
+        ).rows.map((r) => r.ref);
+
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
@@ -800,9 +814,18 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
     // touched by that delete — clear the derivative/original folders directly. Recreated
     // empty rather than removed outright, since DATA_DIR itself (and its expected
     // subfolders) needs to keep existing for the next photo this install ever gets.
-    for (const dir of [ORIGINALS_DIR, path.join(APP_DATA_DIR, "display"), path.join(APP_DATA_DIR, "thumb")]) {
+    const clearedDirs = [path.join(APP_DATA_DIR, "display"), path.join(APP_DATA_DIR, "medium"), path.join(APP_DATA_DIR, "thumb")];
+    if (ownsWholeFolder) clearedDirs.unshift(ORIGINALS_DIR);
+    for (const dir of clearedDirs) {
       rmSync(dir, { recursive: true, force: true });
       mkdirSync(dir, { recursive: true });
+    }
+    for (const file of managedFiles) {
+      if (!isWithin(path.resolve(ORIGINALS_DIR), path.resolve(file))) continue;
+      const sidecar = findSidecarPath(file);
+      rmSync(file, { force: true });
+      if (sidecar) rmSync(sidecar, { force: true });
+      removeEmptyDirsUpward(path.dirname(file), ORIGINALS_DIR);
     }
     // Pre-fix derivative caches that migrateDerivativesLocation couldn't move, if any. Not
     // recreated: nothing writes there anymore.

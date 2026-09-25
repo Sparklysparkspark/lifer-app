@@ -1,4 +1,5 @@
 import { config as loadDotenv } from "dotenv";
+import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { readLocalSettings } from "./localSettings.js";
@@ -26,12 +27,6 @@ export const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://lifer:lifer@
 // then the desktop-mode folder picker's persisted choice (see localSettings.ts/
 // settings/routes.ts — set via Settings, no env var needed), then this repo-relative default.
 export const DATA_DIR = process.env.DATA_DIR ?? readLocalSettings().dataDir ?? path.join(REPO_ROOT, "data", "lifer");
-// Full-resolution originals for "store" mode uploads (self-hosted single-user deployment).
-// Never used for "link" mode, which references a file
-// wherever it already lives instead. Named "Lifer Photos" (not the old internal "originals")
-// so it reads as a real, human-meaningful folder to browse in Finder/Explorer, not an
-// implementation detail — this is the one folder most users will ever actually look inside.
-export const ORIGINALS_DIR = path.join(DATA_DIR, "Lifer Photos");
 // App-managed shared assets (the offline basemap, the species-matching model, the catalog
 // update's download cache) that have nothing to do with any particular photo library - they're
 // the same regardless of which folder DATA_DIR currently points at, and nothing a user ever
@@ -53,6 +48,19 @@ export const ORIGINALS_DIR = path.join(DATA_DIR, "Lifer Photos");
 // the map and model would re-download after each update and thumbnails would be lost.
 export const APP_DATA_DIR =
   process.env.APP_DATA_DIR ?? (process.env.DATA_DIR ? DATA_DIR : path.join(REPO_ROOT, "data", "lifer-app-data"));
+// Full-resolution originals for "store" mode uploads. Never used for "link" mode, which references
+// a file wherever it already lives instead.
+//
+// The folder you choose IS the library: Birds, Mammals and the rest go straight into DATA_DIR.
+// Libraries from before this used a "Lifer Photos" subfolder inside it, and keep using it as long
+// as it's there, so nothing moves on its own. Moving its contents up a level (or pointing Docker's
+// /data at the "Lifer Photos" folder itself) switches to the flat layout, and
+// adoptFlatLibraryLayout updates the stored paths on the next start. Also kept when app data
+// shares the same folder (an old compose file without /app-data), so the library and Lifer's
+// cache folders never mix.
+export const LEGACY_ORIGINALS_DIR = path.join(DATA_DIR, "Lifer Photos");
+export const ORIGINALS_DIR =
+  existsSync(LEGACY_ORIGINALS_DIR) || path.resolve(APP_DATA_DIR) === path.resolve(DATA_DIR) ? LEGACY_ORIGINALS_DIR : DATA_DIR;
 // Offline basemap tiles (PMTiles — a single-file, range-requested vector tile archive from
 // Protomaps/OpenStreetMap) — not user data, so served unauthenticated like any other static
 // basemap tile source.
