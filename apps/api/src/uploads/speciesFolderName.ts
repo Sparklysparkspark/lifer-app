@@ -113,10 +113,15 @@ export async function resolveSpeciesFolderName(userId: string, speciesId: string
   // common name — once a code is appended it's already unique to this species, so two species
   // sharing a common name can't collide.
   if (composed !== commonName) return base;
-  const collision = await pool.query(`SELECT 1 FROM species WHERE common_name = $1 AND scientific_name != $2 LIMIT 1`, [
-    commonName,
-    scientificName,
-  ]);
+  // Extinct and fossil species (species_traits.fully_extinct) can never be photographed, so they
+  // don't count: a fossil osprey also named "Osprey" mustn't push the real one into
+  // "Osprey (Pandion haliaetus)".
+  const collision = await pool.query(
+    `SELECT 1 FROM species s LEFT JOIN species_traits t ON t.species_id = s.id
+     WHERE s.common_name = $1 AND s.scientific_name != $2 AND COALESCE(t.fully_extinct, false) = false
+     LIMIT 1`,
+    [commonName, scientificName],
+  );
   if (collision.rows.length === 0) return base;
   return `${base} (${scientificName})`;
 }

@@ -6,6 +6,8 @@ data/raw/
 data/build/
 *.log
 data/lifer/
+# Local dev app data (downloaded models, maps, caches): never commit.
+data/lifer-app-data/
 data/backups/
 data/junk_species_candidates.tsv
 /archive/
