@@ -15,6 +15,8 @@ Categories: `Added`, `Changed`, `Fixed`, `Removed` — omit any with nothing to 
 
 ## [Unreleased]
 
+## [0.8.2] - 2026-09-25
+
 ### Added
 
 - Settings shows which model species suggestions are using right now: the identification model
