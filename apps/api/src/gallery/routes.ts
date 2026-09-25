@@ -58,6 +58,38 @@ export const GALLERY_ITEM_JOINS = `
   ) o ON true
 `;
 
+// Search runs on every pause in typing, twice (a quick pass and a full one), and each read every
+// photo's details. Kept per user and filter set, and reused while the library is unchanged: one
+// cheap check (how many photos, when one last changed, when a vector was last computed) tells a
+// new upload, edit, rating or vector apart from nothing having happened. A minute at most, for
+// changes that don't touch a photo row (a new cover, a catalog update).
+const SEARCH_ROWS_TTL_MS = 60_000;
+const searchRowsCache = new Map<string, { stamp: string; at: number; rows: SearchRow[] }>();
+// Every photo's vector is in these rows, so they're dropped once stale instead of kept until the
+// next search replaces them.
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, hit] of searchRowsCache) if (now - hit.at >= SEARCH_ROWS_TTL_MS) searchRowsCache.delete(key);
+}, 60_000).unref();
+
+async function searchRows(userId: string, sql: string, params: unknown[]): Promise<{ rows: SearchRow[] }> {
+  const stampRes = await pool.query<{ stamp: string }>(
+    `SELECT concat_ws('|', count(*), max(c.updated_at),
+              (SELECT max(ce.computed_at) FROM capture_embeddings ce JOIN captures_all c2 ON c2.id = ce.capture_id WHERE c2.user_id = $1)) AS stamp
+       FROM captures_all c WHERE c.user_id = $1`,
+    [userId],
+  );
+  const stamp = stampRes.rows[0]?.stamp ?? "";
+  const key = `${userId}|${sql}|${JSON.stringify(params)}`;
+  const hit = searchRowsCache.get(key);
+  if (hit && hit.stamp === stamp && Date.now() - hit.at < SEARCH_ROWS_TTL_MS) return { rows: hit.rows };
+  const res = await pool.query<SearchRow>(sql, params);
+  for (const [k, v] of searchRowsCache) if (k.startsWith(`${userId}|`) && v.stamp !== stamp) searchRowsCache.delete(k);
+  if (searchRowsCache.size > 50) searchRowsCache.delete(searchRowsCache.keys().next().value!);
+  searchRowsCache.set(key, { stamp, at: Date.now(), rows: res.rows });
+  return { rows: res.rows };
+}
+
 // Places a query can name: every region your photos are in plus the regions containing them
 // ("Canada" for a photo tagged British Columbia), and the free-text locations typed at import.
 // "World" is left out: it contains everything.
@@ -113,6 +145,8 @@ export async function galleryRoutes(app: FastifyInstance): Promise<void> {
   app.get<{
     Querystring: {
       q?: string;
+      /** 1: skip picture matching and answer at once; the page follows up with the full search. */
+      quick?: string;
       onlyTopRated?: string;
       onlyFeatured?: string;
       taxa?: string;
@@ -166,7 +200,8 @@ export async function galleryRoutes(app: FastifyInstance): Promise<void> {
     ].join("\n           ");
     // LEFT JOIN on the vector: a photo without one (species matching not downloaded, or not
     // computed yet) is still found by name, group, place and date, just not by what's in it.
-    const res = await pool.query<SearchRow>(
+    const res = await searchRows(
+      userId,
       `SELECT ${GALLERY_ITEM_COLUMNS},
               c.location_label, s.common_name_aliases, s.aba_code, s.ebird_code, s.taxon_order, s.family,
               ce.computed_at::text AS embedding_computed_at
@@ -196,11 +231,12 @@ export async function galleryRoutes(app: FastifyInstance): Promise<void> {
       species: [...speciesById.values()],
       places: await searchablePlaces(userId),
       latinGroups: await latinGroupNames(),
-    });
-    const outcome = await rankSearch(q, parsed, res.rows, regionSubtree);
+    }, { partialWordPicksSpecies: request.query.quick === "1" });
+    const outcome = await rankSearch(q, parsed, res.rows, regionSubtree, { quick: request.query.quick === "1" });
     return {
       items: outcome.items.map(({ row, score }) => toGalleryItem(row, score)),
       interpretation: outcome.interpretation,
+      pending: outcome.pending ?? false,
     };
   });
 
