@@ -3,12 +3,9 @@
 import type { FastifyInstance } from "fastify";
 import { pool } from "../db.js";
 import { requireScope } from "../auth/session.js";
-import { cosineSimilarity } from "../species/embeddings.js";
-import { embedQueryText } from "../species/textEmbedding.js";
 import { EMBEDDING_MODEL_VERSION } from "../config.js";
-import { TAXON_WORD_TO_CLASS } from "./searchTaxonSynonyms.js";
-
-const SEARCH_RESULT_LIMIT = 100;
+import { parseSearchQuery, rankSearch, type PlaceEntry, type SearchRow, type SpeciesEntry } from "./photoSearch.js";
+import type { GroupPredicate } from "./searchTaxonSynonyms.js";
 
 /** Sentinel passed as `regionId` for the "Uncategorized" filter — not a real region row, just a
  *  way to ask for captures with no region set at all (so they can be found and assigned one). */
@@ -35,133 +32,6 @@ function regionMatchClause(paramIdx: number | null): string {
            )`;
 }
 
-// The embedding model is an opt-in download (Settings > Offline Data) — embedQueryText throws
-// when it isn't present. Every content-search branch below falls back to a name/quality-only
-// ranking rather than erroring the whole request, same "degrade gracefully" contract the
-// suggest-species and near-duplicate code paths already follow.
-async function tryEmbedQueryText(q: string): Promise<number[] | null> {
-  try {
-    return await embedQueryText(q);
-  } catch {
-    return null;
-  }
-}
-
-// Skipped when tokenizing a query for subject-word detection — short/connector words that
-// would otherwise either falsely "consume" as a leftover descriptor or (for very short ones)
-// risk a coincidental substring hit against an unrelated species name.
-const STOPWORDS = new Set([
-  "a",
-  "an",
-  "the",
-  "of",
-  "in",
-  "on",
-  "at",
-  "with",
-  "and",
-  "or",
-  "my",
-  "to",
-  "is",
-  "are",
-  "some",
-]);
-
-// Splits a name/alias into whole words for token-level matching — a raw substring check (the
-// previous approach) let "crow" match "Yellow-Crown Warbler" (the alias literally contains
-// "Crown", whose first four letters are "crow"), pulling warbler photos into every crow search.
-// Splitting on anything that isn't a letter/digit means a hyphenated compound name's parts
-// ("Fish-Crow") are each their own comparable word, while an embedded fragment inside a longer
-// word ("Crown") never is.
-function wordsOf(s: string): string[] {
-  return s.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean);
-}
-
-// Cheap, deliberately approximate English suffix-stripping — covers two common ways a query
-// and a name/alias can share the same root but not the same exact word: plain plurals ("foxes"
-// needs to match a species literally named "Fox", and vice versa), and the "-ed" adjectival
-// form bird names constantly use ("crowned" needs to match an alias that says "Crown" —
-// "Golden-Crowned", "Ruby-Crowned", "Red-Crowned" etc. are common real species-name patterns,
-// and "Yellow-Crown Warbler" is exactly this alias for Yellow-Rumped Warbler). Without this,
-// wording alone (plural vs singular, noun vs adjective form of the same root) silently sends a
-// query down an entirely different code path with different filtering behavior, rather than
-// being treated as a harmless variant of the exact same search. Not a real lemmatizer
-// (irregular forms aren't handled, and a short word ending in "ed"/"s" by coincidence — "Red",
-// length 3 — is protected by the length guards below rather than actually detected) — good
-// enough for the common cases this exists for, matching this codebase's existing tolerance for
-// approximate-but-useful heuristics elsewhere (word-width estimates, gap-based relevance
-// cutoffs) over a heavier, more "correct" dependency.
-function normalizeWordForm(word: string): string {
-  if (word.length > 4 && word.endsWith("ed")) return word.slice(0, -2);
-  if (word.length > 3 && word.endsWith("es")) return word.slice(0, -2);
-  if (word.length > 2 && word.endsWith("s")) return word.slice(0, -1);
-  return word;
-}
-function wordMatches(word: string, token: string): boolean {
-  return word === token || normalizeWordForm(word) === normalizeWordForm(token);
-}
-
-// Escapes regex metacharacters so a raw user query can be safely interpolated into a Postgres
-// regex pattern (used below for word-boundary matching via `~*`) without a stray `.`/`*`/`(` in
-// what's typed turning into an unintended pattern or a query error.
-function escapeRegexForPostgres(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-// Plain CLIP content search (no recognized subject, no name match) has no subject filter to
-// scope the candidate set — every capture in the library is a candidate, ranked by raw cosine
-// similarity with nothing dropped. This codebase's own testing found genuine matches can score
-// as low as ~0.19, so a fixed floor was deliberately removed (see the content-search comment
-// below) — but with NO cutoff at all, "eating" or "mouse" just re-sorted the entire gallery
-// instead of narrowing it, and a query matching NOTHING in the library (e.g. "tiger" with no
-// tiger photos) still came back with the whole gallery re-sorted rather than "no results" —
-// every capture always gets SOME nonzero similarity, so a cutoff relative only to the best
-// score in THIS result set can never come back empty, no matter how irrelevant everything is.
-//
-// A statistical outlier test fixes both problems at once: treat this query's own score
-// distribution as its noise floor, and only keep results that stand out meaningfully above it
-// (mean + Z_SCORE_THRESHOLD standard deviations), rather than a fixed floor or a ratio to the
-// top score. When a query has real matches, those scores break away from the rest of the
-// library's shared baseline and post a high z-score; when nothing in the library is actually
-// relevant, every score is just noise clustered around the same mean with low spread, so
-// nothing clears the bar and the result set is correctly empty. Worth recalibrating once
-// there's real usage to tune the threshold against, same as DESCRIPTOR_RELATIVE_CUTOFF's own
-// comment above.
-const CONTENT_SEARCH_Z_SCORE_THRESHOLD = 1.0;
-function filterToRelevantContentMatches<T extends { score: number }>(rankedDescending: T[]): T[] {
-  const n = rankedDescending.length;
-  if (n === 0) return rankedDescending;
-  const mean = rankedDescending.reduce((sum, r) => sum + r.score, 0) / n;
-  const variance = rankedDescending.reduce((sum, r) => sum + (r.score - mean) ** 2, 0) / n;
-  const stddev = Math.sqrt(variance);
-  // Zero variance means nothing here stands out from anything else — but that reads two
-  // opposite ways depending on how many candidates there are. Across the WHOLE library (large
-  // n), it means no real signal at all, so nothing should come back. But a tiny candidate set
-  // (e.g. exactly one name-matched backfill candidate) is trivially "zero variance" too (one
-  // point has nothing to differ from), and there it isn't meaningful to treat that as "nothing
-  // relevant." Failing OPEN (return everything) rather than closed when there's nothing to
-  // discriminate on is correct either way: for a real "nothing matches" query the threshold
-  // check below would have excluded everything anyway once there IS real variance to measure.
-  if (stddev === 0) return rankedDescending;
-  return rankedDescending.filter((r) => (r.score - mean) / stddev >= CONTENT_SEARCH_Z_SCORE_THRESHOLD);
-}
-
-// "600mm" (or "600 mm") is a focal-length lookup, not a name or content query — parsed out
-// before either of those paths runs. A ±FOCAL_TOLERANCE band (not an exact match) since nobody
-// remembers/means their exact focal length; ranked by closeness to the typed number.
-const FOCAL_LENGTH_PATTERN = /(\d{2,4})\s*mm\b/i;
-const FOCAL_TOLERANCE = 0.2;
-
-// Deciding "is this a name search" needs to be conservative: the species-picker's own search
-// (/species) can afford pg_trgm's default 0.3 similarity threshold for the `%` operator because
-// a bad match there just ranks low in a list the user is already scanning by eye. Here, a match
-// SWITCHES THE WHOLE SEARCH MODE — a coincidental weak trigram hit between a typed content word
-// (e.g. "flying") and some unrelated species name would silently hijack a content search into a
-// (wrong, probably empty) name search instead of ever reaching CLIP. Requiring a real substring
-// (ILIKE) or a substantially higher similarity (0.5, well above the fuzzy default) keeps short
-// content words from accidentally tripping this.
-const NAME_MATCH_MIN_SIMILARITY = 0.5;
 
 // Shared by both routes below: species/taxon columns + the RAW/original bookkeeping every
 // gallery item needs, as one string so a taxon filter or the "include RAW-derived photos"
@@ -172,7 +42,8 @@ export const GALLERY_ITEM_COLUMNS = `
   c.lat, c.lon, c.region_id, reg.name AS region_name, p.kind AS photo_kind, p.duration_seconds, c.tags,
   (p.id = us.cover_photo_id) AS is_featured,
   EXISTS (SELECT 1 FROM originals ro WHERE ro.capture_id = c.id AND ro.kind = 'raw') AS has_raw_original,
-  o.ref AS original_ref, o.managed AS original_managed, o.kind AS original_kind
+  o.ref AS original_ref, o.managed AS original_managed, o.kind AS original_kind,
+  (SELECT rr.ref FROM originals rr WHERE rr.capture_id = c.id AND rr.kind = 'raw' LIMIT 1) AS raw_ref
 `;
 export const GALLERY_ITEM_JOINS = `
   JOIN photos p ON p.id = c.current_photo_id
@@ -186,6 +57,57 @@ export const GALLERY_ITEM_JOINS = `
     SELECT * FROM originals lo WHERE lo.capture_id = c.id ORDER BY (lo.kind = 'jpeg') DESC LIMIT 1
   ) o ON true
 `;
+
+// Places a query can name: every region your photos are in plus the regions containing them
+// ("Canada" for a photo tagged British Columbia), and the free-text locations typed at import.
+// "World" is left out: it contains everything.
+async function searchablePlaces(userId: string): Promise<PlaceEntry[]> {
+  const res = await pool.query<{ kind: "region" | "location"; id: string; name: string }>(
+    `WITH RECURSIVE up AS (
+       SELECT r.id, r.name, r.parent_id FROM regions r
+        WHERE r.id IN (SELECT DISTINCT region_id FROM captures WHERE user_id = $1 AND region_id IS NOT NULL)
+       UNION
+       SELECT p.id, p.name, p.parent_id FROM regions p JOIN up ON up.parent_id = p.id
+     )
+     SELECT 'region' AS kind, id::text AS id, name FROM up WHERE parent_id IS NOT NULL
+     UNION ALL
+     SELECT DISTINCT 'location', location_label, location_label FROM captures
+      WHERE user_id = $1 AND location_label IS NOT NULL AND location_label <> ''`,
+    [userId],
+  );
+  return res.rows;
+}
+
+// Latin order and family names from the whole catalog, so "Anatidae" or "Passeriformes" is a
+// real filter (and can honestly come back empty) rather than a CLIP guess. Cached: the catalog
+// changes only on an update.
+let latinGroupCache: { at: number; map: Map<string, GroupPredicate> } | null = null;
+async function latinGroupNames(): Promise<Map<string, GroupPredicate>> {
+  if (latinGroupCache && Date.now() - latinGroupCache.at < 10 * 60_000) return latinGroupCache.map;
+  const res = await pool.query<{ kind: "order" | "family"; name: string }>(
+    `SELECT DISTINCT 'order' AS kind, lower(taxon_order) AS name FROM species WHERE taxon_order IS NOT NULL
+     UNION
+     SELECT DISTINCT 'family', lower(family) FROM species WHERE family IS NOT NULL`,
+  );
+  const map = new Map<string, GroupPredicate>();
+  for (const r of res.rows) map.set(r.name, r.kind === "order" ? { orders: [r.name] } : { families: [r.name] });
+  latinGroupCache = { at: Date.now(), map };
+  return map;
+}
+
+// A region and everything inside it, for a place named in a query.
+async function regionSubtree(regionIds: string[]): Promise<Set<string>> {
+  const res = await pool.query<{ id: string }>(
+    `WITH RECURSIVE down AS (
+       SELECT id FROM regions WHERE id = ANY($1::uuid[])
+       UNION
+       SELECT r.id FROM regions r JOIN down d ON r.parent_id = d.id
+     )
+     SELECT id::text AS id FROM down`,
+    [regionIds],
+  );
+  return new Set(res.rows.map((r) => r.id));
+}
 
 export async function galleryRoutes(app: FastifyInstance): Promise<void> {
   app.get<{
@@ -207,429 +129,78 @@ export async function galleryRoutes(app: FastifyInstance): Promise<void> {
     const userId = request.user!.id;
     const q = request.query.q?.trim();
     if (!q) return { items: [] };
-    // Same filters as the plain (unsearched) /gallery listing — previously only taxa/includeRaw
-    // were honored here, so switching to a text search silently dropped whatever Top rated /
-    // Featured filter was already checked, with no indication the search had widened past them.
+    // The same filters as the plain /gallery listing, so a search never silently widens past
+    // whatever Top rated / Featured / taxa / date / region filter is already checked.
     const onlyTopRated = request.query.onlyTopRated === "1";
     const onlyFeatured = request.query.onlyFeatured === "1";
     const taxa = request.query.taxa?.split(",").filter(Boolean) ?? [];
-    // Defaults to including everything — this only narrows the result set when the caller
-    // explicitly asks to hide RAW-derived photos, never silently drops photos by default.
     const includeRaw = request.query.includeRaw !== "0";
-    // Distinct from includeRaw: that one hides a capture only when RAW is its WINNING/displayed
-    // original (no JPEG sibling exists at all). These two are "does this capture have a RAW
-    // attached at all" (GALLERY_ITEM_COLUMNS' own has_raw_original) — for finding captures with
-    // no RAW backing them whatsoever, JPEG-only or video, or the opposite: only captures that do
-    // have one.
     const excludeHasRaw = request.query.excludeHasRaw === "1";
     const onlyHasRaw = request.query.onlyHasRaw === "1";
-    const hasRawClause = excludeHasRaw
-      ? "AND NOT EXISTS (SELECT 1 FROM originals hr WHERE hr.capture_id = c.id AND hr.kind = 'raw')"
-      : onlyHasRaw
-        ? "AND EXISTS (SELECT 1 FROM originals hr WHERE hr.capture_id = c.id AND hr.kind = 'raw')"
-        : "";
     const onlyVideo = request.query.onlyVideo === "1";
     const excludeVideo = request.query.excludeVideo === "1";
-    const videoClause = onlyVideo ? "AND p.kind = 'video'" : excludeVideo ? "AND p.kind IS DISTINCT FROM 'video'" : "";
     const dateFrom = request.query.dateFrom || null;
     const dateTo = request.query.dateTo || null;
     const regionId = request.query.regionId || null;
     const isUncategorized = regionId === UNCATEGORIZED_REGION_ID;
-    const ratingFeaturedClause = `${onlyTopRated ? "AND c.quality_rating = 5" : ""} ${onlyFeatured ? "AND p.id = us.cover_photo_id" : ""}`;
 
-    const focalMatch = q.match(FOCAL_LENGTH_PATTERN);
-    if (focalMatch) {
-      const target = Number(focalMatch[1]);
-      const focalParams: unknown[] = [userId, target, FOCAL_TOLERANCE];
-      if (taxa.length > 0) focalParams.push(taxa);
-      const focalTaxaIdx = taxa.length > 0 ? focalParams.length : null;
-      if (dateFrom) focalParams.push(dateFrom);
-      const focalDateFromIdx = dateFrom ? focalParams.length : null;
-      if (dateTo) focalParams.push(dateTo);
-      const focalDateToIdx = dateTo ? focalParams.length : null;
-      if (regionId && !isUncategorized) focalParams.push(regionId);
-      const focalRegionIdx = regionId && !isUncategorized ? focalParams.length : null;
-      const res = await pool.query(
-        `SELECT ${GALLERY_ITEM_COLUMNS}
-           FROM captures c
-           ${GALLERY_ITEM_JOINS}
-           WHERE c.user_id = $1
-             AND c.focal_length_mm IS NOT NULL
-             AND c.focal_length_mm BETWEEN $2 * (1 - $3) AND $2 * (1 + $3)
-             ${ratingFeaturedClause}
-             ${focalTaxaIdx ? `AND s.taxon_class = ANY($${focalTaxaIdx})` : ""}
-             ${focalDateFromIdx ? `AND c.taken_at >= $${focalDateFromIdx}::date` : ""}
-             ${focalDateToIdx ? `AND c.taken_at < ($${focalDateToIdx}::date + INTERVAL '1 day')` : ""}
-             ${isUncategorized ? "AND c.region_id IS NULL" : regionMatchClause(focalRegionIdx)}
-             ${includeRaw ? "" : "AND o.kind IS DISTINCT FROM 'raw'"}
-             ${videoClause}
-             ${hasRawClause}`,
-        focalParams,
-      );
-      const scored = res.rows
-        .map((row) => ({ row, score: 1 - Math.abs(Number(row.focal_length_mm) - target) / target }))
-        .sort((a, b) => b.score - a.score);
-      return { items: scored.slice(0, SEARCH_RESULT_LIMIT).map(({ row, score }) => toGalleryItem(row, score)) };
-    }
-
-    // Postgres's `\y` is a word-boundary anchor (like `\b` elsewhere) — matching "crow" against
-    // this instead of a raw `ILIKE '%crow%'` is what stops it from matching inside "Crown" (the
-    // boundary right after "crow" only exists when the next character isn't itself a word
-    // character, which is true in "Crow" but not in "Crown"). $2 (the raw query) still feeds
-    // the fuzzy-typo `similarity()` calls below unchanged — only the literal/exact checks move
-    // to this word-bounded pattern.
-    const wordBoundaryPattern = `\\y${escapeRegexForPostgres(q)}\\y`;
-    // Fuzzy trigram similarity is only a meaningful "did they mean this" signal for a SINGLE
-    // typo'd word ("pilated" for "Pileated") — pg_trgm's similarity() scores the WHOLE query
-    // string against the WHOLE name as one blob, so a multi-word query sharing just one real
-    // word with an unrelated species inflates the combined score even when the other word(s)
-    // don't correspond at all. Confirmed live: similarity('common hawk', 'Common Nighthawk')
-    // scores 0.53 — comfortably over the 0.5 floor — purely because they share "common"; Common
-    // Nighthawk isn't a hawk and was never the intended match. Disabling the fuzzy clause for
-    // any multi-word query (by handing it a threshold no real similarity() score can reach)
-    // leaves it doing what it was actually designed for — single-word typo tolerance — without
-    // multi-word queries hijacking it via a partial, coincidental word overlap.
-    const nameMatchMinSimilarity = /\s/.test(q.trim()) ? 2 : NAME_MATCH_MIN_SIMILARITY;
-    // `\m` is a word-START anchor only (no matching anchor required at the end) — this is what
-    // still lets "pil" find "Pileated Woodpecker" (a genuinely truncated, still-being-typed
-    // word) even though it's not a whole word on its own. Used ONLY as a fallback tier in JS
-    // below, consulted exclusively when nothing matched at the stronger word-boundary tier —
-    // "crow" already whole-word-matches "American Crow", so this prefix tier (which "crow" would
-    // ALSO match against "Crowned" — a prefix match doesn't know the difference) never even gets
-    // consulted for that query. Only a query with no real whole-word competitor falls back to it.
-    const prefixPattern = `\\m${escapeRegexForPostgres(q)}`;
-    const searchParams: unknown[] = [userId, q, EMBEDDING_MODEL_VERSION, nameMatchMinSimilarity, wordBoundaryPattern, prefixPattern];
-    if (taxa.length > 0) searchParams.push(taxa);
-    if (dateFrom) searchParams.push(dateFrom);
-    const dateFromParamIdx = dateFrom ? searchParams.length : null;
-    if (dateTo) searchParams.push(dateTo);
-    const dateToParamIdx = dateTo ? searchParams.length : null;
-    if (regionId && !isUncategorized) searchParams.push(regionId);
-    const regionParamIdx = regionId && !isUncategorized ? searchParams.length : null;
-    const res = await pool.query(
+    const params: unknown[] = [userId, EMBEDDING_MODEL_VERSION];
+    const param = (v: unknown) => {
+      params.push(v);
+      return `$${params.length}`;
+    };
+    const where = [
+      onlyTopRated ? "AND c.quality_rating = 5" : "",
+      onlyFeatured ? "AND p.id = us.cover_photo_id" : "",
+      taxa.length > 0 ? `AND s.taxon_class = ANY(${param(taxa)})` : "",
+      dateFrom ? `AND c.taken_at >= ${param(dateFrom)}::date` : "",
+      dateTo ? `AND c.taken_at < (${param(dateTo)}::date + INTERVAL '1 day')` : "",
+      isUncategorized ? "AND c.region_id IS NULL" : regionId ? regionMatchClause(Number(param(regionId).slice(1))) : "",
+      includeRaw ? "" : "AND o.kind IS DISTINCT FROM 'raw'",
+      onlyVideo ? "AND p.kind = 'video'" : excludeVideo ? "AND p.kind IS DISTINCT FROM 'video'" : "",
+      excludeHasRaw
+        ? "AND NOT EXISTS (SELECT 1 FROM originals hr WHERE hr.capture_id = c.id AND hr.kind = 'raw')"
+        : onlyHasRaw
+          ? "AND EXISTS (SELECT 1 FROM originals hr WHERE hr.capture_id = c.id AND hr.kind = 'raw')"
+          : "",
+    ].join("\n           ");
+    // LEFT JOIN on the vector: a photo without one (species matching not downloaded, or not
+    // computed yet) is still found by name, group, place and date, just not by what's in it.
+    const res = await pool.query<SearchRow>(
       `SELECT ${GALLERY_ITEM_COLUMNS},
-                ce.embedding,
-                s.common_name_aliases, s.aba_code, s.ebird_code, s.taxon_order,
-                (
-                  s.common_name ~* $5 OR s.scientific_name ~* $5
-                  OR EXISTS (SELECT 1 FROM unnest(s.common_name_aliases) a WHERE a ~* $5)
-                  OR upper(s.aba_code) = upper($2) OR upper(s.ebird_code) = upper($2)
-                ) AS literal_match,
-                (
-                  s.common_name ~* $5 OR s.scientific_name ~* $5
-                  OR EXISTS (SELECT 1 FROM unnest(s.common_name_aliases) a WHERE a ~* $5)
-                  OR similarity(s.common_name, $2) >= $4 OR similarity(s.scientific_name, $2) >= $4
-                  OR EXISTS (SELECT 1 FROM unnest(s.common_name_aliases) a WHERE similarity(a, $2) >= $4)
-                  OR upper(s.aba_code) = upper($2) OR upper(s.ebird_code) = upper($2)
-                ) AS name_match,
-                (
-                  s.common_name ~* $6 OR s.scientific_name ~* $6
-                  OR EXISTS (SELECT 1 FROM unnest(s.common_name_aliases) a WHERE a ~* $6)
-                ) AS prefix_match,
-                GREATEST(
-                  similarity(s.common_name, $2),
-                  similarity(s.scientific_name, $2),
-                  COALESCE((SELECT MAX(similarity(a, $2)) FROM unnest(s.common_name_aliases) a), 0),
-                  CASE WHEN upper(s.aba_code) = upper($2) OR upper(s.ebird_code) = upper($2) THEN 1 ELSE 0 END
-                ) AS name_score
+              c.location_label, s.common_name_aliases, s.aba_code, s.ebird_code, s.taxon_order, s.family,
+              ce.computed_at::text AS embedding_computed_at
          FROM captures c
          ${GALLERY_ITEM_JOINS}
-         JOIN capture_embeddings ce ON ce.capture_id = c.id AND ce.model_version = $3
+         LEFT JOIN capture_embeddings ce ON ce.capture_id = c.id AND ce.model_version = $2
          WHERE c.user_id = $1
-           ${ratingFeaturedClause}
-           ${taxa.length > 0 ? "AND s.taxon_class = ANY($7)" : ""}
-           ${dateFrom ? `AND c.taken_at >= $${dateFromParamIdx}::date` : ""}
-           ${dateTo ? `AND c.taken_at < ($${dateToParamIdx}::date + INTERVAL '1 day')` : ""}
-           ${isUncategorized ? "AND c.region_id IS NULL" : regionMatchClause(regionParamIdx)}
-           ${includeRaw ? "" : "AND o.kind IS DISTINCT FROM 'raw'"}
-           ${videoClause}
-           ${hasRawClause}`,
-      searchParams,
+           ${where}`,
+      params,
     );
 
-    // A capture's own free-text tags (set via Gallery's "Add tag" flow) are a direct, user-
-    // authored signal of what's actually in a photo. Previously tags were only ever consulted
-    // as an exact-match FILTER (the plain /gallery listing's `tag` param) — never as a search
-    // signal here — so a query like "yellow flower" that names neither a species nor a taxon
-    // class had no way to surface a photo the user themselves tagged "yellow flower", since
-    // CLIP's cross-modal similarity against a short color+subject phrase isn't reliably strong.
-    // Treated with the same "definite, not coincidental" weight as a literal name match below.
-    const normalizedQuery = q.trim().toLowerCase();
-    for (const row of res.rows) {
-      const tags = (row.tags as string[] | null) ?? [];
-      (row as Record<string, unknown>).tag_match = tags.some((t) => {
-        const nt = t.trim().toLowerCase();
-        return nt.length > 0 && (nt === normalizedQuery || nt.includes(normalizedQuery) || normalizedQuery.includes(nt));
+    const speciesById = new Map<string, SpeciesEntry>();
+    for (const r of res.rows) {
+      if (speciesById.has(r.species_id)) continue;
+      speciesById.set(r.species_id, {
+        id: r.species_id,
+        commonName: r.common_name,
+        scientificName: r.scientific_name,
+        taxonClass: r.taxon_class,
+        taxonOrder: r.taxon_order,
+        family: r.family,
+        aliases: (r.common_name_aliases as string[] | null) ?? [],
+        codes: [r.aba_code, r.ebird_code].filter((c): c is string => typeof c === "string" && c.length > 0),
       });
     }
-
-    // A THIRD kind of query embeds a real subject alongside a scene description — "fox playing",
-    // "water aves" — that neither the name-match path below (the whole string never literally
-    // names a species) nor a bare content search (ranks the ENTIRE library, so an unrelated
-    // photo that happens to score well against "playing" can still surface a bird for a fox
-    // query) handles correctly. Every capture already carries a definitively known species/
-    // taxon_class — used here as a hard, exact filter before CLIP ever runs, rather than as
-    // just another ranking signal, so an off-subject photo is excluded outright instead of
-    // merely ranked lower. A query with no recognized subject word at all (e.g. "sunset") falls
-    // through untouched to the ordinary content search below. A query that's ENTIRELY a subject
-    // (just "fox", or "aves") is also handled right here (sorted like an ordinary name match,
-    // just without that path's fuzzy-typo trigram fallback) rather than falling through — a
-    // typo'd single-species search (no literal substring match) is the one case that still needs
-    // the old path's trigram tolerance, and it does: hasSubject stays false for that case.
-    //
-    // Only reached when the query ISN'T already a name match on its own — "common nighthawk" is
-    // a real bug this guards against: BOTH "common" (matches every "Common ___" species) and
-    // "nighthawk" (matches Common Nighthawk) are independently real whole-word subject hits, so
-    // per-token matching below unions them into "every Common-anything species," exactly the
-    // same broad list plain "common" alone returns — drowning out the tight, correct answer the
-    // whole-query name-match path below would give ("Common Nighthawk" literally IS the name).
-    // A multi-word species name should resolve as ONE compound match, not several independent
-    // single-word subjects OR'd together, and the name-match path already does exactly that
-    // (it tests the query as one literal phrase) — so it gets first refusal whenever it has a
-    // real answer, and this block is the fallback for when it doesn't.
-    const hasWholeQueryNameMatch = res.rows.some((row) => row.name_match);
-    if (!hasWholeQueryNameMatch) {
-      const rawTokens = q
-        .toLowerCase()
-        .replace(/[^\p{L}\p{N}\s]/gu, " ")
-        .split(/\s+/)
-        .filter(Boolean);
-      // Recognized against the WHOLE catalog's real taxon_order values, not just species
-      // already present in this user's gallery — a query for a real scientific order the user
-      // genuinely has zero photos of (e.g. "Passeriformes" with no passerine captures at all)
-      // still needs to resolve as a hard subject filter with a legitimately EMPTY result, not
-      // fall through to CLIP (see the taxon_order check below for why that matters).
-      const knownTaxonOrders = new Set(
-        (await pool.query<{ taxon_order: string }>(`SELECT DISTINCT lower(taxon_order) AS taxon_order FROM species WHERE taxon_order IS NOT NULL`))
-          .rows.map((r) => r.taxon_order),
-      );
-      const matchedTaxonClasses = new Set<string>();
-      const matchedTaxonOrders = new Set<string>();
-      const matchedSpeciesIds = new Set<string>();
-      const subjectTokenIndexes = new Set<number>();
-      for (let i = 0; i < rawTokens.length; i++) {
-        const token = rawTokens[i];
-        if (STOPWORDS.has(token) || token.length < 3) continue;
-        const bigram = i + 1 < rawTokens.length ? `${token} ${rawTokens[i + 1]}` : null;
-        const taxonClass = (bigram && TAXON_WORD_TO_CLASS.get(bigram)) || TAXON_WORD_TO_CLASS.get(token);
-        if (taxonClass) {
-          matchedTaxonClasses.add(taxonClass);
-          subjectTokenIndexes.add(i);
-          if (bigram && TAXON_WORD_TO_CLASS.get(bigram)) subjectTokenIndexes.add(i + 1);
-          continue;
-        }
-        // A real scientific taxonomic order (e.g. "Passeriformes", "Anseriformes") is a single
-        // word with an exact, known value in species.taxon_order — checked as a hard subject
-        // filter same as a species name, rather than falling through to CLIP. CLIP's text
-        // encoder has no reliable grasp of Latin taxonomy (unlike an ordinary English word), so
-        // without this an order name with zero real matches in the library still fell through to
-        // the no-floor content-search path below and returned essentially arbitrary photos —
-        // whatever happened to score as a relative outlier in a small sample, not a real match.
-        // This lets "results can be empty" actually hold for this whole class of query.
-        if (knownTaxonOrders.has(token)) {
-          matchedTaxonOrders.add(token);
-          subjectTokenIndexes.add(i);
-          continue;
-        }
-        // Species-name token match against species already present in this result set — a
-        // capture's own row already carries its species' common/scientific name (and aliases —
-        // old names, alternate spellings — the same three fields the whole-query name-match
-        // path below checks), so this needs no extra query. WHOLE-WORD match (not raw substring)
-        // at the token level: a plain substring check made "crow" match the alias "Yellow-Crown
-        // Warbler" (the first four letters of "Crown"), pulling every warbler photo into a Crow
-        // search — exact-enough for real words like "fox"/"duck" still works fine as a whole-
-        // word match, and the whole-query trigram path below still covers a typo'd single-
-        // species search.
-        let matchedAny = false;
-        for (const row of res.rows) {
-          const common = String(row.common_name ?? "").toLowerCase();
-          const sci = String(row.scientific_name ?? "").toLowerCase();
-          const aliases = (row.common_name_aliases as string[] | null) ?? [];
-          // ABA/eBird codes are short, exact identifiers, not prose — an equality check (not a
-          // substring one) so a 4-letter code doesn't spuriously match as a fragment of some
-          // unrelated longer word elsewhere in the query.
-          const abaCode = String(row.aba_code ?? "").toLowerCase();
-          const ebirdCode = String(row.ebird_code ?? "").toLowerCase();
-          if (
-            wordsOf(common).some((w) => wordMatches(w, token)) ||
-            wordsOf(sci).some((w) => wordMatches(w, token)) ||
-            aliases.some((a) => wordsOf(a).some((w) => wordMatches(w, token))) ||
-            (abaCode && abaCode === token) ||
-            (ebirdCode && ebirdCode === token)
-          ) {
-            matchedSpeciesIds.add(String(row.species_id));
-            matchedAny = true;
-          }
-        }
-        // Fallback tier, consulted only when this specific token matched NO whole word at all —
-        // a genuinely truncated word being typed ("pil" for "Pileated Woodpecker") has no
-        // whole-word competitor here to lose to, so a prefix match is trusted the same way. A
-        // token that DID whole-word-match (like "crow" against "American Crow") never reaches
-        // this, so it can't also pull in "Yellow-Crowned Warbler" via the "crow" ⊂ "Crowned"
-        // prefix overlap the way a plain substring check would.
-        if (!matchedAny) {
-          for (const row of res.rows) {
-            const common = String(row.common_name ?? "").toLowerCase();
-            const sci = String(row.scientific_name ?? "").toLowerCase();
-            const aliases = (row.common_name_aliases as string[] | null) ?? [];
-            if (
-              wordsOf(common).some((w) => w.startsWith(token)) ||
-              wordsOf(sci).some((w) => w.startsWith(token)) ||
-              aliases.some((a) => wordsOf(a).some((w) => w.startsWith(token)))
-            ) {
-              matchedSpeciesIds.add(String(row.species_id));
-              matchedAny = true;
-            }
-          }
-        }
-        if (matchedAny) subjectTokenIndexes.add(i);
-      }
-      const hasSubject = matchedTaxonClasses.size > 0 || matchedSpeciesIds.size > 0 || matchedTaxonOrders.size > 0;
-      const hasLeftoverDescriptor = rawTokens.some(
-        (token, i) => token.length >= 3 && !STOPWORDS.has(token) && !subjectTokenIndexes.has(i),
-      );
-      if (hasSubject) {
-        const candidates = res.rows.filter(
-          (row) =>
-            matchedSpeciesIds.has(String(row.species_id)) ||
-            matchedTaxonClasses.has(String(row.taxon_class)) ||
-            matchedTaxonOrders.has(String(row.taxon_order ?? "").toLowerCase()),
-        );
-        let scored: Array<{ row: (typeof res.rows)[number]; score: number }>;
-        if (!hasLeftoverDescriptor) {
-          // Pure subject query ("fox", "water birds" minus "water" not recognized — falls
-          // here too) — no scene description to rank by, so sort the same way an ordinary
-          // name-match result does.
-          scored = candidates
-            .map((row) => ({ row, score: 1 }))
-            .sort((a, b) => (b.row.quality_rating ?? 0) - (a.row.quality_rating ?? 0));
-        } else {
-          const queryEmbedding = await tryEmbedQueryText(q);
-          // Rank ALL subject-matched candidates by descriptor score — no cutoff. Two different
-          // statistical filters were tried and tested against real data here (a z-score test,
-          // then a largest-score-gap test), and EACH broke on a different near-synonymous
-          // rewording of the exact same query: the z-score test dropped real fox photos between
-          // "fox play" and "fox playing" (its own mean/spread shifted enough to flip which
-          // photos cleared it); the gap test then fixed that case, but broke on "fox playing"
-          // vs "foxes playing" instead — confirmed live, same 11 candidate fox photos, but
-          // "foxes playing" scored one photo so much higher than the rest that the "real" gap
-          // landed in a completely different place, keeping only 1 of the photos "fox playing"
-          // correctly kept 8 of. That's not a bug in either filter individually — it's evidence
-          // that CLIP's cross-modal similarity for near-synonymous text against a small,
-          // visually homogeneous candidate set (11 photos of one species) just doesn't have a
-          // stable, wording-independent separation margin to threshold on. A third heuristic
-          // would likely break on the next paraphrase too. Every candidate here is ALREADY a
-          // confirmed real subject match — showing all of them, best descriptor match first,
-          // means wording can shift the ORDER but can never make a real photo silently vanish.
-          scored = queryEmbedding
-            ? candidates
-                .map((row) => ({ row, score: cosineSimilarity(queryEmbedding, row.embedding) }))
-                .sort((a, b) => b.score - a.score)
-            : candidates
-                .map((row) => ({ row, score: 1 }))
-                .sort((a, b) => (b.row.quality_rating ?? 0) - (a.row.quality_rating ?? 0));
-        }
-        const limited = scored.slice(0, SEARCH_RESULT_LIMIT);
-        return { items: limited.map(({ row, score }) => toGalleryItem(row, score)) };
-      }
-    }
-
-    // Two different kinds of query need two different matching strategies: "pil" or "mallard"
-    // are NAME lookups (the user knows what species they want), while "fox playing" is a
-    // CONTENT lookup (no species is literally named that). Pure semantic (CLIP) matching got
-    // both wrong — a short/partial name string isn't a meaningful phrase to CLIP's text
-    // encoder, so "pil" scored better against an unrelated fox photo than the actual Pileated
-    // Woodpecker.
-    //
-    // A hard minimum-similarity floor was tried here to keep a name search's tail from
-    // reading as "unrelated photos in my results" — but CLIP's raw cosine similarities for
-    // genuinely correct matches run much lower than intuition suggests (a real fox-eating-prey
-    // photo scored ~0.19 against "eating" in testing) — well below any floor that would
-    // meaningfully trim noise, so a floor just silently deleted real matches instead. Removed:
-    // rank order (not the absolute score) is what actually matters for semantic search.
-    //
-    // Name and content matches are NOT always mutually exclusive, even though a query only
-    // ever triggers one search MODE. Treating them as always exclusive was a real bug:
-    // searching "mouse" hit name_match for every actual Mouse-species photo (common names
-    // routinely contain ordinary words like this), which used to skip CLIP scoring entirely —
-    // so a fox-eating-a-mouse photo (species: Red Fox, not any "Mouse" species) never got a
-    // chance to match on its actual content.
-    //
-    // But backfilling content matches unconditionally swung too far the other way: "duck"
-    // legitimately matches a couple dozen real Duck-species photos by name, and appending
-    // every OTHER photo's (noisy, no-floor — see above) content score just to fill out the
-    // tail buried real results under irrelevant ones for no benefit — there was never a gap to
-    // fill in that case. Only backfill when name matches are actually sparse, which is the
-    // real shape of the problem this exists for (a query that coincidentally substring-matches
-    // one or two species names, where those matches alone don't reflect what was probably
-    // meant). Name matches still always rank first when present, sparse or not.
-    const SPARSE_NAME_MATCH_THRESHOLD = 5;
-    const hasNameMatch = res.rows.some((row) => row.name_match || row.tag_match);
-    let scored: Array<{ row: (typeof res.rows)[number]; score: number }>;
-    if (hasNameMatch) {
-      const nameMatched = res.rows
-        .filter((row) => row.name_match || row.tag_match)
-        .map((row) => ({ row, score: row.name_match ? Number(row.name_score) : 1 }))
-        .sort((a, b) => b.score - a.score || (b.row.quality_rating ?? 0) - (a.row.quality_rating ?? 0));
-      // A LITERAL match (the query is an actual substring of the name/alias, or an exact ABA/
-      // eBird code) is never coincidental — it's a real, deliberate species lookup regardless of
-      // how few photos happen to match it. Searching "crow" with only 2 American Crow photos
-      // used to still count as "sparse" and backfill the rest of the library ranked by CLIP
-      // similarity to the bare word "crow" — which is exactly how an unrelated Yellow-Rumped
-      // Warbler photo once outscored real content and got appended. The sparseness heuristic
-      // below is only meant for the OTHER kind of name_match: a fuzzy trigram hit with no literal
-      // substring at all (a typo'd search like "pilated" for "Pileated"), where a coincidental,
-      // not-actually-intended match really is possible. name_match's own fuzzy-only case is what
-      // stays gated by count; a literal hit always stands on its own.
-      const hasLiteralMatch = nameMatched.some(({ row }) => row.literal_match || row.tag_match);
-      if (!hasLiteralMatch && nameMatched.length < SPARSE_NAME_MATCH_THRESHOLD) {
-        const nameMatchedIds = new Set(nameMatched.map(({ row }) => row.capture_id));
-        const queryEmbedding = await tryEmbedQueryText(q);
-        // No model available — the name matches already found still stand on their own, just
-        // without a content-search tail to backfill sparse results with.
-        const contentMatched = queryEmbedding
-          ? filterToRelevantContentMatches(
-              res.rows
-                .filter((row) => !nameMatchedIds.has(row.capture_id))
-                .map((row) => ({ row, score: cosineSimilarity(queryEmbedding, row.embedding) }))
-                .sort((a, b) => b.score - a.score),
-            )
-          : [];
-        scored = [...nameMatched, ...contentMatched];
-      } else {
-        scored = nameMatched;
-      }
-    } else if (res.rows.some((row) => row.prefix_match)) {
-      // Fallback tier, only ever consulted when NOTHING matched at the whole-word/fuzzy/code
-      // tier above — a genuinely truncated, still-being-typed word ("pil" for "Pileated
-      // Woodpecker") has no whole-word competitor to lose to here, so it's trusted the same way
-      // a literal match is (no sparse-count gate, no CLIP backfill needed). This is deliberately
-      // the LAST resort, not an equal alternative to name_match: prefix_match's own SQL, on its
-      // own, would ALSO match "crow" against "Crowned" — but that query already resolved via the
-      // whole-word tier above and never reaches this branch at all, which is what keeps this
-      // fallback safe to have.
-      scored = res.rows
-        .filter((row) => row.prefix_match)
-        .map((row) => ({ row, score: 1 }))
-        .sort((a, b) => (b.row.quality_rating ?? 0) - (a.row.quality_rating ?? 0));
-    } else {
-      const queryEmbedding = await tryEmbedQueryText(q);
-      // No name match AND no model available means this query genuinely can't be answered —
-      // an empty result is honest here, not a bug (the frontend distinguishes this from "no
-      // results" via the embeddingModelAvailable status the Gallery page already checks before
-      // showing its search box's placeholder copy).
-      scored = queryEmbedding
-        ? filterToRelevantContentMatches(
-            res.rows
-              .map((row) => ({ row, score: cosineSimilarity(queryEmbedding, row.embedding) }))
-              .sort((a, b) => b.score - a.score),
-          )
-        : [];
-    }
-    const limited = scored.slice(0, SEARCH_RESULT_LIMIT);
-
+    const parsed = parseSearchQuery(q, {
+      species: [...speciesById.values()],
+      places: await searchablePlaces(userId),
+      latinGroups: await latinGroupNames(),
+    });
+    const outcome = await rankSearch(q, parsed, res.rows, regionSubtree);
     return {
-      items: limited.map(({ row, score }) => toGalleryItem(row, score)),
+      items: outcome.items.map(({ row, score }) => toGalleryItem(row, score)),
+      interpretation: outcome.interpretation,
     };
   });
 
@@ -811,6 +382,7 @@ export function toGalleryItem(row: Record<string, unknown>, score: number | null
     originalRef: row.original_ref,
     originalManaged: row.original_managed,
     originalKind: row.original_kind,
+    rawRef: row.raw_ref ?? null,
     matchScore: score,
   };
 }
