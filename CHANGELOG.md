@@ -15,6 +15,8 @@ Categories: `Added`, `Changed`, `Fixed`, `Removed` — omit any with nothing to 
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-09-25
+
 ### Added
 
 - Archived species, species hidden from a region, "seen" marks and targets are now also kept in
