@@ -37,4 +37,5 @@ export interface AlbumPhoto {
   originalRef?: string | null;
   originalManaged?: boolean | null;
   originalKind?: string | null;
+  rawRef?: string | null;
 }

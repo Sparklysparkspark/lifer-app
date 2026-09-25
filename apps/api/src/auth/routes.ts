@@ -6,6 +6,7 @@ import { createSession, destroySession, getSessionUser, requireAuth } from "./se
 import { clearAttempts, isRateLimited, recordAttempt } from "./rateLimiter.js";
 import { sendMail } from "../email/mailer.js";
 import { APP_URL } from "../config.js";
+import { tryRestoreCollectionStateOnce } from "../lib/collectionState.js";
 
 interface RegisterBody {
   email?: string;
@@ -135,6 +136,9 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
 
   app.get("/auth/me", async (request) => {
     const user = await getSessionUser(request);
+    // A fresh install's user first appears here: bring back its archived/hidden/seen/target
+    // species from the library's record, if there is one (lib/collectionState.ts).
+    if (user) tryRestoreCollectionStateOnce(user.id);
     return { user };
   });
 

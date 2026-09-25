@@ -1,7 +1,9 @@
 import path from "node:path";
+import { constants as zlibConstants } from "node:zlib";
 import { existsSync, mkdirSync } from "node:fs";
 import Fastify from "fastify";
 import cookie from "@fastify/cookie";
+import compress from "@fastify/compress";
 import multipart from "@fastify/multipart";
 import staticFiles from "@fastify/static";
 import { MAX_UPLOAD_BYTES, MAX_UPLOAD_REQUEST_BYTES, PORT, SINGLE_USER_MODE, WEB_DIST_DIR, MAPS_DIR, TRUST_PROXY } from "./config.js";
@@ -19,6 +21,7 @@ import { regionRoutes } from "./regions/routes.js";
 import { importRoutes } from "./imports/routes.js";
 import { settingsRoutes, recoverInterruptedStorageMigration } from "./settings/routes.js";
 import { migrateDerivativesLocation } from "./uploads/migrateDerivativesLocation.js";
+import { adoptFlatLibraryLayout } from "./uploads/adoptFlatLibraryLayout.js";
 import { syncLibraryRootsFromEnv } from "./storageVolumes/syncLibraryRoots.js";
 import { offlinePacksRoutes } from "./offlinePacks/routes.js";
 import { archiveRoutes } from "./archive/routes.js";
@@ -33,14 +36,19 @@ import { runEmbeddingBackfill } from "./species/embeddingBackfill.js";
 import { seedCatalogIfEmpty } from "./species/catalogSeedUpdate.js";
 import { ensureGalleryEmbeddingsOnStartup } from "./species/galleryEmbeddingsAsset.js";
 import { ensureIdModelOnStartup } from "./species/modelDownloadJob.js";
+import { integrationRoutes } from "./integrations/routes.js";
 import { pool } from "./db.js";
 import { friendlyFsErrorMessage } from "./lib/friendlyFsError.js";
+import { startEventLoopWatchdog } from "./lib/eventLoopWatchdog.js";
+import { watchLibraryFolder } from "./lib/libraryFolder.js";
+import { registerCollectionStateSaving, syncCollectionStateOnStartup } from "./lib/collectionState.js";
 
 // Checked before anything else starts, so an interrupted storage-location move (see
 // settings/routes.ts) gets resolved one way or the other before the app serves a single
 // request against a possibly-inconsistent DATA_DIR.
 await recoverInterruptedStorageMigration();
 await migrateDerivativesLocation();
+await adoptFlatLibraryLayout();
 await syncLibraryRootsFromEnv();
 
 // Force-quitting the desktop app (or a crash) sends SIGKILL straight to the Tauri process
@@ -70,6 +78,11 @@ if (Number.isInteger(watchParentPid) && watchParentPid > 0) {
 // comment: a batch upload of many RAW files needed a much larger ceiling than any one file).
 // Fastify accepts a hop count at runtime (lib/request.js) but its typings omit number.
 const app = Fastify({ logger: true, bodyLimit: MAX_UPLOAD_REQUEST_BYTES, trustProxy: TRUST_PROXY as boolean | string[] });
+
+// Restarts the server if it ever freezes, instead of leaving the page down until a manual restart.
+startEventLoopWatchdog(app);
+// Keeps archived/hidden/seen/target species in the library too, so a fresh install gets them back.
+registerCollectionStateSaving(app);
 
 // DNS-rebinding guard: in desktop mode every request is the local user, so a web page that
 // rebinds its own hostname to 127.0.0.1 must not be able to talk to us. Only loopback Host
@@ -101,6 +114,17 @@ app.setErrorHandler((err, _request, reply) => {
 });
 
 await app.register(cookie);
+// Compress JSON, JS and CSS for a server reached over a network (the gallery's photo list and the
+// app's own code are over a megabyte each, and shrink by about 85%). Photos are already
+// compressed and are skipped. Off in desktop mode: there the browser and server are on the same
+// machine, so it would only cost CPU. Brotli at level 5 is nearly as small as its maximum and far
+// faster to produce on a NAS.
+if (!SINGLE_USER_MODE) {
+  await app.register(compress, {
+    threshold: 1024,
+    brotliOptions: { params: { [zlibConstants.BROTLI_PARAM_QUALITY]: 5 } },
+  });
+}
 // @fastify/multipart's fileSize limit is separate — the PER-FILE cap (MAX_UPLOAD_BYTES),
 // distinct from the bodyLimit above which bounds the request as a whole.
 await app.register(multipart, { limits: { fileSize: MAX_UPLOAD_BYTES } });
@@ -128,6 +152,7 @@ await app.register(async (api) => {
   await api.register(albumRoutes);
   await api.register(albumShareRoutes);
   await api.register(apiKeyRoutes);
+  await api.register(integrationRoutes);
   await api.register(inaturalistRoutes);
 }, { prefix: "/api" });
 
@@ -163,7 +188,16 @@ await app.register(staticFiles, { root: MAPS_DIR, prefix: "/maps/", decorateRepl
 // keeps using Vite's own dev server (see vite.config.ts's /api proxy) instead, so this
 // silently does nothing in local development.
 if (existsSync(WEB_DIST_DIR)) {
-  await app.register(staticFiles, { root: WEB_DIST_DIR });
+  await app.register(staticFiles, {
+    root: WEB_DIST_DIR,
+    // Built files under assets/ have a content hash in their name, so a new release always has
+    // new names: the browser can keep them forever instead of re-checking all of them on every
+    // page load. index.html (which lists them) is always re-checked, so an update shows up.
+    setHeaders: (res, filePath) => {
+      if (filePath.includes(`${path.sep}assets${path.sep}`)) res.header("Cache-Control", "public, max-age=31536000, immutable");
+      else res.header("Cache-Control", "no-cache");
+    },
+  });
   // SPA fallback — react-router handles routing client-side, so any path that isn't a real
   // static asset (a deep link, a page refresh on /species/:id, etc.) still needs to receive
   // index.html rather than a 404. Fastify's own notFoundHandler is scoped by prefix, so
@@ -185,6 +219,11 @@ try {
   app.log.error(err);
   process.exit(1);
 }
+
+// Logs when the library folder goes missing under a running server (moved on the NAS, a drive
+// unplugged), which is otherwise only visible as uploads failing.
+watchLibraryFolder();
+syncCollectionStateOnStartup().catch((err) => app.log.warn({ err }, "collection state sync failed"));
 
 // Species auto-suggest backfill (Phase 2 — on by default, no toggle): fires after the server is
 // already listening so a slow first-ever run (model download + embedding every existing photo)

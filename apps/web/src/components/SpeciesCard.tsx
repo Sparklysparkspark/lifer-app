@@ -33,6 +33,8 @@ function SpeciesCard({
   onArchived,
   showVolumeBadge,
   hideLabels,
+  hideNames,
+  compact,
 }: {
   item: CollectionItem;
   regionId?: string;
@@ -62,6 +64,10 @@ function SpeciesCard({
    *  underlying data, just skips rendering every badge in this same row (tier, local tier,
    *  Endemic, Vagrant, Ghost, Lost, Rediscovered). */
   hideLabels?: boolean;
+  /** Collections' "Hide names" toggle: just the photo, no name box at all. */
+  hideNames?: boolean;
+  /** The smallest card sizes: tighter spacing so the name box isn't mostly empty space. */
+  compact?: boolean;
 }) {
   const isUnseen = item.state === "unseen";
   const isSeen = item.state === "seen";
@@ -404,7 +410,8 @@ function SpeciesCard({
           </div>
         </DotMenu>
       </div>
-      <div className={`p-3 ${isUnseen || (isTarget && !isCollected) ? "opacity-60" : ""}`}>
+      {!hideNames && (
+      <div className={`${compact ? "px-1.5 py-1" : "p-3"} ${isUnseen || (isTarget && !isCollected) ? "opacity-60" : ""}`}>
         <p
           ref={nameRef}
           className="select-text overflow-hidden font-medium leading-tight text-ink"
@@ -412,9 +419,10 @@ function SpeciesCard({
         >
           {displayName}
         </p>
-        <p className="select-text truncate text-xs italic text-muted">{item.scientificName}</p>
-        {(item.tier || item.localTier || item.endemic || item.vagrant || item.isGhost || item.isLost || item.rediscoveredGhost || item.rediscoveredLost) && (
-          <div className="mt-1 flex flex-wrap items-center gap-1">
+        <p className={`select-text truncate italic text-muted ${compact ? "text-[10px] leading-tight" : "text-xs"}`}>{item.scientificName}</p>
+        {/* Every badge here is a label, so with labels hidden the row (and its margin) goes too. */}
+        {!hideLabels && (item.tier || item.localTier || item.endemic || item.vagrant || item.isGhost || item.isLost || item.rediscoveredGhost || item.rediscoveredLost) && (
+          <div className={`${compact ? "mt-0.5" : "mt-1"} flex flex-wrap items-center gap-1`}>
             {!hideLabels && item.tier && (
               <span
                 className={
@@ -491,6 +499,7 @@ function SpeciesCard({
           </div>
         )}
       </div>
+      )}
     </Link>
   );
 }

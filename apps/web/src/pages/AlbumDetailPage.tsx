@@ -9,7 +9,7 @@ import MasonryGrid from "../components/MasonryGrid";
 import PhotoTile from "../components/PhotoTile";
 import PhotoImportRows from "../components/PhotoImportRows";
 import SpeciesCard from "../components/SpeciesCard";
-import Lightbox, { type LightboxSlide } from "../components/Lightbox";
+import Lightbox, { photoFilePaths, type LightboxSlide } from "../components/Lightbox";
 import CardCropEditor from "../components/CardCropEditor";
 import { cropToImageStyle } from "../lib/crop";
 import EditableTextField from "../components/EditableTextField";
@@ -280,6 +280,7 @@ export default function AlbumDetailPage() {
       shutter: item.shutter,
       iso: item.iso,
       durationSeconds: item.durationSeconds,
+      files: photoFilePaths(item.originalRef, item.rawRef),
     },
   }));
 
