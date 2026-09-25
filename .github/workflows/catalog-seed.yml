@@ -1,6 +1,6 @@
 name: Publish catalog seed
 
-# Rebuilds the catalog seed + gallery embeddings asset + manifest from the maintainer database and
+# Rebuilds the catalog seed + vector assets + manifest from the maintainer database and
 # publishes them to the catalog-latest release. Run it by hand after any data change that isn't
 # purely per-region (see packages/data-pipeline/SCRIPTS.md step 6). Needs the secret
 # CATALOG_SOURCE_DATABASE_URL, pointing at a database this runner can reach.
@@ -46,5 +46,7 @@ jobs:
           cd "$RUNNER_TEMP/catalog"
           gh release view catalog-latest >/dev/null 2>&1 || gh release create catalog-latest --title "Catalog (latest)" --notes "Species catalog seed. Updated by the catalog-seed workflow." --prerelease
           shopt -s nullglob
-          gh release upload catalog-latest lifer-catalog-seed.sql.gz lifer-gallery-embeddings-*.bin.gz --clobber
+          # Every vector asset (CLIP and species identification model), not just the gallery
+          # one: the manifest points at all of them.
+          gh release upload catalog-latest lifer-catalog-seed.sql.gz *.bin.gz --clobber
           gh release upload catalog-latest catalog-manifest.json --clobber

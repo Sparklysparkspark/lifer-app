@@ -2739,7 +2739,9 @@ type VectorAssetResult =
 
 // Three vector tables (per-gallery-photo, per-species image, per-species zero-shot text) are
 // fetched and applied together as one bundle server-side, reported here as one result each.
-type ReferenceVectorsResult = { gallery: VectorAssetResult; speciesImage: VectorAssetResult; speciesText: VectorAssetResult };
+type VectorBundle = { gallery: VectorAssetResult; speciesImage: VectorAssetResult; speciesText: VectorAssetResult };
+// `idModel`: the same three for the species identification model, once it's downloaded.
+type ReferenceVectorsResult = VectorBundle & { idModel?: VectorBundle };
 
 type CatalogUpdateStatus = JobStatus<{ merged: Record<string, number>; referenceVectors?: ReferenceVectorsResult | null }>;
 
@@ -2753,15 +2755,22 @@ const CATALOG_PHASES: PhaseLabels = {
   applying_species_image_embeddings: { label: "Applying species reference vectors", progress: "count" },
   downloading_species_text_embeddings: { label: "Downloading species search vectors", progress: "bytes" },
   applying_species_text_embeddings: { label: "Applying species search vectors", progress: "count" },
+  downloading_id_species_text_embeddings: { label: "Downloading species identification vectors", progress: "bytes" },
+  applying_id_species_text_embeddings: { label: "Applying species identification vectors", progress: "count" },
+  downloading_id_species_image_embeddings: { label: "Downloading species identification vectors", progress: "bytes" },
+  applying_id_species_image_embeddings: { label: "Applying species identification vectors", progress: "count" },
+  downloading_id_gallery_embeddings: { label: "Downloading species identification vectors", progress: "bytes" },
+  applying_id_gallery_embeddings: { label: "Applying species identification vectors", progress: "count" },
 };
 
 // Any sub-result that failed, for a single combined error line instead of three.
-function failedVectorAssets(r: ReferenceVectorsResult | null | undefined): string[] {
+function failedVectorAssets(r: VectorBundle | ReferenceVectorsResult | null | undefined): string[] {
   if (!r) return [];
   const errors: string[] = [];
   if (r.gallery.status === "failed") errors.push(r.gallery.error);
   if (r.speciesImage.status === "failed") errors.push(r.speciesImage.error);
   if (r.speciesText.status === "failed") errors.push(r.speciesText.error);
+  if ("idModel" in r && r.idModel) errors.push(...failedVectorAssets(r.idModel));
   return errors;
 }
 
@@ -2988,10 +2997,11 @@ function MapSection() {
   );
 }
 
-// The CLIP embedding model — powers species suggestions while importing AND Gallery's content
-// search (typing something like "water bird" to find photos of birds with water in the frame,
-// not just matching species names). Same opt-in/offload shape as the offline map above: not
-// bundled, so the app stays small until a user actually wants either feature.
+// The species-matching models: the species identification model (BioCLIP 2) names species in
+// suggestions, and the CLIP model powers Gallery's content search (typing something like "water
+// bird" to find photos of birds with water in the frame, not just matching species names). Same
+// opt-in/offload shape as the offline map above: not bundled, so the app stays small until a
+// user actually wants either feature.
 type ModelStatus = JobStatus<{ referenceVectors: ReferenceVectorsResult | null }> & { downloaded: boolean; sizeBytes: number | null };
 
 // The reference vectors are the second half of the same download from the user's point of view.
@@ -3004,6 +3014,13 @@ const MODEL_PHASES: PhaseLabels = {
   applying_species_image_embeddings: { label: "Downloading species reference vectors", progress: "count" },
   downloading_species_text_embeddings: { label: "Downloading species search vectors", progress: "bytes" },
   applying_species_text_embeddings: { label: "Downloading species search vectors", progress: "count" },
+  downloading_id_model: { label: "Downloading species identification model", progress: "bytes" },
+  downloading_id_species_text_embeddings: { label: "Downloading species identification vectors", progress: "bytes" },
+  applying_id_species_text_embeddings: { label: "Downloading species identification vectors", progress: "count" },
+  downloading_id_species_image_embeddings: { label: "Downloading species identification vectors", progress: "bytes" },
+  applying_id_species_image_embeddings: { label: "Downloading species identification vectors", progress: "count" },
+  downloading_id_gallery_embeddings: { label: "Downloading species identification vectors", progress: "bytes" },
+  applying_id_gallery_embeddings: { label: "Downloading species identification vectors", progress: "count" },
 };
 
 function EmbeddingModelSection() {
@@ -3071,7 +3088,7 @@ function EmbeddingModelSection() {
       ) : (
         <>
           <button type="button" onClick={download} disabled={job.starting} className={buttonClass}>
-            {job.starting ? "Starting…" : "Download model (~310 MB)"}
+            {job.starting ? "Starting…" : "Download models (~620 MB)"}
           </button>
           <JobProgress status={status} error={job.actionError} errorPrefix="Download failed" />
         </>

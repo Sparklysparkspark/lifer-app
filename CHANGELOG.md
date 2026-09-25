@@ -15,6 +15,45 @@ Categories: `Added`, `Changed`, `Fixed`, `Removed` — omit any with nothing to 
 
 ## [Unreleased]
 
+### Changed
+
+- Species suggestions are much more accurate. Lifer now names species with BioCLIP 2, a model
+  trained specifically to identify species across the tree of life. On a real library it picked
+  the right species first for 51 of 55 photos, up from 39. The model is part of the
+  species-matching download (now about 620 MB in total); if you already have that downloaded,
+  the new model downloads on its own in the background. Gallery search, duplicate detection and
+  burst grouping keep using the existing model, which is still better at those.
+- Burst grouping on a species page now catches most real bursts instead of only near-identical
+  frames (22 of 28 burst pairs in testing, up from 7).
+
+### Added
+
+- Importing a photo keeps the star rating already in the file, so ratings set in a culling tool
+  like SuperPicky, or in Lightroom or digiKam, come into Lifer with it (from a RAW's sidecar too).
+
+### Fixed
+
+- Lifer no longer wipes keywords you added in Lightroom, digiKam or other tools when it writes
+  species tags into a photo. Only its own species tags are replaced.
+- Species tags now show up as a proper keyword tree in Lightroom and digiKam (Species › Birds ›
+  family › species) instead of one long keyword, and each keyword is written once.
+- Star ratings set in Lifer now show in Lightroom and digiKam for JPEGs (they were only in a
+  sidecar file those apps don't read for JPEGs), and clearing a rating in Lifer clears it in the
+  file too.
+- A RAW photo's sidecar no longer carries a copy of the capture time, which Lightroom could read
+  as a changed capture time.
+- Photos tagged in Lightroom with nested keywords (like Birds › Ducks › Mallard) now match their
+  species on import.
+- Range maps, charts and similar non-photos are gone from species galleries (the Mandarin Duck's
+  gallery had a map in it, for one), including on installs that already downloaded them: a
+  catalog update removes them.
+- When a catalog update gives a species a new main photo, Lifer shows the new one instead of
+  keeping the old cached image.
+- A few fossil and long-extinct species no longer show up in species search.
+- Suggestions no longer get worse for a species once you've photographed it. Your own photos of
+  a species now count as extra examples on top of its reference photos, instead of replacing
+  them.
+
 ## [0.6.1] - 2026-09-24
 
 ### Fixed

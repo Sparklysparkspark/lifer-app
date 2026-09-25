@@ -650,7 +650,7 @@ export async function speciesRoutes(app: FastifyInstance): Promise<void> {
 
   // Burst/sequence collapsing — 47 near-identical frames from one continuous burst read as
   // clutter, not 47 separate photos worth reviewing individually. Two signals decide whether
-  // consecutive-in-time captures are "the same moment": a very high (>0.97) cosine similarity
+  // consecutive-in-time captures are "the same moment": a high (>=0.90) cosine similarity
   // between their already-computed CLIP embeddings (near-identical framing/subject/pose — the
   // same signal the Gallery search reuses, not a new one), AND a tight time gap (a real burst,
   // not two separate encounters that happen to look similar). Only sequences of 3+ frames are
@@ -659,7 +659,10 @@ export async function speciesRoutes(app: FastifyInstance): Promise<void> {
   // on which frame to show as the sequence's representative — a proxy for "which frame is least
   // blurry," not a full best-frame model (eye contact/pose aren't evaluated — see the product
   // scoping discussion on why that full version isn't feasible without new ML components).
-  const SEQUENCE_SIMILARITY_THRESHOLD = 0.97;
+  // Was 0.97, which on a real library grouped only 7 of 28 real burst pairs: a bird moving
+  // between frames of one burst easily drops below it. At 0.90 plus the time gap below, 22 of 28
+  // grouped with no pair from a different encounter or species pulled in.
+  const SEQUENCE_SIMILARITY_THRESHOLD = 0.9;
   const SEQUENCE_MAX_GAP_MS = 120_000;
   app.get<{ Params: { id: string } }>("/species/:id/sequences", { preHandler: requireScope("species.read") }, async (request) => {
     const res = await pool.query<{

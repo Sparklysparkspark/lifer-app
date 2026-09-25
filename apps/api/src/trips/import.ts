@@ -60,8 +60,8 @@ export async function importTripFile(
 
     const captureRes = await client.query<{ id: string }>(
       `INSERT INTO captures
-         (user_id, species_id, trip_id, region_id, fingerprint, exif_fingerprint, exif_fingerprint_loose, taken_at, lat, lon, camera_model, lens, focal_length_mm, aperture, shutter, iso)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+         (user_id, species_id, trip_id, region_id, fingerprint, exif_fingerprint, exif_fingerprint_loose, taken_at, lat, lon, camera_model, lens, focal_length_mm, aperture, shutter, iso, quality_rating)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
        RETURNING id`,
       [
         userId,
@@ -80,6 +80,7 @@ export async function importTripFile(
         exif.aperture,
         exif.shutter,
         exif.iso,
+        exif.rating,
       ],
     );
     const captureId = captureRes.rows[0].id;

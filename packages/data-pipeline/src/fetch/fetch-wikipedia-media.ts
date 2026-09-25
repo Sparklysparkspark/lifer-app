@@ -18,7 +18,11 @@ import { fetchWithRetry } from "../fetch-with-retry.js";
 const MEDIA_LIST_API = "https://en.wikipedia.org/api/rest_v1/page/media-list/";
 const MAX_PHOTOS = 6;
 const PHOTO_EXTENSIONS = /\.(jpe?g|png)$/i;
-const EXCLUDE_PATTERNS = /map|iucn|status|logo|icon|diagram|distribution|range|locator|plate|sound|chart/i;
+// Distribution maps often go by abbreviations or other languages ("_dis.PNG", "_distr.png",
+// "verspreiding", "carte_repartition", "Distribuicao"), which slipped past the English words.
+// flag-non-photo-reference-images.ts catches the rest by content.
+const EXCLUDE_PATTERNS =
+  /map|iucn|status|logo|icon|diagram|distribution|range|locator|plate|sound|chart|_dis\b|distr|verbreitung|verspreiding|reparti|repari|carte|distribu|areal|spectrogram|sonogram/i;
 
 interface MediaListItem {
   title?: string;

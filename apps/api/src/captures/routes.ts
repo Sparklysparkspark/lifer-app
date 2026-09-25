@@ -14,8 +14,7 @@ import { pool } from "../db.js";
 import { requireAuth } from "../auth/session.js";
 import { writeSpeciesMetadata } from "../uploads/exif.js";
 import { syncCaptureXmpSidecarsLogged } from "../uploads/xmpSidecarSync.js";
-import { computeSuggestionEmbedding, rankSpeciesByEmbeddings } from "../species/embeddings.js";
-import { suggestSpecies } from "../species/embeddings.js";
+import { suggestSpecies, suggestSpeciesForFrames } from "../species/embeddings.js";
 import { probeVideo, extractVideoFrame } from "../uploads/image.js";
 import { APP_DATA_DIR } from "../config.js";
 import { moveManagedOriginalToSpeciesFolder } from "../uploads/routes.js";
@@ -861,20 +860,19 @@ export async function captureRoutes(app: FastifyInstance): Promise<void> {
         return bucketStart + Math.random() * bucketSeconds;
       });
 
-      const embeddings: number[][] = [];
+      const frames: Buffer[] = [];
       for (const t of timestamps) {
         try {
-          const frame = await extractVideoFrame(tmpPath, t);
-          embeddings.push(await computeSuggestionEmbedding(frame));
+          frames.push(await extractVideoFrame(tmpPath, t));
         } catch {
           // One unreadable timestamp (e.g. right at a keyframe boundary ffmpeg can't seek to
           // cleanly) shouldn't sink the whole suggestion — the other sampled frames still stand.
         }
       }
       // `error` tells "couldn't read the video" apart from "read it, no species matched".
-      if (embeddings.length === 0) return { suggestions: [], error: "Couldn't read any frames from this video" };
+      if (frames.length === 0) return { suggestions: [], error: "Couldn't read any frames from this video" };
 
-      const suggestions = await rankSpeciesByEmbeddings(pool, request.user!.id, embeddings, regionId);
+      const suggestions = await suggestSpeciesForFrames(pool, request.user!.id, frames, regionId);
       return { suggestions };
     } catch (err) {
       request.log.warn({ err }, "Video species suggestion failed");

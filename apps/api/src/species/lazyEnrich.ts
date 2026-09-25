@@ -19,7 +19,9 @@
 import { normalizeLicense } from "./licensePolicy.js";
 import { generateReferenceDerivatives } from "../uploads/image.js";
 import { computeEmbedding } from "./embeddings.js";
-import { EMBEDDING_MODEL_VERSION } from "../config.js";
+import { EMBEDDING_MODEL_VERSION, ID_MODEL_VERSION } from "../config.js";
+import { idModel } from "./idModel.js";
+import { rmSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { pool } from "../db.js";
 
@@ -60,13 +62,32 @@ export async function downloadAndCacheImage(url: string, key: string): Promise<{
     // were silently treated as "no photo available" — the same backoff-and-retry
     // fetchWithRetry already applies to metadata lookups was missing for the actual image
     // bytes.
-    const res = await fetchWithRetry(url);
+    const res = await fetchWithRetry(withoutTrackingParams(url));
     if (!res.ok) return null;
     const buffer = Buffer.from(await res.arrayBuffer());
     return await generateReferenceDerivatives(buffer, key);
   } catch (err) {
     console.error(`[lazyEnrich] failed to cache image ${url}:`, err);
     return null;
+  }
+}
+
+// Commons image URLs are stored with ?utm_source=...&utm_campaign=... on them (that's how the
+// Commons API hands them out). The query string makes every request a cache miss at Wikimedia's
+// CDN, which sends it to the origin servers that rate-limit: a September 2026 re-download stalled
+// on 10-minute 429 backoffs, while the same files without the parameters came straight from cache.
+// The stored URL keeps them; only the fetch drops them.
+// Wikimedia's User-Agent policy asks clients to say who they are and how to reach them, and
+// applies stricter rate limits to ones that don't; the project page is the contact.
+const USER_AGENT = "Lifer/0.7 (https://github.com/Sparklysparkspark/lifer-app)";
+
+export function withoutTrackingParams(url: string): string {
+  try {
+    const u = new URL(url);
+    for (const key of [...u.searchParams.keys()]) if (key.startsWith("utm_")) u.searchParams.delete(key);
+    return u.toString();
+  } catch {
+    return url;
   }
 }
 
@@ -146,7 +167,7 @@ export async function fetchWithRetry(url: string): Promise<Response> {
       // either way) previously blocked forever with no way to recover short of killing the
       // whole process. AbortSignal.timeout turns that into an ordinary retryable error instead.
       res = await fetch(url, {
-        headers: { "User-Agent": "lifer-api/0.1 (personal project)" },
+        headers: { "User-Agent": USER_AGENT },
         signal: AbortSignal.timeout(15_000),
       });
     } catch (err) {
@@ -175,7 +196,7 @@ export async function fetchWithRetry(url: string): Promise<Response> {
   }
   try {
     const finalRes = await fetch(url, {
-      headers: { "User-Agent": "lifer-api/0.1 (personal project)" },
+      headers: { "User-Agent": USER_AGENT },
       signal: AbortSignal.timeout(15_000),
     });
     // This used to be returned as-is even when still 429 — a real, confirmed bug: sustained
@@ -492,6 +513,14 @@ export async function enrichSpecies(species: {
 /** Shared by the lazy on-view path (species/routes.ts) and the overnight eager
  *  enrich-all-species script — one write path so the two never drift apart. */
 export async function persistEnrichment(speciesId: string, enrichment: EnrichmentResult): Promise<void> {
+  // A blocklisted main photo (a range map, say; migration 106) counts as no photo at all.
+  if (enrichment.referencePhoto) {
+    const blocked = await pool.query(`SELECT 1 FROM reference_photo_blocklist WHERE photo_url = $1`, [enrichment.referencePhoto]);
+    if (blocked.rowCount) {
+      for (const p of [enrichment.referenceDisplayPath, enrichment.referenceThumbPath]) if (p) rmSync(p, { force: true });
+      enrichment = { ...enrichment, referencePhoto: null, referenceCredit: null, referenceLicense: null, referenceDisplayPath: null, referenceThumbPath: null };
+    }
+  }
   await pool.query(
     `UPDATE species SET
        reference_photo = COALESCE(reference_photo, $1),
@@ -551,10 +580,43 @@ async function tryComputeReferenceEmbedding(speciesId: string): Promise<void> {
   } catch {
     // model not downloaded, image unreadable, inference timeout, etc. — see comment above
   }
+  await tryComputeIdReferenceEmbedding(speciesId);
+}
+
+// The species identification model's copy of the same vector. Species in the published catalog
+// already have one; this covers Other Taxa and anything enriched since.
+async function tryComputeIdReferenceEmbedding(speciesId: string): Promise<void> {
+  if (!idModel.isDownloaded()) return;
+  try {
+    const res = await pool.query<{ reference_display_path: string | null }>(
+      `SELECT reference_display_path FROM species
+       WHERE id = $1 AND NOT EXISTS (
+         SELECT 1 FROM id_model_reference_embeddings e WHERE e.species_id = species.id AND e.model_version = $2
+       )`,
+      [speciesId, ID_MODEL_VERSION],
+    );
+    const displayPath = res.rows[0]?.reference_display_path;
+    if (!displayPath) return;
+    const embedding = await idModel.embed(await readFile(displayPath));
+    await pool.query(
+      `INSERT INTO id_model_reference_embeddings (species_id, embedding, model_version)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (species_id) DO UPDATE SET embedding = EXCLUDED.embedding, model_version = EXCLUDED.model_version, computed_at = now()`,
+      [speciesId, embedding, ID_MODEL_VERSION],
+    );
+  } catch {
+    // same best-effort contract as tryComputeReferenceEmbedding
+  }
 }
 
 export async function persistGallery(speciesId: string, gallery: EnrichmentResult["gallery"]): Promise<void> {
+  const blocked = await pool.query<{ photo_url: string }>(
+    `SELECT photo_url FROM reference_photo_blocklist WHERE photo_url = ANY($1)`,
+    [gallery.map((p) => p.photoUrl)],
+  );
+  const blockedUrls = new Set(blocked.rows.map((r) => r.photo_url));
   for (const photo of gallery) {
+    if (blockedUrls.has(photo.photoUrl)) continue; // a map or other non-photo (migration 106)
     const res = await pool.query<{ id: string }>(
       `INSERT INTO species_reference_photos (species_id, photo_url, credit, license, sort_order, display_path, thumb_path)
        VALUES ($1,$2,$3,$4,$5,$6,$7)
@@ -590,6 +652,29 @@ async function tryComputeGalleryEmbedding(referencePhotoId: string, speciesId: s
     );
   } catch {
     // model not downloaded, image unreadable, inference timeout, etc. — see tryComputeReferenceEmbedding
+  }
+  await tryComputeIdGalleryEmbedding(referencePhotoId, speciesId, displayPath);
+}
+
+async function tryComputeIdGalleryEmbedding(referencePhotoId: string, speciesId: string, displayPath: string): Promise<void> {
+  if (!idModel.isDownloaded()) return;
+  try {
+    const existing = await pool.query<{ exists: boolean }>(
+      `SELECT EXISTS (
+         SELECT 1 FROM id_model_gallery_embeddings WHERE reference_photo_id = $1 AND model_version = $2
+       ) AS exists`,
+      [referencePhotoId, ID_MODEL_VERSION],
+    );
+    if (existing.rows[0].exists) return;
+    const embedding = await idModel.embed(await readFile(displayPath));
+    await pool.query(
+      `INSERT INTO id_model_gallery_embeddings (reference_photo_id, species_id, embedding, model_version)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (reference_photo_id) DO UPDATE SET embedding = EXCLUDED.embedding, model_version = EXCLUDED.model_version, computed_at = now()`,
+      [referencePhotoId, speciesId, embedding, ID_MODEL_VERSION],
+    );
+  } catch {
+    // same best-effort contract as tryComputeReferenceEmbedding
   }
 }
 

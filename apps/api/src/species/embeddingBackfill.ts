@@ -5,8 +5,9 @@
 // offlinePacks/routes.ts's downloadJob — no dedicated jobs table, just a module-level object a
 // status route can read.
 import { pool } from "../db.js";
-import { computeEmbedding, isInferenceStuck, storeCaptureEmbedding } from "./embeddings.js";
-import { EMBEDDING_MODEL_VERSION } from "../config.js";
+import { computeEmbedding, isInferenceStuck, storeCaptureEmbedding, storeIdCaptureEmbedding } from "./embeddings.js";
+import { EMBEDDING_MODEL_VERSION, ID_MODEL_VERSION } from "../config.js";
+import { idModel } from "./idModel.js";
 
 interface EmbeddingBackfillState {
   running: boolean;
@@ -150,5 +151,77 @@ export async function runSpeciesEmbeddingBackfill(): Promise<void> {
   } finally {
     speciesEmbeddingBackfillJob.running = false;
     speciesEmbeddingBackfillJob.finishedAt = Date.now();
+  }
+}
+
+// The species identification model's side of both catch-ups above: every confirmed capture gets
+// an id_model_capture_embeddings row (subject-cropped, see storeIdCaptureEmbedding), and every
+// species with a local reference photo but no published vector gets one (Other Taxa, or anything
+// enriched after the last catalog build). Runs at startup and right after the model downloads.
+export const idEmbeddingBackfillJob: EmbeddingBackfillState = {
+  running: false,
+  processed: 0,
+  total: 0,
+  error: null,
+  finishedAt: null,
+};
+
+export async function runIdEmbeddingBackfill(): Promise<void> {
+  if (idEmbeddingBackfillJob.running || !idModel.isDownloaded()) return;
+  idEmbeddingBackfillJob.running = true;
+  idEmbeddingBackfillJob.error = null;
+  idEmbeddingBackfillJob.finishedAt = null;
+  idEmbeddingBackfillJob.processed = 0;
+
+  try {
+    const { readFile } = await import("node:fs/promises");
+    const captures = await pool.query<{ id: string; display_path: string }>(
+      `SELECT c.id, p.display_path
+       FROM captures c
+       JOIN photos p ON p.id = c.current_photo_id
+       LEFT JOIN id_model_capture_embeddings ce ON ce.capture_id = c.id AND ce.model_version = $1
+       WHERE ce.capture_id IS NULL AND p.display_path IS NOT NULL`,
+      [ID_MODEL_VERSION],
+    );
+    const species = await pool.query<{ id: string; reference_display_path: string }>(
+      `SELECT s.id, s.reference_display_path
+       FROM species s
+       LEFT JOIN id_model_reference_embeddings e ON e.species_id = s.id AND e.model_version = $1
+       WHERE s.reference_display_path IS NOT NULL AND e.species_id IS NULL`,
+      [ID_MODEL_VERSION],
+    );
+    idEmbeddingBackfillJob.total = captures.rows.length + species.rows.length;
+
+    for (const row of captures.rows) {
+      if (idModel.isStuck()) throw new Error("Stopped: species identification is stuck on an earlier photo");
+      try {
+        await storeIdCaptureEmbedding(pool, row.id, await readFile(row.display_path));
+      } catch {
+        // one unreadable display file shouldn't stop the whole backfill
+      }
+      idEmbeddingBackfillJob.processed++;
+    }
+    for (const row of species.rows) {
+      if (idModel.isStuck()) throw new Error("Stopped: species identification is stuck on an earlier photo");
+      try {
+        // Reference photos are stored uncropped, same as the published ones (the pipeline embeds
+        // the whole reference photo).
+        const embedding = await idModel.embed(await readFile(row.reference_display_path));
+        await pool.query(
+          `INSERT INTO id_model_reference_embeddings (species_id, embedding, model_version)
+           VALUES ($1, $2, $3)
+           ON CONFLICT (species_id) DO UPDATE SET embedding = EXCLUDED.embedding, model_version = EXCLUDED.model_version, computed_at = now()`,
+          [row.id, embedding, ID_MODEL_VERSION],
+        );
+      } catch {
+        // one unreadable reference photo shouldn't stop the whole backfill
+      }
+      idEmbeddingBackfillJob.processed++;
+    }
+  } catch (err) {
+    idEmbeddingBackfillJob.error = (err as Error).message;
+  } finally {
+    idEmbeddingBackfillJob.running = false;
+    idEmbeddingBackfillJob.finishedAt = Date.now();
   }
 }

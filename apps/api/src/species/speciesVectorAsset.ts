@@ -26,7 +26,7 @@ export type VectorAssetResult =
 type Ctx = Pick<JobContext<unknown>, "signal" | "update" | "throwIfCancelled">;
 
 export interface SpeciesVectorTableSpec {
-  table: "species_reference_embeddings" | "species_text_embeddings";
+  table: "species_reference_embeddings" | "species_text_embeddings" | "id_model_reference_embeddings" | "id_model_text_embeddings";
   currentModelVersion: string;
   appliedKey: string;
   label: string;
