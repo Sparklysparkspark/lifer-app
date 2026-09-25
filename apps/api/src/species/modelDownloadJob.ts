@@ -19,9 +19,13 @@ export const modelDownload = createJob<ModelDownloadResult>("embedding-model");
 
 export function startModelDownloadJob(pool: Pool, log: { warn: (obj: object, msg: string) => void }): boolean {
   return modelDownload.start(async (ctx) => {
-    ctx.update({ phase: "downloading_model", downloadedBytes: 0, totalBytes: null });
-    await downloadModel((downloadedBytes, totalBytes) => ctx.update({ downloadedBytes, totalBytes }), ctx.signal);
-    ctx.throwIfCancelled();
+    // Only what's missing: an install with the CLIP model but not the identification model
+    // otherwise downloaded CLIP's 307MB again (it has no checksum to recognize a finished file).
+    if (!isModelDownloaded()) {
+      ctx.update({ phase: "downloading_model", downloadedBytes: 0, totalBytes: null });
+      await downloadModel((downloadedBytes, totalBytes) => ctx.update({ downloadedBytes, totalBytes }), ctx.signal);
+      ctx.throwIfCancelled();
+    }
     ctx.update({ phase: "downloading_text_model", downloadedBytes: null, totalBytes: null });
     await downloadTextModel();
     ctx.throwIfCancelled();

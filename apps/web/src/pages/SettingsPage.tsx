@@ -553,8 +553,8 @@ function SpeciesSuggestSection() {
   useEffect(() => {
     api.get<{ speciesSuggestEnabled: boolean }>("/settings").then((res) => setEnabled(res.speciesSuggestEnabled));
     api
-      .get<{ downloaded: boolean }>("/settings/embedding-model/status")
-      .then((res) => setModelDownloaded(res.downloaded))
+      .get<{ downloaded: boolean; usable?: boolean }>("/settings/embedding-model/status")
+      .then((res) => setModelDownloaded(res.usable ?? res.downloaded))
       .catch(() => setModelDownloaded(null));
   }, []);
 
@@ -3004,7 +3004,7 @@ function MapSection() {
 // bird" to find photos of birds with water in the frame, not just matching species names). Same
 // opt-in/offload shape as the offline map above: not bundled, so the app stays small until a
 // user actually wants either feature.
-type ModelStatus = JobStatus<{ referenceVectors: ReferenceVectorsResult | null }> & { downloaded: boolean; sizeBytes: number | null };
+type ModelStatus = JobStatus<{ referenceVectors: ReferenceVectorsResult | null }> & { downloaded: boolean; usable?: boolean; sizeBytes: number | null };
 
 // The reference vectors are the second half of the same download from the user's point of view.
 const MODEL_PHASES: PhaseLabels = {
@@ -3092,7 +3092,7 @@ function EmbeddingModelSection() {
       ) : (
         <>
           <button type="button" onClick={download} disabled={job.starting} className={buttonClass}>
-            {job.starting ? "Starting…" : "Download models (~620 MB)"}
+            {job.starting ? "Starting…" : status.usable ? "Download the identification model (~310 MB)" : "Download models (~620 MB)"}
           </button>
           <JobProgress status={status} error={job.actionError} errorPrefix="Download failed" />
         </>

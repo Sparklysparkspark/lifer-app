@@ -16,6 +16,7 @@ import { readLocalSettings, writeLocalSettings } from "../localSettings.js";
 import { checkCatalogUpdate, startCatalogUpdateJob, catalogUpdate, catalogFirstBootState } from "../species/catalogSeedUpdate.js";
 import { modelDownload, startModelDownloadJob } from "../species/modelDownloadJob.js";
 import { isModelDownloaded, offloadModel, MODEL_DIR } from "../species/embeddings.js";
+import { idModel } from "../species/idModel.js";
 import { isTextModelDownloaded } from "../species/textEmbedding.js";
 import { createJob, type JobContext } from "../lib/job.js";
 import { downloadToFile } from "../lib/download.js";
@@ -907,7 +908,13 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
   app.get("/settings/embedding-model/status", { preHandler: requireAuth }, async () => ({
     ...modelDownload.status,
     downloading: modelDownload.status.running,
-    downloaded: isModelDownloaded() && isTextModelDownloaded(),
+    // All three: an install from before the identification model existed has only the CLIP
+    // ones, and counting that as downloaded skipped the setup prompt and hid the download button,
+    // leaving suggestions on the older, less accurate model with no way to fix it.
+    downloaded: isModelDownloaded() && isTextModelDownloaded() && idModel.isDownloaded(),
+    idModelDownloaded: idModel.isDownloaded(),
+    // Suggestions work on the CLIP models alone, just less accurately.
+    usable: isModelDownloaded() && isTextModelDownloaded(),
     sizeBytes: dirSizeBytes(MODEL_DIR) || null,
   }));
 
