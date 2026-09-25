@@ -50,6 +50,13 @@ interface CollectionCacheEntry {
   regionStats: RegionSpeciesResult["stats"] | null;
 }
 const collectionCache = new Map<string, CollectionCacheEntry>();
+function storedLastRegionId(): string | null {
+  try {
+    return localStorage.getItem("lifer:lastRegionId");
+  } catch {
+    return null;
+  }
+}
 function collectionCacheKey(
   regionId: string | null,
   taxonFilters: Set<string>,
@@ -232,7 +239,12 @@ export default function CollectionPage() {
     api.get<{ speciesNamingStyles: string[] }>("/settings").then((res) => setNamingStyles(res.speciesNamingStyles)).catch(() => {});
   }, []);
 
-  const cachedEntry = collectionCache.get(collectionCacheKey(regionId, taxonFilters, seaZoneIds, includeLand));
+  // Arriving from the nav has no ?region= yet: the restore effect above adds it after the first
+  // render. Looking the cache up by the region about to be restored lets that view draw at once,
+  // instead of waiting for the region list and then the species list from the server.
+  const cachedEntry = collectionCache.get(
+    collectionCacheKey(regionId ?? (restoredLastRegion.current ? null : storedLastRegionId()), taxonFilters, seaZoneIds, includeLand),
+  );
   const [items, setItems] = useState<CollectionItem[] | null>(cachedEntry?.items ?? null);
   const [regionMeta, setRegionMeta] = useState<RegionSpeciesResult["region"] | null>(cachedEntry?.regionMeta ?? null);
   const [regionStats, setRegionStats] = useState<RegionSpeciesResult["stats"] | null>(cachedEntry?.regionStats ?? null);
@@ -653,6 +665,10 @@ export default function CollectionPage() {
     if (regionId && regionKnownHub) {
       setSeaZones([]);
       setQuickCount(null);
+      // Cleared now, not when the list arrives: the previous region's bar and map link stayed
+      // up alongside this hub's own bar until then.
+      setRegionMeta(null);
+      setRegionStats(null);
       api
         .get<{ items: CollectionItem[]; downloadedCountryNames: string[] }>(
           `/regions/${regionId}/aggregate-species?${taxonQuery}`,
@@ -970,13 +986,13 @@ export default function CollectionPage() {
                  page chrome, not a species filter, so it doesn't belong in the Filters dropdown
                  either; living here means collapsing it doesn't leave behind a whole empty
                  section's worth of vertical rhythm the way a standalone block would. */}
-              {regionMeta && !!regionMeta.boundaryGeoJson && mapAvailable && (
+              {regionMeta && !regionKnownHub && !!regionMeta.boundaryGeoJson && mapAvailable && (
                 <button onClick={toggleMapCollapsed} className="ml-2 text-xs hover:underline">
                   {mapCollapsed ? "▸ Show map" : "▾ Hide map"}
                 </button>
               )}
             </nav>
-            {regionMeta && regionStats && (
+            {regionMeta && regionStats && !regionKnownHub && (
               <div className="flex items-center gap-3">
                 <div className="h-1.5 w-40 overflow-hidden rounded-full bg-surface-muted">
                   <div

@@ -15,6 +15,23 @@ Categories: `Added`, `Changed`, `Fixed`, `Removed` — omit any with nothing to 
 
 ## [Unreleased]
 
+### Added
+
+- Settings shows which model species suggestions are using right now: the identification model
+  (BioCLIP 2), or the general model while it or its reference vectors install.
+
+### Fixed
+
+- "Waiting for another download to finish" now shows the download it's waiting on (a fresh
+  server installs the reference vectors in the background at startup) with its progress.
+- Offloading the species-matching model stops any download or vector install still running, and
+  downloading it again turns species suggestions back on.
+- The import screen picks your country when it has only one region pack, instead of coming back
+  with no region after a fresh database (region ids differ per install, so the remembered one no
+  longer matched). With no region pack it says so and links to Offline Packs.
+- Opening Collection from the menu shows your last view right away instead of reloading it.
+- A continent's page showed two progress bars, one left over from the region before it.
+
 ## [0.8.1] - 2026-09-25
 
 ### Changed

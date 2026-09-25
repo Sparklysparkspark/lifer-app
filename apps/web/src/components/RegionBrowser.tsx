@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import type { RegionSummary } from "@lifer/shared";
 import { api } from "../api/client";
 import RegionPicker from "./RegionPicker";
@@ -100,14 +101,34 @@ export default function RegionBrowser({
   // A stored regionId (e.g. restored from localStorage) that no longer resolves to a real,
   // still-downloaded region — an offloaded pack, or corrupted-territory cleanup removing a row
   // — must fall back to World rather than silently rendering an empty/broken breadcrumb.
+  //
+  // With exactly one country pack, that country is picked instead of nothing, the same as the
+  // collection page: region ids differ per install, so after a fresh database the remembered
+  // one never resolves, and the import screen came back with no region and no explanation.
+  const onlyCountryId = useMemo(() => {
+    if (restrictToIds || allowAnyRegion || !downloadedCountryNames || downloadedCountryNames.size !== 1) return null;
+    const onlyName = [...downloadedCountryNames][0];
+    return allRegions.find((r) => r.name === onlyName && availableRegionIds?.has(r.id))?.id ?? null;
+  }, [restrictToIds, allowAnyRegion, downloadedCountryNames, allRegions, availableRegionIds]);
   useEffect(() => {
-    if (!regionId || !allRegions.length || !availableRegionIds) return;
-    if (!availableRegionIds.has(regionId)) onChange(null);
-  }, [regionId, allRegions, availableRegionIds, onChange]);
+    if (!allRegions.length || !availableRegionIds) return;
+    if (regionId && availableRegionIds.has(regionId)) return;
+    const next = onlyCountryId;
+    if (next !== regionId) onChange(next);
+  }, [regionId, allRegions, availableRegionIds, onlyCountryId, onChange]);
+  const noPacks = !restrictToIds && !allowAnyRegion && downloadedCountryNames?.size === 0;
 
   return (
     <div className="space-y-2">
-      {!regionId ? (
+      {noPacks ? (
+        <p className="text-sm text-muted">
+          No region pack is downloaded yet.{" "}
+          <Link to="/offline-packs" className="text-ink underline">
+            Download one in Offline Packs
+          </Link>{" "}
+          to pick a region.
+        </p>
+      ) : !regionId ? (
         worldRegion && (
           <button type="button" onClick={() => onChange(worldRegion.id)} className="text-sm text-muted hover:underline">
             Browse by region →
