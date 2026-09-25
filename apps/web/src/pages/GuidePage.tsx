@@ -182,13 +182,18 @@ export default function GuidePage() {
           <h2 className="text-lg font-semibold text-ink">Your library structure</h2>
           <div className="rounded-lg border border-line bg-surface p-4 text-sm text-muted">
             <p>
-              Every original photo you upload goes under a <strong>Lifer Photos</strong> folder inside your
-              library's <strong>Storage location</strong>, grouped by taxon (Birds/Mammals/Fish/Other) then
-              species, so your library stays usable outside Lifer too:
+              Every original photo you upload goes straight into your library's <strong>Storage location</strong>,
+              grouped by taxon (Birds/Mammals/Fish/Other) then species, so your library stays usable outside
+              Lifer too:
             </p>
             <pre className="mt-2 overflow-x-auto rounded-md bg-surface-muted p-2 text-xs text-ink">
-              {"Lifer Photos/Birds/<species name>/Adjusted/<your edited JPEG>\nLifer Photos/Birds/<species name>/RAW/<matching RAW file>"}
+              {"Birds/<species name>/Adjusted/<your edited JPEG>\nBirds/<species name>/RAW/<matching RAW file>"}
             </pre>
+            <p className="mt-2">
+              Libraries started with an older version keep these folders inside a <strong>Lifer Photos</strong>{" "}
+              folder. That still works. To drop the extra level, quit Lifer (or stop the server), move everything
+              in Lifer Photos up into the storage location, and start Lifer again: it updates its records to match.
+            </p>
             <p className="mt-2">
               Turning on <PageLink to="/settings/library">"Organize by year"</PageLink> nests that same structure
               one level deeper, under <code className="text-xs">Wildlife &lt;year taken&gt;/</code>, using

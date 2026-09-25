@@ -17,6 +17,8 @@ import path from "node:path";
 import { pool } from "../db.js";
 import { DATA_DIR, APP_DATA_DIR } from "../config.js";
 
+const DERIVATIVE_FILE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.\w+$/i;
+
 export async function migrateDerivativesLocation(): Promise<void> {
   if (DATA_DIR === APP_DATA_DIR) return; // an explicit APP_DATA_DIR=DATA_DIR setup, nothing to move
 
@@ -34,7 +36,9 @@ export async function migrateDerivativesLocation(): Promise<void> {
     try {
       mkdirSync(newDir, { recursive: true });
       for (const entry of readdirSync(oldDir, { withFileTypes: true })) {
-        if (!entry.isFile()) continue;
+        // Only Lifer's own "<uuid>.webp"-style files: in the flat layout this folder sits among
+        // the user's own, and a folder of theirs could happen to be called "display".
+        if (!entry.isFile() || !DERIVATIVE_FILE.test(entry.name)) continue;
         const to = path.join(newDir, entry.name);
         if (existsSync(to)) continue; // already moved by a previous run
         moveFile(path.join(oldDir, entry.name), to);
