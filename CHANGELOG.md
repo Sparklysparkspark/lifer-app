@@ -15,6 +15,8 @@ Categories: `Added`, `Changed`, `Fixed`, `Removed` — omit any with nothing to 
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-09-25
+
 ### Changed
 
 - Photo search fills in as you type: a few letters already find species ("moo" shows Moose),
