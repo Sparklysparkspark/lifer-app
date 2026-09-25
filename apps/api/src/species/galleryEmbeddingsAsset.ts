@@ -16,6 +16,7 @@ import path from "node:path";
 import { pipeline } from "node:stream/promises";
 import { createGunzip } from "node:zlib";
 import type { Pool } from "pg";
+import type { JobStatus } from "@lifer/shared";
 import { decodeGalleryEmbeddings, type GalleryEmbeddingsHeader } from "@lifer/shared/src/galleryEmbeddingsFormat.js";
 import { APP_DATA_DIR, EMBEDDING_MODEL_VERSION, ID_MODEL_VERSION } from "../config.js";
 import { getInstallSetting, setInstallSetting } from "../lib/installSettings.js";
@@ -75,6 +76,12 @@ type Ctx = Pick<JobContext<unknown>, "signal" | "update" | "throwIfCancelled">;
 
 let lock: Promise<unknown> = Promise.resolve();
 let running = 0;
+let activeProgress: Partial<JobStatus> | null = null;
+
+/** The progress of the vector update running right now, whichever job started it. */
+export function vectorUpdateProgress(): Partial<JobStatus> | null {
+  return activeProgress;
+}
 
 /** Downloads and applies the gallery embeddings asset if this install doesn't have the current
  * one. Safe to call from several places; calls run one at a time. A call that has to wait says
@@ -87,7 +94,25 @@ export function runGalleryEmbeddingsUpdate(
 ): Promise<ReferenceVectorsResult> {
   if (running > 0) ctx.update({ phase: "waiting_for_vectors", downloadedBytes: null, totalBytes: null, processed: null, total: null });
   running++;
-  const run = lock.then(() => doUpdate(pool, ctx, opts)).finally(() => running--);
+  const run = lock
+    .then(() => {
+      // Mirrors this run's progress, so a caller waiting its turn can show the real work
+      // instead of just "waiting" (settings/routes.ts, the species-matching status).
+      activeProgress = {};
+      const tracked: Ctx = {
+        signal: ctx.signal,
+        throwIfCancelled: ctx.throwIfCancelled,
+        update: (p) => {
+          activeProgress = { ...activeProgress, ...p };
+          ctx.update(p);
+        },
+      };
+      return doUpdate(pool, tracked, opts);
+    })
+    .finally(() => {
+      running--;
+      activeProgress = null;
+    });
   lock = run.catch(() => {});
   return run;
 }

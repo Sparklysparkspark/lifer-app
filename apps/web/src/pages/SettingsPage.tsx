@@ -3004,7 +3004,13 @@ function MapSection() {
 // bird" to find photos of birds with water in the frame, not just matching species names). Same
 // opt-in/offload shape as the offline map above: not bundled, so the app stays small until a
 // user actually wants either feature.
-type ModelStatus = JobStatus<{ referenceVectors: ReferenceVectorsResult | null }> & { downloaded: boolean; usable?: boolean; sizeBytes: number | null };
+type ModelStatus = JobStatus<{ referenceVectors: ReferenceVectorsResult | null }> & {
+  downloaded: boolean;
+  usable?: boolean;
+  idModelDownloaded?: boolean;
+  activeModel?: "identification" | "general" | null;
+  sizeBytes: number | null;
+};
 
 // The reference vectors are the second half of the same download from the user's point of view.
 const MODEL_PHASES: PhaseLabels = {
@@ -3068,6 +3074,17 @@ function EmbeddingModelSection() {
       title="Species-matching model"
       description="Powers species suggestions while importing and Gallery's content search (finding photos by what's in them, like 'water bird', not just by species name). Without it, Lifer stays smaller and search falls back to species names, ABA/eBird codes, and camera info."
     >
+      {status.activeModel && (
+        <p className="text-sm text-muted">
+          {status.activeModel === "identification"
+            ? "Suggestions use the species identification model (BioCLIP 2)."
+            : status.running
+              ? "Suggestions use the general model until the identification model and its reference vectors are installed."
+              : status.idModelDownloaded
+                ? "Suggestions use the general model: the identification model's reference vectors aren't installed yet. They're tried again each time Lifer starts."
+                : "Suggestions use the general model, which is less accurate. Download the identification model to improve them."}
+        </p>
+      )}
       {status.running ? (
         <JobProgress
           status={status}

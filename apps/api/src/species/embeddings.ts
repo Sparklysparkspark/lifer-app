@@ -713,6 +713,12 @@ async function idModelReady(pool: Pool | PoolClient): Promise<boolean> {
   return idVectorsInstalled;
 }
 
+/** Which model suggestions run on right now, for Settings. */
+export async function activeSuggestionModel(pool: Pool): Promise<"identification" | "general" | null> {
+  if (await idModelReady(pool)) return "identification";
+  return isModelDownloaded() ? "general" : null;
+}
+
 /** For tests and for the vector installer, which knows the answer just changed. */
 export function resetIdModelReadiness(): void {
   idVectorsInstalled = false;
