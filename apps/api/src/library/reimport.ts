@@ -445,7 +445,11 @@ export async function findMissingReferenceData(scientificNames: string[]): Promi
   if (scientificNames.length === 0) return [];
   const res = await pool.query<{ scientific_name: string }>(
     `SELECT scientific_name FROM species
-     WHERE scientific_name = ANY($1) AND (reference_photo IS NULL OR description IS NULL)`,
+     WHERE scientific_name = ANY($1)
+       -- A pack's own photo and habitat text count: packs never fill the online-only columns,
+       -- so checking just those flagged species a pack had already covered, and recommended
+       -- packs that couldn't clear the warning.
+       AND ((reference_photo IS NULL AND reference_display_path IS NULL) OR (description IS NULL AND habitat_description IS NULL))`,
     [scientificNames],
   );
   return res.rows.map((r) => r.scientific_name);
