@@ -15,8 +15,9 @@ import { resyncSpeciesMetadata } from "../captures/routes.js";
 import { readLocalSettings, writeLocalSettings } from "../localSettings.js";
 import { checkCatalogUpdate, startCatalogUpdateJob, catalogUpdate, catalogFirstBootState } from "../species/catalogSeedUpdate.js";
 import { modelDownload, startModelDownloadJob } from "../species/modelDownloadJob.js";
-import { isModelDownloaded, offloadModel, MODEL_DIR } from "../species/embeddings.js";
+import { activeSuggestionModel, isModelDownloaded, offloadModel, MODEL_DIR } from "../species/embeddings.js";
 import { idModel } from "../species/idModel.js";
+import { galleryEmbeddingsJob, vectorUpdateProgress } from "../species/galleryEmbeddingsAsset.js";
 import { isTextModelDownloaded } from "../species/textEmbedding.js";
 import { createJob, type JobContext } from "../lib/job.js";
 import { downloadToFile } from "../lib/download.js";
@@ -903,11 +904,32 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
     return total;
   }
 
+  function vectorProgressShown() {
+    const progress = vectorUpdateProgress();
+    const own = modelDownload.status;
+    if (!progress || (own.running && own.phase !== "waiting_for_vectors")) return {};
+    return {
+      running: true,
+      phase: progress.phase ?? null,
+      downloadedBytes: progress.downloadedBytes ?? null,
+      totalBytes: progress.totalBytes ?? null,
+      processed: progress.processed ?? null,
+      total: progress.total ?? null,
+      currentItem: progress.currentItem ?? null,
+    };
+  }
+
   // JobStatus plus `downloaded`/`sizeBytes`; `downloading` stays as an alias of `running` for
   // older web builds.
   app.get("/settings/embedding-model/status", { preHandler: requireAuth }, async () => ({
     ...modelDownload.status,
+    // While this download waits its turn for the reference vectors, or while another job
+    // installs them (the startup check, or a fresh server's first catalog install), show that
+    // job's progress. Otherwise all anyone saw was "Waiting for another download to finish"
+    // with nothing else running that they knew of.
+    ...vectorProgressShown(),
     downloading: modelDownload.status.running,
+    activeModel: await activeSuggestionModel(pool),
     // All three: an install from before the identification model existed has only the CLIP
     // ones, and counting that as downloaded skipped the setup prompt and hid the download button,
     // leaving suggestions on the older, less accurate model with no way to fix it.
@@ -918,14 +940,19 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
     sizeBytes: dirSizeBytes(MODEL_DIR) || null,
   }));
 
-  app.post("/settings/embedding-model/download", { preHandler: requireAuth }, async (_request, reply) => {
+  app.post("/settings/embedding-model/download", { preHandler: requireAuth }, async (request, reply) => {
     if (!startModelDownloadJob(pool, app.log)) return reply.code(409).send({ error: "The model is already downloading" });
+    // Offloading turned suggestions off for everyone; downloading again is the way back, and
+    // nothing else turned them back on.
+    await pool.query(`UPDATE users SET species_suggest_enabled = true WHERE id = $1`, [request.user!.id]);
     return { started: true };
   });
 
-  app.post("/settings/embedding-model/download/cancel", { preHandler: requireAuth }, async () => ({
-    cancelled: modelDownload.cancel(),
-  }));
+  app.post("/settings/embedding-model/download/cancel", { preHandler: requireAuth }, async () => {
+    const download = modelDownload.cancel();
+    const vectors = galleryEmbeddingsJob.cancel();
+    return { cancelled: download || vectors };
+  });
 
   // Offloading also turns off species-suggest for every user rather than leaving it silently
   // broken — see SpeciesPicker/PhotoImportRows, which would otherwise keep showing a suggestion
@@ -933,6 +960,10 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
   // request.user!.id: SINGLE_USER_MODE aside, a shared server deployment offloading the model
   // affects everyone's suggestions equally, since there's only ever one copy of the model.
   app.delete("/settings/embedding-model", { preHandler: requireAuth }, async () => {
+    // A download or vector install still running would otherwise carry on against deleted
+    // files and hold the vector queue, so the next download sat waiting behind it.
+    modelDownload.cancel();
+    galleryEmbeddingsJob.cancel();
     offloadModel();
     await pool.query(`UPDATE users SET species_suggest_enabled = false`);
     return { ok: true };
