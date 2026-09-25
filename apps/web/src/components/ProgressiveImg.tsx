@@ -14,6 +14,15 @@ import PhotoPlaceholder from "./PhotoPlaceholder";
 const THUMB_WIDTH = 400;
 const MEDIUM_WIDTH = 1024;
 const NEAR_VIEWPORT = "800px";
+// A failed load is tried again after these delays before showing the placeholder. One failure
+// (the server busy with an import, restarting, or rebuilding a missing thumbnail) used to leave
+// the card blank until the page was reloaded.
+const RETRY_DELAYS_MS = [2_000, 10_000];
+
+function withRetry(src: string, attempt: number): string {
+  if (attempt === 0) return src;
+  return `${src}${src.includes("?") ? "&" : "?"}retry=${attempt}`;
+}
 
 function mediumSrcFor(thumbSrc: string): string | null {
   // Only your own photos (/api/photos/:id/thumb) have a medium copy; shared-album and reference
@@ -42,9 +51,18 @@ export default function ProgressiveImg({
   // A record pointing at a photo whose file has since moved or been deleted would otherwise show
   // the browser's broken-image icon; the placeholder reads as "nothing here" instead.
   const [failed, setFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
+  const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => () => {
+    if (retryTimer.current) clearTimeout(retryTimer.current);
+  }, []);
 
   useEffect(() => {
-    const el = imgRef.current;
+    // The box the photo is shown in, not the image itself: an image not loaded yet has no size,
+    // and a cropped one is positioned with its corner outside that box, which clips it away
+    // entirely. The browser then never reported it as on screen, so a cropped card stayed blank.
+    const el = imgRef.current?.parentElement ?? imgRef.current;
     if (!el || near) return;
     if (typeof IntersectionObserver === "undefined") {
       setNear(true);
@@ -65,6 +83,7 @@ export default function ProgressiveImg({
 
   useEffect(() => {
     setFailed(false);
+    setAttempt(0);
     setLoadedSrc(thumbSrc);
     if (!near) return;
     const el = imgRef.current;
@@ -91,7 +110,7 @@ export default function ProgressiveImg({
     <img
       ref={imgRef}
       // No src until the photo is near the screen, so a long grid doesn't download everything.
-      src={near ? loadedSrc : undefined}
+      src={near ? withRetry(loadedSrc, attempt) : undefined}
       alt={alt}
       onClick={onClick}
       decoding="async"
@@ -102,7 +121,10 @@ export default function ProgressiveImg({
       onError={() => {
         // A missing medium copy falls back to the display image rather than a placeholder.
         if (loadedSrc !== fullSrc && loadedSrc !== thumbSrc) setLoadedSrc(fullSrc);
-        else setFailed(true);
+        else if (attempt < RETRY_DELAYS_MS.length) {
+          if (retryTimer.current) clearTimeout(retryTimer.current);
+          retryTimer.current = setTimeout(() => setAttempt((a) => a + 1), RETRY_DELAYS_MS[attempt]);
+        } else setFailed(true);
       }}
     />
   );
