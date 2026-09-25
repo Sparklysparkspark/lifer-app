@@ -1,6 +1,7 @@
 services:
   postgres:
     image: postgis/postgis:16-3.4-alpine
+    restart: unless-stopped
     environment:
       POSTGRES_USER: lifer
       POSTGRES_PASSWORD: lifer
@@ -35,6 +36,10 @@ services:
   api:
     image: ghcr.io/sparklysparkspark/lifer-app:latest
     build: .
+    # Brings Lifer back on its own after a crash, or after its freeze watchdog restarts it
+    # (LIFER_FREEZE_RESTART_SECONDS, default 120). Without it a stopped server stays down until
+    # someone restarts it by hand.
+    restart: unless-stopped
     depends_on:
       postgres:
         condition: service_healthy
@@ -55,9 +60,14 @@ services:
       # "Label=/container/path" or just "/container/path". Every entry must also be mounted
       # below. Anything outside /data and these roots is refused (403).
       LIFER_LIBRARY_ROOTS: ${LIFER_LIBRARY_ROOTS:-}
+      LIFER_FREEZE_RESTART_SECONDS: ${LIFER_FREEZE_RESTART_SECONDS:-120}
     ports:
       - "${PORT:-4000}:${PORT:-4000}"
     volumes:
+      # Your photo library: Lifer's Birds, Mammals and other folders go directly in it. To move
+      # or rename this folder, stop Lifer first, update the path here, then start it again:
+      # moving it while Lifer runs leaves Lifer holding the old, deleted folder, and every
+      # upload fails until it restarts. The folder must exist before Lifer starts.
       - ${LIFER_STORAGE_DIR:-./data/lifer}:/data
       # App-managed downloads (offline basemap, species-matching model, catalog update cache) -
       # not user data, so a plain named volume rather than a host bind mount: it survives
