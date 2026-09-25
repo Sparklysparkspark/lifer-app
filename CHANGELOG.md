@@ -15,6 +15,31 @@ Categories: `Added`, `Changed`, `Fixed`, `Removed` — omit any with nothing to 
 
 ## [Unreleased]
 
+### Changed
+
+- Photo search fills in as you type: a few letters already find species ("moo" shows Moose),
+  word stems match ("fly" finds flying), and results come in fast first and then fill out.
+- Picture searches like "water" find far more of the photos that really show it.
+
+### Fixed
+
+- Installs that had the older species-matching model but not the newer identification model
+  counted as fully downloaded, so setup skipped the question and Settings offered no download,
+  and suggestions ran on the less accurate model. Settings now offers just the missing model
+  (about 310 MB), without downloading the one you already have again.
+- Species cards whose featured photo is framed on the animal could stay blank: the photo was
+  never loaded because the browser didn't count it as on screen.
+- A featured photo that failed to load once (the server busy with an import, or restarting)
+  stayed blank until the page was reloaded. It's now tried again a couple of times first.
+- After a fresh database on the same app data (a wipe, or a reinstall), reference photos Lifer
+  had already saved are used again instead of left unused, and installing an offline pack now
+  fills in photos for species restored from the bundled catalog.
+- The "recovered species missing reference photos" note after a reimport no longer counts
+  species an offline pack already covers, and so no longer recommends packs that couldn't help.
+- A self-hosted server hands memory back after a while unused: the animal detector is unloaded
+  like the species models, cached reference and search vectors are dropped once stale, and the
+  Docker image returns freed memory to the system instead of keeping its peak size.
+
 ## [0.8.0] - 2026-09-25
 
 ### Added

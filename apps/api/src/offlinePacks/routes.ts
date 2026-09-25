@@ -330,9 +330,11 @@ async function applyChecklist(
     // its files. Checked independently for display AND thumb — a species can have one file
     // present and the other missing (e.g. a partial extraction), and treating "display exists"
     // as "nothing to do" left the thumb 404ing forever even after re-downloading the pack.
+    // A missing path counts too: the catalog seed stores none at all rather than a broken one,
+    // so checking only recorded paths still skipped every seed-restored species.
     const referenceFileMissing =
-      (row.reference_display_path != null && !existsSync(row.reference_display_path)) ||
-      (row.reference_thumb_path != null && !existsSync(row.reference_thumb_path));
+      (!!sp.displayFile && (row.reference_display_path == null || !existsSync(row.reference_display_path))) ||
+      (!!sp.thumbFile && (row.reference_thumb_path == null || !existsSync(row.reference_thumb_path)));
     const providedEnrichment = !row.enriched_at || referenceFileMissing;
     if (providedEnrichment) {
       const displaySource = sp.displayFile ? resolveWithinDir(extractDir, sp.displayFile) : null;

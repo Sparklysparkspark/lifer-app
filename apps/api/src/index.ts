@@ -34,6 +34,7 @@ import { albumShareRoutes } from "./shares/routes.js";
 import { inaturalistRoutes } from "./inaturalist/routes.js";
 import { runEmbeddingBackfill } from "./species/embeddingBackfill.js";
 import { seedCatalogIfEmpty } from "./species/catalogSeedUpdate.js";
+import { relinkCachedReferenceFiles } from "./species/relinkReferenceFiles.js";
 import { ensureGalleryEmbeddingsOnStartup } from "./species/galleryEmbeddingsAsset.js";
 import { ensureIdModelOnStartup } from "./species/modelDownloadJob.js";
 import { integrationRoutes } from "./integrations/routes.js";
@@ -248,7 +249,12 @@ seedCatalogIfEmpty(pool)
   .catch((err) => app.log.warn({ err }, "Catalog auto-seed failed. Settings > Update can still be run manually."))
   // After the seed (gallery vectors attach to catalog photos): fetch newer published vectors if
   // the model is installed. Runs in the background and only logs on failure.
-  .finally(() => {
+  .finally(async () => {
+    await relinkCachedReferenceFiles(pool)
+      .then((n) => {
+        if (n) app.log.info({ relinked: n }, "Linked cached reference photos to a fresh database");
+      })
+      .catch((err) => app.log.warn({ err }, "Couldn't link cached reference photos"));
     ensureGalleryEmbeddingsOnStartup(pool);
     ensureIdModelOnStartup(pool, app.log);
   });
