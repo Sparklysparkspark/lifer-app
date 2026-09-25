@@ -1,33 +1,48 @@
+import { lazy, Suspense, useEffect, useState } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 import { useAuth } from "./hooks/useAuth";
 import LoginPage from "./pages/LoginPage";
-import OnboardingPage from "./pages/OnboardingPage";
 import CollectionPage from "./pages/CollectionPage";
-import SpeciesDetailPage from "./pages/SpeciesDetailPage";
-import GalleryPage from "./pages/GalleryPage";
-import StatsPage from "./pages/StatsPage";
-import RegionPage from "./pages/RegionPage";
-import BulkImportPage from "./pages/BulkImportPage";
-import SettingsPage from "./pages/SettingsPage";
-import OfflinePacksPage from "./pages/OfflinePacksPage";
-import CollectionsPage from "./pages/CollectionsPage";
-import TripDetailPage from "./pages/TripDetailPage";
-import AlbumDetailPage from "./pages/AlbumDetailPage";
-import SharePage from "./pages/SharePage";
-import ApiKeysPage from "./pages/ApiKeysPage";
-import InaturalistPage from "./pages/InaturalistPage";
-import ArchivedSpeciesPage from "./pages/ArchivedSpeciesPage";
-import HiddenSpeciesPage from "./pages/HiddenSpeciesPage";
-import ManageTagsPage from "./pages/ManageTagsPage";
-import TrashedPhotosPage from "./pages/TrashedPhotosPage";
-import GuidePage from "./pages/GuidePage";
-import ForgotPasswordPage from "./pages/ForgotPasswordPage";
-import ResetPasswordPage from "./pages/ResetPasswordPage";
 import MigrationStatusIndicator from "./components/MigrationStatusIndicator";
 import UploadQueueBanner from "./components/UploadQueueBanner";
 import UpdatesBanner from "./components/UpdatesBanner";
+import LibraryFolderBanner from "./components/LibraryFolderBanner";
 import TitleBarDragRegion from "./components/TitleBarDragRegion";
 import { LoadingScreen } from "./components/LoadingScreen";
+
+// Every page but the collection (where the app opens) and login loads on first visit, so opening
+// Lifer doesn't wait for the code of 20 pages you may never open this session.
+const OnboardingPage = lazy(() => import("./pages/OnboardingPage"));
+const SpeciesDetailPage = lazy(() => import("./pages/SpeciesDetailPage"));
+const GalleryPage = lazy(() => import("./pages/GalleryPage"));
+const StatsPage = lazy(() => import("./pages/StatsPage"));
+const RegionPage = lazy(() => import("./pages/RegionPage"));
+const BulkImportPage = lazy(() => import("./pages/BulkImportPage"));
+const SettingsPage = lazy(() => import("./pages/SettingsPage"));
+const OfflinePacksPage = lazy(() => import("./pages/OfflinePacksPage"));
+const CollectionsPage = lazy(() => import("./pages/CollectionsPage"));
+const TripDetailPage = lazy(() => import("./pages/TripDetailPage"));
+const AlbumDetailPage = lazy(() => import("./pages/AlbumDetailPage"));
+const SharePage = lazy(() => import("./pages/SharePage"));
+const ApiKeysPage = lazy(() => import("./pages/ApiKeysPage"));
+const InaturalistPage = lazy(() => import("./pages/InaturalistPage"));
+const ArchivedSpeciesPage = lazy(() => import("./pages/ArchivedSpeciesPage"));
+const HiddenSpeciesPage = lazy(() => import("./pages/HiddenSpeciesPage"));
+const ManageTagsPage = lazy(() => import("./pages/ManageTagsPage"));
+const TrashedPhotosPage = lazy(() => import("./pages/TrashedPhotosPage"));
+const GuidePage = lazy(() => import("./pages/GuidePage"));
+const ForgotPasswordPage = lazy(() => import("./pages/ForgotPasswordPage"));
+const ResetPasswordPage = lazy(() => import("./pages/ResetPasswordPage"));
+
+// Shown only if a page's code takes a moment to arrive, so fast loads don't flash a spinner.
+function PageLoading() {
+  const [show, setShow] = useState(false);
+  useEffect(() => {
+    const t = setTimeout(() => setShow(true), 250);
+    return () => clearTimeout(t);
+  }, []);
+  return show ? <LoadingScreen /> : null;
+}
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
@@ -43,6 +58,8 @@ export default function App() {
       <MigrationStatusIndicator />
       <UploadQueueBanner />
       <UpdatesBanner />
+      <LibraryFolderBanner />
+      <Suspense fallback={<PageLoading />}>
       <Routes>
       <Route path="/login" element={<LoginPage />} />
       <Route
@@ -217,6 +234,7 @@ export default function App() {
         }
       />
       </Routes>
+      </Suspense>
     </>
   );
 }

@@ -1,15 +1,15 @@
 import { randomUUID, createHash } from "node:crypto";
-import { mkdirSync, rmSync, rmdirSync, writeFileSync, readFileSync, readdirSync, existsSync, renameSync, copyFileSync } from "node:fs";
+import { rmSync, rmdirSync, readFileSync, readdirSync, existsSync, statSync } from "node:fs";
+import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { FastifyInstance } from "fastify";
 import { pool } from "../db.js";
-import { requireAuth } from "../auth/session.js";
+import { requireAuth, requireScope } from "../auth/session.js";
 import { generateDerivatives, generateVideoDerivatives } from "./image.js";
 import {
   extractExif,
   extractKeywords,
   computeExifFingerprint,
-  writeSpeciesMetadata,
   readExifTags,
   extractEmbeddedPreview,
   type ExtractedExif,
@@ -22,6 +22,9 @@ import { originalsFolder } from "./organizedPath.js";
 import { resolveSpeciesFolderName } from "./speciesFolderName.js";
 import { tagWithRegisteredVolume, resolveChosenVolumeDestination } from "../storageVolumes/resolve.js";
 import { assertAllowedPath } from "../lib/allowedPaths.js";
+import { ensureDir, writeNewFile, copyToNewFile, moveToFolder } from "../lib/safeFs.js";
+import { claimStagedUpload, readStagedUpload, receiveToFile, removeStagedUpload, stageUpload, sweepStagedUploads } from "../lib/stagedUploads.js";
+import { ensureDefaultCardCropLater } from "../collection/defaultCardCrop.js";
 import {
   computeEmbedding,
   cosineSimilarity,
@@ -48,13 +51,24 @@ const ACCEPTED_PHOTO_EXTENSION_BY_MIMETYPE: Record<string, string> = {
 // library stays usable outside Lifer. The edited JPEG and its RAW sibling get their own
 // named subfolders so it's obvious which is which without opening Lifer at all:
 // <species>/Adjusted/<file>.jpg, <species>/RAW/<file>.<ext>. A folder is only ever created
-// for a species that's actually been uploaded to (mkdirSync only runs at the point a file
+// for a species that's actually been uploaded to (the folder is only created at the point a file
 // is actually written there — never pre-created for the whole backbone).
 function sanitizeForFilesystem(name: string): string {
   // Slashes would create unintended subfolders; the rest are characters Windows/macOS/Linux
   // either forbid outright or that just make a folder name awkward to look at/type.
   return name.replace(/[/\\:*?"<>|]/g, "").trim();
 }
+
+// An upload's transaction holds a lock on the species row from the moment the photo is added to
+// the collection until COMMIT. If that request stalls (a hung network share, a bug), the next
+// upload for the same species waits on the lock forever and the page freezes. These make Postgres
+// end a stalled upload's transaction (releasing the lock, and rolling it back) and give up on a
+// lock that's been held too long, so a stuck upload fails on its own instead of blocking others.
+const uploadTxTimeouts = (minutes: number) =>
+  `SET LOCAL idle_in_transaction_session_timeout = '${minutes}min'; SET LOCAL lock_timeout = '${minutes}min'`;
+const UPLOAD_TX_TIMEOUTS = uploadTxTimeouts(2);
+// A video's transaction also covers copying a file that can be gigabytes onto a network share.
+const VIDEO_UPLOAD_TX_TIMEOUTS = uploadTxTimeouts(15);
 
 /** Prefers the browser-supplied original filename (sanitized); falls back to a date-based
  *  name when there isn't one (e.g. link mode already has a real path/filename of its own,
@@ -66,20 +80,6 @@ function originalFilename(uploadedName: string | null, takenAt: Date | null, ext
   }
   const datePart = takenAt ? takenAt.toISOString().slice(0, 10) : "undated";
   return `${datePart}-${randomUUID().slice(0, 8)}${extension}`;
-}
-
-/** Avoids silently overwriting a same-named file already in that species' folder (e.g. two
- *  cameras both producing "IMG_0001.jpg") — appends "-2", "-3", etc. rather than guessing
- *  they're the same photo. */
-function uniqueDestination(dir: string, filename: string): string {
-  let candidate = path.join(dir, filename);
-  if (!existsSync(candidate)) return candidate;
-  const ext = path.extname(filename);
-  const base = filename.slice(0, -ext.length || undefined);
-  for (let i = 2; existsSync(candidate); i++) {
-    candidate = path.join(dir, `${base}-${i}${ext}`);
-  }
-  return candidate;
 }
 
 // The auto-link paths below only update originals.capture_id; without this, a RAW linked
@@ -108,16 +108,10 @@ export async function moveManagedOriginalToSpeciesFolder(
     takenAt,
     subfolder: kind === "raw" ? "RAW" : "Adjusted",
   });
-  mkdirSync(folder, { recursive: true });
-  const dest = uniqueDestination(folder, path.basename(currentRef));
-  if (dest === currentRef) return currentRef;
   const sourceDir = path.dirname(currentRef);
-  try {
-    renameSync(currentRef, dest);
-  } catch {
-    copyFileSync(currentRef, dest);
-    rmSync(currentRef, { force: true });
-  }
+  // Already filed in the right folder: moving it would only rename it to "-2".
+  if (path.resolve(sourceDir) === path.resolve(folder)) return currentRef;
+  const dest = await moveToFolder(currentRef, folder);
   removeIfEmptySpeciesFolder(sourceDir);
   return dest;
 }
@@ -144,7 +138,7 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
   // Inspects a file (EXIF date + keywords, for auto-matching a species before the user
   // commits anything) without writing any DB rows or keeping the file — the actual
   // /uploads call below still does that, once a species is chosen.
-  app.post("/uploads/inspect", { preHandler: requireAuth }, async (request, reply) => {
+  app.post("/uploads/inspect", { preHandler: requireScope("photos.write") }, async (request, reply) => {
     let fileBuffer: Buffer | null = null;
     let fileName: string | null = null;
     // Optional — when the caller (PhotoImportRows) already knows which region a batch is for,
@@ -162,9 +156,9 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
 
     const isRaw = RAW_EXTENSIONS.has(path.extname(fileName ?? "").toLowerCase());
     const tmpDir = path.join(APP_DATA_DIR, "tmp");
-    mkdirSync(tmpDir, { recursive: true });
+    await ensureDir(tmpDir);
     const tmpPath = path.join(tmpDir, `${randomUUID()}${isRaw ? path.extname(fileName ?? "") : ".jpg"}`);
-    writeFileSync(tmpPath, fileBuffer);
+    await writeFile(tmpPath, fileBuffer);
     try {
       const tags = await readExifTags(tmpPath);
       const [exif, keywords] = [await extractExif(tmpPath, tags), await extractKeywords(tmpPath, tags)];
@@ -180,7 +174,7 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
       // Same content-hash the real /uploads commit stores on captures.fingerprint (see below,
       // ~L527) — checked here, BEFORE any commit happens, so the client can warn "you already
       // have this" and let the user choose import-anyway/skip, instead of the main upload path
-      // silently succeeding with a "-2" filename suffix (uniqueDestination's own collision
+      // silently succeeding with a "-2" filename suffix (writeNewFile's own collision
       // handling, which only avoids a NAME clash, never checks content).
       const fingerprint = createHash("sha256").update(fileBuffer).digest("hex");
       const dupRes = await pool.query<{ capture_id: string; species_id: string; common_name: string | null; scientific_name: string; taken_at: string | null }>(
@@ -307,7 +301,11 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
       // available" placeholder, at no extra cost (no second file read, no second exiftool call).
       const previewDataUrl = isRaw && embedSourceBuffer ? `data:image/jpeg;base64,${embedSourceBuffer.toString("base64")}` : null;
 
-      return { takenAt: exif.takenAt, keywords, possibleDuplicate, suggestions, previewDataUrl };
+      // Kept so the import can refer to it instead of sending the file again (lib/stagedUploads.ts).
+      void sweepStagedUploads();
+      const stagedId = (await stageUpload(request.user!.id, fingerprint, tmpPath)) ? fingerprint : null;
+
+      return { takenAt: exif.takenAt, keywords, possibleDuplicate, suggestions, previewDataUrl, stagedId };
     } finally {
       rmSync(tmpPath, { force: true });
     }
@@ -414,9 +412,9 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
     chosenVolume: { baseDir: string; mountPath: string; volumeId: string } | null,
   ): Promise<RawUploadOutcome> {
     const tmpDir = path.join(APP_DATA_DIR, "tmp");
-    mkdirSync(tmpDir, { recursive: true });
+    await ensureDir(tmpDir);
     const tmpPath = path.join(tmpDir, `${randomUUID()}${path.extname(rawFileName).toLowerCase()}`);
-    writeFileSync(tmpPath, rawBuffer);
+    await writeFile(tmpPath, rawBuffer);
 
     let exif: ExtractedExif;
     let fingerprint: { strict: string | null; loose: string | null };
@@ -460,9 +458,7 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
         takenAt: exif.takenAt,
         subfolder: "RAW",
       });
-      mkdirSync(folder, { recursive: true });
-      const dest = uniqueDestination(folder, originalFilename(rawFileName, exif.takenAt, path.extname(rawFileName).toLowerCase()));
-      writeFileSync(dest, rawBuffer);
+      const dest = await writeNewFile(folder, originalFilename(rawFileName, exif.takenAt, path.extname(rawFileName).toLowerCase()), rawBuffer);
       const volumeRelativePath = chosenVolume ? dest.slice(chosenVolume.mountPath.length) : null;
       // If this INSERT throws after the file above was already written, the file would be
       // left as a phantom on disk with no DB row to ever find it again. Clean it up on
@@ -518,12 +514,10 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
           takenAt: exif.takenAt,
           subfolder: "RAW",
         });
-        mkdirSync(folder, { recursive: true });
-        // uniqueDestination already appends "-2", "-3", etc. on a plain filename collision —
-        // that's the desired behavior once the identical-content check above has ruled out
-        // "this is just the same file again."
-        const dest = uniqueDestination(folder, originalFilename(rawFileName, exif.takenAt, path.extname(rawFileName).toLowerCase()));
-        writeFileSync(dest, rawBuffer);
+        // writeNewFile appends "-2", "-3", etc. on a plain filename collision, which is the
+        // desired behavior once the identical-content check above has ruled out "this is just
+        // the same file again."
+        const dest = await writeNewFile(folder, originalFilename(rawFileName, exif.takenAt, path.extname(rawFileName).toLowerCase()), rawBuffer);
         const volumeRelativePath = chosenVolume ? dest.slice(chosenVolume.mountPath.length) : null;
         try {
           await pool.query(
@@ -574,9 +568,9 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
     tripId: string | null,
   ): Promise<{ captureId: string; photoId: string | null; linkedExisting: boolean }> {
     const tmpDir = path.join(APP_DATA_DIR, "tmp");
-    mkdirSync(tmpDir, { recursive: true });
+    await ensureDir(tmpDir);
     const tmpPath = path.join(tmpDir, `${randomUUID()}${path.extname(rawFileName).toLowerCase()}`);
-    writeFileSync(tmpPath, rawBuffer);
+    await writeFile(tmpPath, rawBuffer);
 
     let exif: ExtractedExif;
     let fingerprint: { strict: string | null; loose: string | null };
@@ -610,9 +604,7 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
         takenAt: exif.takenAt,
         subfolder: "RAW",
       });
-      mkdirSync(folder, { recursive: true });
-      const dest = uniqueDestination(folder, originalFilename(rawFileName, exif.takenAt, path.extname(rawFileName).toLowerCase()));
-      writeFileSync(dest, rawBuffer);
+      const dest = await writeNewFile(folder, originalFilename(rawFileName, exif.takenAt, path.extname(rawFileName).toLowerCase()), rawBuffer);
       const volumeRelativePath = chosenVolume ? dest.slice(chosenVolume.mountPath.length) : null;
       try {
         await pool.query(
@@ -636,6 +628,7 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
     let committed = false;
     try {
       await client.query("BEGIN");
+      await client.query(UPLOAD_TX_TIMEOUTS);
       const captureRes = await client.query<{ id: string }>(
         `INSERT INTO captures
            (user_id, species_id, fingerprint, exif_fingerprint, exif_fingerprint_loose, taken_at, lat, lon, camera_model, lens, focal_length_mm, aperture, shutter, iso, trip_id, quality_rating)
@@ -694,9 +687,7 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
         takenAt: exif.takenAt,
         subfolder: "RAW",
       });
-      mkdirSync(folder, { recursive: true });
-      const dest = uniqueDestination(folder, originalFilename(rawFileName, exif.takenAt, path.extname(rawFileName).toLowerCase()));
-      writeFileSync(dest, rawBuffer);
+      const dest = await writeNewFile(folder, originalFilename(rawFileName, exif.takenAt, path.extname(rawFileName).toLowerCase()), rawBuffer);
       written.push(dest);
       const volumeRelativePath = chosenVolume ? dest.slice(chosenVolume.mountPath.length) : null;
       await client.query(
@@ -706,7 +697,12 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
       );
 
       await client.query("COMMIT");
+      // This photo may just have become the species' cover: frame the card on the animal.
+      ensureDefaultCardCropLater(userId, species.id);
       committed = true;
+      // A RAW's species keywords and rating go in an .xmp sidecar next to it (where Lightroom and
+      // digiKam look); this path never wrote one, so a RAW-only photo had no metadata outside Lifer.
+      syncCaptureXmpSidecars(userId, captureId).catch(() => {});
 
       if (previewBuffer) {
         computeEmbedding(previewBuffer)
@@ -780,7 +776,7 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
     return reply.code(201).send({ results });
   });
 
-  app.post("/uploads", { preHandler: requireAuth }, async (request, reply) => {
+  app.post("/uploads", { preHandler: requireScope("photos.write") }, async (request, reply) => {
     // mode=store sends a `file` part; mode=link sends a `path` field instead
     // (the absolute path a native Finder dialog returned — see src/originals/browse.ts) and
     // no file bytes at all. request.parts() reads both fields and files off one stream, since
@@ -812,6 +808,23 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
     const mode: UploadMode = fields.mode === "link" ? "link" : fields.mode === "s3" ? "s3" : "store";
     const speciesId = fields.speciesId;
     if (!speciesId) return reply.code(400).send({ error: "speciesId field is required" });
+
+    // The photo was already sent once to be checked (/uploads/inspect), which kept it: use that
+    // copy instead of receiving the bytes again. 410 when it's no longer there, so the app sends
+    // the file after all.
+    if (mode === "store" && !fileBuffer && fields.stagedId) {
+      const staged = await readStagedUpload(request.user!.id, fields.stagedId);
+      if (!staged) return reply.code(410).send({ error: "The checked copy of this photo has expired. Send the file again." });
+      fileBuffer = staged;
+      fileName = fields.fileName || null;
+      fileMimetype = fields.fileType || null;
+      const stagedId = fields.stagedId;
+      const userId = request.user!.id;
+      // Removed once the import has gone through; a failed import keeps it for a retry.
+      reply.raw.once("finish", () => {
+        if (reply.statusCode < 400) void removeStagedUpload(userId, stagedId);
+      });
+    }
 
     // Optional destination override for mode=store: write directly onto a registered external
     // drive (see ~/.claude/plans/multi-drive-storage.md's import destination picker) instead
@@ -929,14 +942,27 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
 
     const fingerprint = createHash("sha256").update(buffer).digest("hex");
 
+    // skipDuplicates=1: an exact copy you already have comes back as that photo (200, duplicate:
+    // true) instead of a second capture, so a sync or import script can re-send files safely.
+    // The app's own importer checks first via /uploads/inspect and asks instead.
+    if (fields.skipDuplicates === "1") {
+      const existing = await pool.query<{ id: string; current_photo_id: string | null }>(
+        `SELECT id, current_photo_id FROM captures WHERE user_id = $1 AND fingerprint = $2 LIMIT 1`,
+        [request.user!.id, fingerprint],
+      );
+      if (existing.rows[0]) {
+        return reply.code(200).send({ captureId: existing.rows[0].id, photoId: existing.rows[0].current_photo_id, duplicate: true });
+      }
+    }
+
     // exiftool-vendored needs a real file path — write to a scratch dir, then clean up.
     // (Skipped for link mode's own file, since it's already got a real path on disk.)
     const tmpDir = path.join(APP_DATA_DIR, "tmp");
     let exifSourcePath = originalRef;
     if (mode === "store") {
-      mkdirSync(tmpDir, { recursive: true });
+      await ensureDir(tmpDir);
       exifSourcePath = path.join(tmpDir, `${randomUUID()}${photoExtension}`);
-      writeFileSync(exifSourcePath, buffer);
+      await writeFile(exifSourcePath, buffer);
     }
 
     let exif: ExtractedExif;
@@ -999,6 +1025,7 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
     let committed = false;
     try {
       await client.query("BEGIN");
+      await client.query(UPLOAD_TX_TIMEOUTS);
 
       const captureRes = await client.query<{ id: string }>(
         `INSERT INTO captures
@@ -1068,28 +1095,11 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
           takenAt: exif.takenAt,
           subfolder: "Adjusted",
         });
-        mkdirSync(folder, { recursive: true });
-        finalOriginalRef = uniqueDestination(folder, originalFilename(fileName, exif.takenAt, photoExtension));
-        writeFileSync(finalOriginalRef, buffer);
+        finalOriginalRef = await writeNewFile(folder, originalFilename(fileName, exif.takenAt, photoExtension), buffer);
         written.push(finalOriginalRef);
-        const namingStyleRes = await pool.query<{ species_naming_styles: string[] }>(
-          `SELECT species_naming_styles FROM users WHERE id = $1`,
-          [userId],
-        );
-        await writeSpeciesMetadata(
-          finalOriginalRef,
-          [
-            {
-              commonName: species.common_name,
-              scientificName: species.scientific_name,
-              taxonClass: species.taxon_class,
-              family: species.family,
-              abaCode: species.aba_code,
-              ebirdCode: species.ebird_code,
-            },
-          ],
-          namingStyleRes.rows[0]?.species_naming_styles ?? [],
-        );
+        // Species keywords, title and rating are written into the file right after the import is
+        // saved (syncCaptureXmpSidecars below), so the upload doesn't wait on exiftool rewriting
+        // the file: up to 3.7s for a 50 MB PNG, and it used to happen twice.
         managed = true;
       }
       const refType = mode === "s3" ? "s3" : "path";
@@ -1139,10 +1149,8 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
           takenAt: exif.takenAt,
           subfolder: "RAW",
         });
-        mkdirSync(rawFolder, { recursive: true });
         const rawExt = path.extname(rawFileName).toLowerCase();
-        const rawDest = uniqueDestination(rawFolder, originalFilename(rawFileName, exif.takenAt, rawExt));
-        writeFileSync(rawDest, rawBuffer);
+        const rawDest = await writeNewFile(rawFolder, originalFilename(rawFileName, exif.takenAt, rawExt), rawBuffer);
         written.push(rawDest);
         const rawHash = createHash("sha256").update(rawBuffer).digest("hex");
         const rawVolumeRelativePath = chosenVolume ? rawDest.slice(chosenVolume.mountPath.length) : null;
@@ -1237,6 +1245,8 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
       }
 
       await client.query("COMMIT");
+      // This photo may just have become the species' cover: frame the card on the animal.
+      ensureDefaultCardCropLater(userId, speciesId);
       committed = true;
 
       // Fire-and-forget, same reasoning as the embedding computation below — writes this
@@ -1277,22 +1287,46 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
   };
   app.post("/uploads/video", { preHandler: requireAuth }, async (request, reply) => {
     const fields: Record<string, string> = {};
-    let fileBuffer: Buffer | null = null;
     let fileMimetype: string | null = null;
     let fileName: string | null = null;
+    // Streamed straight to a temp file (ffprobe, ffmpeg and exiftool all need a real path anyway),
+    // never held in memory: a 1.4 GB clip used to take 1.4 GB of server memory here.
+    const tmpDir = path.join(APP_DATA_DIR, "tmp");
+    await ensureDir(tmpDir);
+    let tmpPath: string | null = null;
+    let fingerprint: string | null = null;
+    // Whatever way this request ends, the temp file goes with it (the video is copied into the
+    // library before that).
+    reply.raw.once("finish", () => {
+      if (tmpPath) rmSync(tmpPath, { force: true });
+    });
     for await (const part of request.parts()) {
       if (part.type === "file") {
-        fileBuffer = await part.toBuffer();
         fileMimetype = part.mimetype;
         fileName = part.filename;
+        tmpPath = path.join(tmpDir, `${randomUUID()}${ACCEPTED_VIDEO_EXTENSION_BY_MIMETYPE[part.mimetype] ?? ".upload"}`);
+        ({ fingerprint } = await receiveToFile(part.file, tmpPath));
       } else {
         fields[part.fieldname] = String(part.value);
       }
     }
+    // The video was already sent once to be checked for species (/captures/suggest-species-from-
+    // video kept it): use that copy instead of receiving it again. 410 when it's gone, so the app
+    // sends the file after all.
+    if (!tmpPath && fields.stagedId) {
+      fileMimetype = fields.fileType || null;
+      fileName = fields.fileName || null;
+      const claimed = path.join(tmpDir, `${randomUUID()}${(fileMimetype && ACCEPTED_VIDEO_EXTENSION_BY_MIMETYPE[fileMimetype]) ?? ".upload"}`);
+      if (!(await claimStagedUpload(request.user!.id, fields.stagedId, claimed))) {
+        return reply.code(410).send({ error: "The checked copy of this video has expired. Send the file again." });
+      }
+      tmpPath = claimed;
+      fingerprint = fields.stagedId;
+    }
 
     const speciesId = fields.speciesId;
     if (!speciesId) return reply.code(400).send({ error: "speciesId field is required" });
-    if (!fileBuffer) return reply.code(400).send({ error: "No file uploaded" });
+    if (!tmpPath || !fingerprint) return reply.code(400).send({ error: "No file uploaded" });
     if (!fileMimetype || !(fileMimetype in ACCEPTED_VIDEO_EXTENSION_BY_MIMETYPE)) {
       return reply.code(400).send({ error: "Only MP4 or MOV video uploads are supported" });
     }
@@ -1337,13 +1371,7 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
     if (speciesRes.rows.length === 0) return reply.code(400).send({ error: "Unknown species" });
     const species = speciesRes.rows[0];
 
-    const fingerprint = createHash("sha256").update(fileBuffer).digest("hex");
-
-    // ffprobe/ffmpeg and exiftool all need a real file path, not a buffer.
-    const tmpDir = path.join(APP_DATA_DIR, "tmp");
-    mkdirSync(tmpDir, { recursive: true });
-    const tmpPath = path.join(tmpDir, `${randomUUID()}${videoExtension}`);
-    writeFileSync(tmpPath, fileBuffer);
+    const videoPath = tmpPath;
 
     let exif: ExtractedExif;
     try {
@@ -1369,6 +1397,7 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
     let committed = false;
     try {
       await client.query("BEGIN");
+      await client.query(VIDEO_UPLOAD_TX_TIMEOUTS);
 
       const captureRes = await client.query<{ id: string }>(
         `INSERT INTO captures
@@ -1428,9 +1457,7 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
         takenAt: exif.takenAt,
         subfolder: "Video",
       });
-      mkdirSync(folder, { recursive: true });
-      const finalRef = uniqueDestination(folder, originalFilename(fileName, exif.takenAt, videoExtension));
-      copyFileSync(tmpPath, finalRef);
+      const finalRef = await copyToNewFile(folder, originalFilename(fileName, exif.takenAt, videoExtension), tmpPath);
       written.push(finalRef);
 
       const volumeTag = chosenVolume
@@ -1440,7 +1467,7 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
       await client.query(
         `INSERT INTO originals (capture_id, kind, ref_type, ref, managed, content_hash, file_size, volume_id, volume_relative_path)
          VALUES ($1, 'video', 'path', $2, true, $3, $4, $5, $6)`,
-        [captureId, finalRef, fingerprint, fileBuffer.length, volumeTag.volumeId, volumeTag.volumeRelativePath],
+        [captureId, finalRef, fingerprint, statSync(videoPath).size, volumeTag.volumeId, volumeTag.volumeRelativePath],
       );
 
       if (albumId) {
@@ -1451,6 +1478,8 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
       }
 
       await client.query("COMMIT");
+      // This photo may just have become the species' cover: frame the card on the animal.
+      ensureDefaultCardCropLater(userId, speciesId);
       committed = true;
       return reply.code(201).send({ captureId, photoId: photoRes.rows[0].id });
     } catch (err) {

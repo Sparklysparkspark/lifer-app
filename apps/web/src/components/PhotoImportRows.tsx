@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { api, ApiError } from "../api/client";
 import { errorMessage } from "../lib/errorMessage";
 import { mapWithConcurrency } from "../lib/concurrency";
-import { registerExternalJob, settleExternalJob, type PossibleDuplicate } from "../lib/uploadQueue";
+import { postPhotoUpload, postUploadPreferringKeptCopy, registerExternalJob, settleExternalJob, type PossibleDuplicate } from "../lib/uploadQueue";
 import SpeciesPicker, { type SpeciesResult, type SuggestedSpecies } from "./SpeciesPicker";
 import SuggestionCard from "./SuggestionCard";
 import RegionBrowser from "./RegionBrowser";
@@ -50,6 +50,8 @@ interface ImportRow {
    *  format has no embedded preview to extract. */
   isRaw?: boolean;
   rawPreviewUrl?: string | null;
+  /** The server's kept copy of this file from the check (see uploadQueue.ts postPhotoUpload). */
+  stagedId?: string | null;
   /** Routed through an entirely different pair of endpoints from a photo row — /uploads/video
    *  instead of /uploads for the actual import, and suggest-species-from-video (frame sampling)
    *  instead of /uploads/inspect for suggestions (video has no duplicate-check story yet). */
@@ -81,6 +83,7 @@ export default function PhotoImportRows({
   tripId,
   albumId,
   onImported,
+  onImportStarted,
 }: {
   tripId?: string;
   /** Same idea as tripId above, for Album's own "Import Album" flow - threaded straight through
@@ -89,6 +92,10 @@ export default function PhotoImportRows({
    *  changes where the file is stored - an album doesn't have its own folder. */
   albumId?: string;
   onImported?: () => void;
+  /** Called once the uploads have started, with whether that covers every row here. The uploads
+   *  keep going if the page is left (the global UploadQueueBanner tracks them), so a page with
+   *  nowhere better to be can leave right away instead of making the user click out. */
+  onImportStarted?: (everyRowIncluded: boolean) => void;
 }) {
   const [rows, setRows] = useState<ImportRow[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -215,11 +222,19 @@ export default function PhotoImportRows({
         possibleDuplicate: PossibleDuplicate | null;
         suggestions: SuggestedSpecies[];
         previewDataUrl: string | null;
+        stagedId?: string | null;
       }>("/uploads/inspect", form);
       setRows((prev) =>
         prev.map((r) =>
           r.key === key
-            ? { ...r, possibleDuplicate: res.possibleDuplicate, suggestions: res.suggestions, rawPreviewUrl: res.previewDataUrl, isInspecting: false }
+            ? {
+                ...r,
+                possibleDuplicate: res.possibleDuplicate,
+                suggestions: res.suggestions,
+                rawPreviewUrl: res.previewDataUrl,
+                stagedId: res.stagedId ?? null,
+                isInspecting: false,
+              }
             : r,
         ),
       );
@@ -238,9 +253,14 @@ export default function PhotoImportRows({
       const form = new FormData();
       form.append("file", file);
       if (forRegionId) form.append("regionId", forRegionId);
-      const res = await api.post<{ suggestions: SuggestedSpecies[]; error?: string }>("/captures/suggest-species-from-video", form);
+      const res = await api.post<{ suggestions: SuggestedSpecies[]; error?: string; stagedId?: string | null }>(
+        "/captures/suggest-species-from-video",
+        form,
+      );
       setRows((prev) =>
-        prev.map((r) => (r.key === key ? { ...r, suggestions: res.suggestions, suggestError: res.error, isInspecting: false } : r)),
+        prev.map((r) =>
+          r.key === key ? { ...r, suggestions: res.suggestions, suggestError: res.error, stagedId: res.stagedId ?? null, isInspecting: false } : r,
+        ),
       );
     } catch (err) {
       console.error(err);
@@ -373,6 +393,8 @@ export default function PhotoImportRows({
     if (toImport.length === 0) return;
     setImporting(true);
     setRows((prev) => prev.map((r) => (toImport.some((t) => t.key === r.key) ? { ...r, status: "uploading" } : r)));
+    // Rows already imported earlier count as covered; anything still unassigned would be lost.
+    onImportStarted?.(rows.every((r) => r.status === "done" || toImport.some((t) => t.key === r.key)));
 
     const committed: Array<{ key: string; captureId: string }> = [];
     await mapWithConcurrency(toImport, UPLOAD_CONCURRENCY, async (row) => {
@@ -397,9 +419,12 @@ export default function PhotoImportRows({
         // countries have I actually photographed in" without depending on sparse GPS EXIF.
         if (regionId) form.append("regionId", regionId);
         if (locationLabel.trim()) form.append("locationLabel", locationLabel.trim());
-        form.append("file", row.file);
         if (row.isVideo) {
-          const res = await api.post<{ captureId: string }>("/uploads/video", form);
+          // A video checked for species was kept by the server: import that copy rather than
+          // sending gigabytes a second time.
+          const res = await postUploadPreferringKeptCopy<{ captureId: string }>("/uploads/video", row.file, row.stagedId, (f) => {
+            for (const [k, v] of form.entries()) f.append(k, v);
+          });
           committed.push({ key: row.key, captureId: res.captureId });
           setRows((prev) => prev.map((r) => (r.key === row.key ? { ...r, status: "done", captureId: res.captureId } : r)));
           settleExternalJob(jobId);
@@ -409,7 +434,9 @@ export default function PhotoImportRows({
         // true and no new photo of its own — it's filed as that capture's RAW sibling, not a
         // new row in the collection, but still counts as "done" here since the file is safely
         // stored either way.
-        const res = await api.post<{ captureId: string; linkedExisting?: boolean }>("/uploads", form);
+        const res = await postPhotoUpload<{ captureId: string; linkedExisting?: boolean }>(row.file, row.stagedId, (f) => {
+          for (const [k, v] of form.entries()) f.append(k, v);
+        });
         committed.push({ key: row.key, captureId: res.captureId });
         setRows((prev) => prev.map((r) => (r.key === row.key ? { ...r, status: "done", captureId: res.captureId } : r)));
         settleExternalJob(jobId);

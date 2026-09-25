@@ -302,7 +302,22 @@ const SPECIES_ROOT = "Species";
 // keyword tree; digiKam reads it too), dc:title/IPTC ObjectName (title), xmp:Rating (stars).
 // Written with explicit groups so each value lands in exactly one field: the unqualified names
 // wrote every keyword into dc:subject twice and put a stray pdf:Keywords into sidecars.
-async function writeLiferMetadata(target: string, data: LiferTags, mode: "embedded" | "sidecar"): Promise<void> {
+// One write at a time per file, in the order they were asked for. The upload's own write runs in
+// the background right after the import is saved; a species change or rating made moments later
+// must not finish first and then be overwritten by it.
+const fileWriteQueues = new Map<string, Promise<void>>();
+
+function writeLiferMetadata(target: string, data: LiferTags, mode: "embedded" | "sidecar"): Promise<void> {
+  const prior = fileWriteQueues.get(target) ?? Promise.resolve();
+  const next = prior.catch(() => {}).then(() => writeLiferMetadataNow(target, data, mode));
+  fileWriteQueues.set(target, next);
+  next.finally(() => {
+    if (fileWriteQueues.get(target) === next) fileWriteQueues.delete(target);
+  }).catch(() => {});
+  return next;
+}
+
+async function writeLiferMetadataNow(target: string, data: LiferTags, mode: "embedded" | "sidecar"): Promise<void> {
   const labels = data.species.map((m) =>
     composeSpeciesName(
       m.commonName,

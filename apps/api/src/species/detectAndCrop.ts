@@ -21,6 +21,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import sharp from "sharp";
 import * as ort from "onnxruntime-node";
+import { createHash } from "node:crypto";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const MODEL_PATH = path.join(__dirname, "models", "yolov8n.onnx");
@@ -249,7 +250,24 @@ interface SubjectBox {
 /** Shared by cropToSubject and detectDefaultCardCrop below — runs the whole-image pass, falling
  * back to tiled detection, and returns the winning box in original-image pixel space, or null on
  * no detection or any failure. Never throws. */
-async function detectSubjectBox(buffer: Buffer): Promise<SubjectBox | null> {
+// The same photo is searched for its animal twice on import: once to crop it for species
+// suggestions and again to frame the species card. On a hard photo (a small bird in fog) the
+// search tiles the frame and took over 2s each time, so results are remembered by content hash.
+const DETECTION_MEMO_SIZE = 200;
+const detectionMemo = new Map<string, Promise<SubjectBox | null>>();
+
+function detectSubjectBox(buffer: Buffer): Promise<SubjectBox | null> {
+  const key = createHash("sha256").update(buffer).digest("hex");
+  const hit = detectionMemo.get(key);
+  if (hit) return hit;
+  const pending = detectSubjectBoxUncached(buffer);
+  detectionMemo.set(key, pending);
+  pending.catch(() => detectionMemo.delete(key));
+  if (detectionMemo.size > DETECTION_MEMO_SIZE) detectionMemo.delete(detectionMemo.keys().next().value!);
+  return pending;
+}
+
+async function detectSubjectBoxUncached(buffer: Buffer): Promise<SubjectBox | null> {
   try {
     const meta = await sharp(buffer).rotate().metadata();
     const origWidth = meta.width ?? INPUT_SIZE;

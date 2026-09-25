@@ -4,6 +4,7 @@
 // candidate vectors are plain `real[]` columns (capture_embeddings/species_reference_embeddings,
 // migration 058) and ranking is done here in plain JS — fine at personal-library scale (at most
 // a few thousand vectors, brute-force cosine similarity is sub-100ms with no native dependency).
+import { createHash } from "node:crypto";
 import { rmSync } from "node:fs";
 import path from "node:path";
 import type { Pool, PoolClient } from "pg";
@@ -56,8 +57,30 @@ export function isInferenceStuck(): boolean {
 
 /** L2-normalized CLIP embedding for one image. Never touches the network beyond the one-time
  * model download; guarded by a hard timeout (see onnxImageModel.ts). */
+// Importing a photo computes the same vectors twice: once while checking it (near-duplicates,
+// suggestions) and again after it's saved, for the same file bytes. Remembering the last few
+// hundred results by content hash makes the second pass free (about 0.5s per photo on a fast
+// machine, several seconds on a NAS). Keyed by model, so a model update never reuses old ones.
+const VECTOR_MEMO_SIZE = 300;
+const vectorMemo = new Map<string, Promise<number[]>>();
+
+function memoVector(kind: string, buffer: Buffer, compute: () => Promise<number[]>): Promise<number[]> {
+  const key = `${kind}:${createHash("sha256").update(buffer).digest("hex")}`;
+  const hit = vectorMemo.get(key);
+  if (hit) {
+    vectorMemo.delete(key); // move to the newest end
+    vectorMemo.set(key, hit);
+    return hit;
+  }
+  const pending = compute();
+  vectorMemo.set(key, pending);
+  pending.catch(() => vectorMemo.delete(key)); // a failure isn't worth remembering
+  if (vectorMemo.size > VECTOR_MEMO_SIZE) vectorMemo.delete(vectorMemo.keys().next().value!);
+  return pending;
+}
+
 export async function computeEmbedding(buffer: Buffer): Promise<number[]> {
-  return clipModel.embed(buffer);
+  return memoVector(`clip:${EMBEDDING_MODEL_VERSION}`, buffer, () => clipModel.embed(buffer));
 }
 
 const CROP_TIMEOUT_MS = 20_000;
@@ -80,17 +103,17 @@ async function cropForSuggestion(buffer: Buffer): Promise<Buffer> {
  * compares against OTHER un-cropped capture_embeddings rows and needs the same preprocessing on
  * both sides to mean anything. */
 export async function computeSuggestionEmbedding(buffer: Buffer): Promise<number[]> {
-  return computeEmbedding(await cropForSuggestion(buffer));
+  return memoVector(`clip-crop:${EMBEDDING_MODEL_VERSION}`, buffer, async () => clipModel.embed(await cropForSuggestion(buffer)));
 }
 
 /** The species identification model's embedding of the subject-cropped photo. Used both for a
  * suggestion query and for a capture's own stored vector (id_model_capture_embeddings), so the
  * two sides of "you've photographed this before" are computed the same way. */
 export async function computeIdSuggestionEmbedding(buffer: Buffer): Promise<number[]> {
-  return idModel.embed(await cropForSuggestion(buffer));
+  return memoVector(`id-crop:${ID_MODEL_VERSION}`, buffer, async () => idModel.embed(await cropForSuggestion(buffer)));
 }
 
-export function cosineSimilarity(a: number[], b: number[]): number {
+export function cosineSimilarity(a: ArrayLike<number>, b: ArrayLike<number>): number {
   let dot = 0;
   const len = Math.min(a.length, b.length);
   for (let i = 0; i < len; i++) dot += a[i] * b[i];
@@ -151,14 +174,14 @@ const YOUR_PHOTOS_MAX = 20;
 // recognize once you'd photographed it (benchmark on a real library: 21/55 top-1 with your
 // photos available vs 33/55 with them hidden).
 export function matchTargets(row: {
-  your_embeddings: number[][] | null;
-  ref_embedding: number[] | null;
-  gallery_embeddings: number[][] | null;
-}): Array<{ embedding: number[]; factor: number; source: SpeciesSuggestion["source"] }> {
+  your_embeddings: ArrayLike<number>[] | null;
+  ref_embedding: ArrayLike<number> | null;
+  gallery_embeddings: ArrayLike<number>[] | null;
+}): Array<{ embedding: ArrayLike<number>; factor: number; source: SpeciesSuggestion["source"] }> {
   return [
     ...(row.your_embeddings ?? []).map((embedding) => ({ embedding, factor: YOUR_PHOTOS_SCORE_FACTOR, source: "your_photos" as const })),
     ...[row.ref_embedding, ...(row.gallery_embeddings ?? [])]
-      .filter((e): e is number[] => e != null)
+      .filter((e): e is ArrayLike<number> => e != null)
       .map((embedding) => ({ embedding, factor: 1, source: "reference_photo" as const })),
   ];
 }
@@ -257,7 +280,7 @@ export const ID_SPACE: VectorSpace = {
  * available (species_text_embeddings hasn't necessarily been backfilled for every species/model
  * version yet) — falls back to the pure image score otherwise, same graceful-degradation shape
  * every other optional signal in this file already uses. */
-function blendWithText(imageScore: number, embedding: number[], textEmbedding: number[] | null, textWeight: number): number {
+function blendWithText(imageScore: number, embedding: ArrayLike<number>, textEmbedding: ArrayLike<number> | null, textWeight: number): number {
   if (!textEmbedding) return imageScore;
   const textScore = cosineSimilarity(embedding, textEmbedding);
   return (1 - textWeight) * imageScore + textWeight * textScore;
@@ -418,41 +441,123 @@ export interface SpeciesSuggestion {
  * known) lets occurrenceAdjustment weigh candidates by whether they're actually plausible for
  * that region right now — a vagrant or wildly off-season species shouldn't outrank a common,
  * in-season look-alike just because two embeddings landed at a similar cosine distance. */
-export async function rankSpeciesByEmbedding(
-  pool: Pool | PoolClient,
-  userId: string,
-  embedding: number[],
-  regionId: string | null,
-  limit = 5,
-  takenAt: Date | null = null,
-  space: VectorSpace = CLIP_SPACE,
-): Promise<SpeciesSuggestion[]> {
-  return rankSpeciesByEmbeddings(pool, userId, [embedding], regionId, limit, takenAt, space);
+interface CandidateRow {
+  species_id: string;
+  common_name: string | null;
+  scientific_name: string;
+  your_embeddings: ArrayLike<number>[] | null;
+  ref_embedding: ArrayLike<number> | null;
+  gallery_embeddings: ArrayLike<number>[] | null;
+  is_vagrant: boolean | null;
+  local_tier: string | null;
+  seasonality: number[] | null;
+  text_embedding: ArrayLike<number> | null;
 }
 
-/** Same candidate scoring as rankSpeciesByEmbedding, but against SEVERAL embeddings at once
- * (e.g. multiple frames sampled from one video clip) — a species scores by whichever single
- * embedding matched it best, not an average across all of them. Averaging would dilute a real
- * match: the animal is very unlikely to be clearly visible, well-framed, and in-focus in EVERY
- * sampled frame of a clip (some frames are mid-motion blur, some catch the subject leaving
- * frame, some are mostly background) the way a single deliberately-taken photo usually is, so
- * the frame that best captures it should decide the match, not get dragged down by the rest.
- * One shared candidate-species query (not one per embedding) keeps this to the same DB cost as
- * the single-embedding version regardless of how many frames were sampled. `embeddings` must
- * come from the model `space` describes. */
-export async function rankSpeciesByEmbeddings(
-  pool: Pool | PoolClient,
-  userId: string,
-  embeddings: number[][],
-  regionId: string | null,
-  limit = 5,
-  takenAt: Date | null = null,
-  space: VectorSpace = CLIP_SPACE,
-): Promise<SpeciesSuggestion[]> {
-  if (embeddings.length === 0) return [];
-  const candidateCte = regionId
-    ? `SELECT species_id, is_vagrant, local_tier, seasonality FROM region_species WHERE region_id = $4`
-    : `SELECT species_id, NULL::boolean AS is_vagrant, NULL::text AS local_tier, NULL::numeric[] AS seasonality
+// A region's candidate species with their reference, gallery and text vectors, kept in memory.
+// Reading them from Postgres on every suggestion (every photo checked on import) meant parsing
+// millions of numbers per photo for Canada's ~2,000 species: 2.2s of the 2.6s a suggestion took
+// on a fast machine, and far longer on a NAS. They only change with a catalog, vector or pack
+// install (which call invalidateSuggestionCache) or a one-off species enrichment (picked up by
+// the refresh after SUGGESTION_CACHE_TTL_MS).
+const SUGGESTION_CACHE_TTL_MS = 10 * 60_000;
+type CatalogRow = Omit<CandidateRow, "your_embeddings">;
+const regionCatalogCache = new Map<string, { at: number; rows: Promise<CatalogRow[]> }>();
+
+export function invalidateSuggestionCache(): void {
+  regionCatalogCache.clear();
+}
+
+const toVec = (v: number[] | null): Float32Array | null => (v ? Float32Array.from(v) : null);
+
+function regionCatalog(pool: Pool | PoolClient, regionId: string, space: VectorSpace): Promise<CatalogRow[]> {
+  const key = `${space.modelVersion}|${space.textModelVersion}|${regionId}`;
+  const hit = regionCatalogCache.get(key);
+  if (hit && Date.now() - hit.at < SUGGESTION_CACHE_TTL_MS) return hit.rows;
+  const rows = pool
+    .query<{
+      species_id: string;
+      common_name: string | null;
+      scientific_name: string;
+      ref_embedding: number[] | null;
+      gallery_embeddings: number[][] | null;
+      is_vagrant: boolean | null;
+      local_tier: string | null;
+      seasonality: number[] | null;
+      text_embedding: number[] | null;
+    }>(
+      `SELECT s.id AS species_id, s.common_name, s.scientific_name,
+              sre.embedding AS ref_embedding,
+              (SELECT array_agg(ge.embedding) FROM ${space.galleryTable} ge
+                 WHERE ge.species_id = s.id AND ge.model_version = $1) AS gallery_embeddings,
+              rs.is_vagrant, rs.local_tier, rs.seasonality,
+              ste.embedding AS text_embedding
+         FROM region_species rs
+         JOIN species s ON s.id = rs.species_id
+         LEFT JOIN ${space.referenceTable} sre ON sre.species_id = s.id AND sre.model_version = $1
+         LEFT JOIN ${space.textTable} ste ON ste.species_id = s.id AND ste.model_version = $2
+        WHERE rs.region_id = $3
+          -- A species with no photo to show would render as a blank suggestion card.
+          AND (s.reference_display_path IS NOT NULL OR s.reference_photo IS NOT NULL)`,
+      [space.modelVersion, space.textModelVersion, regionId],
+    )
+    .then((res) =>
+      res.rows.map((r) => ({
+        ...r,
+        ref_embedding: toVec(r.ref_embedding),
+        gallery_embeddings: r.gallery_embeddings?.map((g) => Float32Array.from(g)) ?? null,
+        text_embedding: toVec(r.text_embedding),
+      })),
+    );
+  regionCatalogCache.set(key, { at: Date.now(), rows });
+  rows.catch(() => regionCatalogCache.delete(key));
+  return rows;
+}
+
+// Your own photos' vectors (up to the YOUR_PHOTOS_MAX newest per species), also kept in memory.
+// Only ids and timestamps are read per request; a vector is fetched once, and again only when
+// it's recomputed.
+const yourVectorCache = new Map<string, { computedAt: string; vec: Float32Array }>();
+
+async function yourVectorsBySpecies(pool: Pool | PoolClient, userId: string, space: VectorSpace): Promise<Map<string, Float32Array[]>> {
+  const res = await pool.query<{ capture_id: string; species_id: string; computed_at: string }>(
+    `SELECT capture_id, species_id, computed_at FROM (
+       SELECT ce.capture_id, c.species_id, ce.computed_at::text AS computed_at,
+              row_number() OVER (PARTITION BY c.species_id ORDER BY ce.computed_at DESC) AS rn
+         FROM ${space.captureTable} ce JOIN captures c ON c.id = ce.capture_id
+        WHERE c.user_id = $1 AND ce.model_version = $2
+     ) x WHERE rn <= ${YOUR_PHOTOS_MAX}`,
+    [userId, space.modelVersion],
+  );
+  const cacheKey = (id: string) => `${space.captureTable}:${id}`;
+  const missing = res.rows.filter((r) => yourVectorCache.get(cacheKey(r.capture_id))?.computedAt !== r.computed_at);
+  for (let i = 0; i < missing.length; i += 2000) {
+    const batch = missing.slice(i, i + 2000);
+    const vecs = await pool.query<{ capture_id: string; embedding: number[]; computed_at: string }>(
+      `SELECT capture_id, embedding, computed_at::text AS computed_at FROM ${space.captureTable} WHERE capture_id = ANY($1::uuid[]) AND model_version = $2`,
+      [batch.map((r) => r.capture_id), space.modelVersion],
+    );
+    for (const v of vecs.rows) yourVectorCache.set(cacheKey(v.capture_id), { computedAt: v.computed_at, vec: Float32Array.from(v.embedding) });
+  }
+  const bySpecies = new Map<string, Float32Array[]>();
+  for (const r of res.rows) {
+    const hit = yourVectorCache.get(cacheKey(r.capture_id));
+    if (!hit || hit.computedAt !== r.computed_at) continue;
+    if (!bySpecies.has(r.species_id)) bySpecies.set(r.species_id, []);
+    bySpecies.get(r.species_id)!.push(hit.vec);
+  }
+  return bySpecies;
+}
+
+async function regionCandidates(pool: Pool | PoolClient, userId: string, regionId: string, space: VectorSpace): Promise<CandidateRow[]> {
+  const [catalog, yours] = await Promise.all([regionCatalog(pool, regionId, space), yourVectorsBySpecies(pool, userId, space)]);
+  return catalog.map((row) => ({ ...row, your_embeddings: yours.get(row.species_id) ?? null }));
+}
+
+// No region picked: candidates are your own species plus every downloaded pack's, which change
+// with every upload, so this path reads them fresh.
+async function libraryCandidates(pool: Pool | PoolClient, userId: string, space: VectorSpace): Promise<CandidateRow[]> {
+  const candidateCte = `SELECT species_id, NULL::boolean AS is_vagrant, NULL::text AS local_tier, NULL::numeric[] AS seasonality
        FROM user_species WHERE user_id = $1
        UNION
        SELECT ps.species_id, NULL, NULL, NULL FROM pack_species ps
@@ -503,13 +608,48 @@ export async function rankSpeciesByEmbeddings(
      -- as a blank placeholder card. Excluded here rather than left to the frontend to hide,
      -- so a real 4th/5th candidate can take that slot instead of the list just running short.
      WHERE s.reference_display_path IS NOT NULL OR s.reference_photo IS NOT NULL`,
-    regionId
-      ? [userId, space.modelVersion, space.textModelVersion, regionId]
-      : [userId, space.modelVersion, space.textModelVersion],
+    [userId, space.modelVersion, space.textModelVersion],
   );
 
+  return candidatesRes.rows;
+}
+
+export async function rankSpeciesByEmbedding(
+  pool: Pool | PoolClient,
+  userId: string,
+  embedding: number[],
+  regionId: string | null,
+  limit = 5,
+  takenAt: Date | null = null,
+  space: VectorSpace = CLIP_SPACE,
+): Promise<SpeciesSuggestion[]> {
+  return rankSpeciesByEmbeddings(pool, userId, [embedding], regionId, limit, takenAt, space);
+}
+
+/** Same candidate scoring as rankSpeciesByEmbedding, but against SEVERAL embeddings at once
+ * (e.g. multiple frames sampled from one video clip): a species scores by whichever single
+ * embedding matched it best, not an average across all of them. Averaging would dilute a real
+ * match: the animal is very unlikely to be clearly visible, well-framed, and in-focus in EVERY
+ * sampled frame of a clip (some frames are mid-motion blur, some catch the subject leaving
+ * frame, some are mostly background) the way a single deliberately-taken photo usually is, so
+ * the frame that best captures it should decide the match, not get dragged down by the rest.
+ * One shared candidate-species query (not one per embedding) keeps this to the same DB cost as
+ * the single-embedding version regardless of how many frames were sampled. `embeddings` must
+ * come from the model `space` describes. */
+export async function rankSpeciesByEmbeddings(
+  pool: Pool | PoolClient,
+  userId: string,
+  embeddings: number[][],
+  regionId: string | null,
+  limit = 5,
+  takenAt: Date | null = null,
+  space: VectorSpace = CLIP_SPACE,
+): Promise<SpeciesSuggestion[]> {
+  if (embeddings.length === 0) return [];
+  const rows = regionId ? await regionCandidates(pool, userId, regionId, space) : await libraryCandidates(pool, userId, space);
+
   const scored: SpeciesSuggestion[] = [];
-  for (const row of candidatesRes.rows) {
+  for (const row of rows) {
     const targets = matchTargets(row);
     if (targets.length === 0) continue;
     const adjustment = occurrenceAdjustment({ isVagrant: row.is_vagrant, localTier: row.local_tier, seasonality: row.seasonality }, takenAt);
@@ -592,19 +732,18 @@ export async function suggestSpeciesForFrames(
   takenAt: Date | null = null,
 ): Promise<SpeciesSuggestion[]> {
   if (frames.length === 0) return [];
-  const crops: Buffer[] = [];
-  for (const frame of frames) crops.push(await cropForSuggestion(frame));
+  // Per frame, so a later storeIdCaptureEmbedding of the same photo reuses the vector.
   if (await idModelReady(pool)) {
     try {
       const embeddings: number[][] = [];
-      for (const crop of crops) embeddings.push(await idModel.embed(crop));
+      for (const frame of frames) embeddings.push(await computeIdSuggestionEmbedding(frame));
       return await rankSpeciesByEmbeddings(pool, userId, embeddings, regionId, limit, takenAt, ID_SPACE);
     } catch {
       // fall through to CLIP
     }
   }
   const embeddings: number[][] = [];
-  for (const crop of crops) embeddings.push(await computeEmbedding(crop));
+  for (const frame of frames) embeddings.push(await computeSuggestionEmbedding(frame));
   return rankSpeciesByEmbeddings(pool, userId, embeddings, regionId, limit, takenAt, CLIP_SPACE);
 }
 

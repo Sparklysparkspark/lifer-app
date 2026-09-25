@@ -2,14 +2,73 @@
 // paths are never served via a static mount. Every request is checked against ownership here.
 import { createReadStream, existsSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
+import { rename } from "node:fs/promises";
+import sharp from "sharp";
 import { contentDisposition, parseRange } from "../lib/httpFile.js";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { pool } from "../db.js";
-import { requireAuth } from "../auth/session.js";
+import { requireAuth, requireScope } from "../auth/session.js";
 import { signedS3Url } from "../photoSources/s3.js";
 import { resolveOriginalPath } from "../storageVolumes/resolve.js";
 import { APP_DATA_DIR } from "../config.js";
 import { generateDerivatives } from "../uploads/image.js";
+import { ensureDefaultCardCrop } from "../collection/defaultCardCrop.js";
+import { ensureDir } from "../lib/safeFs.js";
+
+// A 1,024px copy for grid tiles. The 400px thumbnail looks soft on a high-density screen and the
+// 2,560px display image is several times more than a tile needs, so grids asked for the display
+// image and downloaded far too much. Made from the display image the first time it's asked for
+// and kept in APP_DATA_DIR/medium, so existing libraries get it without a backfill. Rebuilt when
+// the display image is newer (a re-crop or rotate). At most two are made at once, so a first
+// scroll through a big gallery doesn't flood a NAS CPU.
+const MEDIUM_WIDTH = 1024;
+let mediumSlots = 2;
+const mediumQueue: Array<() => void> = [];
+const mediumInFlight = new Map<string, Promise<string>>();
+
+async function mediumDerivative(photoId: string, displayPath: string): Promise<string> {
+  const target = path.join(APP_DATA_DIR, "medium", `${photoId}.webp`);
+  try {
+    if (statSync(target).mtimeMs >= statSync(displayPath).mtimeMs) return target;
+  } catch {
+    // not made yet
+  }
+  const pending = mediumInFlight.get(photoId);
+  if (pending) return pending;
+  const job = (async () => {
+    if (mediumSlots === 0) await new Promise<void>((resolve) => mediumQueue.push(resolve));
+    mediumSlots--;
+    try {
+      await ensureDir(path.dirname(target));
+      const tmp = `${target}.${process.pid}.tmp`;
+      await sharp(displayPath).resize({ width: MEDIUM_WIDTH, withoutEnlargement: true }).webp({ quality: 80 }).toFile(tmp);
+      await rename(tmp, target);
+      return target;
+    } catch {
+      return displayPath; // can't make one: the display image still works
+    } finally {
+      mediumSlots++;
+      mediumQueue.shift()?.();
+    }
+  })().finally(() => mediumInFlight.delete(photoId));
+  mediumInFlight.set(photoId, job);
+  return job;
+}
+
+// Photos were sent with no caching headers, so the browser downloaded every thumbnail again on
+// each visit. The ETag (size and modified time) lets it ask "still the same?" and get an empty
+// 304 instead; no-cache keeps a re-cropped photo from showing stale.
+function sendCachedImage(request: FastifyRequest, reply: FastifyReply, filePath: string) {
+  const st = statSync(filePath);
+  const etag = `W/"${st.size.toString(16)}-${Math.floor(st.mtimeMs).toString(16)}"`;
+  reply.header("ETag", etag);
+  reply.header("Last-Modified", st.mtime.toUTCString());
+  reply.header("Cache-Control", "private, no-cache");
+  if (request.headers["if-none-match"] === etag) return reply.code(304).send();
+  reply.header("Content-Type", "image/webp");
+  reply.header("Content-Length", st.size);
+  return reply.send(createReadStream(filePath));
+}
 
 async function resolvePhotoPath(photoId: string, userId: string, kind: "display" | "thumb"): Promise<string | null> {
   const column = kind === "display" ? "p.display_path" : "p.thumb_path";
@@ -122,6 +181,7 @@ async function replaceUnshowableCover(photoId: string, userId: string): Promise<
        WHERE user_id = $2 AND species_id = $3 AND cover_photo_id = $4`,
       [next?.id ?? null, userId, species_id, photoId],
     );
+    if (next) await ensureDefaultCardCrop(userId, species_id);
   }
 }
 
@@ -171,19 +231,20 @@ function sendRangeableFile(request: FastifyRequest, reply: FastifyReply, filePat
 }
 
 export async function photoRoutes(app: FastifyInstance): Promise<void> {
-  for (const kind of ["display", "thumb"] as const) {
-    app.get<{ Params: { id: string } }>(`/photos/:id/${kind}`, { preHandler: requireAuth }, async (request, reply) => {
+  for (const kind of ["display", "medium", "thumb"] as const) {
+    app.get<{ Params: { id: string } }>(`/photos/:id/${kind}`, { preHandler: requireScope("photos.read") }, async (request, reply) => {
       const userId = request.user!.id;
-      let filePath = await resolvePhotoPath(request.params.id, userId, kind);
+      const sourceKind = kind === "medium" ? "display" : kind;
+      let filePath = await resolvePhotoPath(request.params.id, userId, sourceKind);
       if (filePath && !existsSync(filePath)) {
-        filePath = (await healDerivatives(request.params.id, userId)) ? await resolvePhotoPath(request.params.id, userId, kind) : null;
+        filePath = (await healDerivatives(request.params.id, userId)) ? await resolvePhotoPath(request.params.id, userId, sourceKind) : null;
         if (!filePath) await replaceUnshowableCover(request.params.id, userId);
       }
       if (!filePath || !existsSync(filePath)) {
         return reply.code(404).send({ error: "Photo not found" });
       }
-      reply.header("Content-Type", "image/webp");
-      return reply.send(createReadStream(filePath));
+      if (kind === "medium") filePath = await mediumDerivative(request.params.id, filePath);
+      return sendCachedImage(request, reply, filePath);
     });
   }
 
@@ -191,7 +252,7 @@ export async function photoRoutes(app: FastifyInstance): Promise<void> {
   // ?download=1 adds Content-Disposition so it saves instead of navigating in-browser.
   app.get<{ Params: { id: string }; Querystring: { download?: string } }>(
     "/photos/:id/original",
-    { preHandler: requireAuth },
+    { preHandler: requireScope("photos.read") },
     async (request, reply) => {
       const original = await resolveOriginal(request.params.id, request.user!.id, "jpeg");
       if (!original) return reply.code(404).send({ error: "Original not found" });
@@ -229,7 +290,7 @@ export async function photoRoutes(app: FastifyInstance): Promise<void> {
   // capture, not the "just uploaded" standalone RAW path in uploads/routes.ts.
   app.get<{ Params: { id: string }; Querystring: { download?: string } }>(
     "/photos/:id/original-raw",
-    { preHandler: requireAuth },
+    { preHandler: requireScope("photos.read") },
     async (request, reply) => {
       const original = await resolveOriginal(request.params.id, request.user!.id, "raw");
       if (!original) return reply.code(404).send({ error: "No RAW original for this photo" });
@@ -259,7 +320,7 @@ export async function photoRoutes(app: FastifyInstance): Promise<void> {
   // directly from `originals`. Range support (sendRangeableFile) is what actually lets
   // Lightbox's <video> element scrub/seek — a plain full-file stream can only ever play
   // from the start.
-  app.get<{ Params: { id: string } }>("/photos/:id/video", { preHandler: requireAuth }, async (request, reply) => {
+  app.get<{ Params: { id: string } }>("/photos/:id/video", { preHandler: requireScope("photos.read") }, async (request, reply) => {
     const previewPath = await resolveVideoPreviewPath(request.params.id, request.user!.id);
     if (previewPath && existsSync(previewPath)) {
       return sendRangeableFile(request, reply, previewPath, "video/mp4");
