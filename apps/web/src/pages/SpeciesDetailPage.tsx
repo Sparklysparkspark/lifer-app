@@ -7,7 +7,7 @@ import EmptyState from "../components/EmptyState";
 import RawUpload from "../components/RawUpload";
 import StarRating from "../components/StarRating";
 import { useVolumeDestination, VolumeDestinationPicker } from "../components/VolumeDestinationPicker";
-import Lightbox, { TagEditor, type LightboxSlide } from "../components/Lightbox";
+import Lightbox, { photoFilePaths, TagEditor, type LightboxSlide } from "../components/Lightbox";
 import CardCropEditor from "../components/CardCropEditor";
 import SeasonalityBar from "../components/SeasonalityBar";
 import WeeklyBar from "../components/WeeklyBar";
@@ -126,6 +126,7 @@ interface SpeciesDetail {
      *  a genuinely missing file, or one that's on the always-on primary drive. */
     original_volume_label: string | null;
     has_raw_original: boolean;
+    raw_ref: string | null;
     region_id: string | null;
     region_name: string | null;
     /** A free-text custom place name nested under region_id ("Prince George" under British
@@ -684,6 +685,7 @@ export default function SpeciesDetailPage() {
         iso: c.iso,
         takenAt: c.taken_at,
         durationSeconds: c.duration_seconds,
+        files: photoFilePaths(c.original_ref, c.raw_ref),
       },
     }));
 

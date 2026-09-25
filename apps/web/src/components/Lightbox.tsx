@@ -44,11 +44,24 @@ export interface LightboxSlide {
     // Only meaningful for a video slide — shown as its own row alongside whatever EXIF a
     // camera happened to write into the video file, same info panel a photo gets.
     durationSeconds?: number | string | null;
+    /** Where the photo's files are stored (the edited JPEG and any RAW), shown by file name so
+     *  you can find them on disk yourself. See photoFilePaths. */
+    files?: string[];
   } | null;
   // Custom free-text tags a photographer assigns per photo — only present when the caller
   // supports editing (every current caller does), same optional pattern as rating/onRate above.
   tags?: string[] | null;
   onTagsChange?: (tags: string[]) => void;
+}
+
+/** The stored files for a photo, for LightboxSlide.info.files: the main original and its RAW,
+ *  without repeats (a RAW-only photo has the same file as both). */
+export function photoFilePaths(...refs: Array<string | null | undefined>): string[] {
+  return [...new Set(refs.filter((r): r is string => !!r))];
+}
+
+function fileNameOf(ref: string): string {
+  return ref.split(/[\\/]/).pop() || ref;
 }
 
 export function TagEditor({
@@ -447,6 +460,7 @@ export default function Lightbox({
     cameraLine ||
     durationLabel ||
     takenLabel ||
+    (slide.info?.files?.length ?? 0) > 0 ||
     slide.onTagsChange
   );
   // One consistent circular translucent button for every icon action — fullscreen and close
@@ -590,6 +604,17 @@ export default function Lightbox({
             )}
             {cameraLine && <p className="mt-0.5 text-xs text-white/50">{cameraLine}</p>}
             {takenLabel && <p className="mt-0.5 text-xs text-white/50">{takenLabel}</p>}
+            {slide.info?.files && slide.info.files.length > 0 && (
+              // Selectable, with the full stored location on hover, for finding the file yourself.
+              <p className="mt-0.5 select-text text-xs text-white/50" onClick={(e) => e.stopPropagation()}>
+                {slide.info.files.map((ref, i) => (
+                  <span key={ref} title={ref}>
+                    {i > 0 && " · "}
+                    {fileNameOf(ref)}
+                  </span>
+                ))}
+              </p>
+            )}
             {slide.speciesId && (
               <Link to={`/species/${slide.speciesId}`} className="mt-1 inline-block underline hover:text-white">
                 View species ↗

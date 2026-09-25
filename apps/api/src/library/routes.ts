@@ -25,6 +25,8 @@ import {
 } from "./reimport.js";
 import { resolveChosenVolumeDestination } from "../storageVolumes/resolve.js";
 import { friendlyFsErrorMessage } from "../lib/friendlyFsError.js";
+import { libraryFolderStatus } from "../lib/libraryFolder.js";
+import { restoreCollectionState } from "../lib/collectionState.js";
 import { createJob, type JobContext } from "../lib/job.js";
 
 // Same concurrency Trips' import job uses (trips/routes.ts) — each file pays a real exiftool
@@ -171,6 +173,9 @@ async function runReimportJob(
     });
     ctx.throwIfCancelled();
 
+    // Pointing a fresh install at an old library: also bring back archived, hidden, seen and
+    // target species from the library's own record (only if this install has none of its own).
+    await restoreCollectionState(userId).catch((err) => console.warn("[collection-state] couldn't restore:", (err as Error).message));
     return { missingReferenceData: await findMissingReferenceData([...recoveredScientificNames]) };
   } catch (err) {
     if (ctx.signal.aborted) throw err;
@@ -179,6 +184,10 @@ async function runReimportJob(
 }
 
 export async function libraryRoutes(app: FastifyInstance): Promise<void> {
+  // Polled by the app's banner: is the photo library folder still there? A folder moved or
+  // deleted while Lifer runs makes every save fail until it's back (see lib/libraryFolder.ts).
+  app.get("/library/folder-status", { preHandler: requireAuth }, async () => libraryFolderStatus());
+
   app.post<{ Body: { volumeId?: string; path?: string; organize?: boolean } }>(
     "/library/reimport",
     { preHandler: requireAuth },

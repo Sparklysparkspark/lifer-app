@@ -15,6 +15,92 @@ Categories: `Added`, `Changed`, `Fixed`, `Removed` — omit any with nothing to 
 
 ## [Unreleased]
 
+### Added
+
+- Archived species, species hidden from a region, "seen" marks and targets are now also kept in
+  your library (`.lifer/collection-state.json`, next to your photos), and brought back when a
+  fresh install is pointed at that library, the way albums and trips already were.
+- "Hide names" in the collection's filters shows species cards as just the photo.
+- The photo viewer shows each photo's file names (the edited file and its RAW), with the full
+  location on hover, so you can find the file on disk yourself.
+- An API for building your own integrations on a self-hosted server, with a guide and recipes in
+  `docs/API.md` and a machine-readable description at `/api/openapi.json`. New API key permissions
+  let scripts read a paged photo feed that can pick up only what changed since the last run, fetch
+  images and originals, read your life list
+  and its counts (for a Home Assistant sensor or a new-lifer bot), import photos without creating
+  duplicates, and edit a photo's species, rating, tags and location.
+- Setup now asks whether to turn on species matching and downloads it right away if you say yes,
+  instead of leaving the download to be found in Settings. The download continues in the
+  background while you pick your regions.
+
+### Changed
+
+- Faster pages, especially on a self-hosted server. The gallery loaded every photo in the library
+  at once (127 MB for 2,000 photos); photos now load as they come into view, at the size they're
+  shown, with a new 1,024px copy for grid tiles on high-density screens. The browser keeps photos
+  and app code between visits instead of downloading them again. The server compresses its
+  responses, keeps the published pack list for 15 minutes instead of fetching it from GitHub on
+  every page, and each page's code loads only when you open it.
+- Faster uploads: species suggestions for each photo went from 2.6s to 0.3s by keeping a region's
+  reference vectors in memory, the vectors computed while checking a photo are reused when it's
+  imported instead of computed again, display and thumbnail copies are made in half the time, and
+  importing a checked photo no longer sends the file over the network a second time. Server work
+  per 24MP photo went from about 3.8s to 0.8s on a fast machine, and scales down the same way on a
+  NAS.
+- Photo search understands much more of what you type, in any mix: species names (with small
+  typos), groups ("raptors", "ducks", "frogs", "shorebirds", or a Latin order or family), places
+  your photos are in ("ducks in Washington"), dates ("owls 2023", "mammals in winter", "birds
+  last year"), your tags, and what's in the picture ("owl flying", "deer in snow"). A word that's
+  only part of a species' name no longer takes over the search: "flying" finds birds in flight
+  instead of only Flying Squirrels, and "snow" finds snowy photos instead of only Snow Geese.
+  Searches for things you don't have ("giraffe") now come back empty instead of showing 100
+  unrelated photos, old alternate names no longer pull in the wrong species ("hawk" no longer
+  shows Peregrine Falcons), results aren't cut off at 100, species searches work without the
+  species-matching download, and searches are much faster. The result count shows how the search
+  was read.
+- The folder you choose for your library is now the library itself: Birds, Mammals and the other
+  species folders go straight into it, instead of into a "Lifer Photos" folder inside it. Existing
+  libraries keep their "Lifer Photos" folder and work as before. To drop the extra level, stop
+  Lifer, move everything in "Lifer Photos" up a level (or point Docker's `/data` at the "Lifer
+  Photos" folder itself), and start it again: Lifer updates its records to match. "Delete local
+  library" now removes only the photos Lifer saved, never other files in that folder.
+- Clicking Import on the import page takes you back to your collection while the photos upload in
+  the background, instead of leaving you on the import page. It stays put if some photos there
+  weren't included, so they aren't lost.
+
+### Fixed
+
+- "Likely this month" showed no species for most regions: it read monthly data that only a few
+  regions have. It now uses the weekly sighting data every region has, and counts a species as
+  likely when this month holds a fair share of its sightings (so year-round birds stay in).
+- At the smallest card size the name box is tighter, and hiding labels no longer leaves an empty
+  row under the name.
+- The API keys page no longer shows "No API keys yet" under the form for making one, and links to
+  the API guide from the form and the empty page.
+- Video imports and video species checks failed on Apple Silicon Macs without Rosetta (the
+  bundled ffprobe was an Intel build). Videos are now read with ffmpeg, which also drops a 335 MB
+  dependency. Videos are streamed to disk instead of held in memory (a 1.4 GB clip used to take
+  1.4 GB of server memory, twice), and a video checked for species isn't uploaded a second time.
+- A RAW imported on its own now gets its species keywords in an .xmp sidecar.
+- Imports no longer wait for the species keywords to be written into the file (up to 3.7s for a
+  large PNG, and it was being done twice); it happens right after, in order with any later edit.
+- In the gallery, star ratings shown without photo names no longer sit flush against the photo.
+- A species card now frames the animal when Lifer picks the cover photo itself (your first photo of
+  a species, or a new cover after the old one is deleted), the same way choosing a cover by hand
+  already did, instead of a centered square that could cut the animal off.
+- A catalog update running alongside the species-matching download no longer looks stuck on its
+  last step: it now says it's waiting for the other download to finish, since the two take turns
+  fetching reference vectors.
+- Moving or renaming the photo library folder while Lifer was running could freeze it on the
+  next upload, until it was restarted by hand. The upload now fails with a message saying the
+  folder was moved and how to fix it, a banner warns about a missing library folder on every
+  page, and a stalled upload no longer holds up the rest of its batch. Two photos with the same
+  file name uploaded at once also reliably get separate files.
+- If Lifer ever stops responding for two minutes, it now logs which requests it was working on
+  and restarts itself (`LIFER_FREEZE_RESTART_SECONDS`), instead of leaving the page down. The
+  Docker Compose file now restarts Lifer automatically (`restart: unless-stopped`); if you set up
+  your server from an older copy of the file, add that line to the `api` and `postgres` services.
+
 ## [0.7.0] - 2026-09-25
 
 ### Changed

@@ -37,6 +37,9 @@ function currentMonthIndex(): number {
 // Same shrink-with-size formula GalleryPage uses for its own grid gap (thumbSizePx / 30,
 // clamped 3-8px) — at the smallest card size the fixed gap-4 (16px) read as disproportionately
 // wide next to a tiny card, and didn't match how Gallery's own grid tightens up already.
+// At or below this card width the name box uses tighter spacing (see SpeciesCard `compact`).
+const COMPACT_CARD_WIDTH = 150;
+
 function gapPxFor(cardMinWidth: number): number {
   return Math.round(Math.min(8, Math.max(3, cardMinWidth / 30)));
 }
@@ -94,6 +97,7 @@ export default function GroupedSpeciesGrid({
   countryRegionId,
   countryRegionName,
   hideLabels,
+  hideNames,
 }: {
   items: CollectionItem[];
   regionId?: string;
@@ -111,6 +115,7 @@ export default function GroupedSpeciesGrid({
   /** Collections' "Hide labels" display toggle, threaded straight through to every
    *  SpeciesCard. */
   hideLabels?: boolean;
+  hideNames?: boolean;
   collectedFirst: boolean;
   /** Independent of collectedFirst — either can be on without the other. Pin order when both
    *  are on is always Collected above Seen, since a photographed species is a stronger signal
@@ -330,6 +335,8 @@ export default function GroupedSpeciesGrid({
               onArchived={onArchived}
               showVolumeBadge={multiDriveInUse}
               hideLabels={hideLabels}
+              hideNames={hideNames}
+              compact={cardMinWidth <= COMPACT_CARD_WIDTH}
             />
           ))}
         </div>
@@ -375,6 +382,7 @@ export default function GroupedSpeciesGrid({
           countryRegionId={countryRegionId}
           countryRegionName={countryRegionName}
           hideLabels={hideLabels}
+          hideNames={hideNames}
         />
       ))}
 
@@ -426,6 +434,7 @@ export default function GroupedSpeciesGrid({
               countryRegionId={countryRegionId}
               countryRegionName={countryRegionName}
               hideLabels={hideLabels}
+              hideNames={hideNames}
             />
           </div>
         ))}
@@ -450,6 +459,7 @@ function GroupSection({
   countryRegionId,
   countryRegionName,
   hideLabels,
+  hideNames,
 }: {
   group: { key: string; label: string; items: CollectionItem[] };
   /** How many of this group's items to actually render as cards — the header count and the
@@ -474,6 +484,7 @@ function GroupSection({
   countryRegionId?: string;
   countryRegionName?: string;
   hideLabels?: boolean;
+  hideNames?: boolean;
 }) {
   const [archiving, setArchiving] = useState(false);
   const archivable = archivableGroup && group.key !== COLLECTED_GROUP_KEY;
@@ -530,6 +541,8 @@ function GroupSection({
             onArchived={onArchived}
             showVolumeBadge={showVolumeBadge}
             hideLabels={hideLabels}
+            hideNames={hideNames}
+            compact={cardMinWidth <= COMPACT_CARD_WIDTH}
           />
         ))}
       </div>

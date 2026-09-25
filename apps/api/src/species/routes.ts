@@ -264,7 +264,9 @@ export async function speciesRoutes(app: FastifyInstance): Promise<void> {
                     p.kind AS photo_kind, p.duration_seconds, reg.name AS region_name,
                     o.ref AS original_ref, o.managed AS original_managed, o.kind AS original_kind,
                     o.volume_id AS original_volume_id, o.volume_relative_path AS original_volume_relative_path,
-                    EXISTS (SELECT 1 FROM originals ro WHERE ro.capture_id = c.id AND ro.kind = 'raw') AS has_raw_original
+                    EXISTS (SELECT 1 FROM originals ro WHERE ro.capture_id = c.id AND ro.kind = 'raw') AS has_raw_original,
+                    -- Shown by name in the photo viewer, so you can find the RAW on disk yourself.
+                    (SELECT rr.ref FROM originals rr WHERE rr.capture_id = c.id AND rr.kind = 'raw' LIMIT 1) AS raw_ref
              FROM captures c
              LEFT JOIN photos p ON p.id = c.current_photo_id
              LEFT JOIN regions reg ON reg.id = c.region_id

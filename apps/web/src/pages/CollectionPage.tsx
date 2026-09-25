@@ -297,6 +297,22 @@ export default function CollectionPage() {
       // Private browsing or storage disabled — the toggle still works this session.
     }
   }
+  // "Hide names": photo-only cards. Same per-browser preference storage as Hide labels.
+  const [hideNames, setHideNames] = useState(() => {
+    try {
+      return localStorage.getItem("lifer:hideNames") === "1";
+    } catch {
+      return false;
+    }
+  });
+  function toggleHideNames(next: boolean) {
+    setHideNames(next);
+    try {
+      localStorage.setItem("lifer:hideNames", next ? "1" : "0");
+    } catch {
+      // Storage disabled: the toggle still works this session.
+    }
+  }
   // Lets the map still be downloaded/kept without it eating screen space on every visit —
   // same lightweight localStorage persistence as the other display toggles above. Collapsed
   // state is global (not per-region), matching how the size slider and rarity-label toggle
@@ -875,8 +891,16 @@ export default function CollectionPage() {
     if (ghostOnly) filtered = filtered.filter((i) => i.isGhost);
     if (lostOnly) filtered = filtered.filter((i) => i.isLost);
     if (likelyThisMonthOnly) {
+      // Likely = this month holds at least a third of an average month's share of the species'
+      // sightings here. "Any sightings at all" kept nearly everything (a stray record lands in
+      // most months), and comparing to the species' own peak month dropped year-round birds like
+      // Bald Eagles outside their busiest season.
       const month = new Date().getMonth();
-      filtered = filtered.filter((i) => (i.seasonality?.[month] ?? 0) > 0);
+      filtered = filtered.filter((i) => {
+        const months = i.seasonality;
+        const total = months?.reduce((sum, v) => sum + v, 0) ?? 0;
+        return total > 0 && months![month] / total >= 1 / 36;
+      });
     }
     if (yearFilter) {
       const year = Number(yearFilter);
@@ -1145,6 +1169,15 @@ export default function CollectionPage() {
               />
               Hide labels
             </label>
+            <label className="flex items-center gap-1.5 text-xs text-ink">
+              <input
+                type="checkbox"
+                checked={hideNames}
+                onChange={(e) => toggleHideNames(e.target.checked)}
+                className="accent-accent"
+              />
+              Hide names
+            </label>
           </div>
           <div className="border-t border-line pt-2">
             <FilterFieldLabel>Show</FilterFieldLabel>
@@ -1343,6 +1376,7 @@ export default function CollectionPage() {
               countryRegionId={countryAncestor?.id}
               countryRegionName={countryAncestor?.name}
               hideLabels={hideLabels}
+              hideNames={hideNames}
             />
           </div>
         )}

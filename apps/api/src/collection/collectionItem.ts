@@ -27,11 +27,13 @@ export interface CollectionRow {
    *  in very few years rather than spread out — a real vagrancy signature, not a genuine
    *  established presence. */
   is_vagrant?: boolean | null;
-  /** Only present on GET /regions/:id/species rows (region_species.seasonality) - 52 weekly
-   *  relative-frequency values (same data WeeklyBar already renders per species) - lets the
-   *  collection grid sort/filter by "most likely to be found this week" for the drilled-in
-   *  region. */
+  /** Only present on GET /regions/:id/species rows: 12 monthly sighting values for the region,
+   *  from region_species.seasonality or, where that's empty (most regions), folded from
+   *  weekly_frequency. Drives the collection's "likely this month" filter and sort. */
   seasonality?: number[] | null;
+  /** region_species.weekly_frequency: 52 weekly values, where most regions keep their seasonal
+   *  data (the 12-month seasonality column is only filled for a few). Folded into months below. */
+  weekly_frequency?: number[] | null;
   /** species_traits.endemic_country_iso3 — set if this species is only ever recorded
    *  (real GBIF presence) in one of the 258 crawled countries. */
   endemic_country_iso3?: string | null;
@@ -118,6 +120,22 @@ export function isLostSpecies(row: CollectionRow): boolean {
   return row.last_occurrence_year < currentYear - LOST_YEARS_SILENT && row.last_occurrence_year >= LOST_MIN_YEAR;
 }
 
+/** 52 weekly values folded into 12 months (each week counted in the month its middle day falls
+ *  in, averaged), the shape the collection's "likely this month" filter and sort read. Most
+ *  regions only have weekly data, so without this the filter found nothing to show. */
+export function monthlyFromWeekly(weekly: number[] | null | undefined): number[] | null {
+  if (!weekly || weekly.length === 0) return null;
+  const sums = new Array(12).fill(0);
+  const counts = new Array(12).fill(0);
+  weekly.forEach((value, week) => {
+    const midDay = week * 7 + 3; // day of the year, 0-based
+    const month = Math.min(11, Math.floor(midDay / (365 / 12)));
+    sums[month] += Number(value) || 0;
+    counts[month]++;
+  });
+  return sums.map((sum, m) => (counts[m] ? sum / counts[m] : 0));
+}
+
 export function toCollectionItem(row: CollectionRow, maxDepthM: number = TECHNICAL_MAX_DEPTH_M) {
   const state = row.state ?? "unseen";
   const hasOwnCover = state === "collected" && row.has_cover_photo;
@@ -132,7 +150,7 @@ export function toCollectionItem(row: CollectionRow, maxDepthM: number = TECHNIC
     tier: row.tier,
     localTier: row.local_tier ?? null,
     vagrant: row.is_vagrant === true,
-    seasonality: row.seasonality ?? null,
+    seasonality: row.seasonality ?? monthlyFromWeekly(row.weekly_frequency),
     endemic: row.endemic_country_iso3 != null || row.endemic_region_label != null,
     isGhost: isGhostSpecies(row, maxDepthM),
     isLost: isLostSpecies(row),
