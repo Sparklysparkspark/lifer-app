@@ -27,9 +27,10 @@
 // changed.
 //
 // Usage: DATABASE_URL=postgres://... npx tsx packages/data-pipeline/src/scripts/build-catalog-seed.ts <outputPath.sql.gz>
-// After running, publish all three files to the catalog-latest release (or run the
-// catalog-seed.yml workflow, which does this for you):
-//   gh release upload catalog-latest <outputPath> <dir>/lifer-gallery-embeddings-*.bin.gz <dir>/catalog-manifest.json --clobber
+// After running, publish the seed, every vector asset, then the manifest last, to the
+// catalog-latest release (or run the catalog-seed.yml workflow, which does this for you):
+//   gh release upload catalog-latest <outputPath> <dir>/*.bin.gz --clobber
+//   gh release upload catalog-latest <dir>/catalog-manifest.json --clobber
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createGzip } from "node:zlib";
@@ -42,6 +43,7 @@ import {
   encodeGalleryEmbeddingsHeader,
 } from "@lifer/shared/src/galleryEmbeddingsFormat.js";
 import { encodeSpeciesVectorHeader, encodeSpeciesVectorRecord } from "@lifer/shared/src/speciesVectorFormat.js";
+import { ID_MODEL_VERSION } from "@lifer/shared/src/idModel.js";
 import { pool } from "../db.js";
 
 // Installers bundle the seed, and NSIS can't exceed 2GB. Catch a regression here, not in CI.
@@ -68,15 +70,20 @@ async function pickGalleryModelVersion(): Promise<string | null> {
   return process.env.GALLERY_MODEL_VERSION ?? res.rows[0].model_version;
 }
 
-async function writeGalleryEmbeddings(outputDir: string): Promise<null | { fileName: string; modelVersion: string; rowCount: number }> {
-  const picked = await pickGalleryModelVersion();
+async function writeGalleryEmbeddings(
+  outputDir: string,
+  table = "species_reference_gallery_embeddings",
+  assetName = "lifer-gallery-embeddings",
+  fixedModelVersion?: string,
+): Promise<null | { fileName: string; modelVersion: string; rowCount: number }> {
+  const picked = fixedModelVersion ? await pickModelVersion(table, fixedModelVersion) : await pickGalleryModelVersion();
   if (!picked) {
-    console.warn("[build-catalog-seed] no gallery embeddings in this database, skipping that asset");
+    console.warn(`[build-catalog-seed] no ${table} rows in this database, skipping that asset`);
     return null;
   }
   const modelVersion: string = picked;
   const where = `ge.model_version = $1 AND NOT s.is_other_taxa`;
-  const from = `species_reference_gallery_embeddings ge
+  const from = `${table} ge
     JOIN species_reference_photos p ON p.id = ge.reference_photo_id
     JOIN species s ON s.id = ge.species_id`;
   const countRes = await pool.query<{ n: string }>(`SELECT count(*) AS n FROM ${from} WHERE ${where}`, [modelVersion]);
@@ -106,7 +113,7 @@ async function writeGalleryEmbeddings(outputDir: string): Promise<null | { fileN
     if (written !== rowCount) throw new Error(`Gallery embeddings changed during export (${written} vs ${rowCount})`);
   }
 
-  const fileName = `lifer-gallery-embeddings-${modelVersion}.bin.gz`;
+  const fileName = `${assetName}-${modelVersion}.bin.gz`;
   await pipeline(Readable.from(records()), createGzip(), createWriteStream(path.join(outputDir, fileName)));
   console.log(`[build-catalog-seed] wrote ${fileName} (${rowCount} rows)`);
   return { fileName, modelVersion, rowCount };
@@ -183,6 +190,9 @@ const CATALOG_TABLES = [
   "region_species",
   "sea_zones",
   "sea_zone_species",
+  // Non-photo reference images to delete from installs (migration 106). Keyed by URL, not
+  // species, so it isn't in OTHER_TAXA_TABLES.
+  "reference_photo_blocklist",
 ];
 
 const PATH_COLUMNS: Record<string, string[]> = {
@@ -208,6 +218,9 @@ const PATH_COLUMNS: Record<string, string[]> = {
 // script's own CATALOG_TABLES list already dumps and that carries a species_id (or, for
 // `species` itself, `id`) referencing species.is_other_taxa.
 const OTHER_TAXA_TABLES: Array<{ table: string; speciesIdColumn: string }> = [
+  { table: "id_model_gallery_embeddings", speciesIdColumn: "species_id" },
+  { table: "id_model_reference_embeddings", speciesIdColumn: "species_id" },
+  { table: "id_model_text_embeddings", speciesIdColumn: "species_id" },
   { table: "species_reference_gallery_embeddings", speciesIdColumn: "species_id" },
   { table: "species_reference_embeddings", speciesIdColumn: "species_id" },
   { table: "species_text_embeddings", speciesIdColumn: "species_id" },
@@ -334,6 +347,15 @@ async function main() {
     const speciesText = await writeSpeciesVectorAsset(
       outputDir, "species_text_embeddings", "lifer-species-text-embeddings", textModelVersion, GALLERY_EMBEDDING_DIMENSION,
     );
+    // The species identification model's vectors (id_model_* tables, filled by
+    // packages/data-pipeline/python/compute_id_model_vectors.py). Same formats.
+    const idGallery = await writeGalleryEmbeddings(outputDir, "id_model_gallery_embeddings", "lifer-id-gallery-embeddings", ID_MODEL_VERSION);
+    const idSpeciesImage = await writeSpeciesVectorAsset(
+      outputDir, "id_model_reference_embeddings", "lifer-id-species-image-embeddings", ID_MODEL_VERSION, GALLERY_EMBEDDING_DIMENSION,
+    );
+    const idSpeciesText = await writeSpeciesVectorAsset(
+      outputDir, "id_model_text_embeddings", "lifer-id-species-text-embeddings", ID_MODEL_VERSION, GALLERY_EMBEDDING_DIMENSION,
+    );
 
     async function describeAsset(a: { fileName: string; modelVersion: string; rowCount: number } | null) {
       if (!a) return null;
@@ -356,6 +378,9 @@ async function main() {
       galleryEmbeddings: await describeAsset(gallery),
       speciesImageEmbeddings: await describeAsset(speciesImage),
       speciesTextEmbeddings: await describeAsset(speciesText),
+      idGalleryEmbeddings: await describeAsset(idGallery),
+      idSpeciesImageEmbeddings: await describeAsset(idSpeciesImage),
+      idSpeciesTextEmbeddings: await describeAsset(idSpeciesText),
     };
     const manifestPath = path.join(outputDir, "catalog-manifest.json");
     writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));

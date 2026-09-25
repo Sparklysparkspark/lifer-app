@@ -245,6 +245,14 @@ export const EMBEDDING_MODEL_URL =
 // current one.
 export const EMBEDDING_MODEL_VERSION = "clip-vit-l14-quantized-v1";
 
+// The species identification model (BioCLIP 2, int8 ONNX export of its image encoder; see
+// packages/data-pipeline/python/export_id_model.py). Downloaded alongside the CLIP model above
+// and used for species suggestions only. Hosted on this repo's own "models" release since no
+// ONNX export of it is published anywhere else.
+export { ID_MODEL_VERSION } from "@lifer/shared";
+export const ID_MODEL_URL =
+  process.env.ID_MODEL_URL ?? "https://github.com/Sparklysparkspark/lifer-app/releases/download/models/bioclip-2-v1.onnx";
+
 // iNaturalist OAuth (see inaturalist/routes.ts). PKCE, not a client secret — Lifer is
 // self-hostable, and a secret baked into a distributed/open-source app isn't actually secret;
 // PKCE is the standard OAuth2 answer for exactly this "public client" shape, so only a

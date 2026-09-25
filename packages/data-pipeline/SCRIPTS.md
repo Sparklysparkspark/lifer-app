@@ -21,19 +21,26 @@ from a completely separate, easy-to-forget artifact.
    `compute-all-regions-bulk.ts` / `update-pack.ts` (see below).
 2. **Enrich species** — `enrich-all-species.ts` (photos, habitat text), plus any of the data-quality
    cleanup scripts relevant to what changed.
-3. **Backfill vectors** — `backfill-reference-embeddings.ts` (species + gallery photo embeddings)
-   and `backfill-text-embeddings.ts` (zero-shot text blend). Both are safe to re-run; they skip
-   already-embedded rows.
+3. **Clean up and backfill vectors**: `repair-missing-reference-photos.ts --dry-run` (should
+   report 0 missing), `flag-non-photo-reference-images.ts` (review, then apply), then
+   `backfill-reference-embeddings.ts` (species + gallery photo embeddings)
+   and `backfill-text-embeddings.ts` (zero-shot text blend) for CLIP, then
+   `python/compute_id_model_vectors.py` for the species identification model (BioCLIP 2: text,
+   reference and gallery vectors into the `id_model_*` tables; about 3.5 hours for the whole
+   catalog on an Apple Silicon GPU, minutes for one region with `--region=`). All are safe to
+   re-run; they skip already-embedded rows. The Python one needs a venv once:
+   `python3 -m venv .venv && .venv/bin/pip install -r packages/data-pipeline/python/requirements.txt`.
 4. **Fetch/refresh occurrence stats** — `fetch-occurrence-stats.ts --only-missing` (powers
    Hide-Obscure/Ghost/Lost).
 5. **Build and publish region/sea-zone packs** — `build-and-publish-all-packs.ts` (or
    `update-pack.ts` for a scoped set of countries). Remember: this SKIPS any country the index
-   already lists, even if that country's underlying data changed in steps 1-4 — see "Refreshing an
-   already-published region" above for the manual force-rebuild recipe when that applies.
+   already lists, even if that country's underlying data changed in steps 1-4. Follow it with
+   `rebuild-changed-packs.ts` (see "Refreshing an already-published region" above) to refresh
+   those.
 6. **Rebuild and republish the catalog seed**: run the "Publish catalog seed" GitHub workflow
    (`.github/workflows/catalog-seed.yml`), or locally run `build-catalog-seed.ts` against the same
    database everything above just updated, then `gh release upload catalog-latest <seed>.sql.gz
-   <dir>/lifer-gallery-embeddings-*.bin.gz --clobber` followed by
+   <dir>/*.bin.gz --clobber` (every vector asset, CLIP and identification model) followed by
    `gh release upload catalog-latest <dir>/catalog-manifest.json --clobber` (manifest last). **Do this every time steps 1-4 touch data that isn't
    purely per-region** (species traits, rarity tiers, embeddings, endemic labels) — packs alone
    don't carry this to a fresh install; only the catalog seed does, and only if it's actually
@@ -88,28 +95,22 @@ build stage.
 
 ### Refreshing an already-published region
 
-Same command, but re-running `compute-provinces-bulk.ts` for an already-computed country doesn't
-by itself force `build-and-publish-all-packs.ts` to rebuild it — that script's own "already
-published" check only looks at the pack index, not whether the underlying checklist changed since.
-**Known gap:** refreshing one specific already-published region currently requires manually
-removing its entry from the published index first, or a `--force`/`--only=` flag on the build
-stage that doesn't exist yet.
+`build-and-publish-all-packs.ts` skips anything the published index already lists, so data fixes
+(new checklist data, restored photos, recomputed vectors, removed maps) never reach packs that are
+already out on their own. **This bit us for real on 2026-09-22**: Canada and Finland sat with zero
+embeddings and zero gallery photos for weeks because every rebuild treated them as published.
 
-**This bit us for real on 2026-09-22**: Canada and Finland were published back before per-gallery-
-photo embeddings existed at all — every rebuild since then treated them as "already published" and
-skipped them, so their live packs sat with **zero embeddings and zero gallery photos** for weeks
-while every other country got the new data. Nothing in the tooling flags this kind of drift
-automatically. Manual recipe until the `--only=`/staleness-check gap above gets closed:
+Use `src/scripts/rebuild-changed-packs.ts`, which rebuilds published packs from the current
+database and keeps only the ones whose content actually changed (manifest `contentVersion`
+differs from the published one):
 ```
-for taxon in aves mammalia actinopterygii ...; do
-  npx tsx src/build/build-region-pack.ts "<Country>" <tmpOutDir> --taxon="$taxon"
-done
-npx tsx src/build/build-pack-index.ts <tmpOutDir>   # merges with the currently-published index
-npx tsx src/scripts/publish-packs.ts <tmpOutDir>
+npx tsx src/scripts/rebuild-changed-packs.ts <outDir> [--species-file=names.txt] [--concurrency=4]
+npx tsx src/build/build-pack-index.ts <outDir>   # merges with the currently-published index
+npx tsx src/scripts/publish-packs.ts <outDir>
 ```
-Whenever a change touches how packs are BUILT (a new field in the manifest, a new embedding kind,
-a new derived stat) — not just new checklist data — audit whether already-published regions need
-this same manual refresh, since the automated sequence will never do it on its own.
+`--species-file` limits it to packs listing any of those scientific names; without it every
+published pack is rebuilt and compared. Whenever a change touches how packs are BUILT or what
+data they carry, run this, since the automated sequence never will.
 
 ## Script inventory by category
 
@@ -153,6 +154,31 @@ this same manual refresh, since the automated sequence will never do it on its o
   `last_occurrence_year` (global GBIF aggregates — powers Hide-Obscure/Ghost/Lost). `--only-missing`
 - `backfill-reference-embeddings.ts` (data-pipeline) — computes embeddings for species reference
   photos (species auto-suggest feature).
+- `flag-non-photo-reference-images.ts` (apps/api): finds reference images that are range maps,
+  charts, tables or spectrograms rather than pictures of the animal, by comparing each image's
+  CLIP vector with text descriptions (filenames miss too many, e.g. `Aix_galericulata_dis.PNG`).
+  Report first (`--out=flagged.json`), review the list, then `--apply=reviewed.json`: each URL goes
+  into `reference_photo_blocklist` (shipped in the catalog, so installs delete them too), gallery
+  images are deleted, and a map used as a species' MAIN photo is replaced by its first real
+  gallery photo (or cleared). Above a margin of 0.06 every hit was a map or chart in the
+  September 2026 review; between 0.02 and 0.06 real photos mix in, so review those by eye.
+- `repair-missing-reference-photos.ts` (apps/api): re-downloads cached main and gallery reference
+  photos whose file is missing even though the database points at it (same download and
+  derivative code enrichment uses, to the exact recorded paths). `--dry-run` counts,
+  `--countries=` scopes, `--adopt` moves rows recorded outside `APP_DATA_DIR` into it. Needs
+  `APP_DATA_DIR` set to the folder the recorded paths live under (e.g. `<repo>/data/lifer`).
+  `build-region-pack.ts` now fails on any missing photo file instead of silently shipping a pack
+  without it, and names this script (`ALLOW_MISSING_PHOTOS=1` overrides).
+- `python/compute_id_model_vectors.py` (data-pipeline): the species identification model's
+  (BioCLIP 2) text, reference-photo and gallery-photo vectors, into `id_model_text_embeddings`,
+  `id_model_reference_embeddings` and `id_model_gallery_embeddings`. Full-precision PyTorch on the
+  GPU; installs match against them with the int8 ONNX export (they agree to ~0.997 cosine).
+  `--only=text|reference|gallery`, `--region=<name>`.
+- `python/export_id_model.py <dir>` (data-pipeline): builds the int8 ONNX file installs download
+  (`<dir>/bioclip-2-v1.onnx`, ~308MB). Only needed when the model or its version changes; publish
+  with `gh release upload models <dir>/bioclip-2-v1.onnx --clobber` (create the `models` release
+  once with `gh release create models --title "Models" --notes "Model files installs download." --prerelease`).
+  The app's `ID_MODEL_URL` (apps/api/src/config.ts) points at that release.
 - `verify-and-label-endemics.ts` — verifies and labels endemic-species flags.
 - `check-extinction-status.ts` / `backfill-extinction-from-iucn-checklist.ts` — verify/bulk-check
   "possibly extinct" candidates against GBIF/IUCN data.
@@ -186,9 +212,11 @@ this same manual refresh, since the automated sequence will never do it on its o
   each pack's target release straight out of the index `build-pack-index.ts` just built — never
   re-derives continent/overflow assignment itself, so the two scripts can't disagree about where a
   pack lives).
-- `scripts/build-catalog-seed.ts` (writes three files: the seed, `lifer-gallery-embeddings-<model>.bin.gz`
-  with the per-gallery-photo CLIP vectors in compact float16 form, and `catalog-manifest.json` with
-  each file's sha256; the gallery vectors are no longer inside the seed, which keeps it well under
+- `scripts/build-catalog-seed.ts` (writes the seed, one compact float16 `*.bin.gz` per vector
+  table: `lifer-gallery-embeddings`, `lifer-species-image-embeddings` and
+  `lifer-species-text-embeddings` for CLIP, plus `lifer-id-gallery-embeddings`,
+  `lifer-id-species-image-embeddings` and `lifer-id-species-text-embeddings` for the
+  identification model, and `catalog-manifest.json` with each file's sha256; the gallery vectors are no longer inside the seed, which keeps it well under
   the 200MB limit the script enforces) builds the **shared bootstrap DB snapshot** every fresh install
   (desktop AND self-hosted Docker alike) restores on first launch, published as `catalog-latest`.
   Needs `DATABASE_URL` pointed at a real, fully-enriched database and `PG_DUMP_BIN` (no system-wide

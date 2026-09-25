@@ -258,8 +258,8 @@ export async function recoverJpeg(
 
     const captureRes = await client.query<{ id: string }>(
       `INSERT INTO captures
-         (user_id, species_id, fingerprint, exif_fingerprint, exif_fingerprint_loose, taken_at, lat, lon, camera_model, lens, focal_length_mm, aperture, shutter, iso)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+         (user_id, species_id, fingerprint, exif_fingerprint, exif_fingerprint_loose, taken_at, lat, lon, camera_model, lens, focal_length_mm, aperture, shutter, iso, quality_rating)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
        RETURNING id`,
       [
         userId,
@@ -276,6 +276,7 @@ export async function recoverJpeg(
         exif.aperture,
         exif.shutter,
         exif.iso,
+        exif.rating,
       ],
     );
     const captureId = captureRes.rows[0].id;

@@ -6,6 +6,8 @@ import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { ExifTool } from "exiftool-vendored";
+import { TAXON_CLASS_LABEL, type TaxonClass } from "@lifer/shared";
+import { pool } from "../db.js";
 import { composeSpeciesName } from "./speciesFolderName.js";
 
 // The library's default singleton caps concurrent exiftool worker processes at 1/4 of the
@@ -25,6 +27,15 @@ export interface ExtractedExif {
   aperture: number | null;
   shutter: string | null;
   iso: number | null;
+  /** The file's own star rating (xmp:Rating, 1-5), as set by Lightroom, digiKam or a culling
+   *  tool like SuperPicky; a RAW's is read from its sidecar when the file has none. 0 (unrated)
+   *  and -1 (rejected) read as null, since Lifer ratings are 1-5. */
+  rating: number | null;
+}
+
+function ratingOf(tags: Record<string, unknown>): number | null {
+  const r = Number(tags.Rating);
+  return Number.isInteger(r) && r >= 1 && r <= 5 ? r : null;
 }
 
 // extractExif and computeExifFingerprint both need a parsed tag set; calling
@@ -60,13 +71,24 @@ export async function extractExif(filePath: string, tags?: ExifTags): Promise<Ex
     aperture: typeof tags.FNumber === "number" ? tags.FNumber : null,
     shutter: tags.ShutterSpeed != null ? String(tags.ShutterSpeed) : null,
     iso: typeof tags.ISO === "number" ? tags.ISO : null,
+    rating: ratingOf(tags as unknown as Record<string, unknown>) ?? (await sidecarRating(filePath)),
   };
+}
+
+async function sidecarRating(filePath: string): Promise<number | null> {
+  const sidecar = findSidecarPath(filePath);
+  if (!sidecar) return null;
+  try {
+    return ratingOf((await exiftool.read(sidecar)) as unknown as Record<string, unknown>);
+  } catch {
+    return null; // an unreadable sidecar just means no rating
+  }
 }
 
 // Reads existing XMP TagsList and IPTC Keywords to auto-match species names (spec §9).
 // IPTC Keywords and XMP dc:subject are both plain string lists; digiKam's own
-// XMP-digiKam:TagsList and Lightroom's XMP-lr:HierarchicalSubject store hierarchical tags
-// as slash-separated paths (e.g. "Birds/Waterfowl/Mallard") — the leaf segment is the actual
+// XMP-digiKam:TagsList and Lightroom's XMP-lr:HierarchicalSubject store hierarchical tags as
+// paths ("Birds/Waterfowl/Mallard" in digiKam, "Birds|Waterfowl|Mallard" in Lightroom); the leaf segment is the actual
 // subject, so that's what gets returned rather than the whole path. Not part of
 // exiftool-vendored's strongly-typed Tags interface (an uncommon tag set), so read through
 // the raw object instead.
@@ -80,7 +102,8 @@ export async function extractKeywords(filePath: string, tags?: ExifTags): Promis
     ...asStrings(rawTags.TagsList),
     ...asStrings(rawTags.HierarchicalSubject),
   ];
-  const leaves = all.map((t) => t.split("/").pop()!.trim()).filter(Boolean);
+  // Lightroom separates hierarchy levels with "|", digiKam's TagsList with "/".
+  const leaves = all.map((t) => t.split(/[|/]/).pop()!.trim()).filter(Boolean);
   return [...new Set(leaves)];
 }
 
@@ -173,7 +196,7 @@ export async function extractEmbeddedPreview(filePath: string): Promise<Buffer |
 // travels with the file no matter where it's copied — Immich, Lightroom, a USB drive)
 // rather than only ever living in Lifer's own database. Written in the same
 // tag shapes extractKeywords already reads back (Keywords/Subject flat list,
-// HierarchicalSubject slash-path), so re-importing a Lifer-tagged photo elsewhere round-trips
+// HierarchicalSubject path), so re-importing a Lifer-tagged photo elsewhere round-trips
 // correctly. "store" mode only (see uploads/routes.ts) — a linked/external file isn't
 // Lifer's to modify.
 export interface SpeciesMetadata {
@@ -203,33 +226,7 @@ export async function writeSpeciesMetadata(
   metas: SpeciesMetadata[],
   namingStyles: string[] = [],
 ): Promise<void> {
-  const labels = metas.map((m) =>
-    composeSpeciesName(
-      m.commonName,
-      m.scientificName,
-      namingStyles,
-      { abaCode: m.abaCode ?? null, ebirdCode: m.ebirdCode ?? null },
-      (part) => part,
-      { taxonClass: m.taxonClass, taxonOrder: m.taxonOrder ?? null, family: m.family },
-    ),
-  );
-  const keywords = metas
-    .flatMap((m) => [m.commonName, m.scientificName, m.abaCode, m.ebirdCode])
-    .filter((v): v is string => !!v);
-  const hierarchies = metas.map((m, i) =>
-    ["Species", m.taxonClass, m.family, labels[i]].filter(Boolean).join("/"),
-  );
-
-  await exiftool.write(
-    filePath,
-    {
-      Keywords: keywords,
-      Subject: keywords,
-      HierarchicalSubject: hierarchies,
-      ObjectName: labels.join(", "),
-    } as Record<string, unknown>,
-    { writeArgs: ["-overwrite_original"] },
-  );
+  await writeLiferMetadata(filePath, { species: metas, namingStyles }, "embedded");
 }
 
 // The bare-stem convention ("IMG_0001.xmp", not "IMG_0001.CR2.xmp") — matches
@@ -240,6 +237,16 @@ export function sidecarPathFor(imagePath: string): string {
   const ext = path.extname(imagePath);
   const stem = path.basename(imagePath, ext);
   return path.join(path.dirname(imagePath), `${stem}.xmp`);
+}
+
+// Formats whose metadata other tools read from inside the file. Lightroom ignores a sidecar next
+// to a JPEG/TIFF/PNG/DNG and reads the embedded XMP instead, so a rating written only to a
+// sidecar never showed up there. RAW formats (and anything else) get a sidecar, the one place
+// Lightroom and digiKam look for a RAW's edits.
+const EMBEDDED_METADATA_EXTENSIONS = new Set([".jpg", ".jpeg", ".tif", ".tiff", ".png", ".dng"]);
+
+export function metadataGoesInFile(filePath: string): boolean {
+  return EMBEDDED_METADATA_EXTENSIONS.has(path.extname(filePath).toLowerCase());
 }
 
 export interface XmpSidecarData {
@@ -258,20 +265,44 @@ export interface XmpSidecarData {
   iso: number | null;
 }
 
-// A standalone ".xmp" sidecar (created fresh if it doesn't exist — exiftool treats a bare XMP
-// path as a complete, valid file format of its own, not something that requires an image behind
-// it) carrying everything Lifer knows about this photo: species tags (same fields
-// writeSpeciesMetadata embeds directly into a managed JPEG), the full EXIF Lifer already
-// extracted at import time, the star rating, and whether this is the species' current cover
-// photo. This is the ONLY metadata sync a RAW original ever gets — writeSpeciesMetadata only
-// ever embeds into a managed JPEG, so without this, a RAW file browsed in any other tool shows
-// nothing Lifer knows about it at all. Deliberately does NOT attempt to carry the card-crop
-// region: that needs Lightroom's own multi-field crs:Crop* schema (angle/constrain/full
-// before-and-after rectangle, all required together to be honored, none of it exposed by
-// exiftool-vendored's typed Tags and untested against a real config here) — safer to leave
-// crop as a Lifer-only concept than ship a crop tag that silently confuses another tool.
-// "Cover" instead round-trips as a plain, safe keyword any tool already understands.
+// A standalone ".xmp" sidecar (created fresh if it doesn't exist) carrying what Lifer knows about
+// a RAW photo: species tags, the star rating, whether it's the species' cover photo, and its GPS
+// (which may come from Lifer rather than the camera). Deliberately NOT the camera's own EXIF
+// (capture time, lens, exposure): the RAW already carries it exactly, and Lightroom treats a
+// sidecar's capture time as an override, so a copy with a slightly different time zone reading
+// would silently shift the photo's time there. Nor the card-crop region: that needs Lightroom's
+// own multi-field crs:Crop* schema, untested here, so crop stays a Lifer-only concept.
 export async function writeXmpSidecar(imagePath: string, data: XmpSidecarData): Promise<void> {
+  await writeLiferMetadata(sidecarPathFor(imagePath), data, "sidecar");
+}
+
+/** Writes Lifer's tags where other tools look for them: inside a JPEG/TIFF/PNG/DNG, in a
+ * sidecar for a RAW. Used for every change a capture's metadata carries (species, rating,
+ * cover). */
+export async function writeCaptureMetadata(imagePath: string, data: XmpSidecarData): Promise<void> {
+  if (metadataGoesInFile(imagePath)) await writeLiferMetadata(imagePath, data, "embedded");
+  else await writeXmpSidecar(imagePath, data);
+}
+
+interface LiferTags {
+  species: SpeciesMetadata[];
+  namingStyles: string[];
+  isCover?: boolean;
+  /** undefined leaves the file's rating alone; null clears it. */
+  rating?: number | null;
+  lat?: number | null;
+  lon?: number | null;
+}
+
+const COVER_KEYWORD = "Lifer:Cover";
+const SPECIES_ROOT = "Species";
+
+// Standard fields both Lightroom and digiKam read: dc:subject (flat keywords), IPTC Keywords
+// (older readers, embedded only), lr:hierarchicalSubject with "|" between levels (Lightroom's
+// keyword tree; digiKam reads it too), dc:title/IPTC ObjectName (title), xmp:Rating (stars).
+// Written with explicit groups so each value lands in exactly one field: the unqualified names
+// wrote every keyword into dc:subject twice and put a stray pdf:Keywords into sidecars.
+async function writeLiferMetadata(target: string, data: LiferTags, mode: "embedded" | "sidecar"): Promise<void> {
   const labels = data.species.map((m) =>
     composeSpeciesName(
       m.commonName,
@@ -282,31 +313,62 @@ export async function writeXmpSidecar(imagePath: string, data: XmpSidecarData): 
       { taxonClass: m.taxonClass, taxonOrder: m.taxonOrder ?? null, family: m.family },
     ),
   );
-  const keywords = data.species
+  const ours = data.species
     .flatMap((m) => [m.commonName, m.scientificName, m.abaCode, m.ebirdCode])
     .filter((v): v is string => !!v);
-  if (data.isCover) keywords.push("Lifer:Cover");
-  const hierarchies = data.species.map((m, i) => ["Species", m.taxonClass, m.family, labels[i]].filter(Boolean).join("/"));
+  if (data.isCover) ours.push(COVER_KEYWORD);
+  const ourHierarchies = data.species.map((m, i) =>
+    [SPECIES_ROOT, m.taxonClass ? (TAXON_CLASS_LABEL[m.taxonClass as TaxonClass] ?? m.taxonClass) : null, m.family, labels[i]]
+      .filter(Boolean)
+      .join("|"),
+  );
+  const kept = await keywordsToKeep(target);
+  const subject = [...new Set([...kept.flat, ...ours])];
+  const hierarchical = [...new Set([...kept.hierarchical, ...ourHierarchies])];
+  const title = labels.join(", ");
 
   const tags: Record<string, unknown> = {
-    Keywords: keywords,
-    Subject: keywords,
-    HierarchicalSubject: hierarchies,
-    ObjectName: labels.join(", "),
+    "XMP-dc:Subject": subject,
+    "XMP-lr:HierarchicalSubject": hierarchical,
+    "XMP-dc:Title": title,
   };
-  if (data.rating != null) tags.Rating = data.rating;
-  if (data.takenAt) tags.DateTimeOriginal = data.takenAt.toISOString();
-  if (data.lat != null) tags.GPSLatitude = data.lat;
-  if (data.lon != null) tags.GPSLongitude = data.lon;
-  if (data.cameraModel) tags.Model = data.cameraModel;
-  if (data.lens) tags.LensModel = data.lens;
-  if (data.focalLengthMm != null) tags.FocalLength = data.focalLengthMm;
-  if (data.aperture != null) tags.FNumber = data.aperture;
-  if (data.shutter) tags.ExposureTime = data.shutter;
-  if (data.iso != null) tags.ISO = data.iso;
+  if (mode === "embedded") {
+    tags["IPTC:Keywords"] = subject;
+    tags["IPTC:ObjectName"] = title;
+  }
+  if (data.rating !== undefined) tags["XMP-xmp:Rating"] = data.rating; // null deletes it
+  if (mode === "sidecar") {
+    if (data.lat != null) tags["XMP-exif:GPSLatitude"] = data.lat;
+    if (data.lon != null) tags["XMP-exif:GPSLongitude"] = data.lon;
+  }
+  await exiftool.write(target, tags, { writeArgs: ["-overwrite_original"] });
+}
 
-  const sidecarPath = sidecarPathFor(imagePath);
-  await exiftool.write(sidecarPath, tags, { writeArgs: ["-overwrite_original"] });
+/** The keywords already in a file or sidecar that aren't Lifer's to replace: everything except
+ * species names and codes (Lifer owns which species a photo shows), Lifer's cover marker, and
+ * Lifer's own "Species|..." hierarchy. Writing used to replace the whole list, wiping keywords
+ * added in Lightroom or digiKam ("sunset", "backyard") every time Lifer touched the file. */
+async function keywordsToKeep(target: string): Promise<{ flat: string[]; hierarchical: string[] }> {
+  if (!existsSync(target)) return { flat: [], hierarchical: [] };
+  let raw: Record<string, unknown>;
+  try {
+    raw = (await exiftool.read(target)) as unknown as Record<string, unknown>;
+  } catch {
+    return { flat: [], hierarchical: [] };
+  }
+  const list = (v: unknown): string[] => (Array.isArray(v) ? v.map(String) : typeof v === "string" ? [v] : []);
+  const flat = [...new Set([...list(raw.Subject), ...list(raw.Keywords)])].filter((k) => k !== COVER_KEYWORD);
+  const hierarchical = list(raw.HierarchicalSubject).filter(
+    (h) => !h.startsWith(`${SPECIES_ROOT}|`) && !h.startsWith(`${SPECIES_ROOT}/`),
+  );
+  if (flat.length === 0) return { flat, hierarchical };
+  const speciesWords = await pool.query<{ k: string }>(
+    `SELECT DISTINCT lower(k) AS k FROM species, unnest(ARRAY[common_name, scientific_name, aba_code, ebird_code]) AS k
+     WHERE k IS NOT NULL AND lower(k) = ANY($1)`,
+    [flat.map((k) => k.toLowerCase())],
+  );
+  const species = new Set(speciesWords.rows.map((r) => r.k));
+  return { flat: flat.filter((k) => !species.has(k.toLowerCase())), hierarchical };
 }
 
 export async function closeExiftool(): Promise<void> {

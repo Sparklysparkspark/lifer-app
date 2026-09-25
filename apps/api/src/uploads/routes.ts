@@ -24,10 +24,10 @@ import { tagWithRegisteredVolume, resolveChosenVolumeDestination } from "../stor
 import { assertAllowedPath } from "../lib/allowedPaths.js";
 import {
   computeEmbedding,
-  computeSuggestionEmbedding,
   cosineSimilarity,
-  rankSpeciesByEmbedding,
   storeCaptureEmbedding,
+  storeIdCaptureEmbedding,
+  suggestSpecies,
   type SpeciesSuggestion,
 } from "../species/embeddings.js";
 import { matchSpeciesByKeywords, groupByScientificName } from "../species/matchByKeywords.js";
@@ -261,10 +261,9 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
         try {
           // A dedicated, CROPPED embedding — deliberately not the same `embedding` used for
           // near-duplicate detection above, which needs to stay uncropped to mean anything
-          // against other uncropped capture_embeddings rows. See computeSuggestionEmbedding's
-          // own comment for why cropping the query photo measurably improves matching.
-          const suggestionEmbedding = await computeSuggestionEmbedding(embedSourceBuffer);
-          suggestions = await rankSpeciesByEmbedding(pool, request.user!.id, suggestionEmbedding, regionId, 5, exif.takenAt);
+          // against other uncropped capture_embeddings rows. suggestSpecies crops, then uses the
+          // species identification model when it's ready (CLIP otherwise).
+          suggestions = await suggestSpecies(pool, request.user!.id, embedSourceBuffer, regionId, 5, exif.takenAt);
         } catch {
           // Best-effort, same reasoning as the near-duplicate check above — no suggestions
           // rather than a failed request.
@@ -639,8 +638,8 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
       await client.query("BEGIN");
       const captureRes = await client.query<{ id: string }>(
         `INSERT INTO captures
-           (user_id, species_id, fingerprint, exif_fingerprint, exif_fingerprint_loose, taken_at, lat, lon, camera_model, lens, focal_length_mm, aperture, shutter, iso, trip_id)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+           (user_id, species_id, fingerprint, exif_fingerprint, exif_fingerprint_loose, taken_at, lat, lon, camera_model, lens, focal_length_mm, aperture, shutter, iso, trip_id, quality_rating)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
          RETURNING id`,
         [
           userId,
@@ -658,6 +657,7 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
           exif.shutter,
           exif.iso,
           tripId,
+          exif.rating,
         ],
       );
       const captureId = captureRes.rows[0].id;
@@ -711,6 +711,7 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
       if (previewBuffer) {
         computeEmbedding(previewBuffer)
           .then((embedding) => storeCaptureEmbedding(pool, captureId, embedding))
+          .then(() => storeIdCaptureEmbedding(pool, captureId, previewBuffer))
           .catch((err) => console.warn(`[uploads] Couldn't compute a species-suggestion embedding for RAW capture ${captureId}:`, err));
       }
 
@@ -1001,8 +1002,8 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
 
       const captureRes = await client.query<{ id: string }>(
         `INSERT INTO captures
-           (user_id, species_id, fingerprint, exif_fingerprint, exif_fingerprint_loose, taken_at, lat, lon, camera_model, lens, focal_length_mm, aperture, shutter, iso, trip_id, region_id, location_label)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+           (user_id, species_id, fingerprint, exif_fingerprint, exif_fingerprint_loose, taken_at, lat, lon, camera_model, lens, focal_length_mm, aperture, shutter, iso, trip_id, region_id, location_label, quality_rating)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
          RETURNING id`,
         [
           userId,
@@ -1022,6 +1023,7 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
           tripId,
           fields.regionId || null,
           locationLabel,
+          exif.rating,
         ],
       );
       const captureId = captureRes.rows[0].id;
@@ -1251,6 +1253,7 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
       // fails the upload itself.
       computeEmbedding(buffer)
         .then((embedding) => storeCaptureEmbedding(pool, captureId, embedding))
+        .then(() => storeIdCaptureEmbedding(pool, captureId, buffer))
         .catch((err) => request.log.warn({ err, captureId }, "Couldn't compute a species-suggestion embedding for this capture"));
 
       return reply.code(201).send({ captureId, photoId: photoRes.rows[0].id });
@@ -1349,7 +1352,7 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
       const tags = await readExifTags(tmpPath);
       exif = await extractExif(tmpPath, tags);
     } catch {
-      exif = { takenAt: null, lat: null, lon: null, cameraModel: null, lens: null, focalLengthMm: null, aperture: null, shutter: null, iso: null };
+      exif = { takenAt: null, lat: null, lon: null, cameraModel: null, lens: null, focalLengthMm: null, aperture: null, shutter: null, iso: null, rating: null };
     }
 
     const userId = request.user!.id;
@@ -1369,8 +1372,8 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
 
       const captureRes = await client.query<{ id: string }>(
         `INSERT INTO captures
-           (user_id, species_id, fingerprint, taken_at, lat, lon, camera_model, lens, focal_length_mm, aperture, shutter, iso, trip_id, region_id, location_label)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+           (user_id, species_id, fingerprint, taken_at, lat, lon, camera_model, lens, focal_length_mm, aperture, shutter, iso, trip_id, region_id, location_label, quality_rating)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
          RETURNING id`,
         [
           userId,
@@ -1388,6 +1391,7 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
           tripId,
           fields.regionId || null,
           locationLabel,
+          exif.rating,
         ],
       );
       const captureId = captureRes.rows[0].id;

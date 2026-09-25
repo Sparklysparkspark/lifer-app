@@ -31,6 +31,7 @@ describe("extractExif", () => {
       aperture: 5.6,
       shutter: "1/1000",
       iso: 400,
+      rating: null,
     });
   });
 
@@ -57,6 +58,7 @@ describe("extractExif", () => {
       aperture: null,
       shutter: null,
       iso: null,
+      rating: null,
     });
   });
 

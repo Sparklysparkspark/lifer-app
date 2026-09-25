@@ -3,7 +3,7 @@
 // uploads/routes.ts, the same-vs-cross-species gap used to compare CLIP model sizes) rests on
 // these two functions behaving exactly as expected at the edges, not just on "normal" inputs.
 import { describe, expect, it } from "vitest";
-import { computeEmbedding, cosineSimilarity, l2Normalize } from "./embeddings.js";
+import { CLIP_SPACE, computeEmbedding, cosineSimilarity, ID_SPACE, l2Normalize, matchTargets, rankSpeciesByEmbedding } from "./embeddings.js";
 
 describe("l2Normalize", () => {
   it("scales a vector to unit length", () => {
@@ -98,5 +98,57 @@ describe("computeEmbedding", () => {
       process.off("unhandledRejection", onUnhandled);
     }
     expect(unhandled).toEqual([]);
+  });
+});
+
+describe("matchTargets", () => {
+  it("keeps the reference gallery when the user has their own photos of a species", () => {
+    const targets = matchTargets({ your_embeddings: [[1, 0]], ref_embedding: [0, 1], gallery_embeddings: [[0.5, 0.5]] });
+    expect(targets.map((t) => t.source)).toEqual(["your_photos", "reference_photo", "reference_photo"]);
+    expect(targets[0].factor).toBeLessThan(1);
+    expect(targets[1].factor).toBe(1);
+  });
+
+  it("uses every one of the user's photos, not just the latest", () => {
+    const targets = matchTargets({ your_embeddings: [[1, 0], [0, 1]], ref_embedding: null, gallery_embeddings: null });
+    expect(targets).toHaveLength(2);
+  });
+
+  it("returns nothing when there's nothing to match against", () => {
+    expect(matchTargets({ your_embeddings: null, ref_embedding: null, gallery_embeddings: null })).toEqual([]);
+  });
+});
+
+describe("rankSpeciesByEmbedding", () => {
+  // A stand-in pool that records the SQL and returns fixed candidate rows.
+  function fakePool(rows: object[]) {
+    const calls: Array<{ sql: string; params: unknown[] }> = [];
+    return {
+      calls,
+      pool: { query: async (sql: string, params: unknown[]) => (calls.push({ sql, params }), { rows }) } as never,
+    };
+  }
+  const base = { is_vagrant: null, local_tier: null, seasonality: null, common_name: null };
+
+  it("reads only the identification model's tables in ID_SPACE", async () => {
+    const { pool, calls } = fakePool([]);
+    await rankSpeciesByEmbedding(pool, "u1", [1, 0], "r1", 5, null, ID_SPACE);
+    expect(calls[0].sql).toContain("id_model_capture_embeddings");
+    expect(calls[0].sql).toContain("id_model_gallery_embeddings");
+    expect(calls[0].sql).toContain("id_model_text_embeddings");
+    expect(calls[0].sql).not.toContain("species_reference_gallery_embeddings");
+    expect(calls[0].params).toEqual(["u1", ID_SPACE.modelVersion, ID_SPACE.textModelVersion, "r1"]);
+  });
+
+  it("blends text at the space's weight and still uses the gallery when the user has photos", async () => {
+    const { pool } = fakePool([
+      // Gallery matches perfectly; the user's own photo of it doesn't.
+      { ...base, species_id: "a", scientific_name: "A a", your_embeddings: [[0, 1]], ref_embedding: null, gallery_embeddings: [[1, 0]], text_embedding: [1, 0] },
+      { ...base, species_id: "b", scientific_name: "B b", your_embeddings: null, ref_embedding: [0, 1], gallery_embeddings: null, text_embedding: [0, 1] },
+    ]);
+    const [top] = await rankSpeciesByEmbedding(pool, "u1", [1, 0], "r1", 5, null, CLIP_SPACE);
+    expect(top.id).toBe("a");
+    expect(top.source).toBe("reference_photo");
+    expect(top.score).toBeCloseTo((1 - CLIP_SPACE.textWeight) * 1 + CLIP_SPACE.textWeight * 1);
   });
 });

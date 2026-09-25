@@ -19,6 +19,11 @@ export interface CatalogManifest {
   galleryEmbeddings?: VectorAsset | null;
   speciesImageEmbeddings?: VectorAsset | null;
   speciesTextEmbeddings?: VectorAsset | null;
+  // The species identification model's vectors (id_model_* tables), fetched once that model is
+  // downloaded. Absent from catalogs published before it existed.
+  idGalleryEmbeddings?: VectorAsset | null;
+  idSpeciesImageEmbeddings?: VectorAsset | null;
+  idSpeciesTextEmbeddings?: VectorAsset | null;
 }
 
 const MANIFEST_TIMEOUT_MS = 15_000;

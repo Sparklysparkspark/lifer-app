@@ -4,253 +4,90 @@
 // candidate vectors are plain `real[]` columns (capture_embeddings/species_reference_embeddings,
 // migration 058) and ranking is done here in plain JS — fine at personal-library scale (at most
 // a few thousand vectors, brute-force cosine similarity is sub-100ms with no native dependency).
-import { mkdirSync, existsSync, rmSync } from "node:fs";
+import { rmSync } from "node:fs";
 import path from "node:path";
-import sharp from "sharp";
-import * as ort from "onnxruntime-node";
 import type { Pool, PoolClient } from "pg";
-import { APP_DATA_DIR, EMBEDDING_MODEL_URL, EMBEDDING_MODEL_VERSION } from "../config.js";
+import { APP_DATA_DIR, EMBEDDING_MODEL_URL, EMBEDDING_MODEL_VERSION, ID_MODEL_VERSION } from "../config.js";
 import { cropToSubject } from "./detectAndCrop.js";
-import { downloadResumable } from "../lib/resumableDownload.js";
+import { idModel } from "./idModel.js";
+import { createOnnxImageModel, l2Normalize } from "./onnxImageModel.js";
 
-// Opt-in, offload-able download — same shape as the offline basemap (settings/routes.ts's
-// /settings/map/* routes). Not bundled at build time on any platform: this directory (and
-// textEmbedding.ts's own clip-text-cache subdirectory within it) is deleted wholesale on
-// offload, so nothing here can assume it's the only thing writing under MODEL_DIR.
+export { l2Normalize };
+
+// Opt-in, offload-able download, same shape as the offline basemap (settings/routes.ts's
+// /settings/map/* routes). Not bundled at build time on any platform: this directory (holding
+// the CLIP vision model, the species identification model, and textEmbedding.ts's own
+// clip-text-cache subdirectory) is deleted wholesale on offload.
 export const MODEL_DIR = path.join(APP_DATA_DIR, "models");
-const MODEL_PATH = path.join(MODEL_DIR, `${EMBEDDING_MODEL_VERSION}.onnx`);
 
-/** Whether the vision half of the model has already been downloaded — cheap, sync, safe to call
- * from a status endpoint on every poll. */
+const clipModel = createOnnxImageModel({
+  path: path.join(MODEL_DIR, `${EMBEDDING_MODEL_VERSION}.onnx`),
+  url: EMBEDDING_MODEL_URL,
+  label: "the species-matching model",
+  missingMessage: "The species-matching model hasn't been downloaded (Settings > Offline Data)",
+});
+
+/** Whether the CLIP vision model has been downloaded. Cheap, sync, safe to call from a status
+ * endpoint on every poll. */
 export function isModelDownloaded(): boolean {
-  return existsSync(MODEL_PATH);
+  return clipModel.isDownloaded();
 }
 
-/** Deletes the whole model directory (vision .onnx file + textEmbedding.ts's cached text
- * encoder) to reclaim disk space. Safe to call even if nothing was ever downloaded. */
+/** Deletes the whole model directory (both vision models plus textEmbedding.ts's cached text
+ * encoder) to reclaim disk space, and frees the loaded sessions once nothing is mid-inference.
+ * Safe to call even if nothing was ever downloaded. */
 export function offloadModel(): void {
   rmSync(MODEL_DIR, { recursive: true, force: true });
-  cancelIdleUnload(); // nothing left to unload once this runs
-  // Free the native session's memory too (it was leaked before), but only once nothing is mid
-  // session.run() on it.
-  const promise = sessionPromise;
-  sessionPromise = null; // an in-memory session pointing at a now-deleted file must not be reused
-  if (promise) releaseWhenIdle(promise);
+  clipModel.release();
+  idModel.release();
 }
 
-const sessionsAwaitingRelease: Promise<ort.InferenceSession>[] = [];
-
-function releaseWhenIdle(promise: Promise<ort.InferenceSession>): void {
-  sessionsAwaitingRelease.push(promise);
-  if (activeInferences === 0) drainReleases();
-}
-
-function drainReleases(): void {
-  for (const p of sessionsAwaitingRelease.splice(0)) p.then((session) => session.release()).catch(() => {});
-}
-
-const INPUT_SIZE = 224;
-// CLIP's own published preprocessing constants — every CLIP-family vision encoder (including
-// this quantized export) was trained expecting pixels normalized against exactly these, not a
-// generic ImageNet mean/std.
-const CLIP_MEAN = [0.48145466, 0.4578275, 0.40821073];
-const CLIP_STD = [0.26862954, 0.26130258, 0.27577711];
-
-let sessionPromise: Promise<ort.InferenceSession> | null = null;
-
-// Loading this session costs a real, user-visible amount of time (reading ~307MB off disk and
-// initializing the ONNX runtime), which is why it's kept warm across requests rather than
-// reloaded every call — but "warm forever, even after hours of total inactivity" wastes real
-// memory on a self-hosted server that isn't always actively matching photos (a Docker/NAS
-// deployment can sit idle for days between imports). Unloading after a period of no use gets
-// both: fast while actually in use, small the rest of the time. `activeInferences` guards
-// against unloading out from under a call that's still mid-`session.run()` — the timer only
-// ever arms once nothing is actively using the session, not on a fixed schedule.
-const IDLE_UNLOAD_MS = 15 * 60 * 1000;
-let activeInferences = 0;
-let idleUnloadTimer: ReturnType<typeof setTimeout> | null = null;
-
-function cancelIdleUnload(): void {
-  if (idleUnloadTimer) {
-    clearTimeout(idleUnloadTimer);
-    idleUnloadTimer = null;
-  }
-}
-
-function armIdleUnload(): void {
-  cancelIdleUnload();
-  idleUnloadTimer = setTimeout(() => {
-    idleUnloadTimer = null;
-    const promise = sessionPromise;
-    sessionPromise = null;
-    // Best-effort: if the session never actually finished loading (a prior download/init
-    // failure), there's nothing native to release — getSession()'s own .catch already cleared
-    // sessionPromise in that case, so this is mostly a no-op guard, not the common path.
-    promise?.then((session) => session.release()).catch(() => {});
-  }, IDLE_UNLOAD_MS);
-  idleUnloadTimer.unref?.();
-}
-
-/** Downloads the vision model into MODEL_PATH, streaming to disk (not buffered in memory — this
- * file is ~307MB) with an atomic rename on completion so a killed-mid-download file never looks
- * "ready". `onProgress` (optional) mirrors the map download job's own byte-count reporting so
- * the Settings UI can show a real progress bar instead of a spinner. */
-// Uses downloadResumable: the old `.pipe()` never forwarded a dropped connection's error, which
-// crashed the API or left the download "running" forever. A partial file resumes next time.
+/** Downloads the CLIP vision model (~307MB), resuming a partial file. */
 export async function downloadModel(
   onProgress?: (downloadedBytes: number, totalBytes: number | null) => void,
   signal?: AbortSignal,
 ): Promise<void> {
-  mkdirSync(MODEL_DIR, { recursive: true });
-  await downloadResumable(EMBEDDING_MODEL_URL, MODEL_PATH, { signal, onProgress, label: "the species-matching model" });
+  await clipModel.download(onProgress, signal);
 }
-
-// Deliberately does NOT auto-download — same opt-in contract as the offline basemap: a caller
-// only ever gets this model by way of the explicit Settings > Offline Data download (or the
-// desktop app's own first-run map/model prompt), never as a surprise multi-hundred-MB fetch
-// triggered by an ordinary upload/search request. Every call site below already treats a thrown
-// error here as "feature unavailable, degrade gracefully," not a hard failure.
-async function resolveModelPath(): Promise<string> {
-  if (!existsSync(MODEL_PATH)) throw new Error("The species-matching model hasn't been downloaded (Settings > Offline Data)");
-  return MODEL_PATH;
-}
-
-// Lazily downloaded and loaded on first real use (first backfill tick or first suggestion
-// request), not at server startup — most self-hosted deployments never touch this path at all
-// (Docker/NAS mode has no photo-picking UI), so there's no reason to pay the download/load cost
-// there. Cached as a shared promise so concurrent callers await the same in-flight load rather
-// than racing to download/init twice.
-async function getSession(): Promise<ort.InferenceSession> {
-  cancelIdleUnload(); // never unload while a caller is about to (or currently) using it
-  if (!sessionPromise) {
-    sessionPromise = (async () => {
-      const modelPath = await resolveModelPath();
-      return ort.InferenceSession.create(modelPath);
-    })().catch((err) => {
-      sessionPromise = null; // let the next caller retry instead of caching a permanent failure
-      throw err;
-    });
-  }
-  return sessionPromise;
-}
-
-// Resize/crop to CLIP's expected 224x224 and normalize into NCHW float32 — mirrors how
-// uploads/image.ts already uses sharp for derivative generation, just producing a tensor instead
-// of a webp file.
-async function preprocessImage(buffer: Buffer): Promise<Float32Array> {
-  const { data } = await sharp(buffer)
-    .rotate()
-    .resize(INPUT_SIZE, INPUT_SIZE, { fit: "cover" })
-    .removeAlpha()
-    .raw()
-    .toBuffer({ resolveWithObject: true });
-
-  const floats = new Float32Array(3 * INPUT_SIZE * INPUT_SIZE);
-  const pixelCount = INPUT_SIZE * INPUT_SIZE;
-  for (let i = 0; i < pixelCount; i++) {
-    for (let c = 0; c < 3; c++) {
-      const value = data[i * 3 + c] / 255;
-      // HWC -> CHW: channel c's plane starts at c * pixelCount
-      floats[c * pixelCount + i] = (value - CLIP_MEAN[c]) / CLIP_STD[c];
-    }
-  }
-  return floats;
-}
-
-export function l2Normalize(vec: Float32Array): number[] {
-  let sumSquares = 0;
-  for (const v of vec) sumSquares += v * v;
-  const norm = Math.sqrt(sumSquares) || 1;
-  return Array.from(vec, (v) => v / norm);
-}
-
-const INFERENCE_TIMEOUT_MS = 20_000;
-const MAX_STUCK_INFERENCES = 2;
-let stuckInferences = 0;
 
 export function isInferenceStuck(): boolean {
-  return stuckInferences >= MAX_STUCK_INFERENCES;
+  return clipModel.isStuck();
 }
 
-/** Computes an L2-normalized embedding for one image. Never touches the network beyond the
- * one-time model download above — everything after that is local CPU inference. Guarded by a
- * hard timeout: a native ONNX/sharp binding hanging on one pathological image must never hang
- * the caller (an HTTP request, or a backfill loop) forever. */
+/** L2-normalized CLIP embedding for one image. Never touches the network beyond the one-time
+ * model download; guarded by a hard timeout (see onnxImageModel.ts). */
 export async function computeEmbedding(buffer: Buffer): Promise<number[]> {
-  // A timed-out native call keeps running in the background. Refuse new work while several are
-  // stuck, instead of piling more hung calls onto the same native session.
-  if (isInferenceStuck()) throw new Error("Species matching is stuck on an earlier photo. Restart Lifer to recover.");
-  // Counts this call as "active" for the session's whole real lifetime — including the rare
-  // case where `work` loses the race below and keeps running in the background after a
-  // timeout. Tied to `work` itself finishing, not to the race settling, so an idle-unload can
-  // never fire while a `session.run()` call is genuinely still in flight underneath it.
-  activeInferences++;
-  const work = (async () => {
-    const session = await getSession();
-    const inputName = session.inputNames[0];
-    const outputName = session.outputNames[0];
-    const tensor = new ort.Tensor("float32", await preprocessImage(buffer), [1, 3, INPUT_SIZE, INPUT_SIZE]);
-    const results = await session.run({ [inputName]: tensor });
-    return l2Normalize(results[outputName].data as Float32Array);
-  })();
-  let timedOut = false;
-  let settled = false;
-  // .finally() returns its OWN new promise, separate from `work` - chaining .catch() straight
-  // onto work did NOT cover this one, so a rejection (e.g. the model not being downloaded) left
-  // THIS derived promise permanently unhandled. Confirmed live: this crashed the whole API
-  // process on every model-not-downloaded upload, even though the call site itself properly
-  // catches computeEmbedding's own returned promise - Node's unhandled-rejection detection is
-  // per promise OBJECT, and this discarded one was never anyone's. Promise.race below already
-  // subscribes to `work` itself, so chaining .catch() onto the .finally() result here is the
-  // only handler this whole chain was actually missing.
-  work
-    .finally(() => {
-      settled = true;
-      activeInferences--;
-      if (timedOut) stuckInferences--;
-      if (activeInferences === 0) {
-        drainReleases();
-        armIdleUnload();
-      }
-    })
-    .catch(() => {});
-
-  let timer: ReturnType<typeof setTimeout>;
-  const timeout = new Promise<number[]>((_, reject) => {
-    timer = setTimeout(() => {
-      if (!settled) {
-        timedOut = true;
-        stuckInferences++;
-      }
-      reject(new Error("embedding inference timed out"));
-    }, INFERENCE_TIMEOUT_MS);
-  });
-  try {
-    return await Promise.race([work, timeout]);
-  } finally {
-    // Without this, every ordinary (fast) call leaves this timer running for the rest of its
-    // 20s — when it eventually fires, it rejects a promise nothing is listening to anymore
-    // (Promise.race already settled), which is an unhandled rejection on every single call.
-    clearTimeout(timer!);
-  }
+  return clipModel.embed(buffer);
 }
 
-/** Same as computeEmbedding, but crops to the detected animal first (detectAndCrop.ts) — use
- * this specifically for SUGGESTION-time embeddings, never for the reference/gallery database or
- * for near-duplicate detection. Real evaluation showed cropping the query photo alone (leaving
- * every stored reference/gallery embedding as-is) captured the whole measured benefit; cropping
- * is deliberately NOT applied to near-duplicate detection's own embedding, since that check
+const CROP_TIMEOUT_MS = 20_000;
+
+/** Crops to the detected animal (detectAndCrop.ts) for suggestion-time matching. The crop runs
+ * its own detection model, so it gets a time cap; on timeout or failure, the whole photo. */
+async function cropForSuggestion(buffer: Buffer): Promise<Buffer> {
+  let timer: ReturnType<typeof setTimeout>;
+  const timeout = new Promise<Buffer>((resolve) => {
+    timer = setTimeout(() => resolve(buffer), CROP_TIMEOUT_MS);
+  });
+  return Promise.race([cropToSubject(buffer).catch(() => buffer), timeout]).finally(() => clearTimeout(timer));
+}
+
+/** Same as computeEmbedding, but crops to the detected animal first. Use this specifically for
+ * SUGGESTION-time embeddings, never for the reference/gallery database or for near-duplicate
+ * detection. Real evaluation showed cropping the query photo alone (leaving every stored
+ * reference/gallery embedding as-is) captured the whole measured benefit; cropping is
+ * deliberately NOT applied to near-duplicate detection's own embedding, since that check
  * compares against OTHER un-cropped capture_embeddings rows and needs the same preprocessing on
  * both sides to mean anything. */
 export async function computeSuggestionEmbedding(buffer: Buffer): Promise<number[]> {
-  // The crop runs its own detection model, so it gets the same time cap; on timeout, match the
-  // whole photo instead.
-  let timer: ReturnType<typeof setTimeout>;
-  const timeout = new Promise<Buffer>((resolve) => {
-    timer = setTimeout(() => resolve(buffer), INFERENCE_TIMEOUT_MS);
-  });
-  const cropped = await Promise.race([cropToSubject(buffer).catch(() => buffer), timeout]).finally(() => clearTimeout(timer));
-  return computeEmbedding(cropped);
+  return computeEmbedding(await cropForSuggestion(buffer));
+}
+
+/** The species identification model's embedding of the subject-cropped photo. Used both for a
+ * suggestion query and for a capture's own stored vector (id_model_capture_embeddings), so the
+ * two sides of "you've photographed this before" are computed the same way. */
+export async function computeIdSuggestionEmbedding(buffer: Buffer): Promise<number[]> {
+  return idModel.embed(await cropForSuggestion(buffer));
 }
 
 export function cosineSimilarity(a: number[], b: number[]): number {
@@ -306,6 +143,25 @@ const OFF_SEASON_SCORE_FACTOR = 0.94;
 // repeat sightings of the same species, which score high enough (~0.84 average) to clear
 // MIN_SUGGESTION_SCORE even after the discount.
 const YOUR_PHOTOS_SCORE_FACTOR = 0.94;
+const YOUR_PHOTOS_MAX = 20;
+
+// Everything a species can be matched against: the user's own photos of it (discounted, see
+// above) AND its reference/gallery photos, best match wins. Your own photos used to REPLACE the
+// gallery instead, and only the single most recent one counted, so a species got harder to
+// recognize once you'd photographed it (benchmark on a real library: 21/55 top-1 with your
+// photos available vs 33/55 with them hidden).
+export function matchTargets(row: {
+  your_embeddings: number[][] | null;
+  ref_embedding: number[] | null;
+  gallery_embeddings: number[][] | null;
+}): Array<{ embedding: number[]; factor: number; source: SpeciesSuggestion["source"] }> {
+  return [
+    ...(row.your_embeddings ?? []).map((embedding) => ({ embedding, factor: YOUR_PHOTOS_SCORE_FACTOR, source: "your_photos" as const })),
+    ...[row.ref_embedding, ...(row.gallery_embeddings ?? [])]
+      .filter((e): e is number[] => e != null)
+      .map((embedding) => ({ embedding, factor: 1, source: "reference_photo" as const })),
+  ];
+}
 
 // Zero-shot text-prompt signal (species_text_embeddings, migration 102), blended into the final
 // score alongside the image-image signal above — a completely independent source of evidence
@@ -334,30 +190,93 @@ const TEXT_BLEND_WEIGHT = 0.7;
 const CONFIDENCE_FLOOR = 0.4;
 const CONFIDENCE_MARGIN = 0.025;
 
+// Which model's vectors a ranking runs on, and that model's own calibration. The CLIP constants
+// above were tuned on CLIP's score scale; the species identification model's text and image
+// similarities land in different ranges, so it carries its own (derived the same way, from the
+// same real-library leave-one-out data; see ID_SPACE).
+export interface VectorSpace {
+  modelVersion: string;
+  textModelVersion: string;
+  captureTable: "capture_embeddings" | "id_model_capture_embeddings";
+  referenceTable: "species_reference_embeddings" | "id_model_reference_embeddings";
+  galleryTable: "species_reference_gallery_embeddings" | "id_model_gallery_embeddings";
+  textTable: "species_text_embeddings" | "id_model_text_embeddings";
+  textWeight: number;
+  confidenceFloor: number;
+  confidenceMargin: number;
+  /** "Roughly as decisive as this data ever gets": scales matchPercent and cuts low-relevance
+   * alternatives (see DISPLAY_MARGIN_SCALE / RELEVANCE_MARGIN below). */
+  marginScale: number;
+}
+
+// Must match TEXT_MODEL_VERSION in textEmbedding.ts (not imported, to keep this file free of the
+// text model's transformers.js dependency).
+const CLIP_TEXT_MODEL_VERSION = "clip-vit-l14-text-v1";
+
+export const CLIP_SPACE: VectorSpace = {
+  modelVersion: EMBEDDING_MODEL_VERSION,
+  textModelVersion: CLIP_TEXT_MODEL_VERSION,
+  captureTable: "capture_embeddings",
+  referenceTable: "species_reference_embeddings",
+  galleryTable: "species_reference_gallery_embeddings",
+  textTable: "species_text_embeddings",
+  textWeight: TEXT_BLEND_WEIGHT,
+  confidenceFloor: CONFIDENCE_FLOOR,
+  confidenceMargin: CONFIDENCE_MARGIN,
+  marginScale: 0.05,
+};
+
+// Derived the same way as CONFIDENCE_MARGIN above, from leave-one-out data on the same real
+// library (55 photos, BC checklist, run through this code end to end: 51 correct top-1s, 4
+// wrong). Every wrong top-1 won by at most 0.026, so the margin sits just above that: zero
+// falsely confident picks in that data, about half of the correct ones confident. Correct
+// margins topped out at 0.047, so the relevance/display scale stays at 0.05. Blended scores run
+// much higher than CLIP's here (every top pick, right or wrong, scored 0.71-0.89), so the floor
+// is only a no-signal guard. Launch values from a small sample, like CLIP's.
+const ID_CONFIDENCE_FLOOR = 0.6;
+const ID_CONFIDENCE_MARGIN = 0.027;
+const ID_MARGIN_SCALE = 0.05;
+
+// The same 0.7 text weight won here too, untuned (benchmark on a real library, 55 photos over
+// the Canada and BC checklists: 51/55 top-1 with the gallery blended in vs 50/55 text-only, and
+// 55/55 in the top five). Calibration: see ID_CONFIDENCE_MARGIN.
+export const ID_SPACE: VectorSpace = {
+  modelVersion: ID_MODEL_VERSION,
+  textModelVersion: ID_MODEL_VERSION,
+  captureTable: "id_model_capture_embeddings",
+  referenceTable: "id_model_reference_embeddings",
+  galleryTable: "id_model_gallery_embeddings",
+  textTable: "id_model_text_embeddings",
+  textWeight: 0.7,
+  confidenceFloor: ID_CONFIDENCE_FLOOR,
+  confidenceMargin: ID_CONFIDENCE_MARGIN,
+  marginScale: ID_MARGIN_SCALE,
+};
+
 /** Blends the image-image score with this candidate's zero-shot text-prompt score, when one's
  * available (species_text_embeddings hasn't necessarily been backfilled for every species/model
  * version yet) — falls back to the pure image score otherwise, same graceful-degradation shape
  * every other optional signal in this file already uses. */
-function blendWithText(imageScore: number, embedding: number[], textEmbedding: number[] | null): number {
+function blendWithText(imageScore: number, embedding: number[], textEmbedding: number[] | null, textWeight: number): number {
   if (!textEmbedding) return imageScore;
   const textScore = cosineSimilarity(embedding, textEmbedding);
-  return (1 - TEXT_BLEND_WEIGHT) * imageScore + TEXT_BLEND_WEIGHT * textScore;
+  return (1 - textWeight) * imageScore + textWeight * textScore;
 }
 
 /** Marks the single top-ranked candidate (only) as `confident` when it clears BOTH the floor and
  * the margin-over-runner-up bar — see CONFIDENCE_MARGIN's own comment for why a margin, not an
  * absolute cutoff, is what the blended score actually needs. Mutates in place; expects `scored`
  * already sorted descending by score. */
-function markConfidence(scored: SpeciesSuggestion[]): void {
+function markConfidence(scored: SpeciesSuggestion[], space: VectorSpace): void {
   if (scored.length === 0) return;
   const runnerUpScore = scored[1]?.score ?? -Infinity;
-  scored[0].confident = scored[0].score >= CONFIDENCE_FLOOR && scored[0].score - runnerUpScore >= CONFIDENCE_MARGIN;
+  scored[0].confident = scored[0].score >= space.confidenceFloor && scored[0].score - runnerUpScore >= space.confidenceMargin;
 }
 
 // A margin of this size (top pick vs. runner-up) is roughly as decisive as this data ever gets
 // — the real leave-one-out calibration's correct-top-1 margins topped out around 0.053 (see
 // CONFIDENCE_MARGIN's own comment). Used only to scale matchPercent below, not to gate anything.
-const DISPLAY_MARGIN_SCALE = 0.05;
+// (CLIP_SPACE.marginScale; each VectorSpace carries its own.)
 const DISPLAY_BASE_PERCENT = 50;
 const DISPLAY_TOP_PERCENT = 99;
 
@@ -377,19 +296,19 @@ const DISPLAY_TOP_PERCENT = 99;
 // candidate vanishing from the list entirely rather than just shuffling within it. Comparing
 // against the WINNER's own raw score directly is immune to that: a close cluster stays a close
 // cluster (and stays visible) no matter which member tiny platform noise happens to rank first.
-const RELEVANCE_MARGIN = DISPLAY_MARGIN_SCALE;
+// (Also VectorSpace.marginScale.)
 
 /** Cuts the ranked list off at the first item whose RAW score trails the top pick's by more than
- * RELEVANCE_MARGIN (the top pick, index 0, is always kept regardless) — a candidate that's
+ * the space's marginScale (the top pick, index 0, is always kept regardless): a candidate that's
  * genuinely close to the winner stays visible regardless of its rank position; one that's
  * genuinely far behind gets cut regardless of how small the gap to ITS OWN neighbor looks.
  * Expects `scored` already sorted descending by score. */
-function trimLowRelevance(scored: SpeciesSuggestion[], limit: number): SpeciesSuggestion[] {
+function trimLowRelevance(scored: SpeciesSuggestion[], limit: number, space: VectorSpace): SpeciesSuggestion[] {
   if (scored.length === 0) return [];
   const topScore = scored[0].score;
   let cutoff = scored.length;
   for (let i = 1; i < scored.length; i++) {
-    if (topScore - scored[i].score >= RELEVANCE_MARGIN) {
+    if (topScore - scored[i].score >= space.marginScale) {
       cutoff = i;
       break;
     }
@@ -411,7 +330,8 @@ function trimLowRelevance(scored: SpeciesSuggestion[], limit: number): SpeciesSu
  * later alternative reads lower still by however much it actually trails the one before it. This
  * is a display-only computation — matchPercent is never used for ranking or confidence, only for
  * what the user sees. Expects `scored` already sorted descending by score. */
-function assignDisplayPercents(scored: SpeciesSuggestion[]): void {
+function assignDisplayPercents(scored: SpeciesSuggestion[], space: VectorSpace): void {
+  const DISPLAY_MARGIN_SCALE = space.marginScale;
   for (let i = 0; i < scored.length; i++) {
     if (i === 0) {
       // No runner-up at all means nothing contradicts this pick — treat that as maximally
@@ -499,100 +419,15 @@ export interface SpeciesSuggestion {
  * that region right now — a vagrant or wildly off-season species shouldn't outrank a common,
  * in-season look-alike just because two embeddings landed at a similar cosine distance. */
 export async function rankSpeciesByEmbedding(
-  pool: Pool,
+  pool: Pool | PoolClient,
   userId: string,
   embedding: number[],
   regionId: string | null,
   limit = 5,
   takenAt: Date | null = null,
+  space: VectorSpace = CLIP_SPACE,
 ): Promise<SpeciesSuggestion[]> {
-  const candidateCte = regionId
-    ? `SELECT species_id, is_vagrant, local_tier, seasonality FROM region_species WHERE region_id = $3`
-    : `SELECT species_id, NULL::boolean AS is_vagrant, NULL::text AS local_tier, NULL::numeric[] AS seasonality
-       FROM user_species WHERE user_id = $1
-       UNION
-       SELECT ps.species_id, NULL, NULL, NULL FROM pack_species ps
-       JOIN downloaded_packs dp ON dp.pack_id = ps.pack_id`;
-
-  const candidatesRes = await pool.query<{
-    species_id: string;
-    common_name: string | null;
-    scientific_name: string;
-    embedding: number[] | null;
-    ref_embedding: number[] | null;
-    gallery_embeddings: number[][] | null;
-    is_vagrant: boolean | null;
-    local_tier: string | null;
-    seasonality: number[] | null;
-    text_embedding: number[] | null;
-  }>(
-    `WITH candidate_species AS (${candidateCte})
-     SELECT
-       s.id AS species_id,
-       s.common_name,
-       s.scientific_name,
-       -- The user's own best-matching capture of this species, if any (only their own captures —
-       -- another user's photos are never compared against, even on a shared server deployment).
-       (SELECT ce.embedding FROM capture_embeddings ce
-          JOIN captures c ON c.id = ce.capture_id
-          WHERE c.species_id = s.id AND c.user_id = $1 AND ce.model_version = $2
-          ORDER BY ce.computed_at DESC LIMIT 1) AS embedding,
-       sre.embedding AS ref_embedding,
-       -- Every gallery photo's own embedding (migration 101). Matching against the best of
-       -- SEVERAL reference poses, not just the one main photo, catches a real photo taken at a
-       -- different angle than that single reference image (see this file's own module comment).
-       (SELECT array_agg(ge.embedding) FROM species_reference_gallery_embeddings ge
-          WHERE ge.species_id = s.id AND ge.model_version = $2) AS gallery_embeddings,
-       cs.is_vagrant,
-       cs.local_tier,
-       cs.seasonality,
-       ste.embedding AS text_embedding
-     FROM candidate_species cs
-     JOIN species s ON s.id = cs.species_id
-     LEFT JOIN species_reference_embeddings sre ON sre.species_id = s.id AND sre.model_version = $2
-     LEFT JOIN species_text_embeddings ste ON ste.species_id = s.id
-     -- Every suggestion card fetches /species/:id/reference-photo/thumb regardless of source
-     -- (your_photos included — see SuggestionCard.tsx), so a species with neither a cached
-     -- local file NOR a live remote URL to recover one from (reference_photo) always renders
-     -- as a blank placeholder card. Excluded here rather than left to the frontend to hide,
-     -- so a real 4th/5th candidate can take that slot instead of the list just running short.
-     WHERE s.reference_display_path IS NOT NULL OR s.reference_photo IS NOT NULL`,
-    regionId ? [userId, EMBEDDING_MODEL_VERSION, regionId] : [userId, EMBEDDING_MODEL_VERSION],
-  );
-
-  const scored: SpeciesSuggestion[] = [];
-  for (const row of candidatesRes.rows) {
-    const adjustment = occurrenceAdjustment({ isVagrant: row.is_vagrant, localTier: row.local_tier, seasonality: row.seasonality }, takenAt);
-    if (row.embedding) {
-      const imageScore = cosineSimilarity(embedding, row.embedding) * adjustment * YOUR_PHOTOS_SCORE_FACTOR;
-      scored.push({
-        id: row.species_id,
-        common_name: row.common_name,
-        scientific_name: row.scientific_name,
-        score: blendWithText(imageScore, embedding, row.text_embedding),
-        source: "your_photos",
-      });
-      continue;
-    }
-    const referenceCandidates = [row.ref_embedding, ...(row.gallery_embeddings ?? [])].filter(
-      (e): e is number[] => e != null,
-    );
-    if (referenceCandidates.length > 0) {
-      const imageScore = Math.max(...referenceCandidates.map((e) => cosineSimilarity(embedding, e))) * adjustment;
-      scored.push({
-        id: row.species_id,
-        common_name: row.common_name,
-        scientific_name: row.scientific_name,
-        score: blendWithText(imageScore, embedding, row.text_embedding),
-        source: "reference_photo",
-      });
-    }
-  }
-
-  scored.sort((a, b) => b.score - a.score);
-  markConfidence(scored);
-  assignDisplayPercents(scored);
-  return trimLowRelevance(scored, limit);
+  return rankSpeciesByEmbeddings(pool, userId, [embedding], regionId, limit, takenAt, space);
 }
 
 /** Same candidate scoring as rankSpeciesByEmbedding, but against SEVERAL embeddings at once
@@ -603,18 +438,20 @@ export async function rankSpeciesByEmbedding(
  * frame, some are mostly background) the way a single deliberately-taken photo usually is, so
  * the frame that best captures it should decide the match, not get dragged down by the rest.
  * One shared candidate-species query (not one per embedding) keeps this to the same DB cost as
- * the single-embedding version regardless of how many frames were sampled. */
+ * the single-embedding version regardless of how many frames were sampled. `embeddings` must
+ * come from the model `space` describes. */
 export async function rankSpeciesByEmbeddings(
-  pool: Pool,
+  pool: Pool | PoolClient,
   userId: string,
   embeddings: number[][],
   regionId: string | null,
   limit = 5,
   takenAt: Date | null = null,
+  space: VectorSpace = CLIP_SPACE,
 ): Promise<SpeciesSuggestion[]> {
   if (embeddings.length === 0) return [];
   const candidateCte = regionId
-    ? `SELECT species_id, is_vagrant, local_tier, seasonality FROM region_species WHERE region_id = $3`
+    ? `SELECT species_id, is_vagrant, local_tier, seasonality FROM region_species WHERE region_id = $4`
     : `SELECT species_id, NULL::boolean AS is_vagrant, NULL::text AS local_tier, NULL::numeric[] AS seasonality
        FROM user_species WHERE user_id = $1
        UNION
@@ -625,7 +462,7 @@ export async function rankSpeciesByEmbeddings(
     species_id: string;
     common_name: string | null;
     scientific_name: string;
-    embedding: number[] | null;
+    your_embeddings: number[][] | null;
     ref_embedding: number[] | null;
     gallery_embeddings: number[][] | null;
     is_vagrant: boolean | null;
@@ -638,12 +475,19 @@ export async function rankSpeciesByEmbeddings(
        s.id AS species_id,
        s.common_name,
        s.scientific_name,
-       (SELECT ce.embedding FROM capture_embeddings ce
-          JOIN captures c ON c.id = ce.capture_id
-          WHERE c.species_id = s.id AND c.user_id = $1 AND ce.model_version = $2
-          ORDER BY ce.computed_at DESC LIMIT 1) AS embedding,
+       -- The user's own captures of this species, if any (only their own captures, another
+       -- user's photos are never compared against, even on a shared server deployment). Up to
+       -- the 20 most recent, matched by whichever fits best, like the gallery below.
+       (SELECT array_agg(y.embedding) FROM (
+          SELECT ce.embedding FROM ${space.captureTable} ce
+            JOIN captures c ON c.id = ce.capture_id
+           WHERE c.species_id = s.id AND c.user_id = $1 AND ce.model_version = $2
+           ORDER BY ce.computed_at DESC LIMIT ${YOUR_PHOTOS_MAX}) y) AS your_embeddings,
        sre.embedding AS ref_embedding,
-       (SELECT array_agg(ge.embedding) FROM species_reference_gallery_embeddings ge
+       -- Every gallery photo's own embedding (migration 101). Matching against the best of
+       -- SEVERAL reference poses, not just the one main photo, catches a real photo taken at a
+       -- different angle than that single reference image (see this file's own module comment).
+       (SELECT array_agg(ge.embedding) FROM ${space.galleryTable} ge
           WHERE ge.species_id = s.id AND ge.model_version = $2) AS gallery_embeddings,
        cs.is_vagrant,
        cs.local_tier,
@@ -651,53 +495,82 @@ export async function rankSpeciesByEmbeddings(
        ste.embedding AS text_embedding
      FROM candidate_species cs
      JOIN species s ON s.id = cs.species_id
-     LEFT JOIN species_reference_embeddings sre ON sre.species_id = s.id AND sre.model_version = $2
-     LEFT JOIN species_text_embeddings ste ON ste.species_id = s.id
+     LEFT JOIN ${space.referenceTable} sre ON sre.species_id = s.id AND sre.model_version = $2
+     LEFT JOIN ${space.textTable} ste ON ste.species_id = s.id AND ste.model_version = $3
      -- Every suggestion card fetches /species/:id/reference-photo/thumb regardless of source
      -- (your_photos included — see SuggestionCard.tsx), so a species with neither a cached
      -- local file NOR a live remote URL to recover one from (reference_photo) always renders
      -- as a blank placeholder card. Excluded here rather than left to the frontend to hide,
      -- so a real 4th/5th candidate can take that slot instead of the list just running short.
      WHERE s.reference_display_path IS NOT NULL OR s.reference_photo IS NOT NULL`,
-    regionId ? [userId, EMBEDDING_MODEL_VERSION, regionId] : [userId, EMBEDDING_MODEL_VERSION],
+    regionId
+      ? [userId, space.modelVersion, space.textModelVersion, regionId]
+      : [userId, space.modelVersion, space.textModelVersion],
   );
 
   const scored: SpeciesSuggestion[] = [];
   for (const row of candidatesRes.rows) {
-    const targets = row.embedding ? [row.embedding] : [row.ref_embedding, ...(row.gallery_embeddings ?? [])].filter((e): e is number[] => e != null);
+    const targets = matchTargets(row);
     if (targets.length === 0) continue;
-    const source: SpeciesSuggestion["source"] = row.embedding ? "your_photos" : "reference_photo";
     const adjustment = occurrenceAdjustment({ isVagrant: row.is_vagrant, localTier: row.local_tier, seasonality: row.seasonality }, takenAt);
     let bestScore = -Infinity;
     let bestFrame = embeddings[0];
+    let best = targets[0];
     for (const frameEmbedding of embeddings) {
       for (const target of targets) {
-        const score = cosineSimilarity(frameEmbedding, target);
+        const score = cosineSimilarity(frameEmbedding, target.embedding) * target.factor;
         if (score > bestScore) {
           bestScore = score;
           bestFrame = frameEmbedding;
+          best = target;
         }
       }
     }
-    const sourceFactor = source === "your_photos" ? YOUR_PHOTOS_SCORE_FACTOR : 1;
-    const imageScore = bestScore * adjustment * sourceFactor;
     scored.push({
       id: row.species_id,
       common_name: row.common_name,
       scientific_name: row.scientific_name,
-      score: blendWithText(imageScore, bestFrame, row.text_embedding),
-      source,
+      score: blendWithText(bestScore * adjustment, bestFrame, row.text_embedding, space.textWeight),
+      source: best.source,
     });
   }
 
   scored.sort((a, b) => b.score - a.score);
-  markConfidence(scored);
-  assignDisplayPercents(scored);
-  return trimLowRelevance(scored, limit);
+  markConfidence(scored, space);
+  assignDisplayPercents(scored, space);
+  return trimLowRelevance(scored, limit, space);
 }
 
-/** Thin wrapper for callers that haven't already computed this photo's embedding for some
- * other reason — computes it fresh, then ranks the same way rankSpeciesByEmbedding does. */
+// Suggestions run on the species identification model once it's downloaded AND its reference
+// vectors are installed (they arrive as a separate catalog asset right after the model), and on
+// CLIP otherwise. Checked per request; the "not yet" answer is only cached briefly so the switch
+// happens soon after the vectors land, and a "yes" is cached for good.
+let idVectorsInstalled = false;
+let idVectorsCheckedAt = 0;
+const ID_VECTORS_RECHECK_MS = 60_000;
+
+async function idModelReady(pool: Pool | PoolClient): Promise<boolean> {
+  if (!idModel.isDownloaded() || idModel.isStuck()) return false;
+  if (idVectorsInstalled) return true;
+  if (Date.now() - idVectorsCheckedAt < ID_VECTORS_RECHECK_MS) return false;
+  idVectorsCheckedAt = Date.now();
+  const res = await pool.query<{ ok: boolean }>(
+    `SELECT EXISTS (SELECT 1 FROM id_model_text_embeddings WHERE model_version = $1) AS ok`,
+    [ID_MODEL_VERSION],
+  );
+  idVectorsInstalled = res.rows[0].ok;
+  return idVectorsInstalled;
+}
+
+/** For tests and for the vector installer, which knows the answer just changed. */
+export function resetIdModelReadiness(): void {
+  idVectorsInstalled = false;
+  idVectorsCheckedAt = 0;
+}
+
+/** Suggests species for one photo: crops to the subject once, then ranks with the species
+ * identification model when it's ready, else with CLIP. A failure on the identification model
+ * (a stuck or corrupt session) falls back to CLIP rather than returning nothing. */
 export async function suggestSpecies(
   pool: Pool,
   userId: string,
@@ -706,6 +579,45 @@ export async function suggestSpecies(
   limit = 5,
   takenAt: Date | null = null,
 ): Promise<SpeciesSuggestion[]> {
-  const embedding = await computeSuggestionEmbedding(buffer);
-  return rankSpeciesByEmbedding(pool, userId, embedding, regionId, limit, takenAt);
+  return suggestSpeciesForFrames(pool, userId, [buffer], regionId, limit, takenAt);
+}
+
+/** suggestSpecies for several frames of one clip (see rankSpeciesByEmbeddings). */
+export async function suggestSpeciesForFrames(
+  pool: Pool,
+  userId: string,
+  frames: Buffer[],
+  regionId: string | null,
+  limit = 5,
+  takenAt: Date | null = null,
+): Promise<SpeciesSuggestion[]> {
+  if (frames.length === 0) return [];
+  const crops: Buffer[] = [];
+  for (const frame of frames) crops.push(await cropForSuggestion(frame));
+  if (await idModelReady(pool)) {
+    try {
+      const embeddings: number[][] = [];
+      for (const crop of crops) embeddings.push(await idModel.embed(crop));
+      return await rankSpeciesByEmbeddings(pool, userId, embeddings, regionId, limit, takenAt, ID_SPACE);
+    } catch {
+      // fall through to CLIP
+    }
+  }
+  const embeddings: number[][] = [];
+  for (const crop of crops) embeddings.push(await computeEmbedding(crop));
+  return rankSpeciesByEmbeddings(pool, userId, embeddings, regionId, limit, takenAt, CLIP_SPACE);
+}
+
+/** Stores a capture's identification-model vector (from the subject-cropped photo) for the
+ * "you've photographed this before" signal. Best-effort: a no-op when the model isn't
+ * downloaded. */
+export async function storeIdCaptureEmbedding(client: Pool | PoolClient, captureId: string, buffer: Buffer): Promise<void> {
+  if (!idModel.isDownloaded()) return;
+  const embedding = await computeIdSuggestionEmbedding(buffer);
+  await client.query(
+    `INSERT INTO id_model_capture_embeddings (capture_id, embedding, model_version)
+     VALUES ($1, $2, $3)
+     ON CONFLICT (capture_id) DO UPDATE SET embedding = EXCLUDED.embedding, model_version = EXCLUDED.model_version, computed_at = now()`,
+    [captureId, embedding, ID_MODEL_VERSION],
+  );
 }

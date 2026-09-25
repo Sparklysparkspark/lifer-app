@@ -237,6 +237,11 @@ async function applyChecklist(
       )
     : { rows: [] as Array<{ id: string; species_id: string; photo_url: string; display_path: string | null; thumb_path: string | null }> };
   const existingGalleryByKey = new Map(existingGalleryRes.rows.map((r) => [`${r.species_id}:${r.photo_url}`, r]));
+  // Photos the catalog blocklists (maps and other non-photos, migration 106): never installed,
+  // even from a pack built before they were blocked.
+  const blockedPhotos = new Set(
+    (await db.query<{ photo_url: string }>(`SELECT photo_url FROM reference_photo_blocklist`)).rows.map((r) => r.photo_url),
+  );
   // Resolves every gallery photo's final row id once the bulk upsert below runs — a photo that
   // didn't need re-upserting keeps its prefetched id; one that did gets it filled in from that
   // upsert's own RETURNING.
@@ -343,6 +348,7 @@ async function applyChecklist(
     // own terms rather than folded into the "already enriched, skip" branch.
     if (sp.gallery && sp.gallery.length > 0) {
       for (const g of sp.gallery) {
+        if (blockedPhotos.has(g.photoUrl)) continue;
         const existingGalleryRow = existingGalleryByKey.get(`${row.id}:${g.photoUrl}`);
         const galleryFileMissing =
           !existingGalleryRow ||

@@ -9,7 +9,7 @@ import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { JobCancelledError } from "../lib/job.js";
 import { encodeGalleryEmbeddingRecord, encodeGalleryEmbeddingsHeader } from "@lifer/shared/src/galleryEmbeddingsFormat.js";
 import { applyCatalogSeedFile, getAppliedCatalogVersion } from "./catalogSeedUpdate.js";
-import { applyGalleryEmbeddingsFile } from "./galleryEmbeddingsAsset.js";
+import { applyGalleryEmbeddingsFile, ID_GALLERY } from "./galleryEmbeddingsAsset.js";
 
 const url = process.env.TEST_DATABASE_URL;
 const SPECIES = "11111111-1111-4111-8111-111111111111";
@@ -115,6 +115,39 @@ describe.skipIf(!url)("applyCatalogSeedFile (integration)", () => {
     const regions = await pool.query(`SELECT count(*)::int AS n FROM regions WHERE id IN ($1, $2)`, [CHILD, PARENT]);
     expect(regions.rows[0].n).toBe(2);
     expect(await getAppliedCatalogVersion(pool)).toBe(42);
+  });
+
+  it("removes blocklisted photos and drops the cached file of a changed main photo", async () => {
+    await pool.query(
+      `INSERT INTO species (id, gbif_key, scientific_name, taxon_class, reference_photo, reference_credit, reference_license, reference_display_path)
+       VALUES ($1, 1, 'Aix galericulata', 'Aves', 'https://example.org/old-map.png', 'c', 'cc-by', '/local/old.webp')`,
+      [SPECIES],
+    );
+    await pool.query(
+      `INSERT INTO species_reference_photos (id, species_id, photo_url, credit, license) VALUES ($1, $2, 'https://example.org/map.png', 'c', 'cc-by')`,
+      [LOCAL_PHOTO, SPECIES],
+    );
+    const dump = [
+      "COPY public.species (id, gbif_key, scientific_name, taxon_class, reference_photo, reference_credit, reference_license) FROM stdin;",
+      `${SPECIES}	1	Aix galericulata	Aves	https://example.org/new.jpg	Someone	cc-by`,
+      "\\.",
+      "",
+      "COPY public.reference_photo_blocklist (photo_url, reason) FROM stdin;",
+      "https://example.org/map.png\tmap",
+      "\\.",
+      "",
+    ].join("\n");
+    const file = path.join(mkdtempSync(path.join(os.tmpdir(), "lifer-seed-test-")), "seed.sql.gz");
+    writeFileSync(file, gzipSync(dump));
+    try {
+      const merged = await applyCatalogSeedFile(pool, file, null, noProgress);
+      expect(merged.blockedPhotosRemoved).toBe(1);
+      const sp = await pool.query(`SELECT reference_photo, reference_display_path FROM species WHERE id = $1`, [SPECIES]);
+      expect(sp.rows[0]).toEqual({ reference_photo: "https://example.org/new.jpg", reference_display_path: null });
+      expect((await pool.query(`SELECT 1 FROM species_reference_photos WHERE id = $1`, [LOCAL_PHOTO])).rowCount).toBe(0);
+    } finally {
+      await pool.query(`DELETE FROM reference_photo_blocklist WHERE photo_url = 'https://example.org/map.png'`);
+    }
   });
 
   it("rolls everything back when cancelled mid-apply", async () => {
@@ -258,5 +291,29 @@ describe.skipIf(!url)("applyCatalogSeedFile (integration)", () => {
       [SPECIES],
     );
     expect(ge.rows).toEqual([{ reference_photo_id: LOCAL_PHOTO, embedding: [0.5, 0.5, 0.5, 0.5], model_version: "test-model" }]);
+  });
+
+  it("applies the identification model's gallery asset into its own table only", async () => {
+    await pool.query(`INSERT INTO species (id, gbif_key, scientific_name, taxon_class) VALUES ($1, 1, 'Ardea herodias', 'Aves')`, [SPECIES]);
+    await pool.query(
+      `INSERT INTO species_reference_photos (id, species_id, photo_url, credit, license) VALUES ($1, $2, 'https://example.org/heron.jpg', 'c', 'cc-by')`,
+      [LOCAL_PHOTO, SPECIES],
+    );
+    const bin = Buffer.concat([
+      encodeGalleryEmbeddingsHeader({ dimension: 4, rowCount: 1, modelVersion: "bioclip-2-v1" }),
+      encodeGalleryEmbeddingRecord({ speciesId: SPECIES, photoUrl: "https://example.org/heron.jpg", embedding: [0.25, 0.25, 0.25, 0.25] }, 4),
+    ]);
+    const file = path.join(mkdtempSync(path.join(os.tmpdir(), "lifer-ge-test-")), "id-ge.bin.gz");
+    writeFileSync(file, gzipSync(bin));
+
+    const result = await applyGalleryEmbeddingsFile(pool, file, "1:bioclip-2-v1", { ...noProgress, signal: new AbortController().signal }, ID_GALLERY);
+    expect(result).toEqual({ status: "applied", rows: 1, matched: 1 });
+    const id = await pool.query(`SELECT reference_photo_id, model_version FROM id_model_gallery_embeddings WHERE species_id = $1`, [SPECIES]);
+    expect(id.rows).toEqual([{ reference_photo_id: LOCAL_PHOTO, model_version: "bioclip-2-v1" }]);
+    const clip = await pool.query(`SELECT 1 FROM species_reference_gallery_embeddings WHERE species_id = $1`, [SPECIES]);
+    expect(clip.rowCount).toBe(0);
+    const tag = await pool.query(`SELECT value FROM install_settings WHERE key = 'id_gallery_embeddings_version'`);
+    expect(tag.rows[0]?.value).toBe("1:bioclip-2-v1");
+    await pool.query(`DELETE FROM install_settings WHERE key = 'id_gallery_embeddings_version'`);
   });
 });

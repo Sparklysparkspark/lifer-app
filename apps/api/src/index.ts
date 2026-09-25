@@ -32,6 +32,7 @@ import { inaturalistRoutes } from "./inaturalist/routes.js";
 import { runEmbeddingBackfill } from "./species/embeddingBackfill.js";
 import { seedCatalogIfEmpty } from "./species/catalogSeedUpdate.js";
 import { ensureGalleryEmbeddingsOnStartup } from "./species/galleryEmbeddingsAsset.js";
+import { ensureIdModelOnStartup } from "./species/modelDownloadJob.js";
 import { pool } from "./db.js";
 import { friendlyFsErrorMessage } from "./lib/friendlyFsError.js";
 
@@ -208,4 +209,7 @@ seedCatalogIfEmpty(pool)
   .catch((err) => app.log.warn({ err }, "Catalog auto-seed failed. Settings > Update can still be run manually."))
   // After the seed (gallery vectors attach to catalog photos): fetch newer published vectors if
   // the model is installed. Runs in the background and only logs on failure.
-  .finally(() => ensureGalleryEmbeddingsOnStartup(pool));
+  .finally(() => {
+    ensureGalleryEmbeddingsOnStartup(pool);
+    ensureIdModelOnStartup(pool, app.log);
+  });

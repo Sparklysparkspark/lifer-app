@@ -70,6 +70,7 @@ const MERGE_TABLES: Array<{ table: string; pkColumns: string[]; excludeFromUpdat
   { table: "sea_zone_species", pkColumns: ["sea_zone_id", "species_id"], excludeFromUpdate: [] },
   { table: "species_reference_embeddings", pkColumns: ["species_id"], excludeFromUpdate: [] },
   { table: "species_text_embeddings", pkColumns: ["species_id"], excludeFromUpdate: [] },
+  { table: "reference_photo_blocklist", pkColumns: ["photo_url"], excludeFromUpdate: [] },
 ];
 const PHOTOS_TABLE = "species_reference_photos";
 // Only present in seeds published before the gallery embeddings moved to their own asset.
@@ -350,6 +351,28 @@ async function mergeReferencePhotos(client: PoolClient, seedColumns: string[]): 
   return res.rowCount ?? 0;
 }
 
+// A species whose main photo URL this catalog changed (a map replaced by a real photo, say)
+// still has the OLD image cached locally: the local path columns are deliberately never
+// overwritten by a merge. Clearing them makes the app fetch the new photo (from a pack or the URL)
+// the next time it's needed, instead of showing the old file forever.
+async function dropStaleMainPhotoCaches(client: PoolClient): Promise<void> {
+  await client.query(
+    `UPDATE species s SET reference_display_path = NULL, reference_thumb_path = NULL
+     FROM prev_main_photo p
+     WHERE p.id = s.id AND p.reference_photo IS DISTINCT FROM s.reference_photo AND s.reference_display_path IS NOT NULL`,
+  );
+}
+
+// Deletes gallery photos the catalog blocklists (their vectors go with them via ON DELETE
+// CASCADE). Returns how many, plus their cached files for deleting after commit.
+async function removeBlockedPhotos(client: PoolClient): Promise<{ count: number; files: string[] }> {
+  const res = await client.query<{ display_path: string | null; thumb_path: string | null }>(
+    `DELETE FROM ${PHOTOS_TABLE} p USING reference_photo_blocklist b WHERE b.photo_url = p.photo_url
+     RETURNING p.display_path, p.thumb_path`,
+  );
+  return { count: res.rows.length, files: res.rows.flatMap((r) => [r.display_path, r.thumb_path].filter((f): f is string => !!f)) };
+}
+
 // Older seeds still carry gallery embeddings keyed by the SEED's photo ids; map them onto this
 // install's photo ids through (species_id, photo_url).
 async function mergeLegacyGalleryEmbeddings(client: PoolClient): Promise<number> {
@@ -382,6 +405,11 @@ export async function applyCatalogSeedFile(
     progress.update({ phase: "applying", processed: 0, total: null });
     const loaded = await loadSeedIntoTempTables(client, seedPath, progress, onlyTables ? new Set(onlyTables) : undefined);
 
+    // Each species' main photo URL before the merge, to spot the ones this catalog changes (see
+    // dropStaleMainPhotoCaches below).
+    if (loaded.has("species")) {
+      await client.query(`CREATE TEMP TABLE prev_main_photo ON COMMIT DROP AS SELECT id, reference_photo FROM species`);
+    }
     const steps = MERGE_TABLES.filter((t) => loaded.has(t.table));
     const total = steps.length + (loaded.has(PHOTOS_TABLE) ? 1 : 0) + (loaded.has(LEGACY_GALLERY_TABLE) ? 1 : 0);
     const merged: Record<string, number> = {};
@@ -407,9 +435,19 @@ export async function applyCatalogSeedFile(
       done++;
     }
 
+    if (loaded.has("species")) await dropStaleMainPhotoCaches(client);
+    let blockedFiles: string[] = [];
+    if (loaded.has("reference_photo_blocklist")) {
+      const removed = await removeBlockedPhotos(client);
+      blockedFiles = removed.files;
+      merged.blockedPhotosRemoved = removed.count;
+    }
+
     progress.throwIfCancelled();
     if (version != null && !onlyTables) await setInstallSetting(client, CATALOG_SEED_VERSION_KEY, version);
     await client.query("COMMIT");
+    // Only after the rows are gone for good, so a rollback can't leave rows pointing at deleted files.
+    for (const f of blockedFiles) rmSync(f, { force: true });
     progress.update({ processed: total, currentItem: null });
     return merged;
   } catch (err) {

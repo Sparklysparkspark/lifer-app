@@ -1,0 +1,7 @@
+torch>=2.9
+open_clip_torch>=3.3
+pillow>=11
+psycopg2-binary>=2.9
+onnx>=1.19
+onnxruntime>=1.23
+onnxscript>=0.5

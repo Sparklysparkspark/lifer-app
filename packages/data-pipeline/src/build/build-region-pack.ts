@@ -42,8 +42,64 @@ import { sanitize, regionPackFileName, seaZonePackFileName, type PackVariant } f
 // otherwise make every rebuild look like a content change) — see build-pack-index.ts and
 // offlinePacks/routes.ts, which compare this against a client's stored content_version to
 // decide whether an already-downloaded pack actually needs re-fetching.
+// A manifest has to stay well under V8's ~512MB string limit: the builder serializes it in one
+// piece, and so does the app when it installs the pack. Province-level hotspot clusters are what
+// grow without bound (the United States' birds carried 4.9 million, 673MB of JSON), so a pack
+// over budget keeps each species' largest clusters per province, trying progressively tighter
+// caps until it fits. Packs under budget are left exactly as they were.
+const MANIFEST_BUDGET_BYTES = 350 * 1024 * 1024;
+const HOTSPOT_CAPS = [100, 50, 25, 10];
+
+function fitHotspotsToBudget(topSpecies: ManifestSpecies[], children: ManifestChildRegion[], regionName: string): void {
+  const bytes = (v: unknown) => Buffer.byteLength(JSON.stringify(v) ?? "");
+  const hotspotBytes = () => children.reduce((n, c) => n + c.species.reduce((m, sp) => m + bytes(sp.hotspots ?? null), 0), 0);
+  const otherBytes =
+    bytes(topSpecies) +
+    children.reduce((n, c) => n + bytes({ ...c, species: c.species.map((sp) => ({ ...sp, hotspots: undefined })) }), 0);
+  if (otherBytes + hotspotBytes() <= MANIFEST_BUDGET_BYTES) return;
+  for (const cap of HOTSPOT_CAPS) {
+    for (const c of children) {
+      for (const sp of c.species) {
+        if (sp.hotspots && sp.hotspots.length > cap) {
+          sp.hotspots = [...sp.hotspots].sort((a, b) => b.pointCount - a.pointCount || (b.lastSeenYear ?? 0) - (a.lastSeenYear ?? 0)).slice(0, cap);
+        }
+      }
+    }
+    if (otherBytes + hotspotBytes() <= MANIFEST_BUDGET_BYTES) {
+      console.log(`[build-region-pack] ${regionName}: kept the ${cap} largest hotspot clusters per species per province to fit the manifest budget`);
+      return;
+    }
+  }
+  // Still too big: contentHash's describeManifestSize says what's left.
+}
+
+// When a manifest grows past V8's string limit (JSON.stringify throws "Invalid string length"),
+// says which part did it, instead of leaving only the bare RangeError.
+function describeManifestSize(core: { species: unknown[]; children?: Array<{ name: string; species: unknown[]; boundaryGeoJson?: unknown }> }): string {
+  const mb = (v: unknown) => (Buffer.byteLength(JSON.stringify(v) ?? "") / 1e6).toFixed(1);
+  const kids = core.children ?? [];
+  const perField: Record<string, number> = {};
+  for (const c of kids) {
+    for (const sp of c.species as Array<Record<string, unknown>>) {
+      for (const [k, v] of Object.entries(sp)) perField[k] = (perField[k] ?? 0) + Buffer.byteLength(JSON.stringify(v) ?? "");
+    }
+  }
+  const top = Object.entries(perField).sort((a, b) => b[1] - a[1]).slice(0, 6).map(([k, v]) => `${k} ${(v / 1e6).toFixed(0)}MB`);
+  const boundaries = kids.reduce((n, c) => n + Buffer.byteLength(JSON.stringify(c.boundaryGeoJson) ?? ""), 0);
+  return `top-level species ${mb(core.species)}MB; ${kids.length} child regions, boundaries ${(boundaries / 1e6).toFixed(0)}MB, species fields: ${top.join(", ")}`;
+}
+
 function contentHash(manifestCore: unknown): string {
-  return createHash("sha256").update(JSON.stringify(manifestCore)).digest("hex");
+  let json: string;
+  try {
+    json = JSON.stringify(manifestCore);
+  } catch (err) {
+    if (err instanceof RangeError) {
+      throw new RangeError(`Pack manifest is too large to serialize: ${describeManifestSize(manifestCore as Parameters<typeof describeManifestSize>[0])}`);
+    }
+    throw err;
+  }
+  return createHash("sha256").update(json).digest("hex");
 }
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -313,6 +369,15 @@ function packSpecies(
   const manifestSpecies: ManifestSpecies[] = [];
   let photoCount = 0;
   let galleryPhotoCount = 0;
+  // Photos the database says are cached but whose file is gone. These used to be skipped
+  // silently, so packs got published missing thousands of photos without any sign of it.
+  const missingFiles: string[] = [];
+  const present = (p: string | null): p is string => {
+    if (!p) return false;
+    if (existsSync(p)) return true;
+    missingFiles.push(p);
+    return false;
+  };
   for (const row of rows) {
     // Every checklist member ships, enriched or not — the pack is now the sole source of
     // checklist membership for a self-hosted install (no live GBIF fallback), so a species
@@ -321,12 +386,12 @@ function packSpecies(
     const key = sanitize(row.scientific_name);
     let displayFile: string | null = null;
     let thumbFile: string | null = null;
-    if (row.reference_display_path && existsSync(row.reference_display_path)) {
+    if (present(row.reference_display_path)) {
       displayFile = `photos/${key}.display.webp`;
       copyFileSync(row.reference_display_path, path.join(stagingDir, displayFile));
       photoCount++;
     }
-    if (row.reference_thumb_path && existsSync(row.reference_thumb_path)) {
+    if (present(row.reference_thumb_path)) {
       thumbFile = `photos/${key}.thumb.webp`;
       copyFileSync(row.reference_thumb_path, path.join(stagingDir, thumbFile));
     }
@@ -339,12 +404,12 @@ function packSpecies(
       let gDisplayFile: string | null = null;
       let gThumbFile: string | null = null;
       if (variant !== "small") {
-        if (g.displayPath && existsSync(g.displayPath)) {
+        if (present(g.displayPath)) {
           gDisplayFile = `photos/${key}.gallery-${g.sortOrder}.display.webp`;
           copyFileSync(g.displayPath, path.join(stagingDir, gDisplayFile));
           galleryPhotoCount++;
         }
-        if (g.thumbPath && existsSync(g.thumbPath)) {
+        if (present(g.thumbPath)) {
           gThumbFile = `photos/${key}.gallery-${g.sortOrder}.thumb.webp`;
           copyFileSync(g.thumbPath, path.join(stagingDir, gThumbFile));
         }
@@ -386,6 +451,12 @@ function packSpecies(
         hotspots: hotspotsByScientificName.get(row.scientific_name),
       }),
     });
+  }
+  if (missingFiles.length > 0 && process.env.ALLOW_MISSING_PHOTOS !== "1") {
+    throw new Error(
+      `${missingFiles.length} cached photo file(s) are missing (e.g. ${missingFiles.slice(0, 3).join(", ")}). ` +
+        `Run apps/api/src/scripts/repair-missing-reference-photos.ts, or set ALLOW_MISSING_PHOTOS=1 to build without them.`,
+    );
   }
   return { manifestSpecies, photoCount, galleryPhotoCount };
 }
@@ -643,6 +714,7 @@ async function buildRegionPack(regionName: string, outDir: string, taxon: TaxonC
     variant,
     new Set(speciesRes.rows.map((r) => r.scientific_name)),
   );
+  fitHotspotsToBudget(manifestSpecies, children, regionName);
   const manifestCore = {
     type: "region",
     region: regionName,

@@ -1,10 +1,9 @@
-// Orchestrates writeXmpSidecar (exif.ts) against every managed original a capture actually
-// has — a capture's JPEG and RAW both get their own sidecar (unlike writeSpeciesMetadata's
-// embedded write, which only ever touches the managed JPEG), each written next to whichever
-// original file it belongs to. Called from every place that changes something this sidecar
+// Orchestrates writeCaptureMetadata (exif.ts) against every managed original a capture actually
+// has: a JPEG (or TIFF/PNG/DNG) gets the tags inside the file, where Lightroom and digiKam read
+// them, and a RAW gets a sidecar written next to it. Called from every place that changes something this sidecar
 // carries: species reassignment, rating, and species cover-photo selection.
 import { pool } from "../db.js";
-import { writeXmpSidecar, type SpeciesMetadata } from "./exif.js";
+import { writeCaptureMetadata, type SpeciesMetadata } from "./exif.js";
 
 export async function syncCaptureXmpSidecars(userId: string, captureId: string): Promise<void> {
   const originalsRes = await pool.query<{ ref: string }>(
@@ -72,7 +71,7 @@ export async function syncCaptureXmpSidecars(userId: string, captureId: string):
     iso: capture.iso,
   };
 
-  await Promise.all(originalsRes.rows.map((o) => writeXmpSidecar(o.ref, data).catch(() => {})));
+  await Promise.all(originalsRes.rows.map((o) => writeCaptureMetadata(o.ref, data).catch(() => {})));
 }
 
 // Best-effort variant for callers that shouldn't fail on a sidecar write, but where a failure
