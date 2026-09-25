@@ -310,20 +310,46 @@ export default function GalleryPage() {
       const controller = new AbortController();
       searchAbortRef.current = controller;
       setSearching(true);
+      type SearchResponse = { items: GalleryItem[]; interpretation?: SearchInterpretation; pending?: boolean };
+      const ignoreAbort = (err: unknown) => {
+        if (err instanceof Error && err.name === "AbortError") return;
+        throw err;
+      };
+      // Two passes, sent together, so results fill in as you type: a quick one (names, groups,
+      // places, dates; a few milliseconds) and the full one with picture matching. The quick
+      // answer shows first; the full one replaces it. The results already on screen stay until
+      // something new arrives, and a quick answer with nothing reliable yet (a picture-only
+      // search like "flying") leaves them there.
+      let fullArrived = false;
+      const quickParams = new URLSearchParams(params);
+      quickParams.set("quick", "1");
       api
-        .get<{ items: GalleryItem[]; interpretation?: SearchInterpretation }>(`/gallery/search?${params}`, { signal: controller.signal })
+        .get<SearchResponse>(`/gallery/search?${quickParams}`, { signal: controller.signal })
         .then((res) => {
+          if (fullArrived) return;
+          if (!res.pending || res.items.length > 0) setItems(res.items);
+          setSearchReading(describeSearchReading(res.interpretation));
+          if (!res.pending) {
+            // Nothing about the picture to match: this is already the whole answer.
+            fullArrived = true;
+            controller.abort();
+            setSearching(false);
+          }
+        })
+        .catch(ignoreAbort);
+      api
+        .get<SearchResponse>(`/gallery/search?${params}`, { signal: controller.signal })
+        .then((res) => {
+          fullArrived = true;
           setItems(res.items);
           setSearchReading(describeSearchReading(res.interpretation));
+          setSearching(false);
         })
-        .catch((err) => {
-          if (err instanceof Error && err.name === "AbortError") return;
-          throw err;
-        })
-        .finally(() => setSearching(false));
+        .catch(ignoreAbort);
       return;
     }
 
+    setSearching(false); // a search cleared mid-flight was aborted without finishing
     const params = new URLSearchParams();
     if (onlyTopRated) params.set("onlyTopRated", "1");
     if (onlyFeatured) params.set("onlyFeatured", "1");
@@ -356,10 +382,12 @@ export default function GalleryPage() {
     }
   }
 
-  // Debounce: only actually fire a search 200ms after the user stops typing, so every keystroke
-  // doesn't cost its own CLIP text-encoder inference pass + DB scan.
+  // Debounce: fire a search 80ms after typing pauses. Short, since the quick pass answers in a few
+  // milliseconds; long enough that a fast typist doesn't send one per keystroke. Under three
+  // characters there's nothing meaningful to match yet ("f", "fl"), so the whole gallery stays.
   useEffect(() => {
-    const timer = setTimeout(() => setSearchQuery(searchInput.trim()), 200);
+    const typed = searchInput.trim();
+    const timer = setTimeout(() => setSearchQuery(typed.length >= 3 ? typed : ""), 80);
     return () => clearTimeout(timer);
   }, [searchInput]);
 

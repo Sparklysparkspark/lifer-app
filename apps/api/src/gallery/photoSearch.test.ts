@@ -18,6 +18,7 @@ const species = [
   sp("Great Blue Heron", "Ardea herodias", "aves", "Pelecaniformes", "Ardeidae"),
   sp("Northern Flying Squirrel", "Glaucomys sabrinus", "mammalia", "Rodentia", "Sciuridae"),
   sp("Atlantic Cod", "Gadus morhua", "actinopterygii", "Gadiformes", "Gadidae", ["Fish", "Eating Fish"]),
+  sp("Moose", "Alces alces", "mammalia", "Artiodactyla", "Cervidae"),
 ];
 const idOf = (name: string) => species.find((s) => s.commonName === name)!.id;
 const places: PlaceEntry[] = [
@@ -94,6 +95,29 @@ describe("parseSearchQuery", () => {
 
   it("finds a group or species from a word still being typed", () => {
     expect(parse("woodp").labels.groups).toEqual(["woodpecker"]);
+    expect([...parse("moo").speciesIds!]).toEqual([idOf("Moose")]);
+    expect([...parse("pil").speciesIds!]).toEqual([idOf("Pileated Woodpecker")]);
+    expect([...parse("mallard sw").speciesIds!]).toEqual([idOf("Mallard")]); // "sw" too short to be a start
+    // A complete describing word still means the picture.
+    expect(parse("snow").speciesIds).toBeNull();
+  });
+
+  it("describes a partial word by the picture word it's heading for", () => {
+    const fly = parse("fly");
+    expect(fly.speciesIds).toBeNull();
+    expect(fly.description).toBe("flying");
+    expect(fly.hintSpeciesIds.has(idOf("Northern Flying Squirrel"))).toBe(true);
+    expect(parse("duck swim").description).toBe("duck swimming");
+    expect(parse("flying").description).toBe("flying"); // already complete
+  });
+
+  it("in the full search, mixes a partial word's species into the picture results instead", () => {
+    const full = parseSearchQuery("moo", { species, places, latinGroups: new Map() }, { partialWordPicksSpecies: false });
+    expect(full.speciesIds).toBeNull();
+    expect(full.hintSpeciesIds.has(idOf("Moose"))).toBe(true);
+    expect(full.description).toBe("moo");
+    const woodp = parseSearchQuery("woodp", { species, places, latinGroups: new Map() }, { partialWordPicksSpecies: false });
+    expect(woodp.hintSpeciesIds.has(idOf("Northern Flicker"))).toBe(true); // in the woodpecker family
   });
 
   it("keeps the subject in the picture description", () => {

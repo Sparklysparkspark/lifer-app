@@ -16,21 +16,24 @@
 //      those species are only mixed into the picture results.
 //   6. Whatever is left describes the picture and is scored with CLIP.
 //
-// Picture scoring compares each photo's match for the description against its match for a
-// neutral "a wildlife photo" and keeps only clear winners. Raw similarity mostly measures how
-// photo-like an image is, so a z-score over raw scores always kept the top ~16% of the library,
-// even for "giraffe" in a library with no giraffes. The margin over the neutral prompt is near
-// zero for everything when nothing matches, so those searches now come back empty.
+// Picture scoring compares each photo's match for the description with its own noise level (its
+// average match to things never in a wildlife photo) and keeps only clear winners. Raw similarity
+// mostly measures how photo-like an image is, so any fixed cut-off either kept a slice of the
+// library for "giraffe" or, on real camera photos, kept nothing even for "water".
 import { pool } from "../db.js";
 import { EMBEDDING_MODEL_VERSION } from "../config.js";
 import { embedQueryText } from "../species/textEmbedding.js";
 import { GROUP_TERMS, MAX_GROUP_TERM_WORDS, speciesInGroup, type GroupPredicate } from "./searchTaxonSynonyms.js";
 
-// Picture matches must beat the neutral prompt by this much, and be within reach of the best
-// match. Tuned on a 2,000-photo test library: real matches ("flying", "in snow", "nest") reach
-// 0.035 to 0.08 over neutral, while queries for things not in the library ("giraffe", "car",
-// "person") top out around 0.01 to 0.025.
-const CONTENT_MARGIN_MIN = 0.025;
+// A photo matches a description when it scores at least this much above its own noise level (its
+// average match to things never in a wildlife photo, see NOISE_PROMPTS), and is within reach of
+// the best match. Comparing each photo to its own baseline, instead of one fixed cut-off, is
+// what makes this work across libraries: full-frame camera photos score much lower than
+// reference photos against any prompt, so a cut-off tuned on one returned nothing on the other
+// (a real "water" search found none of the ducks on water). Tested on both kinds: real matches
+// ("water", "flying", "fog", "perched on a branch", "nest") clear it, while "giraffe", "person",
+// "city street" and "kangaroo" come back empty.
+const CONTENT_MATCH_MIN = 0.033;
 const CONTENT_MARGIN_RELATIVE = 0.55;
 
 const STOPWORDS = new Set(["a", "an", "the", "of", "in", "on", "at", "with", "and", "or", "my", "to", "is", "are", "some", "from", "near", "around", "during", "by", "photo", "photos", "picture", "pictures"]);
@@ -49,6 +52,23 @@ const SEASONS: Record<string, number[]> = {
   autumn: [9, 10, 11],
   winter: [12, 1, 2],
 };
+
+// Common words for what's in a picture, so a word still being typed describes the picture it's
+// heading for: "fly" means "flying" (not the insect), "swim" means "swimming", "sno" means "snow".
+const PICTURE_WORDS = [
+  "flying", "flight", "swimming", "diving", "feeding", "eating", "drinking", "hunting", "fishing", "foraging",
+  "perched", "perching", "nesting", "landing", "running", "walking", "jumping", "sleeping", "resting", "sitting",
+  "standing", "singing", "calling", "preening", "bathing", "grooming", "fighting", "mating", "stretching",
+  "snow", "water", "sunset", "sunrise", "silhouette", "reflection", "underwater", "grass", "branch", "flowers",
+  "fence", "sky", "fog", "mist", "rain", "night", "dusk", "dawn", "juvenile", "baby", "flock", "group",
+  "portrait", "closeup",
+];
+
+/** The picture word a partial word is heading for, or null ("fly" -> "flying"). */
+export function completePictureWord(word: string): string | null {
+  if (word.length < 3 || PICTURE_WORDS.includes(word)) return null;
+  return PICTURE_WORDS.find((w) => w.startsWith(word)) ?? null;
+}
 
 export function wordsOf(s: string): string[] {
   return s.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean);
@@ -147,7 +167,12 @@ const FOCAL_LENGTH_PATTERN = /\b(\d{2,4})\s*mm\b/i;
 export function parseSearchQuery(
   q: string,
   vocab: { species: SpeciesEntry[]; places: PlaceEntry[]; latinGroups: Map<string, GroupPredicate>; now?: Date },
+  // A partial last word ("moo") picks the species it starts, so results appear while typing.
+  // The full search passes false: by then the word may be complete ("grass", not "grasshopper"),
+  // so those species are only mixed into the picture results.
+  opts: { partialWordPicksSpecies?: boolean } = {},
 ): ParsedQuery {
+  const partialWordPicksSpecies = opts.partialWordPicksSpecies ?? true;
   const now = vocab.now ?? new Date();
   const result: ParsedQuery = {
     speciesIds: null,
@@ -186,6 +211,15 @@ export function parseSearchQuery(
   // Words that were a place or a date (and the "in"/"from" before them): the only words left out
   // of the picture description.
   const context = new Array(words.length).fill(false);
+  // A last word still being typed that's heading for a picture word ("fly" for "flying") is
+  // described as that word.
+  const lastIndex = words.length - 1;
+  // Not when the word is already complete as something else: a group ("fish", not "fishing") or a
+  // whole word of a species name.
+  const lastWord = words[lastIndex];
+  const lastIsKnownWord =
+    lastIndex >= 0 && (GROUP_TERMS.has(lastWord) || GROUP_TERMS.has(normalizeWordForm(lastWord)) || vocab.species.some((s) => wordsOf(s.commonName ?? "").includes(lastWord)));
+  const completion = lastIndex >= 0 && !lastIsKnownWord ? completePictureWord(lastWord) : null;
 
   // 1. Full names, longest first. Primary common names, scientific names and codes always count.
   //    An alias counts when it's at least two words: single-word aliases include junk like
@@ -328,13 +362,31 @@ export function parseSearchQuery(
         (direct.length === 0 || directFamilies.has(s.family)),
     );
     let picked = [...direct, ...aliasHead];
-    // Still being typed ("woodp"): the start of a species' main noun, or of a group word. Four
-    // letters at least, since shorter starts are often whole words of their own ("car", "bee").
+    // Still being typed ("moo", "pil", "woodp"): the start of any word in a species' name, or of
+    // a group word, from three letters, so results fill in as you type. Only for a partial word:
+    // a complete word that's in a name as a describing word ("snow" in Snow Goose) is left to
+    // mean the picture, below.
     let typedGroup: { label: string; predicate: GroupPredicate } | undefined;
-    if (picked.length === 0 && i === words.length - 1 && w.length >= 4) {
-      picked = species.filter((s) => s.primaryHead?.startsWith(w) || s.sciWords.some((sw) => sw.startsWith(w)));
+    const isWholeNameWord = species.some((s) => s.primaryWords.includes(w));
+    // Heading for a picture word: the species it starts ("fly": flycatchers, Flying Squirrel) are
+    // only mixed in, and the picture decides.
+    if (picked.length === 0 && i === lastIndex && completion) {
+      for (const s of species.filter((s) => s.primaryWords.some((pw) => pw.startsWith(w)))) result.hintSpeciesIds.add(s.id);
+      continue;
+    }
+    if (picked.length === 0 && i === words.length - 1 && w.length >= 3 && !isWholeNameWord) {
+      const started = species.filter((s) => s.primaryWords.some((pw) => pw.startsWith(w)) || s.sciWords.some((sw) => sw.startsWith(w)));
       const term = [...GROUP_TERMS.keys()].find((k) => !k.includes(" ") && k.startsWith(w));
-      typedGroup = term ? { ...GROUP_TERMS.get(term)!, label: term } : undefined;
+      if (partialWordPicksSpecies) {
+        picked = started;
+        typedGroup = term ? { ...GROUP_TERMS.get(term)!, label: term } : undefined;
+      } else {
+        // A group from a partial word needs four letters: "car" shouldn't bring in every carnivore.
+        const group = term && w.length >= 4 ? GROUP_TERMS.get(term)!.predicate : null;
+        const inGroup = group ? species.filter((s) => speciesInGroup(s, group)) : [];
+        for (const s of [...started, ...inGroup]) result.hintSpeciesIds.add(s.id);
+        if (started.length + inGroup.length > 0) continue;
+      }
     }
     if (picked.length === 0 && !typedGroup && w.length >= 5) picked = species.filter((s) => s.primaryHead && wordMatches(s.primaryHead, w, true));
     if (picked.length > 0 || typedGroup) {
@@ -378,7 +430,7 @@ export function parseSearchQuery(
   // description then keeps the subject words too ("owl flying" describes an owl in flight better
   // than "flying" alone), dropping only places, dates and the words that introduced them.
   if (words.some((w, i) => !used[i] && !STOPWORDS.has(w))) {
-    result.description = words.filter((_, i) => !context[i]).join(" ").trim() || null;
+    result.description = words.map((w, i) => (i === lastIndex && completion && !used[i] ? completion : w)).filter((_, i) => !context[i]).join(" ").trim() || null;
   }
   return result;
 }
@@ -386,14 +438,50 @@ export function parseSearchQuery(
 // ---------------------------------------------------------------------------------------------
 // Picture scoring
 
-const QUERY_TEMPLATES = (d: string) => [`a photo of ${d}`, `a wildlife photo of ${d}`, `a photo of an animal ${d}`, d];
-const NEUTRAL_PROMPT = "a wildlife photo";
+// "a photo of water" asks for a picture OF water; in a wildlife library "water" usually means an
+// animal in or by it, so the phrasings include that reading too.
+const QUERY_TEMPLATES = (d: string) => [
+  `a photo of ${d}`,
+  `a wildlife photo with ${d}`,
+  `a photo of an animal in ${d}`,
+  `a photo of an animal near ${d}`,
+  `a wildlife photo of ${d}`,
+  d,
+];
+// Things never in a wildlife photo. A photo's average match to these is its noise level: how
+// much it matches ANY prompt just by being a wildlife photo, which differs from photo to photo.
+const NOISE_PROMPTS = [
+  "a car",
+  "a city street",
+  "text on a page",
+  "food on a plate",
+  "a building",
+  "a computer",
+  "furniture",
+  "a cartoon",
+  "an airplane",
+  "a spreadsheet",
+  "a company logo",
+  "a keyboard",
+];
+let noiseVectors: Promise<Float32Array> | null = null;
+/** The average of the noise prompts' vectors: a photo's dot product with it is its average
+ *  match to them. */
+function noiseVector(): Promise<Float32Array> {
+  noiseVectors ??= Promise.all(NOISE_PROMPTS.map((p) => queryVector(p))).then((vs) => {
+    const avg = new Float32Array(vs[0].length);
+    for (const v of vs) for (let i = 0; i < avg.length; i++) avg[i] += v[i] / vs.length;
+    return avg;
+  });
+  noiseVectors.catch(() => (noiseVectors = null));
+  return noiseVectors;
+}
 const queryVectorCache = new Map<string, Float32Array>();
 
 async function queryVector(text: string): Promise<Float32Array> {
   const cached = queryVectorCache.get(text);
   if (cached) return cached;
-  const parts = await Promise.all((text === NEUTRAL_PROMPT ? [text] : QUERY_TEMPLATES(text)).map((t) => embedQueryText(t)));
+  const parts = await Promise.all(QUERY_TEMPLATES(text).map((t) => embedQueryText(t)));
   const v = new Float32Array(parts[0].length);
   for (const p of parts) for (let i = 0; i < v.length; i++) v[i] += p[i];
   normalize(v);
@@ -465,6 +553,8 @@ export interface SearchRow {
 export interface SearchOutcome<R> {
   items: Array<{ row: R; score: number | null }>;
   interpretation: ParsedQuery["labels"] & { description: string | null };
+  /** A quick answer that skipped picture matching: the full one is still to come. */
+  pending?: boolean;
 }
 
 function byRatingThenDate(a: SearchRow, b: SearchRow): number {
@@ -489,6 +579,7 @@ export async function rankSearch<R extends SearchRow>(
   parsed: ParsedQuery,
   rows: R[],
   regionSubtree: (regionIds: string[]) => Promise<Set<string>>,
+  opts: { quick?: boolean } = {},
 ): Promise<SearchOutcome<R>> {
   const interpretation = { ...parsed.labels, description: parsed.description };
   let candidates = rows;
@@ -538,14 +629,22 @@ export async function rankSearch<R extends SearchRow>(
     return { items: withTagsFirst(sorted.map((row) => ({ row, score: null }))), interpretation };
   }
 
+  // The quick pass (so results appear while typing) skips picture matching. With a subject it
+  // shows that subject's photos straight away; the full pass then reorders them. With only a
+  // description it has nothing reliable to show yet, so the page keeps what it had.
+  if (opts.quick) {
+    const quickItems = hasSubject ? [...candidates].sort(byRatingThenDate).map((row) => ({ row, score: null })) : [];
+    return { items: withTagsFirst(quickItems), interpretation, pending: true };
+  }
+
   let queryVec: Float32Array | null = null;
-  let neutralVec: Float32Array | null = null;
+  let noiseVec: Float32Array | null = null;
   try {
-    [queryVec, neutralVec] = await Promise.all([queryVector(parsed.description), queryVector(NEUTRAL_PROMPT)]);
+    [queryVec, noiseVec] = await Promise.all([queryVector(parsed.description), noiseVector()]);
   } catch {
     // Species matching isn't downloaded: names, groups, places and dates still work.
   }
-  if (!queryVec || !neutralVec) {
+  if (!queryVec || !noiseVec) {
     const fallback = hasSubject ? [...candidates].sort(byRatingThenDate) : candidates.filter((r) => tagged.has(r.capture_id) || parsed.hintSpeciesIds.has(r.species_id));
     return { items: withTagsFirst(fallback.map((row) => ({ row, score: null }))), interpretation };
   }
@@ -553,7 +652,7 @@ export async function rankSearch<R extends SearchRow>(
   const vectors = await photoVectors(candidates);
   const scored = candidates.map((row) => {
     const v = vectors.get(row.capture_id);
-    return { row, score: v ? dot(v, queryVec!) - dot(v, neutralVec!) : null };
+    return { row, score: v ? dot(v, queryVec!) - dot(v, noiseVec!) : null };
   });
 
   // A named subject plus a description ("owl flying"): every photo of the subject, best fit first.
@@ -566,7 +665,7 @@ export async function rankSearch<R extends SearchRow>(
   // Only a description: keep clear matches, plus photos of species whose names share its words
   // (Snow Goose for "snow") and photos tagged with it.
   const top = Math.max(0, ...scored.map((s) => s.score ?? 0));
-  const cutoff = Math.max(CONTENT_MARGIN_MIN, top * CONTENT_MARGIN_RELATIVE);
+  const cutoff = Math.max(CONTENT_MATCH_MIN, top * CONTENT_MARGIN_RELATIVE);
   // A word that's only a describing word in some species' names ("pileated", "snow") could mean
   // either. If most photos of those species match it by picture too, it's naming them
   // (Pileated Woodpeckers look "pileated"; most Snow Goose photos aren't snowy), so show just them.
