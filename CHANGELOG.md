@@ -15,6 +15,8 @@ Categories: `Added`, `Changed`, `Fixed`, `Removed` — omit any with nothing to 
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-09-25
+
 ### Changed
 
 - Species suggestions are much more accurate. Lifer now names species with BioCLIP 2, a model
