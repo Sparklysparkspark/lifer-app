@@ -69,6 +69,24 @@ const TILE_OVERLAP = 0.25;
 
 let sessionPromise: Promise<ort.InferenceSession> | null = null;
 
+// Released after a while unused, like the species models (onnxImageModel.ts), so a server left
+// running between imports doesn't hold the detector in memory for days.
+const IDLE_UNLOAD_MS = 15 * 60 * 1000;
+let activeRuns = 0;
+let idleUnloadTimer: ReturnType<typeof setTimeout> | null = null;
+
+function armIdleUnload(): void {
+  if (idleUnloadTimer) clearTimeout(idleUnloadTimer);
+  idleUnloadTimer = setTimeout(() => {
+    idleUnloadTimer = null;
+    if (activeRuns > 0) return;
+    const promise = sessionPromise;
+    sessionPromise = null;
+    promise?.then((session) => session.release()).catch(() => {});
+  }, IDLE_UNLOAD_MS);
+  idleUnloadTimer.unref?.();
+}
+
 async function getSession(): Promise<ort.InferenceSession> {
   if (!sessionPromise) {
     sessionPromise = ort.InferenceSession.create(MODEL_PATH).catch((err) => {
@@ -168,7 +186,14 @@ async function runDetection(regionBuffer: Buffer, offsetX: number, offsetY: numb
   const inputName = session.inputNames[0];
   const outputName = session.outputNames[0];
   const tensor = new ort.Tensor("float32", floats, [1, 3, INPUT_SIZE, INPUT_SIZE]);
-  const results = await session.run({ [inputName]: tensor });
+  activeRuns++;
+  let results: Awaited<ReturnType<ort.InferenceSession["run"]>>;
+  try {
+    results = await session.run({ [inputName]: tensor });
+  } finally {
+    activeRuns--;
+    armIdleUnload();
+  }
   const outputTensor = results[outputName];
   const [, numAttrs, numAnchors] = outputTensor.dims as [number, number, number];
   const numClasses = numAttrs - 4;

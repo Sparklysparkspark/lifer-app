@@ -468,6 +468,16 @@ export function invalidateSuggestionCache(): void {
   regionCatalogCache.clear();
 }
 
+// Entries were only replaced when read again, so a region looked up once stayed in memory (tens
+// of MB for a large region) for as long as the server ran. Expired ones are dropped here, and
+// your photos' vectors too once suggestions have gone unused for as long.
+let lastSuggestionUse = 0;
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, hit] of regionCatalogCache) if (now - hit.at >= SUGGESTION_CACHE_TTL_MS) regionCatalogCache.delete(key);
+  if (now - lastSuggestionUse >= SUGGESTION_CACHE_TTL_MS) yourVectorCache.clear();
+}, 60_000).unref();
+
 const toVec = (v: number[] | null): Float32Array | null => (v ? Float32Array.from(v) : null);
 
 function regionCatalog(pool: Pool | PoolClient, regionId: string, space: VectorSpace): Promise<CatalogRow[]> {
@@ -550,6 +560,7 @@ async function yourVectorsBySpecies(pool: Pool | PoolClient, userId: string, spa
 }
 
 async function regionCandidates(pool: Pool | PoolClient, userId: string, regionId: string, space: VectorSpace): Promise<CandidateRow[]> {
+  lastSuggestionUse = Date.now();
   const [catalog, yours] = await Promise.all([regionCatalog(pool, regionId, space), yourVectorsBySpecies(pool, userId, space)]);
   return catalog.map((row) => ({ ...row, your_embeddings: yours.get(row.species_id) ?? null }));
 }

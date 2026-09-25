@@ -49,6 +49,14 @@ RUN node apps/api/scripts/fetch-catalog-seed.js
 ARG APP_VERSION=dev
 ENV APP_VERSION=${APP_VERSION}
 ENV NODE_ENV=production
+# Hand memory back to the system once the species models are unloaded after a while unused.
+# With glibc's defaults a freed model's memory mostly stayed with the process, so the container
+# kept its peak size long after the last import. A fixed mmap threshold keeps large model
+# buffers in their own mappings (returned whole when freed), and fewer arenas means less held
+# in reserve per thread.
+ENV MALLOC_ARENA_MAX=2
+ENV MALLOC_MMAP_THRESHOLD_=131072
+ENV MALLOC_TRIM_THRESHOLD_=131072
 EXPOSE 4000
 
 # Migrations run on every container start (migrate.ts already tracks what's applied and
