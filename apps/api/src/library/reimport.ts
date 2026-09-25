@@ -28,6 +28,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { pool } from "../db.js";
+import { ensureDefaultCardCropLater } from "../collection/defaultCardCrop.js";
 import { generateDerivatives } from "../uploads/image.js";
 import { extractExif, extractKeywordsWithSidecar, readExifTags, type ExifTags } from "../uploads/exif.js";
 import { computeContentHash, computeFileFingerprint } from "../uploads/fileFingerprint.js";
@@ -324,6 +325,8 @@ export async function recoverJpeg(
     );
 
     await client.query("COMMIT");
+    // This photo may just have become the species' cover: frame the card on the animal.
+    ensureDefaultCardCropLater(userId, species.id);
     // Best-effort — see albumIndex.ts's own comment on why this never fails the whole recovery
     // over a missing or unreadable manifest.
     await recoverAlbumMembership(userId, finalPath, captureId).catch(() => {});
