@@ -1,11 +1,6 @@
-// Downloads the species/region catalog seed (see embedded_db.rs's restore_catalog_seed_if_needed)
-// and bundles it as a Tauri resource, the same "fetch once at build time, ship it in the
-// installer" pattern fetch-node-sidecar.js already uses for the Node runtime, so first launch
-// works fully offline. embedded_db.rs still falls back to downloading it live if this bundled
-// copy is missing (e.g. `tauri dev` without having run this script).
-//
-// The manifest is bundled next to the seed so the API knows which catalog version it has.
-// Gallery embeddings are a separate asset the API fetches with the CLIP model; never bundled.
+// Downloads the species/region catalog seed and bundles it as a Tauri resource so first launch
+// works offline (embedded_db.rs downloads it live if missing). The manifest ships alongside so the
+// API knows its catalog version. Gallery embeddings are fetched separately and never bundled.
 import { mkdirSync, createWriteStream, createReadStream, statSync, writeFileSync, rmSync } from "node:fs";
 import { createHash } from "node:crypto";
 import path from "node:path";

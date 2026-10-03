@@ -1,38 +1,23 @@
-// Embeds a real Postgres server as a managed sidecar, the Tauri equivalent of api.rs's own
-// Node sidecar management. This is what actually removes the desktop app's last manual-setup
-// requirement — previously "local/offline mode" needed a separately-running Postgres (either a
-// docker-compose service or a system install the user set up themselves).
-//
-// No PostGIS: despite docker-compose.yml using a postgis/postgis image (kept for the server
-// path), the schema never actually calls any PostGIS function — see migrations/
-// 001_phase1_species.sql's own comment on gbif_area_wkt ("confirmed dead/unused... plain text,
-// no PostGIS dependency needed"). All bbox/geometry logic lives in plain TS (data-pipeline's
-// geometry.ts). That's what makes embedding *plain* Postgres (well-supported prebuilt binaries
-// for every OS, via the theseus release archives postgresql_embedded downloads and caches
-// under ~/.theseus/postgresql) viable at all — bundling PostGIS's native GEOS/PROJ/GDAL
-// dependencies portably across three OSes would have been a much harder problem.
+// Runs an embedded Postgres server as a managed sidecar so local mode needs no manual setup.
+// Plain Postgres, no PostGIS: the schema never calls a PostGIS function, and geometry lives in TS.
 use postgresql_commands::pg_ctl::{Mode, PgCtlBuilder};
 use postgresql_commands::psql::PsqlBuilder;
 use postgresql_commands::traits::{AsyncCommandExecutor, CommandBuilder};
 use postgresql_embedded::{PostgreSQL, Settings};
 use std::io::Write;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 const DB_NAME: &str = "lifer";
 const DB_USER: &str = "postgres";
-// Fixed rather than Settings::new()'s randomly-generated default: the data directory persists
-// across launches (temporary: false, below), so a different random password every start would
-// no longer match what initdb actually wrote into the cluster the first time it ran.
-const DB_PASSWORD: &str = "lifer-embedded";
+// Every install before per-install passwords used this one. Only used to migrate those clusters.
+const LEGACY_DB_PASSWORD: &str = "lifer-embedded";
+// Per-install random password, 0600, next to postgres-data (never inside it: initdb needs that
+// dir empty). scripts/headless-postgres.js reads the same file.
+const PASSWORD_FILE: &str = "postgres-password";
 
-// Hosted separately from packs-latest (see offlinePacks — those are optional, per-region
-// reference photos matched against species that must already exist locally) since this is the
-// base species/region taxonomy catalog every install needs before ANY of that makes sense.
-// Same "one dedicated, rolling GitHub Release" shape as PACK_INDEX_URL/MAP_DOWNLOAD_URL.
-// Content is a --data-only, --disable-triggers pg_dump of the catalog tables listed in
-// packages/data-pipeline's build-catalog-seed.ts CATALOG_TABLES. Never user data. Gallery
-// embeddings are a separate asset the API downloads with the CLIP model, not part of this file.
+// The base species/region catalog every install needs, on its own rolling GitHub Release.
+// A --data-only, --disable-triggers pg_dump of build-catalog-seed.ts's CATALOG_TABLES. Never user data.
 const CATALOG_SEED_URL: &str =
     "https://github.com/Sparklysparkspark/lifer-app/releases/download/catalog-latest/lifer-catalog-seed.sql.gz";
 
@@ -43,14 +28,15 @@ pub fn connection_url(postgresql: &PostgreSQL) -> String {
     format!("postgres://{}:{}@{}:{}/{}", s.username, s.password, s.host, s.port, DB_NAME)
 }
 
-// A previous run that ended ungracefully (force-quit, crash, or this app being killed via
-// `kill -9`/Activity Monitor rather than Quit — every one of which skips the
-// RunEvent::Exit handler that normally calls stop_api()'s graceful postgresql.stop()) leaves
-// postmaster.pid behind with a pid that's no longer running. pg_ctl then refuses to start
-// ("another server might be running" / "could not start server") even though nothing actually
-// holds the data directory anymore. Only clears the file when that pid is confirmed dead — a
-// genuinely live instance (a real conflict) is left alone, and start() will surface its own
-// clear error in that rarer case rather than this silently killing something still in use.
+/// pg_ctl and the data dir, for the API sidecar's watchdog to stop Postgres if this app dies.
+pub fn pg_ctl_and_data_dir(postgresql: &PostgreSQL) -> (PathBuf, PathBuf) {
+    let settings = postgresql.settings();
+    let exe = if cfg!(windows) { "pg_ctl.exe" } else { "pg_ctl" };
+    (settings.binary_dir().join(exe), settings.data_dir.clone())
+}
+
+// A crash or force-quit leaves postmaster.pid behind, and pg_ctl then refuses to start. Only
+// remove it when its pid is confirmed dead; a live instance is a real conflict and is left alone.
 #[cfg(unix)]
 fn clear_stale_lock_if_dead(data_dir: &Path) {
     let pid_file = data_dir.join("postmaster.pid");
@@ -60,7 +46,7 @@ fn clear_stale_lock_if_dead(data_dir: &Path) {
         .args(["-0", &pid.to_string()])
         .status()
         .map(|s| s.success())
-        .unwrap_or(true); // can't tell — assume alive, don't touch the lock
+        .unwrap_or(true); // can't tell, so assume alive and leave the lock
     if !alive {
         let _ = std::fs::remove_file(&pid_file);
     }
@@ -86,9 +72,8 @@ fn lock_pid_is_postgres(_data_dir: &Path) -> bool {
     true
 }
 
-// A force-quit skips stop_api(), leaving the previous launch's postmaster running on this data
-// dir and blocking start(). pg_ctl status checks the lock's pid is alive for this exact data dir;
-// if so, stop it (fast mode) so this launch can start its own instance normally.
+// A force-quit skips stop_api() and can leave the previous postmaster running on this data dir.
+// If pg_ctl status confirms it, stop it (fast mode) so this launch can start its own.
 async fn stop_orphaned_postgres(postgresql: &PostgreSQL) {
     let data_dir = postgresql.settings().data_dir.clone();
     if !data_dir.join("postmaster.pid").exists() || !lock_pid_is_postgres(&data_dir) {
@@ -112,31 +97,158 @@ async fn stop_orphaned_postgres(postgresql: &PostgreSQL) {
     }
 }
 
-/// Sets up (first run only) and starts an embedded Postgres instance rooted under this
-/// install's own app data dir, creating the `lifer` database if it doesn't exist yet. Returns
-/// the running instance (kept alive for the app's lifetime — dropping/stopping it shuts the
-/// server down) and its connection URL.
+fn password_path(app_data_dir: &Path) -> PathBuf {
+    app_data_dir.join("app-data").join(PASSWORD_FILE)
+}
+
+fn read_password(path: &Path) -> Option<String> {
+    let value = std::fs::read_to_string(path).ok()?;
+    let value = value.trim();
+    (!value.is_empty()).then(|| value.to_string())
+}
+
+// Hex keeps it safe to embed in a connection URL and a SQL literal without escaping.
+fn generate_password() -> Result<String, String> {
+    let mut bytes = [0u8; 24];
+    getrandom::fill(&mut bytes).map_err(|e| format!("Couldn't generate a database password: {e}"))?;
+    Ok(bytes.iter().map(|b| format!("{b:02x}")).collect())
+}
+
+fn write_secret_file(path: &Path, contents: &str) -> Result<(), String> {
+    let err = |e: std::io::Error| format!("Couldn't save {}: {e}", path.display());
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).map_err(err)?;
+    }
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut file = options.open(path).map_err(err)?;
+    // mode() only applies on create; tighten a file that already existed too.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
+    }
+    file.write_all(contents.as_bytes()).map_err(err)?;
+    file.sync_all().map_err(err)
+}
+
+fn settings_for(data_dir: &Path, password: &str) -> Settings {
+    Settings {
+        data_dir: data_dir.to_path_buf(),
+        username: DB_USER.to_string(),
+        password: password.to_string(),
+        // Persist across launches. A temporary instance deletes its data dir on stop().
+        temporary: false,
+        // Let the OS pick a free port; start() resolves it into settings().port.
+        port: 0,
+        ..Settings::default()
+    }
+}
+
+// A previous instance can still be mid-shutdown when this one starts; retry briefly, re-checking
+// for a now-dead stale lock each time. A real, persistent conflict still fails every attempt.
+async fn start_with_retries(postgresql: &mut PostgreSQL) -> Result<(), String> {
+    const START_RETRIES: u32 = 5;
+    let mut last_err = String::new();
+    for attempt in 0..START_RETRIES {
+        if attempt > 0 {
+            tokio::time::sleep(Duration::from_millis(750)).await;
+            clear_stale_lock_if_dead(&postgresql.settings().data_dir);
+        }
+        match postgresql.start().await {
+            Ok(()) => return Ok(()),
+            Err(e) => last_err = e.to_string(),
+        }
+    }
+    Err(format!("Couldn't start the embedded database after {START_RETRIES} attempts: {last_err}"))
+}
+
+// Runs one statement from a 0600 temp file, so the new password never shows up in `ps`.
+async fn run_sql_as(postgresql: &PostgreSQL, password: &str, sql: &str, scratch_dir: &Path) -> Result<(), String> {
+    let sql_path = scratch_dir.join(format!("rotate-password-{}.sql", std::process::id()));
+    write_secret_file(&sql_path, sql)?;
+    let result = PsqlBuilder::from(postgresql.settings())
+        .dbname("postgres")
+        .no_psqlrc()
+        .pg_password(password)
+        .file(&sql_path)
+        .variable(("ON_ERROR_STOP", "1"))
+        .quiet()
+        .build_tokio()
+        .execute(Some(Duration::from_secs(30)))
+        .await
+        .map(|_| ())
+        .map_err(|e| e.to_string());
+    let _ = std::fs::remove_file(&sql_path);
+    result
+}
+
+// Moves a cluster created with LEGACY_DB_PASSWORD onto `new_password`. The new password sits in
+// a .pending file until ALTER USER succeeds, so a crash in between is recoverable next launch.
+async fn rotate_legacy_password(data_dir: &Path, new_password: &str, scratch_dir: &Path) -> Result<(), String> {
+    let mut postgresql = PostgreSQL::new(settings_for(data_dir, LEGACY_DB_PASSWORD));
+    postgresql
+        .setup()
+        .await
+        .map_err(|e| format!("Couldn't set up the embedded database: {e}"))?;
+    stop_orphaned_postgres(&postgresql).await;
+    start_with_retries(&mut postgresql).await?;
+
+    let alter = format!("ALTER USER {DB_USER} PASSWORD '{new_password}';");
+    let result = match run_sql_as(&postgresql, LEGACY_DB_PASSWORD, &alter, scratch_dir).await {
+        Ok(()) => Ok(()),
+        // An earlier launch may have applied the pending password but crashed before saving it.
+        Err(legacy_err) => run_sql_as(&postgresql, new_password, "SELECT 1;", scratch_dir)
+            .await
+            .map_err(|_| format!("Couldn't update the embedded database password: {legacy_err}")),
+    };
+
+    if tokio::time::timeout(Duration::from_secs(30), postgresql.stop()).await.is_err() {
+        eprintln!("[embedded_db] postgres didn't stop within 30s after the password update");
+    }
+    result
+}
+
+// The password this install's cluster uses, creating or migrating it on first run.
+async fn resolve_password(app_data_dir: &Path, data_dir: &Path) -> Result<String, String> {
+    let path = password_path(app_data_dir);
+    if let Some(password) = read_password(&path) {
+        return Ok(password);
+    }
+    if !data_dir.join("PG_VERSION").exists() {
+        // Fresh cluster: initdb will use this password directly.
+        let password = generate_password()?;
+        write_secret_file(&path, &password)?;
+        return Ok(password);
+    }
+    let pending = path.with_extension("pending");
+    let password = match read_password(&pending) {
+        Some(p) => p,
+        None => {
+            let p = generate_password()?;
+            write_secret_file(&pending, &p)?;
+            p
+        }
+    };
+    eprintln!("[embedded_db] replacing the shared default database password with a per-install one");
+    rotate_legacy_password(data_dir, &password, path.parent().unwrap_or(app_data_dir)).await?;
+    std::fs::rename(&pending, &path).map_err(|e| format!("Couldn't save {}: {e}", path.display()))?;
+    Ok(password)
+}
+
+/// Sets up (first run only) and starts embedded Postgres, creating the `lifer` database if needed.
+/// Returns the instance (dropping it shuts the server down) and its connection URL.
 pub async fn start_embedded_postgres(app_data_dir: &Path) -> Result<(PostgreSQL, String), String> {
     let data_dir = app_data_dir.join("app-data").join("postgres-data");
     clear_stale_lock_if_dead(&data_dir);
+    let password = resolve_password(app_data_dir, &data_dir).await?;
 
-    let settings = Settings {
-        data_dir,
-        username: DB_USER.to_string(),
-        password: DB_PASSWORD.to_string(),
-        // Persist across launches — the whole point is a self-contained library that survives
-        // quitting and reopening the app, not a scratch database. See postgresql_embedded's
-        // stop(): a temporary instance's data directory is deleted on stop(), which a graceful
-        // app-exit path would otherwise hit every single time.
-        temporary: false,
-        // Let the OS pick a free port instead of assuming 5432 is free — a real system
-        // Postgres (or another instance of this same app) may already be listening there.
-        // Resolved back into `postgresql.settings().port` once start() returns.
-        port: 0,
-        ..Settings::default()
-    };
-
-    let mut postgresql = PostgreSQL::new(settings);
+    let mut postgresql = PostgreSQL::new(settings_for(&data_dir, &password));
     postgresql
         .setup()
         .await
@@ -144,34 +256,7 @@ pub async fn start_embedded_postgres(app_data_dir: &Path) -> Result<(PostgreSQL,
     // After setup(), since pg_ctl's binary path is only known once setup has resolved it.
     stop_orphaned_postgres(&postgresql).await;
 
-    // A previous instance (this same app relaunched quickly, or a stale process from a prior
-    // crash) can still be mid-shutdown at the exact moment this one tries to start — genuinely
-    // alive (so clear_stale_lock_if_dead above correctly leaves its lock alone), but only for
-    // another few hundred ms while it finishes its own checkpoint/cleanup. Previously that
-    // window surfaced as a hard, unrecoverable "Couldn't start the embedded database" error
-    // with no retry at all. Retrying with a short backoff — re-checking for a now-actually-dead
-    // stale lock before each attempt — absorbs exactly that transient window without masking a
-    // REAL, persistent conflict (a genuinely different live Postgres holding the data
-    // directory), which will still fail every retry and surface its own error same as before.
-    const START_RETRIES: u32 = 5;
-    let mut last_err = String::new();
-    let mut started = false;
-    for attempt in 0..START_RETRIES {
-        if attempt > 0 {
-            tokio::time::sleep(Duration::from_millis(750)).await;
-            clear_stale_lock_if_dead(&postgresql.settings().data_dir);
-        }
-        match postgresql.start().await {
-            Ok(()) => {
-                started = true;
-                break;
-            }
-            Err(e) => last_err = e.to_string(),
-        }
-    }
-    if !started {
-        return Err(format!("Couldn't start the embedded database after {START_RETRIES} attempts: {last_err}"));
-    }
+    start_with_retries(&mut postgresql).await?;
 
     let db_exists = postgresql
         .database_exists(DB_NAME)
@@ -204,14 +289,8 @@ async fn species_table_is_empty(postgresql: &PostgreSQL) -> Result<bool, String>
     Ok(stdout.trim().parse::<i64>().unwrap_or(0) == 0)
 }
 
-/// A fresh embedded database has the right SCHEMA (from run_migrations) but none of the base
-/// species/region taxonomy — that's a separate one-time "seed" dataset (packages/data-pipeline's
-/// build-seed.ts + load-seed.ts, normally run once by hand against a long-lived dev database),
-/// never packaged for a fresh install before. Detects an empty catalog and restores it — from
-/// the copy bundled into the installer at build time (see apps/desktop/scripts/
-/// fetch-catalog-seed.js) so a fresh install works fully offline with no wait at all; only
-/// falls back to downloading it live if that bundled copy is missing (`tauri dev` without
-/// having run that script).
+/// A fresh database has the schema but no species catalog. Restores it from the copy bundled at
+/// build time (fetch-catalog-seed.js), downloading it only when that copy is missing (`tauri dev`).
 pub async fn restore_catalog_seed_if_needed(postgresql: &PostgreSQL, resources: &Path) -> Result<(), String> {
     if !species_table_is_empty(postgresql).await? {
         return Ok(());
@@ -251,6 +330,7 @@ pub async fn restore_catalog_seed_if_needed(postgresql: &PostgreSQL, resources: 
             .await
             .map_err(|e| format!("Couldn't load the species catalog: {e}"))?;
         eprintln!("[embedded_db] species catalog loaded in {}s", started.elapsed().as_secs());
+        refresh_search_names(postgresql).await;
         Ok(())
     }
     .await;
@@ -258,6 +338,25 @@ pub async fn restore_catalog_seed_if_needed(postgresql: &PostgreSQL, resources: 
     let _ = std::fs::remove_file(&sql_path);
     let _ = std::fs::remove_file(&downloaded_gz);
     result
+}
+
+// The seed restore disables triggers, so the species search table starts empty. Best effort: the
+// API also rebuilds it at startup when empty. Skipped on schemas older than migration 111.
+async fn refresh_search_names(postgresql: &PostgreSQL) {
+    let sql = "DO $$ BEGIN IF to_regproc('refresh_species_search_names') IS NOT NULL THEN \
+               PERFORM refresh_species_search_names(NULL); END IF; END $$;";
+    let started = std::time::Instant::now();
+    let result = psql(postgresql)
+        .command(sql)
+        .variable(("ON_ERROR_STOP", "1"))
+        .quiet()
+        .build_tokio()
+        .execute(None)
+        .await;
+    match result {
+        Ok(_) => eprintln!("[embedded_db] species search names built in {}s", started.elapsed().as_secs()),
+        Err(e) => eprintln!("[embedded_db] warning: couldn't build species search names, the API will retry: {e}"),
+    }
 }
 
 // Streams gzip -> .sql on disk so neither side is ever held in memory. Returns SQL byte count.

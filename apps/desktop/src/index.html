@@ -18,10 +18,7 @@
     </style>
   </head>
   <body>
-    <!-- Shown briefly while Rust spawns the local API (or reaches the remote server) and
-         waits for it to respond — see src-tauri/src/lib.rs's setup() — before navigating this
-         window to the real app. Matches the same brief blank/loading gap Electron's main.js
-         has between createWindow() and applyConfig()'s loadLocal/loadRemote resolving. -->
+    <!-- Shown while lib.rs's setup() starts the local API or reaches the remote server. -->
     Starting Lifer…
   </body>
 </html>

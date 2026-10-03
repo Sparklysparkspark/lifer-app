@@ -3,7 +3,7 @@
 # persistent Docker container matching ubuntu-latest (24.04, linux/amd64), so the AppImage
 # bundling step can be iterated on locally in a couple minutes instead of a ~15min CI round trip
 # per attempt. On an Apple Silicon Mac this runs under QEMU emulation (real x86_64 binaries, not
-# Rosetta) — slower per-instruction than native, but the FIRST run's ~5min Rust compile is the
+# Rosetta): slower per-instruction than native, but the FIRST run's ~5min Rust compile is the
 # only slow part; the container and its cargo/npm caches persist between runs (named volumes,
 # not --rm), so a second run after a small code change only rebuilds what changed.
 #
@@ -27,7 +27,7 @@ fi
 # Create the container once; reuse it (and its installed rustup/node/apt packages) on every
 # subsequent invocation instead of reinstalling the whole toolchain every time.
 if ! docker inspect "$CONTAINER_NAME" >/dev/null 2>&1; then
-  echo "[test-linux-build] first run — creating container (this one will be slow: installs Rust/Node/apt deps)..."
+  echo "[test-linux-build] first run: creating container (this one will be slow: installs Rust/Node/apt deps)..."
   docker run -d --platform linux/amd64 --name "$CONTAINER_NAME" \
     -v "$REPO_ROOT":/workspace \
     -v lifer-linux-cargo-registry:/root/.cargo/registry \
@@ -61,4 +61,4 @@ docker exec "$CONTAINER_NAME" bash -c '
   APPIMAGE_EXTRACT_AND_RUN=1 TAURI_BUILD_ARGS=--verbose npm run dist
 '
 
-echo "[test-linux-build] done. Built artifacts (if it succeeded) are under apps/desktop/src-tauri/target/release/bundle/ — but note that lives in a Docker VOLUME (lifer-linux-cargo-target), not on your host filesystem, since it's shadowing that path inside the container. Use --shell to poke around inside the container directly."
+echo "[test-linux-build] done. Built artifacts (if it succeeded) are under apps/desktop/src-tauri/target/release/bundle/: but note that lives in a Docker VOLUME (lifer-linux-cargo-target), not on your host filesystem, since it's shadowing that path inside the container. Use --shell to poke around inside the container directly."

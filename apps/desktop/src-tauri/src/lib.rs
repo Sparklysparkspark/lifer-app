@@ -1,9 +1,13 @@
 mod api;
 mod embedded_db;
+mod local_inference;
 mod network;
 mod store;
 
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
+use std::collections::HashSet;
+use std::sync::Mutex;
+use tauri::ipc::CapabilityBuilder;
 use tauri::{AppHandle, Emitter, Listener, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_opener::OpenerExt;
@@ -25,6 +29,81 @@ fn is_configured_server(cfg: store::DesktopConfig, url: &url::Url) -> bool {
         .into_iter()
         .flatten()
         .any(|s| url::Url::parse(&s).is_ok_and(|server| server.origin() == url.origin()))
+}
+
+// What a connected server's pages may call. Registered at runtime for the configured origins
+// only (see grant_remote_capabilities); there is deliberately no static wildcard capability.
+// fs writes are limited to paths the user picked in a save dialog (the dialog plugin adds them
+// to the fs scope); updater installs are signature-checked against the pubkey in tauri.conf.json.
+const REMOTE_PERMISSIONS: &[&str] = &[
+    "core:default",
+    "core:window:allow-start-dragging",
+    "core:window:allow-set-fullscreen",
+    "core:window:allow-is-fullscreen",
+    "allow-app-commands",
+    "opener:default",
+    "dialog:default",
+    // downloadFile.ts and the Stats CSV export save through a native Save As dialog.
+    "fs:allow-write-file",
+    "fs:allow-write-text-file",
+    // Settings > Updates and the update banner update the desktop app itself in remote mode too.
+    "updater:allow-check",
+    "updater:allow-download",
+    "updater:allow-install",
+    // Relaunch after installing an update. No process exit.
+    "process:allow-restart",
+];
+
+// Origins already granted this run. Tauri can add capabilities at runtime but not remove them,
+// so a server dropped from the config keeps its grant until relaunch; on_navigation still
+// refuses to load it.
+#[derive(Default)]
+struct RemoteCapabilities(Mutex<HashSet<String>>);
+
+fn configured_origins(cfg: &store::DesktopConfig) -> Vec<String> {
+    let mut candidates = vec![cfg.server_url.clone(), cfg.local_url.clone()];
+    candidates.extend(cfg.external_urls.clone().unwrap_or_default().into_iter().map(Some));
+    let mut origins: Vec<String> = candidates
+        .into_iter()
+        .flatten()
+        .filter_map(|s| url::Url::parse(&s).ok())
+        .filter(|u| matches!(u.scheme(), "http" | "https") && !is_local_api(u))
+        .map(|u| u.origin().ascii_serialization())
+        .collect();
+    origins.sort();
+    origins.dedup();
+    origins
+}
+
+fn grant_remote_capabilities(app: &AppHandle, cfg: &store::DesktopConfig) {
+    if cfg.mode.as_deref() != Some("remote") {
+        return;
+    }
+    let state = app.state::<RemoteCapabilities>();
+    let mut granted = state.0.lock().unwrap();
+    for origin in configured_origins(cfg) {
+        if granted.contains(&origin) {
+            continue;
+        }
+        // Tauri panics on a pattern it can't parse, so check it first.
+        if origin.parse::<tauri::utils::acl::RemoteUrlPattern>().is_err() {
+            eprintln!("[lifer] skipping IPC grant for unparseable origin {origin:?}");
+            continue;
+        }
+        let capability = REMOTE_PERMISSIONS.iter().fold(
+            CapabilityBuilder::new(format!("remote-server-{}", granted.len()))
+                .window(WINDOW_LABEL)
+                .local(false)
+                .remote(origin.clone()),
+            |cap, permission| cap.permission(*permission),
+        );
+        match app.add_capability(capability) {
+            Ok(()) => {
+                granted.insert(origin);
+            }
+            Err(e) => eprintln!("[lifer] couldn't grant IPC access to {origin}: {e}"),
+        }
+    }
 }
 
 // Only hand safe schemes to the OS; file:// or custom schemes could launch local programs.
@@ -64,13 +143,8 @@ fn app_data_dir(app: &AppHandle) -> std::path::PathBuf {
     app.path().app_data_dir().expect("app data dir must resolve")
 }
 
-// The Tauri equivalent of main.js's isTrustedSender: the get_config/choose_setup commands can
-// reconfigure this whole app (which server it points at, where it stores photos), so a page
-// this window happens to be displaying — including, in remote mode, whatever the currently
-// configured remote SERVER'S own pages are — must be verified as one we actually trust before
-// honoring either call. Tauri's static capability allowlists can't express "trust whichever
-// server URL is currently in our own config file," so that check is done here in the command
-// body instead, same as Electron's version.
+// Setup commands can reconfigure the app, so only honor them from trusted pages. Capability
+// allowlists can't express "the server currently in our config," so it's checked here.
 fn is_trusted_sender(window: &WebviewWindow) -> bool {
     let url = match window.url() {
         Ok(u) => u,
@@ -118,8 +192,7 @@ fn app_install_info() -> AppInstallInfo {
 
 #[tauri::command]
 fn platform() -> &'static str {
-    // Node's process.platform naming ("darwin", not Rust's "macos") — apps/web's
-    // main.tsx/useDesktopMode check against this exact string, unchanged from Electron.
+    // Node's process.platform naming ("darwin", not "macos"); apps/web checks these strings.
     if cfg!(target_os = "macos") {
         "darwin"
     } else if cfg!(target_os = "windows") {
@@ -129,12 +202,8 @@ fn platform() -> &'static str {
     }
 }
 
-// The webview's own background_color (set once at window-creation below) is what shows
-// through during macOS's rubber-band overscroll past the top/bottom of a page — a plain
-// browser scroll never reveals it, but AppKit's own bounce animation briefly does. Left at
-// its light-mode value, dark theme would bounce into a light-cream flash on every overscroll.
-// apps/web's ThemeProvider calls this every time the theme resolves (both on toggle and on
-// initial mount), keeping it in sync with index.css's own --color-canvas light/dark values.
+// The window background shows during macOS overscroll bounce. ThemeProvider calls this so dark
+// mode doesn't flash light; colors match index.css's --color-canvas.
 #[tauri::command]
 fn set_window_theme_background(window: WebviewWindow, dark: bool) {
     let color = if dark {
@@ -153,11 +222,8 @@ fn get_config(window: WebviewWindow) -> Option<store::DesktopConfig> {
     store::read_config(&app_data_dir(window.app_handle()))
 }
 
-// Settings > Storage moves the library and then calls this so the next launch starts the API on
-// the new folder. The API also records the choice in its own settings file, but start_api always
-// passes DATA_DIR from this config and the env var wins, so without this the app came back up
-// pointed at the old, now-emptied folder. Only the local API's own page may call it, and only
-// while this install is in local mode.
+// Called after Settings > Storage moves the library. start_api passes DATA_DIR from this config
+// and the env var beats the API's own settings file, so it must be updated here. Local mode only.
 #[tauri::command]
 fn set_local_data_dir(window: WebviewWindow, data_dir: String) -> Result<(), String> {
     let url = window.url().map_err(|e| e.to_string())?;
@@ -181,10 +247,8 @@ struct ChooseSetupInput {
     mode: String,
     #[serde(rename = "serverUrl")]
     server_url: Option<String>,
-    // Only present when "Automatic URL Switching" is on — see picker.html. local_url and
-    // external_urls (at least one entry) are required together in that case; the feature being
-    // on isn't persisted as its own flag, its presence is implied by both being set in the saved
-    // config.
+    // Only present when Automatic URL Switching is on (see picker.html). local_url and a
+    // non-empty external_urls come together; setting both is what turns the feature on.
     #[serde(rename = "localUrl")]
     local_url: Option<String>,
     #[serde(rename = "localNetworkName")]
@@ -205,6 +269,65 @@ struct ChooseSetupResult {
     error: Option<String>,
 }
 
+fn setup_error(message: String) -> ChooseSetupResult {
+    ChooseSetupResult { ok: None, canceled: None, error: Some(message) }
+}
+
+fn save_config(app: &AppHandle, config: &store::DesktopConfig) -> Result<(), ChooseSetupResult> {
+    store::write_config(&app_data_dir(app), config)
+        .map_err(|e| setup_error(format!("Couldn't save the connection settings: {e}")))
+}
+
+/// The library folder last used in local mode, from the saved config.
+fn remembered_local_dir(app: &AppHandle) -> Option<String> {
+    let cfg = store::read_config(&app_data_dir(app))?;
+    if cfg.mode.as_deref() == Some("local") {
+        cfg.data_dir.or(cfg.last_local_data_dir)
+    } else {
+        cfg.last_local_data_dir
+    }
+}
+
+/// The server last connected to, from the saved config.
+fn remembered_server(app: &AppHandle) -> Option<String> {
+    let cfg = store::read_config(&app_data_dir(app))?;
+    cfg.server_url.or(cfg.local_url).or(cfg.last_server_url)
+}
+
+/// Opens the library on this computer: the folder last used in local mode, else the default one
+/// (the same library the offline fallback uses). Remembers the server, so connecting again is one
+/// step in Settings, Server. Used by the menu, signing out of a server, and its sign-in page.
+async fn switch_to_local_library(app: &AppHandle, window: &WebviewWindow) -> Result<(), String> {
+    let data_dir = remembered_local_dir(app);
+    let config = store::DesktopConfig {
+        mode: Some("local".into()),
+        data_dir: data_dir.clone(),
+        last_local_data_dir: data_dir.clone(),
+        last_server_url: remembered_server(app),
+        ..Default::default()
+    };
+    store::write_config(&app_data_dir(app), &config).map_err(|e| format!("Couldn't save the connection: {e}"))?;
+    end_server_fallback(app);
+    api::stop_api_async(app).await;
+    api::start_api(app, data_dir).await?;
+    let url = format!("http://127.0.0.1:{}", api::LOCAL_PORT);
+    api::wait_for_server(&format!("{url}/health"), 120_000).await?;
+    navigate_or_picker(window, &url);
+    Ok(())
+}
+
+// Backs "Use the library on this computer" (signing out of a server, its sign-in page).
+#[tauri::command]
+async fn use_local_library(window: WebviewWindow, app: AppHandle) -> ChooseSetupResult {
+    if !is_trusted_sender(&window) {
+        return ChooseSetupResult { ok: None, canceled: None, error: Some("Not allowed from this page.".into()) };
+    }
+    match switch_to_local_library(&app, &window).await {
+        Ok(()) => ChooseSetupResult { ok: Some(true), canceled: None, error: None },
+        Err(e) => ChooseSetupResult { ok: None, canceled: None, error: Some(e) },
+    }
+}
+
 #[tauri::command]
 async fn choose_setup(window: WebviewWindow, app: AppHandle, config: ChooseSetupInput) -> ChooseSetupResult {
     if !is_trusted_sender(&window) {
@@ -216,11 +339,7 @@ async fn choose_setup(window: WebviewWindow, app: AppHandle, config: ChooseSetup
     }
 
     if config.mode == "remote" {
-        // Automatic URL Switching: local_url + at least one external URL present means it's on.
-        // Validate the local address and every external one (a network can genuinely only reach
-        // some of them right now — e.g. setting this up while at home, an nginx-forwarded
-        // address may not resolve at all) and navigate to whichever answered first, same
-        // local-then-ordered-externals preference apply_config uses on every later launch.
+        // Automatic URL Switching: navigate to the first address that answers, in apply_config's order.
         if let (Some(local_url), Some(external_urls)) = (&config.local_url, &config.external_urls) {
             if external_urls.is_empty() {
                 return ChooseSetupResult { ok: None, canceled: None, error: Some("At least one external URL is required.".into()) };
@@ -250,22 +369,26 @@ async fn choose_setup(window: WebviewWindow, app: AppHandle, config: ChooseSetup
                     error: Some("Couldn't reach any of the addresses. Check the URLs and that the server is running.".into()),
                 };
             };
-            let data_dir = app_data_dir(&app);
-            let _ = store::write_config(
-                &data_dir,
-                &store::DesktopConfig {
-                    mode: Some("remote".into()),
-                    data_dir: None,
-                    server_url: None,
-                    local_url: Some(local_trimmed),
-                    local_network_name: config.local_network_name.clone(),
-                    external_urls: Some(external_trimmed),
-                    external_url: None,
-                    offline_mode: config.offline_mode,
-                },
-            );
+            let new_config = store::DesktopConfig {
+                mode: Some("remote".into()),
+                data_dir: None,
+                server_url: None,
+                local_url: Some(local_trimmed.clone()),
+                local_network_name: config.local_network_name.clone(),
+                external_urls: Some(external_trimmed),
+                external_url: None,
+                offline_mode: config.offline_mode,
+                last_local_data_dir: remembered_local_dir(&app),
+                last_server_url: Some(local_trimmed),
+            };
+            if let Err(e) = save_config(&app, &new_config) {
+                return e;
+            }
+            end_server_fallback(&app);
+            grant_remote_capabilities(&app, &new_config);
             api::stop_api_async(&app).await;
             navigate_or_picker(&window, &target);
+            ensure_server_watcher(&app, &window);
             return ChooseSetupResult { ok: Some(true), canceled: None, error: None };
         }
 
@@ -283,34 +406,36 @@ async fn choose_setup(window: WebviewWindow, app: AppHandle, config: ChooseSetup
                 error: Some("Couldn't reach that address. Check the URL and that the server is running.".into()),
             };
         }
-        let data_dir = app_data_dir(&app);
-        let _ = store::write_config(
-            &data_dir,
-            &store::DesktopConfig {
-                mode: Some("remote".into()),
-                data_dir: None,
-                server_url: Some(trimmed.clone()),
-                local_url: None,
-                local_network_name: None,
-                external_urls: None,
-                external_url: None,
-                offline_mode: config.offline_mode,
-            },
-        );
+        let new_config = store::DesktopConfig {
+            mode: Some("remote".into()),
+            data_dir: None,
+            server_url: Some(trimmed.clone()),
+            local_url: None,
+            local_network_name: None,
+            external_urls: None,
+            external_url: None,
+            offline_mode: config.offline_mode,
+            last_local_data_dir: remembered_local_dir(&app),
+            last_server_url: Some(trimmed.clone()),
+        };
+        if let Err(e) = save_config(&app, &new_config) {
+            return e;
+        }
+        end_server_fallback(&app);
+        grant_remote_capabilities(&app, &new_config);
         api::stop_api_async(&app).await;
         navigate_or_picker(&window, &trimmed);
+        ensure_server_watcher(&app, &window);
         return ChooseSetupResult { ok: Some(true), canceled: None, error: None };
     }
 
-    // Local mode — native folder dialog, same as Electron's dialog.showOpenDialog.
     let folder = app.dialog().file().set_title("Choose where Lifer should store your photos").blocking_pick_folder();
     let Some(path) = folder else {
         return ChooseSetupResult { ok: None, canceled: Some(true), error: None };
     };
     let data_dir = path.to_string();
-    let app_data = app_data_dir(&app);
-    let _ = store::write_config(
-        &app_data,
+    if let Err(e) = save_config(
+        &app,
         &store::DesktopConfig {
             mode: Some("local".into()),
             data_dir: Some(data_dir.clone()),
@@ -320,8 +445,13 @@ async fn choose_setup(window: WebviewWindow, app: AppHandle, config: ChooseSetup
             external_urls: None,
             external_url: None,
             offline_mode: None,
+            last_local_data_dir: Some(data_dir.clone()),
+            last_server_url: remembered_server(&app),
         },
-    );
+    ) {
+        return e;
+    }
+    end_server_fallback(&app);
     api::stop_api_async(&app).await;
     if let Err(e) = api::start_api(&app, Some(data_dir)).await {
         return ChooseSetupResult { ok: None, canceled: None, error: Some(e) };
@@ -342,10 +472,7 @@ struct CurrentNetworkInfo {
     wifi_name: Option<String>,
 }
 
-// Backs Settings' "use current connection" button for Automatic URL Switching's local-network
-// fields — autofills the local URL (from the LAN IP, still requiring the user to add the
-// server's port/scheme) and the network-name field (from the live WiFi SSID) in one click
-// instead of asking the user to go find either value themselves.
+// Backs Settings' "use current connection" button: autofills the LAN IP and WiFi name.
 #[tauri::command]
 fn current_network_info(window: WebviewWindow) -> CurrentNetworkInfo {
     if !is_trusted_sender(&window) {
@@ -354,9 +481,7 @@ fn current_network_info(window: WebviewWindow) -> CurrentNetworkInfo {
     CurrentNetworkInfo { local_ip: network::current_lan_ip(), wifi_name: network::current_wifi_ssid() }
 }
 
-// Backs the live green-checkmark test fired the moment a URL is added/edited in Settings —
-// reuses the exact same reachability check apply_config/choose_setup use at connect time, so
-// "tested reachable here" means the same thing it will at the next real launch.
+// Backs Settings' live reachability checkmark, using the same check as connect time.
 #[tauri::command]
 async fn test_endpoint(window: WebviewWindow, url: String) -> bool {
     if !is_trusted_sender(&window) {
@@ -366,8 +491,7 @@ async fn test_endpoint(window: WebviewWindow, url: String) -> bool {
     api::is_reachable(&format!("{trimmed}/health")).await
 }
 
-// Backs Settings' "Sign in" step for connecting to a remote server — see api::test_login's own
-// comment for why this check runs natively instead of as a renderer fetch().
+// Backs Settings' "Sign in" step for a remote server (see api::test_login).
 #[tauri::command]
 async fn test_login(window: WebviewWindow, url: String, email: String, password: String) -> Result<(), String> {
     if !is_trusted_sender(&window) {
@@ -377,12 +501,44 @@ async fn test_login(window: WebviewWindow, url: String, email: String, password:
     api::test_login(trimmed, &email, &password).await
 }
 
+// Local matching is only for a connected server's own pages; in local mode the local API already
+// runs the models itself.
+fn local_inference_allowed(window: &WebviewWindow) -> Result<(), String> {
+    let url = window.url().map_err(|_| "Not allowed from this page.".to_string())?;
+    let remote = store::read_config(&app_data_dir(window.app_handle()))
+        .is_some_and(|cfg| cfg.mode.as_deref() == Some("remote") && is_configured_server(cfg, &url));
+    if remote { Ok(()) } else { Err("Local matching is only used when connected to a server.".into()) }
+}
+
+#[tauri::command]
+async fn local_inference_status(window: WebviewWindow) -> Result<serde_json::Value, String> {
+    local_inference_allowed(&window)?;
+    local_inference::status(window.app_handle()).await
+}
+
+// `info` is the server's GET /species/matching-info; starts the sidecar and any model download.
+#[tauri::command]
+async fn local_inference_prepare(window: WebviewWindow, info: serde_json::Value) -> Result<serde_json::Value, String> {
+    local_inference_allowed(&window)?;
+    local_inference::prepare(window.app_handle(), info).await
+}
+
+// The photo arrives as the raw IPC body (no JSON number array); x-lifer-targets names the vectors.
+#[tauri::command]
+async fn local_embed(window: WebviewWindow, request: tauri::ipc::Request<'_>) -> Result<serde_json::Value, String> {
+    local_inference_allowed(&window)?;
+    let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else {
+        return Err("Expected the photo as raw bytes.".into());
+    };
+    let targets = request.headers().get("x-lifer-targets").and_then(|v| v.to_str().ok()).unwrap_or("").to_string();
+    local_inference::embed(window.app_handle(), bytes.clone(), &targets).await
+}
+
 fn build_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     let change_server = MenuItem::with_id(app, "change-server", "Change Server / Library…", true, None::<&str>)?;
-    // Finder-style delete accelerator (CmdOrCtrl+Backspace, not bare Backspace/Delete — those
-    // stay reserved for text-field editing everywhere else in the app). Fires the exact same
-    // frontend handler as the `Delete` DOM keyboard shortcut (see useKeyboardShortcuts usage in
-    // GalleryPage) — one action, two triggers.
+    let use_local = MenuItem::with_id(app, "use-local", "Use This Computer's Library", true, None::<&str>)?;
+    // Finder-style CmdOrCtrl+Backspace; bare Backspace/Delete stay for text editing. Fires the
+    // same frontend handler as the Delete keyboard shortcut.
     let delete_selected = MenuItem::with_id(app, "delete-selected", "Delete", true, Some("CmdOrCtrl+Backspace"))?;
     let lifer_menu = Submenu::with_items(
         app,
@@ -392,6 +548,7 @@ fn build_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
             &PredefinedMenuItem::about(app, None, None)?,
             &PredefinedMenuItem::separator(app)?,
             &change_server,
+            &use_local,
             &PredefinedMenuItem::separator(app)?,
             &PredefinedMenuItem::services(app, None)?,
             &PredefinedMenuItem::separator(app)?,
@@ -427,6 +584,161 @@ fn build_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     Menu::with_items(app, &[&lifer_menu, &edit_menu, &window_menu])
 }
 
+// When the remote server is unreachable, open the library on this computer instead of a blank window.
+// Once the server answers again, offer to push local additions or switch back. The saved mode stays remote.
+const STARTUP_SERVER_TRIES: u32 = 3;
+const SERVER_CHECK_INTERVAL_SECS: u64 = 15;
+// About a minute of failed checks, so a brief network drop or waking from sleep doesn't switch.
+const SERVER_FAILURES_BEFORE_FALLBACK: u32 = 4;
+const PUSH_BUTTON: &str = "Push My Photos";
+const SWITCH_BUTTON: &str = "Switch to Server";
+
+#[derive(Default)]
+struct ServerFallback {
+    active: std::sync::atomic::AtomicBool,
+    // The watcher runs (one at a time) while connected to a server.
+    watching: std::sync::atomic::AtomicBool,
+    // Asked "switch back?" already this time; not asked again until the next disconnect.
+    offered: std::sync::atomic::AtomicBool,
+}
+
+// A new connection or library replaces the offline fallback, so its watcher must not offer
+// to switch back.
+fn end_server_fallback(app: &AppHandle) {
+    app.state::<ServerFallback>().active.store(false, std::sync::atomic::Ordering::SeqCst);
+}
+
+/// The configured server address that answers now, in Automatic URL Switching's order (its
+/// local address on its own Wi-Fi, then the external ones), or None when none does.
+async fn reachable_server(cfg: &store::DesktopConfig) -> Option<String> {
+    if let Some(local_url) = &cfg.local_url {
+        let on_local_network = match &cfg.local_network_name {
+            // Reading the SSID runs a system tool (nmcli can rescan), so keep it off the async workers.
+            Some(name) => {
+                let ssid = tauri::async_runtime::spawn_blocking(network::current_wifi_ssid).await.ok().flatten();
+                ssid.as_deref() == Some(name.as_str())
+            }
+            None => true,
+        };
+        if on_local_network && api::is_reachable(&format!("{local_url}/health")).await {
+            return Some(local_url.clone());
+        }
+        for url in cfg.external_urls.clone().unwrap_or_default() {
+            if api::is_reachable(&format!("{url}/health")).await {
+                return Some(url);
+            }
+        }
+        return None;
+    }
+    let server_url = cfg.server_url.as_ref()?;
+    api::is_reachable(&format!("{server_url}/health")).await.then(|| server_url.clone())
+}
+
+fn server_label(cfg: &store::DesktopConfig) -> String {
+    cfg.server_url
+        .clone()
+        .or_else(|| cfg.local_url.clone())
+        .unwrap_or_else(|| "your server".into())
+}
+
+async fn use_local_while_offline(app: &AppHandle, window: &WebviewWindow, cfg: &store::DesktopConfig) {
+    let state = app.state::<ServerFallback>();
+    state.active.store(true, std::sync::atomic::Ordering::SeqCst);
+    state.offered.store(false, std::sync::atomic::Ordering::SeqCst);
+    app.dialog()
+        .message(format!(
+            "Lifer can't reach your server at {}.\n\nYou can keep working in the library on this computer. When the server is back, Lifer will offer to push what you've added to it.",
+            server_label(cfg)
+        ))
+        .title("Server disconnected")
+        .kind(tauri_plugin_dialog::MessageDialogKind::Warning)
+        .show(|_| {});
+    // The library "Use This Computer's Library" opens, so work done offline lands in it.
+    if let Err(e) = api::start_api(app, cfg.data_dir.clone().or_else(|| remembered_local_dir(app))).await {
+        app.dialog().message(e).kind(tauri_plugin_dialog::MessageDialogKind::Error).show(|_| {});
+        return;
+    }
+    let url = format!("http://127.0.0.1:{}", api::LOCAL_PORT);
+    // The first time, the library on this computer is created and its species catalog loaded.
+    match api::wait_for_server(&format!("{url}/health"), 120_000).await {
+        Ok(()) => navigate_or_picker(window, &url),
+        Err(e) => {
+            app.dialog().message(e).kind(tauri_plugin_dialog::MessageDialogKind::Error).show(|_| {});
+        }
+    }
+}
+
+/// Checks the server while in remote mode: switches to this computer's library after a minute
+/// without an answer, and offers to switch back when it answers again. Stops once the app leaves
+/// remote mode.
+/// Starts watching the server unless a watcher already is: at launch, and whenever the app
+/// connects to a server later.
+fn ensure_server_watcher(app: &AppHandle, window: &WebviewWindow) {
+    if !app.state::<ServerFallback>().watching.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        tauri::async_runtime::spawn(watch_server(app.clone(), window.clone()));
+    }
+}
+
+async fn watch_server(app: AppHandle, window: WebviewWindow) {
+    use std::sync::atomic::Ordering;
+    let mut failures = 0;
+    loop {
+        tokio::time::sleep(std::time::Duration::from_secs(SERVER_CHECK_INTERVAL_SECS)).await;
+        let Some(cfg) = store::read_config(&app_data_dir(&app)).filter(|c| c.mode.as_deref() == Some("remote")) else {
+            app.state::<ServerFallback>().watching.store(false, Ordering::SeqCst);
+            return;
+        };
+        let reachable = reachable_server(&cfg).await;
+        let state = app.state::<ServerFallback>();
+        if state.active.load(Ordering::SeqCst) {
+            let Some(url) = reachable else { continue };
+            if state.offered.swap(true, Ordering::SeqCst) {
+                continue;
+            }
+            let app2 = app.clone();
+            let window2 = window.clone();
+            app.dialog()
+                .message(format!(
+                    "Your server at {} is back.\n\nPush the photos you added on this computer to it first, or switch straight to the server. Anything you don't push stays in the library on this computer, and you can push it later from Settings, Server.",
+                    server_label(&cfg)
+                ))
+                .title("Server reconnected")
+                .buttons(tauri_plugin_dialog::MessageDialogButtons::YesNoCancelCustom(
+                    PUSH_BUTTON.into(),
+                    SWITCH_BUTTON.into(),
+                    "Not Now".into(),
+                ))
+                .show_with_result(move |choice| {
+                    use tauri_plugin_dialog::MessageDialogResult;
+                    // The user may have switched library or server while this dialog was open.
+                    if !app2.state::<ServerFallback>().active.load(Ordering::SeqCst) {
+                        return;
+                    }
+                    let picked = |label: &str, standard: MessageDialogResult| choice == standard || choice == MessageDialogResult::Custom(label.into());
+                    if picked(PUSH_BUTTON, MessageDialogResult::Yes) {
+                        // Settings, Server in this computer's library: connecting there shows "Migrate
+                        // your library to a server", which sends only what isn't on it yet.
+                        navigate_or_picker(&window2, &format!("http://127.0.0.1:{}/settings/server", api::LOCAL_PORT));
+                    } else if picked(SWITCH_BUTTON, MessageDialogResult::No) {
+                        end_server_fallback(&app2);
+                        navigate_or_picker(&window2, &url);
+                        // The library on this computer isn't needed while on the server.
+                        let app3 = app2.clone();
+                        tauri::async_runtime::spawn(async move { api::stop_api_async(&app3).await });
+                    }
+                });
+        } else if reachable.is_some() {
+            failures = 0;
+        } else {
+            failures += 1;
+            if failures >= SERVER_FAILURES_BEFORE_FALLBACK {
+                failures = 0;
+                use_local_while_offline(&app, &window, &cfg).await;
+            }
+        }
+    }
+}
+
 async fn apply_config(app: AppHandle, window: WebviewWindow) {
     let config = store::read_config(&app_data_dir(&app));
     match config {
@@ -444,41 +756,26 @@ async fn apply_config(app: AppHandle, window: WebviewWindow) {
             }
         }
         Some(cfg) if cfg.mode.as_deref() == Some("remote") => {
-            // Automatic URL Switching on: prefer the local address only when we're actually on
-            // its designated Wi-Fi network right now (cfg.local_network_name being None means a
-            // config saved before this field existed — keep its old "always try local first"
-            // behavior rather than breaking it). Reachability is still checked even on a network
-            // match, as a safety net for "right network, server's just down right now" — falling
-            // through to the ordered external list either way. Nothing here answering just
-            // navigates to the last external one anyway (same permissive "let the webview show
-            // its own connection error" behavior the single-URL path below already had) rather
-            // than blocking setup on a dialog — a transient network hiccup shouldn't be harder to
-            // get past than it was before this feature existed.
-            if let Some(local_url) = &cfg.local_url {
-                let on_local_network = match &cfg.local_network_name {
-                    Some(name) => network::current_wifi_ssid().as_deref() == Some(name.as_str()),
-                    None => true,
-                };
-                let external_urls = cfg.external_urls.clone().unwrap_or_default();
-                let mut target = None;
-                if on_local_network && api::is_reachable(&format!("{local_url}/health")).await {
-                    target = Some(local_url.clone());
-                }
-                if target.is_none() {
-                    for url in &external_urls {
-                        if api::is_reachable(&format!("{url}/health")).await {
-                            target = Some(url.clone());
-                            break;
-                        }
-                    }
-                }
-                let target = target.or_else(|| external_urls.last().cloned()).unwrap_or_else(|| local_url.clone());
-                navigate_or_picker(&window, &target);
-            } else if let Some(server_url) = cfg.server_url {
-                navigate_or_picker(&window, &server_url);
-            } else {
+            if cfg.server_url.is_none() && cfg.local_url.is_none() {
                 navigate_or_picker(&window, PICKER_URL);
+                return;
             }
+            // A server that's just restarting can take a few seconds to answer.
+            let mut target = None;
+            for attempt in 0..STARTUP_SERVER_TRIES {
+                if attempt > 0 {
+                    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                }
+                target = reachable_server(&cfg).await;
+                if target.is_some() {
+                    break;
+                }
+            }
+            match target {
+                Some(url) => navigate_or_picker(&window, &url),
+                None => use_local_while_offline(&app, &window, &cfg).await,
+            }
+            ensure_server_watcher(&app, &window);
         }
         _ => navigate_or_picker(&window, PICKER_URL),
     }
@@ -519,6 +816,9 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .manage(api::ApiState::default())
+        .manage(RemoteCapabilities::default())
+        .manage(ServerFallback::default())
+        .manage(local_inference::LocalInferenceState::default())
         .invoke_handler(tauri::generate_handler![
             get_config,
             choose_setup,
@@ -528,7 +828,11 @@ pub fn run() {
             test_endpoint,
             test_login,
             app_install_info,
-            set_local_data_dir
+            set_local_data_dir,
+            local_inference_status,
+            local_inference_prepare,
+            local_embed,
+            use_local_library
         ])
         .setup(|app| {
             let handle = app.handle().clone();
@@ -536,10 +840,21 @@ pub fn run() {
             app.set_menu(menu)?;
             app.on_menu_event(move |app, event| {
                 if event.id() == "change-server" {
-                    let _ = store::clear_config(&app_data_dir(app));
+                    if let Err(e) = store::clear_config(&app_data_dir(app)) {
+                        eprintln!("[lifer] couldn't clear the saved config: {e}");
+                    }
                     if let Some(window) = app.get_webview_window(WINDOW_LABEL) {
                         api::stop_api(app);
                         navigate_or_picker(&window, PICKER_URL);
+                    }
+                } else if event.id() == "use-local" {
+                    if let Some(window) = app.get_webview_window(WINDOW_LABEL) {
+                        let app = app.clone();
+                        tauri::async_runtime::spawn(async move {
+                            if let Err(e) = switch_to_local_library(&app, &window).await {
+                                app.dialog().message(e).kind(tauri_plugin_dialog::MessageDialogKind::Error).show(|_| {});
+                            }
+                        });
                     }
                 } else if event.id() == "delete-selected" {
                     let _ = app.emit("menu:delete-selected", ());
@@ -554,45 +869,25 @@ pub fn run() {
                 .inner_size(1360.0, 900.0)
                 .background_color(tauri::webview::Color(0xf6, 0xee, 0xdc, 255));
 
-            // title_bar_style/hidden_title/traffic_light_position are macOS-only builder
-            // methods (calling them unconditionally fails to COMPILE on Windows/Linux, not
-            // just a runtime no-op — confirmed against the tauri crate source) — this whole
-            // block only makes sense on macOS's frameless-with-native-traffic-lights window
-            // anyway. Windows/Linux get Tauri's normal decorated window with no special
-            // handling. Standard native traffic lights, no custom override, no forced
-            // appearance — same as any other native macOS app.
+            // These builder methods only compile on macOS. Windows and Linux keep Tauri's normal
+            // decorated window.
             #[cfg(target_os = "macos")]
             {
                 window_builder = window_builder
-                    // Native macOS traffic lights over our own header (see index.css's
-                    // [data-mac-app] rules) — direct equivalent of Electron's titleBarStyle:
-                    // "hidden" + trafficLightPosition. Genuinely native (owned by AppKit), same as
-                    // Electron's — validated in the Phase 1 spike with no blur-visibility bug.
+                    // Native traffic lights over our own header (see index.css's [data-mac-app] rules).
                     .title_bar_style(tauri::TitleBarStyle::Overlay)
                     .hidden_title(true)
                     .traffic_light_position(tauri::LogicalPosition::new(20.0, 20.0));
             }
 
             let window = window_builder
-                // Tauri intercepts OS-level file drag-and-drop by default and routes it through
-                // its own DragDrop event system instead of letting it reach the webview as a
-                // normal DOM DragEvent — which left BulkImportPage's onDrop handler seeing an
-                // empty dataTransfer.files every time (the browser-side event still fires, just
-                // with no file payload). Disabling Tauri's own handler here restores standard
-                // HTML5 drag-and-drop for the whole window, matching how it already works when
-                // this same page runs in a normal browser.
+                // Tauri's drag-drop handler empties DOM dataTransfer.files; disable it for HTML5 drops.
                 .disable_drag_drop_handler()
-                // Injected before ANY page script runs, on every navigation (including once
-                // this window later navigates away to http://127.0.0.1:4310 or a remote
-                // server's own origin) — the one piece apps/web's own Tauri shim (main.tsx)
-                // needs synchronously rather than via an async invoke() call. See bridge.js's
-                // matching comment for why this can't just be a preload script like Electron's.
-                .initialization_script(&format!("window.__LIFER_PLATFORM__ = {:?};", platform()))
-                // target=_blank links (e.g. the eBird checklist link) open in the user's real
-                // browser instead of navigating this window away — mirrors main.js's
-                // setWindowOpenHandler.
+                // Runs before page scripts on every origin; main.tsx's shim needs the platform
+                // synchronously.
+                .initialization_script(format!("window.__LIFER_PLATFORM__ = {:?};", platform()))
+                // Only app, local API and configured-server pages load in this window.
                 .on_navigation(move |url| {
-                    eprintln!("[lifer-debug] on_navigation fired for: {url}");
                     let is_local_asset = url.scheme() == "tauri";
                     // Same candidate list as is_trusted_sender.
                     let is_configured_remote =
@@ -600,21 +895,12 @@ pub fn run() {
                     if is_local_asset || is_local_api(url) || is_configured_remote {
                         return true;
                     }
-                    // Anything else (e.g. the eBird checklist link, target="_blank" in the
-                    // real app) is an external link — open it in the user's real browser
-                    // instead of navigating this window away, and block the in-app navigation.
+                    // Anything else is external: open it in the user's browser instead.
                     open_external(&nav_handle, url);
                     false
                 })
-                // on_navigation above only fires for a navigation of THIS window — a real
-                // target="_blank" anchor click (like the eBird "Download My Data" link) instead
-                // fires window.open(), which goes through this entirely separate hook. Without
-                // it registered, WRY has nothing to do with that request and the click is a
-                // silent no-op — which is exactly what "the link doesn't do anything" was: the
-                // on_navigation comment above always described the intent, but target="_blank"
-                // links never actually went through that hook at all.
+                // target="_blank" clicks go through window.open, not on_navigation.
                 .on_new_window(move |url, _features| {
-                    eprintln!("[lifer-debug] on_new_window fired for: {url}");
                     open_external(&new_window_handle, &url);
                     tauri::webview::NewWindowResponse::Deny
                 })
@@ -625,6 +911,10 @@ pub fn run() {
 
             #[cfg(target_os = "macos")]
             warn_if_translocated(&handle);
+
+            if let Some(cfg) = store::read_config(&app_data_dir(&handle)) {
+                grant_remote_capabilities(&handle, &cfg);
+            }
 
             let handle2 = handle.clone();
             let window2 = window.clone();
@@ -651,20 +941,12 @@ pub fn run() {
         })
         .build(tauri::generate_context!())
         .expect("error while running tauri application")
-        // Builder::run(context) (what this used to call directly) is actually
-        // `self.build(context)?.run(|_, _| {})` under the hood — a no-op app-level event
-        // handler. That meant stop_api() only ever had a chance to run via the WindowEvent::
-        // Destroyed hook above, which macOS's native Quit (Cmd+Q / the app menu's Quit item)
-        // doesn't reliably route through — quitting the whole app isn't the same pipeline as
-        // closing a window, so the sidecar could outlive the app indefinitely on an ordinary
-        // quit, not just a force-quit. RunEvent::Exit/ExitRequested are the actual "the app is
-        // going away, for any reason" signal Tauri guarantees fires on every normal shutdown
-        // path, so this is the reliable place to kill the sidecar. (A real force-quit/SIGKILL
-        // still bypasses this entirely — that's what the sidecar's own parent-pid watchdog in
-        // apps/api/src/index.ts is for.)
+        // Cmd+Q doesn't reliably fire WindowEvent::Destroyed, so stop the sidecar on every normal
+        // exit here. A force-quit is covered by the sidecar's parent-pid watchdog.
         .run(|app_handle, event| {
             if let tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit = event {
                 api::stop_api(app_handle);
+                local_inference::stop(app_handle);
             }
         });
 }

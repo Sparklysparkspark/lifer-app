@@ -1,9 +1,5 @@
-// Spawns and supervises the Lifer API as a child process — the Tauri equivalent of
-// apps/desktop/src/main.js's startApi/stopApi/waitForServer/fetchOk. apps/api itself needs
-// ZERO changes for this migration (confirmed: it's a plain Fastify server reading env vars,
-// no Electron-specific assumptions anywhere) — only how it's launched changes, from Electron
-// repurposing its own binary as Node (ELECTRON_RUN_AS_NODE) to a real vendored Node binary
-// run as a Tauri sidecar.
+// Spawns and supervises the Lifer API as a Node sidecar. apps/api is a plain Fastify server
+// configured by env vars, with nothing desktop-specific.
 use crate::embedded_db;
 use postgresql_embedded::PostgreSQL;
 use std::collections::HashMap;
@@ -41,19 +37,15 @@ pub struct ApiState {
     child: Mutex<Option<RunningChild>>,
     spawn_spec: Mutex<Option<SpawnSpec>>,
     restarts: Mutex<Vec<Instant>>,
-    // Last 4KB of stderr, for the crash dialog — mirrors main.js's `recentStderr`.
+    // Last 4KB of stderr, for the crash dialog.
     pub recent_stderr: Mutex<String>,
-    // The embedded Postgres instance backing local mode (see embedded_db.rs) — kept alive here
-    // for the app's lifetime so stop_api() can shut it down cleanly, and so a second start_api()
-    // call in the same process (re-picking the library folder) reuses the already-running
-    // instance instead of trying to set up/start a second one on top of it.
+    // Embedded Postgres for local mode, kept for the app's lifetime so stop_api() can shut it
+    // down and a second start_api() reuses it.
     pub postgres: Mutex<Option<PostgreSQL>>,
 }
 
-fn resources_root(app: &AppHandle) -> PathBuf {
-    // In dev (`tauri dev`), resources aren't bundled yet — fall back to the staged resources
-    // folder the prepare-resources script writes, so `tauri dev` can run against the real API
-    // without a full `tauri build` first.
+pub(crate) fn resources_root(app: &AppHandle) -> PathBuf {
+    // `tauri dev` has no bundled resources, so use the folder prepare-resources stages.
     match app.path_resolver_resource_dir() {
         Some(dir) if dir.join("api").exists() => dir,
         _ => PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("resources-staging"),
@@ -70,18 +62,8 @@ impl PathResolverExt for AppHandle {
     }
 }
 
-// Dev-only convenience: the offline map is a real opt-in download in the shipped app (see
-// settings/routes.ts's /settings/map/download, MAP_DOWNLOAD_URL) — there's no hosted download
-// URL configured yet, so right now there's genuinely no way to get the map without this. This
-// repo's own checkout already has that same file at data/lifer/maps — gated purely on that
-// exact relative path actually existing (not on debug vs. release build), since that's already
-// the real safety guarantee: no real end-user install ever has this repo's own working copy
-// sitting three directories above wherever the app binary happens to live, so this can never
-// fire outside a QA checkout like this one, in either build profile. This is the Tauri port of
-// the same fix main.js's ensureDevMap once had for Electron — that version never carried over
-// during the migration, which is the actual reason "the map is grey" kept coming back: the map
-// file was never present for this app's own data dir at all, in either light or dark mode,
-// regardless of any style/flavor changes made along the way.
+// Dev convenience: copies the repo checkout's offline map into the app data dir. Gated on that
+// relative path existing, which is never true for an end-user install.
 fn ensure_dev_map(app_data_dir: &std::path::Path) {
     let dev_map = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../../data/lifer/maps/world-z8.pmtiles");
@@ -183,27 +165,17 @@ pub async fn start_api(app: &AppHandle, data_dir: Option<String>) -> Result<(), 
     envs.insert("PORT".into(), LOCAL_PORT.to_string());
     envs.insert("NODE_ENV".into(), "production".into());
     envs.insert("SINGLE_USER_MODE".into(), "1".into());
-    // Belt-and-suspenders against a force-quit or crash of this app: those send SIGKILL
-    // directly to this process with no chance for the RunEvent::Exit/ExitRequested handler
-    // below to run at all, which otherwise leaves this sidecar orphaned and still holding
-    // LOCAL_PORT. The sidecar's own watchdog (see apps/api/src/index.ts) polls this pid and
-    // self-exits once it's gone.
+    // A force-quit skips our exit handlers, so the sidecar polls this pid and exits once it's gone.
     envs.insert("LIFER_WATCH_PARENT_PID".into(), std::process::id().to_string());
     envs.insert("LIFER_LAUNCH_TOKEN".into(), launch_token().to_string());
     envs.insert("WEB_DIST_DIR".into(), web_dist.to_string_lossy().into_owned());
-    // Same "one dedicated, rolling GitHub Release" shape as CATALOG_SEED_URL (embedded_db.rs) —
-    // re-uploading a new asset to this same "map-latest" tag publishes an update without
-    // needing a new app release. Only inserted when not already set, so a real dev/CI
-    // MAP_DOWNLOAD_URL override (e.g. pointing at a local test file) still wins.
+    // Rolling "map-latest" release, so a map update needs no app release. An env override wins.
     envs
         .entry("MAP_DOWNLOAD_URL".into())
         .or_insert_with(|| "https://github.com/Sparklysparkspark/lifer-app/releases/download/map-latest/world-z8.pmtiles".into());
 
-    // An explicit DATABASE_URL in the environment (development against a real Postgres) is
-    // always respected as-is; otherwise local mode is fully self-contained — no separately-
-    // running Postgres required anymore. Reuses an already-running embedded instance from an
-    // earlier start_api() call in this same process (e.g. re-picking the library folder)
-    // rather than trying to set one up on top of it.
+    // An explicit DATABASE_URL wins (dev). Otherwise use embedded Postgres, reusing one already
+    // started in this process.
     let already_running_url = {
         let guard = state.postgres.lock().unwrap();
         guard.as_ref().map(embedded_db::connection_url)
@@ -217,11 +189,8 @@ pub async fn start_api(app: &AppHandle, data_dir: Option<String>) -> Result<(), 
             .await
             .map_err(|e| format!("Couldn't start the embedded database: {e}"))?;
         run_migrations(app, &resources, &url).await?;
-        // Migrations create the schema; a brand new database still has none of the base
-        // species/region taxonomy (a separate one-time "seed" dataset — see this function's own
-        // comment). Restoring it here, right after migrations and before the real API starts,
-        // is what makes a fresh local library show anything at all instead of an empty shell.
-        // Not fatal: the library still opens, and an empty catalog is retried next launch.
+        // A new database has the schema but no species catalog. Not fatal: the library still
+        // opens, and an empty catalog is retried next launch.
         if let Err(e) = embedded_db::restore_catalog_seed_if_needed(&postgresql, &resources).await {
             eprintln!("[start_api] catalog restore failed: {e}");
             app.dialog()
@@ -235,12 +204,16 @@ pub async fn start_api(app: &AppHandle, data_dir: Option<String>) -> Result<(), 
         url
     };
     envs.insert("DATABASE_URL".into(), database_url);
+    // Lets the sidecar's parent watchdog stop the embedded Postgres if this app is killed.
+    if let Some((pg_ctl, pg_data)) = state.postgres.lock().unwrap().as_ref().map(embedded_db::pg_ctl_and_data_dir) {
+        envs.insert("LIFER_PG_CTL".into(), pg_ctl.to_string_lossy().into_owned());
+        envs.insert("LIFER_PG_DATA".into(), pg_data.to_string_lossy().into_owned());
+    }
     // Same fallback chain as main.js: the folder chosen in the picker, persisted in config,
     // falling back to a stable per-install default under Tauri's own app data dir.
     let resolved_data_dir = data_dir.unwrap_or_else(|| app_data_dir.join("data").to_string_lossy().into_owned());
     envs.insert("DATA_DIR".into(), resolved_data_dir);
-    // Shared app assets (offline basemap, species reference-photo cache) — see config.ts's own
-    // comment on why this is deliberately independent of DATA_DIR.
+    // Shared app assets (offline basemap, reference-photo cache), independent of DATA_DIR.
     envs.insert(
         "APP_DATA_DIR".into(),
         app_data_dir.join("app-data").to_string_lossy().into_owned(),
@@ -347,12 +320,8 @@ async fn handle_unexpected_exit(app: &AppHandle, stopping: &AtomicBool, code: i3
     let _ = app.emit("api-crashed", format!("{failure}\n\n{detail}"));
 }
 
-// apps/api itself never runs its own migrations (see packages/data-pipeline/src/migrate.ts —
-// the Docker image's own CMD runs it as a separate step before starting the server); local
-// mode has no equivalent separate step today, so this runs it as a one-off sidecar invocation,
-// waited on to completion, right after the embedded database is confirmed up and before the
-// real API sidecar starts. Idempotent (schema_migrations tracks what's already applied), so
-// safe to run on every start_api() call that just (re)created the embedded instance.
+// apps/api doesn't run migrations itself, so run data-pipeline's migrate.ts as a one-off sidecar
+// before starting the API. Idempotent via schema_migrations.
 async fn run_migrations(app: &AppHandle, resources: &Path, database_url: &str) -> Result<(), String> {
     let migrate_entry = resources.join("node_modules").join("data-pipeline").join("src").join("migrate.ts");
     let tsx_dir = resources.join("node_modules").join("tsx").join("dist");
@@ -437,9 +406,7 @@ async fn fetch_ok(url: &str) -> bool {
     matches!(client.get(url).send().await, Ok(res) if res.status().as_u16() < 500)
 }
 
-/// Polls a URL until it responds (or times out) — the Tauri equivalent of main.js's
-/// waitForServer, used both for the freshly-spawned local API and for checking a remote
-/// server's reachability before switching modes.
+/// Polls a URL until it responds or times out, for the local API and remote servers alike.
 pub async fn wait_for_server(url: &str, timeout_ms: u64) -> Result<(), String> {
     let start = std::time::Instant::now();
     loop {
@@ -457,14 +424,8 @@ pub async fn is_reachable(url: &str) -> bool {
     fetch_ok(url).await
 }
 
-// Backs Settings' (and the picker's) "Sign in" step — a real credential check against the
-// REMOTE server's own /auth/login, done natively here rather than as a browser fetch() from the
-// renderer, since an arbitrary self-hosted server has no reason to send this app's origin
-// permissive CORS headers. This intentionally does NOT establish the actual browsing session
-// (the cookie login sets here is just discarded with this one-off client) — it only answers
-// "are these credentials good" before the window commits to switching. The real, cookie-backed
-// login still happens the normal way, via LoginPage, once the window has actually navigated to
-// that server's own origin.
+// Checks credentials against a remote server's /auth/login natively, avoiding CORS. The cookie
+// is discarded; the real login happens in LoginPage after the window navigates there.
 pub async fn test_login(url: &str, email: &str, password: &str) -> Result<(), String> {
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(8))
@@ -472,6 +433,8 @@ pub async fn test_login(url: &str, email: &str, password: &str) -> Result<(), St
         .map_err(|e| e.to_string())?;
     let res = client
         .post(format!("{url}/auth/login"))
+        // The API's cross-site guard wants this on non-GET requests from Lifer's own clients.
+        .header("x-lifer-client", "1")
         .json(&serde_json::json!({ "email": email, "password": password }))
         .send()
         .await

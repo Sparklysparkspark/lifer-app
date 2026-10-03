@@ -1,10 +1,6 @@
-// Combines every matrix job's partial updater manifest (see build-update-manifest.js — one per
-// macOS/Windows/Linux job, named latest-<platformKey>.json, e.g. latest-darwin-aarch64.json,
-// latest-windows-x86_64.json, latest-linux-x86_64.json) into the single real latest.json a
-// release actually ships — tauri-plugin-updater expects ONE manifest with every platform key
-// present, and uploading several same-named latest.json release assets would just have the last
-// job's upload silently clobber the rest. Run from the repo root after downloading every job's
-// `latest-*.json` artifacts into a single directory:
+// Combines each matrix job's partial manifest (latest-<platformKey>.json, from
+// build-update-manifest.js) into the single latest.json the updater expects. Run from the repo
+// root after downloading every job's artifacts into one directory:
 //   node merge-update-manifests.js <dir> <outputPath> [notesFile]
 // A missing platform (its build leg failed) only warns: the other platforms still get updates.
 // notesFile, when given and non-empty, replaces the manifest's notes with the real changelog.
@@ -33,8 +29,7 @@ for (const file of manifestFiles) {
   if (!merged) {
     merged = partial;
   } else {
-    // version/notes/pub_date are identical across both jobs (same tag, same release) — only
-    // `platforms` actually needs combining.
+    // version/notes/pub_date match across jobs; only `platforms` needs combining.
     merged.platforms = { ...merged.platforms, ...partial.platforms };
   }
   console.log(`[merge-update-manifests] merged ${full} (${Object.keys(partial.platforms).join(", ")})`);

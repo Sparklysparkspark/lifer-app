@@ -1,11 +1,9 @@
-// Downloads the official Node.js prebuilt binary for the current platform and vendors it as
-// the Tauri sidecar (src-tauri/binaries/node-<target-triple>) that api.rs spawns. This session's
-// local testing instead copied whatever Node happened to already be installed on the dev
-// machine — fine for proving the architecture works, but a real release build needs the
-// correct OFFICIAL binary for each platform being shipped, not whatever's on the build
-// machine. Run once per target platform before `npm run dist`.
+// Downloads the official Node.js binary for this platform and vendors it as the Tauri sidecar
+// (src-tauri/binaries/node-<target-triple>) that api.rs spawns. Run once per target before
+// `npm run dist`.
 import { execSync } from "node:child_process";
-import { createWriteStream, mkdirSync, chmodSync, rmSync } from "node:fs";
+import { createReadStream, createWriteStream, mkdirSync, chmodSync, rmSync } from "node:fs";
+import { createHash } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { pipeline } from "node:stream/promises";
@@ -28,11 +26,34 @@ function currentTargetTriple() {
     .trim();
 }
 
+async function sha256File(file) {
+  const hash = createHash("sha256");
+  await pipeline(createReadStream(file), hash);
+  return hash.digest("hex");
+}
+
+// Checks the archive against the SHASUMS256.txt published in the same nodejs.org release dir.
+async function verifyChecksum(archivePath, archiveName) {
+  const sumsUrl = `https://nodejs.org/dist/v${NODE_VERSION}/SHASUMS256.txt`;
+  const res = await fetch(sumsUrl);
+  if (!res.ok) throw new Error(`Couldn't fetch ${sumsUrl}: HTTP ${res.status}`);
+  const line = (await res.text()).split("\n").find((l) => l.trim().split(/\s+/)[1] === archiveName);
+  if (!line) throw new Error(`${archiveName} is not listed in ${sumsUrl}`);
+  const expected = line.trim().split(/\s+/)[0].toLowerCase();
+  const actual = await sha256File(archivePath);
+  if (actual !== expected) {
+    rmSync(archivePath, { force: true });
+    throw new Error(`Checksum mismatch for ${archiveName}: expected ${expected}, got ${actual}. Refusing to vendor it.`);
+  }
+  console.log(`[fetch-node-sidecar] sha256 verified (${actual})`);
+}
+
 async function fetchAndExtract(targetTriple) {
   const spec = TARGETS[targetTriple];
-  if (!spec) throw new Error(`No known Node download for target triple ${targetTriple} — add it to TARGETS.`);
+  if (!spec) throw new Error(`No known Node download for target triple ${targetTriple}. Add it to TARGETS.`);
 
-  const url = `https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-${spec.platform}.${spec.ext}`;
+  const archiveName = `node-v${NODE_VERSION}-${spec.platform}.${spec.ext}`;
+  const url = `https://nodejs.org/dist/v${NODE_VERSION}/${archiveName}`;
   const binariesDir = path.join(__dirname, "..", "src-tauri", "binaries");
   const tmpArchive = path.join(binariesDir, `node.${spec.ext}`);
   const extractDir = path.join(binariesDir, "_extract");
@@ -42,12 +63,12 @@ async function fetchAndExtract(targetTriple) {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Download failed: HTTP ${res.status}`);
   await pipeline(res.body, createWriteStream(tmpArchive));
+  await verifyChecksum(tmpArchive, archiveName);
 
   rmSync(extractDir, { recursive: true, force: true });
   mkdirSync(extractDir, { recursive: true });
-  // The official Windows build is a zip with node.exe at its own root; macOS/Linux tarballs
-  // nest everything one level down under bin/node — `unzip` has no --strip-components
-  // equivalent, so the Windows branch extracts flat and reads straight from extractDir instead.
+  // The Windows zip has node.exe at its root while tarballs nest under bin/node. `unzip` can't
+  // strip components, so the Windows branch extracts flat.
   const isWindows = spec.ext === "zip";
   if (isWindows) {
     execSync(`unzip -q "${tmpArchive}" -d "${extractDir}"`);
@@ -57,8 +78,7 @@ async function fetchAndExtract(targetTriple) {
 
   const dest = path.join(binariesDir, `node-${targetTriple}${isWindows ? ".exe" : ""}`);
   if (isWindows) {
-    // The zip's own top-level folder is named node-v<version>-win-x64 — same "one level down"
-    // shape as the tarballs, just not stripped by the extraction step above.
+    // The zip's top-level folder is node-v<version>-win-x64, not stripped above.
     const nested = path.join(extractDir, `node-v${NODE_VERSION}-${spec.platform}`, "node.exe");
     execSync(`cp "${nested}" "${dest}"`);
   } else {

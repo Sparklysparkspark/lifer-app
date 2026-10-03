@@ -106,6 +106,22 @@
       .external-field.open {
         display: block;
       }
+      .hint {
+        font-size: 11px;
+        color: #78716c;
+        margin: -6px 0 10px;
+      }
+      .status {
+        margin: 12px 0 0;
+      }
+      .warning {
+        color: #b45309;
+        font-size: 12px;
+        margin: -4px 0 10px;
+      }
+      [hidden] {
+        display: none !important;
+      }
     </style>
   </head>
   <body>
@@ -135,115 +151,20 @@
           <input type="text" id="local-network-name" placeholder="HomeWiFi" />
           <label class="field-label" for="external-url">External address (away from home)</label>
           <input type="text" id="external-url" placeholder="https://lifer.example.com" />
-          <p style="font-size: 11px; color: #78716c; margin: -6px 0 10px">
+          <p class="hint">
             Add more external addresses later from Settings &gt; Server.
           </p>
         </div>
 
-        <div class="error" id="error" style="display: none"></div>
+        <div class="warning" id="http-warning" hidden></div>
+        <div class="error" id="error" hidden></div>
         <button class="primary" id="connect">Connect</button>
       </div>
 
-      <p class="status" id="status" style="display: none; margin: 12px 0 0"></p>
+      <p class="status" id="status" hidden></p>
     </div>
 
     <script src="bridge.js"></script>
-    <script>
-      const localButton = document.getElementById("use-local");
-      const statusEl = document.getElementById("status");
-
-      function setBusy(message) {
-        statusEl.textContent = message;
-        statusEl.style.display = "block";
-        localButton.disabled = true;
-        document.getElementById("show-server-form").disabled = true;
-      }
-      function clearBusy() {
-        statusEl.style.display = "none";
-        localButton.disabled = false;
-        document.getElementById("show-server-form").disabled = false;
-      }
-
-      localButton.addEventListener("click", async () => {
-        // A brand new library's very first setup call can genuinely take 10-30+ seconds (the
-        // embedded database is initialized, migrated, and its species/region catalog
-        // downloaded and restored — see embedded_db.rs) — with nothing shown here before this
-        // fix, that stretch looked exactly like the button silently doing nothing.
-        setBusy("Setting up your library… this can take a minute the first time.");
-        const result = await window.liferSetup.choose({ mode: "local" });
-        // A successful result navigates away entirely (see lib.rs), so reaching here at all
-        // means it was canceled (the folder dialog was dismissed) or genuinely failed — either
-        // way, the picker needs to be usable again rather than stuck on "Setting up…" forever.
-        clearBusy();
-        if (result && result.error) {
-          const errorEl = document.getElementById("error");
-          errorEl.textContent = result.error;
-          errorEl.style.display = "block";
-        }
-      });
-      document.getElementById("show-server-form").addEventListener("click", () => {
-        document.getElementById("server-form").classList.add("open");
-      });
-
-      const ipSwitchingCheckbox = document.getElementById("ip-switching");
-      const externalField = document.getElementById("external-field");
-      const serverUrlLabel = document.getElementById("server-url-label");
-      const serverUrlInput = document.getElementById("server-url");
-      ipSwitchingCheckbox.addEventListener("change", () => {
-        const on = ipSwitchingCheckbox.checked;
-        externalField.classList.toggle("open", on);
-        serverUrlLabel.textContent = on ? "Local address (home network)" : "Server address";
-        serverUrlInput.placeholder = on ? "192.168.1.50:4000" : "https://lifer.example.com";
-      });
-
-      function normalizeUrl(raw) {
-        // The local address is often a bare host:port on a LAN (no scheme) — Immich's own
-        // local-address field works the same way. The external address is always a real
-        // https:// domain (nginx-forwarded), so that one still requires an explicit scheme.
-        if (!raw) return null;
-        return /^https?:\/\//.test(raw) ? raw : `http://${raw}`;
-      }
-
-      document.getElementById("connect").addEventListener("click", async () => {
-        const errorEl = document.getElementById("error");
-        errorEl.style.display = "none";
-        const rawServerUrl = serverUrlInput.value.trim();
-        if (!rawServerUrl) {
-          errorEl.textContent = ipSwitchingCheckbox.checked ? "Enter your local address." : "Enter a full URL, starting with http:// or https://";
-          errorEl.style.display = "block";
-          return;
-        }
-
-        let payload;
-        if (ipSwitchingCheckbox.checked) {
-          const rawExternalUrl = document.getElementById("external-url").value.trim();
-          if (!rawExternalUrl) {
-            errorEl.textContent = "Enter your external address too, or turn off IP switching.";
-            errorEl.style.display = "block";
-            return;
-          }
-          const networkName = document.getElementById("local-network-name").value.trim();
-          payload = {
-            mode: "remote",
-            localUrl: normalizeUrl(rawServerUrl),
-            localNetworkName: networkName || undefined,
-            externalUrls: [normalizeUrl(rawExternalUrl)],
-          };
-        } else {
-          if (!/^https?:\/\//.test(rawServerUrl)) {
-            errorEl.textContent = "Enter a full URL, starting with http:// or https://";
-            errorEl.style.display = "block";
-            return;
-          }
-          payload = { mode: "remote", serverUrl: rawServerUrl };
-        }
-
-        const result = await window.liferSetup.choose(payload);
-        if (result && result.error) {
-          errorEl.textContent = result.error;
-          errorEl.style.display = "block";
-        }
-      });
-    </script>
+    <script src="picker.js"></script>
   </body>
 </html>

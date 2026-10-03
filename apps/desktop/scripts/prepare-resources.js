@@ -1,6 +1,5 @@
-// Assembles apps/desktop/resources-staging/ — everything the packaged Tauri app needs bundled
-// alongside the Rust binary: the (unmodified) API source run via tsx, the built web app, and a
-// pruned copy of node_modules holding only what's actually needed at runtime.
+// Assembles apps/desktop/resources-staging/: the API source (run via tsx), the built web app,
+// and a pruned node_modules holding only runtime dependencies.
 import { mkdirSync, rmSync, cpSync, readFileSync, readdirSync, statSync, existsSync, linkSync } from "node:fs";
 import { createHash } from "node:crypto";
 import path from "node:path";
@@ -8,35 +7,17 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.join(__dirname, "..", "..", "..");
-// Staged INSIDE src-tauri (not apps/desktop directly) — a bundle resource path needs "../" to
-// reach anywhere outside src-tauri, and Tauri mangles that into a literal "_up_" folder inside
-// Resources/ rather than actually resolving upward, which broke the app's own runtime resource
-// lookup (api.rs's resources_root() expects Resources/api, not
-// Resources/_up_/resources-staging/api). Staying inside src-tauri avoids that entirely.
+// Staged inside src-tauri because Tauri turns a "../" resource path into a literal "_up_"
+// folder, which breaks api.rs's resources_root() lookup.
 const STAGING = path.join(__dirname, "..", "src-tauri", "resources-staging");
 
-// The runtime dependency closure for apps/api (+ data-pipeline + shared) computed from
-// package-lock.json's real resolved dependency graph, not guessed — everything else in the
-// hoisted root node_modules is dev/build-only tooling (electron-builder... err, now just
-// vite/typescript/etc.) with no business in a shipped app. See node-modules-exclude.json's own
-// generation: same lockfile-closure approach used for the old Electron build, after two rounds
-// of fixing real misses there (fs-minipass, the whole @fastify scope) — kept as a separate,
-// regeneratable data file now that there's no sibling Electron config left to read it from.
-//
-// One hand-added carve-out beyond the lockfile closure: "exceljs" (~25MB) is a real dependency
-// edge (data-pipeline/src/fetch/fetch-avonet.ts imports it) but that file is only ever run
-// directly as a one-off data-enrichment script (via build-seed.ts/build-seed-test.ts, both
-// dev/build tooling) — no route the shipped app actually serves imports it, so it's excluded
-// here even though a pure lockfile-closure walk would keep it. If a future regeneration of this
-// file drops this entry, re-add it (or re-verify fetch-avonet.ts really is still unreachable at
-// runtime and remove this comment instead).
+// Runtime dependency closure for apps/api, data-pipeline and shared, computed from
+// package-lock.json (see node-modules-exclude.json). Everything else hoisted is dev tooling.
+// "exceljs" is excluded by hand (only a one-off data script uses it); keep it there on regeneration.
 function loadNodeModulesExcludeSet() {
   const names = JSON.parse(readText(path.join(__dirname, "node-modules-exclude.json")));
-  // This app's OWN workspace symlink in root node_modules (npm names it after whatever
-  // package.json "name" is at `npm install` time) — dereference:true below follows symlinks,
-  // so leaving this in causes an infinite self-copy (resources-staging copied into itself,
-  // forever) rather than a merely wasteful one. Covers current and past names from this app's
-  // own history in case a stale symlink from an earlier rename lingers in node_modules.
+  // This app's own workspace symlinks: dereference:true would copy resources-staging into
+  // itself forever. Includes past names in case a stale symlink lingers.
   names.push("desktop", "desktop-tauri", "appsdesktop-tauri", "appsdesktop-tauri-spike");
   return new Set(names);
 }
@@ -59,16 +40,8 @@ function copyNodeModules(exclude) {
     });
   }
 
-  // npm doesn't always hoist every package to the root — a workspace whose own required
-  // version range conflicts with what something else at the root wants keeps its own nested
-  // node_modules instead (confirmed case: apps/api's "tar" — root has none at all, only a
-  // copy nested here and under packages/data-pipeline). Anything root-only closure
-  // computation naturally misses those, since it only ever looks at root node_modules — a
-  // real crash this caused once already (ERR_MODULE_NOT_FOUND for "tar" at runtime, not a
-  // build-time error, since nothing checks these files actually exist until the app tries to
-  // import them). Overlaying each workspace's own nested node_modules on top of the root copy
-  // catches whatever the root-only pass missed; not exclude-filtered since these folders are
-  // already small and workspace-specific by construction, not the sprawling hoisted root tree.
+  // npm keeps a workspace's conflicting versions in its own nested node_modules (e.g. apps/api's
+  // "tar"), which the root-only closure misses. Overlay each workspace's nested copy on top.
   for (const workspaceDir of ["apps/api", "packages/data-pipeline", "packages/shared"]) {
     const nested = path.join(REPO_ROOT, workspaceDir, "node_modules");
     try {
@@ -80,22 +53,20 @@ function copyNodeModules(exclude) {
         });
       }
     } catch {
-      // No nested node_modules for this workspace — everything it needs was hoisted. Fine.
+      // No nested node_modules for this workspace; everything was hoisted.
     }
   }
 }
 
-// onnxruntime-node ships GPU execution provider .so files (CUDA/TensorRT/ROCm) alongside the
-// CPU one it actually needs — species/embeddings.ts only ever asks for the CPU provider (see
-// that file's own comment: no Python runtime, CPU inference by design), so these are pure dead
-// weight. Worse than dead weight on Linux specifically: linuxdeploy resolves every ELF's shared
-// library dependencies as it bundles the AppImage, and libonnxruntime_providers_tensorrt.so
-// needs libcublas.so.13 (an NVIDIA CUDA library no CI runner or most end-user Linux desktops
-// have installed) — linuxdeploy can't find it and hard-fails the whole bundle rather than just
-// warning. Stripping these before staging fixes the Linux build and trims real bytes off every
-// platform's shipped app for a feature (GPU inference) this app never uses.
+// Strip onnxruntime-node's unused GPU provider .so files (TensorRT needs libcublas and breaks
+// linuxdeploy). Covers every copy, including @xenova/transformers' nested one, which must ship.
+const ONNX_NODE_DIRS = ["onnxruntime-node", path.join("@xenova", "transformers", "node_modules", "onnxruntime-node")];
+
 function stripOnnxGpuProviders(stagingNodeModulesDir) {
-  const binDir = path.join(stagingNodeModulesDir, "onnxruntime-node", "bin");
+  for (const dir of ONNX_NODE_DIRS) stripOnnxGpuProvidersIn(path.join(stagingNodeModulesDir, dir, "bin"));
+}
+
+function stripOnnxGpuProvidersIn(binDir) {
   let removed = 0;
   function walk(dir) {
     for (const name of readdirSync(dir)) {
@@ -113,22 +84,14 @@ function stripOnnxGpuProviders(stagingNodeModulesDir) {
   try {
     walk(binDir);
   } catch {
-    // No onnxruntime-node/bin in this build (e.g. it wasn't in the dependency closure) — fine.
+    // No onnxruntime-node/bin in this build (e.g. not in the dependency closure).
   }
   if (removed > 0) console.log(`[prepare-resources] stripped ${removed} onnxruntime GPU provider file(s)`);
 }
 
-// Several native packages (sharp, lightningcss, and presumably others we haven't hit yet) ship
-// a separate optionalDependency per platform/libc combo (linux-x64-gnu, linux-x64-musl,
-// darwin-arm64, ...) — npm is supposed to install only the one matching the current host, but
-// this has a known history of installing extra variants anyway in some npm-version/lockfile
-// combos (confirmed here for both sharp and lightningcss). Harmless on its own, except
-// linuxdeploy hard-fails the WHOLE AppImage bundle on the first native binary it can't resolve
-// every shared-library dependency for, and a musl-linked .node/.so pulls in musl's own libc
-// (libc.musl-x86_64.so.1), which a glibc-based Ubuntu runner doesn't have. Rather than
-// allowlisting mismatched variants one package at a time as each one surfaces a new CI failure,
-// sweep every package directory (including scoped ones) for "musl" in its name and strip it —
-// this app never targets an Alpine/musl host, so a musl-named package is always safe to drop.
+// npm sometimes installs extra per-libc variants of native packages (sharp, lightningcss). A
+// musl-linked binary makes linuxdeploy fail on a glibc host, and this app never targets musl,
+// so strip every package with "musl" in its name.
 function stripMuslVariants(stagingNodeModulesDir) {
   if (process.platform !== "linux") return; // musl is the one exotic case; nothing to strip on darwin/win32
   let removed = 0;
@@ -150,55 +113,63 @@ function stripMuslVariants(stagingNodeModulesDir) {
   if (removed > 0) console.log(`[prepare-resources] stripped ${removed} musl-linked package dir(s)`);
 }
 
-// onnxruntime-node ships prebuilt native bindings for EVERY platform it supports
-// (bin/napi-v6/{darwin,linux,win32}/...) inside the single npm package — normal for a package
-// meant to be installed once and run cross-platform, but a build FOR one specific host only
-// ever needs its own platform's subfolder. Confirmed via `du -sh`: darwin/linux/win32 sum to
-// ~283MB combined in a real install, so shipping the other two platforms' binaries alongside
-// the one this build actually runs on is real, substantial dead weight — not the ~1-2MB a naive
-// glance at file COUNT would suggest.
-function stripNonHostOnnxPlatforms(stagingNodeModulesDir) {
-  const napiDir = path.join(stagingNodeModulesDir, "onnxruntime-node", "bin", "napi-v6");
-  let removedBytes = 0;
-  function dirSizeBytes(dir) {
-    let total = 0;
-    for (const name of readdirSync(dir)) {
-      const full = path.join(dir, name);
-      const st = statSync(full);
-      total += st.isDirectory() ? dirSizeBytes(full) : st.size;
-    }
-    return total;
+// onnxruntime-node ships native bindings for every platform (~283MB combined), but a build
+// only needs its own host's.
+function dirSizeBytes(dir) {
+  let total = 0;
+  for (const name of readdirSync(dir)) {
+    const full = path.join(dir, name);
+    const st = statSync(full);
+    total += st.isDirectory() ? dirSizeBytes(full) : st.size;
   }
-  try {
-    for (const platformDir of readdirSync(napiDir)) {
-      if (platformDir === process.platform) continue;
-      const full = path.join(napiDir, platformDir);
-      if (!statSync(full).isDirectory()) continue;
-      removedBytes += dirSizeBytes(full);
-      rmSync(full, { recursive: true, force: true });
+  return total;
+}
+
+// Removes every child dir of `dir` except `keep`, returning the bytes freed.
+function removeSiblingDirs(dir, keep) {
+  let freed = 0;
+  for (const name of readdirSync(dir)) {
+    if (name === keep) continue;
+    const full = path.join(dir, name);
+    if (!statSync(full).isDirectory()) continue;
+    freed += dirSizeBytes(full);
+    rmSync(full, { recursive: true, force: true });
+  }
+  return freed;
+}
+
+// Layout is bin/napi-v<N>/<platform>/<arch>/. Builds are native (no cross target), so keep only
+// the host's platform and arch, same assumption stripNonHostPrebuilds makes.
+function stripNonHostOnnxPlatforms(stagingNodeModulesDir) {
+  let removedBytes = 0;
+  for (const dir of ONNX_NODE_DIRS) {
+    const binDir = path.join(stagingNodeModulesDir, dir, "bin");
+    let napiDirs;
+    try {
+      napiDirs = readdirSync(binDir).filter((n) => n.startsWith("napi-v"));
+    } catch {
+      continue; // this copy isn't in the bundle
     }
-  } catch {
-    // No onnxruntime-node/bin/napi-v6 in this build (e.g. excluded from the dependency
-    // closure entirely) — fine, nothing to strip.
+    for (const napi of napiDirs) {
+      const napiDir = path.join(binDir, napi);
+      removedBytes += removeSiblingDirs(napiDir, process.platform);
+      const hostPlatformDir = path.join(napiDir, process.platform);
+      if (existsSync(hostPlatformDir)) removedBytes += removeSiblingDirs(hostPlatformDir, process.arch);
+    }
   }
   if (removedBytes > 0) {
     console.log(`[prepare-resources] stripped ${(removedBytes / 1024 / 1024).toFixed(0)}MB of non-host onnxruntime platform binaries`);
   }
 }
 
-// onnxruntime-node's own package ships BOTH the fully-versioned dylib (e.g.
-// libonnxruntime.1.29.0.dylib, the real file) and an unversioned/major-version-only name
-// (libonnxruntime.1.dylib) that's a symlink to it, following normal shared-library versioning
-// convention — but copyNodeModules above uses `dereference: true` (needed elsewhere so Tauri's
-// resource bundler doesn't just silently drop symlinks — see its own comment), which turns that
-// symlink into a second, byte-identical real file copy (confirmed via MD5: 42MB duplicated in a
-// real build). Both filenames still need to actually exist on disk (the loader may reference
-// either), so this can't just delete one — replacing the duplicate with a hard link to the
-// first copy keeps both names resolvable while sharing the same on-disk bytes. Hard links (not
-// symlinks) survive Tauri's resource-copy step because they're indistinguishable from a normal
-// file to anything that isn't specifically checking inode counts.
+// onnxruntime-node's unversioned dylib name is a symlink that dereference:true turns into a
+// second 42MB copy. Both names must exist, so replace the duplicate with a hard link, which
+// survives Tauri's resource copy.
 function dedupeIdenticalOnnxDylibs(stagingNodeModulesDir) {
-  const binDir = path.join(stagingNodeModulesDir, "onnxruntime-node", "bin");
+  for (const dir of ONNX_NODE_DIRS) dedupeIdenticalDylibsIn(path.join(stagingNodeModulesDir, dir, "bin"));
+}
+
+function dedupeIdenticalDylibsIn(binDir) {
   const byHash = new Map();
   let savedBytes = 0;
   function walk(dir) {
@@ -224,26 +195,48 @@ function dedupeIdenticalOnnxDylibs(stagingNodeModulesDir) {
   try {
     walk(binDir);
   } catch {
-    // No onnxruntime-node/bin in this build — fine, nothing to dedupe.
+    // No onnxruntime-node/bin in this build, so nothing to dedupe.
   }
   if (savedBytes > 0) {
     console.log(`[prepare-resources] hard-linked ${(savedBytes / 1024 / 1024).toFixed(0)}MB of duplicate onnxruntime native library file(s)`);
   }
 }
 
-// Several packages (bare-path, bare-fs, bare-url — pulled in transitively via tar-fs, needed by
-// sharp/prebuild-install) use the "prebuildify" convention: shipping a native addon prebuilt for
-// EVERY platform+arch they support under prebuilds/<platform>-<arch>/, same idea as onnxruntime's
-// per-platform bin/ dirs above but a much wider set (13 combos observed for bare-path, including
-// android-ia32, ios-arm64, win32-x64...). A build for one host only ever needs its own
-// platform-arch subfolder. Worse than mere dead weight on Linux specifically (mirrors the
-// onnxruntime GPU-provider problem): linuxdeploy resolves shared-library dependencies for every
-// ELF it finds while bundling the AppImage, and a foreign-platform native binary (e.g.
-// android-ia32's .bare file, built against Android's bionic libc) references libraries
-// (libm.so) that don't exist in that form on a glibc Linux host — linuxdeploy can't resolve it
-// and hard-fails the whole bundle. Confirmed this exact failure in CI:
-// "node_modules/bare-path/prebuilds/android-ia32/bare-path.bare — Could not find dependency:
-// libm.so". Generic across any package using this same prebuilds/ convention, not just bare-path.
+// @xenova/transformers imports onnxruntime-web, but in Node its wasm never loads, so the
+// browser bundles and wasm can go.
+function slimOnnxruntimeWeb(stagingNodeModulesDir) {
+  const pkgDir = path.join(stagingNodeModulesDir, "onnxruntime-web");
+  let main;
+  try {
+    main = JSON.parse(readText(path.join(pkgDir, "package.json"))).main;
+  } catch {
+    return; // not in the bundle
+  }
+  if (main !== "dist/ort-web.node.js") {
+    console.warn(`[prepare-resources] onnxruntime-web main is ${main}, not slimming it`);
+    return;
+  }
+  let freed = 0;
+  const distDir = path.join(pkgDir, "dist");
+  for (const name of readdirSync(distDir)) {
+    if (name === "ort-web.node.js") continue;
+    const full = path.join(distDir, name);
+    const st = statSync(full);
+    freed += st.isDirectory() ? dirSizeBytes(full) : st.size;
+    rmSync(full, { recursive: true, force: true });
+  }
+  for (const name of ["lib", "types", "docs"]) {
+    const full = path.join(pkgDir, name);
+    if (!existsSync(full)) continue;
+    freed += dirSizeBytes(full);
+    rmSync(full, { recursive: true, force: true });
+  }
+  console.log(`[prepare-resources] slimmed onnxruntime-web by ${(freed / 1024 / 1024).toFixed(0)}MB`);
+}
+
+// Packages using the prebuildify convention (bare-path, bare-fs, bare-url via tar-fs) ship
+// binaries for every platform under prebuilds/<platform>-<arch>/. Foreign ones (e.g. Android's
+// bionic-linked .bare) make linuxdeploy fail the AppImage, so keep only the host's folder.
 function stripNonHostPrebuilds(stagingNodeModulesDir) {
   const hostDir = `${process.platform}-${process.arch}`;
   let removed = 0;
@@ -253,7 +246,7 @@ function stripNonHostPrebuilds(stagingNodeModulesDir) {
     try {
       entries = readdirSync(prebuildsDir);
     } catch {
-      return; // no prebuilds/ dir in this package — fine
+      return; // no prebuilds/ dir in this package
     }
     for (const platformDir of entries) {
       if (platformDir === hostDir) continue;
@@ -279,26 +272,11 @@ function stripNonHostPrebuilds(stagingNodeModulesDir) {
   }
 }
 
-// data-pipeline is a real workspace package the packaged app imports from at runtime (see
-// main()'s own comment on copyNodeModules resolving its symlink into a real file copy) — but
-// its package directory ALSO holds dev/build-only artifacts that have no business shipping:
-// data/ (raw + cached GBIF downloads, e.g. gbif-country-cache/ — 40GB+ locally, confirmed the
-// single largest thing in the entire staged app by two orders of magnitude), packs/ (built pack
-// tarballs — these get published to a GitHub Release and downloaded on demand by the running
-// app, never read from the local package directory), and coverage/ (vitest coverage reports).
-// None of these are ever imported by any runtime code path (only src/, migrations/, and
-// package.json are). Confirmed this exact bug live TWICE: a built .app measured 43GB, of which
-// 42GB was this one package directory's dev artifacts, not actual app code — and a first fix
-// attempt that copied everything and then deleted these dirs afterward still needed enough free
-// disk to hold the full 41GB+ copy at its peak, which exhausted this machine's disk entirely
-// (ENOSPC mid-copy) before the delete step ever ran. Filtering these paths OUT during the copy
-// itself (cpSync's own `filter` option, below) avoids that peak entirely — the bytes are never
-// written in the first place, not written then removed.
+// data-pipeline ships at runtime, but its data/ (40GB+ of GBIF caches), packs/ and coverage/
+// dirs are dev-only. Filtering them out during the copy avoids needing that much free disk.
 const DATA_PIPELINE_DEV_ONLY_DIRS = ["data", "packs", "coverage"];
 
-// Source maps (1,300+ files, ~80MB across the staged node_modules in a real measured build) are
-// purely a debugging aid for whoever authored the package — nothing in this app's own runtime
-// ever reads a .js.map file, so they're dead weight in every shipped build.
+// Source maps (~80MB) are never read at runtime.
 function shouldSkipDuringCopy(srcPath) {
   if (srcPath.endsWith(".map")) return true;
   const segments = srcPath.split(path.sep);
@@ -316,15 +294,8 @@ function main() {
 
   cpSync(path.join(REPO_ROOT, "apps", "web", "dist"), path.join(STAGING, "web"), { recursive: true });
 
-  // data-pipeline and @lifer/shared (apps/api/src/regions/routes.ts does a live
-  // `import ... from "data-pipeline/..."` at request time) both come along for free below, via
-  // copyNodeModules's normal exclude-list-driven copy: npm workspaces already links them into
-  // root node_modules as real symlinks, and dereference:true there resolves those into real
-  // file copies — exactly what's needed, since Tauri's bundler silently drops symlinks
-  // entirely when copying `resources` (they just don't show up in the built .app at all)
-  // rather than preserving or resolving them. No special-casing needed as long as neither name
-  // is in the exclude list (both are real `dependencies`, so the lockfile-closure computation
-  // that generated node-modules-exclude.json already keeps them).
+  // data-pipeline and @lifer/shared arrive via copyNodeModules (dereferenced, since Tauri's
+  // bundler drops symlinks). Neither may appear in the exclude list.
   const exclude = loadNodeModulesExcludeSet();
   copyNodeModules(exclude);
   stripOnnxGpuProviders(path.join(STAGING, "node_modules"));
@@ -332,6 +303,7 @@ function main() {
   stripNonHostOnnxPlatforms(path.join(STAGING, "node_modules"));
   stripNonHostPrebuilds(path.join(STAGING, "node_modules"));
   dedupeIdenticalOnnxDylibs(path.join(STAGING, "node_modules"));
+  slimOnnxruntimeWeb(path.join(STAGING, "node_modules"));
 
   console.log(`[prepare-resources] staged at ${STAGING}`);
 }

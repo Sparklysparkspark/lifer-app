@@ -16,4 +16,8 @@ commands.allow = [
   "test_login",
   "app_install_info",
   "set_local_data_dir",
+  "local_inference_status",
+  "local_inference_prepare",
+  "local_embed",
+  "use_local_library",
 ]
