@@ -1,65 +1,82 @@
-# Single-container image: the API (Fastify) serves both /api and the built web app on one
-# port — per explicit choice, so a reverse proxy (nginx, DuckDNS, etc. — configured entirely
-# on the host, not here) only ever needs one upstream to point at.
-#
-# node:20-slim (Debian), not -alpine — sharp and exiftool-vendored both ship native
-# binaries; sharp's prebuilt binaries and libvips target glibc, and Alpine's musl libc is a
-# common, well-documented source of native-module breakage for exactly these two packages.
-# exiftool-vendored also bundles a Perl script, so perl is installed explicitly below rather
-# than assumed present.
+# One container serves the API and the built web app on one port, so a proxy needs one upstream.
+# Debian slim, not Alpine: sharp and exiftool-vendored ship glibc binaries, and exiftool needs perl.
 FROM node:22-slim AS base
 RUN apt-get update && apt-get install -y --no-install-recommends perl && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 
-# Installed once, at the repo root, per npm workspaces — every workspace's dependencies
-# resolve into one shared node_modules, same as local development.
+# Build stage: full install to build the web app and fetch the catalog seed.
+FROM base AS build
 COPY package.json package-lock.json ./
 COPY apps/api/package.json apps/api/package.json
 COPY apps/web/package.json apps/web/package.json
 COPY packages/shared/package.json packages/shared/package.json
 COPY packages/data-pipeline/package.json packages/data-pipeline/package.json
 RUN npm ci
-
 COPY . .
-
-# Only the web app has an actual build step (vite build -> static assets) — the API and
-# data-pipeline run their TypeScript directly via tsx, same as `npm run dev` does locally,
-# so there's nothing to compile for them.
 RUN npm run build -w web
-
-# Bundles the species/region catalog seed into the image at build time — the same "fetch once
-# at build time, ship it, work offline on first launch" pattern the desktop build already uses
-# (apps/desktop/scripts/fetch-catalog-seed.js). Without this, a fresh container's very first
-# launch needed live network access to GitHub before Offline Packs/checklists showed anything
-# (see catalogSeedUpdate.ts's seedCatalogIfEmpty, which prefers this bundled copy and only
-# falls back to a live download if it's missing). Also writes a small regions-only copy, so a
-# fresh container's onboarding can list countries within a second of starting.
+# Bundled so a fresh container shows countries and checklists offline on first launch.
 RUN node apps/api/scripts/fetch-catalog-seed.js
 
-# The CLIP ViT-L/14 embedding model (species suggestions + gallery semantic search) is
-# deliberately NOT bundled into the image — it's a ~307MB opt-in download, fetched into
-# APP_DATA_DIR the first time it's actually needed (or explicitly from Settings), and offloadable
-# from there afterward, same "opt-in, offload later" shape the offline basemap already has. See
-# embeddings.ts's resolveModelPath() and settings/routes.ts's embedding-model endpoints.
+# Runtime stage: production deps of the server workspaces only (no vite, typescript, web deps).
+FROM base AS runtime
+# Vulkan and Mesa drivers let matching use a passed-in Intel/AMD GPU (python3-minimal: Mesa needs a python).
+RUN apt-get update && apt-get install -y --no-install-recommends libvulkan1 mesa-vulkan-drivers python3-minimal \
+  && rm -rf /var/lib/apt/lists/*
+COPY package.json package-lock.json ./
+COPY apps/api/package.json apps/api/package.json
+COPY packages/shared/package.json packages/shared/package.json
+COPY packages/data-pipeline/package.json packages/data-pipeline/package.json
+# onnxruntime-node ships macOS and Windows binaries too; only Linux ones can load here.
+RUN npm ci --omit=dev -w api -w data-pipeline -w @lifer/shared \
+  && find node_modules -type d -path '*onnxruntime-node/bin/napi-v*' \( -name darwin -o -name win32 \) -prune -exec rm -rf {} + \
+  && npm cache clean --force && rm -rf /root/.npm
+# tsx runs the TypeScript sources directly; it's a dev dependency, so it's copied in on its own.
+COPY --from=build /app/node_modules/tsx node_modules/tsx
+COPY --from=build /app/node_modules/esbuild node_modules/esbuild
+COPY --from=build /app/node_modules/@esbuild node_modules/@esbuild
+COPY apps/api apps/api
+COPY packages/shared packages/shared
+COPY packages/data-pipeline packages/data-pipeline
+COPY --from=build /app/apps/web/dist apps/web/dist
+COPY --from=build /app/catalog-seed catalog-seed
 
-# Baked in at build time from the pushed release tag (see .github/workflows/release.yml's
-# docker-image job) so a running container can report its own version — GET /version, read by
-# the self-hosted web app's own update-available banner (DockerUpdateBanner.tsx) to compare
-# against the latest GitHub release. Empty/"dev" for a local `docker build` with no arg passed.
+COPY --chmod=755 docker/entrypoint.sh /usr/local/bin/lifer-entrypoint
+COPY --chmod=755 docker/lifer-admin.sh /usr/local/bin/lifer-admin
+COPY --chmod=755 docker/fix-permissions.sh /usr/local/bin/lifer-fix-permissions
+# data-pipeline caches province boundaries under /app/data; point that at the app-data volume.
+# Docker copies these dirs' owner and mode onto an empty named volume at every mount, so they're
+# open to any uid; the permissions service (or TrueNAS's) sets the owner of real content.
+RUN ln -s /app-data/pipeline-cache /app/data \
+  && mkdir -p /data /app-data/pipeline-cache \
+  && chown 568:568 /data /app-data /app-data/pipeline-cache \
+  && chmod 0777 /data /app-data /app-data/pipeline-cache
+
 ARG APP_VERSION=dev
+LABEL org.opencontainers.image.title="Lifer" \
+      org.opencontainers.image.description="Self-hosted, species-indexed life-list app for wildlife photography." \
+      org.opencontainers.image.source="https://github.com/Sparklysparkspark/lifer-app" \
+      org.opencontainers.image.url="https://sparklysparkspark.github.io/lifer-app/" \
+      org.opencontainers.image.licenses="AGPL-3.0-only" \
+      org.opencontainers.image.version="${APP_VERSION}"
+
+# Read by GET /version for the web app's update banner.
 ENV APP_VERSION=${APP_VERSION}
 ENV NODE_ENV=production
-# Hand memory back to the system once the species models are unloaded after a while unused.
-# With glibc's defaults a freed model's memory mostly stayed with the process, so the container
-# kept its peak size long after the last import. A fixed mmap threshold keeps large model
-# buffers in their own mappings (returned whole when freed), and fewer arenas means less held
-# in reserve per thread.
+ENV PORT=4000
+ENV DATA_DIR=/data
+ENV APP_DATA_DIR=/app-data
+# Any uid can run this image, with or without a passwd entry, so HOME is somewhere writable.
+ENV HOME=/tmp
+# Returns freed model memory to the system instead of holding the peak after an import.
 ENV MALLOC_ARENA_MAX=2
 ENV MALLOC_MMAP_THRESHOLD_=131072
 ENV MALLOC_TRIM_THRESHOLD_=131072
+
+USER 568:568
 EXPOSE 4000
 
-# Migrations run on every container start (migrate.ts already tracks what's applied and
-# skips it — see packages/data-pipeline/src/migrate.ts — so this is safe/idempotent on a
-# restart, not just a first boot) rather than needing a separate manual step.
-CMD ["sh", "-c", "npm run migrate -w data-pipeline && npm run start -w api"]
+# First boot runs every migration before the server listens, which can take a minute on a NAS.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=120s --start-interval=5s --retries=3 \
+  CMD ["node", "-e", "fetch('http://127.0.0.1:'+(process.env.PORT||4000)+'/health').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
+
+ENTRYPOINT ["/usr/local/bin/lifer-entrypoint"]

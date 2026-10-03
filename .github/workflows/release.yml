@@ -9,9 +9,8 @@ permissions:
   packages: write
 
 jobs:
-  # Creates the release as a DRAFT up front, so "latest" never points at a release whose
-  # latest.json hasn't been uploaded yet (a failed Windows leg once left v0.5.6 published with no
-  # manifest, which 404'd the updater for every user). merge-update-manifest publishes it.
+  # Creates the release as a draft, so "latest" never points at a release without latest.json
+  # (the updater would 404). merge-update-manifest publishes it.
   create-release:
     runs-on: ubuntu-latest
     steps:
@@ -31,19 +30,11 @@ jobs:
   desktop:
     needs: create-release
     strategy:
-      # Each OS builds only its own installer format (zipped .app + signed updater artifact on
-      # macOS — see below, tauri-bundler's dmg target hits a bundle_dmg.sh bug on current
-      # macOS runner images, so this deliberately isn't a real .dmg yet; nsis on Windows;
-      # deb+AppImage on Linux — see tauri.conf.json's bundle.targets, which lists all of them;
-      # tauri-bundler silently only produces whichever ones are valid for the host it's
-      # actually running on). build-update-manifest.js runs on every OS and produces a real
-      # in-app-update entry for macOS, Windows (the NSIS .exe), and Linux (the AppImage only —
-      # a .deb install lives under a root-owned prefix a regular user process can't overwrite,
-      # so .deb stays download-and-reinstall-to-update; AppImage and every other platform get a
-      # real in-app update check).
-      #
-      # Intel Mac (x86_64) is dropped from CI: GitHub retired the macos-13 runner, so that leg
-      # queued forever. Only Apple Silicon (macos-14) builds on hosted runners now.
+      # Each OS builds its own installers from tauri.conf.json's bundle.targets: a zipped .app on
+      # macOS (tauri-bundler's dmg target fails on current runner images), NSIS on Windows, deb
+      # and AppImage on Linux. In-app updates cover macOS, Windows and the AppImage; a .deb lives
+      # under a root-owned prefix, so it updates by reinstalling. Apple Silicon only: GitHub
+      # retired the Intel macOS runner.
       fail-fast: false
       matrix:
         os: [macos-14, windows-latest, ubuntu-latest]
@@ -54,15 +45,8 @@ jobs:
         with:
           node-version: 22
       - uses: dtolnay/rust-toolchain@stable
-      # Tauri's Linux bundler (deb + AppImage) links against these at build time — not
-      # preinstalled on the ubuntu-latest runner image. macOS/Windows have everything they need
-      # already (Xcode CLT / MSVC + WebView2, both preinstalled on their respective runners).
-      # fuse (not just libfuse2) + an explicitly-loaded kernel module + writable /dev/fuse is the
-      # full combo AppImage's own FUSE mount needs — libfuse2 alone is just the shared library,
-      # not the fusermount binary or the actual mount capability. Other projects build AppImages
-      # fine on this same runner image, so the earlier "FUSE is blocked here, full stop"
-      # conclusion (after only installing libfuse2) was premature — worth this fuller attempt
-      # before ruling it out for good.
+      # Tauri's Linux bundler links against these, and AppImage tooling needs fuse, the fuse
+      # kernel module and a writable /dev/fuse. macOS and Windows runners have everything already.
       - name: Install Linux system dependencies
         if: matrix.os == 'ubuntu-latest'
         run: |
@@ -71,10 +55,8 @@ jobs:
           sudo modprobe fuse
           sudo chmod 666 /dev/fuse
       - run: npm ci
-      # Real release version, not the permanent "0.1.0" placeholder — so the running app has
-      # something to compare against the updater manifest's version. Derived from the pushed
-      # tag (v1.2.3 -> 1.2.3), not hand-maintained. Cross-platform (not bash-only) since this
-      # step also runs on the Windows runner, which defaults to PowerShell for `run:`.
+      # The real version from the tag (v1.2.3 -> 1.2.3) replaces the "0.1.0" placeholder, so the
+      # updater has something to compare. shell: bash, since Windows defaults to PowerShell.
       - name: Set app version from tag
         shell: bash
         run: |
@@ -82,20 +64,6 @@ jobs:
           jq --arg v "$VERSION" '.version = $v' apps/desktop/src-tauri/tauri.conf.json > /tmp/tauri.conf.json
           mv /tmp/tauri.conf.json apps/desktop/src-tauri/tauri.conf.json
           echo "LIFER_RELEASE_VERSION=$VERSION" >> "$GITHUB_ENV"
-      # Linux only: linuxdeploy (and its bundled AppImage plugins) ship as legacy AppImages that
-      # self-mount via FUSE when executed — current ubuntu-latest (24.04) runners block
-      # unprivileged FUSE mounts via AppArmor even with libfuse2 installed and /dev/fuse
-      # writable (see "Install Linux system dependencies" above), so the mount silently fails
-      # and tauri-bundler only ever surfaces the generic "failed to run linuxdeploy", never the
-      # real underlying error. This env var (respected by the AppImage runtime itself, so it
-      # covers linuxdeploy AND its plugins in one shot) forces extract-and-run instead of a FUSE
-      # mount, which needs no special kernel/container permissions at all. No-op on macOS/Windows.
-      #
-      # Still failing with the same swallowed "failed to run linuxdeploy" message even with
-      # extract-and-run forced on — TAURI_BUILD_ARGS=--verbose (only set for ubuntu-latest, a
-      # no-op elsewhere) makes tauri-bundler print linuxdeploy's actual stdout/stderr instead of
-      # its generic wrapper error, since that's the only way to see the real failure short of
-      # attaching a debugger to a hosted runner.
       # Signs the macOS app with a stable self-signed "Lifer" identity (see resign-macos.js) so
       # macOS folder permissions and the updater's code requirement survive across versions.
       # Skipped (ad-hoc signing) when the secret isn't set.
@@ -120,28 +88,24 @@ jobs:
           rm "$RUNNER_TEMP/lifer.p12"
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
           security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
-          # codesign will sign with this identity by name even though it isn't in the system
-          # trust store (confirmed: `security find-identity -v` reports it untrusted, but a
-          # plain `codesign -s Lifer` still signs fine), so no system trust step is needed here.
+          # codesign signs with this identity by name even though the system doesn't trust it.
           echo "MACOS_SIGNING_IDENTITY=Lifer" >> "$GITHUB_ENV"
+      # APPIMAGE_EXTRACT_AND_RUN: linuxdeploy is itself an AppImage, and the Ubuntu runner blocks
+      # unprivileged FUSE mounts, so run it extracted. --verbose shows linuxdeploy's own errors.
+      # Both are no-ops on macOS and Windows.
       - run: npm run dist -w desktop
         env:
           APPIMAGE_EXTRACT_AND_RUN: "1"
           TAURI_BUILD_ARGS: ${{ matrix.os == 'ubuntu-latest' && '--verbose' || '' }}
-      # Only macos-14 (arm64) builds now — see the matrix comment above on why Intel Mac is
-      # dropped — but the filename keeps its arch label so a future re-added x86_64 runner
-      # wouldn't silently collide with this asset's name.
+      # The filename keeps its arch label so an Intel build could be added beside it.
       - name: Zip the macOS app for upload
         if: startsWith(matrix.os, 'macos')
         shell: bash
         run: |
           cd apps/desktop/src-tauri/target/release/bundle/macos && zip -r "Lifer-macos-arm64.zip" Lifer.app
-      # Must run after resign-macos.js on macOS (part of `npm run dist` above) — the updater
-      # archive has to be built from the RESIGNED .app, not tauri build's raw output (see
-      # build-update-manifest.js's own comment). Produces one signed update artifact + a PARTIAL
-      # manifest (just this job's own platform key; see merge-update-manifest below) for every
-      # OS, signed with the updater's private key (GitHub secrets, never committed — see
-      # apps/desktop/.gitignore's .updater-keys/ entry for the local-dev equivalent).
+      # After `npm run dist`, so on macOS the update archive is built from the re-signed .app.
+      # Writes a signed update artifact and a partial manifest for this platform only;
+      # merge-update-manifest below combines them.
       - name: Build signed update artifact + manifest
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -177,11 +141,8 @@ jobs:
           esac
           gh release upload "$GITHUB_REF_NAME" "${files[@]}" --clobber
 
-  # Combines every matrix job's partial updater manifest (macOS, Windows, Linux) into the single
-  # real latest.json the release ships — see merge-update-manifests.js's own comment for why this
-  # can't just be another step inside the `desktop` matrix job (each matrix job only ever sees
-  # its own platform's output; this needs all of them).
-  # Runs even when a platform leg failed (one broken OS must not break updates for the others);
+  # Combines every platform's partial manifest into the release's latest.json (a matrix job only
+  # sees its own platform's output). Runs even when a platform leg failed (one broken OS must not break updates for the others);
   # merge-update-manifests.js warns about missing platforms instead of failing. Publishing the
   # draft happens only here, after latest.json is attached.
   merge-update-manifest:
@@ -214,14 +175,11 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      # GitHub Actions expressions have no toLower()/toUpper() (that's an Azure Pipelines
-      # function, not a GitHub one) — ghcr.io requires an all-lowercase image name, so this
-      # has to be computed in a shell step instead.
+      # ghcr.io needs a lowercase image name, and Actions expressions have no toLower().
       - name: Lowercase repository name
         id: repo
         run: echo "name=${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
-      # v1.2.3 -> 1.2.3, same derivation as the desktop build's own "Set app version from tag"
-      # step above.
+      # v1.2.3 -> 1.2.3, as in the desktop job.
       - name: Strip v prefix from tag
         id: version
         run: echo "value=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
@@ -230,8 +188,7 @@ jobs:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
-          # Baked into the image so a running container can report its real version via
-          # GET /version.
+          # Reported by GET /version.
           build-args: |
             APP_VERSION=${{ steps.version.outputs.value }}
           tags: |

@@ -6,92 +6,99 @@ services:
       POSTGRES_USER: lifer
       POSTGRES_PASSWORD: lifer
       POSTGRES_DB: lifer
-    ports:
-      - "5432:5432"
+    # No host port: only Lifer talks to the database, over the compose network.
     volumes:
       - lifer-postgres-data:/var/lib/postgresql/data
-    # Plain `depends_on: [postgres]` (an earlier version of this file) only waits for the
-    # postgres CONTAINER to start, not for Postgres itself to be ready to accept connections —
-    # on a fresh volume, initdb's first-run setup takes a few seconds, and api's own migration
-    # step raced ahead of it every time (confirmed live: ECONNREFUSED on a real TrueNAS SCALE
-    # deploy). This healthcheck, paired with api's `condition: service_healthy` below, makes
-    # Compose actually wait — but ONLY once `-h 127.0.0.1` is specified. The official postgres
-    # image's entrypoint starts Postgres TWICE on first run: once temporarily with
-    # listen_addresses='' (Unix socket only, no TCP) just to run init scripts (this project's
-    # PostGIS setup among them), then shuts it down and starts it again for real with the actual
-    # TCP listener. `pg_isready` with no `-h` defaults to the Unix socket, which is already up
-    # during that FIRST temporary phase — so it reported "healthy" before TCP was ever
-    # listening, api started, and got ECONNREFUSED anyway (confirmed live via the postgres
-    # container's own log: "listening on Unix socket" during the first startup, "listening on
-    # IPv4 address 0.0.0.0, port 5432" only appearing on the second one, ~10s later). Forcing a
-    # real TCP check here is what actually closes that gap.
+    # -h 127.0.0.1 waits for the real TCP listener, not the socket-only init phase on first boot.
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U lifer -d lifer"]
       interval: 2s
       timeout: 3s
       retries: 30
 
-  # Serves the API and the built web UI on one port. Put a reverse proxy in front for
-  # TLS/a domain — that's configured on your end, not part of this repo.
+  # One-shot, runs as root: creates the folders Lifer writes to and gives them to PUID:PGID
+  # (only entries whose owner differs), since the api container runs as that non-root user.
+  permissions:
+    image: ghcr.io/sparklysparkspark/lifer-app:latest
+    user: "0:0"
+    network_mode: none
+    restart: "no"
+    entrypoint: ["/usr/local/bin/lifer-fix-permissions"]
+    command: ["/data", "/app-data"]
+    environment:
+      PUID: ${PUID:-568}
+      PGID: ${PGID:-568}
+    volumes:
+      - ${LIFER_STORAGE_DIR:-./data/lifer}:/data
+      - lifer-app-data:/app-data
+
+  # Serves the API and the built web UI on one port. Put your own reverse proxy in front for TLS.
   api:
     image: ghcr.io/sparklysparkspark/lifer-app:latest
     build: .
-    # Brings Lifer back on its own after a crash, or after its freeze watchdog restarts it
-    # (LIFER_FREEZE_RESTART_SECONDS, default 120). Without it a stopped server stays down until
-    # someone restarts it by hand.
+    # Brings Lifer back after a crash or a freeze-watchdog restart (LIFER_FREEZE_RESTART_SECONDS).
     restart: unless-stopped
+    # Non-root; the permissions service above makes the volumes writable for this user.
+    user: "${PUID:-568}:${PGID:-568}"
     depends_on:
       postgres:
         condition: service_healthy
+      permissions:
+        condition: service_completed_successfully
     environment:
       DATABASE_URL: postgres://lifer:lifer@postgres:5432/lifer
       NODE_ENV: production
       PORT: ${PORT:-4000}
       DATA_DIR: /data
       APP_DATA_DIR: /app-data
-      SMTP_HOST: ${SMTP_HOST:-}
-      SMTP_PORT: ${SMTP_PORT:-587}
-      SMTP_USER: ${SMTP_USER:-}
-      SMTP_PASS: ${SMTP_PASS:-}
-      SMTP_FROM: ${SMTP_FROM:-Lifer <no-reply@lifer.app>}
-      APP_URL: ${APP_URL:-http://localhost:4000}
+      # Reverse proxies in front of Lifer, as a hop count or proxy IPs (see the docs, reverse-proxy).
+      TRUST_PROXY: ${TRUST_PROXY:-}
       # Extra folders Lifer may read and write besides /data: reimporting an existing library,
       # building trips, and saving uploads to another disk. Comma-separated, each
       # "Label=/container/path" or just "/container/path". Every entry must also be mounted
       # below. Anything outside /data and these roots is refused (403).
       LIFER_LIBRARY_ROOTS: ${LIFER_LIBRARY_ROOTS:-}
       LIFER_FREEZE_RESTART_SECONDS: ${LIFER_FREEZE_RESTART_SECONDS:-120}
+      # Upload and image limits (see .env.example). Empty means Lifer's own default.
+      MAX_UPLOAD_BYTES: ${MAX_UPLOAD_BYTES:-}
+      LIFER_MAX_IMAGE_PIXELS: ${LIFER_MAX_IMAGE_PIXELS:-}
+      LIFER_UPLOAD_WORK_DIR: ${LIFER_UPLOAD_WORK_DIR:-}
+      LIFER_MAX_JSON_BODY_BYTES: ${LIFER_MAX_JSON_BODY_BYTES:-}
+      # Species matching uses a GPU on its own when one is passed in below and is faster.
+      # "off" keeps it on the CPU, for troubleshooting only.
+      LIFER_GPU: ${LIFER_GPU:-}
     ports:
       - "${PORT:-4000}:${PORT:-4000}"
     volumes:
-      # Your photo library: Lifer's Birds, Mammals and other folders go directly in it. To move
-      # or rename this folder, stop Lifer first, update the path here, then start it again:
-      # moving it while Lifer runs leaves Lifer holding the old, deleted folder, and every
-      # upload fails until it restarts. The folder must exist before Lifer starts.
+      # Your photo library. Stop Lifer before moving or renaming it: a running server keeps
+      # the old folder open and every upload fails until it restarts.
       - ${LIFER_STORAGE_DIR:-./data/lifer}:/data
-      # App-managed downloads (offline basemap, species-matching model, catalog update cache) -
-      # not user data, so a plain named volume rather than a host bind mount: it survives
-      # restarts/recreates the same as your photos do, but never shows up as clutter in
-      # whatever folder you picked above for LIFER_STORAGE_DIR. See config.ts's own APP_DATA_DIR
-      # comment for why this used to (wrongly) default to the same folder as your photos.
+      # Lifer's own files (previews, offline map, models, catalog downloads), kept out of the
+      # photo library so they never clutter it.
       - lifer-app-data:/app-data
       # Example library root (pair with LIFER_LIBRARY_ROOTS=NAS=/library/nas):
       # - /srv/nas/photos:/library/nas
-    # Opts this container into Watchtower below (label-scoped — see that service's own
-    # comment). Leave this label off, or set watchtower's own image to a no-op, if you'd
-    # rather update manually (docker compose pull && docker compose up -d).
+    # Optional GPU for faster species matching (see the docs, hardware-acceleration).
+    # NVIDIA: needs the NVIDIA driver and NVIDIA Container Toolkit on the server. Uncomment:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+    # Intel or AMD: uncomment, and set 107 to your server's render group number, which
+    # `stat -c %g /dev/dri/renderD128` prints.
+    # devices:
+    #   - /dev/dri:/dev/dri
+    # group_add:
+    #   - "107"
+    # Opts this container into Watchtower below. Remove it to update by hand instead.
     labels:
       - "com.centurylinklabs.watchtower.enable=true"
 
-  # Optional, opt-in auto-update for the api service above: polls ghcr.io for a newer image on
-  # this same tag (":latest" by default) and pulls + recreates the container automatically —
-  # avoids needing to SSH into a NAS and run `docker compose pull` by hand after every release.
-  # `--label-enable` restricts Watchtower to ONLY containers carrying the label above (this
-  # compose file's own postgres service is deliberately NOT labeled — a database container
-  # auto-restarting on a schedule is not something to opt into blindly). Comment this whole
-  # service out (or `docker compose up -d api postgres` without it) if you'd rather control
-  # updates manually — GET /version always reports the running version either way, and the
-  # in-app banner (self-hosted web build only) still tells you when a newer release exists.
+  # Optional auto-update: hourly, pulls a newer image for labeled containers (only api, never
+  # the database) and recreates them. Delete this service to update by hand.
   watchtower:
     image: containrrr/watchtower
     restart: unless-stopped

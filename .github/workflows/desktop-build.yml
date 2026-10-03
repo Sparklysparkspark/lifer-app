@@ -5,10 +5,7 @@ on:
 
 jobs:
   build:
-    # Windows/Linux aren't wired up yet — apps/desktop/scripts/fetch-node-sidecar.js only
-    # knows how to vendor the macOS arm64 Node sidecar binary right now (see that script's own
-    # TARGETS map). Extending this matrix means adding the matching target-triple entries
-    # there first, not just adding OSes here.
+    # A manual, unsigned macOS build for testing. release.yml builds every platform.
     strategy:
       matrix:
         os: [macos-14]

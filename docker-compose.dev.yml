@@ -1,0 +1,6 @@
+# Local development: publishes Postgres on this machine only, for `npm run dev` and pipeline jobs.
+# Usage: docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d postgres
+services:
+  postgres:
+    ports:
+      - "127.0.0.1:5432:5432"

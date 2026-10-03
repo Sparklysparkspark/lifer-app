@@ -4,6 +4,8 @@ dist/
 .DS_Store
 data/raw/
 data/build/
+# Pack, photo store and model builds (several GB).
+packages/data-pipeline/data/build/
 *.log
 data/lifer/
 # Local dev app data (downloaded models, maps, caches): never commit.
@@ -18,3 +20,16 @@ packages/data-pipeline/data/province-aggregate-cache/
 .cache/
 packages/data-pipeline/data/ebird-spplist-cache/
 packages/data-pipeline/data/inat-species-counts-cache/
+packages/data-pipeline/data/inat-introduced-cache/
+packages/data-pipeline/data/inat-current-taxon-cache.json
+packages/data-pipeline/data/inat-taxa-cache.json
+packages/data-pipeline/data/inat-taxon-status-cache.json
+
+# Docs site (Docusaurus): dependencies and build output.
+docs/node_modules/
+docs/build/
+docs/.docusaurus/
+
+# Local compose overrides (see docker-compose.dev.yml)
+docker-compose.override.yml
+__pycache__/

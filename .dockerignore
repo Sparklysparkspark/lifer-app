@@ -1,9 +1,39 @@
-node_modules
+.git
+.github
 **/node_modules
 **/dist
-data
-.git
+**/coverage
 *.log
-apps/desktop/src-tauri/target
-apps/desktop/src-tauri/resources-staging
+*.dump
+**/.env
+**/.env.*
+**/.DS_Store
+
+# Local data, backups and pipeline caches (tens of GB in a working checkout).
+data
 archive
+packs
+catalog-seed
+.cache
+.claude
+packages/data-pipeline/data
+packages/data-pipeline/packs
+packages/data-pipeline/python
+packages/data-pipeline/ops
+
+# Not part of the server image.
+apps/desktop
+docs
+assets
+deploy
+docker-compose*.yml
+
+# Tests and fixtures never run in the container.
+**/*.test.ts
+**/__fixtures__
+**/fixtures
+apps/api/vitest*.config.*
+packages/data-pipeline/vitest*.config.*
+
+# Maintainer scripts run from a checkout; the server never loads them.
+apps/api/src/scripts

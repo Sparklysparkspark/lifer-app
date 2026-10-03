@@ -35,6 +35,9 @@ jobs:
           node-version: 22
           cache: npm
 
+      - name: Check for em dashes
+        run: node scripts/check-em-dashes.mjs
+
       - run: npm ci
 
       - run: npm run typecheck
