@@ -1,8 +1,6 @@
-// Integration test (real Postgres required — same local DB as `npm run migrate`) for a
-// regression where reloading the mammal seed silently wiped
-// elusiveness_score/composite/tier for every mammal, because build-seed-mammals.ts never
-// computes elusiveness and the old UPSERT applied EXCLUDED unconditionally. Runs inside a
-// transaction that's always rolled back, so it never touches real data.
+// Integration test (real Postgres required, same local DB as `npm run migrate`): reloading a seed
+// must not wipe elusiveness_score/composite/tier, since seeds never compute elusiveness. Runs
+// inside a transaction that's always rolled back.
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { PoolClient } from "pg";
 import { pool } from "../db.js";
@@ -29,18 +27,15 @@ afterEach(async () => {
 
 describe("upsertSpeciesRarity", () => {
   it("does not clobber an already-computed elusiveness_score/composite/tier when the incoming seed has none", async () => {
-    // First write: simulates apply-rarity-phase4.ts having already folded in a real
-    // elusiveness score (a "phase 4" state) directly via raw SQL, since upsertSpeciesRarity
-    // itself never accepts a phase-4 write path (only load-seed's phase-1-only inputs) — this
-    // mirrors how the real column actually gets its elusiveness value in production.
+    // First write: a phase-4 state with a real elusiveness score, set via raw SQL since
+    // upsertSpeciesRarity only takes phase-1 inputs.
     await client.query(
       `INSERT INTO species_rarity (species_id, range_score, abundance_score, elusiveness_score, composite, tier)
-       VALUES ($1, 0.5, 0.5, 0.66, 0.6, 'rare')`,
+       VALUES ($1, 0.5, 0.5, 0.66, 0.6, 'uncommon')`,
       [speciesId],
     );
 
-    // Second write: a reseed from build-seed-mammals.ts, which always sends
-    // elusivenessScore: null and a Phase-1-only (weaker) composite/tier.
+    // Second write: a reseed, which always sends elusivenessScore: null and a Phase-1 composite/tier.
     await upsertSpeciesRarity(client, speciesId, {
       rangeScore: 0.4,
       abundanceScore: 0.1,
@@ -56,9 +51,8 @@ describe("upsertSpeciesRarity", () => {
     // The elusiveness-derived fields must survive the reseed untouched.
     expect(Number(row.elusiveness_score)).toBeCloseTo(0.66);
     expect(Number(row.composite)).toBeCloseTo(0.6);
-    expect(row.tier).toBe("rare");
-    // range_score/abundance_score DO refresh on every reseed — they come from Phase 1 data
-    // (range size, IUCN status) that's legitimate to re-sync each time.
+    expect(row.tier).toBe("uncommon");
+    // range_score/abundance_score do refresh on every reseed: they come from Phase 1 data.
     expect(Number(row.range_score)).toBeCloseTo(0.4);
     expect(Number(row.abundance_score)).toBeCloseTo(0.1);
   });
@@ -69,19 +63,19 @@ describe("upsertSpeciesRarity", () => {
       abundanceScore: 0.2,
       elusivenessScore: null,
       composite: 0.25,
-      tier: "uncommon",
+      tier: "occasional",
     });
 
     const res = await client.query(`SELECT elusiveness_score, composite, tier FROM species_rarity WHERE species_id = $1`, [speciesId]);
     expect(res.rows[0].elusiveness_score).toBeNull();
     expect(Number(res.rows[0].composite)).toBeCloseTo(0.25);
-    expect(res.rows[0].tier).toBe("uncommon");
+    expect(res.rows[0].tier).toBe("occasional");
   });
 
   it("DOES overwrite elusiveness/composite/tier when the incoming seed actually carries elusiveness data", async () => {
     await client.query(
       `INSERT INTO species_rarity (species_id, range_score, abundance_score, elusiveness_score, composite, tier)
-       VALUES ($1, 0.5, 0.5, 0.66, 0.6, 'rare')`,
+       VALUES ($1, 0.5, 0.5, 0.66, 0.6, 'uncommon')`,
       [speciesId],
     );
 
@@ -90,12 +84,12 @@ describe("upsertSpeciesRarity", () => {
       abundanceScore: 0.1,
       elusivenessScore: 0.9,
       composite: 0.7,
-      tier: "epic",
+      tier: "rare",
     });
 
     const res = await client.query(`SELECT elusiveness_score, composite, tier FROM species_rarity WHERE species_id = $1`, [speciesId]);
     expect(Number(res.rows[0].elusiveness_score)).toBeCloseTo(0.9);
     expect(Number(res.rows[0].composite)).toBeCloseTo(0.7);
-    expect(res.rows[0].tier).toBe("epic");
+    expect(res.rows[0].tier).toBe("rare");
   });
 });

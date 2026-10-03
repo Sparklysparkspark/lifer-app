@@ -1,13 +1,11 @@
 // Source: Wikipedia REST media-list API (en.wikipedia.org/api/rest_v1/page/media-list/...),
 // resolved through Wikimedia Commons for real per-file license/credit (fetch-commons-photo.ts).
-// Gives a small gallery of reference photos per species — for comparing your own upload
-// against multiple real photos, not just the one Wikidata infobox image.
+// Gives a small gallery of reference photos per species, for comparing an upload against
+// several real photos rather than one infobox image.
 //
-// The media list includes anything used in the article: the IUCN status icon, a range map,
-// sometimes an audio-player icon, unrelated photos (a license plate, in one real case seen
-// during testing). Filtered here to plausible photographs: real image extensions, and
-// filenames that don't look like an icon/map/diagram. Imperfect by nature — this is a
-// "probably a photo of the bird" heuristic, not a guarantee.
+// The media list includes everything in the article (status icons, range maps, unrelated
+// photos), so it's filtered to plausible photographs by extension and filename. A heuristic,
+// not a guarantee.
 
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -18,9 +16,9 @@ import { fetchWithRetry } from "../fetch-with-retry.js";
 const MEDIA_LIST_API = "https://en.wikipedia.org/api/rest_v1/page/media-list/";
 const MAX_PHOTOS = 6;
 const PHOTO_EXTENSIONS = /\.(jpe?g|png)$/i;
-// Distribution maps often go by abbreviations or other languages ("_dis.PNG", "_distr.png",
-// "verspreiding", "carte_repartition", "Distribuicao"), which slipped past the English words.
-// flag-non-photo-reference-images.ts catches the rest by content.
+// Distribution maps often use abbreviations or other languages ("_dis.PNG", "_distr.png",
+// "verspreiding", "carte_repartition", "Distribuicao"). flag-non-photo-reference-images.ts
+// catches the rest by content.
 const EXCLUDE_PATTERNS =
   /map|iucn|status|logo|icon|diagram|distribution|range|locator|plate|sound|chart|_dis\b|distr|verbreitung|verspreiding|reparti|repari|carte|distribu|areal|spectrogram|sonogram/i;
 

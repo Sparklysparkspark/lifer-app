@@ -1,26 +1,20 @@
-// Phase 8: GBIF's backbone has no single "fish" class key (see fetch-gbif-backbone.ts's
-// comment) — bony (ray-finned) fish orders sit directly under Chordata (phylum key 44) as
-// siblings of the tetrapod classes, rather than under one "Actinopterygii" class. Verified
-// by hand: querying species/44/children returns 16 class-rank entries and 47 order-rank
-// entries.
+// Phase 8: GBIF's backbone has no single fish class key: ray-finned fish orders sit directly
+// under Chordata (phylum key 44) alongside the tetrapod classes (species/44/children lists 16
+// class-rank and 47 order-rank entries).
 //
 // Full scope covers everything colloquially called "fish," not just ray-finned fish:
-//   - 46 ray-finned fish orders (ORDER-rank children of Chordata; the 47th, Copelata, is a
+//   - 46 ray-finned fish orders (order-rank children of Chordata; the 47th, Copelata, is a
 //     tunicate order, excluded)
 //   - Myxini (hagfish), Petromyzonti (lampreys), Elasmobranchii (sharks/rays), Holocephali
-//     (chimaeras), Coelacanthi (coelacanths), Dipneusti (lungfish) — each its own CLASS-rank
-//     sibling of Actinopterygii's orders, verified individually against GBIF's species API.
-// Still excluded, correctly: Amphibia/Aves/Crocodylia/Mammalia/Sphenodontia/Squamata/
-// Testudines (tetrapods, not fish) and Ascidiacea/Thaliacea/Leptocardii (tunicates/
-// lancelets — chordates, but not fish by any common definition).
+//     (chimaeras), Coelacanthi (coelacanths), Dipneusti (lungfish), each a class-rank sibling.
+// Excluded: the tetrapod classes and Ascidiacea/Thaliacea/Leptocardii (tunicates, lancelets).
 import { fetchWithRetry } from "../fetch-with-retry.js";
 
 const CHORDATA_KEY = 44;
 const GBIF_BACKBONE_DATASET_KEY = "d7dddbf4-2cf0-4f39-9b2a-bb099caae36c";
 const NON_FISH_ORDERS = new Set(["Copelata"]);
 
-// Verified individually via species/{key} against GBIF's backbone (each returns rank=CLASS
-// with the expected scientificName).
+// Each checked via species/{key} (rank=CLASS with the expected scientificName).
 const EXTRA_FISH_CLASS_KEYS: Record<string, number> = {
   Myxini: 119,
   Petromyzonti: 11881065,

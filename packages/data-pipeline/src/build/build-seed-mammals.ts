@@ -1,9 +1,6 @@
-// Phase 8: mammals, following build-seed.ts's exact shape (GBIF backbone + a rich
-// taxonomy/common-name source + Wikidata + rarity), just with MDD in place of GBIF's own
-// vernacular names (MDD's mainCommonName is curated per-species, no separate per-species
-// lookup needed) and COMBINE in place of AVONET as the primary trait source. No region
-// hierarchy step here — regions are shared across all taxa and already seeded by
-// build-seed.ts; this only adds species + traits + rarity.
+// Phase 8: mammals, following build-seed.ts's shape with MDD in place of GBIF vernacular names
+// (curated per-species common names) and COMBINE in place of AVONET as the trait source. Regions
+// are shared across taxa and seeded by build-seed.ts; this only adds species, traits and rarity.
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fetchGbifBackboneForKeys, MAMMALIA_CLASS_KEY, type GbifSpeciesRow } from "../fetch/fetch-gbif-backbone.js";
@@ -17,11 +14,8 @@ function canonical(g: GbifSpeciesRow): string {
   return g.canonicalName ?? g.scientificName;
 }
 
-// Obligate/predominantly marine mammals go in the app's "Fish" taxon grouping instead of
-// "Mammals" — determined from real MDD ranks, not a guess (see fetch-mdd.ts).
-// Otters are deliberately excluded: MDD has no rank that separates sea otters from
-// river/land otters (all sit under subfamily Lutrinae with no finer split available), so
-// that line isn't drawn here rather than guessed at the species level.
+// Marine mammals go in the app's "Fish" group, by MDD rank (see fetch-mdd.ts). Otters are left
+// out: MDD has no rank separating sea otters from river otters.
 function marineMammalTaxonClass(mddRow: { order: string | null; infraorder: string | null; superfamily: string | null } | undefined): string {
   if (!mddRow) return "mammalia";
   if (mddRow.infraorder === "Cetacea") return "actinopterygii"; // whales, dolphins, porpoises
@@ -44,9 +38,8 @@ async function main() {
   console.log("[build-seed-mammals] step 2/5: MDD (taxonomy, common names)");
   const mdd = await fetchMdd();
   const mddByName = new Map(mdd.map((r) => [r.scientificName, r]));
-  // Fallback join key for species where GBIF's backbone still carries an older name than
-  // MDD's own current sciName (e.g. Bison bison/Bos bison). Not a one-off special case — this
-  // covers every MDD row whose MSW3 name differs from its primary name.
+  // Fallback join key where GBIF's backbone carries an older name than MDD's sciName (e.g. Bison
+  // bison/Bos bison), covering every MDD row whose MSW3 name differs.
   const mddByMsw3Name = new Map(mdd.filter((r) => r.msw3Name).map((r) => [r.msw3Name!, r]));
 
   console.log("[build-seed-mammals] step 3/5: COMBINE (density, home range, nocturnality)");
@@ -59,9 +52,7 @@ async function main() {
   const wikidataByName = new Map(wikidata.map((r) => [r.scientificName, r]));
 
   console.log("[build-seed-mammals] step 5/5: rarity (Phase-1 shortcut: range + IUCN)");
-  // No AVONET-equivalent range-polygon source wired up for mammals yet (disclosed gap, same
-  // footing as fish's missing trait data) — rangeSizeKm2 is null, so rarity here leans on
-  // IUCN status alone until a range source is added.
+  // No range-polygon source for mammals yet, so rangeSizeKm2 is null and rarity leans on IUCN status.
   const rarityInputs = gbif.map((g) => ({
     scientificName: canonical(g),
     rangeSizeKm2: null,
@@ -76,11 +67,8 @@ async function main() {
     const combineRow = combineByName.get(name);
     const wiki = wikidataByName.get(name);
     const rarityRow = rarityByName.get(name);
-    // MDD flag (cattle, goats, sheep, etc. — see fetch-mdd.ts). Domestic species are kept in
-    // the app, but their GBIF record counts don't measure rarity at all — they measure how
-    // often people photograph farm animals for citizen science — so the rarity/elusiveness
-    // pipeline forces them to a fixed "common" tier downstream (apply-rarity-phase4.ts)
-    // rather than ranking them against wild species on a signal that doesn't apply to them.
+    // MDD domestic flag (see fetch-mdd.ts). Their record counts measure how often people photograph
+    // farm animals, so apply-rarity-phase4.ts forces them to "common" instead of ranking them.
     const domestic = mddRow?.domestic ?? false;
 
     return {
@@ -136,7 +124,7 @@ async function main() {
   });
 
   writeFileSync(path.join(outDir, "species.json"), JSON.stringify(species, null, 2));
-  // No region hierarchy or region_species here — shared across taxa, already loaded.
+  // No region hierarchy or region_species here: shared across taxa, already loaded.
   writeFileSync(path.join(outDir, "regions.json"), JSON.stringify([], null, 2));
   writeFileSync(path.join(outDir, "region-species.json"), JSON.stringify({}, null, 2));
 
@@ -150,7 +138,7 @@ async function main() {
       combine: { rows: combine.length, doi: "10.6084/m9.figshare.13028255.v4", license: "CC-BY-4.0" },
       wikidata: { rows: wikidata.length, endpoint: "https://query.wikidata.org/sparql" },
     },
-    note: "No range-polygon source yet (rangeSizeKm2 null) — rarity leans on IUCN status alone until one is added. Reference photos/descriptions are lazy, same as birds.",
+    note: "No range-polygon source yet (rangeSizeKm2 null): rarity leans on IUCN status alone until one is added. Reference photos/descriptions are lazy, same as birds.",
   };
   writeFileSync(path.join(outDir, "manifest.json"), JSON.stringify(manifest, null, 2));
 

@@ -1,29 +1,13 @@
-// Resolves species names as they actually appear in a GBIF bulk occurrence download back to
-// this catalog's own species rows, and — per an explicit ask to keep the catalog on the most
-// current genus names where possible — adopts a differing bulk-reported name as the new
-// scientific_name (stashing the old one in species_synonyms) when there's real evidence it's
-// the name actually in current widespread use, not just any name GBIF's synonym graph happens
-// to connect back to the same taxon concept.
+// Resolves species names in a GBIF bulk occurrence download back to catalog species rows via
+// GBIF's species/match endpoint, and records every variant as a synonym. Bulk records carry each
+// dataset's own taxonomy, which can differ from the GBIF backbone, so names are matched rather
+// than walked from our own keys.
 //
-// This resolves the OPPOSITE direction from a naive "walk our own catalog outward" approach:
-// GET /v1/species/{ourGbifKey} on a case like Sylvia curruca (2492960) reports
-// taxonomicStatus=ACCEPTED — GBIF's own backbone hasn't adopted the Curruca split either. The
-// real mismatch is that individual occurrence records in the bulk warehouse carry whatever
-// name each contributing dataset's OWN taxonomy uses (eBird/Clements for a lot of bird
-// records, which HAS adopted these splits) — independent of backbone's "accepted" flag. GBIF's
-// species/match endpoint still connects the two correctly as the same concept (confirmed:
-// match("Curruca curruca") -> status=SYNONYM, acceptedUsageKey=2492960, i.e. our own stored
-// key) — so matching by NAME through that endpoint, not by walking our own key forward, is
-// what actually finds these.
+// A differing name is adopted as the new scientific_name (old one kept as a synonym) only when
+// it clearly dominates the current name's record count across the whole dataset, so a single
+// stray record can't rename a species.
 //
-// A first version of this script adopted ANY differing name that GBIF's match endpoint
-// connected back to an existing species, with no regard for how well-attested that name
-// actually was in the bulk data — it renamed Salmo trutta (Brown Trout, a universally-known
-// name) to "Salmo ausonii" and Cricetus cricetus (Common Hamster) to "Mus cricetus" off a
-// SINGLE stray bulk record each, both real regressions (caught and fully reverted before this
-// version ran for real). The fix: aggregate every name variant seen for a given species across
-// the WHOLE bulk dataset first, and only adopt a challenger name once it clearly dominates the
-// current name's own bulk record count — not merely because it exists and resolves.
+// Usage: npx tsx src/scripts/build-species-name-index.ts --dir=<extracted GBIF download dir>
 import { readdirSync, createReadStream } from "node:fs";
 import readline from "node:readline";
 import { pool } from "../db.js";
@@ -31,15 +15,10 @@ import { fetchWithRetry } from "data-pipeline/src/fetch-with-retry.js";
 import { mapWithConcurrency } from "data-pipeline/src/concurrency.js";
 
 const GBIF_MATCH_API = "https://api.gbif.org/v1/species/match";
-// A single fuzzy-name match is far lighter than occurrence/search's faceted aggregation (the
-// endpoint that hit 150/156 failures at concurrency=4 earlier this session) — still kept
-// modest rather than assuming a distinct, more generous rate-limit bucket.
+// Kept modest to stay within GBIF's rate limits.
 const CONCURRENCY = 5;
-// A challenger name must clear an absolute floor (guards against a single stray/misidentified
-// record's name looking "dominant" just because the current name happens to have zero bulk
-// presence at all) AND beat the current name's own bulk count by a real margin (guards against
-// noise-level differences flipping the name back and forth on every future run) before this
-// adopts it as the new scientific_name.
+// A challenger name must clear an absolute floor AND beat the current name's count by a margin,
+// so stray records or noise can't flip the name back and forth between runs.
 const RENAME_MIN_RECORDS = 20;
 const RENAME_MARGIN_MULTIPLIER = 3;
 
@@ -55,8 +34,7 @@ async function resolveKeyForName(name: string): Promise<number | null> {
   const data = (await res.json()) as MatchResult;
   if (!data.usageKey) return null;
   if (data.status === "ACCEPTED") return data.usageKey;
-  // SYNONYM (of any subtype) or DOUBTFUL-but-still-linked — acceptedUsageKey is GBIF's own
-  // fully-resolved current usage, already following any chain of prior renames server-side.
+  // Synonym or doubtful: acceptedUsageKey is GBIF's fully resolved current usage.
   return data.acceptedUsageKey ?? null;
 }
 
@@ -108,7 +86,7 @@ async function main() {
   for (const row of synonymRes.rows) nameToSpeciesIdDirect.set(row.synonym_name, row.species_id);
 
   const unresolved = [...nameCounts.keys()].filter((n) => !nameToSpeciesIdDirect.has(n));
-  console.log(`[species-name-index] ${unresolved.length} names not already known (either as a scientific_name or a stored synonym) — resolving via GBIF match`);
+  console.log(`[species-name-index] ${unresolved.length} names not already known (either as a scientific_name or a stored synonym), resolving via GBIF match`);
 
   const nameToSpeciesId = new Map(nameToSpeciesIdDirect);
   let matched = 0;
@@ -134,9 +112,7 @@ async function main() {
   });
   console.log(`[species-name-index] match pass done: ${matched} matched an existing species, ${noMatch} matched no catalog species, ${failed} failed`);
 
-  // Aggregate every bulk name variant seen for each already-known species, so the rename
-  // decision below is made against the FULL picture (every name this dataset used for this
-  // species and how often), not one name examined in isolation.
+  // All name variants seen per species, so the rename decision compares them all.
   const variantsBySpeciesId = new Map<string, Array<{ name: string; count: number }>>();
   for (const [name, count] of nameCounts) {
     const speciesId = nameToSpeciesId.get(name);
@@ -149,7 +125,7 @@ async function main() {
   let synonymsAdded = 0;
   let collided = 0;
   for (const [speciesId, variants] of variantsBySpeciesId) {
-    if (variants.length < 2) continue; // Only one name variant seen at all — nothing to reconcile.
+    if (variants.length < 2) continue; // Only one name variant seen at all: nothing to reconcile.
     const currentName = speciesIdToCurrentName.get(speciesId)!;
     const currentVariant = variants.find((v) => v.name === currentName);
     const currentCount = currentVariant?.count ?? 0;
@@ -184,9 +160,7 @@ async function main() {
         console.log(`[species-name-index] ${currentName} (${currentCount} records) -> ${winner.name} (${winner.count} records)`);
       }
     }
-    // Every other variant name (whether or not a rename happened) is still worth recording as
-    // a synonym purely for future matching — a name only needs to resolve via GBIF match once,
-    // ever, after which it's a cheap direct lookup.
+    // Record every other variant as a synonym so future runs match it directly.
     const survivingName = renameApplied ? winner.name : currentName;
     for (const v of variants) {
       if (v.name === survivingName) continue;

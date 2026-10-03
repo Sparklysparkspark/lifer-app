@@ -6,6 +6,7 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "migrate": "tsx src/migrate.ts",
+    "refresh": "tsx src/scripts/refresh.ts",
     "build-seed": "tsx src/build/build-seed.ts",
     "build-seed-test": "tsx src/build/build-seed-test.ts",
     "build-seed-mammals": "tsx src/build/build-seed-mammals.ts",
@@ -20,8 +21,6 @@
     "build-region-pack": "tsx src/build/build-region-pack.ts",
     "build-pack-index": "tsx src/build/build-pack-index.ts",
     "backup": "tsx src/scripts/backup.ts",
-    "publish-packs": "tsx src/scripts/publish-packs.ts",
-    "prune-stale-taxon-packs": "tsx src/scripts/prune-stale-taxon-packs.ts",
     "test": "vitest run",
     "test:unit": "vitest run --exclude '**/*.integration.test.ts'",
     "test:integration": "vitest run integration"

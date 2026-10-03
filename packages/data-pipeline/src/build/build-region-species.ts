@@ -1,8 +1,6 @@
-// Builds region_species rows from GBIF occurrence data. Uses GBIF's occurrence/search
-// faceting (facet=speciesKey, limit=0) to get a per-species record count in one call instead
-// of paging through millions of individual occurrence records. A minimum-record threshold
-// filters out one-off vagrants/museum specimens — MIN_RECORDS is deliberately visible and easy
-// to tune as real data comes in.
+// Builds region_species rows from GBIF occurrence data. Uses GBIF's facet=speciesKey (limit=0)
+// to get per-species record counts in one call instead of paging through every record.
+// MIN_RECORDS filters out one-off vagrants and museum specimens.
 
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -12,27 +10,14 @@ import { fetchAllCountries } from "../fetch/fetch-region-boundary.js";
 import { pointInRing, minRingDistance, exteriorRingsFromGeometry, ringBoundingBox, type Point, type BoundingBox } from "../geometry.js";
 
 const GBIF_OCCURRENCE_API = "https://api.gbif.org/v1/occurrence/search";
-// Aves' one class key, kept as the default so every existing call site (apps/api's lazy
-// region-occurrence computation, compute-elusiveness.ts) keeps working unchanged. Phase 8's
-// other taxa pass their own: Mammalia has one class key too; fish has ~46 order keys (see
-// fetch-fish-orders.ts) — `taxonKey` matches a taxon AND every rank of descendant, and
-// repeating it ORs (verified against GBIF's own counts), which is what makes a
-// single query work for either shape.
+// Aves' class key, the default taxon. Other taxa pass their own keys: `taxonKey` matches a taxon
+// and all its descendants, and repeating it ORs, so one query works for a class or many orders.
 export const AVES_CLASS_KEY = 212;
-// Raised from 3 (never tuned against real data before now) — a burst within the recency
-// window above is still possible, so this is a second, complementary guard, not a
-// replacement for the year-range fix.
+// Complements the recency window: a burst within the window can still slip through.
 export const MIN_RECORDS = 10;
 
-// Fish (and anything else with much lower citizen-science reporting volume than birds)
-// need their own, far more permissive bar. For Red Sea fish, birds' MIN_RECORDS=10 + 15-year
-// window together threw away ~73% of real species (1,351 real GBIF species down to 372),
-// because a genuinely-present reef fish realistically gets far fewer diver/observer reports
-// than a bird ever would, not because it's rare. Fish therefore keep only the basisOfRecord
-// real-observation filter (still guards against the eDNA-contamination class of problem, e.g.
-// the Bonobo-in-BC case below — that's a data-quality issue independent of record count) — no
-// minimum record count, no recency window, so a species documented even once stays on the
-// list. This recovers 1,351 species for the Red Sea, right in the literature's cited range.
+// Fish get far fewer citizen-science reports than birds, so the bird threshold and recency
+// window would drop most real species. Fish keep only the basisOfRecord filter.
 export const FISH_MIN_RECORDS = 1;
 export const FISH_YEARS_WINDOW: number | null = null;
 
@@ -40,70 +25,34 @@ function taxonKeyParams(taxonKeys: number[]): string {
   return taxonKeys.map((k) => `taxonKey=${k}`).join("&");
 }
 
-// Excludes eDNA/bulk-sample records (basisOfRecord=MATERIAL_SAMPLE, MATERIAL_CITATION,
-// FOSSIL_SPECIMEN). A Bonobo showing up in a British Columbia checklist was traced to a
-// single eDNA metabarcoding dataset (12S environmental-DNA sampling for an endangered fish
-// survey); reference-database misassignment/contamination in bulk molecular sampling can
-// attribute a read to a biologically impossible species, and GBIF has no per-record
-// confidence score to filter on instead. Restricting to real observation/specimen bases
-// (repeating basisOfRecord ORs, same mechanic as taxonKey) drops that kind of record to zero
-// while leaving genuine cattle/goat/sheep observations untouched (84 real Bos taurus records
-// in Canada survive the filter).
+// Excludes eDNA/bulk-sample and fossil records. Molecular sampling can misassign reads to
+// impossible species, and GBIF has no per-record confidence to filter on. Repeating
+// basisOfRecord ORs, like taxonKey.
 export const REAL_BASIS_OF_RECORD = ["HUMAN_OBSERVATION", "OBSERVATION", "PRESERVED_SPECIMEN", "MACHINE_OBSERVATION", "LIVING_SPECIMEN"];
 
-// A real, disclosed problem specific to the ELUSIVENESS crawl: Black Bear, Coyote, and
-// American Bison were all scoring far harder to detect than they should. REAL_BASIS_OF_RECORD
-// above is deliberately broad because it answers "is this species really
-// present here at all" for checklist-building, where a museum specimen or camera-trap capture
-// IS legitimate evidence of presence. But that same breadth pollutes elusiveness, which is
-// trying to answer a different question — "how easy is this for an ordinary photographer to
-// encounter" — since camera-trap research programs and museum collection effort are driven by
-// conservation/research interest, not by how visible a species is to a casual observer.
-// Mammals in particular get heavily camera-trapped and specimen-collected precisely BECAUSE
-// they're hard to see any other way, which perversely made genuinely elusive species look
-// well-documented. Restricted to the two bases that represent an actual person casually
-// reporting a sighting (eBird-style checklists included).
+// Elusiveness uses a narrower basis than REAL_BASIS_OF_RECORD: camera-trap and specimen effort
+// follows research interest, not visibility, and makes hard-to-see species look well
+// documented. Only casual human sightings count here.
 export const CASUAL_OBSERVATION_BASIS_OF_RECORD = ["HUMAN_OBSERVATION", "OBSERVATION"];
 
 function basisOfRecordParamsFor(basisOfRecord: string[]): string {
   return basisOfRecord.map((b) => `basisOfRecord=${b}`).join("&");
 }
 
-// Every caller EXCEPT the elusiveness-relevant fetchSpeciesCountsForRegion/Zone above still
-// wants the broad "is this species really present" definition — checklist building,
-// seasonality, and the vagrancy/captive-only checks below all care whether a species occurs
-// here at all, not how easy it is to casually spot.
+// Checklists, seasonality and the vagrancy/captive checks want the broad presence definition.
 const basisOfRecordParams = basisOfRecordParamsFor(REAL_BASIS_OF_RECORD);
 
-// Country-level regions store a bare ISO3 code ("EGY"); province-level regions store a
-// dotted GADM gid ("CAN.2_1", no ISO-alpha-2 equivalent exists for a sub-national unit).
-// For the country case, GBIF's own `country` field (ISO-alpha-2) is used INSTEAD of
-// `gadmGid`, because this matters a lot: GADM's land administrative polygon for
-// a country barely covers its territorial waters, so marine/coastal species get
-// systematically undercounted through gadmGid (Egypt: gadmGid=EGY's fish facet has 964
-// distinct species vs country=EG's 1,707 — a 77% gap, and 1,707 is what actually matches
-// real Red Sea species estimates). Provinces keep using gadmGid — a real, disclosed gap at
-// the sub-national level with no cheap fix (no ISO-alpha-2-equivalent code for provinces).
+// Countries store an ISO3 code ("EGY"), provinces a GADM gid ("CAN.2_1"). Countries query via
+// GBIF's `country` (ISO2) instead of gadmGid, because GADM's land polygon misses territorial
+// waters and badly undercounts coastal and marine species. Provinces have no such fix.
 let iso3ToIso2Promise: Promise<Map<string, string>> | null = null;
 function iso3ToIso2Map(): Promise<Map<string, string>> {
   if (!iso3ToIso2Promise) {
     iso3ToIso2Promise = fetchAllCountries().then(
-      // Natural Earth's ISO_A2 isn't always a real ISO 3166-1 alpha-2 code: "-99" is its
-      // sentinel for "no code" (disputed territories/dependencies), and disputed cases like
-      // Taiwan get a non-standard compound value ("CN-TW") instead — both cases get
-      // rejected with a 400 by GBIF's `country` param, which only accepts a real 2-letter code. A
-      // strict regex catches both failure shapes without hand-listing every disputed case.
-      //
-      // isSovereignDependency is excluded here too — confirmed live: "Ashmore and Cartier Is."
-      // (our own region row, its own small area) has iso3="ATC" but, having no ISO code of its
-      // own, inherits Australia's iso2="AU" in this dataset. Without this filter, that entry
-      // let a tiny uninhabited reef territory's occurrence query resolve to GBIF's broad
-      // `country=AU` field — pulling ALL of mainland Australia's occurrence data (6,430
-      // species where the real answer is closer to zero), which is exactly the kind of
-      // memory-blowing sweep that crashed the world-scale reconcile job. A dependency has no
-      // safe country-wide shortcut available at all; it falls through to the gadmGid path
-      // below instead, which correctly returns nothing for a code GBIF doesn't recognize
-      // rather than silently mis-attributing its sovereign's entire dataset.
+      // Natural Earth's ISO_A2 can be "-99" or a compound like "CN-TW", which GBIF rejects, so
+      // only real 2-letter codes pass. Sovereign dependencies are excluded because they inherit
+      // their sovereign's ISO2, which would pull the whole sovereign country's data; they fall
+      // through to gadmGid instead.
       (countries) =>
         new Map(
           countries.filter((c) => c.iso2 && /^[A-Z]{2}$/.test(c.iso2) && !c.isSovereignDependency).map((c) => [c.iso3, c.iso2!]),
@@ -113,21 +62,11 @@ function iso3ToIso2Map(): Promise<Map<string, string>> {
   return iso3ToIso2Promise;
 }
 
-// landOnly forces the land administrative polygon (gadmGid) even for a country-level code
-// that could use the broader `country` field, because a country's
-// DEFAULT fish list should be its native land/freshwater species (Egypt's Nile fish, not
-// Red Sea reef fish it doesn't actually border on land) — `country` was the right fix for
-// undercounting marine species, but that's now handled properly via sea zones' own real
-// polygons (see fetch-marine-zones.ts), so fish's default query no longer needs or wants the
-// broader field. Birds/mammals are unaffected (still default to `country` — see
-// gbifRegionParam's own default and the caller in regions/routes.ts).
+// landOnly forces gadmGid even for countries, so a country's default fish list is its land and
+// freshwater species. Marine species come from sea zones' own polygons (fetch-marine-zones.ts).
 async function gbifRegionParam(externalCode: string, landOnly = false): Promise<string> {
-  // A province with no real GADM gid on hand (see compute-all-regions.ts's drill-down —
-  // Natural Earth only gives an ISO 3166-2 code like "TH-70", which GBIF's gadmGid param
-  // doesn't recognize at all, silently matching zero records) stores its own boundary as a
-  // WKT polygon directly in external_codes instead of a code. Recognized here before either
-  // lookup path below, so every caller (fetchSpeciesCountsForRegion, fetchMonthlySeasonality,
-  // etc.) gets correct results with no change needed on their end.
+  // A province with no GADM gid stores its boundary as WKT in external_codes instead, since
+  // GBIF's gadmGid silently matches nothing for ISO 3166-2 codes like "TH-70".
   if (externalCode.startsWith("POLYGON(") || externalCode.startsWith("MULTIPOLYGON(")) {
     return `geometry=${encodeURIComponent(externalCode)}`;
   }
@@ -151,17 +90,8 @@ export interface RegionSpeciesCount {
 }
 
 /** externalCode should be a GADM region GID, e.g. "CAN.2_1" (British Columbia). */
-// A real case that illustrates why this window is needed: Anhinga shows 143 all-time GBIF
-// records in Canada, but 133 of them are from the single year 2000 — one vagrant individual
-// generating a burst of observer reports, not a real population. This is exactly the
-// citizen-science effort-bias problem (without eBird's own effort data, this is weaker than
-// ideal), and a raw MIN_RECORDS threshold can't catch it (143 clears any
-// reasonable bar). The real fix — counting DISTINCT YEARS per species — needs a per-year
-// facet loop (like fetchMonthlySeasonality's per-month one) that's too expensive to run live
-// for every region view (100+ years of history × every country). Restricting to a recent
-// window is the cheap version of the same idea: it doesn't fix a fresh one-time mega-vagrant
-// event within the window, but it stops old bursts from inflating a region's checklist
-// forever, at zero extra request cost (same single query, one more param).
+// A recent-years window stops old vagrant bursts from inflating a checklist forever, at no
+// extra request cost. It won't catch a burst within the window.
 export const RECENT_YEARS_WINDOW = 15;
 
 export async function fetchSpeciesCountsForRegion(
@@ -174,11 +104,8 @@ export async function fetchSpeciesCountsForRegion(
   return fetchSpeciesCountsForRegionParam(await gbifRegionParam(externalCode, landOnly), taxonKeys, yearsWindow, basisOfRecord);
 }
 
-// Sea zones (see fetch-marine-zones.ts) query by the zone's own real polygon shape via
-// GBIF's `geometry` WKT param, instead of a country/gadmGid code — same faceting mechanism,
-// just a different way of telling GBIF "where." basisOfRecord filter still applies (the
-// eDNA-contamination problem is independent of location); yearsWindow defaults to null
-// (no filter) since every current caller is fish-only (see FISH_YEARS_WINDOW).
+// Sea zones query by their own polygon via GBIF's `geometry` WKT param. yearsWindow defaults
+// to null since current callers are fish-only (see FISH_YEARS_WINDOW).
 export async function fetchSpeciesCountsForZone(
   wkt: string,
   taxonKeys: number[],
@@ -224,23 +151,10 @@ async function fetchSpeciesCountsForRegionParam(
   return results;
 }
 
-// A species' nomenclatural type specimen (Holotype, Lectotype, etc. — the physical specimen
-// a name was originally described from) can sit in a museum anywhere, often nowhere near the
-// species' actual modern range: e.g. Acipenser carbonarius (the Adriatic Sturgeon) showed up
-// in Canada's checklist purely because its 1850 holotype was collected in Lake Superior —
-// the SAME specimen's own identificationRemarks field already notes it's since been
-// reidentified as Acipenser fulvescens (Lake Sturgeon, a real Canadian species), but the
-// occurrence record itself still carries the original 175-year-old species-level tag. Fish
-// have no MIN_RECORDS/year-window guard against this (see FISH_MIN_RECORDS's own comment on
-// why), so a single type specimen alone is enough to add a species that was never actually
-// found where its type happened to be collected.
-//
-// GBIF's occurrence search `typeStatus` filter matches the exact verbatim string a dataset
-// used ("Holotype" here — confirmed by hand; `typeStatus=HOLOTYPE`, the vocabulary's own
-// canonical spelling, matched zero records for this exact case) rather than normalizing to
-// its controlled vocabulary, so filtering server-side by value is unreliable across
-// datasets. This instead samples actual records (same pattern as looksCaptiveOnly's locality
-// check below) and reads the field directly.
+// A type specimen (holotype etc.) can sit far from the species' modern range, and fish have no
+// record-count guard, so one type specimen alone could add a species. GBIF's `typeStatus`
+// filter matches verbatim dataset strings rather than its vocabulary, so this samples records
+// and reads the field directly instead of filtering server-side.
 const MIN_TYPE_SPECIMEN_SAMPLES_TO_JUDGE = 1;
 
 export function looksTypeSpecimenOnly(records: OccurrenceLocalitySample[]): boolean {
@@ -248,71 +162,23 @@ export function looksTypeSpecimenOnly(records: OccurrenceLocalitySample[]): bool
   return records.every((r) => !!r.typeStatus);
 }
 
-// Recurrence rescue: the recent-window MIN_RECORDS threshold treats a genuinely-present-but-
-// rarely-recorded resident the same as a one-off vagrant burst (many records, but nearly all
-// from a single year — one excited flurry of reports, not a population). The distinguishing
-// signal is whether a species turns up across several DIFFERENT years with no single year
-// dominating its all-time total. RECURRENCE_ALLTIME_FLOOR is set above
-// RECURRENCE_MIN_DISTINCT_YEARS on purpose: at exactly the distinct-years minimum, "one record
-// per year for 3 years" let sporadic escaped-game-bird sightings (with no establishmentMeans
-// data and no captive flag, since the bird wasn't literally in a cage) slip onto checklists as
-// if they were an established population — requiring meaningfully more than the bare minimum
-// closes that gap while leaving genuinely recurring residents (hundreds of all-time records)
-// unaffected.
-// Loosened from the original 8/3/0.5 (confirmed live: Tufted Puffin in British Columbia — a
-// real, permanent breeding colony wrongly flagged vagrant because its offshore colonies are
-// visited by so few birders that even many all-time records still cluster into fewer than 3
-// distinct years, or into one dominant survey-expedition year). Deliberate policy choice: at
-// world scale, obscuring a species that's genuinely present is a worse failure than including
-// one that shouldn't be there — a false "not here" can't be second-guessed by the person
-// reading the checklist, but a false "here" at least shows up and can be judged/archived by
-// hand. So these thresholds are tuned to accept more borderline cases rather than reject them.
+// Recurrence rescue: a species that turns up across several different years, with no single
+// year dominating, is a real resident rather than a vagrant burst. The all-time floor sits
+// above the distinct-years minimum so sporadic escapee sightings don't pass. Thresholds lean
+// towards inclusion: a false "not here" can't be second-guessed by the user, a false "here" can.
 export const RECURRENCE_ALLTIME_FLOOR = 6;
 export const RECURRENCE_MIN_DISTINCT_YEARS = 2;
 export const RECURRENCE_MAX_YEAR_CONCENTRATION = 0.65;
 
-// Confirmed live: Emperor Goose in British Columbia — 83 all-time records spread across enough
-// distinct years to pass the check above (correctly tiered "legendary," genuinely hard to find),
-// but 83 records over years of data is exactly what a real rare wanderer looks like, not a sparse
-// but expected local population. The check above has no sense of MAGNITUDE, only pattern — a
-// species can look "recurring" on a small handful of records just as easily as on a few hundred.
-//
-// A FIXED minimum record count doesn't work here either: a genuinely resident species in an
-// under-birded region (e.g. a nightjar in Morocco) can have just as few total records as a real
-// vagrant, purely because far fewer people submit GBIF records there at all — the same regional-
-// effort confound that broke the country-level vagrant check (see compute-elusiveness.ts's own
-// comment on coreScore). The floor has to scale with how much data this SPECIFIC region/taxon
-// combination typically has, not an absolute number that means something different in Iceland
-// than in Morocco.
-//
-// So: require a species' own total to clear a fraction of its region's own median species total
-// (same taxon class only — birds and mammals have wildly different volumes even in the same
-// region, see the cross-taxon-volume regression test). Calibrated against BC's real distribution:
-// median species total ≈4216, so a species needs ≈211 records here to count as "enough data to
-// judge by pattern rather than assume vagrant" — comfortably below what a real, if scarce,
-// resident clears, comfortably above Emperor Goose's 83.
-// Loosened from 0.05 alongside the constants above, same reasoning: a lower bar here means
-// fewer low-detectability-but-real residents get judged as "not enough data, assume vagrant."
+// Pattern alone has no sense of magnitude, so a species also needs a total above a fraction
+// of its region's median species total (same taxon class). A fixed count wouldn't work:
+// under-recorded regions have far fewer records for real residents.
 export const RECURRENCE_MIN_RECORDS_FRACTION_OF_MEDIAN = 0.03;
 
-// Confirmed live: Great Gray Owl, Northern Hawk Owl, and Barn Owl in British Columbia — all
-// genuine (if scarce) residents recorded across 18-47 distinct years apiece, spread evenly
-// enough that no single year comes close to dominating, yet all three still failed the median-
-// based floor above and got flagged vagrant. The floor assumes "how many records a species has"
-// tracks "how present it is," but that's only true for similarly-detectable species — a nocturnal
-// or irruptive bird will always accumulate far fewer GBIF records than a common daytime songbird
-// with the exact same real presence, so a flat count floor systematically penalizes low-
-// detectability residents relative to common ones. A species recorded across MANY distinct years
-// (well beyond the bare pattern minimum) with a low year-concentration has already demonstrated
-// the thing the floor exists to protect against — this isn't a burst or a fluke, it recurs — so
-// it can bypass the floor entirely rather than needing raw volume to also clear a bar tuned to
-// common species. RECURRENCE_STRONG_PATTERN_MIN_YEARS is set well above RECURRENCE_MIN_DISTINCT_
-// YEARS specifically so this bypass can't be reached by a short, thin run of records (see the
-// Red-Flanked Bluetail case below, a genuine one-off invasion confined to 3 consecutive years —
-// nowhere close to 15 distinct years, so it still falls through to the floor and fails on
-// concentration anyway).
-// Loosened from 15 — reachable sooner for a long-tenured but sparsely-recorded resident,
-// same inclusion-biased reasoning as the constants above.
+// Low-detectability residents (nocturnal, irruptive) record far fewer observations than common
+// species. A species seen across many distinct years with low concentration has already shown
+// it recurs, so it bypasses the volume floor. Set well above RECURRENCE_MIN_DISTINCT_YEARS so a
+// short one-off invasion can't reach it.
 export const RECURRENCE_STRONG_PATTERN_MIN_YEARS = 10;
 
 export function medianOf(values: number[]): number {
@@ -340,40 +206,28 @@ export async function fetchYearCountsForSpecies(
   return (facet?.counts ?? []).map((c) => ({ year: Number(c.name), count: c.count }));
 }
 
-// minTotalRecords (see RECURRENCE_MIN_RECORDS_FRACTION_OF_MEDIAN's own comment) defaults to 0 —
-// a caller that hasn't computed a region/taxon-specific baseline yet gets the old pattern-only
-// behavior rather than an error, but every real call site below now passes a real floor.
+// minTotalRecords defaults to 0 (pattern-only check) when no region baseline is available.
 export function passesRecurrenceCheck(yearCounts: Array<{ year: number; count: number }>, minTotalRecords = 0): boolean {
   const total = yearCounts.reduce((sum, c) => sum + c.count, 0);
   if (total === 0) return false;
   const distinctYears = yearCounts.length;
   const maxShare = Math.max(...yearCounts.map((c) => c.count)) / total;
   if (maxShare > RECURRENCE_MAX_YEAR_CONCENTRATION) return false;
-  // See RECURRENCE_STRONG_PATTERN_MIN_YEARS's own comment: a long, well-spread record history is
-  // itself proof of recurrence, regardless of whether raw volume clears a floor tuned to common,
-  // easily-detected species.
   if (distinctYears >= RECURRENCE_STRONG_PATTERN_MIN_YEARS) return true;
   return total >= minTotalRecords && distinctYears >= RECURRENCE_MIN_DISTINCT_YEARS;
 }
 
-// Swinhoe's Pheasant, a Taiwan endemic, was found "present" in Canada, revealing that the
-// recurrence check above can't tell a genuine sparse wild resident from a
-// species whose only records are captive specimens at zoos/wildlife centres, spread across
-// different years and different institutions (looks exactly like real recurring presence by
-// year-spread alone — Swinhoe's Pheasant's 5 Canadian records span 1962-2017 across Calgary
-// Zoo, Hancock Wildlife Centre, and two other named facilities, no single year dominant).
-// GBIF's `locality` field reliably names the institution for these ("Calgary; Calgary Zoo"),
-// so a small text match against common captive-facility keywords is a real, checkable
-// signal — this only runs against the small set of species ALREADY being specially
-// considered by the recurrence rescue, not the whole checklist, so the added cost is bounded.
+// The recurrence check can't tell a sparse wild resident from a species known only from
+// zoos and wildlife centres across different years. GBIF's `locality` usually names the
+// institution, so a keyword match is a usable signal. It only runs on species already under
+// recurrence consideration, so the cost is bounded.
 const CAPTIVE_LOCALITY_PATTERN =
   /\b(zoo|aviary|wildlife (centre|center)|animal sanctuary|aquarium|botanical garden|arboretum|menagerie|game farm|conservatory)\b/i;
 
 export interface OccurrenceLocalitySample {
   locality: string | null;
   typeStatus: string | null;
-  // [longitude, latitude], same order geometry.ts's Point/WKT helpers use — null when GBIF
-  // has no coordinate for this particular record (common for older museum-specimen data).
+  // [longitude, latitude], same order as geometry.ts. Null when GBIF has no coordinate.
   point: [number, number] | null;
 }
 
@@ -401,21 +255,11 @@ export async function fetchRecordSampleForZone(wkt: string, gbifKey: number): Pr
   return fetchRecordSampleForParam(`geometry=${encodeURIComponent(wkt)}`, gbifKey);
 }
 
-// Only rejects when there's actually enough evidence to judge — most iNaturalist-sourced
-// records have no locality string at all (Budgerigar's real outdoor
-// sightings mostly come back `locality: null`), so a sample with too few locality strings to
-// judge is left alone rather than falsely excluded for lack of data. This deliberately only
-// catches the zoo/museum-specimen failure mode (Swinhoe's Pheasant), not a genuine
-// free-roaming escapee like Budgerigar, which has no equivalent textual signal — a known,
-// separate, unfixed gap.
+// Only judges when enough records have a locality string; most iNaturalist records have none.
+// Catches zoo and museum records, not free-roaming escapees, which have no textual signal.
 const MIN_LOCALITY_SAMPLES_TO_JUDGE = 3;
-// A plain majority, not a supermajority — this needs to be this lenient:
-// Swinhoe's Pheasant's 5 Canadian records only match the keyword pattern on 3 of them
-// ("Hancock Wildlife Centre" x2, "Calgary Zoo"); the other 2 ("Peachland; 6328 Forest Hill
-// Drive", "Crystal Gardens, Victoria") are almost certainly also private/former captive
-// collections but don't happen to contain a matched keyword. A wild species essentially
-// never has even ONE record naming a zoo/wildlife centre as its locality, so requiring only
-// "more than half" is still a low-false-positive bar, not a loose one.
+// A plain majority is enough: captive records often lack a matched keyword, and a wild species
+// almost never has even one record naming a zoo as its locality.
 const CAPTIVE_SHARE_THRESHOLD = 0.5;
 
 export function looksCaptiveOnly(records: OccurrenceLocalitySample[]): boolean {
@@ -425,26 +269,12 @@ export function looksCaptiveOnly(records: OccurrenceLocalitySample[]): boolean {
   return captiveCount / withLocality.length >= CAPTIVE_SHARE_THRESHOLD;
 }
 
-// A species whose real range is entirely elsewhere can still slip a handful of records into
-// an unrelated region/zone — confirmed on Amphiprion akindynos (Barrier Reef Anemonefish, a
-// Great Barrier Reef/New Caledonia endemic): 2,622 real global records, ALL in
-// Australia/New Caledonia, yet 3 showed up in the Northern and Central Red Sea sea zone,
-// traced to a single low-reliability citizen-science submission (Questagame, gamified/
-// self-identified) — almost certainly a misidentification of the real native Red Sea
-// Anemonefish (Amphiprion bicinctus). Neither looksTypeSpecimenOnly nor looksCaptiveOnly
-// catches this: no type-specimen flag, no zoo/museum locality keyword, just a plain wrong ID
-// on an otherwise-ordinary-looking photo. The signal that DOES catch it is the imbalance
-// itself — a real, well-documented species showing up almost nowhere near where the rest of
-// its own record set lives is inherently suspicious, checkable with one extra global-count
-// query, independent of what the local records' text says.
+// A well-documented species with only a handful of local records and nearly all its records
+// elsewhere is likely a misidentification. Type-specimen and captive checks don't catch this.
 export const GEOGRAPHIC_OUTLIER_MAX_LOCAL_RECORDS = 5;
-// Needs a real, well-documented global population to compare against — a species with only
-// a handful of records anywhere isn't "suspiciously concentrated elsewhere," it's just
-// generally under-documented, which is a different (and not inherently suspect) situation.
+// A species with few records anywhere is just under-documented, not suspicious.
 const GEOGRAPHIC_OUTLIER_MIN_GLOBAL_RECORDS = 50;
-// The local records must be a tiny sliver of the global total, not just "fewer than
-// elsewhere" — a genuinely-present vagrant/edge-of-range population can legitimately be a
-// small fraction of a species' global count without being a misidentification.
+// The local share must be tiny: a real edge-of-range population can be a small fraction.
 const GEOGRAPHIC_OUTLIER_MAX_LOCAL_SHARE = 0.02;
 
 export function looksLikeGeographicOutlier(localRecordCount: number, globalRecordCount: number): boolean {
@@ -453,10 +283,8 @@ export function looksLikeGeographicOutlier(localRecordCount: number, globalRecor
   return localRecordCount / globalRecordCount <= GEOGRAPHIC_OUTLIER_MAX_LOCAL_SHARE;
 }
 
-/** Global occurrence count for a species — no region/zone scoping — used only by
- *  looksLikeGeographicOutlier's comparison, and only for the already-small set of low local-
- *  count candidates the type-specimen/captive checks already sample, so the added cost is
- *  bounded the same way theirs is. */
+/** Global occurrence count for a species, used only by looksLikeGeographicOutlier on the
+ *  already-small set of low-count candidates. */
 export async function fetchGlobalOccurrenceCount(gbifKey: number): Promise<number> {
   const url = `${GBIF_OCCURRENCE_API}?taxonKey=${gbifKey}&${basisOfRecordParams}&occurrenceStatus=PRESENT&limit=0`;
   const res = await fetchWithRetry(url, {});
@@ -472,13 +300,8 @@ interface LandRing {
   ring: Point[];
 }
 
-// Every country's real landmass, loaded once (fetchAllCountries() is itself cached — see its
-// own comment) and reused across every sea-zone candidate check in a process run, rather than
-// re-fetched per species. Natural Earth's 10m-resolution coastlines carry thousands of points
-// per ring, so each ring's own bbox is precomputed here too — a cheap rectangle check first,
-// same "loose prefilter, then the real (expensive) check" shape this file already uses for
-// zone adjacency (see bboxesNear's own comment), rather than running the full ray-cast against
-// every one of ~250 countries' rings for every sampled point.
+// Every country's landmass, loaded once per process. Each ring's bbox is precomputed as a cheap
+// prefilter before the expensive ray-cast.
 let allCountryLandRingsPromise: Promise<LandRing[]> | null = null;
 function allCountryLandRings(): Promise<LandRing[]> {
   if (!allCountryLandRingsPromise) {
@@ -495,25 +318,10 @@ function isPointInBbox([x, y]: Point, bbox: BoundingBox): boolean {
   return x >= bbox.minLon && x <= bbox.maxLon && y >= bbox.minLat && y <= bbox.maxLat;
 }
 
-// A sea zone's own stored polygon is a simplified shape (Marine Ecoregions of the World data,
-// not a precise coastline) — confirmed wrong on Aphanius sirhani (Azraq toothcarp, endemic to
-// one desert oasis 150+ miles from the Mediterranean) and the Yarışlı Killifish (endemic to a
-// single lake in Turkey): both showed up in the Levantine Sea / Egypt's nearby-water data
-// because the zone's simplified boundary apparently extends inland far enough to swallow real,
-// but entirely non-marine, records. This checks the thing that should NEVER be true for a
-// genuine marine species regardless of which sea zone's polygon claims it: does the record's
-// own coordinate resolve onto real land at all, independent of any particular zone's shape.
-// General on purpose — reuses the same Natural Earth country polygons already loaded
-// elsewhere in this pipeline, so it works for any sea zone anywhere, not just the ones a
-// specific bad case happened to surface.
-//
-// Plain "is this point on land at all" is too aggressive, though — confirmed by hand: a real
-// Red Sea reef-fish record geotagged at a Sharm El Sheikh dive resort (right at the shoreline,
-// a completely normal way for a real marine observation to get coordinates) also resolves
-// "on land," since the resort itself sits on the beach. The real distinguishing signal is
-// DISTANCE from the coastline, not containment alone — Azraq is 150+ miles inland, a beach
-// resort is a few hundred meters from the water at most. INLAND_BUFFER_DEGREES (~33km) is
-// chosen well beyond any ordinary coastal town/resort's distance from the true shoreline.
+// Sea zone polygons are simplified and can extend inland, pulling in non-marine records. This
+// checks whether a record's coordinate is on real land, independent of any zone's shape.
+// Containment alone is too strict (coastal resorts sit on land), so it uses distance from the
+// coastline: INLAND_BUFFER_DEGREES (~33km) is well beyond any coastal town's distance to shore.
 const MIN_LAND_SAMPLES_TO_JUDGE = 2;
 const INLAND_SHARE_THRESHOLD = 0.5;
 const INLAND_BUFFER_DEGREES = 0.3;
@@ -551,12 +359,8 @@ export async function fetchOccurrenceCountForSpecies(gbifKey: number, externalCo
 }
 
 /**
- * Monthly seasonality per species for one region. A weekly sparkline would be nicer, but
- * GBIF's occurrence API only facets by month, with no week-of-year facet to get real
- * weekly granularity from, so this uses 12 monthly bins instead.
- * 12 requests total (one per month), each a full per-species facet over that month — far
- * cheaper than looping per-species, and reuses the exact faceting technique already proven
- * out in fetchSpeciesCountsForRegion above.
+ * Monthly seasonality per species for one region. GBIF only facets by month, not week, so this
+ * uses 12 monthly bins: 12 per-species facet requests, one per month.
  */
 export async function fetchMonthlySeasonality(
   externalCode: string,
@@ -600,19 +404,9 @@ export async function fetchMonthlySeasonality(
 }
 
 /**
- * Per-species record counts broken down by year, for the "is this an established resident or
- * a one-off vagrant burst" check (passesRecurrenceCheck) — same batching trick as
- * fetchMonthlySeasonality just above: one facet=speciesKey call PER YEAR in the window, not one
- * live call PER SPECIES. Bounded to yearsWindow (defaults to RECENT_YEARS_WINDOW, the same
- * window a species already had to clear on record count to make the checklist at all — judging
- * recency-of-distribution against the same window used for recency-of-presence is more
- * consistent than the old per-species call's ALL-TIME lookback, not less correct: RECENT_YEARS_
- * WINDOW exists specifically so an old burst can't inflate a checklist forever, and the same
- * reasoning applies to whether a burst still reads as one within THAT window). This turns what
- * used to be one live GBIF call per already-included bird/mammal species — hundreds, for a
- * well-recorded region, and the actual cause of region computation taking a very long time
- * under GBIF's live rate limits — into a fixed, small number of calls per region regardless of
- * how many species are on the checklist.
+ * Per-species record counts by year, for passesRecurrenceCheck. One facet=speciesKey call per
+ * year in the window rather than one call per species, so the cost per region stays small and
+ * fixed. Uses the same window as the checklist's recency filter.
  */
 export async function fetchYearlyRecordCounts(
   externalCode: string,

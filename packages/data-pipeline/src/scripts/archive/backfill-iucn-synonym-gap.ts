@@ -1,10 +1,5 @@
-// One-off: re-queries Wikidata for every species with NO iucn_status on file, using the
-// synonym-aware query fixed in fetch-wikidata.ts. That fix addressed a gap found with the
-// Snow Leopard: GBIF's backbone name "Uncia uncia" matched a Wikidata item with no IUCN
-// statement at all, while the real "vulnerable" status lived on a separate item under
-// "Panthera uncia," linked only via P1420 "taxon synonym". This script reports how many
-// species across every taxon the synonym-aware query recovers real data for, to confirm the
-// gap wasn't specific to Snow Leopard.
+// One-off: re-queries Wikidata for every species with no iucn_status, using fetch-wikidata.ts's
+// synonym-aware (P1420 "taxon synonym") query, and reports how many species it recovers.
 import { pool } from "../db.js";
 import { fetchWikidataForSpecies } from "../fetch/fetch-wikidata.js";
 

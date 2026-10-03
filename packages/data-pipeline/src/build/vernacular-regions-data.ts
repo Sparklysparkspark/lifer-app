@@ -1,19 +1,16 @@
-// Compiled from a worldwide research pass (see ~/.claude/plans — Aug 2026 session) into which
-// countries' fine-grained admin-1 provinces are too unfamiliar/granular for browsing, and what
-// real, commonly-known grouping locals/travelers actually use instead (never invented). Every
-// province name below must match the exact string stored in `regions.name` for that country —
-// copied verbatim from the research, diacritics and all, since apply-vernacular-regions.ts
-// matches by exact string.
+// Which countries' admin-1 provinces are too granular for browsing, and the real, commonly used
+// groupings locals and travellers use instead (never invented). Province names must match
+// `regions.name` exactly, diacritics and all, since apply-vernacular-regions.ts matches by string.
 //
 // - "no_grouping": the country's own provinces/states are already the familiar browsing unit
-//   (Canada, India, Nigeria, etc.) — left untouched.
+//   (Canada, India, Nigeria, etc.): left untouched.
 // - "grouping": groups map a real region name to its member province names. Any province not
 //   listed in ANY group for a "grouping" country is left as a direct, ungrouped child (some
-//   countries only have a real name for PART of their provinces — e.g. Sudan's Darfur/Kordofan
-//   — forcing every leftover into an invented bucket would be worse than leaving them alone).
+//   countries only have a real name for part of their provinces, e.g. Sudan's Darfur/Kordofan,
+//   and inventing a bucket for the rest would be worse).
 // - disconnects: provinces that are ecologically/geographically isolated destinations in their
-//   own right (the Galápagos pattern) — reparented to the country's own parent (its continent),
-//   never folded into a mainland group, regardless of the country's overall verdict.
+//   own right (the Galápagos pattern): reparented to the country's parent (its continent), never
+//   folded into a mainland group, regardless of the country's overall verdict.
 export interface CountryGrouping {
   verdict: "grouping" | "no_grouping";
   groups?: Record<string, string[]>;
@@ -46,10 +43,8 @@ export const VERNACULAR_GROUPINGS: Record<string, CountryGrouping> = {
       "Podravska": ["Benedikt","Cerkvenjak","Destrnik","Dornava","Duplek","Gorišnica","Hajdina","Hoce-Slivnica","Juršinci","Kidricevo","Kungota","Lenart","Lovrenc na Pohorju","Majšperk","Maribor","Markovci","Miklavž na Dravskem polju","Oplotnica","Ormož","Pesnica","Podlehnik","Ptuj","Race-Fram","Ruše","Selnica ob Dravi","Slovenska Bistrica","Starše","Sveta Ana","Sveti Andraž v Slovenskih Goricah","Trnovska vas","Videm","Zavrc","Šentilj","Žetale"],
       "Koroška": ["Dravograd","Mežica","Mislinja","Muta","Podvelka","Prevalje","Radlje ob Dravi","Ravne na Koroškem","Ribnica na Pohorju","Slovenj Gradec","Vuzenica","Črna na Koroškem"],
       "Savinjska": ["Braslovce","Celje","Dobje","Dobrna","Gornji Grad","Kozje","Laško","Ljubno","Luce","Mozirje","Nazarje","Podcetrtek","Polzela","Prebold","Rogatec","Rogaška Slatina","Slovenske Konjice","Solcava","Tabor","Velenje","Vitanje","Vojnik","Vransko","Zrece","Šentjur pri Celju","Šmarje pri Jelšah","Šmartno ob Paki","Šoštanj","Štore","Žalec"],
-      // Named "Zasavska Region" rather than plain "Zasavska" — the source province list has
-      // its own anomalous "Zasavska" entry (flagged by the research as likely bad upstream
-      // data: the region's own name leaking into the municipality list), which would collide
-      // on (name, parent_id) with a same-named group under the same country.
+      // Named "Zasavska Region" because the source province list has its own (likely bad) "Zasavska"
+      // entry, which would collide on (name, parent_id) with a same-named group.
       "Zasavska Region": ["Hrastnik","Litija","Trbovlje","Radece"],
       "Posavska": ["Bistrica ob Sotli","Brežice","Krsko","Krško","Sevnica"],
       "Jugovzhodna Slovenija": ["Crnomelj","Dolenjske Toplice","Kocevje","Kostel","Loški Potok","Metlika","Mirna Pec","Novo Mesto","Ribnica","Semic","Sodražica","Trebnje","Šentjernej","Škocjan","Žužemberk"],
@@ -229,9 +224,8 @@ export const VERNACULAR_GROUPINGS: Record<string, CountryGrouping> = {
       "Southeast": ["Bà Rịa - Vũng Tàu","Bình Dương","Bình Phước","Hồ Chí Minh city","Tây Ninh"],
       "Mekong Delta": ["An Giang","Bạc Liêu","Bến Tre","Can Tho","Cà Mau","Hau Giang","Kiên Giang","Long An","Sóc Trăng","Tiền Giang","Trà Vinh","Vĩnh Long","Ðong Tháp"],
     },
-    // "Đông Bắc", "Đông Nam Bộ", "Đồng Bằng Sông Hồng" are bad data (already region names, not
-    // provinces) — deliberately left out of every group; a data-cleanup pass should remove
-    // those 3 rows from `regions` entirely rather than trying to map them.
+    // "Đông Bắc", "Đông Nam Bộ", "Đồng Bằng Sông Hồng" are bad data (region names, not provinces), so
+    // they're left out of every group; they should be removed from `regions` instead.
   },
   "Spain": {
     verdict: "grouping",
@@ -256,8 +250,7 @@ export const VERNACULAR_GROUPINGS: Record<string, CountryGrouping> = {
       "Ceuta": ["Ceuta"],
       "Melilla": ["Melilla"],
     },
-    // Real Spain also has Granada (Andalucía) and León (Castilla y León) — missing from our
-    // province list entirely (data gap, not a mapping issue).
+    // Granada (Andalucía) and León (Castilla y León) are missing from the province list (a data gap).
   },
   "Algeria": {
     verdict: "grouping",

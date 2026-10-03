@@ -1,17 +1,7 @@
-// Read-only reverse check, the opposite direction of compute-provinces-bulk.ts's own
-// iNaturalist rescue pass: that pass uses Research Grade presence to RESCUE a species GBIF's own
-// pattern check would exclude/flag; this instead looks at species GBIF's check already ACCEPTED
-// (is_vagrant = false, currently on the checklist) and asks whether iNaturalist Research Grade
-// has ever documented that species in this exact region at all.
-//
-// Zero Research Grade records for an already-included species doesn't prove it's wrong — Research
-// Grade requires two independent identifiers to agree, which a genuinely rare or hard-to-
-// photograph species can fail even when it's real. But it's still a real, worth-a-human-look
-// signal, especially for taxa GBIF's own inclusion floor barely gates at all: fish specifically
-// (FISH_MIN_RECORDS = 1 in build-region-species.ts — a SINGLE GBIF record is enough to include a
-// fish and mark it non-vagrant), where bad data (a misidentification, a bad coordinate, an
-// aquarium-trade escapee with no captive flag) slips through easiest. This makes no DB writes —
-// see report-vagrant-ebird.ts for the sibling read-only pattern this follows.
+// Read-only report: species GBIF accepted (is_vagrant = false) that iNaturalist has no Research
+// Grade record of in that region. Not proof of an error (rare species may never reach Research
+// Grade), but worth a human look, especially for fish, where one GBIF record is enough to list
+// one. Makes no DB writes.
 //
 // Usage: npx tsx src/scripts/flag-vagrant-mismatch-inat.ts [--countries=France,Germany] [--taxon=actinopterygii]
 import { writeFileSync, appendFileSync } from "node:fs";
@@ -35,11 +25,7 @@ interface RegionRow {
   parent_id: string | null;
 }
 
-// Walks a region's own parent chain to find its country — the nearest ancestor whose OWN
-// parent is a continent (itself a direct child of World). Done in JS against an in-memory map
-// rather than a SQL self-join: the region tree is only ~5000 rows total, and a chain walk here
-// is far easier to get right than encoding "country = the region two or three levels up,
-// depending on whether this row is a province or a country itself" as a single SQL expression.
+// Walks up to the region's country: the ancestor whose parent is a continent.
 function findCountry(regionId: string, byId: Map<string, RegionRow>): RegionRow | null {
   let current = byId.get(regionId);
   while (current) {
@@ -63,10 +49,8 @@ async function main() {
   const regionRowsRes = await pool.query<RegionRow>(`SELECT id, name, parent_id FROM regions`);
   const regionsById = new Map(regionRowsRes.rows.map((r) => [r.id, r]));
 
-  // Every currently-included (is_vagrant = false), non-manually-overridden species/region pair,
-  // optionally scoped to a taxon — manual overrides are an explicit human decision already, so a
-  // mismatch there isn't worth re-litigating here. Country filtering happens below in JS, after
-  // each region's country has been resolved via findCountry.
+  // Every included (is_vagrant = false) pair without a manual override, optionally by taxon.
+  // Country filtering happens below, after findCountry.
   const res = await pool.query<CandidateRow>(
     `SELECT rs.region_id, s.id AS species_id, s.scientific_name, s.common_name, s.inat_taxon_id
      FROM region_species rs

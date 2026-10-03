@@ -1,30 +1,14 @@
-// Rather than checking every species in every region against Wikipedia (expensive, and not
-// reliable enough to fully automate for well-documented species anyway), this only checks two
-// small, already-cheap-to-query candidate sets:
-//   1. Species with NO reference photo found anywhere — a proxy for "obscure enough that a
-//      region entry might be a data error." Catches species that are globally obscure.
-//   2. region_species rows with local_tier epic/legendary AND local_frequency <= 2 — catches a
-//      different pattern: a species that's perfectly well-documented and common in its real
-//      range, but shows up as a near-single-record outlier somewhere implausible (e.g. a
-//      species placed outside its real range by a single decades-old museum specimen record).
-//      The low-count threshold matters here, not tier-mismatch-across-regions alone: genuine
-//      rare vagrants (Steller's Eider, McKay's Bunting) still have several records, while real
-//      misidentification artifacts sit right at 1-2.
+// Flags possibly implausible region entries for manual review by checking the Wikipedia text
+// ("endemic to X") of two small candidate sets:
+//   1. Species with no reference photo anywhere (globally obscure, so a region entry might be a
+//      data error).
+//   2. Rows with a rare/legendary local_tier and local_frequency <= 2: a near-single-record
+//      outlier outside the real range. Real vagrants usually have several records.
 //
-// Only ever flags "endemic to/restricted to X" for manual review, never auto-excludes —
-// matching a free-text place name back to real geography is not reliable enough to trust blind
-// deletion. "Extinct in the wild" tagging used to also live here (Wikipedia-text pattern
-// matching via iNaturalist), but moved to check-extinction-status.ts, which gets the SAME
-// signal from GBIF's own structured IUCN threatStatus field ("EXTINCT_IN_THE_WILD" — confirmed
-// live for Spix's Macaw) instead of regex against free text — more reliable, and GBIF's
-// distributions endpoint has never shown the sustained rate-limit throttling this script's own
-// iNaturalist calls did on a 20k+ candidate run.
+// Never auto-excludes: matching free-text place names to geography isn't reliable enough.
 import { pool } from "../db.js";
-// iNaturalist's own taxon record already carries the full Wikipedia article text in
-// wikipedia_summary (see lazyEnrich.ts's fetchINaturalistTaxon/stripHtml) and is never
-// rate-limited the way hitting en.wikipedia.org's API directly for ~1200 species in a row is
-// (that used to draw a 429 roughly every other request, each with a 50s+ backoff). Reuses
-// fetchWithRetry for the same host-pacing/retry behavior other iNaturalist calls get.
+// Wikipedia text comes from iNaturalist's wikipedia_summary, which doesn't rate-limit like
+// Wikipedia's own API.
 import { fetchWithRetry, stripHtml } from "../species/lazyEnrich.js";
 
 const INAT_API = "https://api.inaturalist.org/v1";
@@ -43,11 +27,7 @@ async function fetchFullExtract(name: string, rank: "species" | "genus"): Promis
 }
 
 async function main() {
-  // --regions=Canada,Finland scopes this pass to species that appear on those regions'
-  // checklists first — prioritizes whichever regions have an actual test pack right now, ahead
-  // of the much larger full-catalog sweep. Not a perfect scope (a flagged species might ALSO
-  // sit on other regions' checklists, still reported/tagged for all of them, same as an
-  // unscoped run), but it means the first, most-relevant candidates get checked first.
+  // --regions=Canada,Finland limits the pass to species on those regions' checklists.
   const regionsArg = process.argv.find((a) => a.startsWith("--regions="));
   const regionNames = regionsArg ? regionsArg.split("=")[1].split(",") : null;
   const res = await pool.query<{
@@ -59,7 +39,7 @@ async function main() {
   }>(
     `SELECT s.id, s.scientific_name, s.common_name,
        array_agg(DISTINCT r.name) AS regions,
-       array_agg(DISTINCT r.name) FILTER (WHERE rs.local_tier IN ('epic', 'legendary') AND rs.local_frequency <= 2) AS flagged_regions
+       array_agg(DISTINCT r.name) FILTER (WHERE rs.local_tier IN ('rare', 'legendary') AND rs.local_frequency <= 2) AS flagged_regions
      FROM species s
      JOIN region_species rs ON rs.species_id = s.id
      JOIN regions r ON r.id = rs.region_id
@@ -68,7 +48,7 @@ async function main() {
      )` : ""}
      GROUP BY s.id, s.scientific_name, s.common_name
      HAVING bool_or(s.reference_photo IS NULL AND s.enriched_at IS NOT NULL)
-        OR bool_or(rs.local_tier IN ('epic', 'legendary') AND rs.local_frequency <= 2)
+        OR bool_or(rs.local_tier IN ('rare', 'legendary') AND rs.local_frequency <= 2)
      ORDER BY s.scientific_name`,
     regionNames ? [regionNames] : [],
   );
@@ -83,23 +63,8 @@ async function main() {
     let speciesText: string | null;
     let genusText: string | null;
     try {
-      // fetchWithRetry already retries on 429/5xx, but a connection-level failure (a transient
-      // network drop, seen for real: ENETUNREACH mid-run) isn't an HTTP response at all, so it
-      // throws straight through. Without this try/catch, one bad request crashed the ENTIRE
-      // run — discarding up to ~40 minutes of already-completed work, since this script has no
-      // per-species "already checked" marker to resume from (unlike check-extinction-status.ts's
-      // extinction_checked_at) — for the sake of one skippable candidate. Logged and skipped
-      // instead; a real, persistent outage still shows up as a big final `failed` count.
-      //
-      // Genus is only fetched as a FALLBACK, not unconditionally — it exists for species with
-      // no Wikipedia article of their own (covered only within a shared genus-level page, see
-      // the genus-match guard below), not as a second opinion for species that already have
-      // real text. Firing both requests via Promise.all every single time was doubling this
-      // script's real request volume against an already-tight rate limit for no benefit on
-      // every well-documented candidate. The (rare) cost: a species WITH its own article that
-      // doesn't mention endemism, whose genus page happens to separately say something relevant
-      // about it specifically, no longer gets checked — accepted given the throughput this
-      // recovers.
+      // Network errors throw past fetchWithRetry; skip the species rather than lose the run.
+      // The genus page is only a fallback for species with no article of their own.
       speciesText = await fetchFullExtract(species.scientific_name, "species");
       genusText = speciesText ? null : await fetchFullExtract(genus, "genus");
     } catch (err) {

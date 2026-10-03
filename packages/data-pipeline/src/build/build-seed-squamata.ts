@@ -1,15 +1,10 @@
-// Reptiles (minus turtles, their own bucket), split out of what used to be one combined
-// "reptilia" bucket so packs (and, per the fine-grained taxon UI, collection browsing) can be
-// downloaded/filtered independently, the same way sharks/aquatic mammals were split out of
-// "actinopterygii". Verified against GBIF's species/44/children.
+// Reptiles other than turtles (their own bucket), so packs and collection browsing can be
+// filtered independently, as sharks and aquatic mammals are split from "actinopterygii".
+// Verified against GBIF's species/44/children.
 //
-// Used to split crocodilians out into their own "crocodylia" bucket, merged back in here
-// (confirmed with the user) since 35 species worldwide, typically only 1 per province where
-// present at all, wasn't enough to justify a standalone download option; the taxon_class stays
-// "squamata" for backward compatibility with existing region_species rows, but the display
-// label is "Reptiles" now, not "Lizards & Snakes", since crocodilians (and the 2 living tuatara
-// species, lumped in with them rather than given their own tiny bucket) are taxonomically
-// distinct from Squamata proper.
+// Crocodilians and the 2 living tuatara species are included here rather than in tiny buckets
+// of their own. The taxon_class stays "squamata" to match existing region_species rows; the
+// display label is "Reptiles".
 import { buildGenericTaxonSeed } from "./build-seed-generic.js";
 
 const SQUAMATA_KEY = 11592253; // lizards & snakes

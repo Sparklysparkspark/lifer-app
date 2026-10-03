@@ -1,9 +1,7 @@
-// One-off cleanup for species that predate fetch-gbif-backbone.ts's fossil-checklist and
-// "spec" placeholder exclusions (the fish seed in particular was built before either filter
-// existed — see that file's own comments). Reads the candidate list a prior audit produced
-// (data/junk_species_candidates.tsv: scientific_name, gbif_key, taxon_class, family, reason)
-// and deletes them, same safety pattern as purge-mammal-fossils.ts: refuse to delete anything
-// with a real capture/user_species row against it.
+// One-off cleanup for species that predate fetch-gbif-backbone.ts's fossil-checklist and "spec"
+// placeholder exclusions. Reads data/junk_species_candidates.tsv (scientific_name, gbif_key,
+// taxon_class, family, reason) and deletes them, refusing anything with a capture/user_species
+// row, like purge-mammal-fossils.ts.
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { pool } from "../db.js";
@@ -46,7 +44,7 @@ async function main() {
   const blocked = existing.rows.filter((r) => referencedIds.has(r.id));
 
   if (blocked.length > 0) {
-    console.error(`[purge-fossil-and-placeholder-species] ${blocked.length} candidates have real captures/user_species rows — skipping these, NOT deleting:`);
+    console.error(`[purge-fossil-and-placeholder-species] ${blocked.length} candidates have real captures/user_species rows: skipping these, NOT deleting:`);
     for (const row of blocked) {
       console.error(`  ${row.scientific_name} (${row.common_name ?? "no common name"}) gbif_key=${row.gbif_key}`);
     }

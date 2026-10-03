@@ -1,35 +1,23 @@
-// Bulk enrichment pass that eagerly fetches every species still missing enrichment, rather
-// than waiting for the lazy on-view path (see species/routes.ts, lazyEnrich.ts) to enrich it
-// the first time someone opens its page. Ensures the whole species backbone ends up with a
-// photo/blurb/gallery even for species nobody has viewed yet. Meant to run once, unattended,
-// for a long time: fetching iNaturalist + Wikipedia data per species at real external-API
-// pace is the slow part that the lazy-enrichment design intentionally keeps off the request
-// path.
+// Eagerly enriches (photo, blurb, gallery) every species still missing it, instead of waiting
+// for the lazy on-view path in lazyEnrich.ts. Long-running and unattended.
 //
-// Species are processed in priority tiers — Canada first, then the rest of North America,
-// then everything else — computed eagerly here (rather than waiting for someone to view each
-// country and trigger the lazy region-occurrence path) so those regions are fully populated
-// with photos well before the rest of the world finishes in the background. Concurrency is
-// limited (mapWithConcurrency, see data-pipeline/src/concurrency.ts — pure control-flow, no
-// heavy runtime deps, safe to import here per licensePolicy.ts's split) rather than
-// processing one species at a time — 4 in flight balances real speedup against staying
-// polite to iNaturalist/Wikipedia's public APIs.
+// Processed in priority order: Canada, then the rest of North America, then everything else.
+// Concurrency stays low to be polite to iNaturalist's public API.
+//
+// Usage: npx tsx src/scripts/enrich-all-species.ts [--taxa=squamata,amphibia] [--listed-only]
 import { pool } from "../db.js";
 import { enrichSpecies, persistEnrichment, PersistentRateLimitError } from "../species/lazyEnrich.js";
-import { computeRegionOccurrences } from "../regions/routes.js";
+import { computeRegionOccurrences } from "../regions/compute/occurrences.js";
 import { mapWithConcurrency } from "data-pipeline/src/concurrency.js";
 
 const CONCURRENCY = 2;
 
-// Originally scoped to the three taxon groups needed for the initial release (fish, birds,
-// mammals) so those finish in hours rather than getting stuck behind the other 12 groups'
-// ~47k still-unenriched species — --taxa=squamata,amphibia,... overrides this for a specific
-// batch (e.g. reptiles/amphibians/marine invertebrates, none of which participate in any
-// region checklist, so the Canada/North-America priority-tiering below is skipped entirely
-// for a custom scope: it's meaningless for taxa with no checklist system, and would risk
-// firing fresh live GBIF calls for any not-yet-computed country — exactly what we're trying
-// to avoid while GBIF calls are being moved to a bulk-download approach instead).
+// Defaults to fish, birds and mammals. --taxa= overrides this and skips the regional priority
+// tiers, which would otherwise trigger live GBIF region computations.
 const taxaArg = process.argv.find((a) => a.startsWith("--taxa="));
+// Only species on some region checklist: what packs ship. The rest are enriched the first time
+// someone opens them (lazyEnrich.ts), so a pipeline run needn't wait on tens of thousands of them.
+const listedOnly = process.argv.includes("--listed-only");
 const INITIAL_RELEASE_TAXA = taxaArg ? taxaArg.split("=")[1].split(",") : ["actinopterygii", "aves", "mammalia"];
 
 type RegionRow = {
@@ -91,8 +79,11 @@ async function main() {
     : await priorityTiers();
 
   const res = await pool.query(
-    `SELECT id, scientific_name, taxon_class FROM species WHERE enriched_at IS NULL AND taxon_class = ANY($1) ORDER BY scientific_name`,
-    [INITIAL_RELEASE_TAXA],
+    `SELECT id, scientific_name, taxon_class FROM species s
+     WHERE enriched_at IS NULL AND taxon_class = ANY($1)
+       AND ($2 = false OR EXISTS (SELECT 1 FROM region_species rs WHERE rs.species_id = s.id))
+     ORDER BY scientific_name`,
+    [INITIAL_RELEASE_TAXA, listedOnly],
   );
   const rows = res.rows as Array<{
     id: string;
@@ -100,10 +91,7 @@ async function main() {
     taxon_class: string;
   }>;
 
-  // Canada is completed first (every taxon), then the rest of North America, then everything
-  // else in the world — rather than birds-everywhere first. Goal is "Canada usable offline"
-  // as soon as possible, not "birds usable offline worldwide" first. Each group is a stable
-  // partition of `rows`, not a re-sort within itself.
+  // Region order first (Canada, rest of North America, world), each a stable partition of `rows`.
   const isCanada = (r: { id: string }) => canada.has(r.id);
   const isRestOfNA = (r: { id: string }) => !isCanada(r) && restOfNorthAmerica.has(r.id);
   const remaining = new Set(rows.map((r) => r.id));
@@ -127,19 +115,13 @@ async function main() {
   let failed = 0;
   await mapWithConcurrency(ordered, CONCURRENCY, async (row) => {
     try {
-      // iNaturalist-only (see lazyEnrich.ts's top comment) — no Wikipedia/Commons fallback to
-      // worry about stalling this bulk pass any more.
       const enrichment = await enrichSpecies({ id: row.id, scientific_name: row.scientific_name });
       await persistEnrichment(row.id, enrichment);
     } catch (err) {
       failed++;
       console.error(`[enrich-all] FAILED ${row.scientific_name}:`, err);
-      // A persistent 429 means iNaturalist never actually answered — marking enriched_at here
-      // would permanently record "no photo" for a species that was simply never checked (the
-      // real bug behind Bank Swallow, Common Cuckoo, Emperor Goose, and others silently ending
-      // up "enriched, no photo"; see PersistentRateLimitError's own comment). Leave it null so
-      // the next pass (or the lazy on-view path) picks it back up. Every OTHER failure (e.g. a
-      // malformed Wikipedia page) still marks enriched_at so it doesn't retry forever.
+      // A persistent 429 means iNat never answered, so leave enriched_at null for a later retry
+      // rather than recording "no photo". Other failures mark it so they don't retry forever.
       if (!(err instanceof PersistentRateLimitError)) {
         await pool.query(`UPDATE species SET enriched_at = now() WHERE id = $1`, [row.id]);
       }

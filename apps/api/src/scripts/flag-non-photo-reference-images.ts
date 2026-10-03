@@ -1,23 +1,17 @@
 // Finds reference images (gallery photos and each species' main photo) that are maps or data
-// graphics (range and distribution maps, charts, tables, spectrograms) rather than pictures of the
-// animal. Wikipedia's media lists mix
-// these in with the photos, and fetch-wikipedia-media.ts's filename filter misses the ones with
-// unhelpful names (e.g. "Aix_galericulata_dis.PNG", a Mandarin Duck range map that shipped in
-// its gallery).
+// graphics (range maps, charts, tables, spectrograms) rather than pictures of the animal.
+// Wikipedia's media lists mix these in, and filename filtering misses badly named ones.
 //
-// Content-based instead of filename-based: every reference image already has a CLIP vector, and
-// CLIP's text encoder places "a range map" and "a photo of an animal" far apart. An image is
-// flagged when it matches the best non-photo description better than the best photo description
-// by more than --margin.
+// Uses each image's CLIP vector: an image is flagged when it matches the best non-photo
+// description better than the best photo description by more than --margin.
 //
 // Usage (the CLIP vision + text models must be downloaded under APP_DATA_DIR/models):
 //   DATABASE_URL=... APP_DATA_DIR=... npx tsx apps/api/src/scripts/flag-non-photo-reference-images.ts \
 //     [--margin=0.02] [--out=flagged.json] [--delete]
 // Without --delete it only reports. --delete removes everything flagged above the margin;
-// --apply=<file.json> removes exactly the entries in a list saved with --out (after reviewing it,
-// which is the safer route: scores near the margin mix real photos in). Either way each removed
-// image's URL goes into reference_photo_blocklist (migration 106), so catalog updates delete it
-// from installs too. A gallery image is deleted with its files (vectors cascade). A MAIN photo is
+// --apply=<file.json> removes exactly the entries in a list saved with --out (the safer route
+// after review: scores near the margin include real photos). Either way each removed image's URL
+// goes into reference_photo_blocklist, so catalog updates delete it from installs too. A gallery image is deleted with its files (vectors cascade). A MAIN photo is
 // replaced by the species' first real gallery photo, or cleared if it has none, and that
 // species' main-photo vectors are deleted so the backfill scripts recompute them.
 import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -40,9 +34,8 @@ const NON_PHOTO = [
   "a spectrogram",
   "a page of text",
 ];
-// What counts as a keeper. Scientific drawings, museum plates and specimen photos (shells,
-// skulls) are real identification references, especially for fish, sharks and shells, so they're
-// scored as keepers rather than lumped in with maps.
+// What counts as a keeper. Scientific drawings and specimen photos are real identification
+// references, so they're kept.
 const PHOTO = [
   "a photo of an animal",
   "a photo of a bird",
@@ -72,8 +65,7 @@ async function removeFlagged(items: Flagged[]): Promise<void> {
       );
     }
     if (f.kind === "gallery") {
-      // By URL, not just the flagged row: the same image can sit in several species' galleries
-      // (a genus comparison table attached to each species in it), and the blocklist is by URL.
+      // By URL too: the same image can sit in several species' galleries.
       const res = await pool.query<{ display_path: string | null; thumb_path: string | null }>(
         `DELETE FROM species_reference_photos WHERE id = $1 OR ($2::text IS NOT NULL AND photo_url = $2) RETURNING display_path, thumb_path`,
         [f.id, f.url],

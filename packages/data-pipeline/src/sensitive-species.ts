@@ -1,14 +1,9 @@
-// eBird's own published sensitive-species list (support.ebird.org/en/support/solutions/articles/48000803210).
-// Regenerated from eBird's live "Species treated as Sensitive Globally" + "Regionally Sensitive Species"
-// sections. Needs periodic manual refresh if eBird revises its own list — re-fetch the page, re-run the
-// parse (see this file's git history for the one-off parser used to build this), regenerate.
+// eBird's published sensitive-species list (support.ebird.org/en/support/solutions/articles/48000803210),
+// from its "Species treated as Sensitive Globally" and "Regionally Sensitive Species" sections.
+// Refresh by hand if eBird revises the list.
 //
-// A PREVIOUS version of this file flattened every region/season-restricted entry into "sensitive
-// everywhere, always" for simplicity. Confirmed live as a real bug: Common Goldeneye is only actually
-// sensitive in England (Apr 01-Jul 31, a small rare breeding population there) — its huge winter range
-// across all of Canada and Scandinavia was never restricted at all, but the flattened version blurred
-// every real hotspot cluster worldwide for it. Now: a species with a regional scope only gets the
-// coarse 20x20km treatment when both its region AND season (if any) actually match.
+// Region/season-restricted entries are kept as such: a species with a regional scope only gets
+// the coarse 20x20km treatment when both its region and season (if any) match.
 export interface SensitiveSeason {
   startMonth: number;
   startDay: number;
@@ -17,20 +12,17 @@ export interface SensitiveSeason {
 }
 
 export interface SensitiveRegionScope {
-  // Free-text eBird region label, e.g. "Ontario-CA", "Florida-US", "England-GB" (subnational, suffixed
-  // with the country's ISO2 code) or a plain country name like "Mexico" (no suffix) — matched against a
-  // province/country name + its own country's ISO2 by sensitiveRegionMatches() below.
+  // Free-text eBird region label, e.g. "Ontario-CA", "England-GB" (subnational, suffixed with the
+  // country's ISO2) or a plain country name like "Mexico". Matched by sensitiveRegionMatches() below.
   region: string;
   season: SensitiveSeason | null;
 }
 
 export type SensitiveScope = { global: true } | { global: false; regions: SensitiveRegionScope[] };
 
-// A sensitive species' hotspot cluster collapses to this fixed diagonal (a 20km x 20km square),
-// matching eBird's own obscuring resolution — shared here so both the writer
-// (compute-provinces-bulk.ts) and any reader that needs to know "was this specific cluster
-// blurred for privacy" (e.g. species/routes.ts, surfacing a note in the UI) check against the
-// exact same constant rather than two independently-computed copies.
+// A sensitive species' hotspot cluster collapses to this diagonal (a 20km x 20km square),
+// matching eBird's obscuring resolution. Shared by the writer (compute-provinces-bulk.ts) and
+// readers that flag blurred clusters (e.g. species/routes.ts).
 export const SENSITIVE_CLUSTER_DIAGONAL_KM = 20 * Math.SQRT2;
 
 export const EBIRD_SENSITIVE_SPECIES: Map<string, SensitiveScope> = new Map([
@@ -480,9 +472,8 @@ function dayOfYear(month: number, day: number): number {
   return doy;
 }
 
-// A GBIF row only carries an ISO week number (1-52), not a real month/day — approximated here by the
-// week's own midpoint day, which is precise enough for a coarse season window (eBird's own windows are
-// month-granularity to begin with, e.g. "Apr 01-Jul 31") without needing the row's real event date.
+// A GBIF row only carries an ISO week number (1-52), approximated by the week's midpoint day.
+// Precise enough, since eBird's season windows are month-granularity (e.g. "Apr 01-Jul 31").
 export function weekInSeason(week: number, season: SensitiveSeason): boolean {
   const doy = (week - 1) * 7 + 4;
   const start = dayOfYear(season.startMonth, season.startDay);
@@ -490,9 +481,8 @@ export function weekInSeason(week: number, season: SensitiveSeason): boolean {
   return start <= end ? doy >= start && doy <= end : doy >= start || doy <= end;
 }
 
-// provinceName/countryName are this row's own region names (e.g. "England", "United Kingdom");
-// countryIso2 is that country's own ISO 3166-1 alpha-2 code (e.g. "GB") — all three already resolved by
-// compute-provinces-bulk.ts's own per-country/per-province loop, no extra lookup needed here.
+// provinceName/countryName are this row's region names (e.g. "England", "United Kingdom") and
+// countryIso2 its country's ISO2 code (e.g. "GB"), all resolved by compute-provinces-bulk.ts.
 export function sensitiveRegionMatches(label: string, provinceName: string, countryName: string, countryIso2: string): boolean {
   const m = label.match(/^(.+)-([A-Z]{2})$/);
   if (m) return m[2] === countryIso2 && m[1].toLowerCase() === provinceName.toLowerCase();

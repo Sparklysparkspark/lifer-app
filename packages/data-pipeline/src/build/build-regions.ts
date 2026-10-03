@@ -1,10 +1,7 @@
-// Seeds the region hierarchy worldwide: World -> Continent -> Country. All local/fast — no
-// GBIF calls, just filtering the already-cached Natural Earth admin-0 file (258 countries,
-// grouped by its own CONTINENT property). Province/state level (admin-1, ~4600 features
-// worldwide) is deliberately NOT seeded here — those are created lazily, one country at a
-// time, only when a user actually drills into that country (apps/api's regions/routes.ts
-// POST /regions/:id/drill-down) — seeding all 4600 upfront when most will never be opened
-// would repeat the exact mistake this whole redesign fixed for species enrichment.
+// Seeds the region hierarchy worldwide: World -> Continent -> Country, from the cached Natural
+// Earth admin-0 file (grouped by its CONTINENT property), with no GBIF calls. Provinces
+// (admin-1) are created lazily when a user drills into a country (apps/api's regions/routes.ts
+// POST /regions/:id/drill-down), since most will never be opened.
 
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -14,23 +11,21 @@ import { fetchAllCountries } from "../fetch/fetch-region-boundary.js";
 export interface RegionSeed {
   name: string;
   parentName: string | null;
-  // GADM code, used only as a GBIF occurrence-query key — never redistributed as data.
-  // Empty for World/continents, which have no useful GADM-level GBIF filter.
+  // GADM code, used only as a GBIF occurrence-query key, never redistributed as data.
+  // Empty for World/continents.
   externalCodes: string[];
-  // eBird's own region code, for the Illustrated Checklist deep link — a different code
-  // space than externalCodes. Only reliably known for a handful of countries so far
-  // (verified by hand, not guessed); null elsewhere rather than assumed.
+  // eBird's region code, for the Illustrated Checklist deep link (a different code space than
+  // externalCodes). Only set for countries where it's been verified; null elsewhere.
   ebirdRegionCode: string | null;
   boundaryGeoJson: unknown | null;
-  // Natural Earth's SOV_A3 sovereignty-group code — shared by a country and its own
-  // geographically-separate territories (e.g. USA and Puerto Rico both carry "US1"). Null for
-  // World/continents; see CountryEntry's own comment in fetch-region-boundary.ts.
+  // Natural Earth's SOV_A3 sovereignty-group code, shared by a country and its territories (see
+  // CountryEntry in fetch-region-boundary.ts). Null for World/continents.
   sovereigntyGroup: string | null;
   isSovereignDependency: boolean;
 }
 
-// Countries eBird's region-code convention is confirmed for, from earlier hands-on checks —
-// not derived automatically, since eBird's codes don't always match ISO/GADM cleanly.
+// Countries whose eBird region code has been checked by hand, since eBird's codes don't always
+// match ISO/GADM.
 const KNOWN_EBIRD_COUNTRY_CODES: Record<string, string> = {
   CAN: "CA",
 };

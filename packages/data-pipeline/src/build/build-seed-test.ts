@@ -1,8 +1,6 @@
-// Test-scoped version of build-seed.ts for a handful of common BC species, so the whole
-// pipeline (GBIF, AVONET, EltonTraits, Wikidata, iNaturalist, region occurrence counts, rarity)
-// can be exercised end-to-end in minutes instead of the ~3 hours a full 11,000-species run takes
-// (mostly iNaturalist's polite 1 req/sec rate limit). Once photos can be attached via a UI,
-// re-run the full build-seed.ts for the real dataset.
+// Test-scoped version of build-seed.ts for a handful of common BC species, so the whole pipeline
+// (GBIF, AVONET, EltonTraits, Wikidata, iNaturalist, region occurrence counts, rarity) can run
+// end to end in minutes instead of hours.
 
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -22,7 +20,7 @@ import { BUILD_DIR } from "../raw-cache.js";
 
 const MIN_OCCURRENCE_RECORDS = 3;
 
-// Six common BC breeders/migrants requested as the first test batch.
+// Common BC breeders and migrants.
 const TEST_SPECIES = [
   "Anas platyrhynchos", // Mallard
   "Aix sponsa", // Wood Duck
@@ -58,9 +56,8 @@ async function main() {
   const elton = await fetchEltonTraits();
   const eltonByName = new Map(elton.map((r) => [r.scientificName, r]));
 
-  // AVONET/EltonTraits/Wikidata/iNaturalist all key on the plain binomial — GBIF's
-  // scientificName carries the taxonomic authorship string ("... Linnaeus, 1758") which
-  // would silently fail every join, so canonicalName is the one to use as the join key.
+  // AVONET/EltonTraits/Wikidata/iNaturalist key on the plain binomial, while GBIF's scientificName
+  // includes the authorship ("... Linnaeus, 1758"), so canonicalName is the join key.
   const canonical = (g: { canonicalName: string | null; scientificName: string }) =>
     g.canonicalName ?? g.scientificName;
 
@@ -103,8 +100,7 @@ async function main() {
     const wiki = wikidataByName.get(key);
     if (wiki?.wikipediaTitle) {
       galleryByName.set(key, await fetchWikipediaMediaPhotos(wiki.wikipediaTitle));
-      // The per-species media-list call itself needs spacing too, not just the per-photo
-      // Commons lookups inside it — hitting it back-to-back got 429'd in testing.
+      // The media-list call needs spacing too, not just the Commons lookups inside it, or it gets 429s.
       await new Promise((r) => setTimeout(r, 500));
     }
   }
@@ -118,7 +114,7 @@ async function main() {
   const rarity = computeRarityPhase1(rarityInputs);
   const rarityByName = new Map(rarity.map((r) => [r.scientificName, r]));
 
-  console.log("[build-seed-test] region occurrence counts (direct per-species query, no seasonality — test-scoped)");
+  console.log("[build-seed-test] region occurrence counts (direct per-species query, no seasonality: test-scoped)");
   const regions = await buildRegions();
   const regionSpecies: Record<string, Array<{ gbifKey: number; recordCount: number; seasonality: number[] | null }>> = {};
   for (const region of regions) {

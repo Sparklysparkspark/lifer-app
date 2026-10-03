@@ -1,10 +1,8 @@
-// Source: iNaturalist API (api.inaturalist.org/v1). Per-photo license, so every stored
-// image path carries a mandatory reference_credit + reference_license (schema.sql enforces
-// this via a CHECK constraint — see).
-// License filter: iNaturalist's open-licensed photos are served from the
-// inaturalist-open-data.s3 domain (AWS Open Data); anything else is not confirmed open,
-// so we skip it rather than guess. Allowed license set (and the LIFER_ALLOW_NONCOMMERCIAL_PHOTOS
-// escape hatch) live in ../license-policy.ts, shared with the Wikimedia Commons fallback fetcher.
+// Source: iNaturalist API (api.inaturalist.org/v1). Licenses are per photo, so every stored image
+// carries a mandatory reference_credit + reference_license (a CHECK constraint in schema.sql).
+// Only photos served from the inaturalist-open-data.s3 domain (AWS Open Data) are confirmed open;
+// anything else is skipped. The allowed license set (and the LIFER_ALLOW_NONCOMMERCIAL_PHOTOS
+// escape hatch) live in ../license-policy.ts, shared with the Wikimedia Commons fallback.
 
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -74,8 +72,8 @@ async function main() {
     scientificName: string;
     canonicalName: string | null;
   }>;
-  // canonicalName is the plain binomial; scientificName carries the authorship string
-  // ("... Linnaeus, 1758") which iNaturalist's search wouldn't match cleanly.
+  // canonicalName is the plain binomial; scientificName includes the authorship ("... Linnaeus,
+  // 1758"), which iNaturalist's search wouldn't match cleanly.
   const names = gbifRows.map((r) => r.canonicalName ?? r.scientificName);
 
   const rows = await fetchReferencePhotos(names);

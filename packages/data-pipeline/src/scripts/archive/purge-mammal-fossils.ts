@@ -1,12 +1,7 @@
-// One-off cleanup after fetch-gbif-backbone.ts's second extinct/fossil filter fix — the
-// "German Wikipedia - Species Pages" GBIF constituent reliably populates
-// `extinct: true`, unlike the Paleobiology Database constituent already excluded earlier.
-// build-seed-mammals.ts was re-run with LIFER_BUILD_ID=mammals-extinct-fix and produced 7888
-// species (down from the ~8203 currently loaded) — this diffs the two sets and removes the
-// now-excluded fossil/extinct species from the live DB, same pattern as the original
-// Paleobiology Database purge: verify zero captures/user_species reference an orphan before
-// deleting it (a real sighting logged against a species is a hard stop, not something to
-// silently drop).
+// One-off cleanup after fetch-gbif-backbone.ts's second extinct/fossil filter (constituents that
+// do populate `extinct: true`). Diffs a rebuilt mammal seed against the loaded species and
+// removes the now-excluded ones, refusing to delete any species referenced by captures or
+// user_species.
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { pool } from "../db.js";
@@ -53,7 +48,7 @@ async function main() {
 
   if (referencedIds.size > 0) {
     console.error(
-      `[purge-mammal-fossils] ABORTING — ${referencedIds.size} orphan species have real captures/user_species rows, refusing to delete any of them:`,
+      `[purge-mammal-fossils] ABORTING: ${referencedIds.size} orphan species have real captures/user_species rows, refusing to delete any of them:`,
     );
     for (const id of referencedIds) {
       const row = orphans.find((o) => o.id === id)!;
@@ -63,7 +58,7 @@ async function main() {
     process.exit(1);
   }
 
-  console.log(`[purge-mammal-fossils] 0 captures/user_species rows reference any orphan — safe to delete all ${orphans.length}.`);
+  console.log(`[purge-mammal-fossils] 0 captures/user_species rows reference any orphan: safe to delete all ${orphans.length}.`);
   for (const row of orphans.slice(0, 20)) {
     console.log(`  removing: ${row.scientific_name} (${row.common_name ?? "no common name"}) gbif_key=${row.gbif_key}`);
   }

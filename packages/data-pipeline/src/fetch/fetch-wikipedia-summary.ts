@@ -1,15 +1,10 @@
 // Source: Wikipedia's action API extracts (en.wikipedia.org/w/api.php?action=query&prop=extracts).
 // License: article text is CC BY-SA - attribution + a link back is required.
 //
-// Pulls the article's "Description" section specifically (plumage/size - the actual
-// quick-ID content, closer in spirit to Merlin's ID text) rather than the generic lead
-// sentence, which tends to be taxonomic/range boilerplate ("X is a small bird that breeds
-// in..."). Falls back to the lead paragraph when no Description section exists. Still NOT
-// sourced from Merlin itself, whose text is proprietary and explicitly excluded
-// - Wikipedia is the approved, differently-licensed substitute.
-// Kept to a couple of sentences, not the full section, per the product's own non-goal of
-// not being a field guide - a quick-glance caption, not
-// encyclopedic content reproduced wholesale.
+// Pulls the article's "Description" section (plumage, size: the quick-ID content) rather than
+// the lead, which tends to be taxonomy and range boilerplate, falling back to the lead when
+// there's no Description. Not sourced from Merlin, whose text is proprietary. Kept to a couple
+// of sentences: a quick-glance caption, not a field guide.
 
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -36,9 +31,8 @@ interface QueryResponse {
 
 function truncateToSentences(text: string, maxSentences: number): string {
   const normalized = text.replace(/\s+/g, " ").trim();
-  // These Description sections are full of measurements ("0.72-1.58 kg"), which a naive
-  // split-on-period would mistake for sentence boundaries. Swap decimal points for a marker
-  // before splitting on real sentence boundaries, then swap the marker back afterward.
+  // Description sections are full of measurements ("0.72-1.58 kg"), so decimal points are swapped
+  // for a marker before splitting on sentence boundaries, then swapped back.
   const marked = normalized.replace(/(\d)\.(\d)/g, "$1" + DECIMAL_MARKER + "$2");
   const sentences = marked.split(/(?<=[.!?])\s+(?=[A-Z])/);
   const joined = sentences.slice(0, maxSentences).join(" ");

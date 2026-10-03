@@ -1,11 +1,6 @@
-// One-time pass: re-fetches every enriched species' common name AND alias list using
-// fetch-gbif-vernacular.ts's now-fixed selection logic (GBIF's own `preferred` flag, then a
-// cross-source frequency/length tiebreak, plus every OTHER distinct English name GBIF knows
-// for the species — including names attached to its own listed synonym keys, since GBIF
-// splits vernacular names per taxon key rather than merging them across a synonym chain).
-// Existing species were seeded before this fix landed, so their stored common_name reflects
-// the old, worse selection, and common_name_aliases has never been populated at all, until
-// this runs once.
+// Re-fetches every enriched species' common name and alias list using fetch-gbif-vernacular.ts's
+// selection logic (consensus, `preferred` flag, length tiebreak, plus every other English name
+// including those on synonym keys). Updates common_name and fills common_name_aliases.
 import { pool } from "../db.js";
 import { fetchCommonNameWithAliases } from "../fetch/fetch-gbif-vernacular.js";
 

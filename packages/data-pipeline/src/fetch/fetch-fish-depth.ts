@@ -1,16 +1,11 @@
 // Source: "The global depth range of marine fishes and their genetic coverage for
 // environmental DNA metabarcoding" (2023, Ecology and Evolution), data via Figshare
-// (doi.org/10.6084/m9.figshare.20403111). License: CC-BY-4.0 (verified on the Figshare
-// record page by hand, same standard applied to every other source in this project).
-// Covers 10,826 Actinopterygii + 960 Chondrichthyes species (marine only — a real,
-// disclosed gap: freshwater/brackish fish get no depth data from this source).
+// (doi.org/10.6084/m9.figshare.20403111). License: CC-BY-4.0. Covers 10,826 Actinopterygii +
+// 960 Chondrichthyes species, marine only: freshwater and brackish fish get no depth data.
 //
-// Distributed only as an R .RData binary, no CSV/Excel alternative in the paper's
-// supplementary materials (confirmed by hand). R must be installed on the machine running
-// this fetcher (`brew install r`) to parse it — this fetcher shells out to Rscript once to
-// export the two data frames inside to a CSV, then parses that CSV like every other source
-// here. If R isn't installed, this throws with a clear message rather than failing inside a
-// cryptic ENOENT.
+// Distributed only as an R .RData binary, so R must be installed (`brew install r`): this
+// shells out to Rscript once to export the data frames to CSV, then parses that. Throws a clear
+// message if R is missing.
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
@@ -74,7 +69,7 @@ export async function fetchFishDepth(): Promise<FishDepthRow[]> {
       await execFileAsync("Rscript", [scriptPath]);
     } catch (err) {
       throw new Error(
-        `[fish-depth] Rscript failed — is R installed? (brew install r on macOS). Original error: ${err}`,
+        `[fish-depth] Rscript failed: is R installed? (brew install r on macOS). Original error: ${err}`,
       );
     }
   }

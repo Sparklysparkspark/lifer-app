@@ -1,11 +1,5 @@
-// The main 18-taxon catalog never had species.iucn_status populated at all (migration 091 added
-// the column only for Other Taxa species, resolved live from iNaturalist at add time) — every
-// one of the ~116k built-in species showed a blank IUCN stat. Reuses the exact same bulk GBIF
-// IUCN Red List checklist dataset + nubKey-matching approach as
-// scripts/archive/backfill-extinction-from-iucn-checklist.ts (that script only cared about the
-// EXTINCT/EXTINCT_IN_THE_WILD statuses; this one persists whichever status each species actually
-// has, the same way Other Taxa species already show one). Re-runnable/idempotent — always
-// overwrites, safe to re-run as IUCN publishes updates or the catalog grows.
+// Fills species.iucn_status for the built-in catalog from GBIF's IUCN Red List checklist dataset,
+// matched by nubKey. Always overwrites, so it's safe to re-run as IUCN publishes updates.
 import { pool } from "../db.js";
 
 const IUCN_DATASET_KEY = "19491596-35ae-4a91-9a98-85cf505f1bd3";
@@ -31,9 +25,7 @@ const STATUS_NAMES: Record<string, string> = {
   NOT_EVALUATED: "Not Evaluated",
 };
 
-// A species can carry more than one threatStatuses entry (rare, but the checklist doesn't
-// guarantee exactly one) — picks the most severe, so "this species is at real risk" never gets
-// silently masked by a less alarming secondary entry.
+// With more than one threatStatuses entry, the most severe wins.
 const SEVERITY_ORDER = [
   "EXTINCT",
   "EXTINCT_IN_THE_WILD",

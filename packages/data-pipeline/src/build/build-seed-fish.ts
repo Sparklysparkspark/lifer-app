@@ -1,11 +1,7 @@
-// Phase 8: fish — ray-finned (bony) fish plus jawless fish, cartilaginous fish, coelacanths,
-// and lungfish (see fetch-fish-orders.ts for exactly which GBIF taxon keys that covers),
-// the deliberately lighter taxon — FishBase is skipped entirely, shipping what
-// GBIF + Wikidata already give for free. No trait source at all here — there's no
-// AVONET/COMBINE-equivalent wired up for fish, so mass/length/depth stay null and rarity
-// leans on IUCN status alone, same disclosed shortfall as mammals' missing range data.
-// Common names come from GBIF's own vernacularNames endpoint, same mechanism as birds (no
-// MDD-equivalent curated common-name file for fish).
+// Phase 8: fish, meaning ray-finned fish plus jawless fish, cartilaginous fish, coelacanths and
+// lungfish (see fetch-fish-orders.ts for the GBIF keys). No trait source is wired up (FishBase is
+// skipped), so mass/length/depth stay null and rarity leans on IUCN status. Common names come
+// from GBIF's vernacularNames endpoint, as for birds.
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fetchGbifBackboneForKeys, type GbifSpeciesRow } from "../fetch/fetch-gbif-backbone.js";
@@ -31,7 +27,7 @@ async function main() {
   const outDir = path.join(BUILD_DIR, dateStamp());
   mkdirSync(outDir, { recursive: true });
 
-  console.log("[build-seed-fish] step 1/4: fish taxon keys (GBIF, dynamic — see fetch-fish-orders.ts)");
+  console.log("[build-seed-fish] step 1/4: fish taxon keys (GBIF, dynamic: see fetch-fish-orders.ts)");
   const taxonKeys = await fetchFishTaxonKeys();
 
   console.log(`[build-seed-fish] step 2/4: GBIF backbone (${taxonKeys.length} fish taxon keys)`);
@@ -47,9 +43,8 @@ async function main() {
   });
   const commonNameByGbifKey = new Map(gbif.map((g, i) => [g.gbifKey, commonNames[i]]));
 
-  console.log("[build-seed-fish] step 4/5: depth range (marine fishes depth dataset, 2023 — see fetch-fish-depth.ts)");
-  // Marine-only (see fetch-fish-depth.ts) — freshwater/brackish species stay null here, a
-  // real disclosed gap, not hidden by a fallback default.
+  console.log("[build-seed-fish] step 4/5: depth range (marine fishes depth dataset, 2023: see fetch-fish-depth.ts)");
+  // Marine-only (see fetch-fish-depth.ts): freshwater and brackish species stay null.
   const depth = await fetchFishDepth();
   const depthByName = new Map(depth.map((r) => [r.scientificName, r]));
 
@@ -78,10 +73,8 @@ async function main() {
       inatTaxonId: null,
       scientificName: name,
       commonName: commonNameByGbifKey.get(g.gbifKey) ?? null,
-      // "actinopterygii" is used as the app-level grouping label for the whole "Fish" taxon
-      // switcher category, even though this build also includes a few non-Actinopterygii
-      // classes (hagfish, lampreys, sharks/rays, coelacanths, lungfish) — a deliberate UI/
-      // schema simplification, not a claim about their actual clade.
+      // "actinopterygii" is the app-level label for the whole "Fish" category, even though this build
+      // includes other classes (hagfish, lampreys, sharks/rays, ...). A UI simplification, not a clade claim.
       taxonClass: "actinopterygii",
       family: g.family,
       taxonOrder: g.order,
@@ -142,7 +135,7 @@ async function main() {
     },
     note:
       "Ray-finned fish plus hagfish/lampreys/sharks-and-rays/coelacanths/lungfish (see fetch-fish-orders.ts for the exact GBIF taxon keys). " +
-      "Depth range covers marine species only (freshwater/brackish species stay null). No mass/length trait source wired up — " +
+      "Depth range covers marine species only (freshwater/brackish species stay null). No mass/length trait source wired up: " +
       "rarity leans on IUCN status alone. Reference photos/descriptions are lazy, same as birds.",
   };
   writeFileSync(path.join(outDir, "manifest.json"), JSON.stringify(manifest, null, 2));

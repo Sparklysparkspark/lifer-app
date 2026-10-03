@@ -1,11 +1,6 @@
-// Regression coverage for the cross-taxon volume bug: American Black
-// Bear, with 62,920 real global GBIF records, was landing elusiveness_score=0.7 ("hard to
-// detect") because birds and mammals were once combined into ONE ranked group per country. Bird
-// record volumes dwarf mammal volumes even for genuinely common mammals, so every mammal was
-// effectively measured on a bird-scale yardstick. This test drives computeElusiveness with
-// fabricated per-country counts standing in for real GBIF data (birds: huge volume; mammals:
-// tiny volume, one clearly common, one clearly rare) and asserts each taxon group is ranked
-// only against itself.
+// Each taxon group must be ranked only against itself: bird record volumes dwarf mammal volumes,
+// so a combined ranking would put every mammal near elusiveness 1.0. Drives computeElusiveness
+// with fabricated counts (birds: huge volume; mammals: tiny, one common, one rare).
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { computeVagrantCountries } from "./compute-elusiveness.js";
 
@@ -43,16 +38,14 @@ describe("computeElusiveness", () => {
     vi.mocked(fetchAllCountries).mockResolvedValue([{ iso3: "USA", iso2: "US" } as never]);
 
     vi.mocked(fetchSpeciesCountsForRegion).mockImplementation(async (_code, taxonKeys = []) => {
-      // Birds: huge record volume, dwarfing mammals by orders of magnitude — exactly the
-      // real-world shape that caused the original bug when both groups were ranked together.
+      // Birds: record volume orders of magnitude above mammals.
       if (taxonKeys.includes(999)) {
         return [
           { gbifKey: BIRD_A, recordCount: 50_000 },
           { gbifKey: BIRD_B, recordCount: 100 },
         ];
       }
-      // Mammals: tiny volume in absolute terms, but MAMMAL_COMMON is still the clearly more
-      // common of the two mammals present.
+      // Mammals: tiny volume, but MAMMAL_COMMON is clearly the more common of the two.
       if (taxonKeys.includes(998)) {
         return [
           { gbifKey: MAMMAL_COMMON, recordCount: 6_000 },
@@ -70,15 +63,12 @@ describe("computeElusiveness", () => {
       { taxonKeys: [998], minRecords: 10, yearsWindow: 15 },
     ]);
 
-    // The mammal with 2,000 records is the MORE COMMON of the two mammals (lower
-    // elusiveness) even though it has far fewer raw records than either bird — if the bug
-    // regressed, mammals would be scored relative to birds' huge volume and both mammals
-    // would incorrectly cluster near elusiveness 1.0.
+    // The common mammal ranks as more common than the rare one despite having far fewer records
+    // than either bird. Ranked against birds, both mammals would cluster near 1.0.
     const commonMammalScore = result.byGbifKey.get(MAMMAL_COMMON)!;
     const rareMammalScore = result.byGbifKey.get(MAMMAL_RARE)!;
     expect(commonMammalScore).toBeLessThan(rareMammalScore);
-    // A real regression threshold, not just a relative check: the common mammal must read
-    // as genuinely easy to detect, not "elusive because birds exist."
+    // An absolute threshold too: the common mammal must read as easy to detect.
     expect(commonMammalScore).toBeLessThan(0.5);
 
     const commonBirdScore = result.byGbifKey.get(BIRD_A)!;
@@ -108,16 +98,13 @@ describe("computeElusiveness", () => {
 });
 
 describe("computeVagrantCountries", () => {
-  // Two countries far apart (>500km) in every case below — distance alone is never the
-  // discriminator being tested here, concentration is.
+  // Two countries far apart (>500km) in every case below: concentration is what's being tested.
   const CORE_RINGS = [square(0, 0, 1)];
   const OTHER_RINGS = [square(20, 0, 1)];
 
   it("flags a scattered escapee population far from a concentrated real core", () => {
-    // Real numbers from the confirmed live case: Black-Cheeked Lovebird, wild only in Zambia
-    // (176 records / 405km bbox, concentration ≈0.435) with more raw records from South African
-    // cage-bird escapees (387 records / 1386km bbox, concentration ≈0.279 — about 64% of
-    // Zambia's, clearly below the "is this really a second real population" bar).
+    // A single-country wild population plus a larger, scattered escapee population elsewhere whose
+    // concentration is well under the core's.
     const counts = new Map([
       ["ZMB", 176],
       ["ZAF", 387],
@@ -135,16 +122,15 @@ describe("computeVagrantCountries", () => {
   });
 
   it("does NOT flag a second real, similarly-concentrated disjunct population", () => {
-    // A species with two genuinely separate native populations far apart (a real disjunct
-    // range) — the second country's own concentration is close to the core's, not radically
-    // worse, which is what a real population (wherever it is) actually looks like.
+    // Two genuinely separate native populations: the second country's concentration is close to
+    // the core's, as a real population's would be.
     const counts = new Map([
       ["USA", 10_000],
       ["MEX", 4_000],
     ]);
     const bboxKm = new Map([
       ["USA", 500], // concentration = 20
-      ["MEX", 250], // concentration = 16 (80% of core — well above the 0.7 ratio bar)
+      ["MEX", 250], // concentration = 16 (80% of core, well above the 0.7 ratio bar)
     ]);
     const rings = new Map([
       ["USA", CORE_RINGS],
@@ -155,11 +141,8 @@ describe("computeVagrantCountries", () => {
   });
 
   it("skips vagrant detection entirely once a species spans too many countries", () => {
-    // A species genuinely present in dozens of countries (a cosmopolitan or long-distance
-    // migratory species — Rock Pigeon, Barn Swallow, Osprey, real confirmed cases) has no single
-    // "core" at all; forcing a one-core model onto it flagged its entire real range as fake in
-    // production. 20 countries, only one on the far side of the world from a manufactured
-    // "core" — without this gate that one country would be flagged despite being entirely real.
+    // A species present in dozens of countries has no single core; without the country-count gate
+    // the one far-away country would be flagged despite being entirely real.
     const counts = new Map<string, number>();
     const bboxKm = new Map<string, number>();
     const rings = new Map<string, [number, number][][]>();
@@ -174,5 +157,47 @@ describe("computeVagrantCountries", () => {
     rings.set("FAR", OTHER_RINGS); // far from every other country in the set
     const vagrant = computeVagrantCountries(counts, bboxKm, rings, new Map());
     expect(vagrant.size).toBe(0);
+  });
+});
+
+describe("elusivenessFromRanks", () => {
+  it("centers on where the species lives, not on countries with the most records overall", async () => {
+    const { elusivenessFromRanks } = await import("./compute-elusiveness.js");
+    // Common at home (rank 0.1, 90,000 records), a few escaped pets abroad (rank 0.95, 12 records).
+    const entries = [
+      { iso3: "CRI", percentile: 0.1, speciesRecords: 90_000 },
+      { iso3: "USA", percentile: 0.95, speciesRecords: 12 },
+    ];
+    expect(elusivenessFromRanks(entries, undefined)).toBeCloseTo(0.1, 2);
+  });
+
+  it("leaves escapee and vagrant countries out", async () => {
+    const { elusivenessFromRanks } = await import("./compute-elusiveness.js");
+    const entries = [
+      { iso3: "CRI", percentile: 0.2, speciesRecords: 500 },
+      { iso3: "GBR", percentile: 1, speciesRecords: 500 },
+    ];
+    expect(elusivenessFromRanks(entries, new Set(["GBR"]))).toBeCloseTo(0.2);
+  });
+
+  it("uses every country when all of them look like vagrant ones", async () => {
+    const { elusivenessFromRanks } = await import("./compute-elusiveness.js");
+    const entries = [{ iso3: "GBR", percentile: 0.8, speciesRecords: 10 }];
+    expect(elusivenessFromRanks(entries, new Set(["GBR"]))).toBeCloseTo(0.8);
+  });
+});
+
+describe("mergeByGbifKey", () => {
+  it("adds up the records of names that stand for one species and keeps the widest spread", async () => {
+    const { mergeByGbifKey } = await import("./compute-elusiveness.js");
+    const merged = mergeByGbifKey([
+      { gbifKey: 1, recordCount: 30, bboxDiagonalKm: 100 },
+      { gbifKey: 2, recordCount: 5, bboxDiagonalKm: 10 },
+      { gbifKey: 1, recordCount: 12, bboxDiagonalKm: 400 },
+    ]);
+    expect(merged).toEqual([
+      { gbifKey: 1, recordCount: 42, bboxDiagonalKm: 400 },
+      { gbifKey: 2, recordCount: 5, bboxDiagonalKm: 10 },
+    ]);
   });
 });

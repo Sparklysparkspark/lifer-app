@@ -1,23 +1,15 @@
-// Re-enriches every species marked enriched_at but with no reference_photo. A real bug (fixed
-// alongside this script) meant fetchINaturalistTaxon/findReclassifiedTaxon/
-// fetchINaturalistSubspecies used a plain `fetch()` with no retry-on-429 — a single transient
-// rate-limit hit during the initial enrichment permanently read as "no photo exists" (enriched_at
-// still got set), for a species that may have had a perfectly good iNaturalist photo the whole
-// time. Confirmed concretely for Phasianus versicolor (Green Pheasant) — a species-rank exact
-// iNaturalist match with a real default photo — which nonetheless ended up with reference_photo
-// NULL. persistEnrichment's COALESCE-against-existing-NULL semantics mean this is safe to
-// re-run broadly: a species that genuinely has no photo anywhere just gets marked again with
-// no change, no different from before.
+// Re-enriches every species marked enriched_at but with no reference_photo, since a transient
+// rate limit during enrichment can leave a species photoless. Safe to re-run: persistEnrichment
+// never overwrites existing data with NULL.
+//
+// Usage: npx tsx src/scripts/recheck-null-photo-species.ts [--countries=Canada,France]
 import { pool } from "../db.js";
 import { enrichSpecies, persistEnrichment } from "../species/lazyEnrich.js";
 import { mapWithConcurrency } from "data-pipeline/src/concurrency.js";
 
 const CONCURRENCY = 4;
 
-// --countries= scopes this to species on those countries' checklists (same
-// region_species/regions join update-pack.ts's own autoDetectTaxa uses) — added so a routine
-// pack refresh can recheck just the photoless species relevant to it instead of always sweeping
-// the entire catalog; omit for the original unscoped full-catalog behavior.
+// --countries= limits this to species on those countries' checklists; omit for the whole catalog.
 async function main() {
   const countriesArg = process.argv.find((a) => a.startsWith("--countries="));
   const countries = countriesArg ? countriesArg.split("=")[1].split(",") : null;

@@ -1,28 +1,10 @@
-// Phase 4: the elusiveness axis — "how hard is it to detect where it
-// lives" — computed from GBIF observation density with a minimum-sample threshold, so an
-// unbirded area doesn't read as "rare" (the Black-capped Chickadee problem the spec calls
-// out by name).
+// Phase 4: the elusiveness axis, "how hard is it to detect where it lives", computed from GBIF
+// observation density with a minimum-sample threshold so an unsampled area doesn't read as rare.
 //
-// The spec's own wording is "grid cells with >= N observations." A real equal-area grid
-// would need a new pipeline (custom bounding-box queries per cell, ~2,600 cells for 5deg
-// resolution) and a meaningfully longer GBIF pass sharing rate-limit budget with the
-// overnight enrichment run — approved instead: reuse the country-level GADM occurrence
-// data already fetched by build-region-species.ts's fetchSpeciesCountsForRegion, one call
-// per country (~258 calls, same cost already paid for regions). Weaker for huge countries
-// with wildly varying habitat within one border (Russia, Brazil, Canada) than a true grid
-// would be — accepted for the same reason Phase 1's range+IUCN shortcut was: the spec
-// already flags this whole axis as an approximation without eBird's checklist effort data.
-//
-// Detectability is NOT computed as a species' share of a country's TOTAL bird record count
-// — with hundreds of species splitting one total, almost every species' share is tiny, so
-// (1 - share) would pile up near 1.0 for nearly everyone regardless of real commonness
-// (Mallard would come out "rare" this way). Instead each species is ranked against every
-// OTHER species actually recorded in that same country — a real relative-detectability
-// signal, immune to how many species happen to share the country's total.
-// elusiveness(species) = weighted average of that percentile rank across every qualifying
-// country (every country, not scoped to any particular viewer — this computes a
-// GLOBAL, fixed tier shared across the whole app), weighted by the country's total record count so
-// well-sampled countries (more reliable rankings) count more than thin ones.
+// Uses per-country occurrence counts rather than an equal-area grid: far cheaper, but weaker
+// for huge countries with varied habitat. Each species is ranked against the other species
+// recorded in the same country (not as a share of the country total, which is tiny for
+// almost everyone). The per-country ranks are then averaged into one global score.
 
 import { mkdirSync, writeFileSync, readFileSync, existsSync } from "node:fs";
 import path from "node:path";
@@ -43,63 +25,62 @@ import { BUILD_DIR } from "../raw-cache.js";
 import { exteriorRingsFromGeometry, minRingDistance, simplifyRingToMaxPoints, pointInAnyRing } from "../geometry.js";
 import { pool } from "../db.js";
 
-// The same per-country GBIF SQL Download zips compute-provinces-bulk.ts already downloads for
-// the pack-building pipeline (species/lat/lon/class/year/basisofrecord/record_count, scoped by
-// countrycode=). Reused here to skip a live GBIF facet call entirely for whichever countries
-// are already cached (229/258 at last count) — this crawl only ever needs the SAME per-species
-// record counts already sitting on disk, just aggregated slightly differently (by class name
-// instead of by GBIF taxonKey — see COUNT_CLASSES_BY_GROUP below). The cached zip's own download
-// was scoped by the broader `countrycode` field, not fish's narrower land-only `gadmGid` field —
-// but every cached row has real coordinates, so fish additionally get a real point-in-polygon
-// check against the country's own land shape (see countSpeciesFromLocalZip's `landRings` param)
-// to reconstruct that same narrower scope locally instead of falling back to a live call.
+// Per-country GBIF download zips cached by compute-provinces-bulk.ts. Countries with a cached
+// zip skip the live GBIF facet call. The zips are scoped by `countrycode`, so fish (which need
+// the land-only scope) get a point-in-polygon check against the country's land shape instead.
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const GBIF_COUNTRY_CACHE_DIR = path.join(__dirname, "..", "..", "data", "gbif-country-cache");
 
-// Mirrors compute-provinces-bulk.ts's own FISH_CLASSES/BIRD_MAMMAL_CLASSES constants — the
-// cached zip's own `class` column is a GBIF class NAME (e.g. "Aves"), not a taxonKey, so a
-// taxon group is matched against this cache by name instead of by its taxonKeys array.
-const COUNT_CLASSES_BY_GROUP: Record<"birds" | "mammals" | "fish", Set<string>> = {
+// GBIF backbone class keys for countries with no cached download. GBIF lists reptiles as three
+// classes; "Reptilia" is only a pro parte synonym there.
+const SQUAMATA_CLASS_KEY = 11592253;
+const TESTUDINES_CLASS_KEY = 11418114;
+const CROCODYLIA_CLASS_KEY = 11493978;
+const AMPHIBIA_CLASS_KEY = 131;
+
+// Mirrors compute-provinces-bulk.ts's class constants. The cached zip's `class` column is a
+// class name, not a taxonKey, so groups match the cache by name.
+const COUNT_CLASSES_BY_GROUP: Record<"birds" | "mammals" | "fish" | "reptiles" | "amphibians", Set<string>> = {
   birds: new Set(["Aves"]),
   mammals: new Set(["Mammalia"]),
+  // The cached downloads spell reptiles "Reptilia"; GBIF's backbone splits them into three classes.
+  reptiles: new Set(["Reptilia", "Squamata", "Testudines", "Crocodylia"]),
+  amphibians: new Set(["Amphibia"]),
   fish: new Set(["Myxini", "Petromyzonti", "Elasmobranchii", "Holocephali", "Coelacanthi", "Dipneusti", "Actinopterygii", "Teleostei", "Chondrostei", "Cladistii", "Holostei"]),
 };
 
-// Returns null (meaning "no cache, fall back to a live fetch") only when the zip itself doesn't
-// exist — an existing zip that happens to have zero matching rows for this group correctly
-// returns an empty (non-null) map instead of falling back, since a real "this country really
-// has none of this taxon" answer and "we don't know" are different outcomes.
+// countGroupsFromLocalZip returns null only when the zip doesn't exist. An existing zip with no
+// matching rows returns an empty map: "has none" and "we don't know" are different answers.
 export interface LocalZipSpeciesCount {
   recordCount: number;
-  // This country's own bounding-box diagonal (km) for JUST this species' records — lets the
-  // core-country pick below use geographic CONCENTRATION rather than raw record count (see
-  // computeVagrantCountries' own comment for why raw count alone is the wrong signal here).
+  // Bounding-box diagonal (km) of this species' records in this country, used to pick the core
+  // country by concentration rather than raw count (see computeVagrantCountries).
   bboxDiagonalKm: number;
 }
 
-async function countSpeciesFromLocalZip(
-  iso2: string,
-  classes: Set<string>,
-  minRecords: number,
-  yearsWindow: number | null,
-  basisOfRecord: string[],
-  // Set only for fish (see FISH_CLASSES/landOnly's own comment on gbifRegionParam): the cached
-  // zip's own download was scoped by the broader `countrycode` field, not the land-only
-  // `gadmGid` field fish actually need — reusing it for fish without this would silently widen
-  // their country presence to include coastal/marine incidental records the land-only scoping
-  // exists specifically to exclude. Every cached row already has real, non-null coordinates
-  // (guaranteed by the original download query), so a real point-in-polygon test against the
-  // country's own land shape reconstructs the same distinction locally instead of needing a
-  // live gadmGid-scoped GBIF call.
-  landRings?: Point[][],
-): Promise<Map<string, LocalZipSpeciesCount> | null> {
+export interface LocalZipGroupSpec {
+  classes: Set<string>;
+  minRecords: number;
+  yearsWindow: number | null;
+  basisOfRecord: string[];
+  // Fish only: the cache is scoped by `countrycode`, so a point-in-polygon test against the land
+  // shape reproduces the land-only scope fish need.
+  landRings?: Point[][];
+}
+
+/** Species record counts for several taxon groups from one read of a country's cached file.
+ * Results line up with `groups`; null when the country has no cached file. */
+export async function countGroupsFromLocalZip(iso2: string, groups: LocalZipGroupSpec[]): Promise<Array<Map<string, LocalZipSpeciesCount>> | null> {
   const zipPath = path.join(GBIF_COUNTRY_CACHE_DIR, `${iso2}.zip`);
   if (!existsSync(zipPath)) return null;
-
   const currentYear = new Date().getFullYear();
-  const yearCutoff = yearsWindow != null ? currentYear - yearsWindow : null;
-  const basisSet = new Set(basisOfRecord);
-  const bySpecies = new Map<string, { recordCount: number; minLat: number; maxLat: number; minLon: number; maxLon: number }>();
+  const specs = groups.map((g) => ({
+    ...g,
+    yearCutoff: g.yearsWindow != null ? currentYear - g.yearsWindow : null,
+    basisSet: new Set(g.basisOfRecord),
+    bySpecies: new Map<string, { recordCount: number; minLat: number; maxLat: number; minLon: number; maxLon: number }>(),
+  }));
+  const anyClass = new Set(groups.flatMap((g) => [...g.classes]));
 
   const unzipProc = spawn("unzip", ["-p", zipPath]);
   const rl = readline.createInterface({ input: unzipProc.stdout, crlfDelay: Infinity });
@@ -114,106 +95,65 @@ async function countSpeciesFromLocalZip(
       continue;
     }
     const cls = cols[colIndex.class] ?? "";
-    if (!classes.has(cls)) continue;
-    const basisOfRecordValue = cols[colIndex.basisofrecord];
-    if (!basisSet.has(basisOfRecordValue)) continue;
-    if (yearCutoff != null) {
-      const yearRaw = cols[colIndex.year];
-      const year = yearRaw ? Number(yearRaw) : null;
-      if (year == null || year < yearCutoff) continue;
-    }
+    if (!anyClass.has(cls)) continue;
     const species = cols[colIndex.species];
     if (!species) continue;
+    const basis = cols[colIndex.basisofrecord];
+    const yearRaw = cols[colIndex.year];
+    const year = yearRaw ? Number(yearRaw) : null;
     const recordCountRaw = cols[colIndex.record_count];
     const recordCount = recordCountRaw ? Number(recordCountRaw) : 1;
     const lat = Number(cols[colIndex.decimallatitude]);
     const lon = Number(cols[colIndex.decimallongitude]);
-    if (landRings && !pointInAnyRing([lon, lat], landRings)) continue;
-
-    let entry = bySpecies.get(species);
-    if (!entry) {
-      entry = { recordCount: 0, minLat: lat, maxLat: lat, minLon: lon, maxLon: lon };
-      bySpecies.set(species, entry);
-    }
-    entry.recordCount += recordCount;
-    if (Number.isFinite(lat) && Number.isFinite(lon)) {
-      if (lat < entry.minLat) entry.minLat = lat;
-      if (lat > entry.maxLat) entry.maxLat = lat;
-      if (lon < entry.minLon) entry.minLon = lon;
-      if (lon > entry.maxLon) entry.maxLon = lon;
+    for (const g of specs) {
+      if (!g.classes.has(cls) || !g.basisSet.has(basis)) continue;
+      if (g.yearCutoff != null && (year == null || year < g.yearCutoff)) continue;
+      if (g.landRings && !pointInAnyRing([lon, lat], g.landRings)) continue;
+      let entry = g.bySpecies.get(species);
+      if (!entry) {
+        entry = { recordCount: 0, minLat: lat, maxLat: lat, minLon: lon, maxLon: lon };
+        g.bySpecies.set(species, entry);
+      }
+      entry.recordCount += recordCount;
+      if (Number.isFinite(lat) && Number.isFinite(lon)) {
+        if (lat < entry.minLat) entry.minLat = lat;
+        if (lat > entry.maxLat) entry.maxLat = lat;
+        if (lon < entry.minLon) entry.minLon = lon;
+        if (lon > entry.maxLon) entry.maxLon = lon;
+      }
     }
   }
   await new Promise((resolve) => unzipProc.on("close", resolve));
 
-  const result = new Map<string, LocalZipSpeciesCount>();
-  for (const [species, entry] of bySpecies) {
-    if (entry.recordCount < minRecords) continue;
-    const bboxDiagonalKm =
-      Math.hypot((entry.maxLat - entry.minLat) * KM_PER_DEGREE, (entry.maxLon - entry.minLon) * KM_PER_DEGREE * Math.cos((entry.minLat * Math.PI) / 180)) ||
-      0;
-    result.set(species, { recordCount: entry.recordCount, bboxDiagonalKm });
-  }
-  return result;
+  return specs.map((g) => {
+    const result = new Map<string, LocalZipSpeciesCount>();
+    for (const [species, entry] of g.bySpecies) {
+      if (entry.recordCount < g.minRecords) continue;
+      const bboxDiagonalKm =
+        Math.hypot((entry.maxLat - entry.minLat) * KM_PER_DEGREE, (entry.maxLon - entry.minLon) * KM_PER_DEGREE * Math.cos((entry.minLat * Math.PI) / 180)) ||
+        0;
+      result.set(species, { recordCount: entry.recordCount, bboxDiagonalKm });
+    }
+    return result;
+  });
 }
 
-// A country's real native range and a scattered escapee/introduced population (cage birds,
-// aquarium releases, ...) look identical to a pure record-count/temporal-recurrence check —
-// an established feral population can rack up sightings across many years just as a native
-// one does. Real geography is the only signal that tells them apart: a species' TRUE range is
-// never split across countries thousands of km apart with nothing in between.
-//
-// Deliberately NOT also requiring the candidate country to hold a small SHARE of total records
-// (an earlier version of this check did, and it was wrong): a well-birded country's escapee
-// population can genuinely out-record a real but remote wild population — confirmed live on
-// Black-Cheeked Lovebird, wild only in Zambia (176 records, tightly clustered near its real
-// range) but with MORE raw records from South African cage-bird escapees (387, scattered across
-// nearly the whole country) than the real population itself. A share-based pre-filter would
-// have excluded South Africa from ever being checked at all, since 387/(176+387) = 69% is far
-// above any reasonable "small minority" threshold — exactly backwards, since that's the one
-// that needed to be caught. Once coreScore has already identified the real core by CONCENTRATION
-// (see its own comment), share size tells us nothing further; distance is the only signal that
-// still discriminates a real secondary population from a scattered escapee one.
+// A native range and a scattered escapee population look alike to record-count and recurrence
+// checks; geography tells them apart, since a true range isn't split across countries far apart.
+// No share-of-records filter: an escapee population in a well-recorded country can out-record
+// the real wild one. Once coreScore picks the core, distance is the discriminating signal.
 const VAGRANT_MIN_DISTANCE_KM = 500;
-// This whole "one real core (by concentration), everything else past a distance threshold is
-// suspect" model was built for and only makes sense on a genuinely narrow/restricted-range
-// species — its original motivating case, Black-Cheeked Lovebird, is wild in exactly one
-// country. Confirmed live that it actively produces garbage once applied indiscriminately to
-// every species regardless of real range size: Mallard and Red Fox (both genuinely native across
-// most of the Northern Hemisphere) ended up marked non-native in over a hundred real countries
-// each, and cosmopolitan/long-distance migrants (Rock Pigeon, Barn Swallow, Osprey, Peregrine
-// Falcon, many shorebirds) got 150-215 countries flagged — because SOME one country always
-// scores highest on coreScore, even when the species has no single "core" at all and is just
-// naturally spread across a huge real range. A species with real records in more than a small
-// handful of countries is, by definition, not a narrow-endemic-with-escapees case — skip vagrant
-// detection for it entirely rather than force a "one true home, everywhere else is fake" model
-// onto a distribution that was never shaped like that to begin with.
+// The "one core, distant countries are suspect" model only fits narrow-range species. Widespread
+// natives and migrants would get flagged across most of their range, so species recorded in more
+// than a handful of countries skip vagrant detection entirely.
 const MAX_COUNTRIES_FOR_VAGRANT_CHECK = 15;
-// A real second population (even a genuinely disjunct one, or just two countries whose nearest
-// edges happen to be >500km apart) still has its own real concentration, not necessarily as
-// tight as the core's but not radically worse either. Confirmed against the original motivating
-// case, Black-Cheeked Lovebird: the real wild population (Zambia, concentration ≈0.435) scores
-// noticeably higher than the scattered South African escapee population (≈0.279, about 64% of
-// Zambia's) — this threshold sits between those two real numbers, catching the confirmed escapee
-// case while giving the benefit of the doubt to a candidate whose own concentration is close to
-// the core's, since that's what a second real population actually looks like.
+// A real second population still has its own concentration, close to the core's. Only a
+// candidate markedly less concentrated than the core is flagged.
 const MAX_CANDIDATE_CONCENTRATION_RATIO = 0.7;
-// Confirmed live: Great Gray Owl and Northern Hawk Owl, both genuinely native holarctic
-// residents (breeding across the boreal forest in Canada AND across northern Eurasia), got
-// their whole Canadian population flagged as an escapee/introduced population by the
-// concentration check above. The root problem: coreScore (records per km of bbox spread)
-// mechanically penalizes a real, CONTINUOUSLY occupied range just for living in a physically
-// huge country — the exact same real population, at the exact same density, produces a much
-// worse concentration score in Canada (bbox spread over thousands of km of real boreal
-// forest) than the identical population would in a small, densely-birded country like
-// Finland. That's a property of the country's SIZE, not of whether the population is real.
-// A candidate whose own record spread already approaches its home country's own maximum
-// possible extent has nowhere further to "concentrate" — it isn't underperforming a fair
-// bar, the bar itself was never reachable for a country this large. Calibrated against real
-// Natural Earth country geometry: this cleanly separates the confirmed-escapee case's own
-// country (South Africa, ~3,650km own-diagonal) from the countries a real holarctic/wide-
-// ranging resident needs this exemption for (Canada ~10,800km, Australia ~7,200km, China
-// ~8,000km, Brazil ~6,600km) — small enough that South Africa, Kazakhstan (~4,800km), and
-// Mongolia (~3,760km) still go through the normal check unexempted.
+// coreScore penalizes a continuously occupied range in a physically huge country, since its
+// records spread over thousands of km. Candidates whose own country diagonal exceeds this are
+// never flagged. Chosen to exempt Canada, Australia, China and Brazil while mid-sized countries
+// (South Africa, Kazakhstan, Mongolia) still get the normal check.
 const CANDIDATE_LARGE_COUNTRY_EXEMPT_KM = 6000;
 
 function ringsBboxDiagonalKm(rings: Point[][]): number | null {
@@ -234,9 +174,7 @@ function ringsBboxDiagonalKm(rings: Point[][]): number | null {
   const lonSpanKm = (maxLon - minLon) * KM_PER_DEGREE;
   return Math.hypot(latSpanKm, lonSpanKm);
 }
-// Same simplification fetch-marine-zones.ts/geometry.ts's own WKT builder use — full Natural
-// Earth ring resolution would make minRingDistance's pairwise point comparison (below) far
-// more expensive than this proximity check needs to be accurate to within a few km.
+// Simplified rings keep minRingDistance's pairwise comparison cheap; a few km of accuracy is enough.
 const DISTANCE_CHECK_MAX_RING_POINTS = 80;
 const KM_PER_DEGREE = 111;
 
@@ -248,16 +186,9 @@ function simplifiedRingsFor(feature: CountryEntry["feature"] | undefined): Point
 
 type Point = [number, number];
 
-// A well-birded country's escaped/introduced population can rack up MORE raw records than a
-// real, remote wild population ever will — confirmed live on Black-Cheeked Lovebird: South
-// Africa's 390 records span a 1,386km-wide scatter across the whole country (independent
-// escapee sightings near many different cities), while Zambia's 180 records — its real,
-// known wild range — cluster inside a 405km box. Raw count alone would pick South Africa as
-// the "core" and get the whole endemic determination backwards. Records-per-km-of-spread
-// (concentration) is what actually distinguishes a real population from scattered escapees, so
-// the core pick below prefers concentration wherever bbox data is available (only ever true
-// for a local-cache hit — see LocalZipSpeciesCount), falling back to raw count for a
-// live-fetched country (no per-record coordinates to compute a spread from at all).
+// An escapee population in a well-recorded country can have more raw records than the real,
+// remote wild one, so the core pick uses records per km of spread (concentration) when bbox
+// data exists (local-cache hits only), and raw count otherwise.
 const MIN_CONCENTRATION_BBOX_KM = 10;
 
 function coreScore(recordCount: number, bboxDiagonalKm: number | undefined): number {
@@ -265,11 +196,9 @@ function coreScore(recordCount: number, bboxDiagonalKm: number | undefined): num
   return recordCount;
 }
 
-// For a given species' per-country record counts, decide which countries (if any) are almost
-// certainly an escapee/introduced population rather than real native range: geographically
-// distant from whichever country is the real core (see coreScore's own comment for how that's
-// picked — NOT simply whichever has the most raw records). Country pair distances are cached
-// (`distanceCacheKm`) since the same pair recurs across many species.
+// For one species' per-country counts, returns the countries that are almost certainly an
+// escapee or introduced population: far from the core country (see coreScore) and less
+// concentrated. Country pair distances are cached since the same pairs recur across species.
 export function computeVagrantCountries(
   countryCounts: Map<string, number>,
   bboxKmByIso3: Map<string, number> | undefined,
@@ -280,11 +209,7 @@ export function computeVagrantCountries(
   const [coreIso3] = [...countryCounts.entries()].sort(
     (a, b) => coreScore(b[1], bboxKmByIso3?.get(b[0])) - coreScore(a[1], bboxKmByIso3?.get(a[0])),
   )[0];
-  // An empty rings array (missing/malformed geometry) makes minRingDistance return Infinity,
-  // which must NOT be read as "definitely far away, therefore vagrant" — it means the distance
-  // genuinely can't be measured, so the honest answer is "don't flag," not "flag by default."
-  // Real Natural Earth country geometry always has real rings; this guard only ever matters for
-  // a country somehow missing geometry data (or a test double standing in for one).
+  // Missing geometry makes minRingDistance return Infinity. That means "can't measure", so don't flag.
   const coreRings = ringsByIso3.get(coreIso3);
   if (!coreRings || coreRings.length === 0) return new Set();
 
@@ -302,24 +227,14 @@ export function computeVagrantCountries(
     }
         if (distanceKm <= VAGRANT_MIN_DISTANCE_KM) continue;
 
-    // See CANDIDATE_LARGE_COUNTRY_EXEMPT_KM's own comment — a physically huge candidate
-    // country never gets a fair concentration comparison against the core, so skip straight
-    // to "don't flag" rather than penalize it for its own size.
+    // A physically huge candidate never gets a fair concentration comparison, so don't flag it.
     const candidateOwnDiagonalKm = ringsBboxDiagonalKm(otherRings);
     if (candidateOwnDiagonalKm != null && candidateOwnDiagonalKm >= CANDIDATE_LARGE_COUNTRY_EXEMPT_KM) continue;
 
-    // Distance alone can't tell a real, disjunct native population apart from a scattered
-    // escapee one — a species can genuinely have two separate real populations far apart (a
-    // disjunct range, or just two adjacent-ish countries whose nearest edges still end up
-    // >500km apart). Concentration is the same signal that picked the core in the first place
-    // (see coreScore's own comment): a real population, wherever it is, is a real PLACE — it
-    // still has its own reasonably concentrated area. Scattered escapees don't; they're spread
-    // thin across a country's cities with no real concentration anywhere. Only flag when the
-    // candidate's own concentration is meaningfully worse than the core's, not merely "not the
-    // best" — a second real, similarly-concentrated population must never lose to whichever one
-    // happened to score marginally higher. Requires bbox data for BOTH countries (only ever true
-    // for a local-cache hit — see LocalZipSpeciesCount) — without it there's no way to check this
-    // at all, and the honest answer to "can't verify" is "don't flag," not "flag by default."
+    // Distance alone can't separate a real disjunct population from scattered escapees. A real
+    // population is still concentrated somewhere; escapees are spread thin. Only flag when the
+    // candidate is meaningfully less concentrated than the core. Needs bbox data for both
+    // countries; without it, don't flag.
     const coreBboxKm = bboxKmByIso3?.get(coreIso3);
     const otherBboxKm = bboxKmByIso3?.get(iso3);
     if (coreBboxKm == null || otherBboxKm == null) continue;
@@ -330,12 +245,8 @@ export function computeVagrantCountries(
   return vagrant;
 }
 
-// This crawl is a multi-hour, 258-country×3-taxon-group network pass, but re-tuning
-// apply-rarity-phase4.ts's WEIGHTS/boost constants doesn't change the crawl's own output —
-// only how it gets folded into the composite. Caching the raw crawl result to disk means a
-// weight-tuning iteration can re-run applyElusiveness() against the SAME real data in
-// seconds instead of re-crawling GBIF from scratch every time. See
-// reapply-elusiveness-from-cache.ts.
+// Caches the raw crawl so tuning apply-rarity-phase4.ts's weights can re-run applyElusiveness()
+// in seconds without re-crawling GBIF. See reapply-elusiveness-from-cache.ts.
 const CRAWL_CACHE_PATH = path.join(BUILD_DIR, "elusiveness-crawl-cache.json");
 
 export function saveCrawlCache(result: ElusivenessResult): void {
@@ -366,31 +277,20 @@ export function loadCrawlCache(): ElusivenessResult | null {
   };
 }
 
-// Below this many total records (for whichever taxa are included in one call), a country's
-// per-species ratio is too noisy to trust (a handful of museum specimens could make a
-// species look "everywhere" or "nowhere").
+// Below this many total records, a country's per-species ranking is too noisy to trust.
 const MIN_COUNTRY_RECORDS = 5000;
 
 export interface TaxonGroup {
   taxonKeys: number[];
   minRecords: number;
   yearsWindow: number | null;
-  // Fish default to the land polygon, not GBIF's broader `country` field — a country's fish
-  // are its native land/freshwater species by default, with sea zones layered in separately
-  // (see regions/routes.ts). The global elusiveness/
-  // endemic signal is kept consistent with that same definition, rather than silently
-  // ranking fish against a broader marine-inclusive per-country pool the checklist itself
-  // no longer shows.
+  // Fish default to the land polygon: a country's fish are its land and freshwater species, with
+  // sea zones layered in separately, and elusiveness uses the same definition.
   landOnly?: boolean;
-  // Which GBIF basisOfRecord values count as a "record" for THIS axis (see
-  // build-region-species.ts's CASUAL_OBSERVATION_BASIS_OF_RECORD — defaults to the broader
-  // REAL_BASIS_OF_RECORD there when omitted).
+  // basisOfRecord values that count as a record for this axis. Defaults to REAL_BASIS_OF_RECORD.
   basisOfRecord?: string[];
-  // Set only for groups queried with the broader `countrycode` field (landOnly not true) whose
-  // GBIF class name(s) exactly match a key in COUNT_CLASSES_BY_GROUP — lets this group reuse
-  // compute-provinces-bulk.ts's already-downloaded per-country zips instead of a live GBIF
-  // facet call wherever one's cached. Left unset for fish (a genuinely different query scope,
-  // see COUNT_CLASSES_BY_GROUP's own comment) and for the test file's synthetic groups.
+  // GBIF class names that let this group reuse compute-provinces-bulk.ts's cached per-country zips
+  // instead of a live facet call. Unset for test groups.
   localCacheClasses?: Set<string>;
 }
 
@@ -398,32 +298,50 @@ export interface ElusivenessResult {
   byGbifKey: Map<number, number>;
   countriesUsed: number;
   countriesDropped: number;
-  // A species is "endemic" if it clears its taxon group's own real-
-  // presence threshold in EXACTLY ONE of the 258 countries crawled here — this reuses data
-  // already fetched for elusiveness, no extra GBIF calls. Deliberately checked against
-  // every country regardless of whether that country's TOTAL record volume cleared
-  // MIN_COUNTRY_RECORDS above (a thin-data country can still be the one true home of a real
-  // endemic; excluding it would silently mislabel real endemics as non-endemic just because
-  // their home country is under-sampled overall).
+  // Endemic = clears its group's presence threshold in exactly one country. Checked against every
+  // country, including thin-data ones below MIN_COUNTRY_RECORDS, since an under-sampled country
+  // can still be a real endemic's only home.
   endemicCountryIso3ByGbifKey: Map<number, string>;
-  // Countries flagged as an escapee/introduced population for that species (see
-  // computeVagrantCountries) — already excluded from endemicCountryIso3ByGbifKey's own count,
-  // but also needed downstream by compute-provinces-bulk.ts/regions routes so a region within
-  // one of these countries gets is_vagrant=true regardless of its own temporal recurrence.
+  // Countries flagged as escapee/introduced for that species (see computeVagrantCountries).
+  // Excluded from the endemic count and from the elusiveness average. Not written to
+  // species_nonnative_countries: see apply-introduced-flags.ts.
   vagrantCountriesByGbifKey: Map<number, Set<string>>;
 }
 
-// A combined crawl across every requested taxon GROUP at once — cheaper
-// than one 258-country pass per taxon, and the only way to add mammals/fish without risking
-// double-boosting birds' already-correct scores (applyElusiveness's nocturnal/density
-// boosts are not idempotent). Critically, each group is fetched and RANKED SEPARATELY within
-// a country — mixing birds/mammals/fish into one combined facet-and-rank, as this used to
-// do, meant a fish's raw percentile reflected its rank against bird record VOLUME too (fish
-// naturally have far fewer GBIF records per country than birds, so they'd all cluster near
-// "elusiveness 1.0" regardless of real commonness — the same cross-taxon-tiering bug already
-// fixed once for the composite score in apply-rarity-phase4.ts, just one layer upstream of
-// it). Each group also carries its own minRecords/yearsWindow — fish need far more
-// permissive values than birds (see FISH_MIN_RECORDS's comment).
+/** Several names can stand for one catalog species (a split species' halves, a renamed one):
+ * their records add up, and the widest spread is kept. */
+export function mergeByGbifKey<T extends { gbifKey: number; recordCount: number; bboxDiagonalKm: number }>(counts: T[]): T[] {
+  const merged = new Map<number, T>();
+  for (const c of counts) {
+    const prev = merged.get(c.gbifKey);
+    merged.set(
+      c.gbifKey,
+      prev ? { ...prev, recordCount: prev.recordCount + c.recordCount, bboxDiagonalKm: Math.max(prev.bboxDiagonalKm, c.bboxDiagonalKm) } : c,
+    );
+  }
+  return [...merged.values()];
+}
+
+/** A species' elusiveness: its rank among the species recorded in each country, averaged over
+ * the countries where it actually lives, weighted by its own records there. Vagrant countries
+ * are left out so a few escapee records don't outweigh the native range; if every country
+ * looks vagrant, all of them are used. */
+export function elusivenessFromRanks(
+  entries: Array<{ iso3: string; percentile: number; speciesRecords: number }>,
+  vagrantCountries: Set<string> | undefined,
+): number {
+  const native = vagrantCountries ? entries.filter((e) => !vagrantCountries.has(e.iso3)) : entries;
+  const used = native.length > 0 ? native : entries;
+  let weighted = 0;
+  let weights = 0;
+  for (const e of used) {
+    const w = Math.max(1, e.speciesRecords);
+    weighted += e.percentile * w;
+    weights += w;
+  }
+  return weights > 0 ? weighted / weights : 0.5;
+}
+
 export async function computeElusiveness(
   taxonGroups: TaxonGroup[] = [{ taxonKeys: [AVES_CLASS_KEY], minRecords: MIN_RECORDS, yearsWindow: RECENT_YEARS_WINDOW }],
   onProgress?: (done: number, total: number) => void,
@@ -431,21 +349,24 @@ export async function computeElusiveness(
   const countries = await fetchAllCountries();
   const ringsByIso3 = new Map(countries.map((c) => [c.iso3, simplifiedRingsFor(c.feature)]));
   const distanceCacheKm = new Map<string, number>();
-  const weightedSum = new Map<number, number>();
-  const weightSum = new Map<number, number>();
+  // Each species' ranks per country, kept until vagrant countries are known so those can be excluded.
+  const rankEntriesByGbifKey = new Map<number, Array<{ iso3: string; percentile: number; speciesRecords: number }>>();
   const countryCountsByGbifKey = new Map<number, Map<string, number>>();
   const bboxKmByGbifKeyAndIso3 = new Map<number, Map<string, number>>();
   let countriesUsed = 0;
   let countriesDropped = 0;
 
-  // Only needed to convert a local-cache read (keyed by scientific_name, since that's all the
-  // cached zips carry) back into the gbifKey space everything else in this file works in — and
-  // only fetched when at least one group actually opts into the local cache, so a caller with
-  // none (the test file's synthetic groups) never pays for an unused DB round-trip.
+  // Maps the cache's scientific names back to gbifKeys. Only fetched when a group uses the cache.
   const gbifKeyByScientificName = new Map<string, number>();
   if (taxonGroups.some((g) => g.localCacheClasses)) {
-    const gbifKeyRes = await pool.query<{ scientific_name: string; gbif_key: string }>(`SELECT scientific_name, gbif_key FROM species`);
-    for (const r of gbifKeyRes.rows) gbifKeyByScientificName.set(r.scientific_name, Number(r.gbif_key));
+    // Synonyms too, so a renamed species' records (the GBIF data uses current names) still count.
+    const gbifKeyRes = await pool.query<{ scientific_name: string; gbif_key: string }>(
+      `SELECT scientific_name, gbif_key FROM species
+       UNION ALL
+       SELECT ss.synonym_name, s.gbif_key FROM species_synonyms ss JOIN species s ON s.id = ss.species_id`,
+    );
+    // Real names (listed first) win over a synonym spelled the same.
+    for (const r of gbifKeyRes.rows) if (!gbifKeyByScientificName.has(r.scientific_name)) gbifKeyByScientificName.set(r.scientific_name, Number(r.gbif_key));
   }
   let countriesServedFromLocalCache = 0;
 
@@ -454,23 +375,31 @@ export async function computeElusiveness(
     let countryTotal = 0;
     let countryHasEnoughSpecies = false;
 
+    // Every cache-backed group from one read of this country's file.
+    const cachedGroups = taxonGroups.filter((g) => g.localCacheClasses);
+    const cachedTotals =
+      country.iso2 && cachedGroups.length > 0
+        ? await countGroupsFromLocalZip(
+            country.iso2,
+            cachedGroups.map((g) => ({
+              classes: g.localCacheClasses!,
+              minRecords: g.minRecords,
+              yearsWindow: g.yearsWindow,
+              basisOfRecord: g.basisOfRecord ?? REAL_BASIS_OF_RECORD,
+              landRings: g.landOnly ? ringsByIso3.get(country.iso3) : undefined,
+            })),
+          )
+        : null;
+
     for (const group of taxonGroups) {
-      const localTotals =
-        group.localCacheClasses && country.iso2
-          ? await countSpeciesFromLocalZip(
-              country.iso2,
-              group.localCacheClasses,
-              group.minRecords,
-              group.yearsWindow,
-              group.basisOfRecord ?? REAL_BASIS_OF_RECORD,
-              group.landOnly ? ringsByIso3.get(country.iso3) : undefined,
-            )
-          : null;
+      const localTotals = cachedTotals && group.localCacheClasses ? cachedTotals[cachedGroups.indexOf(group)] : null;
       const counts =
         localTotals != null
-          ? [...localTotals.entries()]
-              .map(([name, v]) => ({ gbifKey: gbifKeyByScientificName.get(name), recordCount: v.recordCount, bboxDiagonalKm: v.bboxDiagonalKm }))
-              .filter((c): c is { gbifKey: number; recordCount: number; bboxDiagonalKm: number } => c.gbifKey != null)
+          ? mergeByGbifKey(
+              [...localTotals.entries()]
+                .map(([name, v]) => ({ gbifKey: gbifKeyByScientificName.get(name), recordCount: v.recordCount, bboxDiagonalKm: v.bboxDiagonalKm }))
+                .filter((c): c is { gbifKey: number; recordCount: number; bboxDiagonalKm: number } => c.gbifKey != null),
+            )
           : (await fetchSpeciesCountsForRegion(country.iso3, group.taxonKeys, group.yearsWindow, group.landOnly ?? false, group.basisOfRecord)).map(
               (c) => ({ ...c, bboxDiagonalKm: null }),
             );
@@ -484,9 +413,7 @@ export async function computeElusiveness(
         if (!countryCountsByGbifKey.has(c.gbifKey)) countryCountsByGbifKey.set(c.gbifKey, new Map());
         const byCountry = countryCountsByGbifKey.get(c.gbifKey)!;
         byCountry.set(country.iso3, (byCountry.get(country.iso3) ?? 0) + c.recordCount);
-        // Only ever set from a local-cache hit (bboxDiagonalKm is null for a live-fetched
-        // country, which has no per-record coordinates at all — see computeVagrantCountries'
-        // own comment on how a missing entry here is handled).
+        // Only set for local-cache hits; live-fetched countries have no per-record coordinates.
         if (c.bboxDiagonalKm != null) {
           if (!bboxKmByGbifKeyAndIso3.has(c.gbifKey)) bboxKmByGbifKeyAndIso3.set(c.gbifKey, new Map());
           bboxKmByGbifKeyAndIso3.get(c.gbifKey)!.set(country.iso3, c.bboxDiagonalKm);
@@ -497,11 +424,10 @@ export async function computeElusiveness(
         const sorted = [...counts].sort((a, b) => b.recordCount - a.recordCount);
         const n = sorted.length;
         sorted.forEach((c, rank) => {
-          // rank 0 = the most-recorded species IN THIS GROUP for this country ->
-          // elusiveness 0 (easiest to find here); the least-recorded -> elusiveness 1.
+          // rank 0 = most-recorded species in this group and country (elusiveness 0); least-recorded = 1.
           const percentile = rank / (n - 1);
-          weightedSum.set(c.gbifKey, (weightedSum.get(c.gbifKey) ?? 0) + percentile * total);
-          weightSum.set(c.gbifKey, (weightSum.get(c.gbifKey) ?? 0) + total);
+          if (!rankEntriesByGbifKey.has(c.gbifKey)) rankEntriesByGbifKey.set(c.gbifKey, []);
+          rankEntriesByGbifKey.get(c.gbifKey)!.push({ iso3: country.iso3, percentile, speciesRecords: c.recordCount });
         });
       }
     }
@@ -519,22 +445,19 @@ export async function computeElusiveness(
     `[elusiveness] served ${countriesServedFromLocalCache} of ${countries.length * taxonGroups.filter((g) => g.localCacheClasses).length} cache-eligible country/group passes from local GBIF zips`,
   );
 
-  const byGbifKey = new Map<number, number>();
-  for (const [gbifKey, sum] of weightedSum) {
-    byGbifKey.set(gbifKey, sum / weightSum.get(gbifKey)!);
-  }
-
   const vagrantCountriesByGbifKey = new Map<number, Set<string>>();
   for (const [gbifKey, countryCounts] of countryCountsByGbifKey) {
     const vagrant = computeVagrantCountries(countryCounts, bboxKmByGbifKeyAndIso3.get(gbifKey), ringsByIso3, distanceCacheKm);
     if (vagrant.size > 0) vagrantCountriesByGbifKey.set(gbifKey, vagrant);
   }
 
-  // "Endemic to exactly one country" only counts countries NOT flagged as an escapee/
-  // introduced population above — otherwise a species with a real single-country native range
-  // plus a handful of feral records elsewhere (Black-Cheeked Lovebird: wild in Zambia, feral
-  // cage-bird records in South Africa/Spain) would never qualify as endemic at all, since the
-  // raw country list always has 2+ entries.
+  const byGbifKey = new Map<number, number>();
+  for (const [gbifKey, entries] of rankEntriesByGbifKey) {
+    byGbifKey.set(gbifKey, elusivenessFromRanks(entries, vagrantCountriesByGbifKey.get(gbifKey)));
+  }
+
+  // Endemic counts only non-vagrant countries, so a single-country native with a few feral
+  // records elsewhere still qualifies.
   const endemicCountryIso3ByGbifKey = new Map<number, string>();
   for (const [gbifKey, countryCounts] of countryCountsByGbifKey) {
     const vagrant = vagrantCountriesByGbifKey.get(gbifKey);
@@ -546,32 +469,23 @@ export async function computeElusiveness(
 }
 
 async function main() {
-  // One combined crawl covering birds + mammals + fish — cheaper than
-  // three separate 258-country passes, and the only way to add mammals/fish without risking
-  // double-boosting birds' already-correct scores. Each taxon group is ranked separately
-  // within a country (see computeElusiveness's own comment) and carries its own
-  // minRecords/yearsWindow — fish get far more permissive values than birds/mammals.
+  // One crawl covering every taxon group. Each group is fetched and ranked separately within a
+  // country, since record volumes differ hugely between taxa, and carries its own
+  // minRecords/yearsWindow (fish are far more permissive).
   const { MAMMALIA_CLASS_KEY } = await import("../fetch/fetch-gbif-backbone.js");
   const { fetchFishTaxonKeys } = await import("../fetch/fetch-fish-orders.js");
   const fishKeys = await fetchFishTaxonKeys();
-  // Birds and mammals were previously combined into ONE ranked group per country, which was
-  // a real, serious bug: the American Black Bear, with 62,920 real global GBIF records, still
-  // landed at elusiveness_score=0.7 ("hard to detect"), because bird record volumes dwarf
-  // mammal volumes even for genuinely common mammals — every mammal was effectively being
-  // measured on a bird-scale yardstick, the same cross-taxon-volume problem this file's own
-  // comments already describe fixing for fish (fish got their own group specifically to
-  // avoid this) while birds+mammals stayed combined regardless. Each taxon now ranks only
-  // against its own taxon.
   const { CASUAL_OBSERVATION_BASIS_OF_RECORD } = await import("./build-region-species.js");
-  // Mammals and fish restrict to CASUAL_OBSERVATION_BASIS_OF_RECORD (see its own comment —
-  // museum specimens and camera-trap research records inflate apparent "documentation" for
-  // species that are heavily studied precisely BECAUSE they're hard to see any other way,
-  // e.g. Black Bear/Coyote/Bison all scoring harder than their real encounter difficulty).
-  // Birds are left on the broader default — eBird-driven HUMAN_OBSERVATION volume already
-  // dominates their real record count, so this wouldn't move their already-calibrated scores
-  // enough to be worth risking against BIRD_ABSOLUTE_TIER_THRESHOLDS' existing calibration.
+  // Every group counts casual sightings only (CASUAL_OBSERVATION_BASIS_OF_RECORD): museum,
+  // camera-trap and zoo records inflate documentation for species that are hard to see.
   const taxonGroups: TaxonGroup[] = [
-    { taxonKeys: [AVES_CLASS_KEY], minRecords: MIN_RECORDS, yearsWindow: RECENT_YEARS_WINDOW, localCacheClasses: COUNT_CLASSES_BY_GROUP.birds },
+    {
+      taxonKeys: [AVES_CLASS_KEY],
+      minRecords: MIN_RECORDS,
+      yearsWindow: RECENT_YEARS_WINDOW,
+      basisOfRecord: CASUAL_OBSERVATION_BASIS_OF_RECORD,
+      localCacheClasses: COUNT_CLASSES_BY_GROUP.birds,
+    },
     {
       taxonKeys: [MAMMALIA_CLASS_KEY],
       minRecords: MIN_RECORDS,
@@ -580,10 +494,7 @@ async function main() {
       localCacheClasses: COUNT_CLASSES_BY_GROUP.mammals,
     },
     {
-      // landOnly:true still means a live-fetched country (no cached zip) uses the narrower
-      // gadmGid field, same as before — but a cache hit reconstructs that same scope locally
-      // via a real point-in-polygon check (see countSpeciesFromLocalZip's `landRings` param and
-      // this file's own comment above GBIF_COUNTRY_CACHE_DIR).
+      // A live-fetched country uses gadmGid; a cache hit reproduces that scope via landRings.
       taxonKeys: fishKeys,
       minRecords: FISH_MIN_RECORDS,
       yearsWindow: FISH_YEARS_WINDOW,
@@ -591,9 +502,24 @@ async function main() {
       basisOfRecord: CASUAL_OBSERVATION_BASIS_OF_RECORD,
       localCacheClasses: COUNT_CLASSES_BY_GROUP.fish,
     },
+    // Reptiles and amphibians rank separately for the same reason: their record volumes differ.
+    {
+      taxonKeys: [SQUAMATA_CLASS_KEY, TESTUDINES_CLASS_KEY, CROCODYLIA_CLASS_KEY],
+      minRecords: MIN_RECORDS,
+      yearsWindow: RECENT_YEARS_WINDOW,
+      basisOfRecord: CASUAL_OBSERVATION_BASIS_OF_RECORD,
+      localCacheClasses: COUNT_CLASSES_BY_GROUP.reptiles,
+    },
+    {
+      taxonKeys: [AMPHIBIA_CLASS_KEY],
+      minRecords: MIN_RECORDS,
+      yearsWindow: RECENT_YEARS_WINDOW,
+      basisOfRecord: CASUAL_OBSERVATION_BASIS_OF_RECORD,
+      localCacheClasses: COUNT_CLASSES_BY_GROUP.amphibians,
+    },
   ];
   console.log(
-    `[elusiveness] crawling ${taxonGroups.length} taxon groups (birds: ${taxonGroups[0].taxonKeys.length} keys, mammals: ${taxonGroups[1].taxonKeys.length} keys, fish: ${taxonGroups[2].taxonKeys.length} keys)`,
+    `[elusiveness] crawling ${taxonGroups.length} taxon groups (birds, mammals, fish with ${taxonGroups[2].taxonKeys.length} keys, reptiles, amphibians)`,
   );
 
   const result = await computeElusiveness(taxonGroups, (done, total) => {
@@ -607,7 +533,7 @@ async function main() {
   saveCrawlCache(result);
 
   const { applyElusiveness } = await import("./apply-rarity-phase4.js");
-  await applyElusiveness(result.byGbifKey, result.endemicCountryIso3ByGbifKey, result.vagrantCountriesByGbifKey);
+  await applyElusiveness(result.byGbifKey, result.endemicCountryIso3ByGbifKey);
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

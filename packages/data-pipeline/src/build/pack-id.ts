@@ -1,15 +1,11 @@
-// Single source of truth for a pack's filename/id — previously computed inline (twice, slightly
-// differently) in build-region-pack.ts, and re-derived via a regex-strip guess in
-// apps/api/src/offlinePacks/routes.ts's seaZoneDependencies handling. Both the pack builder and
-// the index builder (build-pack-index.ts) now import from here, so a pack's id is always
-// exactly "its own filename minus the .pack.tar.gz suffix," never re-guessed.
+// Single source of truth for a pack's filename and id, shared by the pack builder and
+// build-pack-index.ts: a pack's id is always its filename minus the .pack.tar.gz suffix.
 export function sanitize(name: string): string {
   return name.replace(/[^a-zA-Z0-9._-]/g, "_");
 }
 
 // "small" ships the same checklist/embeddings as "full" but skips the reference-photo gallery
-// (only the single featured photo per species), a much smaller download for users who accept
-// fetching extra gallery photos on demand once online, per species.
+// (only the featured photo per species); gallery photos are fetched on demand once online.
 export type PackVariant = "full" | "small";
 
 function variantSuffix(variant: PackVariant): string {

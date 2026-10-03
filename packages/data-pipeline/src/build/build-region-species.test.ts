@@ -1,9 +1,6 @@
-// passesRecurrenceCheck is load-bearing for two features: the
-// recurrence-rescue pass (Northern Goshawk — a real but SPARSE resident wrongly excluded by
-// the raw recent-window threshold) and its exact inverse, region-scoped vagrant detection
-// (Costa's Hummingbird — a burst of records from one chased bird, wrongly read as an
-// established presence). Both depend on this one function drawing the line correctly between
-// "spread across real years" and "concentrated in a burst."
+// passesRecurrenceCheck drives both the recurrence rescue (keeping sparse real residents) and
+// region-scoped vagrant detection (rejecting one-bird bursts), so it must draw the line between
+// "spread across real years" and "concentrated in a burst" exactly.
 import { describe, expect, it } from "vitest";
 import { passesRecurrenceCheck, RECURRENCE_MIN_DISTINCT_YEARS, RECURRENCE_MAX_YEAR_CONCENTRATION } from "./build-region-species.js";
 
@@ -19,7 +16,7 @@ describe("passesRecurrenceCheck", () => {
     expect(passesRecurrenceCheck(yearCounts)).toBe(true);
   });
 
-  it("fails a single-event burst (Costa's Hummingbird — all records from one chased bird)", () => {
+  it("fails a single-event burst (Costa's Hummingbird: all records from one chased bird)", () => {
     const yearCounts = [{ year: 2024, count: 294 }];
     expect(passesRecurrenceCheck(yearCounts)).toBe(false);
   });

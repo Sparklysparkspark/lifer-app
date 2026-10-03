@@ -1,23 +1,10 @@
-// Fills in province/state-level checklists using iNaturalist Research Grade data as the primary
-// source, instead of compute-provinces-bulk.ts's GBIF-SQL-download pipeline — for the ~4,300
-// province-level regions worldwide that have never had a checklist computed at all (country-
-// level coverage is close to complete; province-level lagged far behind it). No GBIF download,
-// no point-matching scan, no rarity/hotspot computation: just "does this species already in our
-// catalog have Research Grade iNaturalist records in this exact place," which is both lighter
-// (one place lookup + one paginated fetch per region, entirely cached/incremental after the
-// first pass — see inatChecklist.ts) and, per the user's own read, likely more thorough than
-// GBIF's raw-record coverage for the same regions.
+// Fills in checklists for provinces that have none, from iNaturalist Research Grade data: links
+// catalog species with Research Grade records in the place. No GBIF download or scoring.
 //
-// Deliberately does NOT create new species — only links species ALREADY in the catalog to a
-// region (see this file's is_other_taxa exclusion below). A taxon iNaturalist has but Lifer has
-// no dataset for (insects, plants, fungi, ...) is exactly what Settings > Species & Import's
-// any-taxa search is for instead — this script isn't a backdoor bulk importer for that.
+// Only links species already in the catalog (is_other_taxa excluded); it never creates species.
 //
-// No rarity/hotspot/weekly-frequency data gets computed here (local_tier/local_frequency/
-// weekly_frequency all stay NULL) — GBIF's own point data is still what drives those, for
-// whichever species/region combination has it. A province filled in by this script just shows
-// an unrated checklist until (if ever) a real GBIF pass covers it too; that's a strictly better
-// state than "not on the checklist at all," which is what every one of these regions has today.
+// local_tier, local_frequency and weekly_frequency stay NULL, so these provinces show an unrated
+// checklist until a GBIF pass covers them.
 //
 // Usage: npx tsx src/scripts/compute-provinces-inat.ts [--limit=N] [--apply]
 import "../config.js"; // loads .env from the repo root before anything below reads process.env
@@ -46,14 +33,12 @@ async function main() {
   const limitArg = process.argv.find((a) => a.startsWith("--limit="));
   const limit = limitArg ? Number(limitArg.split("=")[1]) : null;
   const apply = process.argv.includes("--apply");
-  if (!apply) console.log(`[compute-provinces-inat] DRY RUN — pass --apply to actually write region_species`);
+  if (!apply) console.log(`[compute-provinces-inat] DRY RUN: pass --apply to actually write region_species`);
 
   const regionRowsRes = await pool.query<RegionRow>(`SELECT id, name, parent_id FROM regions`);
   const regionsById = new Map(regionRowsRes.rows.map((r) => [r.id, r]));
 
-  // Province-level = has a boundary, has a parent, and that parent is NOT a continent (i.e. this
-  // region itself isn't a country) — same shape findCountry itself checks, just filtering the
-  // candidate set down first instead of calling findCountry on literally every region row.
+  // Province-level: has a boundary and a parent that isn't a continent (so it isn't a country).
   const provincesRes = await pool.query<{ id: string; name: string }>(
     `SELECT r.id, r.name FROM regions r
      WHERE r.boundary_geojson IS NOT NULL
@@ -115,9 +100,8 @@ async function main() {
     const matchedSpeciesIds = new Set(byIdRes.rows.map((r) => r.id));
     const matchedTaxonIds = new Set(byIdRes.rows.map((r) => r.inat_taxon_id));
 
-    // Pass 2: species with no inat_taxon_id yet, matched by exact scientific name — backfills
-    // inat_taxon_id in the same query so every later province's pass-1 lookup benefits, same
-    // "move stuff around, don't re-enrich" reasoning as the rest of this feature.
+    // Pass 2: species with no inat_taxon_id yet, matched by exact scientific name. Backfills
+    // inat_taxon_id so later provinces match in pass 1.
     const unmatchedTaxa = [...taxa.entries()].filter(([id]) => !matchedTaxonIds.has(id));
     if (unmatchedTaxa.length > 0) {
       const names = unmatchedTaxa.map(([, name]) => name);
@@ -151,7 +135,7 @@ async function main() {
 
     if (done % 50 === 0 || done === provinces.length) {
       console.log(
-        `[compute-provinces-inat] ${done}/${provinces.length} processed — ${filled} filled (${totalLinked} species linked), ` +
+        `[compute-provinces-inat] ${done}/${provinces.length} processed, ${filled} filled (${totalLinked} species linked), ` +
           `${skippedNoPlace} skipped (no iNat place), ${skippedNoSpecies} skipped (no catalog matches)`,
       );
     }

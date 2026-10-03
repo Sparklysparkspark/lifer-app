@@ -1,9 +1,6 @@
 // Source: Mammal Diversity Database (MDD) v2.0, via Zenodo (doi.org/10.5281/zenodo.17033774).
-// License: CC-BY-4.0 (verified on the Zenodo record page by hand, same standard applied to
-// every other data source in this project — see AVONET/EltonTraits/Natural Earth). This is
-// mammals' AVONET-equivalent taxonomy source: real scientific names, curated common names,
-// family/order, and IUCN status all in one file — richer than what GBIF's own vernacular
-// names endpoint gives per-species for birds.
+// License: CC-BY-4.0. Mammals' AVONET equivalent: scientific names, curated common names,
+// family/order and IUCN status in one file.
 import { fetchCached, BUILD_DIR } from "../raw-cache.js";
 import path from "node:path";
 import { readFileSync } from "node:fs";
@@ -15,34 +12,22 @@ export interface MddRow {
   commonName: string | null;
   family: string | null;
   order: string | null;
-  // infraorder/superfamily — used to pull obligate/predominantly marine mammals (whales,
-  // manatees, seals) into the app's "Fish" taxon grouping. MDD keeps "Cetacea" at infraorder
-  // rank (order itself is the merged "Artiodactyla" in modern taxonomy) and groups all
-  // pinnipeds under superfamily "Phocoidea", verified by hand against the actual file for
-  // representative species in each group.
+  // infraorder/superfamily, used to move marine mammals (whales, manatees, seals) into the "Fish"
+  // group. MDD keeps "Cetacea" at infraorder rank (the order is "Artiodactyla") and groups all
+  // pinnipeds under superfamily "Phocoidea".
   infraorder: string | null;
   superfamily: string | null;
-  // Real MDD flag (not a guess/curated list) marking fully domesticated forms (cattle,
-  // goats, sheep, domestic dog/cat, etc.). Without this, these species would show up as
-  // "rare"/"epic" in region checklists purely because citizen-science platforms like
-  // iNaturalist barely ever get farm-animal photos relative to how common they actually
-  // are, an effort-bias artifact with the opposite sign from the wild-species case. A
-  // life-list app has no use for "you photographed a cow," so domestic species are
-  // excluded from region checklists entirely rather than mis-tiered.
+  // MDD flag for fully domesticated forms (cattle, goats, dogs, ...). Citizen-science platforms
+  // barely photograph farm animals, so they'd be mis-tiered as rare; domestic species are
+  // excluded from region checklists instead.
   domestic: boolean;
-  // MDD's own cross-reference to Mammal Species of the World 3rd ed. This is needed because
-  // GBIF's backbone still carries the older "Bison bison" name for American Bison, while
-  // MDD's own primary sciName has already followed the Bos/Bison genus merge to "Bos bison",
-  // so the primary-name join silently misses and the species shows up with no common name at
-  // all. GBIF's taxonomy generally lags behind MDD by roughly this same MSW3-era lineage, so
-  // this is a real, general fallback key, not a one-off patch for bison alone (649 of 6759
-  // MDD rows have a MSW3 name that differs from their primary sciName).
+  // MDD's cross-reference to Mammal Species of the World 3rd ed. GBIF's backbone often lags MDD by
+  // this MSW3-era naming (e.g. "Bison bison" vs MDD's "Bos bison"), so it's a general fallback
+  // join key for names the primary sciName misses.
   msw3Name: string | null;
 }
 
-// Real column layout, verified against the actual file: sciName is underscore-joined
-// ("Genus_species", not "Genus species") — converted here so it lines up with GBIF's
-// canonicalName join key used everywhere else in this pipeline.
+// sciName is underscore-joined ("Genus_species"), converted to match GBIF's canonicalName join key.
 function parseCsvLine(line: string): string[] {
   const cells: string[] = [];
   let current = "";

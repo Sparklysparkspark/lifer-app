@@ -1,12 +1,10 @@
-// Clears the raw-GBIF-response cache (migration 040 / fetch-with-retry.ts) — for when a
-// genuinely fresh pull is wanted (e.g. periodically, or because GBIF's underlying data itself
-// changed), as opposed to the normal case of re-deriving a region's checklist from the same
-// raw data after fixing a filtering bug, which should NOT clear the cache.
+// Clears the raw GBIF response cache (migration 040 / fetch-with-retry.ts) when a genuinely fresh
+// pull is wanted. Re-deriving a checklist after a filtering fix should reuse the cache instead.
 //
 // Usage:
-//   npx tsx src/scripts/clear-gbif-cache.ts                 — clear everything
-//   npx tsx src/scripts/clear-gbif-cache.ts --like=EGY       — clear only URLs containing "EGY"
-//     (e.g. one country's gadmGid code, to force-refresh just that region)
+//   npx tsx src/scripts/clear-gbif-cache.ts                 clear everything
+//   npx tsx src/scripts/clear-gbif-cache.ts --like=EGY      clear only URLs containing "EGY"
+//     (e.g. one country's gadmGid code, to refresh just that region)
 import { pool } from "../db.js";
 
 async function main() {

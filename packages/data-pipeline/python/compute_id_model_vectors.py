@@ -35,8 +35,8 @@ TEXT_BATCH = 512
 
 
 def text_prompt(scientific_name: str) -> str:
-    # Plain scientific name won a small prompt comparison on a real library (52/55 vs 50/55 with
-    # the common name appended). Keep in sync with anything that reads these vectors.
+    # Plain scientific name works better than appending the common name. Keep in sync with anything
+    # that reads these vectors.
     return f"a photo of {scientific_name}."
 
 

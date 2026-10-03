@@ -1,26 +1,11 @@
-// Runs compute-provinces-bulk.ts's submit → poll → download → point-in-polygon cycle for every
-// country in the catalog. Defaults to one country at a time (see DEFAULT_CONCURRENCY below) —
-// both because GBIF's real per-account download-concurrency limit is undocumented and stricter
-// than its own "3 simultaneous" error message suggests in practice (even 3 workers from this
-// script alone reliably drew 420 rejections — see compute-provinces-bulk.ts's downloadZip
-// comment), AND because each worker gets a 16GB heap ceiling that's only safe with the whole
-// machine's RAM to itself. Raise --concurrency= only alongside a smaller per-worker heap.
+// Runs compute-provinces-bulk.ts for every country in the catalog, one at a time by default
+// (each worker gets a 16GB heap). Raise --concurrency= only with a smaller per-worker heap.
 //
-// Checkpointed to a JSON file: each country's name is appended and flushed the instant it
-// succeeds, so killing this process and re-running the same command skips everything already
-// done and picks up where it left off. A country that still fails after this run's own retry
-// passes (see MAX_RETRY_PASSES below) is logged but not checkpointed, so it's picked up again
-// automatically the next time this script runs — no human needs to notice and re-invoke it by
-// hand for that to happen, which is what makes this safe to run unattended on a schedule (see
-// packages/data-pipeline/ops/ for the actual scheduling infrastructure).
+// Checkpointed: each success is saved immediately, so re-running the same command resumes.
+// Countries that still fail after the retry passes aren't checkpointed and are retried next run.
 //
-// compute-provinces-bulk.ts caches each country's raw GBIF download and reuses it on a later
-// run instead of re-downloading (see its own GBIF_COUNTRY_CACHE_DIR comment) — a --reset-
-// checkpoint redo (e.g. after a LOGIC change, not a data change) hits the cache instead of GBIF
-// again for every country already downloaded once, which is most of why re-running this after
-// changing tier/hotspot logic is fast. Pass --refresh-gbif-cache through to force a real
-// re-download everywhere instead (e.g. after enough time has passed that GBIF's own data itself
-// is expected to have changed).
+// GBIF downloads are cached, so --reset-checkpoint after a logic change is fast.
+// --refresh-gbif-cache forces fresh downloads.
 //
 // Usage:
 //   npx tsx src/scripts/refresh-all-provinces.ts --apply
@@ -34,32 +19,16 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { pool } from "../db.js";
 
-// 1, not 2 — runCompute below unconditionally gives each child a 16GB heap ceiling, which is
-// only safe when a single worker has the whole machine's spare RAM to itself (see its own
-// comment). A concurrency of 2+ needs a smaller --max-old-space-size passed alongside it, not
-// just a bigger --concurrency flag, or two workers can together exceed physical RAM and cause
-// OS-level swap-thrashing — a much worse failure than one process cleanly crashing.
+// Each child gets a 16GB heap, so running two at once risks swap-thrashing the machine.
 const DEFAULT_CONCURRENCY = 1;
 
-// Each concurrent country gets its own child process (own stdout, own DB connection, own GBIF
-// download job) — the only shared, order-sensitive state across them is the in-memory checkpoint
-// object below, and every mutation of it happens synchronously (no `await` in between the push
-// and the write), so concurrent workers can never interleave a lost update despite sharing one
-// JS event loop.
+// One child process per country. Checkpoint updates are synchronous, so workers can't lose one.
 function runCompute(name: string, apply: boolean, refreshCache: boolean): Promise<void> {
   return new Promise((resolve, reject) => {
     const computeArgs = ["tsx", "src/scripts/compute-provinces-bulk.ts", `--countries=${name}`];
     if (apply) computeArgs.push("--apply");
     if (refreshCache) computeArgs.push("--refresh-gbif-cache");
-    // Australia OOM-crashed the default ~4GB V8 heap while processing its own (much larger than
-    // most countries') occurrence volume — every point/cluster/week-bucket structure this script
-    // builds stays in memory for the whole country, with no streaming/spill-to-disk fallback.
-    // 8192 wasn't enough either (Australia climbed to ~8GB and still OOM'd) — raising further
-    // here only makes sense at concurrency=1 (see this file's own DEFAULT_CONCURRENCY comment):
-    // two workers each asking for double-digit GB could together exceed a 24GB machine's actual
-    // physical RAM, which risks the OS swapping and grinding everything to a crawl — a much worse
-    // failure than one process cleanly crashing. 16GB is safe only because a single worker has
-    // the whole machine's spare capacity to itself.
+    // Large countries need far more than V8's default heap. 16GB is only safe at concurrency=1.
     const child = spawn("npx", computeArgs, {
       cwd: API_DIR,
       stdio: "inherit",
@@ -73,24 +42,9 @@ function runCompute(name: string, apply: boolean, refreshCache: boolean): Promis
   });
 }
 
-// GBIF's own download wait (submit -> poll -> fetch) is the real bottleneck for a country
-// that's never been downloaded before — pure network I/O, negligible CPU/RAM — while the main
-// pool above is deliberately serialized (concurrency=1) because ITS bottleneck is a
-// memory-heavy processing pass. Those are two completely different resource profiles, so this
-// is the SOLE owner of GBIF download submissions: it walks the exact same country list in the
-// exact same order as the main pool, --cache-only (no processing, no DB writes, no --apply — it
-// only ever writes a zip into the shared GBIF cache directory), so a country the main pool
-// hasn't reached yet is virtually always already cached locally by the time it gets there. The
-// main pool's own compute-provinces-bulk.ts (see waitForOrEnsureGbifZipCached there) waits for
-// this queue to produce the file rather than submitting its own redundant download — it only
-// ever falls back to submitting one directly as a last-resort correctness backstop, not as a
-// second, competing download path. That split is what lets this run at the FULL GBIF ceiling
-// (3 concurrent downloads, its own documented "3 simultaneous" per-account limit) instead of
-// reserving a slot for a main-pool download that, in the normal case, should never happen.
-// submitDownload also checks GBIF's own account state before every submission now (see
-// waitForFreeDownloadSlot there) rather than assuming a fixed concurrency number is safe, so an
-// occasional contention blip (another process, a leftover download from a killed run) costs a
-// short wait, not a 420 failure.
+// Download queue: fetches GBIF zips (--cache-only) ahead of the serialized processing pool, at
+// GBIF's 3-download limit, so network waits overlap with processing. Processing waits for the
+// queue's file rather than submitting its own download.
 const DOWNLOAD_QUEUE_CONCURRENCY = 3;
 function runDownloadQueueItem(name: string): Promise<void> {
   return new Promise((resolve) => {
@@ -98,9 +52,7 @@ function runDownloadQueueItem(name: string): Promise<void> {
       cwd: API_DIR,
       stdio: "inherit",
     });
-    // Best-effort only, by design — a failed queue item just means the main pool's own
-    // correctness-backstop fallback pays for the download later, exactly as if this queue
-    // didn't run at all. Never worth retrying or surfacing as a failure in its own right.
+    // Best-effort: if this fails, processing downloads the zip itself.
     child.on("error", () => resolve());
     child.on("exit", () => resolve());
   });
@@ -118,8 +70,7 @@ async function runDownloadQueue(names: string[]): Promise<void> {
   await Promise.all(Array.from({ length: Math.min(DOWNLOAD_QUEUE_CONCURRENCY, names.length) }, () => worker()));
 }
 
-// Resolved relative to this module's own location (same reasoning as apps/api/src/config.ts's
-// own REPO_ROOT comment) rather than process.cwd(), which varies with how this is launched.
+// Resolved from this module's location, not process.cwd(), which varies with how it's launched.
 const REPO_ROOT = path.resolve(new URL(".", import.meta.url).pathname, "..", "..", "..", "..");
 const API_DIR = path.join(REPO_ROOT, "apps/api");
 const DEFAULT_CHECKPOINT_PATH = path.join(REPO_ROOT, "packages/data-pipeline/data/build/refresh-all-provinces-checkpoint.json");
@@ -142,18 +93,14 @@ function saveCheckpoint(checkpointPath: string, checkpoint: Checkpoint): void {
 async function main() {
   const args = process.argv.slice(2);
   const apply = args.includes("--apply");
-  if (!apply) console.log(`[refresh-all-provinces] DRY RUN — pass --apply to actually write region_species`);
+  if (!apply) console.log(`[refresh-all-provinces] DRY RUN: pass --apply to actually write region_species`);
   const resetCheckpoint = args.includes("--reset-checkpoint");
   const refreshCache = args.includes("--refresh-gbif-cache");
   const checkpointPath = path.resolve(args.find((a) => a.startsWith("--checkpoint="))?.split("=")[1] ?? DEFAULT_CHECKPOINT_PATH);
   const countriesArg = args.find((a) => a.startsWith("--countries="))?.split("=")[1];
   const concurrency = Math.max(1, Number(args.find((a) => a.startsWith("--concurrency="))?.split("=")[1] ?? DEFAULT_CONCURRENCY));
 
-  // Every country-level region already in the catalog (a child of a continent, which is itself
-  // a direct child of World) — not fetchAllCountries()'s full real-world list, since a region
-  // that doesn't exist here yet has nothing for compute-provinces-bulk.ts to attach provinces
-  // to. "Seven seas (open ocean)" and Antarctica are continent-tier groupings with no countries
-  // of their own, so they simply have zero children and contribute nothing here.
+  // Every country-level region already in the catalog (World > continent > country).
   const allCountriesRes = await pool.query<{ name: string }>(
     `SELECT r.name FROM regions r
      JOIN regions cont ON cont.id = r.parent_id
@@ -171,19 +118,12 @@ async function main() {
     `[refresh-all-provinces] ${targetCountries.length} target countries, ${alreadyDone.size} already done (checkpoint: ${checkpointPath}), ${remaining.length} remaining, concurrency=${concurrency}`,
   );
 
-  // Runs one pass of the worker pool over `names`, checkpointing each success as it happens and
-  // returning whatever's left over. Extracted out of main() so a failure can be retried within
-  // the SAME invocation (see the retry loop below) instead of only ever getting fixed by a human
-  // noticing the failure list and re-running the whole command by hand — the entire point of
-  // hardening this for an unattended scheduled run.
+  // One pass of the worker pool over `names`, checkpointing each success and returning failures.
   async function runBatch(names: string[]): Promise<{ succeeded: number; failed: string[] }> {
     let succeeded = 0;
     const failed: string[] = [];
     let nextIdx = 0;
 
-    // A fixed-size pool of workers, each pulling the next unclaimed country off `names` as
-    // soon as it finishes its own — not a fixed batch-of-N-then-wait, so a country that happens
-    // to take longer than its siblings never stalls the other workers waiting on it.
     async function worker(): Promise<void> {
       for (;;) {
         const i = nextIdx++;
@@ -193,8 +133,7 @@ async function main() {
         try {
           await runCompute(name, apply, refreshCache);
           succeeded++;
-          // Only checkpointed on real writes — a dry run never actually changes anything, so
-          // "completing" it shouldn't stop a later --apply run from doing the real work.
+          // Dry runs aren't checkpointed, so a later --apply run still does the work.
           if (apply) {
             checkpoint.completed.push(name);
             saveCheckpoint(checkpointPath, checkpoint);
@@ -210,21 +149,11 @@ async function main() {
     return { succeeded, failed };
   }
 
-  // Most real-world failures seen so far (a dropped GBIF connection, a transient timeout) are
-  // one-off blips that succeed on a plain retry — see this file's own header comment on the
-  // Colombia ConnectTimeoutError case, which historically only ever got "fixed" by a human
-  // noticing the failure list and re-running the command later. For an unattended scheduled run
-  // there's no human to notice, so retry the failed list a few times, with a short backoff (a
-  // blip needs a moment to clear, not an instant retry), before finally giving up on a country.
+  // Most failures are transient network blips, so retry failed countries after a short backoff.
   const MAX_RETRY_PASSES = 2;
   const RETRY_BACKOFF_MS = 60_000;
 
-  // Started once, over the FULL remaining list, and left running concurrently with every retry
-  // pass below — not restarted per pass, since by the time a country reaches a retry it was
-  // already either fully processed (succeeded) or already went through its own correctness-
-  // backstop download attempt (see waitForOrEnsureGbifZipCached in compute-provinces-bulk.ts),
-  // so queuing it again buys nothing more there. Only awaited at the very end, so this never
-  // leaves an orphaned child process running past main()'s own exit.
+  // Started once over the full list and awaited at the end, so no child outlives main().
   const downloadQueuePromise = runDownloadQueue(remaining);
 
   let totalSucceeded = 0;
@@ -250,9 +179,7 @@ async function main() {
     }. Re-run the same command to retry failures and pick up anything interrupted.`,
   );
   await pool.end();
-  // Nonzero on any country that never succeeded even after retries — the signal a scheduler
-  // (cron's own failure mail, systemd's OnFailure=, etc.) needs to tell "ran clean" apart from
-  // "ran but something's still stale," since nothing else surfaces that in an unattended run.
+  // Nonzero exit if any country still failed, so a scheduler can tell.
   if (!ok) process.exitCode = 1;
 }
 

@@ -1,8 +1,5 @@
-// Regression coverage for a case-sensitivity bug: species_traits.iucn_status is stored
-// lowercase across every taxon, but IUCN_MODIFIER's own keys are Title Case. A plain
-// `IUCN_MODIFIER[status]` lookup silently missed on every species (e.g. American Black Bear
-// landing "epic" despite Least Concern status); getIucnModifier is the only sanctioned way
-// to read the map specifically to keep this from regressing.
+// species_traits.iucn_status is stored lowercase but IUCN_MODIFIER's keys are Title Case, so
+// getIucnModifier must match case-insensitively.
 import { describe, expect, it } from "vitest";
 import {
   BIRD_ABSOLUTE_TIER_THRESHOLDS,
@@ -71,10 +68,8 @@ describe("boostTowardHarderToDetect / nocturnal / density boosts", () => {
   });
 
   it("boostElusivenessForDensity defaults to the shared (bird) weight, but accepts an override", () => {
-    // Mammals get a stronger density boost than birds (still below full strength — see
-    // MAMMAL_DENSITY_ELUSIVENESS_BOOST_WEIGHT's own comment: a full 1.0 weight let population
-    // density alone override real photographic difficulty, e.g. Coyote/Bison scoring as hard
-    // as Wolverine purely from both having low biological density).
+    // Mammals get a stronger density boost than birds, still below full strength (see
+    // MAMMAL_DENSITY_ELUSIVENESS_BOOST_WEIGHT).
     const defaultBoost = boostElusivenessForDensity(0.5, 1);
     const strongerBoost = boostElusivenessForDensity(0.5, 1, MAMMAL_DENSITY_ELUSIVENESS_BOOST_WEIGHT);
     expect(strongerBoost).toBeGreaterThan(defaultBoost);
@@ -82,9 +77,7 @@ describe("boostTowardHarderToDetect / nocturnal / density boosts", () => {
   });
 
   it("boostElusivenessForHabitatDensity boosts dense-habitat species more than open-habitat ones", () => {
-    // Matches real AVONET data: dense closed-canopy species (Pileated Woodpecker, Northern
-    // Goshawk, Steller's Jay) sit at Habitat.Density=1; open-habitat species (American
-    // Robin) sit at 3.
+    // AVONET Habitat.Density: 1 = dense closed canopy, 3 = open habitat.
     const dense = boostElusivenessForHabitatDensity(0.5, 1);
     const semiOpen = boostElusivenessForHabitatDensity(0.5, 2);
     const open = boostElusivenessForHabitatDensity(0.5, 3);
@@ -126,20 +119,19 @@ describe("computeRarityPhase1", () => {
 describe("tierForScore / BIRD_ABSOLUTE_TIER_THRESHOLDS", () => {
   it("assigns a tier purely by the score's own value, not by rank among peers", () => {
     expect(tierForScore(0.65, BIRD_ABSOLUTE_TIER_THRESHOLDS)).toBe("legendary");
-    expect(tierForScore(0.57, BIRD_ABSOLUTE_TIER_THRESHOLDS)).toBe("epic");
-    expect(tierForScore(0.5, BIRD_ABSOLUTE_TIER_THRESHOLDS)).toBe("rare");
-    expect(tierForScore(0.4, BIRD_ABSOLUTE_TIER_THRESHOLDS)).toBe("uncommon");
+    expect(tierForScore(0.57, BIRD_ABSOLUTE_TIER_THRESHOLDS)).toBe("rare");
+    expect(tierForScore(0.5, BIRD_ABSOLUTE_TIER_THRESHOLDS)).toBe("uncommon");
+    expect(tierForScore(0.4, BIRD_ABSOLUTE_TIER_THRESHOLDS)).toBe("occasional");
     expect(tierForScore(0.2, BIRD_ABSOLUTE_TIER_THRESHOLDS)).toBe("common");
   });
 
   it("is exact at threshold boundaries (>= not >)", () => {
     expect(tierForScore(0.6, BIRD_ABSOLUTE_TIER_THRESHOLDS)).toBe("legendary");
-    expect(tierForScore(0.599999, BIRD_ABSOLUTE_TIER_THRESHOLDS)).toBe("epic");
+    expect(tierForScore(0.599999, BIRD_ABSOLUTE_TIER_THRESHOLDS)).toBe("rare");
   });
 
   it("a species can reach the top tier regardless of how many other species also clear the bar", () => {
-    // The whole point of switching away from percentile quotas: unlike tierForPercentile,
-    // this never depends on a comparison pool's size or composition.
+    // Unlike tierForPercentile, this never depends on the comparison pool's size or composition.
     const allHighScores = [0.9, 0.91, 0.92, 0.93, 0.95];
     for (const score of allHighScores) {
       expect(tierForScore(score, BIRD_ABSOLUTE_TIER_THRESHOLDS)).toBe("legendary");

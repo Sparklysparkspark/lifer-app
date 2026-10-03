@@ -1,0 +1,3 @@
+kind	species	inat_taxon_id	replaced_by	in_catalog
+split	Proteus anguinus	27677	Proteus anguinus (1701164), Proteus xanthostictus (1701165), Proteus freyeri (1701166), Proteus carrarae (1701167), Proteus croaticus (1701168), Proteus ikae (1701169), Proteus bosniensis (1701170), Proteus maurii (1701171)	yes,no,no,no,no,yes,no,no
+rename	Neoniphon marianus	128191	Flammeo marianus (1713187)	no

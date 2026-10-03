@@ -1,8 +1,7 @@
 // Source: Wikimedia Commons (commons.wikimedia.org). License: CC/PD per file.
-// Fallback reference photo for species where iNaturalist has no usable default photo — takes
-// the Commons file Wikidata already points at (P18, fetched in fetch-wikidata.ts) and pulls its
-// real license + photographer credit from the Commons API, same allowlist as iNaturalist
-// (../license-policy.ts) so both sources are held to the same commercial-safe-by-default bar.
+// Fallback reference photo when iNaturalist has no usable one: the Commons file Wikidata points
+// at (P18, see fetch-wikidata.ts), with its license and credit from the Commons API, held to the
+// same allowlist as iNaturalist (../license-policy.ts).
 
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";

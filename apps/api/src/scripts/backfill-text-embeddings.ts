@@ -1,8 +1,5 @@
-// One-time (then incremental) backfill for species_text_embeddings (migration 102) — the
-// zero-shot text-prompt signal blended into rankSpeciesByEmbedding/rankSpeciesByEmbeddings (see
-// embeddings.ts's TEXT_BLEND_WEIGHT). Species-scoped, not region-scoped: a species' name-based
-// embedding is the same everywhere, so this only ever needs to run once per species regardless
-// of how many regions/packs it ends up appearing in.
+// Incremental backfill for species_text_embeddings, the text-prompt signal blended into
+// rankSpeciesByEmbedding (see embeddings.ts's TEXT_BLEND_WEIGHT). Once per species.
 //
 // Usage: npx tsx src/scripts/backfill-text-embeddings.ts [--limit=N]
 import { pool } from "../db.js";

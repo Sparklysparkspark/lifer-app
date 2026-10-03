@@ -1,8 +1,6 @@
-// One-off: re-derives tier from the already-stored composite score after a threshold-only
-// change to BIRD_ABSOLUTE_TIER_THRESHOLDS. The composite formula itself is unchanged, so
-// birds' composite scores in the DB are already correct — this avoids re-running an
-// expensive 258-country crawl just to recompute tiers. Only touches taxon_class='aves';
-// mammals/fish untouched.
+// One-off: re-derives bird tiers from the stored composite after a threshold-only change to
+// BIRD_ABSOLUTE_TIER_THRESHOLDS, avoiding the full elusiveness crawl. Only touches
+// taxon_class='aves'.
 import { pool } from "../db.js";
 import { BIRD_ABSOLUTE_TIER_THRESHOLDS, tierForScore } from "../build/compute-rarity-phase1.js";
 

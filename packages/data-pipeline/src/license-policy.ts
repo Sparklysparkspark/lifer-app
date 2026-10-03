@@ -1,9 +1,7 @@
-// Shared CC-license allowlist for anything sourced from iNaturalist or Wikimedia Commons
-//. Commercial-safe by default. Set LIFER_ALLOW_NONCOMMERCIAL_PHOTOS=1
-// to additionally allow CC-BY-NC/CC-BY-NC-SA/CC-BY-ND/CC-BY-NC-ND for local dev/test runs
-// on a personal, non-commercial MVP. The actual license code is always stored alongside the
-// photo (species.reference_license), so tightening back to commercial-safe-only later is a
-// one-line filter (reference_license NOT IN (...)), not a re-fetch.
+// Shared CC-license allowlist for anything sourced from iNaturalist or Wikimedia Commons.
+// Commercial-safe by default; LIFER_ALLOW_NONCOMMERCIAL_PHOTOS=1 also allows
+// CC-BY-NC/CC-BY-NC-SA/CC-BY-ND/CC-BY-NC-ND for local dev. The license code is always stored
+// (species.reference_license), so tightening later is a filter, not a re-fetch.
 
 const COMMERCIAL_SAFE_LICENSES = new Set(["cc0", "cc-by", "cc-by-sa"]);
 const RESTRICTED_LICENSES = new Set(["cc-by-nc", "cc-by-nc-sa", "cc-by-nd", "cc-by-nc-nd"]);

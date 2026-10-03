@@ -1,9 +1,7 @@
 // Shared builder for taxa with no dedicated trait source: GBIF backbone + common names +
-// Wikidata (IUCN/photos/wiki links) + rarity Phase-1 (range+IUCN).
-// Used by herps/cnidarians/echinoderms/mollusks — none of them have an AVONET/MDD/COMBINE
-// equivalent yet, the same gap fish shipped with. Factored out here instead
-// of copy-pasted per taxon so a future real trait source only needs wiring in one place.
-import { mkdirSync, writeFileSync } from "node:fs";
+// Wikidata (IUCN/photos/wiki links) + Phase-1 rarity (range+IUCN). Used by herps, cnidarians,
+// echinoderms and mollusks, so a future trait source only needs wiring in one place.
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fetchGbifBackboneForKeys, type GbifSpeciesRow } from "../fetch/fetch-gbif-backbone.js";
 import { fetchCommonName } from "../fetch/fetch-gbif-vernacular.js";
@@ -13,6 +11,18 @@ import { mapWithConcurrency } from "../concurrency.js";
 import { BUILD_DIR } from "../raw-cache.js";
 
 const GBIF_CONCURRENCY = 16;
+const MIN_HUMAN_OBSERVATIONS = 10;
+
+/** "name<TAB>count" lines (the same name may repeat, one line per country); empty when unset. */
+function loadHumanObservationCounts(file: string | undefined): Map<string, number> {
+  const counts = new Map<string, number>();
+  if (!file) return counts;
+  for (const line of readFileSync(file, "utf8").split("\n")) {
+    const [name, count] = line.split("\t");
+    if (name) counts.set(name, (counts.get(name) ?? 0) + Number(count || 0));
+  }
+  return counts;
+}
 
 function canonical(g: GbifSpeciesRow): string {
   return g.canonicalName ?? g.scientificName;
@@ -26,12 +36,9 @@ export interface GenericTaxonConfig {
   buildIdEnvVar: string;
   defaultBuildId: string;
   logPrefix: string;
-  // Most invertebrate groups (crustaceans, sponges, obscure gastropods) are overwhelmingly
-  // taxonomic-database-only entries — no common name, no Wikipedia article, and often no
-  // real GBIF occurrence records either, meaning no one could ever realistically identify or
-  // photograph them. Vertebrate groups (reptiles/amphibians) don't have this problem badly
-  // enough to need the same floor. When true, a species with neither a common name NOR a
-  // Wikipedia sitelink is dropped before being written to species.json.
+  // Most invertebrate groups are dominated by database-only entries with no common name, no
+  // Wikipedia article and often no records, which nobody could identify or photograph. When
+  // true, a species with neither a common name nor a Wikipedia sitelink is dropped.
   requireVisibilitySignal?: boolean;
 }
 
@@ -68,9 +75,20 @@ export async function buildGenericTaxonSeed(config: GenericTaxonConfig): Promise
 
   let visible = gbif;
   if (config.requireVisibilitySignal) {
-    visible = gbif.filter((g) => commonNameByGbifKey.get(g.gbifKey) || wikidataByName.get(canonical(g))?.wikipediaTitle);
+    // A common name, a Wikipedia article, or evidence people photograph it: at least
+    // MIN_HUMAN_OBSERVATIONS human observations in the cached GBIF country downloads (a
+    // "name<TAB>count" file in LIFER_HUMAN_OBSERVATION_COUNTS). Sponges and tunicates are mostly
+    // known only by scientific name, so the name test alone drops too many. Museum and dredge
+    // specimens don't count.
+    const humanObservations = loadHumanObservationCounts(process.env.LIFER_HUMAN_OBSERVATION_COUNTS);
+    visible = gbif.filter(
+      (g) =>
+        commonNameByGbifKey.get(g.gbifKey) ||
+        wikidataByName.get(canonical(g))?.wikipediaTitle ||
+        (humanObservations.get(canonical(g)) ?? 0) >= MIN_HUMAN_OBSERVATIONS,
+    );
     console.log(
-      `[${config.logPrefix}] visibility floor: kept ${visible.length}/${gbif.length} (dropped species with no common name and no Wikipedia article)`,
+      `[${config.logPrefix}] visibility floor: kept ${visible.length}/${gbif.length} (a common name, a Wikipedia article, or ${MIN_HUMAN_OBSERVATIONS}+ human observations)`,
     );
   }
 

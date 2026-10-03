@@ -1,5 +1,4 @@
-// Regression coverage for real Catalogue of Life data: Corydoras panda's English vernacular
-// name is literally "panda", all lowercase.
+// Catalogue of Life data includes all-lowercase English names (Corydoras panda's is "panda").
 import { describe, expect, it } from "vitest";
 import { toTitleCase } from "./fetch-gbif-vernacular.js";
 

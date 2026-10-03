@@ -1,11 +1,6 @@
-// Regression coverage for geometry.ts's core point-in-polygon primitives, plus the exact bug
-// that motivated writing this file: compute-us-states-from-bulk.ts fed exteriorRingsFromGeometry
-// a stored `boundary_geojson` value straight from the regions table without noticing it's a
-// GeoJSON Feature wrapper ({type: "Feature", geometry: {...}}), not a raw geometry object. That
-// silently returned zero rings for every region (no error — "Feature" just isn't "Polygon" or
-// "MultiPolygon", so the type check fell through) instead of throwing, so a bulk-compute pass
-// ran for over 5 minutes matching literally nothing before anyone noticed. Caught by hand, this
-// time; the tests below make sure it can't recur silently again.
+// Coverage for geometry.ts's point-in-polygon primitives, plus a contract: exteriorRingsFromGeometry
+// returns zero rings (rather than throwing) for a GeoJSON Feature wrapper, so callers must
+// unwrap `.geometry` themselves.
 import { describe, expect, it } from "vitest";
 import {
   pointInRing,
@@ -43,11 +38,8 @@ describe("pointInRing / pointInAnyRing", () => {
     expect(pointInRing([5, 5], SQUARE)).toBe(false);
   });
 
-  // Boundary-value cases — ray-casting point-in-polygon is a classic source of
-  // off-by-one/edge-inclusion bugs, and this app's own even-odd implementation has no
-  // special-cased handling for "exactly on the boundary" at all, so these pin down its
-  // ACTUAL observed behavior (verified empirically, not assumed) rather than leaving it
-  // undocumented and liable to silently change under a future edit.
+  // Boundary-value cases: the even-odd implementation has no special handling for points exactly
+  // on the boundary, so these pin down its actual behaviour.
   it("a point exactly ON an edge is NOT considered inside (matches this implementation's even-odd behavior)", () => {
     expect(pointInRing([1, 0], SQUARE)).toBe(false);
   });
@@ -96,11 +88,8 @@ describe("exteriorRingsFromGeometry", () => {
   });
 
   it("returns an empty array for an unrecognized geometry type, rather than throwing", () => {
-    // This is exactly the shape that silently swallowed a real bug: a GeoJSON Feature
-    // wrapper's own `.type` is "Feature", never "Polygon"/"MultiPolygon" — callers MUST
-    // unwrap `.geometry` themselves first. Asserting the empty-array (not throw) behavior
-    // here makes that contract explicit, since it's exactly what let the original bug run
-    // for minutes with zero visible errors.
+    // A GeoJSON Feature's `.type` is "Feature", never "Polygon"/"MultiPolygon", so callers MUST
+    // unwrap `.geometry` first. This makes the empty-array (not throw) behaviour explicit.
     const featureWrapper = { type: "Feature", coordinates: undefined };
     expect(exteriorRingsFromGeometry(featureWrapper as never)).toEqual([]);
   });
@@ -172,7 +161,7 @@ describe("convexHull", () => {
       [2, 0],
       [2, 2],
       [0, 2],
-      [1, 1], // interior point — should NOT appear as its own hull vertex
+      [1, 1], // interior point: should NOT appear as its own hull vertex
     ];
     const hull = convexHull(points);
     expect(isSimpleRing(hull)).toBe(true);
@@ -184,10 +173,8 @@ describe("convexHull", () => {
 
 describe("simplifyRing / simplifyRingToMaxPoints", () => {
   it("drops a point that lies almost exactly on the line between its neighbors", () => {
-    // simplifyRing short-circuits (returns as-is) for rings of 3 points or fewer — a real
-    // simplification needs at least one point that can actually be dropped in the middle of
-    // a longer run, so this uses 5 points: two "real" corners (0,0) and (4,0.001), with two
-    // near-collinear points between them that should both disappear.
+    // simplifyRing returns rings of 3 points or fewer unchanged, so this uses 5 points: two corners
+    // (0,0) and (4,0.001) with two near-collinear points between them that should disappear.
     const almostStraight: Point[] = [
       [0, 0],
       [1, 0.0001],
@@ -203,7 +190,7 @@ describe("simplifyRing / simplifyRingToMaxPoints", () => {
 
 
   it("simplifyRingToMaxPoints caps the point count and keeps a closed, simple ring", () => {
-    // A rough circle with many points — realistic stand-in for a complex coastline.
+    // A rough circle with many points, a realistic stand-in for a complex coastline.
     const circle: Point[] = Array.from({ length: 200 }, (_, i) => {
       const angle = (i / 200) * 2 * Math.PI;
       return [Math.cos(angle), Math.sin(angle)] as Point;

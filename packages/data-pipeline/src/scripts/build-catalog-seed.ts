@@ -1,30 +1,18 @@
-// Builds the desktop app's "catalog seed" — the one-time database snapshot every fresh install
-// restores on first launch (see apps/desktop/src-tauri/src/embedded_db.rs's
-// restore_catalog_seed_if_needed), published as the `catalog-latest` GitHub Release asset.
+// Builds the desktop app's "catalog seed", the database snapshot every fresh install restores on
+// first launch (see apps/desktop/src-tauri/src/embedded_db.rs's restore_catalog_seed_if_needed),
+// published as the `catalog-latest` GitHub Release asset. Only reference/catalog data, nothing
+// per-user or per-install.
 //
-// Only pure reference/catalog data belongs here, nothing per-user or per-install: species,
-// species_reference_photos, species_traits, species_rarity, regions, region_species,
-// sea_zones, sea_zone_species.
+// Local filesystem path columns are nulled before dumping, since they point at the build
+// machine; installs fill them in from region packs or a live fetch.
 //
-// NULLS OUT every local filesystem path column before dumping (reference_display_path/
-// thumb_path on both species and species_reference_photos) — those are absolute paths on
-// whatever machine ran enrichment, and baking them in verbatim leaves every real install with
-// unreachable file paths. Portable metadata (name, description, credit, license, remote
-// photo_url) stays; a fresh install ends up with those path columns NULL, same as a
-// not-yet-enriched species — species/routes.ts's lazy-enrichment path already fills them in
-// from a downloaded region pack or a live fetch.
+// Embedding tables are not in the pg_dump (as float text they blow past NSIS's installer limit).
+// They're written as compact float16 binaries (format in
+// packages/shared/src/galleryEmbeddingsFormat.ts) that installs fetch after downloading the CLIP model.
 //
-// species_reference_gallery_embeddings is NOT in the pg_dump: as tab-separated float text it
-// made the seed 1.2GB, over NSIS's installer limit. It's written separately as a compact float16
-// binary (lifer-gallery-embeddings-<modelVersion>.bin.gz, format in
-// packages/shared/src/galleryEmbeddingsFormat.ts) that installs fetch after downloading the CLIP
-// model, which is the only time the vectors are usable.
-//
-// Also writes a companion `catalog-manifest.json` so an installed app
-// (species/catalogSeedUpdate.ts) can check for a newer catalog before downloading the much
-// larger seed itself. `version` is an epoch-ms timestamp, not a content hash — pg_dump's output
-// isn't byte-stable run to run even for identical data, so a hash would falsely read as always
-// changed.
+// Also writes `catalog-manifest.json` so an install (species/catalogSeedUpdate.ts) can check
+// for a newer catalog first. `version` is an epoch-ms timestamp, since pg_dump output isn't
+// byte-stable across runs.
 //
 // Usage: DATABASE_URL=postgres://... npx tsx packages/data-pipeline/src/scripts/build-catalog-seed.ts <outputPath.sql.gz>
 // After running, publish the seed, every vector asset, then the manifest last, to the
@@ -45,6 +33,7 @@ import {
 import { encodeSpeciesVectorHeader, encodeSpeciesVectorRecord } from "@lifer/shared/src/speciesVectorFormat.js";
 import { ID_MODEL_VERSION } from "@lifer/shared/src/idModel.js";
 import { pool } from "../db.js";
+import { EMBEDDING_MODEL_VERSION } from "../embeddings.js";
 
 // Installers bundle the seed, and NSIS can't exceed 2GB. Catch a regression here, not in CI.
 const MAX_SEED_BYTES = 200 * 1024 * 1024;
@@ -119,12 +108,8 @@ async function writeGalleryEmbeddings(
   return { fileName, modelVersion, rowCount };
 }
 
-// Same story as the gallery vectors above, for the two other embedding tables that turned out to
-// be just as large: species_reference_embeddings (per-species image vector) and
-// species_text_embeddings (per-species zero-shot text vector) are one 768-float row per species
-// (132k+ species), which as pg_dump text alone made the seed 800MB even with gallery embeddings
-// already removed. Both are only usable once the CLIP model (image + text halves) is downloaded,
-// same as gallery vectors, so they move out the same way.
+// species_reference_embeddings and species_text_embeddings (one 768-float row per species) are
+// also too large as pg_dump text and only usable with the CLIP model, so they ship the same way.
 async function pickModelVersion(table: string, currentVersion: string): Promise<string | null> {
   const res = await pool.query<{ n: string }>(`SELECT count(*) AS n FROM ${table} WHERE model_version = $1`, [currentVersion]);
   const n = Number(res.rows[0].n);
@@ -180,12 +165,17 @@ async function writeSpeciesVectorAsset(
 const CATALOG_TABLES = [
   "species",
   "species_reference_photos",
-  // species_reference_embeddings and species_text_embeddings used to be dumped here (one row
-  // per species, 132k+ rows each) but that alone made the seed 800MB; they're written as their
-  // own compact binary assets by writeSpeciesVectorAsset below, same reasoning as gallery
-  // embeddings.
+  // species_reference_embeddings and species_text_embeddings ship as binary assets instead
+  // (writeSpeciesVectorAsset below).
   "species_traits",
   "species_rarity",
+  // Current GBIF/iNaturalist/eBird names for catalog species (scripts/reconcile-species-names.ts),
+  // so installs match a renamed species too (keyword tags on import, species/matchByKeywords.ts).
+  "species_synonyms",
+  // Duplicate species folded into one (migration 113); installs apply them on update.
+  "species_merges",
+  // Species split into several (migration 118); installs re-file photos under them by place.
+  "species_splits",
   "regions",
   "region_species",
   "sea_zones",
@@ -200,24 +190,15 @@ const PATH_COLUMNS: Record<string, string[]> = {
   species_reference_photos: ["display_path", "thumb_path"],
 };
 
-// Other Taxa species (Settings > Species & Import's any-taxa search, species.is_other_taxa) are
-// deliberately personal: one install's own "I found this specific insect, it's not in the base
-// checklist" addition, written into the same shared species/region_species tables every OTHER
-// catalog table lives in — see species/routes.ts's own POST /species/other-taxa. pg_dump --table
-// dumps a table's ENTIRE contents with no row-level filter available, so without this, any Other
-// Taxa species added on whatever machine last ran this script rides along in the NEXT published
-// catalog seed and ends up in every fresh install's database — confirmed live: a bumble bee added
-// once, on a test/dev machine, while checking the Other Taxa feature, showed up in a completely
-// unrelated, freshly-wiped Docker install's Canada checklist after that install picked up the
-// seed. Offline PACKS were never the vector (build-region-pack.ts filters by taxon_class, and an
-// Other Taxa species' taxon_class is never one of the 18 built-in classes a pack is built for) —
-// only the catalog seed's unfiltered whole-table dump was.
+// Other Taxa species (species.is_other_taxa) are personal, per-install additions stored in the
+// shared catalog tables. pg_dump --table has no row filter, so without this they'd ship in the
+// next seed to every install.
 //
-// Listed children-before-parent (safe DELETE order); reinsertion in main() below walks this
-// list in reverse (safe INSERT order, parent before children). Every entry here is a table this
-// script's own CATALOG_TABLES list already dumps and that carries a species_id (or, for
-// `species` itself, `id`) referencing species.is_other_taxa.
+// Listed children before parent (safe DELETE order); main() reinserts in reverse. Each entry
+// is a CATALOG_TABLES table carrying a species_id (or, for `species`, `id`).
 const OTHER_TAXA_TABLES: Array<{ table: string; speciesIdColumn: string }> = [
+  { table: "species_merges", speciesIdColumn: "new_species_id" },
+  { table: "species_splits", speciesIdColumn: "parent_species_id" },
   { table: "id_model_gallery_embeddings", speciesIdColumn: "species_id" },
   { table: "id_model_reference_embeddings", speciesIdColumn: "species_id" },
   { table: "id_model_text_embeddings", speciesIdColumn: "species_id" },
@@ -244,24 +225,14 @@ async function main() {
     process.exit(1);
   }
 
-  // pg_dump opens its own connection, so it can't see an uncommitted UPDATE sitting in some
-  // other session's open transaction — a --snapshot-synchronized dump turned out not to see it
-  // either in practice. Instead: save every row's real path values, COMMIT the columns to NULL
-  // so pg_dump's own fresh connection genuinely reads NULL, dump, then restore the real values
-  // by primary key. This machine's dev DB has no concurrent writers during a manual export run,
-  // so the brief real window where these columns are NULL is safe — and restoring afterward
-  // means this script never leaves the source database actually changed.
+  // pg_dump uses its own connection and can't see an uncommitted UPDATE, so the path values are
+  // backed up, committed as NULL, dumped, then restored by primary key. Assumes no concurrent
+  // writers during a manual export.
   const backups: { table: string; idColumn: string; rows: Record<string, unknown>[] }[] = [];
-  // Same "back up the rows, temporarily remove what shouldn't be in the dump, restore
-  // afterward" shape as the path-column backup below — pg_dump --table has no row-level filter,
-  // so the only way to keep Other Taxa species out of the dump without a hand-written COPY
-  // parser is to make them briefly not exist in the source tables while pg_dump runs. Ordered
-  // children-first so the delete pass never trips a foreign-key violation; restored in reverse
-  // (parents first) so the reinsert pass doesn't either. This machine's dev DB has no concurrent
-  // writers during a manual export run (same assumption the path-column step already makes), so
-  // the brief real window where these rows are gone is safe, and the source database ends up
-  // completely unchanged once this script finishes.
+  // Other Taxa rows are removed the same way: backed up, deleted children first, dumped, then
+  // reinserted parents first, leaving the source database unchanged.
   const otherTaxaBackups: Array<{ table: string; rows: Record<string, unknown>[] }> = [];
+  let tierExplainStripped = false;
   const otherTaxaBackupPath = path.join(path.dirname(outputPath), `other-taxa-backup-${Date.now()}.json`);
   try {
     for (const { table, speciesIdColumn } of OTHER_TAXA_TABLES) {
@@ -284,6 +255,22 @@ async function main() {
       console.log(`[build-catalog-seed] excluding ${otherTaxaSpeciesCount} Other Taxa species (and their dependent rows) from the dump`);
     }
 
+    // Per-listing tier explanations are ~50 MB and only shown for downloaded regions, whose packs
+    // carry them. Parked in a real table so a crash mid-dump can't lose them.
+    // A run that crashed mid-dump left its backup behind: restore it before taking a new one.
+    if ((await pool.query<{ t: string | null }>(`SELECT to_regclass('seed_tier_explain_backup') AS t`)).rows[0].t) {
+      await pool.query(
+        `UPDATE region_species rs SET tier_explain = b.tier_explain FROM seed_tier_explain_backup b
+         WHERE b.region_id = rs.region_id AND b.species_id = rs.species_id`,
+      );
+      await pool.query(`DROP TABLE seed_tier_explain_backup`);
+    }
+    await pool.query(
+      `CREATE TABLE seed_tier_explain_backup AS SELECT region_id, species_id, tier_explain FROM region_species WHERE tier_explain IS NOT NULL`,
+    );
+    await pool.query(`UPDATE region_species SET tier_explain = NULL WHERE tier_explain IS NOT NULL`);
+    tierExplainStripped = true;
+
     for (const [table, columns] of Object.entries(PATH_COLUMNS)) {
       const idColumn = "id";
       const res = await pool.query(`SELECT ${idColumn}, ${columns.join(", ")} FROM ${table}`);
@@ -293,9 +280,8 @@ async function main() {
     }
 
     console.log(`[build-catalog-seed] dumping ${CATALOG_TABLES.length} tables with local paths stripped...`);
-    // --disable-triggers: regions has a circular self-reference (parent region), so a plain
-    // --data-only dump can't replay its rows in FK-safe order — matches the already-published
-    // seed, which uses the same flag for the same reason.
+    // --disable-triggers: regions references itself (parent region), so a --data-only dump can't
+    // replay rows in FK-safe order.
     const args = [
       databaseUrl,
       "--data-only",
@@ -303,24 +289,15 @@ async function main() {
       ...CATALOG_TABLES.flatMap((t) => ["--table", t]),
     ];
 
-    // No system-wide pg_dump on a machine that only has the embedded Postgres theseus manages
-    // (see embedded_db.rs) — point PG_DUMP_BIN at its bundled binary in that case, e.g.
-    // ~/.theseus/postgresql/<version>/bin/pg_dump, matching the target restore's own version.
+    // With only the embedded Postgres available (see embedded_db.rs), point PG_DUMP_BIN at its
+    // bundled binary, e.g. ~/.theseus/postgresql/<version>/bin/pg_dump, matching the restore's version.
     const pgDumpBin = process.env.PG_DUMP_BIN ?? "pg_dump";
-    // Streamed straight into gzip+file rather than buffered via execFileSync — the dump grew
-    // past execFileSync's 1GB maxBuffer once species_reference_gallery_embeddings (per-gallery-
-    // photo embeddings) joined this seed, killing pg_dump with SIGPIPE the moment its stdout
-    // pipe filled and nothing was reading it. Streaming has no such ceiling and never holds the
-    // whole dump in memory at once.
+    // Streamed into gzip+file: the dump exceeds execFileSync's maxBuffer.
     const pgDump = spawn(pgDumpBin, args, { stdio: ["ignore", "pipe", "pipe"] });
     let stderr = "";
     pgDump.stderr.on("data", (chunk) => (stderr += chunk.toString()));
-    // Registered BEFORE awaiting the pipeline below, not after — pg_dump's "close" can fire as
-    // soon as its stdout end triggers the pipeline's own completion, so attaching this listener
-    // only once the pipeline await already resolved risked missing an event that already fired.
-    // A missed "close" left this Promise unresolved forever; with nothing else keeping the
-    // event loop alive, node exited quietly mid-await — the dump file was already complete and
-    // valid, but the script never reached its own success log or wrote catalog-manifest.json.
+    // Registered before awaiting the pipeline: pg_dump's "close" can fire before the await resolves,
+    // and a missed event leaves this Promise pending while node exits silently.
     const pgDumpExit: Promise<number> = new Promise((resolve, reject) => {
       pgDump.on("error", reject);
       pgDump.on("close", (code) => resolve(code ?? 0));
@@ -336,10 +313,9 @@ async function main() {
 
     const outputDir = path.dirname(outputPath);
     const gallery = await writeGalleryEmbeddings(outputDir);
-    // Must match apps/api/src/config.ts EMBEDDING_MODEL_VERSION / textEmbedding.ts
-    // TEXT_MODEL_VERSION. Overridable via env in case this ever runs against a database mid
-    // model-version bump.
-    const imageModelVersion = process.env.EMBEDDING_MODEL_VERSION ?? "clip-vit-l14-quantized-v1";
+    // The text version must match textEmbedding.ts TEXT_MODEL_VERSION. Both overridable via env
+    // for a mid-bump database.
+    const imageModelVersion = process.env.EMBEDDING_MODEL_VERSION ?? EMBEDDING_MODEL_VERSION;
     const textModelVersion = process.env.TEXT_MODEL_VERSION ?? "clip-vit-l14-text-v1";
     const speciesImage = await writeSpeciesVectorAsset(
       outputDir, "species_reference_embeddings", "lifer-species-image-embeddings", imageModelVersion, GALLERY_EMBEDDING_DIMENSION,
@@ -386,6 +362,13 @@ async function main() {
     writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
     console.log(`[build-catalog-seed] wrote ${manifestPath} (version ${version})`);
   } finally {
+    if (tierExplainStripped) {
+      await pool.query(
+        `UPDATE region_species rs SET tier_explain = b.tier_explain FROM seed_tier_explain_backup b
+         WHERE b.region_id = rs.region_id AND b.species_id = rs.species_id`,
+      );
+      await pool.query(`DROP TABLE seed_tier_explain_backup`);
+    }
     for (const { table, idColumn, rows } of backups) {
       const columns = PATH_COLUMNS[table];
       for (const row of rows) {
@@ -396,10 +379,8 @@ async function main() {
         ]);
       }
     }
-    // Reverse of the delete order above — species (the parent every other table here
-    // references) goes back in first, then everything that points at it.
-    // Generated columns (species.genus) can't be inserted into; that used to make this restore
-    // throw on the first row, permanently losing every Other Taxa row it had just deleted.
+    // Reverse of the delete order: species goes back first, then everything referencing it.
+    // Generated columns (species.genus) are skipped, since they can't be inserted into.
     let restoreFailed = false;
     for (const { table, rows } of [...otherTaxaBackups].reverse()) {
       if (rows.length === 0) continue;

@@ -1,24 +1,12 @@
-// Follow-up cross-check for the ~186K (region, species, country) vagrant flags that
-// verify-vagrant-flags.ts (GBIF /distributions) couldn't resolve either way. 86% of the species
-// still in that queue are ray-finned fish (actinopterygii) — GBIF's distributions endpoint is
-// mostly bird/mammal-checklist sourced (IOC, IUCN) and rarely has fish coverage, so a second,
-// fish-specific authoritative source is needed rather than re-trying the same one.
+// Follow-up to verify-vagrant-flags.ts for the vagrant flags GBIF distributions couldn't resolve,
+// mostly fish, which GBIF's distributions rarely cover. Uses FishBase's per-country status table
+// (country.parquet + countref.parquet), a static snapshot on source.coop fetched in one go.
 //
-// FishBase publishes exactly this: a per-species per-country native/introduced/endemic/stray
-// status table (`country.parquet`), joined to ISO2 codes via `countref.parquet`. It's a static
-// snapshot hosted on source.coop (no auth, no rate limit, unlike GBIF downloads or iNaturalist's
-// heavily-throttled check_lists endpoint) — confirmed live: one bulk fetch covers all countries
-// and all species at once, no per-country or per-species calls needed.
+// Same conservative policy as verify-vagrant-flags.ts: clear the flag only on a clear presence
+// status (native/endemic/introduced/established/reintroduced). "stray" is recorded as a confirmed
+// vagrant override. Anything murkier, or no FishBase record, is logged to STILL_NEEDS_SEARCH_LOG.
 //
-// Same conservative policy as verify-vagrant-flags.ts: only clear the vagrant flag on an
-// unambiguous presence signal (native/endemic/introduced/established/reintroduced). FishBase's
-// own "stray" status is a genuine confirmation of vagrancy (not an unresolved case) so it's
-// recorded as a confirmed-vagrant override rather than left to search. Everything murkier
-// (questionable/misidentification/error/not established/extirpated, or no FishBase record at
-// all) is left exactly where it was — logged to VAGRANT_STILL_NEEDS_SEARCH_LOG — rather than
-// guessed at, since none of those statuses actually confirm current native/introduced presence.
-//
-// Idempotent per species via species_traits.fishbase_checked_at (087_fishbase_checked_at.sql).
+// Resumable per species via species_traits.fishbase_checked_at.
 import { existsSync, mkdirSync, writeFileSync, appendFileSync, readFileSync } from "node:fs";
 import path from "node:path";
 import duckdb from "duckdb";
@@ -40,9 +28,7 @@ interface NeedsSearchEntry {
   continent: string;
 }
 
-// Statuses that confirm the species genuinely belongs in this country's checklist (as either a
-// native or an established non-native population) — see this file's header comment for why
-// "stray" and the other statuses are handled separately rather than lumped in here.
+// Statuses confirming the species belongs on the country's checklist (native or established).
 const PRESENCE_STATUSES = new Set(["native", "endemic", "introduced", "established", "reintroduced"]);
 
 async function ensureFishbaseTablesCached(): Promise<void> {
@@ -97,7 +83,7 @@ async function loadFishbaseStatusTable(): Promise<Map<string, FishbaseStatusRow[
 
 async function main() {
   if (!existsSync(NEEDS_SEARCH_LOG)) {
-    throw new Error(`${NEEDS_SEARCH_LOG} not found — run verify-vagrant-flags.ts first`);
+    throw new Error(`${NEEDS_SEARCH_LOG} not found. Run verify-vagrant-flags.ts first`);
   }
   writeFileSync(STILL_NEEDS_SEARCH_LOG, "");
 
@@ -166,9 +152,7 @@ async function main() {
       );
       confirmedStray++;
     } else {
-      // questionable / misidentification / error / not established / extirpated — none of these
-      // confirm current native or introduced presence, so this stays unresolved rather than
-      // guessing either way.
+      // Other statuses don't confirm current presence, so leave it unresolved.
       stillNeedsSearch++;
       appendFileSync(STILL_NEEDS_SEARCH_LOG, JSON.stringify({ ...entry, fishbaseStatuses: [...statuses] }) + "\n");
     }

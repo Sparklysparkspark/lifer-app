@@ -1,20 +1,15 @@
-// One-time (re-runnable) backfill: fetches each species' global GBIF occurrence count and most
-// recent occurrence year, used by the "hide obscure/inaccessible species" default filter's
-// historical-rarity rule (species_traits.occurrence_count < 20 or last_occurrence_year < 1950 —
-// see migration 036). GBIF's occurrence records span museum specimens and herbaria back to the
-// 1800s, which is exactly the "only a handful of 1800s records, can't find it anymore" signal —
-// unlike iNaturalist's observations_count, which only reflects modern citizen-science activity
-// and can't distinguish "common but never photographed" from "genuinely gone from the record."
-// One request per species (facet=year on the same call that gets the total count) rather than
-// two, since GBIF returns both in one response.
+// Re-runnable backfill: each species' global GBIF occurrence count and most recent occurrence
+// year, for the "hide obscure/inaccessible species" filter's historical-rarity rule
+// (species_traits.occurrence_count < 20 or last_occurrence_year < 1950, see migration 036).
+// GBIF's records reach back to 1800s specimens, unlike iNaturalist's modern-only counts, so it
+// can tell "never photographed" from "gone from the record". One request per species
+// (facet=year on the count call).
 import { pool } from "../db.js";
 import { mapWithConcurrency } from "../concurrency.js";
 
 const CONCURRENCY = 1;
-// GBIF throttles this endpoint hard enough that even a single ad-hoc request can come back
-// 429 with retry-after:3 shortly after a short concurrency-2 burst — a fixed pause between
-// EVERY request (not just after a 429) keeps the request rate under whatever token-bucket
-// GBIF is enforcing, instead of firing another request the instant the previous one resolves.
+// GBIF throttles this endpoint hard, so a fixed pause between every request (not just after a
+// 429) keeps under its rate limit.
 const REQUEST_INTERVAL_MS = 1500;
 
 interface OccurrenceStats {

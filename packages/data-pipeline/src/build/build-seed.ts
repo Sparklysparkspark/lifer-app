@@ -1,15 +1,11 @@
-// Orchestrates the FAST CORE of the Phase-1 ETL (§6) and writes versioned
-// seed files to data/build/<date>/ plus a manifest, so the dataset is reproducible per spec.
+// Orchestrates the fast core of the Phase-1 ETL (§6) and writes versioned seed files to
+// data/build/<date>/ plus a manifest, so the dataset is reproducible.
 //
-// Deliberately excludes per-species enrichment (iNaturalist photo, Commons fallback,
-// Wikipedia blurb, Wikipedia gallery) and per-region occurrence/seasonality computation —
-// those are all live external-API calls that would take hours across ~11,000 species /
-// hundreds of regions, for data that may never be looked at. Both now happen lazily instead,
-// on first view, cached after (apps/api/src/species/lazyEnrich.ts and
-// apps/api/src/regions/routes.ts). This script only does what's fast and
-// local: GBIF backbone + common names, AVONET/EltonTraits traits, Wikidata (IUCN status +
-// image + Wikipedia sitelink — captured here for the lazy path to use later, not acted on
-// eagerly), rarity, and the region hierarchy (also local/fast — see build-regions.ts).
+// Excludes per-species enrichment (photos, Wikipedia text and galleries) and per-region
+// occurrence computation: those are slow live API calls, done lazily on first view instead
+// (apps/api/src/species/lazyEnrich.ts and apps/api/src/regions/routes.ts). This only does what's
+// fast and local: GBIF backbone and common names, AVONET/EltonTraits traits, Wikidata (IUCN
+// status, image, Wikipedia sitelink), rarity, and the region hierarchy (see build-regions.ts).
 
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -24,14 +20,11 @@ import { computeRarityPhase1 } from "./compute-rarity-phase1.js";
 import { BUILD_DIR } from "../raw-cache.js";
 import { mapWithConcurrency } from "../concurrency.js";
 
-// GBIF has no documented hard rate limit for anonymous traffic, but politeness matters more
-// than raw speed here — 16 concurrent requests cuts step 2 from ~sequential (30-90+ minutes
-// for ~14,600 species, one request each) to a few minutes, without hammering the API.
+// 16 concurrent requests: fast enough (minutes instead of an hour-plus) without hammering GBIF.
 const GBIF_CONCURRENCY = 16;
 
-// AVONET/EltonTraits/Wikidata all key on the plain binomial — GBIF's scientificName carries
-// the taxonomic authorship string ("... Linnaeus, 1758") which would silently fail every
-// join, so canonicalName is the one to use as the join key.
+// AVONET/EltonTraits/Wikidata key on the plain binomial, while GBIF's scientificName includes
+// the authorship ("... Linnaeus, 1758"), so canonicalName is the join key.
 function canonical(g: GbifSpeciesRow): string {
   return g.canonicalName ?? g.scientificName;
 }
@@ -95,12 +88,10 @@ async function main() {
 
     return {
       gbifKey: g.gbifKey,
-      // eBird taxonomy CSV is unresolved licensing-wise (see agent research on §5 checklist) —
-      // left null until Phase 0's license verification clears it.
+      // eBird taxonomy licensing is unresolved, so this stays null until it's verified.
       ebirdCode: null,
-      // Reference photo, description, and gallery are all fetched lazily by the API on
-      // first species view now (see apps/api/src/species/lazyEnrich.ts) — null here isn't
-      // missing data, it's simply not fetched yet.
+      // Reference photo, description and gallery are fetched lazily on first species view (see
+      // apps/api/src/species/lazyEnrich.ts); null here just means not fetched yet.
       inatTaxonId: null,
       scientificName: canonical(g),
       commonName: commonNameByGbifKey.get(g.gbifKey) ?? null,
@@ -124,9 +115,8 @@ async function main() {
         trophicNiche: trait?.trophicNiche ?? eltonTrait?.dietMainCategory ?? null,
         primaryLifestyle: trait?.primaryLifestyle ?? null,
         nocturnal: eltonTrait?.nocturnal ?? null,
-        // Real population ÷ real range = a genuine density signal. A species like the
-        // Pileated Woodpecker can have a wide range but genuinely low density, which neither
-        // range alone nor raw GBIF record volume can distinguish from an abundant species.
+        // Population ÷ range gives a density signal that separates sparse wide-ranging species from
+        // abundant ones, which range or record volume alone can't.
         densityPerKm2:
           trait?.rangeSizeKm2 && trait.rangeSizeKm2 > 0 && abundanceByName.get(canonical(g))?.populationEstimate
             ? abundanceByName.get(canonical(g))!.populationEstimate / trait.rangeSizeKm2
@@ -157,8 +147,7 @@ async function main() {
 
   writeFileSync(path.join(outDir, "species.json"), JSON.stringify(species, null, 2));
   writeFileSync(path.join(outDir, "regions.json"), JSON.stringify(regions, null, 2));
-  // region_species (occurrence counts + seasonality) is computed lazily per-region now, on
-  // first view of that region's species list — nothing to write here at seed time.
+  // region_species is computed lazily per region on first view, so nothing is written here.
   writeFileSync(path.join(outDir, "region-species.json"), JSON.stringify({}, null, 2));
 
   const manifest = {
@@ -172,7 +161,7 @@ async function main() {
     },
     speciesCount: species.length,
     regionsCount: regions.length,
-    note: "Reference photos, descriptions, galleries, and region occurrence/seasonality are all lazy now — see apps/api's lazyEnrich.ts and regions/routes.ts, not this manifest.",
+    note: "Reference photos, descriptions, galleries, and region occurrence/seasonality are all lazy now: see apps/api's lazyEnrich.ts and regions/routes.ts, not this manifest.",
   };
   writeFileSync(path.join(outDir, "manifest.json"), JSON.stringify(manifest, null, 2));
 

@@ -1,12 +1,8 @@
 // Source: Callaghan et al. 2021, "Global abundance estimates for 9,700 bird species," PNAS
-// 118(21):e2023170118, data via Zenodo (doi.org/10.5281/zenodo.4723365). License: CC-BY-4.0
-// (verified on the Zenodo record page by hand, same standard applied to every other source
-// in this project). Only the small "Tables.zip" is fetched — the record also hosts an 8.7GB
-// "eBird data.zip" of the underlying raw eBird checklists, which is NOT touched: even though
-// this record's own CC-BY covers the paper's derived outputs, eBird's raw data carries its
-// own separate, more restrictive usage terms, and nothing here needs it — the paper's own
-// final per-species summary table (all_species_summary_table.csv) already has exactly the
-// population estimate needed.
+// 118(21):e2023170118, data via Zenodo (doi.org/10.5281/zenodo.4723365). License: CC-BY-4.0.
+// Only the small "Tables.zip" is fetched, never the 8.7GB "eBird data.zip": raw eBird data has
+// its own more restrictive terms, and all_species_summary_table.csv already has the population
+// estimates needed.
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { existsSync, readFileSync } from "node:fs";
@@ -22,9 +18,8 @@ export interface BirdAbundanceRow {
 }
 
 function parseCsv(text: string): Record<string, string>[] {
-  // Simple splitter — this file's only quoted field (Family, e.g. "Ardeidae (Herons,
-  // Egrets, and Bitterns)") always contains the comma inside parentheses, so a
-  // quote-aware split (reused from fetch-mdd.ts's pattern) is needed, not a plain split(",").
+  // Quote-aware split (as in fetch-mdd.ts): the Family field, e.g. "Ardeidae (Herons, Egrets, and
+  // Bitterns)", contains a comma.
   const lines = text.split(/\r?\n/).filter((l) => l.length > 0);
   const headers = splitCsvLine(lines[0]);
   return lines.slice(1).map((line) => {

@@ -1,13 +1,9 @@
 // Flags fossil-only species (and older extinctions IUCN never assessed) as fully_extinct, the
-// same flag check-extinction-status.ts sets from IUCN. IUCN only covers species that went
-// extinct in recorded history, so a Miocene osprey (Pandion lovensis, which iNaturalist even
-// labels "Osprey") or a whole genus of fossil penguins sails straight past that check.
+// same flag IUCN's own extinct status sets, which only covers recorded-history extinctions.
 //
-// Signal: GBIF's species/{key}/speciesProfiles, where each checklist constituent that knows the
-// species reports extinct true/false. The Paleobiology Database, the Catalogue of Life and
-// Clements all show up there. A species counts as extinct only when at least one source says
-// extinct AND no source says extant (Emperor Penguin carries extinct=false from PBDB, COL and
-// Clements, so a lone stray true can't flip a living species).
+// Signal: GBIF's species/{key}/speciesProfiles, where each checklist source reports extinct
+// true/false. A species counts as extinct only when at least one source says extinct AND none
+// says extant, so a lone stray flag can't flip a living species.
 //
 // Two extra guards before flagging, both reported as "ambiguous" instead of flagged:
 //   - the species is on a region checklist (a real regional list includes it, so a human
@@ -16,7 +12,7 @@
 //
 // Candidates: species on no region checklist with at most 5 GBIF records (where fossils
 // hide), plus every species sharing its common name with another species (a fossil sharing a
-// living species' name also forces an ugly "Osprey (Pandion haliaetus)" folder name).
+// living species' name also forces a disambiguated folder name).
 //
 // Resumable: every GBIF response is cached under data/raw/, so a rerun only calls GBIF for
 // species it hasn't seen. Dry run by default; pass --apply to write the flags.
@@ -91,8 +87,7 @@ async function main() {
   const apply = process.argv.includes("--apply");
   const limitArg = process.argv.find((a) => a.startsWith("--limit="));
   const limit = limitArg ? Number(limitArg.split("=")[1]) : null;
-  // --names=Pandion lovensis,Pandion haliaetus checks exactly those species (used to validate
-  // the signal on known fossils and known living species before a full run).
+  // --names=A b,C d checks exactly those species.
   const namesArg = process.argv.find((a) => a.startsWith("--names="));
   const names = namesArg ? namesArg.slice("--names=".length).split(",").map((n) => n.trim()) : null;
   mkdirSync(CACHE_DIR, { recursive: true });
@@ -142,8 +137,7 @@ async function main() {
       ambiguous.push(`${label}: extinct per ${votes.extinct.join(", ")}; extant per ${votes.extant.join(", ")}`);
       return;
     }
-    // Clements alone lags rediscoveries: it still marks the Black-browed Babbler extinct,
-    // though it was found alive in Borneo in 2020. Needs a taxonomic source to agree.
+    // Clements alone lags rediscoveries, so a taxonomic source must agree.
     if (!votes.extinct.some((source) => TAXONOMIC_SOURCES.has(source))) {
       ambiguous.push(`${label}: extinct per ${votes.extinct.join(", ")} only`);
       return;

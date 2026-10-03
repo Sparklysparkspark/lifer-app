@@ -1,15 +1,11 @@
-// One-time pass: populates species.aba_code (migration 077) AND the existing, previously-unused
-// species.ebird_code column from eBird's own published taxonomy — a single source covering both
-// code systems at once:
-//   - SPECIES_CODE: eBird's own 6-character alphanumeric code, assigned to every bird species in
-//     its worldwide taxonomy (no regional gate needed — global coverage).
-//   - BANDING_CODES: the 4-letter alpha codes birders commonly call "ABA codes" (really an
-//     IBP/AOS standard) — eBird cross-references these itself, so this is empty for species
-//     outside their coverage area (North America, Mexico, Central America, the Caribbean),
-//     exactly the "where applicable" behavior wanted.
-// Source file: data/reference/ebird-taxonomy.csv, fetched from
-// https://api.ebird.org/v2/ref/taxonomy/ebird?fmt=csv (no API key needed for this endpoint) —
-// re-download and re-run this after a taxonomy update if new species need codes.
+// Populates species.aba_code (migration 077) and species.ebird_code from eBird's published
+// taxonomy, which covers both:
+//   - SPECIES_CODE: eBird's 6-character code, assigned to every bird species worldwide.
+//   - BANDING_CODES: the 4-letter alpha codes birders call "ABA codes" (an IBP/AOS standard),
+//     empty outside North America, Mexico, Central America and the Caribbean.
+// Source file: data/reference/ebird-taxonomy.csv, from
+// https://api.ebird.org/v2/ref/taxonomy/ebird?fmt=csv (no API key needed). Re-download and
+// rerun after a taxonomy update.
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -17,8 +13,7 @@ import { pool } from "../db.js";
 
 const CSV_PATH = path.join(path.dirname(fileURLToPath(import.meta.url)), "../../data/reference/ebird-taxonomy.csv");
 
-// Minimal quoted-field CSV line split — several eBird taxonomy fields (COM_NAME_CODES etc.) can
-// contain embedded commas and are quoted accordingly.
+// Minimal quoted-field CSV split: several eBird fields (COM_NAME_CODES etc.) contain quoted commas.
 function splitCsvLine(line: string): string[] {
   const fields: string[] = [];
   let current = "";
@@ -49,8 +44,7 @@ async function main() {
     throw new Error(`Unexpected CSV header, expected SCIENTIFIC_NAME/SPECIES_CODE/BANDING_CODES/CATEGORY columns: ${header.join(",")}`);
   }
 
-  // "species" only — eBird's taxonomy also lists subspecies/hybrid/slash/spuh rows under the
-  // same scientific-name-ish text, which would collide with a real species' own match.
+  // "species" rows only: subspecies, hybrid, slash and spuh rows would collide with real species.
   const codesByScientificName = new Map<string, { speciesCode: string; abaCode: string | null }>();
   for (const line of lines.slice(1)) {
     const cols = splitCsvLine(line);

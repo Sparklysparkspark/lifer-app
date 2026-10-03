@@ -1,24 +1,12 @@
-// Fully-automated province/state-level checklist computation: for each country in
-// PRIORITY_COUNTRIES (in order), submits a GBIF SQL Download scoped to that single country
-// (species/lat/lon/class/year/record_count — WITH coordinates, unlike the world-scale
-// aggregated download compute-all-regions-bulk.ts used, which has no lat/lon and so can never
-// answer a province-level question), polls until it's ready, downloads it, point-in-polygon
-// matches every occurrence against that country's own province boundaries (same core logic as
-// compute-us-states-from-bulk.ts, generalized to any country instead of hardcoded to the US),
-// writes region_species + occurrence_computed_at per province, deletes the downloaded file, and
-// moves on to the next country — no manual per-country download/extract/run cycle needed. This
-// is the "download country data, parse it, compute it" path the live per-region GBIF API calls
-// in compute-all-regions.ts were too rate-limited for (150/156 regions failed on 429 in that
-// run — see its own comment).
+// Province/state-level checklists: for each country, submits a GBIF SQL download scoped to that
+// country (with coordinates), point-in-polygon matches every occurrence against the country's
+// province boundaries, and writes region_species per province.
 //
-// Requires GBIF_USER and GBIF_PWD env vars (a registered GBIF.org account — SQL downloads need
-// authenticated requests, unlike simple occurrence search).
+// Requires GBIF_USER and GBIF_PWD env vars (GBIF SQL downloads need an authenticated account).
 //
 // Usage: npx tsx src/scripts/compute-provinces-bulk.ts [--countries=France,Germany] [--provinces=British Columbia] [--apply] [--refresh-gbif-cache] [--refresh-aggregate-cache]
-// --refresh-aggregate-cache forces a fresh raw-GBIF-zip scan even if a cached point-matched
-// aggregate exists (see PROVINCE_AGGREGATE_CACHE_DIR's own comment) — only needed after a
-// province boundary re-drill-down changes the actual set of provinces for a country; a plain
-// re-run (e.g. after tweaking scoring logic) reuses the cache automatically.
+// --refresh-aggregate-cache forces a fresh scan of the raw GBIF zip. Only needed after a
+// country's set of provinces changes; scoring-only re-runs reuse the cache automatically.
 import {
   createWriteStream,
   createReadStream,
@@ -72,9 +60,7 @@ import {
   SENSITIVE_CLUSTER_DIAGONAL_KM,
 } from "data-pipeline/src/sensitive-species.js";
 
-// Same order as build-and-publish-all-packs.ts's own priority list — personally-relevant
-// countries first, then a couple of continent representatives, so provinces for the countries
-// that matter most get filled in before working through everyone else.
+// Countries processed first, in order, before everyone else.
 const PRIORITY_COUNTRIES = [
   "France",
   "Germany",
@@ -116,18 +102,9 @@ const FISH_CLASSES = new Set([
 ]);
 const BIRD_MAMMAL_CLASSES = new Set(["Aves", "Mammalia"]);
 
-// Reptiles, amphibians, and marine invertebrates — added so this script's own province-level
-// local_tier stops being birds/mammals/fish only (see this recompute's own tracked follow-up).
-// GBIF's raw occurrence `class` column is too coarse to bucket these correctly on its own: all
-// reptiles share one class ("Reptilia"), and Gastropoda alone spans two of our own taxon
-// groups (nudibranchs, marine_mollusks) — so this is only a cheap first-pass
-// ADMIT filter (skip the row entirely if its raw class isn't even one of these, same
-// "cheap check before expensive one" reasoning the original bird/mammal/fish gate already
-// uses), not the final bucket — the row-scan loop below resolves the real bucket via this app's
-// own species.taxon_class (already correctly assigned by enrichment) once a row clears this
-// gate. Best-effort GBIF backbone class names, not exhaustively verified against a live
-// download for every one of these — worth a spot-check against a real cached country zip if a
-// taxon's numbers look suspiciously thin after running this.
+// Reptiles, amphibians and marine invertebrates. GBIF's raw `class` is too coarse to bucket
+// these (Gastropoda spans nudibranchs and marine_mollusks), so this is only a cheap admit filter;
+// the real bucket comes from species.taxon_class in the row-scan loop.
 const REPTILE_AMPHIBIAN_GBIF_CLASSES = new Set(["Reptilia", "Amphibia"]);
 const MARINE_INVERT_GBIF_CLASSES = new Set([
   "Anthozoa", // corals + sea anemones
@@ -140,7 +117,7 @@ const MARINE_INVERT_GBIF_CLASSES = new Set([
   "Ophiuroidea",
   "Holothuroidea",
   "Crinoidea", // echinodermata
-  "Gastropoda", // nudibranchs / marine_mollusks — split by species lookup
+  "Gastropoda", // nudibranchs / marine_mollusks, split by species lookup
   "Bivalvia",
   "Polyplacophora",
   "Scaphopoda", // marine_mollusks
@@ -154,15 +131,12 @@ const MARINE_INVERT_GBIF_CLASSES = new Set([
   "Hexactinellida",
   "Calcarea",
   "Homoscleromorpha", // sponges
-  "Ascidiacea", // tunicates — both fall under sponges_tunicates_other
+  "Ascidiacea", // tunicates, both fall under sponges_tunicates_other
 ]);
 const EXTRA_ADMIT_GBIF_CLASSES = new Set([...REPTILE_AMPHIBIAN_GBIF_CLASSES, ...MARINE_INVERT_GBIF_CLASSES]);
 
-// Our own internal taxon_class values covered by the extra-admit classes above — used both to
-// validate a species-table lookup actually landed on one of these (not some unrelated taxon)
-// and to route them all to FISH_ABSOLUTE_TIER_THRESHOLDS below (this recompute's own starting
-// assumption: comparable data density/obscurity to fish, not birds/mammals — an interim value
-// pending real anchor-species calibration, same as this file's other interim constants).
+// Internal taxon_class values covered by the extra-admit classes above. They are scored with
+// FISH_ABSOLUTE_TIER_THRESHOLDS as an interim assumption of fish-like data density.
 const NEW_OBSCURE_TAXON_CLASSES = new Set([
   "squamata",
   "testudines",
@@ -178,110 +152,66 @@ const NEW_OBSCURE_TAXON_CLASSES = new Set([
 ]);
 
 let taxonClassByScientificNameCache: Map<string, string> | null = null;
-// Loaded once per script run (not per country) — species.taxon_class never changes mid-run, and
-// this is the only way to correctly bucket a Reptilia/Gastropoda/etc. occurrence row into one
-// of our own fine-grained taxon groups (see EXTRA_ADMIT_GBIF_CLASSES's own comment on why GBIF's
-// raw class can't do this alone).
+// Loaded once per run. Maps a scientific name to our fine-grained taxon group.
 async function taxonClassByScientificName(): Promise<Map<string, string>> {
   if (taxonClassByScientificNameCache) return taxonClassByScientificNameCache;
+  // Includes synonyms, so a renamed species in the GBIF data still gets scored.
   const res = await pool.query<{ scientific_name: string; taxon_class: string }>(
-    `SELECT scientific_name, taxon_class FROM species WHERE taxon_class = ANY($1)`,
+    `SELECT scientific_name, taxon_class FROM species WHERE taxon_class = ANY($1)
+     UNION ALL
+     SELECT ss.synonym_name, s.taxon_class FROM species_synonyms ss JOIN species s ON s.id = ss.species_id
+      WHERE s.taxon_class = ANY($1)`,
     [[...NEW_OBSCURE_TAXON_CLASSES]],
   );
   taxonClassByScientificNameCache = new Map(res.rows.map((r) => [r.scientific_name, r.taxon_class]));
   return taxonClassByScientificNameCache;
 }
 
-// Bucket resolution itself is inlined directly in the row-scan loop below (same "cheap check
-// first" perf reasoning as the rest of that loop) rather than called through a helper here — for
-// birds/mammals/fish the resolved bucket is just the raw GBIF class unchanged, preserving every
-// existing FISH_CLASSES.has(cls)/cls === "Mammalia"/cls === "Aves" check elsewhere in this file
-// exactly as before. A row whose species isn't in our own table under one of
-// NEW_OBSCURE_TAXON_CLASSES (e.g. a Gastropoda record that's a land snail, not a nudibranch or
-// marine mollusk we actually track) resolves to null and gets skipped.
+let catalogNameBySynonymCache: Map<string, string> | null = null;
+// The catalog name each synonym stands for. Rows are renamed as they're read, so a split species
+// adds up under one catalog name instead of one half overwriting the other.
+async function catalogNameBySynonym(): Promise<Map<string, string>> {
+  if (catalogNameBySynonymCache) return catalogNameBySynonymCache;
+  const res = await pool.query<{ synonym_name: string; scientific_name: string }>(
+    `SELECT ss.synonym_name, s.scientific_name FROM species_synonyms ss JOIN species s ON s.id = ss.species_id`,
+  );
+  catalogNameBySynonymCache = new Map(res.rows.map((r) => [r.synonym_name, r.scientific_name]));
+  return catalogNameBySynonymCache;
+}
 
-// Hotspot clustering only uses records of a living, current-sighting bird/mammal/fish — not a
-// decades-old museum specimen, which isn't useful "go here today" trip-planning information
-// regardless of privacy. This also closes most of the gap where a sensitive-but-unflagged
-// species' specimen records could otherwise produce a precise cluster (see the plan's own
-// Section D writeup) — eBird's own obscuring targets exactly this record type.
+// Hotspot clustering only uses live observations, not museum specimens, which aren't useful for
+// trip planning and could otherwise expose precise locations of sensitive species.
 const LIVE_OBSERVATION_BASIS_OF_RECORD = new Set(["HUMAN_OBSERVATION", "OBSERVATION"]);
 
-// Deliberately NOT trying to be a precise "go stand exactly here" tool — a fine-grained
-// (~500m) grid + flood-fill merge was tried and reverted: it correctly followed real sighting
-// shapes, but most observation data is genuinely scattered at that resolution (a birder's own
-// backyard, one park visit), so it exploded into 280,000+ clusters for a single province, almost
-// all of them a single incidental sighting rather than a real repeat-visited spot. More to the
-// point, that precision isn't this feature's job at all: iNaturalist's own live heatmap already
-// does "exactly where, right now" better than a static snapshot ever could (see the "See more
-// recent sightings on iNaturalist" link on the map itself). What this data IS uniquely good at —
-// and what a live per-species heatmap doesn't surface — is the PATTERN: is this species spread
-// evenly across the whole region, or hyper-localized to one small corner of it (Sage Thrasher's
-// whole Canadian range sitting in a few dozen km² of the South Okanagan, confirmed live).
-// ~0.1° (~11km) is tuned for that — coarse enough to stay a manageable, glanceable handful of
-// areas per species, fine enough to tell "concentrated in the Okanagan" apart from "found
-// everywhere in the province."
+// Hotspots show a species' distribution pattern (spread out vs. concentrated in one corner), not
+// exact spots; iNaturalist's live map does that better. ~0.1 degree (~11km) keeps a glanceable
+// handful of areas per species while still separating local concentrations.
 const HOTSPOT_GRID_DEGREES = 0.1;
 const KM_PER_DEGREE = 111; // equirectangular approximation, same tradeoff as geometry.ts's own bboxDiagonalDegrees
 
-// eBird's real published sensitive-species list (the user pasted it in directly — see
-// sensitive-species.ts's own comment). A point matching a species' real region/season scope gets
-// collapsed into a fixed 20x20km-diagonal cluster centered on its actual occurrence centroid,
-// matching eBird's own obscuring resolution — imported from sensitive-species.ts so the API layer
-// (species/routes.ts, flagging a hotspot as sensitive for the UI note) checks against the exact
-// same constant this writer used, not a second independently-computed copy. All other points get
-// full-precision grid clustering with no record-count throttle.
+// Points matching eBird's sensitive-species list (region/season scoped) collapse into one fixed
+// 20km-diagonal cluster, matching eBird's obscuring. All other points get normal grid clustering.
 
 const GBIF_API = "https://api.gbif.org/v1";
 
-// Persists each country's raw downloaded occurrence zip instead of deleting it after use — the
-// GBIF data itself doesn't change between runs, only the LOGIC computed from it does (local
-// tier formula, hotspot clustering, weekly frequency all changed multiple times in one session),
-// so re-downloading identical data from a rate-limited, slow (minutes per country), 3-concurrent-
-// download-capped API every time the computation logic changes is pure waste. A cached country
-// is re-parsed from disk in seconds instead. Pass --refresh-gbif-cache to force a fresh download
-// for every targeted country (e.g. to pick up genuinely new occurrence records after enough time
-// has passed) — otherwise an existing cache entry is trusted indefinitely.
+// Each country's raw GBIF zip is kept on disk so logic changes can re-run without re-downloading
+// from GBIF's slow, 3-concurrent-download API. --refresh-gbif-cache forces a fresh download.
 const REPO_ROOT = path.resolve(new URL(".", import.meta.url).pathname, "..", "..", "..", "..");
 const GBIF_COUNTRY_CACHE_DIR = path.join(REPO_ROOT, "packages/data-pipeline/data/gbif-country-cache");
 
-// The per-country unzip-and-point-in-polygon-match scan below (building `perProvince`) is by far
-// the expensive part of this script — a full pass over a country's entire cached GBIF zip, tens
-// of millions of rows for a country like Canada or Australia. The interpretation step AFTER it
-// (recurrence/vagrant checks, hotspot clustering, composite tier scoring) only ever touches this
-// already-aggregated per-species data, never the raw rows — confirmed live: every scoring tweak
-// this pipeline has gone through (recurrence floor, concentration ratio, nearest-vs-dominant
-// hotspot pick) required zero changes to the scan itself, yet re-ran it in full every time,
-// burning hours re-parsing/matching the exact same rows for the exact same result. This cache
-// lets a scoring-only iteration skip straight to the cheap interpretation step. Invalidated
-// purely by the cached zip's own mtime (a `--refresh-gbif-cache` re-download naturally busts it,
-// since the zip's mtime changes) — NOT by anything about the provinces themselves, so a province
-// boundary re-drill-down that changes the actual set of provinces for a country needs a manual
-// `--refresh-aggregate-cache` (or just deleting the cache file) to avoid serving a stale match
-// against an outdated province set. That's a rare, deliberate operation, not a routine one, so
-// this doesn't try to auto-detect it.
+// Cache of the expensive point-in-polygon scan, so scoring-only changes skip it. Invalidated by
+// the cached zip's mtime only; a change to a country's set of provinces needs a manual
+// --refresh-aggregate-cache.
 const PROVINCE_AGGREGATE_CACHE_DIR = path.join(REPO_ROOT, "packages/data-pipeline/data/province-aggregate-cache");
 
-// One small TSV file per province, not one combined structure holding every province's matched
-// points in memory at once — a real production OOM crash on the United States (19.6GB heap,
-// crashed after 7.5 hours with zero output) confirmed the previous "hold perProvince: Map<
-// provinceId, Map<species, entry>> for ALL provinces live for the whole scan, only free each
-// one's memory after ITS OWN write" approach still isn't enough at the US's scale: freeing after
-// write only helps once writing has started, and the scan phase alone accumulates every
-// province's matched points before a single write happens. Writing each matched row straight to
-// its own province's file as it's found means the scan phase itself never holds more than a
-// handful of open file handles in memory — the interpretation step below then reads back and
-// fully processes ONE province's own file at a time (bounded to that one province's data, same
-// as any other country), never all of them simultaneously. Also doubles as this file's existing
-// point-matched-aggregate cache (a re-run with unchanged scoring logic skips the raw GBIF scan
-// entirely if a province's own partition file is already fresh) — no separate cache format needed.
+// Matched rows are streamed to one TSV per province, so the scan never holds every province's
+// points in memory at once (large countries OOM otherwise). Scoring then reads one province file
+// at a time. These files double as the aggregate cache.
 function partitionFilePath(aggregateCacheKey: string, provinceId: string): string {
   return path.join(PROVINCE_AGGREGATE_CACHE_DIR, `${aggregateCacheKey}__${provinceId}.tsv`);
 }
 
-// Builds/updates one species' aggregate entry from a single matched occurrence row — shared by
-// both the raw-scan-to-partition-file pass and the per-province partition-file replay pass below,
-// so the exact same accumulation logic runs regardless of which one produced the row.
+// Adds one matched occurrence row to a species' aggregate entry.
 function applyRowToEntry(
   bySpecies: Map<string, SpeciesProvinceEntry>,
   species: string,
@@ -358,28 +288,11 @@ function authHeader(): string {
   return `Basic ${Buffer.from(`${user}:${pwd}`).toString("base64")}`;
 }
 
-// One row per (species, lat, lon, class, year, week, basisofrecord) with a pre-aggregated
-// record_count — grouping by raw coordinates barely compresses (near one row per unique point)
-// but keeps the query itself well-formed SQL; scoped to a SINGLE country's occurrences this
-// stays a tractable size (already proven for the US — see compute-us-states-from-bulk.ts's own
-// comment on where this pattern came from), unlike the world-scale unaggregated attempt that hit
-// 1.5 billion rows/42GB. week/basisofrecord added for the hotspot-clustering + weekly-frequency
-// work below — validated against real Luxembourg data first (only 11%/16% more rows/bytes than
-// the bare version), and eventdategte needs an explicit CAST to TIMESTAMP since GBIF's SQL
-// engine resolves it as a raw BIGINT (epoch millis), not a DATETIME.
-// GBIF's own per-account ceiling on simultaneous downloads, per its own 420 error message.
+// GBIF's per-account limit on simultaneous downloads.
 const MAX_CONCURRENT_GBIF_DOWNLOADS = 3;
 
-// Confirms an actual free download slot with GBIF's own account state before submitting a new
-// one, rather than optimistically submitting and reacting to a 420 after the fact with a blind
-// fixed-length cooldown. This matters beyond just avoiding a wasted request: killing this
-// script's local process does NOT cancel a download it already submitted server-side — GBIF
-// keeps preparing it regardless (see submitDownload's own comment) — so a locally-restarted run
-// has no way to know how many of its own past submissions are still occupying real slots unless
-// it asks GBIF directly. A fixed cooldown just guesses that whatever caused the 420 has cleared
-// by now; this asks instead. Both the main pool and the prefetcher call into this independently
-// (separate processes, no shared local state) — correct because it's asking GBIF's own ground
-// truth each time, not coordinating against a local guess that could itself be wrong.
+// Asks GBIF how many downloads are active before submitting. Killing this script does not cancel
+// downloads already submitted server-side, so only GBIF knows how many slots are really in use.
 async function waitForFreeDownloadSlot(): Promise<void> {
   const user = process.env.GBIF_USER;
   if (!user) return; // authHeader() below throws its own clearer error once we actually submit
@@ -387,8 +300,7 @@ async function waitForFreeDownloadSlot(): Promise<void> {
     const res = await fetch(`${GBIF_API}/occurrence/download/user/${user}?limit=20`, {
       headers: { Authorization: authHeader() },
     });
-    // Can't check right now (GBIF hiccup, network blip) — fall through and let the submit
-    // attempt itself happen; its own 420 handling is still there as a fallback.
+    // Can't check right now; let the submit happen and rely on its 420 handling.
     if (!res.ok) return;
     const body = (await res.json()) as { results: Array<{ status: string }> };
     const active = body.results.filter((d) => d.status === "PREPARING" || d.status === "RUNNING").length;
@@ -398,20 +310,8 @@ async function waitForFreeDownloadSlot(): Promise<void> {
   }
 }
 
-// A 420 here means the account's 3-simultaneous-download slots are all occupied — despite the
-// waitForFreeDownloadSlot check above, GBIF's own state can still change in the gap between
-// that check and this request (another process's download finishing prep and immediately being
-// replaced by a new submission, say). Previously this threw immediately on the very first 420,
-// which turned a few minutes of real, temporary slot contention into dozens of spuriously
-// "FAILED" countries needing a manual re-run — this re-asks GBIF for a free slot and retries
-// instead of guessing a fixed wait is long enough, so a transient slot conflict resolves itself
-// rather than needing babysitting.
-// GBIF's raw `countrycode` field is the record's own overseas-territory code, not its parent
-// sovereign country's — a bulk download scoped to a single countrycode structurally never sees
-// these territories' real occurrence data, even though they're modeled here as ordinary provinces
-// with their own boundary polygons (France's Guadeloupe/Guyane française/Martinique/La
-// Réunion/Mayotte; Netherlands' Bonaire/Saba/St. Eustatius, which GBIF lumps under one shared
-// code). Confirmed live: these provinces were coming back empty despite valid boundary_geojson.
+// GBIF records overseas territories under their own countrycode, but we model them as provinces
+// of the parent country, so their codes are added to that country's download.
 const OVERSEAS_TERRITORY_GBIF_CODES: Record<string, string[]> = {
   FR: ["GP", "GF", "MQ", "RE", "YT"],
   NL: ["BQ"],
@@ -423,6 +323,7 @@ async function submitDownload(iso2: string): Promise<string> {
     countryCodes.length === 1
       ? `countrycode = '${countryCodes[0]}'`
       : `countrycode IN (${countryCodes.map((c) => `'${c}'`).join(", ")})`;
+  // eventdategte needs an explicit CAST: GBIF's SQL engine treats it as epoch millis.
   const sql =
     `SELECT species, decimallatitude, decimallongitude, "class", "year", basisofrecord, ` +
     `weekofyear(CAST(eventdategte AS TIMESTAMP)) AS week, count(*) AS record_count ` +
@@ -439,19 +340,15 @@ async function submitDownload(iso2: string): Promise<string> {
     if (res.ok) return (await res.text()).trim();
     if (res.status === 420) {
       await res.text(); // drain the body before retrying on the same connection
-      console.log(`[compute-provinces-bulk] download slots full (420) despite the free-slot check — re-checking...`);
-      continue; // loops back to waitForFreeDownloadSlot() above, not a blind fixed-length wait
+      console.log(`[compute-provinces-bulk] download slots full (420) despite the free-slot check: re-checking...`);
+      continue; // slot freed up between the check and the submit; re-check
     }
     throw new Error(`GBIF download request failed: ${res.status} ${await res.text()}`);
   }
 }
 
-// Returns the download's own reported byte size once SUCCEEDED — downloadZip below verifies the
-// actual streamed byte count against this, since a silently truncated fetch (confirmed possible:
-// this is exactly what wiped Austria and Australia's province data on 2026-09-01 — the stream's
-// reader reported `done` early with no thrown error, `unzip -p` then failed silently because its
-// exit code was never checked, and the country was written to the DB with zero species and
-// checkpointed as a success) would otherwise resolve as cleanly as a real completion.
+// Returns the download's reported byte size once SUCCEEDED. downloadZip checks against it, since
+// a truncated stream can end as `done` with no error.
 async function pollUntilReady(downloadKey: string): Promise<number> {
   for (;;) {
     const res = await fetch(`${GBIF_API}/occurrence/download/${downloadKey}`);
@@ -471,20 +368,14 @@ async function downloadZip(downloadKey: string, destPath: string, expectedSize: 
   const file = createWriteStream(destPath);
   let bytesWritten = 0;
   await new Promise<void>((resolve, reject) => {
-    // @ts-expect-error Node's fetch Response.body is a web ReadableStream, not a Node stream —
-    // pipe manually below instead of assuming .pipe() exists on it.
+    // @ts-expect-error Node's fetch Response.body is a web ReadableStream, not a Node stream,
+    // so pipe manually below instead of assuming .pipe() exists on it.
     const reader = res.body.getReader();
     async function pump(): Promise<void> {
       const { done, value } = await reader.read();
       if (done) {
-        // `.end()` only SCHEDULES the final flush+close — it does not happen synchronously.
-        // Resolving right after calling it (the previous bug here) let the caller start
-        // reading/unzipping the file before the OS had actually finished writing the last
-        // buffered chunk(s) to disk, which is exactly what corrupted Austria's and Australia's
-        // downloads on 2026-09-01/02: the byte-count check below only counts bytes handed to
-        // `.write()`, not bytes physically flushed, so it passed cleanly on a file that wasn't
-        // actually complete on disk yet. Passing a callback to `.end()` waits for the stream's
-        // own 'finish' event, which only fires once every byte is truly flushed.
+        // `.end()` only schedules the final flush. Resolve in its callback so the file is fully
+        // on disk before anyone unzips it.
         file.end(() => resolve());
         return;
       }
@@ -494,9 +385,7 @@ async function downloadZip(downloadKey: string, destPath: string, expectedSize: 
     }
     pump().catch(reject);
   });
-  // A truncated stream can resolve as `done` with no thrown error (see comment on
-  // pollUntilReady above) — catch that here rather than silently unzipping a partial/corrupt
-  // file, which `unzip -p` below would otherwise fail on without anyone checking its exit code.
+  // A truncated stream can end as `done` with no error; don't unzip a partial file.
   if (bytesWritten !== expectedSize) {
     throw new Error(
       `GBIF zip download for ${downloadKey} is truncated: got ${bytesWritten} bytes, expected ${expectedSize}`,
@@ -525,17 +414,9 @@ async function loadProvinces(countryId: string): Promise<ProvinceRegion[]> {
   });
 }
 
-// Cross-checks a borderline bird against eBird's own historical species list for this exact
-// province/state (eBird's `/v2/product/spplist/{regionCode}` endpoint accepts subnational1/2
-// region codes, not just country codes — confirmed live with British Columbia's own "CA-BC").
-// Unlike GBIF's raw occurrence records (this file's primary source), eBird pools a much larger,
-// birder-specific observer base, so a species genuinely present but too thinly recorded in GBIF
-// to pass the recurrence check above often still has a real eBird history. This is deliberately
-// ONE-DIRECTIONAL: appearing on eBird's list is used only to RESCUE a species GBIF's own pattern
-// check would otherwise exclude or flag vagrant, never to exclude one GBIF already accepted —
-// eBird is itself citizen-submitted data (see report-vagrant-ebird.ts's own comment on why
-// presence there isn't proof of non-vagrancy either), so this is a second opinion that can only
-// vote to include, matching the "when in doubt, include" policy above.
+// eBird's historical species list for a province (spplist accepts subnational codes like "CA-BC").
+// One-directional: presence on eBird only rescues a bird GBIF's recurrence check would exclude or
+// flag vagrant, never excludes one GBIF accepted.
 const EBIRD_API_KEY = process.env.EBIRD_API_KEY;
 const EBIRD_SPPLIST_CACHE_DIR = path.join(REPO_ROOT, "packages/data-pipeline/data/ebird-spplist-cache");
 const ebirdSpeciesCodesCache = new Map<string, Promise<Set<string> | null>>();
@@ -560,7 +441,7 @@ async function fetchEbirdRegionSpeciesCodes(regionCode: string): Promise<Set<str
           writeFileSync(cachePath, JSON.stringify(codes));
           return new Set(codes);
         } catch {
-          return null; // best-effort — a network hiccup here just means no rescue this run, not a failure
+          return null; // best-effort: a network error just means no rescue this run
         }
       })(),
     );
@@ -569,10 +450,7 @@ async function fetchEbirdRegionSpeciesCodes(regionCode: string): Promise<Set<str
 }
 
 
-// Math.max(...arr) blows the engine's call-stack/argument limit once arr gets into the hundreds
-// of thousands — exactly what a widespread species' single province (or even a single grid
-// cell) can hit for a country with Canada's occurrence volume. A plain loop has no such limit
-// regardless of array size.
+// Math.max(...arr) overflows the argument limit on very large arrays; a loop does not.
 function maxOf(values: number[]): number {
   let max = -Infinity;
   for (const v of values) if (v > max) max = v;
@@ -584,24 +462,15 @@ interface Hotspot {
   centroidLon: number;
   pointCount: number;
   bboxDiagonalKm: number;
-  // A cluster's own year range, distinct from the species-level `is_vagrant`/recurrence check —
-  // a cluster built from records spread across many recent years reads very differently from one
-  // built entirely from a single old sighting, even at identical point count. Real facts (not a
-  // derived confidence score), same reasoning as this file's own eBird-sensitivity guardrail:
-  // show what's true and let the user judge, don't invent a score that itself needs calibrating.
+  // The cluster's own year range, shown as plain facts so the user can tell a long-running spot
+  // from a single old sighting.
   lastSeenYear: number | null;
   distinctYears: number | null;
 }
 
-// A ~11km HOTSPOT_GRID_DEGREES cell reported via the plain average of every point inside it
-// drifts toward whichever edge of the cell happens to have more scattered records — confirmed
-// live against Cottonwood Island Park (Prince George): the reported centroid landed ~2km east of
-// the park itself, pulled off by sightings scattered across the wider cell. Sub-binning at a
-// finer resolution and reporting the densest sub-cell's own average — the actual spot where
-// sightings piled up, not the geometric mean of a whole spread-out area — fixes this without
-// changing what a "cluster" is (still the same ~11km cell for grouping/filtering purposes,
-// only the reported point within it changes).
-const HOTSPOT_PEAK_SUBCELL_DEGREES = 0.02; // ~2.2km — fine enough to separate "the park entrance" from "the parking lot 2km away", still coarse enough that real GPS noise/eBird checklist rounding doesn't fragment one real spot into several
+// A plain average over a whole ~11km cell drifts toward scattered records, so a cell reports the
+// average of its densest sub-cell instead, the spot where sightings actually pile up.
+const HOTSPOT_PEAK_SUBCELL_DEGREES = 0.02; // ~2.2km, coarse enough that GPS noise doesn't split one spot
 function peakCentroid(cell: { lats: number[]; lons: number[]; weights: number[] }): { centroidLat: number; centroidLon: number } {
   const subCells = new Map<string, { latSum: number; lonSum: number; weight: number }>();
   for (let i = 0; i < cell.lats.length; i++) {
@@ -635,17 +504,9 @@ function summarizeSensitiveCluster(points: Array<{ lon: number; lat: number; wei
   };
 }
 
-// Snap-and-average grid binning (see HOTSPOT_GRID_DEGREES's own comment on why this instead of
-// real DBSCAN, and why a flat grid is actually the right tool here, not a limitation to route
-// around). Points where `isSensitivePoint` matches skip real clustering and collapse into one
-// fixed-size 20x20km-diagonal cluster (see SENSITIVE_CLUSTER_DIAGONAL_KM's own comment) —
-// per-point rather than per-species, so a species only sensitive in one region/season (see
-// sensitive-species.ts) still gets real, precise clusters everywhere/everywhen else it's found.
-// Takes parallel arrays (lons/lats/weights/years/weeks — see SpeciesProvinceEntry's own comment
-// on why not one array of point objects), years/weeks using 0 as a "null" sentinel. Iterates by
-// index and buckets each point into either the sensitive-cluster subset or its grid cell as it
-// goes, rather than building an intermediate filtered array-of-objects the way this used to —
-// the whole point of the parallel-array change upstream is not undoing it one function later.
+// Grid-bins points into hotspots. Sensitive points (checked per point, so region/season scoped)
+// collapse into one fixed-size obscured cluster instead. Takes parallel arrays, with 0 as the
+// "null" sentinel for years/weeks.
 function clusterHotspots(
   lons: number[],
   lats: number[],
@@ -680,36 +541,15 @@ function clusterHotspots(
   const sensitiveCluster = sensitivePoints.length > 0 ? [summarizeSensitiveCluster(sensitivePoints)] : [];
   if (cells.size === 0) return sensitiveCluster;
 
-  // A cluster backed by only a point or two is one incidental sighting, not a real repeat-
-  // visited area worth surfacing as its own entry in the list — dropped rather than shown.
+  // A cluster of only a point or two is one incidental sighting, not a repeat-visited area.
   const MIN_CLUSTER_WEIGHT = 3;
   const filtered = [...cells.values()].filter((cell) => cell.weight >= MIN_CLUSTER_WEIGHT);
 
-  // Confirmed live: a widely-distributed, heavily-recorded species in a large province can
-  // legitimately populate dozens to hundreds of separate grid cells — real, not a bug, but not
-  // useful either. A flat "top N by weight, province-wide" cap (the original fix here) solves
-  // that but creates a NEW, worse problem for a big province: whichever single area has the most
-  // raw records (a metro area's own huge birder volume) can fill every slot on its own, silently
-  // erasing a real, substantial secondary area. Confirmed live: British Columbia's own top-20-
-  // by-weight cut for Black-capped Chickadee had zero clusters anywhere near Prince George,
-  // despite 186,663 real bird records and 294 species recorded within about a degree of it.
-  //
-  // A FIXED per-region cap has its own failure mode, also confirmed live: Prince George's own
-  // area (a real, well-birded small city, not just one dominant metro competing against a whole
-  // province) has 21 distinct real clusters for this same species, topped by Cottonwood Island
-  // Park at 4,903 records — a flat cap of even 8-10 would still arbitrarily drop real, comparable
-  // local spots just because the cap ran out, the same problem one level down. What actually
-  // varies here isn't "how many good spots exist per unit area" (that's the whole point — a
-  // richly-birded small city can have MORE distinct good spots than a much bigger but quieter
-  // region), it's how much a candidate spot matters RELATIVE TO the other real spots already
-  // found nearby. Kept via a relative-weight threshold instead of a fixed count: a cluster
-  // survives if it's still a meaningful fraction of the BEST cluster in its own local area,
-  // rather than competing for one of N arbitrary slots. A data-poor area naturally has few
-  // qualifying clusters regardless (nothing to keep); a well-birded one gets to show every real
-  // spot that's genuinely comparable to its own best, however many that turns out to be.
-  const DIVERSITY_CELL_DEGREES = 0.5; // ~55km, roughly one city/metro's worth of area — small enough that a city's own real spots compete against each other, not against a whole region's worth of unrelated towns
+  // A province-wide top-N cap lets one busy metro area fill every slot. Instead, a cluster is
+  // kept if it is still a meaningful share of the best cluster in its own ~55km area.
+  const DIVERSITY_CELL_DEGREES = 0.5; // ~55km, roughly one city's worth of area
   const MIN_RELATIVE_SHARE_OF_LOCAL_BEST = 0.05; // keep anything still >=5% of the best cluster in the same ~55km area
-  const MAX_CLUSTERS_PER_DIVERSITY_CELL = 25; // a safety ceiling only, not the primary mechanism — never expected to bind in practice
+  const MAX_CLUSTERS_PER_DIVERSITY_CELL = 25; // safety ceiling only
 
   const centroidCells = filtered.map((cell) => ({ cell, ...peakCentroid(cell) }));
   const byDiversityCell = new Map<string, typeof centroidCells>();
@@ -737,17 +577,8 @@ function clusterHotspots(
   ];
 }
 
-// Guarantees this country's GBIF zip exists at GBIF_COUNTRY_CACHE_DIR/{iso2}.zip, submitting a
-// fresh download only if it's missing (or --refresh-gbif-cache forces one). Split out from
-// computeCountryProvinces so refresh-all-provinces.ts's download queue (--cache-only below) can
-// run JUST this step, well ahead of and concurrently with the real per-country processing pass —
-// the download wait (submit -> poll -> fetch, pure network I/O, negligible CPU/RAM) is the
-// actual bottleneck for a country that's never been fetched before, and there's no reason to
-// pay for it serially, back to back with the CPU/memory-heavy province processing that follows,
-// when the two have completely different resource profiles. This is also the ONLY function that
-// ever actually submits a download — waitForOrEnsureGbifZipCached below (what the real
-// processing pass calls) only falls back to calling this directly as a last resort; the normal
-// path is to let the dedicated download queue submit every download exactly once each.
+// Makes sure GBIF_COUNTRY_CACHE_DIR/{iso2}.zip exists, downloading it if missing. Split out so
+// refresh-all-provinces.ts's download queue (--cache-only) can fetch ahead of processing.
 async function ensureGbifZipCached(countryName: string, iso2: string, refreshCache: boolean): Promise<void> {
   const cachedZipPath = path.join(GBIF_COUNTRY_CACHE_DIR, `${iso2}.zip`);
   if (!refreshCache && existsSync(cachedZipPath)) return;
@@ -769,22 +600,9 @@ async function ensureGbifZipCached(countryName: string, iso2: string, refreshCac
   }
 }
 
-// How long the real processing pass waits for refresh-all-provinces.ts's own download queue to
-// produce this country's cached zip before giving up on it and submitting the download itself.
-// The queue walks the exact same country list in the exact same order, at the FULL GBIF
-// concurrency ceiling (3) and doing nothing but downloads — since it starts at the same point
-// and is strictly faster per country than a full processing pass, it should always get there
-// first in practice. This exists purely as a correctness backstop (a queue crash, a country it
-// skipped for some reason), not the expected path — the whole reason to split "download" and
-// "process" into separate roles is so the processing pool never submits a REDUNDANT duplicate
-// download for a country the queue already has in flight.
-// 60 minutes, not 20 — confirmed live that GBIF can leave an ordinary (non-huge) country's SQL
-// download sitting in PREPARING for 20+ minutes with zero movement, no error, nothing actually
-// wrong. Firing the fallback there wouldn't cancel the original — it can't, GBIF has no
-// "abandon this download because a different process gave up waiting" concept — it would just
-// submit a SECOND real download for the same country, burning a real slot on duplicate work and
-// making the actual wait longer, not shorter. Better to simply wait longer for the one download
-// that was always going to finish anyway.
+// How long processing waits for the download queue to produce a country's zip before submitting
+// the download itself (a backstop only). GBIF can sit in PREPARING for a long time, and a second
+// submit would just waste a slot on a duplicate.
 const DOWNLOAD_QUEUE_WAIT_MS = 60 * 60_000;
 
 async function waitForOrEnsureGbifZipCached(countryName: string, iso2: string, refreshCache: boolean): Promise<void> {
@@ -799,34 +617,16 @@ async function waitForOrEnsureGbifZipCached(countryName: string, iso2: string, r
     await new Promise((resolve) => setTimeout(resolve, 10_000));
   }
   console.log(
-    `[compute-provinces-bulk] ${countryName}: still not cached after waiting ${DOWNLOAD_QUEUE_WAIT_MS / 60_000}min on the download queue — submitting it directly instead`,
+    `[compute-provinces-bulk] ${countryName}: still not cached after waiting ${DOWNLOAD_QUEUE_WAIT_MS / 60_000}min on the download queue: submitting it directly instead`,
   );
   await ensureGbifZipCached(countryName, iso2, refreshCache);
 }
 
-// `pointBbox` tracks the running bounding box of every coordinate a species was recorded at
-// within this province — reused to score the distribution-elusiveness boost (see
-// compute-rarity-phase1.ts) directly from data this download already fetches, with no additional
-// GBIF calls. A running min/max needs only those 4 numbers per species the whole time, rather
-// than every individual [lon, lat] pair surviving in memory for the whole country's scan just to
-// compute a bounding-box diagonal — for a country with Australia's occurrence volume, that's what
-// OOM-crashed this script even at an 8GB heap. The cluster* fields are a separate, genuinely-
-// needed point list restricted to LIVE_OBSERVATION_BASIS_OF_RECORD for the hotspot-clustering
-// step (clustering needs the real spatial distribution, not just its bounding box, so this one
-// can't be collapsed the same way) — filtered to a much smaller subset than the full occurrence
-// stream, which was assumed to keep it safely below the same blowup risk. Confirmed live that
-// assumption breaks down for a country with the US's occurrence volume: stored as one object
-// per point (`{lon,lat,weight,year,week}`), tens of millions of live-observation records (the
-// bulk of US citizen-science data) meant tens of millions of individual heap-allocated objects
-// alive at once, which is what turned the scan into a GC-thrashing loop that ran for 25+ hours
-// without ever finishing — the CPU was real, but almost none of it was forward progress. Five
-// parallel plain-number arrays instead of one array of objects avoids that per-point object
-// allocation entirely (V8 packs a pure-number array far more densely than an array of small
-// objects). year/week use 0 as a "null" sentinel (real years are always > 1000, real weeks are
-// 1-52) specifically so these two arrays also stay pure `number[]` rather than forcing a
-// holey/tagged element kind just to carry the occasional null — `weekCounts` still accumulates
-// every record (any basis of record — a temporal histogram at province granularity carries no
-// location precision to guard, unlike the hotspot centroids).
+// `pointBbox` is a running bounding box (for the distribution-elusiveness boost), kept as 4
+// numbers instead of every point to bound memory. The cluster* fields hold live-observation
+// points for hotspot clustering as parallel number arrays rather than objects, which avoids GC
+// thrashing on huge countries; year/week use 0 as the "null" sentinel to keep them pure numbers.
+// `weekCounts` counts every record regardless of basis of record.
 interface SpeciesProvinceEntry {
   class: string;
   years: Map<number, number>;
@@ -839,12 +639,8 @@ interface SpeciesProvinceEntry {
   weekCounts: Map<number, number>;
 }
 
-// Species flagged as an escapee/introduced population IN THIS COUNTRY by the elusiveness
-// crawl's geographic-distance check (compute-elusiveness.ts) — a country holding only a small,
-// geographically implausible share of a species' total records (e.g. Black-Cheeked Lovebird
-// cage-bird escapees in South Africa, native only to Zambia). Keyed by scientific_name, not
-// species_id, since that's the join key already available in `included` below without an
-// extra per-species DB lookup.
+// Species flagged as escapee/introduced in this country (compute-elusiveness.ts). Keyed by
+// scientific_name, the join key already available in `included` below.
 async function loadNonNativeSpeciesNames(iso3: string): Promise<Set<string>> {
   const res = await pool.query<{ scientific_name: string }>(
     `SELECT s.scientific_name FROM species_nonnative_countries snc
@@ -855,12 +651,8 @@ async function loadNonNativeSpeciesNames(iso3: string): Promise<Set<string>> {
   return new Set(res.rows.map((r) => r.scientific_name));
 }
 
-// See region_species_manual_overrides' own migration comment — a verified answer from an
-// authoritative outside source (range map, government status report) for one specific
-// (region, species) pair, taking precedence over whatever the record-pattern check alone
-// would have concluded. Loaded once per country (keyed by every province being scored) rather
-// than per-species, since overrides are rare enough that one query up front is cheap and this
-// avoids a per-species round trip inside the write loop below.
+// Verified (region, species) answers from authoritative sources that override the record-pattern
+// check. Loaded once per country.
 async function loadManualOverrides(
   provinceIds: string[],
 ): Promise<Map<string, Map<string, { isVagrant: boolean; isInvasive: boolean | null }>>> {
@@ -886,39 +678,26 @@ async function computeCountryProvinces(
   refreshAggregateCache = false,
 ): Promise<void> {
   const provincesArg = process.argv.find((a) => a.startsWith("--provinces="));
-  // Scoped verification runs (e.g. testing a threshold change against one province before
-  // committing to a world-scale recompute) don't need every OTHER province in the country
-  // reprocessed too — filtering here, right after load, keeps the rest of this function (point
-  // matching, tiering, region_species writes) untouched and oblivious to the filter.
+  // --provinces limits the run to named provinces.
   const provinceNameFilter = provincesArg ? new Set(provincesArg.split("=")[1].split(",")) : null;
   const allProvinces = await loadProvinces(countryId);
   const provinces = provinceNameFilter ? allProvinces.filter((p) => provinceNameFilter.has(p.name)) : allProvinces;
   if (provinces.length === 0) {
-    console.log(`[compute-provinces-bulk] ${countryName}: no province rows found (drill-down produced none, or none matched --provinces) — skipping`);
+    console.log(`[compute-provinces-bulk] ${countryName}: no province rows found (drill-down produced none, or none matched --provinces): skipping`);
     return;
   }
 
   const iso3 = (await fetchAllCountries()).find((c) => c.iso2 === iso2)?.iso3 ?? null;
   const nonNativeSpeciesNames = iso3 ? await loadNonNativeSpeciesNames(iso3) : new Set<string>();
-  // Resolved once per country, reused for every one of its provinces' own iNat place lookups
-  // below (see resolveInatPlaceId's own comment on why a province's match is filtered against
-  // this).
+  // Resolved once per country; province iNat place lookups are filtered against it.
   const countryInatPlaceId = await resolveInatPlaceId(countryId, countryName, true, null);
   const manualOverridesByProvince = await loadManualOverrides(provinces.map((p) => p.id));
 
   await waitForOrEnsureGbifZipCached(countryName, iso2, refreshCache);
   console.log(`[compute-provinces-bulk] ${countryName}: tracking ${provinces.length} province(s), using cached GBIF data...`);
   const cachedZipPath = path.join(GBIF_COUNTRY_CACHE_DIR, `${iso2}.zip`);
-  // NOT keyed by iso2 alone, unlike the raw GBIF zip above — confirmed live that Ashmore and
-  // Cartier Is. and Australia share Natural Earth's "AU" code (Ashmore genuinely is an
-  // Australian territory, so the raw GBIF data legitimately IS the same for both), but this
-  // aggregate is the result of matching those raw points against ONE country's own specific
-  // set of province boundaries — Ashmore's real 1-province scan and Australia's real
-  // 11-province scan produce completely different aggregates from the same iso2. Keying this
-  // by iso2 alone let whichever of the two ran first silently poison the other's cache: Ashmore
-  // ran moments before Australia in the same pass, wrote its own (near-empty) aggregate to
-  // what was nominally "AU.json," and Australia's own run then found that file already fresh
-  // and reused it verbatim — every single Australian province wrote zero species as a result.
+  // Keyed by iso2 plus country name: some countries share an iso2 (a territory and its parent)
+  // but have different province sets, so they'd poison each other's cache otherwise.
   const aggregateCacheKey = `${iso2}-${countryName.replace(/[^a-zA-Z0-9]+/g, "_")}`;
   const partitionPaths = new Map(provinces.map((p) => [p.id, partitionFilePath(aggregateCacheKey, p.id)] as const));
   const zipMtimeMs = statSync(cachedZipPath).mtimeMs;
@@ -929,13 +708,8 @@ async function computeCountryProvinces(
   if (allPartitionsFresh) {
     console.log(`[compute-provinces-bulk] ${countryName}: reusing cached point-matched partitions (skipping the raw GBIF scan)`);
   } else {
-    // Single-threaded scan, inline on this thread — the worker_threads pool (still present in
-    // provinceMatchWorker.ts) turned out to deadlock unpredictably under real load (confirmed
-    // live: hung silently with zero CPU on two separate Canada runs, and OOM-crashed deserializing
-    // a worker's result on a third), with the actual bug never pinned down. Given the goal here is
-    // a checklist that's actually correct, not fast, this reverts to the simple, proven approach:
-    // slower (single core), but it just works. Revisit the worker pool once someone has time to
-    // properly root-cause the hang — don't re-enable it blind.
+    // Single-threaded on purpose: the worker_threads pool in provinceMatchWorker.ts deadlocks
+    // under load for an unknown reason. Don't re-enable it without root-causing that.
     function findProvinces(point: [number, number]): ProvinceRegion[] {
       const pointBbox: BoundingBox = { minLon: point[0], minLat: point[1], maxLon: point[0], maxLat: point[1] };
       const matches: ProvinceRegion[] = [];
@@ -947,34 +721,20 @@ async function computeCountryProvinces(
     }
 
     mkdirSync(PROVINCE_AGGREGATE_CACHE_DIR, { recursive: true });
-    // One write stream per province, open for the whole scan — a handful of file descriptors
-    // and their own small internal buffers, nowhere near the memory cost of holding every
-    // matched point for every province as live JS objects (see partitionFilePath's own comment
-    // on the OOM this replaced). Matched rows are written straight through as they're found;
-    // nothing about a row survives past this loop iteration.
+    // One write stream per province for the whole scan; matched rows are written straight through.
     const writeStreams = new Map(provinces.map((p) => [p.id, createWriteStream(partitionPaths.get(p.id)!)] as const));
     const taxonClassByName = await taxonClassByScientificName();
+    const catalogNames = await catalogNameBySynonym();
 
     const unzipProc = spawn("unzip", ["-p", cachedZipPath]);
-    // Exit code was never checked before — a corrupt/truncated zip makes `unzip -p` print an
-    // error to stderr (never surfaced; nothing reads that pipe) and emit nothing on stdout, which
-    // the loop below couldn't tell apart from a country that legitimately has zero occurrences.
-    // The byte-count check in downloadZip should catch a truncated download before this even
-    // runs, but this stays as a second, independent guard against a zip that's corrupt for some
-    // other reason.
+    // A corrupt zip makes `unzip -p` emit nothing on stdout, which looks like zero occurrences,
+    // so capture stderr and check the exit code below.
     let unzipStderr = "";
     unzipProc.stderr.on("data", (chunk) => (unzipStderr += chunk));
     const rl = readline.createInterface({ input: unzipProc.stdout, crlfDelay: Infinity });
     let header: string[] | null = null;
-    // Column positions looked up once from the header, not a fresh { [name]: value } object
-    // built for every one of a country's 100M+ rows — a GBIF occurrence dump has 40-50+
-    // columns, and most rows here are never anything this script tracks (insects, plants,
-    // fungi, ...), so building the full row object before the class check even runs was
-    // real, avoidable per-row cost paid on rows about to be thrown away immediately after.
-    // Reading the handful of columns actually used, by index, and checking class FIRST (a
-    // plain array read, not an object-property one) skips that construction for every row
-    // that was going to be discarded anyway — same values, same filtering, just reordered so
-    // the cheap check runs before the expensive one.
+    // Columns are read by index, and class is checked first, since most of the 100M+ rows are
+    // taxa this script skips.
     let colIndex: Record<string, number> = {};
     let rowCount = 0;
     let matchedCount = 0;
@@ -988,13 +748,11 @@ async function computeCountryProvinces(
       }
       rowCount++;
       const rawClass = cols[colIndex.class] ?? "";
-      // Cheap check first, same reasoning as before this taxon expansion: a raw class that's
-      // neither a fast-path match (bird/mammal/fish) nor even in the broader admit list gets
-      // skipped before the species column is ever read — still true for the overwhelming
-      // majority of rows (insects, plants, fungi), which never match either set.
+      // Skip untracked classes before reading anything else.
       const isFastPathClass = BIRD_MAMMAL_CLASSES.has(rawClass) || FISH_CLASSES.has(rawClass);
       if (!isFastPathClass && !EXTRA_ADMIT_GBIF_CLASSES.has(rawClass)) continue;
-      const species = cols[colIndex.species];
+      const rawSpecies = cols[colIndex.species];
+      const species = catalogNames.get(rawSpecies) ?? rawSpecies;
       const cls = isFastPathClass ? rawClass : taxonClassByName.get(species) ?? null;
       if (!cls) continue;
       const lat = Number(cols[colIndex.decimallatitude]);
@@ -1035,20 +793,12 @@ async function computeCountryProvinces(
   {
     const currentYear = new Date().getFullYear();
     for (const province of provinces) {
-      // Read back and fully aggregate ONE province's own partition file here, at the top of
-      // this loop iteration — not a shared structure populated for every province up front. Goes
-      // out of scope (eligible for GC) the moment this iteration ends, so at most one province's
-      // worth of matched points is ever live in memory at once, regardless of how many provinces
-      // a country has or how large its raw GBIF data was.
+      // Only one province's points are in memory at a time.
       const bySpecies = await loadProvinceEntriesFromPartition(partitionPaths.get(province.id)!);
       const included: Array<{ species: string; recordCount: number; isVagrant: boolean }> = [];
 
-      // Per-taxon-class baseline for the recurrence check's record-count floor (see
-      // RECURRENCE_MIN_RECORDS_FRACTION_OF_MEDIAN's own comment) — birds and mammals have
-      // wildly different volumes even within the same province, so each needs its own median,
-      // computed ONLY from species that clear MIN_RECORDS outright (a real, unambiguous
-      // "genuinely present here" population) rather than the raw candidate pool, which is mostly
-      // noise (a single incidental record is enough to create a bySpecies entry at all).
+      // Per-class median for the recurrence floor, since record volumes differ widely by class.
+      // Computed only from species that clear MIN_RECORDS, as the raw candidate pool is mostly noise.
       const allTimeTotalByClass = new Map<string, number[]>();
       for (const [, { class: cls, years }] of bySpecies) {
         if (FISH_CLASSES.has(cls)) continue;
@@ -1082,27 +832,16 @@ async function computeCountryProvinces(
           included.push({ species, recordCount: recentTotal, isVagrant: isNonNative || !passesRecurrenceCheck(yearCountArr, recurrenceFloor) });
           continue;
         }
-        // A species that clears the bare "is there any real chance of finding this here"
-        // floor but fails the recurrence PATTERN check used to still get dropped from the
-        // checklist entirely, with no distinction from a species that was never here at
-        // all — Mountain Beaver in British Columbia (a genuine, if hard-to-detect, resident)
-        // and a genuine one-off vagrant burst look identical from here on: both have "some
-        // real records, but the pattern doesn't prove recurrence." The difference between
-        // them needs an authoritative outside source (a range map, a government status
-        // report), not more GBIF record-counting — see region_species_manual_overrides. So
-        // list it, flagged vagrant, rather than silently erase it — a real resident that
-        // fails the pattern check is still findable and belongs on the list; an actual
-        // vagrant is exactly what the vagrant flag exists to communicate.
+        // Enough records to be findable but no proven recurrence: list it flagged vagrant rather
+        // than drop it. Hard-to-detect residents are fixed via region_species_manual_overrides.
         if (allTimeTotal >= RECURRENCE_ALLTIME_FLOOR) {
           included.push({ species, recordCount: allTimeTotal, isVagrant: isNonNative || !passesRecurrenceCheck(yearCountArr, recurrenceFloor) });
         }
       }
 
-      // eBird rescue pass (see fetchEbirdRegionSpeciesCodes' own comment): birds GBIF's own
-      // recurrence check either dropped entirely or flagged vagrant get a second opinion from
-      // eBird's historical species list for this exact province, when one is available.
-      // Deliberately excludes nonnative flags — an introduced species showing up in eBird's
-      // records doesn't make it any less introduced, so that flag stands regardless.
+      // eBird rescue pass for birds GBIF dropped or flagged vagrant. Nonnative species are never
+      // rescued. Rescued names are kept through the iNat reconcile below.
+      const ebirdRescuedNames: string[] = [];
       if (province.ebirdRegionCode && EBIRD_API_KEY) {
         const includedByName = new Map(included.map((c) => [c.species, c]));
         const rescueCandidates: string[] = [];
@@ -1121,6 +860,7 @@ async function computeCountryProvinces(
             let rescued = 0;
             for (const row of codeRes.rows) {
               if (!row.ebird_code || !ebirdCodes.has(row.ebird_code)) continue;
+              ebirdRescuedNames.push(row.scientific_name);
               const existing = includedByName.get(row.scientific_name);
               if (existing) {
                 existing.isVagrant = false;
@@ -1142,12 +882,8 @@ async function computeCountryProvinces(
         }
       }
 
-      // iNaturalist Research Grade rescue pass (see fetchInatResearchGradeTaxonIds' own
-      // comment) — taxon-agnostic, so this is the one that actually helps mammals/reptiles/
-      // amphibians/fish, where eBird has no equivalent at all. Re-reads `included` fresh (not
-      // the eBird pass's own includedByName) since that map may already reflect eBird rescues
-      // above — this pass should still be able to un-flag anything still marked vagrant after
-      // that, and should never re-flag anything eBird already cleared.
+      // iNaturalist Research Grade rescue pass, for all taxa (eBird covers only birds). Re-reads
+      // `included` so it sees the eBird rescues above.
       {
         const includedByName = new Map(included.map((c) => [c.species, c]));
         const rescueCandidates: string[] = [];
@@ -1193,27 +929,16 @@ async function computeCountryProvinces(
       console.log(`[compute-provinces-bulk]   ${province.name}: ${included.length} species pass inclusion (of ${bySpecies.size} candidates)`);
       if (!apply) continue;
 
-      // Local tier: mirrors the GLOBAL tier logic exactly (apply-rarity-phase4.ts), just fed
-      // this province's own data instead of world data — an absolute composite-value threshold,
-      // not a percentile quota. The old version here ranked species purely by position among
-      // this province's OTHER candidates, which meant a species only findable on one tiny island
-      // could still get bumped down to "epic" just because some other species in the same
-      // province ranked even more concentrated — diluting a real, absolute difficulty signal by
-      // whoever else happened to share the dataset. Same failure mode the global composite's own
-      // comment already warns against, just not caught here originally.
+      // Local tier mirrors the global tier logic (apply-rarity-phase4.ts) on this province's data:
+      // an absolute composite threshold, not a percentile quota.
       //
-      // Hotspot clusters computed once, upfront — reused both for the rangeScore below AND the
-      // region_species_hotspots write further down, instead of clustering the same species'
-      // points twice.
+      // Hotspots are clustered once and reused for rangeScore and the hotspot write below.
       const clustersBySpecies = new Map<string, Hotspot[]>();
       for (const c of included) {
         const entry = bySpecies.get(c.species)!;
         const scope = EBIRD_SENSITIVE_SPECIES.get(c.species);
-        // Not sensitive at all -> never blur. Globally sensitive -> always blur, regardless of
-        // this record's own region/season. Regionally sensitive -> only blur a point if THIS
-        // province matches one of the listed regions, and (if that region has a season) the
-        // point's own week falls inside it — see sensitive-species.ts's own comment on why the
-        // old flat "sensitive everywhere, always" behavior was a real, confirmed bug.
+        // Not sensitive: never blur. Globally sensitive: always blur. Regionally sensitive: blur
+        // only if this province matches a listed region and the point's week is in its season.
         const isSensitivePoint = !scope
           ? () => false
           : scope.global
@@ -1230,30 +955,13 @@ async function computeCountryProvinces(
         );
       }
 
-      // rangeScore mirrors global rangeScore (small range -> high score): here "range" is how
-      // concentrated each species' own points are relative to the whole province's bounding box
-      // (reusing the `points` this download already collected, no extra GBIF calls) rather than
-      // a global range-size figure. abundanceScore mirrors global's IUCN-modifier abundance axis
-      // (no per-province IUCN data exists, so record-count rank is the closest analog: fewer
-      // records here -> higher score, same "how easy to detect HERE" signal as before). Both are
-      // percentile RANKS (0-1 sub-scores, exactly how global's own rangeScore is built too — see
-      // percentileRankScores' own comment), only the FINAL tier assignment changes: compare the
-      // resulting composite against the same taxon-calibrated absolute thresholds used globally,
-      // instead of re-ranking it into yet another percentile.
+      // rangeScore: how concentrated a species' points are relative to the province's bounding
+      // box (small range, high score). abundanceScore: record-count rank (fewer records, higher
+      // score). Both are percentile sub-scores; the composite is compared against the same
+      // absolute thresholds used globally.
       //
-      // Range excludes only genuine OUTLIER clusters — both small AND geographically isolated
-      // from the species' main cluster group — not just "small." A first version tried a flat
-      // "keep whichever clusters hold >=80% of records" rule; confirmed live in British Columbia
-      // that this broke badly for widespread species like House Sparrow, which has 366 small
-      // population clusters spread right across the province (one per town/city) where only 18
-      // (the biggest cities) happen to hold 80% of records — that's just where more birders
-      // live, not where the species doesn't occur, and the 80% rule wrongly shrank its "range"
-      // from ~82% of BC's diagonal down to ~20%. Sage Thrasher's real case is different in kind,
-      // not just degree: a small (~7%) cluster near the Fraser Valley sits FAR from its actual
-      // Okanagan stronghold — a genuine isolated vagrant record, not one of many real population
-      // centers. Testing both "small AND far from the rest" catches Sage Thrasher's real outlier
-      // while leaving House Sparrow's many small-but-contiguous town clusters alone (none of them
-      // is a distance outlier relative to the others, even though each is individually small).
+      // Range drops only outlier clusters that are both small and far from the rest. Dropping
+      // merely small clusters would shrink the range of widespread species seen in many towns.
       const OUTLIER_MAX_SHARE = 0.1;
       const OUTLIER_DISTANCE_STD_DEVS = 2.5;
       function coreRangeDiagonalKm(clusters: Hotspot[]): number {
@@ -1261,10 +969,7 @@ async function computeCountryProvinces(
         const total = clusters.reduce((sum, cl) => sum + cl.pointCount, 0);
         const centroidLat = clusters.reduce((sum, cl) => sum + cl.centroidLat * cl.pointCount, 0) / total;
         const centroidLon = clusters.reduce((sum, cl) => sum + cl.centroidLon * cl.pointCount, 0) / total;
-        // Equirectangular approx (same tradeoff as bboxDiagonalDegrees) — fine at province scale,
-        // and longitude degrees narrow with latitude so scale them by cos(latitude) or two
-        // clusters at the same longitude-degree offset but different latitudes would compare as
-        // equally far apart regardless of how close together they actually are near the poles.
+        // Equirectangular approximation, with longitude scaled by cos(latitude).
         const lonScale = Math.cos((centroidLat * Math.PI) / 180);
         const distanceKm = (cl: Hotspot) =>
           Math.sqrt((cl.centroidLat - centroidLat) ** 2 + ((cl.centroidLon - centroidLon) * lonScale) ** 2) * KM_PER_DEGREE;
@@ -1276,9 +981,7 @@ async function computeCountryProvinces(
           const isFar = stdDevKm > 0 && distanceKm(cl) > meanDistanceKm + OUTLIER_DISTANCE_STD_DEVS * stdDevKm;
           return !(isSmall && isFar);
         });
-        // A species where EVERY cluster somehow qualified as an outlier (shouldn't happen —
-        // the single largest cluster alone is never "small") falls back to the full set rather
-        // than computing a range off zero clusters.
+        // Defensive fallback if every cluster was flagged an outlier.
         const effective = core.length > 0 ? core : clusters;
         if (effective.length === 1) return effective[0].bboxDiagonalKm;
         const centroidSpanKm =
@@ -1287,23 +990,12 @@ async function computeCountryProvinces(
         return centroidSpanKm + maxClusterRadiusKm * 2;
       }
 
-      // PROVINCE_RANGE_ABUNDANCE_WEIGHTS is a deliberately even split, NOT a copy of global's
-      // WEIGHTS/MAMMAL_WEIGHTS/FISH_WEIGHTS — this scope only ever has these two axes available
-      // (no elusiveness data exists in this bulk SQL pipeline), and neither axis's real quality
-      // differs by taxon at this level the way IUCN coverage or behavioral data does globally, so
-      // there's no basis yet to split it further by taxon here. Also, a single province's sample
-      // is far smaller/noisier than the full global dataset, so even where global's per-taxon
-      // splits exist, they don't necessarily transfer to this scope unchanged. This is an interim
-      // value pending real anchor-species calibration once this recompute provides actual data to
-      // check it against (tracked as a follow-up task) — not a validated, final split.
+      // Interim even split between the only two axes available here (no elusiveness data),
+      // pending calibration against anchor species.
       const PROVINCE_RANGE_ABUNDANCE_WEIGHTS = { range: 0.5, abundance: 0.5 };
       const regionDiagonalKm = bboxDiagonalDegrees(province.bbox) * KM_PER_DEGREE;
-      // Species with zero hotspot clusters (every one of their records had a basis_of_record
-      // outside LIVE_OBSERVATION_BASIS_OF_RECORD — rare but possible) are left OUT of the
-      // percentile ranking entirely, not given a ratio of 0 — a ratio of 0 reads as "perfectly
-      // concentrated," the single best possible rangeScore, which is backwards for "no
-      // information available." spreadScoreByIdx's own `?? 0.5` fallback below already handles
-      // an idx with no entry here by defaulting to neutral.
+      // Species with no hotspot clusters are left out of the ranking (a ratio of 0 would read as
+      // perfectly concentrated) and get the neutral `?? 0.5` fallback below.
       const spreadRatioEntries = included.flatMap((c, idx) => {
         const clusters = clustersBySpecies.get(c.species) ?? [];
         if (clusters.length === 0) return [];
@@ -1312,16 +1004,9 @@ async function computeCountryProvinces(
       const spreadScoreByIdx = percentileRankScores(spreadRatioEntries);
       const baseScoreByIdx = percentileRankScores(included.map((c, idx) => ({ idx, value: c.recordCount })));
 
-      // Confirmed live: Alagoas, Brazil has ~86,000 total bird records across its whole
-      // checklist versus British Columbia's 22 MILLION — a ~250x difference in reporting
-      // volume. With that few total records, one species' own count is noisy enough that
-      // percentile rank alone can swing it toward a falsely extreme tier (Rock Pigeon reading
-      // "rare" there isn't a real fact, unlike a genuinely sparse population — it's small-
-      // sample noise). Composite scores in a thin-data taxon+province are pulled toward each
-      // taxon's own "uncommon" threshold (a deliberately unremarkable, conservative default —
-      // taxon-specific since fish/mammal/bird threshold scales aren't comparable) rather than
-      // trusted at full strength; a region with abundant data (>=1M total records for this
-      // taxon here) is unaffected.
+      // Record volume varies hugely between provinces, and in thin-data ones percentile rank is
+      // mostly noise. Composites there are pulled toward the taxon's neutral threshold; a class
+      // with >=1M records in the province is trusted fully.
       const CONFIDENCE_LOW_RECORDS = 10_000;
       const CONFIDENCE_HIGH_RECORDS = 1_000_000;
       function confidenceFromTotalRecords(totalRecords: number): number {
@@ -1341,10 +1026,7 @@ async function computeCountryProvinces(
       const localTierBySpecies = new Map<string, string>();
       included.forEach((c, idx) => {
         const cls = bySpecies.get(c.species)!.class;
-        // Marine invertebrates with no reliable data density to rank against (see
-        // NO_RARITY_TIER_TAXON_CLASSES's own comment) stay untiered here regardless of how much
-        // GBIF data this one province happens to have — a consistent "unrated" per taxon group
-        // beats a tier that's real in one well-recorded province and noise in the next.
+        // Taxon groups without reliable data density stay untiered everywhere, for consistency.
         if (NO_RARITY_TIER_TAXON_CLASSES.has(cls as TaxonClass)) return;
         const rangeScore = spreadScoreByIdx.get(idx) ?? 0.5;
         const abundanceScore = baseScoreByIdx.get(idx) ?? 0.5;
@@ -1356,19 +1038,20 @@ async function computeCountryProvinces(
             ? MAMMAL_ABSOLUTE_TIER_THRESHOLDS
             : BIRD_ABSOLUTE_TIER_THRESHOLDS;
         const confidence = confidenceFromTotalRecords(totalRecordsByClass.get(cls) ?? 0);
-        const neutralAnchor = thresholds.find((t) => t.tier === "uncommon")!.minScore;
+        const neutralAnchor = thresholds.find((t) => t.tier === "occasional")!.minScore;
         const composite = confidence * rawComposite + (1 - confidence) * neutralAnchor;
         localTierBySpecies.set(c.species, tierForScore(composite, thresholds));
       });
-      // Same floor-AND-ceiling rule as the live per-region computation (regions/routes.ts) —
-      // see its own comment on LOCAL_TIER_GLOBAL_CEILING_STEPS for why a globally common
-      // species (e.g. Mallard) needs a ceiling too, not just a floor, to stop it swinging all
-      // the way to "legendary" from thin-data noise in one under-birded province.
+      // Clamp the local tier to within a few steps of the global tier, same rule as
+      // regions/routes.ts, so thin-data noise can't swing a species too far either way.
       const LOCAL_TIER_GLOBAL_FLOOR_STEPS = 1;
       const LOCAL_TIER_GLOBAL_CEILING_STEPS = 2;
-      const TIER_ORDER = ["legendary", "epic", "rare", "uncommon", "common"];
+      const TIER_ORDER = ["legendary", "rare", "uncommon", "occasional", "common"];
       const globalTierRes = await pool.query<{ scientific_name: string; tier: string }>(
-        `SELECT scientific_name, tier FROM species s JOIN species_rarity r ON r.species_id = s.id WHERE s.scientific_name = ANY($1)`,
+        `SELECT s.scientific_name, r.tier FROM species s JOIN species_rarity r ON r.species_id = s.id WHERE s.scientific_name = ANY($1)
+         UNION ALL
+         SELECT ss.synonym_name, r.tier FROM species_synonyms ss JOIN species_rarity r ON r.species_id = ss.species_id
+          WHERE ss.synonym_name = ANY($1)`,
         [included.map((c) => c.species)],
       );
       const globalTierBySpecies = new Map(globalTierRes.rows.map((r) => [r.scientific_name, r.tier]));
@@ -1384,12 +1067,7 @@ async function computeCountryProvinces(
         if (clampedRank !== localRank) localTierBySpecies.set(species, TIER_ORDER[clampedRank]);
       }
 
-      // A plain `await pool.connect()` here previously hung forever with zero CPU and zero log
-      // output when a connection never became available (observed live during a Canada run
-      // alongside several other long-running scripts sharing the same Postgres instance) —
-      // completely indistinguishable from a real deadlock elsewhere in the worker-thread code
-      // until the process was killed and inspected. A timeout turns that silent hang into a
-      // loud, immediate failure instead.
+      // Timeout so an exhausted pool fails loudly instead of hanging silently.
       const client = await Promise.race([
         pool.connect(),
         new Promise<never>((_, reject) =>
@@ -1402,31 +1080,29 @@ async function computeCountryProvinces(
         await client.query(`DELETE FROM region_species_hotspots WHERE region_id = $1`, [province.id]);
         let written = 0;
         let hotspotsWritten = 0;
+        // GBIF names drift from our catalog after reclassifications, so names also resolve via
+        // species_synonyms (the catalog name wins). One lookup for the whole province.
+        const names = included.map((c) => c.species);
+        const idRes = await client.query<{ name: string; id: string }>(
+          `SELECT DISTINCT ON (n.name) n.name, m.id
+           FROM unnest($1::text[]) AS n(name)
+           JOIN (
+             SELECT scientific_name AS name, id, 0 AS pref FROM species WHERE scientific_name = ANY($1)
+             UNION ALL
+             SELECT synonym_name, species_id, 1 FROM species_synonyms WHERE synonym_name = ANY($1)
+           ) m ON m.name = n.name
+           ORDER BY n.name, m.pref`,
+          [names],
+        );
+        const idByName = new Map(idRes.rows.map((r) => [r.name, r.id]));
+        // Keyed by species id: two names can resolve to one species, and the later one wins.
+        const speciesRows = new Map<string, unknown[]>();
+        const hotspotRows: unknown[][] = [];
         for (const c of included) {
-          // GBIF's bulk download reports whatever scientific name its OWN current taxonomic
-          // backbone uses, which drifts from our catalog's scientific_name after a genus
-          // reclassification (Oceanodroma furcata -> Hydrobates furcatus, Haemorhous cassinii
-          // -> Carpodacus cassinii, ...) — confirmed live: this silently dropped Fork-Tailed
-          // and Leach's Storm-Petrel entirely from British Columbia's checklist (147 and 85
-          // real records respectively) with no error, no vagrant flag, nothing — the species
-          // just never got as far as an INSERT. species_synonyms exists for exactly this
-          // ("kept so name-based matching against external data ... still resolves to the
-          // right species," see its own migration comment) but this lookup never consulted
-          // it. Falls back to it here rather than only matching the catalog's own current name.
-          const speciesRes = await client.query<{ id: string }>(
-            `SELECT id FROM species WHERE scientific_name = $1
-             UNION
-             SELECT species_id AS id FROM species_synonyms WHERE synonym_name = $1
-             LIMIT 1`,
-            [c.species],
-          );
-          const speciesId = speciesRes.rows[0]?.id;
+          const speciesId = idByName.get(c.species);
           if (!speciesId) continue;
 
-          // See loadManualOverrides' own comment — a verified answer from an authoritative
-          // outside source for this exact (region, species) pair beats the record-pattern
-          // check's own conclusion. is_invasive has no algorithmic signal at all (see its own
-          // migration comment) — it only ever comes from a manual override, defaulting to false.
+          // Manual overrides win. is_invasive only ever comes from an override.
           const override = manualOverridesByProvince.get(province.id)?.get(speciesId);
           const isVagrant = override?.isVagrant ?? c.isVagrant;
           const isInvasive = override?.isInvasive ?? false;
@@ -1435,44 +1111,59 @@ async function computeCountryProvinces(
           const entry = bySpecies.get(c.species)!;
           const weeklyFrequency = Array.from({ length: 52 }, (_, i) => entry.weekCounts.get(i + 1) ?? 0);
           const hasWeeklyData = weeklyFrequency.some((v) => v > 0);
-
-          await client.query(
-            `INSERT INTO region_species (region_id, species_id, local_frequency, is_vagrant, is_invasive, local_tier, weekly_frequency)
-             VALUES ($1, $2, $3, $4, $5, $6, $7)
+          speciesRows.set(speciesId, [
+            province.id,
+            speciesId,
+            c.recordCount,
+            isVagrant,
+            isInvasive,
+            localTierBySpecies.get(c.species) ?? null,
+            hasWeeklyData ? `{${weeklyFrequency.join(",")}}` : null,
+          ]);
+          for (const hotspot of clustersBySpecies.get(c.species) ?? []) {
+            hotspotRows.push([
+              province.id,
+              speciesId,
+              hotspot.centroidLat,
+              hotspot.centroidLon,
+              hotspot.pointCount,
+              hotspot.bboxDiagonalKm,
+              hotspot.lastSeenYear,
+              hotspot.distinctYears,
+            ]);
+          }
+        }
+        const insertBatches = async (rows: unknown[][], perRow: number, sql: (values: string) => string, casts: string[]) => {
+          const BATCH = 1000;
+          for (let i = 0; i < rows.length; i += BATCH) {
+            const batch = rows.slice(i, i + BATCH);
+            const params = batch.flat();
+            const values = batch
+              .map((_, r) => `(${Array.from({ length: perRow }, (__, k) => `$${r * perRow + k + 1}${casts[k] ?? ""}`).join(", ")})`)
+              .join(", ");
+            await client.query(sql(values), params);
+          }
+        };
+        await insertBatches(
+          [...speciesRows.values()],
+          7,
+          (values) => `INSERT INTO region_species (region_id, species_id, local_frequency, is_vagrant, is_invasive, local_tier, weekly_frequency)
+             VALUES ${values}
              ON CONFLICT (region_id, species_id) DO UPDATE SET
                local_frequency = EXCLUDED.local_frequency, is_vagrant = EXCLUDED.is_vagrant, is_invasive = EXCLUDED.is_invasive,
                local_tier = EXCLUDED.local_tier, weekly_frequency = EXCLUDED.weekly_frequency`,
-            [
-              province.id,
-              speciesId,
-              c.recordCount,
-              isVagrant,
-              isInvasive,
-              localTierBySpecies.get(c.species) ?? null,
-              hasWeeklyData ? weeklyFrequency : null,
-            ],
-          );
-          written++;
-
-          for (const hotspot of clustersBySpecies.get(c.species) ?? []) {
-            await client.query(
-              `INSERT INTO region_species_hotspots
-                 (region_id, species_id, centroid_lat, centroid_lon, point_count, bbox_diagonal_km, last_seen_year, distinct_years)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-              [
-                province.id,
-                speciesId,
-                hotspot.centroidLat,
-                hotspot.centroidLon,
-                hotspot.pointCount,
-                hotspot.bboxDiagonalKm,
-                hotspot.lastSeenYear,
-                hotspot.distinctYears,
-              ],
-            );
-            hotspotsWritten++;
-          }
-        }
+          ["::uuid", "::uuid", "::numeric", "::boolean", "::boolean", "::text", "::int[]"],
+        );
+        written = speciesRows.size;
+        await insertBatches(
+          hotspotRows,
+          8,
+          (values) => `INSERT INTO region_species_hotspots
+             (region_id, species_id, centroid_lat, centroid_lon, point_count, bbox_diagonal_km, last_seen_year, distinct_years)
+             VALUES ${values}`,
+          ["::uuid", "::uuid", "::double precision", "::double precision", "::int", "::double precision", "::int", "::int"],
+        );
+        hotspotsWritten = hotspotRows.length;
         await client.query(`UPDATE regions SET occurrence_computed_at = now() WHERE id = $1`, [province.id]);
         await client.query("COMMIT");
         console.log(`[compute-provinces-bulk]   ${province.name}: wrote ${written} species, ${hotspotsWritten} hotspot clusters`);
@@ -1482,55 +1173,40 @@ async function computeCountryProvinces(
       } finally {
         client.release();
       }
-      // No explicit cleanup needed here — bySpecies was built fresh from this province's own
-      // partition file at the top of this iteration (see loadProvinceEntriesFromPartition's own
-      // comment) and never shared with any other province, so it's simply eligible for GC the
-      // moment the next iteration reassigns it.
-
-      // True iNat-membership reconcile, layered on top of the GBIF write just above. The two
-      // rescue passes earlier in this loop (eBird, iNat Research Grade) only ever reconsider a
-      // species GBIF's own partition already recorded for this exact province, so a species
-      // iNat confirms with zero GBIF presence here at all was never a candidate at all, and a
-      // species GBIF included that iNat has no record of here was never questioned either. This
-      // is the same "iNat decides membership, GBIF only supplies the data for whichever species
-      // land on the list" swap reconcile-countries-with-inat.ts already runs for countries
-      // (see matchedSpeciesIdsForRegion's own comment), just never extended down to provinces
-      // before. Skips cleanly (falls back to the GBIF-only result written just above) whenever
-      // no iNat place can be resolved for this exact province.
-      await reconcileProvinceMembershipWithInat(province.id, province.name);
+      // Let iNat decide final membership on top of the GBIF write above.
+      await reconcileProvinceMembershipWithInat(province.id, province.name, ebirdRescuedNames);
     }
   }
-  // Deliberately no cleanup here — cachedZipPath is the persistent GBIF cache (see
-  // GBIF_COUNTRY_CACHE_DIR's own comment), not a scratch download; ensureGbifZipCached above is
-  // the only thing that ever writes to it, and only ever via its own temp workDir, which it
-  // already cleans up itself.
+  // No cleanup: cachedZipPath is the persistent GBIF cache.
 }
 
-// Runs right after a province's GBIF-candidate checklist has already been written (see this
-// function's call site above) - a follow-up pass that lets iNaturalist Research Grade data
-// decide final MEMBERSHIP for this one province, the same authority reconcile-countries-with-
-// inat.ts already gives it at country granularity. Two independent things can happen here that
-// the GBIF-candidate pass and its own eBird/iNat rescue checks above never do:
-//   1. A species iNat confirms here that GBIF's own point-matched partition never recorded at
-//      all gets added, unrated (no GBIF occurrence data to score a tier from - same convention
-//      compute-provinces-inat.ts already uses for a province with zero prior data).
-//   2. A species GBIF's own candidate pool included, that iNat has no Research Grade record of
-//      here at all, gets dropped - unless resolveRemovalRescues confirms that's only a stale
-//      taxon-id mismatch, not a genuine absence.
-// Silently returns without changing anything when no iNat place can be resolved for this exact
-// province - the GBIF-only result already written above stands as the final answer, the same
-// safe fallback the country-level reconcile uses.
-async function reconcileProvinceMembershipWithInat(provinceId: string, provinceName: string): Promise<void> {
+// Lets iNaturalist Research Grade data decide final membership for one province:
+//   1. Species iNat confirms but GBIF never recorded here are added, unrated.
+//   2. Thinly-evidenced species iNat has no record of are dropped, unless resolveRemovalRescues
+//      shows it's only a stale taxon-id mismatch.
+// Does nothing when no iNat place resolves for the province.
+async function reconcileProvinceMembershipWithInat(provinceId: string, provinceName: string, ebirdRescuedNames: string[] = []): Promise<void> {
   const inatMatch = await matchedSpeciesIdsForRegion(provinceId, provinceName);
   if (!inatMatch) return;
   const { matchedSpeciesIds, rawTaxonIds } = inatMatch;
 
-  const existingRes = await pool.query<{ species_id: string }>(`SELECT species_id FROM region_species WHERE region_id = $1`, [
-    provinceId,
-  ]);
+  const existingRes = await pool.query<{ species_id: string; local_frequency: string | null }>(
+    `SELECT species_id, local_frequency FROM region_species WHERE region_id = $1`,
+    [provinceId],
+  );
   const existingIds = new Set(existingRes.rows.map((r) => r.species_id));
+  // Only species with thin GBIF evidence (below MIN_RECORDS) can be dropped for lacking iNat
+  // confirmation; otherwise places few iNat users visit would lose most of their list.
+  const wellEvidencedIds = new Set(
+    existingRes.rows.filter((r) => r.local_frequency != null && Number(r.local_frequency) >= MIN_RECORDS).map((r) => r.species_id),
+  );
+  // Birds on eBird's province list count as well-evidenced too.
+  if (ebirdRescuedNames.length > 0) {
+    const rescued = await pool.query<{ id: string }>(`SELECT id FROM species WHERE scientific_name = ANY($1)`, [ebirdRescuedNames]);
+    for (const r of rescued.rows) wellEvidencedIds.add(r.id);
+  }
 
-  const removalCandidateIds = [...existingIds].filter((id) => !matchedSpeciesIds.has(id));
+  const removalCandidateIds = [...existingIds].filter((id) => !matchedSpeciesIds.has(id) && !wellEvidencedIds.has(id));
   let rescuedIds = new Set<string>();
   if (removalCandidateIds.length > 0) {
     const candidateRows = await pool.query<{ id: string; scientific_name: string }>(
@@ -1586,21 +1262,10 @@ async function main() {
   const countries = await fetchAllCountries();
   const iso2ByName = new Map(countries.filter((c) => c.iso2).map((c) => [c.name, c.iso2!]));
 
-  // Prefetch mode — refresh-all-provinces.ts's own prefetcher runs this well ahead of (and
-  // concurrently with) the real processing pass below, for exactly one reason: guaranteeing a
-  // country's zip is cached is pure network wait with negligible CPU/RAM, while the processing
-  // pass is memory-heavy and deliberately serialized (see that file's own concurrency comment).
-  // Running the two back to back for every country that's never been downloaded pays for both
-  // waits in sequence; running this ahead of time overlaps the download wait with whatever the
-  // main pass is busy processing instead.
+  // --cache-only: download zips ahead of processing (used by refresh-all-provinces.ts), so
+  // network waits overlap with the memory-heavy processing pass.
   if (cacheOnly) {
-    // Drill-down + province check still happen here (unlike the original version of this mode,
-    // which skipped both "for speed") — confirmed live that skipping them wasted a real GBIF
-    // download slot on Antarctica (zero provinces, always skipped by the real processing pass
-    // below) not once but twice across restarts, since nothing here knew it was pointless before
-    // downloading it anyway. Drill-down is idempotent and a fast no-op for anything already
-    // drilled down, so this costs little for the common case while avoiding a wasted download
-    // for the zero-province case.
+    // Drill down first so countries with zero provinces don't waste a download slot.
     await drillDownAllCountries(countryNames);
     const countryRowsRes = await pool.query<{ id: string; name: string }>(
       `SELECT r.id, r.name FROM regions r
@@ -1618,14 +1283,12 @@ async function main() {
       try {
         const provinces = await loadProvinces(countryId);
         if (provinces.length === 0) {
-          console.log(`[compute-provinces-bulk] ${name}: no province rows found — skipping download (nothing would ever process it)`);
+          console.log(`[compute-provinces-bulk] ${name}: no province rows found: skipping download (nothing would ever process it)`);
           continue;
         }
         await ensureGbifZipCached(name, iso2, refreshCache);
       } catch (err) {
-        // Best-effort only — a failed prefetch just means the real processing pass pays for the
-        // download itself later, exactly as if this prefetcher didn't exist. Never worth
-        // retrying or surfacing as a failure in its own right.
+        // Best-effort: the processing pass downloads it itself if this fails.
         console.error(`[compute-provinces-bulk] cache-only prefetch failed for ${name}: ${(err as Error).message}`);
       }
     }
@@ -1633,20 +1296,13 @@ async function main() {
     return;
   }
 
-  if (!apply) console.log(`[compute-provinces-bulk] DRY RUN — pass --apply to actually write region_species`);
+  if (!apply) console.log(`[compute-provinces-bulk] DRY RUN: pass --apply to actually write region_species`);
 
   console.log(`[compute-provinces-bulk] ensuring provinces are drilled down for ${countryNames.length} countries...`);
   await drillDownAllCountries(countryNames);
 
-  // Scoped to country-level regions (a direct child of a continent, which is itself a direct
-  // child of World) — a bare `name = ANY($1)` match, tried first, silently grabbed the WRONG
-  // region whenever a country's name collides with some other region elsewhere in the tree
-  // (confirmed live: "Georgia" matches both the real Caucasus country AND the US state of the
-  // same name; the JS Map below keeps whichever row Postgres happened to return last, with no
-  // ordering guarantee). That picked the US state's id for a run targeting the country, which
-  // then found zero matching provinces under it, logged "skipping," and exited 0 — checkpointed
-  // as a real success in refresh-all-provinces.ts despite writing nothing for the actual
-  // country. Same scoping refresh-all-provinces.ts's own country-listing query already uses.
+  // Scoped to country-level regions (World > continent > country), since some country names
+  // collide with other regions (Georgia the country vs. the US state).
   const countryRowsRes = await pool.query<{ id: string; name: string }>(
     `SELECT r.id, r.name FROM regions r
      JOIN regions cont ON cont.id = r.parent_id
@@ -1656,14 +1312,7 @@ async function main() {
   );
   const countryIdByName = new Map(countryRowsRes.rows.map((r) => [r.name, r.id]));
 
-  // One country's failure (a truncated GBIF download, a transient network error, GBIF's own
-  // download API hiccuping) used to take the ENTIRE batch down with it — confirmed live: a
-  // truncated Costa Rica download threw out of computeCountryProvinces, propagated past this
-  // loop uncaught, and silently killed a multi-country run partway through, leaving every
-  // country after it (regardless of how unrelated to the actual failure) never even attempted.
-  // Catching per-country and continuing means one bad download costs exactly that one country,
-  // not the rest of a long batch — failures are collected and reported in one place at the end
-  // instead of being individually easy to miss in a long scrolling log.
+  // One country's failure shouldn't stop the batch; failures are reported together at the end.
   const failed: string[] = [];
   for (const [i, name] of countryNames.entries()) {
     const iso2 = iso2ByName.get(name);
@@ -1676,7 +1325,7 @@ async function main() {
     try {
       await computeCountryProvinces(name, iso2, countryId, apply, refreshCache, refreshAggregateCache);
     } catch (err) {
-      console.error(`[compute-provinces-bulk] ${name}: FAILED — ${(err as Error).message}`);
+      console.error(`[compute-provinces-bulk] ${name}: FAILED: ${(err as Error).message}`);
       failed.push(name);
     }
   }

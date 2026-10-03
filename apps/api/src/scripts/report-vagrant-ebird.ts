@@ -1,14 +1,7 @@
-// Read-only triage pass over the bird entries left in vagrant-still-needs-search.jsonl (the
-// residual after the GBIF-distributions and FishBase passes). Unlike FishBase's country.parquet,
-// eBird's per-country species list (`/v2/product/spplist/{iso2}`) is NOT a curated native/
-// introduced database — it's built from the same kind of citizen-submitted occurrence checklists
-// that produced the original false-vagrant-flag problem, so a species *appearing* on it doesn't
-// prove it isn't a vagrant (genuine rarities get logged too). The only signal it gives that's
-// actually new is the opposite direction: if a species has been reported ZERO times, ever, in a
-// whole country's eBird history, that's real evidence the underlying occurrence record behind
-// our flag was bad data (misidentification, bad coordinates, wrong basisOfRecord) rather than a
-// genuine vagrant sighting — worth a human look, not worth silently clearing or confirming either
-// way. This script only reports that zero-record case; it makes no DB writes.
+// Read-only report over the birds left in vagrant-still-needs-search.jsonl. eBird's country
+// species list (/v2/product/spplist/{iso2}) includes rarities, so appearing on it proves nothing;
+// but a species never reported in the country suggests our flag rests on bad data. Only that
+// case is reported. Makes no DB writes.
 import { existsSync, readFileSync, writeFileSync, appendFileSync } from "node:fs";
 import "../config.js"; // loads .env from the repo root before anything below reads process.env
 import { pool } from "../db.js";
@@ -33,7 +26,7 @@ async function fetchCountrySpeciesCodes(iso2: string): Promise<Set<string> | nul
   const res = await fetch(`https://api.ebird.org/v2/product/spplist/${iso2}`, {
     headers: { "X-eBirdApiToken": EBIRD_API_KEY! },
   });
-  if (!res.ok) return null; // e.g. iso2 eBird doesn't recognize — leave those entries unjudged
+  if (!res.ok) return null; // e.g. an iso2 eBird doesn't recognize: leave those entries unjudged
   const codes = (await res.json()) as string[];
   return new Set(codes);
 }
@@ -41,7 +34,7 @@ async function fetchCountrySpeciesCodes(iso2: string): Promise<Set<string> | nul
 async function main() {
   if (!EBIRD_API_KEY) throw new Error("EBIRD_API_KEY not set in .env");
   if (!existsSync(STILL_NEEDS_SEARCH_LOG)) {
-    throw new Error(`${STILL_NEEDS_SEARCH_LOG} not found — run the FishBase pass first`);
+    throw new Error(`${STILL_NEEDS_SEARCH_LOG} not found. Run the FishBase pass first`);
   }
   writeFileSync(PROBABLE_BAD_DATA_REPORT, "");
 

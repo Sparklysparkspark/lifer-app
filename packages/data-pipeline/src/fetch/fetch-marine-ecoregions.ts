@@ -1,19 +1,14 @@
-// Source: Marine Ecoregions of the World (MEOW) — Spalding MD, Fox HE, Allen GR, Davidson N,
+// Source: Marine Ecoregions of the World (MEOW): Spalding MD, Fox HE, Allen GR, Davidson N,
 // Ferdaña ZA, Finlayson M, Halpern BS, Jorge MA, Lombana A, Lourie SA, Martin KD, McManus E,
 // Molnar J, Recchia CA, Robertson J (2007) "Marine Ecoregions of the World: a
 // bioregionalization of coast and shelf areas." BioScience 57: 573-583. Shapefile hosted by
 // The Nature Conservancy (a stable, public, no-auth ArcGIS content item).
-// License (from the item's own metadata): public use for NON-COMMERCIAL purposes without
-// altering the data — fine for this personal, non-commercial project (same basis already
-// used for the eBird/iNaturalist API calls elsewhere), but this data must never be
-// redistributed or altered if this project is ever open-sourced.
+// License (from the item's metadata): public use for non-commercial purposes without altering
+// the data. It must never be redistributed or altered if this project is open-sourced.
 //
-// Replaces fetch-marine-zones.ts's Natural Earth ocean-basin polygons, which were too coarse
-// to be useful: "North Pacific Ocean" alone spanned the ENTIRE basin, Japan to Mexico, with
-// 4,498 fish species in its checklist — utterly useless as a "nearby water" proxy for a
-// single coastal region like British Columbia. MEOW's ~232 much smaller,
-// scientifically-defined coastal ecoregions are the real fix — a region borders a specific
-// named ecoregion (e.g. "Puget Trough/Georgia Basin" for BC), not an entire ocean.
+// Replaces fetch-marine-zones.ts's Natural Earth ocean basins, which were far too coarse as a
+// "nearby water" proxy. MEOW's ~232 coastal ecoregions let a region border a specific named
+// ecoregion rather than a whole ocean.
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync } from "node:fs";
 import path from "node:path";
@@ -33,7 +28,7 @@ const MEOW_ZIP_URL = "https://www.arcgis.com/sharing/rest/content/items/903c3ae0
 const SHP_NAME = "meow_ecos.shp";
 const DBF_NAME = "meow_ecos.dbf";
 
-// Same GBIF WKT/URL-length constraints already found and documented in fetch-marine-zones.ts.
+// Same GBIF WKT and URL-length limits as fetch-marine-zones.ts.
 const MAX_WKT_POINTS = 80;
 
 export interface MarineZone {
@@ -63,9 +58,7 @@ export async function fetchMarineEcoregions(): Promise<MarineZone[]> {
     const name = feature.properties.ECOREGION as string | undefined;
     if (!name) continue;
 
-    // Same "largest exterior ring only" simplification already used for the ocean-basin
-    // zones — islands/holes and small disconnected slivers don't matter for "is a species
-    // found in this ecoregion."
+    // Largest exterior ring only, as for the ocean-basin zones.
     const geometry = feature.geometry as { type: string; coordinates: unknown };
     let exteriorRings: Point[][];
     if (geometry.type === "Polygon") {

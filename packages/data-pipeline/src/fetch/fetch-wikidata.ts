@@ -25,17 +25,10 @@ interface SparqlBinding {
   wikipediaTitle?: { value: string };
 }
 
-// A real, disclosed data gap: GBIF's backbone and Wikidata sometimes disagree on which
-// scientific name is "current" for a
-// reclassified species, and Wikidata itself often SPLITS the two names into separate items
-// linked by P1420 "taxon synonym" — one item (matching GBIF's own name, and sometimes even
-// carrying GBIF's OWN taxon ID under P846) with no IUCN statement at all, and a second item
-// under the other name carrying the real P141 IUCN status. Snow Leopard is the exact case:
-// our GBIF-backbone name "Uncia uncia" matches a Wikidata item with zero P141, while
-// "Panthera uncia" — linked to it via P1420 in BOTH directions across the two live items —
-// carries "vulnerable." Falling back through P1420 in either direction (a synonym item may
-// point either way) recovers this without needing to change which scientific name we store
-// or query by.
+// GBIF and Wikidata sometimes disagree on a reclassified species' current name, and Wikidata
+// often splits the names into separate items linked by P1420 "taxon synonym", with the IUCN
+// status (P141) only on one of them. Following P1420 in either direction recovers it without
+// changing which name we store.
 function buildQuery(names: string[]): string {
   return `
     SELECT ?name ?iucnLabel ?image ?wikipediaTitle WHERE {

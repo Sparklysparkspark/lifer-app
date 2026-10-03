@@ -1,20 +1,10 @@
-// One-off: apply-rarity-phase4.ts's undocumented pool now gets tier='unrated' instead of
-// running through the percentile quota. Previously a huge "no real data" tie block was being
-// fanned across every tier, including "legendary", by arbitrary DB row order.
-// This re-derives that split from already-stored data rather than redoing the full
-// multi-hour, 258-country elusiveness crawl — safe because hasRealSignal is reconstructible
-// from stored species_traits fields plus the already-boosted elusiveness_score: the ONLY way
-// a mammal/fish's elusiveness_score can differ from exactly 0.75 (the no-crawl-match default;
-// see NO_CRAWL_DATA_ELUSIVENESS_DEFAULT) without density_per_km2 also being set (checked
-// directly below) is a real crawl match having moved rawElusivenessScore off the default.
-// Mammals/fish never get the nocturnal or habitat-density boosts without a real crawl match
-// or real per-species habitat data respectively (see apply-rarity-phase4.ts), so this
-// reconstruction is exact, not approximate.
+// One-off: gives apply-rarity-phase4.ts's undocumented pool tier='unrated' instead of a
+// percentile-quota tier, re-derived from stored data rather than rerunning the elusiveness
+// crawl. hasRealSignal is reconstructible exactly: for mammals and fish, an elusiveness_score
+// other than the 0.75 no-crawl default (NO_CRAWL_DATA_ELUSIVENESS_DEFAULT) without
+// density_per_km2 set can only come from a real crawl match.
 //
-// Documented-pool tiers are untouched by this — apply-rarity-phase4.ts already ranked that
-// pool separately from undocumented, so removing undocumented rows from the quota doesn't
-// shift the documented pool's own percentile shares. This script re-derives them anyway,
-// from the same stored composite, purely as a consistency check that nothing moved.
+// Documented-pool tiers are re-derived from the same stored composite as a consistency check.
 import { pool } from "../db.js";
 import { TIER_THRESHOLDS, getIucnModifier, type RarityTier } from "../build/compute-rarity-phase1.js";
 

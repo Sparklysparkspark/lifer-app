@@ -1,26 +1,15 @@
-// One-time (then incremental) pass: computes an embedding for every enriched species' own
-// reference photo and stores it in species_reference_embeddings — the "species the user hasn't
-// photographed yet" side of species auto-suggest (see embeddings.ts in this same package, and
-// apps/api/src/species/embeddings.ts's suggestSpecies, which reads this table). Shipped to
-// users as part of the existing catalog seed download (CATALOG_SEED_URL), not a new mechanism —
-// this script just populates the source-of-truth table that seed gets built from.
+// Computes an embedding for every enriched species' reference photo into
+// species_reference_embeddings, the "not yet photographed" side of species auto-suggest (see
+// apps/api/src/species/embeddings.ts's suggestSpecies). Shipped to users in the catalog seed.
 //
-// Also embeds every GALLERY photo, into species_reference_gallery_embeddings (migration 101) —
-// matching against only the one main-photo embedding meant a real photo taken at a different
-// angle/pose than that single reference image could legitimately score below the confidence
-// cutoff even for an obvious match. An embedding is ~3KB regardless of source photo size, so
-// storing one per gallery photo (several per species) costs almost nothing, and lets matching
-// take the best score across all of them instead of just the one.
+// Also embeds every gallery photo into species_reference_gallery_embeddings (migration 101), so
+// matching takes the best score across several poses, not just the one main photo.
 //
-// Only re-embeds when there's no row yet, or its stored model_version is stale — safe to re-run
-// any time (e.g. after enriching a new batch of species, or after bumping EMBEDDING_MODEL_VERSION).
+// Only embeds rows that are missing or have a stale model_version, so it's safe to rerun.
 //
-// Optional --region=<name> scopes both passes to one region's own checklist (region_species),
-// same country-name convention build-region-pack.ts uses. Lets a specific country's species get
-// their gallery embeddings quickly (minutes, not the hours a full world run takes) without
-// waiting on or interfering with a full unscoped run already in progress elsewhere: every insert
-// here is a plain per-row upsert, so a scoped and an unscoped pass can run concurrently against
-// the same database with no coordination needed.
+// Optional --region=<name> scopes both passes to one region's checklist (same country-name
+// convention as build-region-pack.ts). Inserts are per-row upserts, so a scoped and an
+// unscoped pass can run concurrently.
 import { pool } from "../db.js";
 import { computeEmbedding, EMBEDDING_MODEL_VERSION } from "../embeddings.js";
 import { readFile } from "node:fs/promises";

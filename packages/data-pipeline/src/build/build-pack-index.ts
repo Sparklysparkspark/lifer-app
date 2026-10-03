@@ -1,9 +1,6 @@
-// Builds pack-index.json — the file apps/api/src/config.ts's PACK_INDEX_URL points to. This
-// didn't exist anywhere in the repo before: packs were built one at a time by build-region-
-// pack.ts, but nothing ever assembled the combined index a client fetches to know what packs
-// exist, their sizes, and (new) their content version. Reads each already-built pack's own
-// manifest.json rather than re-deriving anything, so the index can never drift from what a pack
-// actually contains.
+// Builds pack-index.json, the file apps/api/src/config.ts's PACK_INDEX_URL points to: which packs
+// exist, their sizes and content versions. Reads each built pack's manifest.json rather than
+// re-deriving anything, so the index can't drift from the packs.
 //
 // Usage: npm run build-pack-index -w data-pipeline -- [packsDir]
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
@@ -12,8 +9,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import * as tar from "tar";
 import { packIdFromFileName } from "./pack-id.js";
-import { GITHUB_REPO, INDEX_RELEASE_TAG, baseReleaseTagFor, planReleaseAssignments } from "./release-groups.js";
-import { pool } from "../db.js";
+import { GITHUB_REPO, INDEX_RELEASE_TAG } from "./release-groups.js";
+import { photoStoreIndexUrl } from "../pipeline/photoStore.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.join(__dirname, "..", "..", "..", "..");
@@ -23,30 +20,22 @@ interface PackManifestCore {
   region?: string;
   seaZone?: string;
   taxon?: string | null;
-  // Absent on any pack built before the small-pack variant existed, treated as "full" wherever
-  // read (see offlinePacks/routes.ts's own PackStatus mapping).
+  // Missing means "full" (see offlinePacks/routes.ts's PackStatus mapping).
   variant?: "full" | "small";
   speciesCount: number;
   contentVersion: string;
   species: Array<{ scientificName: string }>;
-  // A country pack's top-level species and its bundled provinces'/states' own species lists
-  // are NOT deduplicated against each other in build-region-pack.ts's manifest (each child
-  // region gets its own full checklist) — deduping across both is this file's job below, not
-  // something already done by the time the manifest is read here.
+  // A country pack's species and its bundled provinces' lists overlap in the manifest; this file
+  // dedupes across them.
   children?: Array<{ species: Array<{ scientificName: string }> }>;
   seaZoneDependencies?: Array<{ name: string; packFile: string }>;
-  // Uncompressed byte counts computed at build time (see build-region-pack.ts's
-  // photoBytesInStaging) — an ESTIMATE of relative weight, not an exact post-gzip split (the
-  // archive compresses both together in one stream, so there's no way to recover an exact
-  // split from the finished file). Absent on any pack built before this field existed.
+  // Uncompressed byte counts from build time (see build-region-pack.ts's photoBytesInStaging),
+  // an estimate of relative weight rather than an exact post-gzip split.
   photoBytes?: number;
   checklistBytes?: number;
 }
 
-// `filter` limits extraction to manifest.json alone — a pack's photos/ directory can run to
-// hundreds of MB, and extracting the whole archive to disk just to read one small JSON file out
-// of it (the original shape of this function) was always wasteful; it also means readManifest
-// no longer needs its own temp-dir cleanup dance for files it never touches.
+// `filter` extracts only manifest.json, since a pack's photos/ can run to hundreds of MB.
 function readManifest(archivePath: string): PackManifestCore {
   const extractDir = mkdtempSync(path.join(os.tmpdir(), "lifer-pack-index-"));
   try {
@@ -71,29 +60,13 @@ async function main() {
     process.exit(1);
   }
 
-  // Each pack's real target release (continent for a country, packs-seazones for a sea zone,
-  // rolling over to base-2/base-3/... once a release nears GitHub's 1000-asset cap) — computed
-  // ONCE across this whole local batch so files destined for the same release share the same
-  // capacity accounting instead of each independently guessing it has room. A first pass just for
-  // {type, region, seaZone} rather than holding every full manifest (species lists + embeddings)
-  // in memory at once for the whole batch — a batch of ~1000 packs' worth of gallery-photo
-  // embeddings blew the default heap doing exactly that (see this file's own git history).
-  const assignmentItems: Array<{ baseTag: string; fileName: string }> = [];
-  for (const file of files) {
-    const { type, region, seaZone } = readManifest(path.join(packsDir, file));
-    assignmentItems.push({ baseTag: await baseReleaseTagFor({ type, region, seaZone }), fileName: file });
-  }
-  const releaseTagByFile = planReleaseAssignments(assignmentItems);
-
-  // Second pass re-reads each manifest one at a time (sequentially, not files.map — same reason
-  // as above: never more than one full manifest live in memory at once) to build the real index
-  // entries.
+  // One manifest at a time, never the whole batch in memory.
   const packs: Array<ReturnType<typeof buildPackEntry>> = [];
   for (const file of files) {
-    packs.push(buildPackEntry(packsDir, file, releaseTagByFile.get(file)!));
+    packs.push(buildPackEntry(packsDir, file));
   }
 
-  function buildPackEntry(packsDir: string, file: string, releaseTag: string) {
+  function buildPackEntry(packsDir: string, file: string) {
     const archivePath = path.join(packsDir, file);
     const manifest = readManifest(archivePath);
     const sizeBytes = statSync(archivePath).size;
@@ -105,10 +78,13 @@ async function main() {
     ];
     console.log(
       `[build-pack-index] ${file}: ${manifest.speciesCount} species, ${scientificNames.length} distinct, ` +
-        `${(sizeBytes / 1024 / 1024).toFixed(1)} MB -> ${releaseTag}`,
+        `${(sizeBytes / 1024 / 1024).toFixed(1)} MB`,
     );
     return {
       id: packIdFromFileName(file),
+      // Checklist-only packs in the pack store, photos in the photo store. packs.ts's writePackStore
+      // sets url, range and sha256 once the archive is in a shard.
+      format: 3,
       type: manifest.type,
       region: manifest.region,
       seaZone: manifest.seaZone,
@@ -118,43 +94,40 @@ async function main() {
       speciesCount: manifest.speciesCount,
       contentVersion: manifest.contentVersion,
       scientificNames,
-      url: `https://github.com/${GITHUB_REPO}/releases/download/${releaseTag}/${file}`,
-      // Pack IDs, not zone names — a sea zone can now have several packs (one per taxon), so a
-      // dependency has to name the SPECIFIC one this pack needs (e.g. "seazone-red_sea-
-      // actinopterygii"), not just "Red Sea", which would be ambiguous once more than one
-      // taxon-scoped pack exists for the same zone.
+      url: "",
+      range: undefined as [number, number] | undefined,
+      sha256: undefined as string | undefined,
+      // Pack IDs, not zone names: a sea zone can have several packs (one per taxon), so a dependency
+      // names the specific one (e.g. "seazone-red_sea-actinopterygii").
       seaZoneDependencies: manifest.seaZoneDependencies?.map((d) => packIdFromFileName(d.packFile)),
       photoBytes: manifest.photoBytes,
       checklistBytes: manifest.checklistBytes,
     };
   }
 
-  // pack-index.json is regenerated from ONLY the current local batch (packsDir is cleared after
-  // every publish flush — see build-and-publish-all-packs.ts) — without merging in whatever was
-  // already published, every flush would silently drop every earlier batch's packs from the
-  // index a client actually reads, even though their real files stay live on GitHub. Fetches the
-  // currently-published index and keeps any entry this batch didn't just rebuild; falls back to
-  // local-only (a warning, not a hard failure) if the fetch fails, e.g. first run / offline dev.
+  // This run only builds the local batch, so the currently published index is fetched and every
+  // entry this batch didn't rebuild is kept; otherwise earlier packs would drop out of the index.
+  // Falls back to local-only with a warning if the fetch fails (first run, offline).
   const localIds = new Set(packs.map((p) => p.id));
   let carriedForward: typeof packs = [];
   try {
     const res = await fetch(`https://github.com/${GITHUB_REPO}/releases/download/${INDEX_RELEASE_TAG}/pack-index.json`);
     if (res.ok) {
       const existing = (await res.json()) as { packs: typeof packs };
-      carriedForward = existing.packs.filter((p) => !localIds.has(p.id));
+      carriedForward = existing.packs.filter((p) => !localIds.has(p.id) && (p as { format?: number }).format === 3);
       console.log(`[build-pack-index] merging in ${carriedForward.length} previously-published pack(s) not in this batch`);
     } else {
-      console.warn(`[build-pack-index] no existing published index found (${res.status}) — writing local-only index`);
+      console.warn(`[build-pack-index] no existing published index found (${res.status}): writing local-only index`);
     }
   } catch (err) {
-    console.warn(`[build-pack-index] couldn't fetch existing published index (${(err as Error).message}) — writing local-only index`);
+    console.warn(`[build-pack-index] couldn't fetch existing published index (${(err as Error).message}): writing local-only index`);
   }
 
-  const index = { generatedAt: new Date().toISOString(), packs: [...carriedForward, ...packs] };
+  // Where installs fetch pack photos from (pipeline/photoStore.ts).
+  const index = { generatedAt: new Date().toISOString(), photoStore: { indexUrl: photoStoreIndexUrl() }, packs: [...carriedForward, ...packs] };
   const indexPath = path.join(packsDir, "pack-index.json");
   writeFileSync(indexPath, JSON.stringify(index, null, 2));
   console.log(`[build-pack-index] wrote ${indexPath} (${index.packs.length} packs, ${packs.length} from this batch)`);
-  await pool.end();
 }
 
 main().catch((err) => {

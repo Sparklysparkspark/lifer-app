@@ -1,10 +1,9 @@
 // Source: AVONET (Tobias, J.A. et al. 2022, Ecology Letters 25(3), 581-597, DOI 10.1111/ele.13898).
-// License: CC BY 4.0 — cite the source.
-// Figshare item 16586228 (verified by hand): the record zip contains
-// "AVONET Supplementary dataset 1.xlsx" with sheets AVONET2_eBird (morphology, trophic niche,
-// primary lifestyle, keyed to eBird/Clements names) and AVONET1_BirdLife (has Range.Size, but
-// keyed to BirdLife names — eBird taxonomy has no range column of its own). We join the two via
-// the workbook's own "BirdLife-eBird crosswalk" sheet to get range size onto eBird-named species.
+// License: CC BY 4.0, cite the source.
+// Figshare item 16586228: "AVONET Supplementary dataset 1.xlsx" has AVONET2_eBird (morphology,
+// trophic niche, lifestyle, keyed to eBird/Clements names) and AVONET1_BirdLife (has Range.Size,
+// keyed to BirdLife names). The workbook's "BirdLife-eBird crosswalk" sheet joins the two to put
+// range size onto eBird-named species.
 
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
@@ -28,11 +27,9 @@ export interface AvonetRow {
   trophicNiche: string | null;
   primaryLifestyle: string | null;
   rangeSizeKm2: number | null;
-  // Real, already-published AVONET fields, not previously extracted. Habitat is categorical
-  // (Forest/Woodland/Shrubland/Grassland/Wetland/Riverine/Coastland/Marine/Desert/Human
-  // Modified/Rock); habitatDensity is an ordinal 1 (dense/closed canopy) - 3 (open) — the
-  // real signal for "detectability due to habitat cover," distinct from raw GBIF record
-  // volume (which conflates observer frequency with how hard a species actually is to see).
+  // Habitat is categorical (Forest/Woodland/Shrubland/Grassland/Wetland/Riverine/Coastland/
+  // Marine/Desert/Human Modified/Rock). habitatDensity is ordinal, 1 (dense/closed canopy) to
+  // 3 (open): detectability due to habitat cover, distinct from raw record volume.
   primaryHabitat: string | null;
   habitatDensity: number | null;
 }

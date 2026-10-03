@@ -1,31 +1,14 @@
-// World-scale vagrant-flag cross-check. The algorithmic vagrant flag (compute-provinces-bulk.ts)
-// is derived from GBIF occurrence-record density in a region — thin records there can mean
-// "genuinely rare/vagrant" OR just "algorithm hasn't seen enough data" (the same class of bug
-// that mislabeled Emperor Goose as merely hard-to-find in BC). This re-checks each flagged
-// species against GBIF's own `species/{key}/distributions` endpoint, which is NOT occurrence
-// records — it's checklist-sourced range data from independent taxonomic authorities (IOC World
-// Bird List, Catalogue of Life, ITIS, IUCN Red List, national alien-species registries), each
-// entry carrying either a real country code + establishmentMeans (NATIVE/INTRODUCED) or a
-// broad named region (e.g. "North America", "PAL" for Palearctic).
+// Cross-checks algorithmic vagrant flags (from thin GBIF record density) against GBIF's
+// species/{key}/distributions, checklist range data from taxonomic authorities with a country and
+// establishmentMeans, or a broad named realm. One call per species covers all its flags.
 //
-// One GBIF call per species (not per region, not per country) resolves every place that species
-// is flagged vagrant at once — a species' native range is one fact, not one fact per country.
+// Outcomes per (region, species) vagrant flag:
+//   1. Country is in the native set, or inside a native realm: clear the flag.
+//   2. Country is in the introduced set: also clear it (an established population, not a
+//      vagrant). Tagging it invasive stays a manual decision.
+//   3. No signal: keep the flag and log it to VAGRANT_NEEDS_SEARCH_LOG for a web-search pass.
 //
-// Three outcomes per (region, species) vagrant flag:
-//   1. The flagged country appears in the species' own NATIVE establishmentMeans set, or falls
-//      within one of its named native/breeding realms (mapped to our continent set below) ->
-//      clear the vagrant flag (false positive, same fix category as Emperor Goose).
-//   2. The flagged country appears in the species' INTRODUCED establishmentMeans set -> also
-//      clear the vagrant flag (this is an established non-native population, not a vagrant one-
-//      off; whether it should be tagged "Invasive" is a separate, deliberately manual decision
-//      per region_species_manual_overrides.is_invasive, never auto-inferred).
-//   3. No signal either way -> leave the flag as-is, but log the (region, species, country)
-//      triple to VAGRANT_NEEDS_SEARCH_LOG for a follow-up real web-search pass, per the explicit
-//      instruction that ambiguous cases get a search rather than a guess.
-//
-// Idempotent per species via species_traits.vagrant_checked_at (086_vagrant_checked_at.sql) —
-// a killed/resumed run picks up where it left off without re-spending GBIF calls already paid
-// for, same pattern as verify-and-label-endemics.ts's endemic_checked_at gate.
+// Resumable per species via species_traits.vagrant_checked_at.
 import { writeFileSync, appendFileSync, existsSync } from "node:fs";
 import { pool } from "../db.js";
 import { fetchWithRetry } from "data-pipeline/src/fetch-with-retry.js";
@@ -35,13 +18,8 @@ import { mapWithConcurrency } from "data-pipeline/src/concurrency.js";
 const CONCURRENCY = 4;
 const VAGRANT_NEEDS_SEARCH_LOG = "/Users/judahstarkey/.claude/jobs/d9ace272/tmp/vagrant-needs-search.jsonl";
 
-// GBIF's distributions `locality` field is free text sourced from whichever checklist supplied
-// the record — sometimes a real country, sometimes a named biogeographic realm, sometimes a
-// marine region or a small island group. Only the realm phrases below are common/unambiguous
-// enough to map to one of our own continent regions with confidence; anything else (marine
-// regions, "Global", named islands, unrecognized phrasing) is left unmapped rather than guessed,
-// so an uncertain match falls through to the needs-search log instead of silently clearing a
-// flag that might be wrong.
+// `locality` is free text. Only these unambiguous realm names map to continents; anything else is
+// left unmapped so uncertain cases go to the needs-search log instead of clearing a flag.
 const REALM_TO_CONTINENTS: Record<string, string[]> = {
   "north america": ["North America"],
   "central america": ["North America"],
@@ -94,10 +72,7 @@ function classifySpecies(distributions: GbifDistribution[]): {
     if (d.country) {
       const iso2 = d.country.toUpperCase();
       if (d.establishmentMeans === "INTRODUCED") introducedIso2.add(iso2);
-      // NATIVE, or PRESENT with no establishmentMeans stated on a real-country entry, both read
-      // as "this checklist places the species here as part of its normal range" — the absence of
-      // an explicit means on a country-level (not realm-level) entry is not the same ambiguity as
-      // a bare realm name with no country at all, so it's treated as a native signal too.
+      // A country entry with no stated means counts as native range too.
       else nativeIso2.add(iso2);
       continue;
     }
@@ -129,8 +104,7 @@ async function buildRegionCountryMap(): Promise<Map<string, { countryName: strin
   const map = new Map<string, { countryName: string; continentName: string }>();
   for (const r of res.rows) {
     let current = byId.get(r.id)!;
-    // Walk up until `current`'s parent is a continent — that makes `current` the country node,
-    // whether r itself (a non-split country) or an ancestor of r (a province of a split country).
+    // Walk up until the parent is a continent; `current` is then the country.
     const path: RegionNode[] = [current];
     let guard = 0;
     while (current.parentId && !continentIds.has(current.parentId) && guard++ < 10) {

@@ -1,7 +1,6 @@
-// Jellies & anemones — split out of the combined "cnidaria" bucket: Actiniaria (sea
-// anemones, an Anthozoa order — the other Anthozoa order, Scleractinia, is the separate
-// "corals" bucket) plus Scyphozoa/Cubozoa (true/box jellyfish) and Hydrozoa (hydroids,
-// including jelly-like colonial forms like the Portuguese man o' war).
+// Jellies & anemones: Actiniaria (sea anemones; Scleractinia is the separate "corals" bucket)
+// plus Scyphozoa/Cubozoa (true and box jellyfish) and Hydrozoa (hydroids, including colonial
+// forms like the Portuguese man o' war).
 import { buildGenericTaxonSeed } from "./build-seed-generic.js";
 
 const ACTINIARIA_KEY = 705; // sea anemones
@@ -13,7 +12,7 @@ buildGenericTaxonSeed({
   taxonClass: "jellies_and_anemones",
   taxonKeys: [ACTINIARIA_KEY, SCYPHOZOA_KEY, CUBOZOA_KEY, HYDROZOA_KEY],
   sourceAttribution: "GBIF Backbone Taxonomy; Wikidata (no dedicated trait source yet)",
-  note: "Actiniaria (sea anemones) + Scyphozoa/Cubozoa (true/box jellyfish) + Hydrozoa (hydroids) — split out from the combined 'cnidaria' bucket, complementing the separate 'corals' bucket (Scleractinia). No trait source wired up — rarity leans on IUCN status alone.",
+  note: "Actiniaria (sea anemones) + Scyphozoa/Cubozoa (true/box jellyfish) + Hydrozoa (hydroids): split out from the combined 'cnidaria' bucket, complementing the separate 'corals' bucket (Scleractinia). No trait source wired up: rarity leans on IUCN status alone.",
   buildIdEnvVar: "LIFER_BUILD_ID",
   defaultBuildId: "jellies-anemones-dev",
   logPrefix: "build-seed-jellies-anemones",

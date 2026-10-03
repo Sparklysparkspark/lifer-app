@@ -1,7 +1,5 @@
-// Phase 6 (spec §9): "Backup strategy for the database and display copies." A single script
-// rather than any cron wiring here — cron is host config, not something to script
-// unilaterally (same reasoning as leaving the reverse-proxy/TLS step to the user). Run this
-// by hand or from your own crontab: `npm run backup -w data-pipeline`.
+// Phase 6 (spec §9): backs up the database and display copies. Scheduling is host config, so run
+// this by hand or from your own crontab: `npm run backup -w data-pipeline`.
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { mkdirSync, createWriteStream } from "node:fs";
@@ -12,9 +10,8 @@ const execFileAsync = promisify(execFile);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.join(__dirname, "..", "..", "..", "..");
 
-// Mirrors apps/api/src/config.ts's DATA_DIR default — this script has no reason to import
-// from apps/api (that would pull sharp/exiftool-vendored in for no benefit), so it just
-// matches the same env var and default path instead.
+// Mirrors apps/api/src/config.ts's DATA_DIR default without importing from apps/api (which would
+// pull in sharp/exiftool-vendored).
 const DATA_DIR = process.env.DATA_DIR ?? path.join(REPO_ROOT, "data", "lifer");
 const BACKUP_DIR = process.env.LIFER_BACKUP_DIR ?? path.join(REPO_ROOT, "data", "backups");
 // Postgres runs in Docker (docker-compose.yml) with no client tools installed on the host,

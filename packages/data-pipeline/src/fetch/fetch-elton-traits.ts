@@ -1,11 +1,10 @@
 // Source: EltonTraits 1.0 (Wilman, H. et al. 2014, Ecology 95:2027), figshare collection
-// 10.6084/m9.figshare.c.3306933.v1. License: CC BY 4.0 — cite the source.
-// Only used to fill diet/foraging-stratum/nocturnality gaps AVONET doesn't cover (spec §5).
-// Real column layout (verified against the actual BirdFuncDat.txt, tab-separated):
-// "Scientific" is the binomial; "Diet-5Cat" is a ready-made category; foraging stratum is
-// NOT a single column — it's 7 percentage columns (ForStrat-watbelowsurf/wataroundsurf/
-// ground/understory/midhigh/canopy/aerial) that sum to 100, so we take the argmax as the
-// dominant stratum; "Nocturnal" is a 0/1 flag.
+// 10.6084/m9.figshare.c.3306933.v1. License: CC BY 4.0, cite the source.
+// Only fills diet/foraging-stratum/nocturnality gaps AVONET doesn't cover (spec §5).
+// BirdFuncDat.txt is tab-separated: "Scientific" is the binomial, "Diet-5Cat" a ready-made
+// category, "Nocturnal" a 0/1 flag. Foraging stratum is 7 percentage columns
+// (ForStrat-watbelowsurf/wataroundsurf/ground/understory/midhigh/canopy/aerial) summing to 100;
+// the argmax is taken as the dominant stratum.
 
 import { readFileSync, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";

@@ -3,6 +3,7 @@
 
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import type { PoolClient } from "pg";
 import { pool } from "../db.js";
 import { BUILD_DIR } from "../raw-cache.js";
@@ -16,18 +17,12 @@ export interface SeedRarityInput {
   tier: string;
 }
 
-// Extracted so it's independently testable (see load-seed.integration.test.ts) without
-// needing to run the whole file-reading seed-load pipeline.
+// Extracted so it's testable on its own (see load-seed.integration.test.ts).
 export async function upsertSpeciesRarity(client: PoolClient, speciesId: string, rarity: SeedRarityInput): Promise<void> {
-  // This seed NEVER computes elusiveness (that only comes from compute-elusiveness.ts's
-  // separate 258-country crawl, run and applied afterward via apply-rarity-phase4.ts) — its
-  // own composite/tier are Phase-1-only (range+IUCN). A plain ON CONFLICT overwrite would
-  // blindly replace an already elusiveness-refined row with this weaker placeholder every
-  // time the seed reran (this previously happened when reloading the mammal seed for the
-  // fossil purge/Bison-bison fix, wiping elusiveness_score back to null for all 7888 mammal
-  // species). Only take the seed's rarity numbers when it actually carries elusiveness
-  // data (a future seed source might); otherwise keep whatever's already there — untouched
-  // for an existing row, the Phase-1 placeholder for a genuinely new species.
+  // The seed never computes elusiveness (that's compute-elusiveness.ts, applied via
+  // apply-rarity-phase4.ts), so its composite/tier are a Phase-1 placeholder. A plain overwrite
+  // would wipe refined scores on every rerun, so the seed's rarity is only taken when it carries
+  // elusiveness data; otherwise existing rows are kept and new species get the placeholder.
   await client.query(
     `INSERT INTO species_rarity (species_id, range_score, abundance_score, elusiveness_score, composite, tier)
      VALUES ($1,$2,$3,$4,$5,$6)
@@ -67,24 +62,22 @@ interface SeedSpecies {
     trophicNiche: string | null;
     primaryLifestyle: string | null;
     nocturnal: boolean | null;
-    // Mammals' COMBINE-sourced axes (spec §7: "COMBINE's density, home
-    // range, and nocturnality"); birds compute densityPerKm2 themselves (population estimate
-    // ÷ range size — see build-seed.ts and fetch-bird-abundance.ts), fish have neither yet.
+    // Mammals' COMBINE axes (density, home range, nocturnality). Birds derive densityPerKm2 from
+    // population ÷ range (see build-seed.ts and fetch-bird-abundance.ts); fish have neither yet.
     densityPerKm2: number | null;
     homeRangeKm2: number | null;
     depthMinM: number | null;
     depthMaxM: number | null;
-    // Per-species population estimate (Callaghan et al. 2021) — birds only for now.
+    // Per-species population estimate (Callaghan et al. 2021), birds only for now.
     populationEstimate: number | null;
     iucnStatus: string | null;
     rangeSizeKm2: number | null;
-    // AVONET fields (birds only). Habitat density (1=dense/closed canopy, 3=open) is the
-    // signal for "detectability due to habitat cover," distinct from raw record volume.
+    // AVONET fields (birds only). Habitat density (1 = dense/closed canopy, 3 = open) measures
+    // detectability due to habitat cover, distinct from raw record volume.
     primaryHabitat: string | null;
     habitatDensity: number | null;
-    // MDD flag (mammals only) — see build-seed-mammals.ts/fetch-mdd.ts. Rarity for
-    // these is forced to "common" upstream rather than computed, since GBIF record volume
-    // for a farm animal measures photography habits, not real-world rarity.
+    // MDD domestic flag (mammals only, see build-seed-mammals.ts/fetch-mdd.ts). Rarity for these is
+    // forced to "common", since their record volume measures photography habits, not rarity.
     domestic: boolean;
     sourceAttribution: string;
   };
@@ -112,9 +105,7 @@ function resolveBuildDir(): string {
   if (explicit) return path.join(BUILD_DIR, explicit);
   const dirs = readdirSync(BUILD_DIR);
   if (dirs.length === 0) throw new Error(`No build directories found in ${BUILD_DIR}. Run build-seed first.`);
-  // Alphabetical sort previously picked this ("test" sorts after "dev"), silently loading a
-  // stale 6-species test build over a real 14,641-species rebuild — pick by actual
-  // modification time instead, so directory naming can never matter.
+  // Pick the newest build by modification time, not name order, so directory naming never matters.
   const newest = dirs
     .map((name) => ({ name, mtimeMs: statSync(path.join(BUILD_DIR, name)).mtimeMs }))
     .sort((a, b) => b.mtimeMs - a.mtimeMs)[0];
@@ -136,12 +127,9 @@ async function main() {
 
     const speciesIdByGbifKey = new Map<number, string>();
     for (const s of species) {
-      // Duplicate-species cleanup (see species-synonyms.ts's own comment): this gbif_key was
-      // manually confirmed to be the SAME real species as another gbif_key already in our DB
-      // under a different scientific name — GBIF's own backbone lists both as independently
-      // "ACCEPTED" (sometimes under different families entirely), so a fresh backbone pull
-      // would otherwise recreate the exact duplicate row this cleanup removed. Skipped
-      // entirely here rather than inserted-then-deleted; region/sea-zone links for it are
+      // Duplicate-species cleanup (see species-synonyms.ts): this gbif_key is confirmed to be the
+      // same species as another under a different name, though GBIF lists both as ACCEPTED. Skipped
+      // so a fresh backbone pull doesn't recreate the duplicate; its region/sea-zone links are
       // remapped to the canonical species after this loop.
       if (SPECIES_SYNONYM_GBIF_KEYS[s.gbifKey] !== undefined) continue;
 
@@ -152,7 +140,7 @@ async function main() {
          ON CONFLICT (gbif_key) DO UPDATE SET
            common_name = EXCLUDED.common_name,
            -- taxon_class/family/taxon_order come from the source taxonomy file (MDD, GBIF,
-           -- etc.) and should always sync on rerun — e.g. reclassifying marine mammals into
+           -- etc.) and should always sync on rerun: e.g. reclassifying marine mammals into
            -- the app's "Fish" grouping needs this to actually take effect on a
            -- species already loaded by an earlier run, not just newly-inserted ones.
            taxon_class = EXCLUDED.taxon_class,
@@ -160,7 +148,7 @@ async function main() {
            taxon_order = EXCLUDED.taxon_order,
            wikipedia_title = EXCLUDED.wikipedia_title,
            commons_image = EXCLUDED.commons_image,
-           -- The fast/lazy pipeline (see build-seed.ts) never carries real enrichment data —
+           -- The fast/lazy pipeline (see build-seed.ts) never carries real enrichment data:
            -- COALESCE so re-running it doesn't wipe out enrichment the API already fetched
            -- lazily for a species (reference_photo etc. would otherwise reset to null here).
            reference_photo = COALESCE(EXCLUDED.reference_photo, species.reference_photo),
@@ -236,9 +224,8 @@ async function main() {
         await upsertSpeciesRarity(client, id, s.rarity);
       }
 
-      // Same reasoning as the COALESCE above: the fast pipeline (see build-seed.ts) always
-      // sends an empty gallery, so only touch this table when there's something real
-      // to write — otherwise a re-run would wipe out galleries the API fetched lazily.
+      // Same reasoning as the COALESCE above: the fast pipeline sends an empty gallery, so only touch
+      // this table when there's something to write, or a rerun would wipe lazily fetched galleries.
       if (s.referenceGallery.length > 0) {
         await client.query(`DELETE FROM species_reference_photos WHERE species_id = $1`, [id]);
       }
@@ -250,9 +237,8 @@ async function main() {
         );
       }
     }
-    // Point every skipped synonym's gbif_key at its canonical species' id, so region_species/
-    // sea_zone_species rows below (keyed by gbifKey, looked up via this same map) attach to
-    // the correct, already-inserted species instead of silently having nowhere to resolve to.
+    // Point every skipped synonym's gbif_key at its canonical species' id, so region_species and
+    // sea_zone_species rows below attach to the right species.
     let remapped = 0;
     for (const [staleKey, canonicalKey] of Object.entries(SPECIES_SYNONYM_GBIF_KEYS)) {
       const canonicalId = speciesIdByGbifKey.get(canonicalKey);
@@ -320,7 +306,10 @@ async function main() {
   }
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+// Only as a script: the integration test imports upsertSpeciesRarity from here.
+if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
+  main().catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
+}

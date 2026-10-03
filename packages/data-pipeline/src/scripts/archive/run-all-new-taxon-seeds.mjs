@@ -3,7 +3,7 @@ import { execSync } from "node:child_process";
 const groups = [
   ["squamata-dev", "src/build/build-seed-squamata.ts"],
   ["testudines-dev", "src/build/build-seed-testudines.ts"],
-  // crocodylia-dev already run manually as a smoke test — skipped here.
+  // crocodylia-dev is skipped here.
   ["amphibians-dev", "src/build/build-seed-amphibians.ts"],
   ["corals-dev", "src/build/build-seed-corals.ts"],
   ["jellies-anemones-dev", "src/build/build-seed-jellies-anemones.ts"],

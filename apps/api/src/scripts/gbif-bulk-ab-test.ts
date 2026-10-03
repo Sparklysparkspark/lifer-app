@@ -1,14 +1,8 @@
-// A/B validation for the GBIF bulk-download approach: imports a scoped GBIF SQL Download TSV
-// (birds/mammals/fish, 15 priority countries) into a staging table, computes a local checklist
-// for a single country using the same core thresholds as computeRegionOccurrences/
-// build-region-species.ts, and diffs the result against that country's existing
-// live-GBIF-call-computed region_species rows. Deliberately does NOT reproduce every nuance of
-// the live computation (marine-zone cross-exclusion, fish type-specimen/geographic-outlier
-// scrutiny, captive-locality check on rescued birds, local-tier percentile scoring) — those
-// need extra per-species sample calls or trait data unrelated to the question this validates:
-// does the bulk-downloaded dataset recover the same core species SET and vagrancy calls as the
-// live per-region GBIF API calls, for a country whose default query is `country=<ISO2>` (not a
-// province's gadmGid/polygon, out of scope here).
+// Compares a country checklist computed from a GBIF SQL download TSV (same core thresholds as
+// build-region-species.ts) against that country's existing region_species rows: species set and
+// vagrancy flags only, not every nuance of the full computation.
+//
+// Usage: npx tsx src/scripts/gbif-bulk-ab-test.ts --dir=<extracted GBIF download dir> [--country=Portugal] [--iso2=PT]
 import { readFileSync, readdirSync } from "node:fs";
 import { createReadStream } from "node:fs";
 import readline from "node:readline";
@@ -22,13 +16,8 @@ import {
 } from "data-pipeline/src/build/build-region-species.js";
 
 const FISH_VAGRANT_MIN_RECORDS = 3;
-// GBIF's SQL warehouse reports ray-finned fish under finer classes than the single
-// "Actinopterygii" used elsewhere in this codebase's taxonKey-based queries — real records
-// for common species (Cyprinus carpio, Salmo trutta, Esox lucius, Perca fluviatilis, etc.)
-// come back as class=Teleostei/Chondrostei/Cladistii/Holostei, all valid ray-finned-fish
-// classes/infraclasses. Missing these silently dropped every freshwater fish out of the local
-// computation on the first pass — caught by comparing "only in live" gaps against this same
-// dataset directly (grep confirmed the records exist, just under a different class value).
+// GBIF's SQL warehouse reports many ray-finned fish under finer classes (Teleostei, Chondrostei,
+// Cladistii, Holostei) rather than Actinopterygii, so all of them are included.
 const FISH_CLASSES = new Set([
   "Myxini",
   "Petromyzonti",
@@ -44,11 +33,8 @@ const FISH_CLASSES = new Set([
 ]);
 const BIRD_MAMMAL_CLASSES = new Set(["Aves", "Mammalia"]);
 
-// One row per (species, countrycode, class, year) with a pre-aggregated record_count —
-// GBIF's SQL Download GROUP BY, not one row per raw occurrence. The first attempt at this
-// query selected raw columns with no GROUP BY and came back as 1.5 BILLION rows / 42GB
-// compressed before being aborted — aggregating server-side is required to keep this
-// tractable at all for 15 countries' worth of birds/mammals/fish.
+// One row per (species, countrycode, class, year) with a server-side aggregated record_count;
+// unaggregated downloads are far too large.
 interface OccRow {
   species: string;
   countrycode: string;
@@ -87,11 +73,7 @@ function computeLocalChecklist(rows: OccRow[], countryIso2: string) {
   const forCountry = rows.filter((r) => r.countrycode === countryIso2);
 
   const byClass = (r: OccRow) => (FISH_CLASSES.has(r.class) || r.class === "" ? "fish-candidate" : r.class);
-  // Fish here are identified by ORDER in the live code, but the SQL download only carries
-  // `class` (order wasn't selected in the scoped query to keep row width down) — the extra
-  // fish CLASSES (Myxini etc.) still resolve correctly by class; true Actinopterygii-order
-  // fish rows have class="Actinopterygii" and are lumped in below via a name-based species
-  // lookup against the catalog instead of a taxon-key filter, same end result for this test.
+  // Unused: the download has only `class`, so fish are identified by FISH_CLASSES below.
   void byClass;
 
   const bySpecies = new Map<string, OccRow[]>();

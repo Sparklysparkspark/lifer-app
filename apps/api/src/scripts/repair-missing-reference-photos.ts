@@ -1,18 +1,14 @@
 // Re-downloads reference photos (each species' main photo and its gallery photos) whose cached
 // display or thumb file is missing on disk even though the database still points at it. Packs
-// copy these files in (build-region-pack.ts skips a file that isn't there), so a missing file
-// meant a published pack silently shipped without that species' photo. Found 5,000+ missing
-// main photos in the maintainer database in September 2026, concentrated in British Columbia.
+// skip missing files, so a pack would otherwise ship without that species' photo.
 //
 // Uses the same download + derivative code enrichment does (downloadAndCacheImage: per-host
 // pacing, retry on 429), writing to the exact paths already recorded, so nothing in the database
 // changes. Rows whose recorded path isn't where that code would write (a different APP_DATA_DIR)
 // are skipped and reported rather than written somewhere unexpected.
 //
-// --adopt handles only the rows recorded OUTSIDE APP_DATA_DIR instead (in the same database,
-// 261 pointed at a desktop app's own folder, so packs built from it depended on that app's files
-// still existing): copies each file into APP_DATA_DIR (re-downloading any that are gone) and
-// repoints the row there.
+// --adopt handles only the rows recorded OUTSIDE APP_DATA_DIR instead: copies each file into
+// APP_DATA_DIR (re-downloading any that are gone) and repoints the row there.
 //
 // Usage (APP_DATA_DIR must be the directory the recorded paths live under):
 //   DATABASE_URL=postgres://lifer:lifer@localhost:5432/lifer APP_DATA_DIR=<repo>/data/lifer \
@@ -89,9 +85,8 @@ async function main() {
   let done = 0;
   let failed = 0;
   const failures: string[] = [];
-  // One queue per host, run side by side: a host that starts rate-limiting (Wikimedia answers a
-  // burst with 429s and a 10-minute Retry-After) otherwise ties up every worker in backoff while
-  // photos from other hosts wait behind it. downloadAndCacheImage already paces each host.
+  // One queue per host, run side by side, so a rate-limited host (Wikimedia can send a long
+  // Retry-After) doesn't stall the others. downloadAndCacheImage already paces each host.
   const byHost = new Map<string, Row[]>();
   for (const r of writable) {
     const host = new URL(r.url!).host;
