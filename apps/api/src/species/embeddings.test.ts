@@ -1,9 +1,17 @@
-// cosineSimilarity/l2Normalize are the actual math behind species auto-suggest's ranking —
-// every threshold this session tuned by hand (the 0.95 near-duplicate cutoff in
-// uploads/routes.ts, the same-vs-cross-species gap used to compare CLIP model sizes) rests on
-// these two functions behaving exactly as expected at the edges, not just on "normal" inputs.
+// cosineSimilarity/l2Normalize underpin suggestion ranking and every threshold, so edge
+// behavior matters.
 import { beforeEach, describe, expect, it } from "vitest";
-import { CLIP_SPACE, computeEmbedding, cosineSimilarity, ID_SPACE, invalidateSuggestionCache, l2Normalize, matchTargets, rankSpeciesByEmbedding } from "./embeddings.js";
+import {
+  CLIP_SPACE,
+  computeEmbedding,
+  cosineSimilarity,
+  ID_SPACE,
+  invalidateSuggestionCache,
+  invalidateUserVectors,
+  l2Normalize,
+  matchTargets,
+  rankSpeciesByEmbedding,
+} from "./embeddings.js";
 
 describe("l2Normalize", () => {
   it("scales a vector to unit length", () => {
@@ -14,17 +22,17 @@ describe("l2Normalize", () => {
     expect(normalized[1]).toBeCloseTo(0.8, 5);
   });
 
-  // Boundary value: an all-zero vector has zero magnitude — dividing by it would be
-  // divide-by-zero/NaN without the `|| 1` fallback this function's implementation uses.
+  // Boundary value: an all-zero vector has zero magnitude; the `|| 1` fallback avoids NaN.
   it("boundary value: an all-zero vector doesn't produce NaN (divide-by-zero guard)", () => {
     const normalized = l2Normalize(new Float32Array([0, 0, 0]));
-    expect(normalized).toEqual([0, 0, 0]);
+    expect(normalized).toBeInstanceOf(Float32Array);
+    expect(Array.from(normalized)).toEqual([0, 0, 0]);
     expect(normalized.every((v) => Number.isFinite(v))).toBe(true);
   });
 
   it("a single-element vector normalizes to exactly 1 (or -1)", () => {
-    expect(l2Normalize(new Float32Array([5]))).toEqual([1]);
-    expect(l2Normalize(new Float32Array([-5]))).toEqual([-1]);
+    expect(Array.from(l2Normalize(new Float32Array([5])))).toEqual([1]);
+    expect(Array.from(l2Normalize(new Float32Array([-5])))).toEqual([-1]);
   });
 });
 
@@ -44,8 +52,8 @@ describe("cosineSimilarity", () => {
     expect(cosineSimilarity(v, opposite)).toBeCloseTo(-1, 5);
   });
 
-  // Boundary value: the near-duplicate-photo threshold in uploads/routes.ts is a strict
-  // >= 0.95 comparison — off-by-one-ULP behavior right at that line matters in practice.
+  // Boundary value: the near-duplicate threshold is a strict >= 0.95 comparison, so behavior
+  // right at that line matters.
   it("boundary value: scores exactly at a threshold-relevant value behave as plain arithmetic (no rounding surprises)", () => {
     expect(cosineSimilarity([0.95, 0], [1, 0])).toBeCloseTo(0.95, 10);
   });
@@ -60,21 +68,16 @@ describe("cosineSimilarity", () => {
 });
 
 describe("computeEmbedding", () => {
-  // Regression test for a real crash: getSession's failure (no model downloaded) propagated
-  // through a *separate* promise that work.finally() returns (distinct from `work` itself),
-  // which nothing ever attached a handler to - Node flagged it as unhandled a tick later and
-  // crashed the whole API process on every upload, even with the model genuinely missing and
-  // the call site itself properly wrapped in try/catch. Confirmed live in production.
+  // A rejected getSession must not surface as an unhandled rejection through the separate
+  // promise work.finally() returns, which would crash the process.
   it("never leaves an unhandled rejection when the model isn't downloaded, single call", async () => {
     const unhandled: unknown[] = [];
     const onUnhandled = (reason: unknown) => unhandled.push(reason);
     process.on("unhandledRejection", onUnhandled);
     try {
-      // Whatever the reason (model missing, or a genuinely bad image once a model happens to
-      // already be present in this environment), it must reject cleanly, not crash the process.
+      // Whatever the reason, it must reject cleanly, not crash the process.
       await expect(computeEmbedding(Buffer.from("not a real image"))).rejects.toThrow();
-      // The leaked promise settles on a later microtask/macrotask than the awaited call above,
-      // so this needs a real tick to pass, not just a synchronous check.
+      // The leaked promise would settle on a later tick, so wait one.
       await new Promise((r) => setTimeout(r, 50));
     } finally {
       process.off("unhandledRejection", onUnhandled);
@@ -120,16 +123,19 @@ describe("matchTargets", () => {
 });
 
 describe("rankSpeciesByEmbedding", () => {
-  beforeEach(() => invalidateSuggestionCache());
+  beforeEach(() => {
+    invalidateSuggestionCache();
+    invalidateUserVectors("u1");
+  });
 
-  // Answers the three queries a regional ranking makes: the region's cached catalog, the ids of
-  // your own photos' vectors, and those vectors themselves.
+  // Answers the three queries a regional ranking makes: the region's cached catalog, which of
+  // your own photos have vectors, and those vectors themselves.
   function fakePool(catalog: object[], yours: Array<{ capture_id: string; species_id: string; embedding: number[] }> = []) {
     const calls: Array<{ sql: string; params: unknown[] }> = [];
     const query = async (sql: string, params: unknown[]) => {
       calls.push({ sql, params });
       if (sql.includes("FROM region_species")) return { rows: catalog };
-      if (sql.includes("row_number()")) return { rows: yours.map((y) => ({ capture_id: y.capture_id, species_id: y.species_id, computed_at: "t1" })) };
+      if (sql.includes("JOIN captures c ON c.id = ce.capture_id")) return { rows: yours.map((y) => ({ capture_id: y.capture_id, species_id: y.species_id, computed_at: "t1" })) };
       if (sql.includes("capture_id = ANY")) return { rows: yours.map((y) => ({ capture_id: y.capture_id, embedding: y.embedding, computed_at: "t1" })) };
       return { rows: [] };
     };
@@ -145,8 +151,8 @@ describe("rankSpeciesByEmbedding", () => {
     expect(all).toContain("id_model_gallery_embeddings");
     expect(all).toContain("id_model_text_embeddings");
     expect(all).not.toContain("species_reference_gallery_embeddings");
-    expect(calls.find((c) => c.sql.includes("FROM region_species"))!.params).toEqual([ID_SPACE.modelVersion, ID_SPACE.textModelVersion, "r1"]);
-    expect(calls.find((c) => c.sql.includes("row_number()"))!.params).toEqual(["u1", ID_SPACE.modelVersion]);
+    expect(calls.find((c) => c.sql.includes("FROM region_species"))!.params).toEqual([ID_SPACE.modelVersion, ID_SPACE.textModelVersion, ["r1"]]);
+    expect(calls.find((c) => c.sql.includes("JOIN captures c ON c.id = ce.capture_id"))!.params).toEqual(["u1", ID_SPACE.modelVersion]);
   });
 
   it("blends text at the space's weight and still uses the gallery when the user has photos", async () => {

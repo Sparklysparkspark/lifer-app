@@ -1,16 +1,8 @@
-// Installs the per-gallery-photo CLIP vectors (species_reference_gallery_embeddings) from their
-// own compact asset, published next to the catalog seed (format:
-// packages/shared/src/galleryEmbeddingsFormat.ts). They used to be inside the seed as pg_dump
-// text, which made it 1.2GB. They're only usable once the CLIP model is downloaded, so they're
-// fetched then, refreshed with each catalog update, and checked again at startup.
-//
-// Also orchestrates the two other per-species vector assets (species_reference_embeddings,
-// species_text_embeddings), which turned out to be just as large as the gallery table once
-// dumped as text for 130k+ species (see speciesVectorAsset.ts) — all three are fetched together
-// since they all become usable the moment the model finishes downloading.
-//
-// Three triggers (model download finishing, startup, the Settings catalog update) all funnel
-// through runGalleryEmbeddingsUpdate, which is serialized by a lock so two can never overlap.
+// Installs the per-gallery-photo CLIP vectors, plus the per-species image and text vector assets
+// (speciesVectorAsset.ts), from compact assets published next to the catalog seed. They're only
+// usable with the CLIP model, so they're fetched once it's downloaded, refreshed with each catalog
+// update and checked at startup. All triggers go through runGalleryEmbeddingsUpdate, which is
+// serialized by a lock.
 import { createReadStream, mkdirSync, rmSync } from "node:fs";
 import path from "node:path";
 import { pipeline } from "node:stream/promises";
@@ -28,6 +20,7 @@ import { invalidateSuggestionCache, isModelDownloaded, resetIdModelReadiness } f
 import { idModel } from "./idModel.js";
 import { fetchAndApplySpeciesVectorAsset, type VectorAssetResult } from "./speciesVectorAsset.js";
 import { TEXT_MODEL_VERSION } from "./textEmbedding.js";
+import { lockReferenceData } from "../lib/referenceDataLock.js";
 
 const DOWNLOAD_DIR = path.join(APP_DATA_DIR, "catalog-downloads");
 // Which table a per-gallery-photo asset installs into, and where its applied version is kept.
@@ -62,8 +55,7 @@ export type GalleryEmbeddingsResult =
   | { status: "unavailable"; reason: string }
   | { status: "failed"; error: string };
 
-// The combined result of all three vector assets (gallery + per-species image + per-species
-// text) — every caller of runGalleryEmbeddingsUpdate gets this now, not just the gallery half.
+// The combined result of all three vector assets (gallery, per-species image, per-species text).
 export interface ReferenceVectorsResult {
   gallery: GalleryEmbeddingsResult;
   speciesImage: VectorAssetResult;
@@ -84,9 +76,8 @@ export function vectorUpdateProgress(): Partial<JobStatus> | null {
 }
 
 /** Downloads and applies the gallery embeddings asset if this install doesn't have the current
- * one. Safe to call from several places; calls run one at a time. A call that has to wait says
- * so in its job's progress: otherwise that job keeps showing its last step (a catalog update sat
- * at "9/9 tables" while the model download's vectors went first, which looked stuck). */
+ * one. Calls run one at a time; a waiting call says so in its job's progress so it doesn't look
+ * stuck. */
 export function runGalleryEmbeddingsUpdate(
   pool: Pool,
   ctx: Ctx,
@@ -96,8 +87,7 @@ export function runGalleryEmbeddingsUpdate(
   running++;
   const run = lock
     .then(() => {
-      // Mirrors this run's progress, so a caller waiting its turn can show the real work
-      // instead of just "waiting" (settings/routes.ts, the species-matching status).
+      // Mirrors this run's progress so a waiting caller can show the real work.
       activeProgress = {};
       const tracked: Ctx = {
         signal: ctx.signal,
@@ -197,8 +187,8 @@ async function doUpdate(
   return result;
 }
 
-// Same three assets for the species identification model. Each is independent: a failed gallery
-// asset still leaves the text vectors (which alone scored nearly as well) usable.
+// Same three assets for the identification model. Each is independent, so a failed gallery
+// asset still leaves the text vectors usable.
 async function doIdModelUpdate(
   pool: Pool,
   ctx: Ctx,
@@ -306,6 +296,7 @@ export async function applyGalleryEmbeddingsFile(
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
+    await lockReferenceData(client);
     await client.query(
       `CREATE TEMP TABLE tmp_gallery_embeddings (species_id uuid, photo_url text, embedding real[]) ON COMMIT DROP`,
     );

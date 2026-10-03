@@ -1,6 +1,4 @@
-// The small catalog-manifest.json published next to the catalog seed (see
-// packages/data-pipeline/src/scripts/build-catalog-seed.ts). Older manifests only had
-// {version, publishedAt}; newer ones also describe each asset with a sha256.
+// The small catalog-manifest.json published next to the catalog seed, describing each asset.
 import { CATALOG_MANIFEST_URL, CATALOG_SEED_URL } from "../config.js";
 
 export interface CatalogAsset {
@@ -19,8 +17,7 @@ export interface CatalogManifest {
   galleryEmbeddings?: VectorAsset | null;
   speciesImageEmbeddings?: VectorAsset | null;
   speciesTextEmbeddings?: VectorAsset | null;
-  // The species identification model's vectors (id_model_* tables), fetched once that model is
-  // downloaded. Absent from catalogs published before it existed.
+  // The identification model's vectors, fetched once that model is downloaded. Optional.
   idGalleryEmbeddings?: VectorAsset | null;
   idSpeciesImageEmbeddings?: VectorAsset | null;
   idSpeciesTextEmbeddings?: VectorAsset | null;

@@ -1,24 +1,12 @@
-// On-demand species enrichment — reference photo, a one-sentence ID blurb, and the
-// reference-photo gallery, all fetched together the first time a species detail page is
-// opened, instead of the full ~11,000 species backbone doing this eagerly (estimated 8+ hours
-// for species that may never be viewed).
+// On-demand species enrichment: the reference photo, a short description and the gallery,
+// fetched together the first time a species page is opened rather than for the whole catalog.
 //
-// iNaturalist ONLY — no direct Wikipedia or Wikimedia Commons calls anywhere in this file.
-// This was a hard-won lesson, not a style preference: Commons rate-limits for real (a live
-// 429 with Retry-After: 600, i.e. a genuine 10-minute ban was reproduced and confirmed while
-// debugging this). A prior version of this file kept a Wikipedia/Commons fallback path "just
-// in case iNaturalist has nothing," which is exactly what caused a real species (Green-Winged
-// Teal / Anas carolinensis) to hang for minutes on every single page view. Do not reintroduce
-// a Wikimedia fallback here — a species iNaturalist has nothing for gets an honest empty
-// gallery/description, not a slow retry against a host known to ban this app.
-//
-// iNaturalist itself is much better-behaved than Commons was, but is NOT rate-limit-free —
-// a bulk pass (enrich-all-species.ts) at even modest concurrency still drew real 429s from
-// api.inaturalist.org, since one enrichSpecies call alone fires several requests back-to-back.
-// See fetchWithRetry's own comment for the per-host pacing that actually fixes this.
+// iNaturalist only, no direct Wikipedia or Commons calls (Commons rate-limits hard). Calls to
+// each host are paced (paceHost).
 import { normalizeLicense } from "./licensePolicy.js";
 import { generateReferenceDerivatives } from "../uploads/image.js";
-import { computeEmbedding } from "./embeddings.js";
+import { computeEmbedding, refreshSpeciesVectors } from "./embeddings.js";
+import { log } from "../lib/log.js";
 import { EMBEDDING_MODEL_VERSION, ID_MODEL_VERSION } from "../config.js";
 import { idModel } from "./idModel.js";
 import { rmSync } from "node:fs";
@@ -49,36 +37,79 @@ export interface EnrichmentResult {
   }>;
 }
 
-// Caches a local copy of every reference photo (main + gallery) instead of only ever
-// hotlinking the external URL — faster page loads, no dependency on iNaturalist/Commons
-// uptime, and something usable for a future "download a region for offline" feature to
-// bundle. Downloading/resizing is best-effort: a failure here (network blip, corrupt image)
-// just means that one photo stays hotlinked via its URL rather than failing the whole
-// enrichment pass — the URL/credit/license are always kept regardless.
-export async function downloadAndCacheImage(url: string, key: string): Promise<{ displayPath: string; thumbPath: string } | null> {
+// Every reference photo is cached locally; a failed download leaves that one photo hotlinked by
+// URL. Only the hosts catalog and pack data use are fetched, and bodies are size-capped.
+const REFERENCE_IMAGE_HOSTS = new Set([
+  "inaturalist-open-data.s3.amazonaws.com",
+  "static.inaturalist.org",
+  "upload.wikimedia.org",
+  "api.gbif.org",
+]);
+const REFERENCE_IMAGE_HOST_SUFFIXES = [".inaturalist.org", ".wikimedia.org"];
+export const MAX_REFERENCE_IMAGE_BYTES = 25 * 1024 * 1024;
+
+export function isAllowedReferenceImageUrl(url: string): boolean {
+  let u: URL;
   try {
-    // Downloading ~4,900 images at concurrency 4 with a plain fetch (no retry-on-429) got
-    // rate-limited by Wikimedia hard enough that roughly 80% of requests came back 429 and
-    // were silently treated as "no photo available" — the same backoff-and-retry
-    // fetchWithRetry already applies to metadata lookups was missing for the actual image
-    // bytes.
+    u = new URL(url);
+  } catch {
+    return false;
+  }
+  if (u.protocol !== "https:" && u.protocol !== "http:") return false;
+  const host = u.hostname.toLowerCase();
+  return REFERENCE_IMAGE_HOSTS.has(host) || REFERENCE_IMAGE_HOST_SUFFIXES.some((suffix) => host.endsWith(suffix));
+}
+
+// Reads a response body, throwing once it passes maxBytes (declared or actual).
+export async function readBodyCapped(res: Response, maxBytes: number): Promise<Buffer> {
+  const declared = Number(res.headers.get("content-length"));
+  if (Number.isFinite(declared) && declared > maxBytes) {
+    await res.body?.cancel().catch(() => {});
+    throw new Error(`Image too large (${declared} bytes)`);
+  }
+  if (!res.body) return Buffer.alloc(0);
+  const chunks: Buffer[] = [];
+  let total = 0;
+  const reader = res.body.getReader();
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > maxBytes) {
+      await reader.cancel().catch(() => {});
+      throw new Error(`Image too large (over ${maxBytes} bytes)`);
+    }
+    chunks.push(Buffer.from(value));
+  }
+  return Buffer.concat(chunks, total);
+}
+
+export async function downloadAndCacheImage(url: string, key: string): Promise<{ displayPath: string; thumbPath: string } | null> {
+  if (!isAllowedReferenceImageUrl(url)) {
+    log.error({ url }, "Refusing to fetch a reference image from an unexpected host");
+    return null;
+  }
+  try {
+    // The same 429 backoff as metadata lookups: image hosts rate-limit too.
     const res = await fetchWithRetry(withoutTrackingParams(url));
     if (!res.ok) return null;
-    const buffer = Buffer.from(await res.arrayBuffer());
+    // A redirect could land anywhere, so the final URL has to pass the same check.
+    if (res.url && !isAllowedReferenceImageUrl(res.url)) {
+      await res.body?.cancel().catch(() => {});
+      log.error({ url: res.url }, "Reference image redirected to an unexpected host");
+      return null;
+    }
+    const buffer = await readBodyCapped(res, MAX_REFERENCE_IMAGE_BYTES);
     return await generateReferenceDerivatives(buffer, key);
   } catch (err) {
-    console.error(`[lazyEnrich] failed to cache image ${url}:`, err);
+    log.error({ err, url }, "Couldn't cache a reference image");
     return null;
   }
 }
 
-// Commons image URLs are stored with ?utm_source=...&utm_campaign=... on them (that's how the
-// Commons API hands them out). The query string makes every request a cache miss at Wikimedia's
-// CDN, which sends it to the origin servers that rate-limit: a September 2026 re-download stalled
-// on 10-minute 429 backoffs, while the same files without the parameters came straight from cache.
-// The stored URL keeps them; only the fetch drops them.
-// Wikimedia's User-Agent policy asks clients to say who they are and how to reach them, and
-// applies stricter rate limits to ones that don't; the project page is the contact.
+// Commons hands out image URLs with utm_ parameters, which make every request miss Wikimedia's CDN
+// and hit the rate-limited origin. The stored URL keeps them; only the fetch drops them.
+// Wikimedia's User-Agent policy asks for a contact; unidentified clients get stricter limits.
 const USER_AGENT = "Lifer/0.7 (https://github.com/Sparklysparkspark/lifer-app)";
 
 export function withoutTrackingParams(url: string): string {
@@ -91,16 +122,9 @@ export function withoutTrackingParams(url: string): string {
   }
 }
 
-// Per-host pacing: one enrichSpecies call fires several requests back-to-back (taxon search,
-// taxon detail, sometimes a subspecies lookup), so limiting concurrency alone doesn't cap the
-// real request rate to iNaturalist. Serializes every call to the same host at least
-// MIN_HOST_INTERVAL_MS apart, chained-promise queue per host (same pattern as
-// trips/tripIndex.ts's per-folder write queue). 1000ms still draws occasional 429s but measured
-// higher net throughput than a slower interval (short 429 backoffs cost less than a wider base
-// interval) — re-measure species-enriched-per-minute, not just 429 count, before retuning.
-// Overridable via INAT_MIN_HOST_INTERVAL_MS: a long-running bulk pass should set this to
-// something slower (e.g. 2500-3000) since sustained load at 1000ms can pin this app's IP in
-// iNaturalist's throttled state; a single on-demand species-page view never hits that regime.
+// Per-host pacing: one enrichSpecies call makes several requests, so calls to a host are
+// serialized at least MIN_HOST_INTERVAL_MS apart. Long bulk passes should raise
+// INAT_MIN_HOST_INTERVAL_MS to avoid being throttled.
 const MIN_HOST_INTERVAL_MS = Number(process.env.INAT_MIN_HOST_INTERVAL_MS) || 1000;
 const hostQueues = new Map<string, Promise<void>>();
 const lastCallAtByHost = new Map<string, number>();
@@ -116,9 +140,7 @@ function paceHost(host: string): Promise<void> {
   return next;
 }
 
-// Only the iNaturalist JSON API hosts — never the image-byte downloads this same function also
-// serves (downloadAndCacheImage, above), which live on entirely different hosts (Wikimedia
-// Commons, iNaturalist's own photo CDN) and would be wrong to store as cached text here.
+// Only iNaturalist's JSON API responses are cached, never image downloads.
 const CACHEABLE_HOSTS = new Set(["api.inaturalist.org", "www.inaturalist.org"]);
 
 async function getCachedInatResponse(url: string): Promise<string | null> {
@@ -137,17 +159,12 @@ async function setCachedInatResponse(url: string, response: string): Promise<voi
       [url, response],
     );
   } catch {
-    // Best-effort — failing to cache shouldn't fail the caller's real request.
+    // Best effort: a cache failure never fails the request.
   }
 }
 
-// Thrown only when every retry AND the final fallback attempt below all came back 429 — a
-// genuine "iNaturalist is still throttling us" failure, not "this species has no photo." Callers
-// (enrich-all-species.ts, the lazy per-view path) must NOT treat this the same as a normal
-// enrichment failure: setting enriched_at on it would permanently lock in "no photo" for a
-// species iNaturalist may have had all along, exactly the bug this class exists to prevent (see
-// this file's own recheck-null-photo-species.ts sibling script, built after this happened once
-// already for real, for Green Pheasant).
+// Thrown when iNaturalist is still throttling after every retry. Callers must not set
+// enriched_at on it, which would record "no photo" for a species that may have one.
 export class PersistentRateLimitError extends Error {}
 
 export async function fetchWithRetry(url: string): Promise<Response> {
@@ -162,27 +179,20 @@ export async function fetchWithRetry(url: string): Promise<Response> {
     let res: Response;
     try {
       await paceHost(new URL(url).host);
-      // A hung connection (confirmed live: a long-running sweep froze with 0% CPU, no error,
-      // no timeout, no further log output at all — the underlying fetch just never settled
-      // either way) previously blocked forever with no way to recover short of killing the
-      // whole process. AbortSignal.timeout turns that into an ordinary retryable error instead.
+      // Without a timeout a hung connection blocks forever; this makes it a retryable error.
       res = await fetch(url, {
         headers: { "User-Agent": USER_AGENT },
         signal: AbortSignal.timeout(15_000),
       });
     } catch (err) {
-      // A dropped connection ("SocketError: other side closed") throws instead of resolving
-      // to a Response at all — this had no handling for that at all (only ever retried a 429
-      // status), so one network blip crashed the whole calling script instead of retrying.
-      // Same fix as data-pipeline's own fetch-with-retry.ts for the identical bug.
+      // A dropped connection throws rather than returning a Response; retried the same way.
       lastError = err;
-      console.error(`[lazyEnrich] network error for ${new URL(url).host}, retrying:`, err instanceof Error ? err.message : err);
+      log.warn({ host: new URL(url).host, err: err instanceof Error ? err.message : err }, "iNaturalist network error, retrying");
       await new Promise((r) => setTimeout(r, 1000 * 2 ** attempt));
       continue;
     }
     if (res.status !== 429) {
-      // Only ever cache a genuine success — caching a transient error would freeze it in
-      // place forever instead of letting the next call retry fresh.
+      // Only a success is cached, so a transient error is retried next time.
       if (cacheable && res.ok) {
         const text = await res.clone().text();
         await setCachedInatResponse(url, text);
@@ -191,7 +201,7 @@ export async function fetchWithRetry(url: string): Promise<Response> {
     }
     const retryAfter = Number(res.headers.get("retry-after"));
     const delayMs = Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : 1000 * 2 ** attempt;
-    console.error(`[lazyEnrich] 429 from ${new URL(url).host}, backing off ${Math.round(delayMs / 1000)}s`);
+    log.warn({ host: new URL(url).host, backoffSeconds: Math.round(delayMs / 1000) }, "Rate limited (429), backing off");
     await new Promise((r) => setTimeout(r, delayMs));
   }
   try {
@@ -199,11 +209,7 @@ export async function fetchWithRetry(url: string): Promise<Response> {
       headers: { "User-Agent": USER_AGENT },
       signal: AbortSignal.timeout(15_000),
     });
-    // This used to be returned as-is even when still 429 — a real, confirmed bug: sustained
-    // throttling made this look exactly like a normal "no photo found" response to every caller,
-    // permanently marking genuinely common species (Bank Swallow, Common Cuckoo, Emperor Goose,
-    // and others) as photoless once enriched_at got set. Throwing here instead lets callers tell
-    // "still rate-limited, try again later" apart from "actually checked, nothing there."
+    // Still 429 means "try again later", not "nothing there", so it is thrown.
     if (finalRes.status === 429) throw new PersistentRateLimitError(`still rate-limited after retries: ${url}`);
     return finalRes;
   } catch (err) {
@@ -211,14 +217,8 @@ export async function fetchWithRetry(url: string): Promise<Response> {
   }
 }
 
-// This is a personal, single-user app, not a redistribution product, so the earlier
-// commercial-safe-CC-license + open-data-bucket-only restriction (which existed for a
-// hypothetical public/commercial release) does not apply here — the species' default photo
-// from iNaturalist is used as-is, including "all rights reserved" ones, the same as viewing
-// the photo on iNaturalist's own site would show. This was also the real throughput
-// bottleneck: most default photos are not yet in iNat's curated open-data S3 bucket even
-// when the license itself was fine, so almost every species was falling back to the much
-// slower, Wikimedia-rate-limited Commons path unnecessarily.
+// Lifer is personal use, so the species' default photo is used whatever its license, as viewing
+// it on iNaturalist would show it.
 interface INaturalistPhoto {
   medium_url: string;
   license_code: string | null;
@@ -230,12 +230,8 @@ export function toGalleryPhoto(photo: INaturalistPhoto): { photoUrl: string; cre
   return { photoUrl: photo.medium_url, credit: photo.attribution, license };
 }
 
-// Sibling of fetchINaturalistTaxonDetail, but metadata-only — no download/cache of any photo.
-// A taxon record's default_photo flag is a curator quirk, not a reliable "has a photo" signal
-// (see persistGalleryPromotingMainIfMissing's comment below for the same finding from the
-// gallery-backfill side) — this lets a caller that only cares about ONE usable photo (e.g.
-// switch-wikimedia-species-to-inaturalist.ts) fall back to the first real taxon_photos entry
-// without paying for fetchINaturalistTaxonDetail's full gallery download.
+// The first taxon photo, metadata only. default_photo isn't always flagged even when the taxon
+// has photos, so callers that need one photo fall back to this.
 export async function fetchFirstTaxonPhoto(taxonId: number): Promise<INaturalistPhoto | null> {
   const url = `${INAT_API}/taxa/${taxonId}`;
   const res = await fetchWithRetry(url);
@@ -244,25 +240,9 @@ export async function fetchFirstTaxonPhoto(taxonId: number): Promise<INaturalist
   return data.results[0]?.taxon_photos?.[0]?.photo ?? null;
 }
 
-// iNaturalist's own taxon search ranks by relevance, not exact-name-match-first — searching
-// "Cygnus cygnus" returns "Cygnus olor" as result #1, with Cygnus cygnus itself showing up
-// 4th. Taking results[0] unconditionally would silently attach the wrong species' photo.
-// Fetching more candidates and requiring an exact (case-insensitive) name match fixes this;
-// if no exact match appears at all, this returns null (no taxon, not a guess) rather than
-// attaching a plausible-but-wrong one.
-//
-// A plain exact-name miss is not always "no photo exists": sometimes the taxon itself was
-// renamed or reclassified since the GBIF-sourced name was recorded. For example, Bison bison
-// has real iNaturalist photos under a different current name, "Bos bison," after
-// iNaturalist committed a TaxonSwap moving it back to Bos to maintain monophyly.
-// iNaturalist's own site exposes a dated, committed record of these changes
-// (taxon_changes.json — not part of the documented v1 API, but a live, verifiable feed of
-// the same TaxonSwap/TaxonMerge/TaxonSplit history browsable at
-// inaturalist.org/taxon_changes) with explicit input/output taxa. Checking a failed-exact-
-// match candidate against this before giving up means an outdated name does not silently
-// read as "no photo available anywhere" — it only accepts a candidate whose committed
-// change record explicitly lists the original exact name as an input taxon, never a guess
-// based on name similarity alone.
+// iNaturalist's search ranks by relevance, so only an exact name match counts, or a candidate
+// that a committed taxon change (taxon_changes.json) lists the original name as an input for.
+// Never a guess by name similarity.
 async function findReclassifiedTaxon(
   scientificName: string,
   candidates: Array<{ id: number; name: string; default_photo: INaturalistPhoto | null }>,
@@ -287,12 +267,8 @@ async function findReclassifiedTaxon(
   return null;
 }
 
-// Some species in our own DB (following a "split" taxonomy — e.g. Clements/eBird treating
-// Green-Winged Teal as its own species, Anas carolinensis) are classified by iNaturalist as a
-// SUBSPECIES of a different, "lumped" parent species instead (confirmed: iNaturalist has no
-// species-rank Anas carolinensis at all — it's Anas crecca carolinensis, a subspecies of Anas
-// crecca). A rank=species-only search can never find these, silently reading as "no photo
-// exists" for a bird that actually has real iNaturalist photos, just filed one rank down.
+// A species in a split taxonomy can be a subspecies on iNaturalist (Anas carolinensis is Anas
+// crecca carolinensis), which a species-rank search never finds.
 async function fetchINaturalistSubspecies(
   scientificName: string,
 ): Promise<{ id: number; defaultPhoto: INaturalistPhoto | null } | null> {
@@ -326,14 +302,8 @@ export async function fetchINaturalistTaxon(
   return fetchINaturalistSubspecies(scientificName);
 }
 
-// iNaturalist's own taxon record carries a full photo gallery (taxon_photos — e.g. 12
-// photos for Cygnus cygnus alone) and a wikipedia_summary field (real Wikipedia-sourced
-// intro text, the same article that would otherwise be fetched separately) in one fast
-// request. Unlike the Wikipedia-media-list + per-photo Wikimedia-Commons-metadata approach
-// below, this endpoint shows no rate-limiting, so it doesn't need the per-request mutex at
-// all, and sourcing the summary from here means one fewer direct Wikipedia call per species.
-// Same "personal use" license stance as the main photo (see fetchINaturalistTaxon's
-// neighboring comment) — no license filtering.
+// iNaturalist's taxon record carries the gallery and a Wikipedia summary in one request. No
+// license filtering (see toGalleryPhoto).
 export function stripHtml(html: string): string {
   return html
     .replace(/<[^>]+>/g, "")
@@ -344,10 +314,7 @@ export function stripHtml(html: string): string {
     .trim();
 }
 
-// Lightweight sibling of fetchINaturalistTaxonDetail for the description-only backfill —
-// that function also downloads/caches every gallery photo, which would be pure waste for
-// species that are already fully enriched and just need their description/habitat text
-// upgraded.
+// The description only, for backfilling text without downloading the gallery again.
 export async function fetchINaturalistWikipediaSummary(
   taxonId: number,
 ): Promise<{ summary: string; wikipediaUrl: string } | null> {
@@ -359,14 +326,21 @@ export async function fetchINaturalistWikipediaSummary(
   };
   const taxon = data.results[0];
   const summary = taxon?.wikipedia_summary;
-  // species.description_requires_credit CHECK requires a non-null source URL alongside any
-  // non-null description (this constraint was violated during backfill for species such as
-  // Accipiter gentilis and Aeorestes cinereus) — a species with no wikipedia_url here has no
-  // citable source at all, so it is treated the same as "no summary" rather than writing a
-  // description with nothing to back it.
+  // species.description_requires_credit needs a source URL with any description, so a summary
+  // without wikipedia_url counts as none.
   if (!summary || !taxon?.wikipedia_url) return null;
   const truncated = truncateToSentences(stripHtml(summary), 4);
   return isSubstantiveText(truncated) ? { summary: truncated, wikipediaUrl: taxon.wikipedia_url } : null;
+}
+
+/** The fields of an iNaturalist taxon record (/v1/taxa/{ids}) that enrichment reads. */
+export interface INaturalistTaxonRecord {
+  id: number;
+  name: string;
+  default_photo?: INaturalistPhoto | null;
+  taxon_photos?: Array<{ photo: INaturalistPhoto }>;
+  wikipedia_summary?: string | null;
+  wikipedia_url?: string | null;
 }
 
 async function fetchINaturalistTaxonDetail(
@@ -377,14 +351,16 @@ async function fetchINaturalistTaxonDetail(
   const url = `${INAT_API}/taxa/${taxonId}`;
   const res = await fetch(url, { signal: AbortSignal.timeout(15_000) });
   if (!res.ok) return { gallery: [], wikipediaSummary: null, wikipediaUrl: null };
-  const data = (await res.json()) as {
-    results: Array<{
-      taxon_photos?: Array<{ photo: INaturalistPhoto }>;
-      wikipedia_summary?: string | null;
-      wikipedia_url?: string | null;
-    }>;
-  };
-  const taxon = data.results[0];
+  const data = (await res.json()) as { results: INaturalistTaxonRecord[] };
+  return taxonDetailFromRecord(data.results[0], excludePhotoUrl, speciesId);
+}
+
+/** Gallery (cached locally) and Wikipedia summary from a taxon record already fetched. */
+export async function taxonDetailFromRecord(
+  taxon: INaturalistTaxonRecord | undefined,
+  excludePhotoUrl: string | null,
+  speciesId: string,
+): Promise<{ gallery: EnrichmentResult["gallery"]; wikipediaSummary: string | null; wikipediaUrl: string | null }> {
   const photos = (taxon?.taxon_photos ?? [])
     .map((tp) => tp.photo)
     .filter((p) => p.medium_url !== excludePhotoUrl)
@@ -396,13 +372,8 @@ async function fetchINaturalistTaxonDetail(
     const cached = await downloadAndCacheImage(mapped.photoUrl, `${speciesId}-gallery-${gallery.length}`);
     gallery.push({ ...mapped, sortOrder: gallery.length, displayPath: cached?.displayPath ?? null, thumbPath: cached?.thumbPath ?? null });
   }
-  // iNaturalist's own summary is often trimmed mid-sentence — trim back to the last complete
-  // sentence rather than showing a dangling half-thought.
-  // species.description_requires_credit CHECK needs a non-null source URL alongside any
-  // non-null description (this constraint was violated for species such as Accipiter
-  // gentilis and Aeorestes cinereus) — a summary with no wikipedia_url is treated as absent
-  // rather than risking that constraint violation, now that Wikipedia is no longer called
-  // unconditionally as a fallback source for descriptionSourceUrl.
+  // Summaries are often cut mid-sentence, so trim to whole sentences. A summary without
+  // wikipedia_url counts as none (description_requires_credit).
   const rawWikipediaSummary =
     taxon?.wikipedia_summary && taxon.wikipedia_url ? truncateToSentences(stripHtml(taxon.wikipedia_summary), 4) : null;
   const wikipediaSummary = rawWikipediaSummary && isSubstantiveText(rawWikipediaSummary) ? rawWikipediaSummary : null;
@@ -417,21 +388,12 @@ function truncateToSentences(text: string, maxSentences: number): string {
   return sentences.slice(0, maxSentences).join(" ").split(DECIMAL_MARKER).join(".").trim();
 }
 
-// A non-empty result from truncateToSentences isn't automatically a real sentence — iNaturalist
-// sometimes hands back a Wikipedia stub whose "summary" is just an ellipsis or a stray
-// punctuation mark (confirmed live: Sage Thrasher's own wikipedia_summary was exactly "..."),
-// which used to sail straight through the truthiness check below and render as a description
-// that was just "... (Wikipedia)" — worse than showing nothing. Requiring an actual letter and
-// a minimum length is a cheap, reliable way to tell "a real sentence" from "not one," without
-// needing real NLP for what's ultimately just a garbage-in filter.
+// Filters out stub summaries such as "..." (a real letter and a minimum length required).
 function isSubstantiveText(text: string): boolean {
   return text.length >= 15 && /\p{L}/u.test(text);
 }
 
-// Shared by enrichSpecies (below) and species/routes.ts's gallery-backfill branch for
-// already-enriched species that predate the iNaturalist gallery source. iNaturalist-only —
-// see this file's top comment for why there is deliberately no Wikipedia/Commons fallback
-// when a species has no iNaturalist gallery photos.
+// The gallery alone, used by enrichSpecies and the species page's gallery backfill.
 export async function fetchAnyGallery(species: {
   id: string;
   scientific_name: string;
@@ -448,22 +410,29 @@ export async function enrichSpecies(species: {
 }): Promise<EnrichmentResult> {
   const taxon = await fetchINaturalistTaxon(species.scientific_name);
   const inat = taxon?.defaultPhoto ? toGalleryPhoto(taxon.defaultPhoto) : null;
+  const detail = taxon ? await fetchINaturalistTaxonDetail(taxon.id, inat?.photoUrl ?? null, species.id) : null;
+  return assembleEnrichment(species.id, inat, detail);
+}
+
+/** Enrichment for a taxon record fetched in a batch, the same result enrichSpecies builds. */
+export async function enrichmentFromTaxonRecord(speciesId: string, taxon: INaturalistTaxonRecord): Promise<EnrichmentResult> {
+  const inat = taxon.default_photo ? toGalleryPhoto(taxon.default_photo) : null;
+  const detail = await taxonDetailFromRecord(taxon, inat?.photoUrl ?? null, speciesId);
+  return assembleEnrichment(speciesId, inat, detail);
+}
+
+async function assembleEnrichment(
+  speciesId: string,
+  inat: { photoUrl: string; credit: string; license: string } | null,
+  detail: { gallery: EnrichmentResult["gallery"]; wikipediaSummary: string | null; wikipediaUrl: string | null } | null,
+): Promise<EnrichmentResult> {
+  const species = { id: speciesId };
   let referencePhoto = inat?.photoUrl ?? null;
   let referenceCredit = inat?.credit ?? null;
   let referenceLicense = inat?.license ?? null;
-
-  // Gallery sources from iNaturalist's own taxon_photos — fast, one request, no rate limiting
-  // observed. iNaturalist-only: see this file's top comment for why there is deliberately no
-  // Wikipedia/Commons fallback for a species with no iNaturalist photos.
-  let gallery: EnrichmentResult["gallery"] = [];
-  let inatWikipediaSummary: string | null = null;
-  let inatWikipediaUrl: string | null = null;
-  if (taxon) {
-    const detail = await fetchINaturalistTaxonDetail(taxon.id, inat?.photoUrl ?? null, species.id);
-    gallery = detail.gallery;
-    inatWikipediaSummary = detail.wikipediaSummary;
-    inatWikipediaUrl = detail.wikipediaUrl;
-  }
+  let gallery: EnrichmentResult["gallery"] = detail?.gallery ?? [];
+  const inatWikipediaSummary: string | null = detail?.wikipediaSummary ?? null;
+  const inatWikipediaUrl: string | null = detail?.wikipediaUrl ?? null;
 
   let referenceDisplayPath: string | null = null;
   let referenceThumbPath: string | null = null;
@@ -472,13 +441,8 @@ export async function enrichSpecies(species: {
     referenceDisplayPath = cached?.displayPath ?? null;
     referenceThumbPath = cached?.thumbPath ?? null;
   } else if (gallery.length > 0) {
-    // iNaturalist's taxon record does not always have a "default_photo" flagged even when
-    // its photo pool (taxon_photos, what the gallery draws from) has real entries — for
-    // example, Common Minke Whale had 6 cached gallery photos but an empty main photo. This
-    // is a curator-flag quirk, not an absence of any photo. Borrowing the first gallery
-    // photo as the main one (already downloaded/cached above, no extra fetch) means a
-    // species is only ever left with a blank main photo when there is truly nothing
-    // anywhere, not just a missing default-photo flag.
+    // default_photo isn't always flagged even when the gallery has photos, so the first gallery
+    // photo (already cached) becomes the main one.
     const [first, ...rest] = gallery;
     referencePhoto = first.photoUrl;
     referenceCredit = first.credit;
@@ -488,9 +452,7 @@ export async function enrichSpecies(species: {
     gallery = rest;
   }
 
-  // iNaturalist-only: no direct Wikipedia fallback for the description/habitat text. A
-  // species with no iNaturalist summary just gets no description, rather than paying for one
-  // with a direct Wikipedia call — see this file's top comment for why.
+  // iNaturalist only: no summary there means no description.
   const description: string | null = inatWikipediaSummary;
   const descriptionCredit: string | null = inatWikipediaSummary ? "Wikipedia contributors (CC BY-SA), via iNaturalist" : null;
   const descriptionSourceUrl: string | null = inatWikipediaSummary ? inatWikipediaUrl : null;
@@ -510,8 +472,7 @@ export async function enrichSpecies(species: {
   };
 }
 
-/** Shared by the lazy on-view path (species/routes.ts) and the overnight eager
- *  enrich-all-species script — one write path so the two never drift apart. */
+/** The one write path for both the on-view enrichment and the bulk enrich-all-species script. */
 export async function persistEnrichment(speciesId: string, enrichment: EnrichmentResult): Promise<void> {
   // A blocklisted main photo (a range map, say; migration 106) counts as no photo at all.
   if (enrichment.referencePhoto) {
@@ -551,15 +512,10 @@ export async function persistEnrichment(speciesId: string, enrichment: Enrichmen
   await tryComputeReferenceEmbedding(speciesId);
 }
 
-// Species auto-suggest (embeddings.ts's rankSpeciesByEmbedding) only ever surfaces a species
-// that already has a species_reference_embeddings row — without this, a species enriched here
-// (lazy on-view, the Other Taxa add flow, or the overnight enrich-all script) would just sit
-// un-embedded until someone happens to re-run the separate backfill script, so a freshly-added
-// Other Taxa species wouldn't get AI import matches for a while. Best-effort and silent on
-// failure: the embedding model is an opt-in download (Settings > Offline Data), so "not
-// downloaded yet" is an expected, common case here, not an error — the batch backfill script
-// still catches this species once the model IS present.
+// Suggestions only rank species with a reference vector, so one is computed right after
+// enrichment. Best effort: the backfill catches anything missed here.
 async function tryComputeReferenceEmbedding(speciesId: string): Promise<void> {
+  let stored = false;
   try {
     const res = await pool.query<{ reference_display_path: string | null }>(
       `SELECT reference_display_path FROM species
@@ -577,16 +533,23 @@ async function tryComputeReferenceEmbedding(speciesId: string): Promise<void> {
        ON CONFLICT (species_id) DO UPDATE SET embedding = EXCLUDED.embedding, model_version = EXCLUDED.model_version, computed_at = now()`,
       [speciesId, embedding, EMBEDDING_MODEL_VERSION],
     );
+    stored = true;
   } catch {
-    // model not downloaded, image unreadable, inference timeout, etc. — see comment above
+    // Model not downloaded, image unreadable, inference timeout: left for the backfill.
   }
-  await tryComputeIdReferenceEmbedding(speciesId);
+  if (await tryComputeIdReferenceEmbedding(speciesId)) stored = true;
+  if (stored) await refreshSpeciesVectorsQuietly(speciesId);
+}
+
+// Loaded suggestion candidates pick up the new vectors now rather than on the next rebuild.
+async function refreshSpeciesVectorsQuietly(speciesId: string): Promise<void> {
+  await refreshSpeciesVectors(pool, [speciesId]).catch((err) => log.warn({ err, speciesId }, "Couldn't refresh this species' loaded vectors"));
 }
 
 // The species identification model's copy of the same vector. Species in the published catalog
 // already have one; this covers Other Taxa and anything enriched since.
-async function tryComputeIdReferenceEmbedding(speciesId: string): Promise<void> {
-  if (!idModel.isDownloaded()) return;
+async function tryComputeIdReferenceEmbedding(speciesId: string): Promise<boolean> {
+  if (!idModel.isDownloaded()) return false;
   try {
     const res = await pool.query<{ reference_display_path: string | null }>(
       `SELECT reference_display_path FROM species
@@ -596,7 +559,7 @@ async function tryComputeIdReferenceEmbedding(speciesId: string): Promise<void> 
       [speciesId, ID_MODEL_VERSION],
     );
     const displayPath = res.rows[0]?.reference_display_path;
-    if (!displayPath) return;
+    if (!displayPath) return false;
     const embedding = await idModel.embed(await readFile(displayPath));
     await pool.query(
       `INSERT INTO id_model_reference_embeddings (species_id, embedding, model_version)
@@ -604,8 +567,9 @@ async function tryComputeIdReferenceEmbedding(speciesId: string): Promise<void> 
        ON CONFLICT (species_id) DO UPDATE SET embedding = EXCLUDED.embedding, model_version = EXCLUDED.model_version, computed_at = now()`,
       [speciesId, embedding, ID_MODEL_VERSION],
     );
+    return true;
   } catch {
-    // same best-effort contract as tryComputeReferenceEmbedding
+    return false; // same best-effort contract as tryComputeReferenceEmbedding
   }
 }
 
@@ -615,6 +579,7 @@ export async function persistGallery(speciesId: string, gallery: EnrichmentResul
     [gallery.map((p) => p.photoUrl)],
   );
   const blockedUrls = new Set(blocked.rows.map((r) => r.photo_url));
+  let stored = false;
   for (const photo of gallery) {
     if (blockedUrls.has(photo.photoUrl)) continue; // a map or other non-photo (migration 106)
     const res = await pool.query<{ id: string }>(
@@ -625,16 +590,15 @@ export async function persistGallery(speciesId: string, gallery: EnrichmentResul
        RETURNING id`,
       [speciesId, photo.photoUrl, photo.credit, photo.license, photo.sortOrder, photo.displayPath, photo.thumbPath],
     );
-    await tryComputeGalleryEmbedding(res.rows[0].id, speciesId, photo.displayPath);
+    if (await tryComputeGalleryEmbedding(res.rows[0].id, speciesId, photo.displayPath)) stored = true;
   }
+  if (stored) await refreshSpeciesVectorsQuietly(speciesId);
 }
 
-// Same reasoning and same best-effort/silent-failure contract as tryComputeReferenceEmbedding
-// above, just for one gallery photo instead of the species' main photo — without this, a
-// species enriched here would sit with real gallery images but no gallery embeddings until the
-// separate batch backfill script happened to catch it.
-async function tryComputeGalleryEmbedding(referencePhotoId: string, speciesId: string, displayPath: string | null): Promise<void> {
-  if (!displayPath) return;
+// The same as tryComputeReferenceEmbedding, for one gallery photo. True when a vector was stored.
+async function tryComputeGalleryEmbedding(referencePhotoId: string, speciesId: string, displayPath: string | null): Promise<boolean> {
+  if (!displayPath) return false;
+  let stored = false;
   try {
     const existing = await pool.query<{ exists: boolean }>(
       `SELECT EXISTS (
@@ -642,7 +606,7 @@ async function tryComputeGalleryEmbedding(referencePhotoId: string, speciesId: s
        ) AS exists`,
       [referencePhotoId, EMBEDDING_MODEL_VERSION],
     );
-    if (existing.rows[0].exists) return;
+    if (existing.rows[0].exists) return false;
     const embedding = await computeEmbedding(await readFile(displayPath));
     await pool.query(
       `INSERT INTO species_reference_gallery_embeddings (reference_photo_id, species_id, embedding, model_version)
@@ -650,14 +614,16 @@ async function tryComputeGalleryEmbedding(referencePhotoId: string, speciesId: s
        ON CONFLICT (reference_photo_id) DO UPDATE SET embedding = EXCLUDED.embedding, model_version = EXCLUDED.model_version, computed_at = now()`,
       [referencePhotoId, speciesId, embedding, EMBEDDING_MODEL_VERSION],
     );
+    stored = true;
   } catch {
-    // model not downloaded, image unreadable, inference timeout, etc. — see tryComputeReferenceEmbedding
+    // Model not downloaded, image unreadable, inference timeout: left for the backfill.
   }
-  await tryComputeIdGalleryEmbedding(referencePhotoId, speciesId, displayPath);
+  if (await tryComputeIdGalleryEmbedding(referencePhotoId, speciesId, displayPath)) stored = true;
+  return stored;
 }
 
-async function tryComputeIdGalleryEmbedding(referencePhotoId: string, speciesId: string, displayPath: string): Promise<void> {
-  if (!idModel.isDownloaded()) return;
+async function tryComputeIdGalleryEmbedding(referencePhotoId: string, speciesId: string, displayPath: string): Promise<boolean> {
+  if (!idModel.isDownloaded()) return false;
   try {
     const existing = await pool.query<{ exists: boolean }>(
       `SELECT EXISTS (
@@ -665,7 +631,7 @@ async function tryComputeIdGalleryEmbedding(referencePhotoId: string, speciesId:
        ) AS exists`,
       [referencePhotoId, ID_MODEL_VERSION],
     );
-    if (existing.rows[0].exists) return;
+    if (existing.rows[0].exists) return false;
     const embedding = await idModel.embed(await readFile(displayPath));
     await pool.query(
       `INSERT INTO id_model_gallery_embeddings (reference_photo_id, species_id, embedding, model_version)
@@ -673,17 +639,14 @@ async function tryComputeIdGalleryEmbedding(referencePhotoId: string, speciesId:
        ON CONFLICT (reference_photo_id) DO UPDATE SET embedding = EXCLUDED.embedding, model_version = EXCLUDED.model_version, computed_at = now()`,
       [referencePhotoId, speciesId, embedding, ID_MODEL_VERSION],
     );
+    return true;
   } catch {
-    // same best-effort contract as tryComputeReferenceEmbedding
+    return false; // same best-effort contract as tryComputeReferenceEmbedding
   }
 }
 
-// Shared by both gallery-backfill call sites (species/routes.ts's lazy backfill branch and
-// backfill-missing-galleries.ts) — same fix as enrichSpecies' own inline version: a species
-// reaching either of these paths might have no main photo yet for the same reason
-// (iNaturalist's taxon record lacking a flagged default_photo despite having real
-// taxon_photos) — without this, gallery-backfilling such a species would reproduce the same
-// bug rather than fix it.
+// For the gallery backfills (the species page and backfill-missing-galleries.ts): a species with
+// no main photo gets the first gallery photo as its main one, as enrichSpecies does.
 export async function persistGalleryPromotingMainIfMissing(
   speciesId: string,
   gallery: EnrichmentResult["gallery"],

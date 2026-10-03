@@ -1,7 +1,5 @@
-// Installs a one-vector-per-species table (species_reference_embeddings,
-// species_text_embeddings) from its own compact asset (format:
-// packages/shared/src/speciesVectorFormat.ts). Same story as the per-gallery-photo table in
-// galleryEmbeddingsAsset.ts, which orchestrates this alongside the gallery vectors.
+// Installs a one-vector-per-species table (species_reference_embeddings, species_text_embeddings)
+// from its own compact asset. Orchestrated by galleryEmbeddingsAsset.ts.
 import { createReadStream, mkdirSync, rmSync } from "node:fs";
 import path from "node:path";
 import { pipeline } from "node:stream/promises";
@@ -15,6 +13,7 @@ import { copyInto } from "../lib/pgCopy.js";
 import { downloadResumable } from "../lib/resumableDownload.js";
 import { resolveCatalogAssetUrl, type CatalogManifest, type VectorAsset } from "./catalogManifest.js";
 import { invalidateSuggestionCache } from "./embeddings.js";
+import { lockReferenceData } from "../lib/referenceDataLock.js";
 
 const DOWNLOAD_DIR = path.join(APP_DATA_DIR, "catalog-downloads");
 
@@ -78,6 +77,7 @@ export async function applySpeciesVectorFile(
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
+    await lockReferenceData(client);
     await client.query(`CREATE TEMP TABLE tmp_species_vector (species_id uuid, embedding real[]) ON COMMIT DROP`);
 
     let header: SpeciesVectorHeader | null = null;

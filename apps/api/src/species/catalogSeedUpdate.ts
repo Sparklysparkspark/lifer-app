@@ -1,22 +1,10 @@
-// Merges a published catalog seed (a gzipped pg_dump of the catalog tables, see
-// packages/data-pipeline/src/scripts/build-catalog-seed.ts) into an existing install: the
-// Settings "Species catalog" update, and the Docker first-boot seed (seedCatalogIfEmpty).
-// The desktop app's very first restore into an empty database is embedded_db.rs instead.
+// Merges a published catalog seed (a gzipped pg_dump of the catalog tables) into an existing
+// install: the Settings catalog update and the Docker first-boot seed.
 //
-// How it works, and why:
-// - Download to a file under APP_DATA_DIR (resumable, stall timeout, sha256 checked), so a failed
-//   apply never re-downloads and nothing large is held in memory.
-// - Stream the gzip line by line. pg_dump's COPY blocks are already COPY text format, so each
-//   block is piped unparsed into a temp table with `COPY ... FROM STDIN`. Temp columns are all
-//   text, so a seed built from a slightly newer or older schema still loads.
-// - Merge each temp table into the real one with a single INSERT ... SELECT ... ON CONFLICT
-//   (typed casts per column), in FK-safe order, never overwriting this install's local file-path
-//   columns (the seed always carries them NULL).
-// - All of it runs in ONE transaction, and the applied version is recorded in the same
-//   transaction, so a crash or cancel leaves the catalog exactly as it was.
-//
-// Pure `pg` driver, no psql: the packaged app has no psql binary for Node to call, and the Docker
-// image can't be assumed to have one either.
+// Each COPY block is streamed unparsed into an all-text temp table (so a slightly different
+// schema still loads), then merged into the real table in FK-safe order without overwriting
+// local file-path columns. Everything, including the recorded version, runs in one transaction.
+// Uses only the pg driver because no psql binary can be assumed.
 import { createReadStream, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import path from "node:path";
 import { Transform } from "node:stream";
@@ -29,9 +17,13 @@ import { getInstallSetting, setInstallSetting } from "../lib/installSettings.js"
 import { copyInto, readLines } from "../lib/pgCopy.js";
 import { downloadResumable } from "../lib/resumableDownload.js";
 import { catalogSeedAsset, fetchCatalogManifest, type CatalogManifest } from "./catalogManifest.js";
-import { isModelDownloaded } from "./embeddings.js";
+import { invalidateSuggestionCache, isModelDownloaded } from "./embeddings.js";
 import { runGalleryEmbeddingsUpdate, type ReferenceVectorsResult } from "./galleryEmbeddingsAsset.js";
-import { invalidateSuggestionCache } from "./embeddings.js";
+import { lockReferenceData } from "../lib/referenceDataLock.js";
+import { applySpeciesMerges } from "./speciesMerges.js";
+import { resolveSpeciesSplits } from "./speciesSplits.js";
+import { syncCaptureXmpSidecarsLogged } from "../uploads/xmpSidecarSync.js";
+import { log } from "../lib/log.js";
 
 export { fetchCatalogManifest, type CatalogManifest };
 
@@ -43,8 +35,7 @@ export async function getAppliedCatalogVersion(db: Pool | PoolClient): Promise<n
   return v == null ? null : Number(v);
 }
 
-// userId is unused since the version became per-install (migration 103); kept so callers that
-// still pass it compile.
+// userId is unused (the version is per-install); kept so existing callers compile.
 export async function checkCatalogUpdate(
   pool: Pool,
   _userId?: string,
@@ -63,10 +54,17 @@ export async function checkCatalogUpdate(
 // aren't listed here are skipped.
 const MERGE_TABLES: Array<{ table: string; pkColumns: string[]; excludeFromUpdate: string[] }> = [
   { table: "species", pkColumns: ["id"], excludeFromUpdate: ["reference_display_path", "reference_thumb_path"] },
+  // Duplicate species folded into one; applied by applySpeciesMerges after every table is in.
+  { table: "species_merges", pkColumns: ["old_species_id"], excludeFromUpdate: [] },
+  // Species split into several; photos filed under one are re-filed by place after commit.
+  { table: "species_splits", pkColumns: ["parent_species_id", "daughter_species_id"], excludeFromUpdate: [] },
   { table: "species_traits", pkColumns: ["species_id"], excludeFromUpdate: [] },
   { table: "species_rarity", pkColumns: ["species_id"], excludeFromUpdate: [] },
+  // Keyed by the name (unique), so a synonym an install already has keeps its own id.
+  { table: "species_synonyms", pkColumns: ["synonym_name"], excludeFromUpdate: ["id"] },
   { table: "regions", pkColumns: ["id"], excludeFromUpdate: [] },
-  { table: "region_species", pkColumns: ["region_id", "species_id"], excludeFromUpdate: [] },
+  // The seed has no tier explanations, so an update keeps the ones an installed pack wrote.
+  { table: "region_species", pkColumns: ["region_id", "species_id"], excludeFromUpdate: ["tier_explain"] },
   { table: "sea_zones", pkColumns: ["id"], excludeFromUpdate: [] },
   { table: "sea_zone_species", pkColumns: ["sea_zone_id", "species_id"], excludeFromUpdate: [] },
   { table: "species_reference_embeddings", pkColumns: ["species_id"], excludeFromUpdate: [] },
@@ -199,6 +197,13 @@ async function mergeGenericTable(
   }
 
   const cols = await sharedColumns(client, table, seedColumns);
+  // A synonym the seed renamed in place keeps its id: the local row under the old name goes, or
+  // the insert would collide on the id and roll the whole update back.
+  if (table === "species_synonyms" && cols.some((c) => c.name === "id")) {
+    await client.query(
+      `DELETE FROM species_synonyms s USING ${ident(tmpName(table))} t WHERE s.id = t.id::uuid AND s.synonym_name <> t.synonym_name::text`,
+    );
+  }
   const select = cols.map((c) => `${ident(c.name)}::${c.type}`);
   const updatable = cols.filter((c) => !pkColumns.includes(c.name) && !excludeFromUpdate.includes(c.name));
   const onConflict =
@@ -213,29 +218,39 @@ async function mergeGenericTable(
   return res.rowCount ?? 0;
 }
 
-// regions has both a self-reference (a province's parent_id points at its country) and a
-// UNIQUE(name, parent_id) constraint (migration 049), checked immediately, not deferred, which
-// created two separate real failures:
-//
-// 1. The old approach (insert every row with parent_id forced NULL, then fix it up in a second
-//    pass) could insert two DIFFERENT brand-new regions that happen to share a name with
-//    parent_id NULL at the same instant, colliding even though their real, final parents were
-//    never the same. Fixed by inserting in topological order (parent before child) so every
-//    row's REAL parent_id is used from the moment it's inserted - see the round-based loop below.
-//
-// 2. Separately (confirmed live, on a real update against a real install): a region's canonical
-//    id can change upstream (this project has a whole migration, 004_dedupe_regions.sql, for
-//    exactly this kind of cleanup) - an install that last synced before such a change has an
-//    existing row for, say, Georgia under an OLD id, while the current seed publishes Georgia
-//    under a NEW id. Neither the old NULL-parent approach nor the topological-order fix above
-//    caught this: `id` doesn't match, so it tries to INSERT a second Georgia, which collides on
-//    (name, parent_id) with the first. Same fix species_reference_photos already uses for its
-//    own id-mismatch problem: match the existing row by its real natural key (name + parent)
-//    when the id doesn't, and keep the LOCAL id rather than the seed's. Every other table that
-//    references a region by id (currently just region_species) gets that mapping applied to its
-//    own temp table before it merges, so a region_species row that names the seed's "new"
-//    Georgia id ends up attached to the existing local row instead of a FK a region that was
-//    never inserted.
+// The seed carries each region's and sea zone's whole checklist, so local rows it no longer lists
+// are removed. Only groups the seed has rows for are touched, and Other Taxa species (the user's
+// own additions) always stay. Runs after the region id remap, so ids are local.
+const CHECKLIST_GROUP_COLUMN: Record<string, string> = { region_species: "region_id", sea_zone_species: "sea_zone_id" };
+
+async function pruneChecklistsFromSeed(client: PoolClient, table: string, groupColumn: string): Promise<number> {
+  const tmp = ident(tmpName(table));
+  const col = ident(groupColumn);
+  // Temp tables are never auto-analyzed; without stats the anti-join over millions of seed rows
+  // can be planned as a nested loop.
+  await client.query(`ANALYZE ${tmp}`);
+  const res = await client.query<{ group_id: string; species_id: string }>(
+    `DELETE FROM ${ident(table)} t
+     WHERE t.${col} IN (SELECT DISTINCT ${col}::uuid FROM ${tmp})
+       AND NOT EXISTS (SELECT 1 FROM ${tmp} s WHERE s.${col}::uuid = t.${col} AND s.species_id::uuid = t.species_id)
+       AND NOT EXISTS (SELECT 1 FROM species sp WHERE sp.id = t.species_id AND sp.is_other_taxa)
+     RETURNING t.${col} AS group_id, t.species_id`,
+  );
+  if (table === "region_species" && res.rows.length > 0) {
+    await client.query(
+      `DELETE FROM region_species_hotspots h
+       USING unnest($1::uuid[], $2::uuid[]) AS gone(region_id, species_id)
+       WHERE h.region_id = gone.region_id AND h.species_id = gone.species_id`,
+      [res.rows.map((r) => r.group_id), res.rows.map((r) => r.species_id)],
+    );
+  }
+  return res.rows.length;
+}
+
+// regions has a self-reference (parent_id) and an immediate UNIQUE(name, parent_id), so:
+// - rows are inserted parent before child, each with its real parent_id from the start;
+// - a region whose id changed upstream is matched by (name, parent) and keeps its local id, and
+//   region_species rows are remapped onto that local id before they merge.
 async function mergeSelfReferencingTable(
   client: PoolClient,
   table: string,
@@ -251,9 +266,8 @@ async function mergeSelfReferencingTable(
   const parentCol = cols.find((c) => c.name === selfRefColumn);
 
   await client.query(`CREATE TEMP TABLE region_id_remap (seed_id uuid PRIMARY KEY, local_id uuid NOT NULL) ON COMMIT DROP`);
-  // Seed identity mappings for every row that already exists locally by id (the common case:
-  // nothing changed). Re-run after each insert pass below to pick up rows just inserted, so a
-  // single piece of SQL covers both "already had it" and "just inserted it".
+  // Identity mappings for rows that already exist locally by id. Re-run after each insert pass to
+  // pick up rows just inserted.
   const seedIdentity = () =>
     client.query(
       `INSERT INTO region_id_remap (seed_id, local_id)
@@ -271,13 +285,10 @@ async function mergeSelfReferencingTable(
        AND (${alias}.${ident(selfRefColumn)} IS NULL
             OR EXISTS (SELECT 1 FROM region_id_remap r WHERE r.seed_id = ${alias}.${ident(selfRefColumn)}::uuid))`;
 
-  // Bounded, not unbounded: a real cycle or a parent this seed never sent (data bug, not this
-  // code's job to paper over) must fail loudly, via ROLLBACK, rather than loop forever. The
-  // real hierarchy here is a handful of levels deep (continent -> country -> province/state ->
-  // subdivision at most), so this ceiling is generous headroom, not a tight fit.
+  // Bounded so a cycle or missing parent stops instead of looping forever. The real hierarchy is
+  // only a few levels deep.
   for (let round = 0; round < 20; round++) {
-    // First: does a region with this exact (name, resolved-local-parent) already exist under a
-    // different id? Claim it rather than inserting a duplicate.
+    // A region with this (name, local parent) under a different id: claim it, don't duplicate it.
     const matched = await client.query(
       `INSERT INTO region_id_remap (seed_id, local_id)
        SELECT s.${ident(pk)}::uuid, t.${ident(pk)}
@@ -286,7 +297,7 @@ async function mergeSelfReferencingTable(
         WHERE ${ready("s")}
        ON CONFLICT (seed_id) DO NOTHING`,
     );
-    // Then: genuinely new rows (not matched above), inserted with the resolved local parent id.
+    // New rows, inserted with the resolved local parent id.
     const inserted = await client.query(
       `INSERT INTO ${ident(table)} (${colListNoParent.join(", ")}, ${ident(selfRefColumn)})
        SELECT ${select.filter((_, i) => cols[i].name !== selfRefColumn).join(", ")}, ${resolvedParent("s")}::${parentCol!.type}
@@ -298,9 +309,8 @@ async function mergeSelfReferencingTable(
     if ((matched.rowCount ?? 0) + (inserted.rowCount ?? 0) === 0) break;
   }
 
-  // Existing rows (including newly-inserted and newly-matched-by-name ones): update every other
-  // column to the seed's real value, joined through the remap rather than assuming id equality,
-  // since a name-matched row's local id can differ from the seed's.
+  // Update every other column, joined through the remap since a name-matched row's local id can
+  // differ from the seed's.
   const updatable = cols.filter((c) => c.name !== pk);
   if (updatable.length > 0) {
     await client.query(
@@ -313,9 +323,7 @@ async function mergeSelfReferencingTable(
     );
   }
 
-  // Any other loaded table that references this one by id gets the same remap applied to its own
-  // temp table before it merges, so a row naming the seed's id for a since-remapped region lands
-  // on the local id instead. Currently only region_species does.
+  // Apply the remap to region_species before it merges, so its rows land on local region ids.
   if (loadedTables.has("region_species")) {
     await client.query(
       `UPDATE ${ident(tmpName("region_species"))} t SET region_id = r.local_id::text
@@ -327,10 +335,8 @@ async function mergeSelfReferencingTable(
   return Number(countRes.rows[0].n);
 }
 
-// species_reference_photos' real key is (species_id, photo_url) (migration 003), not `id`: ids
-// are generated per install (a pack-downloaded photo has its own local id). So conflicts resolve
-// on the natural key and never change a local id. A seed id that happens to exist locally for a
-// different photo gets a fresh uuid instead of failing the update on the primary key.
+// species_reference_photos is keyed by (species_id, photo_url), not id, because ids are per
+// install. A seed id already used locally by a different photo gets a fresh uuid.
 async function mergeReferencePhotos(client: PoolClient, seedColumns: string[]): Promise<number> {
   const cols = await sharedColumns(client, PHOTOS_TABLE, seedColumns);
   const keep = new Set(["id", "species_id", "photo_url", "display_path", "thumb_path"]);
@@ -352,10 +358,8 @@ async function mergeReferencePhotos(client: PoolClient, seedColumns: string[]): 
   return res.rowCount ?? 0;
 }
 
-// A species whose main photo URL this catalog changed (a map replaced by a real photo, say)
-// still has the OLD image cached locally: the local path columns are deliberately never
-// overwritten by a merge. Clearing them makes the app fetch the new photo (from a pack or the URL)
-// the next time it's needed, instead of showing the old file forever.
+// A species whose main photo URL changed still has the old image cached locally, since merges
+// never overwrite local paths. Clearing them makes the app fetch the new photo when next needed.
 async function dropStaleMainPhotoCaches(client: PoolClient): Promise<void> {
   await client.query(
     `UPDATE species s SET reference_display_path = NULL, reference_thumb_path = NULL
@@ -389,10 +393,8 @@ async function mergeLegacyGalleryEmbeddings(client: PoolClient): Promise<number>
   return res.rowCount ?? 0;
 }
 
-/** Applies a seed file already on disk, in one transaction. `version` (when known) is recorded
- * as applied in that same transaction. */
-/** `onlyTables` merges just those tables (used to get regions in first on a fresh server) and
- *  never records a catalog version, since the catalog isn't complete after it. */
+/** Applies a seed file already on disk in one transaction, recording `version` when known.
+ * `onlyTables` merges just those tables and never records a version. */
 export async function applyCatalogSeedFile(
   pool: Pool,
   seedPath: string,
@@ -403,11 +405,11 @@ export async function applyCatalogSeedFile(
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
+    await lockReferenceData(client);
     progress.update({ phase: "applying", processed: 0, total: null });
     const loaded = await loadSeedIntoTempTables(client, seedPath, progress, onlyTables ? new Set(onlyTables) : undefined);
 
-    // Each species' main photo URL before the merge, to spot the ones this catalog changes (see
-    // dropStaleMainPhotoCaches below).
+    // Main photo URLs before the merge, for dropStaleMainPhotoCaches.
     if (loaded.has("species")) {
       await client.query(`CREATE TEMP TABLE prev_main_photo ON COMMIT DROP AS SELECT id, reference_photo FROM species`);
     }
@@ -421,6 +423,9 @@ export async function applyCatalogSeedFile(
       progress.throwIfCancelled();
       progress.update({ currentItem: spec.table, processed: done });
       merged[spec.table] = await mergeGenericTable(client, spec, loaded.get(spec.table)!, new Set(loaded.keys()));
+      if (spec.table in CHECKLIST_GROUP_COLUMN) {
+        merged[`${spec.table}Removed`] = await pruneChecklistsFromSeed(client, spec.table, CHECKLIST_GROUP_COLUMN[spec.table]);
+      }
       done++;
     }
     if (loaded.has(PHOTOS_TABLE)) {
@@ -437,6 +442,13 @@ export async function applyCatalogSeedFile(
     }
 
     if (loaded.has("species")) await dropStaleMainPhotoCaches(client);
+    // After every table, so a survivor's fresh rows are in before the old entry's are weighed.
+    let movedCaptures: Array<{ userId: string; captureId: string }> = [];
+    if (loaded.has("species_merges")) {
+      const result = await applySpeciesMerges(client);
+      merged.speciesMerged = result.merged;
+      movedCaptures = result.captures;
+    }
     let blockedFiles: string[] = [];
     if (loaded.has("reference_photo_blocklist")) {
       const removed = await removeBlockedPhotos(client);
@@ -450,6 +462,22 @@ export async function applyCatalogSeedFile(
     invalidateSuggestionCache();
     // Only after the rows are gone for good, so a rollback can't leave rows pointing at deleted files.
     for (const f of blockedFiles) rmSync(f, { force: true });
+    // Sidecars name the species, so a moved capture's are rewritten. Best-effort, in the background.
+    void (async () => {
+      for (const c of movedCaptures) await syncCaptureXmpSidecarsLogged(c.userId, c.captureId);
+    })();
+    // Photos under a species that's since been split go to the one living where they were taken.
+    // After commit: re-filing a photo moves its files. A failure here leaves the photos to pick
+    // by hand rather than reporting the committed update as failed.
+    if (loaded.has("species_splits")) {
+      try {
+        const splits = await resolveSpeciesSplits();
+        merged.splitPhotosRefiled = splits.moved;
+        merged.splitPhotosToPick = splits.unresolved;
+      } catch (err) {
+        log.error({ err }, "Couldn't re-file photos after species splits");
+      }
+    }
     progress.update({ processed: total, currentItem: null });
     return merged;
   } catch (err) {
@@ -503,8 +531,8 @@ async function runCatalogUpdate(pool: Pool, ctx: JobContext<CatalogMergeResult>)
   const merged = await applyCatalogSeedFile(pool, seedPath, manifest.version, ctx);
   rmSync(seedPath, { force: true });
 
-  // The reference vectors are only usable with the CLIP model, so they're refreshed here only
-  // when it's installed. A failure here doesn't undo the catalog update that already committed.
+  // Reference vectors only matter with the CLIP model installed. A failure here doesn't undo the
+  // committed catalog update.
   let referenceVectors: ReferenceVectorsResult | null = null;
   if (isModelDownloaded()) {
     try {
@@ -541,11 +569,8 @@ function bundledSeed(): { path: string; version: number | null } | null {
   return { path: seedPath, version };
 }
 
-// First-boot seed progress. A fresh server loads its catalog in the background right after it
-// starts: regions first (about a second) so onboarding can list countries immediately, then
-// everything else (a minute on a laptop, several on a NAS). Pack downloads wait for the whole
-// thing before writing anything (waitForFirstBootCatalog), so a user can pick and start a
-// download without ever seeing this.
+// First-boot seed progress. A fresh server loads regions first so onboarding can list countries
+// immediately, then everything else in the background. Pack downloads wait for the whole load.
 let firstBootSeedState: "running" | "failed" | null = null;
 let firstBootSeed: Promise<unknown> = Promise.resolve();
 export function catalogFirstBootState(): "running" | "failed" | null {
@@ -560,9 +585,8 @@ export async function waitForFirstBootCatalog(): Promise<void> {
   }
 }
 
-/** Fills an empty catalog on server startup (Docker/self-hosted first boot). Prefers the seed
- * baked into the image; falls back to downloading it. Callers log and swallow failures so a
- * failed auto-seed never blocks startup. */
+/** Fills an empty catalog on first boot, preferring the seed baked into the image. Callers
+ * swallow failures so startup is never blocked. */
 export function seedCatalogIfEmpty(pool: Pool): Promise<{ seeded: boolean; merged?: Record<string, number> }> {
   // Marked running before the first await so nothing asking in between sees "not loading".
   firstBootSeedState = "running";
@@ -596,10 +620,8 @@ async function seedEmptyCatalog(pool: Pool): Promise<{ seeded: boolean; merged?:
     version = manifest.version;
   }
   try {
-    // Regions on their own first, committed, so the country list works while the rest loads.
-    // The Docker image ships a regions-only copy for this (fetch-catalog-seed.js), which reads
-    // in well under a second; the full file works too, just slower. The full pass below merges
-    // regions again by id, which is a no-op for identical rows.
+    // Regions first, committed, so the country list works while the rest loads. Uses the image's
+    // regions-only copy when present; the full pass re-merges regions harmlessly.
     const regionsOnly = path.join(BUNDLED_CATALOG_SEED_DIR, "lifer-catalog-regions.sql.gz");
     await applyCatalogSeedFile(pool, bundled && existsSync(regionsOnly) ? regionsOnly : seedPath, null, noProgress, ["regions"]);
     const merged = await applyCatalogSeedFile(pool, seedPath, version, noProgress);

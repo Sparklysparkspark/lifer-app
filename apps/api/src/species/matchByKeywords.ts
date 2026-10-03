@@ -8,14 +8,10 @@ export interface KeywordMatchedSpecies {
   family: string | null;
 }
 
-// Shared by reimport.ts (matching a naturetag-style folder's embedded keywords) and
-// /uploads/inspect (matching a single new upload's embedded keywords) — a tagged photo's
-// keyword doesn't have to be the full scientific name to match: the primary common name, any
-// of its known aliases (common_name_aliases), or a superseded scientific name
-// (species_synonyms, migration 053) are all enough. Case-insensitive via lower() equality, not
-// ILIKE, since these are exact-match candidates rather than patterns — a stray "%"/"_" in a
-// real keyword string shouldn't be read as a SQL wildcard. Always returns the species' own
-// current scientific_name/common_name, never the matched-on alias or stale synonym string.
+// Shared by reimport.ts and /uploads/inspect. A keyword matches on the scientific name, the
+// common name, an alias (common_name_aliases) or a superseded name (species_synonyms, migration
+// 053). Exact, case-insensitive lower() equality rather than ILIKE, so a "%" or "_" in a keyword
+// isn't a wildcard. Always returns the species' current names, never the matched alias.
 export async function matchSpeciesByKeywords(pool: Pool, candidates: string[]): Promise<KeywordMatchedSpecies[]> {
   if (candidates.length === 0) return [];
   const lowerCandidates = candidates.map((c) => c.toLowerCase());
@@ -33,9 +29,8 @@ export async function matchSpeciesByKeywords(pool: Pool, candidates: string[]): 
   return res.rows;
 }
 
-// Groups matched rows by their current scientific_name — more than one group means the
-// keywords collided across genuinely distinct species (ambiguous), not just multiple alias
-// rows for the same one.
+// Groups matched rows by current scientific_name. More than one group means the keywords name
+// different species (ambiguous), not just several aliases of one.
 export function groupByScientificName(rows: KeywordMatchedSpecies[]): Map<string, KeywordMatchedSpecies[]> {
   const byName = new Map<string, KeywordMatchedSpecies[]>();
   for (const row of rows) {

@@ -1,8 +1,6 @@
 // Reference photos are cached as <app data>/reference-display/<species id>.webp (and
-// reference-thumb), and species ids come from the catalog, so they're the same on every
-// install. A fresh database (a wiped one, or a reinstall over the same app data) came back with
-// no paths recorded, so hundreds of cached photos sat unused while cards fetched them from the
-// internet again, or showed nothing offline.
+// reference-thumb), and species ids come from the catalog, so they're the same on every install.
+// A fresh database over existing app data relinks them instead of fetching them all again.
 //
 // Only runs when no species has a cached photo recorded at all, i.e. the database is fresh. On
 // an install in use, a file without a row can be one left on purpose: a catalog update that

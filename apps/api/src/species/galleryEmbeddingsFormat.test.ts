@@ -15,7 +15,7 @@ function randomUnitVector(dim: number, seed: number): number[] {
     s = (s * 1103515245 + 12345) & 0x7fffffff;
     return s / 0x7fffffff - 0.5;
   };
-  return l2Normalize(Float32Array.from({ length: dim }, rand));
+  return Array.from(l2Normalize(Float32Array.from({ length: dim }, rand)));
 }
 
 const roundTrip = (v: number[]) => v.map((x) => float16BitsToFloat32(float32ToFloat16Bits(x)));

@@ -1,15 +1,16 @@
-// Settings > Species-matching model download as a shared job (see lib/job.ts). Phases:
-// "downloading_model" (the ~307MB CLIP vision model, byte progress), "downloading_text_model"
-// (no byte progress), "downloading_id_model" (the ~308MB species identification model, byte
-// progress), then the reference vectors for both (galleryEmbeddingsAsset.ts phases). Suggestions
-// work throughout, on whichever model and vectors are already there.
+// Settings > Species-matching model download as a shared job. Phases: "downloading_model",
+// "downloading_text_model" (no byte progress), "downloading_id_model", then the reference vectors.
+// Suggestions keep working on whatever is already there.
 import type { Pool } from "pg";
+import { startAccelerationSelection } from "./accelerationSetup.js";
 import { createJob, type JobContext } from "../lib/job.js";
-import { downloadModel, isModelDownloaded } from "./embeddings.js";
+import { clipModel, downloadModel, dropOlderClipModels, isModelDownloaded } from "./embeddings.js";
 import { runEmbeddingBackfill, runIdEmbeddingBackfill, runSpeciesEmbeddingBackfill } from "./embeddingBackfill.js";
 import { idModel } from "./idModel.js";
 import { runGalleryEmbeddingsUpdate, type ReferenceVectorsResult } from "./galleryEmbeddingsAsset.js";
 import { downloadTextModel } from "./textEmbedding.js";
+import { verifyModelFile } from "./modelChecksums.js";
+import type { OnnxImageModel } from "./onnxImageModel.js";
 
 export interface ModelDownloadResult {
   referenceVectors: ReferenceVectorsResult;
@@ -19,8 +20,9 @@ export const modelDownload = createJob<ModelDownloadResult>("embedding-model");
 
 export function startModelDownloadJob(pool: Pool, log: { warn: (obj: object, msg: string) => void }): boolean {
   return modelDownload.start(async (ctx) => {
-    // Only what's missing: an install with the CLIP model but not the identification model
-    // otherwise downloaded CLIP's 307MB again (it has no checksum to recognize a finished file).
+    // Only what's missing is downloaded. A file already there is checked against its sha256
+    // first, so a corrupt one downloads again.
+    await dropIfCorrupt(clipModel);
     if (!isModelDownloaded()) {
       ctx.update({ phase: "downloading_model", downloadedBytes: 0, totalBytes: null });
       await downloadModel((downloadedBytes, totalBytes) => ctx.update({ downloadedBytes, totalBytes }), ctx.signal);
@@ -47,22 +49,32 @@ export function startModelDownloadJob(pool: Pool, log: { warn: (obj: object, msg
       referenceVectors = { gallery: failed, speciesImage: failed, speciesText: failed };
     }
     runIdEmbeddingBackfill().catch((err) => log.warn({ err }, "Identification embedding catch-up backfill failed"));
+    startAccelerationSelection();
     return { referenceVectors };
   });
 }
 
+/** Deletes a downloaded model file whose sha256 doesn't match (no-op without a known checksum). */
+async function dropIfCorrupt(model: OnnxImageModel): Promise<void> {
+  if (!model.isDownloaded()) return;
+  if (!(await verifyModelFile(model.path, model.url))) model.release();
+}
+
 async function downloadIdModel(ctx: JobContext<ModelDownloadResult>): Promise<void> {
+  await dropIfCorrupt(idModel);
   if (idModel.isDownloaded()) return;
   ctx.update({ phase: "downloading_id_model", downloadedBytes: 0, totalBytes: null });
   await idModel.download((downloadedBytes, totalBytes) => ctx.update({ downloadedBytes, totalBytes }), ctx.signal);
   ctx.throwIfCancelled();
 }
 
-/** Installs that downloaded the species-matching model before the identification model existed
- * get it now, in the background: they already opted in to species matching, and this is the
- * same feature getting better, not a new download to ask about (same as the reference vectors,
- * which already refresh on their own). A no-op once it's there, or without the CLIP model. */
+/** Installs that already opted in to species matching get the identification model, and a new
+ * CLIP version, in the background. A no-op once they're there, or for an install that never opted in. */
 export function ensureIdModelOnStartup(pool: Pool, log: { warn: (obj: object, msg: string) => void }): void {
+  if (dropOlderClipModels() && !isModelDownloaded()) {
+    startModelDownloadJob(pool, log);
+    return;
+  }
   if (!isModelDownloaded() || idModel.isDownloaded()) {
     if (idModel.isDownloaded()) runIdEmbeddingBackfill().catch((err) => log.warn({ err }, "Identification embedding backfill failed"));
     return;
@@ -79,6 +91,7 @@ export function ensureIdModelOnStartup(pool: Pool, log: { warn: (obj: object, ms
       referenceVectors = { gallery: failed, speciesImage: failed, speciesText: failed };
     }
     runIdEmbeddingBackfill().catch((err) => log.warn({ err }, "Identification embedding catch-up backfill failed"));
+    startAccelerationSelection();
     return { referenceVectors };
   });
 }

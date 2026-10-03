@@ -150,6 +150,118 @@ describe.skipIf(!url)("applyCatalogSeedFile (integration)", () => {
     }
   });
 
+  it("applies a seed's species merges: the install's old entry and its collected state move to the survivor", async () => {
+    const OLD = "66666666-6666-4666-8666-666666666666";
+    const USER = "77777777-7777-4777-8777-777777777777";
+    await pool.query(`DELETE FROM users WHERE id = $1`, [USER]);
+    await pool.query(`DELETE FROM species WHERE id = $1`, [OLD]);
+    await pool.query(`INSERT INTO users (id, email, password_hash) VALUES ($1, 'seedmerge@test', 'x')`, [USER]);
+    await pool.query(`INSERT INTO species (id, gbif_key, scientific_name, taxon_class) VALUES ($1, 2, 'Oceanodroma melania', 'aves')`, [OLD]);
+    await pool.query(`INSERT INTO user_species (user_id, species_id, state) VALUES ($1, $2, 'collected')`, [USER, OLD]);
+    const dump = [
+      "COPY public.species (id, gbif_key, scientific_name, taxon_class) FROM stdin;",
+      `${SPECIES}	1	Hydrobates melania	aves`,
+      "\\.",
+      "",
+      "COPY public.species_merges (old_species_id, new_species_id, old_scientific_name, merged_at) FROM stdin;",
+      `${OLD}	${SPECIES}	Oceanodroma melania	2026-09-27 00:00:00+00`,
+      "\\.",
+      "",
+    ].join("\n");
+    const file = path.join(mkdtempSync(path.join(os.tmpdir(), "lifer-seed-test-")), "seed.sql.gz");
+    writeFileSync(file, gzipSync(dump));
+    try {
+      const merged = await applyCatalogSeedFile(pool, file, null, noProgress);
+      expect(merged.speciesMerged).toBe(1);
+      expect((await pool.query(`SELECT 1 FROM species WHERE id = $1`, [OLD])).rowCount).toBe(0);
+      const us = await pool.query(`SELECT species_id, state FROM user_species WHERE user_id = $1`, [USER]);
+      expect(us.rows).toEqual([{ species_id: SPECIES, state: "collected" }]);
+      const syn = await pool.query(`SELECT species_id FROM species_synonyms WHERE synonym_name = 'Oceanodroma melania'`);
+      expect(syn.rows).toEqual([{ species_id: SPECIES }]);
+    } finally {
+      await pool.query(`DELETE FROM species_merges WHERE old_species_id = $1`, [OLD]);
+      await pool.query(`DELETE FROM species_synonyms WHERE synonym_name = 'Oceanodroma melania'`);
+      await pool.query(`DELETE FROM users WHERE id = $1`, [USER]);
+    }
+  });
+
+  it("takes a synonym the seed renamed in place, keeping its id", async () => {
+    const SYN = "88888888-8888-4888-8888-888888888888";
+    await pool.query(`DELETE FROM species_synonyms WHERE id = $1 OR synonym_name IN ('Zzold synonym', 'Zznew synonym')`, [SYN]);
+    await pool.query(`INSERT INTO species (id, gbif_key, scientific_name, taxon_class) VALUES ($1, 1, 'Hydrobates melania', 'aves') ON CONFLICT DO NOTHING`, [SPECIES]);
+    await pool.query(`INSERT INTO species_synonyms (id, species_id, synonym_name) VALUES ($1, $2, 'Zzold synonym')`, [SYN, SPECIES]);
+    const dump = [
+      "COPY public.species (id, gbif_key, scientific_name, taxon_class) FROM stdin;",
+      `${SPECIES}	1	Hydrobates melania	aves`,
+      "\\.",
+      "",
+      "COPY public.species_synonyms (id, species_id, synonym_name) FROM stdin;",
+      `${SYN}	${SPECIES}	Zznew synonym`,
+      "\\.",
+      "",
+    ].join("\n");
+    const file = path.join(mkdtempSync(path.join(os.tmpdir(), "lifer-seed-test-")), "seed.sql.gz");
+    writeFileSync(file, gzipSync(dump));
+    try {
+      await applyCatalogSeedFile(pool, file, null, noProgress);
+      const rows = await pool.query(`SELECT synonym_name FROM species_synonyms WHERE id = $1`, [SYN]);
+      expect(rows.rows).toEqual([{ synonym_name: "Zznew synonym" }]);
+    } finally {
+      await pool.query(`DELETE FROM species_synonyms WHERE id = $1`, [SYN]);
+    }
+  });
+
+  it("removes checklist rows the seed no longer lists, keeping Other Taxa and regions the seed doesn't cover", async () => {
+    const LISTED = "88888888-8888-4888-8888-888888888801";
+    const DROPPED = "88888888-8888-4888-8888-888888888802";
+    const OTHER_TAXA = "88888888-8888-4888-8888-888888888803";
+    const REGION_IN_SEED = "88888888-8888-4888-8888-888888888811";
+    const REGION_NOT_IN_SEED = "88888888-8888-4888-8888-888888888812";
+    const cleanup = async () => {
+      await pool.query(`DELETE FROM regions WHERE id = ANY($1)`, [[REGION_IN_SEED, REGION_NOT_IN_SEED]]);
+      await pool.query(`DELETE FROM species WHERE id = ANY($1)`, [[LISTED, DROPPED, OTHER_TAXA]]);
+    };
+    await cleanup();
+    await pool.query(
+      `INSERT INTO species (id, gbif_key, scientific_name, taxon_class, is_other_taxa) VALUES
+         ($1, 8801, 'Prunea listed', 'aves', false), ($2, 8802, 'Prunea dropped', 'aves', false), ($3, 8803, 'Prunea mine', 'insecta', true)`,
+      [LISTED, DROPPED, OTHER_TAXA],
+    );
+    await pool.query(`INSERT INTO regions (id, name) VALUES ($1, 'Pruneland'), ($2, 'Untouchedland')`, [REGION_IN_SEED, REGION_NOT_IN_SEED]);
+    await pool.query(
+      `INSERT INTO region_species (region_id, species_id) VALUES ($1, $3), ($1, $4), ($1, $5), ($2, $4)`,
+      [REGION_IN_SEED, REGION_NOT_IN_SEED, LISTED, DROPPED, OTHER_TAXA],
+    );
+    await pool.query(
+      `INSERT INTO region_species_hotspots (region_id, species_id, centroid_lat, centroid_lon, point_count, bbox_diagonal_km) VALUES ($1, $2, 1, 1, 3, 1)`,
+      [REGION_IN_SEED, DROPPED],
+    );
+    const dump = [
+      "COPY public.region_species (region_id, species_id, is_vagrant, is_invasive) FROM stdin;",
+      `${REGION_IN_SEED}	${LISTED}	f	f`,
+      "\\.",
+      "",
+    ].join("\n");
+    const file = path.join(mkdtempSync(path.join(os.tmpdir(), "lifer-prune-test-")), "seed.sql.gz");
+    writeFileSync(file, gzipSync(dump));
+    try {
+      const merged = await applyCatalogSeedFile(pool, file, null, noProgress);
+      expect(merged.region_speciesRemoved).toBe(1);
+      const rows = await pool.query(
+        `SELECT region_id, species_id FROM region_species WHERE region_id = ANY($1) ORDER BY region_id, species_id`,
+        [[REGION_IN_SEED, REGION_NOT_IN_SEED]],
+      );
+      expect(rows.rows).toEqual([
+        { region_id: REGION_IN_SEED, species_id: LISTED },
+        { region_id: REGION_IN_SEED, species_id: OTHER_TAXA },
+        { region_id: REGION_NOT_IN_SEED, species_id: DROPPED },
+      ]);
+      expect((await pool.query(`SELECT 1 FROM region_species_hotspots WHERE species_id = $1`, [DROPPED])).rowCount).toBe(0);
+    } finally {
+      await cleanup();
+    }
+  });
+
   it("rolls everything back when cancelled mid-apply", async () => {
     const file = seedFile([[SPECIES, "1", "Ardea herodias", "Aves", "\\N", "x"]]);
     let calls = 0;
@@ -168,9 +280,8 @@ describe.skipIf(!url)("applyCatalogSeedFile (integration)", () => {
   });
 
   it("inserts two new same-named regions under different parents without a unique-constraint error", async () => {
-    // Regression test for a real bug: forcing parent_id NULL during insert (the old approach)
-    // transiently collided with regions' UNIQUE(name, parent_id) constraint whenever two
-    // brand-new regions shared a name, even though their real final parents differed.
+    // Two new regions sharing a name under different parents must not collide on
+    // UNIQUE(name, parent_id).
     const CONTINENT = "66666666-6666-4666-8666-666666666601";
     const COUNTRY_A = "66666666-6666-4666-8666-666666666602";
     const COUNTRY_B = "66666666-6666-4666-8666-666666666603";
@@ -209,11 +320,7 @@ describe.skipIf(!url)("applyCatalogSeedFile (integration)", () => {
   });
 
   it("matches an existing region by name+parent when the seed uses a different id for it, and remaps region_species to the local id", async () => {
-    // Real bug, confirmed live: a region's canonical id can change upstream (this project has a
-    // whole migration, 004_dedupe_regions.sql, for exactly this kind of cleanup). An install that
-    // last synced before such a change has the existing row under the OLD id; the seed now
-    // publishes it under a NEW id. Naive insert-by-id sees no id match and tries to insert a
-    // second row, colliding on (name, parent_id) with the one that's already there.
+    // A region whose id changed upstream must be matched by name and parent, not inserted again.
     const OLD_GEORGIA = "77777777-7777-4777-8777-777777777701";
     const SEED_GEORGIA = "77777777-7777-4777-8777-777777777702";
     const OTHER_SPECIES = "77777777-7777-4777-8777-777777777703";
@@ -246,11 +353,11 @@ describe.skipIf(!url)("applyCatalogSeedFile (integration)", () => {
 
     await expect(applyCatalogSeedFile(pool, file, null, noProgress)).resolves.toBeTruthy();
 
-    // Still exactly one Georgia, under its original (old) id -- nothing new was inserted.
+    // Still exactly one Georgia, under its original id.
     const regions = await pool.query(`SELECT id FROM regions WHERE name = 'Georgia'`);
     expect(regions.rows).toEqual([{ id: OLD_GEORGIA }]);
 
-    // The seed's region_species row (naming the NEW id) followed the remap onto the OLD, real id.
+    // The seed's region_species row followed the remap onto the local id.
     const rs = await pool.query(`SELECT region_id FROM region_species WHERE species_id = $1`, [OTHER_SPECIES]);
     expect(rs.rows).toEqual([{ region_id: OLD_GEORGIA }]);
 

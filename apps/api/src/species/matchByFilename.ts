@@ -1,15 +1,9 @@
 import type { Pool } from "pg";
 import type { KeywordMatchedSpecies } from "./matchByKeywords.js";
 
-// External tools separate identifying info (species name/code, sometimes a location, a date,
-// a sequence number) with underscores, hyphens, dots, or parentheses, inconsistently across
-// libraries — normalizing all of that to plain spaces turns whatever convention someone used
-// into one flat, searchable string, e.g. "AMRO_CentralPark_2024-05-01.jpg" -> "AMRO CentralPark
-// 2024 05 01 jpg" and "American-Robin (Turdus migratorius).jpg" -> "American Robin Turdus
-// migratorius jpg". Padded with a leading/trailing space so a plain substring check below
-// (rather than a hand-built regex, which would need per-row escaping for names containing
-// regex metacharacters) still enforces real word boundaries: " robin " is not found inside
-// "americanrobin ", only inside "... american robin ...".
+// Tools separate filename parts with underscores, hyphens, dots or parentheses, so all of that
+// becomes plain spaces, e.g. "AMRO_CentralPark_2024-05-01.jpg" -> "AMRO CentralPark 2024 05 01 jpg".
+// Padded with spaces so a plain substring check enforces word boundaries without a regex.
 function normalizeAndPad(text: string): string {
   const normalized = text
     .replace(/[_\-.()]+/g, " ")
@@ -28,17 +22,11 @@ interface NameMatchRow {
   matched_len: number;
 }
 
-// Best-effort species identification straight from a file's name and/or enclosing folder name
-// — a fallback for files with NO usable embedded (or sidecar) keyword tags at all, common for
-// libraries organized purely by naming/foldering convention rather than IPTC/XMP metadata.
-// Two independent, deliberately conservative signals — a wrong auto-match silently misfiling a
-// photo is worse than leaving it in the "unrecognized"/"ambiguous" pile for a human to place:
-//   1. A standalone token that's an exact ABA or eBird code (cheap, unambiguous — codes are
-//      short, fixed-format, and not realistically going to appear by coincidence).
-//   2. A known common name, alias, or scientific name appearing as a whole word/phrase — and a
-//      name that's itself a substring of a different, longer, more specific match (e.g.
-//      "Robin" vs "American Robin") never wins over it: only the single longest matching name
-//      (or a genuine tie) is returned.
+// Best-effort species identification from a file's name and folder name, for files with no
+// keyword tags. Deliberately conservative, since a wrong match silently misfiles a photo:
+//   1. A standalone token that is an exact ABA or eBird code.
+//   2. A common name, alias or scientific name as a whole word or phrase. Only the longest
+//      matching name wins, so "Robin" never beats "American Robin".
 export async function matchSpeciesFromFilename(pool: Pool, rawText: string): Promise<KeywordMatchedSpecies[]> {
   const padded = normalizeAndPad(rawText);
   if (!padded.trim()) return [];
@@ -75,9 +63,8 @@ export async function matchSpeciesFromFilename(pool: Pool, rawText: string): Pro
   const allMatches = [...commonRes.rows, ...sciRes.rows, ...aliasRes.rows];
   if (allMatches.length === 0) return [];
 
-  // One row per species, keeping only its own longest matching name, THEN only the species
-  // whose matched name is longest overall — a short name that's also a substring of a longer,
-  // more specific real match never wins over it.
+  // One row per species with its longest matching name, then only the species whose match is
+  // longest overall, so a shorter name inside a longer real match never wins.
   const bestPerSpecies = new Map<string, NameMatchRow>();
   for (const row of allMatches) {
     const existing = bestPerSpecies.get(row.id);
