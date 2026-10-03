@@ -1,7 +1,7 @@
 # Changelog
 
 All notable user-facing changes to Lifer are recorded here, in [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
-style. This file is what actually reaches users — its `[Unreleased]` section gets extracted by
+style. This file is what actually reaches users: its `[Unreleased]` section gets extracted by
 `.github/workflows/release.yml` into the GitHub release body for whatever tag you push, which is
 exactly what the app's own update banners display (`AppUpdatesSection`'s `update.body`, and the
 Docker/self-hosted release-notes link).
@@ -11,9 +11,155 @@ category. When you're ready to cut a release, rename `[Unreleased]` to the new v
 the git tag you're about to push, without the `v` prefix) and add today's date, then add a fresh
 empty `[Unreleased]` section above it for whatever comes next.
 
-Categories: `Added`, `Changed`, `Fixed`, `Removed` — omit any with nothing to say.
+Categories: `Added`, `Changed`, `Fixed`, `Removed`: omit any with nothing to say.
 
 ## [Unreleased]
+
+### Added
+
+- The desktop app switches to the library on your computer in one step: Lifer menu, Use This
+  Computer's Library, or sign out of your server, or "Use the library on this computer instead"
+  on its sign-in page. It opens the library you used last without asking for a folder, and
+  remembers your server so connecting again is quick.
+- Species matching uses your GPU when it's faster, with nothing to set up. On first start Lifer
+  tests the GPUs it finds, checks each gives the same answers as the CPU, and moves matching onto
+  the fastest: NVIDIA cards on Linux, Docker and TrueNAS (the drivers' matching libraries download
+  once, about 1.5 GB), the Mac's GPU, and any GPU on Windows. Intel and AMD cards on Linux are
+  tried too. Settings, Offline data
+  shows where matching runs, with Re-test hardware. Anything that isn't faster stays on the CPU.
+- The desktop app connected to a server matches photos wherever is faster, on your computer or
+  on the server, and keeps checking.
+- The desktop app no longer shows a blank window when its server is offline. It says "Server
+  disconnected" and switches to the library on your computer so you can keep working, then
+  offers to push what you added, or switch straight back, once the server answers again.
+- Broad groups for checklists: group by "Broad group" to see Raptors, Owls, Waterfowl, Shorebirds,
+  Songbirds, Snakes, Frogs & Toads, Bats, Whales & Dolphins and more, or type one in search
+  ("raptors") to see every species in it. Owls count as raptors in search.
+- Photos with no wildlife in them (a person, a screenshot, light trails on a road at night) are
+  flagged on the import screen and left out of the import, with "Import anyway" if it's wrong,
+  instead of being offered their closest species match. Needs the species-matching model.
+- `lifer-admin reset-password`, run from a shell inside the Lifer container (on TrueNAS: Apps,
+  Lifer, Shell), sets a new password for a server's account, like Immich's `immich-admin`.
+- Uploads of any size go up in resumable pieces: an interrupted upload picks up where it left
+  off, and a reverse proxy's upload size limit no longer needs raising.
+- Import takes WebP and HEIC photos, and edited TIFFs (a .tif that isn't a camera RAW), alongside
+  JPEG and PNG.
+- Pressing Enter on the import screen scrolls the next photo into view.
+- Trips work from your own trip folder, however it's organized: Lifer only reads it, and each
+  photo you import is copied into the trip's "Save wildlife to" folder (a "Wildlife" folder
+  inside the trip unless you choose another), sorted into Birds, Mammals and so on by species,
+  with its RAW. Rescans offer only photos you haven't imported yet.
+- Reviewing a trip's photos works like the import screen: species suggestions, the "doesn't look
+  like wildlife" flag, and Enter to accept a suggestion and move on. Trips also take WebP, TIFF
+  and HEIC photos.
+- "Hide scientific names" in the collection's filters keeps the common name and the rest of the
+  card.
+- The collection says "Showing N of M" when filters take species out; the region's own counts
+  never change with filters, so a working filter used to look like it did nothing.
+- The collection's "All species" view links straight to your downloaded countries, instead of
+  only "Browse by region" through World and a continent.
+
+### Changed
+
+- A new version of the general matching model, used for suggestions and Gallery search, agrees
+  more closely with the full-size model, and every species' reference vectors were recomputed to
+  match it. Installs with species matching download it (about 300 MB) and refresh their photos'
+  vectors in the background on first start.
+- The top bar is simpler: the Lifer logo takes you back to your Collection, and quick search opens
+  with Cmd+K (Ctrl+K on Windows and Linux) instead of a Search button. It has a close button now.
+- A server needs no settings beyond its storage folder (and port, if you want another). Sign-in
+  works over plain http and behind an HTTPS proxy alike: Lifer decides for each request whether
+  the login cookie is HTTPS only, so `APP_URL` and `COOKIE_SECURE` are gone.
+- "Forgot password?" on the sign-in screen shows the `lifer-admin reset-password` command to run
+  on the server, for Docker and TrueNAS.
+- The iNaturalist redirect URI Settings suggests on a server is the address you opened Lifer at.
+- Rarity tiers mean how hard a species is to find and photograph there, not how it ranks against
+  the rest of the list, and follow SuperPicky's five: Common (an everyday species, seen anywhere),
+  Occasional (turns up if you go to the right habitat), Uncommon (a dedicated search), Rare (travel
+  and patience) and Legendary (once in a lifetime). Epic is gone. Birds are rated on eBird sightings
+  against how often the place's most-reported birds are, so a Mallard is Common and a Great Blue
+  Heron Occasional; mammals, reptiles, amphibians and fish on iNaturalist photos. A country's tier
+  is the species' tier where it's easiest to find there. Conservation status no longer changes a
+  tier: the species page shows the IUCN status beside it.
+  When Lifer can't tell (too few records, or a species so few people photograph that its photos
+  can't show whether it's hard to find or just overlooked), the card says "Not enough data here"
+  instead of guessing.
+- Offline packs download only the photos your install doesn't already have: a second country
+  whose species you mostly have costs a fraction of what it used to, and each pack's size is what
+  downloading it would actually add (or, once installed, the space its photos take). Removing a
+  pack frees its gallery photos too. "Small" is the same pack without gallery photos.
+- Tap a tier badge to see why it has that tier, and set your own tier for a species if you know
+  better. Your tiers are kept in your library backup.
+
+### Fixed
+
+- A server now offers the offline map without any setup. Before, onboarding's "Download the
+  offline map" did nothing on a server and the Settings card was hidden.
+- Grouped checklists, and sorting by rarity, could suddenly show fewer cards while a list finished
+  loading or reloaded in the background. The cards showing now stay, and groups fill top to
+  bottom as you scroll.
+- A bird partly hidden behind leaves could be matched on just one piece of it, and come up as the
+  wrong species. When the animal is found in pieces, they're now joined into one crop.
+- Species suggestions are steadier on hard photos. A tall or wide animal (a standing heron) is
+  matched on a square around all of it instead of its middle; when Lifer isn't sure where the
+  animal is (tiny, distant or partly hidden), the whole photo counts too; and frames of one burst
+  share their evidence, so one frame with the bird turned away gets the same answer as the rest.
+- A species card framed automatically on a small or distant animal could zoom in so far you
+  couldn't tell what it was. Automatic crops now keep at least the smallest size the crop editor
+  allows, and existing ones tighter than that are widened.
+- Correcting a photo's species kept the photo but lost its card framing. The crop now moves with
+  it, or the new card is framed on the animal.
+- Native species were marked "Vagrant here" across much of their own range (Ocelots in Costa
+  Rica, Cabanis's Wren, Clay-colored Thrush in Guatemala). Introduced species now come from
+  iNaturalist's establishment status for each province and country: established ones show
+  "Introduced here", strays and escapes "Vagrant here".
+- Switching a checklist from a grouping back to no grouping could stop it at the first 60
+  species. Grouping by family, tier or group is also much smoother on long lists.
+- Photos filed under a species that has since been split move to the new species that lives
+  where they were taken (a California photo of the old Coast Horned Lizard becomes Blainville's
+  Horned Lizard). When the place doesn't settle it, the card says "Name changed" and lets you pick,
+  instead of showing Ghost, Legendary or other tags that only fit the old name.
+- A species taken off a region's checklist by a catalog or pack update (one listed there by
+  mistake, say) now comes off your install's checklist too. Updates used to only ever add
+  species, so a wrong one stayed for good. Species you added yourself under Other Taxa stay.
+- Downloading a pack installs a newer species catalog first when one is out, so none of the
+  pack's newest species are left out of your checklist.
+- Checklists no longer list escaped pets and one-off releases as wild species, such as a Degu in
+  Alberta or Nile Monitors in Ohio (Florida's established ones stay). They used to show as
+  Legendary finds. Zoo animals and museum specimens are gone too (the US list had lions,
+  giraffes, turacos and ostriches), as are extinct species and old names for birds eBird has
+  since split, like White-cheeked Antbird in Costa Rica, where the bird is Bicolored Antbird.
+- A species listed twice, under an old and a current name (Northwestern and American Crow,
+  Oceanodroma and Hydrobates storm-petrels), becomes one entry after a catalog update. Photos,
+  collected and seen status, targets and hidden marks on the old entry move to the current one,
+  and the old name still finds it in search and keyword tags.
+- In the desktop app, signing out of a server now offers "Use the library on this computer
+  instead" on the sign-in screen, so you can get back to your local library without signing in.
+- The strip across the top of the desktop app's sign-in screen is a solid color instead of a
+  gradient.
+- Very well recorded species with no reference photo in the catalog (the Green Iguana, with
+  83,000 records) were marked Ghost and hidden as obscure. A missing photo now only counts
+  against a species with fewer than 1,000 records.
+- Species suggestions with a continent or World picked as the region found nothing to match,
+  since those have no checklist of their own. They now match against every downloaded country
+  under them.
+- Matching RAW files to photos already in your library failed for every RAW that found its
+  photo, with "resolveSpeciesFolderName: no species found", so none were linked.
+- Downloading a region pack while the reference vectors were still installing (as on a fresh
+  server's first start) could fail with "deadlock detected". Those installs, pack removal and
+  catalog updates now take turns instead.
+- The collection fills in as an import's photos finish uploading, instead of staying as it was
+  until you left the page and came back.
+- Species cards with names hidden have rounded bottom corners again, including in the desktop
+  app, which left the corners of cropped photos square.
+- A species you photographed in a country shows on that country's checklist (and its continent's)
+  even when the checklist doesn't list it, such as a humpback whale, which is only on sea zone
+  checklists.
+
+### Removed
+
+- Password reset by email, the recovery email setting, and the `SMTP_` settings. A forgotten
+  password is reset with `lifer-admin reset-password` in a shell on the server.
 
 ## [0.8.2] - 2026-09-25
 
@@ -290,7 +436,7 @@ Categories: `Added`, `Changed`, `Fixed`, `Removed` — omit any with nothing to 
 
 ### Changed
 
-- Downloading the offline basemap in Settings no longer shows a redundant confirmation popup —
+- Downloading the offline basemap in Settings no longer shows a redundant confirmation popup:
   the button's own label and description already say exactly what it does.
 
 ### Fixed
@@ -299,12 +445,12 @@ Categories: `Added`, `Changed`, `Fixed`, `Removed` — omit any with nothing to 
   & Import's any-taxa search) added on whichever machine last built it. Those are meant to be
   personal, install-specific additions, but the seed's underlying dump had no way to exclude
   them, so one added while testing the feature could ride along into every fresh install's
-  catalog — confirmed live with a bumble bee, added once on a dev machine, showing up in an
+  catalog: confirmed live with a bumble bee, added once on a dev machine, showing up in an
   unrelated freshly-wiped install's Canada checklist. Offline packs were never affected by this;
   only the catalog seed was.
 - Species-matching suggestions could come back inconsistent between machines for the same photo
   (confirmed live with a Cedar Waxwing scoring a confident #1 match on one install and missing
-  from the top 5 entirely on another) — quantized model inference isn't guaranteed bit-identical
+  from the top 5 entirely on another): quantized model inference isn't guaranteed bit-identical
   across CPU architectures, and two separate spots in the matching pipeline were sensitive enough
   to that tiny variance to flip results: the subject-detection step could fall on either side of
   its confidence threshold and skip cropping to the animal entirely, and the suggestion list could
@@ -317,7 +463,7 @@ Categories: `Added`, `Changed`, `Fixed`, `Removed` — omit any with nothing to 
 
 - The species-matching model (used for import suggestions and Gallery content search) now
   unloads from memory after 15 minutes of inactivity instead of staying resident for the entire
-  life of the server process — meaningful on a self-hosted install that isn't always actively
+  life of the server process: meaningful on a self-hosted install that isn't always actively
   matching photos. Reloads automatically, with no user action needed, the next time it's used.
 
 ### Fixed
@@ -327,7 +473,7 @@ Categories: `Added`, `Changed`, `Fixed`, `Removed` — omit any with nothing to 
 - Fixed a crash ("duplicate key value violates unique constraint
   species_reference_photos_species_id_photo_url_key") applying a species catalog update on any
   install with reference photos that arrived via a downloaded offline pack rather than the
-  original catalog seed — which, after normal use, is most of them.
+  original catalog seed: which, after normal use, is most of them.
 
 ## [0.5.3] - 2026-09-23
 
@@ -344,18 +490,18 @@ Categories: `Added`, `Changed`, `Fixed`, `Removed` — omit any with nothing to 
 - The first-run setup screen's in-progress download card no longer uses mismatched colors that
   made the progress bar nearly invisible against its own background.
 - Opening the Getting Started guide from first-run setup and then going back no longer drops you
-  on Collection with a misleading "Settings" label — it now returns you to setup.
-- Applying a downloaded pack no longer copies reference photos one file at a time — file copies
+  on Collection with a misleading "Settings" label: it now returns you to setup.
+- Applying a downloaded pack no longer copies reference photos one file at a time: file copies
   now run concurrently, and a further fix ensures a species' photo path is never recorded as
   ready before the actual file has finished copying.
 - Fixed the same "thousands of one-at-a-time database writes" problem in gap-finder hotspot data
-  that the previous release fixed for the rest of a pack's checklist — this was the remaining
+  that the previous release fixed for the rest of a pack's checklist: this was the remaining
   cause of a pack still taking many minutes to apply even after that fix.
 - A one-time cleanup script removes leftover stale `collector_shells`/`crocodylia` entries from
   the published offline-pack catalog (merged into other taxon groups a while back, but never
   actually removed from the index).
 - Applying a pack no longer risks leaving a checklist half-written if the server restarts
-  mid-apply (a redeploy, a container running out of memory) — a pack's checklist now either
+  mid-apply (a redeploy, a container running out of memory): a pack's checklist now either
   fully applies or leaves nothing behind to retry, instead of silently committing whatever had
   finished at the moment of interruption.
 
@@ -379,7 +525,7 @@ Categories: `Added`, `Changed`, `Fixed`, `Removed` — omit any with nothing to 
 ### Added
 
 - Collection page: a "found in year X" filter, using every calendar year you've actually
-  captured a species in (not just the year you first found it) — useful for a "big year" style
+  captured a species in (not just the year you first found it): useful for a "big year" style
   check.
 - Offline Packs: a Cancel button while a download is in progress, instead of only being able to
   wait it out.
@@ -398,10 +544,10 @@ Categories: `Added`, `Changed`, `Fixed`, `Removed` — omit any with nothing to 
 ### Fixed
 
 - Applying a large offline pack (e.g. a big country) no longer sits for a long time with the
-  progress bar barely moving — writes are batched instead of one at a time.
+  progress bar barely moving: writes are batched instead of one at a time.
 - A downloaded offline pack no longer disappears from the Offline Packs page if it briefly drops
   out of the published catalog.
-- Collection's "Most likely this month" sort/filter now actually reflects the current month —
+- Collection's "Most likely this month" sort/filter now actually reflects the current month:
   it silently stopped returning any signal from April onward.
 - Species enrichment no longer permanently records "no photo found" for a species when
   iNaturalist was just temporarily rate-limiting requests.
@@ -415,12 +561,12 @@ Categories: `Added`, `Changed`, `Fixed`, `Removed` — omit any with nothing to 
 ### Added
 
 - Offline packs now offer a "small" download variant that skips reference-photo galleries
-  (checklist and auto-suggest embeddings are still included) for a much smaller download —
+  (checklist and auto-suggest embeddings are still included) for a much smaller download:
   gallery photos still fetch on demand once you're online.
 - Species auto-suggest now stores an embedding for every gallery photo, not just a species' one
   main reference photo, so a real photo taken from a different angle or pose can still match
   confidently.
-- Import: species suggestions can now be assigned entirely from the keyboard — Enter accepts the
+- Import: species suggestions can now be assigned entirely from the keyboard: Enter accepts the
   highlighted suggestion and moves to the next photo, arrow keys pick a different suggestion
   first, and Up undoes the previous photo's pick if you hit Enter on the wrong one.
 - Setting one of your photos as a species' featured image now centers the default crop on the
@@ -431,7 +577,7 @@ Categories: `Added`, `Changed`, `Fixed`, `Removed` — omit any with nothing to 
 
 - Species auto-suggest accuracy: photos are now cropped to the detected subject before matching
   (with a tiled fallback pass for small or distant subjects), blended with a zero-shot text
-  signal, and gated by a data-derived confidence margin instead of a flat score cutoff — plus
+  signal, and gated by a data-derived confidence margin instead of a flat score cutoff: plus
   low-relevance trailing suggestions and species with no displayable photo no longer show up in
   the list.
 - Collection's "Hide rarity labels" toggle is now "Hide labels" and also hides Endemic, Vagrant,
@@ -445,7 +591,7 @@ Categories: `Added`, `Changed`, `Fixed`, `Removed` — omit any with nothing to 
 - The Offline Packs country picker and the import flow's region picker now share one component
   instead of two independently-built ones.
 - First launch now walks through an explicit setup: choose whether to download the offline map
-  (with its real size shown), then pick at least one region to build your checklist for — no
+  (with its real size shown), then pick at least one region to build your checklist for: no
   more landing on an empty Collection page not knowing where to start.
 - Desktop's "Enable IP switching" is now "Automatic URL Switching": it compares against your
   actual current Wi-Fi network before preferring the local address, supports multiple external
@@ -460,24 +606,24 @@ Categories: `Added`, `Changed`, `Fixed`, `Removed` — omit any with nothing to 
 - The pack-update "Updating…" banner and per-pack update list now reflect the real in-progress
   download instead of resetting on navigation.
 - Species suggestions and gallery semantic search now work offline from first launch on both
-  desktop and Docker/self-hosted — the underlying model is bundled at build time instead of
+  desktop and Docker/self-hosted: the underlying model is bundled at build time instead of
   quietly downloading itself (~307MB) the first time either feature was actually used.
 - Docker/self-hosted deployments now bundle the species/region catalog into the image and
   restore it automatically on first start, instead of leaving the Offline Packs map and
   checklists blank until someone knew to click Settings > Species catalog updates.
 - The catalog-update check and download no longer hang forever if the server's network can't
-  reach GitHub — they now time out and show a real error instead of a permanently stuck
+  reach GitHub: they now time out and show a real error instead of a permanently stuck
   "Updating..." message.
 - Fixed a crash restoring the catalog on a genuinely fresh database (a foreign key violation on
   the self-referencing regions table, hit only on a truly empty install).
 - Docker/self-hosted's "a newer version is available" notice no longer links to a dead Settings
-  page (that update UI only exists on desktop) — it now links out to the release notes instead.
-- The species catalog update now runs as a real background job instead of one long request —
+  page (that update UI only exists on desktop): it now links out to the release notes instead.
+- The species catalog update now runs as a real background job instead of one long request:
   navigating away from Settings and back no longer strands it on "Updating..." forever with no
   way to tell whether it actually finished.
 - Offline pack downloads no longer hang indefinitely if the connection to the pack host stalls.
 - Applying a large pack (a country with hundreds of thousands of hotspot clusters, e.g. Canada)
-  could take an hour or more with zero visible progress — one database round-trip per cluster
+  could take an hour or more with zero visible progress: one database round-trip per cluster
   is now a handful of batched ones instead.
 
 ## [0.4.0] - 2026-09-07
@@ -496,7 +642,7 @@ Categories: `Added`, `Changed`, `Fixed`, `Removed` — omit any with nothing to 
   GPS back onto the matching photo.
 - Central America is now its own continent grouping on the Offline Packs map, instead of being
   folded into North America.
-- Desktop: an "Enable IP switching" option when connecting to a self-hosted server — store both a
+- Desktop: an "Enable IP switching" option when connecting to a self-hosted server: store both a
   local-network address and an external (nginx-forwarded) one, and the app tries the local address
   first at every launch, falling back to the external one automatically when you're away from home.
 - Species suggestions on import: uploading a photo now suggests likely species (learned from your
@@ -528,7 +674,7 @@ Categories: `Added`, `Changed`, `Fixed`, `Removed` — omit any with nothing to 
 ### Fixed
 
 - A broken or missing gallery photo (species detail page) no longer breaks the photo viewer's
-  back/forward navigation — it now shows a placeholder for just that one photo instead.
+  back/forward navigation: it now shows a placeholder for just that one photo instead.
 - Species reference photos that pointed at a file that didn't actually exist (a few hundred,
   found via an audit) are repaired; the app also now quietly re-fetches a reference photo from
   its original source the first time it notices the cached copy is missing, instead of leaving
@@ -538,7 +684,7 @@ Categories: `Added`, `Changed`, `Fixed`, `Removed` — omit any with nothing to 
 - Clicking a country on the Offline Packs map now actually highlights it (a MapLibre id-typing
   issue silently broke this).
 - Dozens of overseas territories (French Guiana, Hong Kong, Galápagos, and many more) no longer
-  show up as their own fake "country" in the Offline Packs picker — they were duplicated data,
+  show up as their own fake "country" in the Offline Packs picker: they were duplicated data,
   now cleaned up.
 - Species incorrectly flagged as vagrant in a region purely because GBIF's own record density was
   thin there (not because they're actually rare) are being corrected, cross-checked against real
@@ -546,11 +692,11 @@ Categories: `Added`, `Changed`, `Fixed`, `Removed` — omit any with nothing to 
   occurrence counts alone.
 - France's and Netherlands' overseas territories (Guadeloupe, Guyane, Martinique, Réunion,
   Mayotte, Bonaire/Saba/St. Eustatius) were missing their own real species data in the checklist
-  recompute — GBIF tags their records with the territory's own country code, not the parent
+  recompute: GBIF tags their records with the territory's own country code, not the parent
   country's, so a country-level download never saw them.
 - Swept all user-visible text for stray em dashes.
 
 ## [0.2.2] - 2026-08-20
 
-Baseline entry — changelog tracking starts here; earlier history lives in git log and prior
+Baseline entry: changelog tracking starts here; earlier history lives in git log and prior
 release notes only.
