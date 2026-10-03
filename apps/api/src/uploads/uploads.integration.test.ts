@@ -1,7 +1,7 @@
 // Runs only with TEST_DATABASE_URL pointing at a migrated, disposable database:
 //   TEST_DATABASE_URL=postgres://lifer@127.0.0.1:55432/lifer npx vitest run uploads
-// Several photos of a species that isn't in the collection yet, uploaded at the same time: the
-// batch that froze a self-hosted server. Every upload must finish and land in its own file.
+// Several photos of a species not yet in the collection, uploaded at the same time: every upload
+// must finish and land in its own file.
 import { mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";

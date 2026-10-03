@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -9,7 +9,7 @@ import { resolveWithinTripFolder } from "./scan.js";
 
 let tmp: string;
 beforeEach(() => {
-  tmp = mkdtempSync(path.join(os.tmpdir(), "lifer-trip-"));
+  tmp = realpathSync(mkdtempSync(path.join(os.tmpdir(), "lifer-trip-")));
   mkdirSync(path.join(tmp, "day1"));
   writeFileSync(path.join(tmp, "day1", "a.jpg"), "x");
 });
@@ -32,9 +32,24 @@ describe("resolveWithinTripFolder", () => {
   });
 
   it("works when the trip folder is a filesystem root", () => {
-    // The old startsWith(root + sep) check produced "//" for "/" and matched nothing.
     const root = path.parse(tmp).root;
     const rel = path.relative(root, path.join(tmp, "day1", "a.jpg"));
     expect(resolveWithinTripFolder(root, rel)).toBe(path.join(tmp, "day1", "a.jpg"));
+  });
+
+  it("rejects a symlink that points outside the folder", () => {
+    const outside = mkdtempSync(path.join(os.tmpdir(), "lifer-outside-"));
+    try {
+      writeFileSync(path.join(outside, "secret.jpg"), "x");
+      symlinkSync(path.join(outside, "secret.jpg"), path.join(tmp, "link.jpg"));
+      expect(resolveWithinTripFolder(tmp, "link.jpg")).toBeNull();
+    } finally {
+      rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  it("returns null for a missing file or a directory", () => {
+    expect(resolveWithinTripFolder(tmp, "day1/missing.jpg")).toBeNull();
+    expect(resolveWithinTripFolder(tmp, "day1")).toBeNull();
   });
 });

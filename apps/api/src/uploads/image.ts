@@ -1,5 +1,5 @@
-// Derivative generation via sharp/libvips. The app always renders from display_path — the
-// original upload buffer is discarded after this runs; only the display/thumb copies are kept.
+// Derivative generation via sharp/libvips. The app renders from these WebP copies, never from the
+// original.
 import { writeFileSync } from "node:fs";
 import { utimes } from "node:fs/promises";
 import path from "node:path";
@@ -9,44 +9,60 @@ import { createRequire } from "node:module";
 import sharp from "sharp";
 import { APP_DATA_DIR } from "../config.js";
 import { ensureDir } from "../lib/safeFs.js";
+import { createLimiter } from "../lib/concurrency.js";
+import { originalSharpOptions } from "../lib/imageLimits.js";
+import { isHeicBytes, isHeicFile } from "./formats.js";
+import { heicToJpegBuffer } from "./heic.js";
 
 const execFileAsync = promisify(execFile);
-// The package is plain CJS (`module.exports = <value>`, no `.default`): ffmpeg-static's own
-// published .d.ts declares an ESM `export default` that doesn't actually match its CJS runtime
-// shape, which trips up NodeNext+esModuleInterop's default-import synthesis. `require` sidesteps
-// the mismatch entirely instead of fighting the package's own (incorrect) types.
+// ffmpeg-static is plain CJS but its types declare an ESM default export, so it's loaded with
+// require.
 const require = createRequire(import.meta.url);
 const ffmpegPath = require("ffmpeg-static") as string;
+
+// Uploads are only mp4/mov, so ffmpeg may read local files through the MP4-family demuxer and
+// nothing else: a crafted file can't make it open URLs, playlists or other demuxers.
+const FFMPEG_INPUT_RESTRICTIONS = ["-protocol_whitelist", "file,pipe", "-format_whitelist", "mov,mp4,m4a,3gp,3g2,mj2"];
+const FRAME_TIMEOUT_MS = 60_000;
+const TRANSCODE_TIMEOUT_MS = 15 * 60_000;
+// Each ffmpeg process can use several cores and a lot of memory; more than two at once starves the API.
+const ffmpegLimit = createLimiter(2);
+
+function runFfmpeg(args: string[], timeout: number): Promise<{ stdout: string; stderr: string }> {
+  return ffmpegLimit(() => execFileAsync(ffmpegPath, args, { maxBuffer: 1024 * 1024 * 8, timeout, killSignal: "SIGKILL" }));
+}
+
+function runFfmpegToBuffer(args: string[], timeout: number): Promise<{ stdout: Buffer; stderr: Buffer }> {
+  return ffmpegLimit(() => execFileAsync(ffmpegPath, args, { encoding: "buffer", maxBuffer: 1024 * 1024 * 64, timeout, killSignal: "SIGKILL" }));
+}
 
 const DISPLAY_WIDTH = 2560;
 const THUMB_WIDTH = 400;
 // Grid tiles on a high-density screen; see photos/routes.ts mediumDerivative.
 const MEDIUM_WIDTH = 1024;
-// Reference photos (species-level, not a user's own capture) get a much
-// smaller display size than a user's own trophy shot: nobody zooms into a reference photo
-// the way they would their own upload, it's just "what does this species look like" on a
-// card/detail hero. 1200px keeps it sharp on any real screen while roughly halving storage
-// versus the full 2560px user-upload size across ~80,000 species worth of downloads.
+// Reference photos aren't zoomed into like your own, so 1200 px is sharp enough and saves storage.
 const REFERENCE_DISPLAY_WIDTH = 1200;
 const REFERENCE_THUMB_WIDTH = 400;
 
 export interface DerivativePaths {
   displayPath: string;
   thumbPath: string;
-  /** Auto-oriented (EXIF-rotated) source dimensions — the aspect ratio every derivative
-   *  actually renders at. Used to size a masonry grid tile before the image itself has
-   *  loaded, instead of guessing (see MasonryGrid.tsx). */
+  /** Auto-oriented (EXIF-rotated) dimensions, so a masonry tile is sized before the image loads
+   *  (MasonryGrid.tsx). */
   width: number | null;
   height: number | null;
 }
 
-// Under APP_DATA_DIR, not DATA_DIR — these are disposable, regenerable-from-the-original
-// caches, not part of the user's own portable library (the thing "Storage location" in
-// Settings is about). Keeping them out of DATA_DIR means moving your library to a new folder
-// only moves what you'd actually recognize as your photos, not internal derivative junk
-// alongside it — and matches generateReferenceDerivatives below, which already followed this
-// same rule for the shared species-reference cache.
-export async function generateDerivatives(buffer: Buffer, photoId: string): Promise<DerivativePaths> {
+/** What sharp should open for a photo: the file or bytes themselves, or for a HEIC (which sharp
+ *  can't decode) an upright JPEG made from it. */
+async function decodableImage(image: Buffer | string): Promise<Buffer | string> {
+  const heic = typeof image === "string" ? await isHeicFile(image) : isHeicBytes(image.subarray(0, 64));
+  return heic ? heicToJpegBuffer(image) : image;
+}
+
+// Under APP_DATA_DIR, not DATA_DIR: these are regenerable caches, not part of the portable library.
+// Pass a path rather than bytes where possible, so sharp streams instead of holding the whole photo.
+export async function generateDerivatives(image: Buffer | string, photoId: string): Promise<DerivativePaths> {
   const displayDir = path.join(APP_DATA_DIR, "display");
   const thumbDir = path.join(APP_DATA_DIR, "thumb");
   await ensureDir(displayDir);
@@ -55,11 +71,13 @@ export async function generateDerivatives(buffer: Buffer, photoId: string): Prom
   const displayPath = path.join(displayDir, `${photoId}.webp`);
   const thumbPath = path.join(thumbDir, `${photoId}.webp`);
 
-  // Decoded once (auto-oriented from EXIF, resized to display size), then encoded to each size
-  // in parallel: decoding a 24MP JPEG twice, at WebP's default effort, was most of the 350ms
-  // this took per photo. Effort 2 is about twice as fast for files about 7% bigger. The 1,024px
-  // grid copy is made here too, so a new photo never waits for photos/routes.ts to make one.
-  const decoded = await sharp(buffer).rotate().resize({ width: DISPLAY_WIDTH, withoutEnlargement: true }).raw().toBuffer({ resolveWithObject: true });
+  // Decoded once, then encoded to each size in parallel. WebP effort 2 trades slightly bigger
+  // files for speed. The 1,024 px grid copy is made here so a new photo never waits for one.
+  const decoded = await sharp(await decodableImage(image), originalSharpOptions())
+    .rotate()
+    .resize({ width: DISPLAY_WIDTH, withoutEnlargement: true })
+    .raw()
+    .toBuffer({ resolveWithObject: true });
   const fromDecoded = () => sharp(decoded.data, { raw: decoded.info });
   const mediumDir = path.join(APP_DATA_DIR, "medium");
   await ensureDir(mediumDir);
@@ -80,27 +98,18 @@ export async function generateDerivatives(buffer: Buffer, photoId: string): Prom
 
 export interface VideoDerivativePaths extends DerivativePaths {
   durationSeconds: number | null;
-  /** Only set when the source wasn't already natively web-playable — null means the original
-   *  file itself is H.264/AAC-in-MP4 and gets served directly for in-app playback, same
-   *  zero-extra-cost path as an already-web-safe upload. */
+  /** A playback copy, only when the original isn't H.264/AAC in MP4. Null means the original is
+   *  served directly. */
   previewPath: string | null;
 }
 
-// ffmpeg's own DECODE support isn't the constraint here — it reads nearly any codec/container a
-// camera or phone could produce. The constraint is PLAYBACK: Lightbox's <video> element is
-// decoded by whichever browser engine the current platform's webview embeds, and H.264/AAC-in-
-// MP4 is the one combination that plays back reliably everywhere. Anything else (HEVC, ProRes,
-// an MKV/WebM with an unsupported codec) gets a transcoded, playback-safe copy generated
-// alongside the untouched original — never rejected outright, never silently re-encoded when
-// it's already fine.
-//
-// Read from ffmpeg's own description of the file ("ffmpeg -i"), not ffprobe: the ffprobe-static
-// package's Apple Silicon build is actually an Intel binary, so on an Apple Silicon Mac without
-// Rosetta every video import and video species check failed. ffmpeg-static's build is native.
+// H.264/AAC in MP4 is the one format every platform's webview plays, so anything else gets a
+// transcoded playback copy next to the untouched original.
+// Read from "ffmpeg -i" rather than ffprobe: ffprobe-static's Apple Silicon build is an Intel binary.
 export async function probeVideo(filePath: string): Promise<{ durationSeconds: number | null; isWebSafe: boolean }> {
   if (!ffmpegPath) throw new Error("ffmpeg binary not found: reinstall dependencies");
   // With no output file ffmpeg exits with an error after printing the description; that's expected.
-  const stderr = await execFileAsync(ffmpegPath, ["-hide_banner", "-i", filePath], { maxBuffer: 1024 * 1024 * 8 }).then(
+  const stderr = await runFfmpeg(["-hide_banner", ...FFMPEG_INPUT_RESTRICTIONS, "-i", filePath], FRAME_TIMEOUT_MS).then(
     (r) => String(r.stderr),
     (err: { stderr?: string | Buffer }) => String(err.stderr ?? ""),
   );
@@ -120,31 +129,22 @@ export function parseFfmpegDescription(text: string): { durationSeconds: number 
   return { durationSeconds: durationSeconds && Number.isFinite(durationSeconds) && durationSeconds > 0 ? durationSeconds : null, isWebSafe };
 }
 
-/** Grabs one raw JPEG frame at an arbitrary timestamp — shared by the poster-frame extraction
- *  below and captures/routes.ts's video species-suggestion endpoint (which needs several
- *  frames spread across a clip, not just the one-poster-frame case this file otherwise only
- *  ever needed). No sharp resize step here (unlike the poster path) — a suggestion is scored
- *  by the ML model at its own fixed input size regardless of the frame's original resolution,
- *  so resizing first would just be wasted work. */
+/** One JPEG frame at a timestamp, for video species suggestions. Not resized: the model resizes
+ *  to its own input anyway. */
 export async function extractVideoFrame(filePath: string, atSeconds: number): Promise<Buffer> {
-  if (!ffmpegPath) throw new Error("ffmpeg binary not found — reinstall dependencies");
-  const { stdout } = await execFileAsync(
-    ffmpegPath,
-    ["-y", "-ss", String(atSeconds), "-i", filePath, "-frames:v", "1", "-f", "image2pipe", "-vcodec", "mjpeg", "-"],
-    { encoding: "buffer", maxBuffer: 1024 * 1024 * 64 },
+  if (!ffmpegPath) throw new Error("ffmpeg binary not found: reinstall dependencies");
+  const { stdout } = await runFfmpegToBuffer(
+    ["-y", "-ss", String(atSeconds), ...FFMPEG_INPUT_RESTRICTIONS, "-i", filePath, "-frames:v", "1", "-f", "image2pipe", "-vcodec", "mjpeg", "-"],
+    FRAME_TIMEOUT_MS,
   );
-  return stdout as unknown as Buffer;
+  return stdout;
 }
 
-// Under APP_DATA_DIR, same "disposable, regenerable-from-the-original" rule as the image
-// derivatives above — the poster and (when generated) the transcoded preview can always be
-// rebuilt from the original video file in `originals`, so neither belongs in the user's own
-// portable DATA_DIR library folder.
+// Under APP_DATA_DIR like the image derivatives: the poster and preview can be rebuilt from the
+// original.
 export async function generateVideoDerivatives(filePath: string, photoId: string): Promise<VideoDerivativePaths> {
-  // Only null if ffmpeg-static's postinstall genuinely failed to fetch a binary for this
-  // platform — bundled unconditionally (see this file's own module-level import), so this is a
-  // real installation problem, not something to silently degrade around.
-  if (!ffmpegPath) throw new Error("ffmpeg binary not found — reinstall dependencies");
+  // Null only when ffmpeg-static's install failed to fetch a binary: a real installation problem.
+  if (!ffmpegPath) throw new Error("ffmpeg binary not found: reinstall dependencies");
   const displayDir = path.join(APP_DATA_DIR, "display");
   const thumbDir = path.join(APP_DATA_DIR, "thumb");
   const previewDir = path.join(APP_DATA_DIR, "video-preview");
@@ -153,20 +153,16 @@ export async function generateVideoDerivatives(filePath: string, photoId: string
 
   const { durationSeconds, isWebSafe } = await probeVideo(filePath);
 
-  // Poster frame ~1s in (a cleaner representative frame than the very first, which is
-  // sometimes still black/fading in on real camera footage) — extracted as a PNG on ffmpeg's
-  // stdout, then piped through the exact same sharp resize/webp steps generateDerivatives
-  // already uses for thumb/display, so a video's card looks identical in every other way to a
-  // photo's.
-  const { stdout: posterPng } = await execFileAsync(
-    ffmpegPath,
-    ["-y", "-ss", "1", "-i", filePath, "-frames:v", "1", "-f", "image2pipe", "-vcodec", "png", "-"],
-    { encoding: "buffer", maxBuffer: 1024 * 1024 * 64 },
+  // Poster frame about 1 s in (the first is often still black), then the same resize and WebP
+  // steps as a photo.
+  const { stdout: posterPng } = await runFfmpegToBuffer(
+    ["-y", "-ss", "1", ...FFMPEG_INPUT_RESTRICTIONS, "-i", filePath, "-frames:v", "1", "-f", "image2pipe", "-vcodec", "png", "-"],
+    FRAME_TIMEOUT_MS,
   );
 
   const displayPath = path.join(displayDir, `${photoId}.webp`);
   const thumbPath = path.join(thumbDir, `${photoId}.webp`);
-  const image = sharp(posterPng as unknown as Buffer).rotate();
+  const image = sharp(posterPng).rotate();
   const displayInfo = await image.clone().resize({ width: DISPLAY_WIDTH, withoutEnlargement: true }).webp({ quality: 85 }).toFile(displayPath);
   await image.clone().resize({ width: THUMB_WIDTH, withoutEnlargement: true }).webp({ quality: 80 }).toFile(thumbPath);
 
@@ -174,8 +170,9 @@ export async function generateVideoDerivatives(filePath: string, photoId: string
   if (!isWebSafe) {
     await ensureDir(previewDir);
     previewPath = path.join(previewDir, `${photoId}.mp4`);
-    await execFileAsync(ffmpegPath, [
+    await runFfmpeg([
       "-y",
+      ...FFMPEG_INPUT_RESTRICTIONS,
       "-i",
       filePath,
       "-c:v",
@@ -189,7 +186,7 @@ export async function generateVideoDerivatives(filePath: string, photoId: string
       "-movflags",
       "+faststart",
       previewPath,
-    ]);
+    ], TRANSCODE_TIMEOUT_MS);
   }
 
   return {
@@ -202,14 +199,8 @@ export async function generateVideoDerivatives(filePath: string, photoId: string
   };
 }
 
-// Same shape as generateDerivatives above, under APP_DATA_DIR (a shared species-reference
-// cache, not part of any one photo library) and keyed by species/gallery-photo id rather than
-// a photos.id. Width-only resize, full aspect preserved — never bakes a crop into the stored
-// file, since a baked-in crop can't be recovered later without re-fetching the source, and an
-// automatic attention-region heuristic isn't reliable enough to trust unsupervised across the
-// whole catalog. Instead the full image stays on disk and the crop is stored as data
-// (species.reference_focal_x/y, migration 043) applied at render time — same model
-// CardCropEditor.tsx uses for a user's own cover photo.
+// The shared species-reference cache, keyed by species or gallery-photo id. Width-only resize: the
+// crop is stored as data (reference_focal_x/y) and applied at render time.
 export async function generateReferenceDerivatives(buffer: Buffer, key: string): Promise<{ displayPath: string; thumbPath: string }> {
   const displayDir = path.join(APP_DATA_DIR, "reference-display");
   const thumbDir = path.join(APP_DATA_DIR, "reference-thumb");

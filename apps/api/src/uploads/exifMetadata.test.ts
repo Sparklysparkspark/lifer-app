@@ -60,7 +60,7 @@ describe("writeCaptureMetadata", () => {
     expect(sidecar.Rating).toBe(4);
     expect(sidecar.DateTimeOriginal).toBeUndefined();
     expect(sidecar.Model).toBeUndefined();
-    // The old stray pdf:Keywords held every keyword dot-joined into one string.
+    // No stray field with every keyword dot-joined into one string.
     expect(String(sidecar.Keywords ?? "")).not.toContain("Bald Eagle.");
   });
 });

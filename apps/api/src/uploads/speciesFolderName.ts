@@ -1,44 +1,29 @@
-// The human-browsable folder a species' originals live in. commonName has no DB-level
-// uniqueness constraint, so two species can genuinely share one (regional/taxonomic overlap
-// in source data) — when that happens, EVERY species sharing that common name gets suffixed
-// with its scientific name, not just whichever one collided second, so the resulting folder
-// name is the same no matter which species is uploaded/rescanned first. Without this, two
-// species' photos (and, worse, a future library reimport reading them back) could silently
-// land in — or be read from — the same folder.
+// The browsable folder a species' originals live in. Common names aren't unique, so every species
+// sharing one gets its scientific name appended, which keeps the name the same whichever is
+// imported first and keeps two species out of one folder.
 import { pool } from "../db.js";
 
-export function sanitizeForFilesystem(name: string): string {
-  // Slashes would create unintended subfolders; the rest are characters Windows/macOS/Linux
-  // either forbid outright or that just make a folder name awkward to look at/type.
-  // Trailing dots/spaces are also stripped: Windows silently drops them, so "Sp." and "Sp"
-  // would otherwise name the same folder there but different ones everywhere else.
-  return name.replace(/[/\\:*?"<>|]/g, "").trim().replace(/[. ]+$/, "");
+/** Drops characters that would make a subfolder or that some OS forbids in a name, and trims. */
+export function stripForbiddenNameChars(name: string): string {
+  return name.replace(/[/\\:*?"<>|]/g, "").trim();
 }
 
-// Shared by the folder-name and EXIF resolvers. Four pluggable parts — common name, scientific
-// (Latin) name, eBird code, ABA code — in whatever order and combination the user picked
-// (species_naming_styles, migration 082/091): the FIRST part that actually resolves for this
-// species becomes the unparenthesized primary name, everything after it is appended in parens.
-// A part the species doesn't actually have (most non-North-American birds for aba_code; any
-// non-bird, or a bird eBird's own taxonomy doesn't cover, for ebird_code; a species genuinely
-// missing a common name for "common") is silently skipped, not substituted with something else
-// — the setting is a preference, not a guarantee every species can honor every part of it. An
-// empty/never-configured setting defaults to common-name-only (this file's original behavior),
-// and if every selected part is unavailable for this specific species, falls back the same way.
-// `transform` runs on each resolved part individually, BEFORE joining them together —
-// resolveSpeciesFolderName passes sanitizeForFilesystem here so a folder-forbidden character in
-// one part is stripped before the parts are joined. Extras are joined with ", " (not " / ",
-// which created nested folders). The EXIF label leaves this at the identity default.
+/** A folder name: also drops trailing dots and spaces, which Windows silently removes, so
+ * "Sp." and "Sp" name the same folder everywhere. */
+export function sanitizeForFilesystem(name: string): string {
+  return stripForbiddenNameChars(name).replace(/[. ]+$/, "");
+}
+
+// Shared by the folder-name and EXIF resolvers. The first of the user's species_naming_styles
+// parts that exists is the primary name; the rest go in parentheses. Defaults to the common name.
+// `transform` runs on each part before joining.
 export function composeSpeciesName(
   commonName: string | null,
   scientificName: string,
   namingStyles: string[],
   codes: { abaCode: string | null; ebirdCode: string | null },
   transform: (part: string) => string = (part) => part,
-  // Optional — only "tree" actually needs it, and most callers already have common/scientific
-  // name + codes in hand without a taxonomy join. Missing/unavailable ranks (most Other Taxa
-  // species have no taxon_order on file) are just skipped, same "silently drop what's missing"
-  // rule as every other part here — not treated as this species failing to have a tree at all.
+  // Only the "tree" style needs it. Missing ranks are skipped.
   taxonomy?: { taxonClass: string | null; taxonOrder: string | null; family: string | null },
 ): string {
   const styles = namingStyles.length > 0 ? namingStyles : ["common"];
@@ -53,13 +38,8 @@ export function composeSpeciesName(
             : style === "ebird_code"
               ? codes.ebirdCode
               : style === "tree"
-                ? // " / " (spaced), not a bare "/" — a bare slash is exactly what
-                  // sanitizeForFilesystem strips (see this file's own top comment on why: it
-                  // would otherwise create unintended real subfolders), which would collapse
-                  // this whole rank list back into one run-together word for the folder-name
-                  // caller. This is one naming-style LABEL, not a request for genuine nested
-                  // class/order/family folders on disk — a real taxonomic folder tree would be
-                  // a bigger, separate structural feature, not a naming-style variant.
+                ? // Spaced " / ": sanitizeForFilesystem strips a bare "/", which would run the
+                  // ranks together. A label, not nested folders.
                   [
                     taxonomy?.taxonClass ? taxonomy.taxonClass.charAt(0).toUpperCase() + taxonomy.taxonClass.slice(1) : null,
                     taxonomy?.taxonOrder,
@@ -78,10 +58,7 @@ export function composeSpeciesName(
   return `${primary} (${rest.join(", ")})`;
 }
 
-// speciesId + userId, not raw name strings — species_naming_styles (migration 082) is a
-// per-user preference, and ABA/eBird codes live on the species row itself, so this needs a
-// fresh lookup rather than trusting whatever name string a caller already had in hand (which
-// predates this setting existing and would always resolve to the common-name behavior).
+// Looked up by id: the naming style is per user and the codes live on the species row.
 export async function resolveSpeciesFolderName(userId: string, speciesId: string): Promise<string> {
   const res = await pool.query<{
     common_name: string | null;
@@ -109,13 +86,10 @@ export async function resolveSpeciesFolderName(userId: string, speciesId: string
   const composed = composeSpeciesName(commonName, scientificName, styles, codes, (part) => part, taxonomy);
   const base = composeSpeciesName(commonName, scientificName, styles, codes, sanitizeForFilesystem, taxonomy);
   if (!commonName) return base;
-  // The common-name collision suffix only matters when the folder name is otherwise just the
-  // common name — once a code is appended it's already unique to this species, so two species
-  // sharing a common name can't collide.
+  // The collision suffix only matters when the name is just the common name; an appended code
+  // already makes it unique.
   if (composed !== commonName) return base;
-  // Extinct and fossil species (species_traits.fully_extinct) can never be photographed, so they
-  // don't count: a fossil osprey also named "Osprey" mustn't push the real one into
-  // "Osprey (Pandion haliaetus)".
+  // Extinct and fossil species can never be photographed, so they don't count as a name collision.
   const collision = await pool.query(
     `SELECT 1 FROM species s LEFT JOIN species_traits t ON t.species_id = s.id
      WHERE s.common_name = $1 AND s.scientific_name != $2 AND COALESCE(t.fully_extinct, false) = false

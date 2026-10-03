@@ -1,9 +1,7 @@
 import type { PhotoSource, PhotoSourceAsset } from "@lifer/shared";
 import { pool } from "../db.js";
 
-// The trivial implementation (7e) — wraps the same local-filesystem behavior every route
-// already used before this abstraction existed, so nothing about today's default path
-// changes; it's just expressed behind the interface now.
+// The local-filesystem PhotoSource.
 export class LocalPhotoSource implements PhotoSource {
   async listPhotos(speciesId: string): Promise<PhotoSourceAsset[]> {
     const res = await pool.query<{ id: string }>(

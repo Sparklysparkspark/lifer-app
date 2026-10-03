@@ -1,42 +1,42 @@
-// Folder-walking logic for a Trip's reference-in-place source_folder — shared by the very
-// first scan after creating a trip and any later manual rescan (new photos added, or the
-// folder reorganized). Three responsibilities, run in this order every time:
-//   1. Confirm every already-linked original is still where it was (matchAgainstKnownOriginals)
-//      — silently relinks a moved/renamed file by content hash, never touches the file itself,
-//      and marks a genuinely-missing one `stale` rather than deleting its capture/species
-//      history (same "don't guess, don't destroy" philosophy as migration 013's original,
-//      never-implemented design for scan_roots/fingerprint_collisions).
-//   2. Surface any file in the folder matching no known original at all (findNewFiles) — these
-//      go through the same species-assignment review UI as Bulk Import, just landing on
-//      POST /trips/:id/import instead of POST /uploads.
-//   3. (rawLink.ts) Auto-link any RAW file whose stem+timestamp matches an already-imported
-//      capture's JPEG — a RAW is never a "new file" needing species review on its own.
-import { existsSync, readdirSync, statSync } from "node:fs";
+// Scans a trip. The source folder is the user's own and only ever read; the destination folder
+// holds Lifer's sorted copies. In order: relink or mark stale known originals in the destination,
+// recover unknown destination files from the trip index, list unimported source files for review,
+// then link RAWs to their imported JPEGs (rawLink.ts).
+import { existsSync, readdirSync, realpathSync, statSync } from "node:fs";
 import path from "node:path";
 import { pool } from "../db.js";
 import { computeContentHash } from "../uploads/fileFingerprint.js";
+import { ACCEPTED_PHOTO_EXTENSIONS, isRawFile } from "../uploads/formats.js";
 import { resolveTripIndexSpecies } from "./tripIndex.js";
 import { importTripFile } from "./import.js";
 import { listRawFiles, autoLinkMissingRaws } from "./rawLink.js";
 
-const TRIP_IMAGE_EXTENSIONS = new Set([".jpg", ".jpeg", ".png"]);
+// Every photo format the app accepts (JPEG, PNG, WebP, TIFF, HEIC). A TIFF holding sensor data
+// is a RAW instead: onlyPhotos drops it here and listRawFiles picks it up.
+const TRIP_IMAGE_EXTENSIONS = new Set(ACCEPTED_PHOTO_EXTENSIONS.map((e) => e.toLowerCase()));
+
+async function onlyPhotos(files: CandidateFile[]): Promise<CandidateFile[]> {
+  const photos: CandidateFile[] = [];
+  for (const f of files) if (!(await isRawFile(f.absolutePath).catch(() => false))) photos.push(f);
+  return photos;
+}
 
 export interface CandidateFile {
   relativePath: string;
   absolutePath: string;
 }
 
-/** Recursive — mirrors the recursion Bulk Import/RawUpload already do client-side via
- *  `<input webkitdirectory>`, just server-side since this walks the server's own filesystem
- *  (see the plan's note on why trip folders are picked via browse-directory, not a browser
- *  file input). */
-export function listCandidateFiles(sourceFolder: string): CandidateFile[] {
+/** Recursive listing of photo files, skipping dotfiles and `skipFolder`. */
+export function listCandidateFiles(sourceFolder: string, skipFolder?: string): CandidateFile[] {
   const results: CandidateFile[] = [];
+  const skip = skipFolder ? path.resolve(skipFolder) : null;
   function walk(dir: string) {
+    if (!existsSync(dir)) return;
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
       if (entry.name.startsWith(".")) continue;
       const absolutePath = path.join(dir, entry.name);
       if (entry.isDirectory()) {
+        if (skip && path.resolve(absolutePath) === skip) continue;
         walk(absolutePath);
       } else if (TRIP_IMAGE_EXTENSIONS.has(path.extname(entry.name).toLowerCase())) {
         results.push({ relativePath: path.relative(sourceFolder, absolutePath), absolutePath });
@@ -62,9 +62,8 @@ export interface ScanResult {
   newFiles: CandidateFile[];
 }
 
-/** Step 1 — reconcile every original already linked to this trip against what's actually on
- *  disk right now. `candidates` is the full current file listing (from listCandidateFiles),
- *  reused here so a moved file can be found among files findNewFiles hasn't yet claimed. */
+/** Reconciles every original linked to this trip with what's on disk. `candidates` is the full
+ *  file listing, searched by content hash for moved files. */
 export async function matchAgainstKnownOriginals(tripId: string, candidates: CandidateFile[], signal?: AbortSignal): Promise<{
   relinked: number;
   markedStale: number;
@@ -91,19 +90,13 @@ export async function matchAgainstKnownOriginals(tripId: string, candidates: Can
       continue;
     }
 
-    // Missing at its stored ref — look for it elsewhere in the folder by content hash before
-    // giving up. Only ever compares against files not already claimed by another original
-    // this same pass, so two missing originals can't both silently steal the same file.
-    // Hash-only (no EXIF read) — relink matching never needs it, and skipping the exiftool
-    // round-trip here matters: this runs once per unclaimed candidate for every missing
-    // original, so it's the one place in this file where EXIF overhead would multiply fastest.
+    // Missing at its ref: look for it by content hash among files not yet claimed in this pass.
     const unclaimed = candidates.filter((c) => !claimedAbsolutePaths.has(c.absolutePath));
     const unclaimedHashes = await Promise.all(unclaimed.map((c) => computeContentHash(c.absolutePath)));
     const hashMatches = unclaimed.filter((_, i) => unclaimedHashes[i] === original.content_hash);
 
     if (hashMatches.length === 1) {
-      // Silent relink — the DB record is updated, the file itself is never touched, moved, or
-      // renamed by Lifer.
+      // Only the DB record changes; the file itself is never touched.
       await pool.query(`UPDATE originals SET ref = $1, stale = false, last_seen_at = now() WHERE id = $2`, [
         hashMatches[0].absolutePath,
         original.id,
@@ -111,17 +104,14 @@ export async function matchAgainstKnownOriginals(tripId: string, candidates: Can
       claimedAbsolutePaths.add(hashMatches[0].absolutePath);
       relinked++;
     } else if (hashMatches.length > 1) {
-      // Ambiguous — never guess which one is the real match (same rule the RAW-matching code
-      // in uploads/routes.ts already follows). Recorded for manual review, left `stale` alone.
+      // Ambiguous: never guess. Recorded for manual review, `stale` left alone.
       await pool.query(
         `INSERT INTO fingerprint_collisions (exif_fingerprint, original_id) VALUES ($1, $2)`,
         [original.content_hash, original.id],
       );
       collisions++;
     } else {
-      // Genuinely gone — preserve the capture/species history rather than deleting it; a
-      // temporarily unmounted drive or a file that reappears later should self-heal on the
-      // next rescan, not lose everything the user already told Lifer about it.
+      // Marked stale, not deleted, so an unmounted drive self-heals on the next rescan.
       await pool.query(`UPDATE originals SET stale = true WHERE id = $1`, [original.id]);
       markedStale++;
     }
@@ -130,18 +120,13 @@ export async function matchAgainstKnownOriginals(tripId: string, candidates: Can
   return { relinked, markedStale, collisions, claimedAbsolutePaths };
 }
 
-/** Step 2 — whatever's left in the folder after every already-known original has claimed its
- *  file (moved or not) is either brand new or was never imported. Returned as-is for the
- *  review UI; nothing is written to the database here. */
+/** Files no known original has claimed. */
 export function findNewFiles(candidates: CandidateFile[], claimedAbsolutePaths: Set<string>): CandidateFile[] {
   return candidates.filter((c) => !claimedAbsolutePaths.has(c.absolutePath));
 }
 
-// Step 3 — before asking the user to redo anything, check whether this "new" file was already
-// imported once before and recorded in the trip's own recovery index (tripIndex.ts). This is
-// what makes a fresh install/empty-database scenario NOT mean reassigning species to every
-// photo in a trip folder by hand again — see the index's own comment for why it lives inside
-// the trip folder itself rather than anywhere Lifer owns.
+// Before asking for a species, check the trip's recovery index (tripIndex.ts): a file imported
+// before a fresh install gets its species back without review.
 async function autoRecoverFromIndex(
   tripId: string,
   userId: string,
@@ -165,13 +150,11 @@ async function autoRecoverFromIndex(
       continue;
     }
     try {
-      // Recovery via the .lifer manifest index has no region concept to offer (it isn't a
-      // reviewed batch import) — same as this call site's other omitted per-request context.
+      // The trip index has no region to offer.
       await importTripFile(tripId, userId, speciesId, file.absolutePath, sourceFolder, file.relativePath, null);
       recovered++;
     } catch {
-      // A recovery attempt failing (e.g. a corrupt file) shouldn't be silently swallowed —
-      // fall back to normal manual review for this one file instead of losing it entirely.
+      // Failed recovery (e.g. a corrupt file) falls back to manual review.
       stillNew.push(file);
     }
   }
@@ -184,32 +167,66 @@ export interface ScanOptions {
   onPhase?: (phase: string) => void;
 }
 
-export async function scanTrip(tripId: string, userId: string, sourceFolder: string, opts: ScanOptions = {}): Promise<ScanResult> {
+export async function scanTrip(
+  tripId: string,
+  userId: string,
+  sourceFolder: string,
+  destinationFolder: string,
+  opts: ScanOptions = {},
+): Promise<ScanResult> {
   const { signal, onPhase } = opts;
   onPhase?.("checking");
-  const imageCandidates = listCandidateFiles(sourceFolder);
-  // RAW files join the relink pass (a moved/renamed RAW original needs the same content-hash
-  // recovery a moved JPEG gets) but never findNewFiles below — a bare RAW with no JPEG sibling
-  // has no species to review it against, so it's only ever handled by autoLinkMissingRaws.
-  const allCandidates = [...imageCandidates, ...listRawFiles(sourceFolder)];
-  const { relinked, markedStale, collisions, claimedAbsolutePaths } = await matchAgainstKnownOriginals(tripId, allCandidates, signal);
-  const newFiles = findNewFiles(imageCandidates, claimedAbsolutePaths);
+  const destinationImages = await onlyPhotos(listCandidateFiles(destinationFolder));
+  // RAWs join the relink pass but are never offered for review: only autoLinkMissingRaws
+  // handles them.
+  const allDestination = [...destinationImages, ...(await listRawFiles(destinationFolder))];
+  const { relinked, markedStale, collisions, claimedAbsolutePaths } = await matchAgainstKnownOriginals(tripId, allDestination, signal);
   onPhase?.("recovering");
-  const { recovered, stillNew } = await autoRecoverFromIndex(tripId, userId, sourceFolder, newFiles, signal);
+  const unclaimedCopies = findNewFiles(destinationImages, claimedAbsolutePaths);
+  const { recovered } = await autoRecoverFromIndex(tripId, userId, destinationFolder, unclaimedCopies, signal);
   signal?.throwIfAborted();
+  onPhase?.("finding-new");
+  const newFiles = await findUnimportedFiles(userId, await onlyPhotos(listCandidateFiles(sourceFolder, destinationFolder)), signal);
   onPhase?.("linking-raws");
-  const rawsLinked = await autoLinkMissingRaws(tripId, sourceFolder);
-  return { relinked, markedStale, collisions, recovered, rawsLinked, newFiles: stillNew };
+  const rawsLinked = await autoLinkMissingRaws(tripId, destinationFolder);
+  return { relinked, markedStale, collisions, recovered, rawsLinked, newFiles };
 }
 
-/** Path-traversal guard for GET /trips/:id/scan-preview and POST /trips/:id/import — a
- *  relativePath must resolve to somewhere genuinely inside the trip's own source_folder. */
+/** Source-folder photos whose content hash isn't yet a captures.fingerprint for this user, so a
+ * photo imported any other way isn't offered again. */
+export async function findUnimportedFiles(userId: string, files: CandidateFile[], signal?: AbortSignal): Promise<CandidateFile[]> {
+  const known = new Set(
+    (await pool.query<{ fingerprint: string }>(`SELECT fingerprint FROM captures WHERE user_id = $1 AND fingerprint IS NOT NULL`, [userId])).rows.map(
+      (r) => r.fingerprint,
+    ),
+  );
+  const unimported: CandidateFile[] = [];
+  for (const file of files) {
+    signal?.throwIfAborted();
+    try {
+      if (!known.has(await computeContentHash(file.absolutePath))) unimported.push(file);
+    } catch {
+      // unreadable right now: offer it, and the import reports the real problem
+      unimported.push(file);
+    }
+  }
+  return unimported;
+}
+
+/** Path-traversal guard: relativePath must resolve to a file inside the trip's folder. Both
+ *  sides are realpath'd so a symlink can't point outside it. */
 export function resolveWithinTripFolder(sourceFolder: string, relativePath: string): string | null {
-  // path.relative, not a startsWith(root + sep) check, which broke on a drive root ("/" or "D:\\").
-  const root = path.resolve(sourceFolder);
-  const resolved = path.resolve(root, relativePath);
-  const rel = path.relative(root, resolved);
+  let root: string;
+  let real: string;
+  try {
+    root = realpathSync(path.resolve(sourceFolder));
+    real = realpathSync(path.resolve(root, relativePath));
+  } catch {
+    return null;
+  }
+  // path.relative rather than startsWith(root + sep), which fails on a drive root.
+  const rel = path.relative(root, real);
   if (rel === "" || rel === ".." || rel.startsWith(".." + path.sep) || path.isAbsolute(rel)) return null;
-  if (!existsSync(resolved) || !statSync(resolved).isFile()) return null;
-  return resolved;
+  if (!statSync(real).isFile()) return null;
+  return real;
 }

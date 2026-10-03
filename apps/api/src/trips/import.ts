@@ -1,13 +1,6 @@
-// Commits one reviewed trip file to a real capture — the trip-scoped counterpart to
-// uploads/routes.ts's mode=link branch. Deliberately its own simpler function rather than a
-// shared extraction: trip photos are standalone JPEGs living wherever the user's own trip
-// archive already organizes them (no store-mode folder writes to worry about), so the extra
-// branching in the main upload route would only add risk without being exercised here. RAW
-// sibling linking (rawLink.ts) IS shared in spirit — same filename-stem + timestamp rule as
-// uploads/routes.ts's own auto-link — just its own small module rather than extracted from
-// that route. The one piece that MUST stay identical either way — the fingerprint math —
-// already is, via uploads/fileFingerprint.ts, used by both.
-import { readFileSync } from "node:fs";
+// Commits one reviewed trip file as a capture, referencing the file in place.
+import { statSync } from "node:fs";
+import { rm } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { pool } from "../db.js";
@@ -16,16 +9,19 @@ import { generateDerivatives } from "../uploads/image.js";
 import { extractExif, readExifTags } from "../uploads/exif.js";
 import { computeFileFingerprint } from "../uploads/fileFingerprint.js";
 import { recordTripIndexEntry } from "./tripIndex.js";
-import { linkRawForCapture } from "./rawLink.js";
+import { linkRawForCapture, stemOf, type RawCandidate } from "./rawLink.js";
+import { originalsFolder } from "../uploads/organizedPath.js";
+import { resolveSpeciesFolderName } from "../uploads/speciesFolderName.js";
+import { copyToNewFile } from "../lib/safeFs.js";
 import { tagWithRegisteredVolume } from "../storageVolumes/resolve.js";
+import { markCollected } from "../lib/userSpecies.js";
 
 export interface TripImportResult {
   captureId: string;
   photoId: string;
 }
 
-// sourceFolder/relativePath are only used to record the recovery index entry (tripIndex.ts) —
-// not needed for the commit itself, which already has the file's real absolutePath.
+// sourceFolder/relativePath are only used for the recovery index entry (tripIndex.ts).
 export async function importTripFile(
   tripId: string,
   userId: string,
@@ -33,26 +29,22 @@ export async function importTripFile(
   absolutePath: string,
   sourceFolder: string,
   relativePath: string,
-  // One region picked for the whole import batch, same convention PhotoImportRows already uses
-  // for the main upload flow — a scanned trip folder previously had no region concept at all, so
-  // its captures went untagged even when the user picked one (see uploads/routes.ts's own
-  // regionId handling for that flow).
+  // One region picked for the whole import batch, as in the upload flow.
   regionId: string | null,
+  // true for the sorted copy Lifer made in the trip's destination folder (importInboxFile): Lifer
+  // wrote it, so it's Lifer's to manage. false for a file linked where it already was.
+  managed = false,
 ): Promise<TripImportResult> {
   const speciesRes = await pool.query<{ id: string; scientific_name: string }>(`SELECT id, scientific_name FROM species WHERE id = $1`, [speciesId]);
   if (speciesRes.rows.length === 0) throw new Error("Unknown species");
 
   const tags = await readExifTags(absolutePath);
   const exif = await extractExif(absolutePath, tags);
-  // Passes the already-read tags through — computeFileFingerprint would otherwise re-read
-  // this same file's EXIF from scratch, a second exiftool round-trip per file that's exactly
-  // what made a small trip import noticeably slow.
+  // Reuses the tags already read, saving a second exiftool round trip per file.
   const { contentHash, exifFingerprint } = await computeFileFingerprint(absolutePath, tags);
-  const buffer = readFileSync(absolutePath);
-  // Trip photos are the canonical reference-in-place case (see this file's own top comment) —
-  // exactly what tagging against a registered external drive is for (see
-  // ~/.claude/plans/multi-drive-storage.md). A path not under any registered volume resolves to
-  // {volumeId: null, ...}, i.e. today's plain-absolute-path behavior, unchanged.
+  // The size only: derivatives are made from the path (uploads/image.ts decodes HEIC from it).
+  const fileSize = statSync(absolutePath).size;
+  // Tags the path against a registered drive; outside any volume it stays a plain absolute path.
   const volumeTag = await tagWithRegisteredVolume(userId, absolutePath);
 
   const client = await pool.connect();
@@ -87,55 +79,42 @@ export async function importTripFile(
     const captureId = captureRes.rows[0].id;
 
     const photoId = randomUUID();
-    const { displayPath, thumbPath, width, height } = await generateDerivatives(buffer, photoId);
+    const { displayPath, thumbPath, width, height } = await generateDerivatives(absolutePath, photoId);
     const photoRes = await client.query<{ id: string }>(
       `INSERT INTO photos (id, capture_id, display_path, thumb_path, width, height) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
       [photoId, captureId, displayPath, thumbPath, width, height],
     );
     await client.query(`UPDATE captures SET current_photo_id = $1 WHERE id = $2`, [photoRes.rows[0].id, captureId]);
 
-    // Same "this photo now counts as collected" behavior as a normal upload — a trip photo
-    // is a real capture, not a lesser one just because the file stays where it already lived.
-    await client.query(
-      `INSERT INTO user_species (user_id, species_id, state, cover_photo_id, first_collected)
-       VALUES ($1, $2, 'collected', $3, COALESCE($4::date, CURRENT_DATE))
-       ON CONFLICT (user_id, species_id) DO UPDATE SET
-         state = 'collected',
-         cover_photo_id = COALESCE(user_species.cover_photo_id, EXCLUDED.cover_photo_id)`,
-      [userId, speciesId, photoRes.rows[0].id, exif.takenAt],
-    );
+    // A trip photo counts as collected like any upload, even though the file stays in place.
+    await markCollected(client, userId, speciesId, photoRes.rows[0].id, exif.takenAt);
 
-    // managed=false, ref=the file's own real path — never copied, never renamed. See
-    // originals.managed's own convention (uploads/routes.ts) for why this is the right value.
     await client.query(
       `INSERT INTO originals (capture_id, kind, ref_type, ref, managed, content_hash, file_size, exif_fingerprint, exif_fingerprint_loose, user_id, volume_id, volume_relative_path)
-       VALUES ($1, 'jpeg', 'path', $2, false, $3, $4, $5, $6, $7, $8, $9)`,
+       VALUES ($1, 'jpeg', 'path', $2, $10, $3, $4, $5, $6, $7, $8, $9)`,
       [
         captureId,
         absolutePath,
         contentHash,
-        buffer.length,
+        fileSize,
         exifFingerprint.strict,
         exifFingerprint.loose,
         userId,
         volumeTag.volumeId,
         volumeTag.volumeRelativePath,
+        managed,
       ],
     );
 
     await client.query("COMMIT");
     // This photo may just have become the species' cover: frame the card on the animal.
     ensureDefaultCardCropLater(userId, speciesId);
-    // Best-effort — recorded after commit succeeds, and never allowed to fail the import
-    // itself (see tripIndex.ts's own comment: losing a recovery entry just means one photo
-    // needs manual reassignment after a future fresh install, not data loss now).
+    // Best effort, after commit: a lost index entry only costs a manual reassignment later.
     recordTripIndexEntry(sourceFolder, relativePath, speciesRes.rows[0].scientific_name).catch(() => {});
-    // Same best-effort spirit — a RAW sibling not linking on the first try just gets picked
-    // up by the next rescan (scan.ts's autoLinkMissingRaws) instead of failing this import.
+    // Best effort too: an unlinked RAW is picked up by the next rescan.
     try {
       await linkRawForCapture(captureId, path.basename(absolutePath), exif.takenAt, sourceFolder);
     } catch {
-      // ignore — see comment above
     }
     return { captureId, photoId: photoRes.rows[0].id };
   } catch (err) {
@@ -144,4 +123,78 @@ export async function importTripFile(
   } finally {
     client.release();
   }
+}
+
+/** Imports one photo from the trip's source folder: copies it into the destination folder,
+ * sorted (<destination>/<taxon>/<species>/Adjusted, plus the year/location layers the user's
+ * settings ask for), brings its RAW along (same stem, same capture time: the rule uploads and the
+ * reimport use), then links the copy as the trip's photo. The source file is never touched.
+ * `sourceRaws` is the source folder's RAW listing, read once per import job. */
+export async function importInboxFile(
+  tripId: string,
+  userId: string,
+  speciesId: string,
+  sourceAbsolutePath: string,
+  destinationFolder: string,
+  regionId: string | null,
+  sourceRaws: RawCandidate[],
+): Promise<TripImportResult> {
+  const speciesRes = await pool.query<{ taxon_class: string | null; inat_iconic_taxon: string | null }>(
+    `SELECT taxon_class, inat_iconic_taxon FROM species WHERE id = $1`,
+    [speciesId],
+  );
+  if (speciesRes.rows.length === 0) throw new Error("Unknown species");
+  const prefs = (
+    await pool.query<{ organize_originals_by_year: boolean; species_naming_styles: string[] | null }>(
+      `SELECT organize_originals_by_year, species_naming_styles FROM users WHERE id = $1`,
+      [userId],
+    )
+  ).rows[0];
+  const tags = await readExifTags(sourceAbsolutePath);
+  const exif = await extractExif(sourceAbsolutePath, tags);
+  const folderOpts = {
+    organizeByYear: prefs?.organize_originals_by_year ?? false,
+    speciesFolderName: await resolveSpeciesFolderName(userId, speciesId),
+    taxonClass: speciesRes.rows[0].taxon_class,
+    inatIconicTaxon: speciesRes.rows[0].inat_iconic_taxon,
+    namingStyles: prefs?.species_naming_styles ?? [],
+    takenAt: exif.takenAt,
+  };
+  const adjustedDir = originalsFolder(destinationFolder, { ...folderOpts, subfolder: "Adjusted" });
+  const copy = await copyToNewFile(adjustedDir, path.basename(sourceAbsolutePath), sourceAbsolutePath);
+
+  // The RAW goes first, so importTripFile's own RAW linking finds it next to the copy.
+  const raw = matchingSourceRaw(sourceAbsolutePath, sourceRaws);
+  let rawCopy: string | null = null;
+  if (raw) {
+    const rawDir = originalsFolder(destinationFolder, { ...folderOpts, subfolder: "RAW" });
+    rawCopy = await copyToNewFile(rawDir, path.basename(raw.absolutePath), raw.absolutePath).catch(() => null);
+  }
+  try {
+    const result = await importTripFile(tripId, userId, speciesId, copy, destinationFolder, path.relative(destinationFolder, copy), regionId, true);
+    // Lifer made the RAW copy too, so it's Lifer's to manage like the photo (rawLink.ts links
+    // RAWs as the user's own files).
+    if (rawCopy) {
+      await pool.query(`UPDATE originals SET managed = true WHERE capture_id = $1 AND kind = 'raw'`, [result.captureId]).catch(() => {});
+    }
+    return result;
+  } catch (err) {
+    // Nothing links to the copies if the import failed: remove them rather than leave stray files.
+    await rm(copy, { force: true }).catch(() => {});
+    if (rawCopy) await rm(rawCopy, { force: true }).catch(() => {});
+    throw err;
+  }
+}
+
+/** The source folder's RAW for a photo: the same file stem (case-insensitive). When several
+ * RAWs share it (two cards, two cameras), only one in the photo's own folder is trusted. */
+function matchingSourceRaw(photoPath: string, sourceRaws: RawCandidate[]): RawCandidate | null {
+  const stem = stemOf(path.basename(photoPath));
+  const sameStem = sourceRaws.filter((r) => stemOf(path.basename(r.absolutePath)) === stem);
+  if (sameStem.length === 1) return sameStem[0];
+  if (sameStem.length > 1) {
+    const sameFolder = sameStem.filter((r) => path.dirname(r.absolutePath) === path.dirname(photoPath));
+    if (sameFolder.length === 1) return sameFolder[0];
+  }
+  return null;
 }

@@ -1,17 +1,7 @@
-// A tiny recovery record written INTO the trip's own folder (never into a photo, never
-// anywhere under Lifer's own DATA_DIR) — the one piece of durable state that survives a full
-// Lifer reinstall/fresh-database scenario, since it lives wherever the user already keeps and
-// backs up their own trip photos, not inside anything Lifer owns.
-//
-// Species ids are NOT stable across a fresh install (a reseeded species table hands out new
-// gen_random_uuid() values even for "the same" species), so the index keys by scientificName
-// instead — resolved back to whatever this install's current species id is at read time.
-//
-// Concurrent imports (IMPORT_CONCURRENCY in routes.ts) all read-modify-write this same file;
-// a plain unsynchronized read-modify-write would race and drop entries. Queuing writes
-// per-folder keeps them serialized without needing a real file lock — losing a recovery entry
-// isn't data loss (the photo just needs manual re-assignment once, same as before this
-// existed), so this only needs to be "good," not airtight.
+// A recovery record inside the trip's own folder, so it survives a fresh install. Keyed by
+// scientific name, since species ids differ between installs.
+// Writes are queued per folder so concurrent imports don't drop entries. Losing one only means
+// reassigning that photo once.
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { writeFileAtomicSync } from "../lib/atomicWrite.js";
 import path from "node:path";
@@ -39,8 +29,7 @@ export function recordTripIndexEntry(sourceFolder: string, relativePath: string,
   const prior = writeQueues.get(sourceFolder) ?? Promise.resolve();
   const next = prior
     .catch(() => {
-      // A previous write in this chain failing shouldn't poison every write after it — the
-      // index is a best-effort recovery aid, not a source of truth.
+      // One failed write mustn't block the rest; the index is best effort.
     })
     .then(() => {
       const dir = path.join(sourceFolder, ".lifer");
@@ -58,9 +47,7 @@ export function recordTripIndexEntry(sourceFolder: string, relativePath: string,
   return next;
 }
 
-// For each candidate relativePath, looks up a recorded scientificName in the index and
-// resolves it to THIS install's current species id — used by scanTrip to auto-recover a
-// previously-imported photo instead of asking the user to reassign it after a fresh install.
+// Maps each relativePath's recorded scientific name to this install's species id.
 export async function resolveTripIndexSpecies(
   sourceFolder: string,
   relativePaths: string[],

@@ -18,9 +18,8 @@ describe("sanitizeForFilesystem", () => {
     expect(sanitizeForFilesystem("  Mallard  ")).toBe("Mallard");
   });
 
-  // Boundary value: a name made ENTIRELY of forbidden characters (plus whitespace) reduces to
-  // an empty string — the caller (resolveSpeciesFolderName) has no special handling for this,
-  // so it's worth pinning down explicitly rather than assuming.
+  // Boundary value: a name of only forbidden characters (plus whitespace) reduces to an empty
+  // string, which resolveSpeciesFolderName doesn't special-case.
   it("boundary value: a name of only forbidden characters sanitizes to an empty string", () => {
     expect(sanitizeForFilesystem("///")).toBe("");
   });
@@ -35,9 +34,7 @@ describe("sanitizeForFilesystem", () => {
   });
 });
 
-// species_naming_styles defaults to an empty array for these fixtures unless a test says
-// otherwise — matches migration 082's own column default, so a species/user row that predates
-// this setting behaves exactly like it always did.
+// species_naming_styles defaults to an empty array unless a test says otherwise.
 function mockSpeciesRow(row: {
   common_name: string | null;
   scientific_name: string;

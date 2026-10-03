@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { parseFfmpegDescription } from "./image.js";
 
-// Real `ffmpeg -hide_banner -i` output for a Canon 4K clip.
+// Sample `ffmpeg -hide_banner -i` output for a 4K clip.
 const canonMp4 = `Input #0, mov,mp4,m4a,3gp,3g2,mj2, from 'DM8A6874.mp4':
   Metadata:
     major_brand     : mp42

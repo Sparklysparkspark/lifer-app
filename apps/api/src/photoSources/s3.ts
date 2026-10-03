@@ -1,11 +1,10 @@
-// S3-compatible adapter (7e) — a signed-URL redirect, no duplication, works with real AWS
-// S3 or a self-hosted compatible target (MinIO etc, via LIFER_S3_ENDPOINT). One shared
-// bucket config via env vars, not a per-user settings table — this is a personal/small-group
-// deployment with no real multi-target use case yet, so that would be premature.
+// S3-compatible originals (AWS or MinIO via LIFER_S3_ENDPOINT), served as signed-URL redirects.
+// One bucket for the whole server, configured by env vars.
 import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import type { PhotoSource, PhotoSourceAsset } from "@lifer/shared";
 import { pool } from "../db.js";
+import { contentDisposition } from "../lib/httpFile.js";
 
 const S3_ENDPOINT = process.env.LIFER_S3_ENDPOINT; // unset = real AWS S3
 const S3_BUCKET = process.env.LIFER_S3_BUCKET;
@@ -15,12 +14,15 @@ export function s3Configured(): boolean {
   return !!S3_BUCKET;
 }
 
+// One client for the process: each S3Client holds its own connection pool and credential cache.
+let cachedClient: S3Client | null = null;
 function client(): S3Client {
-  return new S3Client({
+  cachedClient ??= new S3Client({
     endpoint: S3_ENDPOINT,
     region: S3_REGION,
     forcePathStyle: !!S3_ENDPOINT, // required by most self-hosted S3-compatibles (MinIO etc.)
   });
+  return cachedClient;
 }
 
 export async function fetchS3Object(key: string): Promise<Buffer> {
@@ -31,12 +33,8 @@ export async function fetchS3Object(key: string): Promise<Buffer> {
   return Buffer.concat(chunks);
 }
 
-// downloadFilename, when passed, sets ResponseContentDisposition on the presigned URL itself —
-// S3 echoes that back as the response's real Content-Disposition header, so the browser saves
-// the file instead of navigating to it directly (this is the ONLY way to get that behavior for
-// an S3 redirect: the app's own /photos/:id/original route can set headers on ITS OWN response,
-// but a signed S3 URL is served straight from S3, not proxied through this app, so a header set
-// here would never reach the client).
+// downloadFilename goes into the signed URL's ResponseContentDisposition, since S3 serves the
+// redirect target directly and only it can set the download header.
 export async function signedS3Url(key: string, downloadFilename?: string): Promise<string> {
   if (!S3_BUCKET) throw new Error("LIFER_S3_BUCKET is not configured");
   return getSignedUrl(
@@ -44,7 +42,7 @@ export async function signedS3Url(key: string, downloadFilename?: string): Promi
     new GetObjectCommand({
       Bucket: S3_BUCKET,
       Key: key,
-      ...(downloadFilename ? { ResponseContentDisposition: `attachment; filename="${downloadFilename}"` } : {}),
+      ...(downloadFilename ? { ResponseContentDisposition: contentDisposition(downloadFilename) } : {}),
     }),
     { expiresIn: 3600 },
   );
@@ -52,8 +50,7 @@ export async function signedS3Url(key: string, downloadFilename?: string): Promi
 
 export class S3PhotoSource implements PhotoSource {
   async listPhotos(): Promise<PhotoSourceAsset[]> {
-    // No bucket-browsing UI — objects are linked one at a time by key via the upload flow's
-    // mode=s3, not discovered by enumerating a bucket, so there's nothing to list here.
+    // Required by PhotoSource; S3 objects are linked one at a time by key, never listed.
     return [];
   }
 

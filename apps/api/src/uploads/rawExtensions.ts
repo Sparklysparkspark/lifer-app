@@ -1,7 +1,5 @@
-// .tif/.tiff are included alongside the camera-specific formats — some cameras/scanners and
-// RAW converters (e.g. a DNG converted to a flattened TIFF, or certain medium-format backs)
-// export as TIFF rather than a vendor RAW extension, and it is still the real, unprocessed/
-// high-bit-depth file in the same sense the RAW-matching feature cares about.
+// Names that may be a RAW, for folder scans. A .tif/.tiff is a RAW only when it holds sensor data
+// (formats.ts isRawFile); an edited TIFF is a photo, so new code should call isRawFile instead.
 export const RAW_EXTENSIONS = new Set([
   ".cr2",
   ".cr3",

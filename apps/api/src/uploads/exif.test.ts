@@ -1,6 +1,5 @@
-// extractExif/extractKeywords both accept an already-read `tags` object, so these run as pure
-// transforms with no exiftool process spawned — the reading side (readExifTags) is the only
-// part that actually shells out, and isn't covered here.
+// extractExif and extractKeywords take already-read `tags`, so these run with no exiftool
+// process; readExifTags itself isn't covered here.
 import { describe, expect, it } from "vitest";
 import { extractExif, extractKeywords } from "./exif.js";
 

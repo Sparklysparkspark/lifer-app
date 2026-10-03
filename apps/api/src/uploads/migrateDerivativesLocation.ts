@@ -1,21 +1,10 @@
-// One-time backfill for a fix in image.ts: generateDerivatives used to write user photo
-// thumb/display caches under DATA_DIR (the user's own chosen "Storage location") instead of
-// APP_DATA_DIR (the app's private cache dir), unlike generateReferenceDerivatives, which
-// already got this right (see that function's own comment). Anyone who collected photos before
-// this fix has files sitting under the OLD DATA_DIR/display and DATA_DIR/thumb with DB rows
-// pointing at them; this moves both onto the correct APP_DATA_DIR location. Run once at
-// startup (see index.ts) rather than as a manual script. Applies to Docker too since
-// APP_DATA_DIR became its own volume there (/app-data), which is a different filesystem from
-// the /data bind mount, so a plain rename can fail with EXDEV and falls back to copy + delete.
-//
-// Idempotent, and the row rewrite doesn't depend on this run having moved anything: a previous
-// run that moved files but stopped before rewriting rows left photos pointing at files that no
-// longer exist (a blank species card). Any row still pointing into the old folder whose file is
-// now only in the new one gets fixed on the next start.
+// Startup migration: moves display/thumb caches from DATA_DIR to APP_DATA_DIR and rewrites their
+// rows. Idempotent; the row rewrite always runs, so an interrupted run finishes next start.
 import { copyFileSync, existsSync, mkdirSync, readdirSync, renameSync, rmSync } from "node:fs";
 import path from "node:path";
 import { pool } from "../db.js";
 import { DATA_DIR, APP_DATA_DIR } from "../config.js";
+import { log } from "../lib/log.js";
 
 const DERIVATIVE_FILE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.\w+$/i;
 
@@ -27,12 +16,8 @@ export async function migrateDerivativesLocation(): Promise<void> {
     const oldDir = path.join(DATA_DIR, sub);
     const newDir = path.join(APP_DATA_DIR, sub);
     if (!existsSync(oldDir)) continue;
-    // existsSync only checks that the path itself is stat-able — a folder can pass that check
-    // and still fail to list (macOS TCC blocks scanning some folders' *contents*, e.g. Desktop,
-    // independently of whether the folder itself is visible). This is a best-effort one-time
-    // backfill, not something worth crashing the whole app's startup over: skip this subfolder
-    // and leave those files where they are rather than letting the error propagate — they're
-    // still found fine at their old path, just not moved to the newer, correct location yet.
+    // A folder can exist but not be listable (macOS privacy controls, e.g. Desktop). Best effort:
+    // skip it and leave the files where they are, still found at their old path.
     try {
       mkdirSync(newDir, { recursive: true });
       for (const entry of readdirSync(oldDir, { withFileTypes: true })) {
@@ -45,7 +30,7 @@ export async function migrateDerivativesLocation(): Promise<void> {
         filesMoved++;
       }
     } catch (err) {
-      console.error(`[migrateDerivativesLocation] couldn't scan ${oldDir}, skipping:`, err);
+      log.error({ err, dir: oldDir }, "Couldn't scan an old derivatives folder, skipping it");
     }
   }
   const client = await pool.connect();
@@ -83,7 +68,7 @@ export async function migrateDerivativesLocation(): Promise<void> {
     client.release();
   }
   if (filesMoved > 0 || rowsUpdated > 0) {
-    console.log(`[migrateDerivativesLocation] moved ${filesMoved} file(s), updated ${rowsUpdated} photos row(s)`);
+    log.info({ filesMoved, rowsUpdated }, "Moved derivatives to the app data folder");
   }
 }
 

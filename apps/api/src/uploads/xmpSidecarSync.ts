@@ -1,8 +1,7 @@
-// Orchestrates writeCaptureMetadata (exif.ts) against every managed original a capture actually
-// has: a JPEG (or TIFF/PNG/DNG) gets the tags inside the file, where Lightroom and digiKam read
-// them, and a RAW gets a sidecar written next to it. Called from every place that changes something this sidecar
-// carries: species reassignment, rating, and species cover-photo selection.
+// Runs writeCaptureMetadata (exif.ts) on every managed original of a capture whenever its
+// species, rating or cover status changes.
 import { pool } from "../db.js";
+import { log } from "../lib/log.js";
 import { writeCaptureMetadata, type SpeciesMetadata } from "./exif.js";
 
 export async function syncCaptureXmpSidecars(userId: string, captureId: string): Promise<void> {
@@ -80,6 +79,6 @@ export async function syncCaptureXmpSidecarsLogged(userId: string, captureId: st
   try {
     await syncCaptureXmpSidecars(userId, captureId);
   } catch (err) {
-    console.warn(`[xmp] Couldn't sync XMP sidecar for capture ${captureId}:`, err instanceof Error ? err.message : err);
+    log.warn({ captureId, err: err instanceof Error ? err.message : err }, "Couldn't sync the XMP sidecar");
   }
 }

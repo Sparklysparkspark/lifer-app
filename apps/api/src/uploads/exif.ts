@@ -1,6 +1,5 @@
-// exiftool-vendored bundles its own exiftool binary, so there's no system-install dependency
-// (: "Image processing: sharp... EXIF via exiftool"). It reads metadata only —
-//rule 3, Lifer never decodes the image itself for this.
+// Photo metadata via exiftool-vendored, which bundles its own exiftool binary. Metadata only:
+// the image itself is never decoded here.
 import { availableParallelism } from "node:os";
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
@@ -10,11 +9,8 @@ import { TAXON_CLASS_LABEL, type TaxonClass } from "@lifer/shared";
 import { pool } from "../db.js";
 import { composeSpeciesName } from "./speciesFolderName.js";
 
-// The library's default singleton caps concurrent exiftool worker processes at 1/4 of the
-// CPU count, tuned for a shared multi-tenant server. Lifer is a single-user desktop app where
-// a burst of several photos uploaded at once (each needing 1-2 exiftool calls) is a normal,
-// latency-sensitive workload, not something to throttle — so a dedicated instance uses the
-// full core count instead of accepting that shared-server-friendly default.
+// The library's default caps exiftool processes at a quarter of the cores; an import burst is
+// latency-sensitive, so this instance uses every core.
 const exiftool = new ExifTool({ maxProcs: Math.max(1, availableParallelism()) });
 
 export interface ExtractedExif {
@@ -38,24 +34,69 @@ function ratingOf(tags: Record<string, unknown>): number | null {
   return Number.isInteger(r) && r >= 1 && r <= 5 ? r : null;
 }
 
-// extractExif and computeExifFingerprint both need a parsed tag set; calling
-// exiftool.read(filePath) independently in each would mean two full metadata parses of the
-// same file (RAW files in particular can be tens of megabytes) for every upload, when a
-// single read covers both. Callers that need both (see uploads/routes.ts) should call this
-// once and pass the result to each.
+// One parsed tag set for extractExif, extractKeywords and computeExifFingerprint, so a file
+// (a RAW can be tens of megabytes) is read once.
 export type ExifTags = Awaited<ReturnType<typeof exiftool.read>>;
 
 export async function readExifTags(filePath: string): Promise<ExifTags> {
   return exiftool.read(filePath);
 }
 
+// What exiftool-vendored hands back for DateTimeOriginal (an ExifDateTime).
+interface ExifDateLike {
+  toDate(): Date;
+  toDateTime?: (zone?: string) => { toJSDate(): Date };
+  hasZone?: boolean;
+  year?: number;
+  month?: number;
+  day?: number;
+  hour?: number;
+  minute?: number;
+  second?: number;
+}
+
+function dateTimeOriginal(tags: ExifTags | Record<string, unknown>): ExifDateLike | null {
+  const dt = (tags as Record<string, unknown>).DateTimeOriginal;
+  return dt && typeof dt === "object" && "toDate" in dt ? (dt as ExifDateLike) : null;
+}
+
+// EXIF DateTimeOriginal is a wall-clock time with no zone. When the file says which zone
+// (OffsetTimeOriginal, or one exiftool-vendored reads from the file's other tags) that's used;
+// otherwise the wall clock is read as UTC on every install, so taken_at and the RAW-matching
+// fingerprint don't depend on the server's zone.
+function captureInstant(dt: ExifDateLike): Date {
+  if (dt.hasZone || typeof dt.toDateTime !== "function") return dt.toDate();
+  return dt.toDateTime("UTC").toJSDate();
+}
+
+export interface CaptureTime {
+  takenAt: Date;
+  /** The camera's own clock reading, "YYYY-MM-DDTHH:MM:SS": what dated file names and year
+   *  folders go by, whatever zone the server runs in. */
+  wallClock: string;
+  /** The time read in the server's own zone, only when that differs: older rows carry it. */
+  legacyTakenAt: Date | null;
+}
+
+const pad = (n: number, width = 2) => String(n).padStart(width, "0");
+
+/** The photo's capture time (see captureInstant), or null without a DateTimeOriginal. */
+export function captureTimeFromTags(tags: ExifTags | Record<string, unknown>): CaptureTime | null {
+  const dt = dateTimeOriginal(tags);
+  if (!dt) return null;
+  const takenAt = captureInstant(dt);
+  const legacy = dt.toDate();
+  const wallClock =
+    dt.year != null && dt.month != null && dt.day != null
+      ? `${pad(dt.year, 4)}-${pad(dt.month)}-${pad(dt.day)}T${pad(dt.hour ?? 0)}:${pad(dt.minute ?? 0)}:${pad(dt.second ?? 0)}`
+      : takenAt.toISOString().slice(0, 19);
+  return { takenAt, wallClock, legacyTakenAt: legacy.getTime() === takenAt.getTime() ? null : legacy };
+}
+
 export async function extractExif(filePath: string, tags?: ExifTags): Promise<ExtractedExif> {
   tags ??= await exiftool.read(filePath);
 
-  const takenAt =
-    tags.DateTimeOriginal && typeof tags.DateTimeOriginal === "object" && "toDate" in tags.DateTimeOriginal
-      ? tags.DateTimeOriginal.toDate()
-      : null;
+  const takenAt = captureTimeFromTags(tags)?.takenAt ?? null;
 
   // FocalLength comes back as a string like "400.0 mm", not a number.
   const focalLengthMm =
@@ -85,13 +126,9 @@ async function sidecarRating(filePath: string): Promise<number | null> {
   }
 }
 
-// Reads existing XMP TagsList and IPTC Keywords to auto-match species names (spec §9).
-// IPTC Keywords and XMP dc:subject are both plain string lists; digiKam's own
-// XMP-digiKam:TagsList and Lightroom's XMP-lr:HierarchicalSubject store hierarchical tags as
-// paths ("Birds/Waterfowl/Mallard" in digiKam, "Birds|Waterfowl|Mallard" in Lightroom); the leaf segment is the actual
-// subject, so that's what gets returned rather than the whole path. Not part of
-// exiftool-vendored's strongly-typed Tags interface (an uncommon tag set), so read through
-// the raw object instead.
+// Keywords for matching species: IPTC Keywords and dc:subject lists, plus digiKam's TagsList and
+// Lightroom's HierarchicalSubject paths ("Birds/Waterfowl/Mallard", "Birds|Waterfowl|Mallard"),
+// of which only the leaf is kept. Read from the raw tags, since these aren't in the typed Tags.
 export async function extractKeywords(filePath: string, tags?: ExifTags): Promise<string[]> {
   const rawTags = (tags ?? (await exiftool.read(filePath))) as unknown as Record<string, unknown>;
   const asStrings = (v: unknown): string[] => (Array.isArray(v) ? v.map(String) : typeof v === "string" ? [v] : []);
@@ -107,12 +144,8 @@ export async function extractKeywords(filePath: string, tags?: ExifTags): Promis
   return [...new Set(leaves)];
 }
 
-// Many tools (Lightroom especially, for RAW formats it won't write into directly) keep a
-// photo's tags in a companion ".xmp" file next to the image rather than embedding them —
-// same information, different place, and easy to miss if only the image file itself ever
-// gets read. Two conventions both see real use: "IMG_0001.xmp" (sidecar named after the bare
-// stem) and "IMG_0001.CR2.xmp" (sidecar named after the full original filename) — checked in
-// that order since the bare-stem form is the more common Lightroom/digiKam default.
+// A ".xmp" sidecar next to the image (common for RAWs). "IMG_0001.xmp" is checked before
+// "IMG_0001.CR2.xmp" since it's the Lightroom and digiKam default.
 export function findSidecarPath(imagePath: string): string | null {
   const dir = path.dirname(imagePath);
   const ext = path.extname(imagePath);
@@ -124,9 +157,7 @@ export function findSidecarPath(imagePath: string): string | null {
   return null;
 }
 
-// Same keyword extraction as extractKeywords, but unions in a sidecar's own tags (see
-// findSidecarPath) when one exists next to the image — a photo tagged entirely in its sidecar
-// (no embedded metadata at all) would otherwise look completely untagged.
+// extractKeywords plus the sidecar's keywords, for photos tagged only in their sidecar.
 export async function extractKeywordsWithSidecar(filePath: string, tags?: ExifTags): Promise<string[]> {
   const own = await extractKeywords(filePath, tags);
   const sidecarPath = findSidecarPath(filePath);
@@ -140,33 +171,20 @@ export async function extractKeywordsWithSidecar(filePath: string, tags?: ExifTa
   }
 }
 
-// This EXIF-based "fingerprint" is distinct from `captures.fingerprint`, a sha256 content
-// hash used for upload dedup (a different concept). This hashes the handful of EXIF fields
-// that should be identical between a camera's RAW and its JPEG sibling for the same shutter
-// press, so a separately-discovered RAW file can be matched to an already-uploaded JPEG
-// despite being completely different bytes. Null when DateTimeOriginal is missing — too
-// weak a signal to match on without it.
-//
-// Two fingerprints, not one: an exported JPEG (Lightroom, Capture One, etc.) commonly
-// strips SubSecTimeOriginal and SerialNumber (some export presets drop the camera serial as
-// a deliberate privacy default), so the strict fingerprint would silently never match its
-// own RAW sibling. `loose` drops those two fragile fields (keeping just the
-// second-resolution timestamp + camera model) as a fallback match, tried only when the
-// strict one finds nothing — same "unique match required, else flag for review" safety rule
-// already used everywhere else this fingerprint matters.
+// Not captures.fingerprint (a content hash): a hash of the EXIF fields a RAW and its JPEG share
+// for one shutter press, so a RAW can be matched to its JPEG. Null without DateTimeOriginal.
+// `loose` leaves out SubSecTimeOriginal and SerialNumber, which exports often strip; it's the
+// fallback when `strict` finds nothing.
 export interface ExifFingerprint {
   strict: string | null;
   loose: string | null;
+  /** The pair as this install computed it before capture times stopped depending on the
+   *  server's zone; only present when different. Look it up when the current pair finds
+   *  nothing, so files stored earlier still match. */
+  legacy?: { strict: string; loose: string };
 }
 
-export async function computeExifFingerprint(filePath: string, tags?: ExifTags): Promise<ExifFingerprint> {
-  const rawTags = (tags ?? (await exiftool.read(filePath))) as unknown as Record<string, unknown>;
-  const dateTimeOriginal = rawTags.DateTimeOriginal;
-  if (!dateTimeOriginal || typeof dateTimeOriginal !== "object" || !("toDate" in dateTimeOriginal)) {
-    return { strict: null, loose: null };
-  }
-  const isoDate = (dateTimeOriginal as { toDate: () => Date }).toDate().toISOString();
-
+function fingerprintPair(isoDate: string, rawTags: Record<string, unknown>): { strict: string; loose: string } {
   const strictParts = [isoDate, String(rawTags.SubSecTimeOriginal ?? ""), String(rawTags.Model ?? ""), String(rawTags.SerialNumber ?? "")];
   const looseParts = [isoDate, String(rawTags.Model ?? "")];
   return {
@@ -175,9 +193,21 @@ export async function computeExifFingerprint(filePath: string, tags?: ExifTags):
   };
 }
 
-// Embedded-preview extraction for captures with a RAW but no JPEG — tries the largest
-// available embedded image first, falling back to smaller ones rather than failing outright
-// (not every RAW format/camera populates all three).
+// The date part is the capture instant's ISO string, matching what a UTC server stores; a
+// server outside UTC also keeps its old zone-based value in `legacy`.
+export function fingerprintFromTags(tags: ExifTags | Record<string, unknown>): ExifFingerprint {
+  const time = captureTimeFromTags(tags);
+  if (!time) return { strict: null, loose: null };
+  const rawTags = tags as Record<string, unknown>;
+  const current = fingerprintPair(time.takenAt.toISOString(), rawTags);
+  return time.legacyTakenAt ? { ...current, legacy: fingerprintPair(time.legacyTakenAt.toISOString(), rawTags) } : current;
+}
+
+export async function computeExifFingerprint(filePath: string, tags?: ExifTags): Promise<ExifFingerprint> {
+  return fingerprintFromTags(tags ?? (await exiftool.read(filePath)));
+}
+
+// A RAW's embedded preview, largest first (not every camera writes all three).
 const PREVIEW_TAGS = ["PreviewImage", "JpgFromRaw", "ThumbnailImage"] as const;
 
 export async function extractEmbeddedPreview(filePath: string): Promise<Buffer | null> {
@@ -186,19 +216,14 @@ export async function extractEmbeddedPreview(filePath: string): Promise<Buffer |
       const buffer = await exiftool.extractBinaryTagToBuffer(tag, filePath);
       if (buffer.length > 0) return buffer;
     } catch {
-      // Try the next tag — this format/camera just doesn't have this particular preview.
+      // Not in this file; try the next tag.
     }
   }
   return null;
 }
 
-// Species metadata gets embedded directly in the JPEG itself (not a sidecar file, so it
-// travels with the file no matter where it's copied — Immich, Lightroom, a USB drive)
-// rather than only ever living in Lifer's own database. Written in the same
-// tag shapes extractKeywords already reads back (Keywords/Subject flat list,
-// HierarchicalSubject path), so re-importing a Lifer-tagged photo elsewhere round-trips
-// correctly. "store" mode only (see uploads/routes.ts) — a linked/external file isn't
-// Lifer's to modify.
+// Species tags embedded in the file so they travel with it, in the shapes extractKeywords reads
+// back. Store mode only: a linked file isn't Lifer's to modify.
 export interface SpeciesMetadata {
   commonName: string | null;
   scientificName: string;
@@ -209,18 +234,9 @@ export interface SpeciesMetadata {
   ebirdCode?: string | null;
 }
 
-// Supports multi-species photos (e.g. a hawk catching a fish): every depicted species is
-// written, not just the primary one, so the file itself reflects all of them even outside
-// Lifer. `metas[0]` is treated as the primary for ObjectName/title purposes.
-//
-// namingStyles only ever changes the PRIMARY label (ObjectName + the last HierarchicalSubject
-// segment) — Keywords/Subject always keep the plain common + scientific name regardless of
-// this setting, since matchSpeciesByKeywords (reimport.ts) matches incoming files against
-// those two fields specifically; silently replacing them here would break that round-trip for
-// anyone using the code-based naming styles. The resolved code(s) (when this species actually
-// has them) are still added as EXTRA keywords either way, so they're searchable in external
-// tools too. Common name is always the base label; any selected style(s) get appended alongside
-// it rather than replacing it (composeSpeciesName, shared with speciesFolderName.ts).
+// Every species in the photo is written; metas[0] is the primary for the title. namingStyles only
+// changes the title and hierarchy label: Keywords keep the plain common and scientific names,
+// which reimport matching relies on, with codes added as extra keywords.
 export async function writeSpeciesMetadata(
   filePath: string,
   metas: SpeciesMetadata[],
@@ -229,21 +245,16 @@ export async function writeSpeciesMetadata(
   await writeLiferMetadata(filePath, { species: metas, namingStyles }, "embedded");
 }
 
-// The bare-stem convention ("IMG_0001.xmp", not "IMG_0001.CR2.xmp") — matches
-// findSidecarPath's own read-side preference order (checked first there since it's "the more
-// common Lightroom/digiKam default"), so a sidecar this app writes is the same one it — and any
-// other tool defaulting to the same convention — would look for on a later read.
+// The bare-stem name ("IMG_0001.xmp"), the one findSidecarPath checks first.
 export function sidecarPathFor(imagePath: string): string {
   const ext = path.extname(imagePath);
   const stem = path.basename(imagePath, ext);
   return path.join(path.dirname(imagePath), `${stem}.xmp`);
 }
 
-// Formats whose metadata other tools read from inside the file. Lightroom ignores a sidecar next
-// to a JPEG/TIFF/PNG/DNG and reads the embedded XMP instead, so a rating written only to a
-// sidecar never showed up there. RAW formats (and anything else) get a sidecar, the one place
-// Lightroom and digiKam look for a RAW's edits.
-const EMBEDDED_METADATA_EXTENSIONS = new Set([".jpg", ".jpeg", ".tif", ".tiff", ".png", ".dng"]);
+// Formats whose metadata other tools read from inside the file (Lightroom ignores a sidecar next
+// to a JPEG/TIFF/PNG/DNG). RAW formats and anything else get a sidecar.
+const EMBEDDED_METADATA_EXTENSIONS = new Set([".jpg", ".jpeg", ".tif", ".tiff", ".png", ".dng", ".webp", ".heic", ".heif", ".hif"]);
 
 export function metadataGoesInFile(filePath: string): boolean {
   return EMBEDDED_METADATA_EXTENSIONS.has(path.extname(filePath).toLowerCase());
@@ -267,11 +278,8 @@ export interface XmpSidecarData {
 
 // A standalone ".xmp" sidecar (created fresh if it doesn't exist) carrying what Lifer knows about
 // a RAW photo: species tags, the star rating, whether it's the species' cover photo, and its GPS
-// (which may come from Lifer rather than the camera). Deliberately NOT the camera's own EXIF
-// (capture time, lens, exposure): the RAW already carries it exactly, and Lightroom treats a
-// sidecar's capture time as an override, so a copy with a slightly different time zone reading
-// would silently shift the photo's time there. Nor the card-crop region: that needs Lightroom's
-// own multi-field crs:Crop* schema, untested here, so crop stays a Lifer-only concept.
+// (which may come from Lifer rather than the camera). Not the camera's own EXIF: Lightroom treats a
+// sidecar's capture time as an override, so a copy could shift it. The card crop stays in Lifer.
 export async function writeXmpSidecar(imagePath: string, data: XmpSidecarData): Promise<void> {
   await writeLiferMetadata(sidecarPathFor(imagePath), data, "sidecar");
 }
@@ -297,14 +305,8 @@ interface LiferTags {
 const COVER_KEYWORD = "Lifer:Cover";
 const SPECIES_ROOT = "Species";
 
-// Standard fields both Lightroom and digiKam read: dc:subject (flat keywords), IPTC Keywords
-// (older readers, embedded only), lr:hierarchicalSubject with "|" between levels (Lightroom's
-// keyword tree; digiKam reads it too), dc:title/IPTC ObjectName (title), xmp:Rating (stars).
-// Written with explicit groups so each value lands in exactly one field: the unqualified names
-// wrote every keyword into dc:subject twice and put a stray pdf:Keywords into sidecars.
-// One write at a time per file, in the order they were asked for. The upload's own write runs in
-// the background right after the import is saved; a species change or rating made moments later
-// must not finish first and then be overwritten by it.
+// One write at a time per file, in request order, so the upload's background write can't
+// overwrite a later species change or rating.
 const fileWriteQueues = new Map<string, Promise<void>>();
 
 function writeLiferMetadata(target: string, data: LiferTags, mode: "embedded" | "sidecar"): Promise<void> {
@@ -361,8 +363,7 @@ async function writeLiferMetadataNow(target: string, data: LiferTags, mode: "emb
 
 /** The keywords already in a file or sidecar that aren't Lifer's to replace: everything except
  * species names and codes (Lifer owns which species a photo shows), Lifer's cover marker, and
- * Lifer's own "Species|..." hierarchy. Writing used to replace the whole list, wiping keywords
- * added in Lightroom or digiKam ("sunset", "backyard") every time Lifer touched the file. */
+ * Lifer's own "Species|..." hierarchy, so keywords added in other tools survive. */
 async function keywordsToKeep(target: string): Promise<{ flat: string[]; hierarchical: string[] }> {
   if (!existsSync(target)) return { flat: [], hierarchical: [] };
   let raw: Record<string, unknown>;

@@ -1,15 +1,11 @@
-// eBird "Download My Data" CSV import -> populates the `seen` state (spec §1/§9 Phase 3).
-// Only requires a "Scientific Name" column to exist — eBird's own docs note headers have
-// changed across export versions historically, so this is deliberately tolerant rather than
-// hard-coding the full column list.
+// eBird "Download My Data" CSV import, which fills the `seen` state. Only a "Scientific Name"
+// column is required, since eBird's headers vary between export versions.
 import type { FastifyInstance } from "fastify";
 import { pool } from "../db.js";
 import { requireAuth } from "../auth/session.js";
 
 function parseCsv(text: string): Record<string, string>[] {
-  // eBird's export is a plain, unquoted-field CSV in practice; this doesn't handle
-  // embedded commas inside a quoted field, which is an acceptable limitation for a
-  // personal import tool but worth knowing if a future export style breaks it.
+  // Doesn't handle commas inside quoted fields, which eBird's export doesn't use.
   const lines = text.split(/\r?\n/).filter((l) => l.trim().length > 0);
   if (lines.length === 0) return [];
   const headers = lines[0].split(",").map((h) => h.trim());
@@ -33,41 +29,28 @@ export async function importRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const userId = request.user!.id;
-    let matched = 0;
-    let alreadySeenOrCollected = 0;
-    let unmatched = 0;
-
-    // One species can appear on many checklists — dedupe before hitting the DB.
+    // One species can appear on many checklists: dedupe before hitting the DB.
     const scientificNames = [...new Set(rows.map((r) => r["Scientific Name"]).filter(Boolean))];
 
-    const client = await pool.connect();
-    try {
-      await client.query("BEGIN");
-      for (const name of scientificNames) {
-        const speciesRes = await client.query<{ id: string }>(`SELECT id FROM species WHERE scientific_name = $1`, [
-          name,
-        ]);
-        const species = speciesRes.rows[0];
-        if (!species) {
-          unmatched++;
-          continue;
-        }
-        matched++;
-        // Never downgrade collected -> seen, and never touch an already-seen row.
-        const res = await client.query(
-          `INSERT INTO user_species (user_id, species_id, state) VALUES ($1, $2, 'seen')
-           ON CONFLICT (user_id, species_id) DO NOTHING`,
-          [userId, species.id],
-        );
-        if (res.rowCount === 0) alreadySeenOrCollected++;
-      }
-      await client.query("COMMIT");
-    } catch (err) {
-      await client.query("ROLLBACK").catch(() => {});
-      throw err;
-    } finally {
-      client.release();
-    }
+    // One statement: match every name, insert the new ones. Never downgrades collected -> seen
+    // and never touches an already-seen row (ON CONFLICT DO NOTHING).
+    const res = await pool.query<{ matched: number; inserted: number }>(
+      `WITH hit AS (
+         SELECT DISTINCT ON (s.scientific_name) s.id
+         FROM species s WHERE s.scientific_name = ANY($2::text[])
+       ),
+       ins AS (
+         INSERT INTO user_species (user_id, species_id, state)
+         SELECT $1, hit.id, 'seen' FROM hit
+         ON CONFLICT (user_id, species_id) DO NOTHING
+         RETURNING 1
+       )
+       SELECT (SELECT COUNT(*) FROM hit)::int AS matched, (SELECT COUNT(*) FROM ins)::int AS inserted`,
+      [userId, scientificNames],
+    );
+    const matched = res.rows[0]?.matched ?? 0;
+    const alreadySeenOrCollected = matched - (res.rows[0]?.inserted ?? 0);
+    const unmatched = scientificNames.length - matched;
 
     return {
       totalRows: rows.length,

@@ -1,19 +1,17 @@
-// Walking the whole ORIGINALS_DIR tree reads every managed file's EXIF (a real exiftool
-// round-trip each) and regenerates derivatives for every recovered JPEG — for a library of
-// any real size this easily takes minutes, so it's a background job polled from the client,
-// same in-memory single-job pattern as Trips' scan/import jobs (trips/routes.ts) and
-// settings/routes.ts's migrate-to-server job. Global, not per-trip: there's only ever one
-// library to reimport, gated to desktop mode for the same reason as every other route here
-// that walks the server's own filesystem (settings/routes.ts's own comment).
+// Library reimport. Reading every file's EXIF and rebuilding derivatives takes minutes, so it's a
+// single background job the client polls.
 import { idleJobStatus } from "@lifer/shared";
 import { existsSync, statSync } from "node:fs";
 import path from "node:path";
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyReply } from "fastify";
 import sharp from "sharp";
+import { originalSharpOptions } from "../lib/imageLimits.js";
+import { claimedPhotoFormat, sniffPhotoFormat } from "../uploads/formats.js";
+import { prepareWorkingImage, type WorkingImage } from "../uploads/workingImage.js";
 import { requireAuth } from "../auth/session.js";
 import { assertAllowedPath } from "../lib/allowedPaths.js";
+import { isUuid } from "../lib/validate.js";
 import { ORIGINALS_DIR } from "../config.js";
-import { pool } from "../db.js";
 import { mapWithConcurrency } from "data-pipeline/src/concurrency.js";
 import {
   listManagedFiles,
@@ -28,17 +26,16 @@ import { friendlyFsErrorMessage } from "../lib/friendlyFsError.js";
 import { libraryFolderStatus } from "../lib/libraryFolder.js";
 import { restoreCollectionState } from "../lib/collectionState.js";
 import { createJob, type JobContext } from "../lib/job.js";
+import { log } from "../lib/log.js";
+import { getUserFileSettings } from "../lib/userFileSettings.js";
 
-// Same concurrency Trips' import job uses (trips/routes.ts) — each file pays a real exiftool
-// round-trip plus (for a recovered JPEG) a sharp resize, so running this sequentially over a
-// library of any real size would take far longer than the per-file I/O latency alone implies.
+// Each file costs an exiftool round-trip and often a resize, so files run in parallel.
 const CONCURRENCY = 4;
 
 interface UnmatchedFile {
   relativePath: string;
   contentHash: string | null;
-  /** Set only for the "matched more than one species" case — null means no species tag was
-   *  found on the file at all (e.g. a folder of insect photos this app doesn't track). */
+  /** Set only when several species matched; null means no species tag was found. */
   scientificNames: string[] | null;
 }
 
@@ -53,10 +50,8 @@ interface ReimportExtra {
   jpegsAlreadyKnown: number;
   jpegsRelinked: number;
   jpegsIgnored: number;
-  // Unrecognized (no species tag matched) and ambiguous (matched more than one) merged into
-  // one reviewable list — from the user's perspective both are just "not in my library yet,"
-  // and both are equally worth an Ignore action so a folder of e.g. insect photos stops
-  // resurfacing on every future scan.
+  // Unrecognized and ambiguous files form one review list; both can be ignored so they stop
+  // resurfacing.
   unmatched: UnmatchedFile[];
   rawsRecovered: number;
   rawsAlreadyKnown: number;
@@ -89,9 +84,7 @@ function freshExtra(): ReimportExtra {
 }
 
 const reimportJob = createJob<ReimportResult, ReimportExtra>("library-reimport", freshExtra());
-// The folder the currently-displayed job's results are relative to — kept alongside (not
-// inside) the polled job state since the client never needs to see it, only used server-side
-// to resolve an unmatched entry's relativePath back to a real file for the preview endpoint.
+// Root the current job's relative paths resolve against. Server-side only, for previews.
 let jobWalkDir: string | null = null;
 // Whose scan the shared job belongs to. A server can have several accounts; only the one that
 // started it may see its unmatched files (and their previews), cancel it, or ignore from it.
@@ -101,8 +94,7 @@ function isJobOwner(userId: string): boolean {
   return jobUserId == null || jobUserId === userId;
 }
 
-// Cancel is checked between files rather than aborting in-flight work, a file already
-// mid-exiftool-call or mid-hash-stream finishes normally, but no NEW file starts.
+// Cancel is checked between files: in-flight files finish, no new one starts.
 async function runReimportJob(
   ctx: JobContext<ReimportResult, ReimportExtra>,
   userId: string,
@@ -114,13 +106,12 @@ async function runReimportJob(
 ): Promise<ReimportResult> {
   const job = reimportJob.status;
   try {
-    const { jpegs, raws } = listManagedFiles(walkDir);
+    const { jpegs, raws } = await listManagedFiles(walkDir);
     ctx.update({ totalJpegs: jpegs.length, totalRaws: raws.length, phase: "jpegs", processed: 0, total: jpegs.length });
 
     const recoveredScientificNames = new Set<string>();
 
-    // JPEGs first, in full — RAW recovery below matches against JPEG captures already
-    // committed to the database, so it needs this pass finished, not interleaved with it.
+    // JPEGs first, in full: RAW recovery matches against already committed JPEG captures.
     await mapWithConcurrency(jpegs, CONCURRENCY, async (absolutePath) => {
       if (ctx.signal.aborted) return;
       const relativePath = path.relative(walkDir, absolutePath);
@@ -175,7 +166,7 @@ async function runReimportJob(
 
     // Pointing a fresh install at an old library: also bring back archived, hidden, seen and
     // target species from the library's own record (only if this install has none of its own).
-    await restoreCollectionState(userId).catch((err) => console.warn("[collection-state] couldn't restore:", (err as Error).message));
+    await restoreCollectionState(userId).catch((err) => log.warn(`[collection-state] couldn't restore: ${(err as Error).message}`));
     return { missingReferenceData: await findMissingReferenceData([...recoveredScientificNames]) };
   } catch (err) {
     if (ctx.signal.aborted) throw err;
@@ -184,8 +175,7 @@ async function runReimportJob(
 }
 
 export async function libraryRoutes(app: FastifyInstance): Promise<void> {
-  // Polled by the app's banner: is the photo library folder still there? A folder moved or
-  // deleted while Lifer runs makes every save fail until it's back (see lib/libraryFolder.ts).
+  // Polled by the app's banner: is the photo library folder still there?
   app.get("/library/folder-status", { preHandler: requireAuth }, async () => libraryFolderStatus());
 
   app.post<{ Body: { volumeId?: string; path?: string; organize?: boolean } }>(
@@ -195,18 +185,10 @@ export async function libraryRoutes(app: FastifyInstance): Promise<void> {
       if (reimportJob.status.running) return reply.code(409).send({ error: "A reimport is already running" });
       const userId = request.user!.id;
 
-      // Pointing this at a registered external drive instead of the primary library walks that
-      // drive's own "Lifer Originals" folder (same base a store-mode upload would have used —
-      // see storageVolumes/resolve.ts's resolveChosenVolumeDestination) and repairs any already-
-      // known file whose ref/volume_id has drifted (drive removed-then-re-registered under a
-      // different mount name, moved between drives by hand, etc.) instead of just skipping it.
-      //
-      // `path` is the third, different option: an arbitrary folder outside Lifer's own tree
-      // entirely — a library organized by a different app/convention (see the Settings "Import
-      // a library organized differently" section). `organize` only makes sense alongside it:
-      // matched files get physically relocated into Lifer's own species-folder layout, since a
-      // foreign folder's files were never "already exactly where a normal upload would have put
-      // them" the way volumeId/default-library files are.
+      // volumeId walks that drive's "Lifer Originals" folder (as a store-mode upload would use) and
+      // repairs known files whose ref or volume drifted.
+      // `path` is a folder from another app's layout; `organize` (only with it) moves matched files into
+      // Lifer's species folders.
       let walkDir = ORIGINALS_DIR;
       let volumeContext: VolumeContext | null = null;
       if (request.body?.path) {
@@ -217,7 +199,7 @@ export async function libraryRoutes(app: FastifyInstance): Promise<void> {
         }
         walkDir = candidate;
       } else if (request.body?.volumeId) {
-        const resolved = await resolveChosenVolumeDestination(userId, request.body.volumeId);
+        const resolved = isUuid(request.body.volumeId) ? await resolveChosenVolumeDestination(userId, request.body.volumeId) : null;
         if (!resolved) return reply.code(400).send({ error: "That drive isn't connected right now" });
         walkDir = resolved.baseDir;
         volumeContext = resolved;
@@ -226,14 +208,10 @@ export async function libraryRoutes(app: FastifyInstance): Promise<void> {
       const organize = Boolean(request.body?.organize);
       let organizeByYear = false;
       if (organize) {
-        const userRes = await pool.query<{ organize_originals_by_year: boolean }>(
-          `SELECT organize_originals_by_year FROM users WHERE id = $1`,
-          [userId],
-        );
-        organizeByYear = userRes.rows[0]?.organize_originals_by_year ?? false;
+        ({ organizeByYear } = await getUserFileSettings(userId));
       }
 
-      // Background job, polled via /status: this can take a real amount of time.
+      // Background job, polled via /status.
       const started = reimportJob.start(
         (ctx) => runReimportJob(ctx, userId, walkDir, volumeContext, organize, organizeByYear, Boolean(request.body?.path)),
         freshExtra(),
@@ -252,18 +230,14 @@ export async function libraryRoutes(app: FastifyInstance): Promise<void> {
     return { ...idleJobStatus<ReimportResult>(), ...freshExtra(), running: reimportJob.status.running };
   });
 
-  // Stops the run between files rather than mid-file — whatever's already in flight (up to
-  // CONCURRENCY files) finishes normally, everything queued behind it is left completely
-  // untouched on disk, same as it would be if the scan simply hadn't reached it yet.
+  // Stops between files; in-flight files finish and queued ones are left untouched.
   app.post("/library/reimport/cancel", { preHandler: requireAuth }, async (request, reply) => {
     if (!isJobOwner(request.user!.id)) return reply.code(409).send({ error: "No reimport is running" });
     if (!reimportJob.cancel()) return reply.code(409).send({ error: "No reimport is running" });
     return { ok: true };
   });
 
-  // Marks one unmatched file so it stops resurfacing on future scans (migration 063) — e.g. a
-  // folder of insect photos this app doesn't track. Also strips it from the CURRENT job's
-  // in-memory unmatched list so the review UI updates immediately, without needing a rescan.
+  // Marks an unmatched file so it stops resurfacing, and drops it from the current job's list.
   app.post<{ Body: { contentHash?: string } }>("/library/ignore", { preHandler: requireAuth }, async (request, reply) => {
     const contentHash = request.body?.contentHash;
     if (!contentHash) return reply.code(400).send({ error: "contentHash is required" });
@@ -274,27 +248,46 @@ export async function libraryRoutes(app: FastifyInstance): Promise<void> {
     return { ok: true };
   });
 
-  // A lightweight on-the-fly thumbnail for one unmatched file, so the review UI can show what
-  // it actually is instead of just a filename — index-only (never a client-supplied path) so
-  // this can only ever serve a file THIS server's own last scan already walked and reported,
-  // never an arbitrary path off the filesystem.
+  // A small thumbnail of one unmatched file for the review UI. The file is picked from the last
+  // scan's own list (by position or content hash), never from a client-supplied path.
+  async function sendUnmatchedPreview(entry: { relativePath: string } | undefined, reply: FastifyReply) {
+    if (!entry || !jobWalkDir) return reply.code(404).send({ error: "Not found" });
+    const absolutePath = path.join(jobWalkDir, entry.relativePath);
+    if (!existsSync(absolutePath)) return reply.code(404).send({ error: "Not found" });
+    let working: WorkingImage | null = null;
+    try {
+      // A HEIC is read through its working JPEG, since sharp can't decode it.
+      const format = (await sniffPhotoFormat(absolutePath)) ?? claimedPhotoFormat(null, absolutePath);
+      if (format === "heic") working = await prepareWorkingImage(absolutePath, format);
+      const source = working?.decodePath ?? absolutePath;
+      const buffer = await sharp(source, originalSharpOptions()).rotate().resize({ width: 300, withoutEnlargement: true }).webp({ quality: 75 }).toBuffer();
+      reply.header("Content-Type", "image/webp");
+      return reply.send(buffer);
+    } catch {
+      return reply.code(404).send({ error: "Couldn't read this file" });
+    } finally {
+      await working?.release();
+    }
+  }
+
   app.get<{ Params: { index: string } }>(
     "/library/reimport/unmatched-preview/:index",
     { preHandler: requireAuth },
     async (request, reply) => {
       if (!isJobOwner(request.user!.id)) return reply.code(404).send({ error: "Not found" });
       const index = Number(request.params.index);
-      const entry = Number.isInteger(index) ? reimportJob.status.unmatched[index] : undefined;
-      if (!entry || !jobWalkDir) return reply.code(404).send({ error: "Not found" });
-      const absolutePath = path.join(jobWalkDir, entry.relativePath);
-      if (!existsSync(absolutePath)) return reply.code(404).send({ error: "Not found" });
-      try {
-        const buffer = await sharp(absolutePath).rotate().resize({ width: 300, withoutEnlargement: true }).webp({ quality: 75 }).toBuffer();
-        reply.header("Content-Type", "image/webp");
-        return reply.send(buffer);
-      } catch {
-        return reply.code(404).send({ error: "Couldn't read this file" });
-      }
+      return sendUnmatchedPreview(Number.isInteger(index) ? reimportJob.status.unmatched[index] : undefined, reply);
+    },
+  );
+
+  // Keyed by content hash, so a preview stays right when the list changes (a file ignored or
+  // assigned shifts every index after it).
+  app.get<{ Params: { hash: string } }>(
+    "/library/reimport/unmatched-preview-by-hash/:hash",
+    { preHandler: requireAuth },
+    async (request, reply) => {
+      if (!isJobOwner(request.user!.id)) return reply.code(404).send({ error: "Not found" });
+      return sendUnmatchedPreview(reimportJob.status.unmatched.find((f) => f.contentHash === request.params.hash), reply);
     },
   );
 }

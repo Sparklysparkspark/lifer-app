@@ -1,160 +1,32 @@
 import type { FastifyInstance } from "fastify";
-import { createReadStream, existsSync, statSync, mkdirSync } from "node:fs";
+import { existsSync, statSync, mkdirSync } from "node:fs";
 import path from "node:path";
 import { pool } from "../db.js";
+import { isUuid } from "../lib/validate.js";
 import { requireAuth, requireScope } from "../auth/session.js";
 import { assertAllowedPath } from "../lib/allowedPaths.js";
-import { scanTrip, resolveWithinTripFolder } from "./scan.js";
 import { sanitizeForFilesystem } from "../uploads/speciesFolderName.js";
-import { importTripFile } from "./import.js";
-import { mapWithConcurrency } from "data-pipeline/src/concurrency.js";
 import { toCollectionItem } from "../collection/collectionItem.js";
+import { markNameChanged } from "../species/speciesSplits.js";
 import { nextDefaultName } from "../lib/defaultName.js";
-import { createJob, type Job, type JobContext } from "../lib/job.js";
-import { idleJobStatus, type JobStatus } from "@lifer/shared";
+import { isValidCrop } from "../lib/crop.js";
+import { isTripBusy, tripJobRoutes } from "./jobs.js";
 
-// Same concurrency BulkImportPage's own client-side upload loop uses — each file pays a real
-// exiftool round-trip plus a sharp resize, so importing even a handful sequentially (the
-// original bug here) was slow purely from that per-file I/O latency stacking up.
-const IMPORT_CONCURRENCY = 4;
-
-// In-memory, per-trip scan and import jobs (createJob), not persisted across a restart: a
-// restarted server just re-scans from scratch next time, which is cheap and correct. Finished
-// entries are pruned after JOB_TTL_MS, and polling an unknown trip id never creates one.
-const JOB_TTL_MS = 60 * 60_000;
-
-interface ScanSummary {
-  relinked: number;
-  markedStale: number;
-  collisions: number;
-  recovered: number;
-  rawsLinked: number;
-  newFiles: Array<{ relativePath: string }>;
-}
-// The summary fields are also mirrored top-level for clients that predate `result`.
-type ScanExtra = { tripId: string } & ScanSummary;
-function emptyScanSummary(): ScanSummary {
-  return { relinked: 0, markedStale: 0, collisions: 0, recovered: 0, rawsLinked: 0, newFiles: [] };
-}
-
-type ImportFileResult = { relativePath: string; captureId?: string; error?: string };
-interface ImportExtra {
-  tripId: string;
-  // Grows live as files finish.
-  results: ImportFileResult[];
-}
-
-type ScanJob = Job<ScanSummary, ScanExtra>;
-type ImportJob = Job<{ imported: number; failed: number }, ImportExtra>;
-const scanJobs = new Map<string, ScanJob>();
-const importJobs = new Map<string, ImportJob>();
-
-function pruneFinished<T extends Job<unknown, object>>(jobs: Map<string, T>): void {
-  const cutoff = Date.now() - JOB_TTL_MS;
-  for (const [id, job] of jobs) {
-    if (!job.status.running && job.status.finishedAt != null && job.status.finishedAt < cutoff) jobs.delete(id);
-  }
-}
-
-function scanJobFor(tripId: string): ScanJob {
-  let job = scanJobs.get(tripId);
-  if (!job) {
-    pruneFinished(scanJobs);
-    job = createJob<ScanSummary, ScanExtra>(`trip-scan:${tripId}`, { tripId, ...emptyScanSummary() });
-    scanJobs.set(tripId, job);
-  }
-  return job;
-}
-
-function importJobFor(tripId: string): ImportJob {
-  let job = importJobs.get(tripId);
-  if (!job) {
-    pruneFinished(importJobs);
-    job = createJob<{ imported: number; failed: number }, ImportExtra>(`trip-import:${tripId}`, { tripId, results: [] });
-    importJobs.set(tripId, job);
-  }
-  return job;
-}
-
-function idleScanStatus(tripId: string): JobStatus<ScanSummary> & ScanExtra {
-  return { ...idleJobStatus<ScanSummary>(), tripId, ...emptyScanSummary() };
-}
-
-function idleImportStatus(tripId: string): JobStatus<{ imported: number; failed: number }> & ImportExtra {
-  return { ...idleJobStatus<{ imported: number; failed: number }>(), tripId, results: [] };
-}
-
-// Used by GET /trips to show a loading state on a trip's card while either job is still
-// working, instead of a cover photo that may not exist yet or a stale one mid-update.
-function isTripBusy(tripId: string): boolean {
-  return Boolean(scanJobs.get(tripId)?.status.running || importJobs.get(tripId)?.status.running);
-}
-
-async function runScanJob(ctx: JobContext<ScanSummary, ScanExtra>, tripId: string, userId: string, sourceFolder: string): Promise<ScanSummary> {
-  const result = await scanTrip(tripId, userId, sourceFolder, {
-    signal: ctx.signal,
-    onPhase: (phase) => ctx.update({ phase }),
-  });
-  const summary: ScanSummary = {
-    relinked: result.relinked,
-    markedStale: result.markedStale,
-    collisions: result.collisions,
-    recovered: result.recovered,
-    rawsLinked: result.rawsLinked,
-    newFiles: result.newFiles.map((f) => ({ relativePath: f.relativePath })),
-  };
-  ctx.update(summary);
-  return summary;
-}
-
-async function runImportJob(
-  ctx: JobContext<{ imported: number; failed: number }, ImportExtra>,
-  job: ImportJob,
-  tripId: string,
-  userId: string,
-  sourceFolder: string,
-  files: Array<{ relativePath: string; speciesId: string }>,
-  regionId: string | null,
-): Promise<{ imported: number; failed: number }> {
-  let imported = 0;
-  let failed = 0;
-  // Same concurrency as Bulk Import; cancel stops new files from starting.
-  await mapWithConcurrency(files, IMPORT_CONCURRENCY, async (file) => {
-    if (ctx.signal.aborted) return;
-    ctx.update({ currentItem: file.relativePath });
-    const absolutePath = resolveWithinTripFolder(sourceFolder, file.relativePath);
-    let result: ImportFileResult;
-    if (!absolutePath) {
-      result = { relativePath: file.relativePath, error: "File not found" };
-    } else {
-      try {
-        const { captureId } = await importTripFile(tripId, userId, file.speciesId, absolutePath, sourceFolder, file.relativePath, regionId);
-        result = { relativePath: file.relativePath, captureId };
-      } catch (err) {
-        result = { relativePath: file.relativePath, error: (err as Error).message };
-      }
-    }
-    if (result.error) failed++;
-    else imported++;
-    job.status.results.push(result);
-    ctx.update({ processed: (job.status.processed ?? 0) + 1 });
-    return result;
-  });
-  ctx.throwIfCancelled();
-  return { imported, failed };
-}
-
-// Scan/import jobs are keyed by trip id alone; a server has several accounts, so their cancel
-// and status routes must check the trip is the caller's before touching the job.
-async function ownsTrip(tripId: string, userId: string): Promise<boolean> {
-  const res = await pool.query(`SELECT 1 FROM trips WHERE id = $1 AND user_id = $2`, [tripId, userId]);
-  return (res.rowCount ?? 0) > 0;
+/** Checks a trip's destination folder and creates it if needed. It must be an absolute path whose
+ * parent Lifer is allowed to use (assertAllowedPath); the folder itself may not exist yet. */
+function prepareDestinationFolder(folder: string): { path: string } | { error: string } {
+  if (!path.isAbsolute(folder)) return { error: "destinationFolder must be an absolute folder path" };
+  const parent = assertAllowedPath(path.dirname(path.resolve(folder)));
+  const destination = path.join(parent, path.basename(folder));
+  if (existsSync(destination) && !statSync(destination).isDirectory()) return { error: "destinationFolder is a file, not a folder" };
+  mkdirSync(destination, { recursive: true });
+  return { path: destination };
 }
 
 export async function tripsRoutes(app: FastifyInstance): Promise<void> {
-  app.post<{ Body: { name?: string; sourceFolder?: string } }>("/trips", { preHandler: requireAuth }, async (request, reply) => {
+  app.post<{ Body: { name?: string; sourceFolder?: string; destinationFolder?: string } }>("/trips", { preHandler: requireAuth }, async (request, reply) => {
     const userId = request.user!.id;
-    const { sourceFolder } = request.body ?? {};
+    const { sourceFolder, destinationFolder } = request.body ?? {};
     let name = request.body?.name?.trim();
     if (!sourceFolder) return reply.code(400).send({ error: "sourceFolder is required" });
     if (!path.isAbsolute(sourceFolder)) return reply.code(400).send({ error: "sourceFolder must be an absolute folder path" });
@@ -170,21 +42,19 @@ export async function tripsRoutes(app: FastifyInstance): Promise<void> {
       name = nextDefaultName("Trip", Number(countRes.rows[0].count));
     }
 
+    const destination = prepareDestinationFolder(destinationFolder ?? path.join(allowedSource, "Wildlife"));
+    if ("error" in destination) return reply.code(400).send({ error: destination.error });
+
     const res = await pool.query<{ id: string }>(
-      `INSERT INTO trips (user_id, name, source_folder) VALUES ($1, $2, $3) RETURNING id`,
-      [userId, name, allowedSource],
+      `INSERT INTO trips (user_id, name, source_folder, destination_folder) VALUES ($1, $2, $3, $4) RETURNING id`,
+      [userId, name, allowedSource, destination.path],
     );
-    return reply.code(201).send({ id: res.rows[0].id });
+    return reply.code(201).send({ id: res.rows[0].id, destinationFolder: destination.path });
   });
 
-  // "Build a Trip" — the OPPOSITE of the route above: instead of pointing at a folder the user
-  // already organized by hand, this creates a brand-new empty one and hands back a trip whose
-  // source_folder is that fresh "Wildlife" folder. Every existing trip route (scan/detail/
-  // photos/cover) keeps working unchanged from here — as far as the DB is concerned this is
-  // just a trip whose folder happens to start empty, not a different kind of trip. Photos land
-  // in it via the main upload flow's own tripId destination override (uploads/routes.ts), not
-  // via this route or Trips' own scan/import — the client is expected to navigate straight to
-  // the normal upload/import UI after this call, scoped to the new trip.
+  // "Build a Trip": creates a new trip folder with an empty "Wildlife" destination inside it.
+  // Photos arrive through the normal upload flow (filed into the destination by tripId) rather
+  // than a scan; every other trip route works as usual.
   app.post<{ Body: { name?: string; parentDir?: string } }>("/trips/build", { preHandler: requireAuth }, async (request, reply) => {
     const userId = request.user!.id;
     const { parentDir } = request.body ?? {};
@@ -202,21 +72,22 @@ export async function tripsRoutes(app: FastifyInstance): Promise<void> {
 
     const folderName = sanitizeForFilesystem(name);
     if (!folderName) return reply.code(400).send({ error: "That name can't be used as a folder name" });
-    const sourceFolder = path.join(allowedParent, folderName, "Wildlife");
-    mkdirSync(sourceFolder, { recursive: true });
+    const sourceFolder = path.join(allowedParent, folderName);
+    const destinationFolder = path.join(sourceFolder, "Wildlife");
+    mkdirSync(destinationFolder, { recursive: true });
 
     const res = await pool.query<{ id: string }>(
-      `INSERT INTO trips (user_id, name, source_folder) VALUES ($1, $2, $3) RETURNING id`,
-      [userId, name, sourceFolder],
+      `INSERT INTO trips (user_id, name, source_folder, destination_folder) VALUES ($1, $2, $3, $4) RETURNING id`,
+      [userId, name, sourceFolder, destinationFolder],
     );
-    return reply.code(201).send({ id: res.rows[0].id, sourceFolder });
+    return reply.code(201).send({ id: res.rows[0].id, sourceFolder, destinationFolder });
   });
 
   app.get("/trips", { preHandler: requireScope("trips.read") }, async (request, reply) => {
     const userId = request.user!.id;
     const res = await pool.query(
       `SELECT
-         t.id, t.name, t.source_folder, t.cover_layout,
+         t.id, t.name, t.source_folder, t.destination_folder, t.cover_layout,
          count(DISTINCT c.species_id) AS species_count,
          count(c.id) AS capture_count,
          min(c.taken_at) AS earliest_taken_at,
@@ -224,7 +95,7 @@ export async function tripsRoutes(app: FastifyInstance): Promise<void> {
          -- The user's explicit pick (trips.cover_capture_id) wins when set; otherwise falls
          -- back to the most recent capture with a photo.
          cover_c.current_photo_id AS cover_photo_id,
-         -- The crop was framed for the SPECIFIC photo the user manually picked — if that
+         -- The crop was framed for the SPECIFIC photo the user manually picked, if that
          -- capture got trashed (soft-deleted, so cover_capture_id itself is still a valid FK and
          -- wasn't auto-cleared) and cover_c fell back to a different photo instead, applying the
          -- old crop to a completely different image would be wrong, not just stale. Only surface
@@ -232,7 +103,7 @@ export async function tripsRoutes(app: FastifyInstance): Promise<void> {
          CASE WHEN cover_c.id = t.cover_capture_id THEN t.cover_crop_x ELSE NULL END AS cover_crop_x,
          CASE WHEN cover_c.id = t.cover_capture_id THEN t.cover_crop_y ELSE NULL END AS cover_crop_y,
          CASE WHEN cover_c.id = t.cover_capture_id THEN t.cover_crop_size ELSE NULL END AS cover_crop_size,
-         -- Only actually read when cover_layout = 'quad' (see TripsPage) — parity with Albums'
+         -- Only actually read when cover_layout = 'quad' (see TripsPage), parity with Albums'
          -- own quad_photo_ids in albums/routes.ts.
          quad.photo_ids AS quad_photo_ids
        FROM trips t
@@ -261,30 +132,29 @@ export async function tripsRoutes(app: FastifyInstance): Promise<void> {
         id: r.id,
         name: r.name,
         sourceFolder: r.source_folder,
+        destinationFolder: r.destination_folder,
         speciesCount: Number(r.species_count),
         captureCount: Number(r.capture_count),
         earliestTakenAt: r.earliest_taken_at,
         latestTakenAt: r.latest_taken_at,
         coverPhotoUrl: r.cover_photo_id ? `/api/photos/${r.cover_photo_id}/thumb` : null,
-        // Only meaningful when coverPhotoUrl was manually picked (a photo with a real crop
-        // applied, same convention as CollectionItem.cardCropX/Y) — null renders as a plain
-        // centered object-fit:cover, same as before this existed.
+        // Set only for a manually picked cover; null renders a centered object-fit:cover.
         coverCropX: r.cover_crop_x == null ? null : Number(r.cover_crop_x),
         coverCropY: r.cover_crop_y == null ? null : Number(r.cover_crop_y),
         coverCropSize: r.cover_crop_size == null ? null : Number(r.cover_crop_size),
         coverLayout: r.cover_layout,
         quadPhotoIds: r.quad_photo_ids ?? [],
-        // A scan or import still running for this trip — the card shows a loading state
-        // instead of a cover photo that may not exist yet (or is about to change).
+        // A scan or import is running: the card shows a loading state instead of a cover.
         processing: isTripBusy(r.id),
       })),
     };
   });
 
   app.get<{ Params: { id: string } }>("/trips/:id", { preHandler: requireScope("trips.read") }, async (request, reply) => {
+    if (!isUuid(request.params.id)) return reply.code(404).send({ error: "Trip not found" });
     const userId = request.user!.id;
     const res = await pool.query(
-      `SELECT id, name, description, source_folder, cover_capture_id, cover_crop_x, cover_crop_y, cover_crop_size, cover_layout
+      `SELECT id, name, description, source_folder, destination_folder, cover_capture_id, cover_crop_x, cover_crop_y, cover_crop_size, cover_layout
        FROM trips WHERE id = $1 AND user_id = $2`,
       [request.params.id, userId],
     );
@@ -295,6 +165,7 @@ export async function tripsRoutes(app: FastifyInstance): Promise<void> {
       name: trip.name,
       description: trip.description,
       sourceFolder: trip.source_folder,
+      destinationFolder: trip.destination_folder,
       coverCaptureId: trip.cover_capture_id,
       coverCropX: trip.cover_crop_x == null ? null : Number(trip.cover_crop_x),
       coverCropY: trip.cover_crop_y == null ? null : Number(trip.cover_crop_y),
@@ -303,24 +174,33 @@ export async function tripsRoutes(app: FastifyInstance): Promise<void> {
     };
   });
 
-  // Re-points an existing trip at a new folder — for when the external drive/folder this
-  // trip's photos live in moves (a new machine, a restored backup with a different mount
-  // path, reorganizing where the library itself lives). Doesn't touch any capture/original
-  // row directly: the very next scan naturally relinks everything by content hash against
-  // whatever's now in the new folder, the exact same matchAgainstKnownOriginals logic that
-  // already handles a file moving WITHIN a trip's own folder (scan.ts) — a relocated folder
-  // is really just every file "moving" at once.
+  // Points a trip at a new source or destination folder (a moved drive or restored backup). No
+  // files move and no rows change here: the next scan relinks the destination's copies by
+  // content hash, as when a file moves within the folder.
   app.patch<{
     Params: { id: string };
-    Body: { sourceFolder?: string; name?: string; description?: string | null; coverLayout?: "single" | "quad" };
+    Body: { sourceFolder?: string; destinationFolder?: string; name?: string; description?: string | null; coverLayout?: "single" | "quad" };
   }>(
     "/trips/:id",
     { preHandler: requireAuth },
     async (request, reply) => {
+      if (!isUuid(request.params.id)) return reply.code(404).send({ error: "Trip not found" });
       const userId = request.user!.id;
-      const { sourceFolder, name, description, coverLayout } = request.body ?? {};
-      if (sourceFolder === undefined && name === undefined && description === undefined && coverLayout === undefined) {
-        return reply.code(400).send({ error: "sourceFolder, name, description, or coverLayout is required" });
+      const { sourceFolder, destinationFolder, name, description, coverLayout } = request.body ?? {};
+      if (
+        sourceFolder === undefined &&
+        destinationFolder === undefined &&
+        name === undefined &&
+        description === undefined &&
+        coverLayout === undefined
+      ) {
+        return reply.code(400).send({ error: "sourceFolder, destinationFolder, name, description, or coverLayout is required" });
+      }
+      let allowedDestination: string | undefined;
+      if (destinationFolder !== undefined) {
+        const destination = prepareDestinationFolder(destinationFolder);
+        if ("error" in destination) return reply.code(400).send({ error: destination.error });
+        allowedDestination = destination.path;
       }
       let allowedSource: string | undefined;
       if (sourceFolder !== undefined) {
@@ -344,7 +224,8 @@ export async function tripsRoutes(app: FastifyInstance): Promise<void> {
            source_folder = COALESCE($2, source_folder),
            name = COALESCE($3, name),
            description = CASE WHEN $4::boolean THEN $5 ELSE description END,
-           cover_layout = COALESCE($6, cover_layout)
+           cover_layout = COALESCE($6, cover_layout),
+           destination_folder = COALESCE($7, destination_folder)
          WHERE id = $1`,
         [
           request.params.id,
@@ -353,35 +234,34 @@ export async function tripsRoutes(app: FastifyInstance): Promise<void> {
           description !== undefined,
           description?.trim() || null,
           coverLayout ?? null,
+          allowedDestination ?? null,
         ],
       );
       return { ok: true };
     },
   );
 
-  // Detaches every capture from this trip (ON DELETE SET NULL, migration 046) and removes the
-  // trip row itself — never touches the underlying photos, same "delete the grouping, not the
-  // content" behavior as an album delete.
+  // Deletes the trip only; its captures are detached (ON DELETE SET NULL), never deleted.
   app.delete<{ Params: { id: string } }>("/trips/:id", { preHandler: requireAuth }, async (request, reply) => {
+    if (!isUuid(request.params.id)) return reply.code(404).send({ error: "Trip not found" });
     const res = await pool.query(`DELETE FROM trips WHERE id = $1 AND user_id = $2`, [request.params.id, request.user!.id]);
     if (res.rowCount === 0) return reply.code(404).send({ error: "Trip not found" });
     return { ok: true };
   });
 
-  // Manual cover pick — trips.cover_capture_id (migration 046) sat unused until now (the
-  // default was always "most recent capture with a photo," same as reference photos'
-  // no-manual-UI philosophy elsewhere), but a trip's cover carries more meaning than a
-  // species card's does, so it's worth a real control. captureId=null clears the override
-  // and reverts to the automatic default.
+  // Manual cover pick. captureId=null goes back to the default, the most recent capture with a
+  // photo.
   app.put<{ Params: { id: string }; Body: { captureId: string | null } }>(
     "/trips/:id/cover",
     { preHandler: requireAuth },
     async (request, reply) => {
+      if (!isUuid(request.params.id)) return reply.code(404).send({ error: "Trip not found" });
       const userId = request.user!.id;
       const { captureId } = request.body ?? {};
       const tripRes = await pool.query(`SELECT id FROM trips WHERE id = $1 AND user_id = $2`, [request.params.id, userId]);
       if (tripRes.rows.length === 0) return reply.code(404).send({ error: "Trip not found" });
 
+      if (captureId != null && !isUuid(captureId)) return reply.code(400).send({ error: "That photo isn't part of this trip" });
       if (captureId) {
         const captureRes = await pool.query(`SELECT id FROM captures WHERE id = $1 AND trip_id = $2 AND user_id = $3`, [
           captureId,
@@ -391,9 +271,7 @@ export async function tripsRoutes(app: FastifyInstance): Promise<void> {
         if (captureRes.rows.length === 0) return reply.code(400).send({ error: "That photo isn't part of this trip" });
       }
 
-      // Clear any saved crop — it was framed for whichever photo was previously the cover
-      // (or the automatic default), and carrying it over onto a different photo would look
-      // wrong. Same rule as /species/:id/cover.
+      // Clears the saved crop, which was framed for the previous cover photo.
       await pool.query(
         `UPDATE trips SET cover_capture_id = $1, cover_crop_x = NULL, cover_crop_y = NULL, cover_crop_size = NULL WHERE id = $2`,
         [captureId, request.params.id],
@@ -402,12 +280,12 @@ export async function tripsRoutes(app: FastifyInstance): Promise<void> {
     },
   );
 
-  // Parity with /species/:id/card-crop — same drag-to-crop UI (CardCropEditor.tsx), same
-  // request shape.
+  // Same request shape as /species/:id/card-crop.
   app.patch<{ Params: { id: string }; Body: { x?: number; y?: number; size?: number; reset?: boolean } }>(
     "/trips/:id/cover-crop",
     { preHandler: requireAuth },
     async (request, reply) => {
+      if (!isUuid(request.params.id)) return reply.code(404).send({ error: "Trip not found" });
       const userId = request.user!.id;
       const { x, y, size, reset } = request.body ?? {};
       const tripRes = await pool.query<{ cover_capture_id: string | null }>(
@@ -424,9 +302,7 @@ export async function tripsRoutes(app: FastifyInstance): Promise<void> {
         return { ok: true };
       }
 
-      const valid =
-        typeof x === "number" && x >= 0 && x <= 100 && typeof y === "number" && y >= 0 && y <= 100 && typeof size === "number" && size > 0 && size <= 100;
-      if (!valid) return reply.code(400).send({ error: "x, y, size must each be within 0-100" });
+      if (!isValidCrop(x, y, size)) return reply.code(400).send({ error: "x, y, size must each be within 0-100" });
 
       await pool.query(`UPDATE trips SET cover_crop_x = $1, cover_crop_y = $2, cover_crop_size = $3 WHERE id = $4`, [
         x,
@@ -438,11 +314,9 @@ export async function tripsRoutes(app: FastifyInstance): Promise<void> {
     },
   );
 
-  // Reuses toCollectionItem as-is (see collection/routes.ts's own /collection query, which
-  // this mirrors) — scoped to species with at least one capture on this trip. The "Species
-  // view" toggle on the trip page (vs. the default photo-grid gallery view) renders these as
-  // plain SpeciesCards, same as the collection page.
+  // The trip's species as collection items (same shape as /collection), for the Species view.
   app.get<{ Params: { id: string } }>("/trips/:id/species", { preHandler: requireScope("trips.read") }, async (request, reply) => {
+    if (!isUuid(request.params.id)) return reply.code(404).send({ error: "Trip not found" });
     const userId = request.user!.id;
     const tripRes = await pool.query(`SELECT id FROM trips WHERE id = $1 AND user_id = $2`, [request.params.id, userId]);
     if (tripRes.rows.length === 0) return reply.code(404).send({ error: "Trip not found" });
@@ -454,6 +328,7 @@ export async function tripsRoutes(app: FastifyInstance): Promise<void> {
          s.common_name,
          s.taxon_class,
          s.family,
+         s.taxon_order,
          s.reference_photo,
          s.reference_credit,
          s.reference_thumb_path IS NOT NULL AS has_reference_thumb,
@@ -481,16 +356,13 @@ export async function tripsRoutes(app: FastifyInstance): Promise<void> {
        ORDER BY s.scientific_name`,
       [userId, request.params.id],
     );
-    return { items: res.rows.map(toCollectionItem) };
+    return { items: await markNameChanged(userId, res.rows.map((row) => toCollectionItem(row))) };
   });
 
-  // "Lifers gained + rare/endemic species encountered on this trip" — the summary layer the
-  // main trip list/species views don't compute (those answer "what's in this trip," not "what
-  // was NEW or notable about it"). A species counts as a lifer here when its very first-ever
-  // confirmed capture (user_species.first_collected) IS one of this trip's own captures — not
-  // just "first_collected falls within the trip's date range," which would also catch a species
-  // first seen elsewhere on the same calendar day.
+  // Lifers gained and notable species on this trip. A lifer is a species whose first-ever capture
+  // is one of this trip's captures (not just on the same dates).
   app.get<{ Params: { id: string } }>("/trips/:id/summary", { preHandler: requireScope("trips.read") }, async (request, reply) => {
+    if (!isUuid(request.params.id)) return reply.code(404).send({ error: "Trip not found" });
     const userId = request.user!.id;
     const tripId = request.params.id;
     const tripRes = await pool.query(`SELECT id FROM trips WHERE id = $1 AND user_id = $2`, [tripId, userId]);
@@ -515,7 +387,7 @@ export async function tripsRoutes(app: FastifyInstance): Promise<void> {
             )) AS lifer_count,
          (SELECT COUNT(*) FROM trip_species ts
             JOIN species_rarity r ON r.species_id = ts.species_id
-            WHERE r.tier IN ('rare', 'epic', 'legendary')) AS rare_count,
+            WHERE r.tier IN ('uncommon', 'rare', 'legendary')) AS rare_count,
          (SELECT COUNT(*) FROM trip_species ts
             JOIN species_traits t ON t.species_id = ts.species_id
             WHERE t.endemic_country_iso3 IS NOT NULL OR t.endemic_region_label IS NOT NULL) AS endemic_count`,
@@ -530,12 +402,9 @@ export async function tripsRoutes(app: FastifyInstance): Promise<void> {
     };
   });
 
-  // The trip's default view is a plain photo grid (every capture from this trip, like
-  // GalleryPage.tsx's own /gallery — not the collection page's per-species cards, since a trip
-  // is "what did I photograph on this trip," not "what have I ever collected"). Same shape as
-  // GalleryPage's GalleryItem so the frontend can reuse its MasonryGrid/ProgressiveImg/Lightbox
-  // rendering as-is.
+  // Every photo from the trip, in the same shape as /gallery items so the web can reuse its grid.
   app.get<{ Params: { id: string } }>("/trips/:id/photos", { preHandler: requireScope("trips.read") }, async (request, reply) => {
+    if (!isUuid(request.params.id)) return reply.code(404).send({ error: "Trip not found" });
     const userId = request.user!.id;
     const tripRes = await pool.query(`SELECT id FROM trips WHERE id = $1 AND user_id = $2`, [request.params.id, userId]);
     if (tripRes.rows.length === 0) return reply.code(404).send({ error: "Trip not found" });
@@ -584,96 +453,5 @@ export async function tripsRoutes(app: FastifyInstance): Promise<void> {
     };
   });
 
-  app.post<{ Params: { id: string } }>("/trips/:id/scan", { preHandler: requireAuth }, async (request, reply) => {
-    const userId = request.user!.id;
-    const tripId = request.params.id;
-    if (scanJobs.get(tripId)?.status.running) return reply.code(409).send({ error: "A scan is already running for this trip" });
-
-    const tripRes = await pool.query<{ source_folder: string }>(`SELECT source_folder FROM trips WHERE id = $1 AND user_id = $2`, [
-      tripId,
-      userId,
-    ]);
-    if (tripRes.rows.length === 0) return reply.code(404).send({ error: "Trip not found" });
-
-    const job = scanJobFor(tripId);
-    const sourceFolder = tripRes.rows[0].source_folder;
-    const started = job.start((ctx) => runScanJob(ctx, tripId, userId, sourceFolder), {
-      tripId,
-      ...emptyScanSummary(),
-      phase: "checking",
-    });
-    if (!started) return reply.code(409).send({ error: "A scan is already running for this trip" });
-    return { started: true };
-  });
-
-  app.post<{ Params: { id: string } }>("/trips/:id/scan/cancel", { preHandler: requireAuth }, async (request, reply) => {
-    if (!(await ownsTrip(request.params.id, request.user!.id))) return reply.code(404).send({ error: "Trip not found" });
-    return { cancelled: scanJobs.get(request.params.id)?.cancel() ?? false };
-  });
-
-  app.get<{ Params: { id: string } }>("/trips/:id/scan/status", { preHandler: requireScope("trips.read") }, async (request, reply) => {
-    if (!(await ownsTrip(request.params.id, request.user!.id))) return reply.code(404).send({ error: "Trip not found" });
-    return scanJobs.get(request.params.id)?.status ?? idleScanStatus(request.params.id);
-  });
-
-  app.get<{ Params: { id: string }; Querystring: { file?: string } }>(
-    "/trips/:id/scan-preview",
-    { preHandler: requireScope("trips.read") },
-    async (request, reply) => {
-      const userId = request.user!.id;
-      const tripRes = await pool.query<{ source_folder: string }>(
-        `SELECT source_folder FROM trips WHERE id = $1 AND user_id = $2`,
-        [request.params.id, userId],
-      );
-      if (tripRes.rows.length === 0) return reply.code(404).send({ error: "Trip not found" });
-      const relativePath = request.query.file;
-      if (!relativePath) return reply.code(400).send({ error: "file query param is required" });
-      const absolutePath = resolveWithinTripFolder(tripRes.rows[0].source_folder, relativePath);
-      if (!absolutePath) return reply.code(404).send({ error: "File not found" });
-      reply.header("Cache-Control", "private, max-age=60");
-      return reply.send(createReadStream(absolutePath));
-    },
-  );
-
-  app.post<{ Params: { id: string }; Body: { files?: Array<{ relativePath: string; speciesId: string }>; regionId?: string } }>(
-    "/trips/:id/import",
-    { preHandler: requireAuth },
-    async (request, reply) => {
-      const userId = request.user!.id;
-      const tripId = request.params.id;
-      if (importJobs.get(tripId)?.status.running) return reply.code(409).send({ error: "An import is already running for this trip" });
-
-      const tripRes = await pool.query<{ source_folder: string }>(
-        `SELECT source_folder FROM trips WHERE id = $1 AND user_id = $2`,
-        [tripId, userId],
-      );
-      if (tripRes.rows.length === 0) return reply.code(404).send({ error: "Trip not found" });
-      const files = request.body?.files;
-      if (!files || files.length === 0) return reply.code(400).send({ error: "files is required" });
-      const regionId = request.body?.regionId ?? null;
-
-      // Background job (exiftool + a sharp resize per file), polled via /import/status.
-      const job = importJobFor(tripId);
-      const sourceFolder = tripRes.rows[0].source_folder;
-      const started = job.start((ctx) => runImportJob(ctx, job, tripId, userId, sourceFolder, files, regionId), {
-        tripId,
-        results: [],
-        phase: "importing",
-        processed: 0,
-        total: files.length,
-      });
-      if (!started) return reply.code(409).send({ error: "An import is already running for this trip" });
-      return { started: true };
-    },
-  );
-
-  app.post<{ Params: { id: string } }>("/trips/:id/import/cancel", { preHandler: requireAuth }, async (request, reply) => {
-    if (!(await ownsTrip(request.params.id, request.user!.id))) return reply.code(404).send({ error: "Trip not found" });
-    return { cancelled: importJobs.get(request.params.id)?.cancel() ?? false };
-  });
-
-  app.get<{ Params: { id: string } }>("/trips/:id/import/status", { preHandler: requireScope("trips.read") }, async (request, reply) => {
-    if (!(await ownsTrip(request.params.id, request.user!.id))) return reply.code(404).send({ error: "Trip not found" });
-    return importJobs.get(request.params.id)?.status ?? idleImportStatus(request.params.id);
-  });
+  await app.register(tripJobRoutes);
 }
