@@ -3,6 +3,10 @@ import { api, ApiError } from "../api/client";
 import PageHeader from "../components/PageHeader";
 import { Spinner } from "../components/LoadingScreen";
 import EmptyState from "../components/EmptyState";
+import Button from "../components/Button";
+import FormMessage from "../components/FormMessage";
+import { formatDate } from "../lib/formatDate";
+import { pluralize } from "../lib/pluralize";
 
 const sendIcon = (
   <svg viewBox="0 0 24 24" className="h-6 w-6 text-muted" fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round">
@@ -49,21 +53,19 @@ function speciesLabel(commonName: string | null, scientificName: string): string
 
 function formatDateRange(start: string | null, end: string | null): string {
   if (!start) return "Date unknown";
-  const startDate = new Date(start).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+  const startDate = formatDate(start, "medium");
   if (!end || end === start) return startDate;
-  const endDate = new Date(end).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+  const endDate = formatDate(end, "medium");
   return startDate === endDate ? startDate : `${startDate} – ${endDate}`;
 }
 
-// Three sub-views kept off the main nav (reached only via Settings) so this doesn't clutter
-// the everyday UI for anyone not using it: species/photo clusters still waiting to be sent,
-// ones sent but not yet confirmed as finished on iNaturalist's own site, and a log of what's
-// been fully contributed. See ~/.claude/plans/inaturalist-sync.md.
+// Reached from Settings: sightings waiting to send, drafts not yet finished on iNaturalist, and
+// what's been fully contributed.
 export default function InaturalistPage() {
   const [tab, setTab] = useState<Tab>("import");
 
   return (
-    <div className="min-h-screen bg-canvas">
+    <div className="flex-1 bg-canvas">
       <PageHeader sticky title="iNaturalist" backFallbackTo="/settings" backLabel="Settings">
         <p className="mt-1 text-sm text-muted">Send your sightings to iNaturalist as draft observations, then finish them there.</p>
         <div className="mt-4 flex gap-2">
@@ -134,7 +136,7 @@ function ImportTab() {
     }
   }
 
-  if (error) return <p className="text-sm text-red-600">{error}</p>;
+  if (error) return <FormMessage error={error} />;
   if (!clusters) return <Spinner />;
   if (clusters.length === 0)
     return <EmptyState icon={sendIcon} title="Nothing waiting to be sent" description="Every sighting has already been submitted." />;
@@ -150,17 +152,17 @@ function ImportTab() {
               <div>
                 <p className="text-sm font-medium text-ink">{speciesLabel(cluster.commonName, cluster.scientificName)}</p>
                 <p className="text-xs text-muted">
-                  {cluster.captures.length} photo{cluster.captures.length === 1 ? "" : "s"} · {formatDateRange(cluster.earliestTakenAt, cluster.latestTakenAt)}
+                  {pluralize(cluster.captures.length, "photo")} · {formatDateRange(cluster.earliestTakenAt, cluster.latestTakenAt)}
                 </p>
               </div>
-              <button
-                type="button"
+              <Button
+                size="sm"
                 onClick={() => createObservation(cluster)}
-                disabled={submitting === key || excludedIds.size === cluster.captures.length}
-                className="rounded-md bg-ink px-3 py-1.5 text-sm text-canvas disabled:opacity-50"
+                loading={submitting === key}
+                disabled={excludedIds.size === cluster.captures.length}
               >
-                {submitting === key ? "Creating…" : "Create Observation"}
-              </button>
+                {submitting === key ? "Creating…" : "Create observation"}
+              </Button>
             </div>
             <div className="mt-3 flex flex-wrap gap-2">
               {cluster.captures.map((capture) => (
@@ -175,6 +177,7 @@ function ImportTab() {
                     <img
                       src={`/api/photos/${capture.currentPhotoId}/thumb`}
                       alt=""
+                      loading="lazy"
                       className={`h-20 w-20 rounded-md object-cover ${excludedIds.has(capture.id) ? "opacity-30" : ""}`}
                     />
                   ) : (
@@ -218,7 +221,7 @@ function PendingTab() {
     }
   }
 
-  if (error) return <p className="text-sm text-red-600">{error}</p>;
+  if (error) return <FormMessage error={error} />;
   if (!observations) return <Spinner />;
   if (observations.length === 0)
     return <EmptyState icon={pendingIcon} title="Nothing pending" description="Every observation you've sent has been confirmed complete." />;
@@ -230,7 +233,7 @@ function PendingTab() {
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-3">
               {obs.currentPhotoId ? (
-                <img src={`/api/photos/${obs.currentPhotoId}/thumb`} alt="" className="h-14 w-14 rounded-md object-cover" />
+                <img src={`/api/photos/${obs.currentPhotoId}/thumb`} alt="" loading="lazy" className="h-14 w-14 rounded-md object-cover" />
               ) : (
                 <div className="h-14 w-14 rounded-md bg-surface-muted" />
               )}
@@ -241,14 +244,9 @@ function PendingTab() {
                 </a>
               </div>
             </div>
-            <button
-              type="button"
-              onClick={() => confirm(obs.observationId)}
-              disabled={confirming === obs.observationId}
-              className="rounded-md border border-line px-3 py-1.5 text-sm text-ink hover:bg-surface-muted disabled:opacity-50"
-            >
-              {confirming === obs.observationId ? "Checking…" : "Confirm Complete"}
-            </button>
+            <Button variant="secondary" size="sm" onClick={() => confirm(obs.observationId)} loading={confirming === obs.observationId}>
+              {confirming === obs.observationId ? "Checking…" : "Confirm complete"}
+            </Button>
           </div>
           {message[obs.observationId] && <p className="mt-2 text-xs text-muted">{message[obs.observationId]}</p>}
         </div>
@@ -268,7 +266,7 @@ function CompletedTab() {
       .catch((err) => setError(err instanceof ApiError ? err.message : "Couldn't load completed observations"));
   }, []);
 
-  if (error) return <p className="text-sm text-red-600">{error}</p>;
+  if (error) return <FormMessage error={error} />;
   if (!observations) return <Spinner />;
   if (observations.length === 0)
     return <EmptyState icon={completedIcon} title="Nothing here yet" description="Confirmed observations will show up in this list." />;
@@ -284,7 +282,7 @@ function CompletedTab() {
           className="flex items-center gap-3 rounded-xl border border-line bg-surface p-4 hover:bg-surface-muted"
         >
           {obs.currentPhotoId ? (
-            <img src={`/api/photos/${obs.currentPhotoId}/thumb`} alt="" className="h-14 w-14 rounded-md object-cover" />
+            <img src={`/api/photos/${obs.currentPhotoId}/thumb`} alt="" loading="lazy" className="h-14 w-14 rounded-md object-cover" />
           ) : (
             <div className="h-14 w-14 rounded-md bg-surface-muted" />
           )}

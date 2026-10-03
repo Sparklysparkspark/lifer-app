@@ -1,6 +1,9 @@
 import { useEffect, useState } from "react";
-import { api, ApiError } from "../api/client";
+import { api } from "../api/client";
 import { loadServerInfo } from "../hooks/useDeploymentMode";
+import { errorMessage } from "../lib/errorMessage";
+import Button from "./Button";
+import FormMessage from "./FormMessage";
 
 interface DirectoryListing {
   // null for a self-hosted server's top level, which lists the allowed roots rather than a folder.
@@ -9,26 +12,26 @@ interface DirectoryListing {
   entries: Array<{ name: string; path: string }>;
 }
 
-// Tries the real native Finder dialog first (desktop shell talking to its own local API only;
-// respects the OS's own hidden-file/recents/favorites conventions). Returns `undefined` when
-// there's no usable native dialog: a plain browser tab, or the desktop shell connected to a
-// remote server, whose filesystem a local dialog can't see. The caller should then fall back to
-// <FolderBrowser>. Shared by the trip, reimport and storage folder pickers.
+// The native folder dialog, only when the desktop shell talks to its own local API. Resolves
+// `undefined` when no usable dialog exists (fall back to <FolderBrowser>); null means cancelled.
 export async function pickFolderNative(): Promise<string | null | undefined> {
   if (!window.liferSetup) return undefined;
   const mode = await loadServerInfo()
     .then((info) => info.deploymentMode)
     .catch(() => null);
   if (mode !== "desktop") return undefined;
-  const { open } = await import("@tauri-apps/plugin-dialog");
-  const path = await open({ directory: true });
-  return typeof path === "string" ? path : null;
+  try {
+    const { open } = await import("@tauri-apps/plugin-dialog");
+    const path = await open({ directory: true });
+    return typeof path === "string" ? path : null;
+  } catch (err) {
+    console.error("Native folder dialog failed", err);
+    return undefined;
+  }
 }
 
-// Fallback-only browser: a plain HTTP directory listing of the API's own filesystem (GET
-// /settings/browse-directory). A desktop API can list anything; a self-hosted server starts at
-// its allowed roots (the library folder plus LIFER_LIBRARY_ROOTS), won't climb above them, and
-// 403s anything outside, whose message is shown here.
+// Directory listing of the API's filesystem (GET /settings/browse-directory). A server starts at
+// its allowed roots and refuses anything outside them, with the message shown here.
 export function FolderBrowser({ onChoose, onCancel }: { onChoose: (path: string) => void; onCancel: () => void }) {
   const [browsing, setBrowsing] = useState<DirectoryListing | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -48,10 +51,10 @@ export function FolderBrowser({ onChoose, onCancel }: { onChoose: (path: string)
         if (res.path === null) setRooted(true);
         setBrowsing(res);
       })
-      .catch((err) => setError(err instanceof ApiError ? err.message : "Couldn't browse that folder"));
+      .catch((err) => setError(errorMessage(err, "Couldn't browse that folder")));
   }
 
-  if (!browsing) return error ? <p className="text-sm text-red-600">{error}</p> : <p className="text-sm text-muted">Loading…</p>;
+  if (!browsing) return error ? <FormMessage error={error} /> : <p className="text-sm text-muted">Loading…</p>;
   const currentPath = browsing.path;
 
   return (
@@ -79,19 +82,14 @@ export function FolderBrowser({ onChoose, onCancel }: { onChoose: (path: string)
         ))}
       </div>
       <div className="flex gap-2 pt-1">
-        <button
-          type="button"
-          onClick={() => currentPath && onChoose(currentPath)}
-          disabled={currentPath === null}
-          className="rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-accent-fg disabled:opacity-50"
-        >
+        <Button size="sm" onClick={() => currentPath && onChoose(currentPath)} disabled={currentPath === null}>
           Use this folder
-        </button>
-        <button type="button" onClick={onCancel} className="rounded-md border border-line px-3 py-1.5 text-sm text-ink hover:bg-surface-muted">
+        </Button>
+        <Button variant="secondary" size="sm" onClick={onCancel}>
           Cancel
-        </button>
+        </Button>
       </div>
-      {error && <p className="text-sm text-red-600">{error}</p>}
+      <FormMessage error={error} />
     </div>
   );
 }

@@ -1,16 +1,16 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { api } from "../api/client";
-import { useEscapeToClose } from "../hooks/useEscapeToClose";
+import Modal from "./Modal";
+import Button from "./Button";
+import FormMessage from "./FormMessage";
+import { pluralize } from "../lib/pluralize";
 
 interface AlbumOption {
   id: string;
   name: string;
 }
 
-// Same album-list-or-create-new choice as AddToAlbumButton's dropdown, but as a centered
-// modal instead of a menu-anchored flyout — for reaching this from somewhere that's already
-// inside its OWN open dropdown (a photo's "⋯" menu), where nesting a second flyout dropdown
-// would fight the first one's positioning/outside-click handling.
+// AddToAlbumButton's picker as a centered modal, for use from inside another open menu.
 export default function AddToAlbumModal({
   captureIds,
   onClose,
@@ -23,86 +23,97 @@ export default function AddToAlbumModal({
   const [albums, setAlbums] = useState<AlbumOption[] | null>(null);
   const [newName, setNewName] = useState("");
   const [busy, setBusy] = useState(false);
-  useEscapeToClose(onClose);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    api.get<{ albums: AlbumOption[] }>("/albums").then((res) => setAlbums(res.albums));
+    let cancelled = false;
+    api
+      .get<{ albums: AlbumOption[] }>("/albums")
+      .then((res) => {
+        if (!cancelled) setAlbums(res.albums);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setAlbums([]);
+        setError("Couldn't load your albums.");
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
-  async function addTo(albumId: string) {
+  async function run(action: () => Promise<void>) {
     setBusy(true);
+    setError(null);
     try {
-      await api.post(`/albums/${albumId}/captures`, { captureIds });
+      await action();
       onAdded?.();
       onClose();
+    } catch {
+      setError("Couldn't add to the album. Try again.");
     } finally {
       setBusy(false);
     }
   }
 
-  async function createAndAdd(e: React.FormEvent) {
+  const addTo = (albumId: string) =>
+    run(async () => {
+      await api.post(`/albums/${albumId}/captures`, { captureIds });
+    });
+
+  function createAndAdd(e: FormEvent) {
     e.preventDefault();
     if (!newName.trim()) return;
-    setBusy(true);
-    try {
+    void run(async () => {
       const created = await api.post<{ id: string }>("/albums", { name: newName.trim() });
       await api.post(`/albums/${created.id}/captures`, { captureIds });
-      onAdded?.();
-      onClose();
-    } finally {
-      setBusy(false);
-    }
+    });
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
-      <div
-        className="w-full max-w-sm rounded-lg border border-line bg-surface p-4 shadow-lg"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <h3 className="text-sm font-medium text-ink">
-          Add {captureIds.length} photo{captureIds.length === 1 ? "" : "s"} to album
-        </h3>
-        <div className="mt-3 max-h-56 overflow-y-auto rounded-md border border-line">
-          {!albums ? (
-            <p className="px-3 py-2 text-xs text-muted">Loading…</p>
-          ) : albums.length === 0 ? (
-            <p className="px-3 py-2 text-xs text-muted">No albums yet. Create one below.</p>
-          ) : (
-            albums.map((a) => (
-              <button
-                key={a.id}
-                type="button"
-                disabled={busy}
-                onClick={() => addTo(a.id)}
-                className="block w-full border-b border-line px-3 py-2 text-left text-sm text-ink last:border-0 hover:bg-surface-muted disabled:opacity-40"
-              >
-                {a.name}
-              </button>
-            ))
-          )}
-        </div>
-        <form onSubmit={createAndAdd} className="mt-3 flex gap-2">
-          <input
-            type="text"
-            value={newName}
-            onChange={(e) => setNewName(e.target.value)}
-            placeholder="New album…"
-            disabled={busy}
-            className="flex-1 rounded-md border border-line px-2 py-1.5 text-sm"
-          />
-          <button
-            type="submit"
-            disabled={busy || !newName.trim()}
-            className="shrink-0 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-accent-fg disabled:opacity-50"
-          >
-            Create
-          </button>
-        </form>
-        <button onClick={onClose} className="mt-3 text-sm text-muted hover:underline">
+    <Modal
+      open
+      onClose={onClose}
+      title={`Add ${pluralize(captureIds.length, "photo")} to album`}
+      footer={
+        <Button variant="ghost" size="sm" onClick={onClose}>
           Cancel
-        </button>
+        </Button>
+      }
+    >
+      <div className="mt-1 max-h-56 overflow-y-auto rounded-md border border-line">
+        {!albums ? (
+          <p className="px-3 py-2 text-xs text-muted">Loading…</p>
+        ) : albums.length === 0 ? (
+          <p className="px-3 py-2 text-xs text-muted">No albums yet. Create one below.</p>
+        ) : (
+          albums.map((a) => (
+            <button
+              key={a.id}
+              type="button"
+              disabled={busy}
+              onClick={() => addTo(a.id)}
+              className="block w-full border-b border-line px-3 py-2 text-left text-sm text-ink last:border-0 hover:bg-surface-muted disabled:opacity-40"
+            >
+              {a.name}
+            </button>
+          ))
+        )}
       </div>
-    </div>
+      <form onSubmit={createAndAdd} className="mt-3 flex gap-2">
+        <input
+          type="text"
+          value={newName}
+          onChange={(e) => setNewName(e.target.value)}
+          placeholder="New album…"
+          disabled={busy}
+          className="flex-1 rounded-md border border-line bg-surface px-2 py-1.5 text-sm text-ink"
+        />
+        <Button type="submit" size="sm" className="shrink-0" disabled={busy || !newName.trim()}>
+          Create
+        </Button>
+      </form>
+      <FormMessage error={error} className="mt-3" />
+    </Modal>
   );
 }

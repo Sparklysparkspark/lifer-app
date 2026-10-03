@@ -2,12 +2,7 @@ import { useState } from "react";
 import type { SuggestedSpecies } from "./SpeciesPicker";
 import PhotoPlaceholder from "./PhotoPlaceholder";
 
-// Same card shape as SpeciesCard.tsx (square photo, name, italic scientific name) so a
-// suggestion reads as the same kind of object as every other species card in the app, just
-// smaller and with a match percent instead of rarity badges. Two separate buttons rather than
-// one big clickable card: the photo opens a bigger view of the reference photo, everything else
-// assigns the species to this row — a photo and a "pick this" action are different things a
-// user might want to do with the same card.
+// A small species card with a match percent. The photo opens the reference photos; the rest assigns.
 export default function SuggestionCard({
   suggestion,
   matchPercent,
@@ -16,12 +11,9 @@ export default function SuggestionCard({
   onViewPhoto,
 }: {
   suggestion: SuggestedSpecies;
-  /** Precomputed by the caller — a lone suggestion reads as 100% match rather than whatever
-   *  raw (and often much lower, since cosine similarity across unrelated photos rarely
-   *  approaches 1.0) score the model happened to produce for it alone. */
+  /** From the caller, so a lone certain match can show 100% instead of its raw score. */
   matchPercent: number;
-  /** True when this is the keyboard-arrow-selected card for its row — Enter assigns it. Purely
-   *  visual; assignment itself still only happens via onSelect (click or Enter). */
+  /** The keyboard-highlighted card for its row (visual only; Enter assigns via onSelect). */
   highlighted?: boolean;
   onSelect: () => void;
   onViewPhoto: () => void;
@@ -40,6 +32,7 @@ export default function SuggestionCard({
           <img
             src={`/api/species/${suggestion.id}/reference-photo/thumb`}
             alt={displayName}
+            loading="lazy"
             className="h-full w-full object-cover"
             onError={() => setPhotoFailed(true)}
           />

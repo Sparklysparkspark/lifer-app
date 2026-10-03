@@ -1,17 +1,8 @@
 import { useEffect } from "react";
 
-/** Calls `onConfirm` when Enter is pressed anywhere while this is mounted and `enabled`, the
- * keyboard equivalent of clicking a dialog's one main/primary action, for dialogs that have no
- * `<form onSubmit>` of their own to get this for free (a plain text input inside a form already
- * submits on Enter natively; this is for everything else: a drag-to-crop editor, a picker with
- * no single text field, etc). Listens at the document level since there's no shared Modal
- * wrapper every dialog in this app already goes through to hook this into instead.
- *
- * Skipped, so it never fights something more specific: a textarea (Enter must stay a newline),
- * a contentEditable, a button/link/select (their own native Enter behavior already does the
- * right thing for whichever one is actually focused), still-composing IME input, or a keypress
- * some inner handler already called preventDefault on (e.g. an inline rename field's own
- * Enter-to-save). */
+/** Calls `onConfirm` on Enter while mounted and `enabled`, for dialogs without a `<form onSubmit>`.
+ * Skipped for textareas, contentEditable, focused buttons/links/selects, IME composition, and
+ * keypresses an inner handler already called preventDefault on. */
 export function useEnterToConfirm(onConfirm: () => void, enabled: boolean): void {
   useEffect(() => {
     if (!enabled) return;

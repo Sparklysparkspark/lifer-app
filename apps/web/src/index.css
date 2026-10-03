@@ -40,24 +40,50 @@ body {
   color: var(--color-ink);
 }
 
-/* Clears space for the frameless mac window's real native traffic lights, which float over
-   the top-left of the page — see main.tsx, which sets [data-mac-app] only inside the desktop
-   app on mac. Pushes the whole header down rather than the logo right, so the logo sits below
-   the traffic lights (its own left-aligned row) instead of squeezed beside them. The traffic
-   lights sit at trafficLightPosition {x:20,y:20} (see apps/desktop/src-tauri/src/lib.rs) and
-   are ~12px tall, so their visual bottom edge is ~32px down — 24px of clearance below that. */
+/* The frameless mac window's traffic lights float over the top-left (set by main.tsx). They sit
+   at {x:20,y:20} and end ~32px down, so the app nav starts below them. */
 [data-mac-app] header.page-header {
   padding-top: 56px;
 }
 
-/* Same traffic-light clearance as above, for the couple of loading/error screens that render
-   a bare top-left "back to collection" link with no header.page-header around it at all (so
-   the rule above doesn't apply) — without this, that link's default top-4 (16px) sits right
-   under the native traffic lights' ~32px visual bottom edge, and can end up intersecting them. */
+/* A sticky page header stuck to the top sits beside the traffic lights instead of under them. */
+[data-mac-app] header.page-subheader[data-stuck] {
+  padding-left: 88px;
+}
+
+/* Loading screens with a bare corner back link and no header. */
 [data-mac-app] .back-link-corner {
   top: 56px;
 }
 
-/* The always-draggable strip itself (TitleBarDragRegion.tsx) needs to be a real rendered DOM
-   element, not CSS — data-tauri-drag-region only works on an actual node, unlike Electron's
-   -webkit-app-region: drag, which could apply to a pure ::before pseudo-element. */
+/* ProgressBar's indeterminate stripe: a 40%-wide fill sweeping across the track. Reduced motion
+   gets a still partial fill with a slow opacity pulse instead. */
+@keyframes lifer-progress-sweep {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(250%);
+  }
+}
+
+@keyframes lifer-progress-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+
+.progress-indeterminate {
+  animation: lifer-progress-sweep 1.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .progress-indeterminate {
+    animation: lifer-progress-pulse 2.4s ease-in-out infinite;
+    transform: none;
+  }
+}

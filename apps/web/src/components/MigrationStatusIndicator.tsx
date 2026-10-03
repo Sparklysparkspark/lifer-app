@@ -1,8 +1,8 @@
 import { useMigrationStatus } from "../hooks/useMigrationStatus";
+import { pluralize } from "../lib/pluralize";
+import InlineSpinner from "./InlineSpinner";
 
-// Fixed-position so it shows up on every page, not just Settings (where the migration is
-// started), since the migration can run for a long time in the background and the user may
-// navigate away while it's still going.
+// Fixed-position so it shows on every page while a long migration runs in the background.
 export default function MigrationStatusIndicator() {
   const { status } = useMigrationStatus();
   if (!status) return null;
@@ -15,7 +15,7 @@ export default function MigrationStatusIndicator() {
     <div className="fixed right-4 top-4 z-50 flex items-center gap-2 rounded-full border border-line bg-surface px-3 py-1.5 text-xs text-muted shadow-sm">
       {status.running ? (
         <>
-          <span className="h-3 w-3 animate-spin rounded-full border-2 border-line border-t-ink" />
+          <InlineSpinner tone="ink" />
           <span>
             {status.cancelRequested
               ? "Cancelling sync…"
@@ -25,13 +25,11 @@ export default function MigrationStatusIndicator() {
           </span>
         </>
       ) : status.error ? (
-        <span className="text-red-600">Sync failed: {status.error}</span>
+        <span className="text-rose-700 dark:text-rose-400">Sync failed: {status.error}</span>
       ) : status.cancelled ? (
-        <span>Sync cancelled after {status.migrated} photo{status.migrated === 1 ? "" : "s"}</span>
+        <span>Sync cancelled after {pluralize(status.migrated, "photo")}</span>
       ) : (
-        <span>
-          Synced {status.migrated} photo{status.migrated === 1 ? "" : "s"} to server
-        </span>
+        <span>Synced {pluralize(status.migrated, "photo")} to server</span>
       )}
     </div>
   );

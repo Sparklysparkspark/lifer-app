@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../api/client";
 import { useStorageVolumes } from "../hooks/useStorageVolumes";
+import { pluralize, pluralWord } from "../lib/pluralize";
 import Select from "./Select";
 
 interface VolumeUsage {
@@ -9,11 +10,8 @@ interface VolumeUsage {
   count: number;
 }
 
-/** Shared by UploadDropzone and RawUpload — both write into the same species' folder tree and
- *  should offer (and default to) the same destination drive, rather than each picking
- *  independently. Only meaningful for JPEG/RAW files actually written by Lifer (mode=store),
- *  never for Trips' reference-in-place imports, which tag whatever drive the file already
- *  happens to be on. */
+/** One destination drive shared by UploadDropzone and RawUpload for files Lifer writes itself
+ *  (mode=store). Trip imports reference files in place and don't use this. */
 export function useVolumeDestination(speciesId: string) {
   const { volumes } = useStorageVolumes();
   const connectedVolumes = volumes.filter((v) => v.connected);
@@ -21,9 +19,7 @@ export function useVolumeDestination(speciesId: string) {
   const [volumeId, setVolumeId] = useState<string>("");
 
   useEffect(() => {
-    // Fetched whenever ANY drive is registered, connected or not — the recommendation hint
-    // below is exactly as useful ("your other photos are on X, plug it in") whether or not
-    // that drive happens to be plugged in at the moment this dialog was opened.
+    // Any registered drive counts, connected or not: "your other photos are on X" helps either way.
     if (volumes.length === 0) return;
     api
       .get<{ volumes: VolumeUsage[] }>(`/species/${speciesId}/volume-usage`)
@@ -32,10 +28,8 @@ export function useVolumeDestination(speciesId: string) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [speciesId, volumes.length]);
 
-  // Default to wherever this species' existing photos already mostly are (if that drive's
-  // actually connected right now), falling back to whichever registered drive is marked
-  // default, then to the primary drive. Never auto-picks a disconnected drive — the picker
-  // itself can only ever select a connected one, since you can't write to an unplugged drive.
+  // Default to the connected drive holding most of this species' photos, then the default drive,
+  // then the main library. Never a disconnected drive, which can't be written to.
   useEffect(() => {
     const topUsage = volumeUsage.find((u) => u.volumeId && connectedVolumes.some((v) => v.id === u.volumeId));
     if (topUsage?.volumeId) {
@@ -49,9 +43,7 @@ export function useVolumeDestination(speciesId: string) {
 
   const recommended = volumeUsage.find((u) => u.volumeId === volumeId && u.volumeId);
 
-  // The species' top-usage drive, even when it's not currently connected — this is what makes
-  // "all your other Fox photos are on X, want to mount it?" possible instead of only ever
-  // recommending among whatever's plugged in right now.
+  // The top-usage drive even when unplugged, so the hint can suggest mounting it.
   const topUsage = [...volumeUsage].sort((a, b) => b.count - a.count).find((u) => u.volumeId);
   const disconnectedRecommendation =
     topUsage && !connectedVolumes.some((v) => v.id === topUsage.volumeId)
@@ -79,9 +71,9 @@ export function VolumeDestinationPicker({
   return (
     <div className="space-y-1 text-left">
       {disconnectedRecommendation && (
-        <p className="rounded-md bg-amber-50 px-2 py-1.5 text-xs text-amber-800">
-          {disconnectedRecommendation.count} existing photo{disconnectedRecommendation.count === 1 ? "" : "s"} of this species{" "}
-          {disconnectedRecommendation.count === 1 ? "is" : "are"} on "{disconnectedRecommendation.label}", which isn't connected right now.
+        <p className="rounded-md bg-amber-50 px-2 py-1.5 text-xs text-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
+          {pluralize(disconnectedRecommendation.count, "existing photo")} of this species{" "}
+          {pluralWord(disconnectedRecommendation.count, "is", "are")} on "{disconnectedRecommendation.label}", which isn't connected right now.
           Plug it in to keep these together, or choose a different destination below.
         </p>
       )}
@@ -99,7 +91,7 @@ export function VolumeDestinationPicker({
           </Select>
           {volumeId && recommendedCount > 0 && (
             <p className="text-xs text-muted">
-              {recommendedCount} existing photo{recommendedCount === 1 ? "" : "s"} of this species {recommendedCount === 1 ? "is" : "are"} already on this drive.
+              {pluralize(recommendedCount, "existing photo")} of this species {pluralWord(recommendedCount, "is", "are")} already on this drive.
             </p>
           )}
         </>

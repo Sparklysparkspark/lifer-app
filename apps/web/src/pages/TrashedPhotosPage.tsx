@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { api } from "../api/client";
 import PageHeader from "../components/PageHeader";
 import { Spinner } from "../components/LoadingScreen";
@@ -9,8 +9,14 @@ import ProgressiveImg from "../components/ProgressiveImg";
 import SegmentedControl from "../components/SegmentedControl";
 import { useShowLabels } from "../hooks/useShowLabels";
 import EmptyState from "../components/EmptyState";
-import { useEnterToConfirm } from "../hooks/useEnterToConfirm";
+import Button from "../components/Button";
+import ConfirmDialog from "../components/ConfirmDialog";
+import FormMessage from "../components/FormMessage";
+import SelectModeToggle from "../components/SelectModeToggle";
 import { useEscapeToClose } from "../hooks/useEscapeToClose";
+import { useSelectMode } from "../hooks/useSelectMode";
+import { useToast } from "../hooks/useToast";
+import { pluralize } from "../lib/pluralize";
 
 interface TrashItem {
   captureId: string;
@@ -38,11 +44,7 @@ function daysLeft(purgesAt: string): number {
   return Math.max(0, Math.ceil(ms / (24 * 60 * 60 * 1000)));
 }
 
-// Same gallery treatment as GalleryPage.tsx (MasonryGrid + ProgressiveImg + Lightbox, select
-// mode with a checkbox overlay instead of opening the lightbox while selecting) but scoped to
-// trashed photos and stripped of anything that doesn't apply to something already deleted — no
-// featured/rating/camera-info toggles, and the per-photo "⋯" menu offers only Restore instead
-// of SpeciesDetailPage/GalleryPage's full set.
+// Gallery-style grid scoped to trashed photos; the only per-photo action is Restore.
 export default function TrashedPhotosPage() {
   const [data, setData] = useState<TrashResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -51,13 +53,10 @@ export default function TrashedPhotosPage() {
   const [confirmingEmpty, setConfirmingEmpty] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const [openMenuKey, setOpenMenuKey] = useState<string | null>(null);
-  const [selectMode, setSelectMode] = useState(false);
-  const [selectedCaptureIds, setSelectedCaptureIds] = useState<Set<string>>(new Set());
+  const toast = useToast();
   const [showLabels, setShowLabels] = useShowLabels();
   const [photoFilter, setPhotoFilter] = useState<"all" | "edited" | "raw" | "video">("all");
   const openMenuRef = useRef<HTMLDivElement>(null);
-  useEnterToConfirm(() => void emptyTrash(), confirmingEmpty && !emptying);
-  useEscapeToClose(() => setConfirmingEmpty(false), confirmingEmpty);
   useEscapeToClose(() => setOpenMenuKey(null), openMenuKey !== null);
 
   function load() {
@@ -84,17 +83,18 @@ export default function TrashedPhotosPage() {
       await api.post(`/trash/${captureId}/restore`, {});
       load();
     } catch {
-      alert("Couldn't restore this photo. Try again.");
+      toast.error("Couldn't restore this photo. Try again.");
     } finally {
       setBusyId(null);
     }
   }
 
   async function restoreSelected() {
-    const ids = [...selectedCaptureIds];
-    setSelectMode(false);
-    setSelectedCaptureIds(new Set());
-    await Promise.allSettled(ids.map((id) => api.post(`/trash/${id}/restore`, {})));
+    const ids = [...select.selectedIds];
+    select.exit();
+    const results = await Promise.allSettled(ids.map((id) => api.post(`/trash/${id}/restore`, {})));
+    const failed = results.filter((r) => r.status === "rejected").length;
+    if (failed > 0) toast.error(`Couldn't restore ${pluralize(failed, "photo")}. Try again.`);
     load();
   }
 
@@ -105,33 +105,45 @@ export default function TrashedPhotosPage() {
       setConfirmingEmpty(false);
       load();
     } catch {
-      alert("Couldn't empty Trash. Try again.");
+      toast.error("Couldn't empty Trash. Try again.");
     } finally {
       setEmptying(false);
     }
   }
 
-  function toggleSelected(captureId: string) {
-    setSelectedCaptureIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(captureId)) next.delete(captureId);
-      else next.add(captureId);
-      return next;
-    });
-  }
-
   const allItems = data?.items ?? [];
-  // Same shape as SpeciesDetailPage's own photoFilter — "edited"/"raw" both explicitly exclude
-  // videos (neither category applies to one), so a trashed video only ever shows under All/Video.
+  // "Edited" and "RAW" both exclude videos, so a video only shows under All/Video.
   const editedCount = allItems.filter((it) => it.photoId && it.kind !== "video" && it.originalKind !== "raw").length;
   const rawOnlyCount = allItems.filter((it) => it.photoId && it.kind !== "video" && it.originalKind === "raw").length;
   const videoCount = allItems.filter((it) => it.kind === "video").length;
-  const visibleItems = allItems.filter((it) => {
-    if (photoFilter === "all") return true;
-    if (photoFilter === "video") return it.kind === "video";
-    if (it.kind === "video") return false;
-    return photoFilter === "raw" ? it.originalKind === "raw" : it.originalKind !== "raw";
-  });
+  const visibleItems = useMemo(
+    () =>
+      (data?.items ?? []).filter((it) => {
+        if (photoFilter === "all") return true;
+        if (photoFilter === "video") return it.kind === "video";
+        if (it.kind === "video") return false;
+        return photoFilter === "raw" ? it.originalKind === "raw" : it.originalKind !== "raw";
+      }),
+    [data, photoFilter],
+  );
+  const select = useSelectMode(visibleItems, (it) => it.captureId);
+  const { selectMode, selectedIds, dragPreviewIds, dragProps } = select;
+  const indexById = useMemo(() => new Map(visibleItems.map((it, i) => [it.captureId, i])), [visibleItems]);
+  const isSelected = (id: string) => selectedIds.has(id) || (dragPreviewIds?.has(id) ?? false);
+  // Press-and-drag selects a range; the hook resolves a plain click (with Shift) on mouseup.
+  const selectHandlers = (captureId: string) => {
+    const index = indexById.get(captureId) ?? 0;
+    return {
+      onMouseDown: (e: ReactMouseEvent) => {
+        if (!selectMode) return;
+        e.preventDefault();
+        dragProps.onDragSelectStart(index);
+      },
+      onMouseEnter: () => {
+        if (selectMode) dragProps.onDragSelectEnter(index);
+      },
+    };
+  };
   const itemsWithPhoto = visibleItems.filter((it) => it.photoId);
   const slides: LightboxSlide[] = itemsWithPhoto.map((it) => ({
     url: `/api/photos/${it.photoId}/display`,
@@ -141,7 +153,7 @@ export default function TrashedPhotosPage() {
   }));
 
   return (
-    <div className="min-h-screen bg-canvas">
+    <div className="flex-1 bg-canvas">
       <PageHeader sticky
         title="Trash"
         backFallbackTo="/settings"
@@ -167,27 +179,10 @@ export default function TrashedPhotosPage() {
                 <input type="checkbox" checked={showLabels} onChange={(e) => setShowLabels(e.target.checked)} />
                 Labels
               </label>
-              {selectMode ? (
-                <button
-                  onClick={() => {
-                    setSelectMode(false);
-                    setSelectedCaptureIds(new Set());
-                  }}
-                  className="text-xs text-muted hover:underline"
-                >
-                  Cancel
-                </button>
-              ) : (
-                <button onClick={() => setSelectMode(true)} className="text-xs text-muted hover:underline">
-                  Select
-                </button>
-              )}
-              <button
-                onClick={() => setConfirmingEmpty(true)}
-                className="rounded-md border border-red-600 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50"
-              >
+              <SelectModeToggle active={selectMode} onEnter={() => select.setSelectMode(true)} onExit={select.exit} />
+              <Button variant="danger" size="sm" onClick={() => setConfirmingEmpty(true)}>
                 Empty Trash
-              </button>
+              </Button>
             </div>
           )
         }
@@ -195,19 +190,15 @@ export default function TrashedPhotosPage() {
 
       {selectMode && (
         <div className="flex items-center justify-between border-b border-line bg-surface-muted px-6 py-2 text-xs">
-          <span className="text-muted">{selectedCaptureIds.size} selected</span>
-          <button
-            onClick={restoreSelected}
-            disabled={selectedCaptureIds.size === 0}
-            className="rounded-md bg-accent px-3 py-1 text-xs font-medium text-accent-fg hover:opacity-90 disabled:opacity-40"
-          >
+          <span className="text-muted">{selectedIds.size} selected</span>
+          <Button size="sm" onClick={restoreSelected} disabled={selectedIds.size === 0}>
             Restore selected
-          </button>
+          </Button>
         </div>
       )}
 
       <main className="p-6">
-        {error && <p className="text-sm text-red-600">{error}</p>}
+        <FormMessage error={error} />
         {!data && !error && <Spinner />}
         {data && (
           <>
@@ -241,7 +232,10 @@ export default function TrashedPhotosPage() {
                     <div key={item.captureId} className="group relative w-full min-w-0">
                       {item.photoId ? (
                         <button
-                          onClick={() => (selectMode ? toggleSelected(item.captureId) : setLightboxIndex(photoIndex))}
+                          onClick={() => {
+                            if (!selectMode) setLightboxIndex(photoIndex);
+                          }}
+                          {...selectHandlers(item.captureId)}
                           className="relative block w-full overflow-hidden text-left"
                           style={{ aspectRatio }}
                         >
@@ -250,7 +244,7 @@ export default function TrashedPhotosPage() {
                             fullSrc={`/api/photos/${item.photoId}/display`}
                             alt={item.speciesName}
                             className={`block h-full w-full cursor-pointer rounded-md object-cover ${
-                              selectMode && selectedCaptureIds.has(item.captureId) ? "ring-2 ring-inset ring-blue-500" : ""
+                              selectMode && isSelected(item.captureId) ? "ring-2 ring-inset ring-blue-500" : ""
                             }`}
                           />
                           {item.kind === "video" && (
@@ -266,13 +260,10 @@ export default function TrashedPhotosPage() {
                           )}
                         </button>
                       ) : (
-                        <button
-                          onClick={() => selectMode && toggleSelected(item.captureId)}
-                          className="block w-full text-left"
-                        >
+                        <button {...selectHandlers(item.captureId)} className="block w-full text-left">
                           <PhotoPlaceholder
                             className={`aspect-square w-full rounded-md ${
-                              selectMode && selectedCaptureIds.has(item.captureId) ? "ring-2 ring-inset ring-blue-500" : ""
+                              selectMode && isSelected(item.captureId) ? "ring-2 ring-inset ring-blue-500" : ""
                             }`}
                           />
                         </button>
@@ -280,8 +271,10 @@ export default function TrashedPhotosPage() {
                       {selectMode && (
                         <input
                           type="checkbox"
-                          checked={selectedCaptureIds.has(item.captureId)}
-                          onChange={() => toggleSelected(item.captureId)}
+                          checked={isSelected(item.captureId)}
+                          onChange={(e) =>
+                            select.toggle(item.captureId, indexById.get(item.captureId) ?? 0, (e.nativeEvent as MouseEvent).shiftKey ?? false)
+                          }
                           className="absolute left-2 top-2 h-4 w-4 accent-accent"
                           aria-label="Select photo"
                         />
@@ -326,7 +319,7 @@ export default function TrashedPhotosPage() {
                         <>
                           <p className="mt-1 truncate text-[11px] text-muted">{item.speciesName}</p>
                           <p className="truncate text-[10px] text-muted">
-                            {daysLeft(item.purgesAt)} day{daysLeft(item.purgesAt) === 1 ? "" : "s"} left
+                            {pluralize(daysLeft(item.purgesAt), "day")} left
                             {item.hasRawOriginal && (item.pendingDeleteRaw ? " · RAW will also be deleted" : " · RAW will be kept")}
                           </p>
                         </>
@@ -344,29 +337,18 @@ export default function TrashedPhotosPage() {
         <Lightbox slides={slides} index={lightboxIndex} onIndexChange={setLightboxIndex} onClose={() => setLightboxIndex(null)} />
       )}
 
-      {confirmingEmpty && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setConfirmingEmpty(false)}>
-          <div className="w-full max-w-sm rounded-lg border border-line bg-surface p-4 shadow-lg" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-sm font-medium text-ink">Empty Trash?</h3>
-            <p className="mt-2 text-xs text-muted">
-              This permanently removes everything in Trash right now, even photos that haven't reached their 7-day
-              limit yet. This can't be undone.
-            </p>
-            <div className="mt-4 flex justify-end gap-2">
-              <button onClick={() => setConfirmingEmpty(false)} className="rounded-md px-3 py-1.5 text-xs text-muted hover:bg-surface-muted">
-                Cancel
-              </button>
-              <button
-                onClick={emptyTrash}
-                disabled={emptying}
-                className="rounded-md bg-red-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-700 disabled:opacity-40"
-              >
-                {emptying ? "Emptying…" : "Empty Trash"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <ConfirmDialog
+        open={confirmingEmpty}
+        title="Empty Trash?"
+        message={`This permanently removes everything in Trash right now, even photos that haven't reached their ${
+          data?.retentionDays ?? 7
+        }-day limit yet. This can't be undone.`}
+        confirmLabel="Empty Trash"
+        danger
+        busy={emptying}
+        onConfirm={() => void emptyTrash()}
+        onCancel={() => setConfirmingEmpty(false)}
+      />
     </div>
   );
 }

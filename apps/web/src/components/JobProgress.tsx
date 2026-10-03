@@ -1,12 +1,13 @@
 import type { ReactNode } from "react";
 import type { JobStatus } from "@lifer/shared";
 import FormMessage from "./FormMessage";
+import ProgressBar from "./ProgressBar";
 import { formatBytes } from "../lib/formatBytes";
 
 export interface PhaseConfig {
   label: string;
   // Which counter drives the text and bar. "auto" uses bytes when the job reports them, else
-  // processed/total, else just a spinner.
+  // processed/total, else an indeterminate bar.
   progress?: "auto" | "bytes" | "count" | "none";
   // Noun for the count, e.g. "tables" gives "(4 of 11 tables)".
   countNoun?: string;
@@ -49,10 +50,8 @@ function describe(status: JobProgressStatus, phases: PhaseLabels | undefined, fa
   return { text, fraction: fraction == null ? null : Math.max(0, Math.min(1, fraction)) };
 }
 
-// Shared progress UI for every background job: a determinate bar when the job reports enough
-// to compute one (a spinner otherwise), a phase label, optional Cancel, and the finished
-// error/cancelled state with an optional Retry. Renders nothing for an idle, successful job;
-// callers show their own success message.
+// Shared progress UI for background jobs: a bar (indeterminate when progress is unknown), a phase
+// label, optional Cancel, and error/cancelled states with optional Retry. Renders nothing when idle or done.
 export default function JobProgress({
   status,
   phases,
@@ -86,23 +85,15 @@ export default function JobProgress({
     return (
       <div className="space-y-2">
         <div className="flex items-center justify-between gap-3">
-          <p className="flex min-w-0 items-center gap-2 text-sm text-muted">
-            {fraction == null && (
-              <span className="h-3 w-3 shrink-0 animate-spin rounded-full border-2 border-accent/40 border-t-accent" />
-            )}
-            <span className="min-w-0 truncate">{stopping ? "Cancelling…" : text}</span>
-          </p>
+          <p className="min-w-0 truncate text-sm text-muted">{stopping ? "Cancelling…" : text}</p>
           {onCancel && (
             <button type="button" onClick={onCancel} disabled={stopping} className={smallButtonClass}>
               Cancel
             </button>
           )}
         </div>
-        {fraction != null && (
-          <div className="h-1.5 overflow-hidden rounded-full bg-surface-muted">
-            <div className="h-full bg-accent transition-all" style={{ width: `${Math.round(fraction * 100)}%` }} />
-          </div>
-        )}
+        {/* Keyed by item too: per-pack byte counts restart at 0 within one "downloading" phase. */}
+        <ProgressBar value={fraction} resetKey={`${status.phase ?? ""}:${status.currentItem ?? ""}`} label={text} />
         {detail && <p className="text-xs text-muted">{detail}</p>}
       </div>
     );

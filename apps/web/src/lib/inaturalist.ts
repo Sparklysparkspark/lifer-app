@@ -1,7 +1,5 @@
-// Shared by SpeciesHotspotMap.tsx (clustered locations) and SpeciesDetailPage.tsx (the
-// widespread case, which shows no map) — both need the same "check what's been seen more
-// recently than this pack's own snapshot" link into iNaturalist's live map, scoped to this
-// exact region's bounding box plus the species.
+// Link to iNaturalist's live map for one species within a region's bounding box, to see sightings
+// newer than the offline pack's snapshot.
 export function buildInaturalistObservationsUrl(boundaryGeoJson: unknown, scientificName: string): string | null {
   const bbox = (boundaryGeoJson as { bbox?: [number, number, number, number] } | null)?.bbox;
   if (!bbox) return null;

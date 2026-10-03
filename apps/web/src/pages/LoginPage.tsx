@@ -1,13 +1,16 @@
 import { useEffect, useState } from "react";
 import { Link, Navigate, useNavigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
-import { api, ApiError } from "../api/client";
+import { api } from "../api/client";
+import Button from "../components/Button";
+import FormMessage from "../components/FormMessage";
 import { Logo } from "../components/Logo";
 import PasswordInput from "../components/PasswordInput";
+import { errorMessage } from "../lib/errorMessage";
+import { openLocalLibrary } from "../lib/desktopConnection";
 
-// Single-user app: no invite codes, no public sign-up, and no path to ever add a second
-// account. Before any account exists, this page is a one-time "create your account" setup
-// screen; once that one account exists, it's a plain login form for good.
+// Single-user app: a one-time "create your account" screen until the account exists, then a
+// plain login form for good.
 export default function LoginPage() {
   const { user, login, register } = useAuth();
   const navigate = useNavigate();
@@ -17,18 +20,44 @@ export default function LoginPage() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  // Fresh registration navigates to /onboarding explicitly rather than falling through to the
-  // plain `if (user) return <Navigate to="/" />` below — that guard exists for an
-  // already-logged-in user revisiting /login, not for the one-time flow right after creating
-  // the account, which needs a stop at onboarding first (see OnboardingPage.tsx).
+  // A fresh account goes to onboarding, not through the signed-in redirect to "/" below.
   const [justRegistered, setJustRegistered] = useState(false);
+  // In the desktop app connected to a server, signing out lands here, so this is the way back to
+  // the library on this computer (Settings, where the switch otherwise lives, needs a sign-in).
+  const [connectedServer, setConnectedServer] = useState<string | null>(null);
+  const [switchingToLocal, setSwitchingToLocal] = useState(false);
 
   useEffect(() => {
-    api.get<{ needsSetup: boolean }>("/auth/setup-status").then((res) => setNeedsSetup(res.needsSetup));
+    window.liferSetup
+      ?.getConfig()
+      .then((config) => {
+        if (config?.mode === "remote") setConnectedServer(config.serverUrl ?? config.localUrl ?? window.location.origin);
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    api
+      .get<{ needsSetup: boolean }>("/auth/setup-status")
+      .then((res) => setNeedsSetup(res.needsSetup))
+      .catch((err) => {
+        // Fall back to the login form so the page isn't blank; a real attempt reports the problem.
+        setNeedsSetup(false);
+        setError(errorMessage(err, "Couldn't reach the server"));
+      });
   }, []);
 
   if (user && !justRegistered) return <Navigate to="/" replace />;
   if (needsSetup === null) return null;
+
+  async function switchToLocal() {
+    setError(null);
+    setSwitchingToLocal(true);
+    // On success the desktop shell reloads onto the local library, so this page goes away.
+    const failure = await openLocalLibrary();
+    if (failure) setError(failure);
+    setSwitchingToLocal(false);
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -40,14 +69,15 @@ export default function LoginPage() {
     setSubmitting(true);
     try {
       if (needsSetup) {
-        await register(email, password);
         setJustRegistered(true);
+        await register(email, password);
         navigate("/onboarding", { replace: true });
       } else {
         await login(email, password);
       }
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Something went wrong");
+      setJustRegistered(false);
+      setError(errorMessage(err, "Something went wrong"));
     } finally {
       setSubmitting(false);
     }
@@ -92,20 +122,25 @@ export default function LoginPage() {
           />
         )}
 
-        {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
+        <FormMessage error={error} />
 
-        <button
-          type="submit"
-          disabled={submitting}
-          className="w-full rounded-md bg-accent py-2 text-sm font-medium text-accent-fg disabled:opacity-50"
-        >
+        <Button type="submit" loading={submitting} className="w-full">
           {needsSetup ? "Make account" : "Log in"}
-        </button>
+        </Button>
 
         {!needsSetup && (
           <Link to="/forgot-password" className="block text-center text-sm text-muted hover:underline">
             Forgot password?
           </Link>
+        )}
+
+        {connectedServer && (
+          <div className="border-t border-line pt-4 text-center text-sm text-muted">
+            <p>Connected to {connectedServer}.</p>
+            <button type="button" onClick={switchToLocal} disabled={switchingToLocal} className="mt-1 text-ink hover:underline disabled:opacity-50">
+              {switchingToLocal ? "Switching…" : "Use the library on this computer instead"}
+            </button>
+          </div>
         )}
       </form>
     </div>

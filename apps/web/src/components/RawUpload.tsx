@@ -1,12 +1,7 @@
 import { useRef, useState } from "react";
 import { enqueueRawUploads } from "../lib/uploadQueue";
-
-const RAW_EXTENSIONS = new Set([".cr2", ".cr3", ".nef", ".nrw", ".arw", ".raf", ".rw2", ".orf", ".dng", ".pef", ".srw", ".tif", ".tiff"]);
-
-function extname(filename: string): string {
-  const dot = filename.lastIndexOf(".");
-  return dot === -1 ? "" : filename.slice(dot).toLowerCase();
-}
+import FormMessage from "./FormMessage";
+import { RAW_EXTENSIONS, extname } from "../lib/rawExtensions";
 
 interface RawUploadOutcome {
   filename: string;
@@ -15,24 +10,16 @@ interface RawUploadOutcome {
   speciesCommonName?: string | null;
   speciesScientificName?: string;
   error?: string;
-  /** Filed straight into this species' RAW folder — no matching JPEG needed. Only possible
-   *  via "Choose RAW files…", not "Choose a folder…" — see handleFiles' own comment. */
+  /** Filed under this species with no matching JPEG (only from "Choose RAW files…"). */
   filed?: boolean;
-  /** Identical content already on file for this species — not re-added. */
+  /** Identical content already on file for this species, not re-added. */
   duplicate?: boolean;
-  /** Internal only — identifies this placeholder's own list entry so a result can be routed
-   *  back to the right row even when two files in the same (or overlapping) batch share a
-   *  filename, e.g. same-named RAWs in different subfolders. Never rendered. */
+  /** Routes a result back to its row when two files in a batch share a filename. Never rendered. */
   _key?: string;
 }
 
-// Standalone RAW upload, matched by EXIF fingerprint against already-uploaded JPEGs, with no
-// species picker needed since the match determines the species. Accepts many files (or a
-// whole folder) at once; each is matched independently, so a mixed batch of hits/misses/
-// collisions is reported per file rather than all-or-nothing. Requests run through the shared
-// background queue (lib/uploadQueue) — closing this dialog, or navigating away entirely,
-// doesn't stop or lose them; only this component's own inline result list goes away if it's
-// not mounted to receive it (the global upload banner still shows progress either way).
+// RAW upload matched by EXIF fingerprint against already-uploaded JPEGs, which decides the species.
+// Uploads run on the shared background queue, so they continue if this unmounts.
 export default function RawUpload({
   speciesId,
   volumeId,
@@ -40,14 +27,10 @@ export default function RawUpload({
   onFiled,
 }: {
   speciesId: string;
-  /** Registered external drive to save into, or "" for the primary drive — see
-   *  VolumeDestinationPicker, rendered by the parent dialog above both upload controls. */
+  /** Registered drive to save into, or "" for the main library (see VolumeDestinationPicker). */
   volumeId: string;
-  /** Hides "Choose RAW files…" (the unmatched-fallback picker, which files an orphan RAW
-   *  straight under `speciesId`) — for a context with no single species to fall back to, like
-   *  a trip spanning many species (see TripDetailPage.tsx's build-mode panel). Matching against
-   *  already-uploaded JPEGs (via "Choose a folder…") needs no species hint at all — the match
-   *  itself determines the species — so this only removes the picker that WOULD need one. */
+  /** Hides "Choose RAW files…", which files unmatched RAWs under `speciesId`. For contexts with
+   *  no single species, like a trip. */
   matchOnly?: boolean;
   onFiled?: () => void;
 }) {
@@ -56,11 +39,8 @@ export default function RawUpload({
   const filesInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
 
-  // allowUnmatchedFallback is only ever true from the "Choose RAW files…" picker below, never
-  // from "Choose a folder…" — this page knows which species a directly-chosen file belongs
-  // to, whereas a folder full of RAWs may span many species, so only files that match an
-  // existing JPEG should be filed from a folder upload. The destination drive (volumeId)
-  // applies either way — it's a storage preference, independent of which species matched.
+  // Only directly chosen files fall back to this species; a folder may span many species, so
+  // only its matched RAWs are filed. The destination drive applies either way.
   function handleFiles(fileList: FileList, allowUnmatchedFallback: boolean) {
     const files = Array.from(fileList).filter((f) => RAW_EXTENSIONS.has(extname(f.name)));
     setError(null);
@@ -68,9 +48,7 @@ export default function RawUpload({
       setError("No supported RAW files found in that selection");
       return;
     }
-    // A unique key per file in this batch — not the filename, which two RAWs in the same
-    // folder-wide upload can legitimately share (different subfolders) — so each result routes
-    // back to its own placeholder row instead of the first pending row with a matching name.
+    // Keyed per file, not by filename, which RAWs in different subfolders can share.
     const batchId = `${Date.now()}-${Math.random()}`;
     const placeholders: RawUploadOutcome[] = files.map((f, i) => ({ filename: f.name, linked: false, collision: false, _key: `${batchId}-${i}` }));
     setResults((prev) => [...(prev ?? []), ...placeholders]);
@@ -155,15 +133,13 @@ export default function RawUpload({
           Choose a folder…
         </label>
       </div>
-      {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
+      <FormMessage error={error} className="mt-2" />
       {results && (
         <div className="mt-2 space-y-1">
           <p className="text-xs font-medium text-muted">
             {successCount} of {results.length} added
           </p>
-          {/* A folder-wide run can be hundreds of files; a plain "no matching photo" result
-             for most of them is noise rather than information, so only real outcomes (a
-             match, a collision, a duplicate, or an actual error) are listed. */}
+          {/* A folder run can be hundreds of files, so plain "no match" rows are left out. */}
           {results
             .filter((r) => r.linked || r.filed || r.duplicate || r.error || r.collision)
             .map((r, i) => (
@@ -171,7 +147,7 @@ export default function RawUpload({
                 <span className="text-ink">{r.filename}</span>
                 {": "}
                 {r.error ? (
-                  <span className="text-red-600">{r.error}</span>
+                  <span className="text-rose-700 dark:text-rose-400">{r.error}</span>
                 ) : r.collision ? (
                   <span className="text-amber-600">matched more than one photo with the same camera fingerprint, skipped</span>
                 ) : r.duplicate ? (

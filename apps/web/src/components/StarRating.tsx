@@ -1,6 +1,4 @@
-// Shared 1-5 star rating control — extracted from SpeciesDetailPage.tsx's own inline widget so
-// GalleryPage.tsx can rate a photo directly instead of only from the species page. Clicking the
-// currently-set star clears the rating (same toggle-off behavior the original had).
+// 1-5 star rating; clicking the current star clears it.
 export default function StarRating({
   rating,
   onRate,

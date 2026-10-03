@@ -2,83 +2,57 @@ import { useEffect, useRef, useState } from "react";
 import { api, ApiError } from "../api/client";
 import { errorMessage } from "../lib/errorMessage";
 import { mapWithConcurrency } from "../lib/concurrency";
-import { postPhotoUpload, postUploadPreferringKeptCopy, registerExternalJob, settleExternalJob, type PossibleDuplicate } from "../lib/uploadQueue";
-import SpeciesPicker, { type SpeciesResult, type SuggestedSpecies } from "./SpeciesPicker";
-import SuggestionCard from "./SuggestionCard";
+import { postUploadedFile, registerExternalJob, reportJobProgress, settleExternalJob, suggestSpeciesFromVideo, type PossibleDuplicate } from "../lib/uploadQueue";
+import { discardUpload, uploadFile } from "../lib/tusUpload";
+import SpeciesPicker, { type SuggestedSpecies } from "./SpeciesPicker";
 import RegionBrowser from "./RegionBrowser";
-import Lightbox, { type LightboxSlide } from "./Lightbox";
-import { isRawFile, RAW_EXTENSIONS } from "../lib/rawExtensions";
+import Lightbox from "./Lightbox";
+import ImportReviewRow from "./importReview/ImportReviewRow";
+import { useImportReview, type ReviewRowBase } from "./importReview/useImportReview";
+import { useSpeciesGallery } from "./importReview/useSpeciesGallery";
+import { isRawFile, VENDOR_RAW_EXTENSIONS } from "../lib/rawExtensions";
+import { isBrowserDisplayable, isVideoFile, photoFormatOf, PHOTO_ACCEPT, VIDEO_ACCEPT } from "../lib/photoFormats";
+import { computeClientVectors, recordServerMatching, shouldMatchLocally, prepareLocalInference, useLocalInferenceReady } from "../lib/localInference";
+import { useSettings } from "../hooks/useSettings";
+import { pluralize, pluralWord } from "../lib/pluralize";
+import Button from "./Button";
+import ProgressBar from "./ProgressBar";
 
-// Same localStorage key CollectionPage uses for its own region browsing — reusing it means
-// picking a region here also becomes the default the next time the Collection page opens, and
-// vice versa, rather than tracking two independent "which region am I looking at" states.
+// Shared with CollectionPage, so the last region picked in either place is the default in both.
 const LAST_REGION_KEY = "lifer:lastRegionId";
 
-// Phase 5 (spec §9): "a decade of photos onboarded in an evening." AI photo matching was tried
-// here (see packages-id/ archive) but shelved after regressions — revisited as embedding-based
-// species auto-suggest (see ~/.claude/plans/vast-prancing-turing.md): a background call to
-// POST /captures/suggest-species per row surfaces one-click suggestions in that row's
-// SpeciesPicker, but assignment itself stays fully manual — suggestions never auto-assign.
+// Species suggestions are one-click only; nothing is ever assigned automatically.
 type RowStatus = "pending" | "ready" | "uploading" | "done" | "error";
 
-interface ImportRow {
-  key: string;
+interface ImportRow extends ReviewRowBase {
   file: File;
   previewUrl: string;
-  speciesId: string | null;
-  speciesLabel: string | null;
   status: RowStatus;
-  suggestions: SuggestedSpecies[];
-  /** Set if this exact photo (by content, not filename) matches one you've already imported —
-   *  checked at add-time so it's visible before you've even picked a species, same /uploads/
-   *  inspect check UploadDropzone's own flow already uses (see uploadQueue.ts), just surfaced
-   *  inline per-row here instead of through a global banner prompt. `undefined` = not checked
-   *  yet, `null` = checked, no duplicate found. */
-  possibleDuplicate?: PossibleDuplicate | null;
   captureId?: string;
   error?: string;
-  /** True while the duplicate-check/species-suggestion request for this row is in flight —
-   *  that call can take a couple seconds (a real inference pass, not a cache hit), so without
-   *  this the row just sits with no suggestions and no indication anything is happening,
-   *  reading as "there's nothing to suggest" rather than "still working on it." */
-  isInspecting?: boolean;
-  /** A camera RAW has no browser-renderable preview of its own (sharp/the browser can't decode
-   *  raw sensor data) — previewUrl (the raw file's own blob URL) would just be a broken-image
-   *  icon. Shown as a plain badge until this fills in, once /uploads/inspect's response comes
-   *  back with the RAW's embedded JPEG preview extracted server-side (data URL, so no second
-   *  request needed to fetch it) — `undefined` = not checked yet, `null` = checked, camera/
-   *  format has no embedded preview to extract. */
+  /** Browsers can't render RAW, TIFF or HEIC (previewFromServer), so rawPreviewUrl holds the JPEG
+   *  preview from /uploads/inspect. `undefined` = not checked yet, `null` = the file has none. */
   isRaw?: boolean;
+  previewFromServer?: boolean;
   rawPreviewUrl?: string | null;
-  /** The server's kept copy of this file from the check (see uploadQueue.ts postPhotoUpload). */
+  /** The finished resumable upload of this file; the check and the import both use it. */
+  uploadId?: string | null;
+  /** 0..1 while this file's upload is in flight. */
+  uploadProgress?: number | null;
+  /** The upload itself failed before import (too large for the server, connection lost). */
+  uploadError?: string;
+  /** The server's kept copy of a video from the species check (see uploadQueue.ts postUploadedFile). */
   stagedId?: string | null;
-  /** Routed through an entirely different pair of endpoints from a photo row — /uploads/video
-   *  instead of /uploads for the actual import, and suggest-species-from-video (frame sampling)
-   *  instead of /uploads/inspect for suggestions (video has no duplicate-check story yet). */
+  /** Imports via /uploads/video and gets suggestions from sampled frames; no duplicate check. */
   isVideo?: boolean;
-  /** Set when suggestions couldn't be computed at all (e.g. no readable video frames), so the
-   *  row doesn't read as "no species matched". */
-  suggestError?: string;
-}
-
-const VIDEO_MIME_TYPES = new Set(["video/mp4", "video/quicktime"]);
-const VIDEO_EXTENSIONS = [".mp4", ".mov"];
-function isVideoFile(file: File): boolean {
-  return VIDEO_MIME_TYPES.has(file.type) || VIDEO_EXTENSIONS.some((ext) => file.name.toLowerCase().endsWith(ext));
 }
 
 const UPLOAD_CONCURRENCY = 2;
-// /uploads/inspect runs CPU-bound embedding inference server-side whenever a region is set (see
-// inspectFile) — a small concurrency cap keeps a big batch drop from queuing dozens of
-// inference calls at once, same reasoning as UPLOAD_CONCURRENCY above.
+// Inspect runs server-side inference, so a big drop shouldn't queue dozens at once.
 const INSPECT_CONCURRENCY = 2;
 
-// Shared by BulkImportPage (general import) and TripDetailPage's Build-a-Trip flow — same
-// "drop a batch of photos, assign a species to each (or select several and bulk-assign), then
-// import" experience either way. `tripId`, when present, is threaded straight through to
-// /uploads (already supports it — see uploads/routes.ts's mode=store tripId handling, which
-// resolves the trip's own folder as the destination and sets captures.trip_id), the only thing
-// that actually differs between the two callers.
+// Batch import: drop files, assign a species to each (or bulk-assign a selection), then import.
+// Used by BulkImportPage, TripDetailPage and AlbumDetailPage; tripId/albumId go straight to /uploads.
 export default function PhotoImportRows({
   tripId,
   albumId,
@@ -86,95 +60,122 @@ export default function PhotoImportRows({
   onImportStarted,
 }: {
   tripId?: string;
-  /** Same idea as tripId above, for Album's own "Import Album" flow - threaded straight through
-   *  to /uploads (already supports it, see uploads/routes.ts's own albumId handling), which links
-   *  each newly-created capture into this album via album_captures. Unlike tripId, this never
-   *  changes where the file is stored - an album doesn't have its own folder. */
+  /** Links each new capture into this album. Unlike tripId, it never changes where files are stored. */
   albumId?: string;
   onImported?: () => void;
-  /** Called once the uploads have started, with whether that covers every row here. The uploads
-   *  keep going if the page is left (the global UploadQueueBanner tracks them), so a page with
-   *  nowhere better to be can leave right away instead of making the user click out. */
+  /** Called once the uploads have started, with whether that covers every row here. Uploads
+   *  continue in the background if the page is left. */
   onImportStarted?: (everyRowIncluded: boolean) => void;
 }) {
   const [rows, setRows] = useState<ImportRow[]>([]);
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [focusedRowKey, setFocusedRowKey] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
   const [lastBatch, setLastBatch] = useState<Array<{ key: string; captureId: string }>>([]);
-  // row.previewUrl is already a full-resolution local blob URL (URL.createObjectURL(file),
-  // see addFiles below), so this reuses the same Lightbox the rest of the app uses for
-  // full-size viewing with no extra fetch — the whole file is already sitting in the browser.
+  // Row previews are local blob URLs, so the lightbox needs no fetch.
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
-  // A bigger view of a suggestion's reference photos — separate from the row-photo lightbox
-  // above, since this shows every reference photo of a CANDIDATE species (main + gallery), so a
-  // user can flip through them to compare against their own new photo rather than judging a
-  // match off one single thumbnail. Fetched fresh per click via GET /species/:id/reference-
-  // photos rather than reusing the single `reference-photo/thumb` URL SuggestionCard's own
-  // thumbnail already uses.
-  const [speciesGallery, setSpeciesGallery] = useState<{ slides: LightboxSlide[]; label: string; index: number } | null>(null);
+  // Every reference photo of a candidate species, for comparing against the new photo.
+  const speciesGallery = useSpeciesGallery();
 
-  async function viewSpeciesGallery(speciesId: string, label: string) {
-    const caption = (credit: string | null) => (credit ? `${label} · ${credit}` : label);
-    try {
-      const res = await api.get<{ photos: Array<{ url: string; credit: string | null }> }>(`/species/${speciesId}/reference-photos`);
-      const slides =
-        res.photos.length > 0
-          ? res.photos.map((p) => ({ url: p.url, caption: caption(p.credit) }))
-          : [{ url: `/api/species/${speciesId}/reference-photo/display`, caption: caption(null) }];
-      setSpeciesGallery({ slides, label, index: 0 });
-    } catch {
-      // Best-effort — fall back to the single photo SuggestionCard's own thumbnail already
-      // pointed at, rather than a dead click.
-      setSpeciesGallery({ slides: [{ url: `/api/species/${speciesId}/reference-photo/display`, caption: caption(null) }], label, index: 0 });
-    }
+  // One upload per row, shared by the check and the import so the file is sent once.
+  const uploadsRef = useRef(new Map<string, Promise<string>>());
+  // Each row's latest check: changing region re-checks every row, and an older check's answer
+  // arriving last mustn't replace the new region's.
+  const inspectGenerations = useRef(new Map<string, number>());
+  const startInspect = (key: string) => {
+    const gen = (inspectGenerations.current.get(key) ?? 0) + 1;
+    inspectGenerations.current.set(key, gen);
+    return () => inspectGenerations.current.get(key) === gen;
+  };
+  const uploadAbortsRef = useRef(new Map<string, AbortController>());
+  // Banner job per importing row, so an upload still in flight at import time shows its bytes there.
+  const rowJobsRef = useRef(new Map<string, string>());
+  // Set synchronously in importAll: rowsRef can lag a render behind when the page navigates away.
+  const importingKeysRef = useRef(new Set<string>());
+  const progressPctRef = useRef(new Map<string, number>());
+
+  function setRowProgress(key: string, sent: number, total: number) {
+    const jobId = rowJobsRef.current.get(key);
+    if (jobId) reportJobProgress(jobId, sent, total);
+    // Whole-percent steps only: tus reports progress many times a second.
+    const pct = total > 0 ? Math.floor((sent / total) * 100) : 0;
+    if (progressPctRef.current.get(key) === pct) return;
+    progressPctRef.current.set(key, pct);
+    setRows((prev) => prev.map((r) => (r.key === key ? { ...r, uploadProgress: pct >= 100 ? null : pct / 100 } : r)));
   }
 
-  // A blob: URL isn't tied to this component's lifecycle — it stays alive in the browser until
-  // explicitly revoked, not just because the element referencing it unmounted. removeRow below
-  // already revokes one when a photo is explicitly taken out, but a user who instead just
-  // navigates away with rows still sitting here (imported or not) would otherwise leak every
-  // one of those for the rest of the session. Mirrored into a ref (rather than reading `rows`
-  // directly) so the unmount-only cleanup effect below can see the latest rows without re-
-  // running on every rows change itself.
+  function ensureUploaded(key: string, file: File): Promise<string> {
+    const existing = uploadsRef.current.get(key);
+    if (existing) return existing;
+    const controller = new AbortController();
+    uploadAbortsRef.current.set(key, controller);
+    const promise = uploadFile(file, { signal: controller.signal, onProgress: (sent, total) => setRowProgress(key, sent, total) })
+      .then((uploadId) => {
+        setRows((prev) => prev.map((r) => (r.key === key ? { ...r, uploadId, uploadProgress: null, uploadError: undefined } : r)));
+        return uploadId;
+      })
+      .catch((err: unknown) => {
+        uploadsRef.current.delete(key);
+        if (!controller.signal.aborted) {
+          const uploadError = err instanceof Error ? err.message : "Upload failed";
+          setRows((prev) => prev.map((r) => (r.key === key ? { ...r, uploadProgress: null, uploadError } : r)));
+        }
+        throw err;
+      })
+      .finally(() => {
+        uploadAbortsRef.current.delete(key);
+        progressPctRef.current.delete(key);
+      });
+    uploadsRef.current.set(key, promise);
+    return promise;
+  }
+
+  // Stops (or deletes on the server) the upload of a row that will never be imported.
+  function dropUpload(key: string, uploadId: string | null | undefined) {
+    uploadAbortsRef.current.get(key)?.abort();
+    uploadsRef.current.delete(key);
+    if (uploadId) discardUpload(uploadId);
+  }
+
+  // Blob URLs outlive the component, so revoke whatever rows remain on unmount. Uploads of rows
+  // not being imported stop too; the importing ones carry on in the background.
   const rowsRef = useRef(rows);
   rowsRef.current = rows;
   useEffect(() => {
     return () => {
-      for (const row of rowsRef.current) URL.revokeObjectURL(row.previewUrl);
+      for (const row of rowsRef.current) {
+        URL.revokeObjectURL(row.previewUrl);
+        if (!importingKeysRef.current.has(row.key) && !row.captureId) dropUpload(row.key, row.uploadId);
+      }
     };
   }, []);
 
-  // Experimental (see Settings → species-suggest toggle): defaults to on, but this component
-  // never fetches suggestions unless the account setting confirms it's actually enabled — a
-  // disabled setting must skip the work, not just hide it in the UI.
-  const [suggestEnabled, setSuggestEnabled] = useState(false);
-  useEffect(() => {
-    api.get<{ speciesSuggestEnabled: boolean }>("/settings").then((res) => setSuggestEnabled(res.speciesSuggestEnabled));
-  }, []);
+  // Suggestions are skipped entirely (not just hidden) unless the setting is on.
+  const suggestEnabled = useSettings().settings?.speciesSuggestEnabled ?? false;
 
-  // Suggestions need a region to narrow candidates against (region_species) — asking the user
-  // to pick one up front, once per batch, is both cheaper and more accurate than trying to guess
-  // it from EXIF GPS, which many cameras/exports don't even carry. Defaults to whichever region
-  // was last viewed on the Collection page (same localStorage key), since that's almost always
-  // the region a returning user cares about right now.
+  // Region narrows the suggestion candidates; picked once per batch rather than guessed from GPS.
   const [regionId, setRegionId] = useState<string | null>(() => localStorage.getItem(LAST_REGION_KEY));
 
-  // A free-text place name (e.g. "Prince George"), independent of exact GPS — most real
-  // workflows described a whole import session sharing one location, so it's set once per
-  // batch here rather than per photo. Not persisted across sessions like regionId (a location
-  // label is specific to wherever this particular outing was, not a lasting preference).
+  // One free-text place name per batch; not persisted like the region.
   const [locationLabel, setLocationLabel] = useState("");
+
+  // In the desktop app connected to a server, photos can be matched on this computer instead.
+  const localMatching = useLocalInferenceReady();
+  useEffect(() => prepareLocalInference(), []);
+
+  // Loads the models and this region's candidate set before the first photo arrives. Best-effort.
+  useEffect(() => {
+    if (!suggestEnabled || !regionId) return;
+    const timer = setTimeout(() => {
+      api.post("/species/matching/warm", { regionId }).catch(() => {});
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [suggestEnabled, regionId]);
 
   function selectRegion(id: string | null) {
     setRegionId(id);
     if (id) localStorage.setItem(LAST_REGION_KEY, id);
     else localStorage.removeItem(LAST_REGION_KEY);
     if (id && suggestEnabled) {
-      // Retroactively re-inspect every row that doesn't have a captureId yet — covers both "the
-      // user picked a region after already dropping photos in" and "region changed mid-batch."
-      // Re-running the duplicate check here too is a little redundant (it can't have changed),
-      // but it's the same one request either way, not a second round trip.
+      // Re-inspect every row not yet imported, for a region picked or changed mid-batch.
       const pending = rows.filter((r) => !r.captureId);
       mapWithConcurrency(pending, INSPECT_CONCURRENCY, async (row) =>
         row.isVideo ? inspectVideoFile(row.key, row.file, id) : inspectFile(row.key, row.file, id),
@@ -183,10 +184,9 @@ export default function PhotoImportRows({
   }
 
   function addFiles(fileList: FileList | File[]) {
-    // A camera RAW's file.type is usually empty (browsers don't recognize CR2/NEF/ARW/etc. as
-    // a registered image MIME type) — filtering on that alone silently dropped every RAW a
-    // user dragged in here. Falls back to extension for exactly those files.
-    const files = Array.from(fileList).filter((f) => f.type.startsWith("image/") || isRawFile(f.name) || isVideoFile(f));
+    // RAW and HEIC files often have an empty MIME type, so those match by extension. Anything the
+    // server wouldn't take (a GIF in a picked folder) is left out.
+    const files = Array.from(fileList).filter((f) => photoFormatOf(f) != null || isRawFile(f.name) || isVideoFile(f));
     const newRows: ImportRow[] = files.map((file) => ({
       key: `${file.name}-${file.size}-${file.lastModified}-${Math.random()}`,
       file,
@@ -196,6 +196,7 @@ export default function PhotoImportRows({
       status: "ready",
       suggestions: [],
       isRaw: isRawFile(file.name),
+      previewFromServer: isRawFile(file.name) || (!isVideoFile(file) && !isBrowserDisplayable(file)),
       isVideo: isVideoFile(file),
       isInspecting: true,
     }));
@@ -207,56 +208,80 @@ export default function PhotoImportRows({
     );
   }
 
-  // One request does double duty: the duplicate check (see uploadQueue.ts's own checkDuplicate,
-  // which this mirrors for UploadDropzone's flow) AND, given a region, species suggestions —
-  // both need this photo's embedding, and /uploads/inspect computes it at most once server-side
-  // rather than this making two separate round trips that would each redundantly re-embed the
-  // identical file. Best-effort throughout: a failure just leaves this row unflagged/without
-  // suggestions, never blocks assigning a species manually.
+  // One /uploads/inspect call does the duplicate check and, given a region, suggestions, so the
+  // file is embedded once. Best-effort: a failure never blocks assigning a species by hand.
   async function inspectFile(key: string, file: File, forRegionId: string | null) {
+    const isLatest = startInspect(key);
     try {
-      const form = new FormData();
-      form.append("file", file);
-      if (forRegionId) form.append("regionId", forRegionId);
-      const res = await api.post<{
-        possibleDuplicate: PossibleDuplicate | null;
-        suggestions: SuggestedSpecies[];
-        previewDataUrl: string | null;
-        stagedId?: string | null;
-      }>("/uploads/inspect", form);
+      // RAW, TIFF and HEIC are matched on the server's decoded preview, which only it makes.
+      const local = !isRawFile(file.name) && isBrowserDisplayable(file) && shouldMatchLocally();
+      const vectorsPromise = local ? computeClientVectors(file) : Promise.resolve(null);
+      const inspect = async (uploadId: string) => {
+        const form = new FormData();
+        form.append("uploadId", uploadId);
+        if (forRegionId) form.append("regionId", forRegionId);
+        const clientVectors = await vectorsPromise;
+        if (clientVectors) form.append("clientVectors", clientVectors);
+        return api.post<{
+          possibleDuplicate: PossibleDuplicate | null;
+          suggestions: SuggestedSpecies[];
+          burst?: { uploadIds: string[]; suggestions: SuggestedSpecies[] } | null;
+          matchingMs?: number | null;
+          previewDataUrl: string | null;
+          notWildlife?: { looksLike: string } | null;
+        }>("/uploads/inspect", form);
+      };
+      let res;
+      try {
+        res = await inspect(await ensureUploaded(key, file));
+      } catch (err) {
+        // 410: the server dropped the upload (expired), so send the file again once.
+        if (!(err instanceof ApiError && err.status === 410)) throw err;
+        uploadsRef.current.delete(key);
+        res = await inspect(await ensureUploaded(key, file));
+      }
+      // Other frames of the same burst get the ranking pooled from all of them, keeping a species
+      // their own keywords named on top.
+      if (res.matchingMs != null) recordServerMatching(res.matchingMs);
+      if (!isLatest()) return;
+      const burst = res.burst;
+      const mates = new Set(burst?.uploadIds ?? []);
+      const pooledFor = (own: SuggestedSpecies[]): SuggestedSpecies[] => {
+        const keyword = own[0]?.source === "keyword_tag" ? own[0] : null;
+        return keyword ? [keyword, ...burst!.suggestions.filter((s) => s.id !== keyword.id)] : burst!.suggestions;
+      };
       setRows((prev) =>
         prev.map((r) =>
-          r.key === key
+          r.key !== key && r.uploadId && mates.has(r.uploadId) && !r.isInspecting
+            ? { ...r, suggestions: pooledFor(r.suggestions) }
+            : r.key === key
             ? {
                 ...r,
                 possibleDuplicate: res.possibleDuplicate,
                 suggestions: res.suggestions,
                 rawPreviewUrl: res.previewDataUrl,
-                stagedId: res.stagedId ?? null,
+                notWildlife: res.notWildlife ?? null,
                 isInspecting: false,
               }
             : r,
         ),
       );
     } catch {
-      // leave this row unflagged/without suggestions
-      setRows((prev) => prev.map((r) => (r.key === key ? { ...r, isInspecting: false } : r)));
+      if (isLatest()) setRows((prev) => prev.map((r) => (r.key === key ? { ...r, isInspecting: false } : r)));
     }
   }
 
-  // A video's own version of inspectFile above — no duplicate-check story yet (video has no
-  // sha256/embedding-based near-dup detection the way photos do), just species suggestions,
-  // sampled from several frames spread across the clip server-side (see the route's own
-  // comment for why several frames beat just one).
+  // Video version: suggestions from frames sampled across the clip, no duplicate check. Sent
+  // once as a resumable upload that the import then reuses; a 410 resends it once.
   async function inspectVideoFile(key: string, file: File, forRegionId: string | null) {
+    const isLatest = startInspect(key);
     try {
-      const form = new FormData();
-      form.append("file", file);
-      if (forRegionId) form.append("regionId", forRegionId);
-      const res = await api.post<{ suggestions: SuggestedSpecies[]; error?: string; stagedId?: string | null }>(
-        "/captures/suggest-species-from-video",
-        form,
-      );
+      const upload = (fresh: boolean) => {
+        if (fresh) uploadsRef.current.delete(key);
+        return ensureUploaded(key, file);
+      };
+      const res = await suggestSpeciesFromVideo<{ suggestions: SuggestedSpecies[]; error?: string; stagedId?: string | null }>(upload, forRegionId);
+      if (!isLatest()) return;
       setRows((prev) =>
         prev.map((r) =>
           r.key === key ? { ...r, suggestions: res.suggestions, suggestError: res.error, stagedId: res.stagedId ?? null, isInspecting: false } : r,
@@ -264,22 +289,11 @@ export default function PhotoImportRows({
       );
     } catch (err) {
       console.error(err);
+      if (!isLatest()) return;
       setRows((prev) =>
         prev.map((r) => (r.key === key ? { ...r, suggestError: errorMessage(err, "Couldn't analyze this video"), isInspecting: false } : r)),
       );
     }
-  }
-
-  function assignSpecies(keys: string[], result: SpeciesResult) {
-    setRows((prev) =>
-      prev.map((r) =>
-        keys.includes(r.key) ? { ...r, speciesId: result.id, speciesLabel: result.common_name ?? result.scientific_name } : r,
-      ),
-    );
-    // A picked species means this row is ready to import — checking its box automatically
-    // gives an at-a-glance sense of what's done, and doubles as pre-selecting it for a bulk
-    // action (e.g. removing a batch of already-assigned rows) without an extra click.
-    setSelected((prev) => new Set([...prev, ...keys]));
   }
 
   function removeRow(key: string) {
@@ -288,162 +302,73 @@ export default function PhotoImportRows({
       if (row) URL.revokeObjectURL(row.previewUrl);
       return prev.filter((r) => r.key !== key);
     });
-    setSelected((prev) => {
-      if (!prev.has(key)) return prev;
-      const next = new Set(prev);
-      next.delete(key);
-      return next;
-    });
-    if (focusedRowKey === key) setFocusedRowKey(null);
-  }
-
-  // Assign and close this row's search field — the next unassigned row's top suggestion is
-  // highlighted (see activeRow/highlightIndex below) so the user can keep going via Enter/arrow
-  // keys alone, but nothing about it is actually committed until they do.
-  function assignAndAdvance(key: string, result: SpeciesResult) {
-    assignSpecies([key], result);
-    setFocusedRowKey(null);
+    const removed = rows.find((r) => r.key === key);
+    if (removed && !removed.captureId) dropUpload(key, removed.uploadId);
+    review.forgetRow(key);
   }
 
   const readyRows = rows.filter((r) => r.speciesId && r.status === "ready");
   const readyCount = readyRows.length;
 
-  // The row keyboard actions apply to: the first still-unassigned row, in list order. Derived
-  // rather than tracked in its own state so it always stays in sync with assignment/removal.
-  const activeRow = rows.find((r) => !r.speciesId);
-  const [highlightIndex, setHighlightIndex] = useState(0);
-  useEffect(() => {
-    setHighlightIndex(0);
-  }, [activeRow?.key]);
-
-  // Undoes a wrong Enter: clears the most recently assigned row before the current active point
-  // and reopens it as the active row, with the suggestion it was previously assigned highlighted
-  // (not reset to the top guess) — a stray Enter is one Up-arrow-then-Enter away from being
-  // corrected instead of requiring a mouse trip back up the list.
-  function goBackToPreviousRow() {
-    const activeIdx = activeRow ? rows.findIndex((r) => r.key === activeRow.key) : rows.length;
-    for (let i = activeIdx - 1; i >= 0; i--) {
-      const row = rows[i];
-      if (!row.speciesId) continue;
-      const prevIndex = row.suggestions.findIndex((s) => s.id === row.speciesId);
-      setRows((prev) => prev.map((r) => (r.key === row.key ? { ...r, speciesId: null, speciesLabel: null } : r)));
-      setSelected((prev) => {
-        if (!prev.has(row.key)) return prev;
-        const next = new Set(prev);
-        next.delete(row.key);
-        return next;
-      });
-      setHighlightIndex(prevIndex >= 0 ? prevIndex : 0);
-      return;
-    }
-  }
-
-  // Lets a whole batch be assigned without touching the mouse: Left/Right move the highlighted
-  // suggestion (matching the suggestion cards' own horizontal layout), Up reopens the previous
-  // row instead of the current one's top guess (see goBackToPreviousRow), Enter commits the
-  // highlighted suggestion and moves on to the next row. Ignored while a text input has focus
-  // (the manual species search box, or anything else on the page) so normal typing/arrow-key
-  // text editing isn't hijacked.
-  useEffect(() => {
-    function onKeyDown(e: KeyboardEvent) {
-      const target = e.target as HTMLElement | null;
-      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) return;
-      if (e.key === "ArrowUp") {
-        e.preventDefault();
-        goBackToPreviousRow();
-        return;
-      }
-      if (!activeRow) {
-        // Every row already has a species chosen — Enter finishes the batch instead of doing
-        // nothing, so the same type/enter rhythm that assigns species also starts the import.
-        if (e.key === "Enter" && !importing && readyCount > 0) {
-          e.preventDefault();
-          importAll();
-        }
-        return;
-      }
-      if (activeRow.suggestions.length === 0) return;
-      if (e.key === "ArrowRight" || e.key === "ArrowDown") {
-        e.preventDefault();
-        setHighlightIndex((i) => Math.min(i + 1, activeRow.suggestions.length - 1));
-      } else if (e.key === "ArrowLeft") {
-        e.preventDefault();
-        setHighlightIndex((i) => Math.max(i - 1, 0));
-      } else if (e.key === "Enter") {
-        e.preventDefault();
-        const pick = activeRow.suggestions[highlightIndex];
-        if (pick) assignAndAdvance(activeRow.key, pick);
-      }
-    }
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [activeRow, highlightIndex, importing, readyCount, rows]);
-
-  function toggleSelected(key: string) {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-  }
+  const review = useImportReview(rows, setRows, { onAllAssignedEnter: () => void importAll(), enterStartsImport: !importing && readyCount > 0 });
+  const { selected, setSelected, toggleSelected, focusedRowKey, setFocusedRowKey, activeRow, highlightIndex, assignSpecies, assignAndAdvance } = review;
 
   async function importAll() {
     const toImport = rows.filter((r) => r.speciesId && (r.status === "ready" || r.status === "error"));
     if (toImport.length === 0) return;
     setImporting(true);
-    setRows((prev) => prev.map((r) => (toImport.some((t) => t.key === r.key) ? { ...r, status: "uploading" } : r)));
+    for (const row of toImport) importingKeysRef.current.add(row.key);
+    setRows((prev) =>
+      prev.map((r) => (toImport.some((t) => t.key === r.key) ? { ...r, status: "uploading", uploadError: undefined } : r)),
+    );
     // Rows already imported earlier count as covered; anything still unassigned would be lost.
-    onImportStarted?.(rows.every((r) => r.status === "done" || toImport.some((t) => t.key === r.key)));
+    onImportStarted?.(rows.every((r) => r.status === "done" || r.notWildlife || toImport.some((t) => t.key === r.key)));
 
     const committed: Array<{ key: string; captureId: string }> = [];
     await mapWithConcurrency(toImport, UPLOAD_CONCURRENCY, async (row) => {
-      // Registers this file in the SAME shared upload-jobs list UploadDropzone/RawUpload
-      // already feed — the global banner and every species page's own "uploading" placeholder
-      // square are both already reading from it, so a bulk-imported file lights those up too,
-      // and (since this request is a plain fetch with no AbortController, same as every other
-      // upload path in this app) keeps running to completion even if this whole screen unmounts
-      // — leaving/closing the import screen mid-upload was never actually canceling anything,
-      // it just gave no visible sign the work was still happening.
+      // Shows in the global upload banner; the upload keeps going if this screen unmounts.
       const jobId = registerExternalJob(row.speciesId!, row.file.name);
+      rowJobsRef.current.set(row.key, jobId);
+      const onProgress = (sent: number, total: number) => setRowProgress(row.key, sent, total);
       try {
-        // A video has no "store/link/s3 mode" or RAW-sibling story to opt into — /uploads/video
-        // is store-mode only, so `mode` is deliberately omitted for it (the field the photo
-        // path below sends would just be ignored, but not sending it at all is clearer).
+        // /uploads/video is store-mode only, so no mode field for videos.
         const form = new FormData();
         if (!row.isVideo) form.append("mode", "store");
         form.append("speciesId", row.speciesId!);
         if (tripId) form.append("tripId", tripId);
         if (albumId) form.append("albumId", albumId);
-        // Persisted on the capture (see migration 067) so the Stats page can answer "which
-        // countries have I actually photographed in" without depending on sparse GPS EXIF.
+        // Stored on the capture so Stats can count countries without relying on GPS EXIF.
         if (regionId) form.append("regionId", regionId);
         if (locationLabel.trim()) form.append("locationLabel", locationLabel.trim());
+        const addFields = (f: FormData) => {
+          for (const [k, v] of form.entries()) f.append(k, v);
+        };
         if (row.isVideo) {
-          // A video checked for species was kept by the server: import that copy rather than
-          // sending gigabytes a second time.
-          const res = await postUploadPreferringKeptCopy<{ captureId: string }>("/uploads/video", row.file, row.stagedId, (f) => {
-            for (const [k, v] of form.entries()) f.append(k, v);
-          });
+          // The upload from the species check is reused (awaited if still going), so gigabytes
+          // aren't sent twice; a 410 resends it.
+          const uploadId = await ensureUploaded(row.key, row.file);
+          const res = await postUploadedFile<{ captureId: string }>("/uploads/video", row.file, { stagedId: row.stagedId, uploadId, onProgress, addFields });
+          uploadsRef.current.delete(row.key);
           committed.push({ key: row.key, captureId: res.captureId });
           setRows((prev) => prev.map((r) => (r.key === row.key ? { ...r, status: "done", captureId: res.captureId } : r)));
           settleExternalJob(jobId);
           return;
         }
-        // A RAW that matched an already-imported edited JPEG comes back with linkedExisting:
-        // true and no new photo of its own — it's filed as that capture's RAW sibling, not a
-        // new row in the collection, but still counts as "done" here since the file is safely
-        // stored either way.
-        const res = await postPhotoUpload<{ captureId: string; linkedExisting?: boolean }>(row.file, row.stagedId, (f) => {
-          for (const [k, v] of form.entries()) f.append(k, v);
-        });
+        // A RAW matching an imported JPEG is filed as its sibling (linkedExisting), still "done".
+        // The upload from the check is reused (awaited if it's still going); a 410 resends it.
+        const uploadId = await ensureUploaded(row.key, row.file);
+        const res = await postUploadedFile<{ captureId: string; linkedExisting?: boolean }>("/uploads", row.file, { uploadId, onProgress, addFields });
+        uploadsRef.current.delete(row.key);
         committed.push({ key: row.key, captureId: res.captureId });
         setRows((prev) => prev.map((r) => (r.key === row.key ? { ...r, status: "done", captureId: res.captureId } : r)));
         settleExternalJob(jobId);
       } catch (err) {
-        const message = err instanceof ApiError ? err.message : "Upload failed";
-        setRows((prev) => prev.map((r) => (r.key === row.key ? { ...r, status: "error", error: message } : r)));
+        const message = err instanceof Error ? err.message : "Upload failed";
+        setRows((prev) => prev.map((r) => (r.key === row.key ? { ...r, status: "error", error: message, uploadProgress: null } : r)));
         settleExternalJob(jobId, message);
+      } finally {
+        rowJobsRef.current.delete(row.key);
+        importingKeysRef.current.delete(row.key);
       }
     });
 
@@ -463,8 +388,8 @@ export default function PhotoImportRows({
     setLastBatch([]);
   }
   const doneCount = rows.filter((r) => r.status === "done").length;
-  // "Photo(s)"/"Video(s)" when the ready batch is all one kind, "file(s)" for a mixed batch —
-  // matches the "N file(s)" wording already used just above for the whole row count.
+  const notWildlifeCount = rows.filter((r) => r.notWildlife && !r.speciesId).length;
+  // "photo"/"video" for a single-kind batch, "file" for a mixed one.
   const readyHasVideo = readyRows.some((r) => r.isVideo);
   const readyHasPhoto = readyRows.some((r) => !r.isVideo);
   const readyNoun = readyHasVideo && readyHasPhoto ? "file" : readyHasVideo ? "video" : "photo";
@@ -492,6 +417,7 @@ export default function PhotoImportRows({
           </div>
           <RegionBrowser regionId={regionId} onChange={selectRegion} />
           {!regionId && <p className="mt-1 text-xs text-muted">Pick a region to see species suggestions below.</p>}
+          {localMatching && <p className="mt-1 text-xs text-muted">Matching on this computer or the server, whichever is faster</p>}
         </div>
       )}
 
@@ -518,12 +444,12 @@ export default function PhotoImportRows({
           id={`photo-import-files-${tripId ?? albumId ?? "general"}`}
           type="file"
           multiple
-          accept={`image/*,video/mp4,video/quicktime,${[...VIDEO_EXTENSIONS, ...RAW_EXTENSIONS].join(",")}`}
+          accept={`${PHOTO_ACCEPT},${VIDEO_ACCEPT},${[...VENDOR_RAW_EXTENSIONS].join(",")}`}
           className="hidden"
           onChange={(e) => e.target.files && addFiles(e.target.files)}
         />
         <p className="text-sm text-muted">
-          Drag JPEGs, RAWs, or videos in, or{" "}
+          Drag photos, RAWs, or videos in, or{" "}
           <button
             onClick={(e) => {
               e.stopPropagation();
@@ -551,7 +477,8 @@ export default function PhotoImportRows({
         <>
           <div className="flex items-center gap-3 text-sm text-muted">
             <span>
-              {rows.length} file{rows.length === 1 ? "" : "s"} · {readyCount} ready to import · {doneCount} imported
+              {pluralize(rows.length, "file")} · {readyCount} ready to import · {doneCount} imported
+              {notWildlifeCount > 0 && ` · ${notWildlifeCount} not wildlife, left out`}
             </span>
             {selected.size > 0 && (
               <div className="flex items-center gap-2">
@@ -559,6 +486,7 @@ export default function PhotoImportRows({
                 <div className="w-56">
                   <SpeciesPicker
                     placeholder="Type a species…"
+                    regionId={regionId}
                     onSelect={(r) => {
                       assignSpecies([...selected], r);
                       setSelected(new Set());
@@ -573,58 +501,31 @@ export default function PhotoImportRows({
                   Undo last import ({lastBatch.length})
                 </button>
               )}
-              <button
-                onClick={importAll}
-                disabled={importing || readyCount === 0}
-                className="rounded-md bg-accent px-3 py-1.5 text-accent-fg disabled:opacity-40"
-              >
-                {importing ? "Importing…" : `Import ${readyCount || ""} ${readyNoun}${readyCount === 1 ? "" : "s"}`}
-              </button>
+              <Button size="sm" onClick={importAll} loading={importing} disabled={readyCount === 0}>
+                {importing ? "Importing…" : readyCount > 0 ? `Import ${pluralize(readyCount, readyNoun)}` : `Import ${pluralWord(0, readyNoun)}`}
+              </Button>
             </div>
           </div>
 
           <div className="divide-y divide-line rounded-lg border border-line bg-surface">
-            {rows.map((row, i) => {
-              // A near-certain top match (essentially the same photo as one already embedded,
-              // e.g. your own past capture) makes the rest of the ranked list noise rather
-              // than a real choice — show just that one instead of a confident 100% match
-              // sitting above four much-less-likely also-rans. The margin-based `confident`
-              // flag (embeddings.ts's markConfidence) gets the same treatment for the same
-              // reason: once the top pick has already cleared that bar, a trailing 20-30%
-              // "closest guess" alongside it reads as noise, not a real alternative worth a
-              // second look.
-              const topIsCertain = row.suggestions.length > 0 && Math.round(row.suggestions[0].score * 100) >= 100;
-              const visibleSuggestions = topIsCertain || row.suggestions[0]?.confident ? row.suggestions.slice(0, 1) : row.suggestions;
-              return (
-              <div key={row.key} className="p-3">
-                <div className="flex items-center gap-3">
-                  <input type="checkbox" checked={selected.has(row.key)} onChange={() => toggleSelected(row.key)} className="h-4 w-4" />
-                  {row.isRaw && !row.rawPreviewUrl ? (
-                    // Browsers can't decode camera RAW sensor data — createObjectURL "works"
-                    // (doesn't throw) but the blob URL just renders as a broken image. Shown
-                    // until /uploads/inspect's response fills in rawPreviewUrl (the RAW's own
-                    // embedded JPEG preview, extracted server-side) — permanently, only if this
-                    // particular camera/format has no embedded preview to extract at all.
+            {rows.map((row, i) => (
+              <ImportReviewRow
+                key={row.key}
+                row={row}
+                name={row.file.name}
+                preview={
+                  row.previewFromServer && !row.rawPreviewUrl ? (
+                    // Until inspect returns the server's preview, or for good if the file has none.
                     <div
                       onClick={() => setLightboxIndex(i)}
                       className="flex h-14 w-14 cursor-pointer items-center justify-center rounded-md bg-surface-muted text-[10px] font-medium uppercase text-muted"
                     >
-                      RAW
+                      {row.isRaw ? "RAW" : (photoFormatOf(row.file) ?? "photo")}
                     </div>
-                  ) : row.isRaw ? (
-                    <img
-                      src={row.rawPreviewUrl!}
-                      alt=""
-                      onClick={() => setLightboxIndex(i)}
-                      className="h-14 w-14 cursor-pointer rounded-md object-cover"
-                    />
+                  ) : row.previewFromServer ? (
+                    <img src={row.rawPreviewUrl!} alt="" onClick={() => setLightboxIndex(i)} className="h-14 w-14 cursor-pointer rounded-md object-cover" />
                   ) : row.isVideo ? (
-                    // Unlike RAW, a browser CAN decode the local blob directly — muted/no
-                    // controls, just enough to show the clip's first frame as a real preview
-                    // rather than a generic placeholder icon. preload="metadata" alone often
-                    // never actually paints a frame (it only guarantees duration/dimensions are
-                    // known, not that anything's been decoded) — nudging currentTime forward a
-                    // hair once metadata loads forces a real frame to decode and render.
+                    // Seeking past 0 once metadata loads forces a first frame to paint.
                     <video
                       src={row.previewUrl}
                       muted
@@ -636,108 +537,40 @@ export default function PhotoImportRows({
                       className="h-14 w-14 cursor-pointer rounded-md object-cover"
                     />
                   ) : (
-                    <img
-                      src={row.previewUrl}
-                      alt=""
-                      onClick={() => setLightboxIndex(i)}
-                      className="h-14 w-14 cursor-pointer rounded-md object-cover"
-                    />
-                  )}
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm text-ink">{row.file.name}</p>
-                    {focusedRowKey === row.key ? (
-                      <div className="mt-1 w-64">
-                        <SpeciesPicker autoFocus placeholder="Type a species…" onSelect={(r) => assignAndAdvance(row.key, r)} />
-                      </div>
-                    ) : (
-                      <div className="mt-0.5 flex items-center gap-1.5">
-                        <button
-                          onClick={() => setFocusedRowKey(row.key)}
-                          title={row.speciesId ? "Click to change, or see other suggestions again" : undefined}
-                          className={`text-xs ${row.speciesId ? "text-ink" : "text-muted"} hover:underline`}
-                        >
-                          {row.speciesId ? row.speciesLabel : "Type a species…"}
-                        </button>
-                        {/* Right next to the picker, not off in the row's far-right status column —
-                            this is exactly where the user's eye lands first, so that's where "still
-                            working on a match" needs to show up, not somewhere they have to go looking. */}
-                        {row.isInspecting && !row.speciesId && (
-                          <span className="h-3 w-3 shrink-0 animate-spin rounded-full border-2 border-accent/40 border-t-accent" />
-                        )}
-                        {!row.isInspecting && !row.speciesId && row.suggestError && (
-                          <span className="text-xs text-muted">{row.suggestError}. Pick a species by hand.</span>
-                        )}
-                      </div>
+                    <img src={row.previewUrl} alt="" onClick={() => setLightboxIndex(i)} className="h-14 w-14 cursor-pointer rounded-md object-cover" />
+                  )
+                }
+                status={
+                  <>
+                    {row.uploadProgress != null && (
+                      <ProgressBar value={row.uploadProgress} size="xs" label={`Uploading ${row.file.name}`} className="w-16" />
                     )}
-                  </div>
-                  <span className="text-xs text-muted">
-                    {row.status === "done" ? "✓ Imported" : row.status === "error" ? row.error : row.status === "uploading" ? "Uploading…" : ""}
-                  </span>
-                  {row.status !== "uploading" && row.status !== "done" && (
-                    <button
-                      onClick={() => removeRow(row.key)}
-                      title={`Remove this ${row.isVideo ? "video" : "photo"} from the import list`}
-                      aria-label="Remove"
-                      className="text-muted hover:text-ink"
-                    >
-                      ✕
-                    </button>
-                  )}
-                </div>
-                {row.possibleDuplicate && (
-                  <div className="mt-2 ml-7 flex items-center gap-2 rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5 text-xs text-amber-800">
-                    <span>
-                      {row.possibleDuplicate.exact
-                        ? "Looks like you've already imported this photo before. Do you want to import it anyway?"
-                        : "Looks like you've already imported a very similar photo (maybe edited or re-exported). Do you want to import it anyway?"}
+                    <span className="text-xs text-muted">
+                      {row.status === "done"
+                        ? "✓ Imported"
+                        : row.status === "error"
+                          ? row.error
+                          : row.status === "uploading"
+                            ? "Uploading…"
+                            : (row.uploadError ?? "")}
                     </span>
-                    <div className="ml-auto flex items-center gap-2">
-                      <button onClick={() => removeRow(row.key)} className="font-medium underline">
-                        Remove
-                      </button>
-                      <button
-                        onClick={() => setRows((prev) => prev.map((r) => (r.key === row.key ? { ...r, possibleDuplicate: null } : r)))}
-                        className="font-medium underline"
-                      >
-                        Import anyway
-                      </button>
-                    </div>
-                  </div>
-                )}
-                {/* An exact content match already has a known answer — showing species
-                   suggestions alongside it would just be confusing/redundant, so those wait
-                   until the duplicate warning above is actually dismissed. */}
-                {!row.possibleDuplicate && (!row.speciesId || focusedRowKey === row.key) && visibleSuggestions.length > 0 && (
-                  <div className="mt-2 pl-7">
-                    {/* The backend always returns its best guesses, confident or not — flagged
-                       here via the margin-based `confident` flag (embeddings.ts's
-                       markConfidence), not a raw score comparison, since blending in the
-                       zero-shot text signal means the score itself no longer sits on a fixed,
-                       intuitively-"percent-like" scale a hardcoded cutoff could compare against. */}
-                    {!topIsCertain && row.suggestions.length > 1 && !row.suggestions[0]?.confident && (
-                      <p className="mb-1 text-xs text-muted">No confident match. Closest guesses:</p>
-                    )}
-                    {/* p-1 -m-1: the highlighted card's ring extends outside its own border box,
-                       so without this padding overflow-x-auto clips the ring on the leftmost
-                       card. The matching negative margin keeps the row's visible left edge in
-                       the same place it was before. */}
-                    <div className="-m-1 flex gap-2 overflow-x-auto p-1">
-                    {visibleSuggestions.map((s, si) => (
-                      <SuggestionCard
-                        key={s.id}
-                        suggestion={s}
-                        matchPercent={topIsCertain ? 100 : s.matchPercent ?? Math.round(s.score * 100)}
-                        highlighted={row.key === activeRow?.key && si === highlightIndex}
-                        onSelect={() => assignAndAdvance(row.key, s)}
-                        onViewPhoto={() => viewSpeciesGallery(s.id, s.common_name ?? s.scientific_name)}
-                      />
-                    ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-              );
-            })}
+                  </>
+                }
+                removable={row.status !== "uploading" && row.status !== "done"}
+                onRemove={() => removeRow(row.key)}
+                removeLabel={`Remove this ${row.isVideo ? "video" : "photo"} from the import list`}
+                selected={selected.has(row.key)}
+                onToggleSelected={() => toggleSelected(row.key)}
+                focused={focusedRowKey === row.key}
+                onFocus={() => setFocusedRowKey(row.key)}
+                regionId={regionId}
+                onPick={(r) => assignAndAdvance(row.key, r)}
+                isActive={row.key === activeRow?.key}
+                highlightIndex={highlightIndex}
+                onDismissWarning={(warning) => review.dismissWarning(row.key, warning)}
+                onViewSpeciesGallery={speciesGallery.open}
+              />
+            ))}
           </div>
         </>
       )}
@@ -745,9 +578,9 @@ export default function PhotoImportRows({
       {lightboxIndex != null && (
         <Lightbox
           slides={rows.map((r) => ({
-            url: r.isRaw && r.rawPreviewUrl ? r.rawPreviewUrl : r.previewUrl,
+            url: r.previewFromServer && r.rawPreviewUrl ? r.rawPreviewUrl : r.previewUrl,
             videoUrl: r.isVideo ? r.previewUrl : null,
-            noPreview: r.isRaw && !r.rawPreviewUrl,
+            noPreview: r.previewFromServer && !r.rawPreviewUrl,
             caption: r.file.name,
           }))}
           index={lightboxIndex}
@@ -756,14 +589,7 @@ export default function PhotoImportRows({
         />
       )}
 
-      {speciesGallery && (
-        <Lightbox
-          slides={speciesGallery.slides}
-          index={speciesGallery.index}
-          onIndexChange={(index) => setSpeciesGallery({ ...speciesGallery, index })}
-          onClose={() => setSpeciesGallery(null)}
-        />
-      )}
+      {speciesGallery.lightbox}
     </div>
   );
 }

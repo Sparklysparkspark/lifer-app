@@ -1,10 +1,7 @@
-import type { ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import BackToCollectionLink from "./BackToCollectionLink";
 
-// The one shared header every top-level page renders below its route root - standardizes the
-// back-link/title layout instead of each page hand-rolling its own (confirmed drift: NearMePage
-// put the back link and title side-by-side instead of stacked, and was missing the `mt-1` gap
-// under the back link every other page has).
+// The shared back-link and title bar under the app nav.
 export default function PageHeader({
   title,
   backFallbackTo,
@@ -14,27 +11,46 @@ export default function PageHeader({
   sticky = false,
   children,
 }: {
-  /** Omit entirely for a page whose real title lives in the body, not the header (e.g. a
-   *  species' own hero section) - the header then renders just the back link. */
+  /** Omit for a page whose real title lives in the body (a species' hero); only the back link shows. */
   title?: ReactNode;
-  /** Passed to BackToCollectionLink - see that component's own comment for when a page needs
-   *  a non-default fallback/label (e.g. a page reachable from exactly one place). */
+  /** Passed to BackToCollectionLink for a page with a non-default fallback or label. */
   backFallbackTo?: string;
   backLabel?: string;
-  /** Rendered inline next to the title (e.g. an InfoTip) - for content that belongs beside the
-   *  title itself, not below it (use `children` for that). */
+  /** Inline next to the title (e.g. an InfoTip). */
   titleAddon?: ReactNode;
-  /** Right-aligned content (a filter dropdown, a search box, a secondary link). */
+  /** Right-aligned content (a filter, a search box, a secondary link). */
   actions?: ReactNode;
-  /** Only SpeciesDetailPage's loaded view uses this - keeps the header visible while its long
-   *  photo grid scrolls underneath. */
+  /** Keeps the header visible while the page scrolls under it. */
   sticky?: boolean;
-  /** Extra rows under the title - a description, a metadata line, a status count. */
+  /** Extra rows under the title: a description, a metadata line, a status count. */
   children?: ReactNode;
 }) {
+  // Once stuck to the top it sits where the mac traffic lights float, so index.css shifts its
+  // content right while data-stuck is set (only on the desktop app).
+  const ref = useRef<HTMLElement>(null);
+  const [stuck, setStuck] = useState(false);
+  useEffect(() => {
+    if (!sticky) return;
+    function check() {
+      const el = ref.current;
+      if (el) setStuck(window.scrollY > 0 && el.getBoundingClientRect().top <= 0);
+    }
+    window.addEventListener("scroll", check, { passive: true });
+    window.addEventListener("resize", check);
+    check();
+    return () => {
+      window.removeEventListener("scroll", check);
+      window.removeEventListener("resize", check);
+    };
+  }, [sticky]);
+
   return (
     <header
-      className={`page-header border-b border-line bg-surface px-6 py-4 ${sticky ? "sticky top-0 z-20" : ""} ${
+      ref={ref}
+      data-stuck={stuck ? "" : undefined}
+      // Harmless outside Tauri. Links and buttons inside still take clicks.
+      data-tauri-drag-region=""
+      className={`page-subheader border-b border-line bg-surface px-6 py-4 ${sticky ? "sticky top-0 z-20" : ""} ${
         actions ? "flex flex-wrap items-start justify-between gap-x-4 gap-y-2" : ""
       }`}
     >

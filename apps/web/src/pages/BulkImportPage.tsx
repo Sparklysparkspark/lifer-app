@@ -4,6 +4,7 @@ import { enqueueRawUploads } from "../lib/uploadQueue";
 import PageHeader from "../components/PageHeader";
 import PhotoImportRows from "../components/PhotoImportRows";
 import { RAW_EXTENSIONS, extname } from "../lib/rawExtensions";
+import FormMessage from "../components/FormMessage";
 
 interface RawImportOutcome {
   filename: string;
@@ -16,13 +17,8 @@ interface RawImportOutcome {
 }
 
 export default function BulkImportPage() {
-  // Separate from the JPEG batch (see PhotoImportRows): no species is picked here at all,
-  // since a folder of RAWs pulled off a card can span any number of species. Each RAW is
-  // matched independently against JPEGs already in the library (by filename + EXIF timestamp,
-  // same logic as a species page's own "Choose a folder…" RAW picker — see
-  // RawUpload.tsx/uploads/routes.ts's processOneRawUpload) and filed into the matching
-  // species' RAW folder automatically. A RAW with no match, or an ambiguous match, is left
-  // untouched on disk rather than guessed at.
+  // RAWs need no species: each is matched to an imported JPEG by filename and EXIF timestamp
+  // (same as RawUpload) and filed under that species. No match or an ambiguous one is skipped.
   const navigate = useNavigate();
   const [rawResults, setRawResults] = useState<RawImportOutcome[] | null>(null);
   const [rawError, setRawError] = useState<string | null>(null);
@@ -71,13 +67,12 @@ export default function BulkImportPage() {
   const rawSuccessCount = rawResults?.filter((r) => r.linked).length ?? 0;
 
   return (
-    <div className="min-h-screen bg-canvas">
+    <div className="flex-1 bg-canvas">
       <PageHeader sticky title="Bulk import" />
 
       <main className="space-y-4 p-6">
-        {/* Back to the collection once everything here is uploading: the uploads carry on in the
-            background (the upload banner shows progress and any failure). Stays put when some rows
-            weren't included, since leaving would drop them. */}
+        {/* Back to the collection once everything is uploading (uploads continue in the background).
+            Stays put when some rows weren't included, since leaving would drop them. */}
         <PhotoImportRows onImportStarted={(everyRowIncluded) => everyRowIncluded && navigate("/")} />
 
         <div className="rounded-lg border border-line bg-surface p-4">
@@ -115,7 +110,7 @@ export default function BulkImportPage() {
               Choose a folder…
             </label>
           </div>
-          {rawError && <p className="mt-2 text-sm text-red-600">{rawError}</p>}
+          <FormMessage error={rawError} className="mt-2" />
           {rawResults && (
             <div className="mt-2 space-y-1">
               <p className="text-xs font-medium text-muted">
@@ -128,11 +123,11 @@ export default function BulkImportPage() {
                     <span className="text-ink">{r.filename}</span>
                     {": "}
                     {r.error ? (
-                      <span className="text-red-600">{r.error}</span>
+                      <span className="text-red-600 dark:text-red-400">{r.error}</span>
                     ) : r.collision ? (
-                      <span className="text-amber-600">matched more than one photo with the same camera fingerprint, skipped</span>
+                      <span className="text-amber-600 dark:text-amber-400">matched more than one photo with the same camera fingerprint, skipped</span>
                     ) : (
-                      <span className="text-emerald-700">filed under {r.speciesCommonName ?? r.speciesScientificName}</span>
+                      <span className="text-emerald-700 dark:text-emerald-400">filed under {r.speciesCommonName ?? r.speciesScientificName}</span>
                     )}
                   </p>
                 ))}

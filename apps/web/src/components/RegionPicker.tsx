@@ -1,14 +1,7 @@
 import SearchInput from "./SearchInput";
 
-// Shared presentational shell for "pick a region from a pill list, optionally grouped under
-// expandable headers, with a search box that jumps straight to a match" — the one visual/
-// interaction pattern that was duplicated between OfflinePacksPage's own continent+country pills
-// (multi-select, grouped by continent) and RegionBrowser's breadcrumb-drill pill row
-// (single-select, flat list of the current node's children). Deliberately owns rendering only,
-// not data-fetching or selection state — each caller still derives its own groups/items and
-// handles what "select" means for it (multi-toggle vs single-select-and-navigate), since those
-// concerns (map focus, taxon availability, download jobs on the packs page; breadcrumb
-// navigation on the browser) are specific to each caller, not part of the picking UI itself.
+// Presentational region pills, optionally grouped under expandable headers, with an optional
+// jump-to search. Callers own the data and what selecting means (multi-toggle or navigate).
 export interface RegionPickerItem {
   id: string;
   name: string;
@@ -21,8 +14,7 @@ export interface RegionPickerGroup {
 }
 
 interface RegionPickerProps {
-  // Provide either `groups` (rendered as expandable pill headers, e.g. continents) or a flat
-  // `items` list (no headers, e.g. RegionBrowser's single-level "drill in" row) — not both.
+  // Either `groups` (expandable headers, e.g. continents) or a flat `items` list, not both.
   groups?: RegionPickerGroup[];
   items?: RegionPickerItem[];
   openGroupIds?: Set<string>;
@@ -41,8 +33,7 @@ interface RegionPickerProps {
   };
 }
 
-// Rounded-rectangle, matching the app's standard Pill toggle (see Pill.tsx's own comment on
-// why rounded-md, not rounded-full) rather than the older pill shape this used to duplicate.
+// Same shape as Pill.
 function pillClass(selected: boolean): string {
   return `rounded-md border px-2.5 py-1 text-xs font-medium transition-colors ${
     selected ? "border-accent bg-accent text-accent-fg" : "border-line bg-surface-muted text-muted hover:bg-surface-muted"

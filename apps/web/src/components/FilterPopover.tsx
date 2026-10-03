@@ -1,10 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import Pill from "./Pill";
 
-// The Filters button + dropdown panel shell — one shared shape (Pill trigger, panel width,
-// section spacing, outside-click-to-close) used by every photo grid page (Gallery, Collection,
-// Album, Trip) instead of each page hand-rolling its own slightly-different popover. Callers
-// just supply the filter/display sections as children; this owns open/close and positioning.
+// The Filters button and panel shared by every grid page. Callers supply the sections.
 export default function FilterPopover({ activeCount, children }: { activeCount: number; children: React.ReactNode }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -24,9 +21,7 @@ export default function FilterPopover({ activeCount, children }: { activeCount: 
         Filters{activeCount > 0 ? ` (${activeCount})` : ""}
       </Pill>
       {open && (
-        // stopPropagation: a click anywhere inside (e.g. a region pill re-rendering this panel
-        // via a state update) must never reach the outside-click listener above, which would
-        // close the panel the instant a filter is picked instead of leaving it open.
+        // A click inside (which may re-render the panel) must not reach the outside-click listener.
         <div
           className="absolute right-0 top-full z-20 mt-1 w-80 space-y-3 rounded-md border border-line bg-surface p-3 shadow-lg"
           onClick={(e) => e.stopPropagation()}

@@ -7,6 +7,9 @@ import { Spinner } from "../components/LoadingScreen";
 import PhotoPlaceholder from "../components/PhotoPlaceholder";
 import SearchInput from "../components/SearchInput";
 import Pill from "../components/Pill";
+import EmptyState from "../components/EmptyState";
+import { useConfirm } from "../hooks/useConfirm";
+import { useToast } from "../hooks/useToast";
 
 const ARCHIVED_INFO_PARAGRAPHS = [
   "Archiving a species just hides it from your collection and region checklists. It doesn't delete any photos or history, and unarchiving brings it right back.",
@@ -29,33 +32,23 @@ interface ArchiveResponse {
   families: Array<{ taxonClass: string; family: string; count: number }>;
 }
 
-// Management view for species archived/hidden via SpeciesCard's "Archive" action or the
-// species detail page (see migration 037 / apps/api/src/archive/routes.ts) — archived species
-// never show up in the normal collection/region checklists, so this is the only place to see
-// them again and undo the choice, per-species or for a whole family at once.
+// Archived species never show in the collection or checklists, so this is the one place to see
+// them again and unarchive, one at a time or a whole family at once.
 export default function ArchivedSpeciesPage() {
   const [data, setData] = useState<ArchiveResponse | null>(null);
   const [loadError, setLoadError] = useState(false);
   const [busyIds, setBusyIds] = useState<Set<string>>(new Set());
   const [busyFamily, setBusyFamily] = useState<string | null>(null);
-  // Same collapse-by-family pattern as the collection view's own GroupedSpeciesGrid — a
-  // family the user's already decided to ignore doesn't need to keep taking up screen space
-  // every time they visit this page.
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
-  // Same in-view filter pattern as CollectionPage's own search (filters whatever's already on
-  // screen, no separate dropdown/catalog lookup) — just scoped to the archived list instead.
   const [search, setSearch] = useState("");
-  // Family-pill drill-down, same pattern as HiddenSpeciesPage's own country pills — family is
-  // this page's natural grouping key (region has no meaning here, archiving isn't region-scoped).
+  // Archiving isn't region-scoped, so family is the natural drill-down.
   const [selectedFamily, setSelectedFamily] = useState<string | null>(null);
+  const confirm = useConfirm();
+  const toast = useToast();
 
-  // A missing .catch() here previously meant any failure (network hiccup, a stale/mismatched
-  // build, whatever) left this page spinning forever with setData never called — this is what
-  // "the archived page just loads forever" turned out to be. Now it surfaces a real error with
-  // a retry instead of a silent dead end.
+  // A refetch after an unarchive keeps the current grid up instead of flashing a spinner.
   function load() {
     setLoadError(false);
-    setData(null);
     api.get<ArchiveResponse>("/archive").then(setData).catch(() => setLoadError(true));
   }
 
@@ -90,8 +83,13 @@ export default function ArchivedSpeciesPage() {
     try {
       await api.delete("/archive/bulk", { speciesIds: [speciesId] });
     } catch {
-      alert("Couldn't unarchive that species. Try again.");
+      toast.error("Couldn't unarchive that species. Try again.");
     } finally {
+      setBusyIds((prev) => {
+        const next = new Set(prev);
+        next.delete(speciesId);
+        return next;
+      });
       load();
     }
   }
@@ -106,23 +104,22 @@ export default function ArchivedSpeciesPage() {
   }
 
   async function unarchiveFamily(family: string, speciesIds: string[]) {
-    if (!confirm(`Unarchive all ${speciesIds.length} species in "${family}"?`)) return;
+    const ok = await confirm({ title: `Unarchive all ${speciesIds.length} species in "${family}"?`, confirmLabel: "Unarchive all" });
+    if (!ok) return;
     setBusyFamily(family);
     try {
       await api.delete("/archive/bulk", { speciesIds });
     } catch {
-      alert("Couldn't unarchive that group. Try again.");
+      toast.error("Couldn't unarchive that group. Try again.");
     } finally {
       setBusyFamily(null);
       load();
     }
   }
 
-  // The header (with its own back link and the search box) renders unconditionally — same
-  // pattern SpeciesDetailPage uses — so only the body swaps between loading/error/loaded, and
-  // the back link never needs to come from LoadingScreen's own copy of it here.
+  // The header renders in every state; only the body swaps between loading, error and loaded.
   return (
-    <div className="min-h-screen bg-canvas">
+    <div className="flex-1 bg-canvas">
       <PageHeader sticky
         title="Archived species"
         backFallbackTo="/settings"
@@ -171,27 +168,22 @@ export default function ArchivedSpeciesPage() {
             </div>
           )}
           {data.items.length === 0 ? (
-            <div className="flex flex-col items-center justify-center gap-3 py-24 text-center">
-              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-surface-muted">
+            <EmptyState
+              icon={
                 <svg viewBox="0 0 24 24" className="h-6 w-6 text-muted" fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round">
                   <rect x="3.5" y="4.5" width="17" height="4.5" rx="1.2" />
                   <path d="M4.5 9v9A1.5 1.5 0 0 0 6 19.5h12A1.5 1.5 0 0 0 19.5 18V9" />
                   <path d="M10 13h4" />
                 </svg>
-              </div>
-              <p className="text-sm font-medium text-ink">Nothing archived yet</p>
-              <p className="max-w-sm text-sm text-muted">
-                Use the "Archive" button on a species card, or "Archive group" when a collection view is grouped by
-                family, to keep species you don't care about completing off your to-collect count.
-              </p>
-            </div>
+              }
+              title="Nothing archived yet"
+              description={`Use the "Archive" button on a species card, or "Archive group" when a collection view is grouped by family, to keep species you don't care about completing off your to-collect count.`}
+            />
           ) : visibleItems.length === 0 ? (
             <p className="text-muted">No archived species match "{search}".</p>
           ) : (
             <>
-              {/* Collapsed groups move here as compact chips instead of sitting in the
-                 vertical flow as empty-but-still-present sections — same pattern as the
-                 collection view's own GroupedSpeciesGrid. */}
+              {/* Collapsed families become chips, as in the collection grid. */}
               {grouped.some(([family]) => collapsed.has(family)) && (
                 <div className="flex flex-wrap items-center gap-2 rounded-lg border border-line bg-surface p-2">
                   <span className="text-xs uppercase tracking-wide text-muted">Collapsed:</span>
@@ -242,12 +234,14 @@ export default function ArchivedSpeciesPage() {
                                 <img
                                   src={item.referenceThumbUrl}
                                   alt={item.commonName ?? item.scientificName}
+                                  loading="lazy"
                                   className="h-full w-full object-cover"
                                 />
                               ) : item.referencePhoto ? (
                                 <img
                                   src={item.referencePhoto}
                                   alt={item.commonName ?? item.scientificName}
+                                  loading="lazy"
                                   className="h-full w-full object-cover"
                                 />
                               ) : (

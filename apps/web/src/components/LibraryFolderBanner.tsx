@@ -8,10 +8,8 @@ interface LibraryFolderStatus {
 
 const POLL_MS = 60_000;
 
-// Warns on every page when the photo library folder has gone missing under a running server
-// (moved or renamed on the NAS, a drive unplugged). Until it's back, every upload fails, so this
-// says so before anyone tries, with the fix spelled out. Silent when the check itself can't run
-// (signed out, server unreachable): other parts of the app already cover those.
+// Warns on every page when the photo library folder has gone missing (moved, drive unplugged),
+// since every upload fails until it's back. Silent when the check can't run (signed out, offline).
 export default function LibraryFolderBanner() {
   const [status, setStatus] = useState<LibraryFolderStatus | null>(null);
 
@@ -39,7 +37,7 @@ export default function LibraryFolderBanner() {
   return (
     <div
       role="alert"
-      className="fixed left-1/2 top-4 z-50 w-[min(40rem,calc(100%-2rem))] -translate-x-1/2 rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 shadow-sm"
+      className="fixed left-1/2 top-4 z-50 w-[min(40rem,calc(100%-2rem))] -translate-x-1/2 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 shadow-sm dark:border-rose-900/50 dark:bg-rose-950/80 dark:text-rose-300"
     >
       <p className="font-medium">Lifer can't save photos right now</p>
       {status.problems.map((p) => (

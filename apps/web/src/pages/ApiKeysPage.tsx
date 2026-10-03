@@ -1,14 +1,20 @@
 import { useEffect, useState } from "react";
-import { api, ApiError } from "../api/client";
+import { api } from "../api/client";
+import Button from "../components/Button";
+import FormMessage from "../components/FormMessage";
 import { Spinner } from "../components/LoadingScreen";
 import PageHeader from "../components/PageHeader";
 import EmptyState from "../components/EmptyState";
+import { useConfirm } from "../hooks/useConfirm";
+import { useToast } from "../hooks/useToast";
+import { docsUrl } from "../lib/docs";
+import { errorMessage } from "../lib/errorMessage";
+import { formatDate } from "../lib/formatDate";
 
-// Grouped the same way the create form's checkboxes are laid out — one row per resource, a
-// Read and/or Write column. Kept in sync with apps/api/src/auth/apiKeyRoutes.ts's own
-// API_KEY_SCOPES list (the actual source of truth for what's enforceable).
-const API_GUIDE_URL = "https://github.com/Sparklysparkspark/lifer-app/blob/main/docs/API.md";
+const API_GUIDE_URL = docsUrl("/api/overview");
 
+// One row per resource with Read/Write columns. Keep in sync with API_KEY_SCOPES in
+// apps/api/src/auth/apiKeyRoutes.ts, the source of truth.
 const SCOPE_GROUPS: Array<{ label: string; read?: string; write?: string }> = [
   { label: "Gallery", read: "gallery.read" },
   { label: "Species", read: "species.read" },
@@ -37,9 +43,16 @@ export default function ApiKeysPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [revealedToken, setRevealedToken] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const confirm = useConfirm();
+  const toast = useToast();
 
   function load() {
-    api.get<{ keys: ApiKey[] }>("/api-keys").then((res) => setKeys(res.keys));
+    setLoadError(null);
+    api
+      .get<{ keys: ApiKey[] }>("/api-keys")
+      .then((res) => setKeys(res.keys))
+      .catch((err) => setLoadError(errorMessage(err, "Couldn't load your API keys")));
   }
 
   useEffect(load, []);
@@ -66,30 +79,47 @@ export default function ApiKeysPage() {
       setCreating(false);
       load();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Couldn't create this key");
+      setError(errorMessage(err, "Couldn't create this key"));
     } finally {
       setSaving(false);
     }
   }
 
-  async function revoke(id: string) {
-    await api.delete(`/api-keys/${id}`);
-    load();
+  async function revoke(key: ApiKey) {
+    const ok = await confirm({
+      title: `Revoke "${key.name}"?`,
+      message: "Anything using this key stops working right away. This can't be undone.",
+      confirmLabel: "Revoke",
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await api.delete(`/api-keys/${key.id}`);
+      load();
+    } catch (err) {
+      toast.error(errorMessage(err, "Couldn't revoke that key"));
+    }
+  }
+
+  async function copyToken(token: string) {
+    try {
+      await navigator.clipboard.writeText(token);
+      toast.success("Copied");
+    } catch {
+      toast.error("Couldn't copy. Select the key and copy it by hand.");
+    }
   }
 
   return (
-    <div className="min-h-screen bg-canvas">
+    <div className="flex-1 bg-canvas">
       <PageHeader sticky
         title="API keys"
         backFallbackTo="/settings"
         backLabel="Settings"
         actions={
-          <button
-            onClick={() => setCreating((c) => !c)}
-            className="rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-accent-fg"
-          >
+          <Button size="sm" onClick={() => setCreating((c) => !c)}>
             {creating ? "Cancel" : "New key"}
-          </button>
+          </Button>
         }
       >
         <p className="text-sm text-muted">
@@ -116,12 +146,9 @@ export default function ApiKeysPage() {
               <code className="flex-1 overflow-x-auto rounded-md border border-line bg-surface-muted px-3 py-2 text-xs text-ink">
                 {revealedToken}
               </code>
-              <button
-                onClick={() => navigator.clipboard.writeText(revealedToken)}
-                className="rounded-md border border-line px-3 py-2 text-xs hover:bg-surface-muted"
-              >
+              <Button variant="secondary" size="sm" onClick={() => void copyToken(revealedToken)}>
                 Copy
-              </button>
+              </Button>
             </div>
             <button onClick={() => setRevealedToken(null)} className="mt-3 text-xs text-muted underline">
               Done
@@ -172,18 +199,21 @@ export default function ApiKeysPage() {
                 ))}
               </div>
             </div>
-            {error && <p className="text-sm text-red-600">{error}</p>}
-            <button
-              type="submit"
-              disabled={saving || !name.trim() || selected.size === 0}
-              className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-accent-fg disabled:opacity-50"
-            >
+            <FormMessage error={error} />
+            <Button type="submit" disabled={!name.trim() || selected.size === 0} loading={saving}>
               {saving ? "Creating…" : "Create key"}
-            </button>
+            </Button>
           </form>
         )}
 
-        {!keys ? (
+        {loadError ? (
+          <div className="space-y-2">
+            <FormMessage error={loadError} />
+            <Button variant="secondary" size="sm" onClick={load}>
+              Retry
+            </Button>
+          </div>
+        ) : !keys ? (
           <Spinner />
         ) : keys.length === 0 ? (
           // Hidden while the new-key form is open: the form is the answer to "no keys yet".
@@ -205,7 +235,7 @@ export default function ApiKeysPage() {
                 <a href={API_GUIDE_URL} target="_blank" rel="noreferrer" className="font-medium text-accent hover:underline">
                   API guide
                 </a>{" "}
-                has ready-made recipes: a Home Assistant sensor, a new-lifer bot, imports and backups.
+                covers the endpoints, permissions and pagination.
               </p>
             </>
           )
@@ -217,12 +247,12 @@ export default function ApiKeysPage() {
                   <p className="text-sm font-medium text-ink">{key.name}</p>
                   <p className="mt-0.5 truncate text-xs text-muted">{key.permissions.join(", ")}</p>
                   <p className="mt-0.5 text-xs text-muted">
-                    {key.lastUsedAt ? `Last used ${new Date(key.lastUsedAt).toLocaleDateString()}` : "Never used"}
+                    {key.lastUsedAt ? `Last used ${formatDate(key.lastUsedAt)}` : "Never used"}
                   </p>
                 </div>
                 <button
-                  onClick={() => revoke(key.id)}
-                  className="shrink-0 rounded-md border border-line px-3 py-1.5 text-xs text-red-600 hover:bg-surface-muted"
+                  onClick={() => void revoke(key)}
+                  className="shrink-0 rounded-md border border-line px-3 py-1.5 text-xs text-rose-700 hover:bg-surface-muted dark:text-rose-400"
                 >
                   Revoke
                 </button>

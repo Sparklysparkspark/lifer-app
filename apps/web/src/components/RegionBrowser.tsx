@@ -2,20 +2,13 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import type { RegionSummary } from "@lifer/shared";
 import { api } from "../api/client";
+import { useRegions } from "../hooks/useRegions";
 import RegionPicker from "./RegionPicker";
 
-// Same breadcrumb + "drill in" pill interaction as CollectionPage's own region picker, filtered
-// to the same availableRegionIds set (only regions reachable from an actually-downloaded
-// country pack) — extracted here so a second, lighter-weight caller (species auto-suggest's
-// region step, see PhotoImportRows) can reuse the exact picking behavior a user already knows
-// from Collection, rather than a second bespoke region UI that behaves differently. Deliberately
-// leaves out CollectionPage-specific pieces (checklist stats bar, sea zones, eBird link,
-// drill-down-into-provinces action) that have nothing to do with just picking a region.
-//
-// allowAnyRegion skips the downloaded-pack restriction entirely — used by AddOtherTaxaModal,
-// where the whole point is adding a species to a region without needing a species pack for it
-// (there's no "checklist" concept being downloaded, just one iNat species dropped onto one
-// region), so gating region choice on pack downloads would defeat the feature.
+const NO_REGIONS: RegionSummary[] = [];
+
+// The collection's breadcrumb and drill-in picking, limited to regions reachable from a downloaded
+// country pack. allowAnyRegion lifts that restriction.
 export default function RegionBrowser({
   regionId,
   onChange,
@@ -25,19 +18,13 @@ export default function RegionBrowser({
   regionId: string | null;
   onChange: (id: string | null) => void;
   allowAnyRegion?: boolean;
-  /** A caller-supplied override for which regions are pickable, independent of the downloaded-
-   *  pack restriction — e.g. Gallery's own region filter, which should only ever offer regions
-   *  the user's library actually has photos tagged in, not "has a pack downloaded for." Only
-   *  meaningful together with allowAnyRegion (skips the pack-based restriction so this one wins
-   *  outright instead of being intersected with it). */
+  /** Overrides which regions are pickable (e.g. Gallery: only regions with photos). Use with
+   *  allowAnyRegion so it replaces the pack restriction instead of intersecting it. */
   restrictToIds?: Set<string> | null;
 }) {
-  const [allRegions, setAllRegions] = useState<RegionSummary[]>([]);
+  const { regions, error: regionsError, refresh: refreshRegions } = useRegions();
+  const allRegions = regions ?? NO_REGIONS;
   const [downloadedCountryNames, setDownloadedCountryNames] = useState<Set<string> | null>(null);
-
-  useEffect(() => {
-    api.get<{ regions: RegionSummary[] }>("/regions").then((res) => setAllRegions(res.regions));
-  }, []);
 
   useEffect(() => {
     if (allowAnyRegion) return;
@@ -49,9 +36,8 @@ export default function RegionBrowser({
       .catch(() => setDownloadedCountryNames(new Set()));
   }, [allowAnyRegion]);
 
-  // Identical algorithm to CollectionPage's own availableRegionIds: a downloaded country, every
-  // ancestor up to World (so the path TO it stays clickable), and every descendant province/state
-  // bundled in the same pack.
+  // Same as the collection's: a downloaded country, its ancestors up to World, and every
+  // descendant bundled in its pack.
   const availableRegionIds = useMemo(() => {
     if (restrictToIds) return restrictToIds;
     if (allowAnyRegion || !downloadedCountryNames) return null;
@@ -98,13 +84,8 @@ export default function RegionBrowser({
     return trail;
   }, [allRegions, regionId]);
 
-  // A stored regionId (e.g. restored from localStorage) that no longer resolves to a real,
-  // still-downloaded region — an offloaded pack, or corrupted-territory cleanup removing a row
-  // — must fall back to World rather than silently rendering an empty/broken breadcrumb.
-  //
-  // With exactly one country pack, that country is picked instead of nothing, the same as the
-  // collection page: region ids differ per install, so after a fresh database the remembered
-  // one never resolves, and the import screen came back with no region and no explanation.
+  // A stored regionId that no longer resolves (an offloaded pack, a fresh database with new ids)
+  // falls back to nothing, or to the only downloaded country when there's exactly one.
   const onlyCountryId = useMemo(() => {
     if (restrictToIds || allowAnyRegion || !downloadedCountryNames || downloadedCountryNames.size !== 1) return null;
     const onlyName = [...downloadedCountryNames][0];
@@ -118,13 +99,24 @@ export default function RegionBrowser({
   }, [regionId, allRegions, availableRegionIds, onlyCountryId, onChange]);
   const noPacks = !restrictToIds && !allowAnyRegion && downloadedCountryNames?.size === 0;
 
+  if (!regions && regionsError) {
+    return (
+      <p className="text-sm text-muted">
+        Couldn't load the region list.{" "}
+        <button type="button" onClick={() => void refreshRegions().catch(() => {})} className="text-ink underline">
+          Try again
+        </button>
+      </p>
+    );
+  }
+
   return (
     <div className="space-y-2">
       {noPacks ? (
         <p className="text-sm text-muted">
           No region pack is downloaded yet.{" "}
           <Link to="/offline-packs" className="text-ink underline">
-            Download one in Offline Packs
+            Download one in Offline packs
           </Link>{" "}
           to pick a region.
         </p>

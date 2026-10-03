@@ -1,96 +1,102 @@
 import { useSyncExternalStore } from "react";
 import { api, ApiError } from "../api/client";
+import { discardUpload, uploadFile } from "./tusUpload";
+import { isVideoFile } from "./photoFormats";
 
 export interface UploadJob {
   id: string;
   fileName: string;
   speciesId: string;
-  /** True once this specific file's request has settled (success or failure) — lets the
-   *  banner distinguish "still going" from "just about to be cleared". */
+  /** This file's request has settled (success or failure). */
   done: boolean;
   error?: string;
-  /** User chose "skip" on a duplicate-detection prompt — not an error, just never uploaded. */
+  /** User chose "skip" on a duplicate prompt: not an error, just never imported. */
   skipped?: boolean;
+  /** Bytes sent so far and the file's size, while its upload is in flight. */
+  sentBytes?: number;
+  totalBytes?: number;
 }
 
 export interface PossibleDuplicate {
   captureId: string;
   speciesName: string;
   takenAt: string | null;
-  /** false means this was caught by visual similarity (an edited/re-exported copy of a photo
-   *  you already have), not a byte-for-byte identical file — see uploads/routes.ts's
-   *  /uploads/inspect, which falls back to embedding similarity when the file hash alone finds
-   *  nothing. */
+  /** false: a visually similar (edited or re-exported) copy rather than an identical file. */
   exact: boolean;
 }
 
-/** POSTs the file to /uploads/inspect (already computes EXIF/keywords for auto-matching) and
- *  reads back its possibleDuplicate field — a real network round trip per file, which is why
- *  this is only ever called when a caller opts in via onDuplicateDetected, never unconditionally
- *  for every upload. */
-async function checkDuplicate(file: File): Promise<{ duplicate: PossibleDuplicate | null; stagedId: string | null }> {
+/** Asks /uploads/inspect whether an uploaded file is a duplicate. */
+async function checkDuplicate(uploadId: string): Promise<PossibleDuplicate | null> {
   const form = new FormData();
-  form.append("file", file);
+  form.append("uploadId", uploadId);
   try {
-    const res = await api.post<{ possibleDuplicate: PossibleDuplicate | null; stagedId?: string | null }>("/uploads/inspect", form);
-    return { duplicate: res.possibleDuplicate, stagedId: res.stagedId ?? null };
+    const res = await api.post<{ possibleDuplicate: PossibleDuplicate | null }>("/uploads/inspect", form);
+    return res.possibleDuplicate;
   } catch {
-    // Inspection failing (a transient network blip, say) shouldn't block the real upload —
-    // worst case, a genuine duplicate goes unflagged this one time.
-    return { duplicate: null, stagedId: null };
+    // A failed check never blocks the upload; at worst a duplicate goes unflagged.
+    return null;
   }
 }
 
-/** POSTs a photo to /uploads. When the server kept the copy it was sent for checking (stagedId
- *  from /uploads/inspect), refers to that instead of sending the file a second time, which
- *  halves the transfer for a batch; if that copy has expired (410), sends the file after all. */
-export function postPhotoUpload<T>(file: File, stagedId: string | null | undefined, addFields: (form: FormData) => void): Promise<T> {
-  return postUploadPreferringKeptCopy<T>("/uploads", file, stagedId, addFields);
-}
-
-/** The same for any upload endpoint that accepts a kept copy (/uploads, /uploads/video). */
-export async function postUploadPreferringKeptCopy<T>(
+/** POSTs an import request that names the file by id rather than carrying it. Tries, in order, a
+ *  copy the server kept from a check (stagedId), a finished resumable upload (uploadId), then a
+ *  fresh upload of the file; a 410 (that copy is gone) moves on to the next. */
+export async function postUploadedFile<T>(
   endpoint: string,
   file: File,
-  stagedId: string | null | undefined,
-  addFields: (form: FormData) => void,
+  opts: {
+    stagedId?: string | null;
+    uploadId?: string | null;
+    onProgress?: (sentBytes: number, totalBytes: number) => void;
+    addFields: (form: FormData) => void;
+  },
 ): Promise<T> {
-  const build = (withFile: boolean) => {
+  const post = (field: "stagedId" | "uploadId", id: string) => {
     const form = new FormData();
-    addFields(form);
-    if (withFile) form.append("file", file);
-    else {
-      form.append("stagedId", stagedId!);
-      form.append("fileName", file.name);
-      form.append("fileType", file.type);
-    }
-    return form;
+    opts.addFields(form);
+    form.append(field, id);
+    form.append("fileName", file.name);
+    // Often empty for HEIC; the server then goes by the extension and the upload's own metadata.
+    if (file.type) form.append("fileType", file.type);
+    return api.post<T>(endpoint, form);
   };
-  if (stagedId) {
+  const attempts: Array<["stagedId" | "uploadId", string]> = [];
+  if (opts.stagedId) attempts.push(["stagedId", opts.stagedId]);
+  if (opts.uploadId) attempts.push(["uploadId", opts.uploadId]);
+  for (const [field, id] of attempts) {
     try {
-      return await api.post<T>(endpoint, build(false));
+      return await post(field, id);
     } catch (err) {
       if (!(err instanceof ApiError && err.status === 410)) throw err;
     }
   }
-  return api.post<T>(endpoint, build(true));
+  return post("uploadId", await uploadFile(file, { onProgress: opts.onProgress }));
+}
+
+/** Species suggestions for a video, read from its resumable upload so the import can use the
+ *  same uploadId. `upload(true)` must send the file again (after a 410); tried once. */
+export async function suggestSpeciesFromVideo<T>(upload: (fresh: boolean) => Promise<string>, regionId: string | null): Promise<T> {
+  const suggest = (uploadId: string) => {
+    const form = new FormData();
+    form.append("uploadId", uploadId);
+    if (regionId) form.append("regionId", regionId);
+    return api.post<T>("/captures/suggest-species-from-video", form);
+  };
+  try {
+    return await suggest(await upload(false));
+  } catch (err) {
+    if (!(err instanceof ApiError && err.status === 410)) throw err;
+    return suggest(await upload(true));
+  }
 }
 
 interface QueueState {
   jobs: UploadJob[];
-  /** Set whenever an enqueued batch targets a registered external drive — the banner uses
-   *  this to show the "don't unplug" warning, since that's the only case where unplugging
-   *  mid-write could actually corrupt a file. */
+  /** A batch targets an external drive, so the banner warns not to unplug it. */
   targetsExternalDrive: boolean;
   justFinishedAt: number | null;
-  /** Duplicates found for files whose uploads are paused waiting on the user's choice, oldest
-   *  first. Up to MAX_CONCURRENT uploads can hit one at once, so this is a queue: the banner
-   *  shows the first, and answering it removes only that entry (a single slot let a second
-   *  prompt overwrite the first, whose paused upload then never resumed). Surfaced through the
-   *  SAME global banner every other upload state goes through (UploadQueueBanner.tsx), not a
-   *  dialog local to whichever page enqueued the file: that page
-   *  (e.g. UploadDropzone's parent) may have already closed/unmounted by the time this async
-   *  check comes back, same reason progress/errors are already global instead of per-caller. */
+  /** Paused uploads waiting on a duplicate prompt, oldest first. A queue because several uploads
+   *  can hit one at once; shown in the global banner since the enqueuing page may be gone. */
   pendingDuplicates: PendingDuplicate[];
 }
 
@@ -100,18 +106,12 @@ export interface PendingDuplicate {
   info: PossibleDuplicate;
 }
 
-// A module-level store (not a React context) is deliberate: uploads are fired from whichever
-// component happens to be open (UploadDropzone inside a species page's modal) and must keep
-// running — and stay visible via the banner in App.tsx — even after that component unmounts
-// (the user closed the dialog, or navigated to a different page entirely). Plain fetch calls
-// already survive a component unmount (see api/client.ts — no AbortController tied to
-// anything); this store just gives every other component a way to see progress they didn't
-// personally kick off.
+// Module-level store so uploads stay visible (in the banner) after the component that started
+// them unmounts; the fetches themselves already outlive it.
 let state: QueueState = { jobs: [], targetsExternalDrive: false, justFinishedAt: null, pendingDuplicates: [] };
 const duplicateResolvers = new Map<string, (choice: "import" | "skip") => void>();
 
-/** Called by UploadQueueBanner's confirm UI: resolves the paused upload task waiting on this
- *  jobId and removes just that prompt, leaving any others queued behind it. */
+/** Answers one duplicate prompt, resuming its paused upload and leaving the others queued. */
 export function resolveDuplicate(jobId: string, choice: "import" | "skip"): void {
   const resolve = duplicateResolvers.get(jobId);
   duplicateResolvers.delete(jobId);
@@ -149,6 +149,17 @@ export function useUploadQueue(): QueueState {
   return useSyncExternalStore(subscribe, getSnapshot);
 }
 
+/** Records upload progress for a job. Only whole-percent changes re-render, since tus reports
+ *  progress many times a second. */
+export function reportJobProgress(jobId: string, sentBytes: number, totalBytes: number): void {
+  const job = state.jobs.find((j) => j.id === jobId);
+  if (!job || totalBytes <= 0) return;
+  const before = job.totalBytes ? Math.floor(((job.sentBytes ?? 0) / job.totalBytes) * 100) : -1;
+  job.sentBytes = sentBytes;
+  job.totalBytes = totalBytes;
+  if (Math.floor((sentBytes / totalBytes) * 100) !== before) setState({ jobs: [...state.jobs] });
+}
+
 const MAX_CONCURRENT = 3;
 let running = 0;
 const pending: Array<() => Promise<void>> = [];
@@ -164,23 +175,16 @@ function pump() {
   }
 }
 
-/** Queues a batch of files for one species, uploading in the background — the caller (e.g.
- *  UploadDropzone) can close its dialog immediately after calling this; progress and errors
- *  surface via the global banner (useUploadQueue), not the caller's own state. */
+/** Uploads a batch for one species in the background; progress and errors show in the banner. */
 export function enqueueUploads(
   speciesId: string,
   files: File[],
   opts: {
     volumeId?: string;
     targetsExternalDrive?: boolean;
-    /** "Build a Trip" destination override — see uploads/routes.ts's own tripId handling.
-     *  Files land under that trip's own folder and get tagged with trip_id instead of the
-     *  default ORIGINALS_DIR/no-trip behavior. */
+    /** Files go into this trip's folder and get its trip_id. */
     tripId?: string;
-    /** Fires after EACH file's own upload settles (success or failure), not just once the
-     *  whole batch finishes — lets the species page refresh and show that photo immediately
-     *  instead of every uploaded photo popping in at once only after the slowest one in the
-     *  batch finally settles. */
+    /** Fires per file (success or failure), so each photo can appear as soon as it's done. */
     onFileSettled?: () => void;
     onBatchSettled?: () => void;
   } = {},
@@ -198,42 +202,48 @@ export function enqueueUploads(
     const job = jobs[i];
     pending.push(async () => {
       try {
-        // Videos have no store/link/s3 mode or RAW-sibling story (see /uploads/video's own
-        // comment) and no duplicate-fingerprint check built for them yet — route straight
-        // through, same as PhotoImportRows' own video branch.
-        if (file.type.startsWith("video/")) {
-          const videoForm = new FormData();
-          videoForm.append("speciesId", speciesId);
-          videoForm.append("file", file);
-          if (opts.volumeId) videoForm.append("volumeId", opts.volumeId);
-          if (opts.tripId) videoForm.append("tripId", opts.tripId);
-          await api.post("/uploads/video", videoForm);
+        const onProgress = (sent: number, total: number) => reportJobProgress(job.id, sent, total);
+        // Videos skip the mode field and the duplicate check.
+        if (isVideoFile(file)) {
+          await postUploadedFile("/uploads/video", file, {
+            onProgress,
+            addFields: (form) => {
+              form.append("speciesId", speciesId);
+              if (opts.volumeId) form.append("volumeId", opts.volumeId);
+              if (opts.tripId) form.append("tripId", opts.tripId);
+            },
+          });
           return;
         }
-        const { duplicate: dup, stagedId } = await checkDuplicate(file);
+        // Sent once: the check and the import both refer to this upload.
+        const uploadId = await uploadFile(file, { onProgress });
+        const dup = await checkDuplicate(uploadId);
         if (dup) {
           const choice = await askAboutDuplicate(job, dup);
           if (choice === "skip") {
             job.skipped = true;
+            discardUpload(uploadId);
             return;
           }
         }
-        await postPhotoUpload(file, stagedId, (form) => {
-          form.append("mode", "store");
-          form.append("speciesId", speciesId);
-          if (opts.volumeId) form.append("volumeId", opts.volumeId);
-          if (opts.tripId) form.append("tripId", opts.tripId);
+        await postUploadedFile("/uploads", file, {
+          uploadId,
+          onProgress,
+          addFields: (form) => {
+            form.append("mode", "store");
+            form.append("speciesId", speciesId);
+            if (opts.volumeId) form.append("volumeId", opts.volumeId);
+            if (opts.tripId) form.append("tripId", opts.tripId);
+          },
         });
       } catch (err) {
-        job.error = err instanceof ApiError ? err.message : "Upload failed";
+        job.error = err instanceof Error ? err.message : "Upload failed";
       } finally {
         job.done = true;
         settleIfDone();
         setState({ jobs: [...state.jobs] });
         opts.onFileSettled?.();
-        // Fires once this specific batch (not the whole global queue) has fully settled —
-        // lets whichever page enqueued these refresh its own data if it's still mounted,
-        // without needing a live subscription that outlives the component itself.
+        // This batch (not the whole queue) has settled.
         remaining--;
         if (remaining === 0) opts.onBatchSettled?.();
       }
@@ -242,12 +252,9 @@ export function enqueueUploads(
   pump();
 }
 
-/** Same background-queue treatment as enqueueUploads, for RAW files — each is its own
- *  /uploads/raw request (matched independently against already-uploaded JPEGs), so results
- *  come back per file rather than as a single batch outcome. onResult fires per file (used by
- *  RawUpload.tsx to show which species a RAW matched, if it's still mounted to care) in
- *  addition to feeding the shared jobs list the global banner reads from. */
-export function enqueueRawUploads<T>(
+/** enqueueUploads for RAW files: each is uploaded, then matched against imported JPEGs with its
+ *  own /uploads/raw request, with onResult per file. */
+export function enqueueRawUploads<T extends { filename?: string }>(
   speciesId: string,
   files: File[],
   requestPart: (file: File, form: FormData) => void,
@@ -269,13 +276,15 @@ export function enqueueRawUploads<T>(
       let result: T | null = null;
       let error: string | null = null;
       try {
+        const uploadId = await uploadFile(file, { onProgress: (sent, total) => reportJobProgress(job.id, sent, total) });
         const form = new FormData();
         requestPart(file, form);
-        form.append("file", file);
+        form.append("uploadIds", uploadId);
         const body = await api.post<{ results: T[] }>("/uploads/raw", form);
-        result = parseResult(body);
+        // A result for an upload the server couldn't use comes back without a filename.
+        result = parseResult({ results: body.results.map((r) => (r.filename ? r : { ...r, filename: file.name })) });
       } catch (err) {
-        error = err instanceof ApiError ? err.message : "Upload failed";
+        error = err instanceof Error ? err.message : "Upload failed";
         job.error = error;
       } finally {
         job.done = true;
@@ -290,14 +299,8 @@ export function enqueueRawUploads<T>(
   pump();
 }
 
-/** Lets a caller with its OWN upload transport (PhotoImportRows' bulk import screen — many
- *  files, each with its own species/region/RAW-vs-video routing that doesn't fit the single-
- *  species-batch shape enqueueUploads/enqueueRawUploads assume) still show up in the shared
- *  jobs list the global banner and every species page's own "uploading" placeholder square
- *  already read from. Only borrows the BOOKKEEPING half of the queue — the caller still fires
- *  its own request and decides success/failure, then reports the outcome back via
- *  settleExternalJob so this job settles (and the whole-queue "all done" cleanup still fires)
- *  exactly like a job the queue uploaded itself. */
+/** Adds a job that the caller uploads itself (PhotoImportRows) to the shared list, so it shows in
+ *  the banner. Report the outcome with settleExternalJob. */
 export function registerExternalJob(speciesId: string, fileName: string): string {
   const job: UploadJob = { id: `${Date.now()}-${Math.random()}`, fileName, speciesId, done: false };
   setState({ jobs: [...state.jobs, job] });
@@ -316,17 +319,12 @@ export function settleExternalJob(jobId: string, error?: string): void {
 
 function settleIfDone() {
   if (state.jobs.every((j) => j.done)) {
-    // Cleared after a short grace period so the banner can show "Uploaded N photos" instead
-    // of just vanishing the instant the last file settles (same pattern as
-    // MigrationStatusIndicator's justFinished window).
+    // Cleared after a grace period so the banner can show "Uploaded N photos" first.
     setTimeout(() => {
       if (state.jobs.every((j) => j.done)) {
         const finishedAt = Date.now();
         setState({ jobs: [], targetsExternalDrive: false, justFinishedAt: finishedAt });
-        // UploadQueueBanner's "justFinished" window is only ever re-evaluated on a render —
-        // with no more jobs left, nothing else triggers one, so without this the banner never
-        // re-renders to notice the window has elapsed and just sticks on "Upload finished"
-        // forever. This is the render that actually clears it.
+        // Nothing else re-renders the banner once the queue is empty, so this emit clears it.
         setTimeout(() => {
           if (state.justFinishedAt === finishedAt) setState({ justFinishedAt: null });
         }, 6000);

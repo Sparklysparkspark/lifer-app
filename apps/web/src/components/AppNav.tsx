@@ -1,50 +1,83 @@
-import { Link } from "react-router-dom";
+import { useEffect, useSyncExternalStore } from "react";
+import { Link, NavLink, useLocation } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { useDeploymentMode } from "../hooks/useDeploymentMode";
-import SpeciesPicker from "./SpeciesPicker";
 import { Logo } from "./Logo";
 import AccountMenu from "./AccountMenu";
+import { openLocalLibrary } from "../lib/desktopConnection";
+import { isTauri } from "../lib/tauri";
 
-// The one top nav bar in the app (previously inline in CollectionPage.tsx, the only page that
-// ever rendered it — every other page uses PageHeader's own lighter back-link/title bar
-// instead). Extracted so account/logout no longer sits as permanent inline text
-// ("user@email.com · Log out") taking up nav space on every visit — that's now tucked behind
-// AccountMenu, a small icon opened on demand, matching how API keys were already moved off this
-// same bar into Settings for the same "occasional action, not everyday nav" reason.
-export default function AppNav({ collectedCount, totalCount }: { collectedCount: number; totalCount: number | null }) {
+// The collection publishes its "collected / total" count here for the nav to show.
+type NavCounts = { collected: number; total: number } | null;
+let counts: NavCounts = null;
+const listeners = new Set<() => void>();
+function setCounts(next: NavCounts) {
+  if (counts?.collected === next?.collected && counts?.total === next?.total) return;
+  counts = next;
+  listeners.forEach((l) => l());
+}
+function subscribe(listener: () => void) {
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
+}
+const getCounts = () => counts;
+
+/** Shows "collected / total" under the logo while the calling page is mounted. */
+export function useNavCounts(collected: number, total: number | null): void {
+  useEffect(() => {
+    setCounts(total == null ? null : { collected, total });
+  }, [collected, total]);
+  useEffect(() => () => setCounts(null), []);
+}
+
+const linkClass = ({ isActive }: { isActive: boolean }) => `text-sm hover:underline ${isActive ? "font-medium text-ink" : "text-muted"}`;
+
+// The app-wide top bar. The logo links back to the Collection. Search is Cmd/Ctrl+K only.
+export default function AppNav() {
   const { user, logout } = useAuth();
   const deploymentMode = useDeploymentMode();
+  const navCounts = useSyncExternalStore(subscribe, getCounts, getCounts);
+  const { pathname } = useLocation();
+
+  // In the desktop app, signing out of a server goes back to the library on this computer.
+  async function signOut() {
+    await logout();
+    if (isTauri()) await openLocalLibrary();
+  }
 
   return (
     <header className="page-header flex items-center justify-between border-b border-line bg-surface px-6 py-4">
       <div>
-        <Logo variant="wordmark" className="h-7 w-auto" />
-        {totalCount != null && (
+        <Link to="/" aria-label="Collection">
+          <Logo variant="wordmark" className="h-7 w-auto" />
+        </Link>
+        {navCounts && (
           <p className="text-xs text-muted">
-            {collectedCount} / {totalCount} collected
+            {navCounts.collected} / {navCounts.total} collected
           </p>
         )}
       </div>
-      <div className="flex items-center gap-4">
-        <SpeciesPicker />
-        <Link to="/import" className="text-sm text-muted hover:underline">
+      <nav className="flex items-center gap-4">
+        <NavLink to="/import" className={linkClass}>
           Import
-        </Link>
-        <Link to="/stats" className="text-sm text-muted hover:underline">
+        </NavLink>
+        <NavLink to="/stats" className={linkClass}>
           Stats
-        </Link>
-        <Link to="/gallery" className="text-sm text-muted hover:underline">
+        </NavLink>
+        <NavLink to="/gallery" className={linkClass}>
           Gallery
-        </Link>
-        <Link to="/albums" className="text-sm text-muted hover:underline">
-          Albums & Trips
-        </Link>
-        <Link to="/settings" className="text-sm text-muted hover:underline">
+        </NavLink>
+        <NavLink to="/albums" className={({ isActive }) => linkClass({ isActive: isActive || pathname.startsWith("/trips") })}>
+          Albums & trips
+        </NavLink>
+        <NavLink to="/settings" className={linkClass}>
           Settings
-        </Link>
+        </NavLink>
         {/* Desktop's auto-provisioned local user has no real account to manage. */}
-        {deploymentMode === "server" && user?.email && <AccountMenu email={user.email} onLogout={() => logout()} />}
-      </div>
+        {deploymentMode === "server" && user?.email && <AccountMenu email={user.email} onLogout={signOut} />}
+      </nav>
     </header>
   );
 }

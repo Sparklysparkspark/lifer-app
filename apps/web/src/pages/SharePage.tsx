@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { useParams } from "react-router-dom";
 import type { AlbumPhoto } from "@lifer/shared";
 import { api, ApiError } from "../api/client";
@@ -8,6 +8,9 @@ import MasonryGrid from "../components/MasonryGrid";
 import ProgressiveImg from "../components/ProgressiveImg";
 import Lightbox, { type LightboxSlide } from "../components/Lightbox";
 import { useShowLabels } from "../hooks/useShowLabels";
+import Button from "../components/Button";
+import FormMessage from "../components/FormMessage";
+import { downloadFile } from "../lib/downloadFile";
 
 interface ShareContent {
   title: string;
@@ -15,9 +18,7 @@ interface ShareContent {
   items: AlbumPhoto[];
 }
 
-// The public, unauthenticated viewer for a shared album — deliberately its own standalone page
-// with no nav bar, no hint of the owner's private library, and no dependency on RequireAuth. A
-// visitor here has no account and needs none.
+// Public viewer for a shared album: no nav, no auth, nothing from the owner's private library.
 export default function SharePage() {
   const { token } = useParams<{ token: string }>();
   const [content, setContent] = useState<ShareContent | null>(null);
@@ -28,6 +29,7 @@ export default function SharePage() {
   const [unlockError, setUnlockError] = useState<string | null>(null);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const [showLabels, setShowLabels] = useShowLabels();
+  const [downloadError, setDownloadError] = useState<string | null>(null);
 
   function load() {
     if (!token) return;
@@ -45,7 +47,7 @@ export default function SharePage() {
 
   useEffect(load, [token]);
 
-  async function unlock(e: React.FormEvent) {
+  async function unlock(e: FormEvent) {
     e.preventDefault();
     if (!token) return;
     setUnlocking(true);
@@ -81,14 +83,10 @@ export default function SharePage() {
             autoComplete="current-password"
             className="w-full rounded-md border border-line px-3 py-2 text-sm"
           />
-          {unlockError && <p className="text-sm text-red-600">{unlockError}</p>}
-          <button
-            type="submit"
-            disabled={unlocking || !password}
-            className="w-full rounded-md bg-accent px-4 py-2 text-sm font-medium text-accent-fg disabled:opacity-50"
-          >
+          <FormMessage error={unlockError} />
+          <Button type="submit" className="w-full" loading={unlocking} disabled={!password}>
             {unlocking ? "Checking…" : "View album"}
-          </button>
+          </Button>
         </form>
       </div>
     );
@@ -96,9 +94,25 @@ export default function SharePage() {
 
   if (!content) return <LoadingScreen showBackLink={false} />;
 
+  const downloadFor = (item: AlbumPhoto) =>
+    content.allowDownload
+      ? {
+          url: `/api/share/${token}/photos/${item.photoId}/display?download=1`,
+          filename: `${item.commonName || item.scientificName || item.photoId}.webp`,
+        }
+      : null;
+
+  function download(item: AlbumPhoto) {
+    const target = downloadFor(item);
+    if (!target) return;
+    setDownloadError(null);
+    downloadFile(target.url, target.filename).catch(() => setDownloadError("Couldn't download this photo. Try again."));
+  }
+
   const slides: LightboxSlide[] = content.items.map((item) => ({
     url: `/api/share/${token}/photos/${item.photoId}/display`,
     caption: item.commonName || item.scientificName,
+    download: downloadFor(item),
     info: {
       cameraModel: item.cameraModel,
       lens: item.lens,
@@ -122,6 +136,7 @@ export default function SharePage() {
       </header>
 
       <main className="p-6">
+        <FormMessage error={downloadError} className="mb-4" />
         {content.items.length === 0 ? (
           <p className="text-muted">This album is empty.</p>
         ) : (
@@ -133,17 +148,32 @@ export default function SharePage() {
             keyFor={({ item }) => item.photoId}
             aspectRatioFor={({ item }) => (item.width && item.height ? item.width / item.height : null)}
             renderItem={({ item, i }, aspectRatio) => (
-              <button key={item.photoId} onClick={() => setLightboxIndex(i)} className="block w-full text-left">
-                <div className="overflow-hidden rounded-md" style={{ aspectRatio }}>
-                  <ProgressiveImg
-                    thumbSrc={`/api/share/${token}/photos/${item.photoId}/thumb`}
-                    fullSrc={`/api/share/${token}/photos/${item.photoId}/display`}
-                    alt={item.commonName || item.scientificName}
-                    className="block h-full w-full cursor-pointer object-cover"
-                  />
-                </div>
-                {showLabels && <p className="mt-1 truncate text-[11px] text-muted">{item.commonName || item.scientificName}</p>}
-              </button>
+              <div key={item.photoId} className="group relative w-full">
+                <button onClick={() => setLightboxIndex(i)} className="block w-full text-left">
+                  <div className="overflow-hidden rounded-md" style={{ aspectRatio }}>
+                    <ProgressiveImg
+                      thumbSrc={`/api/share/${token}/photos/${item.photoId}/thumb`}
+                      fullSrc={`/api/share/${token}/photos/${item.photoId}/display`}
+                      alt={item.commonName || item.scientificName}
+                      className="block h-full w-full cursor-pointer object-cover"
+                    />
+                  </div>
+                  {showLabels && <p className="mt-1 truncate text-[11px] text-muted">{item.commonName || item.scientificName}</p>}
+                </button>
+                {content.allowDownload && (
+                  <button
+                    type="button"
+                    onClick={() => download(item)}
+                    aria-label="Download photo"
+                    title="Download"
+                    className="absolute right-2 top-2 rounded-full bg-black/50 p-1.5 text-white opacity-0 transition-opacity hover:bg-black/70 focus-visible:opacity-100 group-hover:opacity-100"
+                  >
+                    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                      <path d="M12 4v11m0 0-4-4m4 4 4-4M5 20h14" />
+                    </svg>
+                  </button>
+                )}
+              </div>
             )}
           />
         )}

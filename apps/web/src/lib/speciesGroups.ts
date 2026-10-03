@@ -1,11 +1,17 @@
 import { otherTaxaGroupLabel } from "@lifer/shared";
 
-// Folk/birding-style groupings ("Sparrows", "Hawks & Eagles") rather than raw Latin family
-// names — matches how birders actually think about a checklist (same idea eBird/Clements
-// use). Keyed by taxonomic family, which is real data already in the DB (species.family),
-// not guessed — this is a curated label on top of real data, covering the families you'll
-// actually run into; anything unmapped falls back to showing the family name as-is rather
-// than disappearing into an "Other" bucket, so nothing gets hidden just for being obscure.
+// Rarity tier display names, shared by the species card badges and the tier grouping.
+export const TIER_LABEL: Record<string, string> = {
+  legendary: "Legendary",
+  rare: "Rare",
+  uncommon: "Uncommon",
+  occasional: "Occasional",
+  common: "Common",
+  unrated: "Unrated",
+};
+
+// Birding-style group names ("Hawks, Eagles & Kites") keyed by real taxonomic family. Unmapped
+// families fall back to the family name itself rather than an "Other" bucket.
 const BIRD_FAMILY_GROUPS: Record<string, string> = {
   Anatidae: "Waterfowl",
   Anhingidae: "Anhingas",
@@ -81,15 +87,8 @@ const BIRD_FAMILY_GROUPS: Record<string, string> = {
   Pipridae: "Manakins",
 };
 
-// Mammals/fish don't have a curated folk-name map yet (the request that prompted this was
-// bird-specific — "Sparrows", "birds of prey") — grouping by the real family name for those
-// is still a real, useful breakdown, just not renamed to a friendly label yet.
-//
-// Other Taxa species (added via Settings > Species & Import's any-taxa search) never have a
-// family on file, so without this they'd all collapse into one generic "Other" bucket —
-// isOtherTaxa/inatIconicTaxon route them into their own per-taxon groups instead ("Insecta",
-// "Fungi", "Plantae", ...), the same "sorted like Birds/Mammals/Fish" treatment every other
-// group already gets.
+// Only birds have friendly names so far; other taxa group by family. Other Taxa species have no
+// family, so they group by their iNat iconic taxon ("Insecta", "Fungi", ...).
 export function speciesGroupLabel(
   taxonClass: string | null,
   family: string | null,

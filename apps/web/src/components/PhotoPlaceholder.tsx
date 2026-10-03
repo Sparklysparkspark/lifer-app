@@ -1,9 +1,6 @@
 import type { MouseEvent } from "react";
 
-// Shown wherever a species has no photo to display — no capture yet, no reference photo
-// found, or (via ProgressiveImg's onError) a reference photo whose file has since moved or
-// been deleted. One shared look for all three cases, so a broken file reads the same as
-// "nothing here yet" instead of looking like an error.
+// Stand-in for a missing photo. A broken file uses it too, so it reads as "nothing here" not an error.
 export default function PhotoPlaceholder({
   className,
   onClick,

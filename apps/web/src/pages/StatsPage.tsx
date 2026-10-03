@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import {
   ResponsiveContainer,
@@ -14,7 +14,7 @@ import {
   Tooltip,
   Cell,
 } from "recharts";
-import { api } from "../api/client";
+import { api, CLIENT_HEADER } from "../api/client";
 import { downloadFile } from "../lib/downloadFile";
 import PageHeader from "../components/PageHeader";
 import EmptyState from "../components/EmptyState";
@@ -22,6 +22,11 @@ import CollectionStatsPanel from "../components/CollectionStats";
 import { LoadingScreen, Spinner } from "../components/LoadingScreen";
 import Lightbox, { type LightboxSlide } from "../components/Lightbox";
 import InfoTip from "../components/InfoTip";
+import Button from "../components/Button";
+import FormMessage from "../components/FormMessage";
+import SharedSelect from "../components/Select";
+import { useSettings } from "../hooks/useSettings";
+import { pluralize } from "../lib/pluralize";
 import { taxonDisplayLabel } from "@lifer/shared";
 
 interface StatsResponse {
@@ -93,6 +98,10 @@ const INK = "var(--color-ink)";
 const MUTED = "var(--color-muted)";
 const LINE = "var(--color-line)";
 
+function NoValue() {
+  return <span className="text-muted">n/a</span>;
+}
+
 function StatCard({ label, value, sub }: { label: string; value: string; sub?: string }) {
   return (
     <div className="rounded-xl border border-line bg-surface p-4">
@@ -110,8 +119,8 @@ function ChartCard({
   className,
 }: {
   title: string;
-  controls?: React.ReactNode;
-  children: React.ReactNode;
+  controls?: ReactNode;
+  children: ReactNode;
   className?: string;
 }) {
   return (
@@ -125,19 +134,26 @@ function ChartCard({
   );
 }
 
-function Select({ value, onChange, options }: { value: string; onChange: (v: string) => void; options: Array<{ value: string; label: string }> }) {
+// The shared toolbar Select, fed from an options array.
+function OptionSelect({
+  value,
+  onChange,
+  options,
+  ariaLabel,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  options: ReadonlyArray<{ value: string; label: string }>;
+  ariaLabel?: string;
+}) {
   return (
-    <select
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      className="h-7 rounded-md border border-line bg-surface px-2 py-1 text-xs font-medium text-muted"
-    >
+    <SharedSelect value={value} onChange={(e) => onChange(e.target.value)} aria-label={ariaLabel}>
       {options.map((o) => (
         <option key={o.value} value={o.value}>
           {o.label}
         </option>
       ))}
-    </select>
+    </SharedSelect>
   );
 }
 
@@ -150,16 +166,10 @@ const SCATTER_AXES = {
 } as const;
 type ScatterAxisKey = keyof typeof SCATTER_AXES;
 
-// Extended well past what a fixed "1/8000 is the fastest anyone shoots" assumption would cover —
-// modern mirrorless electronic shutters go to 1/32000 and beyond, and a photographer who actually
-// has shots that fast should see real labeled ticks out there, not have their points plot past
-// the last one with no reference. Picked from the same "nice" 1/2-ish progression a camera's own
-// shutter dial uses, so labels always read as speeds a photographer recognizes.
+// Camera-dial speeds out to 1/128000 so fast electronic shutters still get labeled ticks.
 const NICE_SHUTTER_DENOMINATORS = [30, 60, 125, 250, 500, 1000, 2000, 4000, 8000, 16000, 32000, 64000, 128000];
 
-// Ticks span exactly what the data covers — no padding beyond the actual min/max, since a tick
-// (and the axis space it implies) for a speed nobody actually shot at is just wasted whitespace,
-// not useful framing.
+// Ticks span only what the data covers.
 function shutterTicks(values: number[]): number[] {
   if (values.length === 0) return NICE_SHUTTER_DENOMINATORS.slice(0, 9).map((d) => 1 / d);
   const min = Math.min(...values);
@@ -202,7 +212,7 @@ function ScatterTooltip({ active, payload, xKey, yKey }: { active?: boolean; pay
   const yVal = p[yKey];
   return (
     <div className="flex items-center gap-2 rounded-md border border-line bg-surface p-2 text-xs shadow-md">
-      {p.photoId && <img src={`/api/photos/${p.photoId}/thumb`} alt="" className="h-12 w-12 rounded object-cover" />}
+      {p.photoId && <img src={`/api/photos/${p.photoId}/thumb`} alt="" loading="lazy" className="h-12 w-12 rounded object-cover" />}
       <div>
         <p className="font-medium text-ink">{p.commonName ?? p.scientificName}</p>
         <p className="text-muted">
@@ -216,7 +226,8 @@ function ScatterTooltip({ active, payload, xKey, yKey }: { active?: boolean; pay
 
 export default function StatsPage() {
   const [stats, setStats] = useState<StatsResponse | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
   const [filter, setFilter] = useState<PhotoFilter>("all");
   const [gearType, setGearType] = useState<(typeof GEAR_TYPES)[number]["value"]>("cameras");
   const [gearMetric, setGearMetric] = useState<(typeof GEAR_METRICS)[number]["value"]>("photoCount");
@@ -233,33 +244,47 @@ export default function StatsPage() {
   const [yearA, setYearA] = useState<number | null>(null);
   const [yearB, setYearB] = useState<number | null>(null);
   const [yearComparison, setYearComparison] = useState<YearComparisonResponse | null>(null);
-  // Photography DNA's "By taxon" labels follow the same species_naming_styles preference used
-  // everywhere else (CollectionPage, GroupedSpeciesGrid) — self-fetched, same pattern.
-  const [namingStyles, setNamingStyles] = useState<string[]>([]);
-  useEffect(() => {
-    api.get<{ speciesNamingStyles: string[] }>("/settings").then((res) => setNamingStyles(res.speciesNamingStyles)).catch(() => {});
-  }, []);
+  const [sectionError, setSectionError] = useState(false);
+  const namingStyles = useSettings().settings?.speciesNamingStyles ?? [];
 
   useEffect(() => {
-    setLoading(true);
+    const controller = new AbortController();
+    setLoadError(null);
     api
-      .get<StatsResponse>(`/stats?filter=${filter}`)
+      .get<StatsResponse>(`/stats?filter=${filter}`, { signal: controller.signal })
       .then(setStats)
-      .finally(() => setLoading(false));
-  }, [filter]);
+      .catch(() => {
+        if (!controller.signal.aborted) setLoadError("Couldn't load stats. Try again.");
+      });
+    return () => controller.abort();
+  }, [filter, reloadKey]);
 
-  // Independent of the filter-scoped /stats fetch above — these views are always over the
-  // WHOLE library (every confirmed photo), not "keepers" or whatever filter happens to be
-  // selected, since "how many photos of this species do I have" is a raw fact, not something a
-  // top-rated/featured filter should ever narrow.
+  // Always over the whole library, not narrowed by the keeper filter.
   useEffect(() => {
-    api.get<SpeciesPortfolioResponse>("/stats/species-portfolio").then(setPortfolio);
-    api.get<ArchiveHealthResponse>("/stats/archive-health").then(setArchiveHealth);
-    api.get<PhotographyDnaResponse>("/stats/photography-dna").then(setPhotographyDna);
+    const controller = new AbortController();
+    const opts = { signal: controller.signal };
+    api
+      .get<SpeciesPortfolioResponse>("/stats/species-portfolio", opts)
+      .then(setPortfolio)
+      .catch(() => {
+        if (!controller.signal.aborted) setPortfolio({ species: [] });
+      });
+    api
+      .get<ArchiveHealthResponse>("/stats/archive-health", opts)
+      .then(setArchiveHealth)
+      .catch(() => {
+        if (!controller.signal.aborted) setSectionError(true);
+      });
+    api
+      .get<PhotographyDnaResponse>("/stats/photography-dna", opts)
+      .then(setPhotographyDna)
+      .catch(() => {
+        if (!controller.signal.aborted) setSectionError(true);
+      });
+    return () => controller.abort();
   }, []);
 
-  // Years available to compare are derived from the portfolio's own earliest/latest photo
-  // dates, not hardcoded — defaults to the two most recent distinct years once known.
+  // Years to compare come from the portfolio's photo dates; defaults to the two most recent.
   const availableYears = useMemo(() => {
     if (!portfolio) return [];
     const years = new Set<number>();
@@ -277,7 +302,14 @@ export default function StatsPage() {
 
   useEffect(() => {
     if (yearA === null || yearB === null) return;
-    api.get<YearComparisonResponse>(`/stats/year-comparison?yearA=${yearA}&yearB=${yearB}`).then(setYearComparison);
+    const controller = new AbortController();
+    api
+      .get<YearComparisonResponse>(`/stats/year-comparison?yearA=${yearA}&yearB=${yearB}`, { signal: controller.signal })
+      .then(setYearComparison)
+      .catch(() => {
+        if (!controller.signal.aborted) setSectionError(true);
+      });
+    return () => controller.abort();
   }, [yearA, yearB]);
 
   const mostPhotographed = useMemo(
@@ -285,9 +317,7 @@ export default function StatsPage() {
     [portfolio],
   );
   const oneAndDone = useMemo(() => (portfolio ? portfolio.species.filter((s) => s.totalPhotos === 1) : []), [portfolio]);
-  // A single photo you've already rated 1 star yourself is a real, self-flagged "I know this
-  // one isn't good" — worth surfacing specifically because you're the one who said so, rather
-  // than guessing at a quality bar from photo count/rating-distribution heuristics.
+  // Only species whose single photo you rated 1 star yourself.
   const needsBetterPhoto = useMemo(
     () => (portfolio ? portfolio.species.filter((s) => s.totalPhotos === 1 && s.bestRating === 1) : []),
     [portfolio],
@@ -317,8 +347,7 @@ export default function StatsPage() {
     return { key: "count", rows: stats.exifDistributions[exifMetric] };
   }, [stats, exifMetric]);
 
-  // Clicking an EXIF distribution bar surfaces the actual photos behind it, so this chart
-  // doubles as a photo-management tool, not just a read-only histogram.
+  // Clicking an EXIF bar lists the photos behind it.
   const [barBucket, setBarBucket] = useState<{ label: string; photoIds: string[] } | null>(null);
   const [bucketDownloading, setBucketDownloading] = useState(false);
   async function downloadBucket(photoIds: string[]) {
@@ -327,6 +356,8 @@ export default function StatsPage() {
       for (const id of photoIds) {
         await downloadFile(`/api/photos/${id}/original?download=1`, `${id}.jpg`);
       }
+    } catch {
+      setExportError("Couldn't download every photo. Try again.");
     } finally {
       setBucketDownloading(false);
     }
@@ -336,29 +367,27 @@ export default function StatsPage() {
     setExporting(true);
     setExportError(null);
     try {
-      const res = await fetch(`/api/stats/export.csv?filter=${filter}`, { credentials: "include" });
+      const res = await fetch(`/api/stats/export.csv?filter=${filter}`, { credentials: "same-origin", headers: CLIENT_HEADER });
       if (!res.ok) throw new Error(`Export failed (${res.status})`);
       const csv = await res.text();
       const filename = `lifer-stats-${filter}-${new Date().toISOString().slice(0, 10)}.csv`;
 
       if (window.liferSetup) {
-        // Desktop app: a real native "Save As" dialog, so you pick exactly where this goes
-        // instead of it silently landing in your OS's default downloads folder.
+        // Desktop: a native Save As dialog.
         const { save } = await import("@tauri-apps/plugin-dialog");
         const { writeTextFile } = await import("@tauri-apps/plugin-fs");
         const path = await save({ defaultPath: filename, filters: [{ name: "CSV", extensions: ["csv"] }] });
         if (!path) return; // user cancelled the dialog
         await writeTextFile(path, csv);
       } else {
-        // Plain browser (self-hosted web access) — no native dialog available, fall back to
-        // the browser's own download handling.
         const blob = new Blob([csv], { type: "text/csv" });
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = url;
         a.download = filename;
         a.click();
-        URL.revokeObjectURL(url);
+        // Revoking right away can cancel the download before the browser reads the blob.
+        setTimeout(() => URL.revokeObjectURL(url), 30_000);
       }
     } catch (err) {
       setExportError(err instanceof Error ? err.message : "Couldn't export stats");
@@ -367,15 +396,21 @@ export default function StatsPage() {
     }
   }
 
-  // The header (with its BackToCollectionLink) renders unconditionally below, same pattern as
-  // SpeciesDetailPage's own loading/error states — a slow /stats fetch (e.g. while a background
-  // recompute is hogging the DB/CPU) shouldn't make the whole page, header included, blink out
-  // of existence while it waits; only the body swaps between loading/loaded.
+  // The header stays up while the body loads.
   if (!stats) {
     return (
-      <div className="min-h-screen bg-canvas">
+      <div className="flex-1 bg-canvas">
         <PageHeader sticky title="Stats" />
-        <LoadingScreen showBackLink={false} label="Loading stats…" />
+        {loadError ? (
+          <div className="mx-auto flex max-w-md flex-col items-center gap-3 p-10 text-center">
+            <FormMessage error={loadError} />
+            <Button variant="secondary" size="sm" onClick={() => setReloadKey((k) => k + 1)}>
+              Retry
+            </Button>
+          </div>
+        ) : (
+          <LoadingScreen showBackLink={false} label="Loading stats…" />
+        )}
       </div>
     );
   }
@@ -386,12 +421,13 @@ export default function StatsPage() {
   const bestMonth = [...stats.perMonth].sort((a, b) => b.newLifers - a.newLifers)[0];
 
   return (
-    <div className="min-h-screen bg-canvas">
+    <div className="flex-1 bg-canvas">
       <PageHeader sticky
         title="Stats"
         actions={
           <>
-            <Select
+            <OptionSelect
+              ariaLabel="Photos to count"
               value={filter}
               onChange={(v) => setFilter(v as PhotoFilter)}
               options={[
@@ -400,18 +436,22 @@ export default function StatsPage() {
                 { value: "topRated", label: "Top rated (5-star)" },
               ]}
             />
-            <button
-              type="button"
-              onClick={handleExport}
-              disabled={exporting}
-              className="rounded-md border border-line px-2 py-1 text-xs text-muted hover:bg-surface-muted disabled:opacity-50"
-            >
+            <Button variant="secondary" size="sm" onClick={handleExport} loading={exporting}>
               {exporting ? "Exporting…" : "Export CSV"}
-            </button>
+            </Button>
           </>
         }
       />
-      {exportError && <p className="border-b border-line bg-surface px-6 py-2 text-sm text-red-600">{exportError}</p>}
+      {(exportError || loadError) && (
+        <div className="px-6 pt-4">
+          <FormMessage error={exportError ?? loadError} />
+        </div>
+      )}
+      {sectionError && (
+        <div className="px-6 pt-4">
+          <FormMessage error="Some sections couldn't load. Reload the page to try again." />
+        </div>
+      )}
 
       {stats.totalKeepers === 0 ? (
         <EmptyState
@@ -425,7 +465,7 @@ export default function StatsPage() {
         />
       ) : (
         <div className="mx-auto max-w-5xl space-y-6 p-6">
-          {/* Insight cards — the "how do I shoot" fingerprint. */}
+          {/* Insight cards: the "how do I shoot" fingerprint. */}
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             {topCamera && (
               <StatCard label="Top camera" value={topCamera.model} sub={`${Math.round((topCamera.photoCount / stats.totalKeepers) * 100)}% of keepers`} />
@@ -434,7 +474,7 @@ export default function StatsPage() {
             {busiestHour && busiestHour.count > 0 && (
               <StatCard label="Peak shooting time" value={busiestHour.label} sub={`${Math.round((busiestHour.count / stats.totalKeepers) * 100)}% of keepers`} />
             )}
-            {bestMonth && bestMonth.newLifers > 0 && <StatCard label="Best month" value={bestMonth.label} sub={`${bestMonth.newLifers} lifer${bestMonth.newLifers === 1 ? "" : "s"}`} />}
+            {bestMonth && bestMonth.newLifers > 0 && <StatCard label="Best month" value={bestMonth.label} sub={pluralize(bestMonth.newLifers, "lifer")} />}
           </div>
 
           {stats.insights.length > 0 && (
@@ -447,9 +487,7 @@ export default function StatsPage() {
             </div>
           )}
 
-          {/* Ghost/Lost species — only shown if you've actually found one, since most
-             photographers will never encounter either and the section would just take up
-             space nobody cares about otherwise. */}
+          {/* Only shown once you've found one; most photographers never will. */}
           {(stats.ghostSpecies.length > 0 || stats.lostSpecies.length > 0 || stats.rediscoveredSpecies.length > 0) && (
             <div className="grid gap-3 sm:grid-cols-2">
               {stats.rediscoveredSpecies.length > 0 && (
@@ -494,12 +532,12 @@ export default function StatsPage() {
             </div>
           )}
 
-          {/* Monthly trend — new lifers or total keepers, picked from the dropdown */}
+          {/* Monthly trend: new lifers or total keepers */}
           <ChartCard
             title="By month"
             controls={
               <div className="flex items-center gap-2">
-                <Select value={monthlyMetric} onChange={(v) => setMonthlyMetric(v as typeof monthlyMetric)} options={[...MONTHLY_METRICS]} />
+                <OptionSelect ariaLabel="Monthly metric" value={monthlyMetric} onChange={(v) => setMonthlyMetric(v as typeof monthlyMetric)} options={[...MONTHLY_METRICS]} />
                 <InfoTip paragraphs={KEEPER_INFO_PARAGRAPHS} align="right" />
               </div>
             }
@@ -520,8 +558,8 @@ export default function StatsPage() {
             title="Your photo distribution"
             controls={
               <div className="flex items-center gap-2">
-                <Select value={scatterX} onChange={(v) => setScatterX(v as ScatterAxisKey)} options={Object.entries(SCATTER_AXES).map(([value, a]) => ({ value, label: `X: ${a.label}` }))} />
-                <Select value={scatterY} onChange={(v) => setScatterY(v as ScatterAxisKey)} options={Object.entries(SCATTER_AXES).map(([value, a]) => ({ value, label: `Y: ${a.label}` }))} />
+                <OptionSelect ariaLabel="X axis" value={scatterX} onChange={(v) => setScatterX(v as ScatterAxisKey)} options={Object.entries(SCATTER_AXES).map(([value, a]) => ({ value, label: `X: ${a.label}` }))} />
+                <OptionSelect ariaLabel="Y axis" value={scatterY} onChange={(v) => setScatterY(v as ScatterAxisKey)} options={Object.entries(SCATTER_AXES).map(([value, a]) => ({ value, label: `Y: ${a.label}` }))} />
               </div>
             }
           >
@@ -536,16 +574,9 @@ export default function StatsPage() {
                   axisLine={{ stroke: LINE }}
                   tickLine={false}
                   scale={scatterX === "shutterSeconds" ? "log" : "linear"}
-                  // 'dataMin'/'dataMax' rather than the implicit [0, dataMax] a plain linear
-                  // axis defaults to — forcing 0 into the domain put a "0mm"-style tick right
-                  // at the plot's bottom-left corner, exactly where the Y-axis's own bottom
-                  // tick label also renders, so the two collided regardless of which two axes
-                  // were picked. Real photo EXIF values are never anywhere near 0 anyway.
+                  // Not [0, max]: a 0 tick collides with the Y axis's bottom label.
                   domain={["dataMin", "dataMax"]}
-                  // Pixel padding, not domain padding — pushes the plotted range in from the
-                  // left edge without adding any fake ticks or expanding the value range past
-                  // what the data actually covers, just enough that the leftmost X label clears
-                  // the Y-axis's own bottom label instead of overlapping it in the corner.
+                  // Pixel padding keeps the first X label clear of the Y axis's bottom label.
                   padding={{ left: 24 }}
                   ticks={scatterX === "shutterSeconds" ? scatterShutterTicks : undefined}
                   tickFormatter={(v: number) => SCATTER_AXES[scatterX].format(v)}
@@ -590,13 +621,13 @@ export default function StatsPage() {
             </ResponsiveContainer>
           </ChartCard>
 
-          {/* Gear usage — one chart, pick the gear type and metric instead of several fixed bar graphs */}
+          {/* Gear usage */}
           <ChartCard
             title="Gear usage"
             controls={
               <div className="flex items-center gap-2">
-                <Select value={gearType} onChange={(v) => setGearType(v as typeof gearType)} options={[...GEAR_TYPES]} />
-                <Select value={gearMetric} onChange={(v) => setGearMetric(v as typeof gearMetric)} options={[...GEAR_METRICS]} />
+                <OptionSelect ariaLabel="Gear type" value={gearType} onChange={(v) => setGearType(v as typeof gearType)} options={[...GEAR_TYPES]} />
+                <OptionSelect ariaLabel="Gear metric" value={gearMetric} onChange={(v) => setGearMetric(v as typeof gearMetric)} options={[...GEAR_METRICS]} />
               </div>
             }
           >
@@ -610,8 +641,8 @@ export default function StatsPage() {
             </ResponsiveContainer>
           </ChartCard>
 
-          {/* EXIF distributions — one chart, pick the metric instead of four+ fixed bar graphs */}
-          <ChartCard title="EXIF distribution" controls={<Select value={exifMetric} onChange={(v) => setExifMetric(v as typeof exifMetric)} options={[...EXIF_METRICS]} />}>
+          {/* EXIF distributions */}
+          <ChartCard title="EXIF distribution" controls={<OptionSelect ariaLabel="EXIF field" value={exifMetric} onChange={(v) => setExifMetric(v as typeof exifMetric)} options={[...EXIF_METRICS]} />}>
             <ResponsiveContainer width="100%" height={200}>
               <BarChart data={exifData.rows}>
                 <XAxis dataKey="label" tick={{ fontSize: 10, fill: MUTED }} axisLine={{ stroke: LINE }} tickLine={false} interval={0} angle={-20} textAnchor="end" height={45} />
@@ -634,7 +665,7 @@ export default function StatsPage() {
               <div className="mt-3 border-t border-line pt-3">
                 <div className="flex items-center justify-between">
                   <p className="text-sm text-ink">
-                    {barBucket.label}: {barBucket.photoIds.length} photo{barBucket.photoIds.length === 1 ? "" : "s"}
+                    {barBucket.label}: {pluralize(barBucket.photoIds.length, "photo")}
                   </p>
                   <div className="flex items-center gap-3">
                     <button
@@ -643,7 +674,7 @@ export default function StatsPage() {
                       disabled={bucketDownloading}
                       className="text-xs text-accent hover:underline disabled:opacity-50"
                     >
-                      {bucketDownloading ? "Downloading..." : "Download all"}
+                      {bucketDownloading ? "Downloading…" : "Download all"}
                     </button>
                     <button type="button" onClick={() => setBarBucket(null)} className="text-xs text-muted hover:underline">
                       Close
@@ -653,7 +684,7 @@ export default function StatsPage() {
                 <div className="mt-2 flex flex-wrap gap-2">
                   {barBucket.photoIds.slice(0, 60).map((id) => (
                     <button key={id} type="button" onClick={() => setLightboxSlide({ url: `/api/photos/${id}/display` })}>
-                      <img src={`/api/photos/${id}/thumb`} alt="" className="h-16 w-16 rounded object-cover" />
+                      <img src={`/api/photos/${id}/thumb`} alt="" loading="lazy" className="h-16 w-16 rounded object-cover" />
                     </button>
                   ))}
                 </div>
@@ -696,9 +727,7 @@ export default function StatsPage() {
             )}
           </ChartCard>
 
-          {/* Collection intelligence — "how good/complete is my collection," not just raw
-              counts. Always over the WHOLE library (see the fetch effect's own comment), so
-              this section doesn't jump around as the filter dropdown above changes. */}
+          {/* Collection intelligence: always over the whole library, unaffected by the filter. */}
           <div>
             <h2 className="mb-2 text-sm font-semibold text-ink">Collection intelligence</h2>
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
@@ -712,7 +741,7 @@ export default function StatsPage() {
                         <span className="truncate text-ink">
                           <span className="text-muted">{i + 1}.</span> {s.commonName ?? s.scientificName}
                         </span>
-                        <span className="shrink-0 text-xs text-muted">{s.totalPhotos} photos</span>
+                        <span className="shrink-0 text-xs text-muted">{pluralize(s.totalPhotos, "photo")}</span>
                       </li>
                     ))}
                   </ol>
@@ -814,13 +843,15 @@ export default function StatsPage() {
                 controls={
                   availableYears.length > 1 && (
                     <div className="flex items-center gap-1.5 text-xs">
-                      <Select
+                      <OptionSelect
+                        ariaLabel="First year"
                         value={String(yearA ?? "")}
                         onChange={(v) => setYearA(Number(v))}
                         options={availableYears.map((y) => ({ value: String(y), label: String(y) }))}
                       />
                       <span className="text-muted">vs</span>
-                      <Select
+                      <OptionSelect
+                        ariaLabel="Second year"
                         value={String(yearB ?? "")}
                         onChange={(v) => setYearB(Number(v))}
                         options={availableYears.map((y) => ({ value: String(y), label: String(y) }))}
@@ -855,13 +886,13 @@ export default function StatsPage() {
                       </tr>
                       <tr>
                         <td className="text-muted">Avg focal length</td>
-                        <td>{yearComparison.a.avgFocalLength != null ? `${yearComparison.a.avgFocalLength}mm` : "—"}</td>
-                        <td>{yearComparison.b.avgFocalLength != null ? `${yearComparison.b.avgFocalLength}mm` : "—"}</td>
+                        <td>{yearComparison.a.avgFocalLength != null ? `${yearComparison.a.avgFocalLength}mm` : <NoValue />}</td>
+                        <td>{yearComparison.b.avgFocalLength != null ? `${yearComparison.b.avgFocalLength}mm` : <NoValue />}</td>
                       </tr>
                       <tr>
                         <td className="text-muted">Avg ISO</td>
-                        <td>{yearComparison.a.avgIso ?? "—"}</td>
-                        <td>{yearComparison.b.avgIso ?? "—"}</td>
+                        <td>{yearComparison.a.avgIso ?? <NoValue />}</td>
+                        <td>{yearComparison.b.avgIso ?? <NoValue />}</td>
                       </tr>
                     </tbody>
                   </table>
@@ -870,8 +901,6 @@ export default function StatsPage() {
             </div>
           </div>
 
-          {/* Existing rarity/year breakdown — a filter/collection view, not a photographer
-              story, but still useful, so it stays here rather than being cut entirely. */}
           <div>
             <h2 className="mb-2 text-sm font-semibold text-ink">Collection breakdown</h2>
             <CollectionStatsPanel />

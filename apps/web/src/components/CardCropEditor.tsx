@@ -1,20 +1,13 @@
-import { useRef, useState } from "react";
+import { useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { cropToImageStyle } from "../lib/crop";
 import { useEnterToConfirm } from "../hooks/useEnterToConfirm";
-import { useEscapeToClose } from "../hooks/useEscapeToClose";
+import { MIN_CARD_CROP_PERCENT } from "@lifer/shared";
+import Modal from "./Modal";
+import Button from "./Button";
+import FormMessage from "./FormMessage";
 
-const MIN_SIZE_PX = 40;
-
-// A real move+resize square selection over the full photo — drag the box to move it, drag
-// the handle at its corner to resize. Box state is tracked in on-screen pixels relative to
-// the image's rendered bounding rect; only converted to the stored width-relative fractions
-// (see migration 006) at save time, so none of the drag math needs to know the photo's
-// natural resolution.
-//
-// Persistence is the caller's job (onSave/onReset) rather than baked in here — originally
-// species-only (PATCH /species/:id/card-crop), generalized so trips' own cover photo can reuse
-// the exact same drag-to-crop UI against PATCH /trips/:id/cover-crop instead of duplicating
-// ~170 lines of drag math for a second card-crop concept.
+// Move-and-resize square crop over a photo. The box lives in on-screen pixels and converts to
+// the stored width-relative percentages only at save time. Callers persist via onSave/onReset.
 export default function CardCropEditor({
   photoUrl,
   initialX,
@@ -36,6 +29,7 @@ export default function CardCropEditor({
   const [imgSize, setImgSize] = useState<{ width: number; height: number } | null>(null);
   const [box, setBox] = useState<{ left: number; top: number; size: number } | null>(null);
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const dragRef = useRef<{ mode: "move" | "resize"; startX: number; startY: number; box: typeof box } | null>(null);
 
   function handleImageLoad() {
@@ -46,31 +40,33 @@ export default function CardCropEditor({
 
     const maxSize = Math.min(rect.width, rect.height);
     if (initialX != null && initialY != null && initialSize != null) {
+      // Clamped so a crop saved before the minimum existed opens at a size Save will accept.
       const size = (initialSize / 100) * rect.width;
-      setBox({ left: (initialX / 100) * rect.width, top: (initialY / 100) * rect.width, size });
+      setBox(clamp({ left: (initialX / 100) * rect.width, top: (initialY / 100) * rect.width, size }, rect));
     } else {
       // Default: the largest centered square that fits inside the photo.
       setBox({ left: (rect.width - maxSize) / 2, top: (rect.height - maxSize) / 2, size: maxSize });
     }
   }
 
-  function clamp(next: { left: number; top: number; size: number }): { left: number; top: number; size: number } {
-    if (!imgSize) return next;
-    const size = Math.min(Math.max(next.size, MIN_SIZE_PX), Math.min(imgSize.width, imgSize.height));
-    const left = Math.min(Math.max(next.left, 0), imgSize.width - size);
-    const top = Math.min(Math.max(next.top, 0), imgSize.height - size);
+  function clamp(next: { left: number; top: number; size: number }, bounds = imgSize): { left: number; top: number; size: number } {
+    if (!bounds) return next;
+    // The same floor automatic crops use, relative to the photo so it doesn't depend on screen size.
+    const size = Math.min(Math.max(next.size, (MIN_CARD_CROP_PERCENT / 100) * bounds.width), Math.min(bounds.width, bounds.height));
+    const left = Math.min(Math.max(next.left, 0), bounds.width - size);
+    const top = Math.min(Math.max(next.top, 0), bounds.height - size);
     return { left, top, size };
   }
 
   function startDrag(mode: "move" | "resize") {
-    return (e: React.PointerEvent) => {
+    return (e: ReactPointerEvent) => {
       e.stopPropagation();
       (e.target as Element).setPointerCapture(e.pointerId);
       dragRef.current = { mode, startX: e.clientX, startY: e.clientY, box };
     };
   }
 
-  function handlePointerMove(e: React.PointerEvent) {
+  function handlePointerMove(e: ReactPointerEvent) {
     const drag = dragRef.current;
     if (!drag || !drag.box) return;
     const dx = e.clientX - drag.startX;
@@ -92,6 +88,7 @@ export default function CardCropEditor({
   async function save() {
     if (!box || !imgSize) return;
     setSaving(true);
+    setError(null);
     try {
       await onSave({
         x: (box.left / imgSize.width) * 100,
@@ -99,6 +96,8 @@ export default function CardCropEditor({
         size: (box.size / imgSize.width) * 100,
       });
       onClose();
+    } catch {
+      setError("Couldn't save this crop. Try again.");
     } finally {
       setSaving(false);
     }
@@ -106,80 +105,77 @@ export default function CardCropEditor({
 
   async function resetCrop() {
     setSaving(true);
+    setError(null);
     try {
       await onReset();
       onClose();
+    } catch {
+      setError("Couldn't reset this crop. Try again.");
     } finally {
       setSaving(false);
     }
   }
 
-  // Enter saves (the main action; there's no text field to submit a <form> with), Escape cancels.
   useEnterToConfirm(save, !saving && !!box);
-  useEscapeToClose(onClose);
 
   const previewCrop = box && imgSize
     ? { x: (box.left / imgSize.width) * 100, y: (box.top / imgSize.width) * 100, size: (box.size / imgSize.width) * 100 }
     : null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
-      <div className="w-full max-w-2xl rounded-lg bg-surface p-4" onClick={(e) => e.stopPropagation()}>
-        <p className="mb-2 text-sm text-muted">Drag the box to move it, drag the corner handle to resize.</p>
-        <div className="flex flex-col gap-4 sm:flex-row">
-          <div
-            className="relative flex-1 select-none overflow-hidden rounded-md"
-            onPointerMove={handlePointerMove}
-            onPointerUp={endDrag}
-          >
-            <img
-              ref={imgRef}
-              src={photoUrl}
-              alt=""
-              className="w-full"
-              draggable={false}
-              onLoad={handleImageLoad}
-            />
-            {box && (
-              <div
-                onPointerDown={startDrag("move")}
-                className="absolute cursor-move border-2 border-white shadow-[0_0_0_9999px_rgba(0,0,0,0.4)]"
-                style={{ left: box.left, top: box.top, width: box.size, height: box.size }}
-              >
-                <div
-                  onPointerDown={startDrag("resize")}
-                  className="absolute -bottom-1.5 -right-1.5 h-4 w-4 cursor-nwse-resize rounded-full border-2 border-stone-900 bg-white"
-                />
-              </div>
-            )}
-          </div>
-          <div className="w-full shrink-0 sm:w-32">
-            <p className="mb-1 text-xs text-muted">Card preview</p>
-            <div className="relative aspect-square w-full overflow-hidden rounded-md bg-surface-muted sm:w-32">
-              {previewCrop && (
-                <img src={photoUrl} alt="" style={cropToImageStyle(previewCrop.x, previewCrop.y, previewCrop.size)} />
-              )}
-            </div>
-          </div>
-        </div>
-        <div className="mt-4 flex justify-between">
-          <button onClick={resetCrop} disabled={saving} className="text-sm text-muted hover:underline">
-            Reset to default
-          </button>
-          <div className="flex gap-2">
-            <button onClick={onClose} className="rounded-md px-3 py-1.5 text-sm text-muted hover:bg-surface-muted">
-              Cancel
-            </button>
-            <button
-              onClick={save}
-              disabled={saving || !box}
-              className="rounded-md bg-accent px-3 py-1.5 text-sm text-accent-fg disabled:opacity-50"
+    <Modal open onClose={onClose} size="xl" ariaLabel="Adjust crop">
+      <p className="mb-2 text-sm text-muted">Drag the box to move it, drag the corner handle to resize.</p>
+      <div className="flex flex-col gap-4 sm:flex-row">
+        <div
+          className="relative flex-1 select-none overflow-hidden rounded-md"
+          onPointerMove={handlePointerMove}
+          onPointerUp={endDrag}
+          onPointerCancel={endDrag}
+        >
+          <img
+            ref={imgRef}
+            src={photoUrl}
+            alt=""
+            className="w-full"
+            draggable={false}
+            onLoad={handleImageLoad}
+          />
+          {box && (
+            <div
+              onPointerDown={startDrag("move")}
+              className="absolute cursor-move border-2 border-white shadow-[0_0_0_9999px_rgba(0,0,0,0.4)]"
+              style={{ left: box.left, top: box.top, width: box.size, height: box.size }}
             >
-              {saving ? "Saving…" : "Save"}
-            </button>
+              <div
+                onPointerDown={startDrag("resize")}
+                className="absolute -bottom-1.5 -right-1.5 h-4 w-4 cursor-nwse-resize rounded-full border-2 border-stone-900 bg-white"
+              />
+            </div>
+          )}
+        </div>
+        <div className="w-full shrink-0 sm:w-32">
+          <p className="mb-1 text-xs text-muted">Card preview</p>
+          <div className="relative aspect-square w-full overflow-hidden rounded-md bg-surface-muted sm:w-32">
+            {previewCrop && (
+              <img src={photoUrl} alt="" style={cropToImageStyle(previewCrop.x, previewCrop.y, previewCrop.size)} />
+            )}
           </div>
         </div>
       </div>
-    </div>
+      <FormMessage error={error} className="mt-3" />
+      <div className="mt-4 flex justify-between">
+        <button onClick={resetCrop} disabled={saving} className="text-sm text-muted hover:underline">
+          Reset to default
+        </button>
+        <div className="flex gap-2">
+          <Button variant="ghost" size="sm" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button size="sm" onClick={save} loading={saving} disabled={!box}>
+            {saving ? "Saving…" : "Save"}
+          </Button>
+        </div>
+      </div>
+    </Modal>
   );
 }

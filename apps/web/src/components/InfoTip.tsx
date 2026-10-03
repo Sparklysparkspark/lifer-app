@@ -1,11 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 
-// Small click-to-toggle explainer popover — same outside-click-dismiss pattern as the "⋯"
-// menus on SpeciesCard/TripDetailPage, just for a plain block of help text instead of actions.
-// `align` controls which side the popover grows from: "left" (the default) anchors its LEFT
-// edge to the button and grows rightward, right for a button that sits near the left of the
-// page; "right" anchors its right edge and grows leftward, right for a button near the right
-// edge (e.g. TripsPage's, next to "New trip") so the popover doesn't run off the viewport.
+// Click-to-toggle help text. `align="right"` grows leftward, for a button near the right edge.
 export default function InfoTip({
   paragraphs,
   align = "left",

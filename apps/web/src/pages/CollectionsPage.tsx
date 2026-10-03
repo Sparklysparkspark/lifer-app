@@ -13,7 +13,11 @@ import { FolderBrowser, pickFolderNative } from "../components/FolderPicker";
 import InfoTip from "../components/InfoTip";
 import { useDropdownMenu } from "../hooks/useDropdownMenu";
 import { useEnterToConfirm } from "../hooks/useEnterToConfirm";
-import { useEscapeToClose } from "../hooks/useEscapeToClose";
+import { useToast } from "../hooks/useToast";
+import Modal from "../components/Modal";
+import Button from "../components/Button";
+import FormMessage from "../components/FormMessage";
+import { pluralize } from "../lib/pluralize";
 
 interface Album {
   id: string;
@@ -30,25 +34,23 @@ interface Album {
 }
 
 const TRIPS_INFO_PARAGRAPHS = [
-  "A trip points at a folder of photos already on your computer. Lifer references them right where they are and never copies or moves them.",
-  'After you create a trip, review the new photos and assign a species to each one. Add more photos to the same folder anytime, then use "Add more photos" to bring in whatever\'s new.',
-  'Suggested layout: an "Adjusted" subfolder with your edited JPEGs and a "RAW" subfolder with the originals. When you add a photo from Adjusted, Lifer automatically links up its matching RAW file by filename and timestamp. You can download it later from that photo\'s "⋯" menu.',
-  'If the folder ever moves (a new computer, a reinstall, a renamed drive), use "Relocate…" on the trip to point at it again instead of re-importing from scratch.',
+  "Point a trip at your trip's own folder, however it's organized. Lifer only reads it: it finds the photos, and you pick out the wildlife.",
+  'Each photo you import is copied into the trip\'s "Save wildlife to" folder (a "Wildlife" folder inside the trip unless you choose another), sorted into Birds, Mammals and so on by species. Its RAW comes along when one with the same filename is in the trip folder.',
+  'Add more photos to the trip folder anytime, then use "Add more photos": only photos you haven\'t imported yet are offered.',
+  'If a folder ever moves (a new computer, a reinstall, a renamed drive), use "Relocate…" on the trip to point at it again instead of re-importing from scratch.',
 ];
 
-// Albums and Trips are the same underlying idea (a name plus a set of photos you browse as one
-// unit) with different origins (manually curated vs. auto-populated from a scanned folder) — one
-// page with a tab switch instead of two separate nav destinations, so browsing one naturally
-// surfaces the other. Trips works in both modes (on a server, within the folders it was given).
+// Albums (curated) and Trips (from a scanned folder) are the same idea with different origins,
+// so they share one page with a tab switch.
 export default function CollectionsPage() {
   const location = useLocation();
   const navigate = useNavigate();
   const tab = location.pathname.startsWith("/trips") ? "trips" : "albums";
 
   return (
-    <div className="min-h-screen bg-canvas">
+    <div className="flex-1 bg-canvas">
       <PageHeader sticky
-        title="Albums & Trips"
+        title="Albums & trips"
         actions={
           <div className="flex rounded-md border border-line text-sm">
             <button
@@ -84,7 +86,7 @@ function AlbumsPanel() {
   const [deleting, setDeleting] = useState(false);
   const { openKey: openMenuId, setOpenKey: setOpenMenuId, ref: openMenuRef } = useDropdownMenu<string>();
   useEnterToConfirm(() => void deleteAlbum(), !!confirmingDeleteId && !deleting);
-  useEscapeToClose(() => setConfirmingDeleteId(null), !!confirmingDeleteId);
+  const toast = useToast();
   const navigate = useNavigate();
 
   function load() {
@@ -125,6 +127,8 @@ function AlbumsPanel() {
       await api.delete(`/albums/${confirmingDeleteId}`);
       setConfirmingDeleteId(null);
       load();
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Couldn't delete this album");
     } finally {
       setDeleting(false);
     }
@@ -165,7 +169,7 @@ function AlbumsPanel() {
             >
               {saving ? "Creating…" : "Create"}
             </button>
-            {error && <p className="text-sm text-red-600">{error}</p>}
+            <FormMessage error={error} />
           </form>
         )}
 
@@ -230,7 +234,7 @@ function AlbumsPanel() {
                           setOpenMenuId(null);
                           setConfirmingDeleteId(album.id);
                         }}
-                        className="block w-full px-3 py-1.5 text-left text-xs text-red-600 hover:bg-surface-muted"
+                        className="block w-full px-3 py-1.5 text-left text-xs text-red-600 hover:bg-surface-muted dark:text-red-400"
                       >
                         Delete
                       </button>
@@ -239,11 +243,10 @@ function AlbumsPanel() {
                 </div>
                 <div className="p-3">
                   <p className="truncate font-medium leading-tight text-ink">{album.name}</p>
-                  {/* Same neutral pill TripCard uses for its own photo count — Albums had
-                     plain text here, reading noticeably plainer next to a Trip card. */}
+                  {/* Same count pill as TripCard. */}
                   <div className="mt-1 flex flex-wrap items-center gap-1">
                     <span className="inline-block rounded-full bg-surface-muted px-2 py-0.5 text-[10px] uppercase tracking-wide text-muted">
-                      {album.captureCount} photo{album.captureCount === 1 ? "" : "s"}
+                      {pluralize(album.captureCount, "photo")}
                     </span>
                   </div>
                 </div>
@@ -262,28 +265,24 @@ function AlbumsPanel() {
         />
       )}
 
-      {confirmingDeleteId && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setConfirmingDeleteId(null)}>
-          <div className="w-full max-w-sm rounded-lg border border-line bg-surface p-4 shadow-lg" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-sm font-medium text-ink">Delete this album?</h3>
-            <p className="mt-2 text-xs text-muted">
-              This removes the album, but the photos in it aren't deleted. They stay right where they are.
-            </p>
-            <div className="mt-4 flex justify-end gap-2">
-              <button onClick={() => setConfirmingDeleteId(null)} className="rounded-md px-3 py-1.5 text-xs text-muted hover:bg-surface-muted">
-                Cancel
-              </button>
-              <button
-                onClick={deleteAlbum}
-                disabled={deleting}
-                className="rounded-md bg-red-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-700 disabled:opacity-40"
-              >
-                {deleting ? "Deleting…" : "Delete"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <Modal
+        open={!!confirmingDeleteId}
+        onClose={() => setConfirmingDeleteId(null)}
+        size="sm"
+        title="Delete this album?"
+        footer={
+          <>
+            <Button variant="ghost" size="sm" onClick={() => setConfirmingDeleteId(null)}>
+              Cancel
+            </Button>
+            <Button variant="danger" size="sm" onClick={deleteAlbum} loading={deleting}>
+              {deleting ? "Deleting…" : "Delete"}
+            </Button>
+          </>
+        }
+      >
+        <p className="text-sm text-muted">This removes the album, but the photos in it aren't deleted. They stay right where they are.</p>
+      </Modal>
     </>
   );
 }
@@ -296,6 +295,9 @@ function TripsPanel() {
   const [name, setName] = useState("");
   const [chosenFolder, setChosenFolder] = useState<string | null>(null);
   const [browsingFolder, setBrowsingFolder] = useState(false);
+  // Where an imported trip's wildlife is filed: null means the suggested "<trip folder>/Wildlife".
+  const [destinationFolder, setDestinationFolder] = useState<string | null>(null);
+  const [browsingDestination, setBrowsingDestination] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [renamingTrip, setRenamingTrip] = useState<TripSummary | null>(null);
@@ -303,7 +305,7 @@ function TripsPanel() {
   const [deleting, setDeleting] = useState(false);
   const { openKey: openMenuId, setOpenKey: setOpenMenuId, ref: openMenuRef } = useDropdownMenu<string>();
   useEnterToConfirm(() => void deleteTrip(), !!confirmingDeleteId && !deleting);
-  useEscapeToClose(() => setConfirmingDeleteId(null), !!confirmingDeleteId);
+  const toast = useToast();
   const navigate = useNavigate();
 
   function load() {
@@ -316,11 +318,33 @@ function TripsPanel() {
 
   useEffect(load, []);
 
+  // A trip still scanning its folder refreshes every 2s (paused while the tab is hidden), and
+  // nothing lands after the panel unmounts.
+  const anyProcessing = !!trips?.some((t) => t.processing);
   useEffect(() => {
-    if (!trips?.some((t) => t.processing)) return;
-    const timer = setTimeout(load, 2000);
-    return () => clearTimeout(timer);
-  }, [trips]);
+    if (!anyProcessing) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout>;
+    function tick() {
+      if (document.hidden) {
+        timer = setTimeout(tick, 2000);
+        return;
+      }
+      api
+        .get<{ trips: TripSummary[] }>("/trips")
+        .then((res) => {
+          if (!cancelled) setTrips(res.trips);
+        })
+        .catch(() => {
+          if (!cancelled) timer = setTimeout(tick, 2000);
+        });
+    }
+    timer = setTimeout(tick, 2000);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [anyProcessing, trips]);
 
   async function chooseFolder() {
     const native = await pickFolderNative();
@@ -331,13 +355,26 @@ function TripsPanel() {
     setBrowsingFolder(true);
   }
 
+  async function chooseDestination() {
+    const native = await pickFolderNative();
+    if (native !== undefined) {
+      if (native) setDestinationFolder(native);
+      return;
+    }
+    setBrowsingDestination(true);
+  }
+
   async function createTrip(e: React.FormEvent) {
     e.preventDefault();
     if (!chosenFolder) return;
     setSaving(true);
     setError(null);
     try {
-      const res = await api.post<{ id: string }>("/trips", { name: name.trim() || undefined, sourceFolder: chosenFolder });
+      const res = await api.post<{ id: string }>("/trips", {
+        name: name.trim() || undefined,
+        sourceFolder: chosenFolder,
+        destinationFolder: destinationFolder ?? undefined,
+      });
       navigate(`/trips/${res.id}`);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Couldn't create this trip");
@@ -375,6 +412,8 @@ function TripsPanel() {
       await api.delete(`/trips/${confirmingDeleteId}`);
       setConfirmingDeleteId(null);
       load();
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Couldn't delete this trip");
     } finally {
       setDeleting(false);
     }
@@ -389,11 +428,12 @@ function TripsPanel() {
             setBuilding(false);
             setCreating((c) => !c);
             setChosenFolder(null);
+            setDestinationFolder(null);
             setError(null);
           }}
           className="rounded-md border border-line px-3 py-1.5 text-sm font-medium text-ink hover:bg-surface-muted"
         >
-          {creating && !building ? "Cancel" : "Import Trip"}
+          {creating && !building ? "Cancel" : "Import trip"}
         </button>
         <button
           onClick={() => {
@@ -404,7 +444,7 @@ function TripsPanel() {
           }}
           className="rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-accent-fg"
         >
-          {building ? "Cancel" : "Build a Trip"}
+          {building ? "Cancel" : "Build a trip"}
         </button>
       </div>
 
@@ -426,7 +466,7 @@ function TripsPanel() {
             </div>
             <div>
               <label className="mb-1 block text-sm font-medium text-ink">
-                {building ? "Where should the trip folder go?" : "Wildlife folder"}
+                {building ? "Where should the trip folder go?" : "Trip folder"}
               </label>
               {chosenFolder && !browsingFolder ? (
                 <div className="flex items-center gap-2">
@@ -461,8 +501,43 @@ function TripsPanel() {
                   Lifer will create "{name.trim() || "Untitled Trip"}/Wildlife" inside this folder.
                 </p>
               )}
+              {!building && (
+                <p className="mt-1 text-xs text-muted">
+                  Your trip's own folder, edits and all. Lifer only reads it and offers the wildlife it finds.
+                </p>
+              )}
             </div>
-            {error && <p className="text-sm text-red-600">{error}</p>}
+            {!building && chosenFolder && (
+              <div>
+                <label className="mb-1 block text-sm font-medium text-ink">Save wildlife to</label>
+                {browsingDestination ? (
+                  <FolderBrowser
+                    onChoose={(path) => {
+                      setDestinationFolder(path);
+                      setBrowsingDestination(false);
+                    }}
+                    onCancel={() => setBrowsingDestination(false)}
+                  />
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <code className="flex-1 truncate rounded-md border border-line px-3 py-2 text-xs">
+                      {destinationFolder ?? `${chosenFolder}/Wildlife`}
+                    </code>
+                    <button
+                      type="button"
+                      onClick={chooseDestination}
+                      className="rounded-md border border-line px-3 py-1.5 text-sm text-ink hover:bg-surface-muted"
+                    >
+                      Change
+                    </button>
+                  </div>
+                )}
+                <p className="mt-1 text-xs text-muted">
+                  Each photo you import is copied here, sorted into Birds, Mammals and so on by species, with its RAW.
+                </p>
+              </div>
+            )}
+            <FormMessage error={error} />
             <button
               type="submit"
               disabled={saving || !chosenFolder}
@@ -493,7 +568,7 @@ function TripsPanel() {
             title="No trips yet"
             description="Create one to start referencing wildlife photos from an external folder."
             action={{
-              label: "Build a Trip",
+              label: "Build a trip",
               onClick: () => {
                 setCreating(false);
                 setBuilding(true);
@@ -528,28 +603,24 @@ function TripsPanel() {
         />
       )}
 
-      {confirmingDeleteId && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setConfirmingDeleteId(null)}>
-          <div className="w-full max-w-sm rounded-lg border border-line bg-surface p-4 shadow-lg" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-sm font-medium text-ink">Delete this trip?</h3>
-            <p className="mt-2 text-xs text-muted">
-              This removes the trip, but the photos in it aren't deleted. They just won't be grouped under it anymore.
-            </p>
-            <div className="mt-4 flex justify-end gap-2">
-              <button onClick={() => setConfirmingDeleteId(null)} className="rounded-md px-3 py-1.5 text-xs text-muted hover:bg-surface-muted">
-                Cancel
-              </button>
-              <button
-                onClick={deleteTrip}
-                disabled={deleting}
-                className="rounded-md bg-red-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-700 disabled:opacity-40"
-              >
-                {deleting ? "Deleting…" : "Delete"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <Modal
+        open={!!confirmingDeleteId}
+        onClose={() => setConfirmingDeleteId(null)}
+        size="sm"
+        title="Delete this trip?"
+        footer={
+          <>
+            <Button variant="ghost" size="sm" onClick={() => setConfirmingDeleteId(null)}>
+              Cancel
+            </Button>
+            <Button variant="danger" size="sm" onClick={deleteTrip} loading={deleting}>
+              {deleting ? "Deleting…" : "Delete"}
+            </Button>
+          </>
+        }
+      >
+        <p className="text-sm text-muted">This removes the trip, but the photos in it aren't deleted. They just won't be grouped under it anymore.</p>
+      </Modal>
     </>
   );
 }

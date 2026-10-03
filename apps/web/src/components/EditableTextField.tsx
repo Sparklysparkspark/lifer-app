@@ -1,8 +1,7 @@
 import { useEffect, useState } from "react";
 
-/** Always-editable inline text field (name/description) — a bottom border appears on hover/
- * focus to read as editable, no separate "Edit" button or modal first. Saves on blur, only
- * calling onSave when the trimmed value actually changed. */
+/** Always-editable inline text (a name or description) that saves on blur, and only when the
+ * trimmed value changed. A bottom border on hover/focus is the only edit affordance. */
 export default function EditableTextField({
   value,
   onSave,
@@ -14,8 +13,7 @@ export default function EditableTextField({
   value: string;
   onSave: (next: string) => void;
   placeholder?: string;
-  /** Optional caption shown below the field — omit for a field whose purpose is already
-   *  obvious from context (a page title, a description under an explicit "Description" area). */
+  /** Optional caption under the field. */
   hint?: string;
   className?: string;
   multiline?: boolean;

@@ -1,9 +1,6 @@
 import Pill from "./Pill";
 
-// A 3(+)-way toggle for mutually-exclusive options (e.g. RAW files: Any/With/Without, Media
-// type: Both/Photos/Videos) — replaces pairs of independent checkboxes that could contradict
-// each other. Built on the same Pill component as every other toggle button in the app, so this
-// reads as one consistent control language rather than its own separate widget.
+// Mutually exclusive options (e.g. RAW: Any/With/Without) as a row of Pills.
 export default function SegmentedControl<T extends string>({
   value,
   options,

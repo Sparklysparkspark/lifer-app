@@ -4,10 +4,15 @@ import RawUpload from "../components/RawUpload";
 import PhotoImportRows from "../components/PhotoImportRows";
 import type { CollectionItem, JobStatus } from "@lifer/shared";
 import JobProgress, { type PhaseLabels } from "../components/JobProgress";
-import { api, ApiError } from "../api/client";
-import { LoadingScreen, Spinner } from "../components/LoadingScreen";
+import { api } from "../api/client";
+import { LoadingScreen } from "../components/LoadingScreen";
 import PageHeader from "../components/PageHeader";
-import SpeciesPicker, { type SpeciesResult } from "../components/SpeciesPicker";
+import SpeciesPicker, { type SuggestedSpecies } from "../components/SpeciesPicker";
+import ImportReviewRow from "../components/importReview/ImportReviewRow";
+import { useImportReview, type ReviewRowBase } from "../components/importReview/useImportReview";
+import { useSpeciesGallery } from "../components/importReview/useSpeciesGallery";
+import { useSettings } from "../hooks/useSettings";
+import { mapWithConcurrency } from "../lib/concurrency";
 import SpeciesCard from "../components/SpeciesCard";
 import MasonryGrid from "../components/MasonryGrid";
 import PhotoTile from "../components/PhotoTile";
@@ -23,14 +28,22 @@ import { usePhotoGridSize } from "../hooks/usePhotoGridSize";
 import { useShowLabels } from "../hooks/useShowLabels";
 import { useStorageVolumes } from "../hooks/useStorageVolumes";
 import { useDropdownMenu } from "../hooks/useDropdownMenu";
-import { useEnterToConfirm } from "../hooks/useEnterToConfirm";
-import { useEscapeToClose } from "../hooks/useEscapeToClose";
+import { useJobPoll } from "../hooks/useJobPoll";
+import { useToast } from "../hooks/useToast";
 import { downloadFile } from "../lib/downloadFile";
 import Select from "../components/Select";
 import FilterPopover, { FilterFieldLabel } from "../components/FilterPopover";
 import SegmentedControl from "../components/SegmentedControl";
 import SelectModeToggle from "../components/SelectModeToggle";
 import { usePersistedState } from "../hooks/usePersistedState";
+import Button from "../components/Button";
+import ConfirmDialog from "../components/ConfirmDialog";
+import FormMessage from "../components/FormMessage";
+import InlineSpinner from "../components/InlineSpinner";
+import Modal from "../components/Modal";
+import { errorMessage } from "../lib/errorMessage";
+import { formatDate } from "../lib/formatDate";
+import { pluralize } from "../lib/pluralize";
 
 const RELOCATE_INFO_PARAGRAPHS = [
   "Use this if this trip's folder moved: a new computer, a reinstall, a renamed drive.",
@@ -42,6 +55,7 @@ interface TripDetail {
   name: string;
   description: string | null;
   sourceFolder: string;
+  destinationFolder: string;
   coverCaptureId: string | null;
   coverCropX: number | null;
   coverCropY: number | null;
@@ -49,9 +63,7 @@ interface TripDetail {
   coverLayout: "single" | "quad";
 }
 
-// GET /api/trips/:id/summary — "lifers gained + rare/endemic species encountered", the layer
-// the main trip list/species views don't compute (those answer "what's in this trip", not "what
-// was NEW or notable about it").
+// GET /api/trips/:id/summary: what was new or notable about the trip.
 interface TripSummary {
   speciesCount: number;
   liferCount: number;
@@ -96,34 +108,32 @@ type ImportStatus = JobStatus<{ imported: number; failed: number }> & {
 const SCAN_PHASES: PhaseLabels = {
   checking: { label: "Checking known photos", progress: "count" },
   recovering: { label: "Recovering photos", progress: "count" },
+  "finding-new": { label: "Finding new photos in the trip folder", progress: "count" },
   "linking-raws": { label: "Linking RAW files", progress: "count" },
 };
 const IMPORT_PHASES: PhaseLabels = { importing: { label: "Importing photos", progress: "count" } };
 
 type ReviewRowStatus = "pending" | "ready" | "importing" | "done" | "error";
 
-interface ReviewRow {
-  relativePath: string;
-  speciesId: string | null;
-  speciesLabel: string | null;
+// key is the file's path within the trip folder.
+interface ReviewRow extends ReviewRowBase {
   status: ReviewRowStatus;
   error?: string;
 }
 
+// Shared with the import screen and the collection, so the last region picked anywhere is the default.
+const LAST_REGION_KEY = "lifer:lastRegionId";
+// Each check is a real inference pass on the server.
+const INSPECT_CONCURRENCY = 2;
+
 type View = "gallery" | "species";
 
-// Default view is a plain photo grid (every capture from this trip) — same
-// MasonryGrid/ProgressiveImg/Lightbox rendering GalleryPage.tsx uses for the all-species
-// gallery, since a trip is "what did I photograph here," not a per-species checklist first. A
-// "Species view" toggle switches to the same SpeciesCard grid the collection page uses, scoped
-// to just this trip's species. The species-assignment review flow (mirroring
-// BulkImportPage.tsx's own row+SpeciesPicker UI) is hidden until "Add more photos" is clicked
-// and a scan actually finds something — never open by default.
+// A photo grid by default, with a species view toggle. The species-assignment review only opens
+// once "Add more photos" scans the folder and finds something new.
 export default function TripDetailPage() {
   const { id } = useParams<{ id: string }>();
-  // Set only by TripsPage's "Build a Trip" flow (a fresh, empty Wildlife folder it just
-  // created) — shows an upload panel in the empty state below instead of the normal "scan an
-  // existing folder" prompt, since there's deliberately nothing on disk yet to scan.
+  const toast = useToast();
+  // Set by TripsPage's "Build a trip" flow: the folder is new and empty, so offer uploads instead of a scan.
   const [searchParams] = useSearchParams();
   const buildMode = searchParams.get("mode") === "build";
   const [trip, setTrip] = useState<TripDetail | null>(null);
@@ -136,42 +146,26 @@ export default function TripDetailPage() {
   const { multiDriveInUse } = useStorageVolumes();
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const [showLabels, setShowLabels] = useShowLabels();
-  // Same Sort options as Gallery/Album - previously missing here entirely, so a Trip's photos
-  // could only ever be viewed in the backend's own fixed newest-first order.
   const [sortBy, setSortBy] = usePersistedState<"newest" | "oldest" | "ratingHigh" | "ratingLow">("tripSortBy", "newest");
   const [search, setSearch] = useState("");
   const [settingCover, setSettingCover] = useState<string | null>(null);
   const [croppingCoverPhotoUrl, setCroppingCoverPhotoUrl] = useState<string | null>(null);
-  // Filled the instant an import starts and drained as each file's result comes back — lets
-  // the grid show a loading tile per in-flight photo instead of the review table staying open
-  // (see importReady below: the review section closes immediately, matching "add photos, land
-  // back on the gallery, watch them fill in" rather than watching a status table).
+  // One loading tile per in-flight import; the review table closes as soon as an import starts.
   const [pendingImports, setPendingImports] = useState<string[]>([]);
 
-  const [scanStatus, setScanStatus] = useState<ScanStatus | null>(null);
-  const [scanning, setScanning] = useState(false);
-  const [scanError, setScanError] = useState<string | null>(null);
   const [reviewRows, setReviewRows] = useState<ReviewRow[]>([]);
-  // One region picked for the whole scanned batch — a scanned trip folder previously had no
-  // region concept at all (unlike the main upload flow's own regionId), so its captures went
-  // untagged even when a region was obviously known for the trip.
-  const [reviewRegionId, setReviewRegionId] = useState<string | null>(null);
-  const [focusedRow, setFocusedRow] = useState<string | null>(null);
-  const [selected, setSelected] = useState<Set<string>>(new Set());
+  // One region for the whole scanned batch: narrows the species suggestions and is stored on each
+  // photo, as on the import screen.
+  const [reviewRegionId, setReviewRegionId] = useState<string | null>(() => localStorage.getItem(LAST_REGION_KEY));
+  const suggestEnabled = useSettings().settings?.speciesSuggestEnabled ?? false;
+  const speciesGallery = useSpeciesGallery();
 
-  const [importStatus, setImportStatus] = useState<ImportStatus | null>(null);
-  const [importing, setImporting] = useState(false);
-  const [importError, setImportError] = useState<string | null>(null);
-
-  const [relocating, setRelocating] = useState(false);
+  // Which of the trip's two folders the in-page folder browser is choosing, if any.
+  const [relocating, setRelocating] = useState<"sourceFolder" | "destinationFolder" | null>(null);
   const [relocateError, setRelocateError] = useState<string | null>(null);
 
-  // Gallery multi-select delete — same pattern as GalleryPage/SpeciesDetailPage: a "Select"
-  // toggle for the photo grid (distinct from `selected`, which is the import-review-row
-  // selection above), a toolbar with the count + Delete selected, and one shared confirmation
-  // dialog for both single-photo and batch delete.
-  // Same Filters popover shape as Gallery/Album — Trips have no video support and no per-photo
-  // tags, so only Top Rated, a RAW files control, and a collapsed date range apply here.
+  // Photo-grid multi-select (separate from `selected`, the review-row selection above). Trips have
+  // no videos or per-photo tags, so the filters are just top rated, RAW and a date range.
   const [rawFilter, setRawFilter] = usePersistedState<"any" | "with" | "without">("tripRawFilter", "without");
   const [onlyTopRated, setOnlyTopRated] = useState(false);
   const [dateFrom, setDateFrom] = useState("");
@@ -182,21 +176,17 @@ export default function TripDetailPage() {
   const [confirmingDeleteCaptureId, setConfirmingDeleteCaptureId] = useState<string | null>(null);
   const [confirmingBatchDeletePhotos, setConfirmingBatchDeletePhotos] = useState(false);
   const [deletingPhoto, setDeletingPhoto] = useState(false);
-  useEnterToConfirm(() => confirmingDeleteCaptureId && void confirmDeletePhoto(confirmingDeleteCaptureId), !!confirmingDeleteCaptureId && !deletingPhoto);
-  useEscapeToClose(() => setConfirmingDeleteCaptureId(null), !!confirmingDeleteCaptureId);
-  useEnterToConfirm(() => void confirmDeleteSelectedPhotos(), confirmingBatchDeletePhotos && !deletingPhoto);
-  useEscapeToClose(() => {
-    setConfirmingBatchDeletePhotos(false);
-    setDeleteRawTooPhotos(false);
-  }, confirmingBatchDeletePhotos);
   const [deleteRawTooPhotos, setDeleteRawTooPhotos] = useState(false);
+  const batchDeleteRef = useRef<HTMLButtonElement>(null);
 
   const { openKey: openMenuCaptureId, setOpenKey: setOpenMenuCaptureId, ref: openMenuRef } = useDropdownMenu<string>();
 
-  function load() {
-    if (!id) return;
+  function load(): Promise<void> {
+    if (!id) return Promise.resolve();
     setLoadError(false);
-    Promise.all([
+    // Supplementary, so a failure here doesn't block the trip itself.
+    api.get<TripSummary>(`/trips/${id}/summary`).then(setSummary).catch(() => {});
+    return Promise.all([
       api.get<TripDetail>(`/trips/${id}`),
       api.get<{ items: TripPhoto[] }>(`/trips/${id}/photos`),
       api.get<{ items: CollectionItem[] }>(`/trips/${id}/species`),
@@ -207,15 +197,54 @@ export default function TripDetailPage() {
         setSpeciesItems(speciesRes.items);
       })
       .catch(() => setLoadError(true));
-    // Independent of the Promise.all above — a failure here shouldn't block the trip itself
-    // from loading, it's a supplementary "what was notable about this trip" summary layer.
-    api.get<TripSummary>(`/trips/${id}/summary`).then(setSummary).catch(() => {});
   }
 
-  useEffect(load, [id]);
+  useEffect(() => {
+    void load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id]);
 
-  // In-view text filter — same pattern as CollectionPage/ArchivedSpeciesPage's own search: no
-  // server round-trip, just filters whatever's already on screen.
+  // Only a scan started (or still running) here shows its outcome.
+  const [scanRequested, setScanRequested] = useState(false);
+  const scanJob = useJobPoll<ScanStatus>(id ? `/trips/${id}/scan/status` : null, {
+    intervalMs: 1500,
+    onFinish: (res) => {
+      const rows: ReviewRow[] = res.newFiles.map((f) => ({
+        key: f.relativePath,
+        speciesId: null,
+        speciesLabel: null,
+        suggestions: [],
+        status: "ready",
+        isInspecting: true,
+      }));
+      setReviewRows(rows);
+      void inspectRows(rows.map((r) => r.key), reviewRegionId);
+      if (res.recovered > 0) void load();
+    },
+  });
+  const scanning = scanJob.starting || !!scanJob.status?.running;
+  const scanStatus = scanRequested || scanJob.status?.running ? scanJob.status : null;
+
+  // Refreshes the trip once at the end; in between, results only drain the loading tiles.
+  const importJob = useJobPoll<ImportStatus>(id ? `/trips/${id}/import/status` : null, {
+    intervalMs: 1000,
+    onFinish: () => {
+      void load().finally(() => setPendingImports([]));
+    },
+  });
+  const importStatus = importJob.status;
+  const importing = importJob.starting || !!importStatus?.running;
+  const importResults = importStatus?.running ? importStatus.results : null;
+  const importedSoFar = importResults?.filter((r) => r.captureId).length ?? 0;
+
+  // A failed file drops its loading tile right away; imported ones stay until the final refresh.
+  useEffect(() => {
+    if (!importResults) return;
+    const failed = new Set(importResults.filter((r) => !r.captureId).map((r) => r.relativePath));
+    if (failed.size === 0) return;
+    setPendingImports((prev) => (prev.some((p) => failed.has(p)) ? prev.filter((p) => !failed.has(p)) : prev));
+  }, [importResults]);
+
   const visiblePhotos = useMemo(() => {
     if (!photos) return [];
     const query = search.trim().toLowerCase();
@@ -227,8 +256,7 @@ export default function TripDetailPage() {
       .filter((p) => !onlyTopRated || p.qualityRating === 5)
       .filter((p) => !dateFrom || !p.takenAt || p.takenAt >= dateFrom)
       .filter((p) => !dateTo || !p.takenAt || p.takenAt <= `${dateTo}T23:59:59`);
-    // The backend's own query already returns newest-first, so that case needs no client-side
-    // re-sort - matches Album/Gallery's same "unrated sits at a middle 3" rating-sort convention.
+    // The API already returns newest first. Unrated sorts as a 3, same as Gallery/Album.
     if (sortBy === "newest") return filtered;
     return [...filtered].sort((a, b) => {
       if (sortBy === "oldest") {
@@ -240,10 +268,7 @@ export default function TripDetailPage() {
     });
   }, [photos, search, sortBy, rawFilter, onlyTopRated, dateFrom, dateTo]);
 
-  // rawFilter is a persisted layout preference, not counted here — see Gallery's own matching
-  // comment.
-  // rawFilter still counts toward the badge when off its own default preset ("without") — see
-  // Gallery's own matching comment.
+  // rawFilter counts toward the badge only when off its default ("without"), same as Gallery.
   const activeFilterCount = (onlyTopRated ? 1 : 0) + (rawFilter !== "without" ? 1 : 0) + (dateFrom || dateTo ? 1 : 0);
 
   const visibleSpecies = useMemo(() => {
@@ -259,7 +284,7 @@ export default function TripDetailPage() {
     () =>
       visiblePhotos.map((p) => ({
         url: `/api/photos/${p.photoId}/display`,
-        caption: `${p.commonName ?? p.scientificName}${p.takenAt ? " · " + new Date(p.takenAt).toLocaleDateString() : ""}`,
+        caption: `${p.commonName ?? p.scientificName}${p.takenAt ? ` · ${formatDate(p.takenAt)}` : ""}`,
         info: {
           cameraModel: p.cameraModel,
           lens: p.lens,
@@ -275,157 +300,62 @@ export default function TripDetailPage() {
 
   async function startScan() {
     if (!id) return;
-    setScanError(null);
-    setScanning(true);
-    try {
-      await api.post(`/trips/${id}/scan`);
-    } catch (err) {
-      setScanError(err instanceof ApiError ? err.message : "Couldn't start the scan");
-      setScanning(false);
-    }
+    setScanRequested(true);
+    await scanJob.start(`/trips/${id}/scan`);
   }
 
-  const [cancellingScan, setCancellingScan] = useState(false);
-  async function cancelScan() {
+  // Suggestions, a keyword match from the file's tags, and the not-wildlife flag for each photo
+  // (POST /trips/:id/inspect). Best-effort: a failure only means picking the species by hand.
+  // A newer pass (a region change) supersedes the running one, so old-region answers can't land late.
+  const inspectGenerationRef = useRef(0);
+  async function inspectRows(keys: string[], regionId: string | null) {
     if (!id) return;
-    setCancellingScan(true);
-    try {
-      await api.post(`/trips/${id}/scan/cancel`, {});
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setCancellingScan(false);
-    }
-  }
-
-  const [cancellingImport, setCancellingImport] = useState(false);
-  async function cancelImport() {
-    if (!id) return;
-    setCancellingImport(true);
-    try {
-      await api.post(`/trips/${id}/import/cancel`, {});
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setCancellingImport(false);
-    }
-  }
-
-  // Polls while a scan is running — never fetched/shown until "Add more photos" is clicked.
-  useEffect(() => {
-    if (!id || !scanning) return;
-    let cancelled = false;
-    let timer: ReturnType<typeof setTimeout>;
-    async function poll() {
+    const generation = ++inspectGenerationRef.current;
+    const keySet = new Set(keys);
+    setReviewRows((prev) => prev.map((r) => (keySet.has(r.key) ? { ...r, isInspecting: true } : r)));
+    await mapWithConcurrency(keys, INSPECT_CONCURRENCY, async (key) => {
+      if (generation !== inspectGenerationRef.current) return;
       try {
-        const res = await api.get<ScanStatus>(`/trips/${id}/scan/status`);
-        if (cancelled) return;
-        setScanStatus(res);
-        if (!res.running) {
-          setScanning(false);
-          setReviewRows(
-            res.newFiles.map((f) => ({ relativePath: f.relativePath, speciesId: null, speciesLabel: null, status: "ready" })),
-          );
-          if (res.recovered > 0) load();
-          return;
-        }
+        const res = await api.post<{ suggestions: SuggestedSpecies[]; notWildlife: { looksLike: string } | null }>(`/trips/${id}/inspect`, {
+          relativePath: key,
+          regionId: suggestEnabled ? regionId : null,
+        });
+        if (generation !== inspectGenerationRef.current) return;
+        setReviewRows((prev) =>
+          prev.map((r) => (r.key === key ? { ...r, suggestions: res.suggestions, notWildlife: res.notWildlife, isInspecting: false } : r)),
+        );
       } catch {
-        // ignore — status just won't update this tick
+        if (generation !== inspectGenerationRef.current) return;
+        setReviewRows((prev) => prev.map((r) => (r.key === key ? { ...r, isInspecting: false } : r)));
       }
-      if (!cancelled) timer = setTimeout(poll, 1500);
-    }
-    poll();
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id, scanning]);
-
-  function assignSpecies(paths: string[], result: SpeciesResult) {
-    setReviewRows((prev) =>
-      prev.map((r) => (paths.includes(r.relativePath) ? { ...r, speciesId: result.id, speciesLabel: result.common_name ?? result.scientific_name } : r)),
-    );
-  }
-
-  function assignAndAdvance(relativePath: string, result: SpeciesResult) {
-    assignSpecies([relativePath], result);
-    const idx = reviewRows.findIndex((r) => r.relativePath === relativePath);
-    const next = reviewRows.slice(idx + 1).find((r) => !r.speciesId);
-    setFocusedRow(next ? next.relativePath : null);
-  }
-
-  function toggleSelected(relativePath: string) {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(relativePath)) next.delete(relativePath);
-      else next.add(relativePath);
-      return next;
     });
   }
 
-  // Fire-and-poll, same as the scan job just above — a single request the client awaited
-  // directly would hang the page on the whole batch (each file pays a real exiftool round-trip
-  // + a sharp resize) with no way to show progress in the meantime. Closes the review section
-  // immediately rather than watching it update in place — the main grid's own loading tiles
-  // (driven by pendingImports below) are the feedback now.
+  function selectReviewRegion(regionId: string | null) {
+    setReviewRegionId(regionId);
+    if (regionId) localStorage.setItem(LAST_REGION_KEY, regionId);
+    else localStorage.removeItem(LAST_REGION_KEY);
+    // A region picked or changed mid-batch re-checks every photo not yet imported.
+    if (regionId && suggestEnabled) void inspectRows(reviewRows.filter((r) => r.status !== "done").map((r) => r.key), regionId);
+  }
+
+  // A background job: each file costs an exiftool read and a resize, too slow to await in one request.
   async function importReady() {
     if (!id) return;
     const toImport = reviewRows.filter((r) => r.speciesId && (r.status === "ready" || r.status === "error"));
     if (toImport.length === 0) return;
-    setImportError(null);
-    setImporting(true);
-    setPendingImports(toImport.map((r) => r.relativePath));
+    const previousRows = reviewRows;
+    setPendingImports(toImport.map((r) => r.key));
     setReviewRows([]);
-    try {
-      await api.post(`/trips/${id}/import`, {
-        files: toImport.map((r) => ({ relativePath: r.relativePath, speciesId: r.speciesId })),
-        regionId: reviewRegionId,
-      });
-    } catch (err) {
-      setImportError(err instanceof ApiError ? err.message : "Couldn't start the import");
-      setImporting(false);
+    const started = await importJob.start(`/trips/${id}/import`, {
+      files: toImport.map((r) => ({ relativePath: r.key, speciesId: r.speciesId })),
+      regionId: reviewRegionId,
+    });
+    if (!started) {
       setPendingImports([]);
+      setReviewRows(previousRows);
     }
   }
-
-  useEffect(() => {
-    if (!id || !importing) return;
-    let cancelled = false;
-    let timer: ReturnType<typeof setTimeout>;
-    let lastResultCount = 0;
-    async function poll() {
-      try {
-        const res = await api.get<ImportStatus>(`/trips/${id}/import/status`);
-        if (cancelled) return;
-        setImportStatus(res);
-        if (res.results.length > lastResultCount) {
-          lastResultCount = res.results.length;
-          const done = new Set(res.results.map((r) => r.relativePath));
-          setPendingImports((prev) => prev.filter((p) => !done.has(p)));
-          // A newly-completed photo needs its real thumb/display files picked up — cheap
-          // enough to just refetch the whole list as results trickle in rather than trying to
-          // splice one photo in by hand from a result that only carries a captureId.
-          load();
-        }
-        if (!res.running) {
-          setImporting(false);
-          setPendingImports([]);
-          load();
-          return;
-        }
-      } catch {
-        // ignore — status just won't update this tick
-      }
-      if (!cancelled) timer = setTimeout(poll, 1000);
-    }
-    poll();
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id, importing]);
 
   async function setCover(captureId: string | null) {
     if (!id) return;
@@ -433,17 +363,15 @@ export default function TripDetailPage() {
     setSettingCover(captureId);
     try {
       await api.put(`/trips/${id}/cover`, { captureId });
-      load();
-    } catch {
-      // A failed cover pick isn't worth a whole error banner — the star just won't have moved.
+      void load();
+    } catch (err) {
+      toast.error(errorMessage(err, "Couldn't change the featured photo"));
     } finally {
       setSettingCover(null);
     }
   }
 
-  // Newly-set covers go straight into the crop editor instead of leaving the user to reopen
-  // the menu a second time and click "Adjust position" — the position is exactly what
-  // someone picking a featured photo wants to set right away.
+  // A new cover opens straight into the crop editor, since positioning it is the next step anyway.
   async function setCoverAndEdit(captureId: string, photoUrl: string) {
     if (!id) return;
     setOpenMenuCaptureId(null);
@@ -452,8 +380,8 @@ export default function TripDetailPage() {
       await api.put(`/trips/${id}/cover`, { captureId });
       await load();
       setCroppingCoverPhotoUrl(photoUrl);
-    } catch {
-      // Same "no error banner" call as setCover above.
+    } catch (err) {
+      toast.error(errorMessage(err, "Couldn't change the featured photo"));
     } finally {
       setSettingCover(null);
     }
@@ -464,7 +392,9 @@ export default function TripDetailPage() {
     try {
       await api.delete(`/captures/${captureId}`);
       setConfirmingDeleteCaptureId(null);
-      load();
+      void load();
+    } catch (err) {
+      toast.error(errorMessage(err, "Couldn't delete that photo"));
     } finally {
       setDeletingPhoto(false);
     }
@@ -493,65 +423,75 @@ export default function TripDetailPage() {
       setConfirmingBatchDeletePhotos(false);
       setDeleteRawTooPhotos(false);
       exitGallerySelectMode();
-      load();
+      void load();
+    } catch (err) {
+      toast.error(errorMessage(err, "Couldn't delete those photos"));
     } finally {
       setDeletingPhoto(false);
     }
   }
 
-  async function saveName(name: string) {
-    if (!id || !name) return;
-    await api.patch(`/trips/${id}`, { name });
-    load();
-  }
-
-  async function saveDescription(description: string) {
+  async function patchTrip(patch: Partial<Pick<TripDetail, "name" | "description" | "coverLayout">>, failure: string) {
     if (!id) return;
-    await api.patch(`/trips/${id}`, { description });
-    load();
+    try {
+      await api.patch(`/trips/${id}`, patch);
+      void load();
+    } catch (err) {
+      toast.error(errorMessage(err, failure));
+    }
   }
 
-  async function setCoverLayout(coverLayout: "single" | "quad") {
-    if (!id) return;
-    await api.patch(`/trips/${id}`, { coverLayout });
-    load();
+  function saveName(name: string) {
+    if (name) void patchTrip({ name }, "Couldn't rename this trip");
   }
 
-  async function relocateFolder() {
+  function saveDescription(description: string) {
+    void patchTrip({ description }, "Couldn't save the description");
+  }
+
+  function setCoverLayout(coverLayout: "single" | "quad") {
+    void patchTrip({ coverLayout }, "Couldn't change the cover style");
+  }
+
+  async function relocateFolder(which: "sourceFolder" | "destinationFolder") {
     if (!id) return;
     setRelocateError(null);
     const native = await pickFolderNative();
     if (native === undefined) {
-      setRelocating(true);
+      setRelocating(which);
       return;
     }
     if (!native) return;
-    await applyRelocate(native);
+    await applyRelocate(which, native);
   }
 
-  async function applyRelocate(sourceFolder: string) {
+  async function applyRelocate(which: "sourceFolder" | "destinationFolder", folder: string) {
     if (!id) return;
-    setRelocating(false);
+    setRelocating(null);
     setRelocateError(null);
     try {
-      await api.patch(`/trips/${id}`, { sourceFolder });
-      load();
-      // The whole point of relocating is picking back up where things left off — a rescan
-      // against the new location relinks every existing photo by content hash automatically
-      // (see scan.ts), same mechanism as a file moving within a trip's own folder.
-      startScan();
+      await api.patch(`/trips/${id}`, { [which]: folder });
+      void load();
+      // A rescan relinks every existing photo by content hash (see scan.ts).
+      void startScan();
     } catch (err) {
-      setRelocateError(err instanceof ApiError ? err.message : "Couldn't relocate this trip's folder");
+      setRelocateError(errorMessage(err, "Couldn't relocate this trip's folder"));
     }
   }
 
   const readyCount = reviewRows.filter((r) => r.speciesId && r.status === "ready").length;
+  const notWildlifeCount = reviewRows.filter((r) => r.notWildlife && !r.speciesId).length;
+  const review = useImportReview(reviewRows, setReviewRows, {
+    onAllAssignedEnter: () => void importReady(),
+    enterStartsImport: !importing && readyCount > 0,
+  });
+  const { selected, setSelected, toggleSelected, focusedRowKey, setFocusedRowKey, activeRow, highlightIndex, assignSpecies, assignAndAdvance } = review;
 
   if (loadError) {
     return (
       <div className="flex flex-col items-center gap-3 py-24">
         <p className="text-muted">Couldn't load this trip.</p>
-        <button onClick={load} className="text-sm text-ink underline">
+        <button onClick={() => void load()} className="text-sm text-ink underline">
           Retry
         </button>
       </div>
@@ -566,7 +506,7 @@ export default function TripDetailPage() {
   ];
 
   return (
-    <div className="min-h-screen bg-canvas">
+    <div className="flex-1 bg-canvas">
       <PageHeader
         sticky
         title={
@@ -602,7 +542,7 @@ export default function TripDetailPage() {
                   <div className="space-y-2.5">
                     <label className="flex items-center gap-1.5 text-xs text-ink">
                       <input type="checkbox" checked={onlyTopRated} onChange={(e) => setOnlyTopRated(e.target.checked)} className="accent-ink" />
-                      Top Rated
+                      Top rated
                     </label>
                     <div>
                       <FilterFieldLabel>RAW files</FilterFieldLabel>
@@ -671,28 +611,32 @@ export default function TripDetailPage() {
                 <SelectModeToggle active={gallerySelectMode} onEnter={() => setGallerySelectMode(true)} onExit={exitGallerySelectMode} />
               </>
             )}
-            <button
-              onClick={startScan}
-              disabled={scanning}
-              className="rounded-md border border-line px-3 py-1.5 text-sm text-ink hover:bg-surface-muted disabled:opacity-50"
-            >
+            <Button variant="secondary" size="sm" onClick={startScan} disabled={scanning}>
               {scanning ? "Looking for photos…" : "Add more photos"}
-            </button>
+            </Button>
           </div>
         }
       >
         <div className="flex min-w-0 items-center gap-2 text-xs text-muted">
-          <span className="min-w-0 truncate">{trip.sourceFolder}</span>
-          <button onClick={relocateFolder} className="shrink-0 underline hover:text-ink">
+          <span className="shrink-0">Trip folder:</span>
+          <span className="min-w-0 truncate" title={trip.sourceFolder}>
+            {trip.sourceFolder}
+          </span>
+          <button onClick={() => relocateFolder("sourceFolder")} className="shrink-0 underline hover:text-ink">
             Relocate…
           </button>
           <InfoTip paragraphs={RELOCATE_INFO_PARAGRAPHS} className="shrink-0" />
-          <span>
-            · {photos.length} photo{photos.length === 1 ? "" : "s"}
-          </span>
+          <span className="shrink-0">· {pluralize(photos.length + importedSoFar, "photo")}</span>
         </div>
-        {/* "Lifers gained + rare/endemic species encountered" — what's NEW/notable about this
-            trip, not just what's in it (species count/photo count already show above). */}
+        <div className="flex min-w-0 items-center gap-2 text-xs text-muted">
+          <span className="shrink-0">Wildlife saved to:</span>
+          <span className="min-w-0 truncate" title={trip.destinationFolder}>
+            {trip.destinationFolder}
+          </span>
+          <button onClick={() => relocateFolder("destinationFolder")} className="shrink-0 underline hover:text-ink">
+            Relocate…
+          </button>
+        </div>
         {summary && summary.speciesCount > 0 && (
           <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-muted">
             <span>
@@ -700,7 +644,7 @@ export default function TripDetailPage() {
             </span>
             {summary.liferCount > 0 && (
               <span>
-                <span className="font-medium text-ink">{summary.liferCount}</span> lifer{summary.liferCount === 1 ? "" : "s"}
+                <span className="font-medium text-ink">{summary.liferCount}</span> {summary.liferCount === 1 ? "lifer" : "lifers"}
               </span>
             )}
             {summary.rareCount > 0 && (
@@ -728,7 +672,7 @@ export default function TripDetailPage() {
 
       {relocating && (
         <div className="border-b border-line bg-surface px-6 py-3">
-          <FolderBrowser onChoose={applyRelocate} onCancel={() => setRelocating(false)} />
+          <FolderBrowser onChoose={(folder) => applyRelocate(relocating, folder)} onCancel={() => setRelocating(null)} />
         </div>
       )}
 
@@ -739,24 +683,30 @@ export default function TripDetailPage() {
       {gallerySelectMode && (
         <div className="flex items-center justify-between border-b border-line bg-surface-muted px-6 py-2 text-xs">
           <span className="text-muted">{selectedPhotoCaptureIds.size} selected</span>
-          <button
-            onClick={() => setConfirmingBatchDeletePhotos(true)}
-            disabled={selectedPhotoCaptureIds.size === 0}
-            className="rounded-md bg-red-600 px-3 py-1 text-xs font-medium text-white hover:bg-red-700 disabled:opacity-40"
-          >
+          <Button variant="danger" size="sm" onClick={() => setConfirmingBatchDeletePhotos(true)} disabled={selectedPhotoCaptureIds.size === 0}>
             Delete selected
-          </button>
+          </Button>
         </div>
       )}
 
       <main className="space-y-6 p-6">
-        {relocateError && <p className="text-sm text-red-600">{relocateError}</p>}
-        {scanError && <p className="text-sm text-red-600">{scanError}</p>}
-        {scanning && scanStatus?.running && (
-          <JobProgress status={scanStatus} phases={SCAN_PHASES} fallbackLabel="Looking for photos…" onCancel={cancelScan} cancelling={cancellingScan} />
+        <FormMessage error={relocateError ?? scanJob.actionError ?? importJob.actionError} />
+        {scanStatus?.running && (
+          <JobProgress
+            status={scanStatus}
+            phases={SCAN_PHASES}
+            fallbackLabel="Looking for photos…"
+            onCancel={() => void scanJob.cancel(`/trips/${id}/scan/cancel`)}
+            cancelling={scanJob.cancelling}
+          />
         )}
-        {importing && importStatus?.running && (
-          <JobProgress status={importStatus} phases={IMPORT_PHASES} onCancel={cancelImport} cancelling={cancellingImport} />
+        {importStatus?.running && (
+          <JobProgress
+            status={importStatus}
+            phases={IMPORT_PHASES}
+            onCancel={() => void importJob.cancel(`/trips/${id}/import/cancel`)}
+            cancelling={importJob.cancelling}
+          />
         )}
         {scanStatus && !scanning && scanStatus.finishedAt && reviewRows.length === 0 && (
           <p className="text-sm text-muted">
@@ -765,11 +715,11 @@ export default function TripDetailPage() {
               : scanStatus.recovered === 0 && scanStatus.relinked === 0 && scanStatus.markedStale === 0 && scanStatus.rawsLinked === 0
                 ? "No new photos found."
                 : ""}
-            {scanStatus.recovered > 0 && ` ${scanStatus.recovered} photo${scanStatus.recovered === 1 ? "" : "s"} automatically recovered.`}
-            {scanStatus.relinked > 0 && ` ${scanStatus.relinked} moved file${scanStatus.relinked === 1 ? "" : "s"} relinked.`}
+            {scanStatus.recovered > 0 && ` ${pluralize(scanStatus.recovered, "photo")} automatically recovered.`}
+            {scanStatus.relinked > 0 && ` ${pluralize(scanStatus.relinked, "moved file")} relinked.`}
             {scanStatus.markedStale > 0 && ` ${scanStatus.markedStale} missing (kept, marked stale).`}
-            {scanStatus.rawsLinked > 0 && ` ${scanStatus.rawsLinked} RAW file${scanStatus.rawsLinked === 1 ? "" : "s"} linked.`}
-            {scanStatus.error && <span className="text-red-600"> {scanStatus.error}</span>}
+            {scanStatus.rawsLinked > 0 && ` ${pluralize(scanStatus.rawsLinked, "RAW file")} linked.`}
+            {scanStatus.error && <span className="text-rose-700 dark:text-rose-400"> {scanStatus.error}</span>}
           </p>
         )}
 
@@ -777,7 +727,8 @@ export default function TripDetailPage() {
           <section className="space-y-3 rounded-lg border border-line bg-surface p-4">
             <div className="flex items-center gap-3 text-sm text-muted">
               <span>
-                {reviewRows.length} new file{reviewRows.length === 1 ? "" : "s"} · {readyCount} ready to import
+                {pluralize(reviewRows.length, "new photo")} · {readyCount} ready to import
+                {notWildlifeCount > 0 && ` · ${notWildlifeCount} not wildlife, left out`}
               </span>
               {selected.size > 0 && (
                 <div className="flex items-center gap-2">
@@ -785,6 +736,7 @@ export default function TripDetailPage() {
                   <div className="w-56">
                     <SpeciesPicker
                       placeholder="Type a species…"
+                      regionId={reviewRegionId}
                       onSelect={(r) => {
                         assignSpecies([...selected], r);
                         setSelected(new Set());
@@ -793,52 +745,62 @@ export default function TripDetailPage() {
                   </div>
                 </div>
               )}
-              <button
-                onClick={importReady}
-                disabled={importing || readyCount === 0}
-                className="ml-auto rounded-md bg-accent px-3 py-1.5 text-accent-fg disabled:opacity-40"
-              >
-                {importing ? "Importing…" : `Import ${readyCount || ""} photo${readyCount === 1 ? "" : "s"}`}
-              </button>
+              <Button size="sm" onClick={importReady} disabled={importing || readyCount === 0} className="ml-auto">
+                {importing ? "Importing…" : readyCount ? `Import ${pluralize(readyCount, "photo")}` : "Import photos"}
+              </Button>
             </div>
-            <div className="flex items-center gap-2 text-sm text-muted">
-              <span>Location for this batch (optional):</span>
-              <div className="w-56">
-                <RegionBrowser regionId={reviewRegionId} onChange={setReviewRegionId} allowAnyRegion />
-              </div>
+            <div className="rounded-lg border border-line bg-surface-muted px-3 py-2">
+              <p className="mb-1 text-sm text-muted">
+                {suggestEnabled ? "Region for species suggestions (also saved as each photo's location):" : "Location for this batch (optional):"}
+              </p>
+              <RegionBrowser regionId={reviewRegionId} onChange={selectReviewRegion} allowAnyRegion={!suggestEnabled} />
+              {suggestEnabled && !reviewRegionId && <p className="mt-1 text-xs text-muted">Pick a region to see species suggestions below.</p>}
             </div>
-            {importError && <p className="text-sm text-red-600">{importError}</p>}
+            {trip && (
+              <p className="text-xs text-muted">
+                Imported photos are copied to {trip.destinationFolder}, sorted by species. The originals stay where they are.
+              </p>
+            )}
 
             <div className="divide-y divide-line rounded-lg border border-line bg-surface">
               {reviewRows.map((row) => (
-                <div key={row.relativePath} className="flex items-center gap-3 p-3">
-                  <input type="checkbox" checked={selected.has(row.relativePath)} onChange={() => toggleSelected(row.relativePath)} className="h-4 w-4" />
-                  <img
-                    src={`/api/trips/${id}/scan-preview?file=${encodeURIComponent(row.relativePath)}`}
-                    alt=""
-                    className="h-14 w-14 rounded-md object-cover"
-                  />
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm text-ink">{row.relativePath}</p>
-                    {focusedRow === row.relativePath ? (
-                      <div className="mt-1 w-64">
-                        <SpeciesPicker autoFocus placeholder="Type a species…" onSelect={(r) => assignAndAdvance(row.relativePath, r)} />
-                      </div>
-                    ) : (
-                      <button
-                        onClick={() => setFocusedRow(row.relativePath)}
-                        className={`mt-0.5 text-xs ${row.speciesId ? "text-ink" : "text-muted"} hover:underline`}
-                      >
-                        {row.speciesId ? row.speciesLabel : "Click to assign species…"}
-                      </button>
-                    )}
-                  </div>
-                  <span className="text-xs text-muted">
-                    {row.status === "done" ? "✓ Imported" : row.status === "error" ? row.error : row.status === "importing" ? "Importing…" : ""}
-                  </span>
-                </div>
+                <ImportReviewRow
+                  key={row.key}
+                  row={row}
+                  name={row.key}
+                  preview={
+                    <img
+                      src={`/api/trips/${id}/scan-preview?file=${encodeURIComponent(row.key)}`}
+                      alt=""
+                      loading="lazy"
+                      className="h-14 w-14 rounded-md object-cover"
+                    />
+                  }
+                  status={
+                    <span className="text-xs text-muted">
+                      {row.status === "done" ? "✓ Imported" : row.status === "error" ? row.error : row.status === "importing" ? "Importing…" : ""}
+                    </span>
+                  }
+                  removable={row.status !== "importing" && row.status !== "done"}
+                  onRemove={() => {
+                    setReviewRows((prev) => prev.filter((r) => r.key !== row.key));
+                    review.forgetRow(row.key);
+                  }}
+                  removeLabel="Leave this photo out of the import"
+                  selected={selected.has(row.key)}
+                  onToggleSelected={() => toggleSelected(row.key)}
+                  focused={focusedRowKey === row.key}
+                  onFocus={() => setFocusedRowKey(row.key)}
+                  regionId={reviewRegionId}
+                  onPick={(r) => assignAndAdvance(row.key, r)}
+                  isActive={row.key === activeRow?.key}
+                  highlightIndex={highlightIndex}
+                  onDismissWarning={(warning) => review.dismissWarning(row.key, warning)}
+                  onViewSpeciesGallery={speciesGallery.open}
+                />
               ))}
             </div>
+            {speciesGallery.lightbox}
           </section>
         )}
 
@@ -855,12 +817,10 @@ export default function TripDetailPage() {
         ) : photos.length === 0 && pendingImports.length === 0 && buildMode ? (
           <div className="max-w-2xl space-y-3 rounded-lg border border-line bg-surface p-4">
             <p className="text-sm text-ink">Drop in this trip's photos, then assign each one to a species below.</p>
-            <PhotoImportRows tripId={id} onImported={load} />
+            <PhotoImportRows tripId={id} onImported={() => void load()} />
             <div className="border-t border-line pt-3">
-              {/* speciesId is unused in matchOnly mode (see RawUpload's own doc comment) — a
-                  RAW's match against an already-uploaded trip photo determines its species and
-                  destination on its own, no hint needed since a trip spans many species. */}
-              <RawUpload speciesId="" volumeId="" matchOnly onFiled={load} />
+              {/* matchOnly ignores speciesId: the matched trip photo decides each RAW's species. */}
+              <RawUpload speciesId="" volumeId="" matchOnly onFiled={() => void load()} />
             </div>
             <p className="text-xs text-muted">
               Prefer to organize the folder yourself first? Use "Add more photos" above to scan it instead.
@@ -915,12 +875,10 @@ export default function TripDetailPage() {
             }
             renderItem={(gi, aspectRatio) => {
               if (gi.kind === "placeholder") {
-                // A newly-added photo is still being processed (exif read, thumbnail
-                // generation) — a greyed-out box with a spinner is more honest than either
-                // making the user wait on the review table or showing nothing at all.
+                // Still being processed (EXIF read, thumbnails).
                 return (
                   <div className="flex aspect-square w-full items-center justify-center rounded-md bg-surface-muted">
-                    <div className="h-6 w-6 animate-spin rounded-full border-2 border-line border-t-accent" />
+                    <InlineSpinner size="md" label="Importing" />
                   </div>
                 );
               }
@@ -970,9 +928,7 @@ export default function TripDetailPage() {
                           Adjust position
                         </button>
                       )}
-                      {/* Hidden when the only original on file IS the RAW - Download RAW right
-                         below already covers that exact same file. Same gate every other
-                         photo-management surface (Gallery, species detail, Album) already uses. */}
+                      {/* Hidden when the only original is the RAW, which Download RAW covers. */}
                       {photo.originalRef && photo.originalKind !== "raw" && (
                         <button
                           onClick={() => {
@@ -1000,9 +956,9 @@ export default function TripDetailPage() {
                           setOpenMenuCaptureId(null);
                           setConfirmingDeleteCaptureId(photo.captureId);
                         }}
-                        className="block w-full px-3 py-1.5 text-left text-red-600 hover:bg-red-50"
+                        className="block w-full px-3 py-1.5 text-left text-rose-700 hover:bg-surface-muted dark:text-rose-400"
                       >
-                        Delete Photo
+                        Delete photo
                       </button>
                     </div>
                   }
@@ -1032,90 +988,65 @@ export default function TripDetailPage() {
           onClose={() => setCroppingCoverPhotoUrl(null)}
           onSave={async (crop) => {
             await api.patch(`/trips/${id}/cover-crop`, crop);
-            load();
+            void load();
           }}
           onReset={async () => {
             await api.patch(`/trips/${id}/cover-crop`, { reset: true });
-            load();
+            void load();
           }}
         />
       )}
 
-      {confirmingDeleteCaptureId && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
-          onClick={() => setConfirmingDeleteCaptureId(null)}
-        >
-          <div className="w-full max-w-sm rounded-lg border border-line bg-surface p-4 shadow-lg" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-sm font-medium text-ink">Delete this photo?</h3>
-            <p className="mt-2 text-xs text-muted">
-              Deleted photos go to Trash for 7 days first, where you can still restore them. After 7 days they're gone
-              for good and can't be recovered.
-            </p>
-            <div className="mt-4 flex justify-end gap-2">
-              <button
-                onClick={() => setConfirmingDeleteCaptureId(null)}
-                className="rounded-md px-3 py-1.5 text-xs text-muted hover:bg-surface-muted"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => confirmDeletePhoto(confirmingDeleteCaptureId)}
-                disabled={deletingPhoto}
-                className="rounded-md bg-red-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-700 disabled:opacity-40"
-              >
-                {deletingPhoto ? "Deleting…" : "Delete"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <ConfirmDialog
+        open={!!confirmingDeleteCaptureId}
+        title="Delete this photo?"
+        message="Deleted photos go to Trash for 7 days first, where you can still restore them. After 7 days they're gone for good and can't be recovered."
+        confirmLabel="Delete"
+        danger
+        busy={deletingPhoto}
+        onConfirm={() => confirmingDeleteCaptureId && void confirmDeletePhoto(confirmingDeleteCaptureId)}
+        onCancel={() => setConfirmingDeleteCaptureId(null)}
+      />
 
-      {confirmingBatchDeletePhotos && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
-          onClick={() => setConfirmingBatchDeletePhotos(false)}
-        >
-          <div className="w-full max-w-sm rounded-lg border border-line bg-surface p-4 shadow-lg" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-sm font-medium text-ink">
-              Delete {selectedPhotoCaptureIds.size} photo{selectedPhotoCaptureIds.size === 1 ? "" : "s"}?
-            </h3>
-            <p className="mt-2 text-xs text-muted">
-              Deleted photos go to Trash for 7 days first, where you can still restore them. After 7 days they're gone
-              for good and can't be recovered.
-            </p>
-            {selectedPhotosHaveRaw && (
-              <label className="mt-3 flex items-center gap-2 text-xs text-ink">
-                <input
-                  type="checkbox"
-                  checked={deleteRawTooPhotos}
-                  onChange={(e) => setDeleteRawTooPhotos(e.target.checked)}
-                  className="h-3.5 w-3.5"
-                />
-                Also delete the matching RAW file when this is permanently removed
-              </label>
-            )}
-            <div className="mt-4 flex justify-end gap-2">
-              <button
-                onClick={() => {
-                  setConfirmingBatchDeletePhotos(false);
-                  setDeleteRawTooPhotos(false);
-                }}
-                className="rounded-md px-3 py-1.5 text-xs text-muted hover:bg-surface-muted"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={confirmDeleteSelectedPhotos}
-                disabled={deletingPhoto}
-                className="rounded-md bg-red-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-700 disabled:opacity-40"
-              >
-                {deletingPhoto ? "Deleting…" : "Delete"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <Modal
+        open={confirmingBatchDeletePhotos}
+        onClose={() => {
+          if (deletingPhoto) return;
+          setConfirmingBatchDeletePhotos(false);
+          setDeleteRawTooPhotos(false);
+        }}
+        title={`Delete ${pluralize(selectedPhotoCaptureIds.size, "photo")}?`}
+        initialFocusRef={batchDeleteRef}
+        footer={
+          <>
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={deletingPhoto}
+              onClick={() => {
+                setConfirmingBatchDeletePhotos(false);
+                setDeleteRawTooPhotos(false);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button ref={batchDeleteRef} variant="danger" size="sm" onClick={confirmDeleteSelectedPhotos} loading={deletingPhoto}>
+              Delete
+            </Button>
+          </>
+        }
+      >
+        <p className="text-sm text-muted">
+          Deleted photos go to Trash for 7 days first, where you can still restore them. After 7 days they're gone for good and can't
+          be recovered.
+        </p>
+        {selectedPhotosHaveRaw && (
+          <label className="mt-3 flex items-center gap-2 text-xs text-ink">
+            <input type="checkbox" checked={deleteRawTooPhotos} onChange={(e) => setDeleteRawTooPhotos(e.target.checked)} className="h-3.5 w-3.5" />
+            Also delete the matching RAW file when this is permanently removed
+          </label>
+        )}
+      </Modal>
     </div>
   );
 }

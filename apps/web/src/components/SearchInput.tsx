@@ -1,9 +1,6 @@
-// The one search-box look used everywhere in the app — same rounded-md/border-line shape as
-// every other text input (SpeciesPicker, CollectionPage's in-area search, RegionPicker,
-// SpeciesHotspotMap's coordinate search), plus a real clear-X button. Gallery's own search box
-// used to be the odd one out (rounded-full, relying on the browser's native type="search" clear
-// icon, which several other boxes didn't have at all) — this unifies the shape everywhere and
-// gives every one of them the same working clear button, not just Gallery's.
+import type { AriaAttributes, InputHTMLAttributes, Ref } from "react";
+
+// The one search-box look used everywhere, with a real clear button.
 export default function SearchInput({
   value,
   onChange,
@@ -14,6 +11,8 @@ export default function SearchInput({
   onBlur,
   onKeyDown,
   "aria-label": ariaLabel,
+  inputRef,
+  inputProps,
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -24,10 +23,15 @@ export default function SearchInput({
   onBlur?: React.FocusEventHandler<HTMLInputElement>;
   onKeyDown?: React.KeyboardEventHandler<HTMLInputElement>;
   "aria-label"?: string;
+  inputRef?: Ref<HTMLInputElement>;
+  // Combobox wiring (role, aria-expanded, aria-controls, aria-activedescendant, id).
+  inputProps?: AriaAttributes & Pick<InputHTMLAttributes<HTMLInputElement>, "id" | "role" | "autoComplete" | "spellCheck">;
 }) {
   return (
     <div className={`relative ${className ?? ""}`}>
       <input
+        {...inputProps}
+        ref={inputRef}
         type="text"
         value={value}
         onChange={(e) => onChange(e.target.value)}
@@ -42,6 +46,8 @@ export default function SearchInput({
       {value && (
         <button
           type="button"
+          // Keeps focus in the field, so a combobox's list doesn't close on the click.
+          onMouseDown={(e) => e.preventDefault()}
           onClick={() => onChange("")}
           aria-label="Clear search"
           className="absolute right-1.5 top-1/2 -translate-y-1/2 text-lg leading-none text-muted hover:text-ink"

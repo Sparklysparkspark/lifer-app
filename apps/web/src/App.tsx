@@ -1,14 +1,17 @@
 import { lazy, Suspense, useEffect, useState } from "react";
-import { Navigate, Route, Routes } from "react-router-dom";
+import { Navigate, Outlet, Route, Routes } from "react-router-dom";
 import { useAuth } from "./hooks/useAuth";
 import LoginPage from "./pages/LoginPage";
 import CollectionPage from "./pages/CollectionPage";
 import MigrationStatusIndicator from "./components/MigrationStatusIndicator";
-import UploadQueueBanner from "./components/UploadQueueBanner";
-import UpdatesBanner from "./components/UpdatesBanner";
+import StatusTray from "./components/StatusTray";
 import LibraryFolderBanner from "./components/LibraryFolderBanner";
 import TitleBarDragRegion from "./components/TitleBarDragRegion";
+import AppNav from "./components/AppNav";
 import { LoadingScreen } from "./components/LoadingScreen";
+import { ToastProvider } from "./hooks/useToast";
+import { ConfirmProvider } from "./hooks/useConfirm";
+import { CommandPaletteProvider } from "./hooks/useCommandPalette";
 
 // Every page but the collection (where the app opens) and login loads on first visit, so opening
 // Lifer doesn't wait for the code of 20 pages you may never open this session.
@@ -32,7 +35,6 @@ const ManageTagsPage = lazy(() => import("./pages/ManageTagsPage"));
 const TrashedPhotosPage = lazy(() => import("./pages/TrashedPhotosPage"));
 const GuidePage = lazy(() => import("./pages/GuidePage"));
 const ForgotPasswordPage = lazy(() => import("./pages/ForgotPasswordPage"));
-const ResetPasswordPage = lazy(() => import("./pages/ResetPasswordPage"));
 
 // Shown only if a page's code takes a moment to arrive, so fast loads don't flash a spinner.
 function PageLoading() {
@@ -51,190 +53,69 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+// Every signed-in page gets the top nav. Its own Suspense keeps the nav up while a page's code
+// loads. Login, onboarding, password reset and share links are full-screen and skip it.
+function AppLayout() {
+  return (
+    <RequireAuth>
+      <CommandPaletteProvider>
+        <div className="flex min-h-screen flex-col bg-canvas">
+          <AppNav />
+          <Suspense fallback={<PageLoading />}>
+            <Outlet />
+          </Suspense>
+        </div>
+      </CommandPaletteProvider>
+    </RequireAuth>
+  );
+}
+
 export default function App() {
   return (
-    <>
-      <TitleBarDragRegion />
-      <MigrationStatusIndicator />
-      <UploadQueueBanner />
-      <UpdatesBanner />
-      <LibraryFolderBanner />
-      <Suspense fallback={<PageLoading />}>
-      <Routes>
-      <Route path="/login" element={<LoginPage />} />
-      <Route
-        path="/onboarding"
-        element={
-          <RequireAuth>
-            <OnboardingPage />
-          </RequireAuth>
-        }
-      />
-      <Route path="/forgot-password" element={<ForgotPasswordPage />} />
-      <Route path="/reset-password" element={<ResetPasswordPage />} />
-      <Route path="/share/:token" element={<SharePage />} />
-      <Route
-        path="/"
-        element={
-          <RequireAuth>
-            <CollectionPage />
-          </RequireAuth>
-        }
-      />
-      <Route
-        path="/species/:id"
-        element={
-          <RequireAuth>
-            <SpeciesDetailPage />
-          </RequireAuth>
-        }
-      />
-      <Route
-        path="/gallery"
-        element={
-          <RequireAuth>
-            <GalleryPage />
-          </RequireAuth>
-        }
-      />
-      <Route
-        path="/stats"
-        element={
-          <RequireAuth>
-            <StatsPage />
-          </RequireAuth>
-        }
-      />
-      <Route
-        path="/region/:id"
-        element={
-          <RequireAuth>
-            <RegionPage />
-          </RequireAuth>
-        }
-      />
-      <Route
-        path="/import"
-        element={
-          <RequireAuth>
-            <BulkImportPage />
-          </RequireAuth>
-        }
-      />
-      <Route
-        path="/settings"
-        element={
-          <RequireAuth>
-            <SettingsPage />
-          </RequireAuth>
-        }
-      />
-      <Route
-        path="/settings/:groupId"
-        element={
-          <RequireAuth>
-            <SettingsPage />
-          </RequireAuth>
-        }
-      />
-      <Route
-        path="/trash"
-        element={
-          <RequireAuth>
-            <TrashedPhotosPage />
-          </RequireAuth>
-        }
-      />
-      <Route
-        path="/offline-packs"
-        element={
-          <RequireAuth>
-            <OfflinePacksPage />
-          </RequireAuth>
-        }
-      />
-      <Route
-        path="/trips"
-        element={
-          <RequireAuth>
-            <CollectionsPage />
-          </RequireAuth>
-        }
-      />
-      <Route
-        path="/trips/:id"
-        element={
-          <RequireAuth>
-            <TripDetailPage />
-          </RequireAuth>
-        }
-      />
-      <Route
-        path="/albums"
-        element={
-          <RequireAuth>
-            <CollectionsPage />
-          </RequireAuth>
-        }
-      />
-      <Route
-        path="/albums/:id"
-        element={
-          <RequireAuth>
-            <AlbumDetailPage />
-          </RequireAuth>
-        }
-      />
-      <Route
-        path="/settings/api-keys"
-        element={
-          <RequireAuth>
-            <ApiKeysPage />
-          </RequireAuth>
-        }
-      />
-      <Route
-        path="/inaturalist"
-        element={
-          <RequireAuth>
-            <InaturalistPage />
-          </RequireAuth>
-        }
-      />
-      <Route
-        path="/archived"
-        element={
-          <RequireAuth>
-            <ArchivedSpeciesPage />
-          </RequireAuth>
-        }
-      />
-      <Route
-        path="/hidden-species"
-        element={
-          <RequireAuth>
-            <HiddenSpeciesPage />
-          </RequireAuth>
-        }
-      />
-      <Route
-        path="/tags"
-        element={
-          <RequireAuth>
-            <ManageTagsPage />
-          </RequireAuth>
-        }
-      />
-      <Route
-        path="/guide"
-        element={
-          <RequireAuth>
-            <GuidePage />
-          </RequireAuth>
-        }
-      />
-      </Routes>
-      </Suspense>
-    </>
+    <ToastProvider>
+      <ConfirmProvider>
+        <TitleBarDragRegion />
+        <MigrationStatusIndicator />
+        <StatusTray />
+        <LibraryFolderBanner />
+        <Suspense fallback={<PageLoading />}>
+          <Routes>
+            <Route path="/login" element={<LoginPage />} />
+            <Route
+              path="/onboarding"
+              element={
+                <RequireAuth>
+                  <OnboardingPage />
+                </RequireAuth>
+              }
+            />
+            <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+            <Route path="/share/:token" element={<SharePage />} />
+            <Route element={<AppLayout />}>
+              <Route path="/" element={<CollectionPage />} />
+              <Route path="/species/:id" element={<SpeciesDetailPage />} />
+              <Route path="/gallery" element={<GalleryPage />} />
+              <Route path="/stats" element={<StatsPage />} />
+              <Route path="/region/:id" element={<RegionPage />} />
+              <Route path="/import" element={<BulkImportPage />} />
+              <Route path="/settings" element={<SettingsPage />} />
+              <Route path="/settings/:groupId" element={<SettingsPage />} />
+              <Route path="/trash" element={<TrashedPhotosPage />} />
+              <Route path="/offline-packs" element={<OfflinePacksPage />} />
+              <Route path="/trips" element={<CollectionsPage />} />
+              <Route path="/trips/:id" element={<TripDetailPage />} />
+              <Route path="/albums" element={<CollectionsPage />} />
+              <Route path="/albums/:id" element={<AlbumDetailPage />} />
+              <Route path="/settings/api-keys" element={<ApiKeysPage />} />
+              <Route path="/inaturalist" element={<InaturalistPage />} />
+              <Route path="/archived" element={<ArchivedSpeciesPage />} />
+              <Route path="/hidden-species" element={<HiddenSpeciesPage />} />
+              <Route path="/tags" element={<ManageTagsPage />} />
+              <Route path="/guide" element={<GuidePage />} />
+            </Route>
+          </Routes>
+        </Suspense>
+      </ConfirmProvider>
+    </ToastProvider>
   );
 }

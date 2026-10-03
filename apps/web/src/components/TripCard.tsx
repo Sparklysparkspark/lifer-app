@@ -4,19 +4,18 @@ import type { TripSummary } from "@lifer/shared";
 import { useFitText } from "../hooks/useFitText";
 import CoverImage from "./CoverImage";
 import DotMenu from "./DotMenu";
+import InlineSpinner from "./InlineSpinner";
+import { formatDate } from "../lib/formatDate";
+import { pluralize } from "../lib/pluralize";
 
 function formatDateRange(earliest: string | null, latest: string | null): string | null {
-  if (!earliest) return null;
-  const opts: Intl.DateTimeFormatOptions = { year: "numeric", month: "short" };
-  const start = new Date(earliest).toLocaleDateString(undefined, opts);
-  if (!latest || latest === earliest) return start;
-  const end = new Date(latest).toLocaleDateString(undefined, opts);
-  return start === end ? start : `${start} – ${end}`;
+  const start = formatDate(earliest, "monthYear");
+  if (!start) return null;
+  const end = formatDate(latest, "monthYear");
+  return !end || start === end ? start : `${start} – ${end}`;
 }
 
-// Mirrors SpeciesCard.tsx's shape (cover image block, useFitText title, badge row) — swaps
-// species-specific badges (tier/endemic/vagrant) for trip-relevant ones (date range, species
-// count), since those concepts don't apply here.
+// Same shape as SpeciesCard, with trip badges (date range, counts) instead of species ones.
 interface TripCardProps {
   trip: TripSummary;
   menuOpen?: boolean;
@@ -59,7 +58,7 @@ export default function TripCard({ trip, menuOpen, onToggleMenu, menuRef, onRena
                   onToggleMenu();
                   onDelete?.();
                 }}
-                className="block w-full px-3 py-1.5 text-left text-xs text-red-600 hover:bg-surface-muted"
+                className="block w-full px-3 py-1.5 text-left text-xs text-rose-700 hover:bg-surface-muted dark:text-rose-400"
               >
                 Delete
               </button>
@@ -67,10 +66,9 @@ export default function TripCard({ trip, menuOpen, onToggleMenu, menuRef, onRena
           </DotMenu>
         )}
         {trip.processing ? (
-          // A scan or import is running — the cover photo may not exist yet, or is about to
-          // change, so a spinner reads more honestly here than a placeholder or a stale image.
+          // A scan or import is running, so the cover may not exist yet or is about to change.
           <div className="flex h-full w-full items-center justify-center">
-            <div className="h-6 w-6 animate-spin rounded-full border-2 border-line border-t-accent" />
+            <InlineSpinner size="md" label="Processing" />
           </div>
         ) : (
           <CoverImage
@@ -94,7 +92,7 @@ export default function TripCard({ trip, menuOpen, onToggleMenu, menuRef, onRena
             {trip.speciesCount} species
           </span>
           <span className="inline-block rounded-full bg-surface-muted px-2 py-0.5 text-[10px] uppercase tracking-wide text-muted">
-            {trip.captureCount} photo{trip.captureCount === 1 ? "" : "s"}
+            {pluralize(trip.captureCount, "photo")}
           </span>
         </div>
       </div>

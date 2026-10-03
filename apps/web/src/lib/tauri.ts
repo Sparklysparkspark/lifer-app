@@ -1,6 +1,7 @@
-// Shared with TrafficLights.tsx's own local copy of this check — kept here so any future
-// desktop-only integration (like species-id's AI photo match) doesn't reinvent it.
-export type TauriInvoke = (cmd: string, args?: unknown) => Promise<unknown>;
+// The one place that reads window.__TAURI__. Returns null outside the desktop app (a plain
+// browser tab or the Docker/server deployment), so callers can use it unconditionally.
+// `args` may be raw bytes (a Uint8Array arrives in Rust as the request body, not a JSON array).
+export type TauriInvoke = (cmd: string, args?: unknown, options?: { headers?: Record<string, string> }) => Promise<unknown>;
 
 export function tauriInvoke(): TauriInvoke | null {
   const tauri = (window as unknown as { __TAURI__?: { core: { invoke: TauriInvoke } } }).__TAURI__;
@@ -11,11 +12,8 @@ export function isTauri(): boolean {
   return tauriInvoke() !== null;
 }
 
-// The actual native window (real macOS/Windows/Linux fullscreen, not the browser Fullscreen
-// API) — see Lightbox.tsx's own comment on why this, not document.requestFullscreen(), is what
-// its fullscreen toggle needs: this app's frameless/traffic-lights window (see desktop's
-// lib.rs) doesn't reliably support the DOM Fullscreen API, but window-manager-level fullscreen
-// (the same thing the native green traffic-light button already does) always works.
+// The native window, for real OS fullscreen. The frameless mac window doesn't reliably support
+// the DOM Fullscreen API, but window-manager fullscreen always works.
 export interface TauriWindow {
   isFullscreen(): Promise<boolean>;
   setFullscreen(fullscreen: boolean): Promise<void>;

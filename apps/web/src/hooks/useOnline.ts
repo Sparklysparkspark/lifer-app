@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 
-// Shared by UpdatesBanner and Settings' AppUpdatesSection — both need to skip their own
-// update-check network calls while offline rather than letting them fail silently.
+// Lets update checks skip their network calls while offline instead of failing silently.
 export function useOnline(): boolean {
   const [online, setOnline] = useState(() => (typeof navigator === "undefined" ? true : navigator.onLine));
   useEffect(() => {

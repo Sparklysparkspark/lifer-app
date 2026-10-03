@@ -3,26 +3,24 @@ import { Link } from "react-router-dom";
 import type { CollectionItem } from "@lifer/shared";
 import { api } from "../api/client";
 import { cropToImageStyle } from "../lib/crop";
+import { TIER_LABEL } from "../lib/speciesGroups";
 import { useFitText } from "../hooks/useFitText";
 import { useDropdownMenu } from "../hooks/useDropdownMenu";
+import { useConfirm } from "../hooks/useConfirm";
+import { useToast } from "../hooks/useToast";
 import ProgressiveImg from "./ProgressiveImg";
 import PhotoPlaceholder from "./PhotoPlaceholder";
 import DotMenu from "./DotMenu";
+import TierDetailsModal from "./TierDetailsModal";
+import NameChangedModal from "./NameChangedModal";
 
-const TIER_LABEL: Record<string, string> = {
-  common: "Common",
-  uncommon: "Uncommon",
-  rare: "Rare",
-  epic: "Epic",
-  legendary: "Legendary",
-  unrated: "Unrated",
-};
+// What a card action did, so the parent can patch its list instead of reloading: a field patch,
+// the species leaving this view, or "reload" after a failed optimistic change.
+export type SpeciesChange = Partial<CollectionItem> | "removed" | "reload";
+export type SpeciesChangeHandler = (speciesId: string | string[], change: SpeciesChange) => void;
 
-// Memoized — grouped views (GroupedSpeciesGrid) can have many groups mounting cards
-// concurrently; without this, every scroll-triggered visibleCount bump re-rendered EVERY
-// already-mounted card across every group (not just the newly revealed ones), each re-running
-// useFitText's synchronous layout reflow. That's what turned ordinary scrolling in a grouped
-// view into a sustained freeze, not just the one-time switch (see the visibleCount reset above).
+// Memoized: a scroll-triggered reveal in a grouped grid would otherwise re-render every mounted
+// card, each re-running useFitText's layout read.
 function SpeciesCard({
   item,
   regionId,
@@ -30,59 +28,58 @@ function SpeciesCard({
   countryRegionId,
   countryRegionName,
   backLabel,
-  onArchived,
+  onChanged,
   showVolumeBadge,
   hideLabels,
   hideNames,
+  hideScientificName,
   compact,
 }: {
   item: CollectionItem;
   regionId?: string;
-  /** Display name of the currently-viewed region (regionId) — only needed to label the two
-   *  checkboxes in the province-vs-country hide picker below. */
+  /** Display name of regionId, used to label the province-vs-country hide picker. */
   regionName?: string;
-  /** The enclosing country's region id, when regionId itself refers to a province/state —
-   *  same id as regionId when already viewing a country directly (see CollectionPage's
-   *  countryAncestorFor). Only when this differs from regionId does "Hide from this region"
-   *  offer a province-vs-country choice; otherwise there's nothing to disambiguate. */
+  /** The enclosing country when regionId is a province. Only when it differs from regionId
+   *  does "Hide from this region" offer a province-vs-country choice. */
   countryRegionId?: string;
   countryRegionName?: string;
-  /** What SpeciesDetailPage's own back link should say — this card is reused from more than
-   *  one page (the main collection, a trip's species view), so the right label depends on
-   *  which one rendered it. Omitted on the main collection, whose "Collection" default is
-   *  already correct. See BackToCollectionLink's own comment. */
+  /** Label for SpeciesDetailPage's back link when the card is shown outside the collection. */
   backLabel?: string;
-  /** Called after this card's own archive action succeeds — archived species are excluded
-   *  server-side, so the parent needs to refetch to actually remove this card from view. */
-  onArchived?: () => void;
-  /** Whether to show which external drive the cover photo lives on — passed down from
-   *  useStorageVolumes().multiDriveInUse rather than checked per-card, so the badge only
-   *  ever shows up once there's actually more than one place photos could be (see
-   *  ~/.claude/plans/multi-drive-storage.md). */
+  /** Called after a mark seen/target, archive, hide or remove. Must be stable (the card is memoized). */
+  onChanged?: SpeciesChangeHandler;
+  /** Show which external drive the cover photo lives on (only when more than one is in use). */
   showVolumeBadge?: boolean;
-  /** Collections' own "Hide labels" display toggle — purely cosmetic, doesn't touch the
-   *  underlying data, just skips rendering every badge in this same row (tier, local tier,
-   *  Endemic, Vagrant, Ghost, Lost, Rediscovered). */
+  /** Skip every badge in the status row. */
   hideLabels?: boolean;
-  /** Collections' "Hide names" toggle: just the photo, no name box at all. */
+  /** Just the photo, no name box. */
   hideNames?: boolean;
+  /** Common name only. */
+  hideScientificName?: boolean;
   /** The smallest card sizes: tighter spacing so the name box isn't mostly empty space. */
   compact?: boolean;
 }) {
   const isUnseen = item.state === "unseen";
   const isSeen = item.state === "seen";
   const isCollected = item.state === "collected";
-  // Independent of state (migration 090) — a species already collected can still be targeted
-  // (e.g. "I only have a bad photo, I want a better one"), so it no longer implies "not gotten
-  // yet" the way it used to when target was one exclusive state value.
+  // Independent of state: a collected species can still be a target (for a better photo).
   const isTarget = item.isTarget;
-  // A reference photo whose file has since moved or been deleted would otherwise show the
-  // browser's own broken-image icon — falls back to the same "no photo" placeholder instead.
+  // A reference photo whose file moved or was deleted falls back to the placeholder.
   const [referencePhotoFailed, setReferencePhotoFailed] = useState(false);
   const [archiving, setArchiving] = useState(false);
   const [removingOtherTaxa, setRemovingOtherTaxa] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [tierOpen, setTierOpen] = useState(false);
+  const [nameChangedOpen, setNameChangedOpen] = useState(false);
+  // The badges sit inside the card's link: open the tier's details instead of following it.
+  const openTier = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setTierOpen(true);
+  };
+  const localNoData = !!regionId && !item.localTier && (item.localTierReason === "thin_data" || item.localTierReason === "no_data" || item.localTierReason === "few_photos");
   const { openKey: menuOpen, setOpenKey: setMenuOpen, ref: menuRef } = useDropdownMenu<true>();
+  const confirm = useConfirm();
+  const toast = useToast();
   const displayName = item.commonName ?? item.scientificName;
   const { ref: nameRef, fontSize: nameFontSize } = useFitText([displayName]);
 
@@ -97,9 +94,9 @@ function SpeciesCard({
     setArchiving(true);
     try {
       await api.post(`/species/${item.speciesId}/archive`);
-      onArchived?.();
+      onChanged?.(item.speciesId, "removed");
     } catch {
-      alert("Couldn't archive this species. Try again.");
+      toast.error("Couldn't archive this species. Try again.");
     } finally {
       setArchiving(false);
     }
@@ -109,15 +106,10 @@ function SpeciesCard({
   const [hidePickerOpen, setHidePickerOpen] = useState(false);
   const [hideProvinceChecked, setHideProvinceChecked] = useState(true);
   const [hideCountryChecked, setHideCountryChecked] = useState(false);
-  // Only meaningful when regionId refers to a province/state whose enclosing country is a
-  // DIFFERENT region — viewing a country directly has nothing to disambiguate, so the plain
-  // one-click hide below still applies there.
   const hasCountryChoice = !!(regionId && countryRegionId && countryRegionId !== regionId);
 
-  // Region-scoped archive (migration 100) — hides this species from THIS region's checklist
-  // only (e.g. a vagrant entry, like Japanese Quail turning up in BC/Canada) without touching
-  // its global record or its presence on any other region's checklist. Only offered when
-  // actually viewing a specific region (regionId prop), unlike the global "Archive" action above.
+  // Hides the species from this region's checklist only (e.g. a vagrant), leaving its global
+  // record and other regions alone.
   async function hideFromRegion(e: React.MouseEvent) {
     e.preventDefault();
     e.stopPropagation();
@@ -130,18 +122,16 @@ function SpeciesCard({
     setHidingFromRegion(true);
     try {
       await api.post(`/regions/${regionId}/species/${item.speciesId}/hide`);
-      onArchived?.();
+      onChanged?.(item.speciesId, "removed");
     } catch {
-      alert("Couldn't hide this species from this region. Try again.");
+      toast.error("Couldn't hide this species from this region. Try again.");
     } finally {
       setHidingFromRegion(false);
     }
   }
 
-  // Confirms whichever of the two checkboxes above are on — a province-only vagrant (like
-  // Japanese Quail in BC) should stay visible in the rest of Canada, so the two scopes are
-  // independent, not radio-exclusive; hiding "both" just means two separate rows in
-  // region_species_hidden, one per region id.
+  // Province and country are independent scopes (a vagrant in BC can stay visible in the rest
+  // of Canada), so each checked box is its own hide row.
   async function confirmHidePicker(e: React.MouseEvent) {
     e.preventDefault();
     e.stopPropagation();
@@ -155,58 +145,59 @@ function SpeciesCard({
     try {
       await Promise.all(targetIds.map((id) => api.post(`/regions/${id}/species/${item.speciesId}/hide`)));
       setHidePickerOpen(false);
-      onArchived?.();
+      onChanged?.(item.speciesId, "removed");
     } catch {
-      alert("Couldn't hide this species. Try again.");
+      toast.error("Couldn't hide this species. Try again.");
     } finally {
       setHidingFromRegion(false);
     }
   }
 
-  // Other Taxa species have no pack/reseed story to fall back on — one added by accident (or
-  // just to try the feature) has no other way back except deleting it outright. Only offered
-  // before any photo exists (see the card's own menu below) — the server itself refuses once
-  // one does (see the route's own comment), so hiding it client-side at that point avoids a
-  // guaranteed error.
+  // Other Taxa species have no pack to fall back on, so deleting is the only way back from one
+  // added by mistake. The server refuses once a photo exists, so the menu only offers it before.
   async function removeOtherTaxa(e: React.MouseEvent) {
     e.preventDefault();
     e.stopPropagation();
-    if (!confirm("Remove this species entirely? This can't be undone — you'd need to search and add it again from iNaturalist.")) {
-      setMenuOpen(null);
-      return;
-    }
     setMenuOpen(null);
+    const ok = await confirm({
+      title: "Remove this species?",
+      message: "This can't be undone. You'd need to search and add it again from iNaturalist.",
+      confirmLabel: "Remove",
+      danger: true,
+    });
+    if (!ok) return;
     setRemovingOtherTaxa(true);
     try {
       await api.delete(`/species/${item.speciesId}/other-taxa`);
-      onArchived?.();
+      onChanged?.(item.speciesId, "removed");
     } catch {
-      alert("Couldn't remove this species. Try again.");
+      toast.error("Couldn't remove this species. Try again.");
     } finally {
       setRemovingOtherTaxa(false);
     }
   }
 
+  // Applied locally first; a failure asks the parent to reload the real state.
   async function runStateChange(e: React.MouseEvent, method: "patch" | "delete", path: "seen" | "target") {
     e.preventDefault();
     e.stopPropagation();
     setMenuOpen(null);
+    const patch: Partial<CollectionItem> =
+      path === "seen" ? { state: method === "patch" ? "seen" : "unseen" } : { isTarget: method === "patch" };
+    onChanged?.(item.speciesId, patch);
     setBusy(true);
     try {
       await api[method](`/species/${item.speciesId}/${path}`);
-      onArchived?.();
     } catch {
-      alert("Couldn't update this species. Try again.");
+      toast.error("Couldn't update this species. Try again.");
+      onChanged?.(item.speciesId, "reload");
     } finally {
       setBusy(false);
     }
   }
 
-  // The whole card is one big Link so most of it is click-to-navigate, but that swallows
-  // text selection on the name/scientific-name below: a click still fires (and navigates)
-  // right after a drag-to-select releases, which discards the selection the instant it's
-  // made — it LOOKS like the text can't be selected at all, even though the drag itself
-  // worked. Bail out of navigating whenever the click follows an actual text selection.
+  // The card is one big Link, so a click right after drag-selecting the name would navigate and
+  // drop the selection. Skip navigating when the click follows a real text selection.
   function handleClickCapture(e: React.MouseEvent) {
     if ((window.getSelection()?.toString().length ?? 0) > 0) {
       e.preventDefault();
@@ -214,47 +205,33 @@ function SpeciesCard({
   }
 
   return (
+    <>
     <Link
       to={regionId ? `/species/${item.speciesId}?regionId=${regionId}` : `/species/${item.speciesId}`}
       state={backLabel ? { backLabel } : undefined}
       onClickCapture={handleClickCapture}
-      // An anchor is natively draggable in WebKit (Safari/the desktop app's WKWebView) — a
-      // click-and-drag gesture starting on one is treated as "drag this link out" (to make a
-      // bookmark/new tab) rather than a text selection, unlike Chrome. That swallowed the drag
-      // before it ever became a selection, so handleClickCapture above (which only cancels
-      // navigation AFTER a real selection exists) never had anything to act on. Blocking the
-      // native drag here is what lets the gesture fall through to an ordinary text selection.
+      // WebKit treats a drag on a link as "drag the link out", which swallows text selection.
       draggable={false}
       onDragStart={(e) => e.preventDefault()}
-      // Deliberately no overflow-hidden here (only rounded-lg + border) — the card used to clip
-      // its own contents to this rounded shape, but that meant the dropdown menu below, however
-      // far outside the image box it escaped to, was still a DOM descendant of THIS element and
-      // still got clipped by it once the card itself was small enough. The image box below now
-      // carries its own overflow-hidden + matching top corner radius instead, so the card still
-      // reads as one rounded rectangle without anything clipping the menu.
-      // The unseen/target dimming used to live here, on the whole card — but `opacity` composites
-      // its entire subtree as one group, which meant the dropdown menu (a DOM descendant, however
-      // far it now escapes the image's own clipping) rendered dimmed too. Applied instead to just
-      // the two content pieces below (the image box, the text block) so the menu stays solid.
+      // No overflow-hidden or opacity on the card itself: either would clip or dim the menu.
+      // The image box and text block carry their own clipping and dimming instead.
       className="group block rounded-lg border border-line bg-surface transition hover:shadow-md"
     >
-      {/* The dropdown trigger+panel live in this OUTER relative wrapper, not inside the image
-         box below — that box needs overflow-hidden to crop the cover photo, but a menu panel
-         nested inside an overflow-hidden ancestor gets clipped the moment it renders below the
-         box's own edge (exactly what happened at small card sizes, where there's less slack
-         before the panel's true position collides with the clip). Keeping the trigger here
-         instead means the panel's containing block is this wrapper (no overflow-hidden), so it
-         paints in full regardless of card size. */}
+      {/* The menu lives outside the overflow-hidden image box so its panel isn't clipped. */}
       <div className="relative">
+        {/* clip-path as well as the radius: WebKit leaves an oversized cropped photo's corners
+            unclipped by overflow-hidden alone. Radius is the card's minus its 1px border. */}
         <div
-          className={`relative aspect-square overflow-hidden rounded-t-lg bg-surface-muted ${isSeen ? "grayscale" : ""} ${
+          className={`relative aspect-square overflow-hidden ${
+            hideNames
+              ? "rounded-[calc(0.5rem-1px)] [clip-path:inset(0_round_calc(0.5rem-1px))]"
+              : "rounded-t-[calc(0.5rem-1px)] [clip-path:inset(0_round_calc(0.5rem-1px)_calc(0.5rem-1px)_0_0)]"
+          } bg-surface-muted ${isSeen ? "grayscale" : ""} ${
             isUnseen || (isTarget && !isCollected) ? "opacity-60" : ""
           }`}
         >
         {item.coverPhotoUrl && !referencePhotoFailed ? (
-          // Only a captured photo (served from /api/photos/.../thumb) has a matching
-          // /display derivative to upgrade to; an external reference-photo thumbnail has no
-          // such counterpart to swap in, so it's left as-is.
+          // Only a captured photo has a /display derivative to upgrade to.
           item.coverPhotoUrl.startsWith("/api/photos/") ? (
             <ProgressiveImg
               thumbSrc={item.coverPhotoUrl}
@@ -315,8 +292,7 @@ function SpeciesCard({
                   Mark as seen
                 </button>
               ))}
-            {/* Independent of state — even an already-collected species can still be targeted,
-               e.g. to go back for a better photo. */}
+            {/* Independent of state: a collected species can still be targeted. */}
             {isTarget ? (
               <button
                 onClick={(e) => runStateChange(e, "delete", "target")}
@@ -334,8 +310,7 @@ function SpeciesCard({
                 Add to targets
               </button>
             )}
-            {/* Archiving a species you've already collected would be a no-op server-side (see
-               ALREADY_OWNED_SQL), so it's not offered there. */}
+            {/* Archiving a collected species is a no-op server-side. */}
             {!isCollected && (
               <button
                 onClick={archive}
@@ -350,7 +325,7 @@ function SpeciesCard({
               <button
                 onClick={hideFromRegion}
                 disabled={hidingFromRegion}
-                title="Hide this species from this region's checklist only — it still shows up if you browse another region it's on"
+                title="Hide this species from this region's checklist only. It still shows up in other regions it's on."
                 className="block w-full px-3 py-1.5 text-left text-xs text-ink hover:bg-surface-muted disabled:opacity-50"
               >
                 {hidingFromRegion ? "Hiding…" : "Hide from this region"}
@@ -402,9 +377,9 @@ function SpeciesCard({
               <button
                 onClick={removeOtherTaxa}
                 disabled={removingOtherTaxa}
-                className="block w-full px-3 py-1.5 text-left text-xs text-red-600 hover:bg-surface-muted disabled:opacity-50"
+                className="block w-full px-3 py-1.5 text-left text-xs text-red-600 hover:bg-surface-muted disabled:opacity-50 dark:text-red-400"
               >
-                {removingOtherTaxa ? "Removing…" : "Remove Species"}
+                {removingOtherTaxa ? "Removing…" : "Remove species"}
               </button>
             )}
           </div>
@@ -419,34 +394,65 @@ function SpeciesCard({
         >
           {displayName}
         </p>
-        <p className={`select-text truncate italic text-muted ${compact ? "text-[10px] leading-tight" : "text-xs"}`}>{item.scientificName}</p>
+        {!hideScientificName && (
+          <p className={`select-text truncate italic text-muted ${compact ? "text-[10px] leading-tight" : "text-xs"}`}>{item.scientificName}</p>
+        )}
         {/* Every badge here is a label, so with labels hidden the row (and its margin) goes too. */}
-        {!hideLabels && (item.tier || item.localTier || item.endemic || item.vagrant || item.isGhost || item.isLost || item.rediscoveredGhost || item.rediscoveredLost) && (
+        {!hideLabels && (item.nameChanged || item.tier || item.localTier || localNoData || item.endemic || item.vagrant || item.isGhost || item.isLost || item.rediscoveredGhost || item.rediscoveredLost) && (
           <div className={`${compact ? "mt-0.5" : "mt-1"} flex flex-wrap items-center gap-1`}>
-            {!hideLabels && item.tier && (
-              <span
+            {/* The species was split and your photos' place doesn't settle which one they are. */}
+            {item.nameChanged && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setNameChangedOpen(true);
+                }}
+                className="inline-block rounded-md bg-amber-100 px-2 py-0.5 text-[10px] uppercase tracking-wide text-amber-800 hover:bg-amber-200"
+                title="This species was split. Tap to pick which one is in your photos."
+              >
+                Name changed
+              </button>
+            )}
+            {item.tier && (
+              <button
+                type="button"
+                onClick={openTier}
                 className={
                   item.tier === "unrated"
-                    ? "inline-block rounded-md border border-dashed border-line px-2 py-0.5 text-[10px] uppercase tracking-wide text-muted"
-                    : "inline-block rounded-md bg-surface-muted px-2 py-0.5 text-[10px] uppercase tracking-wide text-muted"
+                    ? "inline-block rounded-md border border-dashed border-line px-2 py-0.5 text-[10px] uppercase tracking-wide text-muted hover:text-ink"
+                    : "inline-block rounded-md bg-surface-muted px-2 py-0.5 text-[10px] uppercase tracking-wide text-muted hover:text-ink"
                 }
-                title={item.tier === "unrated" ? "Not enough data yet to rate how hard this is to find" : undefined}
+                title={item.tier === "unrated" ? "Not enough data yet to rate how hard this is to find" : "Why this tier?"}
               >
                 {TIER_LABEL[item.tier] ?? item.tier}
-              </span>
+                {item.tierOverridden && !regionId && <span className="normal-case"> (yours)</span>}
+              </button>
             )}
-            {/* Region-scoped rarity — only present when viewing a region's checklist,
-               ranked against species actually found there instead of the global,
-               effort-weighted score. */}
-            {!hideLabels && item.localTier && (
-              <span
-                className="inline-block rounded-md border border-line px-2 py-0.5 text-[10px] uppercase tracking-wide text-muted"
-                title="How rare and hard to find this species is in this region specifically"
+            {/* Region-scoped rarity, only present on a region's checklist. */}
+            {item.localTier && (
+              <button
+                type="button"
+                onClick={openTier}
+                className="inline-block rounded-md border border-line px-2 py-0.5 text-[10px] uppercase tracking-wide text-muted hover:text-ink"
+                title="How hard this species is to find here. Tap for why."
               >
                 {TIER_LABEL[item.localTier] ?? item.localTier} here
-              </span>
+                {item.tierOverridden && <span className="normal-case"> (yours)</span>}
+              </button>
             )}
-            {!hideLabels && item.endemic && (
+            {localNoData && (
+              <button
+                type="button"
+                onClick={openTier}
+                className="inline-block rounded-md border border-dashed border-line px-2 py-0.5 text-[10px] uppercase tracking-wide text-muted hover:text-ink"
+                title="Too few records here to say how hard this is to find"
+              >
+                Not enough data here
+              </button>
+            )}
+            {item.endemic && (
               <span
                 className="inline-block rounded-md bg-amber-100 px-2 py-0.5 text-[10px] uppercase tracking-wide text-amber-700"
                 title="Only ever recorded in one country"
@@ -454,10 +460,8 @@ function SpeciesCard({
                 Endemic
               </span>
             )}
-            {/* Region-scoped, same as localTier above — records here cluster in very few
-               years rather than spreading out, a real vagrancy signature explaining why
-               localTier reads rarer than raw record count alone would suggest. */}
-            {!hideLabels && item.vagrant && (
+            {/* Region-scoped: records here cluster in very few years. */}
+            {item.vagrant && (
               <span
                 className="inline-block rounded-md bg-sky-100 px-2 py-0.5 text-[10px] uppercase tracking-wide text-sky-700"
                 title="Records here are concentrated in very few years, likely a vagrant, not an established local presence"
@@ -465,10 +469,8 @@ function SpeciesCard({
                 Vagrant
               </span>
             )}
-            {/* Global documentation is sparse (few total records anywhere, or no reference
-               photo found) but the species is verified reachable — not deep-sea, not silent
-               since before 1950. A "you'd be one of few who's photographed this" badge. */}
-            {!hideLabels && item.isGhost && (
+            {/* Sparsely documented anywhere, but verified reachable. */}
+            {item.isGhost && (
               <span
                 className="inline-block rounded-md bg-violet-100 px-2 py-0.5 text-[10px] uppercase tracking-wide text-violet-700"
                 title="Rarely documented anywhere, but still out there to find"
@@ -477,7 +479,7 @@ function SpeciesCard({
               </span>
             )}
             {/* Nothing recorded anywhere in 25+ years. */}
-            {!hideLabels && item.isLost && (
+            {item.isLost && (
               <span
                 className="inline-block rounded-md bg-rose-100 px-2 py-0.5 text-[10px] uppercase tracking-wide text-rose-700"
                 title="Not recorded anywhere in over 25 years"
@@ -485,10 +487,8 @@ function SpeciesCard({
                 Lost
               </span>
             )}
-            {/* Was Ghost/Lost the moment you collected it, but isn't anymore — a permanent
-               record of that moment (migration 069), even after fresh global data catches up
-               and clears the live badge above. */}
-            {!hideLabels && (item.rediscoveredGhost || item.rediscoveredLost) && (
+            {/* Was Ghost/Lost when you collected it; kept after the live badge clears. */}
+            {(item.rediscoveredGhost || item.rediscoveredLost) && (
               <span
                 className="inline-block rounded-md bg-emerald-100 px-2 py-0.5 text-[10px] uppercase tracking-wide text-emerald-700"
                 title="Rare or undocumented when you found it. You helped rediscover this species."
@@ -501,6 +501,27 @@ function SpeciesCard({
       </div>
       )}
     </Link>
+    {/* Outside the link: React bubbles clicks from a portal up its tree, so inside it they'd
+        also open the species page. */}
+    {nameChangedOpen && (
+      <NameChangedModal
+        speciesId={item.speciesId}
+        speciesName={item.commonName ?? item.scientificName}
+        scientificName={item.scientificName}
+        onClose={() => setNameChangedOpen(false)}
+        onChanged={() => onChanged?.(item.speciesId, "reload")}
+      />
+    )}
+    {tierOpen && (
+      <TierDetailsModal
+        speciesId={item.speciesId}
+        speciesName={item.commonName ?? item.scientificName}
+        regionId={regionId ?? null}
+        onClose={() => setTierOpen(false)}
+        onChanged={() => onChanged?.(item.speciesId, "reload")}
+      />
+    )}
+    </>
   );
 }
 

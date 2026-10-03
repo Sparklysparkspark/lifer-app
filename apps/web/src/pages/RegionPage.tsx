@@ -1,9 +1,7 @@
 import { useEffect } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
-// Region browsing lives on the main screen (CollectionPage, via ?region=), so drilling into
-// a region never needs its own page navigation. This route stays only so old bookmarks/links
-// to /region/:id keep working, by redirecting into the unified view.
+// Region browsing lives on CollectionPage (?region=); this route only redirects old /region/:id links.
 export default function RegionPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();

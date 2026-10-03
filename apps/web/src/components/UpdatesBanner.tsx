@@ -1,12 +1,15 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { api } from "../api/client";
 import { usePackDownloadStatus } from "../hooks/usePackDownloadStatus";
 import { useIsTauri } from "../hooks/useDeploymentMode";
+import { useOnline } from "../hooks/useOnline";
 import { formatBytes } from "../lib/formatBytes";
+import { pluralize } from "../lib/pluralize";
+import { DEV_BUILD_VERSION, GITHUB_REPO } from "../lib/appInfo";
+import InlineSpinner from "./InlineSpinner";
 
 const DISMISSED_KEY = "lifer-dismissed-updates";
-const GITHUB_REPO = "Sparklysparkspark/lifer-app";
 
 interface PackUpdatesSummary {
   updateCount: number;
@@ -14,39 +17,29 @@ interface PackUpdatesSummary {
   packIds: string[];
 }
 
-// Dev builds report this version and would always see an "update".
-const DEV_BUILD_VERSION = "0.1.0";
-
-// Same reasoning as this file's own dismissal key, generalized to cover both facts at once —
-// changing EITHER (a newer app version ships, or the set of stale packs changes) invalidates a
-// prior dismissal, rather than the two dismissals living independently and one going stale
-// silently forever.
+// A newer app version or a different set of stale packs invalidates a prior dismissal.
 function dismissalKey(appVersion: string | null, packIds: string[]): string {
   return JSON.stringify({ v: appVersion, p: [...packIds].sort() });
 }
 
-function useOnline(): boolean {
-  const [online, setOnline] = useState(() => (typeof navigator === "undefined" ? true : navigator.onLine));
-  useEffect(() => {
-    const goOnline = () => setOnline(true);
-    const goOffline = () => setOnline(false);
-    window.addEventListener("online", goOnline);
-    window.addEventListener("offline", goOffline);
-    return () => {
-      window.removeEventListener("online", goOnline);
-      window.removeEventListener("offline", goOffline);
-    };
-  }, []);
-  return online;
+function readDismissed(): string | null {
+  try {
+    return localStorage.getItem(DISMISSED_KEY);
+  } catch {
+    return null;
+  }
 }
 
-// Replaces the previous two independent pills (UpdateAvailableBanner/DockerUpdateBanner for the
-// app itself, PackUpdatesBanner for offline packs) with one, since a user seeing two floating
-// pills at once for two different kinds of "update available" read as visual clutter rather than
-// two distinct pieces of information. Same fixed-corner treatment as MigrationStatusIndicator.
-// Skips every check entirely while offline (`useOnline` below) rather than letting fetches fail
-// silently — there's nothing to check without a connection, and re-checks automatically once
-// back online.
+function writeDismissed(key: string) {
+  try {
+    localStorage.setItem(DISMISSED_KEY, key);
+  } catch {
+    // Dismissed for this session only.
+  }
+}
+
+// One pill for both app and offline-pack updates, positioned by StatusTray. Skips every check
+// while offline and re-checks once back online.
 export default function UpdatesBanner() {
   const isTauri = useIsTauri();
   const online = useOnline();
@@ -54,31 +47,18 @@ export default function UpdatesBanner() {
   const [appVersion, setAppVersion] = useState<string | null>(null);
   const [packSummary, setPackSummary] = useState<PackUpdatesSummary | null>(null);
   const [dismissed, setDismissed] = useState(false);
-  // Server-truth job status — lets this banner reflect a pack update in progress (started from
-  // here, from Settings, or from the Offline Packs page) instead of only knowing about the
-  // stale "N updates available" count from the last updates-summary fetch.
-  const downloadStatus = usePackDownloadStatus();
+  // Reflects a pack update started anywhere, and refetches the summary when it finishes so the
+  // pill doesn't advertise updates that already downloaded.
+  const downloadStatus = usePackDownloadStatus({ onFinish: () => refetchPackSummary() });
 
   function refetchPackSummary() {
     api
       .get<PackUpdatesSummary>("/offline-packs/updates-summary")
       .then((res) => setPackSummary(res.updateCount > 0 ? res : null))
       .catch(() => {
-        // Silent — same reasoning as the mount-time fetch below.
+        // Silent, like the mount-time fetch below.
       });
   }
-
-  // Refetch the instant a job we can see finishes, rather than waiting for the user to leave
-  // the Offline Packs page or reload — this is what makes the pill actually clear once an
-  // update kicked off from HERE (or from Settings) completes, instead of it sitting there
-  // advertising updates that already downloaded.
-  const wasRunning = useRef(false);
-  useEffect(() => {
-    if (downloadStatus === null) return;
-    if (wasRunning.current && !downloadStatus.running) refetchPackSummary();
-    wasRunning.current = downloadStatus.running;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [downloadStatus?.running]);
 
   useEffect(() => {
     if (!online) return;
@@ -111,41 +91,35 @@ export default function UpdatesBanner() {
     api
       .get<PackUpdatesSummary>("/offline-packs/updates-summary")
       .then((res) => {
-        // Always sync to the fresh result, including back to null when updateCount is 0 —
-        // previously this only ever set a nonzero summary and never cleared it, so a stale
-        // "N updates available" banner stuck around forever once shown once, even after the
-        // user updated everything (e.g. from the Offline Packs page directly).
+        // Also clears back to null at 0, so a stale count doesn't linger.
         if (!cancelled) setPackSummary(res.updateCount > 0 ? res : null);
       })
       .catch(() => {
-        // Silent — same reasoning as above.
+        // Silent: a background nicety.
       });
 
     return () => {
       cancelled = true;
     };
-    // Re-checked whenever the user navigates away from Offline Packs (having potentially just
-    // downloaded something there), not on every route change generally.
+    // Re-checked when leaving Offline packs, where something may have just downloaded.
   }, [online, location.pathname === "/offline-packs"]);
 
-  // Offline Packs already shows per-pack update state inline — only suppress THAT half here,
-  // an app-version update is still worth surfacing on that page too.
+  // Offline packs shows per-pack state inline, so only the pack half is hidden there.
   const showPacks = packSummary !== null && location.pathname !== "/offline-packs";
   const showApp = appVersion !== null;
 
   if (!online || dismissed || (!showPacks && !showApp)) return null;
   const key = dismissalKey(appVersion, packSummary?.packIds ?? []);
-  if (localStorage.getItem(DISMISSED_KEY) === key) return null;
+  if (readDismissed() === key) return null;
 
   return (
-    <div className="fixed bottom-4 left-4 z-50 flex items-center gap-3 rounded-full border border-line bg-surface px-4 py-2 text-xs text-ink shadow-sm">
+    <div className="flex items-center gap-3 rounded-full border border-line bg-surface px-4 py-2 text-xs text-ink shadow-sm">
       <span>
         {showApp && <>Lifer {appVersion} is available.</>}
         {showApp && showPacks && " "}
         {showPacks && packSummary && (
           <>
-            {packSummary.updateCount} pack update{packSummary.updateCount === 1 ? "" : "s"} available (
-            {formatBytes(packSummary.totalBytes)}).
+            {pluralize(packSummary.updateCount, "pack update")} available ({formatBytes(packSummary.totalBytes)}).
           </>
         )}
       </span>
@@ -155,12 +129,7 @@ export default function UpdatesBanner() {
         </Link>
       )}
       {showApp && !isTauri && (
-        // Self-hosted/Docker has no in-app way to apply an update at all — it only ever happens
-        // by pulling a new image externally (Docker Compose, TrueNAS, etc.), so a "Update" link
-        // into Settings was a dead end (AppUpdatesSection there is desktop-only and renders
-        // nothing here, see its useIsTauri gate). Links out to the release notes
-        // instead, which is genuinely useful information this banner can offer even though it
-        // can't perform the update itself.
+        // A server updates by pulling a new image, so link to the release notes instead.
         <a
           href={`https://github.com/${GITHUB_REPO}/releases/latest`}
           target="_blank"
@@ -173,8 +142,8 @@ export default function UpdatesBanner() {
       {showPacks &&
         packSummary &&
         (downloadStatus?.running ? (
-          <span className="font-medium text-muted">
-            <span className="mr-1 inline-block h-3 w-3 animate-spin rounded-full border-2 border-accent/40 border-t-accent align-[-2px]" />
+          <span className="inline-flex items-center gap-1 font-medium text-muted">
+            <InlineSpinner />
             {downloadStatus.total != null && downloadStatus.total > 1
               ? `Updating packs (${Math.min((downloadStatus.processed ?? 0) + 1, downloadStatus.total)} of ${downloadStatus.total})`
               : "Updating…"}
@@ -193,7 +162,7 @@ export default function UpdatesBanner() {
       <button
         type="button"
         onClick={() => {
-          localStorage.setItem(DISMISSED_KEY, key);
+          writeDismissed(key);
           setDismissed(true);
         }}
         aria-label="Dismiss"

@@ -1,18 +1,7 @@
 import { useLocation, useNavigate } from "react-router-dom";
 
-// Uses real browser back navigation instead of hardcoding `to="/"`, since CollectionPage
-// keeps its filter state (group/sort/collectedFirst/taxon/show/seaZones) entirely in its own
-// URL — navigating back restores that exact URL and everything encoded in it, rather than
-// landing on a bare, unfiltered "/".
-//
-// location.key === "default" means there's no actual in-app history to go back to (opened
-// via a fresh tab/bookmark/shared link) — falls back to `fallbackTo` in that case.
-//
-// `label` is the right text for a page with exactly one real entry point (e.g. Trip detail
-// always comes from Trips). A page reachable from more than one place (SpeciesDetailPage: the
-// main collection, a trip's species view, Archived species) instead gets its label from
-// `location.state.backLabel`, set by whichever page navigated here — see SpeciesCard.tsx and
-// ArchivedSpeciesPage.tsx's own Link `state` for where that's set.
+// Real history back, so the collection's URL-held filters survive; `fallbackTo` when there's no
+// in-app history. The label can come from `location.state.backLabel`.
 export default function BackToCollectionLink({
   fallbackTo = "/",
   label = "Collection",

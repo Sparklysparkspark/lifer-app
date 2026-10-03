@@ -4,15 +4,8 @@ const MAX_FONT_PX = 14; // matches text-sm
 const MIN_FONT_PX = 9;
 const MAX_LINES = 2;
 
-// Shrinks a text element's font size (down to MIN_FONT_PX) just enough that its full,
-// un-truncated content fits within MAX_LINES lines — used for species card names, which can
-// run long ("Slate-Colored Fox Sparrow") on a card whose width comes from a responsive grid
-// column, not a fixed size. Wrapping onto a second line handles most cases on its own; the
-// font-size shrink is a fallback for names that would still overflow two lines even wrapped.
-// Deliberately NOT paired with CSS `line-clamp` on the same element — line-clamp's own
-// height-capping makes scrollHeight unreliable to measure against, which would prevent this
-// from ever detecting how much overflow remains. useLayoutEffect (not useEffect) applies the
-// shrunk size before paint, so an oversized name never flashes at MAX_FONT_PX first.
+// Shrinks font size (down to MIN_FONT_PX) until the full text fits in MAX_LINES lines, for long
+// species card names. Don't pair with CSS line-clamp: it breaks the scrollHeight measurement.
 export function useFitText(deps: readonly unknown[]): { ref: React.RefObject<HTMLParagraphElement | null>; fontSize: number } {
   const ref = useRef<HTMLParagraphElement>(null);
   const [fontSize, setFontSize] = useState(MAX_FONT_PX);

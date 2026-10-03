@@ -25,19 +25,12 @@ function extendBoundsFromCoordinates(bounds: LngLatBounds, coords: unknown, maxL
   }
 }
 
-// Russia's own polygon stretches to the Pacific — fine for the map's rendered outline, but
-// fitting a continent's bounds around its FULL extent (e.g. picking "Europe") drags the fit out
-// to cover Siberia too, leaving Europe itself a small sliver in the middle of a mostly-empty
-// view. Clamping to just past the Urals for bounds purposes only keeps the fit centered on
-// Europe, with just the western edge of Russia included, matching what "Europe" visually means
-// here even though the country itself continues well past this line.
+// Russia's polygon reaches the Pacific, so fitting "Europe" would include Siberia. Bounds are
+// clamped just past the Urals (for fitting only, not the drawn outline).
 const RUSSIA_EUROPE_MAX_LNG = 60;
 
-// Renders every country as one clickable layer (unlike RegionMap.tsx, which only ever shows a
-// single region's own boundary) — clicking toggles that country in/out of `selectedIds`, whose
-// current membership drives the fill color via setPaintProperty rather than by re-adding the
-// source/layers on every selection change (cheap enough to update every render; rebuilding the
-// whole GeoJSON source on each click would re-parse ~250 countries' polygons for one toggle).
+// Every country as one clickable layer; a click toggles it in `selectedIds`. Selection restyles
+// via feature-state instead of rebuilding the ~250-country source per click.
 export default function PacksMap({
   countries,
   selectedIds,
@@ -49,17 +42,11 @@ export default function PacksMap({
   countries: CountryBoundary[];
   selectedIds: Set<string>;
   onToggleCountry: (id: string) => void;
-  // Clicking open water/unclaimed area — nothing else on the map to select — clears the whole
-  // selection instead of doing nothing, the same "click empty space to deselect" convention as
-  // most map/canvas UIs.
+  // Clicking empty water clears the selection.
   onDeselectAll?: () => void;
-  // Passing a NEW array reference (even with the same ids) re-triggers the fit — callers should
-  // only construct a fresh array when they actually want a fly-to (a continent pill click or a
-  // search result pick), not on every render.
+  // A new array reference triggers a fly-to, so only build one when a fit is wanted.
   focusCountryIds?: string[];
-  // Every country belonging to a currently-open (but not necessarily selected) continent pill
-  // group — outlined on the map as a weaker, distinct visual from `selected`, so "here's all of
-  // Europe" reads as an outline, not as every European country having been picked.
+  // Countries of an open continent group, drawn as an outline so they don't read as selected.
   openCountryIds?: Set<string>;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -72,10 +59,7 @@ export default function PacksMap({
   const onDeselectAllRef = useRef(onDeselectAll);
   onDeselectAllRef.current = onDeselectAll;
 
-  // Map instance created once (not re-created per theme/country-list change) — country data and
-  // selection state are pushed into the existing instance via setData/setPaintProperty instead,
-  // the same reasoning RegionMap.tsx's own single-instance-per-mount comment gives for avoiding
-  // a full re-create/re-animate on every prop change.
+  // One map instance per mount; data and selection are pushed into it, never re-created.
   useEffect(() => {
     if (!containerRef.current || !mapAvailable) return;
     ensurePmtilesProtocol();
@@ -86,26 +70,20 @@ export default function PacksMap({
       zoom: 1.2,
       style: pmtilesStyle(theme === "dark" ? "dark" : "light"),
       interactive: true,
-      // See RegionMap.tsx's matching comment — collapsed by default instead of covering the
-      // corner with the full attribution bar on every load.
+      // Compact attribution, as in RegionMap.
       attributionControl: { compact: true },
     });
     mapRef.current = map;
 
     map.on("load", () => {
-      // promoteId is required for setFeatureState to actually apply: a GeoJSON source's
-      // internal tiling step silently discards arbitrary string Feature.id values and
-      // substitutes its own auto-generated numeric ids unless told to promote a property
-      // instead (confirmed live — without this, setFeatureState below matched zero real
-      // features, so a click updated selection state but the highlight never rendered).
+      // promoteId: without it the GeoJSON source replaces string ids with numeric ones and
+      // setFeatureState matches nothing.
       map.addSource(SOURCE_ID, {
         type: "geojson",
         data: { type: "FeatureCollection", features: [] },
         promoteId: "id",
       });
-      // continentOpen is a weaker, distinct visual from selected — an outline (stronger line,
-      // barely-there fill) so "here's all of Europe" reads as "available to pick from," never
-      // as "every European country got selected." Only applies when NOT already selected.
+      // continentOpen (when not selected): a stronger outline and faint fill.
       map.addLayer({
         id: FILL_LAYER_ID,
         type: "fill",
@@ -142,10 +120,7 @@ export default function PacksMap({
         const id = e.features?.[0]?.properties?.id as string | undefined;
         if (id) onToggleCountryRef.current(id);
       });
-      // A plain (layer-unfiltered) click handler fires for EVERY map click, including the
-      // country-fill one above — queryRenderedFeatures at the click point is what actually
-      // distinguishes "hit a country" from "hit open ocean/an unclaimed area": only clear
-      // selection in the latter case, so this never fights with the per-country toggle.
+      // Fires for every click; only a click that hit no country clears the selection.
       map.on("click", (e) => {
         const hits = map.queryRenderedFeatures(e.point, { layers: [FILL_LAYER_ID] });
         if (hits.length === 0) onDeselectAllRef.current?.();
@@ -162,9 +137,7 @@ export default function PacksMap({
     };
   }, [mapAvailable, theme]);
 
-  // Country geometry — set once per map instance load, or whenever the country list itself
-  // changes (it only ever grows once, from the initial fetch, but this stays reactive rather
-  // than assuming that).
+  // Country geometry, set on load and whenever the list changes.
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !loaded) return;
@@ -181,9 +154,7 @@ export default function PacksMap({
     } as GeoJSON.FeatureCollection);
   }, [countries, loaded]);
 
-  // Selection state — feature-state is the cheap, per-feature way to restyle without touching
-  // the source data or re-adding layers; every country's state is reset then re-applied each
-  // time selectedIds changes (a full pass over ~250 features is negligible compared to a
+  // Every country's feature-state reset and re-applied per selection change (cheap next to a
   // geometry re-parse).
   useEffect(() => {
     const map = mapRef.current;
@@ -212,8 +183,7 @@ export default function PacksMap({
       extendBoundsFromCoordinates(bounds, country.boundaryGeoJson.geometry.coordinates, maxLng);
     }
     if (!bounds.isEmpty()) map.fitBounds(bounds, { padding: 32, maxZoom: 5 });
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- focusCountryIds is intentionally
-    // only a fly-to trigger, not a full-dependency comparison (see prop's own doc comment).
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- focusCountryIds is only a fly-to trigger
   }, [focusCountryIds, loaded]);
 
   if (mapAvailable === false) {

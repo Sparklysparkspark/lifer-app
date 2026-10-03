@@ -1,12 +1,10 @@
 import { useState } from "react";
+import { pluralize } from "../lib/pluralize";
 
-// Roughly one label per month across 52 ISO weeks (~4.33 weeks/month) — approximate by design,
-// this is a visual axis reference, not a claim that week N always falls in a specific month.
+// One label per month across 52 weeks: an approximate axis, not exact week-to-month mapping.
 const MONTH_LABELS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
-// eBird/Merlin-style weekly observation bar — 52 real ISO-week bars, unlike SeasonalityBar's
-// 12 monthly ones. Only populated by the bulk province-refresh path (compute-provinces-bulk.ts),
-// so most regions still show nothing until that recompute reaches them.
+// Weekly observation bars (52 ISO weeks). Only some regions have weekly data yet.
 export default function WeeklyBar({ weeklyFrequency, regionName }: { weeklyFrequency: number[] | null; regionName?: string | null }) {
   const [hoverIdx, setHoverIdx] = useState<number | null>(null);
   if (!weeklyFrequency || weeklyFrequency.every((v) => v === 0)) return null;
@@ -15,9 +13,7 @@ export default function WeeklyBar({ weeklyFrequency, regionName }: { weeklyFrequ
 
   return (
     <div>
-      {/* This data is scoped to one region (whichever the page resolved — either the one the
-         user drilled into, or an automatic fallback, see species/routes.ts) — naming it here
-         makes that scope visible instead of reading as a global pattern. */}
+      {/* Names the region so the data doesn't read as a global pattern. */}
       <p className="mb-1 text-[10px] uppercase tracking-wide text-muted">
         Observations by week{regionName ? ` in ${regionName}` : ""}
       </p>
@@ -27,7 +23,7 @@ export default function WeeklyBar({ weeklyFrequency, regionName }: { weeklyFrequ
             className="pointer-events-none absolute bottom-full mb-1 -translate-x-1/2 whitespace-nowrap rounded-md bg-ink px-1.5 py-0.5 text-[10px] font-medium text-canvas"
             style={{ left: `${((hoverIdx + 0.5) / 52) * 100}%` }}
           >
-            Week {hoverIdx + 1}: {weeklyFrequency[hoverIdx]} record{weeklyFrequency[hoverIdx] === 1 ? "" : "s"}
+            Week {hoverIdx + 1}: {pluralize(weeklyFrequency[hoverIdx], "record")}
           </div>
         )}
         <div className="flex h-10 items-end gap-px" onMouseLeave={() => setHoverIdx(null)}>

@@ -3,10 +3,7 @@ import PhotoPlaceholder from "./PhotoPlaceholder";
 import { cropToImageStyle } from "../lib/crop";
 import type { QuadSlot } from "@lifer/shared";
 
-// Shared by Album and Trip cards/detail pages — both have the same two cover styles: a single
-// cropped photo (the original, still-default behavior), or a 2x2 grid of the 4 most-recently
-// added/taken photos ("quad"), an alternative for someone who'd rather show a taste of what's
-// inside than commit to one photo as the "face" of the collection.
+// Album and Trip cover: one cropped photo, or a 2x2 "quad" of four photos.
 export default function CoverImage({
   layout,
   coverPhotoUrl,
@@ -17,14 +14,12 @@ export default function CoverImage({
   alt,
 }: {
   layout: "single" | "quad";
-  /** Thumb-size URL, same convention TripSummary/Album already use elsewhere. */
+  /** Thumb-size URL. */
   coverPhotoUrl: string | null;
   cropX: number | null;
   cropY: number | null;
   cropSize: number | null;
-  /** Always 4 entries; null tiles render as an empty placeholder square (a brand-new
-   *  collection with fewer than 4 photos yet). Trips doesn't support per-slot crops yet, so
-   *  its own synthesized slots always carry null crops (plain object-fit: cover). */
+  /** Always 4 entries; null renders an empty square. Trip slots carry null crops (plain cover fit). */
   quadSlots: Array<QuadSlot | null>;
   alt: string;
 }) {

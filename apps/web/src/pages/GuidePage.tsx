@@ -9,9 +9,7 @@ interface Step {
   body: React.ReactNode;
 }
 
-// Small line-icon set in the same visual language as the app's own mark (public/branding/
-// icon.png): flat, rounded-stroke, no fill, no photorealism, monochrome by default so it takes
-// the surrounding text color rather than competing with it.
+// Small monochrome line icons matching the app's mark; they take the surrounding text color.
 function StepIcon({ name, className }: { name: StepIconName; className?: string }) {
   const common = { fill: "none", stroke: "currentColor", strokeWidth: 1.75, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
   switch (name) {
@@ -159,7 +157,7 @@ const STEPS: Step[] = [
 
 export default function GuidePage() {
   return (
-    <div className="min-h-screen bg-canvas">
+    <div className="flex-1 bg-canvas">
       <PageHeader sticky title="Getting started" backFallbackTo="/settings" backLabel="Settings" />
       <main className="mx-auto max-w-3xl space-y-8 p-6">
         <section className="space-y-4">
@@ -242,17 +240,51 @@ export default function GuidePage() {
               bundled into the pack itself rather than fetched on demand, so it only shows up once the
               pack is downloaded from <PageLink to="/offline-packs">Settings → Offline packs</PageLink>.
             </FaqItem>
-            <FaqItem question="What do the rarity tiers (common, uncommon, rare, epic, legendary) mean?">
-              A tier is about how hard a species is to actually get a photo of in that region, not how
-              endangered it is. A species can be common and of no conservation concern worldwide but
-              still rank legendary here if it only turns up in one hard-to-reach spot, or almost never
-              gets recorded at all. Conservation status and rarity tier can point in completely different
-              directions.
+            <FaqItem question="What do the rarity tiers (common, occasional, uncommon, rare, legendary) mean?">
+              A tier is how hard a species is to find and photograph in that place:
+              <ul className="mt-2 list-disc space-y-1 pl-5">
+                <li>
+                  <span className="font-medium text-ink">Common:</span> an everyday species, seen anywhere,
+                  anytime (House Sparrows, Mallards, crows).
+                </li>
+                <li>
+                  <span className="font-medium text-ink">Occasional:</span> findable with a little effort in the
+                  right habitat (an Osprey over a lake, a Great Blue Heron in a marsh).
+                </li>
+                <li>
+                  <span className="font-medium text-ink">Uncommon:</span> needs a dedicated search; it won't turn
+                  up on a casual outing.
+                </li>
+                <li>
+                  <span className="font-medium text-ink">Rare:</span> needs travel and patience; getting a shot
+                  is a notable achievement.
+                </li>
+                <li>
+                  <span className="font-medium text-ink">Legendary:</span> once in a lifetime; very local or
+                  extremely elusive (a Wolverine, a vagrant far from home).
+                </li>
+              </ul>
+              <br />
+              Common is kept tight on purpose, to genuine everyday species, so each tier means something
+              in the field instead of most species piling up at the easy end. The same species can be
+              Common in one place and Occasional in the next: Great Blue Herons are on every Florida pond,
+              but take a trip to the right marsh in most other states.
               <br />
               <br />
-              "Rarity here" (a sort option on the Collection page, once you've selected a region) is a
-              completely different, region-specific measure: how often that species actually turns up in
-              the region you've selected, based on real sighting records for that area.
+              A species card can show two tiers. The plain badge ("Rare") is the worldwide tier: how hard
+              the species is where it's easiest to find. On a region's checklist a second badge ("Occasional
+              here") is its tier in that region, and "Rarity here" in Group and Sort uses it. Lifer rates
+              each species against the most-reported species of its group in each province or state: eBird
+              and GBIF sightings for birds, iNaturalist photos for mammals, reptiles, amphibians and fish. A
+              country's tier is its easiest well-surveyed province. Tap a tier badge to see the numbers
+              behind it.
+              <br />
+              <br />
+              A tier isn't how endangered a species is: an endangered wader can be on every mudflat, and a
+              species of no conservation concern can be legendary if it lives in one hard-to-reach spot.
+              The IUCN status is shown beside the tier instead. Where there are too few records or photos
+              to tell, a species shows "Not enough data" instead of a guess. Marine invertebrates aren't
+              rated yet.
             </FaqItem>
             <FaqItem question="Can I share photos with someone who doesn't use Lifer?">
               On a server/self-hosted install, yes: group photos into an <PageLink to="/albums">Album</PageLink>{" "}

@@ -1,11 +1,6 @@
 import type { ReactNode } from "react";
 
-// The icon-circle + heading + description shape already used identically by
-// ArchivedSpeciesPage.tsx and HiddenSpeciesPage.tsx, pulled out here now that a third and fourth
-// caller (Albums/Trips empty states) need the same look — those two previously fell back to a
-// single plain <p>, reading noticeably plainer than every other "nothing here yet" screen in the
-// app. `action` is new: unlike Archived/Hidden (no single action un-empties "nothing archived
-// yet"), an empty Albums/Trips tab has one obvious next step worth surfacing right there.
+// The shared "nothing here" screen: icon, heading, description, and an optional next step.
 export default function EmptyState({
   icon,
   title,

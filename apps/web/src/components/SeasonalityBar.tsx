@@ -1,9 +1,6 @@
 const MONTH_LABELS = ["J", "F", "M", "A", "M", "J", "J", "A", "S", "O", "N", "D"];
 
-// eBird-style observation bar — 12 monthly bars, not 52 weekly ones. GBIF's occurrence API
-// only facets by month (verified by hand), so this is honestly monthly resolution rather
-// than fabricating finer-grained data. Region-scoped: the same species has different
-// seasonality in different regions, hence the null fallback when no region context is set.
+// Monthly observation bars (GBIF only facets by month). Region-scoped, so null without a region.
 export default function SeasonalityBar({ seasonality }: { seasonality: number[] | null }) {
   if (!seasonality || seasonality.every((v) => v === 0)) return null;
 

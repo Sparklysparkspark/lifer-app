@@ -1,38 +1,27 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type WheelEvent as ReactWheelEvent } from "react";
 import { Link } from "react-router-dom";
 import PhotoPlaceholder from "./PhotoPlaceholder";
 import { markDragBlocked } from "../lib/modalDragBlock";
 import { tauriCurrentWindow } from "../lib/tauri";
+import { useEscapeToClose } from "../hooks/useEscapeToClose";
+import { formatDate } from "../lib/formatDate";
+import { downloadFile } from "../lib/downloadFile";
 
 export interface LightboxSlide {
   url: string;
-  /** Set only for a video slide — real playback with native browser controls (play/pause,
-   *  scrubber, volume, fullscreen), served from /api/photos/:id/video. The zoom/pan/pinch
-   *  gestures the image view below uses are image-specific and don't apply, so a video slide
-   *  renders a plain <video controls> instead. */
+  /** Video slides play in a plain <video controls>; zoom and pan are image-only. */
   videoUrl?: string | null;
-  /** Set only for a camera RAW slide with no real preview to show (the import screen's own
-   *  blob URL for a RAW file — browsers can't decode raw sensor data, so `url` would just be a
-   *  broken image, same reasoning PhotoImportRows' own row thumbnail already follows). Shows a
-   *  RAW badge instead of ever attempting `<img src={url}>`. */
+  /** A RAW file the browser can't decode: shows a badge instead of a broken <img>. */
   noPreview?: boolean;
   caption?: string | null;
-  /** Current quality rating (1-5) plus a setter — only present when the caller supports rating
-   *  from the grid (every current caller does). Lets the `1`-`5` keys set a rating without the
-   *  page needing to reach back into Lightbox's own index state to know which capture is open. */
+  /** 1-5 rating plus setter; lets the 1-5 keys rate the open slide. */
   rating?: number | null;
   onRate?: (rating: number | null) => void;
-  // Only set by callers that aren't already ON that species' own page (e.g. GalleryPage,
-  // browsing across many species at once) — SpeciesDetailPage's own lightbox usage has no
-  // reason to link back to the page it's already showing, so it just omits this.
+  // Adds a "View species" link; omitted on the species page itself.
   speciesId?: string | null;
-  // Only meaningful to callers that show this slide inside an object-cover box (e.g. the
-  // species detail page's 16:9 hero) — Lightbox itself always shows the full photo
-  // (object-contain), so it never reads these, just carries them through per slide.
+  // Carried through for callers that crop the slide (the species hero); Lightbox ignores them.
   focalX?: number | null;
   focalY?: number | null;
-  // Structured rather than a single preformatted string, so the detail view (see showInfo
-  // below) can lay each field out as its own labeled row instead of one run-on line.
   info?: {
     cameraModel?: string | null;
     lens?: string | null;
@@ -41,23 +30,25 @@ export interface LightboxSlide {
     shutter?: string | null;
     iso?: number | null;
     takenAt?: string | null;
-    // Only meaningful for a video slide — shown as its own row alongside whatever EXIF a
-    // camera happened to write into the video file, same info panel a photo gets.
     durationSeconds?: number | string | null;
-    /** Where the photo's files are stored (the edited JPEG and any RAW), shown by file name so
-     *  you can find them on disk yourself. See photoFilePaths. */
+    /** Stored file locations (edited JPEG and any RAW), shown by file name. See photoFilePaths. */
     files?: string[];
   } | null;
-  // Custom free-text tags a photographer assigns per photo — only present when the caller
-  // supports editing (every current caller does), same optional pattern as rating/onRate above.
   tags?: string[] | null;
   onTagsChange?: (tags: string[]) => void;
+  /** When set, shows a download button for this slide. */
+  download?: { url: string; filename: string } | null;
 }
 
 /** The stored files for a photo, for LightboxSlide.info.files: the main original and its RAW,
  *  without repeats (a RAW-only photo has the same file as both). */
 export function photoFilePaths(...refs: Array<string | null | undefined>): string[] {
   return [...new Set(refs.filter((r): r is string => !!r))];
+}
+
+function isTypingTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  return target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable;
 }
 
 function fileNameOf(ref: string): string {
@@ -74,20 +65,12 @@ export function TagEditor({
 }: {
   tags: string[];
   onChange: (tags: string[]) => void;
-  /** Every tag this user has used anywhere else, for autocomplete — so a tag you've already
-   *  coined once (e.g. "flight shot") is easy to reuse consistently on another photo instead of
-   *  retyping it and risking a near-duplicate ("Flight shot" vs "flight shot"). Omit to disable
-   *  the suggestion dropdown entirely (no list fetched yet, or none exist). */
+  /** Tags used elsewhere, for autocomplete; omit to disable suggestions. */
   existingTags?: string[];
   label?: string;
-  /** Drops the "Tags" heading, top border, and top margin — for embedding inline in a toolbar
-   *  row that already provides its own label/spacing, rather than as its own standalone section
-   *  (the info panel, a menu popover). */
+  /** Drops the heading and top border, for inline use in a toolbar row. */
   compact?: boolean;
-  /** For embedding over Lightbox's always-black backdrop, which doesn't follow the app's own
-   *  light/dark theme — the normal text-ink/text-muted/bg-surface-muted tokens flip to a dark
-   *  navy in light mode, which reads as invisible (dim near-black text) against black. Swaps
-   *  every token for a fixed white-on-translucent-black treatment instead. */
+  /** White-on-black styling for Lightbox's fixed black backdrop, which ignores the app theme. */
   dark?: boolean;
 }) {
   const [draft, setDraft] = useState("");
@@ -152,10 +135,7 @@ export function TagEditor({
                 setSuggestionsOpen(false);
               }
             }}
-            // A suggestion button's own onMouseDown (below) fires and commits the tag BEFORE
-            // this blur would — preventDefault there stops the input from ever losing focus in
-            // the first place, so this still safely commits whatever's typed for a plain
-            // click-away with no suggestion involved.
+            // Suggestion buttons preventDefault on mousedown, so blur only fires on a real click-away.
             onBlur={() => commitTag(draft)}
             placeholder="Add a tag"
             className={`w-28 rounded-full border border-dashed bg-transparent px-2.5 py-1 text-xs outline-none ${
@@ -193,10 +173,7 @@ export function TagEditor({
   );
 }
 
-// Full-size image viewer (Immich-style click-to-view), with left/right navigation and
-// Escape/backdrop-click to close. Camera/duration info sits in the same bottom caption band as
-// the filename/species link — always visible, never behind a separate info-panel click, the
-// same way a fullscreen photo viewer (Photos.app, Preview) shows a filename bar under the image.
+// Full-size viewer with arrow navigation, zoom/pan, and a caption band for camera info and tags.
 export default function Lightbox({
   slides,
   index,
@@ -208,16 +185,10 @@ export default function Lightbox({
   index: number;
   onIndexChange: (index: number) => void;
   onClose: () => void;
-  /** Every tag this user has used anywhere else — passed straight through to the bottom
-   *  caption band's own TagEditor for autocomplete. Omit if the caller doesn't support tag
-   *  editing at all. */
+  /** Tag autocomplete for the caption band's TagEditor. */
   tagOptions?: string[];
 }) {
-  // Video's own native controls (scrubber, volume, fullscreen) sit right where the next/
-  // previous arrows are absolutely positioned, so the arrows need to get out of the way once the
-  // mouse stops moving — mirrors how those native controls themselves auto-hide. Only applies to
-  // video slides; photo slides keep the arrows always visible since there's no overlapping
-  // control bar to protect.
+  // Arrows sit over the native video controls, so on video slides they fade out when the mouse idles.
   const [videoControlsIdle, setVideoControlsIdle] = useState(false);
   const idleTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   function resetVideoIdleTimer() {
@@ -232,12 +203,8 @@ export default function Lightbox({
   useEffect(() => () => {
     if (idleTimeoutRef.current) clearTimeout(idleTimeoutRef.current);
   }, []);
-  // Real window-level fullscreen (the native green-traffic-light kind), not the DOM Fullscreen
-  // API — this app's frameless window doesn't reliably support requestFullscreen() on a
-  // desktop build (confirmed: the button silently did nothing), while Tauri's own window
-  // fullscreen is the same mechanism the OS's own fullscreen control already uses, so it always
-  // works. Falls back to the DOM API only when running outside Tauri (self-hosted in a real
-  // browser tab), where that API is the standard, reliable one.
+  // Tauri window fullscreen, since requestFullscreen() is unreliable in the frameless desktop
+  // window; the DOM API is the fallback in a plain browser.
   const [isFullscreen, setIsFullscreen] = useState(false);
   useEffect(() => {
     tauriCurrentWindow()
@@ -261,9 +228,7 @@ export default function Lightbox({
       setIsFullscreen(true);
     }
   }
-  // Only the Escape handler used to un-fullscreen before closing — clicking the backdrop or the
-  // X button called onClose() directly, leaving the whole (Tauri) window stuck in native
-  // fullscreen after the lightbox itself was gone. Every close path now goes through this.
+  // Every close path leaves fullscreen first so the window isn't stuck fullscreen.
   async function handleClose() {
     if (isFullscreen) await toggleFullscreen();
     onClose();
@@ -272,35 +237,22 @@ export default function Lightbox({
   useEffect(() => {
     isFullscreenRef.current = isFullscreen;
   }, [isFullscreen]);
-  // Covers unmounting via navigation-away (parent stops rendering the Lightbox without ever
-  // calling onClose) — the same window-fullscreen-stuck bug via a different exit path.
+  // Same for unmounting via navigation.
   useEffect(
     () => () => {
       if (isFullscreenRef.current) tauriCurrentWindow()?.setFullscreen(false);
     },
     [],
   );
-  // Scroll-wheel/trackpad-pinch zoom (macOS/WKWebView reports a trackpad pinch as a wheel
-  // event, so this covers both without separate touch-gesture handling) plus drag-to-pan once
-  // zoomed in. Reset whenever the slide changes or the info panel toggles — panning/zoom state
-  // from one photo has no business carrying over to the next.
+  // Wheel and trackpad-pinch zoom plus drag-to-pan, reset on every slide change.
   const [scale, setScale] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const dragRef = useRef<{ startX: number; startY: number; panX: number; panY: number } | null>(null);
   const [dragging, setDragging] = useState(false);
-  // A continuous wheel/trackpad-pinch gesture fires many events per second, each setting a new
-  // scale — applying the transform transition to EVERY one of those meant each new value
-  // interrupted the previous one's still-running 50ms transition and restarted it, which is
-  // what actually read as stutter (not the state updates themselves being slow). Tracked as a
-  // ref, not state, since it only gates a style value and shouldn't itself trigger a render;
-  // cleared shortly after the gesture goes quiet so a later discrete change (e.g. double-click)
-  // still gets its smooth transition back.
+  // Skips the transform transition during a continuous pinch; restarting it per event stutters.
   const wheelZoomingRef = useRef(false);
   const wheelZoomTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Body scroll was never actually locked while the lightbox is open — its own backdrop
-  // scrolls (overflow-y-auto, for the info panel's tall layout), but the page underneath kept
-  // scrolling right along with it on any wheel/trackpad input that missed the photo itself.
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
@@ -308,9 +260,7 @@ export default function Lightbox({
       document.body.style.overflow = previousOverflow;
     };
   }, []);
-  // The close/info buttons live in the same top-of-window band TitleBarDragRegion always sits
-  // above (see its own comment) — without this, that region wins the browser's hit-test there
-  // and both buttons silently do nothing.
+  // The title-bar drag region would otherwise swallow clicks on the top buttons.
   useEffect(() => {
     markDragBlocked(true);
     return () => markDragBlocked(false);
@@ -318,39 +268,29 @@ export default function Lightbox({
   useEffect(() => () => {
     if (wheelZoomTimeoutRef.current) clearTimeout(wheelZoomTimeoutRef.current);
   }, []);
-  // A slide whose file has moved/been deleted/never existed shouldn't take the whole viewer
-  // down with it — falls back to a placeholder for just that one slide, keeping close/arrows
-  // fully working so a broken photo is never a dead end you have to reload the page to escape.
+  // A missing file shows a placeholder for that slide only; navigation keeps working.
   const [imageFailed, setImageFailed] = useState(false);
   useEffect(() => setImageFailed(false), [index]);
 
-  // Only one of the two <video> elements below (immersive vs info-panel view) is ever mounted
-  // at once, so a single ref covers whichever one is showing.
   const videoRef = useRef<HTMLVideoElement>(null);
 
-  useEffect(() => {
-    function isTypingTarget(target: EventTarget | null) {
-      if (!(target instanceof HTMLElement)) return false;
-      const tag = target.tagName;
-      return tag === "INPUT" || tag === "TEXTAREA" || target.isContentEditable;
+  // Escape leaves fullscreen first, then closes on a second press. Through the shared stack so a
+  // dialog or menu opened over the lightbox closes before it does.
+  useEscapeToClose(() => {
+    if (isTypingTarget(document.activeElement)) {
+      (document.activeElement as HTMLElement).blur();
+      return;
     }
+    if (isFullscreen) void toggleFullscreen();
+    else onClose();
+  });
+
+  useEffect(() => {
     function handleKey(e: KeyboardEvent) {
-      // defaultPrevented: a dialog opened over the lightbox already took this Escape.
       if (isTypingTarget(e.target) || e.defaultPrevented) return;
       const slide = slides[index];
-      // Escape backs out one level at a time — out of fullscreen first (matching every other
-      // fullscreen video/media viewer), THEN closes the viewer on a second press, rather than
-      // both at once dumping you all the way back to the grid.
-      if (e.key === "Escape") {
-        if (isFullscreen) toggleFullscreen();
-        else onClose();
-        return;
-      }
       const video = videoRef.current;
-      // For a video, left/right scrub 10 seconds instead of jumping to the next/previous
-      // slide — the same convention as YouTube/QuickTime. Only falls through to actual slide
-      // navigation once a skip would run past the start/end, so hitting the edge continues
-      // naturally into the next or previous photo/video rather than needing a second key press.
+      // On a video, arrows scrub 10s and only move to the next slide past either end.
       if (slide?.videoUrl && video && Number.isFinite(video.duration) && video.duration > 0) {
         if (e.key === "ArrowRight") {
           if (video.currentTime + 10 >= video.duration) onIndexChange((index + 1) % slides.length);
@@ -377,19 +317,16 @@ export default function Lightbox({
     }
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
-  }, [index, slides, onIndexChange, onClose, isFullscreen]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [index, slides, onIndexChange, isFullscreen]);
 
   useEffect(() => {
     setScale(1);
     setPan({ x: 0, y: 0 });
   }, [index]);
 
-  // Trackpads report a two-finger pinch as a wheel event with ctrlKey set to true — a browser
-  // convention that exists specifically so a page can tell a pinch apart from an ordinary
-  // two-finger scroll (which fires the same event type, just without ctrlKey). Zoom only reacts
-  // to the former; a plain scroll instead pans the photo horizontally/vertically once zoomed in,
-  // matching how a photo viewer is expected to behave rather than zooming on every scroll.
-  function onWheel(e: React.WheelEvent) {
+  // A trackpad pinch arrives as a wheel event with ctrlKey set; a plain scroll pans once zoomed.
+  function onWheel(e: ReactWheelEvent) {
     e.preventDefault();
     e.stopPropagation();
     if (e.ctrlKey) {
@@ -410,19 +347,19 @@ export default function Lightbox({
     }
   }
 
-  function onDoubleClickZoom(e: React.MouseEvent) {
+  function onDoubleClickZoom(e: ReactMouseEvent) {
     e.stopPropagation();
     setScale((s) => (s > 1 ? 1 : 2));
     setPan({ x: 0, y: 0 });
   }
 
-  function onDragStart(e: React.MouseEvent) {
+  function onDragStart(e: ReactMouseEvent) {
     if (scale <= 1) return;
     e.stopPropagation();
     setDragging(true);
     dragRef.current = { startX: e.clientX, startY: e.clientY, panX: pan.x, panY: pan.y };
   }
-  function onDragMove(e: React.MouseEvent) {
+  function onDragMove(e: ReactMouseEvent) {
     const d = dragRef.current;
     if (!d) return;
     setPan({ x: d.panX + (e.clientX - d.startX), y: d.panY + (e.clientY - d.startY) });
@@ -435,9 +372,6 @@ export default function Lightbox({
   const slide = slides[index];
   if (!slide) return null;
 
-  // A single compact line joining whatever camera EXIF exists — "Canon EOS R7 · 400mm · f/5.6 ·
-  // 1/1000 · ISO 800" — rather than a full labeled-row table, since this now lives in the
-  // bottom caption band alongside the filename/species link, not a dedicated detail page.
   const cameraLine = [
     slide.info?.cameraModel,
     slide.info?.lens,
@@ -452,7 +386,7 @@ export default function Lightbox({
     slide.info?.durationSeconds != null
       ? `${Math.floor(Number(slide.info.durationSeconds) / 60)}:${String(Math.round(Number(slide.info.durationSeconds) % 60)).padStart(2, "0")}`
       : null;
-  const takenLabel = slide.info?.takenAt ? new Date(slide.info.takenAt).toLocaleDateString() : null;
+  const takenLabel = formatDate(slide.info?.takenAt, "medium") || null;
   const hasCaptionBand = !!(
     slide.caption ||
     slide.speciesId ||
@@ -463,13 +397,9 @@ export default function Lightbox({
     (slide.info?.files?.length ?? 0) > 0 ||
     slide.onTagsChange
   );
-  // One consistent circular translucent button for every icon action — fullscreen and close
-  // share it now, instead of each having its own ad hoc size/opacity.
   const iconButtonClass =
     "rounded-full bg-black/40 p-2.5 text-lg leading-none text-white/80 transition-colors hover:bg-black/60 hover:text-white";
 
-  // Fades with mouse idle for video (mirroring its own native controls' auto-hide); always
-  // visible for a photo, which has no competing native control bar to protect.
   const videoIdle = !!slide.videoUrl && videoControlsIdle;
   const overlayFadeClass = videoIdle ? "pointer-events-none opacity-0" : "opacity-100";
   const mediaClass = isFullscreen ? "h-full max-h-full w-full max-w-full" : "max-h-[85vh] max-w-full";
@@ -488,6 +418,22 @@ export default function Lightbox({
         }`}
       >
         <div className={`absolute right-4 top-4 z-10 flex items-center gap-2 transition-opacity duration-300 ${overlayFadeClass}`}>
+          {slide.download && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                const { url, filename } = slide.download!;
+                downloadFile(url, filename).catch(() => {});
+              }}
+              className={iconButtonClass}
+              aria-label="Download"
+              title="Download"
+            >
+              <svg viewBox="0 0 24 24" className="h-[1.125rem] w-[1.125rem]" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <path d="M12 4v11m0 0-4-4m4 4 4-4M5 20h14" />
+              </svg>
+            </button>
+          )}
           <button
             onClick={(e) => {
               e.stopPropagation();
@@ -535,22 +481,9 @@ export default function Lightbox({
             src={slide.videoUrl}
             poster={slide.url}
             controls
-            // Fullscreen is handled entirely by our own button (real window-manager
-            // fullscreen — see toggleFullscreen's own comment), never the native control's own
-            // fullscreen icon: that triggers a SEPARATE browser-native fullscreen presentation
-            // for just the <video> element, detached from this component's layout, which left
-            // mouse-move tracking (for the auto-hiding controls) still measuring the video's
-            // old, small on-page position instead of the new fullscreen bounds. One fullscreen
-            // mechanism only, so there's nothing left to get out of sync.
+            // Our own fullscreen button only: the native one detaches the video from this layout.
             controlsList="nofullscreen"
-            // No autoPlay: this plays with sound, and the embedded webview's autoplay policy
-            // blocks unmuted playback that isn't the DIRECT result of a click — opening the
-            // lightbox is one render removed from the click that triggered it, so the browser
-            // treats the attempt as blocked rather than user-initiated. That failed attempt is
-            // exactly what left the native play control showing its "not allowed" (slashed)
-            // icon instead of an actual working play button. Pressing play manually is a real,
-            // synchronous user gesture, so it always works — better than a broken autoplay
-            // attempt that poisons the control's state before the user gets a chance to.
+            // No autoPlay: unmuted autoplay is blocked here and leaves the play control disabled.
             className={`${mediaClass} object-contain`}
             onClick={(e) => e.stopPropagation()}
           />

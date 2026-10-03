@@ -10,20 +10,19 @@ import PacksMap, { type CountryBoundary } from "../components/PacksMap";
 import RegionPicker from "../components/RegionPicker";
 import DownloadedPacksList, { type PackEntry } from "../components/DownloadedPacksList";
 import JobProgress from "../components/JobProgress";
-import { usePackDownloadJob, packProgressDetail, PACK_DOWNLOAD_PHASES, type PackDownloadStatus } from "../hooks/usePackDownloadStatus";
+import FormMessage from "../components/FormMessage";
+import { usePackDownloadJob, packProgressDetail, PACK_DOWNLOAD_PHASES } from "../hooks/usePackDownloadStatus";
+import { useRegions } from "../hooks/useRegions";
+import { useSettings } from "../hooks/useSettings";
+import { nextPackDownloadFinish } from "../lib/waitForPackDownload";
 import { formatBytes } from "../lib/formatBytes";
+import { pluralize } from "../lib/pluralize";
 
 const PACKS_INFO_PARAGRAPHS = [
   '"Update available" means the pack\'s checklist data (which species occur there, and how often) has changed since you downloaded it. Re-downloading refreshes that.',
 ];
 
-// Natural Earth's own CONTINENT field (what build-regions.ts groups countries by) has no
-// "Central America" value at all — every one of these sits under the same "North America" as
-// Canada/the US/Mexico, geographically correct but not how most people actually browse for
-// them. A synthetic, frontend-only pseudo-continent (no matching region row, no backend id)
-// pulls just these countries into their own pill group purely for browsing — everything else
-// (selection, download, checklist data) still operates on each country's own real region id,
-// untouched by this regrouping.
+// Natural Earth puts these under North America; a frontend-only pseudo-continent groups them for browsing.
 const CENTRAL_AMERICA_COUNTRY_NAMES = new Set([
   "Guatemala",
   "Belize",
@@ -34,9 +33,7 @@ const CENTRAL_AMERICA_COUNTRY_NAMES = new Set([
   "Panama",
 ]);
 const CENTRAL_AMERICA_CONTINENT_ID = "central-america";
-// Single source of truth for "which continent group does this country actually display
-// under" — used both to build countriesByContinent and to open the right group from a search
-// result, so the two never disagree about where a Central American country actually lives.
+// Which continent group a country displays under, shared by the grouping and search.
 function continentIdForCountry(country: RegionSummary): string | null {
   if (CENTRAL_AMERICA_COUNTRY_NAMES.has(country.name)) return CENTRAL_AMERICA_CONTINENT_ID;
   return country.parentId;
@@ -74,30 +71,23 @@ interface ProvinceEntry {
   applied: boolean;
 }
 
-// Map + continent pills + country search + a taxon multi-select applied uniformly across every
-// selected country, replacing the old per-pack-checkbox accordion — see this feature's own plan
-// for why: items 3/5/6 need "selected countries" crossed with "selected taxa" as the primary
-// state, with pack ids only resolved once, at download time (POST /offline-packs/download-batch),
-// not one checkbox per country per taxon.
+// Map, continent pills, country search, and one taxon selection applied across every selected
+// country. Pack ids are only resolved at download time (download-batch).
 export default function OfflinePacksPage() {
-  const [regions, setRegions] = useState<RegionSummary[] | null>(null);
+  const { regions, error: regionsError } = useRegions();
+  const { settings } = useSettings();
   const [countryBoundaries, setCountryBoundaries] = useState<CountryBoundary[] | null>(null);
+  const [boundariesError, setBoundariesError] = useState<string | null>(null);
   const [packs, setPacks] = useState<PackEntry[] | null>(null);
   const [indexError, setIndexError] = useState<string | null>(null);
   const [selectedCountryIds, setSelectedCountryIds] = useState<Set<string>>(new Set());
-  // Separate from openContinentIds (which drives the pill LIST's expand/collapse) — this drives
-  // ONLY the map's own outline/fit widening, so a continent explicitly opened via its own pill
-  // click still previews on the map, but clicking a country directly ON THE MAP (which also
-  // auto-opens that continent's pill group purely to reveal its territories panel — see
-  // toggleCountry below) no longer also widens the map out to the whole continent, stealing
-  // focus from the one country actually clicked.
+  // Only continents opened by their own pill widen the map. A map click also opens the group
+  // (to show territories) but shouldn't zoom out from the country clicked.
   const [mapWidenedContinentIds, setMapWidenedContinentIds] = useState<Set<string>>(new Set());
   const [openContinentIds, setOpenContinentIds] = useState<Set<string>>(new Set());
   const [selectedTaxa, setSelectedTaxa] = useState<Set<TaxonClass>>(new Set());
-  // "full" bundles every reference gallery photo per species; "small" ships only the single
-  // featured photo (plus embeddings, same as full) and fetches the rest on demand once online,
-  // a much smaller download for anyone fine with that trade. Applies to the whole selection at
-  // once, matching how taxa/regions are already picked in bulk rather than per pack.
+  // "full" bundles every reference photo; "small" ships only the featured photo (plus embeddings)
+  // and fetches the rest when online. Applies to the whole selection.
   const [downloadVariant, setDownloadVariant] = useState<"full" | "small">("full");
   const [openTaxonGroups, setOpenTaxonGroups] = useState<Set<string>>(new Set());
   const [searchTerm, setSearchTerm] = useState("");
@@ -107,17 +97,10 @@ export default function OfflinePacksPage() {
   const [recommendationError, setRecommendationError] = useState<string | null>(null);
   const [provinceManagerPackId, setProvinceManagerPackId] = useState<string | null>(null);
   const [provinceList, setProvinceList] = useState<ProvinceEntry[] | null>(null);
-  // "States" for the US, "Regions" for Thailand, "Provinces" for most others — computed
-  // server-side from that country's own admin-1 data (see subdivisionLabelFor), not assumed.
-  // Defaults to "Provinces" until the first fetch resolves, same as the server-side default.
+  // "States", "Regions" or "Provinces", from the country's own admin-1 data on the server.
   const [subdivisionLabel, setSubdivisionLabel] = useState("Provinces");
-  // Taxon pill labels need this for the same reason CollectionPage/StatsPage do — a taxon
-  // available for a region can be an Other Taxa species' raw lowercased iconic-taxon string
-  // (e.g. "insecta"), which has no entry in TAXON_CLASS_LABEL and would otherwise render blank.
-  const [namingStyles, setNamingStyles] = useState<string[]>([]);
-  useEffect(() => {
-    api.get<{ speciesNamingStyles: string[] }>("/settings").then((res) => setNamingStyles(res.speciesNamingStyles)).catch(() => {});
-  }, []);
+  // Taxon labels follow the naming preference (and cover Other Taxa's raw iconic names).
+  const namingStyles = settings?.speciesNamingStyles ?? [];
   const [provinceError, setProvinceError] = useState<string | null>(null);
   const [provinceBusyId, setProvinceBusyId] = useState<string | null>(null);
   const countryRowRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
@@ -130,15 +113,18 @@ export default function OfflinePacksPage() {
   }
 
   useEffect(() => {
-    api.get<{ regions: RegionSummary[] }>("/regions").then((res) => setRegions(res.regions));
     api
       .get<{ regions: CountryBoundary[] }>("/regions/boundaries?level=country")
-      .then((res) => setCountryBoundaries(res.regions));
+      .then((res) => setCountryBoundaries(res.regions))
+      .catch((err) => {
+        setBoundariesError(err instanceof ApiError ? err.message : "Couldn't load the country map");
+        setCountryBoundaries([]);
+      });
     refreshPacks();
   }, []);
 
   // Arrived from the library reimport tool's "N species missing reference data" link
-  // (SettingsPage.tsx) with the gap list in the URL — check which packs would cover it.
+  // (SettingsPage.tsx) with the gap list in the URL: check which packs would cover it.
   useEffect(() => {
     const missing = new URLSearchParams(window.location.search).get("missing");
     if (!missing) return;
@@ -150,23 +136,11 @@ export default function OfflinePacksPage() {
       .catch((err) => setRecommendationError(err instanceof ApiError ? err.message : "Couldn't compute pack recommendations"));
   }, []);
 
-  const downloadJob = usePackDownloadJob(1000, () => void refreshPacks());
+  const downloadJob = usePackDownloadJob({ onFinish: () => void refreshPacks() });
   const status = downloadJob.status;
 
-  // Which taxa this selection could even offer — unioned across every selected country so a
-  // taxon present in only ONE of several selected countries still shows up (item 6's own
-  // requirement), not just taxa common to all of them.
-  //
-  // Derived straight from the already-loaded pack catalog (`packs`, from /offline-packs/index)
-  // rather than /regions/taxon-presence, which was the wrong data source for this: it reflects
-  // this INSTALL's own local region_species table, which only has rows for taxa already
-  // downloaded (a taxon that's never been fetched yet has no local checklist data to find at
-  // all — that's exactly the point of downloading it). That made "available to download" read
-  // as "already downloaded," e.g. Canada showing only Birds/Mammals since those were the only
-  // ones downloaded, even though canada-actinopterygii.pack.tar.gz etc. genuinely exist and are
-  // waiting to be fetched. The pack catalog already lists every published region×taxon
-  // combination regardless of local download state, which is the actual question being asked
-  // here — no per-country network round trip needed once packs are loaded once at mount.
+  // Taxa the selection could offer, unioned across selected countries. From the pack catalog,
+  // not local taxon presence, which only knows taxa already downloaded.
   const availableTaxaByRegion = useMemo(() => {
     const byRegionName = new Map<string, Set<TaxonClass>>();
     for (const p of packs ?? []) {
@@ -190,12 +164,8 @@ export default function OfflinePacksPage() {
     // Right after North America, since that's where these countries would otherwise be found.
     return [...real.slice(0, northAmericaIndex + 1), CENTRAL_AMERICA_CONTINENT, ...real.slice(northAmericaIndex + 1)];
   }, [regions, world]);
-  // Split each continent's children into primary countries (the main pill list) and
-  // dependencies/territories (moved to a separate "Other Territories" catch-all at the end of
-  // that continent's group instead — a territory that isn't obviously "part of" a country
-  // someone's already looking at (e.g. Puerto Rico while browsing North America, not realizing
-  // it's a US territory) still needs to be findable directly, without cluttering the main list
-  // with ~15 tiny entries per continent). See migration 066's own comment.
+  // Primary countries make the main pill list; territories go to a per-continent "Other
+  // territories" catch-all so they're findable without cluttering the list.
   const countriesByContinent = useMemo(() => {
     const map = new Map<string, RegionSummary[]>();
     for (const r of regions ?? []) {
@@ -218,13 +188,8 @@ export default function OfflinePacksPage() {
   }, [regions]);
   const countryById = useMemo(() => new Map((regions ?? []).map((r) => [r.id, r])), [regions]);
 
-  // Country -> its own geographically-separate territories (sharing one Natural Earth
-  // sovereignty-group code, e.g. "United States of America" + "Puerto Rico" + "U.S. Virgin
-  // Is." all carry "US1" — see migration 065). Each territory ALSO already appears as its own
-  // ordinary pill under its true geographic continent (Natural Earth places it there directly,
-  // no cross-listing logic needed for that part) — this only adds the grouped "Territories"
-  // panel under the sovereign country's own pill, for someone who wants to grab e.g. Puerto
-  // Rico while browsing the US rather than hunting for it separately under North America.
+  // Country to its territories (same sovereignty group, e.g. the US and Puerto Rico), shown as a
+  // "Territories" panel under the selected country in addition to their own continent.
   const territoriesByCountryId = useMemo(() => {
     const bySovereigntyGroup = new Map<string, RegionSummary[]>();
     for (const r of regions ?? []) {
@@ -236,8 +201,7 @@ export default function OfflinePacksPage() {
     for (const group of bySovereigntyGroup.values()) {
       const dependencies = group.filter((g) => g.isSovereignDependency).sort((a, b) => a.name.localeCompare(b.name));
       if (dependencies.length === 0) continue;
-      // Only the primary (non-dependency) member of a group gets a "Territories" panel under
-      // it — a territory itself never lists its sibling territories as ITS OWN territories.
+      // Only the sovereign member gets the panel.
       for (const country of group) {
         if (!country.isSovereignDependency) map.set(country.id, dependencies);
       }
@@ -245,14 +209,10 @@ export default function OfflinePacksPage() {
     return map;
   }, [regions]);
 
-  // Which continents currently have their country-pill group expanded — an explicit UI toggle,
-  // separate from selection: clicking a continent pill only ever opens/closes its own group, it
-  // never selects countries itself (that's what "Select all" and individual country pills are
-  // for).
+  // Opening a continent group never selects its countries.
   const openContinents = useMemo(() => continents.filter((c) => openContinentIds.has(c.id)), [continents, openContinentIds]);
 
-  // Every country belonging to any currently-open continent — passed to PacksMap so it can
-  // outline them (a distinct, weaker visual than "selected") without implying they're selected.
+  // Countries of map-widened continents, outlined (not selected) on the map.
   const openCountryIds = useMemo(() => {
     const set = new Set<string>();
     for (const continentId of mapWidenedContinentIds) {
@@ -261,21 +221,9 @@ export default function OfflinePacksPage() {
     return set;
   }, [mapWidenedContinentIds, countriesByContinent]);
 
-  // Everything the map should currently be fit to — every open continent's countries UNION every
-  // individually selected country. Derived (not manually set per-action) so the view always
-  // reflects exactly what's on screen right now, whichever way it got there: opening a second
-  // continent while the first is still open widens the fit to cover both instead of replacing it,
-  // and closing/deselecting narrows it back down to whatever's left, rather than only ever
-  // fitting forward and never back. A fresh array reference here (via useMemo, recomputed only
-  // when the underlying sets actually change) is exactly what re-triggers PacksMap's own fit
-  // effect — see that component's own doc comment on focusCountryIds.
+  // What the map fits to: the selected countries, or with none selected, the widened
+  // continents. A new array (only when the inputs change) is what triggers PacksMap's fit.
   const focusCountryIds = useMemo(() => {
-    // Once the user has actually selected specific countries, prioritize those over the open
-    // continent's full country set — clicking one country under an open continent should zoom
-    // in to just that country instead of staying pinned to the whole continent's bounds.
-    // Selecting more countries widens the fit again to encompass all of them. Only falls back to
-    // the full open-continent set (a "preview the whole continent" view) when nothing's actually
-    // selected yet.
     if (selectedCountryIds.size > 0) return [...selectedCountryIds];
     return openCountryIds.size > 0 ? [...openCountryIds] : undefined;
   }, [openCountryIds, selectedCountryIds]);
@@ -304,11 +252,8 @@ export default function OfflinePacksPage() {
       else next.add(id);
       return next;
     });
-    // A country selected by clicking it on the map (PacksMap's onToggleCountry, this same
-    // function) previously left its pill + territories panel invisible unless that continent's
-    // group already happened to be open — still auto-opened here so the pill/territories exist
-    // to look at, but no longer auto-SCROLLS the page down to them (that jumped the user's view
-    // away from the map they were just looking at, not something a map click should do).
+    // Opens the country's group so its pill and territories are visible, without scrolling away
+    // from the map.
     if (willSelect) {
       const region = countryById.get(id);
       const continentId = region && continentIdForCountry(region);
@@ -324,21 +269,15 @@ export default function OfflinePacksPage() {
       else next.delete(continentId);
       return next;
     });
-    // An explicit continent-pill click (unlike toggleCountry's own auto-open, which only ever
-    // touches openContinentIds above) is the one case that should also widen the map to preview
-    // the whole continent.
+    // Only an explicit continent click widens the map.
     setMapWidenedContinentIds((prev) => {
       const next = new Set(prev);
       if (willOpen) next.add(continentId);
       else next.delete(continentId);
       return next;
     });
-    // The map's own fit is handled by the focusCountryIds memo above (derived from
-    // openContinentIds + selectedCountryIds) — opening OR closing a continent here just changes
-    // that memo's inputs, which widens or narrows the fit to match automatically.
     if (!willOpen) {
-      // Closing a continent pill also deselects any of its countries that were individually
-      // selected — otherwise they stay selected with no visible group left to see or manage them.
+      // Closing a continent deselects its countries so nothing stays selected out of sight.
       const countryIdsInContinent = new Set((countriesByContinent.get(continentId) ?? []).map((c) => c.id));
       setSelectedCountryIds((prev) => {
         const next = new Set(prev);
@@ -365,22 +304,16 @@ export default function OfflinePacksPage() {
     setSearchTerm("");
     const continentId = continentIdForCountry(region);
     if (continentId) setOpenContinentIds((prev) => new Set(prev).add(continentId));
-    // Scrolled to on the next tick, after the row actually renders (it may not exist yet this
-    // render if this country's continent wasn't already open).
+    // Next tick, once the row has rendered.
     setTimeout(() => countryRowRefs.current.get(region.id)?.scrollIntoView({ behavior: "smooth", block: "nearest" }), 0);
   }
 
-  // "info: PackEntry.taxon === null" means that pack covers every taxon for its region — a
-  // country with any such pack downloaded reads as full coverage; one with only specific-taxon
-  // packs downloaded reads as partial (per Fix 6's "bird icon if just birds are downloaded" ask,
-  // implemented here as a text label rather than a new icon set, since none exists in this app).
+  // An all-taxa pack (taxon null) means full coverage; only taxon-specific packs means partial.
   function countryCoverage(countryName: string): "full" | "partial" | "none" {
     const entries = packsByRegion.get(countryName) ?? [];
     const downloaded = entries.filter((p) => p.downloaded);
     if (downloaded.length === 0) return "none";
-    // A stale "all taxa" bundle (an update is available) or one that predates newer
-    // taxon-specific splits added to the catalog since should never read as full coverage —
-    // both used to be silently ignored here, showing "fully downloaded" when it wasn't.
+    // A stale bundle, or one older than newer taxon splits in the catalog, isn't full coverage.
     if (downloaded.some((p) => p.updateAvailable)) return "partial";
     const hasAllTaxaBundle = downloaded.some((p) => p.taxon == null);
     if (!hasAllTaxaBundle) return "partial";
@@ -402,9 +335,7 @@ export default function OfflinePacksPage() {
     for (const p of packs ?? []) {
       const region = p.region ?? p.seaZone;
       if (!region) continue;
-      // Full and small packs cover the same species, so only the currently-chosen variant should
-      // count toward the selection's size/eligibility, or every region would look 2x its real
-      // download size.
+      // Full and small cover the same species; count only the chosen variant.
       if ((p.variant ?? "full") !== downloadVariant) continue;
       if (!map.has(region)) map.set(region, []);
       map.get(region)!.push(p);
@@ -426,8 +357,7 @@ export default function OfflinePacksPage() {
     return total;
   }, [selectedCountryIds, selectedTaxa, packsByRegion, countryById]);
 
-  // Same computation as selectionSizeBytes, but for the OTHER variant, shown alongside the
-  // toggle so switching between Full/Small previews the size difference before committing.
+  // The same size for the other variant, previewed next to the toggle.
   const otherVariantSizeBytes = useMemo(() => {
     const otherVariant = downloadVariant === "full" ? "small" : "full";
     let total = 0;
@@ -502,24 +432,21 @@ export default function OfflinePacksPage() {
     }
   }
 
-  // Re-adding a province has no dedicated "apply just this one" path (see this pack's own
-  // offload-route comment) — the whole archive gets re-downloaded (which restores every
-  // province unconditionally), then everything still meant to stay excluded gets trimmed back
-  // out in one follow-up call.
+  // There's no "apply one province" path: the whole pack is re-downloaded (restoring every
+  // province), then the ones still meant to be excluded are trimmed back out.
   async function reapplyProvince(packId: string, province: ProvinceEntry) {
     if (!provinceList) return;
     setProvinceBusyId(province.id);
     setProvinceError(null);
     try {
-      await api.post("/offline-packs/download", { packIds: [packId], force: true });
-      for (;;) {
-        const jobStatus = await api.get<PackDownloadStatus>("/offline-packs/download/status");
-        if (!jobStatus.running) {
-          if (jobStatus.error) throw new Error(jobStatus.error);
-          break;
-        }
-        await new Promise((r) => setTimeout(r, 1500));
+      const wait = nextPackDownloadFinish([packId]);
+      if (!(await downloadJob.start("/offline-packs/download", { packIds: [packId], force: true }))) {
+        wait.cancel();
+        throw new Error("Couldn't start the download");
       }
+      const jobStatus = await wait.finished;
+      if (jobStatus.error) throw new Error(jobStatus.error);
+      if (jobStatus.cancelled) throw new Error("The download was cancelled");
       const stillExcluded = provinceList.filter((p) => !p.applied && p.id !== province.id).map((p) => p.id);
       if (stillExcluded.length > 0) {
         await api.post(`/offline-packs/${encodeURIComponent(packId)}/provinces/offload`, { regionIds: stillExcluded });
@@ -528,7 +455,7 @@ export default function OfflinePacksPage() {
       setProvinceList(res.provinces);
       refreshPacks();
     } catch (err) {
-      setProvinceError(err instanceof ApiError ? err.message : "Couldn't re-add this province");
+      setProvinceError(err instanceof Error && err.message ? err.message : "Couldn't re-add this province");
     } finally {
       setProvinceBusyId(null);
     }
@@ -537,7 +464,7 @@ export default function OfflinePacksPage() {
   const downloadedPacks = (packs ?? []).filter((p) => p.downloaded);
 
   return (
-    <div className="min-h-screen bg-canvas">
+    <div className="flex-1 bg-canvas">
       <PageHeader sticky
         title="Offline packs"
         backFallbackTo="/settings"
@@ -550,8 +477,10 @@ export default function OfflinePacksPage() {
       </PageHeader>
 
       <main className="mx-auto max-w-3xl space-y-6 p-6">
-        {indexError && <p className="text-sm text-red-600">{indexError}</p>}
-        {recommendationError && <p className="text-sm text-red-600">{recommendationError}</p>}
+        <FormMessage error={indexError} />
+        <FormMessage error={recommendationError} />
+        <FormMessage error={boundariesError} />
+        {!regions && !!regionsError && <FormMessage error="Couldn't load the region list." />}
 
         {recommendation && (
           <div className="rounded-xl border border-line bg-surface p-4">
@@ -605,20 +534,21 @@ export default function OfflinePacksPage() {
             />
           </div>
         )}
-        {status && !status.running && status.finishedAt && Date.now() - status.finishedAt < 15000 && (
-          <div className={`rounded-xl border p-4 ${status.error ? "border-red-200 bg-red-50" : "border-line bg-surface"}`}>
-            <p className={`text-sm ${status.error ? "text-red-600" : "text-ink"}`}>
-              {status.error
-                ? `Download failed: ${status.error}`
-                : status.cancelled
-                  ? `Cancelled. ${status.processed ?? 0} pack(s) had already finished applying before you stopped it.`
-                  : `Done, ${status.result?.packsApplied ?? status.processed ?? 0} pack(s) applied.`}
-            </p>
-          </div>
-        )}
+        {status && !status.running && status.finishedAt && Date.now() - status.finishedAt < 15000 &&
+          (status.error ? (
+            <FormMessage error={`Download failed: ${status.error}`} />
+          ) : (
+            <div className="rounded-xl border border-line bg-surface p-4">
+              <p className="text-sm text-ink">
+                {status.cancelled
+                  ? `Cancelled. ${pluralize(status.processed ?? 0, "pack")} had already finished applying before you stopped it.`
+                  : `Done, ${pluralize(status.result?.packsApplied ?? status.processed ?? 0, "pack")} applied.`}
+              </p>
+            </div>
+          ))}
 
         {!regions || !countryBoundaries || !packs ? (
-          <Spinner />
+          regionsError && !regions ? null : <Spinner />
         ) : (
           <>
             <PacksMap
@@ -759,17 +689,12 @@ export default function OfflinePacksPage() {
                           a.name.localeCompare(b.name),
                         );
                         if (otherTerritories.length === 0) return null;
-                        // Catch-all for this continent's own territories that aren't obviously
-                        // "part of" a country someone's already looking at (e.g. Puerto Rico
-                        // while browsing North America, not the US) — same territories also
-                        // show grouped under their sovereign country's own "Territories" panel
-                        // above once that country is selected; this is just the fallback for
-                        // finding one directly.
+                        // Fallback for finding a territory directly, not only under its country.
                         const allOtherSelected = otherTerritories.every((t) => selectedCountryIds.has(t.id));
                         return (
                           <div className="mt-2 border-t border-line pt-2">
                             <div className="mb-1.5 flex items-center justify-between">
-                              <p className="text-xs text-muted">Other Territories</p>
+                              <p className="text-xs text-muted">Other territories</p>
                               <button
                                 type="button"
                                 onClick={() =>
@@ -828,7 +753,7 @@ export default function OfflinePacksPage() {
               <div className="rounded-xl border border-line bg-surface p-4">
                 <div className="flex items-center justify-between">
                   <p className="text-sm font-semibold text-ink">
-                    {selectedCountryIds.size} region(s) selected. Choose taxon groups
+                    {pluralize(selectedCountryIds.size, "region")} selected. Choose taxon groups
                   </p>
                   {availableTaxaForSelection.length > 0 && (
                     <button
@@ -846,7 +771,9 @@ export default function OfflinePacksPage() {
                 </div>
                 <div className="mt-2 flex flex-wrap gap-2">
                   {availableTaxaForSelection.length === 0 && (
-                    <p className="text-xs text-muted">No taxon data available yet for the selected region(s).</p>
+                    <p className="text-xs text-muted">
+                      No taxon data available yet for the selected {selectedCountryIds.size === 1 ? "region" : "regions"}.
+                    </p>
                   )}
                   {availableTaxaForSelection
                     .filter((taxon) => !GROUPED_TAXON_CLASSES.has(taxon))
@@ -859,11 +786,7 @@ export default function OfflinePacksPage() {
                       );
                     })}
                 </div>
-                {/* Each group is purely a disclosure wrapper — every taxon inside stays
-                    individually toggleable, opening the section never selects anything by
-                    itself, since (confirmed with the user) shell collectors, mollusk
-                    photographers, and other marine-life pursuers are different audiences who
-                    each want to pick only their own specific taxa, not a bundle. */}
+                {/* A group is only a disclosure: each audience (shells, molluscs, ...) picks its own taxa. */}
                 {TAXON_GROUPS.map((group) => {
                   const availableInGroup = group.taxa.filter((t) => availableTaxaForSelection.includes(t));
                   if (availableInGroup.length === 0) return null;
@@ -944,7 +867,7 @@ export default function OfflinePacksPage() {
                 renderPackPanel={(p) =>
                   provinceManagerPackId === p.id ? (
                     <div className="mt-2 ml-6 rounded-md border border-line bg-surface-muted p-2">
-                      {provinceError && <p className="text-xs text-red-600">{provinceError}</p>}
+                      <FormMessage error={provinceError} className="text-xs" />
                       {!provinceList && !provinceError && (
                         <p className="text-xs text-muted">Loading {subdivisionLabel.toLowerCase()}…</p>
                       )}
@@ -1005,10 +928,10 @@ export default function OfflinePacksPage() {
             <p className="text-sm text-muted">
               {selectedCountryIds.size === 0
                 ? "Nothing selected"
-                : `${selectedCountryIds.size} region(s), ${selectedTaxa.size === 0 ? "all taxa" : `${selectedTaxa.size} taxon group(s)`}, ${formatBytes(selectionSizeBytes)}`}
+                : `${pluralize(selectedCountryIds.size, "region")}, ${selectedTaxa.size === 0 ? "all taxa" : pluralize(selectedTaxa.size, "taxon group")}, ${formatBytes(selectionSizeBytes)}`}
             </p>
             <div className="flex items-center gap-3">
-              {startError && <span className="text-sm text-red-600">{startError}</span>}
+              {startError && <FormMessage error={startError} className="py-1" />}
               <button
                 onClick={startDownload}
                 disabled={selectedCountryIds.size === 0 || starting || status?.running}

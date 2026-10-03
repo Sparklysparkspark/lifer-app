@@ -1,16 +1,23 @@
 import { useEffect, useState } from "react";
 import type { CollectionStats } from "@lifer/shared";
 import { api } from "../api/client";
+import { errorMessage } from "../lib/errorMessage";
+import FormMessage from "./FormMessage";
 
-const TIER_ORDER: Array<keyof CollectionStats["byTier"]> = ["legendary", "epic", "rare", "uncommon", "common", "unrated"];
+const TIER_ORDER: Array<keyof CollectionStats["byTier"]> = ["legendary", "rare", "uncommon", "occasional", "common", "unrated"];
 
 export default function CollectionStatsPanel() {
   const [stats, setStats] = useState<CollectionStats | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    api.get<CollectionStats>("/collection/stats").then(setStats);
+    api
+      .get<CollectionStats>("/collection/stats")
+      .then(setStats)
+      .catch((err) => setError(errorMessage(err, "Couldn't load stats")));
   }, []);
 
+  if (error) return <FormMessage error={error} className="m-4" />;
   if (!stats) return <p className="p-4 text-sm text-muted">Loading stats…</p>;
 
   const maxYearCount = Math.max(1, ...stats.byYear.map((y) => y.count));

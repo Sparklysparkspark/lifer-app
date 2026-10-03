@@ -1,6 +1,4 @@
-// The plain text-underline Select/Cancel toggle — GalleryPage's own original style, now the one
-// standard used everywhere a grid offers multi-select (previously Album had its own bordered
-// button ("Select"/"Done") that looked like a different control entirely).
+// The Select/Cancel toggle every multi-select grid uses.
 export default function SelectModeToggle({
   active,
   onEnter,

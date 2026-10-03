@@ -1,14 +1,9 @@
-// Plain `<a href="...">` navigation to a file endpoint does NOT reliably trigger a download in
-// the desktop app's Tauri webview — it just navigates the whole window to the raw response with
-// no back control (confirmed live: this is exactly the bug report behind this file existing).
-// StatsPage.tsx already worked around the same class of problem for its CSV export with a real
-// native "Save As" dialog; this generalizes that same fix for binary files (photo downloads)
-// wherever else a plain download link would otherwise silently break in desktop mode.
-// fallbackFilename is only used if the response has no Content-Disposition filename to read —
-// the server already sets a real one (the original file's own name), including through an S3
-// redirect (see signedS3Url's own comment), so this is a rare, defensive fallback, not the norm.
+import { CLIENT_HEADER } from "../api/client";
+
+// A plain download link in the Tauri webview navigates the whole window to the file, so the
+// desktop app uses a native Save dialog. fallbackFilename is used only without Content-Disposition.
 export async function downloadFile(url: string, fallbackFilename: string): Promise<void> {
-  const res = await fetch(url, { credentials: "include" });
+  const res = await fetch(url, { credentials: "same-origin", headers: CLIENT_HEADER });
   if (!res.ok) throw new Error(`Download failed (${res.status})`);
   const disposition = res.headers.get("content-disposition");
   const match = disposition?.match(/filename="?([^"]+)"?/);
@@ -25,12 +20,12 @@ export async function downloadFile(url: string, fallbackFilename: string): Promi
     return;
   }
 
-  // Plain browser (self-hosted web access) — a real anchor click with `download` set works
-  // fine here; no native dialog available or needed.
+  // Plain browser: an anchor click with `download` set works fine.
   const objectUrl = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = objectUrl;
   a.download = filename;
   a.click();
-  URL.revokeObjectURL(objectUrl);
+  // Revoking right away can cancel the download before the browser has read the blob.
+  setTimeout(() => URL.revokeObjectURL(objectUrl), 30_000);
 }

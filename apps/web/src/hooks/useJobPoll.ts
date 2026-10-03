@@ -38,9 +38,8 @@ export function nextPollDelay(opts: { notFound: boolean; running: boolean; inter
   return opts.running ? opts.intervalMs : opts.idleIntervalMs;
 }
 
-// Polls a JobStatus endpoint (see packages/shared/src/job.ts) while its job runs. One recursive
-// setTimeout per mounted hook, torn down on unmount or URL change, and responses that arrive
-// after that are dropped, so nothing calls setState on an unmounted component.
+// Polls a JobStatus endpoint while its job runs. Late responses after unmount or a URL change are
+// dropped, so nothing sets state on an unmounted component.
 export function useJobPoll<S extends JobStatus<unknown> = JobStatus<unknown>>(
   statusUrl: string | null,
   options: JobPollOptions<S> = {},

@@ -28,13 +28,8 @@ const YEAR_FILTER_LABEL: Record<YearFilter, string> = {
   last5: "Last 5 years",
 };
 
-// Individual raw points within a cluster were never kept past this cluster's own centroid/
-// spread (compute-provinces-bulk.ts drops them deliberately — holding every point for a
-// country with Australia's occurrence volume is what OOM-crashed it at an 8GB heap; see that
-// file's own comment). So a click can't reveal individual sightings inside a cluster, but it
-// CAN zoom proportionally to that cluster's own real extent (bboxDiagonalKm) instead of a flat
-// zoom level — a tight, few-km cluster zooms in close; a loose, province-spanning one doesn't
-// zoom in past what actually makes sense for it.
+// Raw points aren't kept per cluster, so a click zooms in proportion to the cluster's extent
+// (bboxDiagonalKm).
 function zoomForClusterExtent(bboxDiagonalKm: number): number {
   const km = Math.max(bboxDiagonalKm, 0.3);
   return Math.min(15, Math.max(8, 14 - Math.log2(km)));
@@ -47,14 +42,8 @@ function cutoffYearFor(filter: YearFilter, currentYear: number): number | null {
   return currentYear - 5;
 }
 
-// Historical GBIF record clusters for one species within one region — "where has this
-// actually been found," not a live sightings feed. Reuses the same PMTiles basemap and
-// theme/availability plumbing as RegionMap.tsx; the only real difference is a second source/
-// layer for the hotspot points themselves, sized and colored by each cluster's share of the
-// species' total records in this region so the dominant location reads at a glance.
-//
-// Collapsed by default (see `expanded` below) — a photographer scanning a long species list
-// doesn't need a live map render for every single entry, just the option to open one.
+// Historical GBIF record clusters for one species in one region, sized and colored by share of
+// records. Collapsed by default so a long list doesn't render a map per entry.
 export default function SpeciesHotspotMap({
   boundaryGeoJson,
   hotspots,
@@ -73,29 +62,21 @@ export default function SpeciesHotspotMap({
   const mapAvailable = useMapAvailable();
   const { theme } = useTheme();
 
-  // The bundled hotspot data is a snapshot from whenever this pack was last built — real,
-  // but not live. iNaturalist's own map view, scoped to this exact region's bounding box plus
-  // this species, is the fastest way to check what's actually been seen more recently than that.
+  // The bundled data is a snapshot from the last pack build; iNaturalist's map for this region's
+  // bounding box shows anything more recent.
   const inaturalistUrl = useMemo(
     () => buildInaturalistObservationsUrl(boundaryGeoJson, scientificName),
     [boundaryGeoJson, scientificName],
   );
 
-  // Highlight the single strongest repeat location, if there is one — a cluster hit across 3+
-  // separate years is a real recurring pattern (not a one-off/vagrant record), worth calling
-  // out ahead of the full list rather than making the reader scan for it themselves.
+  // A cluster hit across 3+ separate years is a real recurring spot, called out first.
   const bestBet = useMemo(() => {
     const reliable = hotspots.filter((h) => h.isReliable);
     if (reliable.length === 0) return undefined;
     return [...reliable].sort((a, b) => (b.distinctYears ?? 0) - (a.distinctYears ?? 0) || b.recordShare - a.recordShare)[0];
   }, [hotspots]);
 
-  // eBird designates certain species (or one region/season of an otherwise-common species — see
-  // sensitive-species.ts's own comment) as Sensitive to protect them from targeted capture,
-  // hunting, or disturbance. A cluster this app deliberately blurred for that reason still shows
-  // up on the map (a coarse 20x20km area, not hidden entirely), but the reader needs to know
-  // *why* it looks unusually vague compared to every other cluster, not just see a suspiciously
-  // round area with no explanation.
+  // eBird Sensitive species are blurred to a coarse 20x20km area; say why it looks vague.
   const hasSensitiveHotspot = hotspots.some((h) => h.isSensitive);
 
   const currentYear = new Date().getFullYear();
@@ -109,9 +90,7 @@ export default function SpeciesHotspotMap({
     const byYear = cutoff == null ? hotspots : hotspots.filter((h) => h.lastSeenYear != null && h.lastSeenYear >= cutoff);
     const query = search.trim().toLowerCase();
     if (!query) return byYear;
-    // Coordinates are the only real "name" a cluster has — searching them lets someone jump
-    // to a location they already know the rough coordinates of (e.g. from a field guide or a
-    // previous visit) without scrolling the whole list.
+    // Clusters have no name, so coordinates are searchable.
     return byYear.filter((h) => `${h.centroidLat.toFixed(2)}, ${h.centroidLon.toFixed(2)}`.includes(query));
   }, [hotspots, yearFilter, search, currentYear]);
 
@@ -123,8 +102,7 @@ export default function SpeciesHotspotMap({
       container: containerRef.current,
       style: pmtilesStyle(theme === "dark" ? "dark" : "light"),
       interactive: true,
-      // See RegionMap.tsx's matching comment — collapsed by default instead of covering the
-      // corner with the full attribution bar on every load.
+      // Compact attribution, as in RegionMap.
       attributionControl: { compact: true },
     });
     mapRef.current = map;
@@ -170,15 +148,11 @@ export default function SpeciesHotspotMap({
         type: "circle",
         source: "hotspot-points",
         paint: {
-          // Bigger share of a species' total regional records -> a bigger, more saturated dot,
-          // so the dominant location is visually obvious rather than every cluster looking
-          // equally important regardless of how few records actually back it.
+          // A bigger share of the region's records gives a bigger, more saturated dot.
           "circle-radius": ["interpolate", ["linear"], ["get", "recordShare"], 0, 6, 1, 22],
           "circle-color": "#b45309",
           "circle-opacity": ["interpolate", ["linear"], ["get", "recordShare"], 0, 0.35, 1, 0.8],
-          // A cluster hit across 3+ separate years (see the API's RELIABLE_MIN_DISTINCT_YEARS)
-          // gets a bolder green ring instead of the default brown one, so the "good bet"
-          // location is visually distinct on the map, not just called out in the text list.
+          // A cluster seen in 3+ separate years gets a green ring instead of brown.
           "circle-stroke-width": ["case", ["get", "isReliable"], 3, 1.5],
           "circle-stroke-color": ["case", ["get", "isReliable"], "#15803d", "#78350f"],
         },
@@ -207,17 +181,13 @@ export default function SpeciesHotspotMap({
             bboxDiagonalKm: number;
           };
         setSelectedIdx(idx);
-        // Individual sightings within a cluster were never kept (see zoomForClusterExtent's own
-        // comment) — this zooms proportionally to how tight or loose the cluster actually is
-        // instead, the closest available substitute for "show me more detail here."
+        // No individual sightings to show, so zoom to the cluster's own extent.
         map.easeTo({ center: f.geometry.coordinates as [number, number], zoom: Math.max(map.getZoom(), zoomForClusterExtent(bboxDiagonalKm)) });
         const recencyLine =
           lastSeenYear != null
             ? `Last seen ${lastSeenYear}${distinctYears != null && distinctYears > 1 ? ` (seen across ${distinctYears} different years)` : ""}`
             : "";
-        // The centroid is an average over every point that fell in this grid cell, not a
-        // literal "stand right here" pin — framed as an area (±radius), not bare coordinates,
-        // so it doesn't read as more precise than the underlying data actually is.
+        // The centroid averages a grid cell, so it's framed as an area (plus or minus a radius).
         const areaRadiusKm = Math.max(bboxDiagonalKm / 2, 0.5).toFixed(1);
         new Popup({ closeButton: false })
           .setLngLat(f.geometry.coordinates as [number, number])

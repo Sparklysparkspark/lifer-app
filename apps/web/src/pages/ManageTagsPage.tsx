@@ -5,20 +5,17 @@ import PageHeader from "../components/PageHeader";
 import { Spinner } from "../components/LoadingScreen";
 import SearchInput from "../components/SearchInput";
 import EmptyState from "../components/EmptyState";
-import { useEnterToConfirm } from "../hooks/useEnterToConfirm";
-import { useEscapeToClose } from "../hooks/useEscapeToClose";
+import Button from "../components/Button";
+import ConfirmDialog from "../components/ConfirmDialog";
+import FormMessage from "../components/FormMessage";
+import { pluralize } from "../lib/pluralize";
 
 interface TagRow {
   tag: string;
   count: number;
 }
 
-// Every custom tag across your library, with how many photos carry it — the one place to fix a
-// typo everywhere at once (rename) or drop a dud tag entirely (delete), instead of opening every
-// photo that has it individually. Both actions hit /captures/tags/rename and /captures/tags
-// directly (see captures/routes.ts) rather than looping per-capture PATCHes the way bulk-tagging
-// from a selection does, since here the "which captures" set is implicit (every capture with
-// this tag) rather than something the caller already has in hand.
+// Library-wide tag list: rename or delete a tag on every photo that carries it in one request.
 export default function ManageTagsPage() {
   const [tags, setTags] = useState<TagRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -29,8 +26,6 @@ export default function ManageTagsPage() {
   const [renameError, setRenameError] = useState<string | null>(null);
   const [confirmingDeleteTag, setConfirmingDeleteTag] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
-  useEnterToConfirm(() => void confirmDelete(), !!confirmingDeleteTag && !deleting);
-  useEscapeToClose(() => setConfirmingDeleteTag(null), !!confirmingDeleteTag);
 
   function load() {
     api
@@ -83,12 +78,12 @@ export default function ManageTagsPage() {
   const visibleTags = (tags ?? []).filter((t) => t.tag.toLowerCase().includes(search.trim().toLowerCase()));
 
   return (
-    <div className="min-h-screen bg-canvas">
-      <PageHeader sticky title="Manage Tags" backFallbackTo="/settings" backLabel="Settings" />
+    <div className="flex-1 bg-canvas">
+      <PageHeader sticky title="Manage tags" backFallbackTo="/settings" backLabel="Settings" />
 
       <main className="mx-auto max-w-2xl space-y-4 p-6">
         <p className="text-sm text-muted">
-          Every custom tag across your photos. Rename one to fix a typo or merge it into another tag — every photo
+          Every custom tag across your photos. Rename one to fix a typo or merge it into another tag, and every photo
           carrying it updates at once. Delete one to remove it everywhere.
         </p>
 
@@ -96,7 +91,7 @@ export default function ManageTagsPage() {
           <SearchInput value={search} onChange={setSearch} placeholder="Search tags…" className="w-64" />
         )}
 
-        {error && <p className="text-sm text-red-600">{error}</p>}
+        <FormMessage error={error} />
         {!tags && !error && <Spinner />}
 
         {tags && tags.length === 0 && (
@@ -132,13 +127,9 @@ export default function ManageTagsPage() {
                       }}
                       className="min-w-0 flex-1 rounded-md border border-line bg-surface px-2 py-1 text-sm text-ink outline-none focus:border-accent"
                     />
-                    <button
-                      onClick={() => commitRename(row.tag)}
-                      disabled={renaming}
-                      className="shrink-0 rounded-md bg-accent px-2.5 py-1 text-xs font-medium text-accent-fg disabled:opacity-40"
-                    >
+                    <Button size="sm" className="shrink-0" onClick={() => commitRename(row.tag)} loading={renaming}>
                       {renaming ? "Saving…" : "Save"}
-                    </button>
+                    </Button>
                     <button onClick={() => setEditingTag(null)} className="shrink-0 text-xs text-muted hover:underline">
                       Cancel
                     </button>
@@ -155,14 +146,14 @@ export default function ManageTagsPage() {
                       to={`/gallery?tag=${encodeURIComponent(row.tag)}`}
                       className="shrink-0 text-xs text-muted hover:underline"
                     >
-                      {row.count} photo{row.count === 1 ? "" : "s"}
+                      {pluralize(row.count, "photo")}
                     </Link>
                     <button onClick={() => startRename(row.tag)} className="shrink-0 text-xs text-muted hover:underline">
                       Rename
                     </button>
                     <button
                       onClick={() => setConfirmingDeleteTag(row.tag)}
-                      className="shrink-0 text-xs text-red-600 hover:underline"
+                      className="shrink-0 text-xs text-red-600 hover:underline dark:text-red-400"
                     >
                       Delete
                     </button>
@@ -172,38 +163,19 @@ export default function ManageTagsPage() {
             ))}
           </div>
         )}
-        {renameError && <p className="text-sm text-red-600">{renameError}</p>}
+        <FormMessage error={renameError} />
       </main>
 
-      {confirmingDeleteTag && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
-          onClick={() => setConfirmingDeleteTag(null)}
-        >
-          <div className="w-full max-w-sm rounded-lg border border-line bg-surface p-4 shadow-lg" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-sm font-medium text-ink">Delete tag "{confirmingDeleteTag}"?</h3>
-            <p className="mt-2 text-xs text-muted">
-              This removes the tag from every photo that has it. The photos themselves aren't affected — only the tag
-              goes away.
-            </p>
-            <div className="mt-4 flex justify-end gap-2">
-              <button
-                onClick={() => setConfirmingDeleteTag(null)}
-                className="rounded-md px-3 py-1.5 text-xs text-muted hover:bg-surface-muted"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={confirmDelete}
-                disabled={deleting}
-                className="rounded-md bg-red-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-700 disabled:opacity-40"
-              >
-                {deleting ? "Deleting…" : "Delete tag"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <ConfirmDialog
+        open={!!confirmingDeleteTag}
+        title={`Delete tag "${confirmingDeleteTag ?? ""}"?`}
+        message="This removes the tag from every photo that has it. The photos themselves aren't affected, only the tag goes away."
+        confirmLabel="Delete tag"
+        danger
+        busy={deleting}
+        onConfirm={() => void confirmDelete()}
+        onCancel={() => setConfirmingDeleteTag(null)}
+      />
     </div>
   );
 }

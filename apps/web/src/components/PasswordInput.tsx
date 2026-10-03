@@ -1,9 +1,6 @@
 import { useState } from "react";
 
-// A plain password <input> with a show/hide toggle — every password field in the app
-// (login/setup, reset, settings) previously had no way to check what you'd actually typed
-// before submitting, which is exactly the kind of thing a typo in a brand-new account's
-// password turns into a locked-out first run.
+// A password input with a show/hide toggle, so a typo in a new password can be caught before submitting.
 export default function PasswordInput({
   value,
   onChange,

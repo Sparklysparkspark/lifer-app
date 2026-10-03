@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import type { AlbumPhoto, CollectionItem, QuadSlot } from "@lifer/shared";
 import { api, ApiError } from "../api/client";
@@ -24,6 +24,19 @@ import FilterPopover, { FilterFieldLabel } from "../components/FilterPopover";
 import SegmentedControl from "../components/SegmentedControl";
 import SelectModeToggle from "../components/SelectModeToggle";
 import { usePersistedState } from "../hooks/usePersistedState";
+import { useSelectMode } from "../hooks/useSelectMode";
+import { useToast } from "../hooks/useToast";
+import Button from "../components/Button";
+import FormMessage from "../components/FormMessage";
+import { formatDate } from "../lib/formatDate";
+
+const SHARE_EXPIRY_OPTIONS = [
+  { value: "never", label: "Never", days: null },
+  { value: "1", label: "1 day", days: 1 },
+  { value: "7", label: "7 days", days: 7 },
+  { value: "30", label: "30 days", days: 30 },
+] as const;
+type ShareExpiry = (typeof SHARE_EXPIRY_OPTIONS)[number]["value"];
 
 type AlbumView = "gallery" | "species";
 
@@ -59,16 +72,8 @@ export default function AlbumDetailPage() {
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const [thumbSizePx, setThumbSizePx] = usePhotoGridSize();
   const [showLabels, setShowLabels] = useShowLabels();
-  // Same sort options as GalleryPage — unrated sits at a middle 3 for the rating sorts, same
-  // reasoning as Gallery's own (unrated isn't BAD, just unrated). Client-side: an album's whole
-  // item list is already loaded in one shot (no pagination to re-fetch against), so there's no
-  // need for a server round-trip just to reorder what's already here.
+  // Sorting and filtering are client-side since the whole album loads at once. Unrated sorts as 3.
   const [sortBy, setSortBy] = usePersistedState<"newest" | "oldest" | "ratingHigh" | "ratingLow">("albumSortBy", "newest");
-  // Same Filters popover shape as Gallery — a 3-way Media type control (only shown if this album
-  // actually has a video in it, same "don't offer a filter for something that can't exist here"
-  // reasoning as Gallery's own), a RAW files control, a Top Rated toggle, and a collapsed date
-  // range. Everything here is client-side (the whole album's item list is already loaded in one
-  // shot), unlike Gallery's own server-side filters.
   const [mediaFilter, setMediaFilter] = usePersistedState<"both" | "photos" | "videos">("albumMediaFilter", "photos");
   const [rawFilter, setRawFilter] = usePersistedState<"any" | "with" | "without">("albumRawFilter", "without");
   const [onlyTopRated, setOnlyTopRated] = useState(false);
@@ -80,25 +85,12 @@ export default function AlbumDetailPage() {
   const [view, setView] = useState<AlbumView>("gallery");
   const [speciesItems, setSpeciesItems] = useState<CollectionItem[] | null>(null);
   const [croppingCoverPhotoUrl, setCroppingCoverPhotoUrl] = useState<string | null>(null);
-  // The Single/Quad cover-style toggle (and, in quad mode, per-tile pick/crop controls) only
-  // shows up once you actually ask to edit the cover — otherwise it's permanent chrome sitting
-  // above the photo grid, arguably more useful for a settings dialog than the album's main view.
+  // Cover controls and the edit toolbar stay hidden until asked for, keeping the grid uncluttered.
   const [editingCover, setEditingCover] = useState(false);
-  // "Edit Album" declutters the default view — Add Photos and Edit Cover (previously always-on
-  // chrome sitting right above the photo grid) now only show up once the user actually asks to
-  // edit something about the album, same idea as editingCover already had for the cover controls
-  // specifically, just one level up.
   const [editMode, setEditMode] = useState(false);
-  const [selectMode, setSelectMode] = useState(false);
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  // "Import Album" mirrors Trips' own "point at your own hand-sorted photos" import - reuses the
-  // exact same PhotoImportRows component Trip's Build-a-Trip mode already does, just with an
-  // albumId instead of a tripId (see that component's own comment on the difference: an album
-  // has no dedicated folder of its own, so this only ever links the new capture into the album,
-  // never changes where the file is stored). One region picker for the whole batch, same as
-  // every other PhotoImportRows caller - a hand-sorted album is most likely still one country.
+  // Imports link new captures into the album; files stay wherever the library stores them.
   const [showImportPanel, setShowImportPanel] = useState(false);
-  // Which quad tile (0-3) is mid pick-a-photo or crop — only one at a time.
+  // Which quad tile (0-3) is mid pick-a-photo or crop; only one at a time.
   const [pickingQuadSlot, setPickingQuadSlot] = useState<number | null>(null);
   const [croppingQuadSlot, setCroppingQuadSlot] = useState<number | null>(null);
 
@@ -108,7 +100,33 @@ export default function AlbumDetailPage() {
   const [sharePassword, setSharePassword] = useState("");
   const [shareAllowDownload, setShareAllowDownload] = useState(false);
   const [shareShowMetadata, setShareShowMetadata] = useState(false);
+  const [shareExpiry, setShareExpiry] = useState<ShareExpiry>("never");
   const [shareError, setShareError] = useState<string | null>(null);
+  const toast = useToast();
+
+  // Slides and the grid both derive from this array so the shared lightbox index stays correct.
+  const sortedItems = useMemo(() => {
+    if (!album) return [];
+    const sorted =
+      sortBy === "newest"
+        ? album.items
+        : [...album.items].sort((a, b) => {
+            if (sortBy === "oldest") {
+              return (a.takenAt ? new Date(a.takenAt).getTime() : 0) - (b.takenAt ? new Date(b.takenAt).getTime() : 0);
+            }
+            const ratingA = a.qualityRating ?? 3;
+            const ratingB = b.qualityRating ?? 3;
+            return sortBy === "ratingHigh" ? ratingB - ratingA : ratingA - ratingB;
+          });
+    return sorted
+      .filter((item) => mediaFilter === "both" || (mediaFilter === "videos" ? item.kind === "video" : item.kind !== "video"))
+      .filter((item) => rawFilter === "any" || (rawFilter === "with" ? item.hasRawOriginal : !item.hasRawOriginal))
+      .filter((item) => !onlyTopRated || item.qualityRating === 5)
+      .filter((item) => !dateFrom || !item.takenAt || item.takenAt >= dateFrom)
+      .filter((item) => !dateTo || !item.takenAt || item.takenAt <= `${dateTo}T23:59:59`);
+  }, [album, sortBy, mediaFilter, rawFilter, onlyTopRated, dateFrom, dateTo]);
+  const select = useSelectMode(sortedItems, (item) => item.captureId);
+  const { selectMode, selectedIds, dragPreviewIds, dragProps } = select;
 
   function load() {
     if (!id) return;
@@ -123,43 +141,71 @@ export default function AlbumDetailPage() {
 
   useEffect(() => {
     if (!id || view !== "species") return;
-    api.get<{ items: CollectionItem[] }>(`/albums/${id}/species`).then((res) => setSpeciesItems(res.items));
-  }, [id, view]);
+    let cancelled = false;
+    api
+      .get<{ items: CollectionItem[] }>(`/albums/${id}/species`)
+      .then((res) => {
+        if (!cancelled) setSpeciesItems(res.items);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setSpeciesItems([]);
+        toast.error("Couldn't load this album's species.");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [id, view, toast]);
 
   function loadShares() {
     if (!id) return;
-    api.get<{ shares: ShareLink[] }>(`/albums/${id}/shares`).then((res) => setShares(res.shares));
+    api
+      .get<{ shares: ShareLink[] }>(`/albums/${id}/shares`)
+      .then((res) => setShares(res.shares))
+      .catch(() => toast.error("Couldn't load share links."));
+  }
+
+  // Runs an album PATCH, toasts on failure, then reloads. Crop saves skip this so CardCropEditor
+  // can show the error and stay open.
+  async function saveAndReload(request: () => Promise<unknown>, failure: string) {
+    try {
+      await request();
+    } catch {
+      toast.error(failure);
+    }
+    load();
   }
 
   async function removeFromAlbum(captureId: string) {
-    if (!id || !album) return;
-    setAlbum({ ...album, items: album.items.filter((i) => i.captureId !== captureId) });
-    await api.delete(`/albums/${id}/captures/${captureId}`);
+    if (!id) return;
+    setAlbum((a) => (a ? { ...a, items: a.items.filter((i) => i.captureId !== captureId) } : a));
+    try {
+      await api.delete(`/albums/${id}/captures/${captureId}`);
+    } catch {
+      toast.error("Couldn't remove this photo from the album.");
+      load();
+    }
   }
 
   async function saveName(name: string) {
     if (!id || !name) return;
-    await api.patch(`/albums/${id}`, { name });
-    load();
+    await saveAndReload(() => api.patch(`/albums/${id}`, { name }), "Couldn't rename this album.");
   }
 
   async function saveDescription(description: string) {
     if (!id) return;
-    await api.patch(`/albums/${id}`, { description });
-    load();
+    await saveAndReload(() => api.patch(`/albums/${id}`, { description }), "Couldn't save the description.");
   }
 
   async function setCoverLayout(coverLayout: "single" | "quad") {
     if (!id) return;
-    await api.patch(`/albums/${id}`, { coverLayout });
-    load();
+    await saveAndReload(() => api.patch(`/albums/${id}`, { coverLayout }), "Couldn't change the cover style.");
   }
 
   async function setCoverPhoto(photoId: string) {
     if (!id) return;
     setOpenMenuKey(null);
-    await api.patch(`/albums/${id}`, { coverPhotoId: photoId });
-    load();
+    await saveAndReload(() => api.patch(`/albums/${id}`, { coverPhotoId: photoId }), "Couldn't set the album cover.");
   }
 
   async function saveCoverCrop(crop: { x: number; y: number; size: number }) {
@@ -177,17 +223,13 @@ export default function AlbumDetailPage() {
   async function setQuadSlotPhoto(slot: number, photoId: string | null) {
     if (!id) return;
     setPickingQuadSlot(null);
-    await api.patch(`/albums/${id}/quad-slot`, { slot, photoId });
-    load();
+    await saveAndReload(() => api.patch(`/albums/${id}/quad-slot`, { slot, photoId }), "Couldn't change this cover tile.");
   }
 
   async function saveQuadSlotCrop(slot: number, crop: { x: number; y: number; size: number }) {
     if (!id) return;
-    // Also (re-)pins this slot to the photo currently shown in it — the tile being cropped is
-    // often just an auto-picked fallback the user never explicitly chose, and saving a crop
-    // without confirming the photo too would leave it attached to whatever (possibly stale or
-    // unset) photo the slot was previously configured for, which the resolver then discards as
-    // a mismatch the next time it loads.
+    // Pins the slot to the photo shown, which may be an auto-picked fallback; otherwise the
+    // resolver would discard the crop as a mismatch on the next load.
     const photoId = album?.quadSlots[slot]?.photoId ?? null;
     await api.patch(`/albums/${id}/quad-slot`, { slot, photoId, crop });
     load();
@@ -199,16 +241,18 @@ export default function AlbumDetailPage() {
     load();
   }
 
-  async function createShare(e: React.FormEvent) {
+  async function createShare(e: FormEvent) {
     e.preventDefault();
     if (!id) return;
     setCreatingShare(true);
     setShareError(null);
+    const days = SHARE_EXPIRY_OPTIONS.find((o) => o.value === shareExpiry)?.days ?? null;
     try {
       await api.post(`/albums/${id}/shares`, {
         password: sharePassword.trim() || undefined,
         allowDownload: shareAllowDownload,
         showMetadata: shareShowMetadata,
+        expiresAt: days ? new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString() : null,
       });
       setSharePassword("");
       loadShares();
@@ -220,48 +264,36 @@ export default function AlbumDetailPage() {
   }
 
   async function revokeShare(shareId: string) {
-    await api.delete(`/shares/${shareId}`);
+    try {
+      await api.delete(`/shares/${shareId}`);
+    } catch {
+      toast.error("Couldn't revoke this share link.");
+    }
     loadShares();
+  }
+
+  function copyShareUrl(url: string) {
+    // navigator.clipboard is missing on plain-http origins, e.g. a server reached over the LAN.
+    (navigator.clipboard?.writeText(url) ?? Promise.reject()).then(
+      () => toast.success("Link copied"),
+      () => toast.error("Couldn't copy the link."),
+    );
   }
 
   if (loadError) {
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center gap-3">
+      <div className="flex flex-1 flex-col items-center justify-center gap-3">
         <p className="text-muted">Couldn't load this album.</p>
-        <button onClick={load} className="text-sm text-ink underline">
+        <Button variant="secondary" size="sm" onClick={load}>
           Retry
-        </button>
+        </Button>
       </div>
     );
   }
   if (!album) return <LoadingScreen />;
 
-  // A copy, sorted per sortBy — slides and the masonry grid below both derive from this SAME
-  // array so the lightbox index they share stays correct under any sort order, same reasoning
-  // as SpeciesDetailPage's own photo sort.
   const hasVideoInAlbum = album.items.some((i) => i.kind === "video");
-  const sortedItems = (
-    sortBy === "newest"
-      ? album.items
-      : [...album.items].sort((a, b) => {
-          if (sortBy === "oldest") {
-            return (a.takenAt ? new Date(a.takenAt).getTime() : 0) - (b.takenAt ? new Date(b.takenAt).getTime() : 0);
-          }
-          const ratingA = a.qualityRating ?? 3;
-          const ratingB = b.qualityRating ?? 3;
-          return sortBy === "ratingHigh" ? ratingB - ratingA : ratingA - ratingB;
-        })
-  )
-    .filter((item) => mediaFilter === "both" || (mediaFilter === "videos" ? item.kind === "video" : item.kind !== "video"))
-    .filter((item) => rawFilter === "any" || (rawFilter === "with" ? item.hasRawOriginal : !item.hasRawOriginal))
-    .filter((item) => !onlyTopRated || item.qualityRating === 5)
-    .filter((item) => !dateFrom || !item.takenAt || item.takenAt >= dateFrom)
-    .filter((item) => !dateTo || !item.takenAt || item.takenAt <= `${dateTo}T23:59:59`);
-
-  // mediaFilter/rawFilter are persisted layout preferences, not counted here — see Gallery's
-  // own matching comment.
-  // mediaFilter/rawFilter still count toward the badge when off their own default preset
-  // ("photos"/"without") — see Gallery's own matching comment.
+  // Media and RAW filters count toward the badge only when off their default preset.
   const activeFilterCount =
     (onlyTopRated ? 1 : 0) +
     (mediaFilter !== "photos" ? 1 : 0) +
@@ -285,7 +317,7 @@ export default function AlbumDetailPage() {
   }));
 
   return (
-    <div className="min-h-screen bg-canvas">
+    <div className="flex-1 bg-canvas">
       <PageHeader
         sticky
         title={
@@ -347,7 +379,7 @@ export default function AlbumDetailPage() {
                     </div>
                     <label className="flex items-center gap-1.5 text-xs text-ink">
                       <input type="checkbox" checked={onlyTopRated} onChange={(e) => setOnlyTopRated(e.target.checked)} className="accent-ink" />
-                      Top Rated
+                      Top rated
                     </label>
                     <div>
                       <FilterFieldLabel>Date</FilterFieldLabel>
@@ -388,8 +420,6 @@ export default function AlbumDetailPage() {
                     </label>
                   </div>
                 </FilterPopover>
-                {/* Same Size slider every other photo grid (Gallery, species detail, Trip) already
-                   has — this page was the one place missing it. */}
                 <label className="flex items-center gap-1.5 text-xs text-muted">
                   Size
                   <input
@@ -405,28 +435,20 @@ export default function AlbumDetailPage() {
                 </label>
                 <SelectModeToggle
                   active={selectMode}
-                  onEnter={() => setSelectMode(true)}
-                  onExit={() => {
-                    setSelectMode(false);
-                    setSelectedIds(new Set());
-                  }}
+                  onEnter={() => select.setSelectMode(true)}
+                  onExit={select.exit}
                 />
               </>
             )}
-            {/* "Edit Album" declutters the default view — Add Photos and Edit Cover only show up
-               once this is on, instead of always sitting in the toolbar/above the grid. */}
             <button
               onClick={() => setEditMode((v) => !v)}
               className={`rounded-md border px-3 py-1.5 text-sm font-medium ${
                 editMode ? "border-ink bg-surface-muted text-ink" : "border-line text-ink hover:bg-surface-muted"
               }`}
             >
-              {editMode ? "Done editing" : "Edit Album"}
+              {editMode ? "Done editing" : "Edit album"}
             </button>
-            {/* Sharing only makes sense in server/self-hosted mode — desktop runs on localhost
-               with no public URL to hand out, and SINGLE_USER_MODE has no real session system
-               underneath the owner-side management endpoints to protect (see the plan this was
-               built from). */}
+            {/* Desktop has no public URL to share, so sharing is server mode only. */}
             {isServerMode && (
               <button
                 onClick={() => {
@@ -456,7 +478,7 @@ export default function AlbumDetailPage() {
               to={`/gallery?select=1&albumId=${album.id}`}
               className="rounded-md border border-line px-3 py-1.5 text-sm font-medium text-ink hover:bg-surface-muted"
             >
-              Add Photos
+              Add photos
             </Link>
             <button
               onClick={() => setEditingCover((v) => !v)}
@@ -464,10 +486,10 @@ export default function AlbumDetailPage() {
                 editingCover ? "border-ink bg-surface-muted text-ink" : "border-line text-ink hover:bg-surface-muted"
               }`}
             >
-              {editingCover ? "Done editing cover" : "Edit Cover"}
+              {editingCover ? "Done editing cover" : "Edit cover"}
             </button>
             <button onClick={() => setShowImportPanel((v) => !v)} className="rounded-md border border-line px-3 py-1.5 text-sm font-medium text-ink hover:bg-surface-muted">
-              Import Album
+              Import album
             </button>
           </div>
         )}
@@ -510,45 +532,50 @@ export default function AlbumDetailPage() {
                 </label>
                 <p className="mt-0.5 pl-6 text-xs text-muted">Location data is never included in a shared link, regardless of this setting.</p>
               </div>
-              {shareError && <p className="text-sm text-red-600">{shareError}</p>}
-              <button
-                type="submit"
-                disabled={creatingShare}
-                className="rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-accent-fg disabled:opacity-50"
-              >
+              <Select label="Link expires" value={shareExpiry} onChange={(e) => setShareExpiry(e.target.value as ShareExpiry)}>
+                {SHARE_EXPIRY_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </Select>
+              <FormMessage error={shareError} />
+              <Button type="submit" size="sm" loading={creatingShare}>
                 {creatingShare ? "Creating…" : "Create share link"}
-              </button>
+              </Button>
             </form>
 
             {shares && shares.length > 0 && (
               <ul className="space-y-2">
                 {shares.map((share) => {
                   const url = `${window.location.origin}/share/${share.token}`;
+                  const expired = !!share.expiresAt && new Date(share.expiresAt).getTime() < Date.now();
                   return (
                     <li
                       key={share.id}
                       className={`flex items-center justify-between gap-2 rounded-md border border-line bg-surface p-2 text-sm ${
-                        share.revoked ? "opacity-50" : ""
+                        share.revoked || expired ? "opacity-50" : ""
                       }`}
                     >
                       <div className="min-w-0">
-                        <p className="truncate">{share.revoked ? "Revoked" : url}</p>
+                        <p className="truncate">{share.revoked ? "Revoked" : expired ? "Expired" : url}</p>
                         <p className="text-xs text-muted">
                           {share.hasPassword ? "Password-protected" : "No password"}
                           {share.allowDownload ? " · Downloads allowed" : ""}
+                          {share.expiresAt && !expired ? ` · Expires ${formatDate(share.expiresAt, "medium")}` : ""}
                         </p>
                       </div>
-                      {!share.revoked && (
+                      {!share.revoked && !expired && (
                         <div className="flex shrink-0 gap-2">
                           <button
-                            onClick={() => navigator.clipboard.writeText(url)}
+                            onClick={() => copyShareUrl(url)}
                             className="rounded-md border border-line px-2 py-1 text-xs hover:bg-surface-muted"
                           >
                             Copy
                           </button>
                           <button
                             onClick={() => revokeShare(share.id)}
-                            className="rounded-md border border-line px-2 py-1 text-xs text-red-600 hover:bg-surface-muted"
+                            className="rounded-md border border-line px-2 py-1 text-xs text-red-600 hover:bg-surface-muted dark:text-red-400"
                           >
                             Revoke
                           </button>
@@ -640,6 +667,7 @@ export default function AlbumDetailPage() {
                               <img
                                 src={`/api/photos/${slot.photoId}/thumb`}
                                 alt=""
+                                loading="lazy"
                                 className="h-full w-full object-cover"
                                 style={cropToImageStyle(slot.cropX, slot.cropY, slot.cropSize)}
                               />
@@ -676,10 +704,10 @@ export default function AlbumDetailPage() {
                 <button
                   onClick={async () => {
                     const ids = [...selectedIds];
-                    setSelectedIds(new Set());
+                    select.clear();
                     for (const captureId of ids) await removeFromAlbum(captureId);
                   }}
-                  className="text-red-600 hover:underline"
+                  className="text-red-600 hover:underline dark:text-red-400"
                 >
                   Remove from album
                 </button>
@@ -701,15 +729,10 @@ export default function AlbumDetailPage() {
                     alt={item.commonName || item.scientificName}
                     onOpen={() => (pickingQuadSlot != null ? setQuadSlotPhoto(pickingQuadSlot, item.photoId) : setLightboxIndex(i))}
                     selectMode={selectMode}
-                    selected={selectedIds.has(item.captureId)}
-                    onToggleSelect={() =>
-                      setSelectedIds((prev) => {
-                        const next = new Set(prev);
-                        if (next.has(item.captureId)) next.delete(item.captureId);
-                        else next.add(item.captureId);
-                        return next;
-                      })
-                    }
+                    selected={selectedIds.has(item.captureId) || (dragPreviewIds?.has(item.captureId) ?? false)}
+                    onToggleSelect={(shiftKey) => select.toggle(item.captureId, i, shiftKey)}
+                    onDragSelectStart={() => dragProps.onDragSelectStart(i)}
+                    onDragSelectEnter={() => dragProps.onDragSelectEnter(i)}
                     aspectRatio={aspectRatio}
                     kind={item.kind}
                     durationSeconds={item.durationSeconds != null ? Number(item.durationSeconds) : null}
@@ -717,7 +740,7 @@ export default function AlbumDetailPage() {
                     onToggleMenu={() => setOpenMenuKey(openMenuKey === item.photoId ? null : item.photoId)}
                     menuRef={openMenuRef}
                     menuContent={
-                      <div className="absolute right-0 top-full z-10 mt-1 w-44 rounded-md border border-line bg-surface py-1 shadow-lg">
+                      openMenuKey === item.photoId && <div className="absolute right-0 top-full z-10 mt-1 w-44 rounded-md border border-line bg-surface py-1 shadow-lg">
                         {item.speciesId && (
                           <Link
                             to={`/species/${item.speciesId}`}
@@ -745,9 +768,7 @@ export default function AlbumDetailPage() {
                             Adjust position
                           </button>
                         )}
-                        {/* Same photo-management options every other surface (Gallery, species
-                           detail, Trip) already offers - hidden when the only original on file
-                           IS the RAW, same gate those surfaces already use. */}
+                        {/* Hidden when the only original on file is the RAW. */}
                         {item.originalRef && item.originalKind !== "raw" && (
                           <button
                             onClick={() => {
@@ -775,7 +796,7 @@ export default function AlbumDetailPage() {
                             removeFromAlbum(item.captureId);
                             setOpenMenuKey(null);
                           }}
-                          className="block w-full px-3 py-1.5 text-left text-xs text-red-600 hover:bg-surface-muted"
+                          className="block w-full px-3 py-1.5 text-left text-xs text-red-600 hover:bg-surface-muted dark:text-red-400"
                         >
                           Remove from album
                         </button>

@@ -1,58 +1,47 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { api, ApiError } from "../api/client";
+import Button from "../components/Button";
 
-export default function ForgotPasswordPage() {
-  const [email, setEmail] = useState("");
-  const [submitted, setSubmitted] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
+const COMMANDS = [
+  { label: "Docker", command: "docker compose exec api lifer-admin reset-password" },
+  { label: "TrueNAS", intro: "Open Apps, select Lifer, click Shell on the lifer container, then run:", command: "lifer-admin reset-password" },
+];
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setError(null);
-    setSubmitting(true);
+function CommandBlock({ command }: { command: string }) {
+  const [copied, setCopied] = useState(false);
+  async function copy() {
     try {
-      await api.post("/auth/forgot-password", { email });
-      // Same response whether or not the account exists — see auth/routes.ts's comment on
-      // /auth/forgot-password — so this message stays generic no matter what.
-      setSubmitted(true);
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Something went wrong");
-    } finally {
-      setSubmitting(false);
+      await navigator.clipboard.writeText(command);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Clipboard access can be blocked on plain http; the command stays selectable.
     }
   }
+  return (
+    <div className="flex items-center gap-2 rounded-md bg-surface-muted px-3 py-2">
+      <code className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap text-xs text-ink">{command}</code>
+      <Button type="button" variant="ghost" size="sm" onClick={copy} aria-label={`Copy ${command}`}>
+        {copied ? "Copied" : "Copy"}
+      </Button>
+    </div>
+  );
+}
 
+// Recovery needs a shell on the server, which is what proves you run it. There is no email reset.
+export default function ForgotPasswordPage() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-canvas">
       <div className="w-full max-w-sm space-y-4 rounded-xl border border-line bg-surface p-8 shadow-sm">
-        <h1 className="text-xl font-semibold text-ink">Reset your password</h1>
-        {submitted ? (
-          <p className="text-sm text-muted">
-            If an account with that email exists, a password reset link has been sent.
-          </p>
-        ) : (
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <p className="text-sm text-muted">Enter your account email and we'll send a reset link.</p>
-            <input
-              type="email"
-              placeholder="Email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-              className="w-full rounded-md border border-line px-3 py-2 text-sm"
-            />
-            {error && <p className="text-sm text-red-600">{error}</p>}
-            <button
-              type="submit"
-              disabled={submitting}
-              className="w-full rounded-md bg-accent py-2 text-sm font-medium text-accent-fg disabled:opacity-50"
-            >
-              Send reset link
-            </button>
-          </form>
-        )}
+        <h1 className="text-xl font-semibold text-ink">Forgot your password?</h1>
+        <p className="text-sm text-muted">Run this in a shell on the server, then sign in with the new password.</p>
+        {COMMANDS.map(({ label, intro, command }) => (
+          <div key={label} className="space-y-2">
+            <h2 className="text-sm font-medium text-ink">{label}</h2>
+            {intro && <p className="text-sm text-muted">{intro}</p>}
+            <CommandBlock command={command} />
+          </div>
+        ))}
         <Link to="/login" className="block text-center text-sm text-muted hover:underline">
           Back to login
         </Link>

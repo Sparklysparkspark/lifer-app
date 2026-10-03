@@ -5,24 +5,14 @@ import { useTheme } from "../hooks/useTheme";
 import { useMapAvailable } from "../hooks/useMapAvailable";
 import { ensurePmtilesProtocol, pmtilesStyle } from "../lib/pmtiles";
 
-// Species detail is a sibling route (see App.tsx/CollectionPage.tsx's own comment on the same
-// issue for its item list), so leaving a region page and coming back destroys this whole
-// component and recreates a brand new MapLibre instance from scratch — replaying the
-// zoom/pan-into-place animation every single time, even though the user was just looking at
-// this exact view seconds ago. Persisting the last camera position per region (module-scoped,
-// survives remounts) and initializing the new map instance there directly — skipping
-// fitBounds' animation entirely when a cached shot already exists — fixes that without needing
-// to keep the map instance itself alive across an unmount it has no way to avoid.
+// Opening a species unmounts the collection, so the last camera per region is kept at module
+// scope and a remount starts there instead of replaying the fit-to-bounds animation.
 const lastCameraByRegion = new Map<string, { center: [number, number]; zoom: number }>();
 
 export default function RegionMap({ boundaryGeoJson, regionKey }: { boundaryGeoJson: unknown; regionKey?: string }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapAvailable = useMapAvailable();
-  // The basemap style was hardcoded to Protomaps' "light" flavor regardless of app theme — in
-  // dark mode its land/water/road colors are all pale tones tuned to sit against a light page,
-  // rendering pale-on-pale (barely visible) with only our own boundary overlay (a fixed dark
-  // fill, unrelated to this flavor) standing out. Matching the flavor to the app's own theme
-  // is the fix, not a rendering bug to chase further.
+  // The basemap flavor follows the app theme; the light flavor is unreadable in dark mode.
   const { theme } = useTheme();
 
   useEffect(() => {
@@ -36,9 +26,7 @@ export default function RegionMap({ boundaryGeoJson, regionKey }: { boundaryGeoJ
       ...(cachedCamera ? { center: cachedCamera.center, zoom: cachedCamera.zoom } : {}),
       style: pmtilesStyle(theme === "dark" ? "dark" : "light"),
       interactive: true,
-      // Collapsed to the small "i" toggle by default — the full "MapLibre | © OpenMapTiles..."
-      // bar otherwise opens expanded on every load, permanently covering map content in the
-      // corner until a user notices there's something to click to close it.
+      // Compact so the attribution bar doesn't open expanded over the map.
       attributionControl: { compact: true },
     });
 
@@ -58,7 +46,6 @@ export default function RegionMap({ boundaryGeoJson, regionKey }: { boundaryGeoJ
         paint: { "line-color": "#1c1917", "line-width": 2 },
       });
 
-      // Fit the map to the boundary's bounding box.
       const bounds = new LngLatBounds();
       const extend = (coords: unknown): void => {
         if (Array.isArray(coords) && typeof coords[0] === "number") {
@@ -68,14 +55,8 @@ export default function RegionMap({ boundaryGeoJson, regionKey }: { boundaryGeoJ
         }
       };
       extend(feature.geometry.coordinates);
-      // Only fly-to-fit on a region's FIRST-ever view this session — once cached, the
-      // constructor's own center/zoom above already put the camera in the right place with no
-      // animation, and re-fitting here on every mount is exactly the "starts zoomed out and
-      // re-animates in" behavior this cache exists to avoid.
+      // Only fit on a region's first view this session; capped at the archive's max zoom.
       if (!cachedCamera) {
-        // Capped at the archive's own max zoom (8) — a small region would otherwise fit tight
-        // enough to zoom in well past that, just enlarging the same z8 tile pixels rather than
-        // showing any real extra detail.
         map.fitBounds(bounds, { padding: 24, maxZoom: 8 });
       }
     });
@@ -89,10 +70,7 @@ export default function RegionMap({ boundaryGeoJson, regionKey }: { boundaryGeoJ
     return () => map.remove();
   }, [boundaryGeoJson, mapAvailable, regionKey, theme]);
 
-  // The map is an opt-in download (see SettingsPage.tsx's MapSection) that most installs
-  // won't have — rather than a placeholder box explaining that on every region page, this
-  // whole component just isn't part of the layout when there's nothing to show. `null` (still
-  // checking) is treated the same as `false` here so nothing flashes a box then removes it.
+  // The basemap is an opt-in download; with none (or still checking) the map takes no space.
   if (!boundaryGeoJson || !mapAvailable) return null;
 
   return <div ref={containerRef} className="h-80 w-full rounded-lg border border-line" />;

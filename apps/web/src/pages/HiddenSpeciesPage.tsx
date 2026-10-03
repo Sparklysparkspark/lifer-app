@@ -7,6 +7,9 @@ import { Spinner } from "../components/LoadingScreen";
 import PhotoPlaceholder from "../components/PhotoPlaceholder";
 import SearchInput from "../components/SearchInput";
 import RegionPicker from "../components/RegionPicker";
+import EmptyState from "../components/EmptyState";
+import { useConfirm } from "../hooks/useConfirm";
+import { useToast } from "../hooks/useToast";
 
 const HIDDEN_INFO_PARAGRAPHS = [
   "Hiding a species from a region only removes it from that region's own checklist. Its global record, photos, and history are untouched, and any other region it's also found on still shows it normally.",
@@ -31,29 +34,21 @@ interface HiddenResponse {
   items: HiddenItem[];
 }
 
-// Management view for species hidden via SpeciesCard's "Hide from this region" action
-// (region_species_hidden, migration 100). Navigation is the SAME breadcrumb + flat "Drill in:"
-// pill row RegionBrowser.tsx uses for the import flow's own region picker — one level of pills
-// at a time, navigated into via the breadcrumb — and it's the ONLY pill-like surface on this
-// page. Earlier drafts also rendered a country-grouped SECTION below the pills (its own header
-// repeating "Canada (2)" right under a "Canada (2)" pill that already said the same thing) —
-// that's gone; the list below is always just one flat grid matching whatever scope the
-// breadcrumb is currently on.
+// Species hidden with a card's "Hide from this region". Navigation is the same breadcrumb and
+// one-level "Drill in" pills as RegionBrowser; the grid below always matches the current scope.
 export default function HiddenSpeciesPage() {
   const [data, setData] = useState<HiddenResponse | null>(null);
   const [loadError, setLoadError] = useState(false);
   const [busyIds, setBusyIds] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
   const [search, setSearch] = useState("");
-  // openCountryId is "which country the breadcrumb has drilled into" (also narrows the list to
-  // that whole country); selectedRegionId narrows further to one specific province picked from
-  // that country's own drill-in row (or "just the country level" via a synthetic leaf — see
-  // countryGroups below).
+  const confirm = useConfirm();
+  const toast = useToast();
+  // openCountryId: the country drilled into (narrows to all of it). selectedRegionId: one
+  // province within it, or the country's own "Whole country" leaf.
   const [openCountryId, setOpenCountryId] = useState<string | null>(null);
   const [selectedRegionId, setSelectedRegionId] = useState<string | null>(null);
-  // Only auto-drill into a single country once, right after the page's first load — not on
-  // every refetch after a hide/unhide action, which would yank the user back in even after
-  // they'd deliberately backed out to "All countries".
+  // Auto-drill into a lone country only on first load, not on every refetch after an unhide.
   const autoOpenedRef = useRef(false);
 
   function openCountry(id: string) {
@@ -61,16 +56,14 @@ export default function HiddenSpeciesPage() {
     setSelectedRegionId(null);
   }
 
+  // A refetch after an unhide keeps the current grid up instead of flashing a spinner.
   function load() {
     setLoadError(false);
-    setData(null);
     api
       .get<HiddenResponse>("/regions/hidden-species")
       .then((res) => {
         setData(res);
-        // Most users only ever have species hidden under one country — starting at "All
-        // countries" when there's only ever going to be one option to pick is a pointless
-        // extra click every time this page loads.
+        // With species hidden under only one country, "All countries" would be a wasted click.
         if (!autoOpenedRef.current) {
           autoOpenedRef.current = true;
           const countryIds = [...new Set(res.items.map((i) => i.countryId).filter((id): id is string => !!id))];
@@ -82,11 +75,7 @@ export default function HiddenSpeciesPage() {
 
   useEffect(load, []);
 
-  // One entry per country that actually has a hidden species somewhere under it (itself or one
-  // of its provinces) — a country with nothing hidden never appears. Provinces are looked up
-  // separately, per country, only once that country is actually opened — a country with a dozen
-  // provinces stays a single top-level pill until drilled into, same as RegionBrowser only ever
-  // fetching/showing ONE level's children at a time.
+  // One entry per country with something hidden under it; its provinces only show once opened.
   const countryGroups = useMemo(() => {
     if (!data) return [];
     const byId = new Map<
@@ -106,12 +95,8 @@ export default function HiddenSpeciesPage() {
         g = { id: item.countryId, name: item.countryName, speciesIds: new Set(), countryLevelCount: 0, provinces: new Map() };
         byId.set(item.countryId, g);
       }
-      // A species cascade-hidden from the whole country still gets its own real row at every
-      // province underneath it (see the hide endpoint's own comment) — that's deliberate, since
-      // it's what lets a user later unhide it from just ONE province without touching the rest.
-      // The count on a province's own pill below reflects that full, real total — including
-      // cascade-inherited species, not just ones chosen specifically at that province — because
-      // from that province's own point of view, they genuinely are hidden there right now.
+      // A country-wide hide writes a row per province too (so one province can be unhidden
+      // alone), and a province's count includes those, since they really are hidden there.
       g.speciesIds.add(item.speciesId);
       if (item.isCountry) {
         g.countryLevelCount++;
@@ -125,8 +110,7 @@ export default function HiddenSpeciesPage() {
       .map((g) => ({
         id: g.id,
         name: g.name,
-        // Distinct species hidden ANYWHERE in this country — not a raw row count, which would
-        // double (or worse) count a cascade-hidden species once per province it also touches.
+        // Distinct species, not rows (a cascade writes one row per province).
         count: g.speciesIds.size,
         hasCountryLevel: g.countryLevelCount > 0,
         countryLevelCount: g.countryLevelCount,
@@ -137,10 +121,8 @@ export default function HiddenSpeciesPage() {
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [data]);
   const openCountryGroup = openCountryId ? countryGroups.find((g) => g.id === openCountryId) : undefined;
-  // Provinces to drill into, once a country's own pill is opened — plus a synthetic "Whole
-  // country" leaf when the country itself has directly-hidden species (not just its provinces),
-  // so that's still reachable as its own specific pick. Only ever lists provinces that actually
-  // have a hidden species — nothing else is shown.
+  // The open country's provinces with something hidden, plus a "Whole country" leaf when the
+  // country itself has direct hides.
   const openCountryProvinces = useMemo(() => {
     if (!openCountryGroup) return [];
     return [
@@ -151,8 +133,7 @@ export default function HiddenSpeciesPage() {
     ];
   }, [openCountryGroup]);
 
-  // The raw, un-deduped rows in the current scope — used for search, the total count, and bulk
-  // unhide (which must clear every underlying region row, not just what's shown as cards below).
+  // Raw rows in scope: bulk unhide must clear every underlying region row, not just the cards.
   const scopedItems = useMemo(() => {
     if (!data) return [];
     let items = data.items;
@@ -168,12 +149,8 @@ export default function HiddenSpeciesPage() {
     );
   }, [data, search, openCountryId, selectedRegionId]);
 
-  // A cascade hide writes one row per region (the country's own, plus every province) — without
-  // narrowing to one exact province, the SAME species can show up once as the country's own row
-  // and again under each province. Deduping to one card per species (preferring the country-
-  // level row, whose own Unhide button is the one that knows to ask about cascading further) is
-  // what actually avoids a pile of duplicate-looking cards. Only skipped once selectedRegionId
-  // narrows to one exact region, where every row is already a distinct species.
+  // One card per species, preferring the country-level row (its Unhide knows to ask about the
+  // provinces). Not needed once narrowed to one region.
   const displayedItems = useMemo(() => {
     if (selectedRegionId) return scopedItems;
     const seen = new Set<string>();
@@ -192,11 +169,8 @@ export default function HiddenSpeciesPage() {
   async function unhideOne(item: HiddenItem) {
     setBusyIds((prev) => new Set(prev).add(item.speciesId));
     try {
-      // Only a country-level hide can have province-level hides sitting underneath it —
-      // check first and ask, rather than either silently leaving those provinces hidden (the
-      // user has to notice and clean them up one at a time) or silently unhiding them too
-      // (surprising, and the opposite of hiding's own automatic-cascade behavior, which is
-      // deliberately asymmetric here — see this page's own info tip).
+      // A country-level unhide asks about the provinces under it rather than silently leaving
+      // them hidden or silently unhiding them (hiding cascades; unhiding deliberately asks).
       let cascadeRegionIds: string[] = [];
       if (item.isCountry) {
         const res = await api.get<{ children: Array<{ regionId: string; regionName: string }> }>(
@@ -204,30 +178,40 @@ export default function HiddenSpeciesPage() {
         );
         if (res.children.length > 0) {
           const names = res.children.map((c) => c.regionName).join(", ");
-          if (confirm(`Also unhide from ${names}?`)) cascadeRegionIds = res.children.map((c) => c.regionId);
+          const alsoChildren = await confirm({
+            title: `Also unhide from ${names}?`,
+            message: `It's also hidden in ${res.children.length === 1 ? "this province" : "these provinces"}.`,
+            confirmLabel: "Unhide everywhere",
+            cancelLabel: "Only the country",
+          });
+          if (alsoChildren) cascadeRegionIds = res.children.map((c) => c.regionId);
         }
       }
       const query = cascadeRegionIds.length > 0 ? `?cascadeRegionIds=${cascadeRegionIds.join(",")}` : "";
       await api.delete(`/regions/${item.regionId}/species/${item.speciesId}/hide${query}`);
     } catch {
-      alert("Couldn't unhide that species. Try again.");
+      toast.error("Couldn't unhide that species. Try again.");
     } finally {
+      setBusyIds((prev) => {
+        const next = new Set(prev);
+        next.delete(item.speciesId);
+        return next;
+      });
       load();
     }
   }
 
-  // One combined action for the whole current scope — asking once per species in a group of
-  // dozens would be its own kind of annoying — using the raw scopedItems (every underlying
-  // region row), not the deduped cards, so a country-wide hide actually clears every province
-  // row underneath it too, not just the one card shown for it.
+  // One confirmation for the whole scope, over the raw rows so a country-wide hide also clears
+  // every province row under it.
   async function unhideScope() {
     const uniqueSpeciesCount = new Set(scopedItems.map((i) => i.speciesId)).size;
-    if (!confirm(`Unhide all ${uniqueSpeciesCount} species from "${scopeLabel}"?`)) return;
+    const ok = await confirm({ title: `Unhide all ${uniqueSpeciesCount} species from "${scopeLabel}"?`, confirmLabel: "Unhide all" });
+    if (!ok) return;
     setBulkBusy(true);
     try {
       await Promise.all(scopedItems.map((i) => api.delete(`/regions/${i.regionId}/species/${i.speciesId}/hide`)));
     } catch {
-      alert("Couldn't unhide that group. Try again.");
+      toast.error("Couldn't unhide that group. Try again.");
     } finally {
       setBulkBusy(false);
       load();
@@ -235,7 +219,7 @@ export default function HiddenSpeciesPage() {
   }
 
   return (
-    <div className="min-h-screen bg-canvas">
+    <div className="flex-1 bg-canvas">
       <PageHeader sticky
         title="Hidden species"
         backFallbackTo="/settings"
@@ -310,20 +294,17 @@ export default function HiddenSpeciesPage() {
             </div>
           )}
           {data.items.length === 0 ? (
-            <div className="flex flex-col items-center justify-center gap-3 py-24 text-center">
-              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-surface-muted">
+            <EmptyState
+              icon={
                 <svg viewBox="0 0 24 24" className="h-6 w-6 text-muted" fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round">
                   <path d="M3 3l18 18" />
                   <path d="M10.6 5.2A9.4 9.4 0 0 1 12 5c5.5 0 9 5 9 7a11 11 0 0 1-3 3.4M6.1 6.1C3.9 7.7 2.5 10 2.5 12c0 2 3.5 7 9.5 7 1.5 0 2.8-.3 4-.8" />
                   <path d="M9.9 9.9a3 3 0 0 0 4.2 4.2" />
                 </svg>
-              </div>
-              <p className="text-sm font-medium text-ink">Nothing hidden yet</p>
-              <p className="max-w-sm text-sm text-muted">
-                Use "Hide from this region" on a species card in Collections to keep a vagrant or one-off record
-                off that region's checklist without touching its global record.
-              </p>
-            </div>
+              }
+              title="Nothing hidden yet"
+              description={`Use "Hide from this region" on a species card in your collection to keep a vagrant or one-off record off that region's checklist without touching its global record.`}
+            />
           ) : displayedItems.length === 0 ? (
             <p className="text-muted">No hidden species match "{search}".</p>
           ) : (
@@ -349,12 +330,14 @@ export default function HiddenSpeciesPage() {
                           <img
                             src={item.referenceThumbUrl}
                             alt={item.commonName ?? item.scientificName}
+                            loading="lazy"
                             className="h-full w-full object-cover"
                           />
                         ) : item.referencePhoto ? (
                           <img
                             src={item.referencePhoto}
                             alt={item.commonName ?? item.scientificName}
+                            loading="lazy"
                             className="h-full w-full object-cover"
                           />
                         ) : (

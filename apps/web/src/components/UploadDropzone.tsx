@@ -1,14 +1,9 @@
 import { useRef } from "react";
 import { enqueueUploads } from "../lib/uploadQueue";
+import { PHOTO_ACCEPT, VIDEO_ACCEPT } from "../lib/photoFormats";
 
-// Simple upload control: pick one or more JPEGs/PNGs/MP4s/MOVs and queue them in "store" mode
-// (enqueueUploads itself routes video files to the separate /uploads/video endpoint). The
-// actual upload happens in the background via lib/uploadQueue — this component just enqueues
-// and gets out of the way (closing immediately), so the user can keep browsing or start
-// another upload elsewhere while these finish. Progress/errors surface via the global banner
-// (UploadQueueBanner in App.tsx), not here. RAW siblings are handled separately by RawUpload's
-// folder-based matcher (by filename + EXIF); the destination drive picker itself lives one
-// level up (VolumeDestinationPicker), shared between this and RawUpload.
+// Queues photos (JPEG, PNG, WebP, TIFF, HEIC) and videos (MP4, MOV) for background upload and
+// closes; progress shows in the global upload banner. RAWs go through RawUpload instead.
 export default function UploadDropzone({
   speciesId,
   volumeId,
@@ -17,10 +12,9 @@ export default function UploadDropzone({
   onClose,
 }: {
   speciesId: string;
-  /** Registered external drive to save into, or "" for the primary drive — see
-   *  VolumeDestinationPicker, rendered by the parent dialog above both upload controls. */
+  /** External drive to save into, or "" for the primary drive (see VolumeDestinationPicker). */
   volumeId: string;
-  /** "Build a Trip" destination override — see enqueueUploads' own tripId doc comment. */
+  /** Saves into this trip's folder (see enqueueUploads). */
   tripId?: string;
   onUploaded: () => void;
   onClose?: () => void;
@@ -33,11 +27,7 @@ export default function UploadDropzone({
       volumeId: volumeId || undefined,
       tripId,
       targetsExternalDrive: Boolean(volumeId),
-      // Refreshes after EACH photo settles, not just once the whole batch finishes — a
-      // multi-photo upload otherwise showed shrinking placeholder squares while every real
-      // photo waited to pop in all at once at the very end, instead of each one appearing as
-      // soon as its own upload was actually done. onUploaded (a plain refetch) is safe to call
-      // this often — it's just a GET, not a mutation.
+      // Refetch per file so each photo appears as soon as its own upload finishes.
       onFileSettled: onUploaded,
       onBatchSettled: onUploaded,
     });
@@ -54,7 +44,7 @@ export default function UploadDropzone({
         ref={fileInputRef}
         type="file"
         multiple
-        accept="image/jpeg,image/png,video/mp4,video/quicktime"
+        accept={`${PHOTO_ACCEPT},${VIDEO_ACCEPT}`}
         className="hidden"
         id="upload-input"
         onChange={(e) => handleUpload(Array.from(e.target.files ?? []))}

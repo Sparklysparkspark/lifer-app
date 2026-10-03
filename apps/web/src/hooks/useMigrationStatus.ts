@@ -16,9 +16,8 @@ export type MigrationStatus = JobStatus<MigrationResult> & {
   failed: number;
 };
 
-// Polled independently wherever it's used (the header indicator and the Settings migrate card)
-// since it's a cheap read of in-memory job status. The endpoint only exists on a desktop API, so
-// nothing polls until the mode is known to be desktop.
+// Polled independently wherever it's used, since it's a cheap in-memory read. The endpoint only
+// exists on a desktop API, so nothing polls until the mode is known.
 export function useMigrationStatus(pollMs = 3000): JobPoll<MigrationStatus> {
   const enabled = useDeploymentMode() === "desktop";
   return useJobPoll<MigrationStatus>("/settings/migrate-to-server/status", { intervalMs: pollMs, idleIntervalMs: pollMs, enabled });

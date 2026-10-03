@@ -2,12 +2,19 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type { RegionSummary, TaxonClass } from "@lifer/shared";
 import { taxonDisplayLabel, TAXON_GROUPS, GROUPED_TAXON_CLASSES } from "@lifer/shared";
-import { api, ApiError } from "../api/client";
+import { api } from "../api/client";
 import { Logo } from "../components/Logo";
 import RegionPicker from "../components/RegionPicker";
 import { Spinner } from "../components/LoadingScreen";
 import Pill from "../components/Pill";
+import FormMessage from "../components/FormMessage";
+import JobProgress, { type JobProgressStatus } from "../components/JobProgress";
 import type { PackEntry } from "../components/DownloadedPacksList";
+import { PACK_DOWNLOAD_PHASES, packProgressDetail, usePackDownloadJob } from "../hooks/usePackDownloadStatus";
+import { useRegions } from "../hooks/useRegions";
+import { useSettings } from "../hooks/useSettings";
+import { errorMessage } from "../lib/errorMessage";
+import { pluralize } from "../lib/pluralize";
 
 interface MapStatus {
   available: boolean;
@@ -18,23 +25,13 @@ interface MapStatus {
   error: string | null;
 }
 
-interface DownloadStatus {
-  running: boolean;
-  processed: number;
-  total: number;
-  currentPack: string | null;
-  phase?: string | null;
-  error: string | null;
-  finishedAt: number | null;
-}
+const MAP_PHASES = { downloading: { label: "Downloading the map", progress: "bytes" as const } };
 
-// Shown exactly once, right after account creation (see LoginPage.tsx's handleSubmit —
-// this is the only place that ever navigates here), before the user ever sees Collection.
-// Two mandatory steps, no "decide later" option on the second one: a brand-new account's
-// Collection page is completely empty without at least one downloaded region pack, so sending
-// someone there first (with a "go find Offline Packs yourself" expectation) is a worse first
-// run than just making pack selection the last step of setup itself. The map step (Step A) IS
-// skippable — see MapSection's own comment on why it's the one genuinely optional download here.
+// A brand-new server may still be loading its catalog: the downloaded pack waits in "preparing".
+const PACK_PHASES = { ...PACK_DOWNLOAD_PHASES, preparing: { label: "Finishing setup", progress: "none" as const } };
+
+// Shown once, right after account creation. The region pack step can't be skipped: Collection
+// is empty without one. The map and species matching steps are optional.
 export default function OnboardingPage() {
   const navigate = useNavigate();
   const [step, setStep] = useState<"map" | "matching" | "pack" | "guide">("map");
@@ -74,8 +71,7 @@ export default function OnboardingPage() {
       const res = await api.get<MapStatus>("/settings/map/status");
       setMapStatus(res);
     } catch {
-      // Best-effort — a failed map download here isn't worth blocking setup over; Settings
-      // still offers this same download later.
+      // Best effort: Settings offers the same download later.
       setStep("matching");
     } finally {
       setStartingMap(false);
@@ -87,11 +83,7 @@ export default function OnboardingPage() {
   }, [step, mapStatus, startingMap]);
 
   // --- Step A2: species matching (optional) ---
-  // Suggestions are on by default but do nothing until the species-matching models are
-  // downloaded, and that download otherwise lives on the Offline Data tab where a new user won't
-  // find it. Asked here once; "yes" starts the download and moves straight on, since it runs as a
-  // server-side job that keeps going while the user picks regions. Skipped when the models are
-  // already there or already downloading (a second account on the same server).
+  // Offered here since the model download otherwise hides in Settings. It runs server-side, so setup moves on.
   const [modelStatus, setModelStatus] = useState<{ downloaded: boolean; running: boolean } | null>(null);
   const [startingModel, setStartingModel] = useState(false);
   const [modelError, setModelError] = useState<string | null>(null);
@@ -114,77 +106,55 @@ export default function OnboardingPage() {
       await api.post("/settings/embedding-model/download");
       setStep("pack");
     } catch (err) {
-      setModelError(err instanceof ApiError ? err.message : "Couldn't start the download");
+      setModelError(errorMessage(err, "Couldn't start the download"));
     } finally {
       setStartingModel(false);
     }
   }
 
   // --- Step B: mandatory first region pack ---
-  const [regions, setRegions] = useState<RegionSummary[] | null>(null);
+  const { regions, error: regionsError, refresh: refreshRegions } = useRegions();
+  const { settings, error: settingsError, refresh: refreshSettings } = useSettings();
   const [selectedCountryIds, setSelectedCountryIds] = useState<Set<string>>(new Set());
   const [openContinentIds, setOpenContinentIds] = useState<Set<string>>(new Set());
   const [searchTerm, setSearchTerm] = useState("");
-  const [starting, setStarting] = useState(false);
-  const [startError, setStartError] = useState<string | null>(null);
-  const [status, setStatus] = useState<DownloadStatus | null>(null);
+  const job = usePackDownloadJob();
+  const status = job.status;
+  // Last run's error is only ours to show once a download was started from this screen.
+  const [startedHere, setStartedHere] = useState(false);
 
-  // Which taxon groups (birds, mammals, reptiles, etc.) to include for the region(s) picked
-  // above — same picker as Offline Packs' own (identical markup, copied deliberately so the two
-  // don't visually diverge), including its grouped/disclosure sections for things like molluscs.
-  // Empty selection means "all taxa," same convention download-batch's own `taxa: "all"` uses.
+  // Taxon picker for the chosen regions, the same one Offline Packs uses. Empty means all taxa.
   const [packs, setPacks] = useState<PackEntry[] | null>(null);
+  const [packsError, setPacksError] = useState(false);
   const [selectedTaxa, setSelectedTaxa] = useState<Set<TaxonClass>>(new Set());
   const [openTaxonGroups, setOpenTaxonGroups] = useState<Set<string>>(new Set());
-  const [namingStyles, setNamingStyles] = useState<string[]>([]);
-
-  const [catalogLoading, setCatalogLoading] = useState<"running" | "failed" | null>(null);
+  const namingStyles = settings?.speciesNamingStyles ?? [];
+  const catalogLoading = settings?.catalogLoading ?? null;
 
   useEffect(() => {
     if (step !== "pack") return;
-    api.get<{ regions: RegionSummary[] }>("/regions").then((res) => setRegions(res.regions));
-    api.get<{ packs: PackEntry[] }>("/offline-packs/index").then((res) => setPacks(res.packs));
-    api.get<{ speciesNamingStyles: string[]; catalogLoading?: "running" | "failed" | null }>("/settings").then((res) => {
-      setNamingStyles(res.speciesNamingStyles);
-      setCatalogLoading(res.catalogLoading ?? null);
-    });
+    setPacksError(false);
+    api
+      .get<{ packs: PackEntry[] }>("/offline-packs/index")
+      .then((res) => setPacks(res.packs))
+      .catch(() => {
+        setPacks([]);
+        setPacksError(true);
+      });
   }, [step]);
 
-  // A brand-new server loads its species/region catalog in the background right after it
-  // starts (a minute or more, several on a NAS), so this step can open before any country
-  // exists. Keep checking until they show up rather than leaving an empty picker forever.
+  // A new server loads its catalog in the background after starting (minutes on a NAS), so this
+  // step can open before any country exists. Keep checking until they show up.
   const hasCountries = (regions ?? []).some((r) => r.parentId !== null);
   useEffect(() => {
-    if (step !== "pack" || regions === null || hasCountries || catalogLoading === "failed") return;
+    if (step !== "pack" || hasCountries || catalogLoading === "failed") return;
+    if (regions === null && !regionsError) return;
     const timer = setTimeout(() => {
-      api.get<{ regions: RegionSummary[] }>("/regions").then((res) => setRegions(res.regions)).catch(() => {});
-      api
-        .get<{ catalogLoading?: "running" | "failed" | null }>("/settings")
-        .then((res) => setCatalogLoading(res.catalogLoading ?? null))
-        .catch(() => {});
+      refreshRegions().catch(() => {});
+      refreshSettings().catch(() => {});
     }, 3000);
     return () => clearTimeout(timer);
-  }, [step, regions, hasCountries, catalogLoading]);
-
-  useEffect(() => {
-    if (step !== "pack") return;
-    let cancelled = false;
-    let timer: ReturnType<typeof setTimeout>;
-    async function poll() {
-      try {
-        const res = await api.get<DownloadStatus>("/offline-packs/download/status");
-        if (!cancelled) setStatus(res);
-      } catch {
-        // Transient — try again next tick.
-      }
-      if (!cancelled) timer = setTimeout(poll, 2000);
-    }
-    poll();
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
-  }, [step]);
+  }, [step, regions, regionsError, hasCountries, catalogLoading, refreshRegions, refreshSettings]);
 
   const world = useMemo(() => (regions ?? []).find((r) => r.parentId === null && r.name === "World"), [regions]);
   const continents = useMemo(() => (regions ?? []).filter((r) => r.parentId === world?.id), [regions, world]);
@@ -198,9 +168,7 @@ export default function OnboardingPage() {
     return map;
   }, [regions, continents]);
   const countryById = useMemo(() => new Map((regions ?? []).map((r) => [r.id, r])), [regions]);
-  // Same "read taxa off the pack catalog, not local region_species" reasoning as Offline Packs'
-  // own availableTaxaByRegion — the catalog already lists every published region×taxon
-  // combination regardless of what (if anything) is downloaded locally yet.
+  // From the pack catalog, which lists every published region and taxon whether downloaded or not.
   const availableTaxaByRegion = useMemo(() => {
     const byRegionName = new Map<string, Set<TaxonClass>>();
     for (const p of packs ?? []) {
@@ -235,23 +203,31 @@ export default function OnboardingPage() {
     return (regions ?? []).filter((r) => r.parentId && continentIds.has(r.parentId) && r.name.toLowerCase().includes(term)).slice(0, 8);
   }, [searchTerm, regions, continents]);
 
-  const alreadySucceeded = status && !status.running && status.finishedAt != null && !status.error && status.processed > 0;
+  const packsApplied = status?.processed ?? 0;
+  const alreadySucceeded = !!status && !status.running && status.finishedAt != null && !status.error && packsApplied > 0;
 
   async function startDownload() {
-    setStartError(null);
-    setStarting(true);
-    try {
-      const regionNames = [...selectedCountryIds].map((id) => countryById.get(id)?.name).filter((n): n is string => !!n);
-      await api.post("/offline-packs/download-batch", {
-        regionNames,
-        taxa: selectedTaxa.size > 0 ? [...selectedTaxa] : "all",
-      });
-    } catch (err) {
-      setStartError(err instanceof ApiError ? err.message : "Couldn't start the download");
-    } finally {
-      setStarting(false);
-    }
+    setStartedHere(true);
+    const regionNames = [...selectedCountryIds].map((id) => countryById.get(id)?.name).filter((n): n is string => !!n);
+    await job.start("/offline-packs/download-batch", {
+      regionNames,
+      taxa: selectedTaxa.size > 0 ? [...selectedTaxa] : "all",
+    });
   }
+
+  // The map download reports its own status shape; JobProgress takes a hand-built one.
+  const mapJob: JobProgressStatus = {
+    running: startingMap || !!mapStatus?.downloading,
+    phase: mapStatus?.downloading ? "downloading" : null,
+    downloadedBytes: mapStatus?.downloadedBytes || null,
+    totalBytes: mapStatus?.totalBytes ?? null,
+    processed: null,
+    total: null,
+    currentItem: null,
+    error: null,
+    cancelRequested: false,
+    cancelled: false,
+  };
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-canvas p-6">
@@ -263,18 +239,17 @@ export default function OnboardingPage() {
             <div>
               <h2 className="text-lg font-semibold text-ink">Offline map</h2>
               <p className="mt-1 text-sm text-muted">
-                An offline basemap (~550MB): this is what makes locality info work on species detail pages, showing roughly where
+                An offline basemap (~550 MB): this is what makes locality info work on species detail pages, showing roughly where
                 within a downloaded region each species is found. Skip this and download it later from Settings if you'd rather save the
                 space.
               </p>
             </div>
             {startingMap || mapStatus?.downloading ? (
-              <p className="flex items-center gap-2 text-sm text-muted">
-                <span className="h-3 w-3 shrink-0 animate-spin rounded-full border-2 border-accent/40 border-t-accent" />
-                Downloading…
-                {mapStatus?.downloadedBytes ? ` ${(mapStatus.downloadedBytes / 1e6).toFixed(0)}MB` : ""}
-                {mapStatus?.totalBytes ? ` of ${(mapStatus.totalBytes / 1e6).toFixed(0)}MB` : ""}
-              </p>
+              <JobProgress
+                status={mapJob}
+                phases={MAP_PHASES}
+                fallbackLabel="Starting the map download…"
+              />
             ) : (
               <label className="flex items-center gap-2 text-sm text-ink">
                 <input type="checkbox" checked={wantMap} onChange={(e) => setWantMap(e.target.checked)} />
@@ -282,7 +257,7 @@ export default function OnboardingPage() {
               </label>
             )}
             {mapStatus?.error && !mapStatus.downloading && (
-              <p className="text-sm text-red-600">Couldn't download the map: {mapStatus.error}. You can retry or continue without it.</p>
+              <FormMessage error={`Couldn't download the map: ${mapStatus.error}. You can retry or continue without it.`} />
             )}
             <button
               type="button"
@@ -305,7 +280,7 @@ export default function OnboardingPage() {
                 while you finish setting up. You can turn this on or off later in Settings.
               </p>
             </div>
-            {modelError && <p className="text-sm text-red-600">{modelError}. You can try again or skip this for now.</p>}
+            <FormMessage error={modelError ? `${modelError}. You can try again or skip this for now.` : null} />
             <div className="flex gap-2">
               <button
                 type="button"
@@ -337,11 +312,13 @@ export default function OnboardingPage() {
               </p>
             </div>
 
-            {!regions ? (
+            {!regions && regionsError ? (
+              <FormMessage error="Couldn't load the region list. Retrying…" />
+            ) : !regions ? (
               <Spinner />
             ) : alreadySucceeded ? (
               <>
-                <p className="text-sm text-green-700">Downloaded, {status!.processed} pack(s) applied.</p>
+                <FormMessage success={`Downloaded, ${pluralize(packsApplied, "pack")} applied.`} />
                 <button
                   type="button"
                   onClick={() => setStep("guide")}
@@ -351,33 +328,23 @@ export default function OnboardingPage() {
                 </button>
               </>
             ) : status?.running ? (
-              // Same bg-surface/bg-surface-muted pairing as Offline Packs' own running-download
-              // block (OfflinePacksPage.tsx) — this previously used bg-surface-muted for the
-              // outer card AND bg-canvas for the progress track, which not only didn't match but
-              // meant the track and its surrounding card were nearly the same color, making the
-              // bar hard to see against it.
               <div className="rounded-xl border border-line bg-surface p-4">
-                <p className="text-sm text-ink">
-                  {status.phase === "preparing" ? (
-                    // First start of a new server: the species catalog is still loading.
-                    "Finishing setup… This only happens the first time and can take a few minutes."
-                  ) : (
-                    <>
-                      Downloading… {status.processed}/{status.total}
-                      {status.currentPack ? ` (${status.currentPack})` : ""}
-                    </>
-                  )}
-                </p>
-                <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-surface-muted">
-                  <div
-                    className="h-full bg-accent transition-all"
-                    style={{ width: `${status.total ? Math.round((status.processed / status.total) * 100) : 0}%` }}
-                  />
-                </div>
+                <JobProgress
+                  status={status}
+                  phases={PACK_PHASES}
+                  fallbackLabel="Downloading…"
+                  detail={
+                    status.phase === "preparing"
+                      ? "This only happens the first time and can take a few minutes."
+                      : packProgressDetail(status)
+                  }
+                />
               </div>
-            ) : regions !== null && !hasCountries ? (
+            ) : !hasCountries ? (
               <div className="rounded-xl border border-line bg-surface p-4 text-sm text-ink">
-                {catalogLoading === "failed" ? (
+                {settingsError && !settings ? (
+                  <p>Couldn't reach the server to check on the species catalog. Retrying…</p>
+                ) : catalogLoading === "failed" ? (
                   <p>
                     Lifer couldn't load its species catalog. Restart the server to try again, and check its logs if
                     this keeps happening.
@@ -437,7 +404,7 @@ export default function OnboardingPage() {
                   <div className="rounded-xl border border-line bg-surface p-4">
                     <div className="flex items-center justify-between">
                       <p className="text-sm font-semibold text-ink">
-                        {selectedCountryIds.size} region(s) selected. Choose taxon groups
+                        {pluralize(selectedCountryIds.size, "region")} selected. Choose taxon groups
                       </p>
                       {availableTaxaForSelection.length > 0 && (
                         <button
@@ -455,7 +422,11 @@ export default function OnboardingPage() {
                     </div>
                     <div className="mt-2 flex flex-wrap gap-2">
                       {availableTaxaForSelection.length === 0 && (
-                        <p className="text-xs text-muted">No taxon data available yet for the selected region(s).</p>
+                        <p className="text-xs text-muted">
+                          {packsError
+                            ? "Couldn't load the pack list. All taxa will be downloaded."
+                            : `No taxon data available yet for the selected ${selectedCountryIds.size === 1 ? "region" : "regions"}.`}
+                        </p>
                       )}
                       {availableTaxaForSelection
                         .filter((taxon) => !GROUPED_TAXON_CLASSES.has(taxon))
@@ -468,9 +439,7 @@ export default function OnboardingPage() {
                           );
                         })}
                     </div>
-                    {/* Each group is purely a disclosure wrapper — every taxon inside stays
-                        individually toggleable, opening the section never selects anything by
-                        itself, same reasoning as Offline Packs' own identical picker. */}
+                    {/* A group is only a disclosure: opening it never selects anything. */}
                     {TAXON_GROUPS.map((group) => {
                       const availableInGroup = group.taxa.filter((t) => availableTaxaForSelection.includes(t));
                       if (availableInGroup.length === 0) return null;
@@ -531,15 +500,15 @@ export default function OnboardingPage() {
                     })}
                   </div>
                 )}
-                {startError && <p className="text-sm text-red-600">{startError}</p>}
-                {status?.error && <p className="text-sm text-red-600">Download failed: {status.error}</p>}
+                <FormMessage error={job.actionError} />
+                {startedHere && status?.error && <FormMessage error={`Download failed: ${status.error}`} />}
                 <button
                   type="button"
                   onClick={startDownload}
-                  disabled={selectedCountryIds.size === 0 || starting}
+                  disabled={selectedCountryIds.size === 0 || job.starting}
                   className="w-full rounded-md bg-accent py-2 text-sm font-medium text-accent-fg disabled:opacity-50"
                 >
-                  {starting
+                  {job.starting
                     ? "Starting…"
                     : `Download ${selectedCountryIds.size || ""} region${selectedCountryIds.size === 1 ? "" : "s"}${
                         selectedTaxa.size > 0 ? ` (${selectedTaxa.size} group${selectedTaxa.size === 1 ? "" : "s"})` : ""
@@ -561,21 +530,11 @@ export default function OnboardingPage() {
             </div>
             <button
               type="button"
-              // Deliberately NOT replace:true (unlike every other navigate() in this file) —
-              // GuidePage's own back button is real browser back-navigation (BackToCollectionLink,
-              // which calls navigate(-1) whenever there's an actual history entry to return to).
-              // With replace:true here (and LoginPage's own replace:true landing on /onboarding
-              // in the first place), that back button had NO real entry to return to — it fell
-              // all the way past both replaced entries to whatever was in history before Login
-              // ever loaded, silently dumping the user on Collection despite its label still
-              // reading the unrelated hardcoded "Settings". Pushing a real entry here means back
-              // actually returns to this onboarding flow (its local step state resets to the
-              // first step on remount, same as reloading any other route-based page — there's no
-              // step url/query-param to restore the exact "guide" step from).
+              // Not replace: the guide's back link uses real history and should return here.
               onClick={() => navigate("/guide", { state: { backLabel: "Setup" } })}
               className="w-full rounded-md bg-accent py-2 text-sm font-medium text-accent-fg"
             >
-              Open Getting Started Guide
+              Open the getting started guide
             </button>
             <button
               type="button"
