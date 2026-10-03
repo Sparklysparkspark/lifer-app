@@ -1,0 +1,71 @@
+/* Lifer brand colors, taken from apps/web/src/index.css so the docs match the app. */
+
+:root {
+  --ifm-color-primary: #6a765f;
+  --ifm-color-primary-dark: #5f6a55;
+  --ifm-color-primary-darker: #5a6450;
+  --ifm-color-primary-darkest: #4a5342;
+  --ifm-color-primary-light: #748069;
+  --ifm-color-primary-lighter: #7b876f;
+  --ifm-color-primary-lightest: #8f9a84;
+
+  --ifm-background-color: #f6eedc;
+  --ifm-background-surface-color: #ffffff;
+  --ifm-font-color-base: #242c34;
+  --ifm-color-emphasis-600: #5f6b6f;
+  --ifm-toc-border-color: #d8d6d0;
+  --ifm-hr-border-color: #d8d6d0;
+  --ifm-navbar-background-color: #f6eedc;
+  --ifm-footer-background-color: #242c34;
+  --ifm-code-font-size: 92%;
+  --docusaurus-highlighted-code-line-bg: rgba(116, 128, 105, 0.18);
+}
+
+[data-theme="dark"] {
+  --ifm-color-primary: #9aa68e;
+  --ifm-color-primary-dark: #8b987e;
+  --ifm-color-primary-darker: #849177;
+  --ifm-color-primary-darkest: #748069;
+  --ifm-color-primary-light: #a7b29c;
+  --ifm-color-primary-lighter: #aeb8a3;
+  --ifm-color-primary-lightest: #c1c9b8;
+
+  --ifm-background-color: #242c34;
+  --ifm-background-surface-color: #2b333c;
+  --ifm-font-color-base: #f6eedc;
+  --ifm-color-emphasis-600: #d8d6d0;
+  --ifm-toc-border-color: #3c4650;
+  --ifm-hr-border-color: #3c4650;
+  --ifm-navbar-background-color: #242c34;
+  --ifm-footer-background-color: #1d242b;
+  --docusaurus-highlighted-code-line-bg: rgba(116, 128, 105, 0.3);
+}
+
+.navbar {
+  border-bottom: 1px solid var(--ifm-toc-border-color);
+  box-shadow: none;
+}
+
+.navbar__logo img {
+  height: 28px;
+}
+
+.markdown img {
+  border-radius: 8px;
+  border: 1px solid var(--ifm-toc-border-color);
+}
+
+.markdown table {
+  display: table;
+  width: 100%;
+}
+
+/* Pages are pre-rendered with the light code theme and switch after load, which flashed white in
+   dark mode. Set the dark code colors in CSS so they apply from the first frame. */
+[data-theme="dark"] .theme-code-block,
+[data-theme="dark"] .prism-code {
+  --prism-color: #f8f8f2 !important;
+  --prism-background-color: #282a36 !important;
+  color: #f8f8f2 !important;
+  background-color: #282a36 !important;
+}
