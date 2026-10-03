@@ -9,10 +9,8 @@ export function isSafePackEntry(_entryPath: string, entry: { type?: string } | S
   return entry.type === "File" || entry.type === "OldFile" || entry.type === "Directory";
 }
 
-// A manifest's displayFile/thumbFile come from inside a downloaded archive, not from this
-// server's own code, so "../../etc/passwd", an absolute path, or a symlink must not escape
-// `dir`. Both sides are realpath'd so a link can't pass a string-only prefix check. Returns
-// null for anything outside `dir` or missing.
+// Manifest paths come from an untrusted archive, so "../", absolute paths and symlinks must not
+// escape `dir`. Both sides are realpath'd; returns null for anything outside `dir` or missing.
 export function resolveWithinDir(dir: string, relativePath: string): string | null {
   let root: string;
   let real: string;
