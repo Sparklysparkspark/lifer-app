@@ -1,5 +1,5 @@
-// Mirrors the Phase-2 subset of(users, captures, photos, user_species).
-// `sessions`/`invite_codes` are server-internal — no client-facing type for those.
+// Mirrors the Phase-2 subset of (users, captures, photos, user_species).
+// `sessions`/`invite_codes` are server-internal, with no client-facing type.
 
 export interface User {
   id: string;
@@ -13,8 +13,8 @@ export interface UserSpecies {
   userId: string;
   speciesId: string;
   state: "collected" | "seen" | null;
-  // Independent of state (migration 090) — a species already collected/seen can still be
-  // targeted, e.g. "I only have a bad photo of this, I want a better one."
+  // Independent of state (migration 090): a collected species can still be a target for a
+  // better photo.
   isTarget: boolean;
   coverPhotoId: string | null;
   firstCollected: string | null;

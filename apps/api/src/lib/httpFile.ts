@@ -1,7 +1,6 @@
 // Pure helpers for serving files: RFC 6266 Content-Disposition and single-range parsing.
 
-// ASCII fallback for old clients plus filename* (RFC 5987) so non-Latin names don't break
-// the header (Node rejects non-Latin1 header values, which surfaced as a 500).
+// ASCII fallback plus filename* (RFC 5987): Node rejects non-Latin1 header values.
 export function contentDisposition(filename: string, type: "attachment" | "inline" = "attachment"): string {
   const fallback = filename.replace(/[^\x20-\x7e]/g, "_").replace(/["\\]/g, "_");
   const encoded = encodeURIComponent(filename).replace(/['()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
@@ -31,4 +30,11 @@ export function parseRange(header: string | undefined, size: number): RangeResul
   const end = endStr === "" ? size - 1 : Math.min(Number(endStr), size - 1);
   if (end < start) return { kind: "full" };
   return { kind: "partial", start, end };
+}
+
+const HTML_ESCAPES: Record<string, string> = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
+
+/** Escapes text for use inside HTML element content or a quoted attribute. */
+export function escapeHtml(text: string): string {
+  return text.replace(/[&<>"']/g, (c) => HTML_ESCAPES[c]);
 }

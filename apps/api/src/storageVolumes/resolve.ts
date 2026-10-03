@@ -1,10 +1,8 @@
-// Shared between uploads/routes.ts (tag a newly-linked file with which registered volume it's
-// on) and photos/routes.ts (resolve a volume-tagged original's current absolute path, or report
-// it as unavailable if that volume isn't connected right now).
-//
-// A volume is one of two kinds (migration 104): a 'drive' the desktop app identified by its
-// hardware UUID, or a 'root' folder a self-hosted admin declared in LIFER_LIBRARY_ROOTS. Both
-// store files relative to a root path; they only differ in how "is it connected" is answered.
+// Tags a linked file with the registered volume it's on, and resolves a tagged original's current
+// path (or reports its volume disconnected).
+// A volume is a 'drive' (desktop, identified by hardware UUID) or a 'root' (a server's
+// LIFER_LIBRARY_ROOTS). Both store paths relative to a root; they differ only in how connection
+// is checked.
 import { accessSync, constants, statSync } from "node:fs";
 import path from "node:path";
 import { pool } from "../db.js";
@@ -46,14 +44,12 @@ async function tagWithLibraryRoot(absolutePath: string): Promise<VolumeTag | nul
   return best ? { volumeId: best.id, volumeRelativePath: abs.slice(best.root_path.length) } : null;
 }
 
-// Only tags a file against a volume that was EXPLICITLY registered (a drive the user added in
-// Settings, or a root the admin declared) - never auto-tags against just any mounted drive,
-// since an un-registered external drive should behave exactly as a plain absolute path.
+// Only tags against an explicitly registered volume (a drive added in Settings, or an admin
+// root); an unregistered drive behaves as a plain absolute path.
 export async function tagWithRegisteredVolume(userId: string, absolutePath: string): Promise<VolumeTag> {
   const rootTag = await tagWithLibraryRoot(absolutePath);
   if (rootTag) return rootTag;
-  // Drive detection shells out to findmnt/diskutil and can't identify anything inside a
-  // container anyway; skip it entirely on a server rather than spawning it per upload.
+  // Drive detection shells out and can't identify anything inside a container, so skip it on a server.
   if (!SINGLE_USER_MODE) return UNTAGGED;
 
   const mountPath = await mountPathFor(absolutePath);
@@ -72,16 +68,10 @@ export async function tagWithRegisteredVolume(userId: string, absolutePath: stri
 }
 
 export interface ChosenVolumeDestination {
-  /** Absolute path to write new managed files under - a dedicated subfolder so a drive (or
-   *  mounted folder) doing double duty for other things isn't mistaken for being entirely Lifer's. */
+  /** Where new managed files go: a dedicated subfolder, since the drive may hold other things. */
   baseDir: string;
-  /** The volume's own root (baseDir minus "/Lifer Originals") - volume_relative_path is
-   *  always stored relative to THIS, never baseDir, so it stays computed the exact same way
-   *  regardless of which code path wrote it (tagWithRegisteredVolume, for a link-mode/Trips
-   *  file already sitting anywhere on the volume, has no concept of "Lifer Originals" at all).
-   *  resolveOriginalPath's own reconstruction (mountPath + volume_relative_path) assumes this
-   *  same convention — mixing the two silently drops the "Lifer Originals" segment and makes
-   *  an otherwise-connected volume's files 404. */
+  /** The volume's root (baseDir minus "/Lifer Originals"). volume_relative_path is always relative
+   *  to this, never baseDir, because resolveOriginalPath rebuilds paths as mountPath + relative path. */
   mountPath: string;
   volumeId: string;
 }
@@ -103,11 +93,9 @@ async function currentMountPath(volume: VolumeRow): Promise<string | null> {
   return volumes.find((v) => v.platformVolumeId === volume.platform_volume_id)?.mountPath ?? null;
 }
 
-// Store-mode uploads (apps/api/src/uploads/routes.ts) call this to write directly onto a
-// user-chosen volume instead of the primary ORIGINALS_DIR - the volume must be this user's (or an
-// install-wide root) AND be reachable right now, since writing into a stale, no-longer-mounted
-// path would either fail outright or (worse, on some OSes) silently recreate the mount point as a
-// plain folder on the primary drive.
+// Where a store-mode upload to a chosen volume goes. The volume must be the user's (or an
+// install-wide root) and connected: writing to an unmounted path can silently create a plain
+// folder on the main drive.
 export async function resolveChosenVolumeDestination(userId: string, volumeId: string): Promise<ChosenVolumeDestination | null> {
   const res = await pool.query<VolumeRow>(
     `SELECT kind, label, platform_volume_id, root_path, removed_at FROM storage_volumes
@@ -127,11 +115,8 @@ export interface ResolvedOriginal {
   volumeLabel?: string;
 }
 
-// `ref` is used as-is when there's no volume_id (every original before this feature, and
-// anything on the primary always-on DATA_DIR) — that's the plain, pre-existing behavior. When
-// volume_id IS set, `ref` is only a cache of the last-resolved path; the real answer is always
-// recomputed from the volume's current status, since that's exactly what can change between one
-// request and the next (a drive getting plugged in or removed, a mount going away).
+// Without a volume_id, `ref` is the path. With one, `ref` only caches the last path; the real one
+// is recomputed from the volume's current state, which can change between requests.
 export async function resolveOriginalPath(original: {
   ref: string;
   volume_id: string | null;
@@ -144,7 +129,7 @@ export async function resolveOriginalPath(original: {
     [original.volume_id],
   );
   const volume = volumeRes.rows[0];
-  if (!volume) return { path: original.ref, connected: true }; // volume was deleted — FK already nulled volume_id elsewhere; defensive fallback
+  if (!volume) return { path: original.ref, connected: true }; // volume was deleted (the FK already nulls volume_id); defensive fallback
 
   const mountPath = await currentMountPath(volume);
   if (!mountPath || original.volume_relative_path == null) {

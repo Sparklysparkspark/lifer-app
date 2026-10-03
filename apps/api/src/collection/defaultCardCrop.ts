@@ -1,12 +1,6 @@
-// Frames a species card on the animal whenever Lifer picks the cover photo itself (the first
-// photo of a species, a replacement after the cover is deleted or reassigned), the same way
-// choosing a cover by hand already did (collection/routes.ts). Without it an automatic cover had
-// no crop, and the card's dead-center square fallback cut off anything not in the middle.
-//
-// Safe to call from anywhere, any number of times: it only ever fills an EMPTY crop, and only if
-// the cover is still the same photo once detection finishes, so it never overrides a crop the
-// user saved or lands on a cover that changed in the meantime. Best-effort: no subject found, or
-// any error, leaves the crop empty as before.
+// Frames a species card on the animal when Lifer picks the cover photo itself.
+// Only fills an empty crop, and only if the cover is unchanged once detection finishes.
+// Best-effort: no subject or any error leaves the crop empty.
 import { readFile } from "node:fs/promises";
 import { pool } from "../db.js";
 import { detectDefaultCardCrop } from "../species/detectAndCrop.js";
@@ -29,7 +23,7 @@ export async function ensureDefaultCardCrop(userId: string, speciesId: string): 
       [crop.x, crop.y, crop.size, userId, speciesId, row.cover_photo_id],
     );
   } catch {
-    // see top comment: best-effort
+    // Best-effort, see the top comment.
   }
 }
 

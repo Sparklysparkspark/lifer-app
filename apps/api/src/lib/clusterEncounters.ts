@@ -1,11 +1,5 @@
-// A photographer with 400 photos from one 20-minute encounter with an owl hasn't had 400
-// wildlife experiences — they've had one. This turns a flat capture list into real sighting
-// "encounters": captures more than SESSION_GAP_MS apart start a new encounter, mirroring how a
-// person would naturally describe "I saw it three times that morning" vs. two separate outings
-// weeks apart. Same shape/threshold as the clustering already written for the (currently dark)
-// iNaturalist-sync feature branch's own `clusterForImport` — ported here as a plain, DB-free
-// function since that branch isn't merged and this needs to run for every species detail page,
-// not just an iNat submission draft.
+// Groups captures into encounters: 400 photos of one owl in 20 minutes is one sighting. A gap over
+// SESSION_GAP_MS starts a new encounter (the same rule as inaturalist/grouping.ts).
 const SESSION_GAP_MS = 60 * 60 * 1000;
 
 export interface ClusterableCapture {
@@ -19,7 +13,7 @@ export interface Encounter {
   latestTakenAt: string | null;
 }
 
-// Captures with no taken_at (rare — EXIF-less imports) each become their own single-photo
+// Captures with no taken_at (rare, EXIF-less imports) each become their own single-photo
 // encounter rather than being guessed into a group by unrelated data (e.g. upload order).
 export function clusterIntoEncounters(captures: ClusterableCapture[]): Encounter[] {
   const withTime = captures

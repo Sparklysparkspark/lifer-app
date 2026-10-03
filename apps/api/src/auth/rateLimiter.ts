@@ -1,7 +1,6 @@
-// In-memory sliding-window rate limiter for the login route (: "rate-limit
-// the login route in the application, not only at the proxy"). In-memory is a stated MVP
-// limit — a single-process personal deployment doesn't need a shared store, but this resets
-// on restart and wouldn't coordinate across multiple API instances.
+// In-memory sliding-window rate limiter for login and share passwords. A single-process personal
+// deployment doesn't need a shared store; this resets on restart and wouldn't coordinate across
+// multiple API instances.
 
 const WINDOW_MS = 15 * 60 * 1000;
 const MAX_ATTEMPTS = 10;
@@ -39,6 +38,20 @@ export function recordAttempt(key: string): void {
 // Called after a successful login so earlier typos don't count against the next session.
 export function clearAttempts(key: string): void {
   attempts.delete(key);
+}
+
+// Groups an IPv6 client by its /64, since one host usually controls a whole /64 and could
+// otherwise rotate addresses to reset its limit. IPv4 (and IPv4-mapped IPv6) is kept as is.
+export function ipRateLimitKey(ip: string): string {
+  const addr = ip.trim().toLowerCase();
+  if (!addr.includes(":")) return addr;
+  if (addr.startsWith("::ffff:") && addr.includes(".")) return addr.slice(7);
+  const [head, tail = ""] = addr.split("%")[0].split("::");
+  const headParts = head ? head.split(":") : [];
+  const tailParts = addr.includes("::") && tail ? tail.split(":") : [];
+  const missing = 8 - headParts.length - tailParts.length;
+  const full = addr.includes("::") ? [...headParts, ...Array(Math.max(missing, 0)).fill("0"), ...tailParts] : headParts;
+  return `${full.slice(0, 4).map((p) => p.replace(/^0+(?=.)/, "")).join(":")}::/64`;
 }
 
 // For tests.

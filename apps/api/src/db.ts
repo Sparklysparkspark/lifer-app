@@ -1,27 +1,60 @@
-import { Pool } from "pg";
+import { Pool, type PoolClient } from "pg";
 import { DATABASE_URL } from "./config.js";
+import { lockReferenceData } from "./lib/referenceDataLock.js";
+import { log } from "./lib/log.js";
 
-// pg's default idleTimeoutMillis (10s) closes pooled connections shortly after each burst of
-// activity — tuned for a shared server reclaiming resources between tenants. Lifer is a
-// single-user desktop app talking to its own local Postgres; there's nothing to reclaim these
-// connections FOR, so tearing them down just means the next click (after any 10s+ pause) pays
-// a fresh TCP+auth handshake (and a new backend process fork on Postgres' side) before it can
-// even start running its query — this is the "first click after a pause is slow, the rest are
-// instant" pattern. idleTimeoutMillis: 0 keeps connections open indefinitely instead.
-export const pool = new Pool({ connectionString: DATABASE_URL, idleTimeoutMillis: 0 });
+// Connections stay open so a click after a pause doesn't pay for a new one. Overflow queues up to 30s.
+export const pool = new Pool({
+  connectionString: DATABASE_URL,
+  max: Number(process.env.PG_POOL_MAX ?? 20),
+  connectionTimeoutMillis: 30000,
+  idleTimeoutMillis: 0,
+});
 
-// An idle client erroring (Postgres restarted) emits "error" on the pool; unhandled, that kills
-// the process. The pool drops the broken client and reconnects on the next query.
+// An idle client erroring (Postgres restarted) emits "error" on the pool, which would otherwise
+// kill the process. The pool drops the broken client and reconnects.
 pool.on("error", (err) => {
-  console.error("[db] idle client error:", err.message);
+  log.error(`[db] idle client error: ${err.message}`);
 });
 
-// Pre-warm a handful of connections at startup so even the very FIRST click of a session
-// doesn't pay the cold-connection cost either — without this, the pool only opens connections
-// lazily as queries actually ask for one, so a page that fires several queries at once (see
-// species/routes.ts) would have to open that many fresh connections simultaneously on its
-// very first hit regardless of the idle-timeout fix above.
-void Promise.all(Array.from({ length: 4 }, () => pool.query("SELECT 1"))).catch(() => {
-  // Best-effort warmup — a failure here just means the first real query pays the cold-start
-  // cost after all, not that startup itself should fail.
-});
+// Open a few connections at startup so the first page doesn't wait on them.
+// Best-effort: a failure only means the first real query opens its own connection.
+void Promise.all(Array.from({ length: 4 }, () => pool.query("SELECT 1"))).catch(() => {});
+
+export interface TransactionOptions {
+  /** Take the reference-data advisory lock right after BEGIN (see lib/referenceDataLock.ts). */
+  lockReferenceData?: boolean;
+  statementTimeoutMs?: number;
+  lockTimeoutMs?: number;
+}
+
+interface TransactionPool {
+  connect(): Promise<PoolClient>;
+}
+
+// BEGIN, run fn on one client, COMMIT; ROLLBACK on any error. The client is always released,
+// and a client whose ROLLBACK failed is destroyed rather than returned to the pool half-open.
+export async function withTransaction<T>(
+  fn: (client: PoolClient) => Promise<T>,
+  opts: TransactionOptions = {},
+  db: TransactionPool = pool,
+): Promise<T> {
+  const client = await db.connect();
+  let broken: Error | undefined;
+  try {
+    await client.query("BEGIN");
+    if (opts.statementTimeoutMs != null) await client.query(`SET LOCAL statement_timeout = ${Math.max(0, Math.floor(opts.statementTimeoutMs))}`);
+    if (opts.lockTimeoutMs != null) await client.query(`SET LOCAL lock_timeout = ${Math.max(0, Math.floor(opts.lockTimeoutMs))}`);
+    if (opts.lockReferenceData) await lockReferenceData(client);
+    const result = await fn(client);
+    await client.query("COMMIT");
+    return result;
+  } catch (err) {
+    await client.query("ROLLBACK").catch((rollbackErr: Error) => {
+      broken = rollbackErr;
+    });
+    throw err;
+  } finally {
+    client.release(broken);
+  }
+}

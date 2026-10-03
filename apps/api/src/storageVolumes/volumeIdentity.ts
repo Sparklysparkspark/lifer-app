@@ -1,10 +1,6 @@
-// Resolves a folder path to a stable, OS-level volume identity — the mount path itself isn't
-// stable enough to recognize "this is the same USB drive I registered before" across a
-// disconnect/reconnect cycle (a drive can mount at a different name, or a different drive
-// letter on Windows, next time it's plugged in). Every platform branch below follows the same
-// shape: a way to find which mounted volume a given path belongs to, a way to get that volume's
-// own stable identifier, and a way to list every volume currently mounted (for recognizing a
-// registered drive that reconnected at a different path/letter than last time).
+// Resolves a folder to a stable OS volume identity, since a drive can remount under a different
+// name or letter. Each platform finds a path's volume, reads its identifier, and lists mounted
+// volumes (to spot a registered drive back at a new path).
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { readdirSync } from "node:fs";
@@ -17,15 +13,8 @@ export interface MountedVolume {
   platformVolumeId: string;
 }
 
-// execFileSync used to be exactly what this said — synchronous — which meant every call here
-// (diskutil/df/findmnt/powershell, each a real subprocess spawn) blocked Node's ENTIRE
-// single-threaded event loop for its whole duration. Confirmed live: GET /storage-volumes
-// running one `diskutil info` per mounted volume measured 400-500ms server-side, and every
-// other concurrent request (a species detail page load, in particular) queued up behind it,
-// inflating ITS reported time by the same ~400-500ms even though its own DB queries were only
-// single-digit ms — the request handler simply couldn't be dequeued until the blocking call
-// released the event loop. Async (still just as slow per subprocess, but no longer blocking)
-// fixes exactly that collateral stall without changing what any of this actually reports.
+// Async, so the subprocesses (diskutil, df, findmnt, powershell) don't block the event loop for
+// every other request.
 async function run(command: string, args: string[]): Promise<string | null> {
   try {
     const { stdout } = await execFileAsync(command, args);
@@ -37,9 +26,7 @@ async function run(command: string, args: string[]): Promise<string | null> {
 
 // --- macOS -------------------------------------------------------------------------------
 async function macMountPathFor(absolutePath: string): Promise<string> {
-  // `df -P` (POSIX-standard output format) resolves ANY path — nested arbitrarily deep,
-  // anywhere in the filesystem, not just directly under /Volumes — to the real mount point
-  // that contains it, without needing to guess based on the path's own shape.
+  // `df -P` resolves any path, however deep, to the mount point that contains it.
   const output = await run("df", ["-P", absolutePath]);
   return output ? parseDfMountPath(output) : "/";
 }
@@ -65,12 +52,10 @@ async function macListMountedVolumes(): Promise<MountedVolume[]> {
   try {
     names = readdirSync("/Volumes");
   } catch {
-    // ignore — /Volumes should always exist on macOS, but don't hard-fail if it somehow doesn't
+    // /Volumes should always exist on macOS; don't hard-fail if it doesn't.
   }
   const roots = ["/", ...names.map((name) => `/Volumes/${name}`)];
-  // One `diskutil info` subprocess per root — independent of each other, so run them
-  // concurrently rather than one-at-a-time (still async either way now, but a handful of
-  // drives no longer means paying each one's subprocess-spawn latency back to back).
+  // One independent `diskutil info` per root, run concurrently.
   const ids = await Promise.all(roots.map((mountPath) => macVolumeId(mountPath)));
   const seen = new Set<string>();
   const volumes: MountedVolume[] = [];
@@ -85,9 +70,7 @@ async function macListMountedVolumes(): Promise<MountedVolume[]> {
 }
 
 // --- Linux ---------------------------------------------------------------------------------
-// `findmnt` (util-linux, present on essentially every distro) resolves an arbitrary path to
-// its containing mount point and can report every real mounted filesystem's UUID in one call
-// — no path-guessing needed, unlike macOS's /Volumes convention.
+// `findmnt` resolves a path to its mount point and lists every mounted filesystem's UUID in one call.
 async function linuxMountPathFor(absolutePath: string): Promise<string> {
   const output = await run("findmnt", ["-no", "TARGET", "--target", absolutePath]);
   return output?.trim() || "/";
@@ -100,8 +83,7 @@ async function linuxVolumeId(mountPath: string): Promise<string | null> {
 }
 
 async function linuxListMountedVolumes(): Promise<MountedVolume[]> {
-  // -r (raw, single-column-safe), -n (no header), TARGET+UUID columns; pseudo-filesystems
-  // (tmpfs, proc, etc.) report an empty UUID and are filtered out below.
+  // Raw, no header. Pseudo-filesystems (tmpfs, proc) report an empty UUID and are filtered out.
   const output = await run("findmnt", ["-rno", "TARGET,UUID"]);
   if (!output) return [];
   const volumes: MountedVolume[] = [];
@@ -116,10 +98,8 @@ async function linuxListMountedVolumes(): Promise<MountedVolume[]> {
 }
 
 // --- Windows -------------------------------------------------------------------------------
-// No POSIX-style unified mount tree — a drive letter root (e.g. "D:\") IS the volume boundary,
-// so resolving a path to "its volume" is just reading off the drive letter, no filesystem call
-// needed. PowerShell's `Get-Volume` UniqueId (a stable "\\?\Volume{guid}\" string) is the
-// per-volume identifier, same role as macOS's Volume UUID / Linux's filesystem UUID.
+// The drive letter root (e.g. "D:\") is the volume boundary. PowerShell's `Get-Volume` UniqueId
+// is the stable per-volume identifier.
 function windowsMountPathFor(absolutePath: string): string {
   const match = absolutePath.match(/^([A-Za-z]):[\\/]/);
   return match ? `${match[1].toUpperCase()}:\\` : absolutePath;
@@ -157,8 +137,7 @@ async function windowsListMountedVolumes(): Promise<MountedVolume[]> {
   } catch {
     return [];
   }
-  // PowerShell's ConvertTo-Json emits a bare object (not a 1-element array) when there's only
-  // one result — normalize both shapes to an array before iterating.
+  // ConvertTo-Json emits a bare object, not a 1-element array, for a single result.
   const rows: PowerShellVolume[] = Array.isArray(parsed) ? parsed : [parsed as PowerShellVolume];
   return rows
     .filter((r): r is Required<PowerShellVolume> => Boolean(r.DriveLetter && r.UniqueId))
@@ -186,10 +165,8 @@ export async function listMountedVolumes(): Promise<MountedVolume[]> {
   return [];
 }
 
-// Used by storageVolumes/routes.ts to reject "registering" the same drive Lifer's own primary
-// storage already lives on — comparing volume IDENTITY (not a hardcoded "/" or "C:\" sentinel)
-// is what makes this work the same way on every OS, including the case where DATA_DIR itself
-// isn't on the conventional boot drive.
+// Rejects registering the drive the main storage is on, by comparing volume identity, which works
+// on every OS.
 export async function isSameVolumeAsDataDir(candidateMountPath: string, dataDir: string): Promise<boolean> {
   const dataDirMountPath = await mountPathFor(path.resolve(dataDir));
   const [dataDirVolumeId, candidateVolumeId] = await Promise.all([

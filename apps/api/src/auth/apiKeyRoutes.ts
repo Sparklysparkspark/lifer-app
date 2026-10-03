@@ -1,12 +1,11 @@
-// Owner-side key management — session-auth only (requireAuth, never requireScope): a key can
-// never mint or revoke other keys, only a real logged-in session can.
+// Key management is session-auth only (requireAuth, never requireScope), so a key can't mint or revoke keys.
 import type { FastifyInstance } from "fastify";
 import { pool } from "../db.js";
+import { isUuid } from "../lib/validate.js";
 import { requireAuth } from "./session.js";
 import { generateApiKey, hashApiKey } from "./apiKeys.js";
 
-// Kept in one place so both this file and ApiKeysPage.tsx have a single source of truth for
-// what's actually enforceable — see requireScope's own call sites for where each is checked.
+// The enforceable scopes, shared with ApiKeysPage.tsx. See requireScope's call sites for where each is checked.
 export const API_KEY_SCOPES = [
   "gallery.read",
   "species.read",
@@ -57,12 +56,12 @@ export async function apiKeyRoutes(app: FastifyInstance): Promise<void> {
       [request.user!.id, name, hashApiKey(token), permissions],
     );
     const r = res.rows[0];
-    // The only time this token is ever returned — key_hash is one-way, so losing this response
-    // means the raw value is gone for good, same as any other reveal-once secret.
+    // The only time the raw token is returned; only its hash is stored.
     return { id: r.id, name: r.name, permissions: r.permissions, createdAt: r.created_at, token };
   });
 
   app.delete<{ Params: { id: string } }>("/api-keys/:id", { preHandler: requireAuth }, async (request, reply) => {
+    if (!isUuid(request.params.id)) return reply.code(404).send({ error: "Key not found" });
     const res = await pool.query(`DELETE FROM api_keys WHERE id = $1 AND user_id = $2`, [request.params.id, request.user!.id]);
     if (res.rowCount === 0) return reply.code(404).send({ error: "Key not found" });
     return { ok: true };

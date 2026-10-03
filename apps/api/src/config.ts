@@ -3,143 +3,89 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { readLocalSettings } from "./localSettings.js";
+import { log } from "./lib/log.js";
 
-// Resolved relative to this module's own location, not process.cwd() — cwd varies depending on
-// how the process is launched (npm workspace script vs. a plain `tsx` invocation from repo root).
+// Relative to this module, since process.cwd() depends on how the process was launched.
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.join(__dirname, "..", "..", "..");
 
-// A bare `import "dotenv/config"` resolves .env from process.cwd(), which for `npm run dev -w
-// api` is apps/api, not the repo root where .env actually lives — pointed at REPO_ROOT explicitly.
+// .env lives at the repo root, not in apps/api where `npm run dev -w api` runs.
 loadDotenv({ path: path.join(REPO_ROOT, ".env") });
 
-// Appended to reference-photo URLs (species/routes.ts) so a file overwritten in place (e.g. a
-// crop fix) is refetched on the first request after a restart, instead of serving an
-// already-cached response forever since the URL itself never changes.
+// Appended to reference-photo URLs so a file replaced in place is refetched after a restart.
 export const MEDIA_CACHE_BUST = Date.now();
 
 export const PORT = Number(process.env.PORT ?? 4000);
 export const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://lifer:lifer@localhost:5432/lifer";
-// Filesystem layout: display/{uuid}.webp, thumb/{uuid}.webp.
-// Storage location is configurable independent of where the app itself is installed, via
-// three sources in priority order: the DATA_DIR env var (Docker's LIFER_STORAGE_DIR bind
-// mount ultimately sets this inside the container — see docker-compose.yml/.env.example),
-// then the desktop-mode folder picker's persisted choice (see localSettings.ts/
-// settings/routes.ts — set via Settings, no env var needed), then this repo-relative default.
+// The photo library folder: the DATA_DIR env var (Docker's LIFER_STORAGE_DIR mount), then the
+// folder chosen in desktop Settings (localSettings.ts), then a repo-relative default.
 export const DATA_DIR = process.env.DATA_DIR ?? readLocalSettings().dataDir ?? path.join(REPO_ROOT, "data", "lifer");
-// App-managed shared assets (the offline basemap, the species-matching model, the catalog
-// update's download cache) that have nothing to do with any particular photo library - they're
-// the same regardless of which folder DATA_DIR currently points at, and nothing a user ever
-// needs to see or manage directly. Kept separate from DATA_DIR so switching your photo library
-// folder (Settings → Storage location) never loses, hides, or re-requires re-downloading these;
-// the desktop app points this at Tauri's own stable per-install app-data directory (api.rs's
-// APP_DATA_DIR env var to the API sidecar; see embedded_db.rs for where that directory itself
-// comes from), independent of DATA_DIR. Docker/self-hosted used to default this to DATA_DIR
-// ("one volume covers everything") - confirmed live: that put a `maps/`, `models/`, and
-// `catalog-downloads/` folder directly next to `Lifer Photos` in the one folder a self-hosted
-// admin bind-mounts for their photos, exactly the app-internal clutter in user-facing storage
-// this comment's own first sentence says shouldn't happen. Falls back to its own repo-relative
-// default (a sibling of DATA_DIR's own default, not inside it) for the same reason DATA_DIR has
-// one: local dev with no env vars set still needs somewhere real to write to.
-//
-// But when DATA_DIR is set and APP_DATA_DIR isn't (a Docker compose file from before the
-// /app-data volume existed), keep the old shared-folder behavior. The repo-relative default
-// would sit inside the container's own filesystem there, which every image update wipes, so
-// the map and model would re-download after each update and thumbnails would be lost.
+// App-managed files (offline map, models, caches, thumbnails), kept apart from the photo library.
+// Falls back to DATA_DIR when only that is set, since a default inside the container is wiped on update.
 export const APP_DATA_DIR =
   process.env.APP_DATA_DIR ?? (process.env.DATA_DIR ? DATA_DIR : path.join(REPO_ROOT, "data", "lifer-app-data"));
-// Full-resolution originals for "store" mode uploads. Never used for "link" mode, which references
-// a file wherever it already lives instead.
-//
-// The folder you choose IS the library: Birds, Mammals and the rest go straight into DATA_DIR.
-// Libraries from before this used a "Lifer Photos" subfolder inside it, and keep using it as long
-// as it's there, so nothing moves on its own. Moving its contents up a level (or pointing Docker's
-// /data at the "Lifer Photos" folder itself) switches to the flat layout, and
-// adoptFlatLibraryLayout updates the stored paths on the next start. Also kept when app data
-// shares the same folder (an old compose file without /app-data), so the library and Lifer's
-// cache folders never mix.
+// Where "store" mode originals go. A "Lifer Photos" subfolder is used when it exists or when app
+// data shares the folder, so the library and Lifer's own folders never mix.
 export const LEGACY_ORIGINALS_DIR = path.join(DATA_DIR, "Lifer Photos");
 export const ORIGINALS_DIR =
   existsSync(LEGACY_ORIGINALS_DIR) || path.resolve(APP_DATA_DIR) === path.resolve(DATA_DIR) ? LEGACY_ORIGINALS_DIR : DATA_DIR;
-// Offline basemap tiles (PMTiles — a single-file, range-requested vector tile archive from
-// Protomaps/OpenStreetMap) — not user data, so served unauthenticated like any other static
-// basemap tile source.
+// Offline basemap tiles (a PMTiles archive). Not user data, so served without auth.
 export const MAPS_DIR = path.join(APP_DATA_DIR, "maps");
-// Direct download URL for the offline basemap file itself (a ~500MB PMTiles archive) — kept
-// out of the installer/Docker image entirely (see settings/routes.ts's /settings/map/download)
-// since it's a purely cosmetic feature nobody should be forced to pay ~500MB of app size for.
-// No default: unset until a real hosted copy exists (a GitHub Release asset is the natural
-// fit — same "just a URL to a static file" shape as PACK_INDEX_URL below, and GitHub Releases,
-// unlike GitHub Packages, is built for hosting large binary downloads rather than package
-// registries). Bump this alongside the maplibre-gl/pmtiles npm versions when publishing a new
-// map build, so the map format and the client reading it stay in lockstep.
-export const MAP_DOWNLOAD_URL = process.env.MAP_DOWNLOAD_URL ?? null;
-// Generous ceiling for a single FILE, set to 2GB: TIFF and DNG files can already run large,
-// and Canon's RAW-burst CR3 mode bundles many frames into ONE container file that can reach
-// several hundred MB to well over 1GB for an extended burst — a completely different scale
-// than a single-frame RAW. Since RawUpload.tsx sends one file per request rather than
-// batching many into one multipart request, raising this doesn't multiply out across a whole
-// batch, so a generous per-file number stays safe and bounded. This is @fastify/multipart's
-// per-part `fileSize` limit (not per-route), so it applies everywhere.
-export const MAX_UPLOAD_BYTES = Number(process.env.MAX_UPLOAD_BYTES ?? 2 * 1024 * 1024 * 1024);
-// Separate ceiling for the WHOLE request body — Fastify's bodyLimit applies to the entire
-// multipart request, not per file, so it must be at least MAX_UPLOAD_BYTES plus a little
-// headroom for multipart framing/field overhead (boundaries, field names, a few small text
-// fields like speciesId/mode) rather than exactly MAX_UPLOAD_BYTES.
-//
-// Batch-uploading a folder of RAW files (see RawUpload.tsx's "point it at a folder" feature)
-// previously sent every selected file in ONE combined multipart request, which could add up
-// to far more than any single-file limit even though each file alone was fine — several
-// files could already succeed (written to disk, linked/inserted) before the stream got cut
-// off mid-batch with a 413, since @fastify/multipart processes parts as bytes arrive. The
-// fix is one request per file (see RawUpload.tsx) rather than a bigger cap, so this only
-// needs to cover one file plus a small margin.
-export const MAX_UPLOAD_REQUEST_BYTES = Number(process.env.MAX_UPLOAD_REQUEST_BYTES ?? MAX_UPLOAD_BYTES + 5 * 1024 * 1024);
-// The built web app (vite build's output — see apps/web/package.json's "build" script).
-// Defaults to the monorepo-relative path so it "just works" in a Docker image that copies
-// both apps into place (see Dockerfile); override via env for any other layout.
+// The opt-in offline map download: the rolling "map-latest" release, so a map update needs no
+// app release.
+export const MAP_DOWNLOAD_URL =
+  process.env.MAP_DOWNLOAD_URL ?? "https://github.com/Sparklysparkspark/lifer-app/releases/download/map-latest/world-z8.pmtiles";
+// Per-file upload cap, as a disk-safety net only: 0 (the default) means no cap. Enforced on
+// multipart parts and on a resumable upload's declared Upload-Length.
+export const MAX_UPLOAD_BYTES = Math.max(0, Number(process.env.MAX_UPLOAD_BYTES ?? 0) || 0);
+// Cap on ordinary request bodies (JSON). Uploads never go through it: multipart and resumable
+// uploads stream to disk under their own limits.
+export const MAX_JSON_BODY_BYTES = Math.max(1024 * 1024, Number(process.env.LIFER_MAX_JSON_BODY_BYTES ?? 64 * 1024 * 1024) || 64 * 1024 * 1024);
+// Where uploads are received and kept until imported. Unset picks a folder on the library's own
+// drive, so filing an upload is a rename rather than a copy (lib/uploadWorkDir.ts).
+export const UPLOAD_WORK_DIR = process.env.LIFER_UPLOAD_WORK_DIR?.trim() || null;
+// sharp's pixel limit for opening photos (lib/imageLimits.ts reads LIFER_MAX_IMAGE_PIXELS).
+export { maxImagePixels } from "./lib/imageLimits.js";
+// The built web app (vite build output), at its monorepo path by default.
 export const WEB_DIST_DIR = process.env.WEB_DIST_DIR ?? path.join(REPO_ROOT, "apps", "web", "dist");
 export const SESSION_COOKIE_NAME = "lifer_session";
 export const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
-// NOT process.env.NODE_ENV === "production" (the previous version of this line) — Docker
-// Compose always sets NODE_ENV=production regardless of whether anything is actually served
-// over HTTPS, so that tied the `Secure` cookie flag to "running in Docker" rather than "running
-// behind TLS." A `Secure` cookie is silently refused by the browser over plain HTTP — since the
-// most common self-hosted deployment is plain HTTP on a home LAN (no reverse proxy, no
-// certificate), that meant login never actually persisted a session for anyone in that setup
-// (confirmed live: a real TrueNAS SCALE deploy over plain http://<lan-ip>:4000 hit "Not
-// authenticated" on every request past login, since the cookie was never stored). Deriving this
-// from APP_URL's own scheme instead reflects whether THIS deployment is actually behind TLS.
-// COOKIE_SECURE env var is an explicit override for a reverse-proxy setup that terminates TLS
-// upstream and forwards to this app over plain HTTP internally, where APP_URL is still (and
-// should stay) the public https:// address — the common case that inference alone can't cover.
-export const COOKIE_SECURE = process.env.COOKIE_SECURE != null ? process.env.COOKIE_SECURE === "1" : (process.env.APP_URL ?? "").startsWith("https://");
-// Desktop mode: a single person on their own laptop, server bound to localhost only, no
-// other party who could ever reach it — a login screen there is pure friction with no real
-// security benefit. Sessions/first-run setup stay fully intact for the
-// self-hosted server/NAS deployment (one real account, protected by a real password, since
-// that one can be reached over a network); this flag just makes every request authenticate
-// as one auto-provisioned local user instead, skipping login entirely.
+// Desktop mode: one person on their own machine with the server on localhost, so every request
+// is signed in as the local user. Server installs keep real accounts and sessions.
 export const SINGLE_USER_MODE = process.env.SINGLE_USER_MODE === "1";
 
-// Fastify trustProxy. Default: trust exactly one hop (the reverse proxy in front of Docker), so
-// request.ip can't be set to anything by a client-supplied X-Forwarded-For chain. TRUST_PROXY
-// accepts a hop count, "true"/"false", or a comma-separated list of proxy IPs/CIDRs.
-export function parseTrustProxy(raw: string | undefined): boolean | number | string[] {
-  if (raw == null || raw.trim() === "") return 1;
+// Desktop mode skips sign-in, so it refuses to start without the desktop sidecar's
+// LIFER_LAUNCH_TOKEN. This stops SINGLE_USER_MODE=1 being set on a server by mistake.
+export function desktopModeStartupError(env: NodeJS.ProcessEnv): string | null {
+  if (env.SINGLE_USER_MODE !== "1") return null;
+  if (env.LIFER_LAUNCH_TOKEN) return null;
+  if (env.LIFER_ALLOW_UNTOKENED_DESKTOP === "1") return null;
+  return (
+    "SINGLE_USER_MODE=1 skips sign-in entirely, so it only runs when started by the Lifer desktop app " +
+    "(which sets LIFER_LAUNCH_TOKEN). On a server, remove SINGLE_USER_MODE. For local development, " +
+    "set LIFER_ALLOW_UNTOKENED_DESKTOP=1."
+  );
+}
+
+// Proxies on loopback and private networks are trusted by default. A number means "trust that
+// many hops"; Fastify ignores forwarded headers for a bare number, so it becomes a function.
+export type TrustProxySetting = boolean | string[] | ((address: string, hop: number) => boolean);
+const DEFAULT_TRUST_PROXY = ["loopback", "linklocal", "uniquelocal"];
+export function parseTrustProxy(raw: string | undefined): TrustProxySetting {
+  if (raw == null || raw.trim() === "") return DEFAULT_TRUST_PROXY;
   const v = raw.trim();
   if (v === "true") return true;
   if (v === "false") return false;
-  if (/^\d+$/.test(v)) return Number(v);
+  if (/^\d+$/.test(v)) {
+    const hops = Number(v);
+    return (_address, hop) => hop < hops;
+  }
   return v.split(",").map((s) => s.trim()).filter(Boolean);
 }
-// Desktop mode binds to loopback with no proxy in front, so no forwarded header is trusted.
 export const TRUST_PROXY = SINGLE_USER_MODE ? false : parseTrustProxy(process.env.TRUST_PROXY);
 
-// Extra folders a self-hosted admin bind-mounted into the container and wants Lifer to use (for
-// trips, reimport, link uploads, and as storage volumes). Comma-separated `Label=/path` or bare
-// `/path` (label = folder name). The app never accepts an arbitrary user-typed path on a server;
-// these plus DATA_DIR are the whole allowlist (see lib/allowedPaths.ts). Unused on desktop.
+// Extra bind-mounted folders a server admin allows, as comma-separated `Label=/path` or `/path`.
+// These plus DATA_DIR are the whole server path allowlist (see lib/allowedPaths.ts).
 export interface LibraryRoot {
   label: string;
   path: string;
@@ -157,17 +103,17 @@ export function parseLibraryRoots(raw: string | undefined, dataDir: string): Lib
     const rawLabel = eq === -1 ? "" : trimmed.slice(0, eq).trim();
     const rawPath = eq === -1 ? trimmed : trimmed.slice(eq + 1).trim();
     if (!path.isAbsolute(rawPath)) {
-      console.warn(`[config] LIFER_LIBRARY_ROOTS: skipping "${trimmed}", the path must be absolute`);
+      log.warn(`[config] LIFER_LIBRARY_ROOTS: skipping "${trimmed}", the path must be absolute`);
       continue;
     }
     const resolved = path.resolve(rawPath);
     if (resolved === path.parse(resolved).root) {
-      console.warn(`[config] LIFER_LIBRARY_ROOTS: skipping "${trimmed}", the filesystem root can't be a library root`);
+      log.warn(`[config] LIFER_LIBRARY_ROOTS: skipping "${trimmed}", the filesystem root can't be a library root`);
       continue;
     }
     const rel = path.relative(resolvedDataDir, resolved);
     if (rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel))) {
-      console.warn(`[config] LIFER_LIBRARY_ROOTS: skipping "${trimmed}", it's inside the main library folder already`);
+      log.warn(`[config] LIFER_LIBRARY_ROOTS: skipping "${trimmed}", it's inside the main library folder already`);
       continue;
     }
     if (seen.has(resolved)) continue;
@@ -179,29 +125,11 @@ export function parseLibraryRoots(raw: string | undefined, dataDir: string): Lib
 
 export const LIBRARY_ROOTS = parseLibraryRoots(process.env.LIFER_LIBRARY_ROOTS, DATA_DIR);
 
-// Password-reset emails (see auth/routes.ts's forgot-password/reset-password handlers). No
-// SMTP env vars set is a valid, common state for a fresh self-hosted install — mailer.ts logs
-// the reset link to the server console instead of throwing, so "forgot password" still works
-// (an admin with shell/log access can hand the link to whoever needs it) rather than being a
-// hard requirement before the feature works at all.
-export const SMTP_HOST = process.env.SMTP_HOST ?? null;
-export const SMTP_PORT = Number(process.env.SMTP_PORT ?? 587);
-export const SMTP_USER = process.env.SMTP_USER ?? null;
-export const SMTP_PASS = process.env.SMTP_PASS ?? null;
-export const SMTP_FROM = process.env.SMTP_FROM ?? "Lifer <no-reply@lifer.app>";
-// Base URL used to build the link inside password-reset emails (e.g. https://lifer.example.com).
-export const APP_URL = process.env.APP_URL ?? `http://localhost:${PORT}`;
-
-// Where to fetch the canonical pack-index.json from (see offlinePacks/routes.ts). Defaults to
-// the real hosted index (same packs-latest release tag build-pack-index.ts publishes to) so
-// every install works out of the box; the env var exists only to override it for local
-// development/testing against a differently-served index.
+// The published pack index. Override only to test against another index.
 export const PACK_INDEX_URL =
   process.env.PACK_INDEX_URL ?? "https://github.com/Sparklysparkspark/lifer-app/releases/download/packs-latest/pack-index.json";
 
-// Same shape as PACK_INDEX_URL — a small manifest checked first (see species/catalogSeedUpdate.ts)
-// before ever downloading the much larger seed file itself. Published by
-// packages/data-pipeline/src/scripts/build-catalog-seed.ts alongside the seed.
+// A small manifest checked before downloading the much larger catalog seed.
 export const CATALOG_MANIFEST_URL =
   process.env.CATALOG_MANIFEST_URL ??
   "https://github.com/Sparklysparkspark/lifer-app/releases/download/catalog-latest/catalog-manifest.json";
@@ -209,67 +137,34 @@ export const CATALOG_SEED_URL =
   process.env.CATALOG_SEED_URL ??
   "https://github.com/Sparklysparkspark/lifer-app/releases/download/catalog-latest/lifer-catalog-seed.sql.gz";
 
-// Where scripts/fetch-catalog-seed.js bundles the catalog seed at Docker image build time (same
-// "fetch once at build time" pattern as the desktop build's own fetch-catalog-seed.js) — checked
-// first by seedCatalogIfEmpty before ever hitting the network, so a fresh container's first
-// launch doesn't need live internet access before the Offline Packs map/checklists show anything.
-// Empty on a local `npm run dev`/desktop build (nothing runs the fetch script there), which is
-// fine — seedCatalogIfEmpty just falls back to a live download in that case.
+// The catalog seed bundled into the Docker image at build time, so a fresh container needs no
+// network. Empty elsewhere, where seedCatalogIfEmpty downloads it instead.
 export const BUNDLED_CATALOG_SEED_DIR = path.join(REPO_ROOT, "catalog-seed");
 
-// Species auto-suggest + gallery semantic search (see species/embeddings.ts). A quantized CLIP
-// ViT-L/14 vision encoder — ~307MB, deliberately NOT bundled at build time (Docker image or
-// desktop installer): it's an opt-in, offload-able download fetched into APP_DATA_DIR either
-// the first time it's actually needed or explicitly from Settings > Offline Data, same
-// "just a URL to a static file" shape as PACK_INDEX_URL/MAP_DOWNLOAD_URL above, and the same
-// download/offload UI pattern the offline basemap already has. Cached under APP_DATA_DIR once
-// fetched, never re-fetched unless EMBEDDING_MODEL_VERSION changes. Upgraded from the original
-// ViT-B/32 after measuring same-species-vs-cross-species cosine similarity gap on this app's
-// own reference photos: B/32 0.174, ViT-B/16 0.179 (marginal), ViT-L/14 0.207 (a real,
-// meaningfully bigger gap — the size/accuracy tradeoff worth paying). Not BioCLIP: BioCLIP has
-// no ready-made ONNX export, and an earlier test of a mislabeled "BioCLIP-2" ONNX port actually
-// measured WORSE than plain CLIP on this app's own data.
-// Pinned to a specific commit, not `resolve/main` — confirmed live as a real bug, not a
-// theoretical one: `main` on a Hugging Face repo is a mutable git ref, so a Docker install that
-// downloads this model fresh gets whatever's on `main` AT THAT MOMENT, which is NOT guaranteed
-// to be byte-identical to whatever an older desktop install downloaded months ago. Both sides
-// still tag their vectors with the same EMBEDDING_MODEL_VERSION string (that's a constant WE
-// control, unrelated to what Hugging Face happens to be serving), so two installs can end up
-// silently comparing vectors from two different underlying model weights with no version
-// mismatch ever detected — cosine similarity between them is meaningless. Confirmed exactly this
-// live: a species matched at 60% confidence, #1 result, on an existing desktop install; the
-// same species didn't even crack the top 5 on a freshly-wiped Docker install that downloaded the
-// model fresh. Pinning to this commit (the one live on `main` as of 2026-09-23, verified via
-// this repo's own X-Repo-Commit response header) makes every future download byte-identical
-// regardless of when or where it happens — upgrading to a genuinely different model checkpoint
-// still means bumping EMBEDDING_MODEL_VERSION below and updating this commit hash together.
+// The CLIP ViT-L/14 vision encoder for suggestions and gallery search: a per-channel int8 copy
+// (packages/data-pipeline/python/export_clip_model.py) on this repo's "models" release. A new
+// checkpoint needs a new EMBEDDING_MODEL_VERSION too.
 export const EMBEDDING_MODEL_URL =
-  process.env.EMBEDDING_MODEL_URL ??
-  "https://huggingface.co/Xenova/clip-vit-large-patch14/resolve/c307790166907339eed5a9a53a249af534102536/onnx/vision_model_quantized.onnx";
-// Bumped whenever EMBEDDING_MODEL_URL points at a different model — every stored vector is
-// tagged with the version it was computed under (capture_embeddings/species_reference_embeddings
-// .model_version) so vectors from two different models are never compared against each other
-// (see embeddings.ts's cosine-ranking code) and the backfill job knows a stale vector from a
-// current one.
-export const EMBEDDING_MODEL_VERSION = "clip-vit-l14-quantized-v1";
+  process.env.EMBEDDING_MODEL_URL ?? "https://github.com/Sparklysparkspark/lifer-app/releases/download/models/clip-vit-l14-v2.onnx";
+// Stored with every vector so vectors from different models are never compared.
+export const EMBEDDING_MODEL_VERSION = "clip-vit-l14-v2";
+// The full-precision weights, which GPUs run. The catalog's stored vectors come from this file.
+export const EMBEDDING_MODEL_GPU_URL: string | null =
+  process.env.EMBEDDING_MODEL_GPU_URL ??
+  "https://huggingface.co/Xenova/clip-vit-large-patch14/resolve/c307790166907339eed5a9a53a249af534102536/onnx/vision_model.onnx";
+export const EMBEDDING_MODEL_GPU_BYTES = 1_216_438_437;
 
-// The species identification model (BioCLIP 2, int8 ONNX export of its image encoder; see
-// packages/data-pipeline/python/export_id_model.py). Downloaded alongside the CLIP model above
-// and used for species suggestions only. Hosted on this repo's own "models" release since no
-// ONNX export of it is published anywhere else.
+// The species identification model (BioCLIP 2 image encoder, int8 ONNX; see
+// packages/data-pipeline/python/export_id_model.py), hosted on this repo's "models" release.
 export { ID_MODEL_VERSION } from "@lifer/shared";
 export const ID_MODEL_URL =
   process.env.ID_MODEL_URL ?? "https://github.com/Sparklysparkspark/lifer-app/releases/download/models/bioclip-2-v1.onnx";
+// Its full-precision copy, which GPUs run (acceleration.ts): int8 gains nothing on a GPU.
+export const ID_MODEL_GPU_URL =
+  process.env.ID_MODEL_GPU_URL ?? "https://github.com/Sparklysparkspark/lifer-app/releases/download/models/bioclip-2-v1-fp32.onnx";
+export const ID_MODEL_GPU_BYTES = 1_216_631_032;
 
-// iNaturalist OAuth (see inaturalist/routes.ts). PKCE, not a client secret — Lifer is
-// self-hostable, and a secret baked into a distributed/open-source app isn't actually secret;
-// PKCE is the standard OAuth2 answer for exactly this "public client" shape, so only a
-// client_id (safe to be public) is needed. These env vars are only the DEFAULT for desktop mode
-// (registered against the desktop sidecar's own loopback address) — a server-mode deployment
-// can't share that registration (OAuth requires an exact pre-registered redirect URI per app,
-// and every self-hosted domain is different), so it registers its own iNaturalist application
-// and overrides both values from Settings instead (see settings/routes.ts's inat_client_id/
-// inat_redirect_uri columns, read at request time by inaturalist/routes.ts rather than baked in
-// here at startup).
-export const INAT_CLIENT_ID = process.env.INAT_CLIENT_ID ?? null;
-export const INAT_REDIRECT_URI = process.env.INAT_REDIRECT_URI ?? `http://127.0.0.1:${PORT}/api/inaturalist/callback`;
+// iNaturalist OAuth with PKCE (a secret in an open-source app isn't secret). These are the
+// desktop defaults; a server registers its own iNaturalist app and sets both in Settings.
+export const INAT_CLIENT_ID = process.env.INAT_CLIENT_ID || null;
+export const INAT_REDIRECT_URI = process.env.INAT_REDIRECT_URI || `http://127.0.0.1:${PORT}/api/inaturalist/callback`;

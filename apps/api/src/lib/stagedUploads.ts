@@ -1,28 +1,43 @@
-// Photos checked on the import screen (/uploads/inspect) are kept for a while, so importing them
-// right after doesn't send every file over the network a second time. That second copy doubled
-// the transfer for a batch: 6 to 25 MB per photo, which over Wi-Fi or a remote connection took
-// longer than the server's own work on it.
-//
-// A kept file is filed by user and content hash (the same sha256 the upload stores as its
-// fingerprint), so one user can never import another's, and the import re-checks the hash before
-// using it. Kept files are removed once imported, or after STAGE_MAX_AGE_MS if never imported.
+// Photos checked on the import screen are kept for a while so importing doesn't resend them.
+// Filed by user and sha256, rechecked before use, and removed once imported or after
+// STAGE_MAX_AGE_MS.
 import { createHash } from "node:crypto";
-import { createWriteStream } from "node:fs";
-import { readdir, readFile, rename, rm, stat } from "node:fs/promises";
+import { constants, createReadStream, createWriteStream } from "node:fs";
+import { copyFile, readdir, rename, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import { Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
-import { APP_DATA_DIR } from "../config.js";
 import { ensureDir } from "./safeFs.js";
+import { uploadStagingDir, uploadTempDir } from "./uploadWorkDir.js";
 
-const STAGE_DIR = path.join(APP_DATA_DIR, "staging");
-const STAGE_MAX_AGE_MS = 2 * 60 * 60_000;
+export const STAGE_MAX_AGE_MS = 2 * 60 * 60_000;
 const FINGERPRINT = /^[0-9a-f]{64}$/;
 const USER_ID = /^[0-9a-f-]{36}$/i;
 
 function stagedPath(userId: string, fingerprint: string): string | null {
   if (!USER_ID.test(userId) || !FINGERPRINT.test(fingerprint)) return null;
-  return path.join(STAGE_DIR, userId, fingerprint);
+  return path.join(uploadStagingDir(), userId, fingerprint);
+}
+
+/** sha256 hex of a file, streamed so a file of any size is never held in memory. */
+export async function hashFile(filePath: string): Promise<string> {
+  const hash = createHash("sha256");
+  await pipeline(createReadStream(filePath), async function* (source: AsyncIterable<Buffer>) {
+    for await (const chunk of source) hash.update(chunk);
+  });
+  return hash.digest("hex");
+}
+
+/** Renames `source` to `dest`, copying then deleting when they are on different drives. Never
+ *  overwrites an existing `dest` when it has to copy. */
+export async function moveFile(source: string, dest: string): Promise<void> {
+  try {
+    await rename(source, dest);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "EXDEV") throw err;
+    await copyFile(source, dest, constants.COPYFILE_EXCL);
+    await rm(source, { force: true });
+  }
 }
 
 /** Moves a just-inspected temp file into the staging area. Best-effort: on failure the import
@@ -32,30 +47,16 @@ export async function stageUpload(userId: string, fingerprint: string, tmpPath: 
   if (!target) return false;
   try {
     await ensureDir(path.dirname(target));
-    await rename(tmpPath, target);
+    await rm(target, { force: true });
+    await moveFile(tmpPath, target);
     return true;
   } catch {
     return false;
   }
 }
 
-/** The kept bytes for this fingerprint, or null when there are none (expired, never kept, or
- *  the server restarted onto a different app data folder). */
-export async function readStagedUpload(userId: string, fingerprint: string): Promise<Buffer | null> {
-  const target = stagedPath(userId, fingerprint);
-  if (!target) return null;
-  try {
-    const bytes = await readFile(target);
-    if (createHash("sha256").update(bytes).digest("hex") !== fingerprint) return null;
-    return bytes;
-  } catch {
-    return null;
-  }
-}
-
-/** Streams an upload straight to disk, fingerprinting it on the way, so a video is never held in
- *  memory (a 1.4 GB clip used to take 1.4 GB of server memory while it was checked, and again
- *  while it was imported). Throws when the upload went over the size limit. */
+/** Streams an upload straight to disk, fingerprinting it on the way, so no upload is ever held in
+ *  memory. Throws a 413 when the upload went over the size limit. */
 export async function receiveToFile(
   file: NodeJS.ReadableStream & { truncated?: boolean },
   dest: string,
@@ -77,52 +78,55 @@ export async function receiveToFile(
   return { fingerprint: hash.digest("hex"), bytes };
 }
 
-/** Moves a kept file to `dest` for an import to use (without reading it, so it works for a video
- *  of any size). False when there's no kept copy. */
+/** Moves a kept file to `dest` for an import, then checks it still hashes to its fingerprint.
+ *  False when there's no kept copy or it changed. */
 export async function claimStagedUpload(userId: string, fingerprint: string, dest: string): Promise<boolean> {
   const target = stagedPath(userId, fingerprint);
   if (!target) return false;
   try {
-    await rename(target, dest);
-    return true;
+    await moveFile(target, dest);
   } catch {
     return false;
   }
-}
-
-export async function removeStagedUpload(userId: string, fingerprint: string): Promise<void> {
-  const target = stagedPath(userId, fingerprint);
-  if (target) await rm(target, { force: true }).catch(() => {});
+  try {
+    if ((await hashFile(dest)) === fingerprint) return true;
+  } catch {
+    // unreadable: treated like a changed file
+  }
+  await rm(dest, { force: true });
+  return false;
 }
 
 let lastSweep = 0;
 const SWEEP_EVERY_MS = 10 * 60_000;
+// Scratch files a crashed request left behind; nothing legitimately runs this long.
+const TEMP_MAX_AGE_MS = 6 * 60 * 60_000;
 
-/** Deletes kept files nobody imported. Called on each inspect, but only looks every 10 minutes. */
-export async function sweepStagedUploads(now = Date.now()): Promise<void> {
-  if (now - lastSweep < SWEEP_EVERY_MS) return;
-  lastSweep = now;
-  let users: string[];
+async function removeOlderThan(dir: string, maxAgeMs: number, now: number, depth: number): Promise<void> {
+  let entries: string[];
   try {
-    users = await readdir(STAGE_DIR);
+    entries = await readdir(dir);
   } catch {
     return;
   }
-  for (const user of users) {
-    const dir = path.join(STAGE_DIR, user);
-    let files: string[];
+  for (const name of entries) {
+    const p = path.join(dir, name);
     try {
-      files = await readdir(dir);
+      const st = await stat(p);
+      if (st.isDirectory()) {
+        if (depth > 0) await removeOlderThan(p, maxAgeMs, now, depth - 1);
+      } else if (now - st.mtimeMs > maxAgeMs) await rm(p, { force: true });
     } catch {
-      continue;
-    }
-    for (const f of files) {
-      const p = path.join(dir, f);
-      try {
-        if (now - (await stat(p)).mtimeMs > STAGE_MAX_AGE_MS) await rm(p, { force: true });
-      } catch {
-        // already gone
-      }
+      // already gone
     }
   }
+}
+
+/** Deletes kept files nobody imported and stale scratch files. Called on each inspect and by the
+ *  maintenance timer, but only looks every 10 minutes unless `force`. */
+export async function sweepStagedUploads(now = Date.now(), force = false): Promise<void> {
+  if (!force && now - lastSweep < SWEEP_EVERY_MS) return;
+  lastSweep = now;
+  await removeOlderThan(uploadStagingDir(), STAGE_MAX_AGE_MS, now, 1);
+  await removeOlderThan(uploadTempDir(), TEMP_MAX_AGE_MS, now, 0);
 }

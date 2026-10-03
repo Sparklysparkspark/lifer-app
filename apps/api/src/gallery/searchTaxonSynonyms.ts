@@ -1,10 +1,5 @@
-// Plain-language words someone types for a group of animals ("raptor", "frog", "shorebird"),
-// mapped to the taxonomy each photo's species actually carries. A group is matched on the
-// species' taxon_class, taxon_order or family (all lowercased), so "frog" means frogs and toads
-// (order Anura), not every amphibian, and "birds of prey" means hawks, eagles, falcons, owls and
-// vultures, not whatever CLIP thinks the words look like. Deliberately loose and practical: the
-// words people reach for, not a taxonomy glossary. Latin order and family names ("Anatidae",
-// "Passeriformes") are recognized separately, from the catalog itself.
+// Plain-language group words ("raptor", "frog", "shorebird") mapped to taxon_class, taxon_order or
+// family (lowercased). Latin order and family names are recognized separately, from the catalog.
 export interface GroupPredicate {
   classes?: string[];
   orders?: string[];

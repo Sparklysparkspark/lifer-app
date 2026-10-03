@@ -1,11 +1,5 @@
-// A raw Node fs error (EPERM/EACCES) reads as a crash, not as "macOS needs you to grant folder
-// access" — and on macOS specifically, EPERM here is almost never a real Unix permissions bug:
-// it's TCC (the OS's own folder-access consent system for Desktop/Documents/Downloads/removable
-// volumes) denying access, either because the user hasn't granted it yet or because it was
-// silently denied by an app build that never declared the required Info.plist usage description
-// (see apps/desktop/scripts/resign-macos.js's own comment on that gap). Either way, "reinstall
-// the app" or "check the disk" are the wrong instructions — the fix is always the same System
-// Settings panel.
+// Turns a raw EPERM/EACCES into an actionable message. On macOS it's nearly always the OS's folder
+// access consent (TCC) denying access, which is fixed in System Settings, not by reinstalling.
 export function friendlyFsErrorMessage(err: unknown): string {
   const code = (err as NodeJS.ErrnoException | undefined)?.code;
   const path = (err as NodeJS.ErrnoException | undefined)?.path;
@@ -19,7 +13,7 @@ export function friendlyFsErrorMessage(err: unknown): string {
   }
   if (code === "ENOENT") {
     const where = path ? ` (${path})` : "";
-    return `That folder${where} doesn't exist or isn't reachable right now — check it's still connected and try again.`;
+    return `That folder${where} doesn't exist or isn't reachable right now. Check it's still connected and try again.`;
   }
   return (err as Error)?.message ?? String(err);
 }

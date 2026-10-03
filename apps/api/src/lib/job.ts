@@ -1,14 +1,9 @@
-// Shared lifecycle for every long-running background job (see packages/shared/src/job.ts for the
-// status shape the web app polls). Owns the three things each hand-rolled job used to get
-// slightly wrong on its own:
-// - The claim: start() checks `running` and sets it in the same synchronous tick, so two
-//   requests arriving together can never both start the job (the old check, then await, then
-//   set pattern let both through).
-// - Cancellation: one AbortController per run, aborted by cancel(), handed to the run function
-//   so it can pass the signal to fetch() and stream pipelines.
-// - Cleanup: running/finishedAt/cancelRequested are always reset in a finally, so a thrown
-//   error can never leave the job stuck "running" forever.
+// Shared lifecycle for background jobs (the polled status shape is packages/shared/src/job.ts):
+// - start() claims the job synchronously, so two requests can't both start it.
+// - One AbortController per run, aborted by cancel() and passed to fetch and streams.
+// - running/finishedAt/cancelRequested are reset in a finally, so an error can't leave it running.
 import { idleJobStatus, type JobStatus } from "@lifer/shared";
+import { log } from "./log.js";
 
 export class JobCancelledError extends Error {
   constructor() {
@@ -17,11 +12,7 @@ export class JobCancelledError extends Error {
   }
 }
 
-// node-postgres attaches `detail`/`constraint`/`table` to a DB error (e.g. a unique-constraint
-// violation) as plain own properties, not part of `.message` or `.stack`. Without this, a job's
-// error only ever showed the bare "duplicate key value violates unique constraint ..." in
-// Settings, with the actually-useful "which row, which values" part buried in server logs after
-// the stack trace, easy to miss when scrolling past it.
+// Appends node-postgres's `detail` (which row, which values) to the message shown in Settings.
 export function describeError(err: unknown): string {
   const message = err instanceof Error ? err.message : String(err);
   const detail = (err as { detail?: unknown })?.detail;
@@ -88,7 +79,7 @@ export function createJob<TResult = unknown, TExtra extends object = object>(
           status.cancelled = true;
         } else {
           status.error = describeError(err);
-          console.error(`[job:${name}]`, err);
+          log.error({ err }, `[job:${name}] failed`);
         }
       } finally {
         status.running = false;

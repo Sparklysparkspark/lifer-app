@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { contentDisposition, parseRange } from "./httpFile.js";
+import { contentDisposition, escapeHtml, parseRange } from "./httpFile.js";
 
 describe("parseRange", () => {
   const size = 1000;
@@ -43,5 +43,11 @@ describe("contentDisposition", () => {
   });
   it("neutralises quotes in the fallback", () => {
     expect(contentDisposition(`a"b.jpg`)).toContain(`filename="a_b.jpg"`);
+  });
+});
+
+describe("escapeHtml", () => {
+  it("escapes markup and quotes", () => {
+    expect(escapeHtml(`<img src=x onerror="a('b')">&`)).toBe("&lt;img src=x onerror=&quot;a(&#39;b&#39;)&quot;&gt;&amp;");
   });
 });

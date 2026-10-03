@@ -6,11 +6,8 @@ import { from as copyFrom } from "pg-copy-streams";
 
 const FLUSH_BYTES = 256 * 1024;
 
-// Waits for one drain (or the stream erroring), removing both listeners itself regardless of
-// which one fires. A large table (region_species is 1.9M+ rows) calls this once per 256KB
-// chunk; racing two `once()` promises here used to leave the LOSING side's listener attached
-// forever (Node's `once()` never cleans up the event that didn't fire), leaking one "error"
-// listener per flush call and tripping MaxListenersExceededWarning on a big enough table.
+// Waits for one drain (or an error) and removes both listeners itself. Racing two once() calls
+// leaks the loser's listener on every chunk of a large COPY.
 function waitForDrainOrError(stream: NodeJS.WritableStream): Promise<void> {
   return new Promise((resolve) => {
     const onDrain = () => cleanup(resolve);

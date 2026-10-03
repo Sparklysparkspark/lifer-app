@@ -1,38 +1,15 @@
-// "Search your photos": one query box that understands species names, animal groups, places,
-// dates and what's in the picture, in any mix ("owl flying", "ducks in Canada 2024", "snow").
-//
-// A query is read in stages, each one taking the words it understands:
-//   1. A full species name, scientific name, alias or code ("great blue heron", "BEKI") wins
-//      outright for those words.
-//   2. Place names (regions your photos are in, or a location you typed at import) and dates
-//      (a year, a month, a season, "last year") become filters.
-//   3. Two or more words that together fit one species ("pilated woodpecker", "great blue") pick
-//      that species, allowing a small typo.
-//   4. Group words ("raptors", "frog", "shorebird", or a Latin order or family) pick every species
-//      in that group.
-//   5. A word that is a species' main noun ("goose", "hawk", "fox") picks those species. A word
-//      that only appears as a describing word in a name ("snow" in Snow Goose, "flying" in Flying
-//      Squirrel) does NOT: it's far more often about the picture, so it stays a description and
-//      those species are only mixed into the picture results.
-//   6. Whatever is left describes the picture and is scored with CLIP.
-//
-// Picture scoring compares each photo's match for the description with its own noise level (its
-// average match to things never in a wildlife photo) and keeps only clear winners. Raw similarity
-// mostly measures how photo-like an image is, so any fixed cut-off either kept a slice of the
-// library for "giraffe" or, on real camera photos, kept nothing even for "water".
+// Photo search: one query box for species names, groups, places, dates and picture content.
+// Stages take the words they understand in order: full names, places and dates, multi-word
+// species fits, group words, species head nouns; whatever is left is scored with CLIP.
 import { pool } from "../db.js";
 import { EMBEDDING_MODEL_VERSION } from "../config.js";
-import { embedQueryText } from "../species/textEmbedding.js";
+import { captureVectors, clearYourVectorCache } from "../species/embeddings.js";
+import { embedTextVectors } from "../species/textEmbedding.js";
 import { GROUP_TERMS, MAX_GROUP_TERM_WORDS, speciesInGroup, type GroupPredicate } from "./searchTaxonSynonyms.js";
 
-// A photo matches a description when it scores at least this much above its own noise level (its
-// average match to things never in a wildlife photo, see NOISE_PROMPTS), and is within reach of
-// the best match. Comparing each photo to its own baseline, instead of one fixed cut-off, is
-// what makes this work across libraries: full-frame camera photos score much lower than
-// reference photos against any prompt, so a cut-off tuned on one returned nothing on the other
-// (a real "water" search found none of the ducks on water). Tested on both kinds: real matches
-// ("water", "flying", "fog", "perched on a branch", "nest") clear it, while "giraffe", "person",
-// "city street" and "kangaroo" come back empty.
+// A photo matches a description when it scores at least this much above its own noise level
+// (see NOISE_PROMPTS) and is within reach of the best match. A per-photo baseline is needed
+// because camera photos score much lower than reference photos against any prompt.
 const CONTENT_MATCH_MIN = 0.033;
 const CONTENT_MARGIN_RELATIVE = 0.55;
 
@@ -140,10 +117,14 @@ function indexSpecies(s: SpeciesEntry): IndexedSpecies {
 }
 
 export interface PlaceEntry {
-  kind: "region" | "location";
-  id: string; // region id, or the location label itself
+  // Trips and albums are named the same way places are ("costa rica trip", an album title).
+  kind: "region" | "location" | "trip" | "album";
+  id: string; // region, trip or album id, or the location label itself
   name: string;
 }
+
+// "costa rica trip", "big year album": the word after a name that says which kind it is.
+const CONTEXT_KIND_WORDS: Record<string, "trip" | "album"> = { trip: "trip", trips: "trip", album: "album", albums: "album" };
 
 export interface ParsedQuery {
   /** Species picked by name, or null when the query names no species. */
@@ -221,9 +202,8 @@ export function parseSearchQuery(
     lastIndex >= 0 && (GROUP_TERMS.has(lastWord) || GROUP_TERMS.has(normalizeWordForm(lastWord)) || vocab.species.some((s) => wordsOf(s.commonName ?? "").includes(lastWord)));
   const completion = lastIndex >= 0 && !lastIsKnownWord ? completePictureWord(lastWord) : null;
 
-  // 1. Full names, longest first. Primary common names, scientific names and codes always count.
-  //    An alias counts when it's at least two words: single-word aliases include junk like
-  //    "Fish", "Hen" and "Italian" (all aliases of Atlantic Cod).
+  // 1. Full names, longest first. Aliases count only when at least two words: single-word
+  //    aliases are often junk.
   const fullNames = new Map<string, Set<string>>();
   const addFull = (phrase: string, id: string) => {
     if (!phrase) return;
@@ -241,8 +221,7 @@ export function parseSearchQuery(
     for (let i = 0; i + n <= words.length; i++) {
       const phrase = phraseAt(i, n);
       if (!phrase) continue;
-      // A single common word that happens to equal a whole name only counts if it isn't also a
-      // group word ("fish" is a group, not the alias of one cod).
+      // A single word that equals a whole name doesn't count if it's also a group word.
       if (n === 1 && GROUP_TERMS.has(phrase)) continue;
       const hit = fullNames.get(phrase);
       if (!hit) continue;
@@ -260,15 +239,36 @@ export function parseSearchQuery(
     placeByName.get(key)!.push(p);
   }
   const maxPlaceWords = Math.min(5, Math.max(1, ...[...placeByName.keys()].map((k) => k.split(" ").length)));
+  // Words followed by "trip" or "album" pick the trips or albums whose names contain them
+  // ("costa rica trip" finds "Costa Rica 2024"), taking the kind word along.
+  for (let i = 0; i < words.length; i++) {
+    const kind = CONTEXT_KIND_WORDS[words[i]];
+    if (!kind || used[i]) continue;
+    for (let n = Math.min(i, maxPlaceWords); n >= 1; n--) {
+      const phrase = phraseAt(i - n, n);
+      if (!phrase || phrase.split(" ").every((w) => STOPWORDS.has(w))) continue;
+      const hit = vocab.places.filter((p) => p.kind === kind && ` ${wordsOf(p.name).join(" ")} `.includes(` ${phrase} `));
+      if (hit.length === 0) continue;
+      result.places.push(...hit);
+      result.labels.places.push(...hit.map((p) => p.name));
+      markUsed(i - n, n + 1);
+      for (let k = i - n; k <= i; k++) context[k] = true;
+      break;
+    }
+  }
   for (let n = maxPlaceWords; n >= 1; n--) {
     for (let i = 0; i + n <= words.length; i++) {
       const phrase = phraseAt(i, n);
-      const hit = phrase ? placeByName.get(phrase) : undefined;
+      let hit = phrase ? placeByName.get(phrase) : undefined;
       if (!hit) continue;
+      // "<trip name> trip": just the trip, and the kind word goes with it.
+      const kindWord = i + n < words.length && !used[i + n] ? CONTEXT_KIND_WORDS[words[i + n]] : undefined;
+      const ofKind = kindWord ? hit.filter((p) => p.kind === kindWord) : [];
+      if (ofKind.length > 0) hit = ofKind;
       result.places.push(...hit);
       result.labels.places.push(hit[0].name);
-      markUsed(i, n);
-      for (let k = i; k < i + n; k++) context[k] = true;
+      markUsed(i, n + (ofKind.length > 0 ? 1 : 0));
+      for (let k = i; k < i + n + (ofKind.length > 0 ? 1 : 0); k++) context[k] = true;
       if (i > 0 && !used[i - 1] && PLACE_PREPOSITIONS.has(words[i - 1])) used[i - 1] = context[i - 1] = true;
     }
   }
@@ -303,8 +303,7 @@ export function parseSearchQuery(
     }
   }
 
-  // Words of one or two letters ("up", "on") never pick a species: old names like "Teeter-up"
-  // (Spotted Sandpiper) and "Wake-up" (Northern Flicker) would otherwise hijack "close up".
+  // Words of one or two letters never pick a species, or old names with "up" would hijack "close up".
   const open = () => words.map((w, i) => ({ w, i })).filter(({ w, i }) => !used[i] && !STOPWORDS.has(w) && w.length >= 3);
 
   // 3. Several words that fit one species together.
@@ -351,9 +350,8 @@ export function parseSearchQuery(
     const sci = species.filter((s) => s.sciWords.some((sw) => sw === w));
     const code = species.filter((s) => s.codes.some((c) => c.toLowerCase() === w));
     const direct = [...new Set([...head, ...sci, ...code])];
-    // An old or alternate name counts when its main noun is this word AND the species is in the
-    // same family as a species that has it in its current name: Lesser Scaup ("Lesser Scaup
-    // Duck") for "duck", but not Peregrine Falcon ("Duck Hawk") for "hawk".
+    // An alternate name counts when its main noun is this word and the species shares a family
+    // with a species whose current name has it.
     const directFamilies = new Set(direct.map((s) => s.family));
     const aliasHead = species.filter(
       (s) =>
@@ -362,14 +360,11 @@ export function parseSearchQuery(
         (direct.length === 0 || directFamilies.has(s.family)),
     );
     let picked = [...direct, ...aliasHead];
-    // Still being typed ("moo", "pil", "woodp"): the start of any word in a species' name, or of
-    // a group word, from three letters, so results fill in as you type. Only for a partial word:
-    // a complete word that's in a name as a describing word ("snow" in Snow Goose) is left to
-    // mean the picture, below.
+    // A partial last word (three letters or more) picks species or a group it starts. A complete
+    // describing word is left to mean the picture.
     let typedGroup: { label: string; predicate: GroupPredicate } | undefined;
     const isWholeNameWord = species.some((s) => s.primaryWords.includes(w));
-    // Heading for a picture word: the species it starts ("fly": flycatchers, Flying Squirrel) are
-    // only mixed in, and the picture decides.
+    // Heading for a picture word: the species it starts are only mixed in.
     if (picked.length === 0 && i === lastIndex && completion) {
       for (const s of species.filter((s) => s.primaryWords.some((pw) => pw.startsWith(w)))) result.hintSpeciesIds.add(s.id);
       continue;
@@ -399,9 +394,8 @@ export function parseSearchQuery(
     for (const s of modifier) result.hintSpeciesIds.add(s.id);
   }
 
-  // A subject that comes after a description is what the first subject is doing something to,
-  // not a second subject: in "heron catching fish" the fish are the prey, so the search is for
-  // herons, with "catching fish" describing the picture. "owls and hawks" keeps both.
+  // A subject after a description is the object of the action, not a second subject:
+  // "heron catching fish" searches herons. "owls and hawks" keeps both.
   subjects.sort((a, b) => a.start - b.start);
   const kept: typeof subjects = [];
   for (const sub of subjects) {
@@ -426,9 +420,8 @@ export function parseSearchQuery(
     } else result.labels.species.push(...sub.labels);
   }
   if (pickedSpecies.size > 0) result.speciesIds = pickedSpecies;
-  // Only when some words are left that no stage used is there a picture to describe. The
-  // description then keeps the subject words too ("owl flying" describes an owl in flight better
-  // than "flying" alone), dropping only places, dates and the words that introduced them.
+  // A description exists only when some words are left over. It keeps the subject words too,
+  // dropping only places, dates and their prepositions.
   if (words.some((w, i) => !used[i] && !STOPWORDS.has(w))) {
     result.description = words.map((w, i) => (i === lastIndex && completion && !used[i] ? completion : w)).filter((_, i) => !context[i]).join(" ").trim() || null;
   }
@@ -481,7 +474,7 @@ const queryVectorCache = new Map<string, Float32Array>();
 async function queryVector(text: string): Promise<Float32Array> {
   const cached = queryVectorCache.get(text);
   if (cached) return cached;
-  const parts = await Promise.all(QUERY_TEMPLATES(text).map((t) => embedQueryText(t)));
+  const parts = await embedTextVectors(QUERY_TEMPLATES(text));
   const v = new Float32Array(parts[0].length);
   for (const p of parts) for (let i = 0; i < v.length; i++) v[i] += p[i];
   normalize(v);
@@ -504,32 +497,20 @@ function dot(a: Float32Array, b: Float32Array): number {
   return s;
 }
 
-// Photo vectors, kept in memory: reading every one from Postgres on each keystroke took 0.36s for
-// 2,000 photos and grows with the library. Keyed by capture and computed_at, so a recomputed
-// vector (a re-crop, a model update) replaces the old one.
-const photoVectorCache = new Map<string, { computedAt: string; vec: Float32Array }>();
-
-async function photoVectors(rows: Array<{ capture_id: string; embedding_computed_at: string | null }>): Promise<Map<string, Float32Array>> {
-  const missing = rows.filter((r) => r.embedding_computed_at && photoVectorCache.get(r.capture_id)?.computedAt !== r.embedding_computed_at);
-  for (let i = 0; i < missing.length; i += 2000) {
-    const batch = missing.slice(i, i + 2000);
-    const res = await pool.query<{ capture_id: string; embedding: number[]; computed_at: string }>(
-      `SELECT capture_id, embedding, computed_at::text AS computed_at FROM capture_embeddings WHERE capture_id = ANY($1::uuid[]) AND model_version = $2`,
-      [batch.map((r) => r.capture_id), EMBEDDING_MODEL_VERSION],
-    );
-    for (const r of res.rows) photoVectorCache.set(r.capture_id, { computedAt: r.computed_at, vec: normalize(Float32Array.from(r.embedding)) });
-  }
-  const out = new Map<string, Float32Array>();
-  for (const r of rows) {
-    const hit = photoVectorCache.get(r.capture_id);
-    if (hit && hit.computedAt === r.embedding_computed_at) out.set(r.capture_id, hit.vec);
-  }
-  return out;
+// Photo vectors are cached in memory (shared with species/embeddings.ts), keyed by capture and
+// computed_at so a recomputed vector replaces the old one. Stored vectors are unit length.
+function photoVectors(rows: Array<{ capture_id: string; embedding_computed_at: string | null }>): Promise<Map<string, Float32Array>> {
+  return captureVectors(
+    pool,
+    "capture_embeddings",
+    EMBEDDING_MODEL_VERSION,
+    rows.map((r) => ({ capture_id: r.capture_id, computed_at: r.embedding_computed_at })),
+  );
 }
 
 /** Test and memory hook: forget cached vectors. */
 export function clearPhotoVectorCache(): void {
-  photoVectorCache.clear();
+  clearYourVectorCache();
 }
 
 export interface SearchRow {
@@ -540,6 +521,8 @@ export interface SearchRow {
   tags: string[] | null;
   region_id: string | null;
   location_label: string | null;
+  trip_id?: string | null;
+  album_ids?: string[] | null;
   focal_length_mm: number | string | null;
   embedding_computed_at: string | null;
   common_name: string | null;
@@ -592,7 +575,15 @@ export async function rankSearch<R extends SearchRow>(
     const regionIds = parsed.places.filter((p) => p.kind === "region").map((p) => p.id);
     const inRegion = regionIds.length > 0 ? await regionSubtree(regionIds) : new Set<string>();
     const labels = new Set(parsed.places.filter((p) => p.kind === "location").map((p) => p.name.toLowerCase()));
-    candidates = candidates.filter((r) => (r.region_id && inRegion.has(r.region_id)) || (r.location_label && labels.has(r.location_label.toLowerCase())));
+    const trips = new Set(parsed.places.filter((p) => p.kind === "trip").map((p) => p.id));
+    const albums = new Set(parsed.places.filter((p) => p.kind === "album").map((p) => p.id));
+    candidates = candidates.filter(
+      (r) =>
+        (r.region_id && inRegion.has(r.region_id)) ||
+        (r.location_label && labels.has(r.location_label.toLowerCase())) ||
+        (r.trip_id && trips.has(r.trip_id)) ||
+        (r.album_ids ?? []).some((a) => albums.has(a)),
+    );
   }
   if (parsed.years.length > 0 || parsed.months.length > 0) {
     candidates = candidates.filter((r) => {
@@ -616,8 +607,7 @@ export async function rankSearch<R extends SearchRow>(
   }
 
   const withTagsFirst = (scored: Array<{ row: R; score: number | null }>) =>
-    // No cap: the gallery itself shows every photo, so "birds" shouldn't show fewer than scrolling
-    // would. Picture-only searches are already kept to real matches by the margin cut-off.
+    // No cap: the gallery shows every photo, and picture-only searches are already cut by margin.
     [...scored.filter((s) => tagged.has(s.row.capture_id)), ...scored.filter((s) => !tagged.has(s.row.capture_id))];
 
   // Nothing about the picture: the filters are the answer.
@@ -629,9 +619,8 @@ export async function rankSearch<R extends SearchRow>(
     return { items: withTagsFirst(sorted.map((row) => ({ row, score: null }))), interpretation };
   }
 
-  // The quick pass (so results appear while typing) skips picture matching. With a subject it
-  // shows that subject's photos straight away; the full pass then reorders them. With only a
-  // description it has nothing reliable to show yet, so the page keeps what it had.
+  // The quick pass skips picture matching: it shows a subject's photos right away, or nothing
+  // for a description-only query so the page keeps what it had.
   if (opts.quick) {
     const quickItems = hasSubject ? [...candidates].sort(byRatingThenDate).map((row) => ({ row, score: null })) : [];
     return { items: withTagsFirst(quickItems), interpretation, pending: true };
@@ -655,8 +644,7 @@ export async function rankSearch<R extends SearchRow>(
     return { row, score: v ? dot(v, queryVec!) - dot(v, noiseVec!) : null };
   });
 
-  // A named subject plus a description ("owl flying"): every photo of the subject, best fit first.
-  // A description can reorder a species' photos but never hide one.
+  // Subject plus description: every photo of the subject, best fit first. Never hides one.
   if (hasSubject) {
     scored.sort((a, b) => (b.score ?? -1) - (a.score ?? -1) || byRatingThenDate(a.row, b.row));
     return { items: withTagsFirst(scored), interpretation };
@@ -666,9 +654,8 @@ export async function rankSearch<R extends SearchRow>(
   // (Snow Goose for "snow") and photos tagged with it.
   const top = Math.max(0, ...scored.map((s) => s.score ?? 0));
   const cutoff = Math.max(CONTENT_MATCH_MIN, top * CONTENT_MARGIN_RELATIVE);
-  // A word that's only a describing word in some species' names ("pileated", "snow") could mean
-  // either. If most photos of those species match it by picture too, it's naming them
-  // (Pileated Woodpeckers look "pileated"; most Snow Goose photos aren't snowy), so show just them.
+  // A describing word in species names could mean either. If most photos of those species also
+  // match it by picture, treat it as naming them and show just them.
   const hinted = scored.filter((s) => parsed.hintSpeciesIds.has(s.row.species_id));
   if (hinted.length > 0 && hinted.filter((s) => (s.score ?? -1) >= cutoff).length >= hinted.length / 2) {
     hinted.sort((a, b) => (b.score ?? -1) - (a.score ?? -1));

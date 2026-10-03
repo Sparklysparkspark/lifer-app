@@ -1,7 +1,7 @@
 // Runs only with TEST_DATABASE_URL pointing at a migrated, disposable database:
 //   TEST_DATABASE_URL=postgres://lifer@127.0.0.1:55432/lifer npx vitest run collectionState
 // A fresh install pointed at an existing library gets its archived, hidden, seen and target
-// species back from the library's own record.
+// species, and the user's own tiers, back from the library's own record.
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -38,6 +38,7 @@ describe.skipIf(!url)("collection state record", () => {
     await db.query(`INSERT INTO region_species_hidden (user_id, region_id, species_id) VALUES ($1, $2, $3)`, [USER, REGION, SP[1]]);
     await db.query(`INSERT INTO user_species (user_id, species_id, state) VALUES ($1, $2, 'seen')`, [USER, SP[2]]);
     await db.query(`INSERT INTO user_species (user_id, species_id, is_target) VALUES ($1, $2, true)`, [USER, SP[3]]);
+    await db.query(`INSERT INTO user_tier_overrides (user_id, region_id, species_id, tier) VALUES ($1, $2, $3, 'rare'), ($1, NULL, $4, 'uncommon')`, [USER, REGION, SP[1], SP[2]]);
   });
 
   afterAll(async () => {
@@ -59,22 +60,28 @@ describe.skipIf(!url)("collection state record", () => {
       hiddenInRegions: [{ region: "ZZ-ST", species: "Statea species1" }],
       seen: ["Statea species2"],
       targets: ["Statea species3"],
+      tierOverrides: [
+        { region: "ZZ-ST", species: "Statea species1", tier: "rare" },
+        { region: null, species: "Statea species2", tier: "uncommon" },
+      ],
     });
 
     // A fresh install: same photos folder, none of this state in the database.
     await db.query(`DELETE FROM user_archived_species WHERE user_id = $1`, [USER]);
     await db.query(`DELETE FROM region_species_hidden WHERE user_id = $1`, [USER]);
     await db.query(`DELETE FROM user_species WHERE user_id = $1`, [USER]);
+    await db.query(`DELETE FROM user_tier_overrides WHERE user_id = $1`, [USER]);
 
-    expect(await restoreCollectionState(USER)).toEqual({ restored: 4, notFound: 0 });
+    expect(await restoreCollectionState(USER)).toEqual({ restored: 6, notFound: 0 });
     const counts = await db.query(
       `SELECT (SELECT count(*) FROM user_archived_species WHERE user_id = $1)::int AS archived,
               (SELECT count(*) FROM region_species_hidden WHERE user_id = $1)::int AS hidden,
               (SELECT count(*) FROM user_species WHERE user_id = $1 AND state = 'seen')::int AS seen,
-              (SELECT count(*) FROM user_species WHERE user_id = $1 AND is_target)::int AS targets`,
+              (SELECT count(*) FROM user_species WHERE user_id = $1 AND is_target)::int AS targets,
+              (SELECT count(*) FROM user_tier_overrides WHERE user_id = $1)::int AS overrides`,
       [USER],
     );
-    expect(counts.rows[0]).toEqual({ archived: 1, hidden: 1, seen: 1, targets: 1 });
+    expect(counts.rows[0]).toEqual({ archived: 1, hidden: 1, seen: 1, targets: 1, overrides: 2 });
 
     // The database has its own state now, so a second restore leaves it alone.
     expect(await restoreCollectionState(USER)).toBeNull();

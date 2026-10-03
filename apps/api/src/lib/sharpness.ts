@@ -1,9 +1,5 @@
-// Variance of the Laplacian — a well-known, cheap sharpness proxy: a blurry image has smoothly
-// varying pixel values (low-variance edge response), a sharp one has strong, varied edges (high
-// variance). Deliberately simple (no ML model) since this only needs to RANK a handful of
-// near-duplicate frames from the same burst against each other, not produce an absolute quality
-// score — resized down first since sharpness ranking among burst-mates doesn't need full
-// resolution, and it keeps this fast enough to run over a whole sequence on demand.
+// Variance of the Laplacian, a cheap sharpness score. It only ranks near-duplicate burst frames
+// against each other, so images are downsized first.
 import sharp from "sharp";
 
 const ANALYSIS_WIDTH = 400;

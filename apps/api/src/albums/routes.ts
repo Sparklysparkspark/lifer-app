@@ -1,8 +1,5 @@
-// Manually-curated, named collections of captures — same shape as Trips (a name plus an
-// ordered set of captures) but user-curated instead of auto-populated by folder-scan
-// fingerprint matching. Reuses gallery/routes.ts's own GalleryItem shape for album contents so
-// the frontend can render an album's photos with the exact same PhotoTile/MasonryGrid code the
-// Gallery page already uses.
+// Albums: named, hand-picked sets of captures. Contents use the gallery's item shape so the web
+// reuses the gallery grid.
 import type { FastifyInstance } from "fastify";
 import { pool } from "../db.js";
 import { requireScope } from "../auth/session.js";
@@ -10,7 +7,10 @@ import { GALLERY_ITEM_COLUMNS, GALLERY_ITEM_JOINS, toGalleryItem } from "../gall
 import { nextDefaultName } from "../lib/defaultName.js";
 import { syncAlbumIndexForCaptures } from "./albumIndex.js";
 import { toCollectionItem } from "../collection/collectionItem.js";
+import { markNameChanged } from "../species/speciesSplits.js";
 import { resolveQuadSlots } from "../lib/quadCover.js";
+import { isUuid } from "../lib/validate.js";
+import { isValidCrop } from "../lib/crop.js";
 
 interface CreateAlbumBody {
   name?: string;
@@ -40,12 +40,12 @@ export async function albumRoutes(app: FastifyInstance): Promise<void> {
               a.quad_photo_ids, a.quad_crops,
               (SELECT count(*) FROM album_captures ac WHERE ac.album_id = a.id) AS capture_count,
               -- cover_p resolves NULL when cover_photo_id's own capture has been trashed (see
-              -- the /albums/:id route's own comment on this trap) — falls back to the album's
+              -- the /albums/:id route's own comment on this trap), falls back to the album's
               -- own most-recently-added photo via "fallback", same default an unset cover uses.
               cover_p.id AS resolved_cover_photo_id,
               (cover_p.id IS NOT NULL) AS cover_is_manual_pick,
               fallback.photo_id AS fallback_cover_photo_id,
-              -- EVERY non-trashed photo in the album, not just a handful — this doubles as both
+              -- EVERY non-trashed photo in the album, not just a handful, this doubles as both
               -- the fallback-fill pool AND the validity check for a manually-picked slot (a
               -- picked photo not from the "most recent" end still needs to pass as valid, or a
               -- deliberately-chosen older photo would get silently discarded as if trashed).
@@ -79,8 +79,7 @@ export async function albumRoutes(app: FastifyInstance): Promise<void> {
         description: r.description,
         coverPhotoId: r.resolved_cover_photo_id ?? r.fallback_cover_photo_id ?? null,
         coverLayout: r.cover_layout,
-        // The crop was framed for the specific photo manually picked — wrong (not just stale)
-        // once that photo's trashed and we fell back to a different one.
+        // The crop was framed for the trashed photo, so it's wrong for the fallback.
         coverCropX: !r.cover_is_manual_pick || r.cover_crop_x == null ? null : Number(r.cover_crop_x),
         coverCropY: !r.cover_is_manual_pick || r.cover_crop_y == null ? null : Number(r.cover_crop_y),
         coverCropSize: !r.cover_is_manual_pick || r.cover_crop_size == null ? null : Number(r.cover_crop_size),
@@ -111,12 +110,10 @@ export async function albumRoutes(app: FastifyInstance): Promise<void> {
   });
 
   app.get<{ Params: { id: string } }>("/albums/:id", { preHandler: requireScope("album.read") }, async (request, reply) => {
+    if (!isUuid(request.params.id)) return reply.code(404).send({ error: "Album not found" });
     const userId = request.user!.id;
     const albumRes = await pool.query(
-      // resolved_cover_photo_id is NULL when cover_photo_id's own capture has been trashed
-      // (captures excludes trashed rows, captures_all wouldn't) — a soft delete doesn't clear
-      // cover_photo_id itself, so without this check the cover would keep rendering a photo
-      // that's invisible everywhere else in the app for the whole trash retention window.
+      // NULL when the cover's capture is trashed: soft delete doesn't clear cover_photo_id.
       `SELECT a.id, a.name, a.description, a.cover_layout, a.cover_crop_x, a.cover_crop_y, a.cover_crop_size, a.created_at,
               a.quad_photo_ids, a.quad_crops,
               cover_p.id AS resolved_cover_photo_id,
@@ -138,9 +135,7 @@ export async function albumRoutes(app: FastifyInstance): Promise<void> {
     const album = albumRes.rows[0];
     if (!album) return reply.code(404).send({ error: "Album not found" });
 
-    // Scoped through captures (the trash-excluding view, not captures_all) so a soft-deleted
-    // capture silently drops out of every album it was in, same as it already drops out of the
-    // Gallery/species views — no separate cleanup needed when a photo is trashed.
+    // Through the trash-excluding captures view, so trashed photos drop out of albums.
     const itemsRes = await pool.query(
       `SELECT ${GALLERY_ITEM_COLUMNS}
        FROM album_captures ac
@@ -155,14 +150,10 @@ export async function albumRoutes(app: FastifyInstance): Promise<void> {
       id: album.id,
       name: album.name,
       description: album.description,
-      // Falls back to whatever's actually first in the (already trash-filtered) item list
-      // once the manual pick's own capture is gone — same "still show SOME cover, not a
-      // broken one" fallback trips already had for its own cover.
+      // Falls back to the first item once the manual pick's capture is gone.
       coverPhotoId: album.resolved_cover_photo_id ?? itemsRes.rows[0]?.photo_id ?? null,
       coverLayout: album.cover_layout,
-      // The crop was framed for the SPECIFIC photo the user picked — if that one's gone and we
-      // fell back to a different photo above, the old crop coordinates would frame the wrong
-      // image entirely, not just look stale.
+      // The crop belongs to the picked photo, so drop it when we fell back to another.
       coverCropX: album.resolved_cover_photo_id == null ? null : album.cover_crop_x == null ? null : Number(album.cover_crop_x),
       coverCropY: album.resolved_cover_photo_id == null ? null : album.cover_crop_y == null ? null : Number(album.cover_crop_y),
       coverCropSize: album.resolved_cover_photo_id == null ? null : album.cover_crop_size == null ? null : Number(album.cover_crop_size),
@@ -176,6 +167,7 @@ export async function albumRoutes(app: FastifyInstance): Promise<void> {
     "/albums/:id",
     { preHandler: requireScope("album.write") },
     async (request, reply) => {
+      if (!isUuid(request.params.id)) return reply.code(404).send({ error: "Album not found" });
       const userId = request.user!.id;
       if (!(await assertOwnedAlbum(request.params.id, userId))) {
         return reply.code(404).send({ error: "Album not found" });
@@ -184,6 +176,14 @@ export async function albumRoutes(app: FastifyInstance): Promise<void> {
       if (coverLayout !== undefined && coverLayout !== "single" && coverLayout !== "quad") {
         return reply.code(400).send({ error: "coverLayout must be 'single' or 'quad'" });
       }
+      if (coverPhotoId !== undefined && coverPhotoId !== null) {
+        if (!isUuid(coverPhotoId)) return reply.code(400).send({ error: "coverPhotoId must be a photo id" });
+        const owned = await pool.query(
+          `SELECT 1 FROM photos p JOIN captures c ON c.id = p.capture_id WHERE p.id = $1 AND c.user_id = $2`,
+          [coverPhotoId, userId],
+        );
+        if (owned.rowCount === 0) return reply.code(400).send({ error: "coverPhotoId is not one of your photos" });
+      }
       const res = await pool.query(
         `UPDATE albums SET
            name = COALESCE($3, name),
@@ -191,7 +191,7 @@ export async function albumRoutes(app: FastifyInstance): Promise<void> {
            cover_photo_id = CASE WHEN $6::boolean THEN $7 ELSE cover_photo_id END,
            cover_layout = COALESCE($8, cover_layout),
            -- A newly-picked cover photo was never framed for whatever crop was saved against
-           -- the PREVIOUS cover, so it's cleared here too — same rule trips' own cover-pick
+           -- the PREVIOUS cover, so it's cleared here too, same rule trips' own cover-pick
            -- endpoint already follows.
            cover_crop_x = CASE WHEN $6::boolean THEN NULL ELSE cover_crop_x END,
            cover_crop_y = CASE WHEN $6::boolean THEN NULL ELSE cover_crop_y END,
@@ -223,6 +223,7 @@ export async function albumRoutes(app: FastifyInstance): Promise<void> {
   );
 
   app.delete<{ Params: { id: string } }>("/albums/:id", { preHandler: requireScope("album.write") }, async (request, reply) => {
+    if (!isUuid(request.params.id)) return reply.code(404).send({ error: "Album not found" });
     const res = await pool.query(`DELETE FROM albums WHERE id = $1 AND user_id = $2`, [request.params.id, request.user!.id]);
     if (res.rowCount === 0) return reply.code(404).send({ error: "Album not found" });
     return { ok: true };
@@ -232,16 +233,16 @@ export async function albumRoutes(app: FastifyInstance): Promise<void> {
     "/albums/:id/captures",
     { preHandler: requireScope("album.write") },
     async (request, reply) => {
+      if (!isUuid(request.params.id)) return reply.code(404).send({ error: "Album not found" });
       const userId = request.user!.id;
       if (!(await assertOwnedAlbum(request.params.id, userId))) {
         return reply.code(404).send({ error: "Album not found" });
       }
       const captureIds = request.body?.captureIds ?? [];
       if (captureIds.length === 0) return reply.code(400).send({ error: "captureIds is required" });
+      if (!Array.isArray(captureIds) || !captureIds.every(isUuid)) return reply.code(400).send({ error: "captureIds must be capture ids" });
 
-      // Only captures this user actually owns can be added — same defense-in-depth as every
-      // other per-user query here, just worth calling out since this is the one place a caller
-      // supplies capture IDs directly rather than the server deriving them from a join.
+      // Only the user's own captures: the caller supplies capture IDs directly here.
       const inserted = await pool.query(
         `INSERT INTO album_captures (album_id, capture_id)
          SELECT $1, c.id FROM captures c WHERE c.id = ANY($2) AND c.user_id = $3
@@ -250,9 +251,7 @@ export async function albumRoutes(app: FastifyInstance): Promise<void> {
         [request.params.id, captureIds, userId],
       );
 
-      // An album with no cover yet gets one automatically from whatever's just been added —
-      // same "don't make the user do a separate step for the obvious default" reasoning as a
-      // trip's own automatic cover. A manual pick (PATCH coverPhotoId) always overrides this.
+      // An album with no cover gets one from what was just added; a manual pick overrides it.
       if (inserted.rows.length > 0) {
         await pool.query(
           `UPDATE albums a SET cover_photo_id = sub.photo_id
@@ -266,8 +265,7 @@ export async function albumRoutes(app: FastifyInstance): Promise<void> {
           [request.params.id, inserted.rows.map((r) => r.capture_id)],
         );
       }
-      // Best-effort, fire-and-forget — see albumIndex.ts's own comment on why this never blocks
-      // or fails the request over a recovery-manifest write.
+      // Best-effort: a recovery-manifest write never blocks or fails the request.
       syncAlbumIndexForCaptures(inserted.rows.map((r) => r.capture_id)).catch(() => {});
       return { ok: true };
     },
@@ -277,6 +275,7 @@ export async function albumRoutes(app: FastifyInstance): Promise<void> {
     "/albums/:id/captures/:captureId",
     { preHandler: requireScope("album.write") },
     async (request, reply) => {
+      if (!isUuid(request.params.id) || !isUuid(request.params.captureId)) return reply.code(404).send({ error: "Album not found" });
       if (!(await assertOwnedAlbum(request.params.id, request.user!.id))) {
         return reply.code(404).send({ error: "Album not found" });
       }
@@ -289,13 +288,12 @@ export async function albumRoutes(app: FastifyInstance): Promise<void> {
     },
   );
 
-  // Parity with /trips/:id/cover-crop (same CardCropEditor.tsx UI, same request shape) — an
-  // album's cover only ever has a crop once a manual cover_photo_id is actually set, same
-  // "nothing to frame yet" gate trips uses.
+  // Same as /trips/:id/cover-crop: a crop needs a manual cover_photo_id first.
   app.patch<{ Params: { id: string }; Body: { x?: number; y?: number; size?: number; reset?: boolean } }>(
     "/albums/:id/cover-crop",
     { preHandler: requireScope("album.write") },
     async (request, reply) => {
+      if (!isUuid(request.params.id)) return reply.code(404).send({ error: "Album not found" });
       const userId = request.user!.id;
       const albumRes = await pool.query<{ cover_photo_id: string | null }>(
         `SELECT cover_photo_id FROM albums WHERE id = $1 AND user_id = $2`,
@@ -312,9 +310,7 @@ export async function albumRoutes(app: FastifyInstance): Promise<void> {
         return { ok: true };
       }
 
-      const valid =
-        typeof x === "number" && x >= 0 && x <= 100 && typeof y === "number" && y >= 0 && y <= 100 && typeof size === "number" && size > 0 && size <= 100;
-      if (!valid) return reply.code(400).send({ error: "x, y, size must each be within 0-100" });
+      if (!isValidCrop(x, y, size)) return reply.code(400).send({ error: "x, y, size must each be within 0-100" });
 
       await pool.query(`UPDATE albums SET cover_crop_x = $1, cover_crop_y = $2, cover_crop_size = $3 WHERE id = $4`, [
         x,
@@ -326,18 +322,21 @@ export async function albumRoutes(app: FastifyInstance): Promise<void> {
     },
   );
 
-  /** Assigns a specific photo (and/or crop) to one of the 4 quad-grid tiles — see
-   * quadCover.ts's own comment for how a slot falls back to an auto-pick once its photo is
-   * gone. photoId omitted (undefined) leaves that slot's photo as-is; passing null clears it
-   * back to auto-pick. crop omitted leaves the crop as-is; null clears it. */
+  /** Sets the photo and/or crop of one quad-grid tile. Omitted fields are left as-is; null
+   * clears back to auto-pick. */
   app.patch<{
     Params: { id: string };
     Body: { slot: number; photoId?: string | null; crop?: { x: number; y: number; size: number } | null };
   }>("/albums/:id/quad-slot", { preHandler: requireScope("album.write") }, async (request, reply) => {
+    if (!isUuid(request.params.id)) return reply.code(404).send({ error: "Album not found" });
     const userId = request.user!.id;
     const { slot, photoId, crop } = request.body ?? {};
     if (typeof slot !== "number" || !Number.isInteger(slot) || slot < 0 || slot > 3) {
       return reply.code(400).send({ error: "slot must be an integer 0-3" });
+    }
+    if (photoId != null && !isUuid(photoId)) return reply.code(400).send({ error: "photoId must be a photo id" });
+    if (crop != null && !isValidCrop(crop.x, crop.y, crop.size)) {
+      return reply.code(400).send({ error: "crop x, y, size must each be within 0-100" });
     }
 
     const albumRes = await pool.query<{ quad_photo_ids: (string | null)[] | null; quad_crops: unknown[] | null }>(
@@ -351,12 +350,11 @@ export async function albumRoutes(app: FastifyInstance): Promise<void> {
     const crops = [0, 1, 2, 3].map((i) => current.quad_crops?.[i] ?? null);
     if (photoId !== undefined) {
       ids[slot] = photoId;
-      crops[slot] = null; // a newly-assigned photo was never framed for whatever crop was saved
+      crops[slot] = null; // the old crop was framed for a different photo
     }
     if (crop !== undefined) crops[slot] = crop;
 
-    // All 4 slots cleared back to auto-pick — store NULL rather than an array of nulls, so a
-    // brand new capture added later can still become part of the auto-picked default.
+    // All slots cleared: store NULL so new captures can join the auto-picked default.
     const allEmpty = ids.every((id) => id == null);
     await pool.query(`UPDATE albums SET quad_photo_ids = $1, quad_crops = $2 WHERE id = $3`, [
       allEmpty ? null : ids,
@@ -366,9 +364,9 @@ export async function albumRoutes(app: FastifyInstance): Promise<void> {
     return { ok: true };
   });
 
-  // Parity with /trips/:id/species — same toCollectionItem shape, so the frontend's "Species
-  // view" toggle can reuse the exact same SpeciesCard grid on Albums that Trips already has.
+  // Same shape as /trips/:id/species, so the web reuses the species grid.
   app.get<{ Params: { id: string } }>("/albums/:id/species", { preHandler: requireScope("album.read") }, async (request, reply) => {
+    if (!isUuid(request.params.id)) return reply.code(404).send({ error: "Album not found" });
     const userId = request.user!.id;
     if (!(await assertOwnedAlbum(request.params.id, userId))) {
       return reply.code(404).send({ error: "Album not found" });
@@ -380,6 +378,7 @@ export async function albumRoutes(app: FastifyInstance): Promise<void> {
          s.common_name,
          s.taxon_class,
          s.family,
+         s.taxon_order,
          s.reference_photo,
          s.reference_credit,
          s.reference_thumb_path IS NOT NULL AS has_reference_thumb,
@@ -410,6 +409,6 @@ export async function albumRoutes(app: FastifyInstance): Promise<void> {
        ORDER BY s.scientific_name`,
       [userId, request.params.id],
     );
-    return { items: res.rows.map(toCollectionItem) };
+    return { items: await markNameChanged(userId, res.rows.map((row) => toCollectionItem(row))) };
   });
 }

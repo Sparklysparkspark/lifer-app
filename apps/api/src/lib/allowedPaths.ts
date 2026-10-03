@@ -1,8 +1,6 @@
-// The one rule for any route that takes a filesystem path from a request: on a server, Lifer may
-// only touch folders it was given, which is the main library (DATA_DIR) plus the admin-declared
-// LIFER_LIBRARY_ROOTS. Anything else is refused with a 403, checked lexically BEFORE touching the
-// filesystem so the response is never an oracle for "does this path exist". On desktop (a local
-// single-user install) any path the user picks is allowed, unchanged from before.
+// The rule for any route that takes a filesystem path: on a server only DATA_DIR and
+// LIFER_LIBRARY_ROOTS are allowed, checked lexically before touching the disk so a 403 never
+// reveals whether a path exists. On desktop any path the user picks is allowed.
 import { realpathSync } from "node:fs";
 import path from "node:path";
 import { DATA_DIR, LIBRARY_ROOTS, SINGLE_USER_MODE } from "../config.js";

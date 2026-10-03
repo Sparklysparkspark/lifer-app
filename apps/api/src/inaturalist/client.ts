@@ -1,10 +1,4 @@
-// Thin iNaturalist API v1 client for the observation-sync feature (see
-// ~/.claude/plans/inaturalist-sync.md). Deliberately separate from species/lazyEnrich.ts's own
-// iNaturalist calls: those are unauthenticated, read-only taxon/photo lookups running at bulk-
-// import scale (hence that file's careful per-host pacing/retry machinery); everything here is
-// authenticated, one-user-at-a-time, interactive-speed (a person clicking "Create Observation"
-// once), so it doesn't need that same backoff apparatus — a plain fetch with error surfacing is
-// the right amount of complexity for how this is actually used.
+// A thin, authenticated iNaturalist API v1 client for observation sync.
 import { readFile } from "node:fs/promises";
 import { randomBytes, createHash } from "node:crypto";
 
@@ -18,19 +12,14 @@ export interface Pkce {
   challenge: string;
 }
 
-// Authorization Code + PKCE (RFC 7636) — no client_secret involved anywhere in this file. See
-// config.ts's INAT_CLIENT_ID comment for why: Lifer is self-hostable/open-source-shaped, so a
-// secret embedded in it wouldn't actually be secret.
+// Authorization Code + PKCE (RFC 7636), no client secret: one embedded in open source isn't secret.
 export function generatePkce(): Pkce {
   const verifier = randomBytes(32).toString("base64url");
   const challenge = createHash("sha256").update(verifier).digest("base64url");
   return { verifier, challenge };
 }
 
-// redirectUri is passed in rather than imported from config.ts directly — a server-mode
-// deployment can override it from Settings (its own registered app's real domain), which a
-// static import couldn't reflect without a restart. See inaturalist/routes.ts's own
-// resolveInatConfig for how the effective value gets picked.
+// redirectUri is passed in because a server can override it from Settings (see resolveInatConfig).
 export function buildAuthorizeUrl(clientId: string, redirectUri: string, state: string, challenge: string): string {
   const params = new URLSearchParams({
     client_id: clientId,
@@ -66,10 +55,8 @@ export async function exchangeCodeForToken(clientId: string, redirectUri: string
   return { access_token: data.access_token, refresh_token: data.refresh_token ?? null };
 }
 
-// The v1 API's authenticated endpoints want a JWT, not the raw OAuth access token directly —
-// exchanged fresh per use rather than cached, since how long either token lasts is unconfirmed
-// (see the plan doc's note on this); a 401 anywhere below should be treated by the caller as
-// "reconnect the account," not retried blindly.
+// Authenticated v1 endpoints want a JWT, exchanged fresh per use rather than cached. Callers
+// should treat a 401 as "reconnect the account", not retry.
 export async function fetchJwt(accessToken: string): Promise<string> {
   const res = await fetch(`${INAT_SITE}/users/api_token`, {
     headers: { Authorization: `Bearer ${accessToken}`, "User-Agent": USER_AGENT },

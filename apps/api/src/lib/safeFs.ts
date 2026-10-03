@@ -1,21 +1,12 @@
-// Folder and file writes into the photo library, done so a misbehaving filesystem can only fail
-// one request, never freeze the whole server.
-//
-// Why not mkdirSync(dir, { recursive: true }): Node's recursive mkdir retries in a loop inside
-// native code. If the filesystem keeps answering "parent missing" for a parent that does exist
-// (seen on a NAS mount), it spins forever at 100% CPU, and because it's synchronous native code
-// the event loop, every other request, and even the debugger are stuck behind it. The walk below
-// creates one level at a time, so it does at most one mkdir per path component and then gives up
-// with an error naming the folder.
-//
-// Everything here is async, so a slow network share only delays the request that's writing.
+// Async folder and file writes into the photo library, so a misbehaving filesystem fails one
+// request instead of freezing the server. Avoids mkdirSync recursive, which can spin forever in
+// native code when a NAS mount keeps reporting a parent as missing; this walks one level at a time.
 import { constants } from "node:fs";
 import { access, mkdir, stat, writeFile, copyFile, rename, rm } from "node:fs/promises";
 import path from "node:path";
 import { explainMissingLibraryFolder } from "./libraryFolder.js";
 
-// Far more than any real folder of same-named photos; only a filesystem claiming every name
-// exists would reach it.
+// Far more than any real folder of same-named photos needs.
 const MAX_NAME_ATTEMPTS = 10_000;
 
 function isCode(err: unknown, code: string): boolean {
@@ -50,8 +41,8 @@ export async function ensureDir(dir: string): Promise<void> {
       await mkdir(folder);
     } catch (err) {
       if (isCode(err, "EEXIST") && (await isDirectory(folder))) continue;
-      // Parent "exists" but can't be written into: most likely the library folder was moved
-      // away while Lifer runs. Say that, instead of a bare ENOENT.
+      // Parent "exists" but can't be written into: most likely the library folder was moved away
+      // while Lifer runs, so say that instead of a bare ENOENT.
       if (isCode(err, "ENOENT")) {
         const explained = explainMissingLibraryFolder(folder);
         if (explained) throw explained;
@@ -79,9 +70,8 @@ function candidateName(filename: string, attempt: number): string {
   return `${base}-${attempt}${ext}`;
 }
 
-/** A path in `dir` that doesn't exist yet: `filename`, else "-2", "-3"... Avoids silently
- *  overwriting a same-named file (two cameras both producing "IMG_0001.jpg") rather than
- *  guessing they're the same photo. */
+/** A path in `dir` that doesn't exist yet: `filename`, else "-2", "-3"... so two cameras'
+ *  "IMG_0001.jpg" never overwrite each other. */
 export async function uniqueDestination(dir: string, filename: string): Promise<string> {
   for (let attempt = 1; attempt <= MAX_NAME_ATTEMPTS; attempt++) {
     const candidate = path.join(dir, candidateName(filename, attempt));
@@ -90,10 +80,8 @@ export async function uniqueDestination(dir: string, filename: string): Promise<
   throw new Error(`Couldn't find a free file name for ${filename} in ${dir}`);
 }
 
-/** Writes `bytes` to a new file in `dir` (creating the folder), never overwriting an existing
- *  file, and returns the path used. Creation is exclusive, so two uploads of "IMG_0001.jpg"
- *  landing at the same moment get "IMG_0001.jpg" and "IMG_0001-2.jpg" instead of one
- *  overwriting the other. */
+/** Writes `bytes` to a new file in `dir` (creating the folder) and returns the path used.
+ *  Creation is exclusive, so simultaneous same-named uploads never overwrite each other. */
 export async function writeNewFile(dir: string, filename: string, bytes: Buffer): Promise<string> {
   await ensureDir(dir);
   for (let attempt = 1; attempt <= MAX_NAME_ATTEMPTS; attempt++) {

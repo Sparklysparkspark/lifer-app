@@ -6,11 +6,13 @@ import cookie from "@fastify/cookie";
 import compress from "@fastify/compress";
 import multipart from "@fastify/multipart";
 import staticFiles from "@fastify/static";
-import { MAX_UPLOAD_BYTES, MAX_UPLOAD_REQUEST_BYTES, PORT, SINGLE_USER_MODE, WEB_DIST_DIR, MAPS_DIR, TRUST_PROXY } from "./config.js";
+import helmet from "@fastify/helmet";
+import { desktopModeStartupError, MAX_JSON_BODY_BYTES, MAX_UPLOAD_BYTES, PORT, SINGLE_USER_MODE, WEB_DIST_DIR, MAPS_DIR, TRUST_PROXY } from "./config.js";
 import { isAllowedLocalHost } from "./auth/hostCheck.js";
 import { authRoutes } from "./auth/routes.js";
 import { apiKeyRoutes } from "./auth/apiKeyRoutes.js";
 import { speciesRoutes } from "./species/routes.js";
+import { matchingRoutes } from "./species/matchingRoutes.js";
 import { uploadRoutes } from "./uploads/routes.js";
 import { photoRoutes } from "./photos/routes.js";
 import { collectionRoutes } from "./collection/routes.js";
@@ -18,6 +20,8 @@ import { galleryRoutes } from "./gallery/routes.js";
 import { originalsRoutes } from "./originals/routes.js";
 import { captureRoutes } from "./captures/routes.js";
 import { regionRoutes } from "./regions/routes.js";
+import { tierRoutes } from "./species/tierRoutes.js";
+import { splitRoutes } from "./species/splitRoutes.js";
 import { importRoutes } from "./imports/routes.js";
 import { settingsRoutes, recoverInterruptedStorageMigration } from "./settings/routes.js";
 import { migrateDerivativesLocation } from "./uploads/migrateDerivativesLocation.js";
@@ -37,104 +41,153 @@ import { seedCatalogIfEmpty } from "./species/catalogSeedUpdate.js";
 import { relinkCachedReferenceFiles } from "./species/relinkReferenceFiles.js";
 import { ensureGalleryEmbeddingsOnStartup } from "./species/galleryEmbeddingsAsset.js";
 import { ensureIdModelOnStartup } from "./species/modelDownloadJob.js";
+import { startAccelerationSelection } from "./species/accelerationSetup.js";
 import { integrationRoutes } from "./integrations/routes.js";
 import { pool } from "./db.js";
+import { stopInference } from "./species/inference.js";
+import { closeExiftool } from "./uploads/exif.js";
 import { friendlyFsErrorMessage } from "./lib/friendlyFsError.js";
 import { startEventLoopWatchdog } from "./lib/eventLoopWatchdog.js";
+import { startParentWatchdog } from "./lib/parentWatchdog.js";
 import { watchLibraryFolder } from "./lib/libraryFolder.js";
 import { registerCollectionStateSaving, syncCollectionStateOnStartup } from "./lib/collectionState.js";
+import { hasForwardedHeaders, isBlockedCrossSiteWrite } from "./lib/requestGuard.js";
+import { startMaintenance } from "./lib/maintenance.js";
+import { log } from "./lib/log.js";
 
-// Checked before anything else starts, so an interrupted storage-location move (see
-// settings/routes.ts) gets resolved one way or the other before the app serves a single
-// request against a possibly-inconsistent DATA_DIR.
+const desktopModeError = desktopModeStartupError(process.env);
+if (desktopModeError) {
+  log.error(`[startup] ${desktopModeError}`);
+  process.exit(1);
+}
+
+// Resolve an interrupted storage-location move before serving any request against DATA_DIR.
 await recoverInterruptedStorageMigration();
 await migrateDerivativesLocation();
 await adoptFlatLibraryLayout();
 await syncLibraryRootsFromEnv();
 
-// Force-quitting the desktop app (or a crash) sends SIGKILL straight to the Tauri process
-// only — Unix doesn't cascade a kill to child processes automatically, so this sidecar would
-// otherwise become an orphan that keeps running (and keeps squatting on LOCAL_PORT) with zero
-// chance for any of api.rs's own cleanup code to run, since none of it executes at all. Only
-// active when the desktop app actually sets LIFER_WATCH_PARENT_PID (see apps/desktop/src-
-// tauri/src/api.rs) — a plain `npm run dev`/background script invocation has no such parent
-// to watch for and should keep running independently of whatever shell started it.
-const watchParentPid = Number(process.env.LIFER_WATCH_PARENT_PID);
-if (Number.isInteger(watchParentPid) && watchParentPid > 0) {
-  setInterval(() => {
-    try {
-      // Signal 0 sends nothing — it's the standard Unix idiom for "does this pid still
-      // exist," throwing ESRCH the moment it doesn't.
-      process.kill(watchParentPid, 0);
-    } catch {
-      console.error(`[watchdog] parent pid ${watchParentPid} is gone — exiting`);
-      process.exit(0);
-    }
-  }, 3000);
-}
+startParentWatchdog();
 
-// trustProxy: a hop count (see config.ts TRUST_PROXY), not `true`, since the login and
-// share-password rate limiters key on request.ip and `true` let clients pick their own IP.
-// bodyLimit governs the WHOLE request body (see config.ts — MAX_UPLOAD_REQUEST_BYTES's own
-// comment: a batch upload of many RAW files needed a much larger ceiling than any one file).
-// Fastify accepts a hop count at runtime (lib/request.js) but its typings omit number.
-const app = Fastify({ logger: true, bodyLimit: MAX_UPLOAD_REQUEST_BYTES, trustProxy: TRUST_PROXY as boolean | string[] });
+// trustProxy: see config.ts TRUST_PROXY.
+const app = Fastify({
+  loggerInstance: log,
+  bodyLimit: MAX_JSON_BODY_BYTES,
+  trustProxy: TRUST_PROXY,
+});
+
+// Route these to the app log. An uncaught exception may leave state half-updated, so it still exits.
+process.on("unhandledRejection", (reason) => {
+  app.log.error({ err: reason }, "Unhandled promise rejection");
+});
+process.on("uncaughtException", (err) => {
+  app.log.error({ err }, "Uncaught exception, exiting");
+  process.exit(1);
+});
+
+// Node as PID 1 ignores unhandled SIGTERM, so Docker would kill it after 10s. The timer caps
+// a slow close.
+let shuttingDown = false;
+async function shutdown(signal: NodeJS.Signals): Promise<void> {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  app.log.info(`${signal} received, shutting down`);
+  setTimeout(() => process.exit(0), 5000).unref();
+  await app.close().catch((err) => app.log.warn({ err }, "Server close failed"));
+  await Promise.allSettled([stopInference(), closeExiftool()]);
+  await pool.end().catch(() => {});
+  process.exit(0);
+}
+process.on("SIGTERM", (signal) => void shutdown(signal));
+process.on("SIGINT", (signal) => void shutdown(signal));
 
 // Restarts the server if it ever freezes, instead of leaving the page down until a manual restart.
 startEventLoopWatchdog(app);
 // Keeps archived/hidden/seen/target species in the library too, so a fresh install gets them back.
 registerCollectionStateSaving(app);
 
-// DNS-rebinding guard: in desktop mode every request is the local user, so a web page that
-// rebinds its own hostname to 127.0.0.1 must not be able to talk to us. Only loopback Host
-// headers are accepted. Docker/multi-user mode is unaffected (it has real sessions).
+// Desktop mode signs every request in, so only loopback Host headers (DNS-rebinding guard) and
+// unrelayed requests (no forwarded headers) are accepted there.
 if (SINGLE_USER_MODE) {
   app.addHook("onRequest", async (request, reply) => {
     if (!isAllowedLocalHost(request.headers.host, PORT)) {
       return reply.code(403).send({ error: "Forbidden host" });
     }
+    if (hasForwardedHeaders(request.headers)) {
+      return reply.code(403).send({ error: "Forwarded requests aren't accepted in desktop mode" });
+    }
   });
 }
 
-// A raw fs EPERM/EACCES (macOS denying folder access — see friendlyFsError.ts's own comment)
-// previously reached the client as a crash-looking dump of the Node error object from whichever
-// route happened to hit it, rather than the one, same, actionable instruction every such error
-// actually needs. One handler here covers every route uniformly instead of retrofitting each
-// try/catch individually.
-app.setErrorHandler((err, _request, reply) => {
+// Cross-site write guard, both modes: a page on another site can still make the browser send
+// our cookie on a POST, and desktop mode signs every request in. See lib/requestGuard.ts.
+app.addHook("onRequest", async (request, reply) => {
+  if (isBlockedCrossSiteWrite(request.method, request.headers, [request.headers.host, request.host])) {
+    return reply.code(403).send({ error: "Cross-site request blocked" });
+  }
+});
+
+// Every error response is { error: string, code?: string } (see integrations/openapi.ts).
+// File permission errors (macOS folder access) get one actionable message for every route.
+app.setErrorHandler((err, request, reply) => {
   const code = (err as NodeJS.ErrnoException).code;
   const statusCode = (err as { statusCode?: number }).statusCode ?? 500;
   if (code === "EPERM" || code === "EACCES" || code === "ENOENT") {
+    if (statusCode >= 500) request.log.error({ err }, "File system error");
     return reply.code(statusCode).send({ error: friendlyFsErrorMessage(err) });
   }
-  // Every hand-written route responds { error: string } on failure — an uncaught exception
-  // falling through to Fastify's own default formatting would instead send
-  // { statusCode, error, message }, a different shape any frontend code checking body.error
-  // wouldn't recognize. Normalized to the same contract here so that assumption always holds.
-  reply.code(statusCode).send({ error: (err as Error).message || "Internal server error" });
+  // A 5xx message can carry SQL, paths or stack detail, so it goes to the log only.
+  if (statusCode >= 500) {
+    request.log.error({ err }, "Request failed");
+    return reply.code(statusCode).send({ error: "Internal server error" });
+  }
+  reply.code(statusCode).send({ error: (err as Error).message || "Request failed" });
 });
 
 await app.register(cookie);
-// Compress JSON, JS and CSS for a server reached over a network (the gallery's photo list and the
-// app's own code are over a megabyte each, and shrink by about 85%). Photos are already
-// compressed and are skipped. Off in desktop mode: there the browser and server are on the same
-// machine, so it would only cost CPU. Brotli at level 5 is nearly as small as its maximum and far
-// faster to produce on a NAS.
+
+// Security headers. ipc: is the desktop shell's bridge. No HSTS, since plain http on a home
+// network is supported and a reverse proxy can add it.
+await app.register(helmet, {
+  contentSecurityPolicy: {
+    useDefaults: false,
+    directives: {
+      defaultSrc: ["'self'"],
+      baseUri: ["'self'"],
+      objectSrc: ["'none'"],
+      formAction: ["'self'"],
+      frameAncestors: ["'none'"],
+      scriptSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      imgSrc: ["'self'", "data:", "blob:", "https:"],
+      mediaSrc: ["'self'", "blob:"],
+      fontSrc: ["'self'", "data:"],
+      workerSrc: ["'self'", "blob:"],
+      connectSrc: ["'self'", "https:", "ipc:", "http://ipc.localhost"],
+    },
+  },
+  crossOriginEmbedderPolicy: false,
+  frameguard: { action: "deny" },
+  referrerPolicy: { policy: "strict-origin-when-cross-origin" },
+  strictTransportSecurity: false,
+});
+// Compress text responses on servers. Off in desktop mode, where it would only cost CPU.
+// Brotli level 5 is nearly as small as the maximum and much cheaper on a NAS.
 if (!SINGLE_USER_MODE) {
   await app.register(compress, {
     threshold: 1024,
     brotliOptions: { params: { [zlibConstants.BROTLI_PARAM_QUALITY]: 5 } },
   });
 }
-// @fastify/multipart's fileSize limit is separate — the PER-FILE cap (MAX_UPLOAD_BYTES),
-// distinct from the bodyLimit above which bounds the request as a whole.
-await app.register(multipart, { limits: { fileSize: MAX_UPLOAD_BYTES } });
+// Per-file cap. 0 would make the plugin fall back to bodyLimit, so "no cap" is passed as Infinity.
+await app.register(multipart, { limits: { fileSize: MAX_UPLOAD_BYTES > 0 ? MAX_UPLOAD_BYTES : Infinity } });
 
 // No CORS plugin: Vite proxies /api to this server in dev, and both sit behind the same
 // origin in production (Nginx), so cross-origin requests are never expected.
 await app.register(async (api) => {
   await api.register(authRoutes);
   await api.register(speciesRoutes);
+  await api.register(matchingRoutes);
   await api.register(uploadRoutes);
   await api.register(photoRoutes);
   await api.register(collectionRoutes);
@@ -142,6 +195,8 @@ await app.register(async (api) => {
   await api.register(originalsRoutes);
   await api.register(captureRoutes);
   await api.register(regionRoutes);
+  await api.register(tierRoutes);
+  await api.register(splitRoutes);
   await api.register(importRoutes);
   await api.register(settingsRoutes);
   await api.register(offlinePacksRoutes);
@@ -157,54 +212,29 @@ await app.register(async (api) => {
   await api.register(inaturalistRoutes);
 }, { prefix: "/api" });
 
-// launchToken lets the desktop shell tell this process apart from a previous instance still
-// holding the port.
-app.get("/health", async () => ({ ok: true, launchToken: process.env.LIFER_LAUNCH_TOKEN ?? null }));
+// launchToken lets the desktop shell tell this process apart from an older instance on the port.
+// Warn level, so the container healthcheck doesn't fill the log.
+app.get("/health", { logLevel: "warn" }, async () => ({ ok: true, launchToken: process.env.LIFER_LAUNCH_TOKEN ?? null }));
 
-// Baked in at Docker build time from the release tag (see Dockerfile/release.yml's
-// docker-image job) — read by the self-hosted web app's own DockerUpdateBanner.tsx to compare
-// against the latest GitHub release tag. "dev" for a local build with no APP_VERSION passed
-// (docker-compose's own default `build: .` with no --build-arg), which the banner treats as
-// "never show an update" rather than a false positive against a real version string.
+// Set at Docker build time, for the web app's update banner. "dev" never shows an update.
 app.get("/version", async () => ({ version: process.env.APP_VERSION ?? "dev" }));
 
-// Offline basemap tiles (PMTiles) — @fastify/static (via @fastify/send)
-// serves Range requests out of the box, which the pmtiles JS library needs to fetch only the
-// byte ranges for tiles actually in view rather than the whole file. decorateReply: false
-// since the reply.sendFile() decorator can only be added once per app, and the WEB_DIST_DIR
-// registration below (when it exists) is the one that actually uses it, for its SPA fallback.
-//
-// The map itself is a large (~500MB) OPT-IN download (see settings/routes.ts's /settings/map
-// endpoints) rather than something every install ships with, so this directory usually starts
-// empty — created here unconditionally (not gated on existsSync like WEB_DIST_DIR below) so the
-// route is already live the moment a user downloads the map, instead of needing a server
-// restart to notice a directory that didn't exist at boot.
+// Offline basemap tiles. The folder is created up front so the route works once the map arrives.
+// decorateReply: false because the web app registration below owns reply.sendFile().
 mkdirSync(MAPS_DIR, { recursive: true });
 await app.register(staticFiles, { root: MAPS_DIR, prefix: "/maps/", decorateReply: false });
 
-// Serves the built web app (apps/web/dist) so the whole app is one container on one port —
-// a reverse proxy (nginx, DuckDNS, etc., configured separately) just needs a single upstream
-// to point at, not path-based routing between two separate origins. Only present when a
-// build actually exists: `npm run dev`
-// keeps using Vite's own dev server (see vite.config.ts's /api proxy) instead, so this
-// silently does nothing in local development.
+// Serves the built web app on the same origin. Absent in local dev, where Vite serves it.
 if (existsSync(WEB_DIST_DIR)) {
   await app.register(staticFiles, {
     root: WEB_DIST_DIR,
-    // Built files under assets/ have a content hash in their name, so a new release always has
-    // new names: the browser can keep them forever instead of re-checking all of them on every
-    // page load. index.html (which lists them) is always re-checked, so an update shows up.
+    // Hashed files under assets/ can be cached forever; index.html is always re-checked.
     setHeaders: (res, filePath) => {
       if (filePath.includes(`${path.sep}assets${path.sep}`)) res.header("Cache-Control", "public, max-age=31536000, immutable");
       else res.header("Cache-Control", "no-cache");
     },
   });
-  // SPA fallback — react-router handles routing client-side, so any path that isn't a real
-  // static asset (a deep link, a page refresh on /species/:id, etc.) still needs to receive
-  // index.html rather than a 404. Fastify's own notFoundHandler is scoped by prefix, so
-  // registering it in an /api-less inner instance keeps API 404s (a real "not found" JSON
-  // response) unaffected — this only ever fires for a request that already missed every
-  // /api route and every real static file.
+  // SPA fallback: any non-/api path that isn't a static file gets index.html for client routing.
   app.setNotFoundHandler((request, reply) => {
     if (request.url.startsWith("/api")) return reply.code(404).send({ error: "Not found" });
     return reply.sendFile("index.html");
@@ -212,43 +242,32 @@ if (existsSync(WEB_DIST_DIR)) {
 }
 
 try {
-  // SINGLE_USER_MODE authenticates every request as one local account with no real password
-  // check (see session.ts) — that's only safe on the assumption nobody else can reach this
-  // port at all, so it binds to loopback only rather than every interface.
+  // Desktop mode signs every request in, so it binds to loopback only.
   await app.listen({ port: PORT, host: SINGLE_USER_MODE ? "127.0.0.1" : "0.0.0.0" });
 } catch (err) {
   app.log.error(err);
   process.exit(1);
 }
 
-// Logs when the library folder goes missing under a running server (moved on the NAS, a drive
-// unplugged), which is otherwise only visible as uploads failing.
+startMaintenance(app.log);
+
+// Logs when the library folder goes missing under a running server.
 watchLibraryFolder();
 syncCollectionStateOnStartup().catch((err) => app.log.warn({ err }, "collection state sync failed"));
 
-// Species auto-suggest backfill (Phase 2 — on by default, no toggle): fires after the server is
-// already listening so a slow first-ever run (model download + embedding every existing photo)
-// never delays startup. Best-effort — a failure here (no network for the one-time model
-// download, e.g.) just means suggestions stay unavailable until the next server restart retries,
-// never a startup failure.
+// Background, best-effort startup work: never delays listening, and a failure only means the
+// feature waits for the next restart (or a manual retry in Settings).
 runEmbeddingBackfill().catch((err) => app.log.warn({ err }, "Species-suggestion embedding backfill failed to start"));
+// Moves species matching onto a GPU when this machine has a faster one that gives the same answers.
+startAccelerationSelection();
 
-// The desktop app has always self-seeded its catalog (species/regions/etc) the moment it finds
-// an empty database — see embedded_db.rs's restore_catalog_seed_if_needed — but the Docker/self-
-// hosted image had no equivalent, leaving a brand-new deployment's catalog genuinely empty
-// (blank Offline Packs map, empty checklists everywhere) until someone happened to know to click
-// Settings > Update. This closes that gap the same way the embedding backfill above does: fires
-// after the server is already listening (never delays startup) and is a no-op instantly if the
-// catalog isn't actually empty (an existing install restarting, or the desktop build where
-// embedded_db.rs already seeded it first). Best-effort — a failed download here just means the
-// catalog stays empty until Settings > Update is retried manually, same as before this existed.
+// Seed an empty catalog (a fresh Docker install); a no-op when the catalog already has data.
 seedCatalogIfEmpty(pool)
   .then((result) => {
     if (result.seeded) app.log.info({ merged: result.merged }, "Auto-seeded an empty catalog on first boot");
   })
   .catch((err) => app.log.warn({ err }, "Catalog auto-seed failed. Settings > Update can still be run manually."))
-  // After the seed (gallery vectors attach to catalog photos): fetch newer published vectors if
-  // the model is installed. Runs in the background and only logs on failure.
+  // After the seed, since gallery vectors attach to catalog photos.
   .finally(async () => {
     await relinkCachedReferenceFiles(pool)
       .then((n) => {

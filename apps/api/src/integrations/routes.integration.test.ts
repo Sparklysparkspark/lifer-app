@@ -21,8 +21,8 @@ describe.skipIf(!url)("integration endpoints (API key)", () => {
 
   beforeAll(async () => {
     process.env.DATABASE_URL = url;
-    // API keys only apply in server mode (in desktop mode every request is the local user), and
-    // the repo's dev .env turns desktop mode on; dotenv never overrides a variable already set.
+    // API keys only apply in server mode, and the dev .env turns desktop mode on. dotenv never
+    // overrides a variable already set.
     process.env.SINGLE_USER_MODE = "0";
     db = new pg.Pool({ connectionString: url });
     const { hashApiKey } = await import("../auth/apiKeys.js");
@@ -138,5 +138,10 @@ describe.skipIf(!url)("integration endpoints (API key)", () => {
   it("refuses a key without the scope, or no key", async () => {
     expect((await get("/api/captures", `${TOKEN}_narrow`)).statusCode).toBe(401);
     expect((await app.inject({ method: "GET", url: "/api/life-list/summary" })).statusCode).toBe(401);
+  });
+
+  it("refuses a malformed speciesId or regionId instead of failing", async () => {
+    expect((await get("/api/captures?speciesId=nope")).statusCode).toBe(400);
+    expect((await get("/api/life-list/summary?regionId=nope")).statusCode).toBe(404);
   });
 });

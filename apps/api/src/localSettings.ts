@@ -1,12 +1,9 @@
-// A small persisted config file for desktop mode's storage-folder picker, deliberately
-// stored OUTSIDE DATA_DIR so choosing a new DATA_DIR is never chicken-and-egg with where the
-// setting that says so lives. Desktop-only in practice: the Docker deployment already has a
-// documented, standard way to do this (LIFER_STORAGE_DIR in docker-compose.yml — see
-// .env.example), so this file only matters when nothing set DATA_DIR via the environment
-// already.
+// Desktop mode's storage-folder choice, kept outside DATA_DIR so the setting never lives inside
+// the folder it names. Docker sets DATA_DIR through the environment instead.
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { log } from "./lib/log.js";
 
 const CONFIG_DIR = path.join(os.homedir(), ".lifer");
 const CONFIG_PATH = path.join(CONFIG_DIR, "settings.json");
@@ -14,16 +11,14 @@ const CONFIG_PATH = path.join(CONFIG_DIR, "settings.json");
 export interface StorageMigration {
   from: string;
   to: string;
+  /** The new folder is a complete copy; only deleting the old one may be unfinished. */
+  copied?: boolean;
 }
 
 interface LocalSettings {
   dataDir?: string;
-  // Recorded BEFORE a storage-location move touches a single file, and only cleared once the
-  // move + database relink have both fully succeeded. If the process dies anywhere in
-  // between (power loss, laptop lid closed), this marker survives on disk and
-  // recoverInterruptedStorageMigration() (see settings/routes.ts) uses it on next startup to
-  // finish or safely roll back the interrupted move — instead of leaving `dataDir` pointing
-  // somewhere that may not match reality anymore.
+  // Set before a storage move touches a file and cleared once the move and relink succeed, so
+  // startup recovery can finish or roll back an interrupted move.
   migration?: StorageMigration;
 }
 
@@ -40,24 +35,39 @@ function withRetry<T>(fn: () => T, attempts = 5): T {
   }
 }
 
-// Only a missing file means "no settings yet". Any other error is thrown, because returning {}
-// here would get persisted by the next write and wipe the saved storage location.
-export function readLocalSettings(): LocalSettings {
+// Only ENOENT means "no settings yet": returning {} on other errors would be persisted and wipe the
+// storage location. Unparseable JSON is set aside and defaults are used, so startup never fails.
+export function readLocalSettingsAt(configPath: string): LocalSettings {
   let text: string;
   try {
-    text = withRetry(() => readFileSync(CONFIG_PATH, "utf-8"));
+    text = withRetry(() => readFileSync(configPath, "utf-8"));
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === "ENOENT") return {};
     throw err;
   }
-  return JSON.parse(text) as LocalSettings;
+  try {
+    const parsed = JSON.parse(text) as unknown;
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return parsed as LocalSettings;
+    throw new Error("settings.json is not a JSON object");
+  } catch (err) {
+    const corruptPath = `${configPath}.corrupt-${Date.now()}`;
+    try {
+      withRetry(() => renameSync(configPath, corruptPath));
+    } catch (renameErr) {
+      log.error(`[settings] Couldn't set aside the unreadable ${configPath}: ${(renameErr as Error).message}`);
+    }
+    log.error(
+      `[settings] ${configPath} was unreadable (${(err as Error).message}). It was saved as ${corruptPath} and Lifer is using default settings. If your library was in a custom folder, pick it again in Settings.`,
+    );
+    return {};
+  }
 }
 
-// Writes via a temp file + rename rather than a direct writeFileSync — a plain write can be
-// left truncated/half-written by a crash partway through, corrupting the one file everything
-// above (including migration recovery itself) depends on being readable. rename(2) is atomic
-// on POSIX filesystems: a crash here either leaves the OLD settings.json fully intact, or the
-// new one fully written, never something in between.
+export function readLocalSettings(): LocalSettings {
+  return readLocalSettingsAt(CONFIG_PATH);
+}
+
+// Temp file then rename (atomic on POSIX), so a crash leaves either the old file or the new one.
 export function writeLocalSettings(patch: LocalSettings): void {
   const current = readLocalSettings();
   mkdirSync(CONFIG_DIR, { recursive: true });

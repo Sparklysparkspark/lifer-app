@@ -1,18 +1,16 @@
-// Endpoints shaped for integrations (life-list counters, new-lifer bots, portfolio sites,
-// scripted imports, library mirrors, backups) rather than for Lifer's own UI: stable field names, paging, and incremental
-// sync. Documented in docs/API.md and served as OpenAPI at /api/openapi.json; keep both in step
-// with this file (integrationsDocs.test.ts checks every API-key route is documented).
+// Endpoints for integrations rather than Lifer's own UI: stable field names, paging, incremental
+// sync. Keep openapi.ts in step (integrationsDocs.test.ts checks it).
 import type { FastifyInstance } from "fastify";
 import { pool } from "../db.js";
+import { isUuid } from "../lib/validate.js";
 import { requireScope } from "../auth/session.js";
 import { buildOpenApi } from "./openapi.js";
 
 const DEFAULT_LIMIT = 100;
 const MAX_LIMIT = 500;
 
-// Opaque to callers: "<updated_at>|<capture id>", base64url. updated_at travels as text at the
-// database's full microsecond precision: a JS Date keeps only milliseconds, and a cursor rounded
-// down sorts before the row it came from, so the next page repeated it.
+// Opaque to callers: "<updated_at>|<capture id>", base64url. updated_at stays text at full
+// microsecond precision, since a millisecond Date would sort before its row and repeat it.
 function encodeCursor(updatedAt: string, id: string): string {
   return Buffer.from(`${updatedAt}|${id}`).toString("base64url");
 }
@@ -30,10 +28,8 @@ export async function integrationRoutes(app: FastifyInstance): Promise<void> {
   const openApi = buildOpenApi();
   app.get("/openapi.json", async () => openApi);
 
-  // Every photo (capture) in the library, oldest change first, for syncing to another tool.
-  // Pass back nextCursor until it's null; save the last updatedAt and use it as `since` next time
-  // to fetch only what changed. Trashed photos come back with deletedAt set when
-  // includeDeleted=1 (so a sync can remove them); photos deleted permanently simply stop appearing.
+  // Every capture, oldest change first, for syncing. includeDeleted=1 returns trashed photos with
+  // deletedAt set; permanently deleted ones simply stop appearing.
   app.get<{
     Querystring: { since?: string; cursor?: string; limit?: string; speciesId?: string; includeDeleted?: string };
   }>("/captures", { preHandler: requireScope("photos.read") }, async (request, reply) => {
@@ -48,6 +44,7 @@ export async function integrationRoutes(app: FastifyInstance): Promise<void> {
       where.push(`c.updated_at > $${params.length}`);
     }
     if (request.query.speciesId) {
+      if (!isUuid(request.query.speciesId)) return reply.code(400).send({ error: "speciesId must be a species id" });
       params.push(request.query.speciesId);
       where.push(
         `(c.species_id = $${params.length} OR EXISTS (SELECT 1 FROM capture_species cs WHERE cs.capture_id = c.id AND cs.species_id = $${params.length}))`,
@@ -137,8 +134,7 @@ export async function integrationRoutes(app: FastifyInstance): Promise<void> {
     };
   });
 
-  // One row per species photographed (plus ones marked seen without a photo), for portfolio sites
-  // and exports. Cover image URLs need photos.read to fetch.
+  // One row per species photographed or marked seen. Cover image URLs need photos.read.
   app.get<{ Querystring: { taxonClass?: string; include?: string } }>(
     "/life-list",
     { preHandler: requireScope("collection.read") },
@@ -179,8 +175,7 @@ export async function integrationRoutes(app: FastifyInstance): Promise<void> {
     },
   );
 
-  // Small and cheap: the life-list counter a badge, Home Assistant sensor or status display polls.
-  // With regionId, also how much of that region's checklist is done.
+  // A cheap life-list counter for polling. With regionId, also that region's checklist progress.
   app.get<{ Querystring: { regionId?: string } }>(
     "/life-list/summary",
     { preHandler: requireScope("collection.read") },
@@ -212,6 +207,7 @@ export async function integrationRoutes(app: FastifyInstance): Promise<void> {
       );
       let region = null;
       if (request.query.regionId) {
+        if (!isUuid(request.query.regionId)) return reply.code(404).send({ error: "Unknown region" });
         const r = await pool.query<{ name: string; checklist: number; photographed: number }>(
           `SELECT reg.name,
                   (SELECT count(*)::int FROM region_species rs WHERE rs.region_id = reg.id) AS checklist,

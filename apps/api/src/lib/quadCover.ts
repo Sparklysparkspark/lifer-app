@@ -6,14 +6,9 @@ export interface QuadCropInput {
   size: number;
 }
 
-/**
- * Resolves the 4 quad-grid tiles for an album/trip. A user-configured `quadPhotoIdsRaw` slot
- * wins when its photo is still available (not trashed since being picked); any empty or
- * invalidated slot falls back to the next most-recently-added photo not already used elsewhere
- * in the grid. A slot's saved crop only applies when that slot's configured photo is the one
- * that actually got used — a fallback substitution has no business being framed with a crop
- * meant for a different photo.
- */
+/** Resolves the 4 quad-grid tiles for an album/trip. A configured slot wins while its photo is
+ *  still available; empty or invalid slots fall back to the most recently added unused photo. A
+ *  slot's saved crop only applies when its configured photo is the one used. */
 export function resolveQuadSlots(
   quadPhotoIdsRaw: (string | null)[] | null,
   quadCropsRaw: Array<QuadCropInput | null> | null,

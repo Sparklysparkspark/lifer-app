@@ -1,8 +1,7 @@
-// Response shape for GET /api/trips (list) and GET /api/trips/:id (detail) — a persistent
-// grouping of captures pulled in from an external, reference-in-place folder (see
-// apps/api/src/trips/ for the scan/import/rescan logic behind it).
+// Response shape for GET /api/trips and GET /api/trips/:id: a persistent grouping of captures
+// from a reference-in-place folder (see apps/api/src/trips/).
 
-/** One resolved tile of a "quad" cover grid — shared shape for Albums and Trips. */
+/** One resolved tile of a "quad" cover grid, shared by Albums and Trips. */
 export interface QuadSlot {
   photoId: string;
   cropX: number | null;
@@ -13,37 +12,27 @@ export interface QuadSlot {
 export interface TripSummary {
   id: string;
   name: string;
-  /** Absolute path on the server's own filesystem — see migration 046's own comment on why
-   *  this is 1:1 with the trip rather than a separate scan-root table. Shown to the user as
-   *  read-only context (where this trip's photos actually live), never editable after
-   *  creation — moving the folder itself is what rescan's relink logic is for. */
+  /** Absolute path on the server's filesystem. Read-only after creation; rescan relinks a
+   *  moved folder. */
   sourceFolder: string;
   speciesCount: number;
   captureCount: number;
   /** Null until at least one capture has been imported. */
   earliestTakenAt: string | null;
   latestTakenAt: string | null;
-  /** Defaults to the most recent capture with a photo, unless manually overridden (see
-   *  coverCropX/Y/Size below) — parity with CollectionItem.coverPhotoUrl/cardCropX/Y/Size. */
+  /** Defaults to the most recent capture with a photo unless manually overridden, like
+   *  CollectionItem.coverPhotoUrl. */
   coverPhotoUrl: string | null;
-  /** A movable/resizable square crop for the cover photo, same convention as
-   *  CollectionItem.cardCropX/Y/Size (migration 006) — fractions (0-100) of the photo's own
-   *  width. Null means no custom crop saved yet — render as a plain centered
-   *  object-fit:cover. Only meaningful once a cover has been manually picked (see
-   *  PUT /trips/:id/cover) — clears back to null whenever the cover photo itself changes. */
+  /** Square cover crop, same convention as CollectionItem.cardCropX/Y/Size. Null means a
+   *  plain centered object-fit:cover; clears whenever the cover photo changes. */
   coverCropX: number | null;
   coverCropY: number | null;
   coverCropSize: number | null;
-  /** "quad" renders quadPhotoIds as a 2x2 grid instead of coverPhotoUrl as one cropped photo —
-   *  an alternate cover style, same concept as Album.coverLayout. Trips doesn't yet support
-   *  manually picking/cropping quad slots the way Albums does (see Album's own quadSlots) —
-   *  always the trip's own most-recently-taken photos, auto-picked with no per-slot crop. */
+  /** "quad" renders quadPhotoIds as a 2x2 grid instead of one cropped cover. Unlike Albums,
+   *  slots are auto-picked from the most recent photos with no per-slot crop. */
   coverLayout: "single" | "quad";
-  /** Only meaningful when coverLayout is "quad" — the trip's own 4 most-recently-taken photos
-   *  (may be fewer than 4, or empty, for a brand new trip). */
+  /** Only used when coverLayout is "quad": up to 4 most recent photos, possibly none. */
   quadPhotoIds: string[];
-  /** A scan or import is currently running for this trip (background jobs — see
-   *  apps/api/src/trips/routes.ts) — the card shows a loading state instead of a cover photo
-   *  that may not exist yet, or is about to change. */
+  /** A scan or import is running for this trip, so the card shows a loading state. */
   processing: boolean;
 }

@@ -126,3 +126,42 @@ describe("parseSearchQuery", () => {
     expect(p.description).toBe("mallard swimming");
   });
 });
+
+describe("trips and albums in the query", () => {
+  const withTrips: PlaceEntry[] = [
+    ...places,
+    { kind: "region", id: "r-cr", name: "Costa Rica" },
+    { kind: "trip", id: "t-cr", name: "Costa Rica 2024" },
+    { kind: "trip", id: "t-yard", name: "Backyard" },
+    { kind: "album", id: "a-best", name: "Best of Ducks" },
+  ];
+  const parseT = (q: string) =>
+    parseSearchQuery(q, { species, places: withTrips, latinGroups: new Map(), now: new Date("2026-09-25") });
+
+  it("reads '<words> trip' as the trips whose names contain those words", () => {
+    const p = parseT("costa rica trip");
+    expect(p.places.map((x) => x.id)).toEqual(["t-cr"]);
+    expect(p.description).toBeNull();
+  });
+
+  it("matches a whole trip or album name", () => {
+    expect(parseT("backyard").places.map((x) => x.id)).toEqual(["t-yard"]);
+    const album = parseT("best of ducks");
+    expect(album.places.map((x) => x.id)).toEqual(["a-best"]);
+    expect(album.labels.groups).toEqual([]);
+  });
+
+  it("keeps a plain place name a place", () => {
+    expect(parseT("costa rica").places.map((x) => x.id)).toEqual(["r-cr"]);
+  });
+
+  it("ignores a kind word with nothing meaningful before it", () => {
+    expect(parseT("my trip").places).toEqual([]);
+  });
+
+  it("finds a species by an old scientific name passed as an alias", () => {
+    const old = [sp("Green-Winged Teal", "Anas crecca", "aves", "Anseriformes", "Anatidae", ["Anas carolinensis"])];
+    const p = parseSearchQuery("anas carolinensis", { species: old, places: [], latinGroups: new Map() });
+    expect([...p.speciesIds!]).toEqual([old[0].id]);
+  });
+});

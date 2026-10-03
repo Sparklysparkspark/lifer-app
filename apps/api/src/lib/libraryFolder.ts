@@ -1,15 +1,11 @@
-// Notices when the photo library folder (DATA_DIR) or the app data folder (APP_DATA_DIR) goes away
-// under a running Lifer, so saving fails with an explanation and the app can show a banner.
-//
-// The usual cause is moving or renaming the folder on the NAS while Lifer runs. In Docker the
-// folder is a bind mount, and the container keeps pointing at the old, now-deleted directory: it
-// still looks like a folder (stat succeeds, with a link count of 0), but creating anything inside
-// it fails with ENOENT. On desktop the path simply stops existing. Either way nothing can be saved
-// until the folder is put back, or Lifer is pointed at its new location and restarted.
+// Notices when the library folder (DATA_DIR) or app data folder (APP_DATA_DIR) goes away under
+// a running Lifer, so saving fails with an explanation and the app can show a banner. In Docker a
+// moved bind-mounted folder still stats as a directory (link count 0) but every create fails.
 import { statSync } from "node:fs";
 import path from "node:path";
 import { APP_DATA_DIR, DATA_DIR, SINGLE_USER_MODE } from "../config.js";
 import { isWithin } from "./allowedPaths.js";
+import { log } from "./log.js";
 
 export type FolderProblem = "missing" | "moved";
 
@@ -77,8 +73,8 @@ export function watchLibraryFolder(): void {
     const status = libraryFolderStatus();
     const summary = status.problems.map((p) => p.message).join(" ");
     if (summary === lastLogged) return;
-    if (summary) console.error(`[library] ${summary}`);
-    else if (lastLogged) console.warn("[library] The library folders are available again.");
+    if (summary) log.error(`[library] ${summary}`);
+    else if (lastLogged) log.warn("[library] The library folders are available again.");
     lastLogged = summary;
   };
   check();

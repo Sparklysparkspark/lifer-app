@@ -1,7 +1,4 @@
-// Phase 7e (spec §9): "PhotoSource interface: listPhotos(speciesId), originalUrl(captureId)."
-// The existing local-filesystem behavior is the trivial implementation of this; S3 is the
-// other one actually built (see apps/api/src/photoSources) — Immich is deferred (needs a
-// real instance to verify its API against, not something to guess at).
+// A photo storage backend. Local filesystem and S3 are implemented (see apps/api/src/photoSources).
 export interface PhotoSourceAsset {
   id: string;
   url: string;

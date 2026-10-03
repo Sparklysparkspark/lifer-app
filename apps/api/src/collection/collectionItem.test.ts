@@ -48,9 +48,7 @@ describe("toCollectionItem", () => {
     expect(item.coverPhotoCredit).toBeNull();
   });
 
-  // Boundary: has_cover_photo alone isn't enough — a "seen" (not "collected") row with a
-  // cover_photo_id set shouldn't happen in practice, but if it did, this must not show it as
-  // an owned cover (hasOwnCover requires state === "collected" too).
+  // A "seen" row with a cover photo must not show it as an owned cover.
   it("does not treat a cover photo as owned when state isn't collected", () => {
     const item = toCollectionItem(
       baseRow({ state: "seen", has_cover_photo: true, cover_photo_id: "p1", reference_photo: "https://x/y.jpg" }),

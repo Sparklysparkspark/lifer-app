@@ -1,8 +1,6 @@
-// Shared between GET /collection and GET /regions/:id/species — both compute the same
-// per-user card state (spec §1) from the same joined columns, just over a different base
-// query (all species vs. one region's species).
+// Per-user card state shared by GET /collection and GET /regions/:id/species.
 import { MEDIA_CACHE_BUST } from "../config.js";
-import { TECHNICAL_MAX_DEPTH_M } from "../species/obscurity.js";
+import { TECHNICAL_MAX_DEPTH_M, WELL_DOCUMENTED_MIN_OCCURRENCES } from "../species/obscurity.js";
 
 export interface CollectionRow {
   species_id: string;
@@ -10,51 +8,39 @@ export interface CollectionRow {
   common_name: string | null;
   taxon_class?: string;
   family?: string | null;
+  /** species.taxon_order, for broad groups like Songbirds or Frogs & Toads. */
+  taxon_order?: string | null;
   reference_photo: string | null;
   reference_credit: string | null;
-  /** True when species.reference_thumb_path is populated (a cached local copy of the
-   *  reference photo) — lets the card use the fast local route instead of hotlinking
-   *  iNaturalist/Commons directly. */
+  /** True when a local cached copy of the reference photo exists, so the card avoids hotlinking. */
   has_reference_thumb?: boolean;
   tier: string | null;
-  /** Only present on GET /regions/:id/species rows (region_species.local_tier) — a
-   *  region-scoped rarity read alongside the fixed global tier. */
+  /** Region-scoped tier, only on GET /regions/:id/species rows. */
   local_tier?: string | null;
-  /** Only present on GET /regions/:id/species rows (region_species.is_vagrant). Guards
-   *  against cases like Costa's Hummingbird reading "uncommon" in BC purely from raw record
-   *  count, when those records were actually a single bird chased/photographed by dozens of
-   *  birders over ~10 days. True when this species' records in THIS region are concentrated
-   *  in very few years rather than spread out — a real vagrancy signature, not a genuine
-   *  established presence. */
+  /** Why a tier is missing or how it was decided (tier_reason, migration 115), worldwide and here. */
+  tier_reason?: string | null;
+  local_tier_reason?: string | null;
+  /** The user's own tier (user_tier_overrides): wins over the computed one on this install. */
+  override_tier?: string | null;
+  /** Region rows only: records here are concentrated in very few years, so a single
+   *  much-photographed vagrant doesn't read as an established species. */
   is_vagrant?: boolean | null;
-  /** Only present on GET /regions/:id/species rows: 12 monthly sighting values for the region,
-   *  from region_species.seasonality or, where that's empty (most regions), folded from
-   *  weekly_frequency. Drives the collection's "likely this month" filter and sort. */
+  /** Region rows only: 12 monthly values, from seasonality or folded from weekly_frequency. */
   seasonality?: number[] | null;
-  /** region_species.weekly_frequency: 52 weekly values, where most regions keep their seasonal
-   *  data (the 12-month seasonality column is only filled for a few). Folded into months below. */
+  /** 52 weekly values; most regions only have this, not the monthly column. */
   weekly_frequency?: number[] | null;
-  /** species_traits.endemic_country_iso3 — set if this species is only ever recorded
-   *  (real GBIF presence) in one of the 258 crawled countries. */
+  /** Set when the species is only recorded in one country. */
   endemic_country_iso3?: string | null;
-  /** species_traits.endemic_region_label — a richer named-place label (e.g. "the Rocky
-   *  Mountains") pulled from the species' own description text. Set independently of
-   *  endemic_country_iso3 — see verify-and-label-endemics.ts — so a real multi-country
-   *  range/basin endemic can carry a label even when it isn't single-country-endemic. */
+  /** Named-place endemic label from the species description, independent of
+   *  endemic_country_iso3 so multi-country endemics can carry one too. */
   endemic_region_label?: string | null;
-  /** species_traits.occurrence_count/last_occurrence_year (global GBIF aggregates, migration
-   *  036) and depth_min_m (fish only) — the same three columns OBSCURE_SPECIES_SQL already
-   *  reads, reused here to derive isGhost/isLost. Deliberately global, not the region-scoped
-   *  region_species.is_vagrant flag — a common species turning up as a one-off vagrant
-   *  somewhere shouldn't earn either tag; only genuinely sparse global documentation should. */
+  /** Global GBIF aggregates used to derive isGhost/isLost. Deliberately global so a one-off
+   *  regional vagrant of a common species earns neither tag. */
   occurrence_count?: number | null;
   last_occurrence_year?: number | null;
   depth_min_m?: string | number | null;
-  /** user_species.was_ghost_when_collected/was_lost_when_collected (migration 069) — a
-   *  permanent snapshot set by a DB trigger the first time this row was ever marked
-   *  'collected', independent of the live isGhost/isLost computed above. Lets a species that's
-   *  since been rediscovered (no longer live-Ghost/Lost) still show "you helped find this"
-   *  instead of that history silently disappearing once fresh occurrence data catches up. */
+  /** Snapshot set by a DB trigger when first collected, so a since-rediscovered species can
+   *  still show that it was Ghost/Lost at the time. */
   was_ghost_when_collected?: boolean | null;
   was_lost_when_collected?: boolean | null;
   state: "collected" | "seen" | null;
@@ -64,54 +50,37 @@ export interface CollectionRow {
   card_crop_y: string | number | null;
   card_crop_size: string | number | null;
   has_cover_photo: boolean;
-  /** species.reference_focal_x/y (migration 043) — a focal point for the shared reference
-   *  photo, not a per-user crop like card_crop_*. Only relevant when showing that reference
-   *  photo (i.e. you have no cover photo of your own yet). */
+  /** Focal point for the shared reference photo, used only when there is no cover photo. */
   reference_focal_x?: string | number | null;
   reference_focal_y?: string | number | null;
-  /** storage_volumes.label for the cover photo's original, when it's tagged to a registered
-   *  external drive (see ~/.claude/plans/multi-drive-storage.md) — null for anything living on
-   *  the primary drive, same as any other original with no volume_id. */
+  /** Label of the external drive holding the cover photo's original; null on the primary drive. */
   cover_volume_label?: string | null;
-  /** species.is_other_taxa/inat_iconic_taxon (migration 089) — see CollectionItem's own field
-   *  comments in packages/shared/src/collection.ts. */
+  /** See CollectionItem in packages/shared/src/collection.ts. */
   is_other_taxa?: boolean;
   inat_iconic_taxon?: string | null;
-  /** Every distinct calendar year this user has a real (non-trashed) capture of this species —
-   *  see the captured_years subquery in collection/routes.ts and regions/routes.ts. Deliberately
-   *  not just the year of user_species.first_collected: a "big year" style filter needs to know
-   *  a species was seen again in a later year too, not only when it was first ever found. */
+  /** Every year with a non-trashed capture, not just the first, so "big year" filters work. */
   captured_years?: number[] | null;
 }
 
-// Below this many total GBIF records ever, or with no reference photo found by enrichment, a
-// species counts as Ghost's "almost nobody's documented this" signal — the inverse of
-// OBSCURE_SPECIES_SQL's own occurrence_count<20 threshold, reused as the actual criterion
-// instead of an exclusion here. Same "no photo" check as obscureSpeciesSql: reference_photo
-// alone isn't proof of anything, since a downloaded pack's own species UPDATE never sets that
-// column, only reference_thumb_path/reference_display_path (see that file's own comment) -
-// checking has_reference_thumb too is what stops every pack-enriched species from reading as
-// ghost purely because reference_photo stayed null.
+// Ghost: fewer GBIF records than this, or no reference photo at all. Packs set only the thumb
+// path, not reference_photo, so both must be checked.
 const GHOST_MAX_OCCURRENCE_COUNT = 20;
-// A species not recorded anywhere in this many years counts as Lost — a narrower, purely
-// time-based signal distinct from Ghost's documentation-volume one. Species with nothing since
-// before 1950 are excluded (already effectively hidden by OBSCURE_SPECIES_SQL's own default —
-// Lost is meant to be a visible badge on an otherwise-normal checklist entry, not a second
-// hiding mechanism).
+// Lost: not recorded anywhere in this many years. Nothing since before 1950 is excluded, since
+// OBSCURE_SPECIES_SQL already hides those.
 const LOST_YEARS_SILENT = 25;
 const LOST_MIN_YEAR = 1950;
 
-// maxDepthM: the same per-user recreational/technical depth cutoff obscureSpeciesSql() uses
-// (getObscurityPreferences) — a fish beyond YOUR realistic diving range shouldn't earn a Ghost
-// badge just because a wider default would've disqualified it; a technical diver's own 120m
-// range should count more fish as reachable than a recreational diver's 60m.
+// maxDepthM: the user's diving depth cutoff; fish beyond it never count as Ghost.
 export function isGhostSpecies(row: CollectionRow, maxDepthM: number): boolean {
-  if (row.occurrence_count == null) return false; // no data yet — never guess
+  if (row.occurrence_count == null) return false; // no data yet, never guess
   const depthDisqualified =
     row.taxon_class === "actinopterygii" && row.depth_min_m != null && Number(row.depth_min_m) >= maxDepthM;
   if (depthDisqualified) return false;
-  if (row.last_occurrence_year != null && row.last_occurrence_year < LOST_MIN_YEAR) return false; // that's Lost territory, not Ghost
-  return row.occurrence_count < GHOST_MAX_OCCURRENCE_COUNT || (row.reference_photo == null && !row.has_reference_thumb);
+  if (row.last_occurrence_year != null && row.last_occurrence_year < LOST_MIN_YEAR) return false; // Lost territory, not Ghost
+  return (
+    row.occurrence_count < GHOST_MAX_OCCURRENCE_COUNT ||
+    (row.reference_photo == null && !row.has_reference_thumb && row.occurrence_count < WELL_DOCUMENTED_MIN_OCCURRENCES)
+  );
 }
 
 export function isLostSpecies(row: CollectionRow): boolean {
@@ -120,9 +89,7 @@ export function isLostSpecies(row: CollectionRow): boolean {
   return row.last_occurrence_year < currentYear - LOST_YEARS_SILENT && row.last_occurrence_year >= LOST_MIN_YEAR;
 }
 
-/** 52 weekly values folded into 12 months (each week counted in the month its middle day falls
- *  in, averaged), the shape the collection's "likely this month" filter and sort read. Most
- *  regions only have weekly data, so without this the filter found nothing to show. */
+/** Folds 52 weekly values into 12 monthly averages, by each week's middle day. */
 export function monthlyFromWeekly(weekly: number[] | null | undefined): number[] | null {
   if (!weekly || weekly.length === 0) return null;
   const sums = new Array(12).fill(0);
@@ -145,19 +112,21 @@ export function toCollectionItem(row: CollectionRow, maxDepthM: number = TECHNIC
     commonName: row.common_name,
     taxonClass: row.taxon_class ?? null,
     family: row.family ?? null,
+    taxonOrder: row.taxon_order ?? null,
     state,
     isTarget: row.is_target === true,
-    tier: row.tier,
-    localTier: row.local_tier ?? null,
+    // A tier the user set wins: over the local tier where there is one, else over the worldwide one.
+    tier: row.override_tier && row.local_tier === undefined ? row.override_tier : row.tier,
+    localTier: row.override_tier && row.local_tier !== undefined ? row.override_tier : (row.local_tier ?? null),
+    tierReason: row.tier_reason ?? null,
+    localTierReason: row.local_tier_reason ?? null,
+    tierOverridden: row.override_tier != null,
     vagrant: row.is_vagrant === true,
     seasonality: row.seasonality ?? monthlyFromWeekly(row.weekly_frequency),
     endemic: row.endemic_country_iso3 != null || row.endemic_region_label != null,
     isGhost: isGhostSpecies(row, maxDepthM),
     isLost: isLostSpecies(row),
-    // "Rediscovered" — was flagged at the moment you collected it, but the live computation
-    // above no longer agrees (either fresh occurrence data flowed in for real, or your own
-    // depth-threshold preference changed since). A species already showing as isGhost/isLost
-    // right now doesn't need a separate rediscovered badge on top of that.
+    // Rediscovered: flagged when collected, but no longer Ghost/Lost now.
     rediscoveredGhost: row.was_ghost_when_collected === true && !isGhostSpecies(row, maxDepthM),
     rediscoveredLost: row.was_lost_when_collected === true && !isLostSpecies(row),
     coverPhotoUrl: hasOwnCover
@@ -166,14 +135,11 @@ export function toCollectionItem(row: CollectionRow, maxDepthM: number = TECHNIC
         ? `/api/species/${row.species_id}/reference-photo/thumb?v=${MEDIA_CACHE_BUST}`
         : row.reference_photo,
     coverPhotoCredit: hasOwnCover ? null : row.reference_credit,
-    // Only meaningful for your own photo — the external reference thumbnails are already
-    // framed by whoever took them, so there's no crop to apply there. Null means "no
-    // custom crop saved yet, just center-cover the whole photo."
+    // Crop applies only to your own photo. Null means center-cover.
     cardCropX: hasOwnCover ? numOrNull(row.card_crop_x) : null,
     cardCropY: hasOwnCover ? numOrNull(row.card_crop_y) : null,
     cardCropSize: hasOwnCover ? numOrNull(row.card_crop_size) : null,
-    // The inverse gating of cardCrop* above — a focal point on the shared reference photo
-    // only means anything when that's actually what's showing (no cover photo of your own).
+    // Focal point applies only when the reference photo is showing.
     referenceFocalX: hasOwnCover ? null : numOrNull(row.reference_focal_x),
     referenceFocalY: hasOwnCover ? null : numOrNull(row.reference_focal_y),
     coverVolumeLabel: hasOwnCover ? (row.cover_volume_label ?? null) : null,

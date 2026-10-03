@@ -1,8 +1,9 @@
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
+import type { PoolClient } from "pg";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import { pool } from "../db.js";
 import { hashApiKey } from "./apiKeys.js";
-import { COOKIE_SECURE, SESSION_COOKIE_NAME, SESSION_TTL_MS, SINGLE_USER_MODE } from "../config.js";
+import { SESSION_COOKIE_NAME, SESSION_TTL_MS, SINGLE_USER_MODE } from "../config.js";
 
 export interface SessionUser {
   id: string;
@@ -11,19 +12,13 @@ export interface SessionUser {
 
 const LOCAL_USER_EMAIL = "local@lifer.app";
 
-// Desktop mode's single auto-provisioned user (see config.ts's SINGLE_USER_MODE comment) —
-// created once on first run, reused on every request after. No password: nothing ever
-// authenticates against it, since getSessionUser below short-circuits to it unconditionally.
+// Desktop mode's single auto-provisioned user, created on first run. No password: getSessionUser
+// always returns it.
 let cachedLocalUserId: string | null = null;
 async function getOrCreateLocalUser(): Promise<SessionUser> {
   if (cachedLocalUserId) return { id: cachedLocalUserId, email: LOCAL_USER_EMAIL };
-  // A brand new local library gets several requests firing on first page load, all racing
-  // into this function before any of them has committed a row — a plain check-then-insert
-  // (SELECT, then INSERT if missing) lets more than one of them see "no user yet" and all try
-  // to INSERT, so every request after the first one to actually commit throws a real
-  // users_email_key violation instead of just finding the row. ON CONFLICT DO NOTHING sidesteps
-  // that: the losing inserts return no row instead of throwing, and fall back to the SELECT
-  // below to pick up whichever one actually won.
+  // Several first-load requests race here on a new library, so the insert uses ON CONFLICT DO
+  // NOTHING and the losers read back the winner's row.
   const randomPasswordHash = randomBytes(32).toString("hex");
   const inserted = await pool.query<{ id: string }>(
     `INSERT INTO users (email, password_hash) VALUES ($1, $2) ON CONFLICT (email) DO NOTHING RETURNING id`,
@@ -38,14 +33,31 @@ async function getOrCreateLocalUser(): Promise<SessionUser> {
   return { id: cachedLocalUserId, email: LOCAL_USER_EMAIL };
 }
 
-export async function createSession(userId: string, reply: FastifyReply): Promise<void> {
+// Sessions are stored as sha256(token), so the database alone can't be replayed
+// as a login. Matches migration 109's encode(digest(..., 'sha256'), 'hex').
+export function hashToken(token: string): string {
+  return createHash("sha256").update(token).digest("hex");
+}
+
+// Secure only when the browser reached us over https, directly or through a TLS proxy. Plain http
+// home servers need it off, since browsers drop a Secure cookie there.
+export function cookieSecureFor(request: Pick<FastifyRequest, "protocol" | "headers">): boolean {
+  if (request.protocol === "https") return true;
+  // Also read the header directly, for proxies outside the trusted ranges. A spoofed value can only
+  // make the sender's own cookie Secure. The first entry is the hop the browser connected to.
+  const forwarded = request.headers["x-forwarded-proto"];
+  const first = (Array.isArray(forwarded) ? forwarded[0] : forwarded)?.split(",")[0]?.trim().toLowerCase();
+  return first === "https";
+}
+
+export async function createSession(userId: string, reply: FastifyReply, db: Pick<PoolClient, "query"> = pool): Promise<void> {
   const token = randomBytes(32).toString("hex");
   const expiresAt = new Date(Date.now() + SESSION_TTL_MS);
-  await pool.query(`INSERT INTO sessions (id, user_id, expires_at) VALUES ($1, $2, $3)`, [token, userId, expiresAt]);
+  await db.query(`INSERT INTO sessions (id, user_id, expires_at) VALUES ($1, $2, $3)`, [hashToken(token), userId, expiresAt]);
 
   reply.setCookie(SESSION_COOKIE_NAME, token, {
     httpOnly: true,
-    secure: COOKIE_SECURE,
+    secure: cookieSecureFor(reply.request),
     sameSite: "lax",
     path: "/",
     expires: expiresAt,
@@ -55,7 +67,7 @@ export async function createSession(userId: string, reply: FastifyReply): Promis
 export async function destroySession(request: FastifyRequest, reply: FastifyReply): Promise<void> {
   const token = request.cookies[SESSION_COOKIE_NAME];
   if (token) {
-    await pool.query(`DELETE FROM sessions WHERE id = $1`, [token]);
+    await pool.query(`DELETE FROM sessions WHERE id = $1`, [hashToken(token)]);
   }
   reply.clearCookie(SESSION_COOKIE_NAME, { path: "/" });
 }
@@ -70,9 +82,15 @@ export async function getSessionUser(request: FastifyRequest): Promise<SessionUs
     `SELECT u.id, u.email FROM sessions s
      JOIN users u ON u.id = s.user_id
      WHERE s.id = $1 AND s.expires_at > now()`,
-    [token],
+    [hashToken(token)],
   );
   return res.rows[0] ?? null;
+}
+
+/** Signs out every session of this user (other devices included) and issues a fresh one here. */
+export async function rotateSessions(userId: string, reply: FastifyReply, db: Pick<PoolClient, "query"> = pool): Promise<void> {
+  await db.query(`DELETE FROM sessions WHERE user_id = $1`, [userId]);
+  await createSession(userId, reply, db);
 }
 
 /** Fastify preHandler: 401s unless a valid session cookie is present. Attaches request.user. */
@@ -85,10 +103,8 @@ export async function requireAuth(request: FastifyRequest, reply: FastifyReply):
   request.user = user;
 }
 
-// Verifies an `x-api-key` header (same header name Immich uses) against api_keys.key_hash and
-// confirms `scope` is in that row's permissions. Returns the key's owning user on success, null
-// on any failure — deliberately one generic outcome (missing header, unknown key, wrong scope
-// all look the same to the caller), same non-distinguishing-response spirit as /auth/login.
+// Checks an `x-api-key` header and that its permissions include `scope`. Returns the owning user,
+// or null for every failure alike (missing header, unknown key, wrong scope).
 async function verifyApiKeyScope(
   request: FastifyRequest,
   scope: string,
@@ -104,21 +120,14 @@ async function verifyApiKeyScope(
   const row = res.rows[0];
   if (!row || !row.permissions.includes(scope)) return null;
 
-  // Fire-and-forget — a slow/failed write here should never hold up or fail the actual request.
+  // Fire-and-forget: a slow or failed write must not hold up the request.
   pool.query(`UPDATE api_keys SET last_used_at = now() WHERE id = $1`, [row.id]).catch(() => {});
   return { id: row.user_id, email: row.email };
 }
 
 /**
- * Fastify preHandler factory: passes for a valid session cookie unconditionally (a logged-in
- * user's own browser is never scope-limited), or for an `x-api-key` header whose stored
- * permissions include `scope`. Attaches request.user either way, so downstream route code
- * (`request.user!.id`) is unchanged regardless of which credential authenticated the request.
- *
- * Only meaningful for server mode — SINGLE_USER_MODE's getSessionUser always returns the local
- * user regardless of any header, so this passes unconditionally there too (matching requireAuth's
- * own desktop behavior), which is fine: desktop never surfaces the API-key management UI, so no
- * key ever legitimately exists to check against in that mode anyway.
+ * Fastify preHandler factory: passes for any valid session cookie, or for an `x-api-key` whose
+ * permissions include `scope`. Attaches request.user either way. Always passes in desktop mode.
  */
 export function requireScope(scope: string) {
   return async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {

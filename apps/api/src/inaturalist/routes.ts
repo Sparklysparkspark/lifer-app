@@ -1,13 +1,12 @@
-// iNaturalist observation sync (ported from feature/inaturalist-sync, merged forward against
-// main — see plan section C in ~/.claude/plans/vast-prancing-turing.md for what changed in the
-// port). Feature-gated on there being an effective client_id (env var default, or a server-mode
-// admin's own override from Settings): every route 501s with a clear message until one exists,
-// so this ships dark rather than half-working.
+// iNaturalist observation sync. Every route answers 501 with a clear message until a client ID
+// is configured (env var, or a server admin's own in Settings).
 import { randomBytes } from "node:crypto";
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyRequest } from "fastify";
 import { pool } from "../db.js";
-import { requireAuth } from "../auth/session.js";
-import { INAT_CLIENT_ID, INAT_REDIRECT_URI } from "../config.js";
+import { isUuid } from "../lib/validate.js";
+import { cookieSecureFor, requireAuth } from "../auth/session.js";
+import { INAT_CLIENT_ID, INAT_REDIRECT_URI, SINGLE_USER_MODE } from "../config.js";
+import { escapeHtml } from "../lib/httpFile.js";
 import {
   generatePkce,
   buildAuthorizeUrl,
@@ -20,15 +19,10 @@ import {
 } from "./client.js";
 import { clusterForImport, type ClusterableCapture } from "./grouping.js";
 
-// A default so coarse that it reads as "definitely not the real spot" rather than a plausible
-// pin someone might mistake for accurate — the whole point of sending a rough location is that
-// it visibly needs refining. iNaturalist treats large positional_accuracy as a real "here's a
-// wide area, not a precise point" signal, which is exactly what we mean here.
+// Deliberately coarse so a rough location visibly needs refining rather than passing as accurate.
 const DEFAULT_POSITIONAL_ACCURACY_METERS = 50_000;
 
-// Correlates the browser redirect back to the user who clicked "Connect" — state is a one-time,
-// short-lived, in-memory secret (never persisted; a server restart mid-flow just means the user
-// clicks Connect again), not a long-term credential store.
+// Maps the OAuth redirect back to the user who clicked Connect. One-time, short-lived, in memory.
 interface PendingConnect {
   userId: string;
   verifier: string;
@@ -46,21 +40,35 @@ function prunePendingConnects(): void {
 
 function notAvailable(reply: { code: (n: number) => { send: (b: unknown) => void } }): void {
   reply.code(501).send({
-    error: "iNaturalist linking isn't available yet — register your own app at inaturalist.org/oauth/applications and set it in Settings, or set INAT_CLIENT_ID.",
+    error: "iNaturalist linking isn't available yet. Register your own app at inaturalist.org/oauth/applications and set it in Settings, or set INAT_CLIENT_ID.",
   });
 }
 
-// Deployment-wide override (migration 075) takes precedence over the env var default — see
-// config.ts's own comment on why a single shared registration can't work for arbitrary
-// self-hosted domains.
-async function resolveInatConfig(): Promise<{ clientId: string | null; redirectUri: string }> {
+// A saved redirect URI equal to a default counts as unset, so a later INAT_REDIRECT_URI change
+// still applies. Settings sends the displayed value back on every Save.
+const BUILT_IN_REDIRECT_URI = /^http:\/\/127\.0\.0\.1:\d+\/api\/inaturalist\/callback$/;
+export function customRedirectUri(value: string | null | undefined): string | null {
+  const trimmed = value?.trim();
+  if (!trimmed || trimmed === INAT_REDIRECT_URI || BUILT_IN_REDIRECT_URI.test(trimmed)) return null;
+  return trimmed;
+}
+
+// A server has no fixed address to default to, so it uses the one this browser opened Lifer at:
+// the connect request and iNaturalist's callback both arrive there. Desktop keeps its loopback one.
+function defaultRedirectUri(request: FastifyRequest): string {
+  if (SINGLE_USER_MODE || process.env.INAT_REDIRECT_URI || !request.host) return INAT_REDIRECT_URI;
+  return `${cookieSecureFor(request) ? "https" : "http"}://${request.host}/api/inaturalist/callback`;
+}
+
+// The deployment-wide override from Settings wins over the defaults.
+async function resolveInatConfig(request: FastifyRequest): Promise<{ clientId: string | null; redirectUri: string }> {
   const res = await pool.query<{ client_id: string | null; redirect_uri: string | null }>(
     `SELECT client_id, redirect_uri FROM inat_server_config WHERE id = true`,
   );
   const row = res.rows[0];
   return {
     clientId: row?.client_id ?? INAT_CLIENT_ID,
-    redirectUri: row?.redirect_uri ?? INAT_REDIRECT_URI,
+    redirectUri: customRedirectUri(row?.redirect_uri) ?? defaultRedirectUri(request),
   };
 }
 
@@ -88,7 +96,7 @@ async function requireAccount(userId: string): Promise<AccountRow | null> {
 
 export async function inaturalistRoutes(app: FastifyInstance): Promise<void> {
   app.get("/inaturalist/status", { preHandler: requireAuth }, async (request) => {
-    const [account, { clientId }] = await Promise.all([requireAccount(request.user!.id), resolveInatConfig()]);
+    const [account, { clientId }] = await Promise.all([requireAccount(request.user!.id), resolveInatConfig(request)]);
     return {
       available: clientId !== null,
       connected: account !== null,
@@ -97,7 +105,7 @@ export async function inaturalistRoutes(app: FastifyInstance): Promise<void> {
   });
 
   app.post("/inaturalist/connect", { preHandler: requireAuth }, async (request, reply) => {
-    const { clientId, redirectUri } = await resolveInatConfig();
+    const { clientId, redirectUri } = await resolveInatConfig(request);
     if (!clientId) return notAvailable(reply);
     prunePendingConnects();
     const { verifier, challenge } = generatePkce();
@@ -106,9 +114,7 @@ export async function inaturalistRoutes(app: FastifyInstance): Promise<void> {
     return { authorizeUrl: buildAuthorizeUrl(clientId, redirectUri, state, challenge) };
   });
 
-  // Hit directly by the browser after the user approves on iNaturalist's own site — not behind
-  // requireAuth, since there's no Lifer session cookie on this request; `state` is what proves
-  // which pending connect attempt this belongs to.
+  // Not behind requireAuth: the redirect carries no session cookie, so `state` identifies the attempt.
   app.get<{ Querystring: { code?: string; state?: string; error?: string } }>(
     "/inaturalist/callback",
     async (request, reply) => {
@@ -122,7 +128,7 @@ export async function inaturalistRoutes(app: FastifyInstance): Promise<void> {
       if (!pending || Date.now() - pending.createdAt > PENDING_CONNECT_TTL_MS) {
         return page(`<p>This sign-in link expired. Close this window and click Connect again.</p>`);
       }
-      const { clientId, redirectUri } = await resolveInatConfig();
+      const { clientId, redirectUri } = await resolveInatConfig(request);
       if (!clientId) return notAvailable(reply);
 
       try {
@@ -140,9 +146,9 @@ export async function inaturalistRoutes(app: FastifyInstance): Promise<void> {
              connected_at = now()`,
           [pending.userId, tokens.access_token, tokens.refresh_token, identity.id, identity.login],
         );
-        return page(`<p>Connected as ${identity.login}. You can close this window and return to Lifer.</p>`);
+        return page(`<p>Connected as ${escapeHtml(String(identity.login))}. You can close this window and return to Lifer.</p>`);
       } catch (err) {
-        return page(`<p>Connecting to iNaturalist failed: ${(err as Error).message}</p>`);
+        return page(`<p>Connecting to iNaturalist failed: ${escapeHtml((err as Error).message ?? "")}</p>`);
       }
     },
   );
@@ -152,23 +158,27 @@ export async function inaturalistRoutes(app: FastifyInstance): Promise<void> {
     return { ok: true };
   });
 
-  // Server-mode admin config — GET returns whether an override is set (never the raw client_id
-  // back out, same "write-only from here on" convention as the API-key feature) plus the
-  // effective redirect URI to register on iNaturalist's own site; PUT sets or clears it.
-  app.get("/inaturalist/server-config", { preHandler: requireAuth }, async () => {
-    const { clientId, redirectUri } = await resolveInatConfig();
+  // Server admin config. GET says whether a client ID is set (it's never sent back) and gives the
+  // effective redirect URI to register. PUT sets both; an empty or default redirect URI clears it.
+  app.get("/inaturalist/server-config", { preHandler: requireAuth }, async (request) => {
+    const { clientId, redirectUri } = await resolveInatConfig(request);
     return { hasClientId: clientId !== null, redirectUri };
   });
 
-  app.put<{ Body: { clientId: string | null; redirectUri: string | null } }>(
+  app.put<{ Body: { clientId?: string | null; clearClientId?: boolean; redirectUri?: string | null } }>(
     "/inaturalist/server-config",
     { preHandler: requireAuth },
     async (request) => {
-      const { clientId, redirectUri } = request.body;
+      // A blank or missing client ID keeps the saved one, so saving only the redirect URI can't erase it.
+      const clientId = request.body?.clientId?.trim() || null;
+      const clearClientId = request.body?.clearClientId === true;
+      const redirectUri = customRedirectUri(request.body?.redirectUri);
       await pool.query(
         `INSERT INTO inat_server_config (id, client_id, redirect_uri) VALUES (true, $1, $2)
-         ON CONFLICT (id) DO UPDATE SET client_id = EXCLUDED.client_id, redirect_uri = EXCLUDED.redirect_uri`,
-        [clientId, redirectUri],
+         ON CONFLICT (id) DO UPDATE SET
+           client_id = CASE WHEN $3 THEN NULL ELSE COALESCE(EXCLUDED.client_id, inat_server_config.client_id) END,
+           redirect_uri = EXCLUDED.redirect_uri`,
+        [clientId, redirectUri, clearClientId],
       );
       return { ok: true };
     },
@@ -214,6 +224,7 @@ export async function inaturalistRoutes(app: FastifyInstance): Promise<void> {
       if (!account) return reply.code(409).send({ error: "iNaturalist account not connected" });
       const { captureIds, regionId } = request.body;
       if (!captureIds?.length) return reply.code(400).send({ error: "captureIds required" });
+      if (!Array.isArray(captureIds) || !captureIds.every(isUuid)) return reply.code(404).send({ error: "One or more captures not found" });
 
       const capturesRes = await pool.query<{
         id: string;
@@ -239,10 +250,10 @@ export async function inaturalistRoutes(app: FastifyInstance): Promise<void> {
       const withGps = capturesRes.rows.find((r) => r.lat !== null && r.lon !== null);
       const centroid = withGps
         ? { lat: Number(withGps.lat), lon: Number(withGps.lon) }
-        : regionId
+        : regionId && isUuid(regionId)
           ? await regionCentroid(regionId)
           : null;
-      if (!centroid) return reply.code(422).send({ error: "No location available — pick a region first" });
+      if (!centroid) return reply.code(422).send({ error: "No location available. Pick a region first" });
       const positionalAccuracy = withGps ? 100 : DEFAULT_POSITIONAL_ACCURACY_METERS;
 
       const observedOn = capturesRes.rows.find((r) => r.taken_at)?.taken_at ?? new Date().toISOString();
@@ -308,7 +319,7 @@ export async function inaturalistRoutes(app: FastifyInstance): Promise<void> {
           Math.abs(remote.lat - Number(submitted.submitted_lat)) < 1e-6 &&
           Math.abs(remote.lon - Number(submitted.submitted_lon)) < 1e-6;
         if (stillCoarse) {
-          return { confirmed: false, message: "This still looks like the default location — finish editing it on iNaturalist, then confirm again." };
+          return { confirmed: false, message: "This still looks like the default location. Finish editing it on iNaturalist, then confirm again." };
         }
         await pool.query(
           `UPDATE capture_inaturalist_observations SET status = 'completed', confirmed_at = now() WHERE inat_observation_id = $1`,

@@ -1,38 +1,37 @@
-// Authenticated file streaming —security requirement, display/thumb
-// paths are never served via a static mount. Every request is checked against ownership here.
-import { createReadStream, existsSync, readFileSync, statSync } from "node:fs";
+// Authenticated file streaming. For security, display/thumb files are never served from a static
+// mount; every request is checked against ownership here.
+import { createReadStream, existsSync, type Stats } from "node:fs";
 import path from "node:path";
 import { rename } from "node:fs/promises";
 import sharp from "sharp";
 import { contentDisposition, parseRange } from "../lib/httpFile.js";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { pool } from "../db.js";
-import { requireAuth, requireScope } from "../auth/session.js";
+import { isUuid } from "../lib/validate.js";
+import { requireScope } from "../auth/session.js";
 import { signedS3Url } from "../photoSources/s3.js";
 import { resolveOriginalPath } from "../storageVolumes/resolve.js";
 import { APP_DATA_DIR } from "../config.js";
 import { generateDerivatives } from "../uploads/image.js";
+import { PHOTO_FORMATS, photoFormatFor } from "../uploads/formats.js";
 import { ensureDefaultCardCrop } from "../collection/defaultCardCrop.js";
 import { ensureDir } from "../lib/safeFs.js";
+import { applyFileValidators, rangeStillValid, sendCachedImage, statFile } from "../lib/cachedFile.js";
+import { log } from "../lib/log.js";
 
-// A 1,024px copy for grid tiles. The 400px thumbnail looks soft on a high-density screen and the
-// 2,560px display image is several times more than a tile needs, so grids asked for the display
-// image and downloaded far too much. Made from the display image the first time it's asked for
-// and kept in APP_DATA_DIR/medium, so existing libraries get it without a backfill. Rebuilt when
-// the display image is newer (a re-crop or rotate). At most two are made at once, so a first
-// scroll through a big gallery doesn't flood a NAS CPU.
+// A 1,024px copy for grid tiles: the thumbnail is soft on dense screens and the display image is
+// too big. Made from the display image on first request and kept in APP_DATA_DIR/medium, rebuilt
+// when the display image is newer. At most two are made at once.
 const MEDIUM_WIDTH = 1024;
 let mediumSlots = 2;
 const mediumQueue: Array<() => void> = [];
 const mediumInFlight = new Map<string, Promise<string>>();
+const mediumPath = (photoId: string) => path.join(APP_DATA_DIR, "medium", `${photoId}.webp`);
 
 async function mediumDerivative(photoId: string, displayPath: string): Promise<string> {
-  const target = path.join(APP_DATA_DIR, "medium", `${photoId}.webp`);
-  try {
-    if (statSync(target).mtimeMs >= statSync(displayPath).mtimeMs) return target;
-  } catch {
-    // not made yet
-  }
+  const target = mediumPath(photoId);
+  const [tst, dst] = await Promise.all([statFile(target), statFile(displayPath)]);
+  if (tst && dst && tst.mtimeMs >= dst.mtimeMs) return target;
   const pending = mediumInFlight.get(photoId);
   if (pending) return pending;
   const job = (async () => {
@@ -55,19 +54,38 @@ async function mediumDerivative(photoId: string, displayPath: string): Promise<s
   return job;
 }
 
-// Photos were sent with no caching headers, so the browser downloaded every thumbnail again on
-// each visit. The ETag (size and modified time) lets it ask "still the same?" and get an empty
-// 304 instead; no-cache keeps a re-cropped photo from showing stale.
-function sendCachedImage(request: FastifyRequest, reply: FastifyReply, filePath: string) {
-  const st = statSync(filePath);
-  const etag = `W/"${st.size.toString(16)}-${Math.floor(st.mtimeMs).toString(16)}"`;
-  reply.header("ETag", etag);
-  reply.header("Last-Modified", st.mtime.toUTCString());
-  reply.header("Cache-Control", "private, no-cache");
-  if (request.headers["if-none-match"] === etag) return reply.code(304).send();
-  reply.header("Content-Type", "image/webp");
+// The medium copy when it's current or can be made within a second; otherwise null and it keeps
+// being made in the background while the caller serves the display image this once.
+const MEDIUM_WAIT_MS = 1000;
+async function mediumIfReady(photoId: string, displayPath: string, displaySt: Stats): Promise<{ path: string; st: Stats } | null> {
+  const current = await statFile(mediumPath(photoId));
+  if (current && current.mtimeMs >= displaySt.mtimeMs) return { path: mediumPath(photoId), st: current };
+  let timer: NodeJS.Timeout | undefined;
+  const made = await Promise.race([
+    mediumDerivative(photoId, displayPath),
+    new Promise<null>((resolve) => {
+      timer = setTimeout(() => resolve(null), MEDIUM_WAIT_MS);
+    }),
+  ]).finally(() => clearTimeout(timer));
+  if (!made || made === displayPath) return null;
+  const st = await statFile(made);
+  return st ? { path: made, st } : null;
+}
+
+// Streams an original (JPEG or RAW) with a strong ETag, Last-Modified and 304 support.
+function sendOriginalFile(request: FastifyRequest, reply: FastifyReply, filePath: string, st: Stats, contentType: string) {
+  if (applyFileValidators(request, reply, st, { weak: false }).notModified) return reply.code(304).send();
+  reply.header("Content-Type", contentType);
   reply.header("Content-Length", st.size);
   return reply.send(createReadStream(filePath));
+}
+
+// The other rendition of the same photo (thumb for display, display for thumb), when it exists
+// on disk, to show while the missing one is repaired in the background.
+async function siblingRendition(photoId: string, userId: string, kind: "display" | "thumb"): Promise<{ path: string; st: Stats } | null> {
+  const other = await resolvePhotoPath(photoId, userId, kind === "display" ? "thumb" : "display");
+  const st = other ? await statFile(other) : null;
+  return other && st ? { path: other, st } : null;
 }
 
 async function resolvePhotoPath(photoId: string, userId: string, kind: "display" | "thumb"): Promise<string | null> {
@@ -94,8 +112,7 @@ async function resolveOriginal(
   userId: string,
   kind: "jpeg" | "raw" | "video" = "jpeg",
 ): Promise<ResolvedOriginalRef | null> {
-  // photos.id -> captures.id -> originals.capture_id (originals is keyed by capture, since a
-  // capture has at most one original per kind, independent of which rendition is "current").
+  // photos.id -> captures.id -> originals.capture_id: a capture has at most one original per kind.
   const res = await pool.query<{
     ref: string;
     ref_type: string;
@@ -117,11 +134,8 @@ async function resolveOriginal(
   return { ref: resolved.path, refType: row.ref_type, connected: resolved.connected, volumeLabel: resolved.volumeLabel };
 }
 
-// A photo's thumb/display file can go missing while its row still points at it: a derivatives
-// move that stopped between moving files and rewriting rows (migrateDerivativesLocation), or a
-// cleared app cache. Without this the species card for that photo stayed blank forever. Tries,
-// in order: the file already sitting at its canonical path (just fix the row), then rebuilding
-// both files from the JPEG original. Images only; video posters come from a separate pipeline.
+// Recovers a photo whose thumb/display file is missing while its row points at it: use a file
+// already at its canonical path, else rebuild both from the JPEG original. Images only.
 const healing = new Map<string, Promise<boolean>>();
 
 async function healDerivatives(photoId: string, userId: string): Promise<boolean> {
@@ -144,11 +158,12 @@ async function healDerivatives(photoId: string, userId: string): Promise<boolean
     const original = await resolveOriginal(photoId, userId, "jpeg");
     if (!original || original.refType !== "path" || !original.connected || !original.ref || !existsSync(original.ref)) return false;
     try {
-      const out = await generateDerivatives(readFileSync(original.ref), photoId);
+      // By path, so a huge original is decoded top to bottom rather than read into memory.
+      const out = await generateDerivatives(original.ref, photoId);
       await pool.query(`UPDATE photos SET display_path = $2, thumb_path = $3 WHERE id = $1`, [photoId, out.displayPath, out.thumbPath]);
       return true;
     } catch (err) {
-      console.warn(`[photos] couldn't rebuild derivatives for ${photoId}:`, err);
+      log.warn({ err }, `[photos] couldn't rebuild derivatives for ${photoId}`);
       return false;
     }
   })().finally(() => healing.delete(photoId));
@@ -159,7 +174,7 @@ async function healDerivatives(photoId: string, userId: string): Promise<boolean
 // Last resort when a featured photo can't be shown at all: feature the best other photo of that
 // species that still has a thumbnail (crop cleared, it was framed for the old photo), or fall
 // back to the reference photo if there's none. Same shape as the repoint on delete in
-// captures/routes.ts.
+// captures/trash.ts.
 async function replaceUnshowableCover(photoId: string, userId: string): Promise<void> {
   const covers = await pool.query<{ species_id: string }>(
     `SELECT species_id FROM user_species WHERE user_id = $1 AND cover_photo_id = $2`,
@@ -196,17 +211,13 @@ async function resolveVideoPreviewPath(photoId: string, userId: string): Promise
   return res.rows[0]?.preview_path ?? null;
 }
 
-// Streams a local file with HTTP Range support (206 Partial Content) — needed for video
-// scrubbing/seeking, which the plain full-file streaming the other routes here use doesn't
-// support. Kept generic (not video-specific) in case another large-file route ever needs it.
-//
-// Every branch must `return reply.send(...)` (not call it and fall through) — an async Fastify
-// handler that doesn't return its reply.send() call has its own resolved value (undefined)
-// race the stream, and Fastify ends up sending a 0-byte response with a stale/absent
-// Content-Length despite the stream itself never erroring.
-function sendRangeableFile(request: FastifyRequest, reply: FastifyReply, filePath: string, contentType: string): FastifyReply {
-  const stat = statSync(filePath);
-  const range = request.headers.range as string | undefined;
+// Streams a file with Range support (206), which video seeking needs.
+// Every branch must return reply.send(...): an async handler that doesn't return it races the
+// stream and Fastify sends an empty response.
+function sendRangeableFile(request: FastifyRequest, reply: FastifyReply, filePath: string, stat: Stats, contentType: string): FastifyReply {
+  const { notModified, etag } = applyFileValidators(request, reply, stat, { weak: false });
+  if (notModified) return reply.code(304).send();
+  const range = rangeStillValid(request, stat, etag) ? (request.headers.range as string | undefined) : undefined;
   reply.header("Accept-Ranges", "bytes");
   reply.header("Content-Type", contentType);
 
@@ -233,18 +244,37 @@ function sendRangeableFile(request: FastifyRequest, reply: FastifyReply, filePat
 export async function photoRoutes(app: FastifyInstance): Promise<void> {
   for (const kind of ["display", "medium", "thumb"] as const) {
     app.get<{ Params: { id: string } }>(`/photos/:id/${kind}`, { preHandler: requireScope("photos.read") }, async (request, reply) => {
+      if (!isUuid(request.params.id)) return reply.code(404).send({ error: "Photo not found" });
       const userId = request.user!.id;
+      const photoId = request.params.id;
       const sourceKind = kind === "medium" ? "display" : kind;
-      let filePath = await resolvePhotoPath(request.params.id, userId, sourceKind);
-      if (filePath && !existsSync(filePath)) {
-        filePath = (await healDerivatives(request.params.id, userId)) ? await resolvePhotoPath(request.params.id, userId, sourceKind) : null;
-        if (!filePath) await replaceUnshowableCover(request.params.id, userId);
+      let filePath = await resolvePhotoPath(photoId, userId, sourceKind);
+      let st = filePath ? await statFile(filePath) : null;
+      let standIn = false;
+      if (filePath && !st) {
+        const sibling = await siblingRendition(photoId, userId, sourceKind);
+        if (sibling) {
+          // Show the other rendition now; the repair (deduplicated per photo) runs behind it.
+          ({ path: filePath, st } = sibling);
+          standIn = true;
+          void healDerivatives(photoId, userId)
+            .then((ok) => (ok ? undefined : replaceUnshowableCover(photoId, userId)))
+            .catch((err) => log.warn({ err }, `[photos] background repair failed for ${photoId}`));
+        } else {
+          filePath = (await healDerivatives(photoId, userId)) ? await resolvePhotoPath(photoId, userId, sourceKind) : null;
+          if (!filePath) await replaceUnshowableCover(photoId, userId);
+          st = filePath ? await statFile(filePath) : null;
+        }
       }
-      if (!filePath || !existsSync(filePath)) {
+      if (!filePath || !st) {
         return reply.code(404).send({ error: "Photo not found" });
       }
-      if (kind === "medium") filePath = await mediumDerivative(request.params.id, filePath);
-      return sendCachedImage(request, reply, filePath);
+      if (kind === "medium" && !standIn) {
+        const medium = await mediumIfReady(photoId, filePath, st);
+        if (medium) ({ path: filePath, st } = medium);
+        else standIn = true;
+      }
+      return sendCachedImage(request, reply, filePath, st, { standIn });
     });
   }
 
@@ -254,44 +284,41 @@ export async function photoRoutes(app: FastifyInstance): Promise<void> {
     "/photos/:id/original",
     { preHandler: requireScope("photos.read") },
     async (request, reply) => {
+      if (!isUuid(request.params.id)) return reply.code(404).send({ error: "Original not found" });
       const original = await resolveOriginal(request.params.id, request.user!.id, "jpeg");
       if (!original) return reply.code(404).send({ error: "Original not found" });
 
       if (original.refType === "s3") {
-        // ResponseContentDisposition on the presigned URL itself is the only way to make S3
-        // serve this as a download — see signedS3Url's own comment on why a header set on THIS
-        // response never reaches the client for a redirect target.
+        // Only ResponseContentDisposition on the presigned URL makes S3 serve a download; a
+        // header on this redirect response never reaches the client.
         const downloadFilename = request.query.download === "1" ? path.basename(original.ref!) : undefined;
         return reply.redirect(await signedS3Url(original.ref!, downloadFilename));
       }
 
       if (!original.connected) {
-        // 409 (not 404) — the file isn't missing, its drive just isn't plugged in right now.
-        // volumeLabel lets the client tell the user exactly which drive to go grab, instead of
-        // a generic "not found" that reads as data loss.
+        // 409, not 404: the file isn't missing, its drive isn't connected. volumeLabel names the drive.
         return reply.code(409).send({ error: "This photo's drive isn't connected right now", volumeLabel: original.volumeLabel });
       }
-      if (!original.ref || !existsSync(original.ref)) {
+      const st = original.ref ? await statFile(original.ref) : null;
+      if (!original.ref || !st) {
         return reply.code(404).send({ error: "Original not found" });
       }
-      reply.header("Content-Type", "image/jpeg");
       if (request.query.download === "1") {
-        // Previously this sent the photo's own UUID as the download filename, discarding the
-        // real one. Store/link mode both already name the file on disk after the original
-        // filename (see uploads/routes.ts's originalFilename helper), so its basename is the
-        // real name and can be reused directly.
+        // The file on disk is named after the original file, so its basename is the download name.
         reply.header("Content-Disposition", contentDisposition(path.basename(original.ref)));
       }
-      return reply.send(createReadStream(original.ref));
+      // The "jpeg" original is any edited photo format (PNG, WebP, TIFF, HEIC too).
+      const format = photoFormatFor(original.ref);
+      return sendOriginalFile(request, reply, original.ref, st, format ? PHOTO_FORMATS[format].mimeTypes[0] : "application/octet-stream");
     },
   );
 
-  // Same shape as the JPEG route above, just the 'raw' kind original — mirrors an existing
-  // capture, not the "just uploaded" standalone RAW path in uploads/routes.ts.
+  // Same as the JPEG route above, for the capture's 'raw' original.
   app.get<{ Params: { id: string }; Querystring: { download?: string } }>(
     "/photos/:id/original-raw",
     { preHandler: requireScope("photos.read") },
     async (request, reply) => {
+      if (!isUuid(request.params.id)) return reply.code(404).send({ error: "No RAW original for this photo" });
       const original = await resolveOriginal(request.params.id, request.user!.id, "raw");
       if (!original) return reply.code(404).send({ error: "No RAW original for this photo" });
 
@@ -303,27 +330,25 @@ export async function photoRoutes(app: FastifyInstance): Promise<void> {
       if (!original.connected) {
         return reply.code(409).send({ error: "This RAW's drive isn't connected right now", volumeLabel: original.volumeLabel });
       }
-      if (!original.ref || !existsSync(original.ref)) {
+      const st = original.ref ? await statFile(original.ref) : null;
+      if (!original.ref || !st) {
         return reply.code(404).send({ error: "RAW original not found" });
       }
-      reply.header("Content-Type", "application/octet-stream");
       if (request.query.download === "1") {
         reply.header("Content-Disposition", contentDisposition(path.basename(original.ref)));
       }
-      return reply.send(createReadStream(original.ref));
+      return sendOriginalFile(request, reply, original.ref, st, "application/octet-stream");
     },
   );
 
-  // Playback route — prefers the transcoded preview (photos.preview_path) when one was
-  // generated at upload time (see uploads/image.ts's generateVideoDerivatives); a source
-  // that was already natively web-safe (H.264/AAC-in-MP4) has no preview and is served
-  // directly from `originals`. Range support (sendRangeableFile) is what actually lets
-  // Lightbox's <video> element scrub/seek — a plain full-file stream can only ever play
-  // from the start.
+  // Playback: the transcoded preview when one exists, else the original (already web-safe). Range
+  // support is what lets the player seek.
   app.get<{ Params: { id: string } }>("/photos/:id/video", { preHandler: requireScope("photos.read") }, async (request, reply) => {
+    if (!isUuid(request.params.id)) return reply.code(404).send({ error: "No video for this photo" });
     const previewPath = await resolveVideoPreviewPath(request.params.id, request.user!.id);
-    if (previewPath && existsSync(previewPath)) {
-      return sendRangeableFile(request, reply, previewPath, "video/mp4");
+    const previewSt = previewPath ? await statFile(previewPath) : null;
+    if (previewPath && previewSt) {
+      return sendRangeableFile(request, reply, previewPath, previewSt, "video/mp4");
     }
 
     const original = await resolveOriginal(request.params.id, request.user!.id, "video");
@@ -331,10 +356,11 @@ export async function photoRoutes(app: FastifyInstance): Promise<void> {
     if (!original.connected) {
       return reply.code(409).send({ error: "This video's drive isn't connected right now", volumeLabel: original.volumeLabel });
     }
-    if (!original.ref || !existsSync(original.ref)) {
+    const st = original.ref ? await statFile(original.ref) : null;
+    if (!original.ref || !st) {
       return reply.code(404).send({ error: "Video not found" });
     }
     const contentType = original.ref.toLowerCase().endsWith(".mov") ? "video/quicktime" : "video/mp4";
-    return sendRangeableFile(request, reply, original.ref, contentType);
+    return sendRangeableFile(request, reply, original.ref, st, contentType);
   });
 }

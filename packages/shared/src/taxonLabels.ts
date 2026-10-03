@@ -1,9 +1,6 @@
 import type { TaxonClass } from "./species.js";
 
-// Canonical, single source of truth for taxon-group display labels — previously duplicated
-// (and incomplete, only 3 of these 18 groups) in both CollectionPage.tsx and
-// OfflinePacksPage.tsx. Copy for the 15 groups with no prior label is a first pass, meant to be
-// reviewed as real product-facing text, not treated as final.
+// Single source of truth for taxon-group display labels.
 export const TAXON_CLASS_LABEL: Record<TaxonClass, string> = {
   aves: "Birds",
   mammalia: "Mammals",
@@ -23,17 +20,11 @@ export const TAXON_CLASS_LABEL: Record<TaxonClass, string> = {
   sponges_tunicates_other: "Sponges & Tunicates",
 };
 
-// Iteration order for taxon pickers — matches the union's own declaration order in species.ts.
+// Iteration order for taxon pickers, matching the union's declaration order in species.ts.
 export const ALL_TAXON_CLASSES: TaxonClass[] = Object.keys(TAXON_CLASS_LABEL) as TaxonClass[];
 
-// Purely a UI organizing device — collapses a cluttered flat list into two disclosure sections
-// in taxon pickers (see OfflinePacksPage.tsx). Every taxon inside stays individually selectable;
-// this is NOT a "select all at once" grouping. Used to keep "collector_shells" and
-// "marine_mollusks" apart as independently pickable categories for their different audiences
-// (shell collectors vs. mollusk photographers), merged back into one "marine_mollusks" bucket
-// (see species.ts's own comment) once the split turned out not to be functionally meaningful to
-// users. Reptiles/amphibians and the standalone taxa (birds, mammals, marine mammals, fish,
-// sharks & rays) have no clutter problem on their own and aren't part of this map.
+// UI-only disclosure sections for taxon pickers (see OfflinePacksPage.tsx). Every taxon inside
+// stays individually selectable; standalone taxa aren't listed here.
 export const TAXON_GROUPS: Array<{ key: string; label: string; taxa: TaxonClass[] }> = [
   { key: "reptiles_and_amphibians", label: "Reptiles & Amphibians", taxa: ["squamata", "testudines", "amphibia"] },
   {
@@ -43,24 +34,11 @@ export const TAXON_GROUPS: Array<{ key: string; label: string; taxa: TaxonClass[
   },
 ];
 
-// Every taxon covered by a TAXON_GROUPS entry — used to split a flat taxon list into "standalone"
-// (rendered directly) vs. "grouped" (rendered inside its disclosure section) without hardcoding
-// the standalone list separately and risking it drifting out of sync with the groups above.
+// Every taxon inside a TAXON_GROUPS entry, for splitting a flat list into standalone vs grouped.
 export const GROUPED_TAXON_CLASSES: Set<TaxonClass> = new Set(TAXON_GROUPS.flatMap((g) => g.taxa));
 
-// These taxon classes never get a computed rarity tier, regardless of how much GBIF/iNat data
-// happens to exist for a given species — confirmed live against Egypt's checklist: because so
-// few marine-invertebrate species ever clear GBIF's own record-count floor, almost every one
-// that DOES make a checklist only got there through the "iNat confirms it, GBIF barely has it"
-// rescue path, which (see regions/routes.ts's own reconcile pass) used to default every one of
-// those straight to "legendary" — collapsing an entire taxon group to the rarest tier, which
-// reads as broken rather than informative. Rather than keep tuning thresholds for a category
-// that structurally can't support a meaningful percentile ranking yet, these stay unrated and
-// fall back to IUCN conservation status instead (same pattern Other Taxa species already use) —
-// species_traits.iucn_status just isn't populated for any of these yet, a disclosed, separate
-// gap from this one. Reptiles/amphibians are NOT included here — their GBIF/iNat data density
-// turned out to support a real tier distribution once given the same computation fish get (see
-// compute-provinces-bulk.ts's own NEW_OBSCURE_TAXON_CLASSES).
+// Marine invertebrates never get a computed rarity tier: too few clear GBIF's record floor for a
+// meaningful percentile ranking. They fall back to IUCN status, like Other Taxa species.
 export const NO_RARITY_TIER_TAXON_CLASSES: Set<TaxonClass> = new Set([
   "corals",
   "jellies_and_anemones",
@@ -72,21 +50,9 @@ export const NO_RARITY_TIER_TAXON_CLASSES: Set<TaxonClass> = new Set([
   "sponges_tunicates_other",
 ]);
 
-// Other Taxa species (Settings > Species & Import's any-taxa search) store one of iNaturalist's
-// own 13 "iconic taxon" names verbatim (species.inat_iconic_taxon, exact iNat casing) — used to
-// group/folder them the same way the 18 built-in classes get real English labels above. Without
-// this, a folder/group would show the bare Latin "Insecta" sitting right next to "Birds"/
-// "Mammals" — inconsistent, and not what a non-scientist would expect. Four of iNat's 13 names
-// collide with a real TaxonClass label on purpose (Aves/Mammalia/Actinopterygii/Amphibia) — an
-// Other Taxa bird/mammal/fish/amphibian folds into that existing folder rather than getting a
-// separate one, since iNat's own naming happens to already match.
-// Follows the user's own species_naming_styles preference (migration 082/091 — the same
-// common/latin/aba_code/ebird_code ordered array used for species folder/EXIF naming), since an
-// Other Taxa group's label has the same "Latin vs common vs both" question a species name does,
-// and iNat's own iconic taxon names (Insecta, Mollusca, ...) are real, clean Latin class names —
-// unlike Lifer's own 18 built-in groups, several of which are curated buckets with no single
-// taxonomic name of their own (e.g. "Collector Shells"), so those stay fixed English labels.
-// codes (aba_code/ebird_code) don't apply to a group label and are ignored here.
+// Other Taxa species store an iNaturalist iconic taxon name verbatim; this maps them to English
+// group labels. Aves/Mammalia/Actinopterygii/Amphibia intentionally fold into the built-in groups.
+// Labels follow the user's species_naming_styles (common/latin order); code styles are ignored.
 export function otherTaxaGroupLabel(iconicTaxon: string, namingStyles: string[]): string {
   const english = INAT_ICONIC_TAXON_LABEL[iconicTaxon] ?? iconicTaxon;
   const commonIdx = namingStyles.indexOf("common");
@@ -97,13 +63,8 @@ export function otherTaxaGroupLabel(iconicTaxon: string, namingStyles: string[])
   return wantsLatin ? iconicTaxon : english;
 }
 
-// General-purpose display label for a raw `taxon_class` DB value, covering both the 18 built-in
-// classes and an Other Taxa species' raw lowercased iconic-taxon string (e.g. "insecta") — the
-// latter has no entry in TAXON_CLASS_LABEL and must not be printed verbatim (unlabeled, no
-// naming-style applied, wrong case). Mirrors CollectionPage.tsx's own `taxonFilterLabel`, which
-// predates this shared helper — same iNat-casing restoration (lowercased column value is always a
-// single already-capitalized word, e.g. "insecta" -> "Insecta") needed before `otherTaxaGroupLabel`
-// can look up its English label or return the literal Latin text.
+// Display label for a raw taxon_class value: a built-in class or an Other Taxa species'
+// lowercased iconic taxon (e.g. "insecta"), which is recapitalized before lookup.
 export function taxonDisplayLabel(taxonClass: string, namingStyles: string[]): string {
   if (taxonClass in TAXON_CLASS_LABEL) return TAXON_CLASS_LABEL[taxonClass as TaxonClass];
   return otherTaxaGroupLabel(taxonClass.charAt(0).toUpperCase() + taxonClass.slice(1), namingStyles);

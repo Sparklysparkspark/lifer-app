@@ -1,15 +1,14 @@
 import type { FastifyInstance } from "fastify";
 import { pool } from "../db.js";
+import { isUuid } from "../lib/validate.js";
 import { requireAuth } from "../auth/session.js";
 import { MEDIA_CACHE_BUST } from "../config.js";
 
-// Lets a user hide/archive species they don't care about completing (see migration 037) —
-// removes them from the "still need to collect" checklist/count without touching any real
-// data, and without blocking direct search or the species detail page. Bulk-by-family
-// operates server-side over every species in that family (not just whatever's currently
-// loaded/paginated client-side), so it can't silently miss species the client hasn't fetched.
+// Archived species drop out of the "still to collect" lists and counts but stay searchable and
+// viewable. Family actions run over the whole family server side.
 export async function archiveRoutes(app: FastifyInstance): Promise<void> {
   app.post<{ Params: { id: string } }>("/species/:id/archive", { preHandler: requireAuth }, async (request, reply) => {
+    if (!isUuid(request.params.id)) return reply.code(404).send({ error: "Species not found" });
     const userId = request.user!.id;
     const { id: speciesId } = request.params;
     const speciesRes = await pool.query(`SELECT id FROM species WHERE id = $1`, [speciesId]);
@@ -21,27 +20,24 @@ export async function archiveRoutes(app: FastifyInstance): Promise<void> {
     return { ok: true };
   });
 
-  app.delete<{ Params: { id: string } }>("/species/:id/archive", { preHandler: requireAuth }, async (request) => {
+  app.delete<{ Params: { id: string } }>("/species/:id/archive", { preHandler: requireAuth }, async (request, reply) => {
+    if (!isUuid(request.params.id)) return reply.code(404).send({ error: "Species not found" });
     const userId = request.user!.id;
     const { id: speciesId } = request.params;
     await pool.query(`DELETE FROM user_archived_species WHERE user_id = $1 AND species_id = $2`, [userId, speciesId]);
     return { ok: true };
   });
 
-  // Bulk archive/unarchive by an explicit id list — used for "archive this whole family/group"
-  // actions. Takes ids rather than a (taxonClass, family) pair deliberately: the collection
-  // grid's "group by family" view actually groups by a curated FOLK label (see
-  // apps/web/src/lib/speciesGroups.ts — "Owls" spans both Strigidae and Tytonidae), which
-  // doesn't correspond 1:1 with species.family, so the only reliable way to bulk-act on "every
-  // species in the group the user is looking at" is the id list the client already has
-  // rendered, not a re-derived family filter that could over- or under-match it.
+  // Bulk archive by id list: the grid's groups are folk labels ("Owls" spans two families), so the
+  // ids the client shows are the only reliable way to act on a group.
   app.post<{ Body: { speciesIds?: string[] } }>("/archive/bulk", { preHandler: requireAuth }, async (request, reply) => {
     const userId = request.user!.id;
     const speciesIds = request.body?.speciesIds;
     if (!Array.isArray(speciesIds) || speciesIds.length === 0) {
       return reply.code(400).send({ error: "speciesIds must be a non-empty array" });
     }
-    // Never archives something already collected/seen — same exemption as ALREADY_OWNED_SQL.
+    if (!speciesIds.every(isUuid)) return reply.code(400).send({ error: "speciesIds must be species ids" });
+    // Never archives something already collected/seen, same exemption as ALREADY_OWNED_SQL.
     const res = await pool.query(
       `INSERT INTO user_archived_species (user_id, species_id)
        SELECT $1, s.id FROM species s
@@ -59,6 +55,7 @@ export async function archiveRoutes(app: FastifyInstance): Promise<void> {
     if (!Array.isArray(speciesIds) || speciesIds.length === 0) {
       return reply.code(400).send({ error: "speciesIds must be a non-empty array" });
     }
+    if (!speciesIds.every(isUuid)) return reply.code(400).send({ error: "speciesIds must be species ids" });
     const res = await pool.query(
       `DELETE FROM user_archived_species WHERE user_id = $1 AND species_id = ANY($2)`,
       [userId, speciesIds],
@@ -66,8 +63,7 @@ export async function archiveRoutes(app: FastifyInstance): Promise<void> {
     return { ok: true, unarchived: res.rowCount };
   });
 
-  // Archive-management view: every archived species, plus a family-level rollup so the UI can
-  // offer "unarchive this whole family" symmetric to the bulk archive action above.
+  // Every archived species, plus a family rollup for "unarchive this whole family".
   app.get("/archive", { preHandler: requireAuth }, async (request) => {
     const userId = request.user!.id;
     const res = await pool.query<{
@@ -96,10 +92,7 @@ export async function archiveRoutes(app: FastifyInstance): Promise<void> {
       taxonClass: r.taxon_class,
       family: r.family,
       referencePhoto: r.reference_photo,
-      // Built server-side (with a cache-busting version marker — see MEDIA_CACHE_BUST's own
-      // comment) rather than a plain hasReferenceThumb boolean the frontend turns into a URL
-      // itself, same convention as collectionItem.ts's coverPhotoUrl — this file's underlying
-      // content can be overwritten in place by a restore pass without its path ever changing.
+      // Built here with MEDIA_CACHE_BUST, since the file can be replaced in place.
       referenceThumbUrl: r.has_reference_thumb
         ? `/api/species/${r.species_id}/reference-photo/thumb?v=${MEDIA_CACHE_BUST}`
         : null,

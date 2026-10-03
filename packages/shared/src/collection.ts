@@ -1,5 +1,5 @@
-// Response shape for GET /api/collection — one row per species, with the viewing user's
-// state computed server-side ().
+// Response shape for GET /api/collection: one row per species, with the viewing user's state
+// computed server-side.
 
 import type { RarityTier, TaxonClass } from "./species.js";
 import type { CollectionState } from "./user.js";
@@ -8,93 +8,76 @@ export interface CollectionItem {
   speciesId: string;
   scientificName: string;
   commonName: string | null;
-  /** Phase 8: null for rows from before multi-taxon support, otherwise the species' taxon. */
+  /** The species' taxon; null only for rows without one. */
   taxonClass: TaxonClass | null;
-  /** For grouping the grid into folk-style sections ("Sparrows", "Hawks & Eagles") — see
+  /** For grouping the grid into folk-style sections ("Sparrows", "Hawks & Eagles"); see
    *  apps/web/src/lib/speciesGroups.ts. Null for species with no family on file. */
   family: string | null;
+  /** Taxonomic order (Passeriformes, Anura), for broad groups like Songbirds or Frogs & Toads. */
+  taxonOrder?: string | null;
   state: CollectionState;
-  /** Independent of state (migration 090) — a species already collected/seen can still be
-   *  targeted, e.g. "I only have a bad photo of this, I want a better one." */
+  /** Independent of state (migration 090): a collected species can still be a target for a
+   *  better photo. */
   isTarget: boolean;
   tier: RarityTier | null;
-  /** Region-scoped rarity — how this species ranks against every other species actually on
-   *  the checklist of whichever region is currently being viewed, so a country with
-   *  unusually heavy birding effort can't skew it the way the global tier's elusiveness axis
-   *  (weighted by total per-country record volume) already can. Only populated on GET
-   *  /regions/:id/species rows — always null from GET /collection. */
+  /** Region-scoped rarity against the rest of the viewed region's checklist, immune to the
+   *  per-country effort skew of the global tier. Only set on GET /regions/:id/species rows. */
   localTier: RarityTier | null;
-  /** True if this species' records in the currently-viewed region are concentrated in very
-   *  few years rather than spread out over time — a real vagrancy signature (e.g. one bird
-   *  chased/photographed by dozens of birders over a single event), not a genuine
-   *  established local presence. Only meaningful on GET /regions/:id/species rows — always
-   *  false from GET /collection. Informational only, same as `endemic` — never excludes a
-   *  species, just explains why its localTier reads rarer than raw record count alone would
-   *  suggest. */
+  /** Why the worldwide / local tier is missing or how it was decided (packages/shared
+   *  tierExplain.ts TierReason), e.g. "thin_data" shows as "Not enough data". */
+  tierReason?: string | null;
+  localTierReason?: string | null;
+  /** The user set their own tier here (or everywhere); `localTier`, or `tier` outside a region, is it. */
+  tierOverridden?: boolean;
+  /** The species was split and some of your photos under it can't be settled by where they were
+   *  taken (apps/api species/speciesSplits.ts): the card asks which it is instead of showing tags. */
+  nameChanged?: boolean;
+  /** Records in the viewed region cluster in very few years (a vagrancy signature, e.g. one
+   *  chased bird). Informational only, like `endemic`. Only set on GET /regions/:id/species rows. */
   vagrant: boolean;
-  /** 52 weekly relative-frequency values for the currently-viewed region (region_species.
-   *  seasonality) - the same data SpeciesDetailPage's WeeklyBar already renders per species.
-   *  Only populated on GET /regions/:id/species rows - always null from GET /collection, since
-   *  seasonality is inherently region-scoped. Lets the collection grid sort/filter by "most
-   *  likely to be found this week." */
+  /** 52 weekly relative-frequency values for the viewed region (region_species.seasonality), for
+   *  sorting by "most likely this week". Only on GET /regions/:id/species rows; null from
+   *  GET /collection. */
   seasonality: number[] | null;
-  /** Every distinct calendar year the user has a real (non-trashed) capture of this species —
-   *  not just the year it was first ever collected (see user's own big-year framing: someone
-   *  can find X species in a single calendar year even if they'd found far more across every
-   *  other year combined). Null if never captured. */
+  /** Every calendar year with a non-trashed capture of this species, for big-year counts.
+   *  Null if never captured. */
   capturedYears: number[] | null;
   /** True if this species is only ever recorded (real GBIF presence) in exactly one of the
    *  258 countries the elusiveness crawl covers. Which country isn't carried here (grid
    *  cards don't need it); the species detail page resolves the name. */
   endemic: boolean;
-  /** Global GBIF documentation is sparse (few total records ever, or no reference photo found)
-   *  but the species is verified reachable — not deep-sea, not silent since before 1950. See
-   *  collectionItem.ts's own isGhostSpecies for the exact thresholds. A "you'd be one of few
-   *  who's photographed this" badge, distinct from isLost (time-based) and from the Hide
-   *  Obscure toggle (which hides genuinely unreachable species, not just under-documented
-   *  ones). */
+  /** Sparse global GBIF documentation but verified reachable (not deep-sea, not silent since
+   *  before 1950); thresholds in collectionItem.ts's isGhostSpecies. Distinct from isLost and
+   *  from Hide Obscure, which hides unreachable species. */
   isGhost: boolean;
   /** Nothing recorded anywhere (global GBIF) in 25+ years, but not so old (pre-1950) that it's
    *  already covered by Hide Obscure's own default exclusion. */
   isLost: boolean;
-  /** Was flagged isGhost the moment you collected it (migration 069's DB trigger snapshot), but
-   *  no longer is — the "you helped find this" story that isGhost alone can't tell once fresh
-   *  occurrence data catches up and the live flag naturally clears. Never true at the same time
-   *  as isGhost. */
+  /** Was isGhost when collected (migration 069's trigger snapshot) but no longer is: the
+   *  "you helped find this" story. Never true alongside isGhost. */
   rediscoveredGhost: boolean;
   /** Same idea as rediscoveredGhost, for isLost. */
   rediscoveredLost: boolean;
   /** The user's cover photo (collected) or the Phase-1 reference photo (seen/unseen). */
   coverPhotoUrl: string | null;
   coverPhotoCredit: string | null;
-  /** A movable/resizable square crop for the card thumbnail's own photo, independent of the
-   *  full-size hero image on the detail page. All three are fractions (0-100) of the photo's
-   *  own width (including cardCropY — see migration 006 for why one shared unit is used).
-   *  Null means no custom crop saved yet — render as a plain centered object-fit:cover. */
+  /** Square crop for the card thumbnail, as fractions (0-100) of the photo's width, including
+   *  cardCropY (see migration 006). Null means a plain centered object-fit:cover. */
   cardCropX: number | null;
   cardCropY: number | null;
   cardCropSize: number | null;
-  /** A focal point (fractions 0-100) for the shared reference photo — see migration 043.
-   *  Only meaningful when coverPhotoUrl is that reference photo (no cover of your own yet);
-   *  null otherwise, same convention as cardCropX/Y being null. Applied via CSS
-   *  object-position, which (unlike cardCrop's square rect) works against any box shape a
-   *  reference photo shows up in, so one stored value covers both the square card thumbnail
-   *  and the 16:9 detail-page hero. */
+  /** Focal point (fractions 0-100) for the shared reference photo (migration 043), applied via
+   *  object-position so it fits any box shape. Null unless coverPhotoUrl is the reference photo. */
   referenceFocalX: number | null;
   referenceFocalY: number | null;
-  /** The registered external drive (storage_volumes.label) holding the cover photo's original,
-   *  desktop multi-drive feature only — null when it's on the primary drive or there's no
-   *  cover photo of your own yet. The card only renders this as a badge when the frontend's
-   *  own useStorageVolumes() hook reports more than one drive location actually in use. */
+  /** External drive label (storage_volumes.label) holding the cover original. Null on the
+   *  primary drive. Shown only when more than one drive is in use. */
   coverVolumeLabel: string | null;
-  /** True for species added via Settings > Species & Import's "any taxa" search (insects,
-   *  arachnids, plants, fungi — taxa Lifer has no real dataset coverage for). Grouped into its
-   *  own "Other Taxa" section on the Collection page rather than any of the 18 real taxon
-   *  groups, and never carries rarity/occurrence data (tier/localTier/vagrant are always
-   *  null/false for these rows, by design — see migration 089). */
+  /** Added via Settings > Species & Import's "any taxa" search (insects, plants, fungi, ...).
+   *  Shown in an "Other Taxa" section and never has rarity data (see migration 089). */
   isOtherTaxa: boolean;
-  /** iNaturalist's own coarse grouping (e.g. "Insecta", "Arachnida") for an isOtherTaxa
-   *  species — sub-heading within the "Other Taxa" section. Null for every ordinary species. */
+  /** iNaturalist's coarse grouping (e.g. "Insecta") for an isOtherTaxa species, used as a
+   *  sub-heading. Null for ordinary species. */
   inatIconicTaxon: string | null;
 }
 

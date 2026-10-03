@@ -3,29 +3,17 @@ import { pool } from "../db.js";
 import { requireScope } from "../auth/session.js";
 import { isGhostSpecies, isLostSpecies, type CollectionRow } from "../collection/collectionItem.js";
 import { getObscurityPreferences } from "../species/obscurity.js";
-import { cosineSimilarity } from "../species/embeddings.js";
-import { embedQueryText } from "../species/textEmbedding.js";
-import { EMBEDDING_MODEL_VERSION } from "../config.js";
+import { parseShutterSeconds } from "./shutter.js";
+import { statsInsightRoutes } from "./insights.js";
 
-// "Keeper" = a capture with an actual edited/adjusted photo attached, not a RAW-only import
-// sitting in the backlog unedited (see migration 007_originals.sql's own kind CHECK — a capture
-// can have a 'raw' original with no 'jpeg' sibling yet), AND not rated 1 star. The 1-star
-// exclusion is deliberate: a 1-star rating is how a photographer marks "I edited this enough to
-// confirm the ID, but it's not a real keeper" (an ID shot, a blown-out backup frame, etc) — those
-// shouldn't skew gear/EXIF/timeline stats just because they went through the same edit pipeline
-// as everything else. Every stats query below is scoped to this so stats reflect what was
-// actually finished and kept, not the raw backlog most photographers shoot far more of than they
-// ever process, and not the "kept only to confirm an ID" throwaways either.
+// "Keeper": a capture with an edited JPEG (not a RAW still in the backlog) that isn't rated 1
+// star, which marks an ID shot. Stats describe finished, kept photos.
 const KEEPER_FILTER = `EXISTS (SELECT 1 FROM originals o WHERE o.capture_id = c.id AND o.kind = 'jpeg') AND (c.quality_rating IS NULL OR c.quality_rating > 1)`;
 
 type PhotoFilter = "all" | "featured" | "topRated";
 
-// "featured" = the species' own cover photo (user_species.cover_photo_id, same thing
-// GalleryPage.tsx's isFeatured already means — there's no separate featured flag on
-// captures/photos, a species just has one designated cover). "topRated" = a 5-star
-// quality_rating. Both narrow every capture-scoped query below; the discovery-timeline/
-// new-lifers-per-month widgets are about species first_collected dates, not individual photos,
-// so they're deliberately left unfiltered regardless of this param.
+// "featured" is a species' cover photo, "topRated" a 5-star rating. The discovery timeline and
+// new-lifers widgets are about species, so they ignore this filter.
 function photoFilterFragment(filter: PhotoFilter): string {
   if (filter === "featured") {
     return `AND c.current_photo_id = (SELECT us.cover_photo_id FROM user_species us WHERE us.user_id = c.user_id AND us.species_id = c.species_id)`;
@@ -34,19 +22,6 @@ function photoFilterFragment(filter: PhotoFilter): string {
     return `AND c.quality_rating = 5`;
   }
   return "";
-}
-
-// exiftool-vendored's ShutterSpeed can come back either as a plain decimal-seconds string
-// ("0.0005") or a fraction ("1/2000") depending on the tag/camera — handle both rather than
-// assuming one format holds for every capture in a library that may span years of different gear.
-function parseShutterSeconds(raw: string): number | null {
-  const fraction = raw.match(/^(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)$/);
-  if (fraction) {
-    const denominator = Number(fraction[2]);
-    return denominator > 0 ? Number(fraction[1]) / denominator : null;
-  }
-  const plain = Number(raw);
-  return Number.isFinite(plain) && plain > 0 ? plain : null;
 }
 
 function shutterLabel(seconds: number): string {
@@ -68,11 +43,8 @@ function bucketize(values: number[], buckets: Bucket[]): Array<{ label: string; 
   return buckets.map((b) => ({ label: b.label, count: counts.get(b.label) ?? 0 }));
 }
 
-// Same bucketing as bucketize(), but also collects each bucket's photo ids (capped per bucket)
-// so a chart bar can open/download the actual photos behind it, not just show a count. Capped
-// rather than exhaustive to keep the response small for a bucket with thousands of keepers in it
-// — a photographer clicking a bar wants a representative sample to browse/download, not literally
-// every photo they've ever taken in that range.
+// Like bucketize(), plus up to MAX_PHOTO_IDS_PER_BUCKET photo ids per bucket so a chart bar can
+// open a sample of its photos.
 const MAX_PHOTO_IDS_PER_BUCKET = 300;
 function bucketizeWithPhotoIds(
   rows: Array<{ value: number; photoId: string | null }>,
@@ -127,11 +99,7 @@ const APERTURE_BUCKETS: Bucket[] = [
   { label: "f/5.6-8.0", min: 5.6, max: 8 },
   { label: "f/8.0+", min: 8, max: Infinity },
 ];
-// Fastest-first, matching how photographers actually think about shutter speed. The fastest
-// bucket used to be a single "≥1/4000" catch-all — a photographer with genuinely extreme
-// electronic-shutter speeds (1/16000, 1/32000+) just disappeared into that one bucket with no
-// visibility into how fast they actually were. Split further out instead of capping at a fixed
-// placeholder ceiling.
+// Fastest first, with the fastest electronic-shutter speeds split out rather than lumped together.
 const SHUTTER_BUCKETS: Bucket[] = [
   { label: "≥1/16000", min: 0, max: 1 / 16000 },
   { label: "1/8000-1/16000", min: 1 / 16000, max: 1 / 8000 },
@@ -159,62 +127,48 @@ export async function statsRoutes(app: FastifyInstance): Promise<void> {
 
     const { maxDepthM } = await getObscurityPreferences(userId);
 
-    const [
-      timelineRes,
-      keepersPerMonthRes,
-      cameraRes,
-      lensRes,
-      comboRes,
-      timeOfDayRes,
-      exifRes,
-      scatterRes,
-      countriesRes,
-      totalKeepersRes,
-      ghostLostRes,
-    ] = await Promise.all([
-      pool.query<{ date: string; count: number }>(
+    // One pooled client, so a page load doesn't take a pool slot per query.
+    const client = await pool.connect();
+    const pending = [
+      client.query<{ date: string; count: number }>(
         `SELECT us.first_collected::text AS date, COUNT(*)::int AS count
          FROM user_species us WHERE us.user_id = $1 AND us.state = 'collected' AND us.first_collected IS NOT NULL
          GROUP BY us.first_collected ORDER BY us.first_collected`,
         [userId],
       ),
-      // Keepers-per-month is the "total keepers" axis on the same monthly chart new-lifers-
-      // per-month uses — grouped by taken_at (when the photo happened), not by first_collected
-      // (when a species was first added), since a keeper doesn't have to be a new lifer at all.
-      // Deliberately left unfiltered by the featured/topRated photoFilterFragment, same as
-      // newLifersPerMonth, so switching the dropdown doesn't also silently change what "all
-      // keepers" means for the timeline.
-      pool.query<{ month: string; count: number }>(
+      // Keepers per month by taken_at (a keeper needn't be a lifer). Unfiltered by the photo filter,
+      // like newLifersPerMonth, so the timeline's meaning doesn't change with the dropdown.
+      client.query<{ month: string; count: number }>(
         `SELECT to_char(c.taken_at, 'YYYY-MM') AS month, COUNT(*)::int AS count
          FROM captures c WHERE c.user_id = $1 AND c.taken_at IS NOT NULL AND ${KEEPER_FILTER}
          GROUP BY month ORDER BY month`,
         [userId],
       ),
-      pool.query<{ camera_model: string; photo_count: number; species_count: number }>(
+      client.query<{ camera_model: string; photo_count: number; species_count: number }>(
         `SELECT c.camera_model, COUNT(*)::int AS photo_count, COUNT(DISTINCT c.species_id)::int AS species_count
          FROM captures c WHERE c.user_id = $1 AND c.camera_model IS NOT NULL AND ${scope}
          GROUP BY c.camera_model ORDER BY photo_count DESC`,
         [userId],
       ),
-      pool.query<{ lens: string; photo_count: number; species_count: number }>(
+      client.query<{ lens: string; photo_count: number; species_count: number }>(
         `SELECT c.lens, COUNT(*)::int AS photo_count, COUNT(DISTINCT c.species_id)::int AS species_count
          FROM captures c WHERE c.user_id = $1 AND c.lens IS NOT NULL AND ${scope}
          GROUP BY c.lens ORDER BY photo_count DESC`,
         [userId],
       ),
-      pool.query<{ camera_model: string; lens: string; photo_count: number; species_count: number }>(
+      client.query<{ camera_model: string; lens: string; photo_count: number; species_count: number }>(
         `SELECT c.camera_model, c.lens, COUNT(*)::int AS photo_count, COUNT(DISTINCT c.species_id)::int AS species_count
          FROM captures c WHERE c.user_id = $1 AND c.camera_model IS NOT NULL AND c.lens IS NOT NULL AND ${scope}
          GROUP BY c.camera_model, c.lens ORDER BY photo_count DESC LIMIT 10`,
         [userId],
       ),
-      pool.query<{ hour: number; count: number }>(
+      client.query<{ hour: number; count: number }>(
         `SELECT EXTRACT(HOUR FROM c.taken_at)::int AS hour, COUNT(*)::int AS count
          FROM captures c WHERE c.user_id = $1 AND c.taken_at IS NOT NULL AND ${scope}
          GROUP BY hour ORDER BY hour`,
         [userId],
       ),
-      pool.query<{
+      client.query<{
         focal_length_mm: string | null;
         aperture: string | null;
         shutter: string | null;
@@ -226,7 +180,7 @@ export async function statsRoutes(app: FastifyInstance): Promise<void> {
          FROM captures c WHERE c.user_id = $1 AND ${scope}`,
         [userId],
       ),
-      pool.query<{
+      client.query<{
         focal_length_mm: string | null;
         aperture: string | null;
         shutter: string | null;
@@ -235,8 +189,7 @@ export async function statsRoutes(app: FastifyInstance): Promise<void> {
         common_name: string | null;
         photo_id: string | null;
       }>(
-        // photo_id, not a stored path — thumbnails are served through GET /photos/:id/thumb
-        // (see photos/routes.ts), same convention GalleryPage.tsx already uses.
+        // photo_id, not a path: thumbnails are served through GET /photos/:id/thumb.
         `SELECT c.focal_length_mm, c.aperture, c.shutter, c.iso, s.scientific_name, s.common_name, p.id AS photo_id
          FROM captures c
          JOIN species s ON s.id = c.species_id
@@ -245,16 +198,11 @@ export async function statsRoutes(app: FastifyInstance): Promise<void> {
          ORDER BY c.taken_at DESC NULLS LAST LIMIT 1500`,
         [userId],
       ),
-      // A capture's region may be a province (child of a country) or a country itself — resolve
-      // one level up only, since the schema never nests provinces further (World -> continent ->
-      // country -> province, flat). See migration 067's own comment on why region_id exists.
-      pool.query<{ country_name: string; photo_count: number }>(
-        // Continents and "World" are purely organizational hubs with no GADM code of their own
-        // (external_codes IS NULL) — a capture whose own region IS a continent/World previously
-        // fell through the CASE's parent-walk and got silently counted as its own bogus "country"
-        // entry (e.g. "World"). Requiring the FINAL resolved region to itself carry a real
-        // 3-letter country code excludes those rather than just inferring country-vs-province on
-        // the leaf.
+      // A capture's region is a province or a country; provinces never nest further, so resolve
+      // one level up only.
+      client.query<{ country_name: string; photo_count: number }>(
+        // Only a final region with a 3-letter country code counts, so continents and World aren't
+        // counted as countries.
         `SELECT country.name AS country_name, COUNT(*)::int AS photo_count
          FROM captures c
          JOIN regions leaf ON leaf.id = c.region_id
@@ -264,11 +212,9 @@ export async function statsRoutes(app: FastifyInstance): Promise<void> {
          GROUP BY country.name ORDER BY photo_count DESC`,
         [userId],
       ),
-      pool.query<{ count: number }>(`SELECT COUNT(*)::int AS count FROM captures c WHERE c.user_id = $1 AND ${scope}`, [userId]),
-      // Same Ghost/Lost derivation collectionItem.ts uses, just scoped to species this user has
-      // actually collected (state='collected') — the whole point of these badges/insights is
-      // "you personally found one of these," per the user's own explicit gating requirement.
-      pool.query<{
+      client.query<{ count: number }>(`SELECT COUNT(*)::int AS count FROM captures c WHERE c.user_id = $1 AND ${scope}`, [userId]),
+      // Same Ghost/Lost derivation as collectionItem.ts, scoped to collected species only.
+      client.query<{
         species_id: string;
         scientific_name: string;
         common_name: string | null;
@@ -289,12 +235,23 @@ export async function statsRoutes(app: FastifyInstance): Promise<void> {
          WHERE us.user_id = $1 AND us.state = 'collected'`,
         [userId],
       ),
-    ]);
+    ] as const;
+    await Promise.allSettled(pending).finally(() => client.release());
+    const [
+      timelineRes,
+      keepersPerMonthRes,
+      cameraRes,
+      lensRes,
+      comboRes,
+      timeOfDayRes,
+      exifRes,
+      scatterRes,
+      countriesRes,
+      totalKeepersRes,
+      ghostLostRes,
+    ] = await Promise.all(pending);
 
-    // One merged per-month series backing both axes of the "new lifers / total keepers"
-    // chart — the frontend's own dropdown picks which count to plot, rather than this being
-    // two separate endpoints/charts (see StatsPage.tsx's own comment on replacing the old
-    // "cumulative lifers" area chart with this).
+    // One per-month series for both axes of the new lifers / keepers chart; the client picks which.
     const monthCounts = new Map<string, { newLifers: number; keepers: number }>();
     for (const r of timelineRes.rows) {
       const month = r.date.slice(0, 7);
@@ -342,8 +299,7 @@ export async function statsRoutes(app: FastifyInstance): Promise<void> {
       .filter((r) => r.focal_length_mm != null)
       .map((r) => ({ value: Number(r.focal_length_mm), speciesId: r.species_id }));
 
-    // Every axis the scatter plot's dropdowns can select between — a point only needs values
-    // for whichever two axes are actually picked, so nulls are fine and filtered client-side.
+    // Every scatter-plot axis; nulls are filtered client-side.
     const scatter = scatterRes.rows.map((r) => {
       const shutterSeconds = r.shutter != null ? parseShutterSeconds(r.shutter) : null;
       return {
@@ -360,9 +316,7 @@ export async function statsRoutes(app: FastifyInstance): Promise<void> {
 
     const totalKeepers = totalKeepersRes.rows[0]?.count ?? 0;
 
-    // Auto-generated insight facts — the "personal fingerprint" cards. Only computed when there's
-    // enough data to say something meaningful (an empty/near-empty library just gets no insights,
-    // not misleading "100% of 1 photo" claims).
+    // Insight cards, only computed when there's enough data to say something meaningful.
     const insights: string[] = [];
     if (cameraRes.rows.length > 0 && totalKeepers > 0) {
       const top = cameraRes.rows[0];
@@ -396,9 +350,7 @@ export async function statsRoutes(app: FastifyInstance): Promise<void> {
     const lostSpecies = ghostLostRes.rows
       .filter((row) => isLostSpecies(row as CollectionRow))
       .map((row) => ({ speciesId: row.species_id, scientificName: row.scientific_name, commonName: row.common_name }));
-    // Was flagged the moment it was collected (migration 069's trigger snapshot) but no longer
-    // is live, per the same isGhostSpecies/isLostSpecies checks above. Excludes anything still
-    // currently Ghost/Lost, which already gets its own badge/section above.
+    // Ghost/Lost when collected but no longer; current Ghost/Lost species are counted above.
     const rediscoveredSpecies = ghostLostRes.rows
       .filter(
         (row) =>
@@ -406,9 +358,7 @@ export async function statsRoutes(app: FastifyInstance): Promise<void> {
           (row.was_lost_when_collected === true && !isLostSpecies(row as CollectionRow)),
       )
       .map((row) => ({ speciesId: row.species_id, scientificName: row.scientific_name, commonName: row.common_name }));
-    // Only worth a mention when the user actually has one, most photographers will never
-    // encounter a Ghost or Lost species, so an insight about "0 ghost species" would just read
-    // as noise (per the user's explicit "shouldn't take up space" requirement).
+    // Only mentioned when the user has one; "0 ghost species" is noise.
     if (ghostSpecies.length > 0) {
       insights.push(
         `You've photographed ${ghostSpecies.length} Ghost species, rarely documented anywhere, but you found ${ghostSpecies.length === 1 ? "one" : "them"}.`,
@@ -439,8 +389,7 @@ export async function statsRoutes(app: FastifyInstance): Promise<void> {
       },
       timeOfDay,
       exifDistributions: {
-        // Each bucket carries a capped sample of photo ids so a chart bar can be clicked to view
-        // or download the photos behind it, not just read its count.
+        // A capped sample of photo ids per bucket, so a chart bar can open its photos.
         focalLength: bucketizeWithPhotoIds(focalLengthsWithIds, FOCAL_LENGTH_BUCKETS),
         iso: bucketizeWithPhotoIds(isosWithIds, ISO_BUCKETS),
         aperture: bucketizeWithPhotoIds(aperturesWithIds, APERTURE_BUCKETS),
@@ -455,15 +404,13 @@ export async function statsRoutes(app: FastifyInstance): Promise<void> {
     };
   });
 
-  // One row per keeper capture with every raw EXIF/species field, not the pre-bucketed stats
-  // above — a user asking to "build their own charts elsewhere" wants the underlying data, not
-  // Lifer's own histogram choices baked in.
   function csvField(value: string | number | null | undefined): string {
     if (value == null) return "";
     const s = String(value);
-    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   }
 
+  // One row per keeper capture with raw EXIF/species fields, for charting elsewhere.
   app.get<{ Querystring: { filter?: string } }>("/stats/export.csv", { preHandler: requireScope("stats.read") }, async (request, reply) => {
     const userId = request.user!.id;
     const filter: PhotoFilter = request.query.filter === "featured" || request.query.filter === "topRated" ? request.query.filter : "all";
@@ -531,242 +478,5 @@ export async function statsRoutes(app: FastifyInstance): Promise<void> {
     return lines.join("\n");
   });
 
-  // Per-species photo counts — the one shared query behind several distinct views: a
-  // most-photographed leaderboard (sort by totalPhotos desc), "one-and-done" species (filter
-  // totalPhotos === 1), "you have N photos but only M rated 4★+" prompts, and a portfolio-
-  // completeness table (totalPhotos + bestRating together). One row per species the user has
-  // ever confirmed a capture of — every confirmed photo counts here, not just "keepers", since
-  // "how many photos do I have of this species" is a raw fact, not a quality-filtered one.
-  app.get("/stats/species-portfolio", { preHandler: requireScope("stats.read") }, async (request) => {
-    const userId = request.user!.id;
-    const res = await pool.query<{
-      species_id: string;
-      common_name: string | null;
-      scientific_name: string;
-      taxon_class: string;
-      total_photos: number;
-      rated_4_plus: number;
-      best_rating: number | null;
-      earliest_taken_at: string | null;
-      latest_taken_at: string | null;
-    }>(
-      `SELECT s.id AS species_id, s.common_name, s.scientific_name, s.taxon_class,
-              COUNT(*)::int AS total_photos,
-              COUNT(*) FILTER (WHERE c.quality_rating >= 4)::int AS rated_4_plus,
-              MAX(c.quality_rating) AS best_rating,
-              MIN(c.taken_at)::text AS earliest_taken_at,
-              MAX(c.taken_at)::text AS latest_taken_at
-       FROM captures c
-       JOIN species s ON s.id = c.species_id
-       WHERE c.user_id = $1
-       GROUP BY s.id, s.common_name, s.scientific_name, s.taxon_class`,
-      [userId],
-    );
-    return {
-      species: res.rows.map((r) => ({
-        speciesId: r.species_id,
-        commonName: r.common_name,
-        scientificName: r.scientific_name,
-        taxonClass: r.taxon_class,
-        totalPhotos: r.total_photos,
-        rated4Plus: r.rated_4_plus,
-        bestRating: r.best_rating,
-        earliestTakenAt: r.earliest_taken_at,
-        latestTakenAt: r.latest_taken_at,
-      })),
-    };
-  });
-
-  // Archive/metadata-health rollup — a maintenance dashboard, not a browsing view: how much of
-  // the library is missing data that a normal photo would have. Deliberately doesn't track
-  // ratings — a star rating is an opt-in curation step, not something every photo is expected
-  // to have, so "most photos unrated" was never really a health problem to flag. Missing
-  // GPS and one-photo-species counts were dropped too: GPS only ever arrives via iNaturalist
-  // sync for the foreseeable future (nothing else in the app writes it), so flagging its
-  // absence isn't actionable; one-photo species duplicates the "One-and-done species" card
-  // exactly, just as a bare number instead of the actual species list.
-  app.get("/stats/archive-health", { preHandler: requireScope("stats.read") }, async (request) => {
-    const userId = request.user!.id;
-    const res = await pool.query<{
-      total: number;
-      missing_date: number;
-    }>(
-      `SELECT
-         (SELECT COUNT(*) FROM captures WHERE user_id = $1)::int AS total,
-         (SELECT COUNT(*) FROM captures WHERE user_id = $1 AND taken_at IS NULL)::int AS missing_date`,
-      [userId],
-    );
-    const row = res.rows[0];
-    return {
-      total: row.total,
-      missingDate: row.missing_date,
-    };
-  });
-
-  // "What do you actually use this lens/camera for" — a taxon-class breakdown of every photo
-  // taken with the given gear. Both filters are optional and independent (either alone, or
-  // combined for "this exact body+lens pair"), matching how the gear dropdowns elsewhere on
-  // this page already let a camera or lens be picked on its own.
-  app.get<{ Querystring: { camera?: string; lens?: string } }>(
-    "/stats/gear-species-breakdown",
-    { preHandler: requireScope("stats.read") },
-    async (request) => {
-      const userId = request.user!.id;
-      const { camera, lens } = request.query;
-      if (!camera && !lens) return { breakdown: [] };
-      const conditions = ["c.user_id = $1"];
-      const params: unknown[] = [userId];
-      if (camera) {
-        params.push(camera);
-        conditions.push(`c.camera_model = $${params.length}`);
-      }
-      if (lens) {
-        params.push(lens);
-        conditions.push(`c.lens = $${params.length}`);
-      }
-      const res = await pool.query<{ taxon_class: string; count: number }>(
-        `SELECT s.taxon_class, COUNT(*)::int AS count
-         FROM captures c JOIN species s ON s.id = c.species_id
-         WHERE ${conditions.join(" AND ")}
-         GROUP BY s.taxon_class ORDER BY count DESC`,
-        params,
-      );
-      const total = res.rows.reduce((sum, r) => sum + r.count, 0);
-      return {
-        breakdown: res.rows.map((r) => ({
-          taxonClass: r.taxon_class,
-          count: r.count,
-          percent: total > 0 ? Math.round((r.count / total) * 1000) / 10 : 0,
-        })),
-      };
-    },
-  );
-
-  // Year-over-year comparison — same shape of numbers StatsPage already shows for the whole
-  // library, just computed twice (once per year) so they can sit side by side. Flight-photo
-  // share reuses focal-length-independent EXIF already stored per capture; there's no stored
-  // "behavior" classification to slice by yet (see the CLIP-based per-species category ranking
-  // below for where that comes from instead — this endpoint intentionally stays to plain EXIF/
-  // count aggregates, no embedding comparisons, so it stays fast even over a whole year's data).
-  app.get<{ Querystring: { yearA: string; yearB: string } }>(
-    "/stats/year-comparison",
-    { preHandler: requireScope("stats.read") },
-    async (request, reply) => {
-      const userId = request.user!.id;
-      const yearA = Number(request.query.yearA);
-      const yearB = Number(request.query.yearB);
-      if (!Number.isInteger(yearA) || !Number.isInteger(yearB)) {
-        return reply.code(400).send({ error: "yearA and yearB must both be integers" });
-      }
-
-      async function statsForYear(year: number) {
-        const res = await pool.query<{
-          species_count: number;
-          photo_count: number;
-          avg_focal_length: number | null;
-          avg_iso: number | null;
-        }>(
-          `SELECT
-             COUNT(DISTINCT species_id)::int AS species_count,
-             COUNT(*)::int AS photo_count,
-             AVG(focal_length_mm) AS avg_focal_length,
-             AVG(iso) AS avg_iso
-           FROM captures
-           WHERE user_id = $1 AND EXTRACT(YEAR FROM taken_at) = $2`,
-          [userId, year],
-        );
-        const row = res.rows[0];
-        return {
-          year,
-          speciesCount: row.species_count,
-          photoCount: row.photo_count,
-          avgFocalLength: row.avg_focal_length != null ? Math.round(Number(row.avg_focal_length)) : null,
-          avgIso: row.avg_iso != null ? Math.round(Number(row.avg_iso)) : null,
-        };
-      }
-
-      const [a, b] = await Promise.all([statsForYear(yearA), statsForYear(yearB)]);
-      return { a, b };
-    },
-  );
-
-  // "Photography DNA" — a statistical fingerprint of how someone actually shoots wildlife, not
-  // just their gear totals: what taxa they gravitate to, what KIND of shot they tend to get
-  // (portrait/flight/behavior/habitat — via the same zero-shot CLIP category matching as
-  // /species/:id/best-by-category, just classifying every photo once instead of ranking one
-  // species' photos), and their median focal length/shutter/ISO (median, not mean — a single
-  // 6400mm lens-test shot or one 30-second long exposure shouldn't drag the "typical" numbers
-  // around the way an average would).
-  app.get("/stats/photography-dna", { preHandler: requireScope("stats.read") }, async (request) => {
-    const userId = request.user!.id;
-
-    const taxonRes = await pool.query<{ taxon_class: string; count: number }>(
-      `SELECT s.taxon_class, COUNT(*)::int AS count
-       FROM captures c JOIN species s ON s.id = c.species_id
-       WHERE c.user_id = $1 GROUP BY s.taxon_class ORDER BY count DESC`,
-      [userId],
-    );
-    const taxonTotal = taxonRes.rows.reduce((sum, r) => sum + r.count, 0);
-
-    const exifRes = await pool.query<{ focal_length_mm: string | null; shutter: string | null; iso: number | null }>(
-      `SELECT focal_length_mm, shutter, iso FROM captures WHERE user_id = $1`,
-      [userId],
-    );
-    function median(values: number[]): number | null {
-      if (values.length === 0) return null;
-      const sorted = [...values].sort((a, b) => a - b);
-      const mid = Math.floor(sorted.length / 2);
-      return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
-    }
-    const focalLengths = exifRes.rows.map((r) => (r.focal_length_mm != null ? Number(r.focal_length_mm) : null)).filter((v): v is number => v != null);
-    const shutters = exifRes.rows.map((r) => (r.shutter != null ? parseShutterSeconds(r.shutter) : null)).filter((v): v is number => v != null);
-    const isos = exifRes.rows.map((r) => r.iso).filter((v): v is number => v != null);
-
-    const embeddingsRes = await pool.query<{ embedding: number[] }>(
-      `SELECT ce.embedding FROM capture_embeddings ce
-       JOIN captures c ON c.id = ce.capture_id
-       WHERE c.user_id = $1 AND ce.model_version = $2`,
-      [userId, EMBEDDING_MODEL_VERSION],
-    );
-
-    const categories: Array<{ key: string; prompt: string }> = [
-      { key: "portrait", prompt: "a close-up portrait photo of a wild animal" },
-      { key: "flight", prompt: "a photo of a bird in flight" },
-      { key: "behavior", prompt: "a wild animal feeding, hunting, or interacting" },
-      { key: "environmental", prompt: "a wide environmental photo of an animal in its habitat" },
-    ];
-    const categoryCounts: Record<string, number> = Object.fromEntries(categories.map((c) => [c.key, 0]));
-    if (embeddingsRes.rows.length > 0) {
-      const promptEmbeddings = await Promise.all(categories.map((c) => embedQueryText(c.prompt)));
-      for (const row of embeddingsRes.rows) {
-        let bestKey = categories[0].key;
-        let bestScore = -Infinity;
-        categories.forEach((c, idx) => {
-          const score = cosineSimilarity(promptEmbeddings[idx], row.embedding);
-          if (score > bestScore) {
-            bestScore = score;
-            bestKey = c.key;
-          }
-        });
-        categoryCounts[bestKey]++;
-      }
-    }
-    const categoryTotal = embeddingsRes.rows.length;
-
-    return {
-      taxonBreakdown: taxonRes.rows.map((r) => ({
-        taxonClass: r.taxon_class,
-        count: r.count,
-        percent: taxonTotal > 0 ? Math.round((r.count / taxonTotal) * 1000) / 10 : 0,
-      })),
-      categoryBreakdown: categories.map((c) => ({
-        key: c.key,
-        count: categoryCounts[c.key],
-        percent: categoryTotal > 0 ? Math.round((categoryCounts[c.key] / categoryTotal) * 1000) / 10 : 0,
-      })),
-      medianFocalLengthMm: median(focalLengths),
-      medianShutterSeconds: median(shutters),
-      medianIso: median(isos),
-    };
-  });
+  await app.register(statsInsightRoutes);
 }

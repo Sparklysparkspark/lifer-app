@@ -1,18 +1,11 @@
-// Restarts Lifer when it freezes. A bug that spins the main thread (an endless loop, a native call
-// that never returns) leaves the process alive but unable to answer anything, including the page
-// and /health, and it stays that way until someone restarts it by hand. This watches from a
-// separate thread, which keeps running while the main one is stuck:
-//   - after WARN_MS without a heartbeat it logs a warning naming the requests in progress, which
-//     is the clue for finding the bug;
-//   - after the freeze limit it logs again and kills the process, so Docker's restart policy (or
-//     the desktop app, which restarts its server) brings Lifer back within seconds.
-// The worker writes straight to stderr: a worker's console output is relayed through the main
-// thread, which is exactly the thread that's stuck.
-//
-// LIFER_FREEZE_RESTART_SECONDS sets the limit (default 120); 0 turns the restart off and keeps
-// only the warnings.
+// Restarts Lifer when the main thread freezes (an endless loop, a native call that never
+// returns). A separate thread warns after WARN_MS without a heartbeat, naming the requests in
+// progress, then kills the process after the freeze limit so Docker or the desktop app restarts it.
+// The worker writes straight to stderr, since its console output is relayed via the stuck thread.
+// LIFER_FREEZE_RESTART_SECONDS sets the limit (default 120); 0 keeps only the warnings.
 import { Worker } from "node:worker_threads";
 import type { FastifyInstance } from "fastify";
+import { log } from "./log.js";
 
 const WARN_MS = 15_000;
 const DEFAULT_RESTART_SECONDS = 120;
@@ -26,6 +19,7 @@ const { writeSync } = require("node:fs");
 const beat = new BigInt64Array(workerData.beat);
 const inFlightLength = new Int32Array(workerData.inFlight, 0, 1);
 const inFlightBytes = new Uint8Array(workerData.inFlight, 4);
+const paused = new Int32Array(workerData.paused);
 const { warnMs, restartMs } = workerData;
 const log = (msg) => { try { writeSync(2, "[watchdog] " + msg + "\\n"); } catch {} };
 const inFlight = () => {
@@ -38,6 +32,7 @@ const inFlight = () => {
 };
 let warned = false;
 setInterval(() => {
+  if (Atomics.load(paused, 0) > 0) { warned = false; return; }
   const stalledMs = Date.now() - Number(Atomics.load(beat, 0));
   if (stalledMs < warnMs) { warned = false; return; }
   const seconds = Math.round(stalledMs / 1000);
@@ -52,6 +47,37 @@ setInterval(() => {
 }, 2000); // stays ref'd: an unref'd timer would let this thread exit at once
 `;
 
+// Shared with the worker so pauses work while this thread is blocked. Counted, so overlapping
+// pauses only resume once all have ended.
+const pausedBuffer = new SharedArrayBuffer(4);
+const pausedCount = new Int32Array(pausedBuffer);
+let touchBeat: (() => void) | null = null;
+
+// For deliberate synchronous work that can legitimately hold the main thread past the freeze
+// limit. A no-op before the watchdog has started.
+export function pauseEventLoopWatchdog(): void {
+  Atomics.add(pausedCount, 0, 1);
+}
+
+export function resumeEventLoopWatchdog(): void {
+  // Fresh heartbeat first, so the worker doesn't read the stale one from before the pause.
+  touchBeat?.();
+  if (Atomics.sub(pausedCount, 0, 1) <= 0) Atomics.store(pausedCount, 0, 0);
+}
+
+export function isEventLoopWatchdogPaused(): boolean {
+  return Atomics.load(pausedCount, 0) > 0;
+}
+
+export async function withWatchdogPaused<T>(fn: () => T | Promise<T>): Promise<T> {
+  pauseEventLoopWatchdog();
+  try {
+    return await fn();
+  } finally {
+    resumeEventLoopWatchdog();
+  }
+}
+
 export function startEventLoopWatchdog(app: FastifyInstance): void {
   const raw = process.env.LIFER_FREEZE_RESTART_SECONDS;
   const restartSeconds = raw === undefined || raw === "" ? DEFAULT_RESTART_SECONDS : Number(raw);
@@ -65,6 +91,7 @@ export function startEventLoopWatchdog(app: FastifyInstance): void {
 
   const touch = () => Atomics.store(beat, 0, BigInt(Date.now()));
   touch();
+  touchBeat = touch;
   setInterval(touch, HEARTBEAT_MS).unref();
 
   // The requests in progress, kept where the worker can read them while this thread is stuck.
@@ -96,8 +123,8 @@ export function startEventLoopWatchdog(app: FastifyInstance): void {
 
   const worker = new Worker(WORKER_SOURCE, {
     eval: true,
-    workerData: { beat: beatBuffer, inFlight: inFlightBuffer, warnMs: WARN_MS, restartMs },
+    workerData: { beat: beatBuffer, inFlight: inFlightBuffer, paused: pausedBuffer, warnMs: WARN_MS, restartMs },
   });
   worker.unref();
-  worker.on("error", (err) => console.warn("[watchdog] stopped:", err));
+  worker.on("error", (err) => log.warn({ err }, "[watchdog] stopped"));
 }

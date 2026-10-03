@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { clearAttempts, isRateLimited, recordAttempt, trackedKeyCount } from "./rateLimiter.js";
+import { clearAttempts, ipRateLimitKey, isRateLimited, recordAttempt, trackedKeyCount } from "./rateLimiter.js";
 
 const WINDOW_MS = 15 * 60 * 1000;
 
@@ -88,5 +88,24 @@ describe("rate limiter options and cleanup", () => {
     isRateLimited("trigger-sweep");
     expect(trackedKeyCount()).toBeLessThan(before);
     expect(trackedKeyCount()).toBe(0);
+  });
+});
+
+describe("ipRateLimitKey", () => {
+  it("keeps IPv4 addresses as they are", () => {
+    expect(ipRateLimitKey("203.0.113.9")).toBe("203.0.113.9");
+    expect(ipRateLimitKey("::ffff:203.0.113.9")).toBe("203.0.113.9");
+  });
+
+  it("groups IPv6 addresses by /64", () => {
+    const a = ipRateLimitKey("2001:db8:1:2:aaaa:bbbb:cccc:dddd");
+    expect(a).toBe("2001:db8:1:2::/64");
+    expect(ipRateLimitKey("2001:0db8:0001:0002::1")).toBe(a);
+    expect(ipRateLimitKey("2001:db8:1:3::1")).not.toBe(a);
+  });
+
+  it("expands a compressed prefix", () => {
+    expect(ipRateLimitKey("2001:db8::1")).toBe("2001:db8:0:0::/64");
+    expect(ipRateLimitKey("::1")).toBe("0:0:0:0::/64");
   });
 });

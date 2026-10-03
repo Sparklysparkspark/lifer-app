@@ -1,11 +1,8 @@
-// Turns a country's own admin-1 "type" (Natural Earth's raw property — "State", "Region",
-// "Province", "Oblast", "Prefecture", etc., stored per-child on regions.subdivision_type,
-// migration 064) into the plural, human label the UI shows for that country's children
-// ("States" for the US, "Regions" for Thailand, "Provinces" for most others) — replacing a
-// single hardcoded "Provinces" that read wrong for plenty of real countries.
+// Turns a country's admin-1 type (Natural Earth's "State", "Region", "Oblast", ..., stored on
+// regions.subdivision_type) into the plural label for its children, e.g. "States" for the US.
 
 // A handful of Natural Earth's raw values are already non-English, or need a nicer word than a
-// literal pluralization — everything else falls through to the generic pluralizer below.
+// literal pluralization. Everything else falls through to the generic pluralizer below.
 const OVERRIDES: Record<string, string> = {
   Departamento: "Departments",
   "Federal District": "Federal Districts",
@@ -26,7 +23,7 @@ function pluralize(word: string): string {
 
 /** Most-common subdivision_type among a country's own child regions, pluralized for display.
  *  Falls back to "Provinces" when nothing's known yet (before drill-down, or an unrecognized/
- *  missing type) — the same default every call site used before this existed. */
+ *  missing type). */
 export function subdivisionLabelFor(childTypes: Array<string | null | undefined>): string {
   const counts = new Map<string, number>();
   for (const t of childTypes) {

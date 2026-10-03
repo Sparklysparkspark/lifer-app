@@ -1,140 +1,234 @@
+import { createHash, randomBytes } from "node:crypto";
 import { readFile } from "node:fs/promises";
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyReply } from "fastify";
+import type { PoolClient } from "pg";
 import { pool } from "../db.js";
+import { isUuid } from "../lib/validate.js";
 import { requireAuth } from "../auth/session.js";
 import { toCollectionItem } from "./collectionItem.js";
+import { markNameChanged } from "../species/speciesSplits.js";
 import { syncCaptureXmpSidecarsLogged } from "../uploads/xmpSidecarSync.js";
 import { detectDefaultCardCrop } from "../species/detectAndCrop.js";
 import {
   obscureSpeciesSql,
   ALREADY_OWNED_SQL,
   NOT_ARCHIVED_SQL,
-  SPECIES_UNLOCKED_SQL,
   getObscurityPreferences,
 } from "../species/obscurity.js";
+import { isValidCrop } from "../lib/crop.js";
 
-// Best-effort re-sync of whichever capture used to own a cover photo, once it stops being one
-// (its sidecar's "Lifer:Cover" keyword needs to come off) — a no-op when there was no prior
-// cover to begin with.
+// Best-effort re-sync of the previous cover's capture so its "Lifer:Cover" keyword comes off.
 async function syncCoverCaptureXmp(userId: string, photoId: string | null): Promise<void> {
   if (!photoId) return;
   const res = await pool.query<{ capture_id: string }>(`SELECT capture_id FROM photos WHERE id = $1`, [photoId]);
   if (res.rows[0]) await syncCaptureXmpSidecarsLogged(userId, res.rows[0].capture_id);
 }
 
+// Species a downloaded pack covers, computed once per request instead of SPECIES_UNLOCKED_SQL's
+// two EXISTS subqueries per catalog row. Same logic as obscurity.ts's SPECIES_UNLOCKED_SQL; the
+// is_other_taxa carve-out stays in the WHERE clause.
+const UNLOCKED_SPECIES_CTE = `pack_regions AS MATERIALIZED (
+  -- The handful of regions a downloaded pack covers, resolved first so region_species is read
+  -- through its (region_id, species_id) key instead of scanned in full.
+  SELECT r2.id AS region_id, dp.taxon
+  FROM regions r2
+  LEFT JOIN regions parent2 ON parent2.id = r2.parent_id
+  JOIN downloaded_packs dp ON dp.region = (
+    CASE WHEN COALESCE(array_length(parent2.external_codes, 1), 0) = 0 THEN r2.name ELSE parent2.name END
+  )
+),
+unlocked AS (
+  SELECT rs2.species_id
+  FROM region_species rs2
+  JOIN pack_regions pr ON pr.region_id = rs2.region_id
+  JOIN species s2 ON s2.id = rs2.species_id
+  -- The ANY(ARRAY(...)) is what makes the planner use the region_id index here.
+  WHERE rs2.region_id = ANY (ARRAY(SELECT region_id FROM pack_regions))
+    AND (pr.taxon IS NULL OR pr.taxon = s2.taxon_class)
+  UNION
+  SELECT szs.species_id
+  FROM sea_zone_species szs
+  JOIN sea_zones sz ON sz.id = szs.sea_zone_id
+  JOIN downloaded_packs dp2 ON dp2.region = sz.name
+)`;
+
+const COLLECTION_WHERE = (maxDepthM: number) => `
+  WHERE (($2::text[] IS NULL) OR ($2 @> ARRAY['other-taxa']::text[] AND s.is_other_taxa = true) OR s.taxon_class = ANY($2)) AND COALESCE(t.fully_extinct, false) = false
+    AND ($3 = false OR ${ALREADY_OWNED_SQL} OR NOT ${obscureSpeciesSql(maxDepthM)})
+    AND ${NOT_ARCHIVED_SQL}
+    AND (${ALREADY_OWNED_SQL} OR s.is_other_taxa = true OR s.id IN (SELECT species_id FROM unlocked))`;
+
+// state: collected (user_species row with state='collected'), seen (state='seen'), else unseen.
+// ?taxon= filters by species.taxon_class.
+export function collectionQuerySql(maxDepthM: number): string {
+  return `WITH
+    -- Every distinct calendar year this user has ANY real capture of each species (not just the
+    -- first-ever one), for "big year" style filters. From captures, not captures_all: a trashed
+    -- photo shouldn't count as "found this year" any more than it counts as a cover photo.
+    years AS (
+      SELECT cy.species_id, array_agg(DISTINCT EXTRACT(YEAR FROM cy.taken_at)::int) AS captured_years
+      FROM captures cy
+      WHERE cy.user_id = $1 AND cy.species_id IS NOT NULL AND cy.taken_at IS NOT NULL
+      GROUP BY cy.species_id
+    ),
+    ${UNLOCKED_SPECIES_CTE}
+    SELECT
+      s.id AS species_id,
+      s.scientific_name,
+      s.common_name,
+      s.taxon_class,
+      s.family,
+      s.taxon_order,
+      s.reference_photo,
+      s.reference_credit,
+      s.reference_thumb_path IS NOT NULL AS has_reference_thumb,
+      s.reference_focal_x,
+      s.reference_focal_y,
+      s.is_other_taxa,
+      s.inat_iconic_taxon,
+      r.tier,
+      r.tier_reason,
+      uto.tier AS override_tier,
+      t.endemic_country_iso3,
+      t.endemic_region_label,
+      t.occurrence_count,
+      t.last_occurrence_year,
+      t.depth_min_m,
+      us.state,
+      us.is_target,
+      us.was_ghost_when_collected,
+      us.was_lost_when_collected,
+      us.cover_photo_id,
+      us.card_crop_x,
+      us.card_crop_y,
+      us.card_crop_size,
+      -- A trashed capture doesn't clear cover_photo_id (only purging it does): gating on cc.id
+      -- (the trash-excluding captures view) stops a card keeping a soft-deleted cover photo.
+      (p.thumb_path IS NOT NULL AND cc.id IS NOT NULL) AS has_cover_photo,
+      sv.label AS cover_volume_label,
+      y.captured_years
+    FROM species s
+    LEFT JOIN species_rarity r ON r.species_id = s.id
+    LEFT JOIN user_tier_overrides uto ON uto.user_id = $1 AND uto.species_id = s.id AND uto.region_id IS NULL
+    LEFT JOIN species_traits t ON t.species_id = s.id
+    LEFT JOIN user_species us ON us.user_id = $1 AND us.species_id = s.id
+    LEFT JOIN photos p ON p.id = us.cover_photo_id
+    LEFT JOIN captures cc ON cc.id = p.capture_id
+    LEFT JOIN originals o ON o.capture_id = p.capture_id AND o.kind = 'jpeg'
+    LEFT JOIN storage_volumes sv ON sv.id = o.volume_id
+    LEFT JOIN user_archived_species uas ON uas.user_id = $1 AND uas.species_id = s.id
+    LEFT JOIN years y ON y.species_id = s.id
+    ${COLLECTION_WHERE(maxDepthM)}
+    ORDER BY s.sort_order NULLS LAST, s.scientific_name`;
+}
+
+export function collectionCountSql(maxDepthM: number): string {
+  return `WITH ${UNLOCKED_SPECIES_CTE}
+    SELECT
+      count(*) AS total,
+      count(*) FILTER (WHERE us.state = 'collected') AS collected,
+      count(*) FILTER (WHERE us.state = 'seen') AS seen
+    FROM species s
+    LEFT JOIN species_traits t ON t.species_id = s.id
+    LEFT JOIN user_species us ON us.user_id = $1 AND us.species_id = s.id
+    LEFT JOIN user_archived_species uas ON uas.user_id = $1 AND uas.species_id = s.id
+    ${COLLECTION_WHERE(maxDepthM)}`;
+}
+
+// New per process, so a restart (new code, new config) never answers 304 for an old body.
+const BOOT_ID = randomBytes(6).toString("hex");
+
+interface CollectionVersion {
+  notModified: boolean;
+  client: PoolClient;
+  release: () => void;
+}
+
+// Weak ETag for the collection views. collection_data_version (migration 111) is bumped by a
+// statement trigger on every table these queries read. It's read before the snapshot is taken,
+// and the snapshot's in-progress transactions go into the tag too, so a write that bumped the
+// version but hadn't committed yet can't leave an old body cached under the final tag. The
+// returned client holds that REPEATABLE READ snapshot for the data query that follows.
+async function collectionVersion(
+  reply: FastifyReply,
+  ifNoneMatch: string | undefined,
+  params: unknown[],
+): Promise<CollectionVersion> {
+  const seq = await pool
+    .query<{ v: string }>(`SELECT CASE WHEN is_called THEN last_value ELSE 0 END::text AS v FROM collection_data_version`)
+    .catch(() => null);
+  const client = await pool.connect();
+  const release = () => {
+    client.query("COMMIT").catch(() => {}).finally(() => client.release());
+  };
+  try {
+    await client.query("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY");
+    const snap = await client.query<{ xip: string | null }>(
+      `SELECT string_agg(x::text, '.' ORDER BY x::text) AS xip FROM pg_snapshot_xip(pg_current_snapshot()) x`,
+    );
+    if (!seq) return { notModified: false, client, release };
+    const tag = createHash("sha1")
+      .update(JSON.stringify([BOOT_ID, seq.rows[0].v, snap.rows[0].xip, ...params]))
+      .digest("base64url")
+      .slice(0, 22);
+    const etag = `W/"c-${tag}"`;
+    reply.header("ETag", etag);
+    reply.header("Cache-Control", "private, no-cache");
+    const matches = !!ifNoneMatch && ifNoneMatch.split(",").some((t) => t.trim() === etag);
+    if (matches) {
+      release();
+      return { notModified: true, client, release: () => {} };
+    }
+    return { notModified: false, client, release };
+  } catch (err) {
+    release();
+    throw err;
+  }
+}
+
 export async function collectionRoutes(app: FastifyInstance): Promise<void> {
   app.get<{ Querystring: { taxon?: string } }>(
     "/collection",
     { preHandler: requireAuth },
-    async (request) => {
+    async (request, reply) => {
       const userId = request.user!.id;
       const taxa = request.query.taxon ? request.query.taxon.split(",").filter(Boolean) : null;
       const { hideObscure, maxDepthM } = await getObscurityPreferences(userId);
 
-      // state: collected (user_species row with state='collected'),
-      // seen (state='seen' — nothing sets this yet, that's Phase 3's eBird import), else unseen.
-      // Phase 8: ?taxon= filters by species.taxon_class (aves/mammalia/actinopterygii) — a
-      // plain query param rather than a route segment, since "all taxa" (no filter) is a
-      // completely valid, common view too.
-      const res = await pool.query(
-        `SELECT
-           s.id AS species_id,
-           s.scientific_name,
-           s.common_name,
-           s.taxon_class,
-           s.family,
-           s.reference_photo,
-           s.reference_credit,
-           s.reference_thumb_path IS NOT NULL AS has_reference_thumb,
-           s.reference_focal_x,
-           s.reference_focal_y,
-           s.is_other_taxa,
-           s.inat_iconic_taxon,
-           r.tier,
-           t.endemic_country_iso3,
-           t.endemic_region_label,
-           t.occurrence_count,
-           t.last_occurrence_year,
-           t.depth_min_m,
-           us.state,
-           us.is_target,
-           us.was_ghost_when_collected,
-           us.was_lost_when_collected,
-           us.cover_photo_id,
-           us.card_crop_x,
-           us.card_crop_y,
-           us.card_crop_size,
-           -- A trashed capture doesn't clear cover_photo_id (only purging it does) — gating on
-           -- cc.id (the trash-excluding captures view, not captures_all) is what stops a
-           -- species card from keeping a soft-deleted photo as its cover for the whole trash
-           -- retention window.
-           (p.thumb_path IS NOT NULL AND cc.id IS NOT NULL) AS has_cover_photo,
-           sv.label AS cover_volume_label,
-           -- Every distinct calendar year this user has ANY real capture of this species (not
-           -- just the first-ever one, which us.first_collected already captures) — lets a "big
-           -- year" style filter show a species again in a later year even if it was first found
-           -- long before. Deliberately from captures, not captures_all — a trashed photo
-           -- shouldn't count as "found this year" any more than it counts as a cover photo above.
-           (SELECT array_agg(DISTINCT EXTRACT(YEAR FROM cy.taken_at)::int)
-              FROM captures cy WHERE cy.user_id = $1 AND cy.species_id = s.id AND cy.taken_at IS NOT NULL) AS captured_years
-         FROM species s
-         LEFT JOIN species_rarity r ON r.species_id = s.id
-         LEFT JOIN species_traits t ON t.species_id = s.id
-         LEFT JOIN user_species us ON us.user_id = $1 AND us.species_id = s.id
-         LEFT JOIN photos p ON p.id = us.cover_photo_id
-         LEFT JOIN captures cc ON cc.id = p.capture_id
-         LEFT JOIN originals o ON o.capture_id = p.capture_id AND o.kind = 'jpeg'
-         LEFT JOIN storage_volumes sv ON sv.id = o.volume_id
-         LEFT JOIN user_archived_species uas ON uas.user_id = $1 AND uas.species_id = s.id
-         WHERE (($2::text[] IS NULL) OR ($2 @> ARRAY['other-taxa']::text[] AND s.is_other_taxa = true) OR s.taxon_class = ANY($2)) AND COALESCE(t.fully_extinct, false) = false
-           AND ($3 = false OR ${ALREADY_OWNED_SQL} OR NOT ${obscureSpeciesSql(maxDepthM)})
-           AND ${NOT_ARCHIVED_SQL}
-           AND (${ALREADY_OWNED_SQL} OR ${SPECIES_UNLOCKED_SQL})
-         ORDER BY s.sort_order NULLS LAST, s.scientific_name`,
-        [userId, taxa, hideObscure],
-      );
+      const version = await collectionVersion(reply, request.headers["if-none-match"], ["list", userId, taxa, hideObscure, maxDepthM]);
+      if (version.notModified) return reply.code(304).send();
 
-      const items = res.rows.map((row) => toCollectionItem(row, maxDepthM));
+      const res = await version.client
+        .query(collectionQuerySql(maxDepthM), [userId, taxa, hideObscure])
+        .finally(() => version.release());
+
+      const items = await markNameChanged(userId, res.rows.map((row) => toCollectionItem(row, maxDepthM)));
 
       return { items };
     },
   );
 
-  // Same view as GET /collection, count-only — no reference photos/tier/crop fields to join
-  // or serialize, just three numbers. Lets the header show a total instantly on a
-  // region/taxon switch without waiting on the full (much heavier) item list to download and
-  // render first — see CollectionPage.tsx, which fires this in parallel with /collection.
+  // GET /collection's counts only, so the header can show a total before the list loads.
   app.get<{ Querystring: { taxon?: string } }>(
     "/collection/count",
     { preHandler: requireAuth },
-    async (request) => {
+    async (request, reply) => {
       const userId = request.user!.id;
       const taxa = request.query.taxon ? request.query.taxon.split(",").filter(Boolean) : null;
       const { hideObscure, maxDepthM } = await getObscurityPreferences(userId);
 
-      const res = await pool.query<{ total: string; collected: string; seen: string }>(
-        `SELECT
-           count(*) AS total,
-           count(*) FILTER (WHERE us.state = 'collected') AS collected,
-           count(*) FILTER (WHERE us.state = 'seen') AS seen
-         FROM species s
-         LEFT JOIN species_traits t ON t.species_id = s.id
-         LEFT JOIN user_species us ON us.user_id = $1 AND us.species_id = s.id
-         LEFT JOIN user_archived_species uas ON uas.user_id = $1 AND uas.species_id = s.id
-         WHERE (($2::text[] IS NULL) OR ($2 @> ARRAY['other-taxa']::text[] AND s.is_other_taxa = true) OR s.taxon_class = ANY($2)) AND COALESCE(t.fully_extinct, false) = false
-           AND ($3 = false OR ${ALREADY_OWNED_SQL} OR NOT ${obscureSpeciesSql(maxDepthM)})
-           AND ${NOT_ARCHIVED_SQL}
-           AND (${ALREADY_OWNED_SQL} OR ${SPECIES_UNLOCKED_SQL})`,
-        [userId, taxa, hideObscure],
-      );
+      const version = await collectionVersion(reply, request.headers["if-none-match"], ["count", userId, taxa, hideObscure, maxDepthM]);
+      if (version.notModified) return reply.code(304).send();
+
+      const res = await version.client
+        .query<{ total: string; collected: string; seen: string }>(collectionCountSql(maxDepthM), [userId, taxa, hideObscure])
+        .finally(() => version.release());
       const row = res.rows[0];
       return { total: Number(row.total), collected: Number(row.collected), seen: Number(row.seen) };
     },
   );
 
-  // Phase 4 (spec §9): "total collected, by tier, by family, by year" — all derived from
-  // data already in place (species_rarity.tier, species.family, user_species.first_collected,
-  // set once at upload time — see uploads/routes.ts), no schema changes needed.
+  // Totals collected by tier, by family and by year.
   app.get("/collection/stats", { preHandler: requireAuth }, async (request) => {
     const userId = request.user!.id;
 
@@ -171,7 +265,7 @@ export async function collectionRoutes(app: FastifyInstance): Promise<void> {
       [userId],
     );
 
-    const byTier: Record<string, number> = { common: 0, uncommon: 0, rare: 0, epic: 0, legendary: 0, unrated: 0 };
+    const byTier: Record<string, number> = { common: 0, occasional: 0, uncommon: 0, rare: 0, legendary: 0, unrated: 0 };
     for (const row of byTierRes.rows) byTier[row.tier] = row.count;
 
     return {
@@ -186,22 +280,19 @@ export async function collectionRoutes(app: FastifyInstance): Promise<void> {
     "/species/:id/cover",
     { preHandler: requireAuth },
     async (request, reply) => {
+      if (!isUuid(request.params.id)) return reply.code(404).send({ error: "Species not found" });
       const { id: speciesId } = request.params;
       const { photoId } = request.body ?? {};
       const userId = request.user!.id;
 
-      // The OLD cover's capture (if any) needs its "Lifer:Cover" sidecar keyword re-synced
-      // away once it stops being the cover — resolved before overwriting cover_photo_id below.
+      // Resolve the old cover before overwriting cover_photo_id, to re-sync its sidecar.
       const priorRes = await pool.query<{ cover_photo_id: string | null }>(
         `SELECT cover_photo_id FROM user_species WHERE user_id = $1 AND species_id = $2`,
         [userId, speciesId],
       );
       const priorCoverPhotoId = priorRes.rows[0]?.cover_photo_id ?? null;
 
-      // photoId: null explicitly un-features a species (no photo to own-check against) — used
-      // by the Gallery page's own featured toggle (see GalleryPage.tsx), which needs to clear a
-      // cover just as often as it sets one, unlike this route's original single caller
-      // (SpeciesDetailPage.tsx), which only ever set a new cover.
+      // photoId: null un-features the species (the Gallery's featured toggle).
       if (photoId === null) {
         await pool.query(
           `UPDATE user_species SET cover_photo_id = NULL, card_crop_x = NULL, card_crop_y = NULL, card_crop_size = NULL
@@ -212,6 +303,7 @@ export async function collectionRoutes(app: FastifyInstance): Promise<void> {
         return { ok: true };
       }
       if (!photoId) return reply.code(400).send({ error: "photoId is required" });
+      if (!isUuid(photoId)) return reply.code(403).send({ error: "That photo doesn't belong to you for this species" });
 
       // Confirm this photo belongs to a capture the user owns, for this species.
       const ownershipRes = await pool.query<{ capture_id: string; display_path: string | null }>(
@@ -224,16 +316,12 @@ export async function collectionRoutes(app: FastifyInstance): Promise<void> {
         return reply.code(403).send({ error: "That photo doesn't belong to you for this species" });
       }
 
-      // Clear any saved crop — it was framed for whichever photo was previously the cover, and
-      // carrying it over onto a different photo would look wrong. Then try to replace it with a
-      // sensible default: object detection centered on the actual subject rather than the plain
-      // dead-center square cropToImageStyle falls back to when these columns are null. Best-
-      // effort — a detection miss (or no animal in frame at all) just leaves the old center-crop
-      // fallback in place, same as before this existed.
+      // The saved crop was framed for the old cover, so clear it and try an automatic crop centered
+      // on the subject. A detection miss leaves the plain center crop.
       const displayPath = ownershipRes.rows[0].display_path;
       const defaultCrop = displayPath
         ? await readFile(displayPath)
-            .then((buf) => detectDefaultCardCrop(buf))
+            .then((buf) => detectDefaultCardCrop(buf, { priority: "interactive" }))
             .catch(() => null)
         : null;
       await pool.query(
@@ -251,6 +339,7 @@ export async function collectionRoutes(app: FastifyInstance): Promise<void> {
     "/species/:id/card-crop",
     { preHandler: requireAuth },
     async (request, reply) => {
+      if (!isUuid(request.params.id)) return reply.code(404).send({ error: "Species not found" });
       const { id: speciesId } = request.params;
       const { x, y, size, reset } = request.body ?? {};
       const userId = request.user!.id;
@@ -265,11 +354,7 @@ export async function collectionRoutes(app: FastifyInstance): Promise<void> {
         return { ok: true };
       }
 
-      const valid =
-        typeof x === "number" && x >= 0 && x <= 100 &&
-        typeof y === "number" && y >= 0 && y <= 100 &&
-        typeof size === "number" && size > 0 && size <= 100;
-      if (!valid) {
+      if (!isValidCrop(x, y, size)) {
         return reply.code(400).send({ error: "x, y, size must be numbers; x/y in [0,100], size in (0,100]" });
       }
 

@@ -1,4 +1,4 @@
-// Mirrors the Phase-1 subset of(regions, region_species).
+// Mirrors the Phase-1 subset of (regions, region_species).
 
 export interface Region {
   id: string;
@@ -13,13 +13,10 @@ export interface RegionSpecies {
   regionId: string;
   speciesId: string;
   localFrequency: number | null;
-  /** Monthly seasonality, 12 entries, index 0 = January — see SeasonalityBar.tsx's own
-   *  comment on why this is monthly, not weekly (GBIF's live per-region API only facets by
-   *  month). Distinct from weeklyFrequency below, which comes from the bulk province-refresh
-   *  path and genuinely is weekly. */
+  /** Monthly seasonality, 12 entries, index 0 = January. GBIF's live per-region API only
+   *  facets by month; weeklyFrequency below is the true weekly series. */
   seasonality: number[] | null;
   /** Weekly occurrence frequency, 52 entries (1 per ISO week), from the bulk GBIF SQL download
-   *  in compute-provinces-bulk.ts — null until that script has run for this region. Unlike
-   *  seasonality above, this is real week-of-year resolution, not month-bucketed. */
+   *  in compute-provinces-bulk.ts. Null until that script has run for this region. */
   weeklyFrequency: number[] | null;
 }

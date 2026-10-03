@@ -1,9 +1,5 @@
-// One iNaturalist observation should represent one real sighting event of one species, not a
-// flat "everything you've ever photographed of this bird" list — so candidates for the Import
-// tab are clustered first by species, then by time-proximity within that species. Captures more
-// than SESSION_GAP_MS apart from their neighbor start a new cluster; this mirrors how a person
-// would naturally describe "I saw three of these together that morning" vs. two sightings of the
-// same species weeks apart.
+// One observation per sighting: Import tab candidates are grouped by species, then split where
+// neighbors are more than SESSION_GAP_MS apart.
 const SESSION_GAP_MS = 60 * 60 * 1000;
 
 export interface ClusterableCapture {
@@ -19,9 +15,7 @@ export interface ObservationCluster {
   latestTakenAt: string | null;
 }
 
-// Captures with no taken_at (rare — EXIF-less imports) each become their own single-photo
-// cluster rather than being guessed into a group by unrelated data (e.g. upload order), since
-// there's nothing timestamp-based to safely group them by.
+// Captures with no taken_at each become their own single-photo cluster.
 export function clusterForImport(captures: ClusterableCapture[]): ObservationCluster[] {
   const bySpecies = new Map<string, ClusterableCapture[]>();
   for (const capture of captures) {
@@ -51,9 +45,7 @@ export function clusterForImport(captures: ClusterableCapture[]): ObservationClu
     for (const capture of withoutTime) clusters.push(toCluster(speciesId, [capture]));
   }
 
-  // Newest cluster first, per the Import tab's "most recent observations toward oldest" order —
-  // sorted by each cluster's own latest capture, so a cluster's position reflects when the
-  // sighting actually happened, not when this function happened to visit it.
+  // Newest cluster first, by each cluster's latest capture.
   return clusters.sort((a, b) => {
     const at = a.latestTakenAt ? new Date(a.latestTakenAt).getTime() : 0;
     const bt = b.latestTakenAt ? new Date(b.latestTakenAt).getTime() : 0;

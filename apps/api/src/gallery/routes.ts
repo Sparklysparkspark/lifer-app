@@ -1,22 +1,17 @@
-// A browsable gallery of every photo you've taken, across all species — separate from the
-// per-species detail view, for just scrolling your own collection like a photo library.
-import type { FastifyInstance } from "fastify";
+// Gallery of every photo across all species, plus photo search.
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { pool } from "../db.js";
+import { isUuid, parseDate, parseLimit } from "../lib/validate.js";
 import { requireScope } from "../auth/session.js";
 import { EMBEDDING_MODEL_VERSION } from "../config.js";
 import { parseSearchQuery, rankSearch, type PlaceEntry, type SearchRow, type SpeciesEntry } from "./photoSearch.js";
 import type { GroupPredicate } from "./searchTaxonSynonyms.js";
 
-/** Sentinel passed as `regionId` for the "Uncategorized" filter — not a real region row, just a
- *  way to ask for captures with no region set at all (so they can be found and assigned one). */
+/** Sentinel `regionId` for the "Uncategorized" filter: captures with no region set. */
 export const UNCATEGORIZED_REGION_ID = "uncategorized";
 
-/** A region filter matches that region AND every descendant in the regions tree (picking
- * "World" — or any continent/country — surfaces every photo under it, not just captures
- * tagged with that exact row) — a recursive walk down parent_id from the picked region.
- * Picking World itself (the one region with no parent) also pulls in captures with NO region
- * set at all — otherwise "World" would quietly hide every photo that's never been assigned a
- * region, which reads as "my library is missing photos" rather than "these aren't tagged yet". */
+/** A region filter matches that region and every descendant. The root region (World) also
+ *  matches captures with no region, so it never hides untagged photos. */
 function regionMatchClause(paramIdx: number | null): string {
   if (!paramIdx) return "";
   return `AND (
@@ -32,10 +27,7 @@ function regionMatchClause(paramIdx: number | null): string {
            )`;
 }
 
-
-// Shared by both routes below: species/taxon columns + the RAW/original bookkeeping every
-// gallery item needs, as one string so a taxon filter or the "include RAW-derived photos"
-// toggle never has to be wired into just one of the two endpoints and not the other.
+// Columns shared by /gallery and /gallery/search, so filters stay in sync between them.
 export const GALLERY_ITEM_COLUMNS = `
   c.id AS capture_id, p.id AS photo_id, p.width, p.height, c.species_id, s.scientific_name, s.common_name, s.taxon_class,
   c.taken_at, c.created_at, c.camera_model, c.lens, c.focal_length_mm, c.aperture, c.shutter, c.iso, c.quality_rating,
@@ -50,7 +42,7 @@ export const GALLERY_ITEM_JOINS = `
   JOIN species s ON s.id = c.species_id
   LEFT JOIN user_species us ON us.user_id = c.user_id AND us.species_id = c.species_id
   LEFT JOIN regions reg ON reg.id = c.region_id
-  -- jpeg-preferred tiebreak (same as SpeciesDetailPage's own capture query) — original_kind
+  -- jpeg-preferred tiebreak (same as SpeciesDetailPage's own capture query), original_kind
   -- from THIS row is what "include RAW-derived photos" filters against: a capture whose only
   -- original is a RAW file has no jpeg to win the tiebreak, so this resolves to 'raw'.
   LEFT JOIN LATERAL (
@@ -58,28 +50,210 @@ export const GALLERY_ITEM_JOINS = `
   ) o ON true
 `;
 
-// Search runs on every pause in typing, twice (a quick pass and a full one), and each read every
-// photo's details. Kept per user and filter set, and reused while the library is unchanged: one
-// cheap check (how many photos, when one last changed, when a vector was last computed) tells a
-// new upload, edit, rating or vector apart from nothing having happened. A minute at most, for
-// changes that don't touch a photo row (a new cover, a catalog update).
+// The filters /gallery and /gallery/search share, parsed and validated once. Ids and dates that
+// wouldn't survive a Postgres cast get a 400 instead of a 500.
+export interface GalleryFilters {
+  onlyTopRated: boolean;
+  onlyFeatured: boolean;
+  taxa: string[];
+  includeRaw: boolean;
+  excludeHasRaw: boolean;
+  onlyHasRaw: boolean;
+  onlyVideo: boolean;
+  excludeVideo: boolean;
+  missingDate: boolean;
+  dateFrom: string | null;
+  dateTo: string | null;
+  regionId: string | null;
+  tag: string | null;
+  tripId: string | null;
+  albumId: string | null;
+}
+
+type GalleryFilterQuery = Partial<Record<keyof GalleryFilters, string>>;
+
+// Plain YYYY-MM-DD from a native <input type="date">; anything else Postgres can't cast is refused.
+function parseDay(value: string | undefined): string | null | undefined {
+  if (!value) return null;
+  const d = parseDate(value);
+  if (!d || !/^\d{4}-\d{2}-\d{2}/.test(value)) return undefined;
+  return value.slice(0, 10);
+}
+
+export function parseGalleryFilters(q: GalleryFilterQuery): GalleryFilters | { error: string } {
+  const dateFrom = parseDay(q.dateFrom);
+  const dateTo = parseDay(q.dateTo);
+  if (dateFrom === undefined || dateTo === undefined) return { error: "dateFrom and dateTo must be YYYY-MM-DD dates" };
+  const regionId = q.regionId || null;
+  if (regionId && regionId !== UNCATEGORIZED_REGION_ID && !isUuid(regionId)) return { error: "regionId must be a region id" };
+  const tripId = q.tripId || null;
+  if (tripId && !isUuid(tripId)) return { error: "tripId must be a trip id" };
+  const albumId = q.albumId || null;
+  if (albumId && !isUuid(albumId)) return { error: "albumId must be an album id" };
+  return {
+    onlyTopRated: q.onlyTopRated === "1",
+    onlyFeatured: q.onlyFeatured === "1",
+    taxa: q.taxa?.split(",").filter(Boolean) ?? [],
+    includeRaw: q.includeRaw !== "0",
+    excludeHasRaw: q.excludeHasRaw === "1",
+    onlyHasRaw: q.onlyHasRaw === "1",
+    onlyVideo: q.onlyVideo === "1",
+    excludeVideo: q.excludeVideo === "1",
+    // Captures with no taken_at (Stats page drill-down).
+    missingDate: q.missingDate === "1",
+    // dateTo includes the whole day (< the next day).
+    dateFrom,
+    dateTo,
+    regionId,
+    tag: q.tag || null,
+    tripId,
+    albumId,
+  };
+}
+
+/** The WHERE clauses for a filter set, adding each value through `param` ($n placeholders). */
+export function galleryFilterSql(f: GalleryFilters, param: (v: unknown) => string): string {
+  const isUncategorized = f.regionId === UNCATEGORIZED_REGION_ID;
+  return [
+    f.onlyTopRated ? "AND c.quality_rating = 5" : "",
+    // "Featured" means this photo is its species' cover_photo_id, not a photo-level flag.
+    f.onlyFeatured ? "AND p.id = us.cover_photo_id" : "",
+    f.missingDate ? "AND c.taken_at IS NULL" : "",
+    f.taxa.length > 0 ? `AND s.taxon_class = ANY(${param(f.taxa)})` : "",
+    f.dateFrom ? `AND c.taken_at >= ${param(f.dateFrom)}::date` : "",
+    f.dateTo ? `AND c.taken_at < (${param(f.dateTo)}::date + INTERVAL '1 day')` : "",
+    isUncategorized ? "AND c.region_id IS NULL" : f.regionId ? regionMatchClause(Number(param(f.regionId).slice(1))) : "",
+    f.tag ? `AND ${param(f.tag)} = ANY(c.tags)` : "",
+    f.tripId ? `AND c.trip_id = ${param(f.tripId)}::uuid` : "",
+    // EXISTS rather than a JOIN so a photo in an album is never listed twice.
+    f.albumId ? `AND EXISTS (SELECT 1 FROM album_captures fac WHERE fac.capture_id = c.id AND fac.album_id = ${param(f.albumId)}::uuid)` : "",
+    f.includeRaw ? "" : "AND o.kind IS DISTINCT FROM 'raw'",
+    f.excludeHasRaw
+      ? "AND NOT EXISTS (SELECT 1 FROM originals hr WHERE hr.capture_id = c.id AND hr.kind = 'raw')"
+      : f.onlyHasRaw
+        ? "AND EXISTS (SELECT 1 FROM originals hr WHERE hr.capture_id = c.id AND hr.kind = 'raw')"
+        : "",
+    f.onlyVideo ? "AND p.kind = 'video'" : "",
+    f.excludeVideo ? "AND p.kind IS DISTINCT FROM 'video'" : "",
+  ]
+    .filter(Boolean)
+    .join("\n           ");
+}
+
+// /gallery sort orders. Unrated sorts as a middle 3 so it doesn't sink to either end. c.id breaks
+// ties so keyset pages never skip or repeat a photo.
+interface SortKey {
+  expr: string;
+  desc: boolean;
+  nullable: boolean;
+  cast: string;
+}
+const GALLERY_SORTS: Record<string, SortKey[]> = {
+  newest: [
+    { expr: "c.taken_at", desc: true, nullable: true, cast: "timestamptz" },
+    { expr: "c.created_at", desc: true, nullable: false, cast: "timestamptz" },
+  ],
+  oldest: [
+    { expr: "c.taken_at", desc: false, nullable: true, cast: "timestamptz" },
+    { expr: "c.created_at", desc: false, nullable: false, cast: "timestamptz" },
+  ],
+  ratingHigh: [
+    { expr: "COALESCE(c.quality_rating, 3)", desc: true, nullable: false, cast: "int" },
+    { expr: "c.taken_at", desc: true, nullable: true, cast: "timestamptz" },
+  ],
+  ratingLow: [
+    { expr: "COALESCE(c.quality_rating, 3)", desc: false, nullable: false, cast: "int" },
+    { expr: "c.taken_at", desc: true, nullable: true, cast: "timestamptz" },
+  ],
+};
+
+export function galleryOrderBy(keys: SortKey[]): string {
+  return [...keys.map((k) => `${k.expr} ${k.desc ? "DESC" : "ASC"}${k.nullable ? " NULLS LAST" : ""}`), "c.id ASC"].join(", ");
+}
+
+interface GalleryCursor {
+  sort: string;
+  values: Array<string | null>;
+  id: string;
+}
+
+// base64url JSON of the last row's sort values (as Postgres text, so microseconds survive) and id.
+export function encodeGalleryCursor(c: GalleryCursor): string {
+  return Buffer.from(JSON.stringify([c.sort, c.values, c.id]), "utf8").toString("base64url");
+}
+
+export function decodeGalleryCursor(raw: string): GalleryCursor | null {
+  try {
+    const [sort, values, id] = JSON.parse(Buffer.from(raw, "base64url").toString("utf8"));
+    if (typeof sort !== "string" || !GALLERY_SORTS[sort] || !Array.isArray(values) || !isUuid(id)) return null;
+    if (values.length !== GALLERY_SORTS[sort].length || values.some((v) => v !== null && typeof v !== "string")) return null;
+    return { sort, values, id };
+  } catch {
+    return null;
+  }
+}
+
+/** "Comes after the cursor row" in the given order, NULLS LAST included. */
+export function galleryAfterCursorSql(keys: SortKey[], cursor: GalleryCursor, param: (v: unknown) => string): string {
+  const equal: string[] = [];
+  const branches: string[] = [];
+  keys.forEach((k, i) => {
+    const v = cursor.values[i];
+    if (v === null) {
+      // Past the last non-null value only more nulls follow, so the key can't be "after" here.
+      equal.push(`${k.expr} IS NULL`);
+      return;
+    }
+    const p = `${param(v)}::${k.cast}`;
+    const after = `${k.expr} ${k.desc ? "<" : ">"} ${p}${k.nullable ? ` OR ${k.expr} IS NULL` : ""}`;
+    branches.push(`(${[...equal, `(${after})`].join(" AND ")})`);
+    equal.push(`${k.expr} = ${p}`);
+  });
+  branches.push(`(${[...equal, `c.id > ${param(cursor.id)}::uuid`].join(" AND ")})`);
+  return `AND (${branches.join(" OR ")})`;
+}
+
+// Search rows cached per user and filter set while a cheap library stamp is unchanged, and for a
+// minute at most to catch changes that don't touch a photo row.
 const SEARCH_ROWS_TTL_MS = 60_000;
 const searchRowsCache = new Map<string, { stamp: string; at: number; rows: SearchRow[] }>();
-// Every photo's vector is in these rows, so they're dropped once stale instead of kept until the
-// next search replaces them.
+// These rows hold every photo's vector, so they're dropped once stale.
 setInterval(() => {
   const now = Date.now();
   for (const [key, hit] of searchRowsCache) if (now - hit.at >= SEARCH_ROWS_TTL_MS) searchRowsCache.delete(key);
+  for (const [key, hit] of vocabCache) if (now - hit.at >= SEARCH_ROWS_TTL_MS) vocabCache.delete(key);
 }, 60_000).unref();
 
-async function searchRows(userId: string, sql: string, params: unknown[]): Promise<{ rows: SearchRow[] }> {
-  const stampRes = await pool.query<{ stamp: string }>(
+// The stamp scans the user's captures, so it's reused for a few seconds per user.
+const STAMP_TTL_MS = 3_000;
+const stampCache = new Map<string, { stamp: string; at: number }>();
+
+/** Test hook: forget every cached stamp, row set and vocabulary. */
+export function clearGallerySearchCaches(): void {
+  stampCache.clear();
+  searchRowsCache.clear();
+  vocabCache.clear();
+}
+
+async function libraryStamp(userId: string): Promise<string> {
+  const hit = stampCache.get(userId);
+  if (hit && Date.now() - hit.at < STAMP_TTL_MS) return hit.stamp;
+  const res = await pool.query<{ stamp: string }>(
     `SELECT concat_ws('|', count(*), max(c.updated_at),
-              (SELECT max(ce.computed_at) FROM capture_embeddings ce JOIN captures_all c2 ON c2.id = ce.capture_id WHERE c2.user_id = $1)) AS stamp
+              (SELECT max(ce.computed_at) FROM capture_embeddings ce JOIN captures_all c2 ON c2.id = ce.capture_id WHERE c2.user_id = $1),
+              (SELECT concat_ws(',', count(*), max(ac.added_at)) FROM album_captures ac JOIN albums a ON a.id = ac.album_id WHERE a.user_id = $1),
+              (SELECT concat_ws(',', count(*), max(a.updated_at)) FROM albums a WHERE a.user_id = $1),
+              (SELECT count(*) FROM trips t WHERE t.user_id = $1)) AS stamp
        FROM captures_all c WHERE c.user_id = $1`,
     [userId],
   );
-  const stamp = stampRes.rows[0]?.stamp ?? "";
+  const stamp = res.rows[0]?.stamp ?? "";
+  if (stampCache.size > 100) stampCache.delete(stampCache.keys().next().value!);
+  stampCache.set(userId, { stamp, at: Date.now() });
+  return stamp;
+}
+
+async function searchRows(userId: string, stamp: string, sql: string, params: unknown[]): Promise<{ rows: SearchRow[] }> {
   const key = `${userId}|${sql}|${JSON.stringify(params)}`;
   const hit = searchRowsCache.get(key);
   if (hit && hit.stamp === stamp && Date.now() - hit.at < SEARCH_ROWS_TTL_MS) return { rows: hit.rows };
@@ -90,11 +264,34 @@ async function searchRows(userId: string, sql: string, params: unknown[]): Promi
   return { rows: res.rows };
 }
 
-// Places a query can name: every region your photos are in plus the regions containing them
-// ("Canada" for a photo tagged British Columbia), and the free-text locations typed at import.
-// "World" is left out: it contains everything.
+// Places, trips and albums a query can name, and old scientific names for the user's species,
+// kept per user while the library stamp holds (and a minute at most, for renames).
+const vocabCache = new Map<string, { stamp: string; at: number; places: PlaceEntry[]; synonyms: Map<string, string[]> }>();
+
+async function searchVocabulary(userId: string, stamp: string): Promise<{ places: PlaceEntry[]; synonyms: Map<string, string[]> }> {
+  const hit = vocabCache.get(userId);
+  if (hit && hit.stamp === stamp && Date.now() - hit.at < SEARCH_ROWS_TTL_MS) return hit;
+  const [places, synonymRes] = await Promise.all([
+    searchablePlaces(userId),
+    pool.query<{ species_id: string; names: string[] }>(
+      `SELECT ss.species_id, array_agg(ss.synonym_name) AS names
+         FROM species_synonyms ss
+        WHERE ss.species_id IN (SELECT DISTINCT species_id FROM captures WHERE user_id = $1)
+        GROUP BY ss.species_id`,
+      [userId],
+    ),
+  ]);
+  const synonyms = new Map(synonymRes.rows.map((r) => [r.species_id, r.names]));
+  if (vocabCache.size > 100) vocabCache.delete(vocabCache.keys().next().value!);
+  const entry = { stamp, at: Date.now(), places, synonyms };
+  vocabCache.set(userId, entry);
+  return entry;
+}
+
+// Places a query can name: regions with photos and their ancestors, import location labels, and
+// trip and album names. "World" is left out: it contains everything.
 async function searchablePlaces(userId: string): Promise<PlaceEntry[]> {
-  const res = await pool.query<{ kind: "region" | "location"; id: string; name: string }>(
+  const res = await pool.query<{ kind: PlaceEntry["kind"]; id: string; name: string }>(
     `WITH RECURSIVE up AS (
        SELECT r.id, r.name, r.parent_id FROM regions r
         WHERE r.id IN (SELECT DISTINCT region_id FROM captures WHERE user_id = $1 AND region_id IS NOT NULL)
@@ -104,15 +301,27 @@ async function searchablePlaces(userId: string): Promise<PlaceEntry[]> {
      SELECT 'region' AS kind, id::text AS id, name FROM up WHERE parent_id IS NOT NULL
      UNION ALL
      SELECT DISTINCT 'location', location_label, location_label FROM captures
-      WHERE user_id = $1 AND location_label IS NOT NULL AND location_label <> ''`,
+      WHERE user_id = $1 AND location_label IS NOT NULL AND location_label <> ''
+     UNION ALL
+     SELECT 'trip', id::text, name FROM trips WHERE user_id = $1 AND name IS NOT NULL AND name <> ''
+     UNION ALL
+     SELECT 'album', id::text, name FROM albums WHERE user_id = $1 AND name IS NOT NULL AND name <> ''`,
     [userId],
   );
   return res.rows;
 }
 
-// Latin order and family names from the whole catalog, so "Anatidae" or "Passeriformes" is a
-// real filter (and can honestly come back empty) rather than a CLIP guess. Cached: the catalog
-// changes only on an update.
+// True once the client has gone away (a newer keystroke cancelled this search).
+function watchClientGone(request: FastifyRequest, reply: FastifyReply): () => boolean {
+  let gone = false;
+  reply.raw.once("close", () => {
+    if (!reply.raw.writableFinished) gone = true;
+  });
+  return () => gone || request.raw.socket?.destroyed === true;
+}
+
+// Latin order and family names from the whole catalog, so they filter exactly rather than via CLIP.
+// Cached: the catalog changes only on an update.
 let latinGroupCache: { at: number; map: Map<string, GroupPredicate> } | null = null;
 async function latinGroupNames(): Promise<Map<string, GroupPredicate>> {
   if (latinGroupCache && Date.now() - latinGroupCache.at < 10 * 60_000) return latinGroupCache.map;
@@ -141,77 +350,51 @@ async function regionSubtree(regionIds: string[]): Promise<Set<string>> {
   return new Set(res.rows.map((r) => r.id));
 }
 
+type GalleryQuery = GalleryFilterQuery & { sort?: string; limit?: string; cursor?: string };
+
 export async function galleryRoutes(app: FastifyInstance): Promise<void> {
   app.get<{
-    Querystring: {
+    Querystring: GalleryFilterQuery & {
       q?: string;
       /** 1: skip picture matching and answer at once; the page follows up with the full search. */
       quick?: string;
-      onlyTopRated?: string;
-      onlyFeatured?: string;
-      taxa?: string;
-      includeRaw?: string;
-      excludeHasRaw?: string;
-      onlyHasRaw?: string;
-      onlyVideo?: string;
-      excludeVideo?: string;
-      dateFrom?: string;
-      dateTo?: string;
-      regionId?: string;
     };
-  }>("/gallery/search", { preHandler: requireScope("gallery.read") }, async (request) => {
+  }>("/gallery/search", { preHandler: requireScope("gallery.read") }, async (request, reply) => {
     const userId = request.user!.id;
     const q = request.query.q?.trim();
+    // The same filters as /gallery, so a search never widens past what's already checked.
+    const filters = parseGalleryFilters(request.query);
+    if ("error" in filters) return reply.code(400).send({ error: filters.error });
     if (!q) return { items: [] };
-    // The same filters as the plain /gallery listing, so a search never silently widens past
-    // whatever Top rated / Featured / taxa / date / region filter is already checked.
-    const onlyTopRated = request.query.onlyTopRated === "1";
-    const onlyFeatured = request.query.onlyFeatured === "1";
-    const taxa = request.query.taxa?.split(",").filter(Boolean) ?? [];
-    const includeRaw = request.query.includeRaw !== "0";
-    const excludeHasRaw = request.query.excludeHasRaw === "1";
-    const onlyHasRaw = request.query.onlyHasRaw === "1";
-    const onlyVideo = request.query.onlyVideo === "1";
-    const excludeVideo = request.query.excludeVideo === "1";
-    const dateFrom = request.query.dateFrom || null;
-    const dateTo = request.query.dateTo || null;
-    const regionId = request.query.regionId || null;
-    const isUncategorized = regionId === UNCATEGORIZED_REGION_ID;
+    const quick = request.query.quick === "1";
+    const isGone = watchClientGone(request, reply);
 
     const params: unknown[] = [userId, EMBEDDING_MODEL_VERSION];
     const param = (v: unknown) => {
       params.push(v);
       return `$${params.length}`;
     };
-    const where = [
-      onlyTopRated ? "AND c.quality_rating = 5" : "",
-      onlyFeatured ? "AND p.id = us.cover_photo_id" : "",
-      taxa.length > 0 ? `AND s.taxon_class = ANY(${param(taxa)})` : "",
-      dateFrom ? `AND c.taken_at >= ${param(dateFrom)}::date` : "",
-      dateTo ? `AND c.taken_at < (${param(dateTo)}::date + INTERVAL '1 day')` : "",
-      isUncategorized ? "AND c.region_id IS NULL" : regionId ? regionMatchClause(Number(param(regionId).slice(1))) : "",
-      includeRaw ? "" : "AND o.kind IS DISTINCT FROM 'raw'",
-      onlyVideo ? "AND p.kind = 'video'" : excludeVideo ? "AND p.kind IS DISTINCT FROM 'video'" : "",
-      excludeHasRaw
-        ? "AND NOT EXISTS (SELECT 1 FROM originals hr WHERE hr.capture_id = c.id AND hr.kind = 'raw')"
-        : onlyHasRaw
-          ? "AND EXISTS (SELECT 1 FROM originals hr WHERE hr.capture_id = c.id AND hr.kind = 'raw')"
-          : "",
-    ].join("\n           ");
-    // LEFT JOIN on the vector: a photo without one (species matching not downloaded, or not
-    // computed yet) is still found by name, group, place and date, just not by what's in it.
-    const res = await searchRows(
-      userId,
-      `SELECT ${GALLERY_ITEM_COLUMNS},
-              c.location_label, s.common_name_aliases, s.aba_code, s.ebird_code, s.taxon_order, s.family,
-              ce.computed_at::text AS embedding_computed_at
-         FROM captures c
-         ${GALLERY_ITEM_JOINS}
-         LEFT JOIN capture_embeddings ce ON ce.capture_id = c.id AND ce.model_version = $2
-         WHERE c.user_id = $1
-           ${where}`,
-      params,
-    );
+    const where = galleryFilterSql(filters, param);
+    const stamp = await libraryStamp(userId);
+    // LEFT JOIN: a photo without a vector is still found by name, group, place and date.
+    const [res, vocab, latinGroups] = await Promise.all([
+      searchRows(
+        userId,
+        stamp,
+        `SELECT ${GALLERY_ITEM_COLUMNS},
+                c.location_label, c.trip_id::text AS trip_id, s.common_name_aliases, s.aba_code, s.ebird_code, s.taxon_order, s.family,
+                (SELECT array_agg(ac.album_id::text) FROM album_captures ac WHERE ac.capture_id = c.id) AS album_ids,
+                ce.computed_at::text AS embedding_computed_at
+           FROM captures c
+           ${GALLERY_ITEM_JOINS}
+           LEFT JOIN capture_embeddings ce ON ce.capture_id = c.id AND ce.model_version = $2
+           WHERE c.user_id = $1
+             ${where}`,
+        params,
+      ),
+      searchVocabulary(userId, stamp),
+      latinGroupNames(),
+    ]);
 
     const speciesById = new Map<string, SpeciesEntry>();
     for (const r of res.rows) {
@@ -223,16 +406,15 @@ export async function galleryRoutes(app: FastifyInstance): Promise<void> {
         taxonClass: r.taxon_class,
         taxonOrder: r.taxon_order,
         family: r.family,
-        aliases: (r.common_name_aliases as string[] | null) ?? [],
+        // Old scientific names (species_synonyms) match the same way an alias does.
+        aliases: [...((r.common_name_aliases as string[] | null) ?? []), ...(vocab.synonyms.get(r.species_id) ?? [])],
         codes: [r.aba_code, r.ebird_code].filter((c): c is string => typeof c === "string" && c.length > 0),
       });
     }
-    const parsed = parseSearchQuery(q, {
-      species: [...speciesById.values()],
-      places: await searchablePlaces(userId),
-      latinGroups: await latinGroupNames(),
-    }, { partialWordPicksSpecies: request.query.quick === "1" });
-    const outcome = await rankSearch(q, parsed, res.rows, regionSubtree, { quick: request.query.quick === "1" });
+    const parsed = parseSearchQuery(q, { species: [...speciesById.values()], places: vocab.places, latinGroups }, { partialWordPicksSpecies: quick });
+    // The full pass embeds the description with CLIP; not worth doing for a cancelled request.
+    if (!quick && parsed.description && isGone()) return reply.code(499).send();
+    const outcome = await rankSearch(q, parsed, res.rows, regionSubtree, { quick });
     return {
       items: outcome.items.map(({ row, score }) => toGalleryItem(row, score)),
       interpretation: outcome.interpretation,
@@ -240,101 +422,103 @@ export async function galleryRoutes(app: FastifyInstance): Promise<void> {
     };
   });
 
-  app.get<{
-    Querystring: {
-      onlyTopRated?: string;
-      onlyFeatured?: string;
-      taxa?: string;
-      includeRaw?: string;
-      excludeHasRaw?: string;
-      onlyHasRaw?: string;
-      missingDate?: string;
-      dateFrom?: string;
-      dateTo?: string;
-      sort?: string;
-      regionId?: string;
-      tag?: string;
-      onlyVideo?: string;
-      excludeVideo?: string;
-    };
-  }>("/gallery", { preHandler: requireScope("gallery.read") }, async (request) => {
+  app.get<{ Querystring: GalleryQuery }>("/gallery", { preHandler: requireScope("gallery.read") }, async (request, reply) => {
     const userId = request.user!.id;
-    const onlyTopRated = request.query.onlyTopRated === "1";
-    const onlyFeatured = request.query.onlyFeatured === "1";
-    const taxa = request.query.taxa?.split(",").filter(Boolean) ?? [];
-    const includeRaw = request.query.includeRaw !== "0";
-    const excludeHasRaw = request.query.excludeHasRaw === "1";
-    const onlyHasRaw = request.query.onlyHasRaw === "1";
-    const hasRawClause = excludeHasRaw
-      ? "AND NOT EXISTS (SELECT 1 FROM originals hr WHERE hr.capture_id = c.id AND hr.kind = 'raw')"
-      : onlyHasRaw
-        ? "AND EXISTS (SELECT 1 FROM originals hr WHERE hr.capture_id = c.id AND hr.kind = 'raw')"
-        : "";
-    const onlyVideo = request.query.onlyVideo === "1";
-    const excludeVideo = request.query.excludeVideo === "1";
-    // Unrated (never NULL == 0 stars) sorts as a middle 3 — an unrated photo isn't necessarily
-    // BAD, it's just unrated, so ratingHigh/ratingLow shouldn't sink it to one extreme end.
-    const orderBy =
-      request.query.sort === "oldest"
-        ? "c.taken_at ASC NULLS LAST, c.created_at ASC"
-        : request.query.sort === "ratingHigh"
-          ? "COALESCE(c.quality_rating, 3) DESC, c.taken_at DESC NULLS LAST"
-          : request.query.sort === "ratingLow"
-            ? "COALESCE(c.quality_rating, 3) ASC, c.taken_at DESC NULLS LAST"
-            : "c.taken_at DESC NULLS LAST, c.created_at DESC";
-    // Drill-down from the Stats page's Archive health card — every capture with no taken_at,
-    // so "41 photos missing a date" turns into an actual view to go fix instead of just a
-    // number (see PATCH /captures/:id/taken-at, which this view's date input calls).
-    const missingDate = request.query.missingDate === "1";
-    // Plain YYYY-MM-DD from a native <input type="date"> — dateTo is inclusive of the whole day
-    // (< the next day), not just up to midnight, so picking the same day for both ends actually
-    // includes that day's photos instead of showing nothing.
-    const dateFrom = request.query.dateFrom || null;
-    const dateTo = request.query.dateTo || null;
-    const regionId = request.query.regionId || null;
-    const isUncategorized = regionId === UNCATEGORIZED_REGION_ID;
-    const tag = request.query.tag || null;
-    const params: unknown[] = [userId];
-    if (taxa.length > 0) params.push(taxa);
-    const taxaParamIdx = taxa.length > 0 ? params.length : null;
-    if (dateFrom) params.push(dateFrom);
-    const dateFromParamIdx = dateFrom ? params.length : null;
-    if (dateTo) params.push(dateTo);
-    const dateToParamIdx = dateTo ? params.length : null;
-    if (regionId && !isUncategorized) params.push(regionId);
-    const regionParamIdx = regionId && !isUncategorized ? params.length : null;
-    if (tag) params.push(tag);
-    const tagParamIdx = tag ? params.length : null;
+    const filters = parseGalleryFilters(request.query);
+    if ("error" in filters) return reply.code(400).send({ error: filters.error });
+    const sortName = request.query.sort && GALLERY_SORTS[request.query.sort] ? request.query.sort : "newest";
+    const sortKeys = GALLERY_SORTS[sortName];
 
-    // "Featured" compares this photo's id against user_species.cover_photo_id for the SAME
-    // species — a per-species single pick (set from either SpeciesDetailPage.tsx or this
-    // page's own toggle, via PATCH /species/:id/cover), not a photo-level flag of its own.
-    const res = await pool.query(
-      `SELECT ${GALLERY_ITEM_COLUMNS}
+    // Optional keyset paging: ?limit= (1-500) returns one page plus nextCursor. Without it, all photos.
+    const paged = request.query.limit !== undefined;
+    const limit = paged ? parseLimit(request.query.limit, 0, 500) : 0;
+    if (paged && limit === 0) return reply.code(400).send({ error: "limit must be a whole number from 1 to 500" });
+    let cursor: GalleryCursor | null = null;
+    if (request.query.cursor) {
+      cursor = decodeGalleryCursor(request.query.cursor);
+      if (!cursor || cursor.sort !== sortName) return reply.code(400).send({ error: "Invalid cursor" });
+    }
+
+    const params: unknown[] = [userId];
+    const param = (v: unknown) => {
+      params.push(v);
+      return `$${params.length}`;
+    };
+    const where = galleryFilterSql(filters, param);
+    // The filter params only, captured before the cursor adds its own, for the first page's count.
+    const filterParams = [...params];
+    const after = cursor ? galleryAfterCursorSql(sortKeys, cursor, param) : "";
+    // Counted on the first page only.
+    const countQuery =
+      paged && !cursor
+        ? pool.query<{ total: number }>(
+            `SELECT count(*)::int AS total
+               FROM captures c
+               ${GALLERY_ITEM_JOINS}
+               WHERE c.user_id = $1
+                 ${where}`,
+            filterParams,
+          )
+        : null;
+    const [res, countRes] = await Promise.all([
+      pool.query(
+        `SELECT ${GALLERY_ITEM_COLUMNS}${paged ? `, ${sortKeys.map((k, i) => `(${k.expr})::text AS _sort${i}`).join(", ")}` : ""}
+           FROM captures c
+           ${GALLERY_ITEM_JOINS}
+           WHERE c.user_id = $1
+             ${where}
+             ${after}
+           ORDER BY ${galleryOrderBy(sortKeys)}
+           ${paged ? `LIMIT ${limit + 1}` : ""}`,
+        params,
+      ),
+      countQuery,
+    ]);
+
+    if (!paged) return { items: res.rows.map((row) => toGalleryItem(row, null)) };
+    const page = res.rows.slice(0, limit);
+    const last = page.at(-1);
+    const nextCursor =
+      res.rows.length > limit && last
+        ? encodeGalleryCursor({ sort: sortName, values: sortKeys.map((_, i) => last[`_sort${i}`] ?? null), id: last.capture_id })
+        : null;
+    const total = countRes ? (countRes.rows[0]?.total ?? 0) : undefined;
+    return { items: page.map((row) => toGalleryItem(row, null)), nextCursor, ...(total !== undefined ? { total } : {}) };
+  });
+
+  // Every capture id the /gallery filters match, so select all needn't page through full items.
+  // Video and RAW ids come along for the batch actions that word or offer things by them.
+  app.get<{ Querystring: GalleryFilterQuery }>("/gallery/ids", { preHandler: requireScope("gallery.read") }, async (request, reply) => {
+    const userId = request.user!.id;
+    const filters = parseGalleryFilters(request.query);
+    if ("error" in filters) return reply.code(400).send({ error: filters.error });
+    const params: unknown[] = [userId];
+    const param = (v: unknown) => {
+      params.push(v);
+      return `$${params.length}`;
+    };
+    const where = galleryFilterSql(filters, param);
+    const res = await pool.query<{ capture_id: string; is_video: boolean; has_raw: boolean }>(
+      `SELECT c.id::text AS capture_id, p.kind = 'video' AS is_video,
+              EXISTS (SELECT 1 FROM originals ro WHERE ro.capture_id = c.id AND ro.kind = 'raw') AS has_raw
          FROM captures c
          ${GALLERY_ITEM_JOINS}
          WHERE c.user_id = $1
-           ${onlyTopRated ? "AND c.quality_rating = 5" : ""}
-           ${onlyFeatured ? "AND p.id = us.cover_photo_id" : ""}
-           ${missingDate ? "AND c.taken_at IS NULL" : ""}
-           ${taxaParamIdx ? `AND s.taxon_class = ANY($${taxaParamIdx})` : ""}
-           ${dateFromParamIdx ? `AND c.taken_at >= $${dateFromParamIdx}::date` : ""}
-           ${dateToParamIdx ? `AND c.taken_at < ($${dateToParamIdx}::date + INTERVAL '1 day')` : ""}
-           ${isUncategorized ? "AND c.region_id IS NULL" : regionMatchClause(regionParamIdx)}
-           ${tagParamIdx ? `AND $${tagParamIdx} = ANY(c.tags)` : ""}
-           ${includeRaw ? "" : "AND o.kind IS DISTINCT FROM 'raw'"}
-           ${hasRawClause}
-           ${onlyVideo ? "AND p.kind = 'video'" : ""}
-           ${excludeVideo ? "AND p.kind IS DISTINCT FROM 'video'" : ""}
-         ORDER BY ${orderBy}`,
+           ${where}`,
       params,
     );
-
-    return { items: res.rows.map((row) => toGalleryItem(row, null)) };
+    const captureIds: string[] = [];
+    const videoCaptureIds: string[] = [];
+    const rawCaptureIds: string[] = [];
+    for (const r of res.rows) {
+      captureIds.push(r.capture_id);
+      if (r.is_video) videoCaptureIds.push(r.capture_id);
+      if (r.has_raw) rawCaptureIds.push(r.capture_id);
+    }
+    return { captureIds, videoCaptureIds, rawCaptureIds };
   });
 
-  // Existence check for the frontend's "Video" filter — that toggle should only render when the
-  // user actually has at least one video, so this is a cheap `EXISTS` rather than a real count.
+  // Whether the user has any video, so the "Video" filter only shows when useful.
   app.get("/gallery/has-video", { preHandler: requireScope("gallery.read") }, async (request) => {
     const userId = request.user!.id;
     const res = await pool.query<{ exists: boolean }>(
@@ -347,9 +531,7 @@ export async function galleryRoutes(app: FastifyInstance): Promise<void> {
     return { hasVideo: res.rows[0]?.exists ?? false };
   });
 
-  // Which taxon classes the Taxon filter should even offer — the full ALL_TAXON_CLASSES list
-  // includes plenty a given user has never photographed, and checking one of those always
-  // yields zero results, which reads as a bug rather than "this filter is just empty for you".
+  // Taxon classes the user has photographed, so the Taxon filter never offers empty choices.
   app.get("/gallery/taxa", { preHandler: requireScope("gallery.read") }, async (request) => {
     const userId = request.user!.id;
     const res = await pool.query<{ taxon_class: string }>(
@@ -362,12 +544,8 @@ export async function galleryRoutes(app: FastifyInstance): Promise<void> {
     return { taxa: res.rows.map((r) => r.taxon_class) };
   });
 
-  // Which regions the Region filter should even offer — Gallery's own picker previously used
-  // RegionBrowser's `allowAnyRegion` mode (meant for admin-style pickers with no downloaded-pack
-  // notion), which showed literally every region in the taxonomy regardless of whether the user's
-  // library has any photos tagged there at all. Includes every ancestor of a region actually used
-  // (so drilling from World -> continent -> country still finds its way to a real leaf) —
-  // RegionBrowser's own tree only renders a node whose id (or an ancestor's) is in this set.
+  // Regions the Region filter offers: those with photos, plus their ancestors so the tree can
+  // be drilled down to them.
   app.get("/gallery/regions-with-photos", { preHandler: requireScope("gallery.read") }, async (request) => {
     const userId = request.user!.id;
     const res = await pool.query<{ id: string }>(
@@ -386,8 +564,7 @@ export async function galleryRoutes(app: FastifyInstance): Promise<void> {
   });
 }
 
-// Shared response shape between /gallery and /gallery/search — score is null for the plain
-// (unsearched) listing, since "match quality" isn't a meaningful concept there.
+// Response shape for /gallery and /gallery/search; score is null for the plain listing.
 export function toGalleryItem(row: Record<string, unknown>, score: number | null) {
   return {
     photoId: row.photo_id,

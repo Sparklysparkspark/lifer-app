@@ -1,30 +1,24 @@
-// Archived species, species hidden from a region, "seen" marks and targets live only in the
-// database, so a fresh install pointed at an existing photo library lost all of them, even though
-// its photos, albums and trips came back (those already keep .lifer records in the library; see
-// albums/albumIndex.ts). This keeps the same kind of record for the rest of the collection:
-// <library>/.lifer/collection-state.json, next to the photos the user already backs up.
-//
-// Species and regions are stored by name (scientific name, and a region's ISO code or its name
-// path), not by id: ids are generated per install, so a fresh install's differ from the old one's.
-// One entry per user, keyed by email; a record with exactly one user is also matched to an
-// install with exactly one user, so moving from the desktop app to a server keeps it too.
-//
-// Rewritten (whole, a couple of seconds after the last change) whenever that state changes, and
-// read back when a user's database has none of it: at startup, and after the library reimport
-// tool, which is how a fresh install is pointed at an old library.
+// Archived and region-hidden species, "seen" marks, targets and user tiers, recorded in
+// <library>/.lifer/collection-state.json so a fresh install pointed at the library gets them back.
+// Stored by name (ids differ between installs), one entry per user by email. Read back when the
+// database has none of it: at startup and after a library reimport.
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import type { FastifyInstance } from "fastify";
-import { pool } from "../db.js";
+import { TIER_ORDER, type TierValue } from "@lifer/shared";
+import { pool, withTransaction } from "../db.js";
 import { ORIGINALS_DIR } from "../config.js";
 import { writeFileAtomicSync } from "./atomicWrite.js";
 import { ensureDir } from "./safeFs.js";
+import { log } from "./log.js";
 
 export interface UserCollectionState {
   archived: string[];
   hiddenInRegions: Array<{ region: string; species: string }>;
   seen: string[];
   targets: string[];
+  /** The user's own rarity tiers; region null = everywhere. */
+  tierOverrides?: Array<{ region: string | null; species: string; tier: string }>;
 }
 
 interface CollectionStateFile {
@@ -58,7 +52,7 @@ const REGION_KEY_SQL = `COALESCE(r.external_codes[1], (
 ))`;
 
 export async function currentCollectionState(userId: string): Promise<UserCollectionState> {
-  const [archived, hidden, states] = await Promise.all([
+  const [archived, hidden, states, overrides] = await Promise.all([
     pool.query<{ name: string }>(
       `SELECT s.scientific_name AS name FROM user_archived_species a JOIN species s ON s.id = a.species_id WHERE a.user_id = $1 ORDER BY 1`,
       [userId],
@@ -74,21 +68,28 @@ export async function currentCollectionState(userId: string): Promise<UserCollec
         WHERE us.user_id = $1 AND (us.state = 'seen' OR us.is_target) ORDER BY 1`,
       [userId],
     ),
+    pool.query<{ region: string | null; species: string; tier: string }>(
+      `SELECT CASE WHEN o.region_id IS NULL THEN NULL ELSE ${REGION_KEY_SQL} END AS region, s.scientific_name AS species, o.tier
+         FROM user_tier_overrides o JOIN species s ON s.id = o.species_id LEFT JOIN regions r ON r.id = o.region_id
+        WHERE o.user_id = $1 ORDER BY 2, 1`,
+      [userId],
+    ),
   ]);
   return {
     archived: archived.rows.map((r) => r.name),
     hiddenInRegions: hidden.rows,
     seen: states.rows.filter((r) => r.state === "seen").map((r) => r.name),
     targets: states.rows.filter((r) => r.is_target).map((r) => r.name),
+    tierOverrides: overrides.rows,
   };
 }
 
-// Users a restore has been tried for since this server started. A fresh desktop install creates
-// its user on the app's first request, and a fresh server gets its user at sign-up, both after
-// startup, so the first time each user's session is checked is the other moment to try.
+// Users a restore has been tried for since startup. New users are created after startup (first
+// request or sign-up), so their first session check is the other moment to try.
 const restoreTried = new Set<string>();
 
-const isEmpty = (s: UserCollectionState) => s.archived.length + s.hiddenInRegions.length + s.seen.length + s.targets.length === 0;
+const isEmpty = (s: UserCollectionState) =>
+  s.archived.length + s.hiddenInRegions.length + s.seen.length + s.targets.length + (s.tierOverrides?.length ?? 0) === 0;
 
 /** Writes this user's current state into the library's record. */
 export async function saveCollectionState(userId: string): Promise<void> {
@@ -112,15 +113,15 @@ export function scheduleCollectionStateSave(userId: string): void {
     userId,
     setTimeout(() => {
       pendingSaves.delete(userId);
-      saveCollectionState(userId).catch((err) => console.warn("[collection-state] couldn't save:", (err as Error).message));
+      saveCollectionState(userId).catch((err) => log.warn(`[collection-state] couldn't save: ${(err as Error).message}`));
     }, 2000),
   );
 }
 
-// Every route that changes this state. Matched after a successful response rather than wired into
-// each route, so a new route in one of these families is covered too.
+// Every route that changes this state. Matched after a successful response rather than wired
+// into each route, so new routes in these families are covered too.
 const STATE_ROUTES = [
-  /^\/api\/species\/[^/]+\/(archive|seen|target)$/,
+  /^\/api\/species\/[^/]+\/(archive|seen|target|tier-override)$/,
   /^\/api\/archive\/bulk$/,
   /^\/api\/regions\/[^/]+\/species\/[^/]+\/hide$/,
   /^\/api\/imports\//,
@@ -130,7 +131,7 @@ const STATE_ROUTES = [
 export function tryRestoreCollectionStateOnce(userId: string): void {
   if (restoreTried.has(userId)) return;
   restoreTried.add(userId);
-  restoreCollectionState(userId).catch((err) => console.warn("[collection-state] couldn't restore:", (err as Error).message));
+  restoreCollectionState(userId).catch((err) => log.warn(`[collection-state] couldn't restore: ${(err as Error).message}`));
 }
 
 export function registerCollectionStateSaving(app: FastifyInstance): void {
@@ -173,7 +174,15 @@ export async function restoreCollectionState(userId: string): Promise<{ restored
   }
   if (!saved || isEmpty(saved)) return null;
 
-  const names = [...new Set([...saved.archived, ...saved.seen, ...saved.targets, ...saved.hiddenInRegions.map((h) => h.species)])];
+  const names = [
+    ...new Set([
+      ...saved.archived,
+      ...saved.seen,
+      ...saved.targets,
+      ...saved.hiddenInRegions.map((h) => h.species),
+      ...(saved.tierOverrides ?? []).map((o) => o.species),
+    ]),
+  ];
   const ids = await speciesIdsByName(names);
   if (ids.size === 0) return null; // catalog not installed yet: try again later
   const regionRes = await pool.query<{ key: string; id: string }>(`SELECT ${REGION_KEY_SQL} AS key, r.id FROM regions r`);
@@ -181,9 +190,7 @@ export async function restoreCollectionState(userId: string): Promise<{ restored
 
   let restored = 0;
   let notFound = 0;
-  const client = await pool.connect();
-  try {
-    await client.query("BEGIN");
+  await withTransaction(async (client) => {
     for (const name of saved.archived) {
       const id = ids.get(name);
       if (!id) { notFound++; continue; }
@@ -204,6 +211,14 @@ export async function restoreCollectionState(userId: string): Promise<{ restored
       await client.query(`INSERT INTO user_species (user_id, species_id, state) VALUES ($1, $2, 'seen') ON CONFLICT (user_id, species_id) DO NOTHING`, [userId, id]);
       restored++;
     }
+    for (const o of saved.tierOverrides ?? []) {
+      const id = ids.get(o.species);
+      const regionId = o.region == null ? null : regionIds.get(o.region);
+      // A tier name this version doesn't know would fail the CHECK and abort the whole restore.
+      if (!id || regionId === undefined || !TIER_ORDER.includes(o.tier as TierValue)) { notFound++; continue; }
+      await client.query(`INSERT INTO user_tier_overrides (user_id, region_id, species_id, tier) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING`, [userId, regionId, id, o.tier]);
+      restored++;
+    }
     for (const name of saved.targets) {
       const id = ids.get(name);
       if (!id) { notFound++; continue; }
@@ -213,21 +228,14 @@ export async function restoreCollectionState(userId: string): Promise<{ restored
       );
       restored++;
     }
-    await client.query("COMMIT");
-  } catch (err) {
-    await client.query("ROLLBACK").catch(() => {});
-    throw err;
-  } finally {
-    client.release();
-  }
-  console.log(`[collection-state] Restored ${restored} archived, hidden, seen and target entries from the library${notFound ? ` (${notFound} not in this catalog)` : ""}.`);
+  });
+  log.info(`[collection-state] Restored ${restored} archived, hidden, seen, target and tier entries from the library${notFound ? ` (${notFound} not in this catalog)` : ""}.`);
   return { restored, notFound };
 }
 
-/** At startup: restore for users with no state of their own, and write a first record for
- *  users who have state but no record yet (an install from before this existed). A user with no
- *  state is never saved here: that would overwrite a record the restore couldn't apply yet (the
- *  catalog still installing, say) with an empty one. */
+/** At startup: restore for users with no state of their own, and write a first record for users
+ *  with state but no record. A user with no state is never saved, which could overwrite a record
+ *  the restore couldn't apply yet (the catalog still installing, say). */
 export async function syncCollectionStateOnStartup(): Promise<void> {
   const users = (await pool.query<{ id: string }>(`SELECT id FROM users`)).rows;
   for (const { id } of users) {
@@ -236,7 +244,7 @@ export async function syncCollectionStateOnStartup(): Promise<void> {
       if (await restoreCollectionState(id)) continue;
       if (!isEmpty(await currentCollectionState(id))) await saveCollectionState(id);
     } catch (err) {
-      console.warn("[collection-state]", (err as Error).message);
+      log.warn(`[collection-state] ${(err as Error).message}`);
     }
   }
 }

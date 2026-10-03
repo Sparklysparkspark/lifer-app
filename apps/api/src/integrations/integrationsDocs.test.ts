@@ -1,7 +1,5 @@
-// Keeps the API documentation honest: every route an API key can reach (anything using
-// requireScope) must be in the OpenAPI document with the same scope, and the document must not
-// list routes that no longer exist. Scans the route source files, so a new key-accessible route
-// fails this test until it's documented in openapi.ts (and, for anything user-facing, docs/API.md).
+// Every requireScope route must be in the OpenAPI document with the same scope, and the document
+// must not list routes that no longer exist. Scans the route source files.
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -25,12 +23,12 @@ const expansionsFor = (p: string): Record<string, string[]> => ({ "${kind}": p.s
 
 function scopedRoutesInSource(): Array<{ method: string; path: string; scope: string }> {
   const routes: Array<{ method: string; path: string; scope: string }> = [];
-  const routeStart = /app\.(get|post|put|patch|delete)\s*(?:<[^()]*?>)?\s*\(\s*(["`])([^"`]+)\2/gs;
+  const routeStart = /app\.(get|post|put|patch|delete|head|options)\s*(?:<[^()]*?>)?\s*\(\s*(["`])([^"`]+)\2/gs;
   for (const file of sourceFiles(SRC)) {
     const src = readFileSync(file, "utf8");
     for (const m of src.matchAll(routeStart)) {
       let tail = src.slice(m.index! + m[0].length, m.index! + m[0].length + 400);
-      const next = tail.search(/app\.(get|post|put|patch|delete)/);
+      const next = tail.search(/app\.(get|post|put|patch|delete|head|options)/);
       if (next >= 0) tail = tail.slice(0, next);
       const scope = /requireScope\("([^"]+)"\)/.exec(tail)?.[1];
       if (!scope) continue;
