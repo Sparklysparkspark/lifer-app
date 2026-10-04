@@ -11,9 +11,9 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const RELEASE_BASE = "https://github.com/Sparklysparkspark/lifer-app/releases/download/catalog-latest";
 const CATALOG_MANIFEST_URL = `${RELEASE_BASE}/catalog-manifest.json`;
 const FALLBACK_SEED_URL = `${RELEASE_BASE}/lifer-catalog-seed.sql.gz`;
-// The base seed is ~60MB. Anything this big means something large (like gallery embeddings)
-// slipped back into it, which breaks the Windows installer and every app update.
-const MAX_SEED_BYTES = 200 * 1024 * 1024;
+// The seed is about 200 MB. Anything this big means something large (like gallery embeddings)
+// slipped back into it, which breaks the Windows installer (2 GB at most) and every app update.
+const MAX_SEED_BYTES = 400 * 1024 * 1024;
 
 async function fetchManifest() {
   const res = await fetch(CATALOG_MANIFEST_URL, { redirect: "follow" });

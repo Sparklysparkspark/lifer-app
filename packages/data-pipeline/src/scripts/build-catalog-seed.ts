@@ -35,8 +35,9 @@ import { ID_MODEL_VERSION } from "@lifer/shared/src/idModel.js";
 import { pool } from "../db.js";
 import { EMBEDDING_MODEL_VERSION } from "../embeddings.js";
 
-// Installers bundle the seed, and NSIS can't exceed 2GB. Catch a regression here, not in CI.
-const MAX_SEED_BYTES = 200 * 1024 * 1024;
+// Installers bundle the seed, and NSIS can't exceed 2GB (the installer is about 350 MB). Catch a
+// regression here, not in CI.
+const MAX_SEED_BYTES = 400 * 1024 * 1024;
 const GALLERY_EMBEDDING_DIMENSION = 768;
 const GALLERY_PAGE_SIZE = 2000;
 

@@ -19,7 +19,7 @@ const CATALOG_MANIFEST_URL =
 const LEGACY_SEED_URL =
   "https://github.com/Sparklysparkspark/lifer-app/releases/download/catalog-latest/lifer-catalog-seed.sql.gz";
 // Matches build-catalog-seed.ts. A bigger seed means something large got added to it.
-const MAX_SEED_BYTES = 200 * 1024 * 1024;
+const MAX_SEED_BYTES = 400 * 1024 * 1024;
 
 async function sha256(file) {
   const hash = createHash("sha256");
