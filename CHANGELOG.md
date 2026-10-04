@@ -15,6 +15,8 @@ Categories: `Added`, `Changed`, `Fixed`, `Removed`: omit any with nothing to say
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-10-03
+
 ### Added
 
 - The desktop app switches to the library on your computer in one step: Lifer menu, Use This
