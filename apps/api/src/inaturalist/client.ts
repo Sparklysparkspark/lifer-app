@@ -140,6 +140,7 @@ export interface RemoteObservationLocation {
 }
 
 export async function fetchObservationLocation(jwt: string, observationId: string): Promise<RemoteObservationLocation> {
+  if (!/^\d+$/.test(observationId)) throw new Error("Not an iNaturalist observation id");
   const res = await fetch(`${INAT_API}/observations/${observationId}`, {
     headers: { Authorization: jwt, "User-Agent": USER_AGENT },
     signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),

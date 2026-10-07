@@ -6,11 +6,15 @@
 //
 // merge-update-manifests.js combines the partial manifests into one latest.json. Needs
 // LIFER_RELEASE_VERSION (tag without "v") and TAURI_SIGNING_PRIVATE_KEY[_PASSWORD] (see release.yml).
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
+import { createRequire } from "node:module";
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 // bundleRoot is target/release/bundle, or target/<triple>/release/bundle for a cross build.
 import { target, tauriArch, bundleRoot } from "./target.js";
+
+// The Tauri CLI's own entry point, run with this Node: no shell, so paths are passed as-is.
+const tauriCli = createRequire(import.meta.url).resolve("@tauri-apps/cli/tauri.js");
 
 const GITHUB_REPO = "Sparklysparkspark/lifer-app";
 
@@ -33,7 +37,7 @@ function findOne(dir, matcher) {
 
 function signAndDescribe(filePath, platformKey, downloadFileName) {
   console.log(`[build-update-manifest] signing ${filePath}`);
-  execSync(`npx tauri signer sign ${JSON.stringify(filePath)}`, { stdio: "inherit" });
+  execFileSync(process.execPath, [tauriCli, "signer", "sign", filePath], { stdio: "inherit" });
   const sigPath = `${filePath}.sig`;
   if (!existsSync(sigPath)) {
     console.error(`[build-update-manifest] ${sigPath} wasn't produced; signing must have failed`);
@@ -60,7 +64,7 @@ if (target.platform === "darwin") {
   const archiveName = `Lifer-${arch}.app.tar.gz`;
   const archivePath = path.join(bundleDir, archiveName);
   console.log(`[build-update-manifest] archiving ${appPath}`);
-  execSync(`tar -czf ${JSON.stringify(archivePath)} -C ${JSON.stringify(bundleDir)} Lifer.app`, { stdio: "inherit" });
+  execFileSync("tar", ["-czf", archivePath, "-C", bundleDir, "Lifer.app"], { stdio: "inherit" });
   platforms = signAndDescribe(archivePath, `darwin-${arch}`, archiveName);
 } else if (target.platform === "win32") {
   const bundleDir = path.join(bundleRoot, "nsis");

@@ -1,8 +1,8 @@
 // Downloads the official Node.js binary for this platform and vendors it as the Tauri sidecar
 // (src-tauri/binaries/node-<target-triple>) that api.rs spawns. Run once per target before
 // `npm run dist`.
-import { execSync } from "node:child_process";
-import { createReadStream, createWriteStream, mkdirSync, chmodSync, rmSync } from "node:fs";
+import { execFileSync, execSync } from "node:child_process";
+import { chmodSync, copyFileSync, createReadStream, createWriteStream, mkdirSync, rmSync } from "node:fs";
 import { createHash } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -74,18 +74,18 @@ async function fetchAndExtract(targetTriple) {
   // strip components, so the Windows branch extracts flat.
   const isWindows = spec.ext === "zip";
   if (isWindows) {
-    execSync(`unzip -q "${tmpArchive}" -d "${extractDir}"`);
+    execFileSync("unzip", ["-q", tmpArchive, "-d", extractDir]);
   } else {
-    execSync(`tar -xzf "${tmpArchive}" -C "${extractDir}" --strip-components=1`);
+    execFileSync("tar", ["-xzf", tmpArchive, "-C", extractDir, "--strip-components=1"]);
   }
 
   const dest = path.join(binariesDir, `node-${targetTriple}${isWindows ? ".exe" : ""}`);
   if (isWindows) {
     // The zip's top-level folder is node-v<version>-win-x64, not stripped above.
     const nested = path.join(extractDir, `node-v${NODE_VERSION}-${spec.platform}`, "node.exe");
-    execSync(`cp "${nested}" "${dest}"`);
+    copyFileSync(nested, dest);
   } else {
-    execSync(`cp "${path.join(extractDir, "bin", "node")}" "${dest}"`);
+    copyFileSync(path.join(extractDir, "bin", "node"), dest);
     chmodSync(dest, 0o755);
   }
   rmSync(tmpArchive, { force: true });

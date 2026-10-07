@@ -1,7 +1,7 @@
 // Tauri's ad-hoc signature is sealed before all staged resources are in place, so Finder flags
 // the app as broken. Re-sign after the bundle is fully assembled. Still ad-hoc unless an
 // identity is set (see below), so Gatekeeper rejecting it is expected for a local build.
-import { execSync, execFileSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { bundleRoot } from "./target.js";
@@ -51,5 +51,5 @@ console.log(
   `[resign-macos] re-signing ${appPath} with identity ${identity === "-" ? "ad-hoc (-)" : JSON.stringify(identity)}`,
 );
 execFileSync("codesign", ["--deep", "--force", "--sign", identity, appPath], { stdio: "inherit" });
-execSync(`codesign -dv ${JSON.stringify(appPath)}`, { stdio: "inherit" });
+execFileSync("codesign", ["-dv", appPath], { stdio: "inherit" });
 console.log("[resign-macos] done");

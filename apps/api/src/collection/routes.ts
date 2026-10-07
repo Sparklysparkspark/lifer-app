@@ -177,7 +177,7 @@ async function collectionVersion(
       `SELECT string_agg(x::text, '.' ORDER BY x::text) AS xip FROM pg_snapshot_xip(pg_current_snapshot()) x`,
     );
     if (!seq) return { notModified: false, client, release };
-    const tag = createHash("sha1")
+    const tag = createHash("sha256")
       .update(JSON.stringify([BOOT_ID, seq.rows[0].v, snap.rows[0].xip, ...params]))
       .digest("base64url")
       .slice(0, 22);

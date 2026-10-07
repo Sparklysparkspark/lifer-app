@@ -47,6 +47,7 @@ async function resolveOrCreateOtherTaxaSpecies(
     [inatTaxonId],
   );
   if (existing.rows[0]) return { speciesId: existing.rows[0].id, scientificName: existing.rows[0].scientific_name };
+  if (!Number.isSafeInteger(inatTaxonId) || inatTaxonId <= 0) throw new Error("Not an iNaturalist taxon id");
 
   const taxonRes = await fetch(`${INAT_TAXA_API}/${inatTaxonId}`, {
     headers: { "User-Agent": OTHER_TAXA_USER_AGENT },
