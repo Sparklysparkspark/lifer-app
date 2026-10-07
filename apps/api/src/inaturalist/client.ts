@@ -37,7 +37,12 @@ export interface InatTokenResponse {
   refresh_token: string | null;
 }
 
-export async function exchangeCodeForToken(clientId: string, redirectUri: string, code: string, verifier: string): Promise<InatTokenResponse> {
+export async function exchangeCodeForToken(
+  clientId: string,
+  redirectUri: string,
+  code: string,
+  verifier: string,
+): Promise<InatTokenResponse> {
   const res = await fetch(`${INAT_SITE}/oauth/token`, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded", "User-Agent": USER_AGENT },
@@ -79,12 +84,26 @@ export async function fetchInatIdentity(jwt: string): Promise<{ id: string; logi
   return { id: String(me.id), login: me.login };
 }
 
+/** What Lifer sends: the date and coordinates only when the photos recorded them, never a guess.
+ *  Without coordinates the observation stays Casual until the user places it on iNaturalist. */
 export interface DraftObservation {
   taxonId: number;
-  observedOn: string;
-  lat: number;
-  lon: number;
-  positionalAccuracyMeters: number;
+  observedOn: string | null;
+  location: { lat: number; lon: number } | null;
+  // Free text shown on iNaturalist as the place, from the region the photos are filed under.
+  placeGuess: string | null;
+}
+
+/** The observation fields iNaturalist receives. Unknown values are left out, not filled in. */
+export function observationFields(draft: DraftObservation): Record<string, string | number> {
+  const fields: Record<string, string | number> = { taxon_id: draft.taxonId };
+  if (draft.observedOn) fields.observed_on_string = draft.observedOn;
+  if (draft.location) {
+    fields.latitude = draft.location.lat;
+    fields.longitude = draft.location.lon;
+  }
+  if (draft.placeGuess) fields.place_guess = draft.placeGuess;
+  return fields;
 }
 
 export async function createObservation(jwt: string, draft: DraftObservation): Promise<string> {
@@ -92,15 +111,7 @@ export async function createObservation(jwt: string, draft: DraftObservation): P
     method: "POST",
     headers: { Authorization: jwt, "Content-Type": "application/json", "User-Agent": USER_AGENT },
     signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-    body: JSON.stringify({
-      observation: {
-        taxon_id: draft.taxonId,
-        observed_on_string: draft.observedOn,
-        latitude: draft.lat,
-        longitude: draft.lon,
-        positional_accuracy: draft.positionalAccuracyMeters,
-      },
-    }),
+    body: JSON.stringify({ observation: observationFields(draft) }),
   });
   if (!res.ok) throw new Error(`iNaturalist observation creation failed: ${res.status} ${await res.text()}`);
   const data = (await res.json()) as { id: number };

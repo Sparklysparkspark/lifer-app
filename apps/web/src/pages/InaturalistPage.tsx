@@ -5,22 +5,47 @@ import { Spinner } from "../components/LoadingScreen";
 import EmptyState from "../components/EmptyState";
 import Button from "../components/Button";
 import FormMessage from "../components/FormMessage";
-import { formatDate } from "../lib/formatDate";
+import { formatDate } from "../lib/format";
 import { pluralize } from "../lib/pluralize";
+import { openExternal } from "../lib/openExternal";
 
 const sendIcon = (
-  <svg viewBox="0 0 24 24" className="h-6 w-6 text-muted" fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round">
+  <svg
+    viewBox="0 0 24 24"
+    className="h-6 w-6 text-muted"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth={1.75}
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
     <path d="M22 2 11 13M22 2l-7 20-4-9-9-4 20-7Z" />
   </svg>
 );
 const pendingIcon = (
-  <svg viewBox="0 0 24 24" className="h-6 w-6 text-muted" fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round">
+  <svg
+    viewBox="0 0 24 24"
+    className="h-6 w-6 text-muted"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth={1.75}
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
     <circle cx="12" cy="12" r="9" />
     <path d="M12 7v5l3 3" />
   </svg>
 );
 const completedIcon = (
-  <svg viewBox="0 0 24 24" className="h-6 w-6 text-muted" fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round">
+  <svg
+    viewBox="0 0 24 24"
+    className="h-6 w-6 text-muted"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth={1.75}
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
     <path d="M20 6 9 17l-5-5" />
   </svg>
 );
@@ -67,7 +92,9 @@ export default function InaturalistPage() {
   return (
     <div className="flex-1 bg-canvas">
       <PageHeader sticky title="iNaturalist" backFallbackTo="/settings" backLabel="Settings">
-        <p className="mt-1 text-sm text-muted">Send your sightings to iNaturalist as draft observations, then finish them there.</p>
+        <p className="mt-1 text-sm text-muted">
+          Send your sightings to iNaturalist as draft observations, then finish them there.
+        </p>
         <div className="mt-4 flex gap-2">
           {(["import", "pending", "completed"] as const).map((t) => (
             <button
@@ -97,6 +124,7 @@ function ImportTab() {
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState<string | null>(null);
   const [excluded, setExcluded] = useState<Record<string, Set<string>>>({});
+  const [notice, setNotice] = useState<string | null>(null);
 
   function load() {
     api
@@ -126,8 +154,24 @@ function ImportTab() {
     if (captureIds.length === 0) return;
     setSubmitting(key);
     setError(null);
+    setNotice(null);
     try {
-      await api.post("/inaturalist/observations", { captureIds });
+      const sent = await api.post<{ editUrl: string; needsLocation: boolean; needsDate: boolean }>(
+        "/inaturalist/observations",
+        { captureIds },
+      );
+      // Lifer only sends what the photos recorded. Anything missing is added on iNaturalist,
+      // whose map is far better for placing a sighting than anything offline.
+      if (sent.needsLocation || sent.needsDate) {
+        const missing =
+          sent.needsLocation && sent.needsDate ? "location and date" : sent.needsLocation ? "location" : "date";
+        setNotice(
+          `Sent. These photos had no ${missing}, so add it on iNaturalist, then choose Confirm complete on the Pending tab to bring it back into Lifer.`,
+        );
+        openExternal(sent.editUrl);
+      } else {
+        setNotice("Sent to iNaturalist.");
+      }
       load();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Couldn't create the observation");
@@ -138,11 +182,22 @@ function ImportTab() {
 
   if (error) return <FormMessage error={error} />;
   if (!clusters) return <Spinner />;
+  const noticeMessage = notice ? <FormMessage success={notice} /> : null;
   if (clusters.length === 0)
-    return <EmptyState icon={sendIcon} title="Nothing waiting to be sent" description="Every sighting has already been submitted." />;
+    return (
+      <div className="space-y-4">
+        {noticeMessage}
+        <EmptyState
+          icon={sendIcon}
+          title="Nothing waiting to be sent"
+          description="Every sighting has already been submitted."
+        />
+      </div>
+    );
 
   return (
     <div className="space-y-4">
+      {noticeMessage}
       {clusters.map((cluster) => {
         const key = clusterKey(cluster);
         const excludedIds = excluded[key] ?? new Set<string>();
@@ -150,9 +205,12 @@ function ImportTab() {
           <div key={key} className="rounded-xl border border-line bg-surface p-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-ink">{speciesLabel(cluster.commonName, cluster.scientificName)}</p>
+                <p className="text-sm font-medium text-ink">
+                  {speciesLabel(cluster.commonName, cluster.scientificName)}
+                </p>
                 <p className="text-xs text-muted">
-                  {pluralize(cluster.captures.length, "photo")} · {formatDateRange(cluster.earliestTakenAt, cluster.latestTakenAt)}
+                  {pluralize(cluster.captures.length, "photo")} ·{" "}
+                  {formatDateRange(cluster.earliestTakenAt, cluster.latestTakenAt)}
                 </p>
               </div>
               <Button
@@ -211,7 +269,9 @@ function PendingTab() {
     setConfirming(observationId);
     setError(null);
     try {
-      const result = await api.post<{ confirmed: boolean; message?: string }>(`/inaturalist/observations/${observationId}/confirm`);
+      const result = await api.post<{ confirmed: boolean; message?: string }>(
+        `/inaturalist/observations/${observationId}/confirm`,
+      );
       if (result.confirmed) load();
       else setMessage((prev) => ({ ...prev, [observationId]: result.message ?? "Not yet confirmed." }));
     } catch (err) {
@@ -224,7 +284,13 @@ function PendingTab() {
   if (error) return <FormMessage error={error} />;
   if (!observations) return <Spinner />;
   if (observations.length === 0)
-    return <EmptyState icon={pendingIcon} title="Nothing pending" description="Every observation you've sent has been confirmed complete." />;
+    return (
+      <EmptyState
+        icon={pendingIcon}
+        title="Nothing pending"
+        description="Every observation you've sent has been confirmed complete."
+      />
+    );
 
   return (
     <div className="space-y-3">
@@ -233,7 +299,12 @@ function PendingTab() {
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-3">
               {obs.currentPhotoId ? (
-                <img src={`/api/photos/${obs.currentPhotoId}/thumb`} alt="" loading="lazy" className="h-14 w-14 rounded-md object-cover" />
+                <img
+                  src={`/api/photos/${obs.currentPhotoId}/thumb`}
+                  alt=""
+                  loading="lazy"
+                  className="h-14 w-14 rounded-md object-cover"
+                />
               ) : (
                 <div className="h-14 w-14 rounded-md bg-surface-muted" />
               )}
@@ -244,7 +315,12 @@ function PendingTab() {
                 </a>
               </div>
             </div>
-            <Button variant="secondary" size="sm" onClick={() => confirm(obs.observationId)} loading={confirming === obs.observationId}>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => confirm(obs.observationId)}
+              loading={confirming === obs.observationId}
+            >
               {confirming === obs.observationId ? "Checking…" : "Confirm complete"}
             </Button>
           </div>
@@ -269,7 +345,13 @@ function CompletedTab() {
   if (error) return <FormMessage error={error} />;
   if (!observations) return <Spinner />;
   if (observations.length === 0)
-    return <EmptyState icon={completedIcon} title="Nothing here yet" description="Confirmed observations will show up in this list." />;
+    return (
+      <EmptyState
+        icon={completedIcon}
+        title="Nothing here yet"
+        description="Confirmed observations will show up in this list."
+      />
+    );
 
   return (
     <div className="space-y-3">
@@ -282,7 +364,12 @@ function CompletedTab() {
           className="flex items-center gap-3 rounded-xl border border-line bg-surface p-4 hover:bg-surface-muted"
         >
           {obs.currentPhotoId ? (
-            <img src={`/api/photos/${obs.currentPhotoId}/thumb`} alt="" loading="lazy" className="h-14 w-14 rounded-md object-cover" />
+            <img
+              src={`/api/photos/${obs.currentPhotoId}/thumb`}
+              alt=""
+              loading="lazy"
+              className="h-14 w-14 rounded-md object-cover"
+            />
           ) : (
             <div className="h-14 w-14 rounded-md bg-surface-muted" />
           )}
