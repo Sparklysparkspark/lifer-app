@@ -12,17 +12,37 @@ On a home network with no domain, you can skip this page and use `http://<server
 ## Setup
 
 1. In your proxy, forward your domain to `http://<server-ip>:4000` (or the port you set with `PORT`).
-2. Open Lifer at your domain.
+2. Tell Lifer which address the proxy connects from, with `TRUST_PROXY` in `.env` (see [below](#trust-proxy)), then run `docker compose up -d`.
+3. Open Lifer at your domain.
 
-There's nothing to change in Lifer itself. It sees that you reached it over HTTPS and keeps your sign-in HTTPS only.
+Lifer sees that you reached it over HTTPS and keeps your sign-in HTTPS only.
 
 A few things you don't need to worry about:
 
 - **Upload size.** Photos and videos of any size go up in small, resumable pieces, so you don't need to raise your proxy's upload limit. See [Large uploads](#large-uploads).
 - **Websockets.** Lifer doesn't use them.
-- **Headers.** The proxies below pass along everything Lifer needs by default.
+- **Headers.** The proxies below pass along everything Lifer needs by default. You only tell Lifer which proxy to believe ([below](#trust-proxy)).
 
 Lifer must be served at the root of a domain or subdomain (`lifer.example.com`), not under a path like `example.com/lifer`.
+
+## Tell Lifer about your proxy {#trust-proxy}
+
+Lifer limits failed sign-ins per visitor address. Behind a proxy, every request comes from the proxy, so Lifer needs to know it can believe the visitor's real address the proxy passes along (`X-Forwarded-For`). It believes no one by default, because a device on your network could otherwise claim any address it likes. Without `TRUST_PROXY`, everything still works, but the sign-in limit is shared by all visitors, and Lifer's log says so the first time a request comes through the proxy: look for `TRUST_PROXY isn't set`. That line also shows the address the proxy connects from.
+
+Set `TRUST_PROXY` in `.env` to that address:
+
+| Your setup | Set |
+|---|---|
+| The proxy runs on another computer, like Nginx Proxy Manager on a separate box | Its IP address: `TRUST_PROXY=192.168.1.5` |
+| The proxy runs on the same server, in Docker or installed directly (Nginx Proxy Manager, Caddy, nginx, Traefik, `cloudflared`) | Docker's private networks: `TRUST_PROXY=172.16.0.0/12`. Connections from other devices on your network keep their own addresses, so they can't pretend. If the log line shows an address outside that range, or your home network itself uses `172.16.x.x` to `172.31.x.x` addresses, use the exact address from the log line instead. |
+| Lifer runs without Docker, with the proxy on the same machine | `TRUST_PROXY=loopback` |
+| Two proxies in a row, like Cloudflare in front of nginx | `TRUST_PROXY=2`, the number of proxies, but only if Lifer's port can't be reached without going through them. |
+
+Several values can be combined with commas, like `TRUST_PROXY=192.168.1.5,172.16.0.0/12`.
+
+:::note Upgrading
+Lifer used to trust any proxy on a private network by default. If you use a reverse proxy and never set `TRUST_PROXY`, add it as above. Setting `TRUST_PROXY=loopback,linklocal,uniquelocal` brings back the old behavior exactly, including its weakness on a shared network.
+:::
 
 ## Examples
 
@@ -93,9 +113,7 @@ Only scripts that upload with a single plain multipart request (instead of [resu
 
 ## Unusual setups {#advanced}
 
-You only need this if your setup is out of the ordinary. It goes in `.env`, then run `docker compose up -d`.
-
-- **Two proxies in a row**, like Cloudflare in front of nginx: set `TRUST_PROXY=2` so Lifer sees each visitor's real IP address for its login rate limit.
+- **Two proxies in a row**, like Cloudflare in front of nginx: see [Tell Lifer about your proxy](#trust-proxy).
 
 See [Environment variables](./environment-variables.md#security-and-reverse-proxies) for details.
 

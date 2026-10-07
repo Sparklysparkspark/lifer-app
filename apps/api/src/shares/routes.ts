@@ -1,24 +1,24 @@
 // Public, revocable links to an album's current contents (read at request time).
 // The public routes below never use requireAuth or request.user, and this file is kept separate so
 // it's clear which routes are unauthenticated. GPS is never included, so a link can't reveal a
-// rare species' location.
+// rare species' location. Links are found by their token's sha256 (token_hash, migration 132);
+// the owner's copy for the share list is kept encrypted (lib/secretBox.ts), never as plain text.
 import { randomBytes } from "node:crypto";
 import { createReadStream, existsSync } from "node:fs";
 import type { FastifyInstance } from "fastify";
-import { pool } from "../db.js";
-import { cookieSecureFor, requireScope } from "../auth/session.js";
+import { Type } from "typebox";
+import { pool } from "@lifer/core/db.js";
+import { cookieSecureFor, hashToken, requireScope } from "../auth/session.js";
+import { SECRET_CONTEXT, SecretUnavailableError, secretBox } from "../lib/secretBox.js";
 import { DUMMY_PASSWORD_HASH, hashPassword, verifyPassword } from "../auth/password.js";
 import { ipRateLimitKey, isRateLimited, recordAttempt } from "../auth/rateLimiter.js";
 import { contentDisposition } from "../lib/httpFile.js";
-import { isUuid, parseDate } from "../lib/validate.js";
+import { parseDate } from "../lib/validate.js";
+import { IdParams, Nullable, Ok, Uuid, notFoundOnInvalidId, replies, withSchemas } from "../lib/schema.js";
 import { addUnlock, hasUnlock } from "./unlockCookie.js";
 
-interface CreateShareBody {
-  password?: string;
-  allowDownload?: boolean;
-  showMetadata?: boolean;
-  expiresAt?: string | null;
-}
+const albumNotFound = notFoundOnInvalidId("Album not found");
+const TokenParams = Type.Object({ token: Type.String({ minLength: 1 }) });
 
 const SHARE_TOKEN_MAX_ATTEMPTS = 50;
 // Unlocked shares live in one signed cookie (unlockCookie.ts).
@@ -44,25 +44,72 @@ async function resolveShare(token: string) {
     `SELECT sl.id, sl.album_id, sl.password_hash, sl.allow_download, sl.show_metadata, sl.expires_at, sl.revoked_at, a.name AS album_name
      FROM shared_links sl
      JOIN albums a ON a.id = sl.album_id
-     WHERE sl.token = $1`,
-    [token],
+     WHERE sl.token_hash = $1`,
+    [hashToken(token)],
   );
   return res.rows[0] ?? null;
+}
+
+/** The owner's copy of a share link's token, or null when it can't be decrypted (the server's
+ *  key file was lost). The link itself still works; only showing it again doesn't. */
+function readStoredToken(row: { token_encrypted: string | null; token: string | null }): string | null {
+  if (row.token_encrypted) {
+    try {
+      return secretBox.decrypt(row.token_encrypted, SECRET_CONTEXT.shareLinkToken);
+    } catch (err) {
+      if (!(err instanceof SecretUnavailableError)) throw err;
+      return null;
+    }
+  }
+  // A row from before migration 132 that encryptStoredShareTokens hasn't reached yet.
+  return row.token;
+}
+
+/** Moves share tokens still stored as plain text (rows from before migration 132) into their
+ *  encrypted copy, at startup. Returns how many rows changed. */
+export async function encryptStoredShareTokens(db: Pick<typeof pool, "query"> = pool): Promise<number> {
+  const res = await db.query<{ id: string; token: string }>(`SELECT id, token FROM shared_links WHERE token IS NOT NULL`);
+  for (const row of res.rows) {
+    await db.query(`UPDATE shared_links SET token_encrypted = $2, token = NULL WHERE id = $1 AND token = $3`, [
+      row.id,
+      secretBox.encrypt(row.token, SECRET_CONTEXT.shareLinkToken),
+      row.token,
+    ]);
+  }
+  return res.rows.length;
 }
 
 function hasValidUnlock(request: { cookies: Record<string, string | undefined> }, shareId: string): boolean {
   return hasUnlock(request.cookies[UNLOCK_COOKIE_NAME], shareId);
 }
 
-export async function albumShareRoutes(app: FastifyInstance): Promise<void> {
+export async function albumShareRoutes(fastify: FastifyInstance): Promise<void> {
+  const app = withSchemas(fastify);
+
   // ---- Owner-side (authenticated) ----
 
-  app.post<{ Params: { id: string }; Body: CreateShareBody }>(
+  app.post(
     "/albums/:id/shares",
-    { preHandler: requireScope("share.write") },
+    {
+      preValidation: requireScope("share.write"),
+      config: albumNotFound,
+      schema: {
+        params: IdParams,
+        body: Type.Object(
+          {
+            // Blank means no password.
+            password: Type.Optional(Type.String()),
+            allowDownload: Type.Optional(Type.Boolean()),
+            showMetadata: Type.Optional(Type.Boolean()),
+            // Not format date-time: parseDate below takes any date string, as it always has.
+            expiresAt: Type.Optional(Nullable(Type.String())),
+          },
+          { additionalProperties: false },
+        ),
+      },
+    },
     async (request, reply) => {
-      if (!isUuid(request.params.id)) return reply.code(404).send({ error: "Album not found" });
-      const { password, allowDownload, showMetadata, expiresAt: rawExpiresAt } = request.body ?? {};
+      const { password, allowDownload, showMetadata, expiresAt: rawExpiresAt } = request.body;
       const expiresAt = parseDate(rawExpiresAt);
       if (expiresAt === undefined) return reply.code(400).send({ error: "expiresAt must be a valid date" });
 
@@ -76,15 +123,23 @@ export async function albumShareRoutes(app: FastifyInstance): Promise<void> {
       const passwordHash = password ? await hashPassword(password) : null;
 
       const res = await pool.query(
-        `INSERT INTO shared_links (album_id, token, password_hash, allow_download, show_metadata, expires_at)
-         VALUES ($1, $2, $3, $4, $5, $6)
-         RETURNING id, token, allow_download, show_metadata, expires_at, created_at`,
-        [request.params.id, token, passwordHash, !!allowDownload, !!showMetadata, expiresAt],
+        `INSERT INTO shared_links (album_id, token_hash, token_encrypted, password_hash, allow_download, show_metadata, expires_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
+         RETURNING id, allow_download, show_metadata, expires_at, created_at`,
+        [
+          request.params.id,
+          hashToken(token),
+          secretBox.encrypt(token, SECRET_CONTEXT.shareLinkToken),
+          passwordHash,
+          !!allowDownload,
+          !!showMetadata,
+          expiresAt,
+        ],
       );
       const r = res.rows[0];
       return {
         id: r.id,
-        token: r.token,
+        token,
         hasPassword: !!passwordHash,
         allowDownload: r.allow_download,
         showMetadata: r.show_metadata,
@@ -94,51 +149,62 @@ export async function albumShareRoutes(app: FastifyInstance): Promise<void> {
     },
   );
 
-  app.get<{ Params: { id: string } }>("/albums/:id/shares", { preHandler: requireScope("share.read") }, async (request, reply) => {
-    if (!isUuid(request.params.id)) return reply.code(404).send({ error: "Album not found" });
-    const albumRes = await pool.query(`SELECT 1 FROM albums WHERE id = $1 AND user_id = $2`, [
-      request.params.id,
-      request.user!.id,
-    ]);
-    if (albumRes.rows.length === 0) return reply.code(404).send({ error: "Album not found" });
+  app.get(
+    "/albums/:id/shares",
+    { preValidation: requireScope("share.read"), config: albumNotFound, schema: { params: IdParams } },
+    async (request, reply) => {
+      const albumRes = await pool.query(`SELECT 1 FROM albums WHERE id = $1 AND user_id = $2`, [
+        request.params.id,
+        request.user!.id,
+      ]);
+      if (albumRes.rows.length === 0) return reply.code(404).send({ error: "Album not found" });
 
-    const res = await pool.query(
-      `SELECT id, token, password_hash, allow_download, show_metadata, expires_at, revoked_at, created_at
-       FROM shared_links WHERE album_id = $1 ORDER BY created_at DESC`,
-      [request.params.id],
-    );
-    return {
-      shares: res.rows.map((r) => ({
-        id: r.id,
-        token: r.token,
-        hasPassword: !!r.password_hash,
-        allowDownload: r.allow_download,
-        showMetadata: r.show_metadata,
-        expiresAt: r.expires_at,
-        revoked: !!r.revoked_at,
-        createdAt: r.created_at,
-      })),
-    };
-  });
+      const res = await pool.query(
+        `SELECT id, token, token_encrypted, password_hash, allow_download, show_metadata, expires_at, revoked_at, created_at
+         FROM shared_links WHERE album_id = $1 ORDER BY created_at DESC`,
+        [request.params.id],
+      );
+      return {
+        shares: res.rows.map((r) => ({
+          id: r.id,
+          token: readStoredToken(r),
+          hasPassword: !!r.password_hash,
+          allowDownload: r.allow_download,
+          showMetadata: r.show_metadata,
+          expiresAt: r.expires_at,
+          revoked: !!r.revoked_at,
+          createdAt: r.created_at,
+        })),
+      };
+    },
+  );
 
-  app.delete<{ Params: { id: string } }>("/shares/:id", { preHandler: requireScope("share.write") }, async (request, reply) => {
-    if (!isUuid(request.params.id)) return reply.code(404).send({ error: "Share not found" });
-    // Revoke rather than delete, to keep an audit trail. Ownership joins through albums.
-    const res = await pool.query(
-      `UPDATE shared_links sl SET revoked_at = now()
-       FROM albums a
-       WHERE sl.id = $1 AND sl.album_id = a.id AND a.user_id = $2 AND sl.revoked_at IS NULL`,
-      [request.params.id, request.user!.id],
-    );
-    if (res.rowCount === 0) return reply.code(404).send({ error: "Share not found" });
-    return { ok: true };
-  });
+  app.delete(
+    "/shares/:id",
+    {
+      preValidation: requireScope("share.write"),
+      config: notFoundOnInvalidId("Share not found"),
+      schema: { params: IdParams, response: replies(Ok) },
+    },
+    async (request, reply) => {
+      // Revoke rather than delete, to keep an audit trail. Ownership joins through albums.
+      const res = await pool.query(
+        `UPDATE shared_links sl SET revoked_at = now()
+         FROM albums a
+         WHERE sl.id = $1 AND sl.album_id = a.id AND a.user_id = $2 AND sl.revoked_at IS NULL`,
+        [request.params.id, request.user!.id],
+      );
+      if (res.rowCount === 0) return reply.code(404).send({ error: "Share not found" });
+      return { ok: true };
+    },
+  );
 
   // ---- Public (no requireAuth past this point) ----
 
-  app.get<{ Params: { token: string } }>("/share/:token", async (request, reply) => {
+  app.get("/share/:token", { schema: { params: TokenParams } }, async (request, reply) => {
     const share = await resolveShare(request.params.token);
-    if (!share || !isLive(share)) return reply.code(404).send({ error: "This link doesn't exist or is no longer available" });
+    if (!share || !isLive(share))
+      return reply.code(404).send({ error: "This link doesn't exist or is no longer available" });
 
     if (share.password_hash && !hasValidUnlock(request, share.id)) {
       return { needsPassword: true };
@@ -181,8 +247,17 @@ export async function albumShareRoutes(app: FastifyInstance): Promise<void> {
     };
   });
 
-  app.post<{ Params: { token: string }; Body: { password?: string } }>(
+  app.post(
     "/share/:token/unlock",
+    {
+      // Anything but the right password is "Incorrect password", malformed requests included, so
+      // a public visitor sees one answer.
+      config: { invalidInput: { body: { status: 401, error: "Incorrect password" } } },
+      schema: {
+        params: TokenParams,
+        body: Type.Object({ password: Type.Optional(Type.String()) }, { additionalProperties: false }),
+      },
+    },
     async (request, reply) => {
       // Per token+IP, plus a looser per-token cap so rotating IPs (or a spoofed
       // X-Forwarded-For) can't brute-force one share's password. Only wrong passwords count,
@@ -194,7 +269,10 @@ export async function albumShareRoutes(app: FastifyInstance): Promise<void> {
       }
 
       const share = await resolveShare(request.params.token);
-      const validPassword = await verifyPassword(share?.password_hash ?? DUMMY_PASSWORD_HASH, request.body?.password ?? "");
+      const validPassword = await verifyPassword(
+        share?.password_hash ?? DUMMY_PASSWORD_HASH,
+        request.body.password ?? "",
+      );
       if (!share || !isLive(share) || !share.password_hash || !validPassword) {
         recordAttempt(ipKey);
         recordAttempt(tokenKey);
@@ -214,12 +292,19 @@ export async function albumShareRoutes(app: FastifyInstance): Promise<void> {
   );
 
   for (const kind of ["display", "thumb"] as const) {
-    app.get<{ Params: { token: string; photoId: string }; Querystring: { download?: string } }>(
+    app.get(
       `/share/:token/photos/:photoId/${kind}`,
+      {
+        config: notFoundOnInvalidId("Photo not found"),
+        schema: {
+          params: Type.Object({ token: Type.String({ minLength: 1 }), photoId: Uuid() }),
+          // Any other value is ignored, as before: the web app only ever sends "1".
+          querystring: Type.Object({ download: Type.Optional(Type.String()) }),
+        },
+      },
       async (request, reply) => {
         const share = await resolveShare(request.params.token);
         if (!share || !isLive(share)) return reply.code(404).send({ error: "Not found" });
-        if (!isUuid(request.params.photoId)) return reply.code(404).send({ error: "Photo not found" });
         if (share.password_hash && !hasValidUnlock(request, share.id)) {
           return reply.code(401).send({ error: "This link is password-protected" });
         }
