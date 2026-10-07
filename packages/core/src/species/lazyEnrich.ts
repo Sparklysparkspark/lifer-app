@@ -93,7 +93,10 @@ export async function readBodyCapped(res: Response, maxBytes: number): Promise<B
   return Buffer.concat(chunks, total);
 }
 
-export async function downloadAndCacheImage(url: string, key: string): Promise<{ displayPath: string; thumbPath: string } | null> {
+export async function downloadAndCacheImage(
+  url: string,
+  key: string,
+): Promise<{ displayPath: string; thumbPath: string } | null> {
   if (!isAllowedReferenceImageUrl(url)) {
     log.error({ url }, "Refusing to fetch a reference image from an unexpected host");
     return null;
@@ -154,7 +157,9 @@ const CACHEABLE_HOSTS = new Set(["api.inaturalist.org", "www.inaturalist.org"]);
 
 async function getCachedInatResponse(url: string): Promise<string | null> {
   try {
-    const res = await pool.query<{ response: string }>(`SELECT response FROM inat_response_cache WHERE url = $1`, [url]);
+    const res = await pool.query<{ response: string }>(`SELECT response FROM inat_response_cache WHERE url = $1`, [
+      url,
+    ]);
     return res.rows[0]?.response ?? null;
   } catch {
     return null;
@@ -202,7 +207,10 @@ export async function fetchWithRetry(url: string): Promise<Response> {
     } catch (err) {
       // A dropped connection throws rather than returning a Response; retried the same way.
       lastError = err;
-      log.warn({ host: new URL(url).host, err: err instanceof Error ? err.message : err }, "iNaturalist network error, retrying");
+      log.warn(
+        { host: new URL(url).host, err: err instanceof Error ? err.message : err },
+        "iNaturalist network error, retrying",
+      );
       await new Promise((r) => setTimeout(r, 1000 * 2 ** attempt));
       continue;
     }
@@ -216,7 +224,10 @@ export async function fetchWithRetry(url: string): Promise<Response> {
     }
     const retryAfter = Number(res.headers.get("retry-after"));
     const delayMs = Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : 1000 * 2 ** attempt;
-    log.warn({ host: new URL(url).host, backoffSeconds: Math.round(delayMs / 1000) }, "Rate limited (429), backing off");
+    log.warn(
+      { host: new URL(url).host, backoffSeconds: Math.round(delayMs / 1000) },
+      "Rate limited (429), backing off",
+    );
     await new Promise((r) => setTimeout(r, delayMs));
   }
   try {
@@ -324,7 +335,10 @@ export function stripHtml(html: string): string {
 /** iNaturalist's wikipedia_summary (the article lead, cut off at about 450 characters with
  *  "...") through the shared description rule (descriptionText.ts), or null. The summary needs a
  *  wikipedia_url too: species.description_requires_credit needs a source URL with any text. */
-export function descriptionFromINaturalistSummary(summary: string | null | undefined, wikipediaUrl: string | null | undefined): string | null {
+export function descriptionFromINaturalistSummary(
+  summary: string | null | undefined,
+  wikipediaUrl: string | null | undefined,
+): string | null {
   if (!summary || !wikipediaUrl) return null;
   return composeDescription({ lead: htmlToText(summary), leadTruncated: /(\.\.\.|…)\s*$/.test(summary) });
 }
@@ -390,10 +404,12 @@ async function fetchINaturalistTaxonDetail(
   // summary, no gallery" while the paced name search still found the photo, so the species was
   // stamped enriched_at with a photo and no description, and nothing ever looked again.
   const res = await fetchWithRetry(inatTaxonUrl(taxonId));
-  if (!res.ok) return { gallery: [], wikipediaSummary: null, wikipediaUrl: null, photosWithheld: null, textChecked: false };
+  if (!res.ok)
+    return { gallery: [], wikipediaSummary: null, wikipediaUrl: null, photosWithheld: null, textChecked: false };
   const data = (await res.json()) as { results: INaturalistTaxonRecord[] };
   // An empty result is an answer too, but not about this taxon's text.
-  if (!data.results?.[0]) return { gallery: [], wikipediaSummary: null, wikipediaUrl: null, photosWithheld: null, textChecked: false };
+  if (!data.results?.[0])
+    return { gallery: [], wikipediaSummary: null, wikipediaUrl: null, photosWithheld: null, textChecked: false };
   return taxonDetailFromRecord(data.results[0], excludePhotoUrl, speciesId, options);
 }
 
@@ -412,7 +428,12 @@ export async function taxonDetailFromRecord(
   for (const photo of photos) {
     const mapped = toGalleryPhoto(photo);
     const cached = await downloadAndCacheImage(mapped.photoUrl, `${speciesId}-gallery-${gallery.length}`);
-    gallery.push({ ...mapped, sortOrder: gallery.length, displayPath: cached?.displayPath ?? null, thumbPath: cached?.thumbPath ?? null });
+    gallery.push({
+      ...mapped,
+      sortOrder: gallery.length,
+      displayPath: cached?.displayPath ?? null,
+      thumbPath: cached?.thumbPath ?? null,
+    });
   }
   // The shared description rule (descriptionText.ts); a summary without wikipedia_url counts as
   // none (description_requires_credit).
@@ -442,7 +463,9 @@ export async function enrichSpecies(
 ): Promise<EnrichmentResult> {
   const taxon = await fetchINaturalistTaxon(species.scientific_name);
   const inat = mainPhotoCandidate(taxon?.defaultPhoto ?? null, options);
-  const detail = taxon ? await fetchINaturalistTaxonDetail(taxon.id, inat?.photoUrl ?? null, species.id, options) : null;
+  const detail = taxon
+    ? await fetchINaturalistTaxonDetail(taxon.id, inat?.photoUrl ?? null, species.id, options)
+    : null;
   const result = await assembleEnrichment(species.id, inat, detail);
   // No taxon found can also be a failed search, so it says nothing about the photo.
   return taxon ? withPhotoWithheld(result, taxon.defaultPhoto ?? null, detail, options) : result;
@@ -539,10 +562,20 @@ async function assembleEnrichment(
 export async function persistEnrichment(speciesId: string, enrichment: EnrichmentResult): Promise<void> {
   // A blocklisted main photo (a range map, say; migration 106) counts as no photo at all.
   if (enrichment.referencePhoto) {
-    const blocked = await pool.query(`SELECT 1 FROM reference_photo_blocklist WHERE photo_url = $1`, [enrichment.referencePhoto]);
+    const blocked = await pool.query(`SELECT 1 FROM reference_photo_blocklist WHERE photo_url = $1`, [
+      enrichment.referencePhoto,
+    ]);
     if (blocked.rowCount) {
-      for (const p of [enrichment.referenceDisplayPath, enrichment.referenceThumbPath]) if (p) rmSync(p, { force: true });
-      enrichment = { ...enrichment, referencePhoto: null, referenceCredit: null, referenceLicense: null, referenceDisplayPath: null, referenceThumbPath: null };
+      for (const p of [enrichment.referenceDisplayPath, enrichment.referenceThumbPath])
+        if (p) rmSync(p, { force: true });
+      enrichment = {
+        ...enrichment,
+        referencePhoto: null,
+        referenceCredit: null,
+        referenceLicense: null,
+        referenceDisplayPath: null,
+        referenceThumbPath: null,
+      };
     }
   }
   await pool.query(
@@ -607,7 +640,9 @@ export async function fillDescriptionIfUnchecked(
      WHERE id = $1`,
     [speciesId, description, description ? INATURALIST_DESCRIPTION_CREDIT : null, sourceUrl],
   );
-  return description && sourceUrl ? { description, descriptionCredit: INATURALIST_DESCRIPTION_CREDIT, descriptionSourceUrl: sourceUrl } : null;
+  return description && sourceUrl
+    ? { description, descriptionCredit: INATURALIST_DESCRIPTION_CREDIT, descriptionSourceUrl: sourceUrl }
+    : null;
 }
 
 /** Stores a main photo for a species that still has none, with its credit and license, then its
@@ -665,7 +700,9 @@ async function tryComputeReferenceEmbedding(speciesId: string): Promise<void> {
 
 // Loaded suggestion candidates pick up the new vectors now rather than on the next rebuild.
 async function refreshSpeciesVectorsQuietly(speciesId: string): Promise<void> {
-  await refreshSpeciesVectors(pool, [speciesId]).catch((err) => log.warn({ err, speciesId }, "Couldn't refresh this species' loaded vectors"));
+  await refreshSpeciesVectors(pool, [speciesId]).catch((err) =>
+    log.warn({ err, speciesId }, "Couldn't refresh this species' loaded vectors"),
+  );
 }
 
 // The species identification model's copy of the same vector. Species in the published catalog
@@ -718,7 +755,11 @@ export async function persistGallery(speciesId: string, gallery: EnrichmentResul
 }
 
 // The same as tryComputeReferenceEmbedding, for one gallery photo. True when a vector was stored.
-async function tryComputeGalleryEmbedding(referencePhotoId: string, speciesId: string, displayPath: string | null): Promise<boolean> {
+async function tryComputeGalleryEmbedding(
+  referencePhotoId: string,
+  speciesId: string,
+  displayPath: string | null,
+): Promise<boolean> {
   if (!displayPath) return false;
   let stored = false;
   try {
@@ -744,7 +785,11 @@ async function tryComputeGalleryEmbedding(referencePhotoId: string, speciesId: s
   return stored;
 }
 
-async function tryComputeIdGalleryEmbedding(referencePhotoId: string, speciesId: string, displayPath: string): Promise<boolean> {
+async function tryComputeIdGalleryEmbedding(
+  referencePhotoId: string,
+  speciesId: string,
+  displayPath: string,
+): Promise<boolean> {
   if (!idModel.isDownloaded()) return false;
   try {
     const existing = await pool.query<{ exists: boolean }>(

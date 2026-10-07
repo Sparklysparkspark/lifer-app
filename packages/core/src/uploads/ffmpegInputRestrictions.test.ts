@@ -12,7 +12,19 @@ afterAll(() => rmSync(dir, { recursive: true, force: true }));
 
 function makeClip(name: string): string {
   const out = path.join(dir, name);
-  execFileSync(ffmpegPath, ["-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "testsrc=duration=2:size=64x64:rate=10", "-c:v", "mpeg4", out]);
+  execFileSync(ffmpegPath, [
+    "-hide_banner",
+    "-loglevel",
+    "error",
+    "-y",
+    "-f",
+    "lavfi",
+    "-i",
+    "testsrc=duration=2:size=64x64:rate=10",
+    "-c:v",
+    "mpeg4",
+    out,
+  ]);
   return out;
 }
 

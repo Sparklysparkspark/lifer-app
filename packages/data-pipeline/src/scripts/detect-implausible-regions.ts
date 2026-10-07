@@ -12,7 +12,8 @@ import { pool } from "@lifer/core/db.js";
 import { fetchWithRetry, stripHtml } from "@lifer/core/species/lazyEnrich.js";
 
 const INAT_API = "https://api.inaturalist.org/v1";
-const ENDEMIC_PATTERN = /\b(?:endemic to|restricted to|confined to|only found in)\s+((?:(?!\.|,\s+(?:and|but|though)|;)[^.;])+)/i;
+const ENDEMIC_PATTERN =
+  /\b(?:endemic to|restricted to|confined to|only found in)\s+((?:(?!\.|,\s+(?:and|but|though)|;)[^.;])+)/i;
 
 async function fetchFullExtract(name: string, rank: "species" | "genus"): Promise<string | null> {
   const url = `${INAT_API}/taxa?q=${encodeURIComponent(name)}&rank=${rank}&is_active=true&per_page=10`;
@@ -43,16 +44,22 @@ async function main() {
      FROM species s
      JOIN region_species rs ON rs.species_id = s.id
      JOIN regions r ON r.id = rs.region_id
-     ${regionNames ? `WHERE s.id IN (
+     ${
+       regionNames
+         ? `WHERE s.id IN (
        SELECT rs2.species_id FROM region_species rs2 JOIN regions r2 ON r2.id = rs2.region_id WHERE r2.name = ANY($1)
-     )` : ""}
+     )`
+         : ""
+     }
      GROUP BY s.id, s.scientific_name, s.common_name
      HAVING bool_or(s.reference_photo IS NULL AND s.enriched_at IS NOT NULL)
         OR bool_or(rs.local_tier IN ('rare', 'legendary') AND rs.local_frequency <= 2)
      ORDER BY s.scientific_name`,
     regionNames ? [regionNames] : [],
   );
-  console.log(`[detect-implausible] ${res.rows.length} candidate species to check (no-photo or near-single-record-outlier)`);
+  console.log(
+    `[detect-implausible] ${res.rows.length} candidate species to check (no-photo or near-single-record-outlier)`,
+  );
 
   const reviewFlags: string[] = [];
   let done = 0;

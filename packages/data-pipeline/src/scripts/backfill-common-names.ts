@@ -11,7 +11,9 @@ async function main() {
     scientific_name: string;
     common_name: string | null;
     common_name_aliases: string[] | null;
-  }>(`SELECT id, gbif_key, scientific_name, common_name, common_name_aliases FROM species WHERE enriched_at IS NOT NULL ORDER BY scientific_name`);
+  }>(
+    `SELECT id, gbif_key, scientific_name, common_name, common_name_aliases FROM species WHERE enriched_at IS NOT NULL ORDER BY scientific_name`,
+  );
   console.log(`[backfill-common-names] ${res.rows.length} enriched species to check`);
 
   let changed = 0;
@@ -26,7 +28,8 @@ async function main() {
       continue;
     }
     if (!fresh) continue;
-    const aliasesChanged = JSON.stringify([...fresh.aliases].sort()) !== JSON.stringify([...(row.common_name_aliases ?? [])].sort());
+    const aliasesChanged =
+      JSON.stringify([...fresh.aliases].sort()) !== JSON.stringify([...(row.common_name_aliases ?? [])].sort());
     const nameChanged = fresh.primary !== row.common_name;
     if (nameChanged || aliasesChanged) {
       await pool.query(`UPDATE species SET common_name = $1, common_name_aliases = $2 WHERE id = $3`, [
@@ -34,11 +37,15 @@ async function main() {
         fresh.aliases.length > 0 ? fresh.aliases : null,
         row.id,
       ]);
-      if (nameChanged) console.log(`[backfill-common-names] ${row.scientific_name}: "${row.common_name ?? "(none)"}" -> "${fresh.primary}"`);
+      if (nameChanged)
+        console.log(
+          `[backfill-common-names] ${row.scientific_name}: "${row.common_name ?? "(none)"}" -> "${fresh.primary}"`,
+        );
       if (aliasesChanged) console.log(`[backfill-common-names]   aliases: [${fresh.aliases.join(", ")}]`);
       changed++;
     }
-    if (checked % 500 === 0) console.log(`[backfill-common-names] ${checked}/${res.rows.length} checked, ${changed} changed so far`);
+    if (checked % 500 === 0)
+      console.log(`[backfill-common-names] ${checked}/${res.rows.length} checked, ${changed} changed so far`);
   }
   console.log(`[backfill-common-names] done. ${checked} checked, ${changed} changed.`);
   await pool.end();

@@ -19,9 +19,22 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { EMBED_PIPELINE_VERSION } from "@lifer/shared";
 import { downloadResumable, sha256OfFile } from "@lifer/core/lib/resumableDownload.js";
-import { CLIENT_FIELD_KIND, CLIENT_VECTOR_DIMS, encodeVector, type ClientVectors, type EncodedVector } from "@lifer/core/species/clientVectors.js";
+import {
+  CLIENT_FIELD_KIND,
+  CLIENT_VECTOR_DIMS,
+  encodeVector,
+  type ClientVectors,
+  type EncodedVector,
+} from "@lifer/core/species/clientVectors.js";
 import type { PhotoVectorKind } from "@lifer/core/species/embeddings.js";
-import { DETECTOR_MODEL_PATH, analyzeImage, contentHash, inferenceRuntime, warmModels, type EmbedTarget } from "@lifer/core/species/inference.js";
+import {
+  DETECTOR_MODEL_PATH,
+  analyzeImage,
+  contentHash,
+  inferenceRuntime,
+  warmModels,
+  type EmbedTarget,
+} from "@lifer/core/species/inference.js";
 import { placementFor } from "@lifer/core/species/acceleration.js";
 import { selectAcceleration } from "./accelerationSelect.js";
 
@@ -67,7 +80,11 @@ let detectorSha: Promise<string> | null = null;
 // A file already checked (by path, size and mtime) isn't hashed again.
 const verified = new Set<string>();
 
-async function ensureModel(dir: string, ref: ModelRef, progress: (done: number, total: number | null) => void): Promise<string> {
+async function ensureModel(
+  dir: string,
+  ref: ModelRef,
+  progress: (done: number, total: number | null) => void,
+): Promise<string> {
   if (!SAFE_VERSION.test(ref.version)) throw new Error("The server named a model this app can't store");
   if (!ref.sha256) throw new Error("The server's model has no checksum to verify a download against");
   if (!/^https:\/\//.test(ref.url)) throw new Error("The server's model address isn't https");
@@ -78,18 +95,25 @@ async function ensureModel(dir: string, ref: ModelRef, progress: (done: number, 
   };
   if (existsSync(dest) && verified.has(key())) return dest;
   // Hashes an existing file first and only downloads when it's missing or different.
-  await downloadResumable(ref.url, dest, { expectedSha256: ref.sha256, onProgress: progress, label: `the ${ref.version} model` });
+  await downloadResumable(ref.url, dest, {
+    expectedSha256: ref.sha256,
+    onProgress: progress,
+    label: `the ${ref.version} model`,
+  });
   verified.add(key());
   return dest;
 }
 
 export function validateInfo(info: unknown): MatchingInfo {
   const i = info as MatchingInfo;
-  if (!i || typeof i !== "object" || !i.models?.clip || !i.models?.yolo || !Array.isArray(i.targets)) throw new Error("Unrecognized matching info");
-  if (i.pipelineVersion !== EMBED_PIPELINE_VERSION) throw new Error("This server prepares photos for matching differently than this app version");
+  if (!i || typeof i !== "object" || !i.models?.clip || !i.models?.yolo || !Array.isArray(i.targets))
+    throw new Error("Unrecognized matching info");
+  if (i.pipelineVersion !== EMBED_PIPELINE_VERSION)
+    throw new Error("This server prepares photos for matching differently than this app version");
   // A different sharp/libvips or onnxruntime build can turn the same photo into slightly
   // different floats, so only an identical runtime computes for the server.
-  if (i.runtime !== inferenceRuntime()) throw new Error("This server runs different image or model library versions than this app");
+  if (i.runtime !== inferenceRuntime())
+    throw new Error("This server runs different image or model library versions than this app");
   if (i.dims !== CLIENT_VECTOR_DIMS) throw new Error("This server's vectors have a different size");
   return i;
 }
@@ -97,7 +121,8 @@ export function validateInfo(info: unknown): MatchingInfo {
 async function prepare(info: MatchingInfo, dir: string): Promise<void> {
   detectorSha ??= sha256OfFile(DETECTOR_MODEL_PATH);
   // A different detector finds different crops, so its vectors wouldn't match the server's.
-  if ((await detectorSha) !== info.models.yolo.sha256) throw new Error("This server uses a different animal detector than this app");
+  if ((await detectorSha) !== info.models.yolo.sha256)
+    throw new Error("This server uses a different animal detector than this app");
   mkdirSync(dir, { recursive: true });
   const wanted: Array<[ModelRef, PhotoVectorKind[]]> = [];
   const clipKinds = info.targets.filter((k) => k === "clip" || k === "clip-crop");
@@ -114,7 +139,9 @@ async function prepare(info: MatchingInfo, dir: string): Promise<void> {
       const file = await ensureModel(dir, ref, (done, total) => {
         perFile[index] = { done, total };
         state.downloadedBytes = perFile.reduce((a, f) => a + f.done, 0);
-        state.totalBytes = perFile.every((f) => f.total != null) ? perFile.reduce((a, f) => a + (f.total ?? 0), 0) : null;
+        state.totalBytes = perFile.every((f) => f.total != null)
+          ? perFile.reduce((a, f) => a + (f.total ?? 0), 0)
+          : null;
       });
       for (const kind of kinds) models[kind] = { path: file, version: ref.version };
     }
@@ -129,7 +156,13 @@ async function prepare(info: MatchingInfo, dir: string): Promise<void> {
     cacheFile: path.join(dir, "acceleration.json"),
     gpuRuntimeRoot: path.join(dir, "gpu-runtime"),
     models: [
-      { family: "detector", cpuPath: DETECTOR_MODEL_PATH, gpuPath: DETECTOR_MODEL_PATH, downloadGpuCopy: async () => {}, dims: [1, 3, 640, 640] },
+      {
+        family: "detector",
+        cpuPath: DETECTOR_MODEL_PATH,
+        gpuPath: DETECTOR_MODEL_PATH,
+        downloadGpuCopy: async () => {},
+        dims: [1, 3, 640, 640],
+      },
       ...(bio
         ? [
             {
@@ -137,7 +170,12 @@ async function prepare(info: MatchingInfo, dir: string): Promise<void> {
               cpuPath: bio.path,
               gpuPath: gpu ? path.join(dir, `${bio.version}-fp32.onnx`) : null,
               downloadGpuCopy: async (progress: (done: number, total: number | null) => void) => {
-                if (gpu) await ensureModel(dir, { version: `${bio.version}-fp32`, url: gpu.url, sha256: gpu.sha256 }, progress);
+                if (gpu)
+                  await ensureModel(
+                    dir,
+                    { version: `${bio.version}-fp32`, url: gpu.url, sha256: gpu.sha256 },
+                    progress,
+                  );
               },
               dims: [1, 3, 224, 224],
             },
@@ -188,24 +226,42 @@ function status() {
 }
 
 /** Vectors for one photo in the clientVectors shape /uploads/inspect accepts. */
-export async function embedForServer(bytes: Uint8Array, kinds: PhotoVectorKind[], prepared: Prepared): Promise<ClientVectors> {
+export async function embedForServer(
+  bytes: Uint8Array,
+  kinds: PhotoVectorKind[],
+  prepared: Prepared,
+): Promise<ClientVectors> {
   const usable = kinds.filter((k, i) => KINDS.includes(k) && kinds.indexOf(k) === i && prepared.models[k]);
   const target = (k: PhotoVectorKind): EmbedTarget => targetFor(k, prepared.models);
   const hash = contentHash(bytes);
-  const result = usable.length > 0 ? await analyzeImage(bytes, { targets: usable.map(target), key: hash, subject: true, priority: "interactive" }) : null;
-  const computed = new Map<PhotoVectorKind, Float32Array | { error: string }>(usable.map((k, i) => [k, result!.vectors[i]]));
+  const result =
+    usable.length > 0
+      ? await analyzeImage(bytes, { targets: usable.map(target), key: hash, subject: true, priority: "interactive" })
+      : null;
+  const computed = new Map<PhotoVectorKind, Float32Array | { error: string }>(
+    usable.map((k, i) => [k, result!.vectors[i]]),
+  );
   // The server backs an unsure crop with the whole photo (embeddings.ts suggestionVectors), so
   // the identification model's whole-photo vector goes too, sparing the server that model run.
   if (result?.subjectUnsure && prepared.models["id-crop"]) {
-    const [whole] = (await analyzeImage(bytes, { targets: [{ ...target("id-crop"), crop: false }], key: hash, priority: "interactive" })).vectors;
+    const [whole] = (
+      await analyzeImage(bytes, {
+        targets: [{ ...target("id-crop"), crop: false }],
+        key: hash,
+        priority: "interactive",
+      })
+    ).vectors;
     computed.set("id", whole);
   }
   const out: ClientVectors = { pipelineVersion: EMBED_PIPELINE_VERSION, contentHash: hash };
   if (result?.subjectUnsure != null) out.subjectUnsure = result.subjectUnsure;
-  for (const [field, kind] of Object.entries(CLIENT_FIELD_KIND) as Array<[keyof typeof CLIENT_FIELD_KIND, PhotoVectorKind]>) {
+  for (const [field, kind] of Object.entries(CLIENT_FIELD_KIND) as Array<
+    [keyof typeof CLIENT_FIELD_KIND, PhotoVectorKind]
+  >) {
     const v = computed.get(kind);
     const model = prepared.models[kind === "id" ? "id-crop" : kind];
-    if (v instanceof Float32Array && model) out[field] = { modelVersion: model.version, b64f32: encodeVector(v) } satisfies EncodedVector;
+    if (v instanceof Float32Array && model)
+      out[field] = { modelVersion: model.version, b64f32: encodeVector(v) } satisfies EncodedVector;
   }
   return out;
 }
@@ -252,7 +308,9 @@ export function createLocalInferenceServer(opts: { token: string; modelDir: stri
       if (req.method === "POST" && url.pathname === "/embed") {
         const prepared = state.prepared;
         if (!prepared) return send(res, 409, { ...status(), error: state.error ?? "Not ready" });
-        const kinds = (url.searchParams.get("targets") ?? prepared.info.targets.join(",")).split(",") as PhotoVectorKind[];
+        const kinds = (url.searchParams.get("targets") ?? prepared.info.targets.join(",")).split(
+          ",",
+        ) as PhotoVectorKind[];
         const bytes = await readBody(req, MAX_BODY_BYTES);
         if (bytes.length === 0) return send(res, 400, { error: "No image" });
         return send(res, 200, await embedForServer(bytes, kinds, prepared));

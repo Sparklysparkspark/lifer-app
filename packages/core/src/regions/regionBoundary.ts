@@ -72,7 +72,11 @@ function normalizeIso2(value: string | undefined): string | null {
 // abbreviated ("Dominican Rep.") while SOVEREIGNT is always full, so Natural Earth's TYPE field
 // decides where it can. Only TYPE="Country" mixes primary states with dependencies, and there
 // the NAME/SOVEREIGNT comparison is reliable.
-export function isSovereignDependencyFromType(properties: { TYPE?: string; SOVEREIGNT?: string; NAME?: string }): boolean {
+export function isSovereignDependencyFromType(properties: {
+  TYPE?: string;
+  SOVEREIGNT?: string;
+  NAME?: string;
+}): boolean {
   switch (properties.TYPE) {
     case "Sovereign country":
       return false; // NE's label for a primary state, never a territory, regardless of NAME/SOVEREIGNT.
@@ -134,7 +138,9 @@ export async function fetchAllCountries(): Promise<CountryEntry[]> {
       continent: (f.properties.CONTINENT as string) ?? "Other",
       feature: f,
       sovereigntyGroup: (f.properties.SOV_A3 as string) ?? null,
-      isSovereignDependency: isSovereignDependencyFromType(f.properties as { TYPE?: string; SOVEREIGNT?: string; NAME?: string }),
+      isSovereignDependency: isSovereignDependencyFromType(
+        f.properties as { TYPE?: string; SOVEREIGNT?: string; NAME?: string },
+      ),
     }));
 }
 

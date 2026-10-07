@@ -14,20 +14,61 @@ import { pool } from "../db.js";
 // thousands of local records, is a data problem. Catalog names (the older GBIF ones where renamed).
 const MUST_HAVE: Record<string, string[]> = {
   "Costa Rica": [
-    "Iguana iguana", "Basiliscus plumifrons", "Basiliscus basiliscus", "Ctenosaura similis", "Ara macao",
-    "Ramphastos sulfuratus", "Pteroglossus torquatus", "Accipiter bicolor", "Sphiggurus mexicanus", "Bradypus variegatus",
-    "Choloepus hoffmanni", "Alouatta palliata", "Cebus imitator", "Nasua narica", "Agalychnis callidryas",
-    "Oophaga pumilio", "Dendrobates auratus", "Crocodylus acutus", "Chelonia mydas", "Quiscalus mexicanus",
-    "Pitangus sulphuratus", "Cathartes aura", "Coragyps atratus", "Amazilia tzacatl", "Melanerpes hoffmannii",
+    "Iguana iguana",
+    "Basiliscus plumifrons",
+    "Basiliscus basiliscus",
+    "Ctenosaura similis",
+    "Ara macao",
+    "Ramphastos sulfuratus",
+    "Pteroglossus torquatus",
+    "Accipiter bicolor",
+    "Sphiggurus mexicanus",
+    "Bradypus variegatus",
+    "Choloepus hoffmanni",
+    "Alouatta palliata",
+    "Cebus imitator",
+    "Nasua narica",
+    "Agalychnis callidryas",
+    "Oophaga pumilio",
+    "Dendrobates auratus",
+    "Crocodylus acutus",
+    "Chelonia mydas",
+    "Quiscalus mexicanus",
+    "Pitangus sulphuratus",
+    "Cathartes aura",
+    "Coragyps atratus",
+    "Amazilia tzacatl",
+    "Melanerpes hoffmannii",
   ],
   Canada: [
-    "Accipiter cooperii", "Accipiter gentilis", "Accipiter striatus", "Grus americana", "Gulo gulo", "Branta canadensis",
-    "Turdus migratorius", "Alces alces", "Ursus americanus", "Haliaeetus leucocephalus", "Castor canadensis",
-    "Lithobates sylvaticus", "Thamnophis sirtalis", "Chrysemys picta", "Cyanocitta cristata", "Poecile atricapillus",
+    "Accipiter cooperii",
+    "Accipiter gentilis",
+    "Accipiter striatus",
+    "Grus americana",
+    "Gulo gulo",
+    "Branta canadensis",
+    "Turdus migratorius",
+    "Alces alces",
+    "Ursus americanus",
+    "Haliaeetus leucocephalus",
+    "Castor canadensis",
+    "Lithobates sylvaticus",
+    "Thamnophis sirtalis",
+    "Chrysemys picta",
+    "Cyanocitta cristata",
+    "Poecile atricapillus",
   ],
   "British Columbia": [
-    "Accipiter cooperii", "Accipiter gentilis", "Haliaeetus leucocephalus", "Ursus americanus", "Ursus arctos",
-    "Odocoileus hemionus", "Megaceryle alcyon", "Dryocopus pileatus", "Lithobates catesbeianus", "Thamnophis sirtalis",
+    "Accipiter cooperii",
+    "Accipiter gentilis",
+    "Haliaeetus leucocephalus",
+    "Ursus americanus",
+    "Ursus arctos",
+    "Odocoileus hemionus",
+    "Megaceryle alcyon",
+    "Dryocopus pileatus",
+    "Lithobates catesbeianus",
+    "Thamnophis sirtalis",
   ],
 };
 
@@ -37,9 +78,10 @@ async function main() {
 
   for (const [regionName, mustHave] of Object.entries(MUST_HAVE)) {
     const region = (
-      await pool.query<{ id: string }>(`SELECT id FROM regions WHERE name = $1 AND array_length(external_codes, 1) > 0 ORDER BY id LIMIT 1`, [
-        regionName,
-      ])
+      await pool.query<{ id: string }>(
+        `SELECT id FROM regions WHERE name = $1 AND array_length(external_codes, 1) > 0 ORDER BY id LIMIT 1`,
+        [regionName],
+      )
     ).rows[0];
     if (!region) continue;
     const byGroup = await pool.query<{ taxon_class: string; tier: string | null; n: number; zero_legendary: number }>(
@@ -56,7 +98,13 @@ async function main() {
       groups[r.taxon_class][r.tier ?? "none"] = r.n;
       zeroLegendary += r.zero_legendary;
     }
-    const species = await pool.query<{ scientific_name: string; common_name: string | null; tier: string | null; freq: string | null; global: string | null }>(
+    const species = await pool.query<{
+      scientific_name: string;
+      common_name: string | null;
+      tier: string | null;
+      freq: string | null;
+      global: string | null;
+    }>(
       `SELECT s.scientific_name, s.common_name, rs.local_tier AS tier, rs.local_frequency::text AS freq, r.tier AS global
          FROM species s
          LEFT JOIN region_species rs ON rs.species_id = s.id AND rs.region_id = $1
@@ -64,9 +112,15 @@ async function main() {
         WHERE s.scientific_name = ANY($2)`,
       [region.id, mustHave],
     );
-    const onList = await pool.query<{ species_id: string }>(`SELECT species_id FROM region_species WHERE region_id = $1`, [region.id]);
+    const onList = await pool.query<{ species_id: string }>(
+      `SELECT species_id FROM region_species WHERE region_id = $1`,
+      [region.id],
+    );
     const present = new Set(onList.rows.map((r) => r.species_id));
-    const ids = await pool.query<{ id: string; scientific_name: string }>(`SELECT id, scientific_name FROM species WHERE scientific_name = ANY($1)`, [mustHave]);
+    const ids = await pool.query<{ id: string; scientific_name: string }>(
+      `SELECT id, scientific_name FROM species WHERE scientific_name = ANY($1)`,
+      [mustHave],
+    );
     const idByName = new Map(ids.rows.map((r) => [r.scientific_name, r.id]));
     (report.regions as Record<string, unknown>)[regionName] = {
       total: onList.rows.length,
@@ -96,14 +150,28 @@ async function main() {
   for (const r of global.rows) (globalTiers[r.taxon_class] ??= {})[r.tier] = r.n;
   report.globalTiers = globalTiers;
   report.synonyms = (await pool.query<{ n: number }>(`SELECT count(*)::int AS n FROM species_synonyms`)).rows[0].n;
-  report.birdsWithoutEbird = (await pool.query<{ n: number }>(`SELECT count(*)::int AS n FROM species WHERE taxon_class = 'aves' AND ebird_code IS NULL`)).rows[0].n;
-  report.withoutInat = (await pool.query<{ n: number }>(`SELECT count(*)::int AS n FROM species WHERE inat_taxon_id IS NULL AND is_other_taxa = false`)).rows[0].n;
+  report.birdsWithoutEbird = (
+    await pool.query<{ n: number }>(
+      `SELECT count(*)::int AS n FROM species WHERE taxon_class = 'aves' AND ebird_code IS NULL`,
+    )
+  ).rows[0].n;
+  report.withoutInat = (
+    await pool.query<{ n: number }>(
+      `SELECT count(*)::int AS n FROM species WHERE inat_taxon_id IS NULL AND is_other_taxa = false`,
+    )
+  ).rows[0].n;
 
   writeFileSync(out, JSON.stringify(report, null, 1));
-  type RegionReport = { total: number; zeroLegendary: number; mustHave: Array<{ name: string; common: string | null; onChecklist: boolean }> };
+  type RegionReport = {
+    total: number;
+    zeroLegendary: number;
+    mustHave: Array<{ name: string; common: string | null; onChecklist: boolean }>;
+  };
   for (const [name, r] of Object.entries(report.regions as Record<string, RegionReport>)) {
     const missing = r.mustHave.filter((m) => !m.onChecklist).map((m) => m.common ?? m.name);
-    console.log(`${name}: ${r.total} species, ${r.zeroLegendary} "legendary with 0 records", missing: ${missing.join(", ") || "none"}`);
+    console.log(
+      `${name}: ${r.total} species, ${r.zeroLegendary} "legendary with 0 records", missing: ${missing.join(", ") || "none"}`,
+    );
   }
   await pool.end();
 }

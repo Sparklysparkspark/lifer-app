@@ -4,7 +4,10 @@ import type { INaturalistTaxonRecord } from "./lazyEnrich.js";
 // Photo downloads answer 404 (not retried), so no files are cached; the choice of photos is
 // what's under test.
 beforeAll(() => {
-  vi.stubGlobal("fetch", vi.fn(async () => new Response(null, { status: 404 })));
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => new Response(null, { status: 404 })),
+  );
 });
 afterAll(() => {
   vi.unstubAllGlobals();
@@ -23,7 +26,10 @@ function taxon(defaultLicense: string | null, galleryLicenses: Array<string | nu
     id: 1,
     name: "Testus photographicus",
     default_photo: photo(1, defaultLicense),
-    taxon_photos: [{ photo: photo(1, defaultLicense) }, ...galleryLicenses.map((l, i) => ({ photo: photo(10 + i, l) }))],
+    taxon_photos: [
+      { photo: photo(1, defaultLicense) },
+      ...galleryLicenses.map((l, i) => ({ photo: photo(10 + i, l) })),
+    ],
   };
 }
 
@@ -37,7 +43,9 @@ describe("enrichmentFromTaxonRecord", () => {
   });
 
   it("with publishableOnly, replaces an unpublishable default photo with the first publishable one", async () => {
-    const result = await enrichmentFromTaxonRecord("s2", taxon(null, [null, "cc-by-nc", "cc0"]), { publishableOnly: true });
+    const result = await enrichmentFromTaxonRecord("s2", taxon(null, [null, "cc-by-nc", "cc0"]), {
+      publishableOnly: true,
+    });
 
     expect(result.referencePhoto).toContain("/photos/11/");
     expect(result.referenceLicense).toBe("cc-by-nc");
@@ -139,7 +147,10 @@ describe("enrichSpecies when the taxon record can't be read", () => {
     vi.mocked(fetch).mockImplementation(async (input) => {
       const url = String(input);
       if (url.includes("/v1/taxa?q=")) {
-        return new Response(JSON.stringify({ results: [{ id: 28362, name: "Thamnophis sirtalis", default_photo: photo(5, "cc-by") }] }), { status: 200 });
+        return new Response(
+          JSON.stringify({ results: [{ id: 28362, name: "Thamnophis sirtalis", default_photo: photo(5, "cc-by") }] }),
+          { status: 200 },
+        );
       }
       if (url.endsWith("/v1/taxa/28362")) return new Response("busy", { status: 500 });
       return new Response(null, { status: 404 });

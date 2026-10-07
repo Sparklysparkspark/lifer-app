@@ -30,14 +30,17 @@ const EXCLUDED_DIRS = new Set(["node_modules", "dist", "build", "target", "resou
 const EXCLUDED_FILES = new Set(["package-lock.json"]);
 const EM_DASH = String.fromCharCode(0x2014);
 
-
 function isExcluded(file) {
   const parts = file.split("/");
   if (EXCLUDED_FILES.has(parts[parts.length - 1])) return true;
   return parts.slice(0, -1).some((part) => EXCLUDED_DIRS.has(part));
 }
 
-const files = execFileSync("git", ["ls-files", "-z", "--", ...SCAN_PATHS], { cwd: root, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 })
+const files = execFileSync("git", ["ls-files", "-z", "--", ...SCAN_PATHS], {
+  cwd: root,
+  encoding: "utf8",
+  maxBuffer: 64 * 1024 * 1024,
+})
   .split("\0")
   .filter(Boolean);
 let hits = 0;
@@ -62,7 +65,9 @@ for (const file of files) {
 }
 
 if (hits > 0) {
-  console.error(`\nFound ${hits} em dash(es) in ${offendingFiles} file(s). Use a comma, colon, period or parentheses instead.`);
+  console.error(
+    `\nFound ${hits} em dash(es) in ${offendingFiles} file(s). Use a comma, colon, period or parentheses instead.`,
+  );
   process.exit(1);
 }
 console.log("No em dashes found.");

@@ -36,7 +36,8 @@ export interface AvonetRow {
 
 function num(v: unknown): number | null {
   if (v == null || v === "") return null;
-  const n = typeof v === "object" && v !== null && "result" in v ? Number((v as { result: unknown }).result) : Number(v);
+  const n =
+    typeof v === "object" && v !== null && "result" in v ? Number((v as { result: unknown }).result) : Number(v);
   return Number.isFinite(n) ? n : null;
 }
 
@@ -103,7 +104,7 @@ export async function fetchAvonet(): Promise<AvonetRow[]> {
   return eBirdSheet.map((row) => {
     const scientificName = str(row["Species2"]) ?? "";
     const birdLifeName = birdLifeNameByEbirdName.get(scientificName);
-    const rangeSizeKm2 = birdLifeName ? rangeByBirdLifeName.get(birdLifeName) ?? null : null;
+    const rangeSizeKm2 = birdLifeName ? (rangeByBirdLifeName.get(birdLifeName) ?? null) : null;
 
     return {
       scientificName,

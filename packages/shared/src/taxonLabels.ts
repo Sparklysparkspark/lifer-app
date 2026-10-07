@@ -30,7 +30,16 @@ export const TAXON_GROUPS: Array<{ key: string; label: string; taxa: TaxonClass[
   {
     key: "marine_invertebrates",
     label: "Marine Invertebrates",
-    taxa: ["corals", "jellies_and_anemones", "echinodermata", "nudibranchs", "marine_mollusks", "cephalopoda", "crustacea", "sponges_tunicates_other"],
+    taxa: [
+      "corals",
+      "jellies_and_anemones",
+      "echinodermata",
+      "nudibranchs",
+      "marine_mollusks",
+      "cephalopoda",
+      "crustacea",
+      "sponges_tunicates_other",
+    ],
   },
 ];
 
@@ -59,7 +68,8 @@ export function otherTaxaGroupLabel(iconicTaxon: string, namingStyles: string[])
   const latinIdx = namingStyles.indexOf("latin");
   const wantsLatin = latinIdx !== -1;
   const wantsCommon = commonIdx !== -1 || !wantsLatin; // no explicit preference at all defaults to common
-  if (wantsCommon && wantsLatin) return commonIdx <= latinIdx ? `${english} - ${iconicTaxon}` : `${iconicTaxon} - ${english}`;
+  if (wantsCommon && wantsLatin)
+    return commonIdx <= latinIdx ? `${english} - ${iconicTaxon}` : `${iconicTaxon} - ${english}`;
   return wantsLatin ? iconicTaxon : english;
 }
 

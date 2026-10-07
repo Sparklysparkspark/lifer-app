@@ -24,7 +24,11 @@ function waitForDrainOrError(stream: NodeJS.WritableStream): Promise<void> {
 
 /** Runs `COPY ... FROM STDIN` and writes every chunk from `source` into it, respecting
  * backpressure. Small chunks are coalesced so one tiny write per row doesn't dominate. */
-export async function copyInto(client: PoolClient, copySql: string, source: AsyncIterable<Buffer | string>): Promise<void> {
+export async function copyInto(
+  client: PoolClient,
+  copySql: string,
+  source: AsyncIterable<Buffer | string>,
+): Promise<void> {
   const stream = client.query(copyFrom(copySql));
   let failure: Error | null = null;
   stream.on("error", (err: Error) => (failure = err));

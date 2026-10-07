@@ -17,7 +17,12 @@ describe("planPhotoLicenseFixes", () => {
   it("removes gallery photos that can't be published, including ones with no license", () => {
     const plan = planPhotoLicenseFixes(
       [],
-      [photo("g1", "a", "gfdl", 0), photo("g2", "a", null, 1), photo("g3", "a", "all-rights-reserved", 2), photo("g4", "a", "cc-by-sa", 3)],
+      [
+        photo("g1", "a", "gfdl", 0),
+        photo("g2", "a", null, 1),
+        photo("g3", "a", "all-rights-reserved", 2),
+        photo("g4", "a", "cc-by-sa", 3),
+      ],
     );
     expect(plan.deleteGalleryIds.sort()).toEqual(["g1", "g2", "g3"]);
   });
@@ -40,7 +45,10 @@ describe("planPhotoLicenseFixes", () => {
   });
 
   it("clears a main photo when the species has nothing publishable", () => {
-    const plan = planPhotoLicenseFixes([{ speciesId: "a", license: "gfdl" }], [photo("g1", "a", "all-rights-reserved", 0)]);
+    const plan = planPhotoLicenseFixes(
+      [{ speciesId: "a", license: "gfdl" }],
+      [photo("g1", "a", "all-rights-reserved", 0)],
+    );
     expect(plan.clear).toEqual(["a"]);
     expect(plan.promote).toEqual([]);
     expect(plan.deleteGalleryIds).toEqual(["g1"]);

@@ -100,9 +100,15 @@ describe.skipIf(!url)("uploads", () => {
     const folder = path.join(dataDir, "Birds", "Test Woodpecker", "Adjusted");
     expect(readdirSync(folder).sort()).toEqual(["IMG_0001-2.jpg", "IMG_0001-3.jpg", "IMG_0001-4.jpg", "IMG_0001.jpg"]);
 
-    const rows = await db.query(`SELECT count(*)::int AS n FROM captures WHERE user_id = $1 AND species_id = $2`, [USER, SPECIES]);
+    const rows = await db.query(`SELECT count(*)::int AS n FROM captures WHERE user_id = $1 AND species_id = $2`, [
+      USER,
+      SPECIES,
+    ]);
     expect(rows.rows[0].n).toBe(4);
-    const species = await db.query(`SELECT state, cover_photo_id FROM user_species WHERE user_id = $1 AND species_id = $2`, [USER, SPECIES]);
+    const species = await db.query(
+      `SELECT state, cover_photo_id FROM user_species WHERE user_id = $1 AND species_id = $2`,
+      [USER, SPECIES],
+    );
     expect(species.rows[0].state).toBe("collected");
     expect(species.rows[0].cover_photo_id).not.toBeNull();
   }, 60_000);
@@ -110,13 +116,24 @@ describe.skipIf(!url)("uploads", () => {
   it("imports a checked photo from the server's kept copy, without sending the file again", async () => {
     const bytes = await jpeg(210);
     const check = await multipartBody({}, { name: "IMG_0200.jpg", bytes });
-    const inspect = await app.inject({ method: "POST", url: "/api/uploads/inspect", headers: { "x-api-key": TOKEN, "content-type": check.contentType }, payload: check.payload });
+    const inspect = await app.inject({
+      method: "POST",
+      url: "/api/uploads/inspect",
+      headers: { "x-api-key": TOKEN, "content-type": check.contentType },
+      payload: check.payload,
+    });
     expect(inspect.statusCode, inspect.body).toBe(200);
     const stagedId = inspect.json().stagedId as string;
     expect(stagedId).toMatch(/^[0-9a-f]{64}$/);
 
     const form = new FormData();
-    for (const [k, v] of Object.entries({ speciesId: SPECIES, stagedId, fileName: "IMG_0200.jpg", fileType: "image/jpeg" })) form.append(k, v);
+    for (const [k, v] of Object.entries({
+      speciesId: SPECIES,
+      stagedId,
+      fileName: "IMG_0200.jpg",
+      fileType: "image/jpeg",
+    }))
+      form.append(k, v);
     const res = new Response(form);
     const payload = Buffer.from(await res.arrayBuffer());
     const headers = { "x-api-key": TOKEN, "content-type": res.headers.get("content-type")! };

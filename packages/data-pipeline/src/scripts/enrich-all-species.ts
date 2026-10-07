@@ -23,7 +23,10 @@ const INITIAL_RELEASE_TAXA = taxaArg ? taxaArg.split("=")[1].split(",") : ["acti
 
 type RegionRow = {
   id: string;
-  boundary_geojson: { bbox?: [number, number, number, number]; geometry?: { type: string; coordinates: unknown } } | null;
+  boundary_geojson: {
+    bbox?: [number, number, number, number];
+    geometry?: { type: string; coordinates: unknown };
+  } | null;
   external_codes: string[] | null;
   occurrence_computed_at: Date | null;
 };
@@ -69,7 +72,9 @@ async function priorityTiers(): Promise<{ canada: Set<string>; restOfNorthAmeric
 
   await primeCountries(restRows, "rest of North America");
   const restOfNorthAmerica = await speciesForRegions(restRows.map((r) => r.id));
-  console.log(`[enrich-all] rest of North America: ${restOfNorthAmerica.size} distinct species identified for priority`);
+  console.log(
+    `[enrich-all] rest of North America: ${restOfNorthAmerica.size} distinct species identified for priority`,
+  );
 
   return { canada, restOfNorthAmerica };
 }
@@ -116,7 +121,10 @@ async function main() {
   let failed = 0;
   await mapWithConcurrency(ordered, CONCURRENCY, async (row) => {
     try {
-      const enrichment = await enrichSpecies({ id: row.id, scientific_name: row.scientific_name }, { publishableOnly: true });
+      const enrichment = await enrichSpecies(
+        { id: row.id, scientific_name: row.scientific_name },
+        { publishableOnly: true },
+      );
       await persistEnrichment(row.id, enrichment);
     } catch (err) {
       failed++;

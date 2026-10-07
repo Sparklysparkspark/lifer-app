@@ -27,7 +27,13 @@ export async function tierRoutes(fastify: FastifyInstance): Promise<void> {
         [id],
       ),
       regionId
-        ? pool.query<{ local_tier: string | null; tier_reason: string | null; tier_explain: unknown; is_vagrant: boolean; name: string }>(
+        ? pool.query<{
+            local_tier: string | null;
+            tier_reason: string | null;
+            tier_explain: unknown;
+            is_vagrant: boolean;
+            name: string;
+          }>(
             `SELECT rs.local_tier, rs.tier_reason, rs.tier_explain, rs.is_vagrant, r.name
              FROM region_species rs JOIN regions r ON r.id = rs.region_id WHERE rs.region_id = $1 AND rs.species_id = $2`,
             [regionId, id],
@@ -40,10 +46,15 @@ export async function tierRoutes(fastify: FastifyInstance): Promise<void> {
       ),
     ]);
     const regionName = regionId
-      ? (local?.rows[0]?.name ?? (await pool.query<{ name: string }>(`SELECT name FROM regions WHERE id = $1`, [regionId])).rows[0]?.name ?? null)
+      ? (local?.rows[0]?.name ??
+        (await pool.query<{ name: string }>(`SELECT name FROM regions WHERE id = $1`, [regionId])).rows[0]?.name ??
+        null)
       : null;
     const own = override.rows[0];
-    const iucn = await pool.query<{ iucn_status: string | null }>(`SELECT iucn_status FROM species_traits WHERE species_id = $1`, [id]);
+    const iucn = await pool.query<{ iucn_status: string | null }>(
+      `SELECT iucn_status FROM species_traits WHERE species_id = $1`,
+      [id],
+    );
     return {
       // Shown beside the tier, not part of it (conservation status isn't how hard a species is to find).
       iucnStatus: iucn.rows[0]?.iucn_status ?? null,
@@ -53,7 +64,12 @@ export async function tierRoutes(fastify: FastifyInstance): Promise<void> {
         explain: global.rows[0]?.tier_explain ?? null,
       },
       local: local?.rows[0]
-        ? { tier: local.rows[0].local_tier, reason: local.rows[0].tier_reason, explain: local.rows[0].tier_explain, regionName }
+        ? {
+            tier: local.rows[0].local_tier,
+            reason: local.rows[0].tier_reason,
+            explain: local.rows[0].tier_explain,
+            regionName,
+          }
         : regionId
           ? { tier: null, reason: "no_data", explain: null, regionName }
           : null,
@@ -91,7 +107,10 @@ export async function tierRoutes(fastify: FastifyInstance): Promise<void> {
         [userId, id, regionId],
       );
       if (tier) {
-        await pool.query(`INSERT INTO user_tier_overrides (user_id, region_id, species_id, tier) VALUES ($1, $2, $3, $4)`, [userId, regionId, id, tier]);
+        await pool.query(
+          `INSERT INTO user_tier_overrides (user_id, region_id, species_id, tier) VALUES ($1, $2, $3, $4)`,
+          [userId, regionId, id, tier],
+        );
       }
       return { ok: true };
     },

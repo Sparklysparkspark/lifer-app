@@ -21,7 +21,9 @@ beforeAll(async () => {
       const m = /bytes=(\d+)-(\d+)/.exec(req.headers.range ?? "");
       const body = "0123456789";
       if (!m) return void res.writeHead(200).end(body);
-      res.writeHead(206, { "Content-Range": `bytes ${m[1]}-${m[2]}/${body.length}` }).end(body.slice(Number(m[1]), Number(m[2]) + 1));
+      res
+        .writeHead(206, { "Content-Range": `bytes ${m[1]}-${m[2]}/${body.length}` })
+        .end(body.slice(Number(m[1]), Number(m[2]) + 1));
     } else if (req.url === "/wrong-range") {
       res.writeHead(206, { "Content-Range": "bytes 0-3/10" }).end("0123");
     } else if (req.url === "/long-range") {
@@ -70,12 +72,16 @@ describe("downloadToFile", () => {
   it("rejects a partial answer for another part of the file, or one longer than asked", async () => {
     const dest = path.join(tmp, "wrong-range.bin");
     await expect(downloadToFile(`${base}/wrong-range`, dest, { range: [3, 4] })).rejects.toThrow(/requested part/);
-    await expect(downloadToFile(`${base}/long-range`, dest, { range: [3, 4] })).rejects.toThrow(/more than the expected/);
+    await expect(downloadToFile(`${base}/long-range`, dest, { range: [3, 4] })).rejects.toThrow(
+      /more than the expected/,
+    );
     expect(existsSync(dest)).toBe(false);
   });
 
   it("rejects an invalid range before fetching", async () => {
-    await expect(downloadToFile(`${base}/ranged`, path.join(tmp, "bad.bin"), { range: [3, 0] })).rejects.toThrow(/invalid byte range/);
+    await expect(downloadToFile(`${base}/ranged`, path.join(tmp, "bad.bin"), { range: [3, 0] })).rejects.toThrow(
+      /invalid byte range/,
+    );
   });
 
   it("rejects on HTTP errors and leaves no file behind", async () => {

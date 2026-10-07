@@ -23,7 +23,13 @@ async function markFullyExtinct(speciesId: string): Promise<void> {
 }
 
 async function main() {
-  const res = await pool.query<{ id: string; scientific_name: string; common_name: string | null; gbif_key: string; tier: string }>(
+  const res = await pool.query<{
+    id: string;
+    scientific_name: string;
+    common_name: string | null;
+    gbif_key: string;
+    tier: string;
+  }>(
     `SELECT s.id, s.scientific_name, s.common_name, s.gbif_key, r.tier
      FROM species s JOIN species_rarity r ON r.species_id = s.id
      WHERE s.taxon_class = 'aves' AND r.tier IN ('rare', 'legendary')
@@ -37,11 +43,14 @@ async function main() {
     const observed = await hasEverBeenObserved(row.gbif_key);
     if (!observed) {
       await markFullyExtinct(row.id);
-      flagged.push(`${row.scientific_name} (${row.common_name ?? "no common name"}) [${row.tier}] gbif_key=${row.gbif_key}`);
+      flagged.push(
+        `${row.scientific_name} (${row.common_name ?? "no common name"}) [${row.tier}] gbif_key=${row.gbif_key}`,
+      );
       console.log(`[FLAGGED] ${row.scientific_name} (${row.common_name ?? "no common name"}) [${row.tier}]`);
     }
     done++;
-    if (done % 200 === 0) console.log(`[detect-unobserved] ${done}/${res.rows.length} (${flagged.length} flagged so far)`);
+    if (done % 200 === 0)
+      console.log(`[detect-unobserved] ${done}/${res.rows.length} (${flagged.length} flagged so far)`);
   }
 
   console.log(`[detect-unobserved] done. ${done} checked, ${flagged.length} never observed alive:`);

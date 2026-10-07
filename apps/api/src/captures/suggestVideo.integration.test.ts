@@ -36,7 +36,10 @@ async function form(fields: Record<string, string>) {
   const f = new FormData();
   for (const [k, v] of Object.entries(fields)) f.append(k, v);
   const res = new Response(f);
-  return { payload: Buffer.from(await res.arrayBuffer()), headers: { ...CLIENT, "content-type": res.headers.get("content-type")! } };
+  return {
+    payload: Buffer.from(await res.arrayBuffer()),
+    headers: { ...CLIENT, "content-type": res.headers.get("content-type")! },
+  };
 }
 
 describe.skipIf(!url)("video species suggestions by uploadId", () => {
@@ -48,7 +51,10 @@ describe.skipIf(!url)("video species suggestions by uploadId", () => {
   async function cleanup() {
     for (const u of [USER, OTHER_USER]) {
       await db.query(`DELETE FROM user_species WHERE user_id = $1`, [u]);
-      await db.query(`DELETE FROM originals WHERE user_id = $1 OR capture_id IN (SELECT id FROM captures_all WHERE user_id = $1)`, [u]);
+      await db.query(
+        `DELETE FROM originals WHERE user_id = $1 OR capture_id IN (SELECT id FROM captures_all WHERE user_id = $1)`,
+        [u],
+      );
       await db.query(`DELETE FROM captures_all WHERE user_id = $1`, [u]);
       await db.query(`DELETE FROM sessions WHERE user_id = $1`, [u]);
       await db.query(`DELETE FROM users WHERE id = $1`, [u]);
@@ -67,18 +73,19 @@ describe.skipIf(!url)("video species suggestions by uploadId", () => {
     const { uploadRoutes } = await import("../uploads/routes.js");
     const { speciesSuggestRoutes } = await import("./suggest.js");
     await cleanup();
-    await db.query(`INSERT INTO users (id, email, password_hash) VALUES ($1, 'suggest-video@test', 'x'), ($2, 'suggest-video-other@test', 'x')`, [USER, OTHER_USER]);
+    await db.query(
+      `INSERT INTO users (id, email, password_hash) VALUES ($1, 'suggest-video@test', 'x'), ($2, 'suggest-video-other@test', 'x')`,
+      [USER, OTHER_USER],
+    );
     await db.query(
       `INSERT INTO species (id, gbif_key, scientific_name, common_name, taxon_class)
        VALUES ($1, 910806, 'Testus cinematicus', 'Video Test Tern', 'aves') ON CONFLICT (id) DO NOTHING`,
       [SPECIES],
     );
-    await db.query(`INSERT INTO sessions (id, user_id, expires_at) VALUES ($1, $2, now() + interval '1 day'), ($3, $4, now() + interval '1 day')`, [
-      hashToken(SESSION),
-      USER,
-      hashToken(OTHER_SESSION),
-      OTHER_USER,
-    ]);
+    await db.query(
+      `INSERT INTO sessions (id, user_id, expires_at) VALUES ($1, $2, now() + interval '1 day'), ($3, $4, now() + interval '1 day')`,
+      [hashToken(SESSION), USER, hashToken(OTHER_SESSION), OTHER_USER],
+    );
     app = Fastify({ bodyLimit: 1024 * 1024 });
     await app.register(cookie);
     await app.register(multipart, { limits: { fileSize: Infinity } });
@@ -102,31 +109,80 @@ describe.skipIf(!url)("video species suggestions by uploadId", () => {
   it("samples frames from a resumable upload without consuming it, then imports the same uploadId", async () => {
     const ffmpeg = createRequire(import.meta.url)("ffmpeg-static") as string;
     const video = path.join(dataDir, "clip.mp4");
-    execFileSync(ffmpeg, ["-y", "-f", "lavfi", "-i", "testsrc=duration=3:size=64x48:rate=10", "-pix_fmt", "yuv420p", "-c:v", "libx264", video], { stdio: "ignore" });
+    execFileSync(
+      ffmpeg,
+      [
+        "-y",
+        "-f",
+        "lavfi",
+        "-i",
+        "testsrc=duration=3:size=64x48:rate=10",
+        "-pix_fmt",
+        "yuv420p",
+        "-c:v",
+        "libx264",
+        video,
+      ],
+      { stdio: "ignore" },
+    );
     const bytes = readFileSync(video);
     const cookies = { [cookieName]: SESSION };
-    const { id } = await tusUpload(app, bytes, { headers: CLIENT, cookies, filename: "CLIP_0002.mp4", filetype: "video/mp4", chunkSize: 4096 });
+    const { id } = await tusUpload(app, bytes, {
+      headers: CLIENT,
+      cookies,
+      filename: "CLIP_0002.mp4",
+      filetype: "video/mp4",
+      chunkSize: 4096,
+    });
 
     // Someone else's id reads as gone, and nothing at all is a 400.
-    const theirs = await app.inject({ method: "POST", url: "/api/captures/suggest-species-from-video", ...(await form({ uploadId: id })), cookies: { [cookieName]: OTHER_SESSION } });
+    const theirs = await app.inject({
+      method: "POST",
+      url: "/api/captures/suggest-species-from-video",
+      ...(await form({ uploadId: id })),
+      cookies: { [cookieName]: OTHER_SESSION },
+    });
     expect(theirs.statusCode).toBe(410);
-    const none = await app.inject({ method: "POST", url: "/api/captures/suggest-species-from-video", ...(await form({})), cookies });
+    const none = await app.inject({
+      method: "POST",
+      url: "/api/captures/suggest-species-from-video",
+      ...(await form({})),
+      cookies,
+    });
     expect(none.statusCode).toBe(400);
 
-    const suggest = await app.inject({ method: "POST", url: "/api/captures/suggest-species-from-video", ...(await form({ uploadId: id })), cookies });
+    const suggest = await app.inject({
+      method: "POST",
+      url: "/api/captures/suggest-species-from-video",
+      ...(await form({ uploadId: id })),
+      cookies,
+    });
     expect(suggest.statusCode, suggest.body).toBe(200);
     expect(suggest.json()).toMatchObject({ suggestions: [], stagedId: null, uploadId: id });
     expect(suggest.json().error).toBeUndefined();
     expect(frameCounts.at(-1)).toBeGreaterThan(0);
 
-    const res = await app.inject({ method: "POST", url: "/api/uploads/video", ...(await form({ speciesId: SPECIES, uploadId: id })), cookies });
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/uploads/video",
+      ...(await form({ speciesId: SPECIES, uploadId: id })),
+      cookies,
+    });
     expect(res.statusCode, res.body).toBe(201);
-    const row = await db.query<{ ref: string; content_hash: string }>(`SELECT ref, content_hash FROM originals WHERE capture_id = $1 AND kind = 'video'`, [res.json().captureId]);
+    const row = await db.query<{ ref: string; content_hash: string }>(
+      `SELECT ref, content_hash FROM originals WHERE capture_id = $1 AND kind = 'video'`,
+      [res.json().captureId],
+    );
     expect(path.basename(row.rows[0].ref)).toBe("CLIP_0002.mp4");
     expect(row.rows[0].content_hash).toBe(createHash("sha256").update(bytes).digest("hex"));
 
     // Imported, so the upload is gone now.
-    const after = await app.inject({ method: "POST", url: "/api/captures/suggest-species-from-video", ...(await form({ uploadId: id })), cookies });
+    const after = await app.inject({
+      method: "POST",
+      url: "/api/captures/suggest-species-from-video",
+      ...(await form({ uploadId: id })),
+      cookies,
+    });
     expect(after.statusCode).toBe(410);
   }, 60_000);
 });

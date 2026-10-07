@@ -18,7 +18,9 @@ function simplifyPolygonRings(rings: Point[][]): Point[][] {
   return rings.map((ring) => {
     const simplified = simplifyRing(ring, BOUNDARY_SIMPLIFY_DEGREES);
     // A tiny island collapses below a valid ring; keep it as it was.
-    return (simplified.length >= 4 ? simplified : ring).map(([x, y]) => [Math.round(x * 1e4) / 1e4, Math.round(y * 1e4) / 1e4] as Point);
+    return (simplified.length >= 4 ? simplified : ring).map(
+      ([x, y]) => [Math.round(x * 1e4) / 1e4, Math.round(y * 1e4) / 1e4] as Point,
+    );
   });
 }
 

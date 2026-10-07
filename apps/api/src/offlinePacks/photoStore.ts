@@ -47,7 +47,9 @@ interface Need {
   ref: PhotoRef;
   dest: string;
   /** The row and column the file's path is written to once it's saved. */
-  target: { kind: "main"; speciesId: string; column: "reference_display_path" | "reference_thumb_path" } | { kind: "gallery"; photoId: string; column: "display_path" | "thumb_path" };
+  target:
+    | { kind: "main"; speciesId: string; column: "reference_display_path" | "reference_thumb_path" }
+    | { kind: "gallery"; photoId: string; column: "display_path" | "thumb_path" };
 }
 
 /** The store photos these species are missing on this install: main photos always, gallery
@@ -65,21 +67,37 @@ export async function missingPhotos(
   if (ids.length === 0) return [];
   const has = (p: string | null) => p != null && (!checkFiles || existsSync(p));
   const needs: Need[] = [];
-  const main = await db.query<{ id: string; reference_display_path: string | null; reference_thumb_path: string | null }>(
-    `SELECT id, reference_display_path, reference_thumb_path FROM species WHERE id = ANY($1::uuid[])`,
-    [ids],
-  );
+  const main = await db.query<{
+    id: string;
+    reference_display_path: string | null;
+    reference_thumb_path: string | null;
+  }>(`SELECT id, reference_display_path, reference_thumb_path FROM species WHERE id = ANY($1::uuid[])`, [ids]);
   for (const r of main.rows) {
     const entry = index.species[r.id];
     if (entry.d && !has(r.reference_display_path)) {
-      needs.push({ ref: entry.d, dest: path.join(PHOTO_DIRS.display, `${r.id}.webp`), target: { kind: "main", speciesId: r.id, column: "reference_display_path" } });
+      needs.push({
+        ref: entry.d,
+        dest: path.join(PHOTO_DIRS.display, `${r.id}.webp`),
+        target: { kind: "main", speciesId: r.id, column: "reference_display_path" },
+      });
     }
     if (entry.t && !has(r.reference_thumb_path)) {
-      needs.push({ ref: entry.t, dest: path.join(PHOTO_DIRS.thumb, `${r.id}.webp`), target: { kind: "main", speciesId: r.id, column: "reference_thumb_path" } });
+      needs.push({
+        ref: entry.t,
+        dest: path.join(PHOTO_DIRS.thumb, `${r.id}.webp`),
+        target: { kind: "main", speciesId: r.id, column: "reference_thumb_path" },
+      });
     }
   }
   if (includeGallery) {
-    const gallery = await db.query<{ id: string; species_id: string; photo_url: string; sort_order: number; display_path: string | null; thumb_path: string | null }>(
+    const gallery = await db.query<{
+      id: string;
+      species_id: string;
+      photo_url: string;
+      sort_order: number;
+      display_path: string | null;
+      thumb_path: string | null;
+    }>(
       `SELECT id, species_id, photo_url, sort_order, display_path, thumb_path FROM species_reference_photos WHERE species_id = ANY($1::uuid[])`,
       [ids],
     );
@@ -87,10 +105,18 @@ export async function missingPhotos(
       const pair = index.species[g.species_id]?.g?.[g.photo_url];
       if (!pair) continue;
       if (pair.d && !has(g.display_path)) {
-        needs.push({ ref: pair.d, dest: path.join(PHOTO_DIRS.galleryDisplay, `${g.species_id}-${g.sort_order}.webp`), target: { kind: "gallery", photoId: g.id, column: "display_path" } });
+        needs.push({
+          ref: pair.d,
+          dest: path.join(PHOTO_DIRS.galleryDisplay, `${g.species_id}-${g.sort_order}.webp`),
+          target: { kind: "gallery", photoId: g.id, column: "display_path" },
+        });
       }
       if (pair.t && !has(g.thumb_path)) {
-        needs.push({ ref: pair.t, dest: path.join(PHOTO_DIRS.galleryThumb, `${g.species_id}-${g.sort_order}.webp`), target: { kind: "gallery", photoId: g.id, column: "thumb_path" } });
+        needs.push({
+          ref: pair.t,
+          dest: path.join(PHOTO_DIRS.galleryThumb, `${g.species_id}-${g.sort_order}.webp`),
+          target: { kind: "gallery", photoId: g.id, column: "thumb_path" },
+        });
       }
     }
   }
@@ -118,7 +144,12 @@ export function planRanges<T extends { ref: PhotoRef }>(items: T[]): Array<ByteR
   for (const item of sorted) {
     const [shard, offset, length] = item.ref;
     const last = ranges[ranges.length - 1];
-    if (last && last.shard === shard && offset - last.end <= MAX_GAP_BYTES && offset + length - last.start <= MAX_RANGE_BYTES) {
+    if (
+      last &&
+      last.shard === shard &&
+      offset - last.end <= MAX_GAP_BYTES &&
+      offset + length - last.start <= MAX_RANGE_BYTES
+    ) {
       last.end = Math.max(last.end, offset + length);
       last.items.push(item);
     } else {
@@ -135,7 +166,12 @@ export async function downloadPhotos(
   indexUrl: string,
   index: PhotoStoreIndex,
   needs: Need[],
-  opts: { signal?: AbortSignal; onProgress?: (done: number, total: number) => void; assertUrl?: (url: string) => void; concurrency?: number } = {},
+  opts: {
+    signal?: AbortSignal;
+    onProgress?: (done: number, total: number) => void;
+    assertUrl?: (url: string) => void;
+    concurrency?: number;
+  } = {},
 ): Promise<{ saved: number; failed: number; bytes: number }> {
   for (const dir of Object.values(PHOTO_DIRS)) mkdirSync(dir, { recursive: true });
   const ranges = planRanges(needs);

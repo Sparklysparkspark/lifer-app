@@ -40,7 +40,8 @@ export async function syncCaptureXmpSidecars(userId: string, captureId: string):
 
   const isCover =
     capture.cover_photo_id != null &&
-    (await pool.query(`SELECT 1 FROM photos WHERE id = $1 AND capture_id = $2`, [capture.cover_photo_id, captureId])).rowCount! > 0;
+    (await pool.query(`SELECT 1 FROM photos WHERE id = $1 AND capture_id = $2`, [capture.cover_photo_id, captureId]))
+      .rowCount! > 0;
 
   const speciesRes = await pool.query<SpeciesMetadata>(
     `SELECT s.id, s.common_name AS "commonName", s.scientific_name AS "scientificName", s.taxon_class AS "taxonClass",

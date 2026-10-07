@@ -80,7 +80,9 @@ export async function withCullMarks(
 ): Promise<Array<CandidateFile & { cull: CullMarks }>> {
   if (files.length === 0) return [];
   const destination = canonicalPath(destinationFolder);
-  const sourceRaws = (await listRawFiles(sourceFolder)).filter((r) => !isWithin(destination, canonicalPath(r.absolutePath)));
+  const sourceRaws = (await listRawFiles(sourceFolder)).filter(
+    (r) => !isWithin(destination, canonicalPath(r.absolutePath)),
+  );
   return mapWithConcurrency(files, CULL_READ_CONCURRENCY, async (file) => {
     signal?.throwIfAborted();
     const raw = matchingSourceRaw(file.absolutePath, sourceRaws);
@@ -90,7 +92,11 @@ export async function withCullMarks(
 
 /** Reconciles every original linked to this trip with what's on disk. `candidates` is the full
  *  file listing, searched by content hash for moved files. */
-export async function matchAgainstKnownOriginals(tripId: string, candidates: CandidateFile[], signal?: AbortSignal): Promise<{
+export async function matchAgainstKnownOriginals(
+  tripId: string,
+  candidates: CandidateFile[],
+  signal?: AbortSignal,
+): Promise<{
   relinked: number;
   markedStale: number;
   collisions: number;
@@ -132,10 +138,10 @@ export async function matchAgainstKnownOriginals(tripId: string, candidates: Can
       relinked++;
     } else if (hashMatches.length > 1) {
       // Ambiguous: never guess. Recorded for manual review, `stale` left alone.
-      await pool.query(
-        `INSERT INTO fingerprint_collisions (exif_fingerprint, original_id) VALUES ($1, $2)`,
-        [original.content_hash, original.id],
-      );
+      await pool.query(`INSERT INTO fingerprint_collisions (exif_fingerprint, original_id) VALUES ($1, $2)`, [
+        original.content_hash,
+        original.id,
+      ]);
       collisions++;
     } else {
       // Marked stale, not deleted, so an unmounted drive self-heals on the next rescan.
@@ -207,13 +213,21 @@ export async function scanTrip(
   // RAWs join the relink pass but are never offered for review: only autoLinkMissingRaws
   // handles them.
   const allDestination = [...destinationImages, ...(await listRawFiles(destinationFolder))];
-  const { relinked, markedStale, collisions, claimedAbsolutePaths } = await matchAgainstKnownOriginals(tripId, allDestination, signal);
+  const { relinked, markedStale, collisions, claimedAbsolutePaths } = await matchAgainstKnownOriginals(
+    tripId,
+    allDestination,
+    signal,
+  );
   onPhase?.("recovering");
   const unclaimedCopies = findNewFiles(destinationImages, claimedAbsolutePaths);
   const { recovered } = await autoRecoverFromIndex(tripId, userId, destinationFolder, unclaimedCopies, signal);
   signal?.throwIfAborted();
   onPhase?.("finding-new");
-  const unimported = await findUnimportedFiles(userId, await onlyPhotos(listCandidateFiles(sourceFolder, destinationFolder)), signal);
+  const unimported = await findUnimportedFiles(
+    userId,
+    await onlyPhotos(listCandidateFiles(sourceFolder, destinationFolder)),
+    signal,
+  );
   onPhase?.("reading-cull-marks");
   const newFiles = await withCullMarks(sourceFolder, destinationFolder, unimported, signal);
   onPhase?.("linking-raws");
@@ -223,16 +237,18 @@ export async function scanTrip(
 
 /** Source-folder photos whose content hash isn't yet a captures.fingerprint for this user, so a
  * photo imported any other way isn't offered again. One imported hidden counts as imported. */
-export async function findUnimportedFiles(userId: string, files: CandidateFile[], signal?: AbortSignal): Promise<CandidateFile[]> {
+export async function findUnimportedFiles(
+  userId: string,
+  files: CandidateFile[],
+  signal?: AbortSignal,
+): Promise<CandidateFile[]> {
   const known = new Set(
     (
       await pool.query<{ fingerprint: string }>(
         `SELECT fingerprint FROM captures_all WHERE user_id = $1 AND deleted_at IS NULL AND fingerprint IS NOT NULL`,
         [userId],
       )
-    ).rows.map(
-      (r) => r.fingerprint,
-    ),
+    ).rows.map((r) => r.fingerprint),
   );
   const unimported: CandidateFile[] = [];
   for (const file of files) {

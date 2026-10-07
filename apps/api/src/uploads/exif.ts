@@ -116,8 +116,7 @@ export async function extractExif(filePath: string, tags?: ExifTags): Promise<Ex
   const takenAt = captureTimeFromTags(tags)?.takenAt ?? null;
 
   // FocalLength comes back as a string like "400.0 mm", not a number.
-  const focalLengthMm =
-    typeof tags.FocalLength === "string" ? parseFloat(tags.FocalLength) : null;
+  const focalLengthMm = typeof tags.FocalLength === "string" ? parseFloat(tags.FocalLength) : null;
 
   return {
     takenAt,
@@ -202,7 +201,12 @@ export interface ExifFingerprint {
 }
 
 function fingerprintPair(isoDate: string, rawTags: Record<string, unknown>): { strict: string; loose: string } {
-  const strictParts = [isoDate, String(rawTags.SubSecTimeOriginal ?? ""), String(rawTags.Model ?? ""), String(rawTags.SerialNumber ?? "")];
+  const strictParts = [
+    isoDate,
+    String(rawTags.SubSecTimeOriginal ?? ""),
+    String(rawTags.Model ?? ""),
+    String(rawTags.SerialNumber ?? ""),
+  ];
   const looseParts = [isoDate, String(rawTags.Model ?? "")];
   return {
     strict: createHash("sha256").update(strictParts.join("|")).digest("hex"),
@@ -217,7 +221,9 @@ export function fingerprintFromTags(tags: ExifTags | Record<string, unknown>): E
   if (!time) return { strict: null, loose: null };
   const rawTags = tags as Record<string, unknown>;
   const current = fingerprintPair(time.takenAt.toISOString(), rawTags);
-  return time.legacyTakenAt ? { ...current, legacy: fingerprintPair(time.legacyTakenAt.toISOString(), rawTags) } : current;
+  return time.legacyTakenAt
+    ? { ...current, legacy: fingerprintPair(time.legacyTakenAt.toISOString(), rawTags) }
+    : current;
 }
 
 export async function computeExifFingerprint(filePath: string, tags?: ExifTags): Promise<ExifFingerprint> {
@@ -271,7 +277,18 @@ export function sidecarPathFor(imagePath: string): string {
 
 // Formats whose metadata other tools read from inside the file (Lightroom ignores a sidecar next
 // to a JPEG/TIFF/PNG/DNG). RAW formats and anything else get a sidecar.
-const EMBEDDED_METADATA_EXTENSIONS = new Set([".jpg", ".jpeg", ".tif", ".tiff", ".png", ".dng", ".webp", ".heic", ".heif", ".hif"]);
+const EMBEDDED_METADATA_EXTENSIONS = new Set([
+  ".jpg",
+  ".jpeg",
+  ".tif",
+  ".tiff",
+  ".png",
+  ".dng",
+  ".webp",
+  ".heic",
+  ".heif",
+  ".hif",
+]);
 
 export function metadataGoesInFile(filePath: string): boolean {
   return EMBEDDED_METADATA_EXTENSIONS.has(path.extname(filePath).toLowerCase());
@@ -342,9 +359,11 @@ function writeLiferMetadata(target: string, data: LiferTags, mode: "embedded" | 
   const prior = fileWriteQueues.get(target) ?? Promise.resolve();
   const next = prior.catch(() => {}).then(() => writeLiferMetadataNow(target, data, mode));
   fileWriteQueues.set(target, next);
-  next.finally(() => {
-    if (fileWriteQueues.get(target) === next) fileWriteQueues.delete(target);
-  }).catch(() => {});
+  next
+    .finally(() => {
+      if (fileWriteQueues.get(target) === next) fileWriteQueues.delete(target);
+    })
+    .catch(() => {});
   return next;
 }
 
@@ -364,7 +383,12 @@ async function writeLiferMetadataNow(target: string, data: LiferTags, mode: "emb
     .filter((v): v is string => !!v);
   if (data.isCover) ours.push(COVER_KEYWORD);
   const ourHierarchies = data.species.map((m, i) =>
-    [SPECIES_ROOT, m.taxonClass ? (TAXON_CLASS_LABEL[m.taxonClass as TaxonClass] ?? m.taxonClass) : null, m.family, labels[i]]
+    [
+      SPECIES_ROOT,
+      m.taxonClass ? (TAXON_CLASS_LABEL[m.taxonClass as TaxonClass] ?? m.taxonClass) : null,
+      m.family,
+      labels[i],
+    ]
       .filter(Boolean)
       .join("|"),
   );
@@ -397,7 +421,9 @@ export function extractLiferTags(tags: ExifTags | Record<string, unknown>): stri
   const raw = (tags as Record<string, unknown>).HierarchicalSubject;
   const list = Array.isArray(raw) ? raw.map(String) : typeof raw === "string" ? [raw] : [];
   const prefix = `${TAGS_ROOT}|`;
-  return [...new Set(list.filter((h) => h.startsWith(prefix)).map((h) => h.slice(prefix.length).trim()))].filter(Boolean);
+  return [...new Set(list.filter((h) => h.startsWith(prefix)).map((h) => h.slice(prefix.length).trim()))].filter(
+    Boolean,
+  );
 }
 
 /** The keywords already in a file or sidecar that aren't Lifer's to replace: everything except
@@ -405,7 +431,9 @@ export function extractLiferTags(tags: ExifTags | Record<string, unknown>): stri
  * Lifer's own "Species|..." hierarchy, and the photo tags Lifer wrote (marked under "Lifer
  * Tags|..."), so keywords added in other tools survive. `liferTags` are those photo tags, for a
  * write that leaves them as they are. */
-async function keywordsToKeep(target: string): Promise<{ flat: string[]; hierarchical: string[]; liferTags: string[] }> {
+async function keywordsToKeep(
+  target: string,
+): Promise<{ flat: string[]; hierarchical: string[]; liferTags: string[] }> {
   if (!existsSync(target)) return { flat: [], hierarchical: [], liferTags: [] };
   let raw: Record<string, unknown>;
   try {

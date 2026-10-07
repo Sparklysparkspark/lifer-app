@@ -108,7 +108,10 @@ describe.skipIf(!url)("species route validation", () => {
 
       const seen = await call("PATCH", `/species/${SPECIES}/seen`);
       expect([seen.statusCode, seen.json()]).toEqual([200, { ok: true }]);
-      const row = await db.query(`SELECT state FROM user_species WHERE user_id = $1 AND species_id = $2`, [USER, SPECIES]);
+      const row = await db.query(`SELECT state FROM user_species WHERE user_id = $1 AND species_id = $2`, [
+        USER,
+        SPECIES,
+      ]);
       expect(row.rows[0]?.state).toBe("seen");
       expect((await call("DELETE", `/species/${SPECIES}/seen`)).statusCode).toBe(200);
 
@@ -133,9 +136,13 @@ describe.skipIf(!url)("species route validation", () => {
   describe("other taxa", () => {
     it("refuses a wrong type, a missing field, an extra field and an out-of-range taxon id", async () => {
       const add = (body: unknown) => call("POST", "/species/other-taxa", body);
-      expect((await add({ inatTaxonId: "12", regionId: REGION })).json()).toEqual(invalid(/inatTaxonId must be integer/));
+      expect((await add({ inatTaxonId: "12", regionId: REGION })).json()).toEqual(
+        invalid(/inatTaxonId must be integer/),
+      );
       expect((await add({ inatTaxonId: 12 })).json()).toEqual(invalid(/regionId is required/));
-      expect((await add({ inatTaxonId: 12, regionId: REGION, extra: 1 })).json()).toEqual(invalid(/unexpected field extra/));
+      expect((await add({ inatTaxonId: 12, regionId: REGION, extra: 1 })).json()).toEqual(
+        invalid(/unexpected field extra/),
+      );
       const zero = await add({ inatTaxonId: 0, regionId: REGION });
       expect([zero.statusCode, zero.json()]).toEqual([400, invalid(/inatTaxonId must be >= 1/)]);
       expect((await add(undefined)).statusCode).toBe(400);
@@ -151,7 +158,9 @@ describe.skipIf(!url)("species route validation", () => {
     it("refuses an empty or non-list bulk entry list", async () => {
       const bulk = (body: unknown) => call("POST", "/species/other-taxa/bulk", body);
       expect((await bulk({ regionId: REGION, entries: [] })).json()).toEqual(invalid(/entries must /));
-      expect((await bulk({ regionId: REGION, entries: "Apis mellifera" })).json()).toEqual(invalid(/entries must be array/));
+      expect((await bulk({ regionId: REGION, entries: "Apis mellifera" })).json()).toEqual(
+        invalid(/entries must be array/),
+      );
       expect((await bulk({ regionId: REGION, entries: [3] })).json()).toEqual(invalid(/entries\.0 must be string/));
     });
 
@@ -176,7 +185,10 @@ describe.skipIf(!url)("species route validation", () => {
       expect((await post({ keep: true, also: 1 })).json()).toEqual(invalid(/unexpected field also/));
       // A well-formed species that isn't one of the split's: the handler's own 400.
       const notOption = await post({ speciesId: NO_SUCH });
-      expect([notOption.statusCode, notOption.json()]).toEqual([400, { error: "Pick one of the species it was split into" }]);
+      expect([notOption.statusCode, notOption.json()]).toEqual([
+        400,
+        { error: "Pick one of the species it was split into" },
+      ]);
     });
 
     it("still keeps the old name when asked", async () => {

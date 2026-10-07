@@ -26,10 +26,13 @@ function resolveTarget() {
     return { triple: null, platform: process.platform, arch: process.arch, cross: false };
   }
   const spec = TRIPLES[triple];
-  if (!spec) throw new Error(`[target] unknown LIFER_TARGET_TRIPLE ${triple}; known: ${Object.keys(TRIPLES).join(", ")}`);
+  if (!spec)
+    throw new Error(`[target] unknown LIFER_TARGET_TRIPLE ${triple}; known: ${Object.keys(TRIPLES).join(", ")}`);
   const cross = spec.platform !== process.platform || spec.arch !== process.arch;
   if (cross && !(spec.platform === "darwin" && process.platform === "darwin")) {
-    throw new Error(`[target] can't build ${triple} on ${process.platform}-${process.arch}; only macOS cross-arch builds are supported`);
+    throw new Error(
+      `[target] can't build ${triple} on ${process.platform}-${process.arch}; only macOS cross-arch builds are supported`,
+    );
   }
   return { triple, ...spec, cross };
 }
@@ -41,4 +44,12 @@ export const tauriArch = target.arch === "arm64" ? "aarch64" : "x86_64";
 
 // Where `tauri build` writes the installers: target/release/bundle for a host build,
 // target/<triple>/release/bundle when --target is passed.
-export const bundleRoot = path.join(__dirname, "..", "src-tauri", "target", ...(target.triple ? [target.triple] : []), "release", "bundle");
+export const bundleRoot = path.join(
+  __dirname,
+  "..",
+  "src-tauri",
+  "target",
+  ...(target.triple ? [target.triple] : []),
+  "release",
+  "bundle",
+);

@@ -11,7 +11,9 @@ describe("withoutTrackingParams", () => {
   });
 
   it("keeps other parameters and leaves plain URLs alone", () => {
-    expect(withoutTrackingParams("https://example.org/a.jpg?size=medium&utm_source=x")).toBe("https://example.org/a.jpg?size=medium");
+    expect(withoutTrackingParams("https://example.org/a.jpg?size=medium&utm_source=x")).toBe(
+      "https://example.org/a.jpg?size=medium",
+    );
     expect(withoutTrackingParams("https://inaturalist-open-data.s3.amazonaws.com/photos/1/medium.jpg")).toBe(
       "https://inaturalist-open-data.s3.amazonaws.com/photos/1/medium.jpg",
     );

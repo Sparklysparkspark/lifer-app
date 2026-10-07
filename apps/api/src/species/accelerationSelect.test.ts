@@ -171,27 +171,30 @@ describe("selectAcceleration on an NVIDIA GPU", () => {
   it.each([
     ["550.127.05", 12],
     ["580.65.06", 13],
-  ] as const)("runs CUDA (driver %s) on the downloaded CUDA %i runtime, not the bundled onnxruntime-node", async (driver, major) => {
-    const runtimeDir = assembled(path.join(dir, "gpu"), major);
-    // The runtime in force while CUDA is probed: probes for it run in a process that loads it.
-    let probedWith: unknown = "not probed";
-    probe.mockImplementation(async (file: string, providers: string[]) => {
-      if (providers[0] === "cuda") probedWith = currentPlan().runtime;
-      const ms = providers[0] === "cuda" ? 100 : path.basename(file) === "model-int8.onnx" ? 500 : 600;
-      return { probe: true, ms, vector: RIGHT };
-    });
-    await runOn(nvidia(driver, major));
+  ] as const)(
+    "runs CUDA (driver %s) on the downloaded CUDA %i runtime, not the bundled onnxruntime-node",
+    async (driver, major) => {
+      const runtimeDir = assembled(path.join(dir, "gpu"), major);
+      // The runtime in force while CUDA is probed: probes for it run in a process that loads it.
+      let probedWith: unknown = "not probed";
+      probe.mockImplementation(async (file: string, providers: string[]) => {
+        if (providers[0] === "cuda") probedWith = currentPlan().runtime;
+        const ms = providers[0] === "cuda" ? 100 : path.basename(file) === "model-int8.onnx" ? 500 : 600;
+        return { probe: true, ms, vector: RIGHT };
+      });
+      await runOn(nvidia(driver, major));
 
-    const ortModule = path.join(runtimeDir, "node_modules", "onnxruntime-node");
-    const providerDir = path.join(ortModule, "bin", "napi-v6", "linux", "x64");
-    const expected = { id: `cuda${major}`, ortModule, libraryPath: `${path.join(runtimeDir, "lib")}:${providerDir}` };
-    expect(probedWith).toEqual(expected);
-    expect(currentPlan().runtime).toEqual(expected);
-    expect(currentPlan().placements.id).toMatchObject({ backend: "cuda", providers: ["cuda"] });
-    // The CUDA provider it loads is the downloaded one, on the library path.
-    expect(existsSync(path.join(providerDir, "libonnxruntime_providers_cuda.so"))).toBe(true);
-    expect(download).not.toHaveBeenCalled();
-  });
+      const ortModule = path.join(runtimeDir, "node_modules", "onnxruntime-node");
+      const providerDir = path.join(ortModule, "bin", "napi-v6", "linux", "x64");
+      const expected = { id: `cuda${major}`, ortModule, libraryPath: `${path.join(runtimeDir, "lib")}:${providerDir}` };
+      expect(probedWith).toEqual(expected);
+      expect(currentPlan().runtime).toEqual(expected);
+      expect(currentPlan().placements.id).toMatchObject({ backend: "cuda", providers: ["cuda"] });
+      // The CUDA provider it loads is the downloaded one, on the library path.
+      expect(existsSync(path.join(providerDir, "libonnxruntime_providers_cuda.so"))).toBe(true);
+      expect(download).not.toHaveBeenCalled();
+    },
+  );
 
   it("falls back to the CPU with a log line when the download fails, and tries again next start", async () => {
     answers({
@@ -206,7 +209,9 @@ describe("selectAcceleration on an NVIDIA GPU", () => {
     expect(probe.mock.calls.every(([, providers]) => providers[0] === "cpu")).toBe(true);
     expect(currentPlan()).toEqual({ device: null, runtime: null, placements: {} });
     expect(accelerationStatus()).toMatchObject({ state: "done", device: null });
-    expect(logs.some((m) => /^cuda: couldn't download its libraries \(.*offline.*\), so Test NVIDIA isn't used/.test(m))).toBe(true);
+    expect(
+      logs.some((m) => /^cuda: couldn't download its libraries \(.*offline.*\), so Test NVIDIA isn't used/.test(m)),
+    ).toBe(true);
     expect(logs.at(-1)).toBe("using the CPU: a GPU's libraries couldn't be downloaded");
     // Not remembered, so the next start downloads again.
     expect(existsSync(path.join(dir, "acceleration.json"))).toBe(false);

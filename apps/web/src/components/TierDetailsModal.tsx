@@ -104,9 +104,7 @@ export default function TierDetailsModal({
           </section>
           {worldLines.length > 0 && (
             <section>
-              <h3 className="font-medium text-ink">
-                {tierLabel(details.global.tier!)} worldwide
-              </h3>
+              <h3 className="font-medium text-ink">{tierLabel(details.global.tier!)} worldwide</h3>
               <ul className="mt-1 space-y-0.5 text-muted">
                 {worldLines.map((l) => (
                   <li key={l}>{l}</li>

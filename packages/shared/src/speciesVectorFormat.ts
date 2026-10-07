@@ -73,7 +73,8 @@ export async function* decodeSpeciesVectors(
       if (pending.length < 14) continue;
       if (pending.toString("ascii", 0, 4) !== SPECIES_VECTOR_MAGIC) throw new Error("Not a Lifer species vector file");
       const formatVersion = pending.readUInt16LE(4);
-      if (formatVersion !== SPECIES_VECTOR_FORMAT_VERSION) throw new Error(`Unsupported species vector format version ${formatVersion}`);
+      if (formatVersion !== SPECIES_VECTOR_FORMAT_VERSION)
+        throw new Error(`Unsupported species vector format version ${formatVersion}`);
       const mvLen = pending.readUInt16LE(12);
       if (pending.length < 14 + mvLen) continue;
       header = {
@@ -91,7 +92,8 @@ export async function* decodeSpeciesVectors(
       const speciesId = bytesToUuid(pending, pos);
       const embedding = new Array<number>(header.dimension);
       let off = pos + 16;
-      for (let i = 0; i < header.dimension; i++, off += 2) embedding[i] = float16BitsToFloat32(pending.readUInt16LE(off));
+      for (let i = 0; i < header.dimension; i++, off += 2)
+        embedding[i] = float16BitsToFloat32(pending.readUInt16LE(off));
       yield { speciesId, embedding };
       seen++;
       pos += recLen;

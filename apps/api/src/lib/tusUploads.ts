@@ -66,7 +66,11 @@ class LiferFileStore extends FileStore {
       },
     });
     try {
-      const newOffset = await super.write(pipelineCallback(readable, tap, () => {}), id, offset);
+      const newOffset = await super.write(
+        pipelineCallback(readable, tap, () => {}),
+        id,
+        offset,
+      );
       if (newOffset !== running.bytes) runningHashes.delete(id);
       return newOffset;
     } catch (err) {
@@ -143,7 +147,8 @@ export function tusServer(routePath: string): Server {
 
 async function recordFinishedUpload(upload: Upload, userId: string | null): Promise<void> {
   const owner = UPLOAD_ID.exec(upload.id)?.[1];
-  if (!owner || !userId || owner.toLowerCase() !== userId.toLowerCase()) throw { status_code: 403, body: "Not your upload\n" };
+  if (!owner || !userId || owner.toLowerCase() !== userId.toLowerCase())
+    throw { status_code: 403, body: "Not your upload\n" };
   const filePath = path.join(filesDir(), upload.id);
   const running = runningHashes.get(upload.id);
   runningHashes.delete(upload.id);
@@ -202,13 +207,20 @@ export class TusClaimError extends Error {
 /** Takes a finished upload for one import: checks the owner, that the bytes still hash to the
  *  recorded sha256 (streamed), and that no other import holds it. Call release() when done;
  *  after a successful import, removeTusUpload() too. */
-export async function claimTusUpload(userId: string, uploadId: string): Promise<FinishedTusUpload & { release: () => void }> {
+export async function claimTusUpload(
+  userId: string,
+  uploadId: string,
+): Promise<FinishedTusUpload & { release: () => void }> {
   if (claimed.has(uploadId)) throw new TusClaimError("That upload is already being imported", 409);
   claimed.add(uploadId);
   const release = () => void claimed.delete(uploadId);
   try {
     const upload = await finishedTusUpload(userId, uploadId);
-    if (!upload) throw new TusClaimError("That upload isn't here any more (finished, expired or never completed). Upload the file again.", 410);
+    if (!upload)
+      throw new TusClaimError(
+        "That upload isn't here any more (finished, expired or never completed). Upload the file again.",
+        410,
+      );
     if ((await hashFile(upload.path)) !== upload.sha256) {
       await removeTusUpload(uploadId);
       throw new TusClaimError("That upload changed after it finished. Upload the file again.", 410);
@@ -244,13 +256,17 @@ export async function sweepTusUploads(now = Date.now()): Promise<number> {
   if (!existsSync(dir)) return 0;
   const ids = new Set<string>();
   for (const name of await readdir(dir)) ids.add(name.endsWith(".json") ? name.slice(0, -5) : name);
-  for (const name of existsSync(recordsDir()) ? await readdir(recordsDir()) : []) if (name.endsWith(".json")) ids.add(name.slice(0, -5));
+  for (const name of existsSync(recordsDir()) ? await readdir(recordsDir()) : [])
+    if (name.endsWith(".json")) ids.add(name.slice(0, -5));
   let removed = 0;
   for (const id of ids) {
     if (!isTusUploadId(id) || claimed.has(id)) continue;
     const times = await Promise.all(
       [path.join(dir, id), path.join(dir, `${id}.json`), path.join(recordsDir(), `${id}.json`)].map((p) =>
-        stat(p).then((s) => s.mtimeMs, () => 0),
+        stat(p).then(
+          (s) => s.mtimeMs,
+          () => 0,
+        ),
       ),
     );
     if (now - Math.max(...times) > TUS_UPLOAD_MAX_AGE_MS) {

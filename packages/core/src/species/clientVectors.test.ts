@@ -1,10 +1,21 @@
 // clientVectors from a desktop app are trusted only when they're exactly what this server would
 // compute: every check below falls back to server-side compute, never to a half-trusted vector.
 import { describe, expect, it } from "vitest";
-import { CLIENT_VECTOR_DIMS, MAX_CLIENT_VECTORS_BYTES, decodeVector, encodeVector, parseClientVectors, type ClientVectors } from "./clientVectors.js";
+import {
+  CLIENT_VECTOR_DIMS,
+  MAX_CLIENT_VECTORS_BYTES,
+  decodeVector,
+  encodeVector,
+  parseClientVectors,
+  type ClientVectors,
+} from "./clientVectors.js";
 
 const HASH = "a".repeat(64);
-const expected = { pipelineVersion: 1, contentHash: HASH, modelVersions: { clip: "clip-v1", "clip-crop": "clip-v1", id: "bio-v1", "id-crop": "bio-v1" } };
+const expected = {
+  pipelineVersion: 1,
+  contentHash: HASH,
+  modelVersions: { clip: "clip-v1", "clip-crop": "clip-v1", id: "bio-v1", "id-crop": "bio-v1" },
+};
 
 function unit(seed: number): Float32Array {
   const v = new Float32Array(CLIENT_VECTOR_DIMS);
@@ -61,7 +72,9 @@ describe("parseClientVectors", () => {
   });
 
   it("accepts an upper-case hash", () => {
-    expect("vectors" in parseClientVectors(JSON.stringify(payload({ contentHash: HASH.toUpperCase() })), expected)).toBe(true);
+    expect(
+      "vectors" in parseClientVectors(JSON.stringify(payload({ contentHash: HASH.toUpperCase() })), expected),
+    ).toBe(true);
   });
 
   it.each([
@@ -69,7 +82,10 @@ describe("parseClientVectors", () => {
     ["content hash", payload({ contentHash: "b".repeat(64) })],
     ["clip model version", payload({ clipFull: { modelVersion: "clip-v0", b64f32: encodeVector(unit(1)) } })],
     ["id model version", payload({ idCrop: { modelVersion: "clip-v1", b64f32: encodeVector(unit(2)) } })],
-    ["a bad vector alongside a good one", payload({ idCrop: { modelVersion: "bio-v1", b64f32: encodeVector(new Float32Array(CLIENT_VECTOR_DIMS)) } })],
+    [
+      "a bad vector alongside a good one",
+      payload({ idCrop: { modelVersion: "bio-v1", b64f32: encodeVector(new Float32Array(CLIENT_VECTOR_DIMS)) } }),
+    ],
     ["no vectors at all", { pipelineVersion: 1, contentHash: HASH }],
   ])("rejects a mismatched %s", (_what, body) => {
     expect("rejected" in parseClientVectors(JSON.stringify(body), expected)).toBe(true);

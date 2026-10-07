@@ -52,7 +52,12 @@ import {
   FISH_ABSOLUTE_TIER_THRESHOLDS,
 } from "@lifer/core/species/computeRarityPhase1.js";
 import { drillDownAllCountries } from "./compute-all-regions.js";
-import { resolveInatPlaceId, fetchInatResearchGradeTaxonIds, matchedSpeciesIdsForRegion, resolveRemovalRescues } from "@lifer/core/regions/inatChecklist.js";
+import {
+  resolveInatPlaceId,
+  fetchInatResearchGradeTaxonIds,
+  matchedSpeciesIdsForRegion,
+  resolveRemovalRescues,
+} from "@lifer/core/regions/inatChecklist.js";
 import {
   EBIRD_SENSITIVE_SPECIES,
   weekInSeason,
@@ -305,7 +310,9 @@ async function waitForFreeDownloadSlot(): Promise<void> {
     const body = (await res.json()) as { results: Array<{ status: string }> };
     const active = body.results.filter((d) => d.status === "PREPARING" || d.status === "RUNNING").length;
     if (active < MAX_CONCURRENT_GBIF_DOWNLOADS) return;
-    console.log(`[compute-provinces-bulk] ${active} GBIF download(s) already active for this account, waiting for a free slot...`);
+    console.log(
+      `[compute-provinces-bulk] ${active} GBIF download(s) already active for this account, waiting for a free slot...`,
+    );
     await new Promise((resolve) => setTimeout(resolve, 15_000));
   }
 }
@@ -402,7 +409,12 @@ interface ProvinceRegion {
 }
 
 async function loadProvinces(countryId: string): Promise<ProvinceRegion[]> {
-  const res = await pool.query<{ id: string; name: string; boundary_geojson: { type: string; coordinates: unknown }; ebird_region_code: string | null }>(
+  const res = await pool.query<{
+    id: string;
+    name: string;
+    boundary_geojson: { type: string; coordinates: unknown };
+    ebird_region_code: string | null;
+  }>(
     `SELECT id, name, boundary_geojson, ebird_region_code FROM regions WHERE parent_id = $1 AND boundary_geojson IS NOT NULL`,
     [countryId],
   );
@@ -449,7 +461,6 @@ async function fetchEbirdRegionSpeciesCodes(regionCode: string): Promise<Set<str
   return ebirdSpeciesCodesCache.get(regionCode)!;
 }
 
-
 // Math.max(...arr) overflows the argument limit on very large arrays; a loop does not.
 function maxOf(values: number[]): number {
   let max = -Infinity;
@@ -471,7 +482,10 @@ interface Hotspot {
 // A plain average over a whole ~11km cell drifts toward scattered records, so a cell reports the
 // average of its densest sub-cell instead, the spot where sightings actually pile up.
 const HOTSPOT_PEAK_SUBCELL_DEGREES = 0.02; // ~2.2km, coarse enough that GPS noise doesn't split one spot
-function peakCentroid(cell: { lats: number[]; lons: number[]; weights: number[] }): { centroidLat: number; centroidLon: number } {
+function peakCentroid(cell: { lats: number[]; lons: number[]; weights: number[] }): {
+  centroidLat: number;
+  centroidLon: number;
+} {
   const subCells = new Map<string, { latSum: number; lonSum: number; weight: number }>();
   for (let i = 0; i < cell.lats.length; i++) {
     const key = `${Math.floor(cell.lats[i] / HOTSPOT_PEAK_SUBCELL_DEGREES)},${Math.floor(cell.lons[i] / HOTSPOT_PEAK_SUBCELL_DEGREES)}`;
@@ -491,7 +505,9 @@ function peakCentroid(cell: { lats: number[]; lons: number[]; weights: number[] 
   return { centroidLat: peak!.latSum / peak!.weight, centroidLon: peak!.lonSum / peak!.weight };
 }
 
-function summarizeSensitiveCluster(points: Array<{ lon: number; lat: number; weight: number; year: number | null }>): Hotspot {
+function summarizeSensitiveCluster(
+  points: Array<{ lon: number; lat: number; weight: number; year: number | null }>,
+): Hotspot {
   const totalWeight = points.reduce((sum, p) => sum + p.weight, 0);
   const years = points.map((p) => p.year).filter((y): y is number => y != null);
   return {
@@ -518,7 +534,10 @@ function clusterHotspots(
   const n = lons.length;
   if (n === 0) return [];
   const sensitivePoints: Array<{ lon: number; lat: number; weight: number; year: number | null }> = [];
-  const cells = new Map<string, { lats: number[]; lons: number[]; weights: number[]; weight: number; years: number[] }>();
+  const cells = new Map<
+    string,
+    { lats: number[]; lons: number[]; weights: number[]; weight: number; years: number[] }
+  >();
   for (let i = 0; i < n; i++) {
     const year = years[i] === 0 ? null : years[i];
     const week = weeks[i] === 0 ? null : weeks[i];
@@ -561,7 +580,9 @@ function clusterHotspots(
   const kept = [...byDiversityCell.values()].flatMap((group) => {
     const sorted = group.sort((a, b) => b.cell.weight - a.cell.weight);
     const localBestWeight = sorted[0].cell.weight;
-    return sorted.filter((c) => c.cell.weight >= localBestWeight * MIN_RELATIVE_SHARE_OF_LOCAL_BEST).slice(0, MAX_CLUSTERS_PER_DIVERSITY_CELL);
+    return sorted
+      .filter((c) => c.cell.weight >= localBestWeight * MIN_RELATIVE_SHARE_OF_LOCAL_BEST)
+      .slice(0, MAX_CLUSTERS_PER_DIVERSITY_CELL);
   });
 
   return [
@@ -570,7 +591,8 @@ function clusterHotspots(
       centroidLat,
       centroidLon,
       pointCount: cell.weight,
-      bboxDiagonalKm: bboxDiagonalDegrees(ringBoundingBox(cell.lats.map((lat, i) => [cell.lons[i], lat] as Point))) * KM_PER_DEGREE,
+      bboxDiagonalKm:
+        bboxDiagonalDegrees(ringBoundingBox(cell.lats.map((lat, i) => [cell.lons[i], lat] as Point))) * KM_PER_DEGREE,
       lastSeenYear: cell.years.length > 0 ? maxOf(cell.years) : null,
       distinctYears: cell.years.length > 0 ? new Set(cell.years).size : null,
     })),
@@ -658,7 +680,12 @@ async function loadManualOverrides(
 ): Promise<Map<string, Map<string, { isVagrant: boolean; isInvasive: boolean | null }>>> {
   const byProvince = new Map<string, Map<string, { isVagrant: boolean; isInvasive: boolean | null }>>();
   if (provinceIds.length === 0) return byProvince;
-  const res = await pool.query<{ region_id: string; species_id: string; is_vagrant: boolean; is_invasive: boolean | null }>(
+  const res = await pool.query<{
+    region_id: string;
+    species_id: string;
+    is_vagrant: boolean;
+    is_invasive: boolean | null;
+  }>(
     `SELECT region_id, species_id, is_vagrant, is_invasive FROM region_species_manual_overrides WHERE region_id = ANY($1)`,
     [provinceIds],
   );
@@ -683,7 +710,9 @@ async function computeCountryProvinces(
   const allProvinces = await loadProvinces(countryId);
   const provinces = provinceNameFilter ? allProvinces.filter((p) => provinceNameFilter.has(p.name)) : allProvinces;
   if (provinces.length === 0) {
-    console.log(`[compute-provinces-bulk] ${countryName}: no province rows found (drill-down produced none, or none matched --provinces): skipping`);
+    console.log(
+      `[compute-provinces-bulk] ${countryName}: no province rows found (drill-down produced none, or none matched --provinces): skipping`,
+    );
     return;
   }
 
@@ -694,7 +723,9 @@ async function computeCountryProvinces(
   const manualOverridesByProvince = await loadManualOverrides(provinces.map((p) => p.id));
 
   await waitForOrEnsureGbifZipCached(countryName, iso2, refreshCache);
-  console.log(`[compute-provinces-bulk] ${countryName}: tracking ${provinces.length} province(s), using cached GBIF data...`);
+  console.log(
+    `[compute-provinces-bulk] ${countryName}: tracking ${provinces.length} province(s), using cached GBIF data...`,
+  );
   const cachedZipPath = path.join(GBIF_COUNTRY_CACHE_DIR, `${iso2}.zip`);
   // Keyed by iso2 plus country name: some countries share an iso2 (a territory and its parent)
   // but have different province sets, so they'd poison each other's cache otherwise.
@@ -706,7 +737,9 @@ async function computeCountryProvinces(
     [...partitionPaths.values()].every((p) => existsSync(p) && statSync(p).mtimeMs >= zipMtimeMs);
 
   if (allPartitionsFresh) {
-    console.log(`[compute-provinces-bulk] ${countryName}: reusing cached point-matched partitions (skipping the raw GBIF scan)`);
+    console.log(
+      `[compute-provinces-bulk] ${countryName}: reusing cached point-matched partitions (skipping the raw GBIF scan)`,
+    );
   } else {
     // Single-threaded on purpose: the worker_threads pool in provinceMatchWorker.ts deadlocks
     // under load for an unknown reason. Don't re-enable it without root-causing that.
@@ -753,7 +786,7 @@ async function computeCountryProvinces(
       if (!isFastPathClass && !EXTRA_ADMIT_GBIF_CLASSES.has(rawClass)) continue;
       const rawSpecies = cols[colIndex.species];
       const species = catalogNames.get(rawSpecies) ?? rawSpecies;
-      const cls = isFastPathClass ? rawClass : taxonClassByName.get(species) ?? null;
+      const cls = isFastPathClass ? rawClass : (taxonClassByName.get(species) ?? null);
       if (!cls) continue;
       const lat = Number(cols[colIndex.decimallatitude]);
       const lon = Number(cols[colIndex.decimallongitude]);
@@ -771,7 +804,9 @@ async function computeCountryProvinces(
       matchedCount++;
       for (const province of matched) {
         const stream = writeStreams.get(province.id)!;
-        stream.write(`${species}\t${cls}\t${lon}\t${lat}\t${year ?? ""}\t${week ?? ""}\t${recordCount}\t${basisOfRecord}\n`);
+        stream.write(
+          `${species}\t${cls}\t${lon}\t${lat}\t${year ?? ""}\t${week ?? ""}\t${recordCount}\t${basisOfRecord}\n`,
+        );
       }
     }
 
@@ -782,11 +817,14 @@ async function computeCountryProvinces(
 
     await Promise.all(
       [...writeStreams.values()].map(
-        (stream) => new Promise<void>((resolve, reject) => stream.end((err?: Error | null) => (err ? reject(err) : resolve()))),
+        (stream) =>
+          new Promise<void>((resolve, reject) => stream.end((err?: Error | null) => (err ? reject(err) : resolve()))),
       ),
     );
 
-    console.log(`[compute-provinces-bulk] ${countryName}: scanned ${rowCount.toLocaleString()} rows, ${matchedCount.toLocaleString()} matched a province`);
+    console.log(
+      `[compute-provinces-bulk] ${countryName}: scanned ${rowCount.toLocaleString()} rows, ${matchedCount.toLocaleString()} matched a province`,
+    );
     console.log(`[compute-provinces-bulk] ${countryName}: cached point-matched partitions for future re-scoring runs`);
   }
 
@@ -811,7 +849,10 @@ async function computeCountryProvinces(
         allTimeTotalByClass.get(cls)!.push(allTimeTotal);
       }
       const recurrenceFloorByClass = new Map(
-        [...allTimeTotalByClass.entries()].map(([cls, totals]) => [cls, medianOf(totals) * RECURRENCE_MIN_RECORDS_FRACTION_OF_MEDIAN]),
+        [...allTimeTotalByClass.entries()].map(([cls, totals]) => [
+          cls,
+          medianOf(totals) * RECURRENCE_MIN_RECORDS_FRACTION_OF_MEDIAN,
+        ]),
       );
 
       for (const [species, { class: cls, years }] of bySpecies) {
@@ -821,7 +862,11 @@ async function computeCountryProvinces(
         const isNonNative = nonNativeSpeciesNames.has(species);
         if (FISH_CLASSES.has(cls)) {
           if (allTimeTotal < FISH_MIN_RECORDS) continue;
-          included.push({ species, recordCount: allTimeTotal, isVagrant: isNonNative || allTimeTotal < FISH_VAGRANT_MIN_RECORDS });
+          included.push({
+            species,
+            recordCount: allTimeTotal,
+            isVagrant: isNonNative || allTimeTotal < FISH_VAGRANT_MIN_RECORDS,
+          });
           continue;
         }
         const recurrenceFloor = recurrenceFloorByClass.get(cls) ?? 0;
@@ -829,13 +874,21 @@ async function computeCountryProvinces(
           .filter((y) => y.year >= currentYear - RECENT_YEARS_WINDOW)
           .reduce((sum, y) => sum + y.count, 0);
         if (recentTotal >= MIN_RECORDS) {
-          included.push({ species, recordCount: recentTotal, isVagrant: isNonNative || !passesRecurrenceCheck(yearCountArr, recurrenceFloor) });
+          included.push({
+            species,
+            recordCount: recentTotal,
+            isVagrant: isNonNative || !passesRecurrenceCheck(yearCountArr, recurrenceFloor),
+          });
           continue;
         }
         // Enough records to be findable but no proven recurrence: list it flagged vagrant rather
         // than drop it. Hard-to-detect residents are fixed via region_species_manual_overrides.
         if (allTimeTotal >= RECURRENCE_ALLTIME_FLOOR) {
-          included.push({ species, recordCount: allTimeTotal, isVagrant: isNonNative || !passesRecurrenceCheck(yearCountArr, recurrenceFloor) });
+          included.push({
+            species,
+            recordCount: allTimeTotal,
+            isVagrant: isNonNative || !passesRecurrenceCheck(yearCountArr, recurrenceFloor),
+          });
         }
       }
 
@@ -926,7 +979,9 @@ async function computeCountryProvinces(
         }
       }
 
-      console.log(`[compute-provinces-bulk]   ${province.name}: ${included.length} species pass inclusion (of ${bySpecies.size} candidates)`);
+      console.log(
+        `[compute-provinces-bulk]   ${province.name}: ${included.length} species pass inclusion (of ${bySpecies.size} candidates)`,
+      );
       if (!apply) continue;
 
       // Local tier mirrors the global tier logic (apply-rarity-phase4.ts) on this province's data:
@@ -951,7 +1006,14 @@ async function computeCountryProvinces(
               };
         clustersBySpecies.set(
           c.species,
-          clusterHotspots(entry.clusterLons, entry.clusterLats, entry.clusterWeights, entry.clusterYears, entry.clusterWeeks, isSensitivePoint),
+          clusterHotspots(
+            entry.clusterLons,
+            entry.clusterLats,
+            entry.clusterWeights,
+            entry.clusterYears,
+            entry.clusterWeeks,
+            isSensitivePoint,
+          ),
         );
       }
 
@@ -972,9 +1034,12 @@ async function computeCountryProvinces(
         // Equirectangular approximation, with longitude scaled by cos(latitude).
         const lonScale = Math.cos((centroidLat * Math.PI) / 180);
         const distanceKm = (cl: Hotspot) =>
-          Math.sqrt((cl.centroidLat - centroidLat) ** 2 + ((cl.centroidLon - centroidLon) * lonScale) ** 2) * KM_PER_DEGREE;
+          Math.sqrt((cl.centroidLat - centroidLat) ** 2 + ((cl.centroidLon - centroidLon) * lonScale) ** 2) *
+          KM_PER_DEGREE;
         const meanDistanceKm = clusters.reduce((sum, cl) => sum + distanceKm(cl) * cl.pointCount, 0) / total;
-        const stdDevKm = Math.sqrt(clusters.reduce((sum, cl) => sum + (distanceKm(cl) - meanDistanceKm) ** 2 * cl.pointCount, 0) / total);
+        const stdDevKm = Math.sqrt(
+          clusters.reduce((sum, cl) => sum + (distanceKm(cl) - meanDistanceKm) ** 2 * cl.pointCount, 0) / total,
+        );
 
         const core = clusters.filter((cl) => {
           const isSmall = cl.pointCount / total <= OUTLIER_MAX_SHARE;
@@ -985,7 +1050,8 @@ async function computeCountryProvinces(
         const effective = core.length > 0 ? core : clusters;
         if (effective.length === 1) return effective[0].bboxDiagonalKm;
         const centroidSpanKm =
-          bboxDiagonalDegrees(ringBoundingBox(effective.map((cl) => [cl.centroidLon, cl.centroidLat] as Point))) * KM_PER_DEGREE;
+          bboxDiagonalDegrees(ringBoundingBox(effective.map((cl) => [cl.centroidLon, cl.centroidLat] as Point))) *
+          KM_PER_DEGREE;
         const maxClusterRadiusKm = maxOf(effective.map((cl) => cl.bboxDiagonalKm / 2));
         return centroidSpanKm + maxClusterRadiusKm * 2;
       }
@@ -1031,12 +1097,14 @@ async function computeCountryProvinces(
         const rangeScore = spreadScoreByIdx.get(idx) ?? 0.5;
         const abundanceScore = baseScoreByIdx.get(idx) ?? 0.5;
         const rawComposite =
-          PROVINCE_RANGE_ABUNDANCE_WEIGHTS.range * rangeScore + PROVINCE_RANGE_ABUNDANCE_WEIGHTS.abundance * abundanceScore;
-        const thresholds = FISH_CLASSES.has(cls) || NEW_OBSCURE_TAXON_CLASSES.has(cls)
-          ? FISH_ABSOLUTE_TIER_THRESHOLDS
-          : cls === "Mammalia"
-            ? MAMMAL_ABSOLUTE_TIER_THRESHOLDS
-            : BIRD_ABSOLUTE_TIER_THRESHOLDS;
+          PROVINCE_RANGE_ABUNDANCE_WEIGHTS.range * rangeScore +
+          PROVINCE_RANGE_ABUNDANCE_WEIGHTS.abundance * abundanceScore;
+        const thresholds =
+          FISH_CLASSES.has(cls) || NEW_OBSCURE_TAXON_CLASSES.has(cls)
+            ? FISH_ABSOLUTE_TIER_THRESHOLDS
+            : cls === "Mammalia"
+              ? MAMMAL_ABSOLUTE_TIER_THRESHOLDS
+              : BIRD_ABSOLUTE_TIER_THRESHOLDS;
         const confidence = confidenceFromTotalRecords(totalRecordsByClass.get(cls) ?? 0);
         const neutralAnchor = thresholds.find((t) => t.tier === "occasional")!.minScore;
         const composite = confidence * rawComposite + (1 - confidence) * neutralAnchor;
@@ -1071,7 +1139,10 @@ async function computeCountryProvinces(
       const client = await Promise.race([
         pool.connect(),
         new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error(`pool.connect() timed out acquiring a client for ${province.name}`)), 30_000),
+          setTimeout(
+            () => reject(new Error(`pool.connect() timed out acquiring a client for ${province.name}`)),
+            30_000,
+          ),
         ),
       ]);
       try {
@@ -1133,13 +1204,21 @@ async function computeCountryProvinces(
             ]);
           }
         }
-        const insertBatches = async (rows: unknown[][], perRow: number, sql: (values: string) => string, casts: string[]) => {
+        const insertBatches = async (
+          rows: unknown[][],
+          perRow: number,
+          sql: (values: string) => string,
+          casts: string[],
+        ) => {
           const BATCH = 1000;
           for (let i = 0; i < rows.length; i += BATCH) {
             const batch = rows.slice(i, i + BATCH);
             const params = batch.flat();
             const values = batch
-              .map((_, r) => `(${Array.from({ length: perRow }, (__, k) => `$${r * perRow + k + 1}${casts[k] ?? ""}`).join(", ")})`)
+              .map(
+                (_, r) =>
+                  `(${Array.from({ length: perRow }, (__, k) => `$${r * perRow + k + 1}${casts[k] ?? ""}`).join(", ")})`,
+              )
               .join(", ");
             await client.query(sql(values), params);
           }
@@ -1147,7 +1226,9 @@ async function computeCountryProvinces(
         await insertBatches(
           [...speciesRows.values()],
           7,
-          (values) => `INSERT INTO region_species (region_id, species_id, local_frequency, is_vagrant, is_invasive, local_tier, weekly_frequency)
+          (
+            values,
+          ) => `INSERT INTO region_species (region_id, species_id, local_frequency, is_vagrant, is_invasive, local_tier, weekly_frequency)
              VALUES ${values}
              ON CONFLICT (region_id, species_id) DO UPDATE SET
                local_frequency = EXCLUDED.local_frequency, is_vagrant = EXCLUDED.is_vagrant, is_invasive = EXCLUDED.is_invasive,
@@ -1161,12 +1242,23 @@ async function computeCountryProvinces(
           (values) => `INSERT INTO region_species_hotspots
              (region_id, species_id, centroid_lat, centroid_lon, point_count, bbox_diagonal_km, last_seen_year, distinct_years)
              VALUES ${values}`,
-          ["::uuid", "::uuid", "::double precision", "::double precision", "::int", "::double precision", "::int", "::int"],
+          [
+            "::uuid",
+            "::uuid",
+            "::double precision",
+            "::double precision",
+            "::int",
+            "::double precision",
+            "::int",
+            "::int",
+          ],
         );
         hotspotsWritten = hotspotRows.length;
         await client.query(`UPDATE regions SET occurrence_computed_at = now() WHERE id = $1`, [province.id]);
         await client.query("COMMIT");
-        console.log(`[compute-provinces-bulk]   ${province.name}: wrote ${written} species, ${hotspotsWritten} hotspot clusters`);
+        console.log(
+          `[compute-provinces-bulk]   ${province.name}: wrote ${written} species, ${hotspotsWritten} hotspot clusters`,
+        );
       } catch (err) {
         await client.query("ROLLBACK");
         throw err;
@@ -1185,7 +1277,11 @@ async function computeCountryProvinces(
 //   2. Thinly-evidenced species iNat has no record of are dropped, unless resolveRemovalRescues
 //      shows it's only a stale taxon-id mismatch.
 // Does nothing when no iNat place resolves for the province.
-async function reconcileProvinceMembershipWithInat(provinceId: string, provinceName: string, ebirdRescuedNames: string[] = []): Promise<void> {
+async function reconcileProvinceMembershipWithInat(
+  provinceId: string,
+  provinceName: string,
+  ebirdRescuedNames: string[] = [],
+): Promise<void> {
   const inatMatch = await matchedSpeciesIdsForRegion(provinceId, provinceName);
   if (!inatMatch) return;
   const { matchedSpeciesIds, rawTaxonIds } = inatMatch;
@@ -1198,11 +1294,15 @@ async function reconcileProvinceMembershipWithInat(provinceId: string, provinceN
   // Only species with thin GBIF evidence (below MIN_RECORDS) can be dropped for lacking iNat
   // confirmation; otherwise places few iNat users visit would lose most of their list.
   const wellEvidencedIds = new Set(
-    existingRes.rows.filter((r) => r.local_frequency != null && Number(r.local_frequency) >= MIN_RECORDS).map((r) => r.species_id),
+    existingRes.rows
+      .filter((r) => r.local_frequency != null && Number(r.local_frequency) >= MIN_RECORDS)
+      .map((r) => r.species_id),
   );
   // Birds on eBird's province list count as well-evidenced too.
   if (ebirdRescuedNames.length > 0) {
-    const rescued = await pool.query<{ id: string }>(`SELECT id FROM species WHERE scientific_name = ANY($1)`, [ebirdRescuedNames]);
+    const rescued = await pool.query<{ id: string }>(`SELECT id FROM species WHERE scientific_name = ANY($1)`, [
+      ebirdRescuedNames,
+    ]);
     for (const r of rescued.rows) wellEvidencedIds.add(r.id);
   }
 
@@ -1223,7 +1323,10 @@ async function reconcileProvinceMembershipWithInat(provinceId: string, provinceN
   try {
     await client.query("BEGIN");
     if (toDrop.length > 0) {
-      await client.query(`DELETE FROM region_species WHERE region_id = $1 AND species_id = ANY($2::uuid[])`, [provinceId, toDrop]);
+      await client.query(`DELETE FROM region_species WHERE region_id = $1 AND species_id = ANY($2::uuid[])`, [
+        provinceId,
+        toDrop,
+      ]);
       await client.query(`DELETE FROM region_species_hotspots WHERE region_id = $1 AND species_id = ANY($2::uuid[])`, [
         provinceId,
         toDrop,
@@ -1283,7 +1386,9 @@ async function main() {
       try {
         const provinces = await loadProvinces(countryId);
         if (provinces.length === 0) {
-          console.log(`[compute-provinces-bulk] ${name}: no province rows found: skipping download (nothing would ever process it)`);
+          console.log(
+            `[compute-provinces-bulk] ${name}: no province rows found: skipping download (nothing would ever process it)`,
+          );
           continue;
         }
         await ensureGbifZipCached(name, iso2, refreshCache);
@@ -1318,7 +1423,9 @@ async function main() {
     const iso2 = iso2ByName.get(name);
     const countryId = countryIdByName.get(name);
     if (!iso2 || !countryId) {
-      console.log(`[compute-provinces-bulk] ${i + 1}/${countryNames.length} ${name}: no ISO2/region row match, skipping`);
+      console.log(
+        `[compute-provinces-bulk] ${i + 1}/${countryNames.length} ${name}: no ISO2/region row match, skipping`,
+      );
       continue;
     }
     console.log(`[compute-provinces-bulk] ${i + 1}/${countryNames.length} ${name} (${iso2})`);

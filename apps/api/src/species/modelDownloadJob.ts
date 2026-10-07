@@ -76,7 +76,8 @@ export function ensureIdModelOnStartup(pool: Pool, log: { warn: (obj: object, ms
     return;
   }
   if (!isModelDownloaded() || idModel.isDownloaded()) {
-    if (idModel.isDownloaded()) runIdEmbeddingBackfill().catch((err) => log.warn({ err }, "Identification embedding backfill failed"));
+    if (idModel.isDownloaded())
+      runIdEmbeddingBackfill().catch((err) => log.warn({ err }, "Identification embedding backfill failed"));
     return;
   }
   modelDownload.start(async (ctx) => {

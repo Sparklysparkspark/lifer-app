@@ -73,10 +73,12 @@ describe.skipIf(!url)("persistEnrichment photo_withheld", async () => {
     expect(await withheld()).toBe(false);
   });
   const checkedAt = async () =>
-    (await db.query<{ description_checked_at: Date | null; enriched_at: Date | null }>(
-      `SELECT description_checked_at, enriched_at FROM species WHERE id = $1`,
-      [SPECIES],
-    )).rows[0];
+    (
+      await db.query<{ description_checked_at: Date | null; enriched_at: Date | null }>(
+        `SELECT description_checked_at, enriched_at FROM species WHERE id = $1`,
+        [SPECIES],
+      )
+    ).rows[0];
 
   it("stamps description_checked_at only when a text source was actually read (migration 128)", async () => {
     await persistEnrichment(SPECIES, { ...empty, descriptionChecked: false });

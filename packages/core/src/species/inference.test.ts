@@ -28,9 +28,15 @@ function identityModel(): Buffer {
       : Buffer.concat([varint((num << 3) | 2), varint(payload.length), payload]);
   const str = (num: number, s: string) => field(num, Buffer.from(s));
   const shape = (dims: number[]) => Buffer.concat(dims.map((d) => field(1, field(1, d))));
-  const valueInfo = (name: string, dims: number[]) => Buffer.concat([str(1, name), field(2, field(1, Buffer.concat([field(1, 1), field(2, shape(dims))])))]);
+  const valueInfo = (name: string, dims: number[]) =>
+    Buffer.concat([str(1, name), field(2, field(1, Buffer.concat([field(1, 1), field(2, shape(dims))])))]);
   const node = Buffer.concat([str(1, "input"), str(2, "output"), str(4, "Flatten")]);
-  const graph = Buffer.concat([field(1, node), str(2, "g"), field(11, valueInfo("input", [1, 3, 224, 224])), field(12, valueInfo("output", [1, 150528]))]);
+  const graph = Buffer.concat([
+    field(1, node),
+    str(2, "g"),
+    field(11, valueInfo("input", [1, 3, 224, 224])),
+    field(12, valueInfo("output", [1, 150528])),
+  ]);
   return Buffer.concat([field(1, 8), field(7, graph), field(8, Buffer.concat([str(1, ""), field(2, 13)]))]);
 }
 
@@ -45,8 +51,11 @@ beforeAll(async () => {
   const width = 2600;
   const height = 1700;
   const raw = Buffer.alloc(width * height * 3, 220);
-  for (let y = 600; y < 1100; y++) for (let x = 1000; x < 1600; x++) raw.fill(40 + ((x * y) % 50), (y * width + x) * 3, (y * width + x) * 3 + 3);
-  photo = await sharp(raw, { raw: { width, height, channels: 3 } }).jpeg({ quality: 90 }).toBuffer();
+  for (let y = 600; y < 1100; y++)
+    for (let x = 1000; x < 1600; x++) raw.fill(40 + ((x * y) % 50), (y * width + x) * 3, (y * width + x) * 3 + 3);
+  photo = await sharp(raw, { raw: { width, height, channels: 3 } })
+    .jpeg({ quality: 90 })
+    .toBuffer();
 });
 
 async function freshFacade(inProcess: boolean) {
@@ -74,8 +83,16 @@ describe("inference worker", () => {
   });
 
   it("matches in-process results exactly, and the whole-photo tensor is the classic preprocessing", async () => {
-    const opts = { targets: [target(false), target(true)], presence: true, cardCrop: true, priority: "interactive" as const };
-    const [a, b] = await Promise.all([worker.analyzeImage(photo, { ...opts, key: "w" }), inProcess.analyzeImage(photo, { ...opts, key: "p" })]);
+    const opts = {
+      targets: [target(false), target(true)],
+      presence: true,
+      cardCrop: true,
+      priority: "interactive" as const,
+    };
+    const [a, b] = await Promise.all([
+      worker.analyzeImage(photo, { ...opts, key: "w" }),
+      inProcess.analyzeImage(photo, { ...opts, key: "p" }),
+    ]);
     expect(a.presence).toEqual(b.presence);
     expect(a.cardCrop).toEqual(b.cardCrop);
     for (let i = 0; i < 2; i++) {
@@ -97,7 +114,10 @@ describe("inference worker", () => {
   }, 60_000);
 
   it("reports a missing model for that target only", async () => {
-    const res = await worker.analyzeImage(photo, { targets: [target(false, "/nope/missing.onnx"), target(false)], priority: "interactive" });
+    const res = await worker.analyzeImage(photo, {
+      targets: [target(false, "/nope/missing.onnx"), target(false)],
+      priority: "interactive",
+    });
     expect(res.vectors[0]).toEqual({ error: "no such model" });
     expect(res.vectors[1]).toBeInstanceOf(Float32Array);
   }, 60_000);
@@ -106,7 +126,12 @@ describe("inference worker", () => {
     const order: string[] = [];
     const job = (name: string, priority: "interactive" | "background") =>
       worker.analyzeImage(photo, { targets: [target(false)], priority }).then(() => order.push(name));
-    await Promise.all([job("bg1", "background"), job("bg2", "background"), job("bg3", "background"), job("ui", "interactive")]);
+    await Promise.all([
+      job("bg1", "background"),
+      job("bg2", "background"),
+      job("bg3", "background"),
+      job("ui", "interactive"),
+    ]);
     // bg1 was already running when the others arrived; the interactive one jumps the rest.
     expect(order.indexOf("ui")).toBeLessThan(order.indexOf("bg2"));
     expect(order.indexOf("ui")).toBeLessThan(order.indexOf("bg3"));

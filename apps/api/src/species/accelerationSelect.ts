@@ -49,7 +49,14 @@ export interface AccelerationStatus {
   testedAt: string | null;
 }
 
-let status: AccelerationStatus = { state: "idle", message: null, progress: null, models: [], device: null, testedAt: null };
+let status: AccelerationStatus = {
+  state: "idle",
+  message: null,
+  progress: null,
+  models: [],
+  device: null,
+  testedAt: null,
+};
 let running: Promise<void> | null = null;
 
 export function accelerationStatus(): AccelerationStatus {
@@ -71,13 +78,18 @@ async function candidateBackends(): Promise<Backend[]> {
   if (process.platform === "darwin") {
     out.push({ id: "webgpu", label: "the Mac's GPU (WebGPU)", providers: ["webgpu"] });
     // ML Program: Core ML's format that covers far more of these models than the old one.
-    out.push({ id: "coreml", label: "the Mac's GPU and Neural Engine (Core ML)", providers: [{ name: "coreml", coreMlFlags: 0x010 }] });
+    out.push({
+      id: "coreml",
+      label: "the Mac's GPU and Neural Engine (Core ML)",
+      providers: [{ name: "coreml", coreMlFlags: 0x010 }],
+    });
   } else if (process.platform === "win32") {
     out.push({ id: "dml", label: "the GPU (DirectML)", providers: ["dml"] });
     out.push({ id: "webgpu", label: "the GPU (WebGPU)", providers: ["webgpu"] });
   } else if (process.platform === "linux") {
     const nvidia = await detectNvidiaGpu();
-    if (nvidia && nvidia.cudaMajor >= 12) out.push({ id: "cuda", label: nvidia.name, providers: ["cuda"], cuda: nvidia });
+    if (nvidia && nvidia.cudaMajor >= 12)
+      out.push({ id: "cuda", label: nvidia.name, providers: ["cuda"], cuda: nvidia });
     // Intel and AMD (and NVIDIA without CUDA) through Vulkan, when a GPU is passed in.
     if (renderNodes().length > 0) out.push({ id: "webgpu", label: "the GPU (Vulkan)", providers: ["webgpu"] });
   }
@@ -94,7 +106,9 @@ function fingerprint(models: AcceleratedModel[], backends: Backend[]): string {
     cpu: os.cpus()[0]?.model ?? "",
     ort,
     backends: backends.map((b) => `${b.id}:${b.cuda ? `${b.cuda.name}/${b.cuda.driver}` : ""}`),
-    models: models.map((m) => `${m.family}:${path.basename(m.cpuPath)}:${size(m.cpuPath)}:${m.gpuPath ? path.basename(m.gpuPath) : ""}`),
+    models: models.map(
+      (m) => `${m.family}:${path.basename(m.cpuPath)}:${size(m.cpuPath)}:${m.gpuPath ? path.basename(m.gpuPath) : ""}`,
+    ),
   });
 }
 
@@ -177,7 +191,14 @@ async function run(opts: Parameters<typeof selectAcceleration>[0]): Promise<void
   const cpuOnly: AccelerationPlan = { device: null, runtime: null, placements: {} };
   if (backends.length === 0) {
     setPlan(cpuOnly);
-    save(opts.cacheFile, print, cpuOnly, { ...status, state: "done", message: null, models: [], device: null, testedAt: new Date().toISOString() });
+    save(opts.cacheFile, print, cpuOnly, {
+      ...status,
+      state: "done",
+      message: null,
+      models: [],
+      device: null,
+      testedAt: new Date().toISOString(),
+    });
     return;
   }
 
@@ -186,7 +207,11 @@ async function run(opts: Parameters<typeof selectAcceleration>[0]): Promise<void
     // The GPU copies first: a GPU is only tried with the full-precision files.
     for (const m of models) {
       if (!m.gpuPath || existsSync(m.gpuPath)) continue;
-      update({ state: "downloading", message: "Downloading the GPU copy of the species-matching model", progress: { done: 0, total: null } });
+      update({
+        state: "downloading",
+        message: "Downloading the GPU copy of the species-matching model",
+        progress: { done: 0, total: null },
+      });
       await m.downloadGpuCopy((done, total) => update({ progress: { done, total } }));
       if (cancelled()) return;
     }
@@ -202,7 +227,8 @@ async function run(opts: Parameters<typeof selectAcceleration>[0]): Promise<void
     }
 
     // Each backend: per model, the time when it agrees with the CPU, else nothing.
-    const results: Array<{ backend: Backend; runtime: AccelerationPlan["runtime"]; times: Map<ModelFamily, number> }> = [];
+    const results: Array<{ backend: Backend; runtime: AccelerationPlan["runtime"]; times: Map<ModelFamily, number> }> =
+      [];
     // A backend whose download failed isn't tried, and the result isn't remembered, so the next
     // start tries it again (offline, disk full).
     let incomplete = false;
@@ -214,12 +240,20 @@ async function run(opts: Parameters<typeof selectAcceleration>[0]): Promise<void
         try {
           let rt = installedGpuRuntime(opts.gpuRuntimeRoot, major);
           if (!rt) {
-            update({ state: "downloading", message: `Downloading NVIDIA's libraries for ${backend.label}`, progress: { done: 0, total: null } });
-            rt = await ensureGpuRuntime(opts.gpuRuntimeRoot, major, { onProgress: (done, total) => update({ progress: { done, total } }) });
+            update({
+              state: "downloading",
+              message: `Downloading NVIDIA's libraries for ${backend.label}`,
+              progress: { done: 0, total: null },
+            });
+            rt = await ensureGpuRuntime(opts.gpuRuntimeRoot, major, {
+              onProgress: (done, total) => update({ progress: { done, total } }),
+            });
           }
           runtime = { id: `cuda${major}`, ortModule: rt.ortModule, libraryPath: rt.libraryPath };
         } catch (err) {
-          log(`${backend.id}: couldn't download its libraries (${(err as Error).message}), so ${backend.label} isn't used; tried again next start`);
+          log(
+            `${backend.id}: couldn't download its libraries (${(err as Error).message}), so ${backend.label} isn't used; tried again next start`,
+          );
           incomplete = true;
           continue;
         }
@@ -257,14 +291,25 @@ async function run(opts: Parameters<typeof selectAcceleration>[0]): Promise<void
       const ms = best?.times.get(m.family);
       const base = cpu.get(m.family)!.ms;
       if (best && ms !== undefined && ms * MIN_SPEEDUP <= base) {
-        placements[m.family] = { backend: best.backend.id, modelPath: m.gpuPath ?? m.cpuPath, providers: best.backend.providers };
+        placements[m.family] = {
+          backend: best.backend.id,
+          modelPath: m.gpuPath ?? m.cpuPath,
+          providers: best.backend.providers,
+        };
         summary.push({ family: m.family, backend: best.backend.id, ms, cpuMs: base });
       } else summary.push({ family: m.family, backend: "cpu", ms: base, cpuMs: base });
     }
     if (cancelled()) return;
     const plan: AccelerationPlan = best ? { device: best.backend.label, runtime: best.runtime, placements } : cpuOnly;
     setPlan(plan);
-    const done: AccelerationStatus = { state: "done", message: null, progress: null, models: summary, device: plan.device, testedAt: new Date().toISOString() };
+    const done: AccelerationStatus = {
+      state: "done",
+      message: null,
+      progress: null,
+      models: summary,
+      device: plan.device,
+      testedAt: new Date().toISOString(),
+    };
     if (incomplete) status = done;
     else save(opts.cacheFile, print, plan, done);
     log(

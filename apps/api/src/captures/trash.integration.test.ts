@@ -47,7 +47,10 @@ describe.skipIf(!url)("captures trash and reassign", () => {
     await db.query(`DELETE FROM captures_all WHERE user_id = $1`, [USER]);
     await db.query(`DELETE FROM users WHERE id = $1`, [USER]);
     await db.query(`INSERT INTO users (id, email, password_hash) VALUES ($1, 'trash@test', 'x')`, [USER]);
-    await db.query(`INSERT INTO sessions (id, user_id, expires_at) VALUES ($1, $2, now() + interval '1 day')`, [hashToken(TOKEN), USER]);
+    await db.query(`INSERT INTO sessions (id, user_id, expires_at) VALUES ($1, $2, now() + interval '1 day')`, [
+      hashToken(TOKEN),
+      USER,
+    ]);
     await db.query(
       `INSERT INTO species (id, gbif_key, scientific_name, common_name, taxon_class) VALUES
          ($1, 920101, 'Testus trashus', 'Trash Bird', 'aves'), ($2, 920102, 'Testus fixus', 'Fixed Bird', 'aves')
@@ -93,7 +96,11 @@ describe.skipIf(!url)("captures trash and reassign", () => {
       [USER, photos[0]],
     );
     albumId = album.rows[0].id;
-    await db.query(`INSERT INTO album_captures (album_id, capture_id) VALUES ($1, $2), ($1, $3)`, [albumId, captures[0], captures[2]]);
+    await db.query(`INSERT INTO album_captures (album_id, capture_id) VALUES ($1, $2), ($1, $3)`, [
+      albumId,
+      captures[0],
+      captures[2],
+    ]);
 
     app = Fastify();
     await app.register(cookie);
@@ -134,7 +141,10 @@ describe.skipIf(!url)("captures trash and reassign", () => {
 
     const left = await db.query(`SELECT id FROM captures_all WHERE user_id = $1`, [USER]);
     expect(left.rows.map((r) => r.id)).toEqual([captures[2]]);
-    const us = await db.query(`SELECT cover_photo_id FROM user_species WHERE user_id = $1 AND species_id = $2`, [USER, SPECIES_A]);
+    const us = await db.query(`SELECT cover_photo_id FROM user_species WHERE user_id = $1 AND species_id = $2`, [
+      USER,
+      SPECIES_A,
+    ]);
     expect(us.rows[0].cover_photo_id).toBe(photos[2]);
     const album = await db.query(`SELECT cover_photo_id FROM albums WHERE id = $1`, [albumId]);
     expect(album.rows[0].cover_photo_id).toBe(photos[2]);
@@ -155,12 +165,26 @@ describe.skipIf(!url)("captures trash and reassign", () => {
     );
     const res = await call("PATCH", `/api/captures/${captures[2]}/reassign`, { speciesId: SPECIES_B });
     expect(res.statusCode, res.body).toBe(200);
-    const rows = await db.query<{ species_id: string; state: string; cover_photo_id: string; card_crop_x: number; card_crop_y: number; card_crop_size: number }>(
+    const rows = await db.query<{
+      species_id: string;
+      state: string;
+      cover_photo_id: string;
+      card_crop_x: number;
+      card_crop_y: number;
+      card_crop_size: number;
+    }>(
       `SELECT species_id, state, cover_photo_id, card_crop_x::float AS card_crop_x, card_crop_y::float AS card_crop_y, card_crop_size::float AS card_crop_size FROM user_species WHERE user_id = $1 ORDER BY species_id`,
       [USER],
     );
     expect(rows.rows).toEqual([
-      { species_id: SPECIES_B, state: "collected", cover_photo_id: photos[2], card_crop_x: 10, card_crop_y: 20, card_crop_size: 30 },
+      {
+        species_id: SPECIES_B,
+        state: "collected",
+        cover_photo_id: photos[2],
+        card_crop_x: 10,
+        card_crop_y: 20,
+        card_crop_size: 30,
+      },
     ]);
   });
 
@@ -173,7 +197,10 @@ describe.skipIf(!url)("captures trash and reassign", () => {
   it("refuses a malformed species or region id in the body", async () => {
     const tag = await call("POST", `/api/captures/${captures[2]}/species`, { speciesId: "nope" });
     expect(tag.statusCode).toBe(400);
-    expect(tag.json()).toEqual({ error: expect.stringMatching(/^Invalid body: speciesId must be an id/), code: "invalid_request" });
+    expect(tag.json()).toEqual({
+      error: expect.stringMatching(/^Invalid body: speciesId must be an id/),
+      code: "invalid_request",
+    });
     expect((await call("PATCH", `/api/captures/${captures[2]}/reassign`, { speciesId: "nope" })).statusCode).toBe(400);
     expect((await call("PATCH", `/api/captures/${captures[2]}/region`, { regionId: "nope" })).statusCode).toBe(400);
   });
@@ -188,10 +215,15 @@ describe.skipIf(!url)("captures trash and reassign", () => {
     expect(invalid(await batch({ captureIds: [] }))).toEqual([400, "invalid_request"]);
     expect(invalid(await batch({ captureIds: captures[2] }))).toEqual([400, "invalid_request"]);
     expect(invalid(await batch({ captureIds: [captures[2]], deleteRaw: "yes" }))).toEqual([400, "invalid_request"]);
-    expect((await batch({ captureIds: [captures[2]], extra: 1 })).json().error).toBe("Invalid body: unexpected field extra");
+    expect((await batch({ captureIds: [captures[2]], extra: 1 })).json().error).toBe(
+      "Invalid body: unexpected field extra",
+    );
     // A malformed id is a 404 like an unknown one; deleteRaw only takes "1".
     expect((await call("DELETE", "/api/captures/nope")).json()).toEqual({ error: "Capture not found" });
-    expect(invalid(await call("DELETE", `/api/captures/${captures[2]}?deleteRaw=yes`))).toEqual([400, "invalid_request"]);
+    expect(invalid(await call("DELETE", `/api/captures/${captures[2]}?deleteRaw=yes`))).toEqual([
+      400,
+      "invalid_request",
+    ]);
 
     const tagsUrl = `/api/captures/${captures[2]}/tags`;
     expect(invalid(await call("PATCH", tagsUrl, { tags: "flight" }))).toEqual([400, "invalid_request"]);
@@ -204,7 +236,10 @@ describe.skipIf(!url)("captures trash and reassign", () => {
     expect(invalid(await bulk({ captureIds: ["nope"], tags: ["a"] }))).toEqual([400, "invalid_request"]);
     expect(invalid(await bulk({ captureIds: [], tags: ["a"] }))).toEqual([400, "invalid_request"]);
     expect((await bulk({ captureIds: [captures[2]], tags: ["perched"] })).json()).toEqual({ ok: true, updated: 1 });
-    expect(invalid(await call("PATCH", "/api/captures/tags/rename", { from: "perched" }))).toEqual([400, "invalid_request"]);
+    expect(invalid(await call("PATCH", "/api/captures/tags/rename", { from: "perched" }))).toEqual([
+      400,
+      "invalid_request",
+    ]);
     expect((await call("PATCH", "/api/captures/tags/rename", { from: " ", to: "x" })).statusCode).toBe(400);
     const renamed = await call("PATCH", "/api/captures/tags/rename", { from: "perched", to: "sitting" });
     expect(renamed.json()).toEqual({ ok: true, updated: 1 });

@@ -237,9 +237,18 @@ describe.skipIf(!url)("capture routes", () => {
     it("refuses a missing, malformed, unknown or primary species", async () => {
       const { captureId } = await makeCapture(OWNER, SPECIES_A, 1);
       const post = (body: unknown) => call("POST", `/api/captures/${captureId}/species`, body);
-      expect((await post({})).json()).toEqual({ error: expect.stringMatching(/^Invalid body: speciesId is required$/), code: "invalid_request" });
-      expect((await post({ speciesId: "nope" })).json()).toEqual({ error: expect.stringMatching(/^Invalid body: speciesId must be an id/), code: "invalid_request" });
-      expect((await post({ speciesId: SPECIES_B, extra: 1 })).json()).toEqual({ error: expect.stringMatching(/unexpected field extra/), code: "invalid_request" });
+      expect((await post({})).json()).toEqual({
+        error: expect.stringMatching(/^Invalid body: speciesId is required$/),
+        code: "invalid_request",
+      });
+      expect((await post({ speciesId: "nope" })).json()).toEqual({
+        error: expect.stringMatching(/^Invalid body: speciesId must be an id/),
+        code: "invalid_request",
+      });
+      expect((await post({ speciesId: SPECIES_B, extra: 1 })).json()).toEqual({
+        error: expect.stringMatching(/unexpected field extra/),
+        code: "invalid_request",
+      });
       const unknown = await post({ speciesId: NO_SUCH_SPECIES });
       expect([unknown.statusCode, unknown.json()]).toEqual([400, { error: "Unknown species" }]);
       const primary = await post({ speciesId: SPECIES_A });
@@ -296,8 +305,14 @@ describe.skipIf(!url)("capture routes", () => {
     it("refuses a missing, malformed, unknown or unchanged species, and an unknown capture", async () => {
       const { captureId } = await makeCapture(OWNER, SPECIES_A, 1);
       const patch = (body: unknown) => call("PATCH", `/api/captures/${captureId}/reassign`, body);
-      expect((await patch({})).json()).toEqual({ error: expect.stringMatching(/^Invalid body: speciesId is required$/), code: "invalid_request" });
-      expect((await patch({ speciesId: 42 })).json()).toEqual({ error: expect.stringMatching(/^Invalid body: speciesId must be string$/), code: "invalid_request" });
+      expect((await patch({})).json()).toEqual({
+        error: expect.stringMatching(/^Invalid body: speciesId is required$/),
+        code: "invalid_request",
+      });
+      expect((await patch({ speciesId: 42 })).json()).toEqual({
+        error: expect.stringMatching(/^Invalid body: speciesId must be string$/),
+        code: "invalid_request",
+      });
       const unknown = await patch({ speciesId: NO_SUCH_SPECIES });
       expect([unknown.statusCode, unknown.json()]).toEqual([400, { error: "Unknown species" }]);
       const same = await patch({ speciesId: SPECIES_A });
@@ -540,7 +555,10 @@ describe.skipIf(!url)("capture routes", () => {
       expect(await place()).toEqual({ region_id: null, location_label: null });
 
       const bad = await patch({ regionId: "nope" });
-      expect([bad.statusCode, bad.json()]).toEqual([400, { error: expect.stringMatching(/^Invalid body: regionId must be an id/), code: "invalid_request" }]);
+      expect([bad.statusCode, bad.json()]).toEqual([
+        400,
+        { error: expect.stringMatching(/^Invalid body: regionId must be an id/), code: "invalid_request" },
+      ]);
       for (const id of [NO_SUCH_SPECIES, "nope"]) {
         const res = await call("PATCH", `/api/captures/${id}/region`, { locationLabel: "x" });
         expect([res.statusCode, res.json()]).toEqual([404, { error: "Capture not found" }]);

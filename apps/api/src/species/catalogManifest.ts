@@ -32,9 +32,12 @@ export async function fetchCatalogManifest(signal?: AbortSignal): Promise<Catalo
     res = await fetch(CATALOG_MANIFEST_URL, { signal: signal ? AbortSignal.any([signal, timeout]) : timeout });
   } catch (err) {
     if (err instanceof Error && err.name === "TimeoutError") {
-      throw new Error("Couldn't check for a catalog update: the request timed out. Check this server's network access.", {
-        cause: err,
-      });
+      throw new Error(
+        "Couldn't check for a catalog update: the request timed out. Check this server's network access.",
+        {
+          cause: err,
+        },
+      );
     }
     throw err;
   }

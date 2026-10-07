@@ -199,12 +199,19 @@ export default function TripDetailPage() {
       )}
 
       <div className="flex items-center gap-3 border-b border-line bg-surface px-6 py-2 text-sm">
-        <SearchInput value={search} onChange={setSearch} placeholder={t("trips.detail.searchPlaceholder")} className="w-56" />
+        <SearchInput
+          value={search}
+          onChange={setSearch}
+          placeholder={t("trips.detail.searchPlaceholder")}
+          className="w-56"
+        />
       </div>
 
       {edits.selectMode && (
         <div className="flex items-center justify-between border-b border-line bg-surface-muted px-6 py-2 text-xs">
-          <span className="text-muted">{t("trips.detail.selectedCount", { count: edits.selectedCaptureIds.size })}</span>
+          <span className="text-muted">
+            {t("trips.detail.selectedCount", { count: edits.selectedCaptureIds.size })}
+          </span>
           <Button
             variant="danger"
             size="sm"
@@ -250,9 +257,7 @@ export default function TripDetailPage() {
               {/* matchOnly ignores speciesId: the matched trip photo decides each RAW's species. */}
               <RawUpload speciesId="" volumeId="" matchOnly onFiled={() => void load()} />
             </div>
-            <p className="text-xs text-muted">
-              {t("trips.detail.build.scanInstead")}
-            </p>
+            <p className="text-xs text-muted">{t("trips.detail.build.scanInstead")}</p>
           </div>
         ) : noPhotos ? (
           <EmptyState

@@ -49,7 +49,9 @@ async function askHidden(question: string): Promise<string> {
 }
 
 async function listUsers(): Promise<void> {
-  const res = await pool.query<{ email: string; created_at: Date }>(`SELECT email, created_at FROM users ORDER BY created_at`);
+  const res = await pool.query<{ email: string; created_at: Date }>(
+    `SELECT email, created_at FROM users ORDER BY created_at`,
+  );
   if (res.rows.length === 0) {
     console.log("No account yet. Open Lifer in a browser to create one.");
     return;
@@ -93,7 +95,9 @@ async function resetPassword(emailArg: string | undefined): Promise<number> {
     // Whoever was signed in has to sign in again.
     await client.query(`DELETE FROM sessions WHERE user_id = $1`, [user.id]);
   });
-  console.log(`Done. Sign in as ${user.email} with the new password. Every device that was signed in has been signed out.`);
+  console.log(
+    `Done. Sign in as ${user.email} with the new password. Every device that was signed in has been signed out.`,
+  );
   return 0;
 }
 

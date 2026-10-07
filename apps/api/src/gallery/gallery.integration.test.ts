@@ -37,13 +37,28 @@ describe.skipIf(!url)("GET /gallery keyset pages", () => {
       [SPECIES],
     );
     // Ties on taken_at and rating, NULL dates and ratings, so every tiebreak is exercised.
-    const takenAt = ["2024-05-01T10:00:00Z", "2024-05-01T10:00:00Z", null, "2023-01-01T00:00:00Z", null, "2025-07-04T08:30:00.123456Z"];
+    const takenAt = [
+      "2024-05-01T10:00:00Z",
+      "2024-05-01T10:00:00Z",
+      null,
+      "2023-01-01T00:00:00Z",
+      null,
+      "2025-07-04T08:30:00.123456Z",
+    ];
     const ratings = [5, null, 3, 1, 5, null];
     for (let i = 0; i < 18; i++) {
       const c = await db.query<{ id: string }>(
         `INSERT INTO captures_all (user_id, species_id, fingerprint, taken_at, quality_rating, created_at, tags)
          VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
-        [USER, SPECIES, `gallery-page-${i}`, takenAt[i % 6], ratings[i % 5], new Date(Date.UTC(2026, 0, 1 + (i % 4))).toISOString(), i % 3 === 0 ? ["pagetag"] : []],
+        [
+          USER,
+          SPECIES,
+          `gallery-page-${i}`,
+          takenAt[i % 6],
+          ratings[i % 5],
+          new Date(Date.UTC(2026, 0, 1 + (i % 4))).toISOString(),
+          i % 3 === 0 ? ["pagetag"] : [],
+        ],
       );
       const p = await db.query<{ id: string }>(
         `INSERT INTO photos (capture_id, display_path, thumb_path) VALUES ($1, '/nowhere/d.webp', '/nowhere/t.webp') RETURNING id`,
@@ -92,7 +107,9 @@ describe.skipIf(!url)("GET /gallery keyset pages", () => {
   it("applies filters to pages too", async () => {
     const full = await get(`/gallery?tag=pagetag`);
     const page = await get(`/gallery?tag=pagetag&limit=500`);
-    expect(page.body.items.map((i: { captureId: string }) => i.captureId)).toEqual(full.body.items.map((i: { captureId: string }) => i.captureId));
+    expect(page.body.items.map((i: { captureId: string }) => i.captureId)).toEqual(
+      full.body.items.map((i: { captureId: string }) => i.captureId),
+    );
     expect(page.body.nextCursor).toBeNull();
     expect(full.body.items).toHaveLength(6);
     // total comes with the first page only, counted with the same filters.
@@ -170,11 +187,24 @@ describe.skipIf(!url)("GET /gallery keyset pages", () => {
   });
 
   it("finds a trip or an album by name", async () => {
-    const ids = (await db.query<{ id: string }>(`SELECT id FROM captures_all WHERE user_id = $1 ORDER BY fingerprint LIMIT 5`, [USER])).rows.map((r) => r.id);
-    const trip = await db.query<{ id: string }>(`INSERT INTO trips (user_id, name, source_folder, destination_folder) VALUES ($1, 'Costa Rica 2024', '/x', '/x/Wildlife') RETURNING id`, [USER]);
+    const ids = (
+      await db.query<{ id: string }>(`SELECT id FROM captures_all WHERE user_id = $1 ORDER BY fingerprint LIMIT 5`, [
+        USER,
+      ])
+    ).rows.map((r) => r.id);
+    const trip = await db.query<{ id: string }>(
+      `INSERT INTO trips (user_id, name, source_folder, destination_folder) VALUES ($1, 'Costa Rica 2024', '/x', '/x/Wildlife') RETURNING id`,
+      [USER],
+    );
     await db.query(`UPDATE captures_all SET trip_id = $1 WHERE id = ANY($2)`, [trip.rows[0].id, ids.slice(0, 3)]);
-    const album = await db.query<{ id: string }>(`INSERT INTO albums (user_id, name) VALUES ($1, 'Best Warblers Ever') RETURNING id`, [USER]);
-    await db.query(`INSERT INTO album_captures (album_id, capture_id) SELECT $1, unnest($2::uuid[])`, [album.rows[0].id, ids.slice(3, 5)]);
+    const album = await db.query<{ id: string }>(
+      `INSERT INTO albums (user_id, name) VALUES ($1, 'Best Warblers Ever') RETURNING id`,
+      [USER],
+    );
+    await db.query(`INSERT INTO album_captures (album_id, capture_id) SELECT $1, unnest($2::uuid[])`, [
+      album.rows[0].id,
+      ids.slice(3, 5),
+    ]);
 
     // The library stamp is reused for a few seconds; a real user rarely searches that fast.
     (await import("./routes.js")).clearGallerySearchCaches();
@@ -188,8 +218,12 @@ describe.skipIf(!url)("GET /gallery keyset pages", () => {
     expect(ofIds(await get(`/gallery?tripId=${trip.rows[0].id}`))).toEqual(ids.slice(0, 3).sort());
     expect(ofIds(await get(`/gallery?albumId=${album.rows[0].id}`))).toEqual(ids.slice(3, 5).sort());
     expect((await get(`/gallery?albumId=${album.rows[0].id}&limit=1`)).body.total).toBe(2);
-    expect(ofIds(await get(`/gallery/search?q=paging%20warbler&quick=1&tripId=${trip.rows[0].id}`))).toEqual(ids.slice(0, 3).sort());
-    expect(ofIds(await get(`/gallery/search?q=paging%20warbler&quick=1&albumId=${album.rows[0].id}`))).toEqual(ids.slice(3, 5).sort());
+    expect(ofIds(await get(`/gallery/search?q=paging%20warbler&quick=1&tripId=${trip.rows[0].id}`))).toEqual(
+      ids.slice(0, 3).sort(),
+    );
+    expect(ofIds(await get(`/gallery/search?q=paging%20warbler&quick=1&albumId=${album.rows[0].id}`))).toEqual(
+      ids.slice(3, 5).sort(),
+    );
     expect((await get(`/gallery?tripId=nope`)).status).toBe(400);
     expect((await get(`/gallery/search?q=warbler&albumId=nope`)).status).toBe(400);
   });

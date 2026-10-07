@@ -1,7 +1,13 @@
 // Backfills capture_embeddings for every confirmed capture without a current one, at startup.
 // Job state is a module-level object a status route reads.
 import { pool } from "@lifer/core/db.js";
-import { isInferenceStuck, photoVector, refreshSpeciesVectors, storeCaptureEmbedding, storeIdCaptureEmbedding } from "@lifer/core/species/embeddings.js";
+import {
+  isInferenceStuck,
+  photoVector,
+  refreshSpeciesVectors,
+  storeCaptureEmbedding,
+  storeIdCaptureEmbedding,
+} from "@lifer/core/species/embeddings.js";
 import { EMBEDDING_MODEL_VERSION, ID_MODEL_VERSION } from "@lifer/core/config.js";
 import { idModel } from "@lifer/core/species/idModel.js";
 

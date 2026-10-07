@@ -48,10 +48,14 @@ function runCompute(name: string, apply: boolean, refreshCache: boolean): Promis
 const DOWNLOAD_QUEUE_CONCURRENCY = 3;
 function runDownloadQueueItem(name: string): Promise<void> {
   return new Promise((resolve) => {
-    const child = spawn("npx", ["tsx", "src/scripts/compute-provinces-bulk.ts", `--countries=${name}`, "--cache-only"], {
-      cwd: PIPELINE_DIR,
-      stdio: "inherit",
-    });
+    const child = spawn(
+      "npx",
+      ["tsx", "src/scripts/compute-provinces-bulk.ts", `--countries=${name}`, "--cache-only"],
+      {
+        cwd: PIPELINE_DIR,
+        stdio: "inherit",
+      },
+    );
     // Best-effort: if this fails, processing downloads the zip itself.
     child.on("error", () => resolve());
     child.on("exit", () => resolve());
@@ -73,7 +77,10 @@ async function runDownloadQueue(names: string[]): Promise<void> {
 // Resolved from this module's location, not process.cwd(), which varies with how it's launched.
 const REPO_ROOT = path.resolve(new URL(".", import.meta.url).pathname, "..", "..", "..", "..");
 const PIPELINE_DIR = path.join(REPO_ROOT, "packages/data-pipeline");
-const DEFAULT_CHECKPOINT_PATH = path.join(REPO_ROOT, "packages/data-pipeline/data/build/refresh-all-provinces-checkpoint.json");
+const DEFAULT_CHECKPOINT_PATH = path.join(
+  REPO_ROOT,
+  "packages/data-pipeline/data/build/refresh-all-provinces-checkpoint.json",
+);
 
 interface Checkpoint {
   startedAt: string;
@@ -96,9 +103,14 @@ async function main() {
   if (!apply) console.log(`[refresh-all-provinces] DRY RUN: pass --apply to actually write region_species`);
   const resetCheckpoint = args.includes("--reset-checkpoint");
   const refreshCache = args.includes("--refresh-gbif-cache");
-  const checkpointPath = path.resolve(args.find((a) => a.startsWith("--checkpoint="))?.split("=")[1] ?? DEFAULT_CHECKPOINT_PATH);
+  const checkpointPath = path.resolve(
+    args.find((a) => a.startsWith("--checkpoint="))?.split("=")[1] ?? DEFAULT_CHECKPOINT_PATH,
+  );
   const countriesArg = args.find((a) => a.startsWith("--countries="))?.split("=")[1];
-  const concurrency = Math.max(1, Number(args.find((a) => a.startsWith("--concurrency="))?.split("=")[1] ?? DEFAULT_CONCURRENCY));
+  const concurrency = Math.max(
+    1,
+    Number(args.find((a) => a.startsWith("--concurrency="))?.split("=")[1] ?? DEFAULT_CONCURRENCY),
+  );
 
   // Every country-level region already in the catalog (World > continent > country).
   const allCountriesRes = await pool.query<{ name: string }>(
@@ -108,9 +120,16 @@ async function main() {
      ORDER BY r.name`,
   );
   const allCountries = allCountriesRes.rows.map((r) => r.name);
-  const targetCountries = countriesArg ? countriesArg.split(",").map((c) => c.trim()).filter(Boolean) : allCountries;
+  const targetCountries = countriesArg
+    ? countriesArg
+        .split(",")
+        .map((c) => c.trim())
+        .filter(Boolean)
+    : allCountries;
 
-  const checkpoint = resetCheckpoint ? { startedAt: new Date().toISOString(), completed: [] } : loadCheckpoint(checkpointPath);
+  const checkpoint = resetCheckpoint
+    ? { startedAt: new Date().toISOString(), completed: [] }
+    : loadCheckpoint(checkpointPath);
   const alreadyDone = new Set(checkpoint.completed);
   const remaining = targetCountries.filter((c) => !alreadyDone.has(c));
 

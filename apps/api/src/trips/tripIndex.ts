@@ -25,7 +25,11 @@ function readTripIndex(sourceFolder: string): TripIndex {
 
 const writeQueues = new Map<string, Promise<void>>();
 
-export function recordTripIndexEntry(sourceFolder: string, relativePath: string, scientificName: string): Promise<void> {
+export function recordTripIndexEntry(
+  sourceFolder: string,
+  relativePath: string,
+  scientificName: string,
+): Promise<void> {
   const prior = writeQueues.get(sourceFolder) ?? Promise.resolve();
   const next = prior
     .catch(() => {
@@ -54,7 +58,9 @@ export async function resolveTripIndexSpecies(
 ): Promise<Map<string, string>> {
   if (!existsSync(indexPath(sourceFolder))) return new Map();
   const index = readTripIndex(sourceFolder);
-  const scientificNames = [...new Set(relativePaths.map((p) => index[p]?.scientificName).filter((s): s is string => !!s))];
+  const scientificNames = [
+    ...new Set(relativePaths.map((p) => index[p]?.scientificName).filter((s): s is string => !!s)),
+  ];
   if (scientificNames.length === 0) return new Map();
 
   const speciesRes = await pool.query<{ id: string; scientific_name: string }>(

@@ -23,7 +23,11 @@ describe("createLimiter", () => {
 
   it("releases the slot when a task throws", async () => {
     const limit = createLimiter(1);
-    await expect(limit(async () => { throw new Error("boom"); })).rejects.toThrow("boom");
+    await expect(
+      limit(async () => {
+        throw new Error("boom");
+      }),
+    ).rejects.toThrow("boom");
     await expect(limit(async () => 7)).resolves.toBe(7);
   });
 });

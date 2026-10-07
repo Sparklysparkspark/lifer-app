@@ -13,14 +13,59 @@ import { GROUP_TERMS, MAX_GROUP_TERM_WORDS, speciesInGroup, type GroupPredicate 
 const CONTENT_MATCH_MIN = 0.033;
 const CONTENT_MARGIN_RELATIVE = 0.55;
 
-const STOPWORDS = new Set(["a", "an", "the", "of", "in", "on", "at", "with", "and", "or", "my", "to", "is", "are", "some", "from", "near", "around", "during", "by", "photo", "photos", "picture", "pictures"]);
+const STOPWORDS = new Set([
+  "a",
+  "an",
+  "the",
+  "of",
+  "in",
+  "on",
+  "at",
+  "with",
+  "and",
+  "or",
+  "my",
+  "to",
+  "is",
+  "are",
+  "some",
+  "from",
+  "near",
+  "around",
+  "during",
+  "by",
+  "photo",
+  "photos",
+  "picture",
+  "pictures",
+]);
 const PLACE_PREPOSITIONS = new Set(["in", "at", "near", "from", "around", "on"]);
 const DATE_PREPOSITIONS = new Set(["in", "during", "from", "on"]);
 
 const MONTHS: Record<string, number> = {
-  january: 1, jan: 1, february: 2, feb: 2, march: 3, april: 4, apr: 4, may: 5, june: 6, jun: 6,
-  july: 7, jul: 7, august: 8, aug: 8, september: 9, sept: 9, sep: 9, october: 10, oct: 10,
-  november: 11, nov: 11, december: 12, dec: 12,
+  january: 1,
+  jan: 1,
+  february: 2,
+  feb: 2,
+  march: 3,
+  april: 4,
+  apr: 4,
+  may: 5,
+  june: 6,
+  jun: 6,
+  july: 7,
+  jul: 7,
+  august: 8,
+  aug: 8,
+  september: 9,
+  sept: 9,
+  sep: 9,
+  october: 10,
+  oct: 10,
+  november: 11,
+  nov: 11,
+  december: 12,
+  dec: 12,
 };
 const SEASONS: Record<string, number[]> = {
   spring: [3, 4, 5],
@@ -33,12 +78,59 @@ const SEASONS: Record<string, number[]> = {
 // Common words for what's in a picture, so a word still being typed describes the picture it's
 // heading for: "fly" means "flying" (not the insect), "swim" means "swimming", "sno" means "snow".
 const PICTURE_WORDS = [
-  "flying", "flight", "swimming", "diving", "feeding", "eating", "drinking", "hunting", "fishing", "foraging",
-  "perched", "perching", "nesting", "landing", "running", "walking", "jumping", "sleeping", "resting", "sitting",
-  "standing", "singing", "calling", "preening", "bathing", "grooming", "fighting", "mating", "stretching",
-  "snow", "water", "sunset", "sunrise", "silhouette", "reflection", "underwater", "grass", "branch", "flowers",
-  "fence", "sky", "fog", "mist", "rain", "night", "dusk", "dawn", "juvenile", "baby", "flock", "group",
-  "portrait", "closeup",
+  "flying",
+  "flight",
+  "swimming",
+  "diving",
+  "feeding",
+  "eating",
+  "drinking",
+  "hunting",
+  "fishing",
+  "foraging",
+  "perched",
+  "perching",
+  "nesting",
+  "landing",
+  "running",
+  "walking",
+  "jumping",
+  "sleeping",
+  "resting",
+  "sitting",
+  "standing",
+  "singing",
+  "calling",
+  "preening",
+  "bathing",
+  "grooming",
+  "fighting",
+  "mating",
+  "stretching",
+  "snow",
+  "water",
+  "sunset",
+  "sunrise",
+  "silhouette",
+  "reflection",
+  "underwater",
+  "grass",
+  "branch",
+  "flowers",
+  "fence",
+  "sky",
+  "fog",
+  "mist",
+  "rain",
+  "night",
+  "dusk",
+  "dawn",
+  "juvenile",
+  "baby",
+  "flock",
+  "group",
+  "portrait",
+  "closeup",
 ];
 
 /** The picture word a partial word is heading for, or null ("fly" -> "flying"). */
@@ -48,7 +140,10 @@ export function completePictureWord(word: string): string | null {
 }
 
 export function wordsOf(s: string): string[] {
-  return s.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+  return s
+    .toLowerCase()
+    .split(/[^\p{L}\p{N}]+/u)
+    .filter(Boolean);
 }
 
 // Plural and "-ed" forms of the same root ("foxes"/"fox", "crowned"/"crown"). Not a lemmatizer,
@@ -124,7 +219,12 @@ export interface PlaceEntry {
 }
 
 // "costa rica trip", "big year album": the word after a name that says which kind it is.
-const CONTEXT_KIND_WORDS: Record<string, "trip" | "album"> = { trip: "trip", trips: "trip", album: "album", albums: "album" };
+const CONTEXT_KIND_WORDS: Record<string, "trip" | "album"> = {
+  trip: "trip",
+  trips: "trip",
+  album: "album",
+  albums: "album",
+};
 
 export interface ParsedQuery {
   /** Species picked by name, or null when the query names no species. */
@@ -173,19 +273,31 @@ export function parseSearchQuery(
     text = text.replace(FOCAL_LENGTH_PATTERN, " ");
   }
 
-  const tokens = text.toLowerCase().replace(/[^\p{L}\p{N}\s'-]/gu, " ").split(/[\s]+/).map((t) => t.replace(/^['-]+|['-]+$/g, "")).filter(Boolean);
+  const tokens = text
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s'-]/gu, " ")
+    .split(/[\s]+/)
+    .map((t) => t.replace(/^['-]+|['-]+$/g, ""))
+    .filter(Boolean);
   // Hyphenated words ("red-tailed") are compared word by word, like names are.
   const words: string[] = tokens.flatMap((t) => wordsOf(t));
   const used = new Array(words.length).fill(false);
   const species = vocab.species.map(indexSpecies);
   // Every subject a stage finds, with where it sits in the query, so the rules at the end can
   // decide which ones count.
-  const subjects: Array<{ start: number; end: number; species?: string[]; group?: { label: string; predicate: GroupPredicate }; labels: string[] }> = [];
+  const subjects: Array<{
+    start: number;
+    end: number;
+    species?: string[];
+    group?: { label: string; predicate: GroupPredicate };
+    labels: string[];
+  }> = [];
   const nameOf = (id: string) => {
     const s = species.find((x) => x.id === id)!;
     return s.commonName ?? s.scientificName;
   };
-  const phraseAt = (i: number, n: number) => (i + n <= words.length && !used.slice(i, i + n).some(Boolean) ? words.slice(i, i + n).join(" ") : null);
+  const phraseAt = (i: number, n: number) =>
+    i + n <= words.length && !used.slice(i, i + n).some(Boolean) ? words.slice(i, i + n).join(" ") : null;
   const markUsed = (i: number, n: number) => {
     for (let k = i; k < i + n; k++) used[k] = true;
   };
@@ -199,7 +311,10 @@ export function parseSearchQuery(
   // whole word of a species name.
   const lastWord = words[lastIndex];
   const lastIsKnownWord =
-    lastIndex >= 0 && (GROUP_TERMS.has(lastWord) || GROUP_TERMS.has(normalizeWordForm(lastWord)) || vocab.species.some((s) => wordsOf(s.commonName ?? "").includes(lastWord)));
+    lastIndex >= 0 &&
+    (GROUP_TERMS.has(lastWord) ||
+      GROUP_TERMS.has(normalizeWordForm(lastWord)) ||
+      vocab.species.some((s) => wordsOf(s.commonName ?? "").includes(lastWord)));
   const completion = lastIndex >= 0 && !lastIsKnownWord ? completePictureWord(lastWord) : null;
 
   // 1. Full names, longest first. Aliases count only when at least two words: single-word
@@ -247,7 +362,9 @@ export function parseSearchQuery(
     for (let n = Math.min(i, maxPlaceWords); n >= 1; n--) {
       const phrase = phraseAt(i - n, n);
       if (!phrase || phrase.split(" ").every((w) => STOPWORDS.has(w))) continue;
-      const hit = vocab.places.filter((p) => p.kind === kind && ` ${wordsOf(p.name).join(" ")} `.includes(` ${phrase} `));
+      const hit = vocab.places.filter(
+        (p) => p.kind === kind && ` ${wordsOf(p.name).join(" ")} `.includes(` ${phrase} `),
+      );
       if (hit.length === 0) continue;
       result.places.push(...hit);
       result.labels.places.push(...hit.map((p) => p.name));
@@ -304,7 +421,8 @@ export function parseSearchQuery(
   }
 
   // Words of one or two letters never pick a species, or old names with "up" would hijack "close up".
-  const open = () => words.map((w, i) => ({ w, i })).filter(({ w, i }) => !used[i] && !STOPWORDS.has(w) && w.length >= 3);
+  const open = () =>
+    words.map((w, i) => ({ w, i })).filter(({ w, i }) => !used[i] && !STOPWORDS.has(w) && w.length >= 3);
 
   // 3. Several words that fit one species together.
   const openWords = open();
@@ -312,7 +430,9 @@ export function parseSearchQuery(
     let best = 0;
     const counts = new Map<string, number[]>();
     for (const s of species) {
-      const hitIdx = openWords.filter(({ w }) => s.primaryWords.some((nw) => wordMatches(nw, w, true))).map(({ i }) => i);
+      const hitIdx = openWords
+        .filter(({ w }) => s.primaryWords.some((nw) => wordMatches(nw, w, true)))
+        .map(({ i }) => i);
       if (hitIdx.length >= 2) {
         counts.set(s.id, hitIdx);
         best = Math.max(best, hitIdx.length);
@@ -366,11 +486,14 @@ export function parseSearchQuery(
     const isWholeNameWord = species.some((s) => s.primaryWords.includes(w));
     // Heading for a picture word: the species it starts are only mixed in.
     if (picked.length === 0 && i === lastIndex && completion) {
-      for (const s of species.filter((s) => s.primaryWords.some((pw) => pw.startsWith(w)))) result.hintSpeciesIds.add(s.id);
+      for (const s of species.filter((s) => s.primaryWords.some((pw) => pw.startsWith(w))))
+        result.hintSpeciesIds.add(s.id);
       continue;
     }
     if (picked.length === 0 && i === words.length - 1 && w.length >= 3 && !isWholeNameWord) {
-      const started = species.filter((s) => s.primaryWords.some((pw) => pw.startsWith(w)) || s.sciWords.some((sw) => sw.startsWith(w)));
+      const started = species.filter(
+        (s) => s.primaryWords.some((pw) => pw.startsWith(w)) || s.sciWords.some((sw) => sw.startsWith(w)),
+      );
       const term = [...GROUP_TERMS.keys()].find((k) => !k.includes(" ") && k.startsWith(w));
       if (partialWordPicksSpecies) {
         picked = started;
@@ -383,7 +506,8 @@ export function parseSearchQuery(
         if (started.length + inGroup.length > 0) continue;
       }
     }
-    if (picked.length === 0 && !typedGroup && w.length >= 5) picked = species.filter((s) => s.primaryHead && wordMatches(s.primaryHead, w, true));
+    if (picked.length === 0 && !typedGroup && w.length >= 5)
+      picked = species.filter((s) => s.primaryHead && wordMatches(s.primaryHead, w, true));
     if (picked.length > 0 || typedGroup) {
       if (picked.length > 0) subjects.push({ start: i, end: i + 1, species: picked.map((s) => s.id), labels: [w] });
       if (typedGroup) subjects.push({ start: i, end: i + 1, group: typedGroup, labels: [typedGroup.label] });
@@ -423,7 +547,12 @@ export function parseSearchQuery(
   // A description exists only when some words are left over. It keeps the subject words too,
   // dropping only places, dates and their prepositions.
   if (words.some((w, i) => !used[i] && !STOPWORDS.has(w))) {
-    result.description = words.map((w, i) => (i === lastIndex && completion && !used[i] ? completion : w)).filter((_, i) => !context[i]).join(" ").trim() || null;
+    result.description =
+      words
+        .map((w, i) => (i === lastIndex && completion && !used[i] ? completion : w))
+        .filter((_, i) => !context[i])
+        .join(" ")
+        .trim() || null;
   }
   return result;
 }
@@ -499,7 +628,9 @@ function dot(a: Float32Array, b: Float32Array): number {
 
 // Photo vectors are cached in memory (shared with species/embeddings.ts), keyed by capture and
 // computed_at so a recomputed vector replaces the old one. Stored vectors are unit length.
-function photoVectors(rows: Array<{ capture_id: string; embedding_computed_at: string | null }>): Promise<Map<string, Float32Array>> {
+function photoVectors(
+  rows: Array<{ capture_id: string; embedding_computed_at: string | null }>,
+): Promise<Map<string, Float32Array>> {
   return captureVectors(
     pool,
     "capture_embeddings",
@@ -541,7 +672,10 @@ export interface SearchOutcome<R> {
 }
 
 function byRatingThenDate(a: SearchRow, b: SearchRow): number {
-  return (b.quality_rating ?? 0) - (a.quality_rating ?? 0) || new Date(String(b.taken_at ?? 0)).getTime() - new Date(String(a.taken_at ?? 0)).getTime();
+  return (
+    (b.quality_rating ?? 0) - (a.quality_rating ?? 0) ||
+    new Date(String(b.taken_at ?? 0)).getTime() - new Date(String(a.taken_at ?? 0)).getTime()
+  );
 }
 
 function tagMatches(tags: string[] | null, query: string): boolean {
@@ -552,7 +686,10 @@ function tagMatches(tags: string[] | null, query: string): boolean {
     const tw = wordsOf(t);
     if (tw.length === 0) return false;
     // The tag names the query ("yellow flower" tagged on a photo), or the query names the tag.
-    return qWords.every((w) => tw.some((x) => wordMatches(x, w))) || (tw.join(" ").length >= 3 && joined.includes(` ${tw.join(" ")} `));
+    return (
+      qWords.every((w) => tw.some((x) => wordMatches(x, w))) ||
+      (tw.join(" ").length >= 3 && joined.includes(` ${tw.join(" ")} `))
+    );
   });
 }
 
@@ -569,7 +706,9 @@ export async function rankSearch<R extends SearchRow>(
 
   if (parsed.focalLengthMm) {
     const target = parsed.focalLengthMm;
-    candidates = candidates.filter((r) => r.focal_length_mm != null && Math.abs(Number(r.focal_length_mm) - target) <= target * 0.2);
+    candidates = candidates.filter(
+      (r) => r.focal_length_mm != null && Math.abs(Number(r.focal_length_mm) - target) <= target * 0.2,
+    );
   }
   if (parsed.places.length > 0) {
     const regionIds = parsed.places.filter((p) => p.kind === "region").map((p) => p.id);
@@ -589,7 +728,10 @@ export async function rankSearch<R extends SearchRow>(
     candidates = candidates.filter((r) => {
       if (!r.taken_at) return false;
       const d = new Date(String(r.taken_at));
-      return (parsed.years.length === 0 || parsed.years.includes(d.getFullYear())) && (parsed.months.length === 0 || parsed.months.includes(d.getMonth() + 1));
+      return (
+        (parsed.years.length === 0 || parsed.years.includes(d.getFullYear())) &&
+        (parsed.months.length === 0 || parsed.months.includes(d.getMonth() + 1))
+      );
     });
   }
 
@@ -601,7 +743,10 @@ export async function rankSearch<R extends SearchRow>(
         tagged.has(r.capture_id) ||
         parsed.speciesIds?.has(r.species_id) ||
         parsed.groups.some((g) =>
-          speciesInGroup({ taxonClass: r.taxon_class, taxonOrder: r.taxon_order, family: r.family, commonName: r.common_name }, g.predicate),
+          speciesInGroup(
+            { taxonClass: r.taxon_class, taxonOrder: r.taxon_order, family: r.family, commonName: r.common_name },
+            g.predicate,
+          ),
         ),
     );
   }
@@ -612,10 +757,25 @@ export async function rankSearch<R extends SearchRow>(
 
   // Nothing about the picture: the filters are the answer.
   if (!parsed.description) {
-    if (!hasSubject && parsed.places.length === 0 && parsed.years.length === 0 && parsed.months.length === 0 && !parsed.focalLengthMm) {
-      return { items: withTagsFirst(rows.filter((r) => tagged.has(r.capture_id)).map((row) => ({ row, score: null }))), interpretation };
+    if (
+      !hasSubject &&
+      parsed.places.length === 0 &&
+      parsed.years.length === 0 &&
+      parsed.months.length === 0 &&
+      !parsed.focalLengthMm
+    ) {
+      return {
+        items: withTagsFirst(rows.filter((r) => tagged.has(r.capture_id)).map((row) => ({ row, score: null }))),
+        interpretation,
+      };
     }
-    const sorted = [...candidates].sort(parsed.focalLengthMm ? (a, b) => Math.abs(Number(a.focal_length_mm) - parsed.focalLengthMm!) - Math.abs(Number(b.focal_length_mm) - parsed.focalLengthMm!) : byRatingThenDate);
+    const sorted = [...candidates].sort(
+      parsed.focalLengthMm
+        ? (a, b) =>
+            Math.abs(Number(a.focal_length_mm) - parsed.focalLengthMm!) -
+            Math.abs(Number(b.focal_length_mm) - parsed.focalLengthMm!)
+        : byRatingThenDate,
+    );
     return { items: withTagsFirst(sorted.map((row) => ({ row, score: null }))), interpretation };
   }
 
@@ -634,7 +794,9 @@ export async function rankSearch<R extends SearchRow>(
     // Species matching isn't downloaded: names, groups, places and dates still work.
   }
   if (!queryVec || !noiseVec) {
-    const fallback = hasSubject ? [...candidates].sort(byRatingThenDate) : candidates.filter((r) => tagged.has(r.capture_id) || parsed.hintSpeciesIds.has(r.species_id));
+    const fallback = hasSubject
+      ? [...candidates].sort(byRatingThenDate)
+      : candidates.filter((r) => tagged.has(r.capture_id) || parsed.hintSpeciesIds.has(r.species_id));
     return { items: withTagsFirst(fallback.map((row) => ({ row, score: null }))), interpretation };
   }
 
@@ -659,10 +821,20 @@ export async function rankSearch<R extends SearchRow>(
   const hinted = scored.filter((s) => parsed.hintSpeciesIds.has(s.row.species_id));
   if (hinted.length > 0 && hinted.filter((s) => (s.score ?? -1) >= cutoff).length >= hinted.length / 2) {
     hinted.sort((a, b) => (b.score ?? -1) - (a.score ?? -1));
-    const taggedRows = scored.filter((s) => tagged.has(s.row.capture_id) && !parsed.hintSpeciesIds.has(s.row.species_id));
-    return { items: withTagsFirst([...hinted, ...taggedRows]), interpretation: { ...interpretation, species: [...new Set(hinted.map((s) => s.row.common_name ?? s.row.scientific_name))] } };
+    const taggedRows = scored.filter(
+      (s) => tagged.has(s.row.capture_id) && !parsed.hintSpeciesIds.has(s.row.species_id),
+    );
+    return {
+      items: withTagsFirst([...hinted, ...taggedRows]),
+      interpretation: {
+        ...interpretation,
+        species: [...new Set(hinted.map((s) => s.row.common_name ?? s.row.scientific_name))],
+      },
+    };
   }
-  const kept = scored.filter((s) => (s.score ?? -1) >= cutoff || parsed.hintSpeciesIds.has(s.row.species_id) || tagged.has(s.row.capture_id));
+  const kept = scored.filter(
+    (s) => (s.score ?? -1) >= cutoff || parsed.hintSpeciesIds.has(s.row.species_id) || tagged.has(s.row.capture_id),
+  );
   kept.sort((a, b) => (b.score ?? -1) - (a.score ?? -1));
   return { items: withTagsFirst(kept), interpretation };
 }

@@ -26,7 +26,11 @@ describe.skipIf(!url)("photo store", () => {
   let work: string;
   let server: Server;
   let base: string;
-  const bytes = { display: Buffer.from("display-bytes-" + "d".repeat(500)), thumb: Buffer.from("thumb-" + "t".repeat(90)), gallery: Buffer.from("gallery-" + "g".repeat(300)) };
+  const bytes = {
+    display: Buffer.from("display-bytes-" + "d".repeat(500)),
+    thumb: Buffer.from("thumb-" + "t".repeat(90)),
+    gallery: Buffer.from("gallery-" + "g".repeat(300)),
+  };
 
   async function cleanup() {
     await db.query(`DELETE FROM species WHERE id = $1`, [SPECIES]);
@@ -37,7 +41,11 @@ describe.skipIf(!url)("photo store", () => {
     db = new pg.Pool({ connectionString: url });
     await cleanup();
     work = mkdtempSync(path.join(os.tmpdir(), "lifer-photo-src-"));
-    const files = { display: path.join(work, "d.webp"), thumb: path.join(work, "t.webp"), gallery: path.join(work, "g.webp") };
+    const files = {
+      display: path.join(work, "d.webp"),
+      thumb: path.join(work, "t.webp"),
+      gallery: path.join(work, "g.webp"),
+    };
     writeFileSync(files.display, bytes.display);
     writeFileSync(files.thumb, bytes.thumb);
     writeFileSync(files.gallery, bytes.gallery);
@@ -58,7 +66,9 @@ describe.skipIf(!url)("photo store", () => {
       const data = readFileSync(file);
       const m = /bytes=(\d+)-(\d+)/.exec(req.headers.range ?? "");
       if (!m) return void res.writeHead(200).end(data);
-      res.writeHead(206, { "Content-Range": `bytes ${m[1]}-${m[2]}/${data.length}` }).end(data.subarray(Number(m[1]), Number(m[2]) + 1));
+      res
+        .writeHead(206, { "Content-Range": `bytes ${m[1]}-${m[2]}/${data.length}` })
+        .end(data.subarray(Number(m[1]), Number(m[2]) + 1));
     });
     await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
     const addr = server.address() as { port: number };
@@ -81,7 +91,9 @@ describe.skipIf(!url)("photo store", () => {
     expect(stored.species[SPECIES]?.g?.[PHOTO_URL]?.d).toBeDefined();
 
     // An install without the files: paths unset, as a fresh one has.
-    await db.query(`UPDATE species SET reference_display_path = NULL, reference_thumb_path = NULL WHERE id = $1`, [SPECIES]);
+    await db.query(`UPDATE species SET reference_display_path = NULL, reference_thumb_path = NULL WHERE id = $1`, [
+      SPECIES,
+    ]);
     await db.query(`UPDATE species_reference_photos SET display_path = NULL WHERE species_id = $1`, [SPECIES]);
 
     const { fetchPhotoStoreIndex, missingPhotos, downloadPhotos } = await import("./photoStore.js");
@@ -94,10 +106,13 @@ describe.skipIf(!url)("photo store", () => {
 
     const result = await downloadPhotos(db, indexUrl, index, needs);
     expect(result).toMatchObject({ saved: 3, failed: 0 });
-    const row = (await db.query(`SELECT reference_display_path, reference_thumb_path FROM species WHERE id = $1`, [SPECIES])).rows[0];
+    const row = (
+      await db.query(`SELECT reference_display_path, reference_thumb_path FROM species WHERE id = $1`, [SPECIES])
+    ).rows[0];
     expect(readFileSync(row.reference_display_path)).toEqual(bytes.display);
     expect(readFileSync(row.reference_thumb_path)).toEqual(bytes.thumb);
-    const g = (await db.query(`SELECT display_path FROM species_reference_photos WHERE species_id = $1`, [SPECIES])).rows[0];
+    const g = (await db.query(`SELECT display_path FROM species_reference_photos WHERE species_id = $1`, [SPECIES]))
+      .rows[0];
     expect(readFileSync(g.display_path)).toEqual(bytes.gallery);
     expect(await missingPhotos(db, index, [SPECIES], true)).toHaveLength(0);
 

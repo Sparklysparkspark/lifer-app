@@ -22,7 +22,15 @@ import { isUuid } from "../lib/validate.js";
 import { withSchemas } from "../lib/schema.js";
 import { markCollected } from "../lib/userSpecies.js";
 import { getUserFileSettings } from "../lib/userFileSettings.js";
-import { UPLOAD_TX_TIMEOUTS, derivativeFiles, moveIntoLibrary, originalFilename, removeFiles, uploadTmpDir, type ChosenVolume } from "./common.js";
+import {
+  UPLOAD_TX_TIMEOUTS,
+  derivativeFiles,
+  moveIntoLibrary,
+  originalFilename,
+  removeFiles,
+  uploadTmpDir,
+  type ChosenVolume,
+} from "./common.js";
 
 const ACCEPTED_VIDEO_EXTENSION_BY_MIMETYPE: Record<string, string> = {
   "video/mp4": ".mp4",
@@ -66,7 +74,10 @@ export async function videoUploadRoutes(fastify: FastifyInstance): Promise<void>
         }
         fileMimetype = part.mimetype;
         fileName = part.filename;
-        tmpPath = path.join(tmpDir, `${randomUUID()}${ACCEPTED_VIDEO_EXTENSION_BY_MIMETYPE[part.mimetype] ?? ".upload"}`);
+        tmpPath = path.join(
+          tmpDir,
+          `${randomUUID()}${ACCEPTED_VIDEO_EXTENSION_BY_MIMETYPE[part.mimetype] ?? ".upload"}`,
+        );
         ({ fingerprint } = await receiveToFile(part.file, tmpPath));
       } else {
         fields[part.fieldname] = String(part.value);
@@ -85,7 +96,10 @@ export async function videoUploadRoutes(fastify: FastifyInstance): Promise<void>
       fileName = fields.fileName || resumable.filename;
       // Moved to a temp name with the right extension (same folder tree, so a rename); moved
       // back if the import fails.
-      const claimed = path.join(tmpDir, `${randomUUID()}${(fileMimetype && ACCEPTED_VIDEO_EXTENSION_BY_MIMETYPE[fileMimetype]) ?? ".upload"}`);
+      const claimed = path.join(
+        tmpDir,
+        `${randomUUID()}${(fileMimetype && ACCEPTED_VIDEO_EXTENSION_BY_MIMETYPE[fileMimetype]) ?? ".upload"}`,
+      );
       await moveFile(resumable.path, claimed);
       const original = resumable.path;
       const finishResumable = resumable.finish;
@@ -102,7 +116,10 @@ export async function videoUploadRoutes(fastify: FastifyInstance): Promise<void>
     } else if (!tmpPath && fields.stagedId) {
       fileMimetype = fields.fileType || null;
       fileName = fields.fileName || null;
-      const claimed = path.join(tmpDir, `${randomUUID()}${(fileMimetype && ACCEPTED_VIDEO_EXTENSION_BY_MIMETYPE[fileMimetype]) ?? ".upload"}`);
+      const claimed = path.join(
+        tmpDir,
+        `${randomUUID()}${(fileMimetype && ACCEPTED_VIDEO_EXTENSION_BY_MIMETYPE[fileMimetype]) ?? ".upload"}`,
+      );
       if (!(await claimStagedUpload(request.user!.id, fields.stagedId, claimed))) {
         return reply.code(410).send({ error: "The checked copy of this video has expired. Send the file again." });
       }
@@ -125,7 +142,9 @@ export async function videoUploadRoutes(fastify: FastifyInstance): Promise<void>
 
     let chosenVolume: ChosenVolume | null = null;
     if (fields.volumeId) {
-      chosenVolume = isUuid(fields.volumeId) ? await resolveChosenVolumeDestination(request.user!.id, fields.volumeId) : null;
+      chosenVolume = isUuid(fields.volumeId)
+        ? await resolveChosenVolumeDestination(request.user!.id, fields.volumeId)
+        : null;
       if (!chosenVolume) return reply.code(400).send({ error: "That drive isn't connected right now" });
     }
 
@@ -158,7 +177,9 @@ export async function videoUploadRoutes(fastify: FastifyInstance): Promise<void>
       taxon_class: string | null;
       family: string | null;
       inat_iconic_taxon: string | null;
-    }>(`SELECT id, common_name, scientific_name, taxon_class, family, inat_iconic_taxon FROM species WHERE id = $1`, [speciesId]);
+    }>(`SELECT id, common_name, scientific_name, taxon_class, family, inat_iconic_taxon FROM species WHERE id = $1`, [
+      speciesId,
+    ]);
     if (speciesRes.rows.length === 0) return reply.code(400).send({ error: "Unknown species" });
     const species = speciesRes.rows[0];
 
@@ -172,7 +193,18 @@ export async function videoUploadRoutes(fastify: FastifyInstance): Promise<void>
       exif = await extractExif(tmpPath, tags);
       time = captureTimeFromTags(tags);
     } catch {
-      exif = { takenAt: null, lat: null, lon: null, cameraModel: null, lens: null, focalLengthMm: null, aperture: null, shutter: null, iso: null, rating: null };
+      exif = {
+        takenAt: null,
+        lat: null,
+        lon: null,
+        cameraModel: null,
+        lens: null,
+        focalLengthMm: null,
+        aperture: null,
+        shutter: null,
+        iso: null,
+        rating: null,
+      };
     }
 
     const userId = request.user!.id;
@@ -190,7 +222,8 @@ export async function videoUploadRoutes(fastify: FastifyInstance): Promise<void>
     // The library copy is the upload itself, moved (a rename on the same drive); a failed import
     // moves it back, and the end of the request removes it or keeps a resumable upload.
     const moveBack = async () => {
-      if (finalRef && existsSync(finalRef)) await moveFile(finalRef, tmpPath!).catch(() => rmSync(finalRef!, { force: true }));
+      if (finalRef && existsSync(finalRef))
+        await moveFile(finalRef, tmpPath!).catch(() => rmSync(finalRef!, { force: true }));
     };
     try {
       derivatives = await generateVideoDerivatives(tmpPath, photoId);
@@ -267,10 +300,10 @@ export async function videoUploadRoutes(fastify: FastifyInstance): Promise<void>
       );
 
       if (albumId) {
-        await client.query(
-          `INSERT INTO album_captures (album_id, capture_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
-          [albumId, captureId],
-        );
+        await client.query(`INSERT INTO album_captures (album_id, capture_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, [
+          albumId,
+          captureId,
+        ]);
       }
 
       await client.query("COMMIT");

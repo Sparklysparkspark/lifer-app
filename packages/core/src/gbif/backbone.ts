@@ -82,7 +82,9 @@ export async function fetchGbifBackboneForKeys(higherTaxonKeys: number[]): Promi
         });
       }
 
-      log.info(`[gbif] highertaxonKey=${higherTaxonKey}: fetched ${byGbifKey.size} total so far / ~${data.count} this key`);
+      log.info(
+        `[gbif] highertaxonKey=${higherTaxonKey}: fetched ${byGbifKey.size} total so far / ~${data.count} this key`,
+      );
       offset += PAGE_SIZE;
       if (data.endOfRecords || data.results.length === 0) break;
     }

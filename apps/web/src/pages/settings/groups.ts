@@ -21,12 +21,68 @@ interface SettingsGroup {
 }
 
 export const GROUPS: SettingsGroup[] = [
-  { id: "general", get label() { return i18n.t("settings.groups.general"); }, visible: () => true, Component: GeneralSettings },
-  { id: "account", get label() { return i18n.t("settings.groups.account"); }, visible: ({ mode }) => mode === "server", Component: AccountSettings },
-  { id: "species", get label() { return i18n.t("settings.groups.species"); }, visible: () => true, Component: SpeciesImportSettings },
-  { id: "library", get label() { return i18n.t("settings.groups.library"); }, visible: () => true, Component: LibrarySettings },
-  { id: "storage", get label() { return i18n.t("settings.groups.storage"); }, visible: () => true, Component: StorageSettings },
-  { id: "server", get label() { return i18n.t("settings.groups.server"); }, visible: ({ isTauri }) => isTauri, Component: ServerSettings },
-  { id: "integrations", get label() { return i18n.t("settings.groups.integrations"); }, visible: () => true, Component: IntegrationsSettings },
-  { id: "offline-data", get label() { return i18n.t("settings.groups.offlineData"); }, visible: () => true, Component: OfflineDataSettings },
+  {
+    id: "general",
+    get label() {
+      return i18n.t("settings.groups.general");
+    },
+    visible: () => true,
+    Component: GeneralSettings,
+  },
+  {
+    id: "account",
+    get label() {
+      return i18n.t("settings.groups.account");
+    },
+    visible: ({ mode }) => mode === "server",
+    Component: AccountSettings,
+  },
+  {
+    id: "species",
+    get label() {
+      return i18n.t("settings.groups.species");
+    },
+    visible: () => true,
+    Component: SpeciesImportSettings,
+  },
+  {
+    id: "library",
+    get label() {
+      return i18n.t("settings.groups.library");
+    },
+    visible: () => true,
+    Component: LibrarySettings,
+  },
+  {
+    id: "storage",
+    get label() {
+      return i18n.t("settings.groups.storage");
+    },
+    visible: () => true,
+    Component: StorageSettings,
+  },
+  {
+    id: "server",
+    get label() {
+      return i18n.t("settings.groups.server");
+    },
+    visible: ({ isTauri }) => isTauri,
+    Component: ServerSettings,
+  },
+  {
+    id: "integrations",
+    get label() {
+      return i18n.t("settings.groups.integrations");
+    },
+    visible: () => true,
+    Component: IntegrationsSettings,
+  },
+  {
+    id: "offline-data",
+    get label() {
+      return i18n.t("settings.groups.offlineData");
+    },
+    visible: () => true,
+    Component: OfflineDataSettings,
+  },
 ];

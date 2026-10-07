@@ -68,7 +68,9 @@ function readStoredToken(row: { token_encrypted: string | null; token: string | 
 /** Moves share tokens still stored as plain text (rows from before migration 132) into their
  *  encrypted copy, at startup. Returns how many rows changed. */
 export async function encryptStoredShareTokens(db: Pick<typeof pool, "query"> = pool): Promise<number> {
-  const res = await db.query<{ id: string; token: string }>(`SELECT id, token FROM shared_links WHERE token IS NOT NULL`);
+  const res = await db.query<{ id: string; token: string }>(
+    `SELECT id, token FROM shared_links WHERE token IS NOT NULL`,
+  );
   for (const row of res.rows) {
     await db.query(`UPDATE shared_links SET token_encrypted = $2, token = NULL WHERE id = $1 AND token = $3`, [
       row.id,

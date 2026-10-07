@@ -11,12 +11,24 @@ import { pool } from "@lifer/core/db.js";
 import { APP_DATA_DIR } from "@lifer/core/config.js";
 import { ensureDefaultCardCropLater } from "../collection/defaultCardCrop.js";
 import { generateDerivatives } from "@lifer/core/uploads/image.js";
-import { captureTimeFromTags, computeExifFingerprint, extractExif, extractKeywordsWithSidecar, extractLiferTags, readExifTags, type ExifTags } from "../uploads/exif.js";
+import {
+  captureTimeFromTags,
+  computeExifFingerprint,
+  extractExif,
+  extractKeywordsWithSidecar,
+  extractLiferTags,
+  readExifTags,
+  type ExifTags,
+} from "../uploads/exif.js";
 import { computeContentHash } from "../uploads/fileFingerprint.js";
 import { resolveSpeciesFolderName } from "../uploads/speciesFolderName.js";
 import { ACCEPTED_PHOTO_EXTENSIONS, isRawFile, VENDOR_RAW_EXTENSIONS } from "@lifer/core/uploads/formats.js";
 import { uploadWorkDir } from "../lib/uploadWorkDir.js";
-import { matchSpeciesByKeywords, groupByScientificName, type KeywordMatchedSpecies } from "../species/matchByKeywords.js";
+import {
+  matchSpeciesByKeywords,
+  groupByScientificName,
+  type KeywordMatchedSpecies,
+} from "../species/matchByKeywords.js";
 import { matchSpeciesFromFilename } from "../species/matchByFilename.js";
 import { fileIntoMainLibrary } from "../uploads/routes.js";
 import { recoverAlbumMembership } from "../albums/albumIndex.js";
@@ -115,7 +127,8 @@ async function recoveredVolumeTag(
   foreign: boolean,
 ): Promise<VolumeTag> {
   if (organize) return { volumeId: null, volumeRelativePath: null };
-  if (volumeContext) return { volumeId: volumeContext.volumeId, volumeRelativePath: absolutePath.slice(volumeContext.mountPath.length) };
+  if (volumeContext)
+    return { volumeId: volumeContext.volumeId, volumeRelativePath: absolutePath.slice(volumeContext.mountPath.length) };
   if (foreign) return tagWithRegisteredVolume(userId, absolutePath);
   return { volumeId: null, volumeRelativePath: null };
 }
@@ -140,7 +153,11 @@ async function repairIfStale(
 }
 
 // Breaks a multi-name keyword match using the file's own folder name.
-async function findRowMatchingFolder(userId: string, absolutePath: string, byName: Map<string, SpeciesRow[]>): Promise<SpeciesRow[] | null> {
+async function findRowMatchingFolder(
+  userId: string,
+  absolutePath: string,
+  byName: Map<string, SpeciesRow[]>,
+): Promise<SpeciesRow[] | null> {
   const parentFolder = path.basename(path.dirname(path.dirname(absolutePath)));
   for (const rows of byName.values()) {
     const folderName = await resolveSpeciesFolderName(userId, rows[0].id);
@@ -181,7 +198,12 @@ export async function recoverJpeg(
 
   // Before species matching, so a skipped reject isn't listed as unrecognized. Reading only: the
   // file stays where it is, whatever the mark says.
-  const rawTwin = cull.raws?.length ? matchingSourceRaw(absolutePath, cull.raws.map((p) => ({ absolutePath: p, relativePath: p }))) : null;
+  const rawTwin = cull.raws?.length
+    ? matchingSourceRaw(
+        absolutePath,
+        cull.raws.map((p) => ({ absolutePath: p, relativePath: p })),
+      )
+    : null;
   const marks = await readPairCullMarks(absolutePath, rawTwin?.absolutePath ?? null);
   const decision = cullDecision(marks, cull.option);
   if (decision === "skip") return { status: "rejected" };
@@ -315,7 +337,13 @@ export async function recoverJpeg(
     if (!hidden) ensureDefaultCardCropLater(userId, species.id);
     // Best-effort: a missing or unreadable manifest never fails the recovery.
     await recoverAlbumMembership(userId, finalPath, captureId).catch(() => {});
-    return { status: "recovered", captureId, photoId: photoRes.rows[0].id, scientificName: species.scientific_name, hidden };
+    return {
+      status: "recovered",
+      captureId,
+      photoId: photoRes.rows[0].id,
+      scientificName: species.scientific_name,
+      hidden,
+    };
   } catch (err) {
     await client.query("ROLLBACK").catch(() => {});
     throw err;

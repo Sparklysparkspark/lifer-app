@@ -7,7 +7,12 @@ import { Nullable, Uuid, withSchemas } from "../lib/schema.js";
 import { EMBED_PIPELINE_VERSION } from "@lifer/shared";
 import { EMBEDDING_MODEL_URL, EMBEDDING_MODEL_VERSION, ID_MODEL_VERSION } from "@lifer/core/config.js";
 import { CLIENT_VECTOR_DIMS } from "@lifer/core/species/clientVectors.js";
-import { activeSuggestionModel, isModelDownloaded, warmSuggestions, type PhotoVectorKind } from "@lifer/core/species/embeddings.js";
+import {
+  activeSuggestionModel,
+  isModelDownloaded,
+  warmSuggestions,
+  type PhotoVectorKind,
+} from "@lifer/core/species/embeddings.js";
 import { idModel } from "@lifer/core/species/idModel.js";
 import { inferenceRuntime } from "@lifer/core/species/inference.js";
 import { accelerationStatus } from "./accelerationSelect.js";
@@ -54,7 +59,11 @@ export async function matchingRoutes(fastify: FastifyInstance): Promise<void> {
       activeModel,
       targets,
       models: {
-        clip: { version: EMBEDDING_MODEL_VERSION, url: EMBEDDING_MODEL_URL, sha256: expectedModelSha256(EMBEDDING_MODEL_URL) },
+        clip: {
+          version: EMBEDDING_MODEL_VERSION,
+          url: EMBEDDING_MODEL_URL,
+          sha256: expectedModelSha256(EMBEDDING_MODEL_URL),
+        },
         ...(idModel.isDownloaded()
           ? {
               bioclip: {
@@ -64,7 +73,9 @@ export async function matchingRoutes(fastify: FastifyInstance): Promise<void> {
                 sha256: expectedModelSha256(idModel.url),
                 // The full-precision copy a desktop app runs if its own GPU is faster (acceleration.ts),
                 // when the CPU file isn't already that copy.
-                ...(idModel.gpuCopy ? { gpu: { url: idModel.gpuCopy.url, sha256: expectedModelSha256(idModel.gpuCopy.url) } } : {}),
+                ...(idModel.gpuCopy
+                  ? { gpu: { url: idModel.gpuCopy.url, sha256: expectedModelSha256(idModel.gpuCopy.url) } }
+                  : {}),
               },
             }
           : {}),

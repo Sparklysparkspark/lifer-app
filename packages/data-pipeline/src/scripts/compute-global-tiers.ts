@@ -90,7 +90,12 @@ async function writeGlobalTiers(tiers: GlobalTier[]) {
        FROM unnest($1::uuid[], $2::text[], $3::text[], $4::text[]) AS v(id, tier, reason, explain)
        ON CONFLICT (species_id) DO UPDATE SET tier = EXCLUDED.tier, tier_reason = EXCLUDED.tier_reason,
          tier_explain = EXCLUDED.tier_explain, computed_at = EXCLUDED.computed_at`,
-      [b.map((t) => t.speciesId), b.map((t) => t.tier), b.map((t) => t.reason), b.map((t) => (t.explain ? JSON.stringify(t.explain) : null))],
+      [
+        b.map((t) => t.speciesId),
+        b.map((t) => t.tier),
+        b.map((t) => t.reason),
+        b.map((t) => (t.explain ? JSON.stringify(t.explain) : null)),
+      ],
     );
   }
 }
@@ -100,7 +105,12 @@ async function main() {
   const tiers = await computeGlobalTiers();
   const spread = new Map<string, number>();
   for (const t of tiers) spread.set(t.tier ?? `(${t.reason})`, (spread.get(t.tier ?? `(${t.reason})`) ?? 0) + 1);
-  console.log(`[global-tiers] ${tiers.length} species: ${[...spread].sort().map(([k, n]) => `${k} ${n}`).join(", ")}`);
+  console.log(
+    `[global-tiers] ${tiers.length} species: ${[...spread]
+      .sort()
+      .map(([k, n]) => `${k} ${n}`)
+      .join(", ")}`,
+  );
   if (apply) {
     await writeGlobalTiers(tiers);
     console.log("[global-tiers] applied");

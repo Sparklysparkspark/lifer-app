@@ -10,7 +10,12 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 const url = process.env.TEST_DATABASE_URL;
 const USER = "ffffffff-0000-4000-8000-000000000110";
-const SP = ["ffffffff-0000-4000-8000-0000000000a1", "ffffffff-0000-4000-8000-0000000000a2", "ffffffff-0000-4000-8000-0000000000a3", "ffffffff-0000-4000-8000-0000000000a4"];
+const SP = [
+  "ffffffff-0000-4000-8000-0000000000a1",
+  "ffffffff-0000-4000-8000-0000000000a2",
+  "ffffffff-0000-4000-8000-0000000000a3",
+  "ffffffff-0000-4000-8000-0000000000a4",
+];
 const REGION = "ffffffff-0000-4000-8000-0000000000b1";
 const ZONE = "ffffffff-0000-4000-8000-0000000000c1";
 
@@ -26,27 +31,43 @@ describe.skipIf(!url)("collection state record", () => {
     db = new pg.Pool({ connectionString: url });
     await db.query(`DELETE FROM users WHERE id = $1`, [USER]);
     await db.query(`INSERT INTO users (id, email, password_hash) VALUES ($1, 'state@test', 'x')`, [USER]);
-    await db.query(`INSERT INTO regions (id, name, external_codes) VALUES ($1, 'Stateland', '{ZZ-ST}') ON CONFLICT (id) DO NOTHING`, [REGION]);
+    await db.query(
+      `INSERT INTO regions (id, name, external_codes) VALUES ($1, 'Stateland', '{ZZ-ST}') ON CONFLICT (id) DO NOTHING`,
+      [REGION],
+    );
     for (const [i, id] of SP.entries()) {
-      await db.query(`INSERT INTO species (id, gbif_key, scientific_name, common_name, taxon_class) VALUES ($1, $2, $3, $4, 'aves') ON CONFLICT (id) DO NOTHING`, [
-        id,
-        911000 + i,
-        `Statea species${i}`,
-        `State Bird ${i}`,
-      ]);
+      await db.query(
+        `INSERT INTO species (id, gbif_key, scientific_name, common_name, taxon_class) VALUES ($1, $2, $3, $4, 'aves') ON CONFLICT (id) DO NOTHING`,
+        [id, 911000 + i, `Statea species${i}`, `State Bird ${i}`],
+      );
     }
     await db.query(`INSERT INTO user_archived_species (user_id, species_id) VALUES ($1, $2)`, [USER, SP[0]]);
-    await db.query(`INSERT INTO region_species_hidden (user_id, region_id, species_id) VALUES ($1, $2, $3)`, [USER, REGION, SP[1]]);
+    await db.query(`INSERT INTO region_species_hidden (user_id, region_id, species_id) VALUES ($1, $2, $3)`, [
+      USER,
+      REGION,
+      SP[1],
+    ]);
     await db.query(`INSERT INTO user_species (user_id, species_id, state) VALUES ($1, $2, 'seen')`, [USER, SP[2]]);
     await db.query(`INSERT INTO user_species (user_id, species_id, is_target) VALUES ($1, $2, true)`, [USER, SP[3]]);
-    await db.query(`INSERT INTO user_tier_overrides (user_id, region_id, species_id, tier) VALUES ($1, $2, $3, 'rare'), ($1, NULL, $4, 'uncommon')`, [USER, REGION, SP[1], SP[2]]);
-    await db.query(`INSERT INTO region_species_user_added (user_id, region_id, species_id) VALUES ($1, $2, $3)`, [USER, REGION, SP[3]]);
+    await db.query(
+      `INSERT INTO user_tier_overrides (user_id, region_id, species_id, tier) VALUES ($1, $2, $3, 'rare'), ($1, NULL, $4, 'uncommon')`,
+      [USER, REGION, SP[1], SP[2]],
+    );
+    await db.query(`INSERT INTO region_species_user_added (user_id, region_id, species_id) VALUES ($1, $2, $3)`, [
+      USER,
+      REGION,
+      SP[3],
+    ]);
     await db.query(
       `INSERT INTO sea_zones (id, name, wkt, bbox_min_lon, bbox_min_lat, bbox_max_lon, bbox_max_lat)
        VALUES ($1, 'Zzstate Sea', 'POLYGON((0 0,1 0,1 1,0 1,0 0))', 0, 0, 1, 1) ON CONFLICT (id) DO NOTHING`,
       [ZONE],
     );
-    await db.query(`INSERT INTO sea_zone_species_user_added (user_id, sea_zone_id, species_id) VALUES ($1, $2, $3)`, [USER, ZONE, SP[0]]);
+    await db.query(`INSERT INTO sea_zone_species_user_added (user_id, sea_zone_id, species_id) VALUES ($1, $2, $3)`, [
+      USER,
+      ZONE,
+      SP[0],
+    ]);
   });
 
   afterAll(async () => {
@@ -96,7 +117,15 @@ describe.skipIf(!url)("collection state record", () => {
               (SELECT count(*) FROM sea_zone_species_user_added WHERE user_id = $1)::int AS added_to_sea`,
       [USER],
     );
-    expect(counts.rows[0]).toEqual({ archived: 1, hidden: 1, seen: 1, targets: 1, overrides: 2, added: 1, added_to_sea: 1 });
+    expect(counts.rows[0]).toEqual({
+      archived: 1,
+      hidden: 1,
+      seen: 1,
+      targets: 1,
+      overrides: 2,
+      added: 1,
+      added_to_sea: 1,
+    });
 
     // The database has its own state now, so a second restore leaves it alone.
     expect(await restoreCollectionState(USER)).toBeNull();
@@ -105,7 +134,14 @@ describe.skipIf(!url)("collection state record", () => {
   it("retries a startup restore that ran before the catalog was loaded", async () => {
     const { syncCollectionStateOnStartup, tryRestoreCollectionStateOnce } = await import("./collectionState.js");
     // The record from the first test is on disk; the database is fresh again.
-    for (const table of ["user_archived_species", "region_species_hidden", "user_species", "user_tier_overrides", "region_species_user_added", "sea_zone_species_user_added"]) {
+    for (const table of [
+      "user_archived_species",
+      "region_species_hidden",
+      "user_species",
+      "user_tier_overrides",
+      "region_species_user_added",
+      "sea_zone_species_user_added",
+    ]) {
       await db.query(`DELETE FROM ${table} WHERE user_id = $1`, [USER]);
     }
     // A first Docker start: the catalog seed is still loading, so none of the names exist yet.
@@ -115,7 +151,8 @@ describe.skipIf(!url)("collection state record", () => {
     } finally {
       await db.query(`UPDATE species SET scientific_name = substr(scientific_name, 9) WHERE id = ANY($1)`, [SP]);
     }
-    const archived = () => db.query(`SELECT 1 FROM user_archived_species WHERE user_id = $1`, [USER]).then((r) => r.rowCount);
+    const archived = () =>
+      db.query(`SELECT 1 FROM user_archived_species WHERE user_id = $1`, [USER]).then((r) => r.rowCount);
     expect(await archived()).toBe(0);
 
     // The catalog has loaded; the user's next visit (/auth/me) brings the state back.

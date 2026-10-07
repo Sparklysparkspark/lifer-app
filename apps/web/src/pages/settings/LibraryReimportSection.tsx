@@ -155,7 +155,12 @@ export default function LibraryReimportSection() {
     });
     if (!ok) return;
     setShowUnmatched(false);
-    const body = mode === "foreign" ? { path: foreignPath, organize, cullMarks } : volumeId ? { volumeId, cullMarks } : { cullMarks };
+    const body =
+      mode === "foreign"
+        ? { path: foreignPath, organize, cullMarks }
+        : volumeId
+          ? { volumeId, cullMarks }
+          : { cullMarks };
     await job.start("/library/reimport", body);
   }
 
@@ -333,9 +338,7 @@ export default function LibraryReimportSection() {
           {status.jpegsRejected > 0 && (
             <p>Skipped {pluralize(status.jpegsRejected, "photo")} a culling app marked rejected.</p>
           )}
-          {status.jpegsHidden > 0 && (
-            <p>Imported {pluralize(status.jpegsHidden, "rejected photo")} hidden.</p>
-          )}
+          {status.jpegsHidden > 0 && <p>Imported {pluralize(status.jpegsHidden, "rejected photo")} hidden.</p>}
           {status.unmatched.length > 0 && (
             <div>
               <button

@@ -58,7 +58,13 @@ describe("toCollectionItem", () => {
 
   it("only applies card crop fields when the cover photo is the user's own", () => {
     const own = toCollectionItem(
-      baseRow({ state: "collected", has_cover_photo: true, card_crop_x: "0.5", card_crop_y: "0.25", card_crop_size: "0.8" }),
+      baseRow({
+        state: "collected",
+        has_cover_photo: true,
+        card_crop_x: "0.5",
+        card_crop_y: "0.25",
+        card_crop_size: "0.8",
+      }),
     );
     expect(own.cardCropX).toBe(0.5);
     expect(own.cardCropY).toBe(0.25);
@@ -93,15 +99,21 @@ describe("toCollectionItem", () => {
   });
 
   it("only carries a cover volume label when the cover photo is owned", () => {
-    const own = toCollectionItem(baseRow({ state: "collected", has_cover_photo: true, cover_volume_label: "Backup Drive" }));
+    const own = toCollectionItem(
+      baseRow({ state: "collected", has_cover_photo: true, cover_volume_label: "Backup Drive" }),
+    );
     expect(own.coverVolumeLabel).toBe("Backup Drive");
 
-    const notOwned = toCollectionItem(baseRow({ state: "collected", has_cover_photo: false, cover_volume_label: "Backup Drive" }));
+    const notOwned = toCollectionItem(
+      baseRow({ state: "collected", has_cover_photo: false, cover_volume_label: "Backup Drive" }),
+    );
     expect(notOwned.coverVolumeLabel).toBeNull();
   });
 
   it("coerces numeric-string crop fields but leaves null as null (numOrNull boundary)", () => {
-    const item = toCollectionItem(baseRow({ state: "collected", has_cover_photo: true, card_crop_x: "0", card_crop_y: null }));
+    const item = toCollectionItem(
+      baseRow({ state: "collected", has_cover_photo: true, card_crop_x: "0", card_crop_y: null }),
+    );
     expect(item.cardCropX).toBe(0);
     expect(item.cardCropY).toBeNull();
   });

@@ -32,7 +32,16 @@ export function isRestrictedLicense(code: string): boolean {
  *  published: "all rights reserved" (or no license) and GFDL, whose terms need the full license
  *  text alongside. Anyone reusing the published data commercially has to drop the NC photos;
  *  THIRD_PARTY_NOTICES.md says so. */
-const PUBLISHABLE_LICENSES = new Set(["cc0", "pd", "cc-by", "cc-by-sa", "cc-by-nd", "cc-by-nc", "cc-by-nc-sa", "cc-by-nc-nd"]);
+const PUBLISHABLE_LICENSES = new Set([
+  "cc0",
+  "pd",
+  "cc-by",
+  "cc-by-sa",
+  "cc-by-nd",
+  "cc-by-nc",
+  "cc-by-nc-sa",
+  "cc-by-nc-nd",
+]);
 
 /** Whether a photo may be published. Fixed by policy: LIFER_ALLOW_NONCOMMERCIAL_PHOTOS is for
  *  local development and never changes what the project redistributes. iNaturalist's "pd" is the

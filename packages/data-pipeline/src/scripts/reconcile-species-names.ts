@@ -33,9 +33,21 @@ const COL_MATCH_URL = "https://api.checklistbank.org/dataset/3LXR/match/nameusag
 const INAT_TAXA_URL = "https://api.inaturalist.org/v1/taxa";
 const INAT_CHANGES_URL = "https://www.inaturalist.org/taxon_changes.json";
 const HISTORY_VERTEBRATE_CLASSES = new Set([
-  "Aves", "Mammalia", "Reptilia", "Amphibia",
-  "Myxini", "Petromyzonti", "Elasmobranchii", "Holocephali", "Coelacanthi", "Dipneusti", "Actinopterygii", "Teleostei",
-  "Chondrostei", "Cladistii", "Holostei",
+  "Aves",
+  "Mammalia",
+  "Reptilia",
+  "Amphibia",
+  "Myxini",
+  "Petromyzonti",
+  "Elasmobranchii",
+  "Holocephali",
+  "Coelacanthi",
+  "Dipneusti",
+  "Actinopterygii",
+  "Teleostei",
+  "Chondrostei",
+  "Cladistii",
+  "Holostei",
 ]);
 const USER_AGENT = "Lifer catalog builder (github.com/Sparklysparkspark/lifer-app)";
 // iNaturalist asks API users to stay around one request a second.
@@ -201,14 +213,17 @@ async function main() {
     )
   ).rows;
   // --only "Name one,Name two" limits the stages to those catalog species (for checking a fix).
-  const only = arg("only")?.split(",").map((n) => n.trim());
+  const only = arg("only")
+    ?.split(",")
+    .map((n) => n.trim());
   const byName = new Map(catalog.map((s) => [s.scientific_name, s]));
   const scope = only ? catalog.filter((s) => only.includes(s.scientific_name)) : catalog;
   const synonymOwner = new Map(
-    (await pool.query<{ synonym_name: string; species_id: string }>(`SELECT synonym_name, species_id FROM species_synonyms`)).rows.map((r) => [
-      r.synonym_name,
-      r.species_id,
-    ]),
+    (
+      await pool.query<{ synonym_name: string; species_id: string }>(
+        `SELECT synonym_name, species_id FROM species_synonyms`,
+      )
+    ).rows.map((r) => [r.synonym_name, r.species_id]),
   );
   const proposals: Proposal[] = [];
   const conflicts: Array<Record<string, string>> = [];
@@ -239,12 +254,14 @@ async function main() {
       if (sp) finished.delete(`${c.stage}:${sp.id}`);
       if (c.stage === "history" && c.name) finished.delete(`history:${c.name}`);
     }
-    console.log(`[checkpoint] carrying on: ${proposals.length} results and ${finished.size} finished items from ${checkpointPath}`);
+    console.log(
+      `[checkpoint] carrying on: ${proposals.length} results and ${finished.size} finished items from ${checkpointPath}`,
+    );
   }
   const record = (entry: object) => {
     if (checkpointPath) appendFileSync(checkpointPath, `${JSON.stringify(entry)}\n`);
   };
-  const recordedPush = <T,>(list: T[], t: "p" | "c") => {
+  const recordedPush = <T>(list: T[], t: "p" | "c") => {
     const push = list.push.bind(list);
     list.push = (...items: T[]) => {
       for (const v of items) record({ t, v });
@@ -264,7 +281,12 @@ async function main() {
     if (name === s.scientific_name) return;
     const owner = byName.get(name)?.id ?? synonymOwner.get(name);
     if (owner && owner !== s.id) {
-      conflicts.push({ stage, catalogName: s.scientific_name, name, reason: `already names ${byName.get(name) ? "catalog species" : "a synonym of"} ${owner}` });
+      conflicts.push({
+        stage,
+        catalogName: s.scientific_name,
+        name,
+        reason: `already names ${byName.get(name) ? "catalog species" : "a synonym of"} ${owner}`,
+      });
       return;
     }
     if (owner === s.id) return;
@@ -281,7 +303,9 @@ async function main() {
       if (name) zipNames.add(name);
     }
     const missing = scope.filter((s) => !zipNames.has(s.scientific_name));
-    console.log(`[col] ${missing.length} of ${catalog.length} catalog species never appear under their own name in the GBIF downloads`);
+    console.log(
+      `[col] ${missing.length} of ${catalog.length} catalog species never appear under their own name in the GBIF downloads`,
+    );
     let done = 0;
     await mapWithConcurrency(missing, 6, async (s) => {
       if (finished.has(`col:${s.id}`)) return;
@@ -315,15 +339,28 @@ async function main() {
       if (finished.has(`inat:${s.id}`)) continue;
       let ok = true;
       try {
-        const d = await getJson<{ results?: InatTaxonResult[] }>(`${INAT_TAXA_URL}?q=${encodeURIComponent(s.scientific_name)}&per_page=10`);
+        const d = await getJson<{ results?: InatTaxonResult[] }>(
+          `${INAT_TAXA_URL}?q=${encodeURIComponent(s.scientific_name)}&per_page=10`,
+        );
         const exact = readInatResults(s.scientific_name, d.results ?? []);
         if (exact) {
           const owner = takenInatIds.get(exact.id);
           if (owner && owner !== s.id) {
-            conflicts.push({ stage: "inat", catalogName: s.scientific_name, name: exact.name, reason: `iNat ${exact.id} already on ${owner}` });
+            conflicts.push({
+              stage: "inat",
+              catalogName: s.scientific_name,
+              name: exact.name,
+              reason: `iNat ${exact.id} already on ${owner}`,
+            });
           } else {
             takenInatIds.set(exact.id, s.id);
-            proposals.push({ stage: "inat", speciesId: s.id, catalogName: s.scientific_name, kind: "inat_taxon_id", value: String(exact.id) });
+            proposals.push({
+              stage: "inat",
+              speciesId: s.id,
+              catalogName: s.scientific_name,
+              kind: "inat_taxon_id",
+              value: String(exact.id),
+            });
             proposeSynonym("inat", s, exact.name);
           }
         }
@@ -332,7 +369,10 @@ async function main() {
         ok = false;
       }
       if (ok) finish(`inat:${s.id}`);
-      if (++done % 250 === 0) console.log(`[inat] ${done}/${todo.length}, ${proposals.filter((p) => p.stage === "inat").length} results so far`);
+      if (++done % 250 === 0)
+        console.log(
+          `[inat] ${done}/${todo.length}, ${proposals.filter((p) => p.stage === "inat").length} results so far`,
+        );
       await sleep(INAT_DELAY_MS);
     }
   }
@@ -354,10 +394,15 @@ async function main() {
       recordsByName.set(name, (recordsByName.get(name) ?? 0) + Number(records || 0));
     }
     const unmatched = [...recordsByName.entries()]
-      .filter(([name, records]) => records >= minRecords && !byName.has(name) && !synonymOwner.has(name) && name.includes(" "))
+      .filter(
+        ([name, records]) =>
+          records >= minRecords && !byName.has(name) && !synonymOwner.has(name) && name.includes(" "),
+      )
       .sort((a, b) => b[1] - a[1])
       .slice(0, Number(arg("history-limit") ?? "20000"));
-    console.log(`[history] ${unmatched.length} names in the GBIF data with ${minRecords}+ records match no catalog species`);
+    console.log(
+      `[history] ${unmatched.length} names in the GBIF data with ${minRecords}+ records match no catalog species`,
+    );
     const fetchChanges = async (taxonId: number) => {
       await sleep(INAT_DELAY_MS);
       const d = await getJson<unknown>(`${INAT_CHANGES_URL}?taxon_id=${taxonId}`);
@@ -369,7 +414,11 @@ async function main() {
       let ok = true;
       try {
         await sleep(INAT_DELAY_MS);
-        const found = readInatResults(name, (await getJson<{ results?: InatTaxonResult[] }>(`${INAT_TAXA_URL}?q=${encodeURIComponent(name)}&per_page=10`)).results ?? []);
+        const found = readInatResults(
+          name,
+          (await getJson<{ results?: InatTaxonResult[] }>(`${INAT_TAXA_URL}?q=${encodeURIComponent(name)}&per_page=10`))
+            .results ?? [],
+        );
         if (found) {
           const ancestors = await inatAncestorNames(found.id, fetchChanges);
           // The nearest step back that reaches the catalog decides; two species there is a merge.
@@ -382,7 +431,12 @@ async function main() {
             );
             if (owners.size === 1) {
               const target = catalog.find((c) => c.id === [...owners][0])!;
-              proposeSynonym("inat", target, name, `from iNaturalist history, ${depth} step${depth === 1 ? "" : "s"} back`);
+              proposeSynonym(
+                "inat",
+                target,
+                name,
+                `from iNaturalist history, ${depth} step${depth === 1 ? "" : "s"} back`,
+              );
               break;
             }
             if (owners.size > 1) {
@@ -396,7 +450,10 @@ async function main() {
         ok = false;
       }
       if (ok) finish(`history:${name}`);
-      if (++done % 100 === 0) console.log(`[history] ${done}/${unmatched.length}, ${proposals.filter((p) => p.note?.startsWith("from iNaturalist history")).length} links so far`);
+      if (++done % 100 === 0)
+        console.log(
+          `[history] ${done}/${unmatched.length}, ${proposals.filter((p) => p.note?.startsWith("from iNaturalist history")).length} links so far`,
+        );
     }
   }
 
@@ -433,11 +490,23 @@ async function main() {
       if (!code) continue;
       const owner = takenCodes.get(code);
       if (owner && owner !== s.id) {
-        conflicts.push({ stage: "ebird", catalogName: s.scientific_name, name: code, reason: `eBird ${code} already on ${owner}` });
+        conflicts.push({
+          stage: "ebird",
+          catalogName: s.scientific_name,
+          name: code,
+          reason: `eBird ${code} already on ${owner}`,
+        });
         continue;
       }
       takenCodes.set(code, s.id);
-      proposals.push({ stage: "ebird", speciesId: s.id, catalogName: s.scientific_name, kind: "ebird_code", value: code, note: `by ${how}` });
+      proposals.push({
+        stage: "ebird",
+        speciesId: s.id,
+        catalogName: s.scientific_name,
+        kind: "ebird_code",
+        value: code,
+        note: `by ${how}`,
+      });
     }
     console.log(`[ebird] ${proposals.filter((p) => p.stage === "ebird").length} codes`);
   }
@@ -463,9 +532,15 @@ async function applyProposals(proposals: Proposal[], apply: boolean): Promise<vo
             [p.speciesId, p.value, p.stage],
           );
         } else if (p.kind === "inat_taxon_id") {
-          await client.query(`UPDATE species SET inat_taxon_id = $2 WHERE id = $1 AND inat_taxon_id IS NULL`, [p.speciesId, Number(p.value)]);
+          await client.query(`UPDATE species SET inat_taxon_id = $2 WHERE id = $1 AND inat_taxon_id IS NULL`, [
+            p.speciesId,
+            Number(p.value),
+          ]);
         } else {
-          await client.query(`UPDATE species SET ebird_code = $2 WHERE id = $1 AND ebird_code IS NULL`, [p.speciesId, p.value]);
+          await client.query(`UPDATE species SET ebird_code = $2 WHERE id = $1 AND ebird_code IS NULL`, [
+            p.speciesId,
+            p.value,
+          ]);
         }
       }
       await client.query("COMMIT");

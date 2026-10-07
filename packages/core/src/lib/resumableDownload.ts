@@ -35,7 +35,11 @@ export class StallError extends Error {
 
 /** Downloads `url` to `destPath` (atomically, via `${destPath}.part`). If destPath already exists
  * with the expected sha256, returns immediately without touching the network. */
-export async function downloadResumable(url: string, destPath: string, opts: ResumableDownloadOptions = {}): Promise<void> {
+export async function downloadResumable(
+  url: string,
+  destPath: string,
+  opts: ResumableDownloadOptions = {},
+): Promise<void> {
   const label = opts.label ?? "the file";
   const stallMs = opts.stallTimeoutMs ?? DEFAULT_STALL_TIMEOUT_MS;
 

@@ -17,7 +17,15 @@ const DAYS = 60;
 /** Pageviews over the last 60 days for up to 50 articles in one request (Wikipedia's action API,
  *  prop=pageviews), following redirects. Returns views by the title as asked. */
 export async function pageviewsBatch(titles: string[]): Promise<Map<string, number>> {
-  const base = { action: "query", prop: "pageviews", pvipdays: String(DAYS), redirects: "1", format: "json", formatversion: "2", titles: titles.join("|") };
+  const base = {
+    action: "query",
+    prop: "pageviews",
+    pvipdays: String(DAYS),
+    redirects: "1",
+    format: "json",
+    formatversion: "2",
+    titles: titles.join("|"),
+  };
   // The API returns pageviews for only part of a batch per response and says to continue for
   // the rest; a page without them yet is not a page with none.
   const viewsByPage = new Map<string, number>();
@@ -37,7 +45,10 @@ export async function pageviewsBatch(titles: string[]): Promise<Map<string, numb
     } | null = null;
     for (let attempt = 0; attempt < 6 && !data; attempt++) {
       try {
-        const res: Response = await fetch(`https://en.wikipedia.org/w/api.php?${params}`, { headers: { "User-Agent": UA }, signal: AbortSignal.timeout(60_000) });
+        const res: Response = await fetch(`https://en.wikipedia.org/w/api.php?${params}`, {
+          headers: { "User-Agent": UA },
+          signal: AbortSignal.timeout(60_000),
+        });
         if (res.status === 429 || res.status >= 500) {
           const wait = Number(res.headers.get("retry-after")) || 30 * (attempt + 1);
           await new Promise((r) => setTimeout(r, wait * 1000));
@@ -55,7 +66,11 @@ export async function pageviewsBatch(titles: string[]): Promise<Map<string, numb
     for (const r of q.redirects ?? []) redirects.set(r.from, r.to);
     for (const p of q.pages ?? []) {
       if (p.missing) missing.add(p.title);
-      else if (p.pageviews) viewsByPage.set(p.title, Object.values(p.pageviews).reduce<number>((a, b) => a + (b ?? 0), 0));
+      else if (p.pageviews)
+        viewsByPage.set(
+          p.title,
+          Object.values(p.pageviews).reduce<number>((a, b) => a + (b ?? 0), 0),
+        );
     }
     cont = data.continue ?? null;
     if (cont) await new Promise((r) => setTimeout(r, 300));

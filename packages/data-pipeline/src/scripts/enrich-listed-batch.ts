@@ -9,7 +9,11 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { pool } from "@lifer/core/db.js";
-import { enrichmentFromTaxonRecord, persistEnrichment, type INaturalistTaxonRecord } from "@lifer/core/species/lazyEnrich.js";
+import {
+  enrichmentFromTaxonRecord,
+  persistEnrichment,
+  type INaturalistTaxonRecord,
+} from "@lifer/core/species/lazyEnrich.js";
 import { mapWithConcurrency } from "@lifer/core/lib/concurrency.js";
 import { inatGet } from "../inatApi.js";
 
@@ -19,13 +23,17 @@ const DOWNLOAD_CONCURRENCY = 12;
 
 async function fetchTaxa(ids: number[]): Promise<INaturalistTaxonRecord[] | null> {
   try {
-    return (await inatGet<{ results: INaturalistTaxonRecord[] }>(`https://api.inaturalist.org/v1/taxa/${ids.join(",")}`)).results;
+    return (
+      await inatGet<{ results: INaturalistTaxonRecord[] }>(`https://api.inaturalist.org/v1/taxa/${ids.join(",")}`)
+    ).results;
   } catch {
     return null;
   }
 }
 
-export async function enrichListedBatch(log: (m: string) => void = console.log): Promise<{ enriched: number; photos: number; missing: number }> {
+export async function enrichListedBatch(
+  log: (m: string) => void = console.log,
+): Promise<{ enriched: number; photos: number; missing: number }> {
   const res = await pool.query<{ id: string; inat_taxon_id: number }>(
     `SELECT s.id, s.inat_taxon_id FROM species s
      LEFT JOIN species_traits t ON t.species_id = s.id
@@ -34,7 +42,9 @@ export async function enrichListedBatch(log: (m: string) => void = console.log):
        AND EXISTS (SELECT 1 FROM region_species rs WHERE rs.species_id = s.id)
      ORDER BY s.scientific_name`,
   );
-  log(`[enrich-batch] ${res.rows.length} listed species without a photo (${Math.ceil(res.rows.length / BATCH)} requests)`);
+  log(
+    `[enrich-batch] ${res.rows.length} listed species without a photo (${Math.ceil(res.rows.length / BATCH)} requests)`,
+  );
   let enriched = 0;
   let photos = 0;
   let missing = 0;
@@ -61,7 +71,8 @@ export async function enrichListedBatch(log: (m: string) => void = console.log):
         log(`[enrich-batch] ${row.id}: ${err instanceof Error ? err.message : err}`);
       }
     });
-    if ((i / BATCH) % 20 === 0) log(`[enrich-batch] ${Math.min(i + BATCH, res.rows.length)}/${res.rows.length} (${photos} with a photo)`);
+    if ((i / BATCH) % 20 === 0)
+      log(`[enrich-batch] ${Math.min(i + BATCH, res.rows.length)}/${res.rows.length} (${photos} with a photo)`);
   }
   log(`[enrich-batch] done: ${enriched} enriched, ${photos} now have a photo, ${missing} not returned by iNaturalist`);
   return { enriched, photos, missing };

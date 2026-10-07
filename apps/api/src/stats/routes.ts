@@ -63,10 +63,17 @@ function bucketizeWithPhotoIds(
       if (ids.length < MAX_PHOTO_IDS_PER_BUCKET) ids.push(photoId);
     }
   }
-  return buckets.map((b) => ({ label: b.label, count: counts.get(b.label) ?? 0, photoIds: photoIds.get(b.label) ?? [] }));
+  return buckets.map((b) => ({
+    label: b.label,
+    count: counts.get(b.label) ?? 0,
+    photoIds: photoIds.get(b.label) ?? [],
+  }));
 }
 
-function bucketizeDistinct(rows: Array<{ value: number; speciesId: string }>, buckets: Bucket[]): Array<{ label: string; species: number }> {
+function bucketizeDistinct(
+  rows: Array<{ value: number; speciesId: string }>,
+  buckets: Bucket[],
+): Array<{ label: string; species: number }> {
   const sets = new Map(buckets.map((b) => [b.label, new Set<string>()]));
   for (const { value, speciesId } of rows) {
     const bucket = buckets.find((b) => value >= b.min && value < b.max);
@@ -226,7 +233,10 @@ export async function statsRoutes(fastify: FastifyInstance): Promise<void> {
          GROUP BY country.name ORDER BY photo_count DESC`,
         [userId],
       ),
-      client.query<{ count: number }>(`SELECT COUNT(*)::int AS count FROM captures c WHERE c.user_id = $1 AND ${scope}`, [userId]),
+      client.query<{ count: number }>(
+        `SELECT COUNT(*)::int AS count FROM captures c WHERE c.user_id = $1 AND ${scope}`,
+        [userId],
+      ),
       // Same Ghost/Lost derivation as collectionItem.ts, scoped to collected species only.
       client.query<{
         species_id: string;
@@ -282,7 +292,10 @@ export async function statsRoutes(fastify: FastifyInstance): Promise<void> {
       .sort((a, b) => a[0].localeCompare(b[0]))
       .map(([month, counts]) => {
         const [year, m] = month.split("-");
-        const label = new Date(Number(year), Number(m) - 1, 1).toLocaleString("en-US", { month: "short", year: "2-digit" });
+        const label = new Date(Number(year), Number(m) - 1, 1).toLocaleString("en-US", {
+          month: "short",
+          year: "2-digit",
+        });
         return { month, label, newLifers: counts.newLifers, keepers: counts.keepers };
       });
 
@@ -341,14 +354,17 @@ export async function statsRoutes(fastify: FastifyInstance): Promise<void> {
       const busiest = [...timeOfDayRes.rows].sort((a, b) => b.count - a.count)[0];
       const total = timeOfDayRes.rows.reduce((sum, r) => sum + r.count, 0);
       const pct = Math.round((busiest.count / total) * 100);
-      if (pct >= 15) insights.push(`Your most productive hour is ${fullHourLabel(busiest.hour)}, ${pct}% of your keepers.`);
+      if (pct >= 15)
+        insights.push(`Your most productive hour is ${fullHourLabel(busiest.hour)}, ${pct}% of your keepers.`);
     }
     if (perMonth.length >= 3) {
       const bestMonth = [...perMonth].sort((a, b) => b.newLifers - a.newLifers)[0];
       if (bestMonth.newLifers >= 2) {
         const [year, m] = bestMonth.month.split("-");
         const monthName = new Date(Number(year), Number(m) - 1, 1).toLocaleString("en-US", { month: "long" });
-        insights.push(`${monthName} ${year} was your best month, ${bestMonth.newLifers} new lifer${bestMonth.newLifers === 1 ? "" : "s"}.`);
+        insights.push(
+          `${monthName} ${year} was your best month, ${bestMonth.newLifers} new lifer${bestMonth.newLifers === 1 ? "" : "s"}.`,
+        );
       }
     }
 
@@ -391,9 +407,18 @@ export async function statsRoutes(fastify: FastifyInstance): Promise<void> {
       rediscoveredSpecies,
       perMonth,
       gearUsage: {
-        cameras: cameraRes.rows.map((r) => ({ model: r.camera_model, photoCount: r.photo_count, speciesCount: r.species_count })),
+        cameras: cameraRes.rows.map((r) => ({
+          model: r.camera_model,
+          photoCount: r.photo_count,
+          speciesCount: r.species_count,
+        })),
         lenses: lensRes.rows.map((r) => ({ model: r.lens, photoCount: r.photo_count, speciesCount: r.species_count })),
-        combos: comboRes.rows.map((r) => ({ camera: r.camera_model, lens: r.lens, photoCount: r.photo_count, speciesCount: r.species_count })),
+        combos: comboRes.rows.map((r) => ({
+          camera: r.camera_model,
+          lens: r.lens,
+          photoCount: r.photo_count,
+          speciesCount: r.species_count,
+        })),
       },
       timeOfDay,
       exifDistributions: {

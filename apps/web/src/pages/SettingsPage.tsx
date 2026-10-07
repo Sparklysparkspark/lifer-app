@@ -35,9 +35,7 @@ export default function SettingsPage() {
         <div className="min-w-0 flex-1 space-y-8">
           {!settings && settingsError != null && (
             <div className="space-y-2">
-              <FormMessage
-                error={errorMessage(settingsError, t("settings.loadFailed"))}
-              />
+              <FormMessage error={errorMessage(settingsError, t("settings.loadFailed"))} />
               <Button variant="secondary" size="sm" onClick={() => void refresh().catch(() => {})}>
                 {t("settings.retry")}
               </Button>

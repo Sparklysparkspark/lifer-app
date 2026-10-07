@@ -26,7 +26,11 @@ export type VectorAssetResult =
 type Ctx = Pick<JobContext<unknown>, "signal" | "update" | "throwIfCancelled">;
 
 export interface SpeciesVectorTableSpec {
-  table: "species_reference_embeddings" | "species_text_embeddings" | "id_model_reference_embeddings" | "id_model_text_embeddings";
+  table:
+    | "species_reference_embeddings"
+    | "species_text_embeddings"
+    | "id_model_reference_embeddings"
+    | "id_model_text_embeddings";
   currentModelVersion: string;
   appliedKey: string;
   label: string;
@@ -44,10 +48,14 @@ export async function fetchAndApplySpeciesVectorAsset(
 ): Promise<VectorAssetResult> {
   if (!asset) return { status: "unavailable", reason: `This catalog has no separate ${spec.label}` };
   if (asset.modelVersion !== spec.currentModelVersion) {
-    return { status: "unavailable", reason: `Published ${spec.label} are for model ${asset.modelVersion}, this install uses ${spec.currentModelVersion}` };
+    return {
+      status: "unavailable",
+      reason: `Published ${spec.label} are for model ${asset.modelVersion}, this install uses ${spec.currentModelVersion}`,
+    };
   }
   const appliedTag = `${manifest.version}:${asset.modelVersion}`;
-  if (!force && (await getInstallSetting<string>(pool, spec.appliedKey)) === appliedTag) return { status: "up_to_date" };
+  if (!force && (await getInstallSetting<string>(pool, spec.appliedKey)) === appliedTag)
+    return { status: "up_to_date" };
 
   mkdirSync(DOWNLOAD_DIR, { recursive: true });
   const dest = path.join(DOWNLOAD_DIR, path.basename(new URL(resolveCatalogAssetUrl(asset.url)).pathname));
@@ -108,7 +116,9 @@ export async function applySpeciesVectorFile(
     // Otherwise its rows would be stored under the other version (and never used), while the
     // applied tag claimed this install was up to date, so it would never fetch the right file.
     if (modelVersion !== spec.currentModelVersion) {
-      throw new Error(`The ${spec.label} file is for model ${modelVersion}, this install uses ${spec.currentModelVersion}`);
+      throw new Error(
+        `The ${spec.label} file is for model ${modelVersion}, this install uses ${spec.currentModelVersion}`,
+      );
     }
 
     ctx.throwIfCancelled();

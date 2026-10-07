@@ -15,7 +15,9 @@ async function main() {
     ? await pool.query(`DELETE FROM gbif_response_cache WHERE url LIKE $1`, [`%${pattern}%`])
     : await pool.query(`DELETE FROM gbif_response_cache`);
 
-  console.log(`[clear-gbif-cache] deleted ${res.rowCount} cached response(s)${pattern ? ` matching "${pattern}"` : ""}.`);
+  console.log(
+    `[clear-gbif-cache] deleted ${res.rowCount} cached response(s)${pattern ? ` matching "${pattern}"` : ""}.`,
+  );
   await pool.end();
 }
 

@@ -2,7 +2,11 @@
 // region-scoped vagrant detection (rejecting one-bird bursts), so it must draw the line between
 // "spread across real years" and "concentrated in a burst" exactly.
 import { describe, expect, it } from "vitest";
-import { passesRecurrenceCheck, RECURRENCE_MIN_DISTINCT_YEARS, RECURRENCE_MAX_YEAR_CONCENTRATION } from "./buildRegionSpecies.js";
+import {
+  passesRecurrenceCheck,
+  RECURRENCE_MIN_DISTINCT_YEARS,
+  RECURRENCE_MAX_YEAR_CONCENTRATION,
+} from "./buildRegionSpecies.js";
 
 describe("passesRecurrenceCheck", () => {
   it("passes a species recorded steadily across many years with no single year dominating (genuine resident)", () => {

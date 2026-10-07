@@ -49,7 +49,11 @@ while (url) {
     if ((unit.explanation ?? "") === wanted) continue;
     changed++;
     console.log(`${apply ? "set" : "would set"} ${unit.context}: ${wanted || "(cleared)"}`);
-    if (apply) await call(`${WEBLATE_URL.replace(/\/$/, "")}/api/units/${unit.id}/`, { method: "PATCH", body: JSON.stringify({ explanation: wanted }) });
+    if (apply)
+      await call(`${WEBLATE_URL.replace(/\/$/, "")}/api/units/${unit.id}/`, {
+        method: "PATCH",
+        body: JSON.stringify({ explanation: wanted }),
+      });
   }
   url = page.next;
 }

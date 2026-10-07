@@ -194,9 +194,7 @@ async function main() {
         }
       }
 
-      await pool.query(`UPDATE species_traits SET vagrant_checked_at = now() WHERE species_id = $1`, [
-        row.species_id,
-      ]);
+      await pool.query(`UPDATE species_traits SET vagrant_checked_at = now() WHERE species_id = $1`, [row.species_id]);
     } catch (err) {
       console.error(`[verify-vagrant] FAILED ${row.scientific_name}:`, err);
     }

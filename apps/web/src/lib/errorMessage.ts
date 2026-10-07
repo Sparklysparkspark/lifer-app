@@ -9,7 +9,8 @@ export function errorMessage(err: unknown, fallback: string): string {
   if (err instanceof Error) return err.message.trim() || fallback;
   if (err && typeof err === "object") {
     const obj = err as Record<string, unknown>;
-    if (typeof obj.error === "string" && obj.error.trim()) return apiErrorMessage(obj.code, obj.error) || obj.error.trim();
+    if (typeof obj.error === "string" && obj.error.trim())
+      return apiErrorMessage(obj.code, obj.error) || obj.error.trim();
     if (typeof obj.message === "string" && obj.message.trim()) return obj.message.trim();
     // Response-like: { ok: false, status, statusText }
     if (typeof obj.status === "number" && obj.ok !== true) {

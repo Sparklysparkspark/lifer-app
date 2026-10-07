@@ -23,8 +23,13 @@ export function idModelFiles(
   dir: string,
   urls: { cpu: string; gpu: string; gpuBytes: number },
 ): { cpu: Pick<ModelFile, "path" | "url">; gpuCopy: ModelFile | null } {
-  const fullPrecision: ModelFile = { path: path.join(dir, `${ID_MODEL_VERSION}-fp32.onnx`), url: urls.gpu, bytes: urls.gpuBytes };
-  if (platform === "darwin" && arch === "x64") return { cpu: { path: fullPrecision.path, url: fullPrecision.url }, gpuCopy: null };
+  const fullPrecision: ModelFile = {
+    path: path.join(dir, `${ID_MODEL_VERSION}-fp32.onnx`),
+    url: urls.gpu,
+    bytes: urls.gpuBytes,
+  };
+  if (platform === "darwin" && arch === "x64")
+    return { cpu: { path: fullPrecision.path, url: fullPrecision.url }, gpuCopy: null };
   return { cpu: { path: path.join(dir, `${ID_MODEL_VERSION}.onnx`), url: urls.cpu }, gpuCopy: fullPrecision };
 }
 

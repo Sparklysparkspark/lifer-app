@@ -9,7 +9,13 @@ import { pool } from "@lifer/core/db.js";
 import { requireScope } from "../auth/session.js";
 import { withSchemas } from "../lib/schema.js";
 import { extractExif, extractKeywords, readExifTags, extractEmbeddedPreview } from "./exif.js";
-import { claimedPhotoFormat, isRawFile, PHOTO_FORMATS, sniffPhotoFormat, type PhotoFormat } from "@lifer/core/uploads/formats.js";
+import {
+  claimedPhotoFormat,
+  isRawFile,
+  PHOTO_FORMATS,
+  sniffPhotoFormat,
+  type PhotoFormat,
+} from "@lifer/core/uploads/formats.js";
 import { stageUpload, sweepStagedUploads } from "../lib/stagedUploads.js";
 import { finishedTusUpload } from "../lib/tusUploads.js";
 import { originalSharpOptions } from "@lifer/core/lib/imageLimits.js";
@@ -38,7 +44,11 @@ const MAX_BYTES_IN_MEMORY = 64 * 1024 * 1024;
 
 async function boundedBytes(filePath: string): Promise<Buffer> {
   if ((await stat(filePath)).size <= MAX_BYTES_IN_MEMORY) return readFile(filePath);
-  return sharp(filePath, originalSharpOptions()).rotate().resize({ width: 4096, height: 4096, fit: "inside", withoutEnlargement: true }).jpeg({ quality: 92 }).toBuffer();
+  return sharp(filePath, originalSharpOptions())
+    .rotate()
+    .resize({ width: 4096, height: 4096, fit: "inside", withoutEnlargement: true })
+    .jpeg({ quality: 92 })
+    .toBuffer();
 }
 
 export async function inspectUploadRoutes(fastify: FastifyInstance): Promise<void> {
@@ -83,11 +93,16 @@ export async function inspectUploadRoutes(fastify: FastifyInstance): Promise<voi
     let kept = false;
     try {
       const isRaw = await isRawFile(file.path, file.filename ?? "");
-      const format: PhotoFormat | null = isRaw ? null : ((await sniffPhotoFormat(file.path)) ?? claimedPhotoFormat(file.mimetype, file.filename));
+      const format: PhotoFormat | null = isRaw
+        ? null
+        : ((await sniffPhotoFormat(file.path)) ?? claimedPhotoFormat(file.mimetype, file.filename));
 
       // Steps that don't depend on each other run at once: reading the EXIF, the duplicate
       // lookups (and loading your photos' vectors for them), and the models.
-      const exifRead = readExifTags(file.path).then(async (tags) => ({ exif: await extractExif(file.path, tags), keywords: await extractKeywords(file.path, tags) }));
+      const exifRead = readExifTags(file.path).then(async (tags) => ({
+        exif: await extractExif(file.path, tags),
+        keywords: await extractKeywords(file.path, tags),
+      }));
       exifRead.catch(() => {}); // awaited below, where a failure fails the request
       // What a culling app marked it, so the import screen can count and skip rejected photos.
       // Only the file's own metadata: a browser upload doesn't bring a sidecar along.
@@ -98,7 +113,13 @@ export async function inspectUploadRoutes(fastify: FastifyInstance): Promise<voi
       // import-anyway or skip for a file you already have.
       const fingerprint = file.sha256;
       const [dupRes, embedSource] = await Promise.all([
-        pool.query<{ capture_id: string; species_id: string; common_name: string | null; scientific_name: string; taken_at: string | null }>(
+        pool.query<{
+          capture_id: string;
+          species_id: string;
+          common_name: string | null;
+          scientific_name: string;
+          taken_at: string | null;
+        }>(
           `SELECT c.id AS capture_id, c.species_id, s.common_name, s.scientific_name, c.taken_at
            FROM captures c JOIN species s ON s.id = c.species_id
            WHERE c.user_id = $1 AND c.fingerprint = $2
@@ -132,16 +153,25 @@ export async function inspectUploadRoutes(fastify: FastifyInstance): Promise<voi
       let matchingMs: number | null = null;
       let embedBytes: Promise<Buffer> | null = null;
       const bytesForChecks = (): Promise<Buffer> =>
-        (embedBytes ??= embedSource!.buffer ? Promise.resolve(embedSource!.buffer) : boundedBytes(workingImage!.inferencePath));
+        (embedBytes ??= embedSource!.buffer
+          ? Promise.resolve(embedSource!.buffer)
+          : boundedBytes(workingImage!.inferencePath));
 
       let dup = dupRes.rows[0] as
-        | { capture_id: string; species_id: string; common_name: string | null; scientific_name: string; taken_at: string | null }
+        | {
+            capture_id: string;
+            species_id: string;
+            common_name: string | null;
+            scientific_name: string;
+            taken_at: string | null;
+          }
         | undefined;
       let exactMatch = Boolean(dup);
 
       // One worker job computes both the whole-photo and cropped vectors, so the photo is decoded
       // once. The commit reuses both from memory.
-      const suggestionModel = !dup && regionId && embedSource ? await suggestionVectorKind(pool).catch(() => null) : null;
+      const suggestionModel =
+        !dup && regionId && embedSource ? await suggestionVectorKind(pool).catch(() => null) : null;
       const photoKey = embedSource?.key ?? null;
       const analysis =
         !dup && embedSource
@@ -188,7 +218,10 @@ export async function inspectUploadRoutes(fastify: FastifyInstance): Promise<voi
         try {
           // The identification model when it's ready, CLIP otherwise: the subject crop, backed by
           // the whole photo when the detector was unsure, pooled with the rest of the burst.
-          const vectors = await suggestionVectors(embedSource.image, suggestionModel.kind, { key: photoKey, priority: "interactive" });
+          const vectors = await suggestionVectors(embedSource.image, suggestionModel.kind, {
+            key: photoKey,
+            priority: "interactive",
+          });
           if (!usedClientVectors) matchingMs = Math.round(performance.now() - matchStart);
           const frames =
             uploadId && embedding && exif.takenAt
@@ -201,14 +234,30 @@ export async function inspectUploadRoutes(fastify: FastifyInstance): Promise<voi
                 })
               : null;
           // Frames are ordered by capture time, and photos aren't always checked in that order.
-          const pooled = frames ? pooledVectors(frames.find((f) => f.uploadId === uploadId)!, frames) : vectors;
-          suggestions = await rankSpeciesByEmbeddings(pool, userId, pooled, regionId, 5, exif.takenAt, suggestionModel.space);
-          if (frames && frames.length > 1) burst = { uploadIds: frames.map((f) => f.uploadId).filter((id) => id !== uploadId), suggestions };
+          const pooled = frames
+            ? pooledVectors(
+                frames.find((f) => f.uploadId === uploadId)!,
+                frames,
+              )
+            : vectors;
+          suggestions = await rankSpeciesByEmbeddings(
+            pool,
+            userId,
+            pooled,
+            regionId,
+            5,
+            exif.takenAt,
+            suggestionModel.space,
+          );
+          if (frames && frames.length > 1)
+            burst = { uploadIds: frames.map((f) => f.uploadId).filter((id) => id !== uploadId), suggestions };
         } catch {
           // The identification model failing falls back to CLIP (suggestSpecies does that);
           // otherwise no suggestions rather than a failed request.
           suggestions = await bytesForChecks()
-            .then((bytes) => suggestSpecies(pool, userId, bytes, regionId, 5, exif.takenAt, { key: photoKey ?? undefined }))
+            .then((bytes) =>
+              suggestSpecies(pool, userId, bytes, regionId, 5, exif.takenAt, { key: photoKey ?? undefined }),
+            )
             .catch(() => []);
         }
       }
@@ -240,8 +289,10 @@ export async function inspectUploadRoutes(fastify: FastifyInstance): Promise<voi
       // A browser can't show a RAW, TIFF or HEIC, so a JPEG of it goes back as the import
       // screen's image: a RAW's embedded preview, else a small render of the photo.
       let previewDataUrl: string | null = null;
-      if (isRaw && embedSource?.buffer) previewDataUrl = `data:image/jpeg;base64,${embedSource.buffer.toString("base64")}`;
-      else if (format && workingImage && !PHOTO_FORMATS[format].browserViewable) previewDataUrl = await previewDataUrlFor(workingImage.decodePath).catch(() => null);
+      if (isRaw && embedSource?.buffer)
+        previewDataUrl = `data:image/jpeg;base64,${embedSource.buffer.toString("base64")}`;
+      else if (format && workingImage && !PHOTO_FORMATS[format].browserViewable)
+        previewDataUrl = await previewDataUrlFor(workingImage.decodePath).catch(() => null);
 
       // A photo with no wildlife in it is flagged so the import screen leaves it out. Skipped for
       // duplicates and photos whose own keywords name a species.

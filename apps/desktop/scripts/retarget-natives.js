@@ -27,8 +27,10 @@ import path from "node:path";
 const ORT_DARWIN_X64 = {
   version: "1.23.2",
   integrity: {
-    "onnxruntime-node": "sha512-OBTsG0W8ddBVOeVVVychpVBS87A9YV5sa2hJ6lc025T97Le+J4v++PwSC4XFs1C62SWyNdof0Mh4KvnZgtt4aw==",
-    "onnxruntime-common": "sha512-5LFsC9Dukzp2WV6kNHYLNzp8sT6V02IubLCbzw2Xd6X5GOlr65gAX6xiJwyi2URJol/s71gaQLC5F2C25AAR2w==",
+    "onnxruntime-node":
+      "sha512-OBTsG0W8ddBVOeVVVychpVBS87A9YV5sa2hJ6lc025T97Le+J4v++PwSC4XFs1C62SWyNdof0Mh4KvnZgtt4aw==",
+    "onnxruntime-common":
+      "sha512-5LFsC9Dukzp2WV6kNHYLNzp8sT6V02IubLCbzw2Xd6X5GOlr65gAX6xiJwyi2URJol/s71gaQLC5F2C25AAR2w==",
   },
 };
 
@@ -138,17 +140,24 @@ function retargetOnnxruntime(stagingNodeModules, target, scratchDirs) {
     .some((napi) => existsSync(path.join(binDir, napi, target.platform, target.arch)));
   if (hasTarget) return;
   if (target.platform !== "darwin" || target.arch !== "x64") {
-    throw new Error(`[retarget-natives] onnxruntime-node has no ${target.platform}-${target.arch} binaries and no fallback is pinned`);
+    throw new Error(
+      `[retarget-natives] onnxruntime-node has no ${target.platform}-${target.arch} binaries and no fallback is pinned`,
+    );
   }
   const bundled = readJson(path.join(staged, "package.json")).version;
   // The install script only downloads Linux GPU libraries, so it's skipped.
-  const dir = npmInstallScratch("onnxruntime", [`onnxruntime-node@${ORT_DARWIN_X64.version}`], { target, ignoreScripts: true });
+  const dir = npmInstallScratch("onnxruntime", [`onnxruntime-node@${ORT_DARWIN_X64.version}`], {
+    target,
+    ignoreScripts: true,
+  });
   scratchDirs.push(dir);
   const lock = readJson(path.join(dir, "node_modules", ".package-lock.json")).packages;
   for (const [name, integrity] of Object.entries(ORT_DARWIN_X64.integrity)) {
     const entry = lock[`node_modules/${name}`];
     if (entry?.version !== ORT_DARWIN_X64.version || entry?.integrity !== integrity) {
-      throw new Error(`[retarget-natives] ${name} isn't the pinned ${ORT_DARWIN_X64.version} (got ${entry?.version} ${entry?.integrity})`);
+      throw new Error(
+        `[retarget-natives] ${name} isn't the pinned ${ORT_DARWIN_X64.version} (got ${entry?.version} ${entry?.integrity})`,
+      );
     }
     replaceDir(path.join(dir, "node_modules", name), path.join(stagingNodeModules, name));
   }

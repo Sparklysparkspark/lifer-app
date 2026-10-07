@@ -36,7 +36,10 @@ describe.skipIf(!url)("syncLibraryRootsFromEnv (integration)", () => {
 
   beforeEach(async () => {
     await pool.query(`DELETE FROM storage_volumes WHERE kind = 'root' OR user_id = $1`, [USER]);
-    await pool.query(`INSERT INTO users (id, email, password_hash) VALUES ($1, 'roots@test', 'x') ON CONFLICT DO NOTHING`, [USER]);
+    await pool.query(
+      `INSERT INTO users (id, email, password_hash) VALUES ($1, 'roots@test', 'x') ON CONFLICT DO NOTHING`,
+      [USER],
+    );
   });
 
   async function roots() {

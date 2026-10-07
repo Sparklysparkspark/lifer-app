@@ -84,8 +84,7 @@ export async function fetchMdd(): Promise<MddRow[]> {
       infraorder: cells[infraorderIdx] && cells[infraorderIdx] !== "NA" ? cells[infraorderIdx] : null,
       superfamily: cells[superfamilyIdx] && cells[superfamilyIdx] !== "NA" ? cells[superfamilyIdx] : null,
       domestic: cells[domesticIdx] === "1",
-      msw3Name:
-        cells[msw3NameIdx] && cells[msw3NameIdx] !== "NA" ? cells[msw3NameIdx].replace(/_/g, " ") : null,
+      msw3Name: cells[msw3NameIdx] && cells[msw3NameIdx] !== "NA" ? cells[msw3NameIdx].replace(/_/g, " ") : null,
     });
   }
   console.log(`[mdd] parsed ${rows.length} mammal species`);

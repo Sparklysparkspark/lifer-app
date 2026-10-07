@@ -27,10 +27,10 @@ export async function archiveRoutes(fastify: FastifyInstance): Promise<void> {
     const { id: speciesId } = request.params;
     const speciesRes = await pool.query(`SELECT id FROM species WHERE id = $1`, [speciesId]);
     if (speciesRes.rows.length === 0) return reply.code(404).send({ error: "Species not found" });
-    await pool.query(
-      `INSERT INTO user_archived_species (user_id, species_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
-      [userId, speciesId],
-    );
+    await pool.query(`INSERT INTO user_archived_species (user_id, species_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, [
+      userId,
+      speciesId,
+    ]);
     return { ok: true };
   });
 
@@ -80,10 +80,10 @@ export async function archiveRoutes(fastify: FastifyInstance): Promise<void> {
     async (request) => {
       const userId = request.user!.id;
       const { speciesIds } = request.body;
-      const res = await pool.query(
-        `DELETE FROM user_archived_species WHERE user_id = $1 AND species_id = ANY($2)`,
-        [userId, speciesIds],
-      );
+      const res = await pool.query(`DELETE FROM user_archived_species WHERE user_id = $1 AND species_id = ANY($2)`, [
+        userId,
+        speciesIds,
+      ]);
       return { ok: true, unarchived: res.rowCount ?? 0 };
     },
   );

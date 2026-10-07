@@ -46,8 +46,16 @@ describe("float16 conversion", () => {
 
 describe("gallery embeddings file", () => {
   const records = [
-    { speciesId: "0f8fad5b-d9cb-469f-a165-70867728950e", photoUrl: "https://example.org/a.jpg", embedding: randomUnitVector(8, 1) },
-    { speciesId: "7c9e6679-7425-40de-944b-e07fc1f90ae7", photoUrl: "https://example.org/b é.jpg", embedding: randomUnitVector(8, 2) },
+    {
+      speciesId: "0f8fad5b-d9cb-469f-a165-70867728950e",
+      photoUrl: "https://example.org/a.jpg",
+      embedding: randomUnitVector(8, 1),
+    },
+    {
+      speciesId: "7c9e6679-7425-40de-944b-e07fc1f90ae7",
+      photoUrl: "https://example.org/b é.jpg",
+      embedding: randomUnitVector(8, 2),
+    },
   ];
   const file = Buffer.concat([
     encodeGalleryEmbeddingsHeader({ dimension: 8, rowCount: records.length, modelVersion: "clip-test" }),

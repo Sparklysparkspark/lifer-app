@@ -9,9 +9,18 @@ import { fileURLToPath } from "node:url";
 import { pool } from "@lifer/core/db.js";
 import { resolveInatPlaceId } from "@lifer/core/regions/inatChecklist.js";
 
-export async function resolveMissingInatPlaces(log: (m: string) => void = console.log): Promise<{ resolved: number; failed: string[] }> {
+export async function resolveMissingInatPlaces(
+  log: (m: string) => void = console.log,
+): Promise<{ resolved: number; failed: string[] }> {
   // Countries sit two levels under World; provinces directly under a country.
-  const rows = await pool.query<{ id: string; name: string; is_country: boolean; parent_id: string; country_place: number | null; country: string }>(
+  const rows = await pool.query<{
+    id: string;
+    name: string;
+    is_country: boolean;
+    parent_id: string;
+    country_place: number | null;
+    country: string;
+  }>(
     `WITH country AS (
        SELECT c.id FROM regions c JOIN regions cont ON cont.id = c.parent_id JOIN regions w ON w.id = cont.parent_id AND w.parent_id IS NULL
      )
@@ -34,7 +43,8 @@ export async function resolveMissingInatPlaces(log: (m: string) => void = consol
     if (id && isCountry) countryPlaces.set(r.id, id);
     if (id) resolved++;
     else failed.push(isCountry ? r.name : `${r.name} (${r.country})`);
-    if ((resolved + failed.length) % 100 === 0) log(`[inat-places] ${resolved} resolved, ${failed.length} not found (latest: ${failed.slice(-3).join("; ")})`);
+    if ((resolved + failed.length) % 100 === 0)
+      log(`[inat-places] ${resolved} resolved, ${failed.length} not found (latest: ${failed.slice(-3).join("; ")})`);
   }
   return { resolved, failed };
 }

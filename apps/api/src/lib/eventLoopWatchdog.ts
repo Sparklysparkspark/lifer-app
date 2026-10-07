@@ -81,7 +81,8 @@ export async function withWatchdogPaused<T>(fn: () => T | Promise<T>): Promise<T
 export function startEventLoopWatchdog(app: FastifyInstance): void {
   const raw = process.env.LIFER_FREEZE_RESTART_SECONDS;
   const restartSeconds = raw === undefined || raw === "" ? DEFAULT_RESTART_SECONDS : Number(raw);
-  const restartMs = Number.isFinite(restartSeconds) && restartSeconds > 0 ? Math.max(restartSeconds * 1000, WARN_MS * 2) : 0;
+  const restartMs =
+    Number.isFinite(restartSeconds) && restartSeconds > 0 ? Math.max(restartSeconds * 1000, WARN_MS * 2) : 0;
 
   const beatBuffer = new SharedArrayBuffer(8);
   const beat = new BigInt64Array(beatBuffer);
@@ -99,11 +100,15 @@ export function startEventLoopWatchdog(app: FastifyInstance): void {
   const encoder = new TextEncoder();
   const publish = () => {
     let listed = [...active.values()].slice(0, MAX_LISTED_REQUESTS);
-    let bytes = encoder.encode(JSON.stringify(listed.map((r) => [r.method, r.url.split("?")[0].slice(0, 200), r.startedAt])));
+    let bytes = encoder.encode(
+      JSON.stringify(listed.map((r) => [r.method, r.url.split("?")[0].slice(0, 200), r.startedAt])),
+    );
     // Oldest requests first, since those are the likeliest culprits; drop the newest until it fits.
     while (bytes.length > IN_FLIGHT_BYTES && listed.length > 0) {
       listed = listed.slice(0, -1);
-      bytes = encoder.encode(JSON.stringify(listed.map((r) => [r.method, r.url.split("?")[0].slice(0, 200), r.startedAt])));
+      bytes = encoder.encode(
+        JSON.stringify(listed.map((r) => [r.method, r.url.split("?")[0].slice(0, 200), r.startedAt])),
+      );
     }
     inFlightBytes.set(bytes);
     Atomics.store(inFlightLength, 0, bytes.length);

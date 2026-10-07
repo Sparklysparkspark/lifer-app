@@ -44,10 +44,17 @@ export async function addNewSpeciesToChecklists(apply: boolean): Promise<{ provi
     `SELECT id, inat_taxon_id, ebird_code FROM species WHERE gbif_key < 0 AND NOT is_other_taxa`,
   );
   const byInat = new Map(newSpecies.rows.filter((s) => s.inat_taxon_id != null).map((s) => [s.inat_taxon_id!, s.id]));
-  const byEbird = new Map(newSpecies.rows.filter((s) => s.inat_taxon_id == null && s.ebird_code).map((s) => [s.ebird_code!, s.id]));
+  const byEbird = new Map(
+    newSpecies.rows.filter((s) => s.inat_taxon_id == null && s.ebird_code).map((s) => [s.ebird_code!, s.id]),
+  );
 
   // Provinces: regions directly under a country (World > continent > country > province).
-  const provinces = await pool.query<{ id: string; inat_place_id: number | null; ebird_region_code: string | null; iso3: string[] }>(
+  const provinces = await pool.query<{
+    id: string;
+    inat_place_id: number | null;
+    ebird_region_code: string | null;
+    iso3: string[];
+  }>(
     `SELECT r.id, r.inat_place_id, r.ebird_region_code, c.external_codes AS iso3
      FROM regions r JOIN regions c ON c.id = r.parent_id JOIN regions cont ON cont.id = c.parent_id
      JOIN regions w ON w.id = cont.parent_id AND w.parent_id IS NULL`,

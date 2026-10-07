@@ -26,13 +26,19 @@ const CONCURRENCY = 4;
 const CACHE_DIR = path.join(RAW_DIR, "gbif-species-profiles");
 const RECENT_OBS_CACHE_DIR = path.join(RAW_DIR, "gbif-recent-observations");
 // Sources whose extinct flag is trusted on its own (it still loses to any source saying extant).
-const TAXONOMIC_SOURCES = new Set(["The Paleobiology Database", "Catalogue of Life", "World Register of Marine Species"]);
+const TAXONOMIC_SOURCES = new Set([
+  "The Paleobiology Database",
+  "Catalogue of Life",
+  "World Register of Marine Species",
+]);
 
 async function fetchJson<T>(url: string): Promise<T | null> {
   for (let attempt = 0; attempt <= 4; attempt++) {
     let res: Response;
     try {
-      res = await fetch(url, { headers: { "User-Agent": "Lifer/0.7 (https://github.com/Sparklysparkspark/lifer-app)" } });
+      res = await fetch(url, {
+        headers: { "User-Agent": "Lifer/0.7 (https://github.com/Sparklysparkspark/lifer-app)" },
+      });
     } catch (err) {
       console.error(`  network error (attempt ${attempt}) ${url}:`, err instanceof Error ? err.message : err);
       await new Promise((r) => setTimeout(r, 1000 * 2 ** attempt));
@@ -66,7 +72,11 @@ interface Profiles {
 }
 
 async function extinctVotes(gbifKey: string): Promise<{ extinct: string[]; extant: string[] } | null> {
-  const data = await cachedJson<Profiles>(CACHE_DIR, gbifKey, `https://api.gbif.org/v1/species/${gbifKey}/speciesProfiles?limit=100`);
+  const data = await cachedJson<Profiles>(
+    CACHE_DIR,
+    gbifKey,
+    `https://api.gbif.org/v1/species/${gbifKey}/speciesProfiles?limit=100`,
+  );
   if (!data) return null;
   const withFlag = data.results.filter((r) => typeof r.extinct === "boolean");
   return {
@@ -89,7 +99,12 @@ async function main() {
   const limit = limitArg ? Number(limitArg.split("=")[1]) : null;
   // --names=A b,C d checks exactly those species.
   const namesArg = process.argv.find((a) => a.startsWith("--names="));
-  const names = namesArg ? namesArg.slice("--names=".length).split(",").map((n) => n.trim()) : null;
+  const names = namesArg
+    ? namesArg
+        .slice("--names=".length)
+        .split(",")
+        .map((n) => n.trim())
+    : null;
   mkdirSync(CACHE_DIR, { recursive: true });
   mkdirSync(RECENT_OBS_CACHE_DIR, { recursive: true });
 
@@ -126,12 +141,14 @@ async function main() {
     const label = `${row.common_name ?? row.scientific_name} (${row.scientific_name})`;
     const votes = await extinctVotes(row.gbif_key);
     checked++;
-    if (checked % 500 === 0) console.log(`[check-fossil] ${checked}/${res.rows.length} (${flagged} flagged, ${ambiguous.length} ambiguous)`);
+    if (checked % 500 === 0)
+      console.log(`[check-fossil] ${checked}/${res.rows.length} (${flagged} flagged, ${ambiguous.length} ambiguous)`);
     if (!votes) {
       failed++;
       return;
     }
-    if (names) console.log(`  ${label}: extinct per [${votes.extinct.join(", ")}], extant per [${votes.extant.join(", ")}]`);
+    if (names)
+      console.log(`  ${label}: extinct per [${votes.extinct.join(", ")}], extant per [${votes.extant.join(", ")}]`);
     if (votes.extinct.length === 0) return;
     if (votes.extant.length > 0) {
       ambiguous.push(`${label}: extinct per ${votes.extinct.join(", ")}; extant per ${votes.extant.join(", ")}`);
@@ -155,7 +172,8 @@ async function main() {
       ambiguous.push(`${label}: extinct per ${votes.extinct.join(", ")}, but ${recent} observations since 1990`);
       return;
     }
-    if (apply) await pool.query(`UPDATE species_traits SET fully_extinct = true WHERE species_id = $1`, [row.species_id]);
+    if (apply)
+      await pool.query(`UPDATE species_traits SET fully_extinct = true WHERE species_id = $1`, [row.species_id]);
     console.log(`  EXTINCT: ${label} per ${votes.extinct.join(", ")}`);
     flagged++;
   });

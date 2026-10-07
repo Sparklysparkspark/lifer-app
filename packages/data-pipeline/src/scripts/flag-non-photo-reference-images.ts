@@ -50,7 +50,14 @@ const PHOTO = [
   "a black and white line drawing of a fish",
 ];
 
-type Flagged = { kind: "gallery" | "main"; id: string; species: string; url: string | null; displayPath: string | null; score: number };
+type Flagged = {
+  kind: "gallery" | "main";
+  id: string;
+  species: string;
+  url: string | null;
+  displayPath: string | null;
+  score: number;
+};
 const REASON = "map or data graphic, not a photo of the animal";
 
 async function removeFlagged(items: Flagged[]): Promise<void> {
@@ -82,7 +89,13 @@ async function removeFlagged(items: Flagged[]): Promise<void> {
       )
     ).rows[0];
     const next = (
-      await pool.query<{ photo_url: string; credit: string; license: string; display_path: string | null; thumb_path: string | null }>(
+      await pool.query<{
+        photo_url: string;
+        credit: string;
+        license: string;
+        display_path: string | null;
+        thumb_path: string | null;
+      }>(
         `SELECT p.photo_url, p.credit, p.license, p.display_path, p.thumb_path FROM species_reference_photos p
          WHERE p.species_id = $1 AND NOT EXISTS (SELECT 1 FROM reference_photo_blocklist b WHERE b.photo_url = p.photo_url)
          ORDER BY p.sort_order`,
@@ -116,7 +129,9 @@ async function removeFlagged(items: Flagged[]): Promise<void> {
     await pool.query(`DELETE FROM species_reference_embeddings WHERE species_id = $1`, [f.id]);
     await pool.query(`DELETE FROM id_model_reference_embeddings WHERE species_id = $1`, [f.id]);
   }
-  console.log(`[flag-non-photo] removed ${gallery} gallery images; main photos: ${promoted} replaced from the gallery, ${cleared} cleared`);
+  console.log(
+    `[flag-non-photo] removed ${gallery} gallery images; main photos: ${promoted} replaced from the gallery, ${cleared} cleared`,
+  );
 }
 
 async function main() {
@@ -141,7 +156,13 @@ async function main() {
   let scanned = 0;
   let after = "00000000-0000-0000-0000-000000000000";
   while (true) {
-    const page = await pool.query<{ id: string; species: string; url: string; display_path: string | null; embedding: number[] }>(
+    const page = await pool.query<{
+      id: string;
+      species: string;
+      url: string;
+      display_path: string | null;
+      embedding: number[];
+    }>(
       `SELECT p.id, s.scientific_name AS species, p.photo_url AS url, p.display_path, ge.embedding
        FROM species_reference_gallery_embeddings ge
        JOIN species_reference_photos p ON p.id = ge.reference_photo_id
@@ -152,25 +173,42 @@ async function main() {
     if (page.rows.length === 0) break;
     for (const r of page.rows) {
       const sc = score(r.embedding);
-      if (sc > margin) flagged.push({ kind: "gallery", id: r.id, species: r.species, url: r.url, displayPath: r.display_path, score: sc });
+      if (sc > margin)
+        flagged.push({
+          kind: "gallery",
+          id: r.id,
+          species: r.species,
+          url: r.url,
+          displayPath: r.display_path,
+          score: sc,
+        });
     }
     scanned += page.rows.length;
     after = page.rows[page.rows.length - 1].id;
   }
-  const mains = await pool.query<{ id: string; species: string; url: string | null; display_path: string | null; embedding: number[] }>(
+  const mains = await pool.query<{
+    id: string;
+    species: string;
+    url: string | null;
+    display_path: string | null;
+    embedding: number[];
+  }>(
     `SELECT s.id, s.scientific_name AS species, s.reference_photo AS url, s.reference_display_path AS display_path, e.embedding
      FROM species_reference_embeddings e JOIN species s ON s.id = e.species_id WHERE e.model_version = $1`,
     [EMBEDDING_MODEL_VERSION],
   );
   for (const r of mains.rows) {
     const sc = score(r.embedding);
-    if (sc > margin) flagged.push({ kind: "main", id: r.id, species: r.species, url: r.url, displayPath: r.display_path, score: sc });
+    if (sc > margin)
+      flagged.push({ kind: "main", id: r.id, species: r.species, url: r.url, displayPath: r.display_path, score: sc });
   }
   scanned += mains.rows.length;
   flagged.sort((a, b) => b.score - a.score);
 
   const count = (k: string) => flagged.filter((f) => f.kind === k).length;
-  console.log(`[flag-non-photo] scanned ${scanned} images; flagged ${count("gallery")} gallery, ${count("main")} main (margin ${margin})`);
+  console.log(
+    `[flag-non-photo] scanned ${scanned} images; flagged ${count("gallery")} gallery, ${count("main")} main (margin ${margin})`,
+  );
   for (const f of flagged.slice(0, 20)) console.log(`  ${f.score.toFixed(3)} ${f.kind} ${f.species}: ${f.url}`);
   if (out) writeFileSync(out, JSON.stringify(flagged, null, 2));
 

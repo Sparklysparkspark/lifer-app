@@ -18,12 +18,16 @@ afterEach(async () => {
 
 describe("apiErrorMessage", () => {
   it("shows the server's English text in English, even for a known code", () => {
-    expect(apiErrorMessage("no_checklist", "Africa has no checklist of its own.")).toBe("Africa has no checklist of its own.");
+    expect(apiErrorMessage("no_checklist", "Africa has no checklist of its own.")).toBe(
+      "Africa has no checklist of its own.",
+    );
   });
 
   it("shows the active language's translation of a known code", async () => {
     await i18n.changeLanguage(TEST_LOCALE);
-    expect(apiErrorMessage("desktop_only", "Only available in the desktop app")).toBe("Nur in der Desktop-App verfügbar");
+    expect(apiErrorMessage("desktop_only", "Only available in the desktop app")).toBe(
+      "Nur in der Desktop-App verfügbar",
+    );
   });
 
   it("keeps the server's text when the language has no translation of the code", async () => {

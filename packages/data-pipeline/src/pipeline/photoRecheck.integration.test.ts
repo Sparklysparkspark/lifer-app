@@ -13,7 +13,8 @@ describe.skipIf(!url)("selectSpeciesToRecheck", () => {
   beforeEach(async () => {
     client = await db.connect();
     await client.query("BEGIN");
-    regionId = (await client.query<{ id: string }>(`INSERT INTO regions (name) VALUES ('Zzrecheckland') RETURNING id`)).rows[0].id;
+    regionId = (await client.query<{ id: string }>(`INSERT INTO regions (name) VALUES ('Zzrecheckland') RETURNING id`))
+      .rows[0].id;
   });
   afterEach(async () => {
     await client.query("ROLLBACK");
@@ -23,7 +24,10 @@ describe.skipIf(!url)("selectSpeciesToRecheck", () => {
     await db.end();
   });
 
-  async function species(name: string, opts: { photo?: boolean; checkedDaysAgo?: number; listed?: boolean; enriched?: boolean }) {
+  async function species(
+    name: string,
+    opts: { photo?: boolean; checkedDaysAgo?: number; listed?: boolean; enriched?: boolean },
+  ) {
     const id = (
       await client.query<{ id: string }>(
         `INSERT INTO species (gbif_key, scientific_name, taxon_class, enriched_at, reference_photo, reference_credit,
@@ -35,7 +39,8 @@ describe.skipIf(!url)("selectSpeciesToRecheck", () => {
         [name, opts.enriched ?? true, opts.photo ?? false, opts.checkedDaysAgo ?? null],
       )
     ).rows[0].id;
-    if (opts.listed) await client.query(`INSERT INTO region_species (region_id, species_id) VALUES ($1, $2)`, [regionId, id]);
+    if (opts.listed)
+      await client.query(`INSERT INTO region_species (region_id, species_id) VALUES ($1, $2)`, [regionId, id]);
     return id;
   }
 
@@ -49,7 +54,10 @@ describe.skipIf(!url)("selectSpeciesToRecheck", () => {
     await species("Zzre has photo", { photo: true });
     await species("Zzre not enriched", { enriched: false });
 
-    expect(await names({ countries: null, listedOnly: false, recheckAfterDays: 90 })).toEqual(["Zzre long ago", "Zzre never"]);
+    expect(await names({ countries: null, listedOnly: false, recheckAfterDays: 90 })).toEqual([
+      "Zzre long ago",
+      "Zzre never",
+    ]);
     expect(await names({ countries: null, listedOnly: false, recheckAfterDays: 5 })).toEqual([
       "Zzre long ago",
       "Zzre never",
@@ -62,7 +70,9 @@ describe.skipIf(!url)("selectSpeciesToRecheck", () => {
     await species("Zzre unlisted", {});
 
     expect(await names({ countries: null, listedOnly: true, recheckAfterDays: 90 })).toEqual(["Zzre listed"]);
-    expect(await names({ countries: ["Zzrecheckland"], listedOnly: false, recheckAfterDays: 90 })).toEqual(["Zzre listed"]);
+    expect(await names({ countries: ["Zzrecheckland"], listedOnly: false, recheckAfterDays: 90 })).toEqual([
+      "Zzre listed",
+    ]);
     expect(await names({ countries: ["Elsewhere"], listedOnly: false, recheckAfterDays: 90 })).toEqual([]);
   });
 });

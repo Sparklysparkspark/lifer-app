@@ -47,7 +47,9 @@ console.log("[resign-macos] patched Info.plist with folder-access usage descript
 // TCC grants and the updater's designated-requirement check stable across versions. Ad-hoc ("-")
 // when unset, so a local `npm run dist` still works without any certificate.
 const identity = process.env.MACOS_SIGNING_IDENTITY?.trim() || "-";
-console.log(`[resign-macos] re-signing ${appPath} with identity ${identity === "-" ? "ad-hoc (-)" : JSON.stringify(identity)}`);
+console.log(
+  `[resign-macos] re-signing ${appPath} with identity ${identity === "-" ? "ad-hoc (-)" : JSON.stringify(identity)}`,
+);
 execFileSync("codesign", ["--deep", "--force", "--sign", identity, appPath], { stdio: "inherit" });
 execSync(`codesign -dv ${JSON.stringify(appPath)}`, { stdio: "inherit" });
 console.log("[resign-macos] done");

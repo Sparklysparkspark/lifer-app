@@ -34,14 +34,18 @@ function splitCsvLine(line: string): string[] {
 }
 
 async function main() {
-  const lines = readFileSync(CSV_PATH, "utf8").split("\n").filter((l) => l.trim());
+  const lines = readFileSync(CSV_PATH, "utf8")
+    .split("\n")
+    .filter((l) => l.trim());
   const header = splitCsvLine(lines[0]);
   const sciNameIdx = header.indexOf("SCIENTIFIC_NAME");
   const speciesCodeIdx = header.indexOf("SPECIES_CODE");
   const bandingCodeIdx = header.indexOf("BANDING_CODES");
   const categoryIdx = header.indexOf("CATEGORY");
   if (sciNameIdx === -1 || speciesCodeIdx === -1 || bandingCodeIdx === -1 || categoryIdx === -1) {
-    throw new Error(`Unexpected CSV header, expected SCIENTIFIC_NAME/SPECIES_CODE/BANDING_CODES/CATEGORY columns: ${header.join(",")}`);
+    throw new Error(
+      `Unexpected CSV header, expected SCIENTIFIC_NAME/SPECIES_CODE/BANDING_CODES/CATEGORY columns: ${header.join(",")}`,
+    );
   }
 
   // "species" rows only: subspecies, hybrid, slash and spuh rows would collide with real species.
@@ -64,11 +68,17 @@ async function main() {
   for (const row of res.rows) {
     const match = codesByScientificName.get(row.scientific_name.toLowerCase());
     if (!match) continue;
-    await pool.query(`UPDATE species SET ebird_code = $1, aba_code = $2 WHERE id = $3`, [match.speciesCode, match.abaCode, row.id]);
+    await pool.query(`UPDATE species SET ebird_code = $1, aba_code = $2 WHERE id = $3`, [
+      match.speciesCode,
+      match.abaCode,
+      row.id,
+    ]);
     ebirdMatched++;
     if (match.abaCode) abaMatched++;
   }
-  console.log(`[backfill-aba-codes] ${ebirdMatched}/${res.rows.length} bird species matched an eBird code, ${abaMatched} also got an ABA code`);
+  console.log(
+    `[backfill-aba-codes] ${ebirdMatched}/${res.rows.length} bird species matched an eBird code, ${abaMatched} also got an ABA code`,
+  );
   await pool.end();
 }
 

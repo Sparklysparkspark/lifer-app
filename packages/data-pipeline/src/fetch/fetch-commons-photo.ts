@@ -88,7 +88,9 @@ async function main() {
   mkdirSync(BUILD_DIR, { recursive: true });
   const dest = path.join(BUILD_DIR, "commons-photos.json");
   writeFileSync(dest, JSON.stringify(results, null, 2));
-  console.log(`[commons-photo] wrote ${results.length} rows (${results.filter((r) => r.photoUrl).length} usable) to ${dest}`);
+  console.log(
+    `[commons-photo] wrote ${results.length} rows (${results.filter((r) => r.photoUrl).length} usable) to ${dest}`,
+  );
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

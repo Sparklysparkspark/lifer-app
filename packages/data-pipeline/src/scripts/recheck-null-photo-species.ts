@@ -25,7 +25,8 @@ async function main() {
   const countries = arg("countries")?.split(",") ?? null;
   const listedOnly = process.argv.includes("--listed-only");
   const recheckAfterDays = Number(arg("recheck-after-days") ?? 90);
-  if (!Number.isFinite(recheckAfterDays) || recheckAfterDays < 0) throw new Error("--recheck-after-days must be a number of days");
+  if (!Number.isFinite(recheckAfterDays) || recheckAfterDays < 0)
+    throw new Error("--recheck-after-days must be a number of days");
 
   const res = { rows: await selectSpeciesToRecheck(pool, { countries, listedOnly, recheckAfterDays }) };
   const scope = countries ? ` (scoped to ${countries.join(", ")})` : listedOnly ? " (listed species)" : "";
@@ -41,7 +42,10 @@ async function main() {
   await mapWithConcurrency(res.rows, CONCURRENCY, async (row) => {
     if (stopped) return;
     try {
-      const enrichment = await enrichSpecies({ id: row.id, scientific_name: row.scientific_name }, { publishableOnly: true });
+      const enrichment = await enrichSpecies(
+        { id: row.id, scientific_name: row.scientific_name },
+        { publishableOnly: true },
+      );
       if (enrichment.referencePhoto) recovered++;
       await persistEnrichment(row.id, enrichment);
       await pool.query(`UPDATE species SET photo_checked_at = now() WHERE id = $1`, [row.id]);

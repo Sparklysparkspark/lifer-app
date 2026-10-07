@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { isEventLoopWatchdogPaused, pauseEventLoopWatchdog, resumeEventLoopWatchdog, withWatchdogPaused } from "./eventLoopWatchdog.js";
+import {
+  isEventLoopWatchdogPaused,
+  pauseEventLoopWatchdog,
+  resumeEventLoopWatchdog,
+  withWatchdogPaused,
+} from "./eventLoopWatchdog.js";
 
 describe("eventLoopWatchdog pause", () => {
   it("counts nested pauses and resumes only after the last one", () => {

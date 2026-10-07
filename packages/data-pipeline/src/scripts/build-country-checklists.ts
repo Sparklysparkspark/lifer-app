@@ -27,7 +27,10 @@ export interface CountryChecklistResult {
   after: number;
 }
 
-export async function buildCountryChecklist(country: { id: string; name: string }, apply: boolean): Promise<CountryChecklistResult | null> {
+export async function buildCountryChecklist(
+  country: { id: string; name: string },
+  apply: boolean,
+): Promise<CountryChecklistResult | null> {
   const provinces = await pool.query<{ id: string }>(
     `SELECT id FROM regions WHERE parent_id = $1 AND NOT is_overseas_territory AND occurrence_computed_at IS NOT NULL`,
     [country.id],
@@ -35,7 +38,10 @@ export async function buildCountryChecklist(country: { id: string; name: string 
   if (provinces.rows.length === 0) return null;
   const provinceIds = provinces.rows.map((r) => r.id);
 
-  const before = Number((await pool.query<{ n: string }>(`SELECT count(*) AS n FROM region_species WHERE region_id = $1`, [country.id])).rows[0].n);
+  const before = Number(
+    (await pool.query<{ n: string }>(`SELECT count(*) AS n FROM region_species WHERE region_id = $1`, [country.id]))
+      .rows[0].n,
+  );
   const inat = await matchedSpeciesIdsForRegion(country.id, country.name);
   const inatIds = inat ? [...inat.matchedSpeciesIds] : [];
 
@@ -109,12 +115,22 @@ export async function buildCountryChecklist(country: { id: string; name: string 
          SELECT $1, species_id, local_frequency, is_vagrant, is_invasive, weekly_frequency, evidence FROM country_rows`,
         [country.id],
       );
-      await client.query(`UPDATE regions SET occurrence_computed_at = now(), has_children = true WHERE id = $1`, [country.id]);
+      await client.query(`UPDATE regions SET occurrence_computed_at = now(), has_children = true WHERE id = $1`, [
+        country.id,
+      ]);
       await client.query("COMMIT");
     } else {
       await client.query("ROLLBACK");
     }
-    return { country: country.name, provinces: provinceIds.length, before, fromProvinces: Number(fromProvinces), keptOwn: keptOwn.rowCount ?? 0, addedFromInat: added.rowCount ?? 0, after };
+    return {
+      country: country.name,
+      provinces: provinceIds.length,
+      before,
+      fromProvinces: Number(fromProvinces),
+      keptOwn: keptOwn.rowCount ?? 0,
+      addedFromInat: added.rowCount ?? 0,
+      after,
+    };
   } catch (err) {
     await client.query("ROLLBACK").catch(() => {});
     throw err;
@@ -126,7 +142,13 @@ export async function buildCountryChecklist(country: { id: string; name: string 
 async function main() {
   const args = process.argv.slice(2);
   const apply = args.includes("--apply");
-  const names = args.find((a) => a.startsWith("--countries="))?.slice("--countries=".length).split(",").map((s) => s.trim()).filter(Boolean) ?? null;
+  const names =
+    args
+      .find((a) => a.startsWith("--countries="))
+      ?.slice("--countries=".length)
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean) ?? null;
   const countries = await pool.query<{ id: string; name: string }>(
     `SELECT c.id, c.name FROM regions c JOIN regions cont ON cont.id = c.parent_id JOIN regions w ON w.id = cont.parent_id AND w.parent_id IS NULL
      WHERE ($1::text[] IS NULL OR c.name = ANY($1)) ORDER BY c.name`,

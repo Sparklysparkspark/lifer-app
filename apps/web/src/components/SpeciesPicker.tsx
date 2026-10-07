@@ -205,7 +205,8 @@ export default function SpeciesPicker({
               onMouseEnter={() => setHighlighted(i)}
               className={`cursor-pointer px-3 py-2 text-sm ${i === active ? "bg-surface-muted" : ""}`}
             >
-              <span className="font-medium text-ink">{speciesName({ commonName: r.common_name, scientificName: r.scientific_name })}
+              <span className="font-medium text-ink">
+                {speciesName({ commonName: r.common_name, scientificName: r.scientific_name })}
               </span>{" "}
               <span className="italic text-muted">{r.scientific_name}</span>
             </li>

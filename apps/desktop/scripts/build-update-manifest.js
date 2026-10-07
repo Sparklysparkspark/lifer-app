@@ -52,7 +52,9 @@ if (target.platform === "darwin") {
   const bundleDir = path.join(bundleRoot, "macos");
   const appPath = path.join(bundleDir, "Lifer.app");
   if (!existsSync(appPath)) {
-    console.error(`[build-update-manifest] ${appPath} doesn't exist. Did tauri build + resign-macos actually run first?`);
+    console.error(
+      `[build-update-manifest] ${appPath} doesn't exist. Did tauri build + resign-macos actually run first?`,
+    );
     process.exit(1);
   }
   const archiveName = `Lifer-${arch}.app.tar.gz`;

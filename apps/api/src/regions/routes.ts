@@ -41,7 +41,6 @@ const IncludeLandQuery = Type.Optional(Type.Enum(["0", "1"]));
 
 const TIER_RANK: Record<string, number> = { legendary: 0, rare: 1, uncommon: 2, occasional: 3, common: 4 };
 
-
 // Packs are named after countries, so this resolves a region (a country or one of its
 // provinces) to the country name downloaded_packs uses.
 async function resolvePackRegionName(regionId: string): Promise<string | null> {
@@ -352,7 +351,10 @@ export async function regionRoutes(fastify: FastifyInstance): Promise<void> {
         [userId, regionId, taxon, seaZoneIds, includeLand, hideObscure, packRegionName, !needsPack],
       );
 
-      let items = await markNameChanged(userId, res.rows.map((row) => toCollectionItem(row, maxDepthM)));
+      let items = await markNameChanged(
+        userId,
+        res.rows.map((row) => toCollectionItem(row, maxDepthM)),
+      );
 
       // For a single requested taxon, tells "nothing here" apart from "that taxon's pack isn't
       // downloaded" so the UI can prompt for it.
@@ -415,7 +417,9 @@ export async function regionRoutes(fastify: FastifyInstance): Promise<void> {
       const taxon = request.query.taxon ? request.query.taxon.split(",").filter(Boolean) : null;
       const { hideObscure, maxDepthM } = await getObscurityPreferences(userId);
 
-      const hubRes = await pool.query<{ id: string; name: string }>(`SELECT id, name FROM regions WHERE id = $1`, [hubId]);
+      const hubRes = await pool.query<{ id: string; name: string }>(`SELECT id, name FROM regions WHERE id = $1`, [
+        hubId,
+      ]);
       const hub = hubRes.rows[0];
       if (!hub) return reply.code(404).send({ error: "Region not found" });
 
@@ -515,7 +519,10 @@ export async function regionRoutes(fastify: FastifyInstance): Promise<void> {
         [userId, countryIds, taxon, hideObscure, countryNames],
       );
 
-      const items = await markNameChanged(userId, res.rows.map((row) => toCollectionItem(row, maxDepthM)));
+      const items = await markNameChanged(
+        userId,
+        res.rows.map((row) => toCollectionItem(row, maxDepthM)),
+      );
       return { items, downloadedCountryNames: countryNames };
     },
   );

@@ -3,7 +3,8 @@ import { servesWebApp } from "./spaFallback.js";
 
 describe("servesWebApp", () => {
   it("answers app routes with the web app", () => {
-    for (const url of ["/", "/gallery", "/species/abc?tab=photos", "/settings/general"]) expect(servesWebApp(url)).toBe(true);
+    for (const url of ["/", "/gallery", "/species/abc?tab=photos", "/settings/general"])
+      expect(servesWebApp(url)).toBe(true);
   });
 
   it("leaves missing API and offline map files as 404s", () => {

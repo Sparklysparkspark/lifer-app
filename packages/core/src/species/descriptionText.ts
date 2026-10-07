@@ -31,17 +31,16 @@ export const DESCRIPTION_MAX_CHARS = 800;
 export const IDENTIFICATION_HEADINGS = ["description", "identification", "appearance", "morphology", "characteristics"];
 
 export type SentenceKind =
-  | "taxonomy"
-  | "etymology"
-  | "synonyms"
-  | "range"
-  | "conservation"
-  | "identification"
-  | "ecology"
-  | "other";
+  "taxonomy" | "etymology" | "synonyms" | "range" | "conservation" | "identification" | "ecology" | "other";
 
 /** Kinds a description drops. */
-export const BOILERPLATE_KINDS: ReadonlySet<SentenceKind> = new Set(["taxonomy", "etymology", "synonyms", "range", "conservation"]);
+export const BOILERPLATE_KINDS: ReadonlySet<SentenceKind> = new Set([
+  "taxonomy",
+  "etymology",
+  "synonyms",
+  "range",
+  "conservation",
+]);
 
 const CONSERVATION =
   /\b(IUCN|Red List|least concern|near[- ]threatened|critically endangered|data deficient|conservation status|CITES|(listed|classified|assessed|evaluated|categori[sz]ed) as (being )?(vulnerable|endangered|threatened|least concern|near threatened|critically))/i;
@@ -81,7 +80,8 @@ const TAXONOMY = new RegExp(
 );
 // "A marine gastropod mollusk in the Rissoidae family": a Latin family, order or genus name with
 // nothing else to say counts as taxonomy too.
-const LATIN_GROUP = /\b(in the |of the )?((sub)?family|order|genus|tribe) [A-Z][a-z]+\b|\b[A-Z][a-z]+(idae|inae|formes|oidea) (sub)?family\b/;
+const LATIN_GROUP =
+  /\b(in the |of the )?((sub)?family|order|genus|tribe) [A-Z][a-z]+\b|\b[A-Z][a-z]+(idae|inae|formes|oidea) (sub)?family\b/;
 const RANGE_CUE =
   /\b(lives? (mostly |mainly |primarily |chiefly )?(in|along|around|off) the|native to|indigenous to|endemic to|(found|occurs?|occurring|distributed|recorded|known|reported) (in|on|across|throughout|from|along|off|around)|distribution|range (includes|extends|covers|is)|ranges? (from|across|throughout|into|over|extends?)|ranging from|vagrant|breeds? (in|on|across|throughout)|winters? (in|on)|migrates? to)\b/i;
 const IDENTIFICATION =
@@ -90,7 +90,24 @@ const ECOLOGY =
   /\b(feeds?|feeding|fed|diet|eats?|eating|prey|preys|forag\w*|hunts?|hunting|breed\w*|nests?|nesting|spawn\w*|lays?|eggs?|young|viviparous|oviparous|nocturnal|diurnal|crepuscular|solitary|social|colon(y|ies|ial)|flocks?|schools?|territor\w*|migrat\w*|hibernat\w*|burrow\w*|habitat|dwells?|lives?|living|inhabits?|venom\w*|toxic|poison\w*|calls?|song|sings?|behaviou?r\w*|predators?|parasit\w*|symbio\w*|pollinat\w*|lifespan)\b/i;
 
 // Words that look like proper nouns but aren't places (sentence starts are skipped separately).
-const NOT_PLACE = new Set(["The", "It", "Its", "This", "These", "They", "Their", "A", "An", "In", "On", "Its", "I", "Some", "Most", "Many"]);
+const NOT_PLACE = new Set([
+  "The",
+  "It",
+  "Its",
+  "This",
+  "These",
+  "They",
+  "Their",
+  "A",
+  "An",
+  "In",
+  "On",
+  "Its",
+  "I",
+  "Some",
+  "Most",
+  "Many",
+]);
 
 /** Capitalized words outside parentheses, after the first word: a rough count of place names. */
 function properNounCount(sentence: string): { proper: number; words: number } {
@@ -131,7 +148,31 @@ export function classifySentence(sentence: string): SentenceKind {
 const DECIMAL = "\u0000D\u0000";
 const ABBREV = "\u0000A\u0000";
 // Abbreviations whose period never ends a sentence here.
-const ABBREVIATIONS = ["e.g.", "i.e.", "c.", "ca.", "approx.", "St.", "Mt.", "Dr.", "No.", "vs.", "sp.", "spp.", "var.", "subsp.", "ssp.", "cf.", "Jr.", "Sr.", "U.S.", "U.K.", "fig.", "Fig.", "al."];
+const ABBREVIATIONS = [
+  "e.g.",
+  "i.e.",
+  "c.",
+  "ca.",
+  "approx.",
+  "St.",
+  "Mt.",
+  "Dr.",
+  "No.",
+  "vs.",
+  "sp.",
+  "spp.",
+  "var.",
+  "subsp.",
+  "ssp.",
+  "cf.",
+  "Jr.",
+  "Sr.",
+  "U.S.",
+  "U.K.",
+  "fig.",
+  "Fig.",
+  "al.",
+];
 // Whole words only, so "c." never matches the end of "Pacific.".
 const ABBREVIATION_PATTERN = new RegExp(
   `(?<![\\p{L}.])(${ABBREVIATIONS.map((a) => a.replace(/\./g, "\\.")).join("|")})`,
@@ -161,17 +202,19 @@ export function splitSentences(text: string): string[] {
 /** Tidies plain-text extract artifacts: the empty or punctuation-only brackets left where
  *  pronunciations and audio links were, doubled spaces, and spaces before punctuation. */
 export function cleanExtractText(text: string): string {
-  return text
-    .replace(/\u00a0/g, " ")
-    // Pronunciation leftovers: "(or US:, Procyon lotor)", "(UK: ; ...)".
-    .replace(/\b(UK|US|American English|British English):\s*[,;]?\s*/g, "")
-    .replace(/\(or ,?\s*/g, "(")
-    .replace(/\(\s*[;,:]?\s*\)/g, "")
-    .replace(/\(\s*[;,]\s*/g, "(")
-    .replace(/[ \t]+/g, " ")
-    .replace(/ +([,.;:!?)])/g, "$1")
-    .replace(/\( +/g, "(")
-    .trim();
+  return (
+    text
+      .replace(/\u00a0/g, " ")
+      // Pronunciation leftovers: "(or US:, Procyon lotor)", "(UK: ; ...)".
+      .replace(/\b(UK|US|American English|British English):\s*[,;]?\s*/g, "")
+      .replace(/\(or ,?\s*/g, "(")
+      .replace(/\(\s*[;,:]?\s*\)/g, "")
+      .replace(/\(\s*[;,]\s*/g, "(")
+      .replace(/[ \t]+/g, " ")
+      .replace(/ +([,.;:!?)])/g, "$1")
+      .replace(/\( +/g, "(")
+      .trim()
+  );
 }
 
 export interface ArticleSection {

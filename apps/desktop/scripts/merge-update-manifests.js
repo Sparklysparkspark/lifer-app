@@ -37,7 +37,9 @@ for (const file of manifestFiles) {
 
 const missing = EXPECTED_PLATFORMS.filter((p) => !(p in merged.platforms));
 if (missing.length > 0) {
-  console.warn(`::warning::[merge-update-manifests] no update entry for ${missing.join(", ")}; those users won't see this update`);
+  console.warn(
+    `::warning::[merge-update-manifests] no update entry for ${missing.join(", ")}; those users won't see this update`,
+  );
 }
 
 if (notesFile && existsSync(notesFile)) {

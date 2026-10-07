@@ -41,7 +41,10 @@ export async function splitRoutes(fastify: FastifyInstance): Promise<void> {
       const userId = request.user!.id;
       const options = await splitOptions(userId, id);
       if (keep === true) {
-        await pool.query(`INSERT INTO species_split_kept (capture_id) SELECT unnest($1::uuid[]) ON CONFLICT DO NOTHING`, [options.captureIds]);
+        await pool.query(
+          `INSERT INTO species_split_kept (capture_id) SELECT unnest($1::uuid[]) ON CONFLICT DO NOTHING`,
+          [options.captureIds],
+        );
         return { ok: true, updated: options.captureIds.length };
       }
       if (!speciesId || !options.species.some((s) => s.id === speciesId)) {

@@ -40,7 +40,10 @@ interface Pending {
 
 // Imported at runtime: apps/api sits outside this package's TypeScript project.
 interface Inference {
-  analyzeImage(image: { path: string }, opts: { targets: unknown[]; priority: "background" }): Promise<{ vectors: Array<Float32Array | { error: string }> }>;
+  analyzeImage(
+    image: { path: string },
+    opts: { targets: unknown[]; priority: "background" },
+  ): Promise<{ vectors: Array<Float32Array | { error: string }> }>;
   isInferenceStuck(): boolean;
   stopInference(): Promise<void>;
 }
@@ -115,7 +118,10 @@ async function apply(): Promise<void> {
     process.exitCode = 1;
     return;
   }
-  if (pending.length > 0) console.log(`[regenerate-clip-vectors] applying without ${pending.length} photos that have no ${MODEL_VERSION} vector`);
+  if (pending.length > 0)
+    console.log(
+      `[regenerate-clip-vectors] applying without ${pending.length} photos that have no ${MODEL_VERSION} vector`,
+    );
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
@@ -160,7 +166,8 @@ async function apply(): Promise<void> {
   }
 }
 
-const fmt = (s: number) => (s >= 3600 ? `${(s / 3600).toFixed(1)} h` : s >= 60 ? `${Math.round(s / 60)} min` : `${Math.round(s)} s`);
+const fmt = (s: number) =>
+  s >= 3600 ? `${(s / 3600).toFixed(1)} h` : s >= 60 ? `${Math.round(s / 60)} min` : `${Math.round(s)} s`;
 
 async function main(): Promise<void> {
   if (flag("apply")) return apply();
@@ -188,7 +195,9 @@ async function main(): Promise<void> {
   await ensureTable();
   // The CPU and GPU both run the fp32 file, so the vectors are full precision on either.
   const { selectAcceleration } = await load<{ selectAcceleration(o: unknown): Promise<void> }>("accelerationSelect.ts");
-  const { placementFor } = await load<{ placementFor(f: string, p: string): { modelPath: string; providers?: unknown[] } }>("acceleration.ts");
+  const { placementFor } = await load<{
+    placementFor(f: string, p: string): { modelPath: string; providers?: unknown[] };
+  }>("acceleration.ts");
   const inference = await load<Inference>("inference.ts");
   await selectAcceleration({
     cacheFile: path.join(BUILD_DIR, "regenerate-clip-vectors-acceleration.json"),
@@ -198,7 +207,9 @@ async function main(): Promise<void> {
   });
   const placement = placementFor("clip", modelPath);
   const target = { ...placement, missingMessage: `Missing ${modelPath}`, crop: false };
-  console.log(`[regenerate-clip-vectors] running on ${placement.providers?.map((p) => (typeof p === "string" ? p : (p as { name: string }).name)).join("+") ?? "cpu"}`);
+  console.log(
+    `[regenerate-clip-vectors] running on ${placement.providers?.map((p) => (typeof p === "string" ? p : (p as { name: string }).name)).join("+") ?? "cpu"}`,
+  );
 
   let stopping = false;
   process.on("SIGINT", () => {
@@ -230,7 +241,8 @@ async function main(): Promise<void> {
   const lane = async () => {
     while (next < pending.length && !stopping) {
       if (inference.isInferenceStuck()) {
-        if (!stopping) console.error("[regenerate-clip-vectors] the model keeps timing out, stopping; rerun to continue");
+        if (!stopping)
+          console.error("[regenerate-clip-vectors] the model keeps timing out, stopping; rerun to continue");
         stopping = true;
         process.exitCode = 1;
         break;
@@ -246,7 +258,9 @@ async function main(): Promise<void> {
         lastLog = Date.now();
         const rate = done / ((lastLog - start) / 1000);
         const left = pending.length - done - failed;
-        console.log(`[regenerate-clip-vectors] ${done + failed}/${pending.length}, ${rate.toFixed(1)}/s, about ${fmt(left / rate)} left`);
+        console.log(
+          `[regenerate-clip-vectors] ${done + failed}/${pending.length}, ${rate.toFixed(1)}/s, about ${fmt(left / rate)} left`,
+        );
       }
     }
   };
@@ -255,9 +269,15 @@ async function main(): Promise<void> {
   await write(buffer);
   await inference.stopInference();
   const secs = (Date.now() - start) / 1000;
-  console.log(`[regenerate-clip-vectors] done: ${done} computed, ${failed} failed, ${(done / secs).toFixed(1)}/s over ${fmt(secs)}`);
-  if (done + failed < all.length) console.log(`[regenerate-clip-vectors] ${all.length - done - failed} left: rerun to continue`);
-  else console.log(`[regenerate-clip-vectors] every photo has a ${MODEL_VERSION} vector: --apply swaps them in when publishing`);
+  console.log(
+    `[regenerate-clip-vectors] done: ${done} computed, ${failed} failed, ${(done / secs).toFixed(1)}/s over ${fmt(secs)}`,
+  );
+  if (done + failed < all.length)
+    console.log(`[regenerate-clip-vectors] ${all.length - done - failed} left: rerun to continue`);
+  else
+    console.log(
+      `[regenerate-clip-vectors] every photo has a ${MODEL_VERSION} vector: --apply swaps them in when publishing`,
+    );
 }
 
 main()

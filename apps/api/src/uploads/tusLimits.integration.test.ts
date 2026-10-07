@@ -35,7 +35,11 @@ describe.skipIf(!url)("resumable upload limits", () => {
     await db.query(`DELETE FROM api_keys WHERE user_id = $1`, [USER]);
     await db.query(`DELETE FROM users WHERE id = $1`, [USER]);
     await db.query(`INSERT INTO users (id, email, password_hash) VALUES ($1, 'tus-limits@test', 'x')`, [USER]);
-    await db.query(`INSERT INTO api_keys (user_id, name, key_hash, permissions) VALUES ($1, 't', $2, $3)`, [USER, hashApiKey(KEY), ["photos.write"]]);
+    await db.query(`INSERT INTO api_keys (user_id, name, key_hash, permissions) VALUES ($1, 't', $2, $3)`, [
+      USER,
+      hashApiKey(KEY),
+      ["photos.write"],
+    ]);
     app = Fastify();
     await app.register(cookie);
     await app.register(multipart);
@@ -55,7 +59,11 @@ describe.skipIf(!url)("resumable upload limits", () => {
   });
 
   it("refuses an Upload-Length over MAX_UPLOAD_BYTES with 413", async () => {
-    const res = await app.inject({ method: "POST", url: "/api/uploads/tus", headers: { ...API, "tus-resumable": "1.0.0", "upload-length": "1001" } });
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/uploads/tus",
+      headers: { ...API, "tus-resumable": "1.0.0", "upload-length": "1001" },
+    });
     expect(res.statusCode).toBe(413);
     const options = await app.inject({ method: "OPTIONS", url: "/api/uploads/tus", headers: API });
     expect(options.headers["tus-max-size"]).toBe("1000");
@@ -65,22 +73,47 @@ describe.skipIf(!url)("resumable upload limits", () => {
   it("answers an unknown upload id the tus way, and a signed-out caller with 401", async () => {
     const tus = { ...API, "tus-resumable": "1.0.0" };
     for (const method of ["HEAD", "DELETE", "PATCH"] as const) {
-      const res = await app.inject({ method, url: "/api/uploads/tus/not-an-upload", headers: { ...tus, "upload-offset": "0" } });
+      const res = await app.inject({
+        method,
+        url: "/api/uploads/tus/not-an-upload",
+        headers: { ...tus, "upload-offset": "0" },
+      });
       expect([method, res.statusCode, res.headers["tus-resumable"]]).toEqual([method, 404, "1.0.0"]);
     }
-    const signedOut = await app.inject({ method: "HEAD", url: "/api/uploads/tus/not-an-upload", headers: { "tus-resumable": "1.0.0" } });
+    const signedOut = await app.inject({
+      method: "HEAD",
+      url: "/api/uploads/tus/not-an-upload",
+      headers: { "tus-resumable": "1.0.0" },
+    });
     expect(signedOut.statusCode).toBe(401);
   });
 
   it("sweeps uploads with no activity for two hours, finished or not", async () => {
-    const done = await tusUpload(app, Buffer.alloc(500, 1), { headers: API, filename: "a.jpg", filetype: "image/jpeg" });
-    const partial = await tusUpload(app, Buffer.alloc(900, 2), { headers: API, filename: "b.jpg", filetype: "image/jpeg", stopAt: 100, chunkSize: 100 });
-    const fresh = await tusUpload(app, Buffer.alloc(900, 3), { headers: API, filename: "c.jpg", filetype: "image/jpeg", stopAt: 100, chunkSize: 100 });
+    const done = await tusUpload(app, Buffer.alloc(500, 1), {
+      headers: API,
+      filename: "a.jpg",
+      filetype: "image/jpeg",
+    });
+    const partial = await tusUpload(app, Buffer.alloc(900, 2), {
+      headers: API,
+      filename: "b.jpg",
+      filetype: "image/jpeg",
+      stopAt: 100,
+      chunkSize: 100,
+    });
+    const fresh = await tusUpload(app, Buffer.alloc(900, 3), {
+      headers: API,
+      filename: "c.jpg",
+      filetype: "image/jpeg",
+      stopAt: 100,
+      chunkSize: 100,
+    });
     const files = path.join(dataDir, "app-data", "uploads", "tus", "files");
     const records = path.join(dataDir, "app-data", "uploads", "tus", "finished");
     const old = new Date(Date.now() - 3 * 60 * 60_000);
     for (const id of [done.id, partial.id]) {
-      for (const p of [path.join(files, id), path.join(files, `${id}.json`), path.join(records, `${id}.json`)]) if (existsSync(p)) utimesSync(p, old, old);
+      for (const p of [path.join(files, id), path.join(files, `${id}.json`), path.join(records, `${id}.json`)])
+        if (existsSync(p)) utimesSync(p, old, old);
     }
     const { sweepAbandonedUploads } = await import("../lib/maintenance.js");
     expect(await sweepAbandonedUploads()).toEqual({ resumable: 2 });

@@ -38,7 +38,12 @@ export const ID_MODEL_GPU_CHECKSUM: ModelChecksum = {
   sha256: "02175d4a4fb023077502144c171fef07c8c1c963a265abc0617a24adcca979e4",
 };
 
-const BY_URL = new Map([CLIP_MODEL_CHECKSUM, CLIP_MODEL_GPU_CHECKSUM, ID_MODEL_CHECKSUM, ID_MODEL_GPU_CHECKSUM].map((c) => [c.url, c.sha256]));
+const BY_URL = new Map(
+  [CLIP_MODEL_CHECKSUM, CLIP_MODEL_GPU_CHECKSUM, ID_MODEL_CHECKSUM, ID_MODEL_GPU_CHECKSUM].map((c) => [
+    c.url,
+    c.sha256,
+  ]),
+);
 
 /** The expected sha256 for a download URL, or null when there's nothing to check it against. */
 export function expectedModelSha256(url: string): string | null {

@@ -12,7 +12,10 @@ export async function getUserFileSettings(userId: string): Promise<UserFileSetti
     organize_originals_by_year: boolean;
     organize_originals_by_location: boolean;
     species_naming_styles: string[] | null;
-  }>(`SELECT organize_originals_by_year, organize_originals_by_location, species_naming_styles FROM users WHERE id = $1`, [userId]);
+  }>(
+    `SELECT organize_originals_by_year, organize_originals_by_location, species_naming_styles FROM users WHERE id = $1`,
+    [userId],
+  );
   const row = res.rows[0];
   return {
     organizeByYear: row?.organize_originals_by_year ?? false,

@@ -14,7 +14,9 @@ const REQUEST_TIMEOUT_MS = 180_000;
 // so recomputing a region after a threshold fix reuses the same raw data instead of refetching.
 async function getCached(url: string): Promise<string | null> {
   try {
-    const res = await pool.query<{ response: string }>(`SELECT response FROM gbif_response_cache WHERE url = $1`, [url]);
+    const res = await pool.query<{ response: string }>(`SELECT response FROM gbif_response_cache WHERE url = $1`, [
+      url,
+    ]);
     return res.rows[0]?.response ?? null;
   } catch {
     // The cache is only an optimization: a DB error falls through to a live fetch.
@@ -85,9 +87,10 @@ export async function fetchWithRetry(url: string, init: RequestInit): Promise<Re
     }
     lastResponse = res;
     const retryAfterHeader = Number(res.headers.get("retry-after"));
-    const delayMs = Number.isFinite(retryAfterHeader) && retryAfterHeader > 0
-      ? retryAfterHeader * 1000
-      : Math.min(BASE_DELAY_MS * 2 ** attempt, MAX_DELAY_MS);
+    const delayMs =
+      Number.isFinite(retryAfterHeader) && retryAfterHeader > 0
+        ? retryAfterHeader * 1000
+        : Math.min(BASE_DELAY_MS * 2 ** attempt, MAX_DELAY_MS);
     await new Promise((resolve) => setTimeout(resolve, delayMs));
   }
   if (!lastResponse) throw lastError;

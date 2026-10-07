@@ -3,11 +3,15 @@
 // ASCII fallback plus filename* (RFC 5987): Node rejects non-Latin1 header values.
 export function contentDisposition(filename: string, type: "attachment" | "inline" = "attachment"): string {
   const fallback = filename.replace(/[^\x20-\x7e]/g, "_").replace(/["\\]/g, "_");
-  const encoded = encodeURIComponent(filename).replace(/['()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
+  const encoded = encodeURIComponent(filename).replace(
+    /['()*]/g,
+    (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`,
+  );
   return `${type}; filename="${fallback}"; filename*=UTF-8''${encoded}`;
 }
 
-export type RangeResult = { kind: "full" } | { kind: "partial"; start: number; end: number } | { kind: "unsatisfiable" };
+export type RangeResult =
+  { kind: "full" } | { kind: "partial"; start: number; end: number } | { kind: "unsatisfiable" };
 
 // Only single byte ranges are honored. Multi-range, other units and malformed headers fall
 // back to a full 200 response, as RFC 9110 allows.

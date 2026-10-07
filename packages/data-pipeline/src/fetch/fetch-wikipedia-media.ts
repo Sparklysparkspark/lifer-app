@@ -71,7 +71,9 @@ async function main() {
   const dest = path.join(BUILD_DIR, "wikipedia-media.json");
   writeFileSync(dest, JSON.stringify(results, null, 2));
   const total = Object.values(results).reduce((sum, list) => sum + list.length, 0);
-  console.log(`[wikipedia-media] wrote galleries for ${Object.keys(results).length} species (${total} photos total) to ${dest}`);
+  console.log(
+    `[wikipedia-media] wrote galleries for ${Object.keys(results).length} species (${total} photos total) to ${dest}`,
+  );
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

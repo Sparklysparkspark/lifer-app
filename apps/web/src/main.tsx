@@ -64,21 +64,20 @@ if (invoke) {
 // In the desktop app's local library, sign this window in before the first request (see
 // lib/localApiSession.ts). Resolves at once in a browser. The interface language loads alongside
 // (at once for English), so the first paint is already in it.
-void Promise.allSettled([
-  startLocalApiSession(invoke),
-  applyLocalePreference(readCachedLocalePreference()),
-]).finally(() => {
-  createRoot(document.getElementById("root")!).render(
-    <StrictMode>
-      <ThemeProvider>
-        <BrowserRouter>
-          <AuthProvider>
-            <LocaleBoundary>
-              <App />
-            </LocaleBoundary>
-          </AuthProvider>
-        </BrowserRouter>
-      </ThemeProvider>
-    </StrictMode>,
-  );
-});
+void Promise.allSettled([startLocalApiSession(invoke), applyLocalePreference(readCachedLocalePreference())]).finally(
+  () => {
+    createRoot(document.getElementById("root")!).render(
+      <StrictMode>
+        <ThemeProvider>
+          <BrowserRouter>
+            <AuthProvider>
+              <LocaleBoundary>
+                <App />
+              </LocaleBoundary>
+            </AuthProvider>
+          </BrowserRouter>
+        </ThemeProvider>
+      </StrictMode>,
+    );
+  },
+);

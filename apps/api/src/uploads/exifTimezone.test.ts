@@ -95,4 +95,3 @@ describe("capture time doesn't depend on the server's zone", () => {
     expect(a.wallClock).toBe("2024-01-01T00:30:15");
   });
 });
-

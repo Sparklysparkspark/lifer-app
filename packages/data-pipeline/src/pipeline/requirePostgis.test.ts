@@ -2,7 +2,8 @@ import type { Pool } from "pg";
 import { describe, expect, it } from "vitest";
 import { requirePostgis } from "./requirePostgis.js";
 
-const db = (installed: boolean) => ({ query: async () => ({ rowCount: installed ? 1 : 0, rows: [] }) }) as unknown as Pool;
+const db = (installed: boolean) =>
+  ({ query: async () => ({ rowCount: installed ? 1 : 0, rows: [] }) }) as unknown as Pool;
 
 describe("requirePostgis", () => {
   it("passes when the extension is installed", async () => {

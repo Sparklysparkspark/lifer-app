@@ -15,7 +15,8 @@
 import { setTimeout as sleep } from "node:timers/promises";
 import { findSection, splitSections } from "@lifer/core/species/descriptionText.js";
 
-export const WIKI_USER_AGENT = "LiferDataPipeline/0.9 (https://github.com/Sparklysparkspark/lifer-app; species descriptions)";
+export const WIKI_USER_AGENT =
+  "LiferDataPipeline/0.9 (https://github.com/Sparklysparkspark/lifer-app; species descriptions)";
 /** prop=extracts' exlimit with exintro (the API's maximum). */
 export const INTRO_BATCH = 20;
 /** Titles per prop=info request (the API's maximum for non-bot clients). */
@@ -119,7 +120,8 @@ export class PoliteClient {
       if (body.error) throw new Error(`API error ${body.error.code}: ${body.error.info}`);
       return body;
     }
-    if (throttled) throw new WikiRateLimitedError(`still throttled after ${this.maxRetries} retries: ${new URL(url).host}`);
+    if (throttled)
+      throw new WikiRateLimitedError(`still throttled after ${this.maxRetries} retries: ${new URL(url).host}`);
     throw lastError ?? new Error(`request failed: ${url}`);
   }
 }
@@ -213,7 +215,11 @@ function resolveRequested(
 
 /** Leads (plain text), revision ids and Wikidata items for up to any number of titles, 20 to a
  *  request. Missing, invalid and disambiguation pages map to null. */
-export async function fetchIntros(client: PoliteClient, lang: string, titles: string[]): Promise<Map<string, ArticleIntro | null>> {
+export async function fetchIntros(
+  client: PoliteClient,
+  lang: string,
+  titles: string[],
+): Promise<Map<string, ArticleIntro | null>> {
   const out = new Map<string, ArticleIntro | null>();
   const unique = [...new Set(titles)];
   for (const t of unique) if (!isUsableTitle(t)) out.set(t, null);
@@ -293,7 +299,12 @@ export async function fetchFullExtract(client: PoliteClient, lang: string, title
 
 /** The body of the article's first section whose heading has one of `headings` in it (see
  *  descriptionText.ts findSection), or null. One request. */
-export async function fetchArticleSection(client: PoliteClient, lang: string, title: string, headings: readonly string[]): Promise<string | null> {
+export async function fetchArticleSection(
+  client: PoliteClient,
+  lang: string,
+  title: string,
+  headings: readonly string[],
+): Promise<string | null> {
   const full = await fetchFullExtract(client, lang, title);
   return full ? findSection(splitSections(full), headings) : null;
 }
@@ -354,10 +365,9 @@ export async function resolveTitlesViaWikidata(
   { VALUES ?name { ${names.join(" ")} } ?item wdt:P225 ?name . }
   ?article schema:about ?item ; schema:isPartOf <https://${lang}.wikipedia.org/> ; schema:name ?title .
 }`;
-    const data = await client.json<{ results: { bindings: Array<{ gbif?: { value: string }; name?: { value: string }; title: { value: string } }> } }>(
-      WIKIDATA_SPARQL,
-      { query, format: "json" },
-    );
+    const data = await client.json<{
+      results: { bindings: Array<{ gbif?: { value: string }; name?: { value: string }; title: { value: string } }> };
+    }>(WIKIDATA_SPARQL, { query, format: "json" });
     const byGbif = new Map<string, Set<string>>();
     const byName = new Map<string, Set<string>>();
     for (const b of data.results.bindings) {

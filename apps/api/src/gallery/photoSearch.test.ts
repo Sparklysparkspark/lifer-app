@@ -2,7 +2,15 @@ import { describe, expect, it } from "vitest";
 import { parseSearchQuery, type SpeciesEntry, type PlaceEntry } from "./photoSearch.js";
 
 let n = 0;
-function sp(commonName: string, scientificName: string, taxonClass: string, taxonOrder: string, family: string, aliases: string[] = [], codes: string[] = []): SpeciesEntry {
+function sp(
+  commonName: string,
+  scientificName: string,
+  taxonClass: string,
+  taxonOrder: string,
+  family: string,
+  aliases: string[] = [],
+  codes: string[] = [],
+): SpeciesEntry {
   return { id: `s${++n}`, commonName, scientificName, taxonClass, taxonOrder, family, aliases, codes };
 }
 const species = [
@@ -26,7 +34,13 @@ const places: PlaceEntry[] = [
   { kind: "region", id: "r-on", name: "Ontario" },
   { kind: "location", id: "Prince George", name: "Prince George" },
 ];
-const parse = (q: string) => parseSearchQuery(q, { species, places, latinGroups: new Map([["anatidae", { families: ["anatidae"] }]]), now: new Date("2026-09-25") });
+const parse = (q: string) =>
+  parseSearchQuery(q, {
+    species,
+    places,
+    latinGroups: new Map([["anatidae", { families: ["anatidae"] }]]),
+    now: new Date("2026-09-25"),
+  });
 
 describe("parseSearchQuery", () => {
   it("reads a word that's only a describing word in a name as a picture description", () => {
@@ -112,11 +126,19 @@ describe("parseSearchQuery", () => {
   });
 
   it("in the full search, mixes a partial word's species into the picture results instead", () => {
-    const full = parseSearchQuery("moo", { species, places, latinGroups: new Map() }, { partialWordPicksSpecies: false });
+    const full = parseSearchQuery(
+      "moo",
+      { species, places, latinGroups: new Map() },
+      { partialWordPicksSpecies: false },
+    );
     expect(full.speciesIds).toBeNull();
     expect(full.hintSpeciesIds.has(idOf("Moose"))).toBe(true);
     expect(full.description).toBe("moo");
-    const woodp = parseSearchQuery("woodp", { species, places, latinGroups: new Map() }, { partialWordPicksSpecies: false });
+    const woodp = parseSearchQuery(
+      "woodp",
+      { species, places, latinGroups: new Map() },
+      { partialWordPicksSpecies: false },
+    );
     expect(woodp.hintSpeciesIds.has(idOf("Northern Flicker"))).toBe(true); // in the woodpecker family
   });
 

@@ -42,7 +42,9 @@ export default function MigrationStatusIndicator() {
     <ShowForAWhile key={status.finishedAt} since={status.finishedAt} forMs={OUTCOME_MS}>
       <Pill>
         {status.error ? (
-          <span className="text-rose-700 dark:text-rose-400">{t("status.migration.failed", { error: status.error })}</span>
+          <span className="text-rose-700 dark:text-rose-400">
+            {t("status.migration.failed", { error: status.error })}
+          </span>
         ) : status.cancelled ? (
           <span>{t("status.migration.cancelled", { count: status.migrated })}</span>
         ) : (

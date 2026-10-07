@@ -134,7 +134,8 @@ export function speciesGroupLabel(
   inatIconicTaxon?: string | null,
   namingStyles?: string[],
 ): string {
-  if (isOtherTaxa) return inatIconicTaxon ? otherTaxaGroupLabel(inatIconicTaxon, namingStyles ?? []) : i18n.t("taxa.other");
+  if (isOtherTaxa)
+    return inatIconicTaxon ? otherTaxaGroupLabel(inatIconicTaxon, namingStyles ?? []) : i18n.t("taxa.other");
   if (family && taxonClass === "aves" && BIRD_FAMILY_GROUPS[family]) return i18n.t(BIRD_FAMILY_GROUPS[family]);
   return family ?? i18n.t("taxa.other");
 }

@@ -68,9 +68,17 @@ export async function nearbyZones(
   return shortlisted.filter((z) => {
     // A small island inside a zone's bbox is next to that water, whatever polygon
     // simplification does to the ring distance.
-    const zoneBbox: BoundingBox = { minLon: z.bbox_min_lon, minLat: z.bbox_min_lat, maxLon: z.bbox_max_lon, maxLat: z.bbox_max_lat };
+    const zoneBbox: BoundingBox = {
+      minLon: z.bbox_min_lon,
+      minLat: z.bbox_min_lat,
+      maxLon: z.bbox_max_lon,
+      maxLat: z.bbox_max_lat,
+    };
     // Island-scale only: a large inland region can sit inside a whole basin's bbox too.
-    if (bboxDiagonalDegrees(regionBbox) <= SMALL_ISLAND_MAX_BBOX_DIAGONAL_DEGREES && bboxContains(zoneBbox, regionBbox)) {
+    if (
+      bboxDiagonalDegrees(regionBbox) <= SMALL_ISLAND_MAX_BBOX_DIAGONAL_DEGREES &&
+      bboxContains(zoneBbox, regionBbox)
+    ) {
       return true;
     }
     const zoneRing = parseWktPolygonRing(z.wkt);
@@ -79,6 +87,9 @@ export async function nearbyZones(
     if (!countryRings) return true;
     // The zone's closest point must be on this country's coast: inside it (an inlet) or
     // within tolerance of its boundary.
-    return pointInAnyRing(closestZonePoint, countryRings) || minRingDistance([[closestZonePoint]], countryRings) <= COUNTRY_COASTLINE_TOLERANCE_DEGREES;
+    return (
+      pointInAnyRing(closestZonePoint, countryRings) ||
+      minRingDistance([[closestZonePoint]], countryRings) <= COUNTRY_COASTLINE_TOLERANCE_DEGREES
+    );
   });
 }

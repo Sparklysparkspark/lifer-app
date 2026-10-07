@@ -49,7 +49,14 @@ describe.skipIf(!url)("GET /species search", () => {
       ["Zzquuxa secunda", "Zzquux Sparrow Test", [], "ZQST", null],
       ["Zzquuxa tertia", "Zzquux Sparrow Test Two", [], null, null],
       ["Zzquuxa quarta", "Zzquux Sparrow Test Three", [], null, null],
-    ].map(([sci, common, aliases, aba, ebird], i) => [SP[i], sci as string, common as string, aliases as string[], aba as string | null, ebird as string | null]);
+    ].map(([sci, common, aliases, aba, ebird], i) => [
+      SP[i],
+      sci as string,
+      common as string,
+      aliases as string[],
+      aba as string | null,
+      ebird as string | null,
+    ]);
     for (const [i, [id, sci, common, aliases, aba, ebird]] of rows.entries()) {
       await db.query(
         `INSERT INTO species (id, gbif_key, scientific_name, common_name, common_name_aliases, aba_code, ebird_code, taxon_class, family)
@@ -58,7 +65,9 @@ describe.skipIf(!url)("GET /species search", () => {
       );
     }
     // Trigger path: a synonym added after the species row exists.
-    await db.query(`INSERT INTO species_synonyms (species_id, synonym_name) VALUES ($1, 'Oldgenus zzquuxorum')`, [SP[1]]);
+    await db.query(`INSERT INTO species_synonyms (species_id, synonym_name) VALUES ($1, 'Oldgenus zzquuxorum')`, [
+      SP[1],
+    ]);
     await db.query(`INSERT INTO region_species (region_id, species_id) VALUES ($1, $2)`, [REGION, SP[3]]);
     await db.query(`INSERT INTO user_species (user_id, species_id, state) VALUES ($1, $2, 'collected')`, [USER, SP[2]]);
 

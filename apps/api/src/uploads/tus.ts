@@ -29,7 +29,8 @@ export async function tusUploadRoutes(parent: FastifyInstance): Promise<void> {
         await tusServer(routePath).handle(request.raw, reply.raw);
       } catch (err) {
         request.log.error({ err }, "Resumable upload failed");
-        if (!reply.raw.headersSent) reply.raw.writeHead(500, { "Content-Type": "text/plain", "Tus-Resumable": "1.0.0" });
+        if (!reply.raw.headersSent)
+          reply.raw.writeHead(500, { "Content-Type": "text/plain", "Tus-Resumable": "1.0.0" });
         reply.raw.end("Internal server error\n");
       }
     };

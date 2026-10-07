@@ -112,7 +112,6 @@ const ACTIONS: StaticEntry[] = [
   },
 ];
 
-
 export default function CommandPalette({
   onClose,
   onInatSearch,

@@ -12,7 +12,11 @@ const Updated = Type.Object({ ok: Type.Boolean(), updated: Type.Optional(Type.In
 
 // Tags are written into each photo's managed files as keywords (uploads/exif.ts). A change to
 // many photos at once is written in the background, a few at a time: the tags are already saved.
-function syncFilesInBackground(userId: string, captureIds: string[], log: { error: (obj: object, msg: string) => void }): void {
+function syncFilesInBackground(
+  userId: string,
+  captureIds: string[],
+  log: { error: (obj: object, msg: string) => void },
+): void {
   const limit = createLimiter(4);
   void Promise.all(captureIds.map((id) => limit(() => syncCaptureXmpSidecarsLogged(userId, id)))).catch((err) =>
     log.error({ err }, "Writing changed tags to photo files failed"),
@@ -89,7 +93,11 @@ export async function captureTagRoutes(fastify: FastifyInstance): Promise<void> 
       );
       // Sidecar sync can be slow for a large selection; tags are already saved, so sync in the
       // background, only for rows this user owns.
-      syncFilesInBackground(userId, res.rows.map((r) => r.id), request.log);
+      syncFilesInBackground(
+        userId,
+        res.rows.map((r) => r.id),
+        request.log,
+      );
       return { ok: true, updated: res.rowCount ?? 0 };
     },
   );
@@ -140,7 +148,11 @@ export async function captureTagRoutes(fastify: FastifyInstance): Promise<void> 
        RETURNING id`,
         [from, to, userId],
       );
-      syncFilesInBackground(userId, res.rows.map((r) => r.id), request.log);
+      syncFilesInBackground(
+        userId,
+        res.rows.map((r) => r.id),
+        request.log,
+      );
       return { ok: true, updated: res.rowCount ?? 0 };
     },
   );
@@ -164,7 +176,11 @@ export async function captureTagRoutes(fastify: FastifyInstance): Promise<void> 
         `UPDATE captures SET tags = array_remove(tags, $1) WHERE user_id = $2 AND $1 = ANY(tags) RETURNING id`,
         [tag, userId],
       );
-      syncFilesInBackground(userId, res.rows.map((r) => r.id), request.log);
+      syncFilesInBackground(
+        userId,
+        res.rows.map((r) => r.id),
+        request.log,
+      );
       return { ok: true, updated: res.rowCount ?? 0 };
     },
   );

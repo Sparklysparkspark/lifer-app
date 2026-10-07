@@ -82,14 +82,15 @@ export async function regionHiddenSpeciesRoutes(fastify: FastifyInstance): Promi
       const userId = request.user!.id;
       const { regionId, speciesId } = request.params;
       // The client confirms which provinces to unhide too and passes them here, so it's one call.
-      const cascadeRegionIds = request.query.cascadeRegionIds ? request.query.cascadeRegionIds.split(",").filter(Boolean) : [];
+      const cascadeRegionIds = request.query.cascadeRegionIds
+        ? request.query.cascadeRegionIds.split(",").filter(Boolean)
+        : [];
       if (!cascadeRegionIds.every(isUuid)) return reply.code(404).send({ error: "Region not found" });
       const regionIds = [regionId, ...cascadeRegionIds];
-      await pool.query(`DELETE FROM region_species_hidden WHERE user_id = $1 AND region_id = ANY($2) AND species_id = $3`, [
-        userId,
-        regionIds,
-        speciesId,
-      ]);
+      await pool.query(
+        `DELETE FROM region_species_hidden WHERE user_id = $1 AND region_id = ANY($2) AND species_id = $3`,
+        [userId, regionIds, speciesId],
+      );
       return { ok: true };
     },
   );

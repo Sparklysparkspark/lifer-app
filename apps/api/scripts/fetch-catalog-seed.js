@@ -38,7 +38,9 @@ async function main() {
 
   const seedUrl = manifest.seed ? new URL(manifest.seed.url, CATALOG_MANIFEST_URL).toString() : LEGACY_SEED_URL;
   if (manifest.seed?.bytes > MAX_SEED_BYTES) {
-    throw new Error(`Published seed is ${Math.round(manifest.seed.bytes / 1048576)} MB, over the ${MAX_SEED_BYTES / 1048576} MB limit`);
+    throw new Error(
+      `Published seed is ${Math.round(manifest.seed.bytes / 1048576)} MB, over the ${MAX_SEED_BYTES / 1048576} MB limit`,
+    );
   }
   const dest = path.join(destDir, "lifer-catalog-seed.sql.gz");
   console.log(`[fetch-catalog-seed] downloading ${seedUrl}`);
@@ -49,7 +51,9 @@ async function main() {
   const bytes = statSync(dest).size;
   if (bytes > MAX_SEED_BYTES) {
     rmSync(dest);
-    throw new Error(`Seed is ${Math.round(bytes / 1048576)} MB, over the ${MAX_SEED_BYTES / 1048576} MB limit. Republish it with build-catalog-seed.ts.`);
+    throw new Error(
+      `Seed is ${Math.round(bytes / 1048576)} MB, over the ${MAX_SEED_BYTES / 1048576} MB limit. Republish it with build-catalog-seed.ts.`,
+    );
   }
   if (manifest.seed?.sha256 && (await sha256(dest)) !== manifest.seed.sha256) {
     rmSync(dest);
@@ -73,7 +77,10 @@ async function main() {
 const HEAVY_REGION_COLUMNS = new Set(["boundary_geojson", "gbif_area_wkt"]);
 
 async function extractRegions(seedPath, outPath) {
-  const lines = readline.createInterface({ input: createReadStream(seedPath).pipe(createGunzip()), crlfDelay: Infinity });
+  const lines = readline.createInterface({
+    input: createReadStream(seedPath).pipe(createGunzip()),
+    crlfDelay: Infinity,
+  });
   const out = [];
   let keep = null; // column indexes to keep, once the regions header is found
   for await (const line of lines) {

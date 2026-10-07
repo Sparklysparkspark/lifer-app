@@ -50,7 +50,12 @@ export async function sendCaptureToServer(
   baseUrl: string,
   authHeaders: Record<string, string>,
   capture: { speciesId: string; photoPath: string; rawPath: string | null },
-  opts: { signal?: AbortSignal; chunkState?: { size: number }; tus?: Partial<TusClientOptions>; dispatcher?: Agent } = {},
+  opts: {
+    signal?: AbortSignal;
+    chunkState?: { size: number };
+    tus?: Partial<TusClientOptions>;
+    dispatcher?: Agent;
+  } = {},
 ): Promise<boolean> {
   const tusOpts: TusClientOptions = {
     endpoint: `${baseUrl}/api/uploads/tus`,
@@ -62,7 +67,11 @@ export async function sendCaptureToServer(
   };
   const send = (filePath: string) => {
     const format = photoFormatFor(filePath);
-    return tusUploadFile(filePath, { filename: path.basename(filePath), filetype: format ? PHOTO_FORMATS[format].mimeTypes[0] : null }, tusOpts);
+    return tusUploadFile(
+      filePath,
+      { filename: path.basename(filePath), filetype: format ? PHOTO_FORMATS[format].mimeTypes[0] : null },
+      tusOpts,
+    );
   };
   const form = new FormData();
   form.set("speciesId", capture.speciesId);
@@ -78,7 +87,9 @@ export async function sendCaptureToServer(
     headers: authHeaders,
     body: form,
     ...viaDispatcher(opts.dispatcher),
-    signal: opts.signal ? AbortSignal.any([opts.signal, AbortSignal.timeout(15 * 60_000)]) : AbortSignal.timeout(15 * 60_000),
+    signal: opts.signal
+      ? AbortSignal.any([opts.signal, AbortSignal.timeout(15 * 60_000)])
+      : AbortSignal.timeout(15 * 60_000),
   });
   await res.arrayBuffer().catch(() => {});
   return res.ok;
@@ -182,7 +193,12 @@ export async function migrateToServerRoutes(fastify: FastifyInstance): Promise<v
       }
       try {
         const rawPath = row.raw_ref && existsSync(row.raw_ref) ? row.raw_ref : null;
-        const ok = await sendCaptureToServer(baseUrl, authHeaders, { speciesId: remoteSpeciesId, photoPath: row.jpeg_ref, rawPath }, { signal: ctx.signal, chunkState, dispatcher });
+        const ok = await sendCaptureToServer(
+          baseUrl,
+          authHeaders,
+          { speciesId: remoteSpeciesId, photoPath: row.jpeg_ref, rawPath },
+          { signal: ctx.signal, chunkState, dispatcher },
+        );
         await markCapture(row.capture_id, ok ? "migrated" : "failed");
         if (ok) job.migrated++;
         else job.failed++;
@@ -276,14 +292,18 @@ export async function migrateToServerRoutes(fastify: FastifyInstance): Promise<v
       } catch (err) {
         await dispatcher.close().catch(() => {});
         const refusedAddress = (err as Error).cause instanceof RefusedAddressError;
-        if (refusedAddress) return reply.code(400).send({ error: "Refusing to migrate to a loopback or link-local address" });
+        if (refusedAddress)
+          return reply.code(400).send({ error: "Refusing to migrate to a loopback or link-local address" });
         return reply.code(400).send({ error: `Couldn't reach that server: ${(err as Error).message}` });
       }
 
       // Claimed after the slow login; start() is atomic, so a second request gets a 409.
       const userId = request.user!.id;
       const started = migrationJob.start(
-        (ctx) => runMigrationJob(ctx, baseUrl, cookieHeader, userId, dispatcher).finally(() => dispatcher.close().catch(() => {})),
+        (ctx) =>
+          runMigrationJob(ctx, baseUrl, cookieHeader, userId, dispatcher).finally(() =>
+            dispatcher.close().catch(() => {}),
+          ),
         { serverUrl: baseUrl },
       );
       if (!started) {

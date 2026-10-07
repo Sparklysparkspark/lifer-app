@@ -17,7 +17,10 @@ const USER = "dddddddd-0000-4000-8000-000000000130";
 const SPECIES = "dddddddd-0000-4000-8000-00000000000d";
 const COMMON = "Reimport Test Plover";
 const TAKEN = "2024:06:01 08:30:00";
-const hasHeicEncoder = process.platform === "darwin" ? existsSync("/usr/bin/sips") : existsSync("/usr/bin/heif-enc") || existsSync("/opt/homebrew/bin/heif-enc");
+const hasHeicEncoder =
+  process.platform === "darwin"
+    ? existsSync("/usr/bin/sips")
+    : existsSync("/usr/bin/heif-enc") || existsSync("/opt/homebrew/bin/heif-enc");
 
 describe.skipIf(!url)("library reimport of TIFF, RAW and HEIC", () => {
   let db: pg.Pool;
@@ -31,7 +34,9 @@ describe.skipIf(!url)("library reimport of TIFF, RAW and HEIC", () => {
 
   async function cleanup() {
     await db.query(`DELETE FROM user_species WHERE user_id = $1`, [USER]);
-    await db.query(`DELETE FROM originals WHERE capture_id IN (SELECT id FROM captures_all WHERE user_id = $1)`, [USER]);
+    await db.query(`DELETE FROM originals WHERE capture_id IN (SELECT id FROM captures_all WHERE user_id = $1)`, [
+      USER,
+    ]);
     await db.query(`DELETE FROM captures_all WHERE user_id = $1`, [USER]);
     await db.query(`DELETE FROM users WHERE id = $1`, [USER]);
   }
@@ -57,13 +62,16 @@ describe.skipIf(!url)("library reimport of TIFF, RAW and HEIC", () => {
     const species = path.join(dataDir, "Birds", COMMON);
     mkdirSync(path.join(species, "Adjusted"), { recursive: true });
     mkdirSync(path.join(species, "RAW"), { recursive: true });
-    const img = (shade: number) => sharp({ create: { width: 96, height: 64, channels: 3, background: { r: shade, g: 120, b: 60 } } });
+    const img = (shade: number) =>
+      sharp({ create: { width: 96, height: 64, channels: 3, background: { r: shade, g: 120, b: 60 } } });
 
     // Same name in both folders: only the content tells the edit from the sensor data.
     editedTiff = path.join(species, "Adjusted", "IMG_0001.tif");
     await img(40).tiff().toFile(editedTiff);
     // sharp writes no DateTimeOriginal into a TIFF, and RAW pairing needs the capture time.
-    await exiftool.write(editedTiff, { "XMP-dc:Subject": [COMMON], DateTimeOriginal: TAKEN } as WriteTags, { writeArgs: ["-overwrite_original"] });
+    await exiftool.write(editedTiff, { "XMP-dc:Subject": [COMMON], DateTimeOriginal: TAKEN } as WriteTags, {
+      writeArgs: ["-overwrite_original"],
+    });
     rawTiff = path.join(species, "RAW", "IMG_0001.tif");
     writeFileSync(rawTiff, setTiffPhotometric(await img(41).tiff().toBuffer(), 32803));
     await exiftool.write(rawTiff, { DateTimeOriginal: TAKEN } as WriteTags, { writeArgs: ["-overwrite_original"] });
@@ -72,10 +80,18 @@ describe.skipIf(!url)("library reimport of TIFF, RAW and HEIC", () => {
     if (hasHeicEncoder) {
       const src = path.join(dataDir, "..", `${path.basename(dataDir)}-heic-src.jpg`);
       await img(200).jpeg().toFile(src);
-      if (process.platform === "darwin") execFileSync("/usr/bin/sips", ["-s", "format", "heic", src, "--out", heic], { stdio: "ignore" });
-      else execFileSync(existsSync("/usr/bin/heif-enc") ? "/usr/bin/heif-enc" : "/opt/homebrew/bin/heif-enc", [src, "-o", heic], { stdio: "ignore" });
+      if (process.platform === "darwin")
+        execFileSync("/usr/bin/sips", ["-s", "format", "heic", src, "--out", heic], { stdio: "ignore" });
+      else
+        execFileSync(
+          existsSync("/usr/bin/heif-enc") ? "/usr/bin/heif-enc" : "/opt/homebrew/bin/heif-enc",
+          [src, "-o", heic],
+          { stdio: "ignore" },
+        );
       rmSync(src, { force: true });
-      await exiftool.write(heic, { "XMP-dc:Subject": [COMMON], DateTimeOriginal: "2024:06:01 09:00:00" } as WriteTags, { writeArgs: ["-overwrite_original"] });
+      await exiftool.write(heic, { "XMP-dc:Subject": [COMMON], DateTimeOriginal: "2024:06:01 09:00:00" } as WriteTags, {
+        writeArgs: ["-overwrite_original"],
+      });
     }
 
     const { uploadTempDir } = await import("../lib/uploadWorkDir.js");
@@ -105,10 +121,16 @@ describe.skipIf(!url)("library reimport of TIFF, RAW and HEIC", () => {
     const tiffOutcome = await reimport.recoverJpeg(USER, editedTiff);
     expect(tiffOutcome).toMatchObject({ status: "recovered", scientificName: "Testus reimportensis" });
     if (tiffOutcome.status !== "recovered") return;
-    const photo = await db.query<{ width: number; height: number; display_path: string }>(`SELECT width, height, display_path FROM photos WHERE id = $1`, [tiffOutcome.photoId]);
+    const photo = await db.query<{ width: number; height: number; display_path: string }>(
+      `SELECT width, height, display_path FROM photos WHERE id = $1`,
+      [tiffOutcome.photoId],
+    );
     expect(photo.rows[0]).toMatchObject({ width: 96, height: 64 });
     expect(existsSync(photo.rows[0].display_path)).toBe(true);
-    const original = await db.query<{ kind: string; ref: string; file_size: string }>(`SELECT kind, ref, file_size FROM originals WHERE capture_id = $1`, [tiffOutcome.captureId]);
+    const original = await db.query<{ kind: string; ref: string; file_size: string }>(
+      `SELECT kind, ref, file_size FROM originals WHERE capture_id = $1`,
+      [tiffOutcome.captureId],
+    );
     expect(original.rows[0]).toMatchObject({ kind: "jpeg", ref: editedTiff });
     expect(Number(original.rows[0].file_size)).toBe(statSync(editedTiff).size);
 
@@ -120,15 +142,24 @@ describe.skipIf(!url)("library reimport of TIFF, RAW and HEIC", () => {
     expect(rawOutcome).toEqual({ status: "recovered", captureId: tiffOutcome.captureId });
   }, 60_000);
 
-  it.skipIf(!hasHeicEncoder)("recovers a HEIC from its keywords with upright derivatives", async () => {
-    const outcome = await reimport.recoverJpeg(USER, heic);
-    expect(outcome).toMatchObject({ status: "recovered", scientificName: "Testus reimportensis" });
-    if (outcome.status !== "recovered") return;
-    const photo = await db.query<{ width: number; height: number; display_path: string }>(`SELECT width, height, display_path FROM photos WHERE id = $1`, [outcome.photoId]);
-    expect(photo.rows[0]).toMatchObject({ width: 96, height: 64 });
-    const display = await sharp(photo.rows[0].display_path).metadata();
-    expect(display.format).toBe("webp");
-    const capture = await db.query<{ taken_at: Date | null }>(`SELECT taken_at FROM captures WHERE id = $1`, [outcome.captureId]);
-    expect(capture.rows[0].taken_at).toBeTruthy();
-  }, 60_000);
+  it.skipIf(!hasHeicEncoder)(
+    "recovers a HEIC from its keywords with upright derivatives",
+    async () => {
+      const outcome = await reimport.recoverJpeg(USER, heic);
+      expect(outcome).toMatchObject({ status: "recovered", scientificName: "Testus reimportensis" });
+      if (outcome.status !== "recovered") return;
+      const photo = await db.query<{ width: number; height: number; display_path: string }>(
+        `SELECT width, height, display_path FROM photos WHERE id = $1`,
+        [outcome.photoId],
+      );
+      expect(photo.rows[0]).toMatchObject({ width: 96, height: 64 });
+      const display = await sharp(photo.rows[0].display_path).metadata();
+      expect(display.format).toBe("webp");
+      const capture = await db.query<{ taken_at: Date | null }>(`SELECT taken_at FROM captures WHERE id = $1`, [
+        outcome.captureId,
+      ]);
+      expect(capture.rows[0].taken_at).toBeTruthy();
+    },
+    60_000,
+  );
 });

@@ -46,9 +46,16 @@ export function stemOf(filename: string): string {
 
 // Links a RAW sibling to one capture, after its import and again on each rescan, so a RAW added
 // later is still picked up. Returns whether a link was made.
-export async function linkRawForCapture(captureId: string, jpegFileName: string, takenAt: Date | null, sourceFolder: string): Promise<boolean> {
+export async function linkRawForCapture(
+  captureId: string,
+  jpegFileName: string,
+  takenAt: Date | null,
+  sourceFolder: string,
+): Promise<boolean> {
   if (!takenAt) return false;
-  const already = await pool.query(`SELECT 1 FROM originals WHERE capture_id = $1 AND kind = 'raw' LIMIT 1`, [captureId]);
+  const already = await pool.query(`SELECT 1 FROM originals WHERE capture_id = $1 AND kind = 'raw' LIMIT 1`, [
+    captureId,
+  ]);
   if (already.rows.length > 0) return false;
 
   const stem = stemOf(jpegFileName);
@@ -98,7 +105,12 @@ export async function autoLinkMissingRaws(tripId: string, sourceFolder: string):
   );
   let linked = 0;
   for (const row of res.rows) {
-    const ok = await linkRawForCapture(row.id, path.basename(row.jpeg_ref), row.taken_at ? new Date(row.taken_at) : null, sourceFolder);
+    const ok = await linkRawForCapture(
+      row.id,
+      path.basename(row.jpeg_ref),
+      row.taken_at ? new Date(row.taken_at) : null,
+      sourceFolder,
+    );
     if (ok) linked++;
   }
   return linked;

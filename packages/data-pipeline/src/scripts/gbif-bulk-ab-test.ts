@@ -140,7 +140,9 @@ async function main() {
      WHERE r.name = $1`,
     [countryArg],
   );
-  const live = new Map(liveRes.rows.map((r) => [r.scientific_name, { isVagrant: r.is_vagrant, recordCount: r.local_frequency }]));
+  const live = new Map(
+    liveRes.rows.map((r) => [r.scientific_name, { isVagrant: r.is_vagrant, recordCount: r.local_frequency }]),
+  );
   console.log(`[ab-test] live (existing) computation: ${live.size} species for ${countryArg}`);
 
   const onlyLocal = [...local.keys()].filter((s) => !live.has(s));
@@ -157,7 +159,8 @@ async function main() {
 
   if (onlyLocal.length > 0) console.log(`\n  sample only-in-local (up to 20): ${onlyLocal.slice(0, 20).join(", ")}`);
   if (onlyLive.length > 0) console.log(`\n  sample only-in-live (up to 20): ${onlyLive.slice(0, 20).join(", ")}`);
-  if (vagrancyMismatches.length > 0) console.log(`\n  sample vagrancy mismatches (up to 20): ${vagrancyMismatches.slice(0, 20).join(", ")}`);
+  if (vagrancyMismatches.length > 0)
+    console.log(`\n  sample vagrancy mismatches (up to 20): ${vagrancyMismatches.slice(0, 20).join(", ")}`);
 
   await pool.end();
 }

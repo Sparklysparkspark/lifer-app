@@ -167,15 +167,11 @@ export default function RawUpload({
                 {r.error ? (
                   <span className="text-rose-700 dark:text-rose-400">{r.error}</span>
                 ) : r.collision ? (
-                  <span className="text-amber-600">
-                    {t("upload.raw.collision")}
-                  </span>
+                  <span className="text-amber-600">{t("upload.raw.collision")}</span>
                 ) : r.duplicate ? (
                   <span className="text-muted">{t("upload.raw.duplicate")}</span>
                 ) : r.filed ? (
-                  <span className="text-emerald-700">
-                    {t("upload.raw.addedToFolder", { name: rowSpeciesName(r) })}
-                  </span>
+                  <span className="text-emerald-700">{t("upload.raw.addedToFolder", { name: rowSpeciesName(r) })}</span>
                 ) : (
                   <span className="text-emerald-700">{t("upload.raw.filedUnder", { name: rowSpeciesName(r) })}</span>
                 )}

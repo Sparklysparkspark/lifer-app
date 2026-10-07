@@ -305,9 +305,7 @@ function AlbumsPanel() {
           </>
         }
       >
-        <p className="text-sm text-muted">
-          {t("albums.delete.body")}
-        </p>
+        <p className="text-sm text-muted">{t("albums.delete.body")}</p>
       </Modal>
     </>
   );
@@ -538,11 +536,7 @@ function TripsPanel() {
                   {t("trips.create.buildHint", { name: name.trim() || t("trips.create.untitled") })}
                 </p>
               )}
-              {!building && (
-                <p className="mt-1 text-xs text-muted">
-                  {t("trips.create.folderHint")}
-                </p>
-              )}
+              {!building && <p className="mt-1 text-xs text-muted">{t("trips.create.folderHint")}</p>}
             </div>
             {!building && chosenFolder && (
               <div>
@@ -569,9 +563,7 @@ function TripsPanel() {
                     </button>
                   </div>
                 )}
-                <p className="mt-1 text-xs text-muted">
-                  {t("trips.create.destinationHint")}
-                </p>
+                <p className="mt-1 text-xs text-muted">{t("trips.create.destinationHint")}</p>
               </div>
             )}
             <FormMessage error={error} />
@@ -664,9 +656,7 @@ function TripsPanel() {
           </>
         }
       >
-        <p className="text-sm text-muted">
-          {t("trips.delete.body")}
-        </p>
+        <p className="text-sm text-muted">{t("trips.delete.body")}</p>
       </Modal>
     </>
   );

@@ -15,7 +15,12 @@ import { getInstallSetting, setInstallSetting } from "../lib/installSettings.js"
 import { createJob, describeError, type JobContext } from "../lib/job.js";
 import { copyInto, copyTextField } from "../lib/pgCopy.js";
 import { downloadResumable } from "@lifer/core/lib/resumableDownload.js";
-import { fetchCatalogManifest, resolveCatalogAssetUrl, type CatalogManifest, type VectorAsset } from "./catalogManifest.js";
+import {
+  fetchCatalogManifest,
+  resolveCatalogAssetUrl,
+  type CatalogManifest,
+  type VectorAsset,
+} from "./catalogManifest.js";
 import { invalidateSuggestionCache, isModelDownloaded, resetIdModelReadiness } from "@lifer/core/species/embeddings.js";
 import { idModel } from "@lifer/core/species/idModel.js";
 import { fetchAndApplySpeciesVectorAsset, type VectorAssetResult } from "./speciesVectorAsset.js";
@@ -83,7 +88,8 @@ export function runGalleryEmbeddingsUpdate(
   ctx: Ctx,
   opts: { manifest?: CatalogManifest; force?: boolean } = {},
 ): Promise<ReferenceVectorsResult> {
-  if (running > 0) ctx.update({ phase: "waiting_for_vectors", downloadedBytes: null, totalBytes: null, processed: null, total: null });
+  if (running > 0)
+    ctx.update({ phase: "waiting_for_vectors", downloadedBytes: null, totalBytes: null, processed: null, total: null });
   running++;
   const run = lock
     .then(() => {
@@ -117,7 +123,10 @@ async function doUpdate(
   opts: { manifest?: CatalogManifest; force?: boolean },
 ): Promise<ReferenceVectorsResult> {
   if (!isModelDownloaded()) {
-    const unavailable: VectorAssetResult = { status: "unavailable", reason: "The species-matching model isn't downloaded" };
+    const unavailable: VectorAssetResult = {
+      status: "unavailable",
+      reason: "The species-matching model isn't downloaded",
+    };
     return { gallery: unavailable, speciesImage: unavailable, speciesText: unavailable };
   }
   const manifest = opts.manifest ?? (await fetchCatalogManifest(ctx.signal));
@@ -239,7 +248,9 @@ async function doIdModelUpdate(
     ),
   );
   ctx.throwIfCancelled();
-  const gallery = await attempt(() => doGalleryUpdate(pool, ctx, manifest, manifest.idGalleryEmbeddings, ID_GALLERY, force));
+  const gallery = await attempt(() =>
+    doGalleryUpdate(pool, ctx, manifest, manifest.idGalleryEmbeddings, ID_GALLERY, force),
+  );
   return { gallery, speciesImage, speciesText };
 }
 
@@ -259,7 +270,8 @@ async function doGalleryUpdate(
     };
   }
   const appliedTag = `${manifest.version}:${asset.modelVersion}`;
-  if (!force && (await getInstallSetting<string>(pool, target.appliedKey)) === appliedTag) return { status: "up_to_date" };
+  if (!force && (await getInstallSetting<string>(pool, target.appliedKey)) === appliedTag)
+    return { status: "up_to_date" };
 
   mkdirSync(DOWNLOAD_DIR, { recursive: true });
   const dest = path.join(DOWNLOAD_DIR, path.basename(new URL(resolveCatalogAssetUrl(asset.url)).pathname));

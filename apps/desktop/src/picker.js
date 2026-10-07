@@ -60,8 +60,14 @@ function isPrivateHost(hostname) {
   const v4 = host.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/);
   if (v4) {
     const [a, b] = [Number(v4[1]), Number(v4[2])];
-    return a === 127 || a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) ||
-      (a === 169 && b === 254) || (a === 100 && b >= 64 && b <= 127);
+    return (
+      a === 127 ||
+      a === 10 ||
+      (a === 172 && b >= 16 && b <= 31) ||
+      (a === 192 && b === 168) ||
+      (a === 169 && b === 254) ||
+      (a === 100 && b >= 64 && b <= 127)
+    );
   }
   if (host.includes(":")) return host === "::1" || /^f[cd]/.test(host) || /^fe[89ab]/.test(host);
   return false;
@@ -96,7 +102,9 @@ document.getElementById("connect").addEventListener("click", async () => {
   errorEl.hidden = true;
   const rawServerUrl = serverUrlInput.value.trim();
   if (!rawServerUrl) {
-    showError(ipSwitchingCheckbox.checked ? "Enter your local address." : "Enter a full URL, starting with http:// or https://");
+    showError(
+      ipSwitchingCheckbox.checked ? "Enter your local address." : "Enter a full URL, starting with http:// or https://",
+    );
     return;
   }
 

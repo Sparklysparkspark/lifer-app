@@ -120,7 +120,8 @@ export async function* decodeGalleryEmbeddings(
 
     if (!header) {
       if (pending.length < 14) continue;
-      if (pending.toString("ascii", 0, 4) !== GALLERY_EMBEDDINGS_MAGIC) throw new Error("Not a Lifer gallery embeddings file");
+      if (pending.toString("ascii", 0, 4) !== GALLERY_EMBEDDINGS_MAGIC)
+        throw new Error("Not a Lifer gallery embeddings file");
       const formatVersion = pending.readUInt16LE(4);
       if (formatVersion !== GALLERY_EMBEDDINGS_FORMAT_VERSION) {
         throw new Error(`Unsupported gallery embeddings format version ${formatVersion}`);
@@ -146,7 +147,8 @@ export async function* decodeGalleryEmbeddings(
       const photoUrl = pending.toString("utf8", pos + 18, pos + 18 + urlLen);
       const embedding = new Array<number>(header.dimension);
       let off = pos + 18 + urlLen;
-      for (let i = 0; i < header.dimension; i++, off += 2) embedding[i] = float16BitsToFloat32(pending.readUInt16LE(off));
+      for (let i = 0; i < header.dimension; i++, off += 2)
+        embedding[i] = float16BitsToFloat32(pending.readUInt16LE(off));
       yield { speciesId, photoUrl, embedding };
       seen++;
       pos += recLen;
@@ -156,5 +158,6 @@ export async function* decodeGalleryEmbeddings(
 
   if (!header) throw new Error("Gallery embeddings file is empty or truncated");
   if (pending.length > 0) throw new Error("Gallery embeddings file ends mid-record (truncated download?)");
-  if (seen !== header.rowCount) throw new Error(`Gallery embeddings file has ${seen} rows, header says ${header.rowCount}`);
+  if (seen !== header.rowCount)
+    throw new Error(`Gallery embeddings file has ${seen} rows, header says ${header.rowCount}`);
 }

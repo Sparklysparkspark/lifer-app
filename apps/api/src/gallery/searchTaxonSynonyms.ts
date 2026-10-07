@@ -31,7 +31,10 @@ const GROUPS: Array<[string[], GroupPredicate]> = [
   [["mammal", "mammals"], { classes: ["mammalia", "aquatic_mammalia"] }],
   [["fish", "fishes"], { classes: ["actinopterygii", "elasmobranchii"] }],
   [["shark", "sharks", "ray", "rays", "skate", "skates"], { classes: ["elasmobranchii"] }],
-  [["whale", "whales", "dolphin", "dolphins", "porpoise", "porpoises", "marine mammal", "marine mammals"], { classes: ["aquatic_mammalia"] }],
+  [
+    ["whale", "whales", "dolphin", "dolphins", "porpoise", "porpoises", "marine mammal", "marine mammals"],
+    { classes: ["aquatic_mammalia"] },
+  ],
   [["seal", "seals", "sea lion", "sea lions"], { families: ["phocidae", "otariidae"] }],
   [["amphibian", "amphibians"], { classes: ["amphibia"] }],
   [["frog", "frogs", "toad", "toads"], { orders: ["anura"] }],
@@ -39,7 +42,10 @@ const GROUPS: Array<[string[], GroupPredicate]> = [
   [["reptile", "reptiles"], { classes: ["squamata", "testudines"] }],
   [["snake", "snakes", "serpent", "serpents"], { families: SNAKE_FAMILIES }],
   [["lizard", "lizards"], { classes: ["squamata"], excludeFamilies: SNAKE_FAMILIES, excludeOrders: ["crocodylia"] }],
-  [["crocodile", "crocodiles", "alligator", "alligators", "caiman", "caimans", "crocodilian", "crocodilians"], { orders: ["crocodylia"] }],
+  [
+    ["crocodile", "crocodiles", "alligator", "alligators", "caiman", "caimans", "crocodilian", "crocodilians"],
+    { orders: ["crocodylia"] },
+  ],
   [["turtle", "turtles", "tortoise", "tortoises", "terrapin", "terrapins"], { classes: ["testudines"] }],
   [["raptor", "raptors", "bird of prey", "birds of prey"], { orders: RAPTOR_ORDERS }],
   [["owl", "owls"], { orders: ["strigiformes"] }],
@@ -49,9 +55,22 @@ const GROUPS: Array<[string[], GroupPredicate]> = [
   [["goose", "geese"], { families: ["anatidae"], includeNameWords: ["goose", "geese", "brant"] }],
   [
     ["shorebird", "shorebirds", "wader", "waders"],
-    { families: ["scolopacidae", "charadriidae", "haematopodidae", "recurvirostridae", "jacanidae", "burhinidae", "glareolidae"] },
+    {
+      families: [
+        "scolopacidae",
+        "charadriidae",
+        "haematopodidae",
+        "recurvirostridae",
+        "jacanidae",
+        "burhinidae",
+        "glareolidae",
+      ],
+    },
   ],
-  [["songbird", "songbirds", "passerine", "passerines", "perching bird", "perching birds"], { orders: ["passeriformes"] }],
+  [
+    ["songbird", "songbirds", "passerine", "passerines", "perching bird", "perching birds"],
+    { orders: ["passeriformes"] },
+  ],
   [
     ["seabird", "seabirds"],
     {
@@ -65,7 +84,10 @@ const GROUPS: Array<[string[], GroupPredicate]> = [
   [["rodent", "rodents"], { orders: ["rodentia"] }],
   [["bat", "bats"], { orders: ["chiroptera"] }],
   [["carnivore", "carnivores"], { orders: ["carnivora"] }],
-  [["ungulate", "ungulates", "hoofed animal", "hoofed animals"], { orders: ["artiodactyla", "perissodactyla", "cetartiodactyla"] }],
+  [
+    ["ungulate", "ungulates", "hoofed animal", "hoofed animals"],
+    { orders: ["artiodactyla", "perissodactyla", "cetartiodactyla"] },
+  ],
   [["primate", "primates", "monkey", "monkeys"], { orders: ["primates"] }],
   [["marsupial", "marsupials"], { orders: ["didelphimorphia", "diprotodontia", "dasyuromorphia", "peramelemorphia"] }],
   [["cat family", "feline", "felines", "wild cat", "wild cats"], { families: ["felidae"] }],
@@ -83,9 +105,15 @@ const GROUPS: Array<[string[], GroupPredicate]> = [
   [["mushroom", "mushrooms", "fungus", "fungi"], { classes: ["fungi"] }],
   [["coral", "corals"], { classes: ["corals"] }],
   [["jellyfish", "jelly", "jellies", "anemone", "anemones"], { classes: ["jellies_and_anemones"] }],
-  [["starfish", "sea star", "sea stars", "urchin", "urchins", "sand dollar", "sand dollars"], { classes: ["echinodermata"] }],
+  [
+    ["starfish", "sea star", "sea stars", "urchin", "urchins", "sand dollar", "sand dollars"],
+    { classes: ["echinodermata"] },
+  ],
   [["nudibranch", "nudibranchs", "sea slug", "sea slugs"], { classes: ["nudibranchs"] }],
-  [["mollusk", "mollusks", "mollusc", "molluscs", "shell", "shells", "snail", "snails", "clam", "clams"], { classes: ["marine_mollusks"] }],
+  [
+    ["mollusk", "mollusks", "mollusc", "molluscs", "shell", "shells", "snail", "snails", "clam", "clams"],
+    { classes: ["marine_mollusks"] },
+  ],
   [["octopus", "octopuses", "squid", "cuttlefish", "cephalopod", "cephalopods"], { classes: ["cephalopoda"] }],
   [["crab", "crabs", "lobster", "lobsters", "shrimp", "crustacean", "crustaceans"], { classes: ["crustacea"] }],
   [["sponge", "sponges", "tunicate", "tunicates"], { classes: ["sponges_tunicates_other"] }],

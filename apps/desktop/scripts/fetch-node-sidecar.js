@@ -44,7 +44,9 @@ async function verifyChecksum(archivePath, archiveName) {
   const actual = await sha256File(archivePath);
   if (actual !== expected) {
     rmSync(archivePath, { force: true });
-    throw new Error(`Checksum mismatch for ${archiveName}: expected ${expected}, got ${actual}. Refusing to vendor it.`);
+    throw new Error(
+      `Checksum mismatch for ${archiveName}: expected ${expected}, got ${actual}. Refusing to vendor it.`,
+    );
   }
   console.log(`[fetch-node-sidecar] sha256 verified (${actual})`);
 }

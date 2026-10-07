@@ -31,7 +31,10 @@ export interface Job<TResult, TExtra extends object = object> {
   // The live status object. Safe to return directly from a GET .../status route.
   readonly status: JobStatus<TResult> & TExtra;
   // Starts the job in the background. Returns false (and does nothing) if it's already running.
-  start(run: (ctx: JobContext<TResult, TExtra>) => Promise<TResult>, initial?: Partial<JobStatus<TResult> & TExtra>): boolean;
+  start(
+    run: (ctx: JobContext<TResult, TExtra>) => Promise<TResult>,
+    initial?: Partial<JobStatus<TResult> & TExtra>,
+  ): boolean;
   // Requests cancellation of the current run. Returns false if nothing is running.
   cancel(): boolean;
   // Resolves when the current run (if any) has fully finished, including cleanup.

@@ -28,7 +28,12 @@ export interface ClientVectors {
   subjectUnsure?: boolean;
 }
 
-export const CLIENT_FIELD_KIND = { clipFull: "clip", clipCrop: "clip-crop", idFull: "id", idCrop: "id-crop" } as const satisfies Record<string, PhotoVectorKind>;
+export const CLIENT_FIELD_KIND = {
+  clipFull: "clip",
+  clipCrop: "clip-crop",
+  idFull: "id",
+  idCrop: "id-crop",
+} as const satisfies Record<string, PhotoVectorKind>;
 type ClientField = keyof typeof CLIENT_FIELD_KIND;
 
 export function encodeVector(vector: Float32Array): string {
@@ -60,7 +65,8 @@ export interface ClientVectorExpectations {
   modelVersions: Record<PhotoVectorKind, string>;
 }
 
-export type ParsedClientVectors = { vectors: Partial<Record<PhotoVectorKind, Float32Array>>; subjectUnsure?: boolean } | { rejected: string };
+export type ParsedClientVectors =
+  { vectors: Partial<Record<PhotoVectorKind, Float32Array>>; subjectUnsure?: boolean } | { rejected: string };
 
 /** Checks a clientVectors field against what this server would compute. All or nothing: one bad
  * vector means none are trusted. */
@@ -75,7 +81,8 @@ export function parseClientVectors(raw: string, expected: ClientVectorExpectatio
   if (!body || typeof body !== "object") return { rejected: "not an object" };
   const cv = body as Record<string, unknown>;
   if (cv.pipelineVersion !== expected.pipelineVersion) return { rejected: "pipeline version differs" };
-  if (typeof cv.contentHash !== "string" || cv.contentHash.toLowerCase() !== expected.contentHash) return { rejected: "content hash differs" };
+  if (typeof cv.contentHash !== "string" || cv.contentHash.toLowerCase() !== expected.contentHash)
+    return { rejected: "content hash differs" };
   const vectors: Partial<Record<PhotoVectorKind, Float32Array>> = {};
   for (const field of Object.keys(CLIENT_FIELD_KIND) as ClientField[]) {
     const entry = cv[field];
@@ -89,6 +96,7 @@ export function parseClientVectors(raw: string, expected: ClientVectorExpectatio
     vectors[kind] = vector;
   }
   if (Object.keys(vectors).length === 0) return { rejected: "no vectors" };
-  if (cv.subjectUnsure !== undefined && typeof cv.subjectUnsure !== "boolean") return { rejected: "subjectUnsure malformed" };
+  if (cv.subjectUnsure !== undefined && typeof cv.subjectUnsure !== "boolean")
+    return { rejected: "subjectUnsure malformed" };
   return { vectors, ...(typeof cv.subjectUnsure === "boolean" && { subjectUnsure: cv.subjectUnsure }) };
 }

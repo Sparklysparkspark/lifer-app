@@ -30,16 +30,28 @@ describe("cachedFile", () => {
     expect(applyFileValidators(req({}), reply, st, { weak: false }).notModified).toBe(false);
     expect(headers.ETag).toBe(strong);
     expect(headers["Last-Modified"]).toBe(st.mtime.toUTCString());
-    expect(applyFileValidators(req({ "if-none-match": `"x", ${strong}` }), reply, st, { weak: false }).notModified).toBe(true);
-    expect(applyFileValidators(req({ "if-none-match": `W/${strong}` }), reply, st, { weak: false }).notModified).toBe(true);
-    expect(applyFileValidators(req({ "if-none-match": `"other"` }), reply, st, { weak: false }).notModified).toBe(false);
+    expect(
+      applyFileValidators(req({ "if-none-match": `"x", ${strong}` }), reply, st, { weak: false }).notModified,
+    ).toBe(true);
+    expect(applyFileValidators(req({ "if-none-match": `W/${strong}` }), reply, st, { weak: false }).notModified).toBe(
+      true,
+    );
+    expect(applyFileValidators(req({ "if-none-match": `"other"` }), reply, st, { weak: false }).notModified).toBe(
+      false,
+    );
   });
 
   it("falls back to If-Modified-Since", async () => {
     const st = (await statFile(file))!;
     const { reply } = fakeReply();
-    expect(applyFileValidators(req({ "if-modified-since": st.mtime.toUTCString() }), reply, st, { weak: true }).notModified).toBe(true);
-    expect(applyFileValidators(req({ "if-modified-since": new Date(st.mtimeMs - 5000).toUTCString() }), reply, st, { weak: true }).notModified).toBe(false);
+    expect(
+      applyFileValidators(req({ "if-modified-since": st.mtime.toUTCString() }), reply, st, { weak: true }).notModified,
+    ).toBe(true);
+    expect(
+      applyFileValidators(req({ "if-modified-since": new Date(st.mtimeMs - 5000).toUTCString() }), reply, st, {
+        weak: true,
+      }).notModified,
+    ).toBe(false);
   });
 
   it("honors a Range only while If-Range still matches", async () => {

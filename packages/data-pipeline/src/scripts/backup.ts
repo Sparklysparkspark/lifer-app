@@ -27,11 +27,9 @@ function timestamp(): string {
 async function dumpDatabase(dumpPath: string): Promise<void> {
   const dest = createWriteStream(dumpPath);
   await new Promise<void>((resolve, reject) => {
-    const child = execFile(
-      "docker",
-      ["exec", POSTGRES_CONTAINER, "pg_dump", "-U", POSTGRES_USER, POSTGRES_DB],
-      { maxBuffer: 1024 * 1024 * 1024 },
-    );
+    const child = execFile("docker", ["exec", POSTGRES_CONTAINER, "pg_dump", "-U", POSTGRES_USER, POSTGRES_DB], {
+      maxBuffer: 1024 * 1024 * 1024,
+    });
     child.stdout!.pipe(dest);
     child.on("error", reject);
     child.on("exit", (code) => (code === 0 ? resolve() : reject(new Error(`pg_dump exited with code ${code}`))));

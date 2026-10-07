@@ -25,15 +25,24 @@ let cookieName = "";
 async function shot(format: "jpeg" | "tiff", shade: number): Promise<Buffer> {
   const img = sharp({ create: { width: 64, height: 48, channels: 3, background: { r: shade, g: 90, b: 40 } } });
   const exif = { IFD0: { Make: "TestCam" }, IFD2: { DateTimeOriginal: TAKEN } };
-  return format === "jpeg" ? img.jpeg().withExif(exif).toBuffer() : setTiffPhotometric(await img.tiff().withExif(exif).toBuffer(), 32803);
+  return format === "jpeg"
+    ? img.jpeg().withExif(exif).toBuffer()
+    : setTiffPhotometric(await img.tiff().withExif(exif).toBuffer(), 32803);
 }
 
-async function multipartBody(fields: Record<string, string>, files: { field: string; name: string; bytes: Buffer; type: string }[]) {
+async function multipartBody(
+  fields: Record<string, string>,
+  files: { field: string; name: string; bytes: Buffer; type: string }[],
+) {
   const form = new FormData();
   for (const [k, v] of Object.entries(fields)) form.append(k, v);
   for (const f of files) form.append(f.field, new Blob([new Uint8Array(f.bytes)], { type: f.type }), f.name);
   const res = new Response(form);
-  return { payload: Buffer.from(await res.arrayBuffer()), headers: { "content-type": res.headers.get("content-type")! }, cookies: { [cookieName]: TOKEN } };
+  return {
+    payload: Buffer.from(await res.arrayBuffer()),
+    headers: { "content-type": res.headers.get("content-type")! },
+    cookies: { [cookieName]: TOKEN },
+  };
 }
 
 describe.skipIf(!url)("RAW uploads", () => {
@@ -63,13 +72,19 @@ describe.skipIf(!url)("RAW uploads", () => {
     ({ SESSION_COOKIE_NAME: cookieName } = await import("@lifer/core/config.js"));
     const { uploadRoutes } = await import("./routes.js");
     await cleanup();
-    await db.query(`INSERT INTO users (id, email, password_hash) VALUES ($1, 'raw-uploads@test', 'x'), ($2, 'raw-other@test', 'x')`, [USER, OTHER_USER]);
+    await db.query(
+      `INSERT INTO users (id, email, password_hash) VALUES ($1, 'raw-uploads@test', 'x'), ($2, 'raw-other@test', 'x')`,
+      [USER, OTHER_USER],
+    );
     await db.query(
       `INSERT INTO species (id, gbif_key, scientific_name, common_name, taxon_class)
        VALUES ($1, 910802, 'Testus rawensis', 'Raw Test Warbler', 'aves') ON CONFLICT (id) DO NOTHING`,
       [SPECIES],
     );
-    await db.query(`INSERT INTO sessions (id, user_id, expires_at) VALUES ($1, $2, now() + interval '1 day')`, [hashToken(TOKEN), USER]);
+    await db.query(`INSERT INTO sessions (id, user_id, expires_at) VALUES ($1, $2, now() + interval '1 day')`, [
+      hashToken(TOKEN),
+      USER,
+    ]);
     app = Fastify();
     await app.register(cookie);
     await app.register(multipart, { limits: { fileSize: 50 * 1024 * 1024 } });
@@ -101,7 +116,9 @@ describe.skipIf(!url)("RAW uploads", () => {
   };
 
   it("files a matched RAW in its capture's species folder", async () => {
-    const jpg = await multipartBody({ speciesId: SPECIES, regionId: "" }, [{ field: "file", name: "IMG_0300.jpg", bytes: await shot("jpeg", 30), type: "image/jpeg" }]);
+    const jpg = await multipartBody({ speciesId: SPECIES, regionId: "" }, [
+      { field: "file", name: "IMG_0300.jpg", bytes: await shot("jpeg", 30), type: "image/jpeg" },
+    ]);
     const imported = await app.inject({ method: "POST", url: "/api/uploads", ...jpg });
     expect(imported.statusCode, imported.body).toBe(201);
     const captureId = imported.json().captureId as string;
@@ -130,28 +147,36 @@ describe.skipIf(!url)("RAW uploads", () => {
        VALUES (NULL, 'raw', 'path', '/elsewhere/IMG_0400.tif', true, $1, 1, $2, $3)`,
       [hash, OTHER_USER, SPECIES],
     );
-    const body = await multipartBody({ speciesId: SPECIES, allowUnmatchedFallback: "1" }, [{ field: "files", name: "IMG_0400.tif", bytes, type: "image/tiff" }]);
+    const body = await multipartBody({ speciesId: SPECIES, allowUnmatchedFallback: "1" }, [
+      { field: "files", name: "IMG_0400.tif", bytes, type: "image/tiff" },
+    ]);
     const res = await app.inject({ method: "POST", url: "/api/uploads/raw", ...body });
     expect(res.statusCode, res.body).toBe(201);
     expect(res.json().results[0]).toMatchObject({ filed: true });
   }, 60_000);
 
   it("rejects an unknown drive before processing anything", async () => {
-    const body = await multipartBody({ volumeId: "dddddddd-0000-4000-8000-0000000000ff" }, [{ field: "files", name: "IMG_0500.tif", bytes: await shot("tiff", 90), type: "image/tiff" }]);
+    const body = await multipartBody({ volumeId: "dddddddd-0000-4000-8000-0000000000ff" }, [
+      { field: "files", name: "IMG_0500.tif", bytes: await shot("tiff", 90), type: "image/tiff" },
+    ]);
     const res = await app.inject({ method: "POST", url: "/api/uploads/raw", ...body });
     expect(res.statusCode).toBe(400);
     expect(tmpFiles()).toEqual([]);
   });
 
   it("answers 413 for an oversized file and leaves no temp files behind", async () => {
-    const body = await multipartBody({}, [{ field: "files", name: "IMG_0600.tif", bytes: await shot("tiff", 120), type: "image/tiff" }]);
+    const body = await multipartBody({}, [
+      { field: "files", name: "IMG_0600.tif", bytes: await shot("tiff", 120), type: "image/tiff" },
+    ]);
     const res = await tinyApp.inject({ method: "POST", url: "/api/uploads/raw", ...body });
     expect(res.statusCode).toBe(413);
     expect(tmpFiles()).toEqual([]);
   });
 
   it("rejects a malformed regionId", async () => {
-    const body = await multipartBody({ speciesId: SPECIES, regionId: "not-a-region" }, [{ field: "file", name: "IMG_0700.jpg", bytes: await shot("jpeg", 70), type: "image/jpeg" }]);
+    const body = await multipartBody({ speciesId: SPECIES, regionId: "not-a-region" }, [
+      { field: "file", name: "IMG_0700.jpg", bytes: await shot("jpeg", 70), type: "image/jpeg" },
+    ]);
     const res = await app.inject({ method: "POST", url: "/api/uploads", ...body });
     expect(res.statusCode).toBe(400);
   });

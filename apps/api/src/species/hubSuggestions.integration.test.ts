@@ -33,9 +33,19 @@ describe.skipIf(!url)("suggestions for a continent or World", () => {
        ON CONFLICT (species_id) DO UPDATE SET embedding = EXCLUDED.embedding, model_version = EXCLUDED.model_version`,
       [SPECIES, embedding, EMBEDDING_MODEL_VERSION],
     );
-    await db.query(`INSERT INTO users (id, email, password_hash) VALUES ($1, 'hubs@test', 'x') ON CONFLICT (id) DO NOTHING`, [USER]);
-    await db.query(`INSERT INTO regions (id, name, parent_id) VALUES ($1, 'Hubtest World', NULL), ($2, 'Hubtest Continent', $1)`, [WORLD, CONTINENT]);
-    await db.query(`INSERT INTO regions (id, name, parent_id, external_codes) VALUES ($1, $2, $3, '{ZZ-HT}')`, [COUNTRY, COUNTRY_NAME, CONTINENT]);
+    await db.query(
+      `INSERT INTO users (id, email, password_hash) VALUES ($1, 'hubs@test', 'x') ON CONFLICT (id) DO NOTHING`,
+      [USER],
+    );
+    await db.query(
+      `INSERT INTO regions (id, name, parent_id) VALUES ($1, 'Hubtest World', NULL), ($2, 'Hubtest Continent', $1)`,
+      [WORLD, CONTINENT],
+    );
+    await db.query(`INSERT INTO regions (id, name, parent_id, external_codes) VALUES ($1, $2, $3, '{ZZ-HT}')`, [
+      COUNTRY,
+      COUNTRY_NAME,
+      CONTINENT,
+    ]);
     await db.query(`INSERT INTO region_species (region_id, species_id) VALUES ($1, $2)`, [COUNTRY, speciesId]);
     await db.query(`INSERT INTO downloaded_packs (pack_id, region) VALUES ($1, $2)`, [PACK, COUNTRY_NAME]);
   });
@@ -52,7 +62,8 @@ describe.skipIf(!url)("suggestions for a continent or World", () => {
   });
 
   it("matches the downloaded countries' species from the country, its continent and World", async () => {
-    const { rankSpeciesByEmbeddings, CLIP_SPACE, invalidateSuggestionCache } = await import("@lifer/core/species/embeddings.js");
+    const { rankSpeciesByEmbeddings, CLIP_SPACE, invalidateSuggestionCache } =
+      await import("@lifer/core/species/embeddings.js");
     invalidateSuggestionCache();
     const { pool } = await import("@lifer/core/db.js");
     for (const region of [COUNTRY, CONTINENT, WORLD]) {

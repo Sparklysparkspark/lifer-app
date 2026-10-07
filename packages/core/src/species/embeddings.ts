@@ -8,7 +8,14 @@ import { existsSync, readdirSync, rmSync } from "node:fs";
 import path from "node:path";
 import type { Pool, PoolClient } from "pg";
 import { EMBED_PIPELINE_VERSION } from "@lifer/shared";
-import { APP_DATA_DIR, EMBEDDING_MODEL_GPU_BYTES, EMBEDDING_MODEL_GPU_URL, EMBEDDING_MODEL_URL, EMBEDDING_MODEL_VERSION, ID_MODEL_VERSION } from "../config.js";
+import {
+  APP_DATA_DIR,
+  EMBEDDING_MODEL_GPU_BYTES,
+  EMBEDDING_MODEL_GPU_URL,
+  EMBEDDING_MODEL_URL,
+  EMBEDDING_MODEL_VERSION,
+  ID_MODEL_VERSION,
+} from "../config.js";
 import { parseClientVectors } from "./clientVectors.js";
 import { idModel } from "./idModel.js";
 import {
@@ -36,7 +43,13 @@ export const clipModel = createOnnxImageModel({
   label: "the species-matching model",
   missingMessage: "The species-matching model hasn't been downloaded (Settings > Offline Data)",
   family: "clip",
-  gpuCopy: EMBEDDING_MODEL_GPU_URL ? { path: path.join(MODEL_DIR, `${EMBEDDING_MODEL_VERSION}-fp32.onnx`), url: EMBEDDING_MODEL_GPU_URL, bytes: EMBEDDING_MODEL_GPU_BYTES } : null,
+  gpuCopy: EMBEDDING_MODEL_GPU_URL
+    ? {
+        path: path.join(MODEL_DIR, `${EMBEDDING_MODEL_VERSION}-fp32.onnx`),
+        url: EMBEDDING_MODEL_GPU_URL,
+        bytes: EMBEDDING_MODEL_GPU_BYTES,
+      }
+    : null,
 });
 
 /** Whether the CLIP vision model has been downloaded. Cheap enough to call on every poll. */
@@ -48,7 +61,8 @@ export function isModelDownloaded(): boolean {
  * means this install had opted in to species matching. */
 export function dropOlderClipModels(): boolean {
   if (!existsSync(MODEL_DIR)) return false;
-  const current = (f: string) => f.startsWith(`${EMBEDDING_MODEL_VERSION}.`) || f.startsWith(`${EMBEDDING_MODEL_VERSION}-`);
+  const current = (f: string) =>
+    f.startsWith(`${EMBEDDING_MODEL_VERSION}.`) || f.startsWith(`${EMBEDDING_MODEL_VERSION}-`);
   const older = readdirSync(MODEL_DIR).filter((f) => f.startsWith("clip-vit-") && !current(f));
   for (const f of older) rmSync(path.join(MODEL_DIR, f), { force: true });
   return older.length > 0;
@@ -154,10 +168,16 @@ export function rememberClientVectors(raw: string, hash: string): string | null 
   const parsed = parseClientVectors(raw, {
     pipelineVersion: EMBED_PIPELINE_VERSION,
     contentHash: hash,
-    modelVersions: { clip: EMBEDDING_MODEL_VERSION, "clip-crop": EMBEDDING_MODEL_VERSION, id: ID_MODEL_VERSION, "id-crop": ID_MODEL_VERSION },
+    modelVersions: {
+      clip: EMBEDDING_MODEL_VERSION,
+      "clip-crop": EMBEDDING_MODEL_VERSION,
+      id: ID_MODEL_VERSION,
+      "id-crop": ID_MODEL_VERSION,
+    },
   });
   if ("rejected" in parsed) return parsed.rejected;
-  for (const [kind, vector] of Object.entries(parsed.vectors)) rememberPhotoVector(kind as PhotoVectorKind, hash, vector);
+  for (const [kind, vector] of Object.entries(parsed.vectors))
+    rememberPhotoVector(kind as PhotoVectorKind, hash, vector);
   if (parsed.subjectUnsure !== undefined) rememberSubjectUnsure(hash, parsed.subjectUnsure);
   return null;
 }
@@ -191,7 +211,8 @@ export function photoVectors(
   for (const kind of new Set(opts.kinds)) {
     const hit = hash ? memoGet(memoKey(kind, hash)) : null;
     if (hit) vectors[kind] = hit;
-    else if (!modelFor(kind).isDownloaded()) vectors[kind] = Promise.reject(new Error(modelFor(kind).target(false).missingMessage));
+    else if (!modelFor(kind).isDownloaded())
+      vectors[kind] = Promise.reject(new Error(modelFor(kind).target(false).missingMessage));
     else missing.push(kind);
   }
   let presence: Promise<SubjectPresence | null> = Promise.resolve(null);
@@ -221,7 +242,11 @@ export function photoVectors(
       vectors[kind] = vector;
       if (hash) memoSet(memoKey(kind, hash), vector);
     });
-    if (opts.presence) presence = job.then((r) => r.presence, () => null);
+    if (opts.presence)
+      presence = job.then(
+        (r) => r.presence,
+        () => null,
+      );
   }
   for (const v of Object.values(vectors)) v.catch(() => {});
   return { vectors, presence, subjectUnsure };
@@ -234,7 +259,12 @@ export async function suggestionVectors(
   kind: "clip-crop" | "id-crop",
   opts: { key?: string | null; priority: Priority },
 ): Promise<Float32Array[]> {
-  const { vectors, subjectUnsure } = photoVectors(image, { kinds: [kind], key: opts.key, subject: true, priority: opts.priority });
+  const { vectors, subjectUnsure } = photoVectors(image, {
+    kinds: [kind],
+    key: opts.key,
+    subject: true,
+    priority: opts.priority,
+  });
   const crop = await vectors[kind];
   if (!(await subjectUnsure)) return [crop];
   const whole = await photoVector(WHOLE_KIND[kind], image, opts).catch(() => null);
@@ -242,7 +272,11 @@ export async function suggestionVectors(
 }
 
 /** One photo vector (see PhotoVectorKind). */
-export function photoVector(kind: PhotoVectorKind, image: ImageSource, opts: { key?: string | null; priority: Priority }): Promise<Float32Array> {
+export function photoVector(
+  kind: PhotoVectorKind,
+  image: ImageSource,
+  opts: { key?: string | null; priority: Priority },
+): Promise<Float32Array> {
   return photoVectors(image, { kinds: [kind], key: opts.key, priority: opts.priority }).vectors[kind];
 }
 
@@ -296,7 +330,11 @@ export function matchTargets(row: {
   gallery_embeddings: ArrayLike<number>[] | null;
 }): Array<{ embedding: ArrayLike<number>; factor: number; source: SpeciesSuggestion["source"] }> {
   return [
-    ...(row.your_embeddings ?? []).map((embedding) => ({ embedding, factor: YOUR_PHOTOS_SCORE_FACTOR, source: "your_photos" as const })),
+    ...(row.your_embeddings ?? []).map((embedding) => ({
+      embedding,
+      factor: YOUR_PHOTOS_SCORE_FACTOR,
+      source: "your_photos" as const,
+    })),
     ...[row.ref_embedding, ...(row.gallery_embeddings ?? [])]
       .filter((e): e is ArrayLike<number> => e != null)
       .map((embedding) => ({ embedding, factor: 1, source: "reference_photo" as const })),
@@ -367,7 +405,12 @@ export const ID_SPACE: VectorSpace = {
 
 /** Blends the image score with the candidate's text-prompt score, or returns the image score
  * when no text vector exists yet. */
-function blendWithText(imageScore: number, embedding: ArrayLike<number>, textEmbedding: ArrayLike<number> | null, textWeight: number): number {
+function blendWithText(
+  imageScore: number,
+  embedding: ArrayLike<number>,
+  textEmbedding: ArrayLike<number> | null,
+  textWeight: number,
+): number {
   if (!textEmbedding) return imageScore;
   const textScore = cosineSimilarity(embedding, textEmbedding);
   return (1 - textWeight) * imageScore + textWeight * textScore;
@@ -378,7 +421,8 @@ function blendWithText(imageScore: number, embedding: ArrayLike<number>, textEmb
 function markConfidence(scored: SpeciesSuggestion[], space: VectorSpace): void {
   if (scored.length === 0) return;
   const runnerUpScore = scored[1]?.score ?? -Infinity;
-  scored[0].confident = scored[0].score >= space.confidenceFloor && scored[0].score - runnerUpScore >= space.confidenceMargin;
+  scored[0].confident =
+    scored[0].score >= space.confidenceFloor && scored[0].score - runnerUpScore >= space.confidenceMargin;
 }
 
 const DISPLAY_BASE_PERCENT = 50;
@@ -522,9 +566,15 @@ interface UserVectorRow {
 }
 const USER_INDEX_TTL_MS = 6 * 60 * 60_000;
 const userIndexes = new Map<string, { at: number; rows: Promise<UserVectorRow[]>; resolved: UserVectorRow[] | null }>();
-const userIndexKey = (userId: string, table: CaptureTable, modelVersion: string) => `${userId}|${table}|${modelVersion}`;
+const userIndexKey = (userId: string, table: CaptureTable, modelVersion: string) =>
+  `${userId}|${table}|${modelVersion}`;
 
-function userIndex(pool: Pool | PoolClient, userId: string, table: CaptureTable, modelVersion: string): Promise<UserVectorRow[]> {
+function userIndex(
+  pool: Pool | PoolClient,
+  userId: string,
+  table: CaptureTable,
+  modelVersion: string,
+): Promise<UserVectorRow[]> {
   const key = userIndexKey(userId, table, modelVersion);
   const hit = userIndexes.get(key);
   if (hit && Date.now() - hit.at < USER_INDEX_TTL_MS) return hit.rows;
@@ -575,7 +625,12 @@ export function invalidateUserVectors(userId: string): void {
   userSpeciesSets.delete(userId);
 }
 
-function noteStoredVector(space: VectorSpace, captureId: string, row: { user_id: string; species_id: string; computed_at: string } | undefined, vec: Float32Array): void {
+function noteStoredVector(
+  space: VectorSpace,
+  captureId: string,
+  row: { user_id: string; species_id: string; computed_at: string } | undefined,
+  vec: Float32Array,
+): void {
   if (!row) return;
   putCaptureVector(space.captureTable, captureId, row.computed_at, vec);
   const key = userIndexKey(row.user_id, space.captureTable, space.modelVersion);
@@ -589,7 +644,11 @@ function noteStoredVector(space: VectorSpace, captureId: string, row: { user_id:
   if (species && !species.resolved?.has(row.species_id)) userSpeciesSets.delete(row.user_id);
 }
 
-async function yourVectorsBySpecies(pool: Pool | PoolClient, userId: string, space: VectorSpace): Promise<Map<string, Float32Array[]>> {
+async function yourVectorsBySpecies(
+  pool: Pool | PoolClient,
+  userId: string,
+  space: VectorSpace,
+): Promise<Map<string, Float32Array[]>> {
   const rows = await userIndex(pool, userId, space.captureTable, space.modelVersion);
   const perSpecies = new Map<string, number>();
   const newest: UserVectorRow[] = [];
@@ -629,7 +688,12 @@ export interface NearDuplicate {
 /** The user's own photo that `embedding` (a whole-photo CLIP vector) is almost identical to: the
  * same shot re-processed, which a content hash can't catch. `threshold` sits well above ordinary
  * same-species similarity. */
-export async function findNearDuplicate(pool: Pool | PoolClient, userId: string, embedding: ArrayLike<number>, threshold = 0.95): Promise<NearDuplicate | null> {
+export async function findNearDuplicate(
+  pool: Pool | PoolClient,
+  userId: string,
+  embedding: ArrayLike<number>,
+  threshold = 0.95,
+): Promise<NearDuplicate | null> {
   const rows = await userIndex(pool, userId, CLIP_SPACE.captureTable, CLIP_SPACE.modelVersion);
   const vectors = await captureVectors(pool, CLIP_SPACE.captureTable, CLIP_SPACE.modelVersion, rows);
   const close: Array<{ captureId: string; score: number }> = [];
@@ -670,7 +734,11 @@ async function storeVectorRow(
   return res.rows[0];
 }
 
-export async function storeCaptureEmbedding(client: Pool | PoolClient, captureId: string, embedding: ArrayLike<number>): Promise<void> {
+export async function storeCaptureEmbedding(
+  client: Pool | PoolClient,
+  captureId: string,
+  embedding: ArrayLike<number>,
+): Promise<void> {
   const row = await storeVectorRow(client, "capture_embeddings", captureId, embedding, EMBEDDING_MODEL_VERSION);
   noteStoredVector(CLIP_SPACE, captureId, row, Float32Array.from(embedding));
 }
@@ -777,7 +845,11 @@ function storeFor(space: VectorSpace): SpeciesStore {
   return store;
 }
 
-async function fetchSpeciesVectors(pool: Pool | PoolClient, space: VectorSpace, ids: string[]): Promise<Map<string, SpeciesVectors>> {
+async function fetchSpeciesVectors(
+  pool: Pool | PoolClient,
+  space: VectorSpace,
+  ids: string[],
+): Promise<Map<string, SpeciesVectors>> {
   const res = await pool.query<{
     species_id: string;
     common_name: string | null;
@@ -816,7 +888,11 @@ async function fetchSpeciesVectors(pool: Pool | PoolClient, space: VectorSpace, 
 }
 
 /** The shared store, with every id in `ids` loaded into it (each species read at most once). */
-async function speciesVectors(pool: Pool | PoolClient, space: VectorSpace, ids: string[]): Promise<Map<string, SpeciesVectors | null>> {
+async function speciesVectors(
+  pool: Pool | PoolClient,
+  space: VectorSpace,
+  ids: string[],
+): Promise<Map<string, SpeciesVectors | null>> {
   const store = storeFor(space);
   const toLoad = ids.filter((id) => !store.entries.has(id) && !store.loading.has(id));
   for (let i = 0; i < toLoad.length; i += 2000) {
@@ -885,7 +961,11 @@ async function checklistRegionIds(pool: Pool | PoolClient, regionId: string): Pr
   return countries.rows.length > 0 ? countries.rows.map((r) => r.id) : null;
 }
 
-function regionCandidateSet(pool: Pool | PoolClient, regionId: string, space: VectorSpace): Promise<CandidateEntry[] | null> {
+function regionCandidateSet(
+  pool: Pool | PoolClient,
+  regionId: string,
+  space: VectorSpace,
+): Promise<CandidateEntry[] | null> {
   const key = `${spaceKey(space)}|region:${regionId}`;
   const hit = regionCatalogCache.get(key);
   if (hit && Date.now() - hit.at < SUGGESTION_CACHE_TTL_MS) return hit.entries;
@@ -952,7 +1032,9 @@ function regionCandidateSet(pool: Pool | PoolClient, regionId: string, space: Ve
 function packSpeciesIds(pool: Pool | PoolClient): Promise<string[]> {
   if (packSpecies && Date.now() - packSpecies.at < SUGGESTION_CACHE_TTL_MS) return packSpecies.ids;
   const ids = pool
-    .query<{ species_id: string }>(`SELECT DISTINCT ps.species_id FROM pack_species ps JOIN downloaded_packs dp ON dp.pack_id = ps.pack_id`)
+    .query<{ species_id: string }>(
+      `SELECT DISTINCT ps.species_id FROM pack_species ps JOIN downloaded_packs dp ON dp.pack_id = ps.pack_id`,
+    )
     .then((res) => res.rows.map((r) => r.species_id));
   const entry = { at: Date.now(), ids };
   packSpecies = entry;
@@ -963,7 +1045,11 @@ function packSpeciesIds(pool: Pool | PoolClient): Promise<string[]> {
 }
 
 // No region picked: candidates are your own species plus every downloaded pack's.
-async function libraryCandidateSet(pool: Pool | PoolClient, userId: string, space: VectorSpace): Promise<CandidateEntry[]> {
+async function libraryCandidateSet(
+  pool: Pool | PoolClient,
+  userId: string,
+  space: VectorSpace,
+): Promise<CandidateEntry[]> {
   const [yours, packs] = await Promise.all([userSpeciesIds(pool, userId), packSpeciesIds(pool)]);
   const ids = [...new Set([...yours, ...packs])].sort();
   const store = await speciesVectors(pool, space, ids);
@@ -975,7 +1061,12 @@ async function libraryCandidateSet(pool: Pool | PoolClient, userId: string, spac
   return out;
 }
 
-async function candidateEntries(pool: Pool | PoolClient, userId: string, regionId: string | null, space: VectorSpace): Promise<CandidateEntry[]> {
+async function candidateEntries(
+  pool: Pool | PoolClient,
+  userId: string,
+  regionId: string | null,
+  space: VectorSpace,
+): Promise<CandidateEntry[]> {
   const regional = regionId ? await regionCandidateSet(pool, regionId, space) : null;
   return regional ?? libraryCandidateSet(pool, userId, space);
 }
@@ -1009,14 +1100,24 @@ export async function rankSpeciesByEmbeddings(
 ): Promise<SpeciesSuggestion[]> {
   if (embeddings.length === 0) return [];
   lastSuggestionUse = Date.now();
-  const [entries, yours] = await Promise.all([candidateEntries(pool, userId, regionId, space), yourVectorsBySpecies(pool, userId, space)]);
+  const [entries, yours] = await Promise.all([
+    candidateEntries(pool, userId, regionId, space),
+    yourVectorsBySpecies(pool, userId, space),
+  ]);
 
   const scored: SpeciesSuggestion[] = [];
   for (const entry of entries) {
     const sp = entry.species;
-    const targets = matchTargets({ your_embeddings: yours.get(sp.species_id) ?? null, ref_embedding: sp.ref_embedding, gallery_embeddings: sp.gallery_embeddings });
+    const targets = matchTargets({
+      your_embeddings: yours.get(sp.species_id) ?? null,
+      ref_embedding: sp.ref_embedding,
+      gallery_embeddings: sp.gallery_embeddings,
+    });
     if (targets.length === 0) continue;
-    const adjustment = occurrenceAdjustment({ isVagrant: entry.is_vagrant, localTier: entry.local_tier, seasonality: entry.seasonality }, takenAt);
+    const adjustment = occurrenceAdjustment(
+      { isVagrant: entry.is_vagrant, localTier: entry.local_tier, seasonality: entry.seasonality },
+      takenAt,
+    );
     let bestScore = -Infinity;
     let bestFrame = embeddings[0];
     let best = targets[0];
@@ -1077,7 +1178,9 @@ export function resetIdModelReadiness(): void {
 }
 
 /** The vector a suggestion for this install is ranked from, and the space it ranks in. */
-export async function suggestionVectorKind(pool: Pool | PoolClient): Promise<{ kind: "id-crop" | "clip-crop"; space: VectorSpace } | null> {
+export async function suggestionVectorKind(
+  pool: Pool | PoolClient,
+): Promise<{ kind: "id-crop" | "clip-crop"; space: VectorSpace } | null> {
   if (await idModelReady(pool)) return { kind: "id-crop", space: ID_SPACE };
   return isModelDownloaded() ? { kind: "clip-crop", space: CLIP_SPACE } : null;
 }
@@ -1112,23 +1215,34 @@ export async function suggestSpeciesForFrames(
   // Per frame, so a later storeIdCaptureEmbedding of the same photo reuses the vector.
   if (await idModelReady(pool)) {
     try {
-      const embeddings = (await Promise.all(frames.map((frame) => suggestionVectors(frame, "id-crop", { key, priority })))).flat();
+      const embeddings = (
+        await Promise.all(frames.map((frame) => suggestionVectors(frame, "id-crop", { key, priority })))
+      ).flat();
       return await rankSpeciesByEmbeddings(pool, userId, embeddings, regionId, limit, takenAt, ID_SPACE);
     } catch {
       // fall through to CLIP
     }
   }
-  const embeddings = (await Promise.all(frames.map((frame) => suggestionVectors(frame, "clip-crop", { key, priority })))).flat();
+  const embeddings = (
+    await Promise.all(frames.map((frame) => suggestionVectors(frame, "clip-crop", { key, priority })))
+  ).flat();
   return rankSpeciesByEmbeddings(pool, userId, embeddings, regionId, limit, takenAt, CLIP_SPACE);
 }
 
 /** Preloads models and the candidate set so the first photo checked doesn't pay for it. Best effort. */
-export async function warmSuggestions(pool: Pool, userId: string, regionId: string | null, text: TextModelSpec | null): Promise<void> {
+export async function warmSuggestions(
+  pool: Pool,
+  userId: string,
+  regionId: string | null,
+  text: TextModelSpec | null,
+): Promise<void> {
   const active = await suggestionVectorKind(pool);
   const models = [clipModel, idModel].filter((m) => m.isDownloaded()).map((m) => m.target(false));
   await Promise.all([
     models.length > 0 ? warmModels({ models, detector: true, text }) : Promise.resolve(),
-    active ? rankSpeciesByEmbeddings(pool, userId, [new Float32Array(768)], regionId, 1, null, active.space).catch(() => {}) : Promise.resolve(),
+    active
+      ? rankSpeciesByEmbeddings(pool, userId, [new Float32Array(768)], regionId, 1, null, active.space).catch(() => {})
+      : Promise.resolve(),
     isModelDownloaded() ? findNearDuplicate(pool, userId, new Float32Array(768), 2).catch(() => {}) : Promise.resolve(),
   ]);
 }

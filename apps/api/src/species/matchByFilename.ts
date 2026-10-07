@@ -74,5 +74,11 @@ export async function matchSpeciesFromFilename(pool: Pool, rawText: string): Pro
   const maxLen = Math.max(...candidates.map((r) => r.matched_len));
   return candidates
     .filter((r) => r.matched_len === maxLen)
-    .map(({ id, scientific_name, common_name, taxon_class, family }) => ({ id, scientific_name, common_name, taxon_class, family }));
+    .map(({ id, scientific_name, common_name, taxon_class, family }) => ({
+      id,
+      scientific_name,
+      common_name,
+      taxon_class,
+      family,
+    }));
 }

@@ -3,7 +3,12 @@
 //
 // Usage: npx tsx src/scripts/backfill-text-embeddings.ts [--limit=N]
 import { pool } from "@lifer/core/db.js";
-import { downloadTextModel, embedQueryText, isTextModelDownloaded, TEXT_MODEL_VERSION } from "@lifer/core/species/textEmbedding.js";
+import {
+  downloadTextModel,
+  embedQueryText,
+  isTextModelDownloaded,
+  TEXT_MODEL_VERSION,
+} from "@lifer/core/species/textEmbedding.js";
 
 async function main() {
   const args = process.argv.slice(2);

@@ -20,7 +20,9 @@ export interface DownloadOptions {
 }
 
 export class DownloadStalledError extends Error {
-  constructor(message = "The download stalled (no data received for too long). Check your network connection and try again.") {
+  constructor(
+    message = "The download stalled (no data received for too long). Check your network connection and try again.",
+  ) {
     super(message);
     this.name = "DownloadStalledError";
   }
@@ -64,7 +66,8 @@ export async function downloadToFile(
     const counter = new Transform({
       transform(chunk: Buffer, _enc, cb) {
         bytes += chunk.length;
-        if (range && bytes > range[1]) return cb(new Error(`Download failed: more than the expected ${range[1]} bytes`));
+        if (range && bytes > range[1])
+          return cb(new Error(`Download failed: more than the expected ${range[1]} bytes`));
         arm(stallMs);
         opts.onProgress?.(bytes, totalBytes);
         cb(null, chunk);

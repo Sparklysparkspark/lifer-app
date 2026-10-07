@@ -28,12 +28,26 @@ function pooledModel(): Buffer {
       ? Buffer.concat([varint(num << 3), varint(payload)])
       : Buffer.concat([varint((num << 3) | 2), varint(payload.length), payload]);
   const str = (num: number, s: string) => field(num, Buffer.from(s));
-  const ints = (name: string, values: number[]) => Buffer.concat([str(1, name), field(20, 7), ...values.map((v) => field(8, v))]);
+  const ints = (name: string, values: number[]) =>
+    Buffer.concat([str(1, name), field(20, 7), ...values.map((v) => field(8, v))]);
   const shape = (dims: number[]) => Buffer.concat(dims.map((d) => field(1, field(1, d))));
-  const valueInfo = (name: string, dims: number[]) => Buffer.concat([str(1, name), field(2, field(1, Buffer.concat([field(1, 1), field(2, shape(dims))])))]);
-  const pool = Buffer.concat([str(1, "input"), str(2, "pooled"), str(4, "AveragePool"), field(5, ints("kernel_shape", [14, 14])), field(5, ints("strides", [14, 14]))]);
+  const valueInfo = (name: string, dims: number[]) =>
+    Buffer.concat([str(1, name), field(2, field(1, Buffer.concat([field(1, 1), field(2, shape(dims))])))]);
+  const pool = Buffer.concat([
+    str(1, "input"),
+    str(2, "pooled"),
+    str(4, "AveragePool"),
+    field(5, ints("kernel_shape", [14, 14])),
+    field(5, ints("strides", [14, 14])),
+  ]);
   const flatten = Buffer.concat([str(1, "pooled"), str(2, "output"), str(4, "Flatten")]);
-  const graph = Buffer.concat([field(1, pool), field(1, flatten), str(2, "g"), field(11, valueInfo("input", [1, 3, 224, 224])), field(12, valueInfo("output", [1, 768]))]);
+  const graph = Buffer.concat([
+    field(1, pool),
+    field(1, flatten),
+    str(2, "g"),
+    field(11, valueInfo("input", [1, 3, 224, 224])),
+    field(12, valueInfo("output", [1, 768])),
+  ]);
   return Buffer.concat([field(1, 8), field(7, graph), field(8, Buffer.concat([str(1, ""), field(2, 13)]))]);
 }
 
@@ -86,19 +100,29 @@ describe("client-computed vectors", () => {
         activeModel: "general",
         targets: ["clip", "clip-crop"],
         models: {
-          clip: { version: config.EMBEDDING_MODEL_VERSION, url: "https://example.invalid/model.onnx", sha256: createHash("sha256").update(model).digest("hex") },
+          clip: {
+            version: config.EMBEDDING_MODEL_VERSION,
+            url: "https://example.invalid/model.onnx",
+            sha256: createHash("sha256").update(model).digest("hex"),
+          },
           yolo: { version: "yolov8n", sha256: YOLO_MODEL_SHA256 },
         },
         dims: 768,
       };
-      expect((await fetch(`${base}/prepare`, { method: "POST", headers: auth, body: JSON.stringify(info) })).status).toBe(202);
+      expect(
+        (await fetch(`${base}/prepare`, { method: "POST", headers: auth, body: JSON.stringify(info) })).status,
+      ).toBe(202);
       let status: { ready: boolean; error: string | null } = { ready: false, error: null };
       for (let i = 0; i < 100 && !status.ready && !status.error; i++) {
         await new Promise((r) => setTimeout(r, 50));
         status = await (await fetch(`${base}/status`, { headers: auth })).json();
       }
       expect(status).toMatchObject({ ready: true, error: null });
-      const res = await fetch(`${base}/embed?targets=clip,clip-crop`, { method: "POST", headers: auth, body: new Uint8Array(photo) });
+      const res = await fetch(`${base}/embed?targets=clip,clip-crop`, {
+        method: "POST",
+        headers: auth,
+        body: new Uint8Array(photo),
+      });
       expect(res.status).toBe(200);
       const clientVectors = await res.text();
       expect(JSON.parse(clientVectors).contentHash).toBe(contentHash(photo));
@@ -107,9 +131,17 @@ describe("client-computed vectors", () => {
       const hash = contentHash(photo);
       expect(embeddings.rememberClientVectors(clientVectors, hash)).toBeNull();
       expect(embeddings.hasRememberedVector("clip-crop", hash)).toBe(true);
-      const seeded = embeddings.photoVectors(photo, { kinds: ["clip", "clip-crop"], key: hash, priority: "interactive" });
+      const seeded = embeddings.photoVectors(photo, {
+        kinds: ["clip", "clip-crop"],
+        key: hash,
+        priority: "interactive",
+      });
       // And computed from scratch on the server (a key nothing was remembered under).
-      const computed = embeddings.photoVectors(photo, { kinds: ["clip", "clip-crop"], key: "fresh", priority: "interactive" });
+      const computed = embeddings.photoVectors(photo, {
+        kinds: ["clip", "clip-crop"],
+        key: "fresh",
+        priority: "interactive",
+      });
       for (const kind of ["clip", "clip-crop"] as const) {
         expect(Array.from(await seeded.vectors[kind])).toEqual(Array.from(await computed.vectors[kind]));
       }
@@ -128,7 +160,9 @@ describe("client-computed vectors", () => {
         gallery_embeddings: null,
         text_embedding: null,
       }));
-      const pool = { query: async (sql: string) => ({ rows: sql.includes("FROM region_species") ? catalog : [] }) } as never;
+      const pool = {
+        query: async (sql: string) => ({ rows: sql.includes("FROM region_species") ? catalog : [] }),
+      } as never;
       const rank = async (v: Float32Array) => {
         embeddings.invalidateSuggestionCache();
         return embeddings.rankSpeciesByEmbedding(pool, "u1", v, "r1", 5, null, embeddings.CLIP_SPACE);
@@ -140,7 +174,9 @@ describe("client-computed vectors", () => {
       // A tampered field is ignored rather than seeded.
       const tampered = JSON.parse(clientVectors);
       tampered.pipelineVersion += 1;
-      expect(embeddings.rememberClientVectors(JSON.stringify(tampered), "0".repeat(64))).toBe("pipeline version differs");
+      expect(embeddings.rememberClientVectors(JSON.stringify(tampered), "0".repeat(64))).toBe(
+        "pipeline version differs",
+      );
       expect(embeddings.hasRememberedVector("clip", "0".repeat(64))).toBe(false);
     } finally {
       server.close();

@@ -51,7 +51,9 @@ function checkMessages(file, messages, { strictEmpty }) {
       continue;
     }
     if (QUOTE_HAZARD.test(message)) {
-      errors.push(`${file}: "${key}" has an apostrophe before { } # | or <, which ICU reads as a quote. Use '' for a literal apostrophe there: ${message}`);
+      errors.push(
+        `${file}: "${key}" has an apostrophe before { } # | or <, which ICU reads as a quote. Use '' for a literal apostrophe there: ${message}`,
+      );
     }
   }
 }
@@ -71,11 +73,14 @@ const en = flatten(readJson(enPath), "", new Map(), "en.json");
 checkMessages("en.json", en, { strictEmpty: true });
 
 // --- Other locales ---
-for (const file of readdirSync(localesDir).filter((f) => f.endsWith(".json") && f !== "en.json").sort()) {
+for (const file of readdirSync(localesDir)
+  .filter((f) => f.endsWith(".json") && f !== "en.json")
+  .sort()) {
   const messages = flatten(readJson(join(localesDir, file)), "", new Map(), file);
   checkMessages(file, messages, { strictEmpty: false });
   const stale = [...messages.keys()].filter((k) => !en.has(k));
-  if (stale.length) warnings.push(`${file}: ${stale.length} key(s) English no longer has, e.g. ${stale.slice(0, 3).join(", ")}`);
+  if (stale.length)
+    warnings.push(`${file}: ${stale.length} key(s) English no longer has, e.g. ${stale.slice(0, 3).join(", ")}`);
 }
 
 // --- Translator context ---
@@ -96,12 +101,20 @@ function sourceFiles(dir) {
 const used = new Set();
 function isTranslateCallee(expr) {
   // t(...), i18n.t(...), anything.t(...)
-  return (ts.isIdentifier(expr) && expr.text === "t") || (ts.isPropertyAccessExpression(expr) && expr.name.text === "t");
+  return (
+    (ts.isIdentifier(expr) && expr.text === "t") || (ts.isPropertyAccessExpression(expr) && expr.name.text === "t")
+  );
 }
 
 for (const file of sourceFiles(webSrc)) {
   const text = readFileSync(file, "utf8");
-  const sf = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true, file.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
+  const sf = ts.createSourceFile(
+    file,
+    text,
+    ts.ScriptTarget.Latest,
+    true,
+    file.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+  );
   const where = (node) => `${relative(root, file)}:${sf.getLineAndCharacterOfPosition(node.getStart()).line + 1}`;
   const requireKey = (node, key) => {
     if (!en.has(key)) errors.push(`${where(node)}: "${key}" isn't in en.json`);
@@ -114,7 +127,9 @@ for (const file of sourceFiles(webSrc)) {
       const arg = node.arguments[0];
       if (ts.isStringLiteral(arg) || ts.isNoSubstitutionTemplateLiteral(arg)) requireKey(arg, arg.text);
       else if (ts.isTemplateExpression(arg)) {
-        errors.push(`${where(arg)}: a key built at runtime (${arg.getText(sf)}). Pick from a map of literal keys instead.`);
+        errors.push(
+          `${where(arg)}: a key built at runtime (${arg.getText(sf)}). Pick from a map of literal keys instead.`,
+        );
       }
     }
     if (ts.isJsxAttribute(node) && node.name.getText(sf) === "i18nKey" && node.initializer) {
@@ -142,4 +157,6 @@ if (errors.length > 0) {
 }
 let plurals = 0;
 for (const message of en.values()) if (/\{\s*\w+\s*,\s*(plural|selectordinal)\s*,/.test(message)) plurals++;
-console.log(`en.json OK: ${en.size} keys (${plurals} with ICU plurals), all used, ${context.size} with translator context.`);
+console.log(
+  `en.json OK: ${en.size} keys (${plurals} with ICU plurals), all used, ${context.size} with translator context.`,
+);

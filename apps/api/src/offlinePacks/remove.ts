@@ -25,10 +25,11 @@ interface DeleteImpact {
 // Shared by the preview and the real delete. A country pack owns its provinces' checklist rows.
 // A pack with no pack_species rows only loses its downloaded_packs row.
 async function computeDeleteImpact(packId: string): Promise<DeleteImpact | null> {
-  const packRes = await pool.query<{ region: string | null; bytes: number; applied_province_region_ids: string[] | null }>(
-    `SELECT region, bytes, applied_province_region_ids FROM downloaded_packs WHERE pack_id = $1`,
-    [packId],
-  );
+  const packRes = await pool.query<{
+    region: string | null;
+    bytes: number;
+    applied_province_region_ids: string[] | null;
+  }>(`SELECT region, bytes, applied_province_region_ids FROM downloaded_packs WHERE pack_id = $1`, [packId]);
   const packRegionName = packRes.rows[0]?.region;
   if (packRes.rows.length === 0) return null;
   const packBytes = Number(packRes.rows[0].bytes ?? 0);
@@ -38,12 +39,17 @@ async function computeDeleteImpact(packId: string): Promise<DeleteImpact | null>
   let seaZoneId: string | null = null;
   const checklistRegionsAffected: string[] = [];
   if (packRegionName) {
-    const regionRes = await pool.query<{ id: string; name: string }>(`SELECT id, name FROM regions WHERE name = $1`, [packRegionName]);
+    const regionRes = await pool.query<{ id: string; name: string }>(`SELECT id, name FROM regions WHERE name = $1`, [
+      packRegionName,
+    ]);
     if (regionRes.rows.length > 0) {
       const { id, name } = regionRes.rows[0];
       regionIds.push(id);
       checklistRegionsAffected.push(name);
-      const childrenRes = await pool.query<{ id: string; name: string }>(`SELECT id, name FROM regions WHERE parent_id = $1`, [id]);
+      const childrenRes = await pool.query<{ id: string; name: string }>(
+        `SELECT id, name FROM regions WHERE parent_id = $1`,
+        [id],
+      );
       for (const child of childrenRes.rows) {
         // Skip provinces already offloaded individually, so they aren't counted twice.
         if (appliedProvinceIds && !appliedProvinceIds.includes(child.id)) continue;
@@ -69,10 +75,10 @@ async function computeDeleteImpact(packId: string): Promise<DeleteImpact | null>
   let bytesToFree = 0;
   for (const row of speciesRes.rows) {
     // Removed unless another pack or the user's collection still needs it.
-    const otherPackRes = await pool.query(`SELECT 1 FROM pack_species WHERE species_id = $1 AND pack_id != $2 LIMIT 1`, [
-      row.species_id,
-      packId,
-    ]);
+    const otherPackRes = await pool.query(
+      `SELECT 1 FROM pack_species WHERE species_id = $1 AND pack_id != $2 LIMIT 1`,
+      [row.species_id, packId],
+    );
     const userHasItRes = await pool.query(`SELECT 1 FROM user_species WHERE species_id = $1 LIMIT 1`, [row.species_id]);
     if ((otherPackRes.rowCount ?? 0) > 0 || (userHasItRes.rowCount ?? 0) > 0) {
       speciesKeptCount++;
@@ -88,7 +94,11 @@ async function computeDeleteImpact(packId: string): Promise<DeleteImpact | null>
       `SELECT display_path, thumb_path FROM species_reference_photos WHERE species_id = $1`,
       [row.species_id],
     );
-    for (const p of [paths?.reference_display_path, paths?.reference_thumb_path, ...galleryRes.rows.flatMap((g) => [g.display_path, g.thumb_path])]) {
+    for (const p of [
+      paths?.reference_display_path,
+      paths?.reference_thumb_path,
+      ...galleryRes.rows.flatMap((g) => [g.display_path, g.thumb_path]),
+    ]) {
       if (p && existsSync(p)) bytesToFree += statSync(p).size;
     }
     speciesToRemove.push(row.species_id);
@@ -107,69 +117,91 @@ async function computeDeleteImpact(packId: string): Promise<DeleteImpact | null>
     };
   }
 
-  return { regionIds, seaZoneId, checklistRegionsAffected, speciesToRemove, speciesKeptCount, bytesToFree, isEstimate: false };
+  return {
+    regionIds,
+    seaZoneId,
+    checklistRegionsAffected,
+    speciesToRemove,
+    speciesKeptCount,
+    bytesToFree,
+    isEstimate: false,
+  };
 }
 
-async function deletePack(packId: string): Promise<{ deletedSpeciesFiles: number; keptSpeciesCount: number; regions: string[] }> {
+async function deletePack(
+  packId: string,
+): Promise<{ deletedSpeciesFiles: number; keptSpeciesCount: number; regions: string[] }> {
   const impact = await computeDeleteImpact(packId);
   if (!impact) throw Object.assign(new Error(`No downloaded pack found with id "${packId}"`), { statusCode: 404 });
 
   // Files are only collected inside the transaction and deleted after it commits: deleting them
   // first would leave a rolled-back removal's rows pointing at files that are gone.
   const filesToDelete = new Set<string>();
-  await withTransaction(async (client) => {
-    if (impact.regionIds.length > 0) {
-      const speciesRes = await client.query<{ species_id: string }>(`SELECT species_id FROM pack_species WHERE pack_id = $1`, [packId]);
-      const allSpeciesIds = speciesRes.rows.map((r) => r.species_id);
-      if (allSpeciesIds.length > 0) {
-        await client.query(`DELETE FROM region_species WHERE region_id = ANY($1) AND species_id = ANY($2)`, [
-          impact.regionIds,
-          allSpeciesIds,
-        ]);
+  await withTransaction(
+    async (client) => {
+      if (impact.regionIds.length > 0) {
+        const speciesRes = await client.query<{ species_id: string }>(
+          `SELECT species_id FROM pack_species WHERE pack_id = $1`,
+          [packId],
+        );
+        const allSpeciesIds = speciesRes.rows.map((r) => r.species_id);
+        if (allSpeciesIds.length > 0) {
+          await client.query(`DELETE FROM region_species WHERE region_id = ANY($1) AND species_id = ANY($2)`, [
+            impact.regionIds,
+            allSpeciesIds,
+          ]);
+        }
+      } else if (impact.seaZoneId) {
+        const speciesRes = await client.query<{ species_id: string }>(
+          `SELECT species_id FROM pack_species WHERE pack_id = $1`,
+          [packId],
+        );
+        const allSpeciesIds = speciesRes.rows.map((r) => r.species_id);
+        if (allSpeciesIds.length > 0) {
+          await client.query(`DELETE FROM sea_zone_species WHERE sea_zone_id = $1 AND species_id = ANY($2)`, [
+            impact.seaZoneId,
+            allSpeciesIds,
+          ]);
+        }
       }
-    } else if (impact.seaZoneId) {
-      const speciesRes = await client.query<{ species_id: string }>(`SELECT species_id FROM pack_species WHERE pack_id = $1`, [packId]);
-      const allSpeciesIds = speciesRes.rows.map((r) => r.species_id);
-      if (allSpeciesIds.length > 0) {
-        await client.query(`DELETE FROM sea_zone_species WHERE sea_zone_id = $1 AND species_id = ANY($2)`, [
-          impact.seaZoneId,
-          allSpeciesIds,
-        ]);
-      }
-    }
 
-    for (const speciesId of impact.speciesToRemove) {
-      const fileRes = await client.query<{ reference_display_path: string | null; reference_thumb_path: string | null }>(
-        `SELECT reference_display_path, reference_thumb_path FROM species WHERE id = $1`,
-        [speciesId],
-      );
-      const paths = fileRes.rows[0];
-      for (const p of [paths?.reference_display_path, paths?.reference_thumb_path]) if (p) filesToDelete.add(p);
-      // The gallery's files too; its rows stay (they come from the catalog), without paths.
-      const galleryRes = await client.query<{ display_path: string | null; thumb_path: string | null }>(
-        `SELECT display_path, thumb_path FROM species_reference_photos WHERE species_id = $1`,
-        [speciesId],
-      );
-      for (const g of galleryRes.rows) {
-        for (const p of [g.display_path, g.thumb_path]) if (p) filesToDelete.add(p);
-      }
-      await client.query(`UPDATE species_reference_photos SET display_path = NULL, thumb_path = NULL WHERE species_id = $1`, [speciesId]);
-      // reference_photo goes with credit/license (reference_photo_requires_credit). A photo
-      // withheld from packs is fetched again as soon as a pack lists the species again
-      // (species/withheldPhotos.ts), not RETRY_AFTER_DAYS after this fetch.
-      await client.query(
-        `UPDATE species SET
+      for (const speciesId of impact.speciesToRemove) {
+        const fileRes = await client.query<{
+          reference_display_path: string | null;
+          reference_thumb_path: string | null;
+        }>(`SELECT reference_display_path, reference_thumb_path FROM species WHERE id = $1`, [speciesId]);
+        const paths = fileRes.rows[0];
+        for (const p of [paths?.reference_display_path, paths?.reference_thumb_path]) if (p) filesToDelete.add(p);
+        // The gallery's files too; its rows stay (they come from the catalog), without paths.
+        const galleryRes = await client.query<{ display_path: string | null; thumb_path: string | null }>(
+          `SELECT display_path, thumb_path FROM species_reference_photos WHERE species_id = $1`,
+          [speciesId],
+        );
+        for (const g of galleryRes.rows) {
+          for (const p of [g.display_path, g.thumb_path]) if (p) filesToDelete.add(p);
+        }
+        await client.query(
+          `UPDATE species_reference_photos SET display_path = NULL, thumb_path = NULL WHERE species_id = $1`,
+          [speciesId],
+        );
+        // reference_photo goes with credit/license (reference_photo_requires_credit). A photo
+        // withheld from packs is fetched again as soon as a pack lists the species again
+        // (species/withheldPhotos.ts), not RETRY_AFTER_DAYS after this fetch.
+        await client.query(
+          `UPDATE species SET
            reference_display_path = NULL, reference_thumb_path = NULL, habitat_description = NULL,
            reference_credit = NULL, reference_license = NULL, reference_photo = NULL, enriched_at = NULL,
            photo_checked_at = NULL
          WHERE id = $1`,
-        [speciesId],
-      );
-    }
+          [speciesId],
+        );
+      }
 
-    // pack_species cascades from this delete (ON DELETE CASCADE, migration 054).
-    await client.query(`DELETE FROM downloaded_packs WHERE pack_id = $1`, [packId]);
-  }, { lockReferenceData: true });
+      // pack_species cascades from this delete (ON DELETE CASCADE, migration 054).
+      await client.query(`DELETE FROM downloaded_packs WHERE pack_id = $1`, [packId]);
+    },
+    { lockReferenceData: true },
+  );
   invalidateSuggestionCache();
   invalidatePackSizes();
   await deleteUnreferencedFiles([...filesToDelete]);
@@ -237,7 +269,8 @@ export async function packRemoveRoutes(fastify: FastifyInstance): Promise<void> 
     "/offline-packs/:packId",
     { preValidation: requireAuth, schema: { params: PackParams } },
     async (request, reply) => {
-      if (isPackDownloadRunning()) return reply.code(409).send({ error: "Wait for the pack download to finish, then try again" });
+      if (isPackDownloadRunning())
+        return reply.code(409).send({ error: "Wait for the pack download to finish, then try again" });
 
       try {
         return await deletePack(request.params.packId);
@@ -270,7 +303,11 @@ export async function packRemoveRoutes(fastify: FastifyInstance): Promise<void> 
         [regionId],
       );
       return {
-        provinces: childrenRes.rows.map((c) => ({ id: c.id, name: c.name, applied: !appliedIds || appliedIds.includes(c.id) })),
+        provinces: childrenRes.rows.map((c) => ({
+          id: c.id,
+          name: c.name,
+          applied: !appliedIds || appliedIds.includes(c.id),
+        })),
         subdivisionLabel: subdivisionLabelFor(childrenRes.rows.map((c) => c.subdivision_type)),
       };
     },
@@ -306,28 +343,33 @@ export async function packRemoveRoutes(fastify: FastifyInstance): Promise<void> 
       const regionId = regionRes.rows[0]?.id;
       if (!regionId) return reply.code(400).send({ error: "This pack's region no longer exists" });
 
-      const allChildrenRes = await pool.query<{ id: string }>(`SELECT id FROM regions WHERE parent_id = $1`, [regionId]);
+      const allChildrenRes = await pool.query<{ id: string }>(`SELECT id FROM regions WHERE parent_id = $1`, [
+        regionId,
+      ]);
       const allChildIds = allChildrenRes.rows.map((r) => r.id);
       const currentlyApplied = appliedIds ?? allChildIds;
 
       const remaining = currentlyApplied.filter((id) => !toOffload.includes(id));
-      await withTransaction(async (client) => {
-        const speciesRes = await client.query<{ species_id: string }>(
-          `SELECT species_id FROM pack_species WHERE pack_id = $1`,
-          [packId],
-        );
-        const speciesIds = speciesRes.rows.map((r) => r.species_id);
-        if (speciesIds.length > 0) {
-          await client.query(`DELETE FROM region_species WHERE region_id = ANY($1::uuid[]) AND species_id = ANY($2::uuid[])`, [
-            toOffload,
-            speciesIds,
+      await withTransaction(
+        async (client) => {
+          const speciesRes = await client.query<{ species_id: string }>(
+            `SELECT species_id FROM pack_species WHERE pack_id = $1`,
+            [packId],
+          );
+          const speciesIds = speciesRes.rows.map((r) => r.species_id);
+          if (speciesIds.length > 0) {
+            await client.query(
+              `DELETE FROM region_species WHERE region_id = ANY($1::uuid[]) AND species_id = ANY($2::uuid[])`,
+              [toOffload, speciesIds],
+            );
+          }
+          await client.query(`UPDATE downloaded_packs SET applied_province_region_ids = $1 WHERE pack_id = $2`, [
+            JSON.stringify(remaining),
+            packId,
           ]);
-        }
-        await client.query(`UPDATE downloaded_packs SET applied_province_region_ids = $1 WHERE pack_id = $2`, [
-          JSON.stringify(remaining),
-          packId,
-        ]);
-      }, { lockReferenceData: true });
+        },
+        { lockReferenceData: true },
+      );
 
       return { ok: true, remainingApplied: remaining.length };
     },
@@ -361,7 +403,8 @@ export async function packRemoveRoutes(fastify: FastifyInstance): Promise<void> 
     "/offline-packs/offload-batch",
     { preValidation: requireAuth, schema: { body: PackIdsBody } },
     async (request, reply) => {
-      if (isPackDownloadRunning()) return reply.code(409).send({ error: "Wait for the pack download to finish, then try again" });
+      if (isPackDownloadRunning())
+        return reply.code(409).send({ error: "Wait for the pack download to finish, then try again" });
 
       const { packIds } = request.body;
       let deletedSpeciesFiles = 0;

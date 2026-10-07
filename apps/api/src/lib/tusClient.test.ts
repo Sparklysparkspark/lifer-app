@@ -49,11 +49,15 @@ describe("tusUploadFile", () => {
 
   it("uploads in chunks and returns the upload id", async () => {
     patchOffset = (received) => String(received);
-    await expect(tusUploadFile(file(), { filename: "f.bin" }, { endpoint, headers: {}, initialChunkSize: 300 })).resolves.toBe("upload1");
+    await expect(
+      tusUploadFile(file(), { filename: "f.bin" }, { endpoint, headers: {}, initialChunkSize: 300 }),
+    ).resolves.toBe("upload1");
   });
 
   it("fails rather than finishing early when a PATCH reply has no offset", async () => {
     patchOffset = () => null;
-    await expect(tusUploadFile(file(), { filename: "f.bin" }, { endpoint, headers: {}, initialChunkSize: 300 })).rejects.toThrow(/unexpected upload offset/);
+    await expect(
+      tusUploadFile(file(), { filename: "f.bin" }, { endpoint, headers: {}, initialChunkSize: 300 }),
+    ).rejects.toThrow(/unexpected upload offset/);
   });
 });

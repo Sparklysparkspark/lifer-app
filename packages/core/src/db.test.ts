@@ -1,7 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
 import type { PoolClient } from "pg";
 
-vi.mock("pg", () => ({ Pool: class { on() {} query() { return Promise.resolve(); } } }));
+vi.mock("pg", () => ({
+  Pool: class {
+    on() {}
+    query() {
+      return Promise.resolve();
+    }
+  },
+}));
 
 const { withTransaction } = await import("./db.js");
 
@@ -22,10 +29,14 @@ function fakeDb(failOn?: string) {
 describe("withTransaction", () => {
   it("commits and returns the callback's value", async () => {
     const { db, sql, release } = fakeDb();
-    const out = await withTransaction(async (c) => {
-      await c.query("SELECT 1");
-      return 42;
-    }, {}, db);
+    const out = await withTransaction(
+      async (c) => {
+        await c.query("SELECT 1");
+        return 42;
+      },
+      {},
+      db,
+    );
     expect(out).toBe(42);
     expect(sql).toEqual(["BEGIN", "SELECT 1", "COMMIT"]);
     expect(release).toHaveBeenCalledWith(undefined);
@@ -33,7 +44,11 @@ describe("withTransaction", () => {
 
   it("sets local timeouts and takes the reference data lock after BEGIN", async () => {
     const { db, sql } = fakeDb();
-    await withTransaction(async () => undefined, { statementTimeoutMs: 5000, lockTimeoutMs: 250.7, lockReferenceData: true }, db);
+    await withTransaction(
+      async () => undefined,
+      { statementTimeoutMs: 5000, lockTimeoutMs: 250.7, lockReferenceData: true },
+      db,
+    );
     expect(sql).toEqual([
       "BEGIN",
       "SET LOCAL statement_timeout = 5000",
@@ -46,9 +61,13 @@ describe("withTransaction", () => {
   it("rolls back and rethrows when the callback fails", async () => {
     const { db, sql, release } = fakeDb();
     await expect(
-      withTransaction(async () => {
-        throw new Error("boom");
-      }, {}, db),
+      withTransaction(
+        async () => {
+          throw new Error("boom");
+        },
+        {},
+        db,
+      ),
     ).rejects.toThrow("boom");
     expect(sql).toEqual(["BEGIN", "ROLLBACK"]);
     expect(release).toHaveBeenCalledWith(undefined);
@@ -57,9 +76,13 @@ describe("withTransaction", () => {
   it("destroys the client when ROLLBACK itself fails", async () => {
     const { db, release } = fakeDb("ROLLBACK");
     await expect(
-      withTransaction(async () => {
-        throw new Error("boom");
-      }, {}, db),
+      withTransaction(
+        async () => {
+          throw new Error("boom");
+        },
+        {},
+        db,
+      ),
     ).rejects.toThrow("boom");
     expect(release.mock.calls[0][0]).toBeInstanceOf(Error);
   });

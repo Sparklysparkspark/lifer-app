@@ -160,11 +160,16 @@ async function collectionVersion(
   params: unknown[],
 ): Promise<CollectionVersion> {
   const seq = await pool
-    .query<{ v: string }>(`SELECT CASE WHEN is_called THEN last_value ELSE 0 END::text AS v FROM collection_data_version`)
+    .query<{ v: string }>(
+      `SELECT CASE WHEN is_called THEN last_value ELSE 0 END::text AS v FROM collection_data_version`,
+    )
     .catch(() => null);
   const client = await pool.connect();
   const release = () => {
-    client.query("COMMIT").catch(() => {}).finally(() => client.release());
+    client
+      .query("COMMIT")
+      .catch(() => {})
+      .finally(() => client.release());
   };
   try {
     await client.query("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY");
@@ -209,14 +214,23 @@ export async function collectionRoutes(fastify: FastifyInstance): Promise<void> 
       const taxa = request.query.taxon ? request.query.taxon.split(",").filter(Boolean) : null;
       const { hideObscure, maxDepthM } = await getObscurityPreferences(userId);
 
-      const version = await collectionVersion(reply, request.headers["if-none-match"], ["list", userId, taxa, hideObscure, maxDepthM]);
+      const version = await collectionVersion(reply, request.headers["if-none-match"], [
+        "list",
+        userId,
+        taxa,
+        hideObscure,
+        maxDepthM,
+      ]);
       if (version.notModified) return reply.code(304).send();
 
       const res = await version.client
         .query(collectionQuerySql(maxDepthM), [userId, taxa, hideObscure])
         .finally(() => version.release());
 
-      const items = await markNameChanged(userId, res.rows.map((row) => toCollectionItem(row, maxDepthM)));
+      const items = await markNameChanged(
+        userId,
+        res.rows.map((row) => toCollectionItem(row, maxDepthM)),
+      );
 
       return { items };
     },
@@ -231,11 +245,21 @@ export async function collectionRoutes(fastify: FastifyInstance): Promise<void> 
       const taxa = request.query.taxon ? request.query.taxon.split(",").filter(Boolean) : null;
       const { hideObscure, maxDepthM } = await getObscurityPreferences(userId);
 
-      const version = await collectionVersion(reply, request.headers["if-none-match"], ["count", userId, taxa, hideObscure, maxDepthM]);
+      const version = await collectionVersion(reply, request.headers["if-none-match"], [
+        "count",
+        userId,
+        taxa,
+        hideObscure,
+        maxDepthM,
+      ]);
       if (version.notModified) return reply.code(304).send();
 
       const res = await version.client
-        .query<{ total: string; collected: string; seen: string }>(collectionCountSql(maxDepthM), [userId, taxa, hideObscure])
+        .query<{ total: string; collected: string; seen: string }>(collectionCountSql(maxDepthM), [
+          userId,
+          taxa,
+          hideObscure,
+        ])
         .finally(() => version.release());
       const row = res.rows[0];
       return { total: Number(row.total), collected: Number(row.collected), seen: Number(row.seen) };

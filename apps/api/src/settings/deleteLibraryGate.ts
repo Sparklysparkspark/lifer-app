@@ -13,7 +13,8 @@ export interface MigrationOutcome {
 
 export function deleteLocalLibraryBlockedReason(job: MigrationOutcome, unmigratedCaptureCount: number): string | null {
   if (job.running) return "A migration is still running.";
-  if (job.finishedAt == null || !job.serverUrl) return "Local files can only be deleted right after a migration to a server.";
+  if (job.finishedAt == null || !job.serverUrl)
+    return "Local files can only be deleted right after a migration to a server.";
   if (job.error != null) return "The last migration stopped with an error, so some photos may not be on the server.";
   if (job.cancelled) return "The last migration was cancelled, so some photos may not be on the server.";
   if (job.failed > 0) return "The last migration had failures. Run it again until it finishes with zero failures.";

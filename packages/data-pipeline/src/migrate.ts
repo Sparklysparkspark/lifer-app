@@ -22,7 +22,9 @@ async function main() {
 }
 
 async function runMigrations() {
-  await pool.query(`CREATE TABLE IF NOT EXISTS schema_migrations (filename text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())`);
+  await pool.query(
+    `CREATE TABLE IF NOT EXISTS schema_migrations (filename text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())`,
+  );
 
   const applied = new Set(
     (await pool.query<{ filename: string }>(`SELECT filename FROM schema_migrations`)).rows.map((r) => r.filename),

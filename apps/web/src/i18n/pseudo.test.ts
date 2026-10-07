@@ -17,9 +17,11 @@ describe("pseudoLocalize", () => {
     expect(() => parse(out)).not.toThrow();
     const formatted = new IntlMessageFormat(out, "en").format({ count: 3, album: "Kenya" });
     expect(formatted).toMatch(/^\[3 þĥöţöš îñ Kenya ~+\]$/);
-    expect(new IntlMessageFormat(pseudoLocalize("{kind, select, video {Video} other {Photo}}"), "en").format({ kind: "video" })).toMatch(
-      /^\[Ṽîðéö ~+\]$/,
-    );
+    expect(
+      new IntlMessageFormat(pseudoLocalize("{kind, select, video {Video} other {Photo}}"), "en").format({
+        kind: "video",
+      }),
+    ).toMatch(/^\[Ṽîðéö ~+\]$/);
   });
 
   it("keeps tags for <Trans>, accenting only their text", () => {

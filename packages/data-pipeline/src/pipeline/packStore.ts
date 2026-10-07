@@ -20,7 +20,8 @@ import type { IndexPack, PackIndex } from "./packs.js";
 // Kept well under GitHub's 2 GB per-asset limit.
 const MAX_SHARD_BYTES = 1_500_000_000;
 export const PACK_SHARD_PREFIX = "lifer-packs-";
-export const packShardUrl = (name: string): string => `https://github.com/${GITHUB_REPO}/releases/download/${INDEX_RELEASE_TAG}/${name}`;
+export const packShardUrl = (name: string): string =>
+  `https://github.com/${GITHUB_REPO}/releases/download/${INDEX_RELEASE_TAG}/${name}`;
 
 const shardNameOf = (p: IndexPack): string | null => {
   const name = p.url.split("/").pop() ?? "";
@@ -68,15 +69,35 @@ export function writePackStore(outDir: string, index: PackIndex, builtFiles: Set
 /** Uploads the shards the index uses that the release doesn't have, then the index (so it never
  *  names a shard not uploaded yet), then deletes shards nothing uses and the old per-continent
  *  pack releases. */
-export async function publishPackStore(outDir: string, index: PackIndex, log: (m: string) => void = console.log): Promise<void> {
+export async function publishPackStore(
+  outDir: string,
+  index: PackIndex,
+  log: (m: string) => void = console.log,
+): Promise<void> {
   const { execFileSync } = await import("node:child_process");
   const gh = (args: string[], inherit = true) =>
-    execFileSync("gh", args, { encoding: "utf8", stdio: inherit ? ["ignore", "inherit", "inherit"] : ["ignore", "pipe", "pipe"] });
-  const assetNames = () => JSON.parse(gh(["release", "view", INDEX_RELEASE_TAG, "--json", "assets", "--jq", "[.assets[].name]"], false)) as string[];
+    execFileSync("gh", args, {
+      encoding: "utf8",
+      stdio: inherit ? ["ignore", "inherit", "inherit"] : ["ignore", "pipe", "pipe"],
+    });
+  const assetNames = () =>
+    JSON.parse(
+      gh(["release", "view", INDEX_RELEASE_TAG, "--json", "assets", "--jq", "[.assets[].name]"], false),
+    ) as string[];
   try {
     gh(["release", "view", INDEX_RELEASE_TAG, "--json", "tagName"], false);
   } catch {
-    gh(["release", "create", INDEX_RELEASE_TAG, "--title", "Offline packs", "--notes", "Offline pack index and pack store. See packages/data-pipeline/src/pipeline/packStore.ts.", "--prerelease", "--latest=false"]);
+    gh([
+      "release",
+      "create",
+      INDEX_RELEASE_TAG,
+      "--title",
+      "Offline packs",
+      "--notes",
+      "Offline pack index and pack store. See packages/data-pipeline/src/pipeline/packStore.ts.",
+      "--prerelease",
+      "--latest=false",
+    ]);
   }
   const used = new Set(index.packs.map(shardNameOf).filter((n): n is string => n != null));
   const onRelease = new Set(assetNames());
@@ -93,7 +114,9 @@ export async function publishPackStore(outDir: string, index: PackIndex, log: (m
   }
   // Removes the old per-continent pack releases (packs-europe, packs-seazones, ...). Deleting a
   // whole release is one call, however many assets it has.
-  const releases = (JSON.parse(gh(["release", "list", "--limit", "200", "--json", "tagName"], false)) as Array<{ tagName: string }>)
+  const releases = (
+    JSON.parse(gh(["release", "list", "--limit", "200", "--json", "tagName"], false)) as Array<{ tagName: string }>
+  )
     .map((r) => r.tagName)
     .filter((t) => t.startsWith("packs-") && t !== INDEX_RELEASE_TAG);
   for (const tag of releases) {

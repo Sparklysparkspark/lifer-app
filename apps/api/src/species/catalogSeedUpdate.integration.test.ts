@@ -7,7 +7,10 @@ import { gzipSync } from "node:zlib";
 import pg from "pg";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { JobCancelledError } from "../lib/job.js";
-import { encodeGalleryEmbeddingRecord, encodeGalleryEmbeddingsHeader } from "@lifer/shared/src/galleryEmbeddingsFormat.js";
+import {
+  encodeGalleryEmbeddingRecord,
+  encodeGalleryEmbeddingsHeader,
+} from "@lifer/shared/src/galleryEmbeddingsFormat.js";
 import { applyCatalogSeedFile, getAppliedCatalogVersion } from "./catalogSeedUpdate.js";
 import { applyGalleryEmbeddingsFile, ID_GALLERY } from "./galleryEmbeddingsAsset.js";
 
@@ -91,10 +94,16 @@ describe.skipIf(!url)("applyCatalogSeedFile (integration)", () => {
     const child = await pool.query(`SELECT parent_id FROM regions WHERE id = $1`, [CHILD]);
     expect(child.rows[0].parent_id).toBe(PARENT);
 
-    const photo = await pool.query(`SELECT id, credit, display_path FROM species_reference_photos WHERE species_id = $1`, [SPECIES]);
+    const photo = await pool.query(
+      `SELECT id, credit, display_path FROM species_reference_photos WHERE species_id = $1`,
+      [SPECIES],
+    );
     expect(photo.rows).toEqual([{ id: LOCAL_PHOTO, credit: "Someone", display_path: "/local/p.webp" }]);
 
-    const ge = await pool.query(`SELECT reference_photo_id FROM species_reference_gallery_embeddings WHERE species_id = $1`, [SPECIES]);
+    const ge = await pool.query(
+      `SELECT reference_photo_id FROM species_reference_gallery_embeddings WHERE species_id = $1`,
+      [SPECIES],
+    );
     expect(ge.rows).toEqual([{ reference_photo_id: LOCAL_PHOTO }]);
 
     expect(await getAppliedCatalogVersion(pool)).toBe(42);
@@ -142,9 +151,13 @@ describe.skipIf(!url)("applyCatalogSeedFile (integration)", () => {
     try {
       const merged = await applyCatalogSeedFile(pool, file, null, noProgress);
       expect(merged.blockedPhotosRemoved).toBe(1);
-      const sp = await pool.query(`SELECT reference_photo, reference_display_path FROM species WHERE id = $1`, [SPECIES]);
+      const sp = await pool.query(`SELECT reference_photo, reference_display_path FROM species WHERE id = $1`, [
+        SPECIES,
+      ]);
       expect(sp.rows[0]).toEqual({ reference_photo: "https://example.org/new.jpg", reference_display_path: null });
-      expect((await pool.query(`SELECT 1 FROM species_reference_photos WHERE id = $1`, [LOCAL_PHOTO])).rowCount).toBe(0);
+      expect((await pool.query(`SELECT 1 FROM species_reference_photos WHERE id = $1`, [LOCAL_PHOTO])).rowCount).toBe(
+        0,
+      );
     } finally {
       await pool.query(`DELETE FROM reference_photo_blocklist WHERE photo_url = 'https://example.org/map.png'`);
     }
@@ -221,7 +234,10 @@ describe.skipIf(!url)("applyCatalogSeedFile (integration)", () => {
     await pool.query(`DELETE FROM users WHERE id = $1`, [USER]);
     await pool.query(`DELETE FROM species WHERE id = $1`, [OLD]);
     await pool.query(`INSERT INTO users (id, email, password_hash) VALUES ($1, 'seedmerge@test', 'x')`, [USER]);
-    await pool.query(`INSERT INTO species (id, gbif_key, scientific_name, taxon_class) VALUES ($1, 2, 'Oceanodroma melania', 'aves')`, [OLD]);
+    await pool.query(
+      `INSERT INTO species (id, gbif_key, scientific_name, taxon_class) VALUES ($1, 2, 'Oceanodroma melania', 'aves')`,
+      [OLD],
+    );
     await pool.query(`INSERT INTO user_species (user_id, species_id, state) VALUES ($1, $2, 'collected')`, [USER, OLD]);
     const dump = [
       "COPY public.species (id, gbif_key, scientific_name, taxon_class) FROM stdin;",
@@ -241,7 +257,9 @@ describe.skipIf(!url)("applyCatalogSeedFile (integration)", () => {
       expect((await pool.query(`SELECT 1 FROM species WHERE id = $1`, [OLD])).rowCount).toBe(0);
       const us = await pool.query(`SELECT species_id, state FROM user_species WHERE user_id = $1`, [USER]);
       expect(us.rows).toEqual([{ species_id: SPECIES, state: "collected" }]);
-      const syn = await pool.query(`SELECT species_id FROM species_synonyms WHERE synonym_name = 'Oceanodroma melania'`);
+      const syn = await pool.query(
+        `SELECT species_id FROM species_synonyms WHERE synonym_name = 'Oceanodroma melania'`,
+      );
       expect(syn.rows).toEqual([{ species_id: SPECIES }]);
     } finally {
       await pool.query(`DELETE FROM species_merges WHERE old_species_id = $1`, [OLD]);
@@ -252,9 +270,18 @@ describe.skipIf(!url)("applyCatalogSeedFile (integration)", () => {
 
   it("takes a synonym the seed renamed in place, keeping its id", async () => {
     const SYN = "88888888-8888-4888-8888-888888888888";
-    await pool.query(`DELETE FROM species_synonyms WHERE id = $1 OR synonym_name IN ('Zzold synonym', 'Zznew synonym')`, [SYN]);
-    await pool.query(`INSERT INTO species (id, gbif_key, scientific_name, taxon_class) VALUES ($1, 1, 'Hydrobates melania', 'aves') ON CONFLICT DO NOTHING`, [SPECIES]);
-    await pool.query(`INSERT INTO species_synonyms (id, species_id, synonym_name) VALUES ($1, $2, 'Zzold synonym')`, [SYN, SPECIES]);
+    await pool.query(
+      `DELETE FROM species_synonyms WHERE id = $1 OR synonym_name IN ('Zzold synonym', 'Zznew synonym')`,
+      [SYN],
+    );
+    await pool.query(
+      `INSERT INTO species (id, gbif_key, scientific_name, taxon_class) VALUES ($1, 1, 'Hydrobates melania', 'aves') ON CONFLICT DO NOTHING`,
+      [SPECIES],
+    );
+    await pool.query(`INSERT INTO species_synonyms (id, species_id, synonym_name) VALUES ($1, $2, 'Zzold synonym')`, [
+      SYN,
+      SPECIES,
+    ]);
     const dump = [
       "COPY public.species (id, gbif_key, scientific_name, taxon_class) FROM stdin;",
       `${SPECIES}	1	Hydrobates melania	aves`,
@@ -328,7 +355,9 @@ describe.skipIf(!url)("applyCatalogSeedFile (integration)", () => {
       `SELECT iucn_status, iucn_source, iucn_note, iucn_checked_at IS NOT NULL AS checked FROM species_traits WHERE species_id = $1`,
       [SPECIES],
     );
-    expect(rows.rows).toEqual([{ iucn_status: "NE", iucn_source: "iucn_red_list", iucn_note: "A note.", checked: true }]);
+    expect(rows.rows).toEqual([
+      { iucn_status: "NE", iucn_source: "iucn_red_list", iucn_note: "A note.", checked: true },
+    ]);
   });
 
   it("removes checklist rows the seed no longer lists, keeping users' own additions and regions the seed doesn't cover", async () => {
@@ -349,7 +378,10 @@ describe.skipIf(!url)("applyCatalogSeedFile (integration)", () => {
          ($1, 8801, 'Prunea listed', 'aves', false), ($2, 8802, 'Prunea dropped', 'aves', false), ($3, 8803, 'Prunea mine', 'insecta', true)`,
       [LISTED, DROPPED, OTHER_TAXA],
     );
-    await pool.query(`INSERT INTO regions (id, name) VALUES ($1, 'Pruneland'), ($2, 'Untouchedland')`, [REGION_IN_SEED, REGION_NOT_IN_SEED]);
+    await pool.query(`INSERT INTO regions (id, name) VALUES ($1, 'Pruneland'), ($2, 'Untouchedland')`, [
+      REGION_IN_SEED,
+      REGION_NOT_IN_SEED,
+    ]);
     await pool.query(`INSERT INTO region_species (region_id, species_id) VALUES ($1, $3), ($1, $4), ($2, $4)`, [
       REGION_IN_SEED,
       REGION_NOT_IN_SEED,
@@ -357,7 +389,9 @@ describe.skipIf(!url)("applyCatalogSeedFile (integration)", () => {
       DROPPED,
     ]);
     // A hand import is the importing user's own addition, which a catalog update never prunes.
-    await pool.query(`INSERT INTO users (id, email, password_hash) VALUES ($1, 'prune-importer@test', 'x')`, [IMPORTER]);
+    await pool.query(`INSERT INTO users (id, email, password_hash) VALUES ($1, 'prune-importer@test', 'x')`, [
+      IMPORTER,
+    ]);
     await pool.query(`INSERT INTO region_species_user_added (user_id, region_id, species_id) VALUES ($1, $2, $3)`, [
       IMPORTER,
       REGION_IN_SEED,
@@ -388,7 +422,9 @@ describe.skipIf(!url)("applyCatalogSeedFile (integration)", () => {
       ]);
       const added = await pool.query(`SELECT region_id FROM region_species_user_added WHERE user_id = $1`, [IMPORTER]);
       expect(added.rows).toEqual([{ region_id: REGION_IN_SEED }]);
-      expect((await pool.query(`SELECT 1 FROM region_species_hotspots WHERE species_id = $1`, [DROPPED])).rowCount).toBe(0);
+      expect(
+        (await pool.query(`SELECT 1 FROM region_species_hotspots WHERE species_id = $1`, [DROPPED])).rowCount,
+      ).toBe(0);
     } finally {
       await cleanup();
     }
@@ -542,7 +578,10 @@ describe.skipIf(!url)("applyCatalogSeedFile (integration)", () => {
     );
     // The existing local row, under the OLD id, with real region_species data already attached.
     await pool.query(`INSERT INTO regions (id, name, parent_id) VALUES ($1, 'Georgia', NULL)`, [OLD_GEORGIA]);
-    await pool.query(`INSERT INTO region_species (region_id, species_id, local_tier) VALUES ($1, $2, 'common')`, [OLD_GEORGIA, OTHER_SPECIES]);
+    await pool.query(`INSERT INTO region_species (region_id, species_id, local_tier) VALUES ($1, $2, 'common')`, [
+      OLD_GEORGIA,
+      OTHER_SPECIES,
+    ]);
 
     const dump = [
       "COPY public.regions (id, name, parent_id) FROM stdin;",
@@ -581,7 +620,10 @@ describe.skipIf(!url)("applyCatalogSeedFile (integration)", () => {
   });
 
   it("applies the binary gallery embeddings asset onto local photo ids", async () => {
-    await pool.query(`INSERT INTO species (id, gbif_key, scientific_name, taxon_class) VALUES ($1, 1, 'Ardea herodias', 'Aves')`, [SPECIES]);
+    await pool.query(
+      `INSERT INTO species (id, gbif_key, scientific_name, taxon_class) VALUES ($1, 1, 'Ardea herodias', 'Aves')`,
+      [SPECIES],
+    );
     await pool.query(
       `INSERT INTO species_reference_photos (id, species_id, photo_url, credit, license) VALUES ($1, $2, 'https://example.org/heron.jpg', 'c', 'cc-by')`,
       [LOCAL_PHOTO, SPECIES],
@@ -597,33 +639,55 @@ describe.skipIf(!url)("applyCatalogSeedFile (integration)", () => {
     const file = path.join(mkdtempSync(path.join(os.tmpdir(), "lifer-ge-test-")), "ge.bin.gz");
     writeFileSync(file, gzipSync(bin));
 
-    const result = await applyGalleryEmbeddingsFile(pool, file, "1:test-model", { ...noProgress, signal: new AbortController().signal });
+    const result = await applyGalleryEmbeddingsFile(pool, file, "1:test-model", {
+      ...noProgress,
+      signal: new AbortController().signal,
+    });
     expect(result).toEqual({ status: "applied", rows: 2, matched: 1 });
     const ge = await pool.query(
       `SELECT reference_photo_id, embedding, model_version FROM species_reference_gallery_embeddings WHERE species_id = $1`,
       [SPECIES],
     );
-    expect(ge.rows).toEqual([{ reference_photo_id: LOCAL_PHOTO, embedding: [0.5, 0.5, 0.5, 0.5], model_version: "test-model" }]);
+    expect(ge.rows).toEqual([
+      { reference_photo_id: LOCAL_PHOTO, embedding: [0.5, 0.5, 0.5, 0.5], model_version: "test-model" },
+    ]);
   });
 
   it("applies the identification model's gallery asset into its own table only", async () => {
-    await pool.query(`INSERT INTO species (id, gbif_key, scientific_name, taxon_class) VALUES ($1, 1, 'Ardea herodias', 'Aves')`, [SPECIES]);
+    await pool.query(
+      `INSERT INTO species (id, gbif_key, scientific_name, taxon_class) VALUES ($1, 1, 'Ardea herodias', 'Aves')`,
+      [SPECIES],
+    );
     await pool.query(
       `INSERT INTO species_reference_photos (id, species_id, photo_url, credit, license) VALUES ($1, $2, 'https://example.org/heron.jpg', 'c', 'cc-by')`,
       [LOCAL_PHOTO, SPECIES],
     );
     const bin = Buffer.concat([
       encodeGalleryEmbeddingsHeader({ dimension: 4, rowCount: 1, modelVersion: "bioclip-2-v1" }),
-      encodeGalleryEmbeddingRecord({ speciesId: SPECIES, photoUrl: "https://example.org/heron.jpg", embedding: [0.25, 0.25, 0.25, 0.25] }, 4),
+      encodeGalleryEmbeddingRecord(
+        { speciesId: SPECIES, photoUrl: "https://example.org/heron.jpg", embedding: [0.25, 0.25, 0.25, 0.25] },
+        4,
+      ),
     ]);
     const file = path.join(mkdtempSync(path.join(os.tmpdir(), "lifer-ge-test-")), "id-ge.bin.gz");
     writeFileSync(file, gzipSync(bin));
 
-    const result = await applyGalleryEmbeddingsFile(pool, file, "1:bioclip-2-v1", { ...noProgress, signal: new AbortController().signal }, ID_GALLERY);
+    const result = await applyGalleryEmbeddingsFile(
+      pool,
+      file,
+      "1:bioclip-2-v1",
+      { ...noProgress, signal: new AbortController().signal },
+      ID_GALLERY,
+    );
     expect(result).toEqual({ status: "applied", rows: 1, matched: 1 });
-    const id = await pool.query(`SELECT reference_photo_id, model_version FROM id_model_gallery_embeddings WHERE species_id = $1`, [SPECIES]);
+    const id = await pool.query(
+      `SELECT reference_photo_id, model_version FROM id_model_gallery_embeddings WHERE species_id = $1`,
+      [SPECIES],
+    );
     expect(id.rows).toEqual([{ reference_photo_id: LOCAL_PHOTO, model_version: "bioclip-2-v1" }]);
-    const clip = await pool.query(`SELECT 1 FROM species_reference_gallery_embeddings WHERE species_id = $1`, [SPECIES]);
+    const clip = await pool.query(`SELECT 1 FROM species_reference_gallery_embeddings WHERE species_id = $1`, [
+      SPECIES,
+    ]);
     expect(clip.rowCount).toBe(0);
     const tag = await pool.query(`SELECT value FROM install_settings WHERE key = 'id_gallery_embeddings_version'`);
     expect(tag.rows[0]?.value).toBe("1:bioclip-2-v1");

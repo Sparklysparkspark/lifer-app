@@ -27,9 +27,16 @@ export async function fetchWikipediaSummary(title: string, lang = "en"): Promise
   const intro = (await fetchIntros(client, lang, [title])).get(title);
   if (!intro) return none;
   const sections = await fetchIdentificationSections(client, lang, [intro]);
-  const description = composeDescription({ lead: intro.extract, identificationSection: sections.get(intro.title) ?? null });
+  const description = composeDescription({
+    lead: intro.extract,
+    identificationSection: sections.get(intro.title) ?? null,
+  });
   if (!description) return none;
-  return { description, descriptionCredit: WIKIPEDIA_DESCRIPTION_CREDIT, descriptionSourceUrl: articleUrl(lang, intro.title) };
+  return {
+    description,
+    descriptionCredit: WIKIPEDIA_DESCRIPTION_CREDIT,
+    descriptionSourceUrl: articleUrl(lang, intro.title),
+  };
 }
 
 async function main() {
@@ -42,7 +49,12 @@ async function main() {
   const results: Array<{ scientificName: string } & WikipediaSummaryRow> = [];
   for (const r of rows) {
     if (!r.wikipediaTitle) {
-      results.push({ scientificName: r.scientificName, description: null, descriptionCredit: null, descriptionSourceUrl: null });
+      results.push({
+        scientificName: r.scientificName,
+        description: null,
+        descriptionCredit: null,
+        descriptionSourceUrl: null,
+      });
       continue;
     }
     const summary = await fetchWikipediaSummary(r.wikipediaTitle);
@@ -53,8 +65,12 @@ async function main() {
   const dest = path.join(BUILD_DIR, "wikipedia-summaries.json");
   writeFileSync(dest, JSON.stringify(results, null, 2));
   console.log(
-    "[wikipedia-summary] wrote " + results.length + " rows (" +
-      results.filter((r) => r.description).length + " with a blurb) to " + dest,
+    "[wikipedia-summary] wrote " +
+      results.length +
+      " rows (" +
+      results.filter((r) => r.description).length +
+      " with a blurb) to " +
+      dest,
   );
 }
 

@@ -39,7 +39,9 @@ async function main() {
      ORDER BY s.scientific_name`,
     params,
   );
-  console.log(`[backfill-reference-embeddings] ${res.rows.length} species need an embedding (model ${EMBEDDING_MODEL_VERSION})`);
+  console.log(
+    `[backfill-reference-embeddings] ${res.rows.length} species need an embedding (model ${EMBEDDING_MODEL_VERSION})`,
+  );
 
   let done = 0;
   let failed = 0;
@@ -62,7 +64,12 @@ async function main() {
   }
   console.log(`[backfill-reference-embeddings] done: ${done} embedded, ${failed} failed`);
 
-  const galleryRes = await pool.query<{ id: string; species_id: string; scientific_name: string; display_path: string }>(
+  const galleryRes = await pool.query<{
+    id: string;
+    species_id: string;
+    scientific_name: string;
+    display_path: string;
+  }>(
     `SELECT p.id, p.species_id, s.scientific_name, p.display_path
      FROM species_reference_photos p
      JOIN species s ON s.id = p.species_id
@@ -71,7 +78,9 @@ async function main() {
      ORDER BY s.scientific_name`,
     params,
   );
-  console.log(`[backfill-reference-embeddings] ${galleryRes.rows.length} gallery photos need an embedding (model ${EMBEDDING_MODEL_VERSION})`);
+  console.log(
+    `[backfill-reference-embeddings] ${galleryRes.rows.length} gallery photos need an embedding (model ${EMBEDDING_MODEL_VERSION})`,
+  );
 
   let galleryDone = 0;
   let galleryFailed = 0;
@@ -88,7 +97,10 @@ async function main() {
       galleryDone++;
     } catch (err) {
       galleryFailed++;
-      console.error(`[backfill-reference-embeddings] FAILED gallery photo of ${row.scientific_name}:`, (err as Error).message);
+      console.error(
+        `[backfill-reference-embeddings] FAILED gallery photo of ${row.scientific_name}:`,
+        (err as Error).message,
+      );
     }
     if ((galleryDone + galleryFailed) % 200 === 0) {
       console.log(`[backfill-reference-embeddings] gallery ${galleryDone + galleryFailed}/${galleryRes.rows.length}`);

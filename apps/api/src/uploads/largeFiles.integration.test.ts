@@ -32,7 +32,10 @@ const OTHER_SESSION = "lifer_test_large_files_session_121";
 const TAKEN = "2024:05:01 10:00:00";
 const API = { "x-api-key": KEY };
 
-const hasHeicEncoder = process.platform === "darwin" ? existsSync("/usr/bin/sips") : existsSync("/usr/bin/heif-enc") || existsSync("/opt/homebrew/bin/heif-enc");
+const hasHeicEncoder =
+  process.platform === "darwin"
+    ? existsSync("/usr/bin/sips")
+    : existsSync("/usr/bin/heif-enc") || existsSync("/opt/homebrew/bin/heif-enc");
 
 async function jpeg(shade: number, size = { width: 64, height: 48 }): Promise<Buffer> {
   return sharp({ create: { ...size, channels: 3, background: { r: shade, g: 90, b: 40 } } })
@@ -41,12 +44,19 @@ async function jpeg(shade: number, size = { width: 64, height: 48 }): Promise<Bu
     .toBuffer();
 }
 
-async function form(fields: Record<string, string>, files: { field: string; name: string; bytes: Buffer; type: string }[] = []) {
+async function form(
+  fields: Record<string, string>,
+  files: { field: string; name: string; bytes: Buffer; type: string }[] = [],
+) {
   const f = new FormData();
   for (const [k, v] of Object.entries(fields)) f.append(k, v);
-  for (const file of files) f.append(file.field, new Blob([new Uint8Array(file.bytes)], { type: file.type }), file.name);
+  for (const file of files)
+    f.append(file.field, new Blob([new Uint8Array(file.bytes)], { type: file.type }), file.name);
   const res = new Response(f);
-  return { payload: Buffer.from(await res.arrayBuffer()), headers: { ...API, "content-type": res.headers.get("content-type")! } };
+  return {
+    payload: Buffer.from(await res.arrayBuffer()),
+    headers: { ...API, "content-type": res.headers.get("content-type")! },
+  };
 }
 
 describe.skipIf(!url)("large files and new formats", () => {
@@ -61,7 +71,10 @@ describe.skipIf(!url)("large files and new formats", () => {
   async function cleanup() {
     for (const u of [USER, OTHER_USER]) {
       await db.query(`DELETE FROM user_species WHERE user_id = $1`, [u]);
-      await db.query(`DELETE FROM originals WHERE user_id = $1 OR capture_id IN (SELECT id FROM captures_all WHERE user_id = $1)`, [u]);
+      await db.query(
+        `DELETE FROM originals WHERE user_id = $1 OR capture_id IN (SELECT id FROM captures_all WHERE user_id = $1)`,
+        [u],
+      );
       await db.query(`DELETE FROM captures_all WHERE user_id = $1`, [u]);
       await db.query(`DELETE FROM api_keys WHERE user_id = $1`, [u]);
       await db.query(`DELETE FROM sessions WHERE user_id = $1`, [u]);
@@ -85,25 +98,23 @@ describe.skipIf(!url)("large files and new formats", () => {
     const { uploadRoutes } = await import("./routes.js");
     const { isBlockedCrossSiteWrite } = await import("@lifer/core/lib/requestGuard.js");
     await cleanup();
-    await db.query(`INSERT INTO users (id, email, password_hash) VALUES ($1, 'large@test', 'x'), ($2, 'large-other@test', 'x')`, [USER, OTHER_USER]);
+    await db.query(
+      `INSERT INTO users (id, email, password_hash) VALUES ($1, 'large@test', 'x'), ($2, 'large-other@test', 'x')`,
+      [USER, OTHER_USER],
+    );
     await db.query(
       `INSERT INTO species (id, gbif_key, scientific_name, common_name, taxon_class)
        VALUES ($1, 910803, 'Testus giganticus', 'Large Test Tern', 'aves') ON CONFLICT (id) DO NOTHING`,
       [SPECIES],
     );
-    await db.query(`INSERT INTO api_keys (user_id, name, key_hash, permissions) VALUES ($1, 't', $2, $3), ($4, 't', $5, $3)`, [
-      USER,
-      hashApiKey(KEY),
-      ["photos.write"],
-      OTHER_USER,
-      hashApiKey(OTHER_KEY),
-    ]);
-    await db.query(`INSERT INTO sessions (id, user_id, expires_at) VALUES ($1, $2, now() + interval '1 day'), ($3, $4, now() + interval '1 day')`, [
-      hashToken(SESSION),
-      USER,
-      hashToken(OTHER_SESSION),
-      OTHER_USER,
-    ]);
+    await db.query(
+      `INSERT INTO api_keys (user_id, name, key_hash, permissions) VALUES ($1, 't', $2, $3), ($4, 't', $5, $3)`,
+      [USER, hashApiKey(KEY), ["photos.write"], OTHER_USER, hashApiKey(OTHER_KEY)],
+    );
+    await db.query(
+      `INSERT INTO sessions (id, user_id, expires_at) VALUES ($1, $2, now() + interval '1 day'), ($3, $4, now() + interval '1 day')`,
+      [hashToken(SESSION), USER, hashToken(OTHER_SESSION), OTHER_USER],
+    );
 
     // Wired like index.ts: the cross-site guard, helmet and compression in front of the routes.
     app = Fastify({ bodyLimit: 1024 * 1024 });
@@ -136,7 +147,12 @@ describe.skipIf(!url)("large files and new formats", () => {
 
   it("uploads in chunks, inspects and imports by uploadId without resending", async () => {
     const bytes = await jpeg(20, { width: 900, height: 600 });
-    const { id, offset } = await tusUpload(app, bytes, { headers: API, filename: "IMG_1000.jpg", filetype: "image/jpeg", chunkSize: 8 * 1024 });
+    const { id, offset } = await tusUpload(app, bytes, {
+      headers: API,
+      filename: "IMG_1000.jpg",
+      filetype: "image/jpeg",
+      chunkSize: 8 * 1024,
+    });
     expect(offset).toBe(bytes.length);
     expect(id.startsWith(`${USER}_`)).toBe(true);
 
@@ -164,7 +180,15 @@ describe.skipIf(!url)("large files and new formats", () => {
 
   it("resumes after an interrupted PATCH from the offset HEAD reports", async () => {
     // Noise, so the file is big enough for several chunks.
-    const bytes = await sharp({ create: { width: 400, height: 300, channels: 3, background: "#000", noise: { type: "gaussian", mean: 128, sigma: 50 } } })
+    const bytes = await sharp({
+      create: {
+        width: 400,
+        height: 300,
+        channels: 3,
+        background: "#000",
+        noise: { type: "gaussian", mean: 128, sigma: 50 },
+      },
+    })
       .jpeg({ quality: 95 })
       .withExif({ IFD0: { Make: "TestCam" }, IFD2: { DateTimeOriginal: TAKEN } })
       .toBuffer();
@@ -182,7 +206,13 @@ describe.skipIf(!url)("large files and new formats", () => {
         port,
         method: "PATCH",
         path: uploadUrl,
-        headers: { ...API, "tus-resumable": "1.0.0", "upload-offset": "8192", "content-type": "application/offset+octet-stream", "content-length": String(bytes.length - 8192) },
+        headers: {
+          ...API,
+          "tus-resumable": "1.0.0",
+          "upload-offset": "8192",
+          "content-type": "application/offset+octet-stream",
+          "content-length": String(bytes.length - 8192),
+        },
       });
       req.on("error", () => resolve());
       req.on("response", () => resolve());
@@ -203,21 +233,37 @@ describe.skipIf(!url)("large files and new formats", () => {
 
     expect(await tusPatch(app, uploadUrl, bytes, resumeAt, opts)).toBe(bytes.length);
     const id = uploadUrl.split("/").pop()!;
-    const res = await app.inject({ method: "POST", url: "/api/uploads", ...(await form({ speciesId: SPECIES, uploadId: id })) });
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/uploads",
+      ...(await form({ speciesId: SPECIES, uploadId: id })),
+    });
     expect(res.statusCode, res.body).toBe(201);
-    const stored = await db.query<{ content_hash: string }>(`SELECT content_hash FROM originals WHERE capture_id = $1`, [res.json().captureId]);
+    const stored = await db.query<{ content_hash: string }>(
+      `SELECT content_hash FROM originals WHERE capture_id = $1`,
+      [res.json().captureId],
+    );
     expect(stored.rows[0].content_hash).toBe(createHash("sha256").update(bytes).digest("hex"));
   }, 60_000);
 
   it("keeps each user's uploads to themselves", async () => {
     const bytes = await jpeg(60);
-    const { id, url: uploadUrl } = await tusUpload(app, bytes, { headers: API, filename: "IMG_1002.jpg", filetype: "image/jpeg" });
+    const { id, url: uploadUrl } = await tusUpload(app, bytes, {
+      headers: API,
+      filename: "IMG_1002.jpg",
+      filetype: "image/jpeg",
+    });
     const other = { "x-api-key": OTHER_KEY, "tus-resumable": "1.0.0" };
     expect((await app.inject({ method: "HEAD", url: uploadUrl, headers: other })).statusCode).toBe(404);
     expect((await app.inject({ method: "DELETE", url: uploadUrl, headers: other })).statusCode).toBe(404);
     const theirs = async (fields: Record<string, string>, route: string) => {
       const body = await form(fields);
-      return app.inject({ method: "POST", url: route, payload: body.payload, headers: { ...body.headers, "x-api-key": OTHER_KEY } });
+      return app.inject({
+        method: "POST",
+        url: route,
+        payload: body.payload,
+        headers: { ...body.headers, "x-api-key": OTHER_KEY },
+      });
     };
     expect((await theirs({ uploadId: id }, "/api/uploads/inspect")).statusCode).toBe(410);
     expect((await theirs({ speciesId: SPECIES, uploadId: id }, "/api/uploads")).statusCode).toBe(410);
@@ -233,24 +279,45 @@ describe.skipIf(!url)("large files and new formats", () => {
     expect(raw.json().results[0]).toMatchObject({ uploadId: id, linked: false });
     expect(raw.json().results[0].error).toBeTruthy();
     // Still there for its owner.
-    expect((await app.inject({ method: "HEAD", url: uploadUrl, headers: { ...API, "tus-resumable": "1.0.0" } })).statusCode).toBe(200);
+    expect(
+      (await app.inject({ method: "HEAD", url: uploadUrl, headers: { ...API, "tus-resumable": "1.0.0" } })).statusCode,
+    ).toBe(200);
   }, 60_000);
 
   it("authenticates tus requests like every other upload", async () => {
     const create = { "tus-resumable": "1.0.0", "upload-length": "10" };
     // No credentials: the cross-site guard answers first, then authentication.
     expect((await app.inject({ method: "POST", url: "/api/uploads/tus", headers: create })).statusCode).toBe(403);
-    expect((await app.inject({ method: "POST", url: "/api/uploads/tus", headers: { ...create, "x-lifer-client": "1" } })).statusCode).toBe(401);
+    expect(
+      (await app.inject({ method: "POST", url: "/api/uploads/tus", headers: { ...create, "x-lifer-client": "1" } }))
+        .statusCode,
+    ).toBe(401);
     // A cookie alone is refused by the cross-site guard; with x-lifer-client it's a normal upload.
     const cookies = { [cookieName]: SESSION };
-    expect((await app.inject({ method: "POST", url: "/api/uploads/tus", headers: create, cookies })).statusCode).toBe(403);
-    const ok = await app.inject({ method: "POST", url: "/api/uploads/tus", headers: { ...create, "x-lifer-client": "1" }, cookies });
+    expect((await app.inject({ method: "POST", url: "/api/uploads/tus", headers: create, cookies })).statusCode).toBe(
+      403,
+    );
+    const ok = await app.inject({
+      method: "POST",
+      url: "/api/uploads/tus",
+      headers: { ...create, "x-lifer-client": "1" },
+      cookies,
+    });
     expect(ok.statusCode, ok.body).toBe(201);
     expect(ok.headers["access-control-allow-origin"]).toBeUndefined();
-    const del = await app.inject({ method: "DELETE", url: String(ok.headers.location), headers: { "tus-resumable": "1.0.0", "x-lifer-client": "1" }, cookies });
+    const del = await app.inject({
+      method: "DELETE",
+      url: String(ok.headers.location),
+      headers: { "tus-resumable": "1.0.0", "x-lifer-client": "1" },
+      cookies,
+    });
     expect(del.statusCode).toBe(204);
     // An upload's owner comes from its credentials, whatever the request claims.
-    const forged = await app.inject({ method: "POST", url: "/api/uploads/tus", headers: { ...create, ...API, "x-lifer-tus-user": OTHER_USER } });
+    const forged = await app.inject({
+      method: "POST",
+      url: "/api/uploads/tus",
+      headers: { ...create, ...API, "x-lifer-tus-user": OTHER_USER },
+    });
     expect(String(forged.headers.location).split("/").pop()!.startsWith(`${USER}_`)).toBe(true);
   });
 
@@ -259,7 +326,12 @@ describe.skipIf(!url)("large files and new formats", () => {
     const created = await app.inject({
       method: "POST",
       url: "/api/uploads/tus",
-      headers: { ...API, "tus-resumable": "1.0.0", "upload-length": String(size), "upload-metadata": `filename ${Buffer.from("big.bin").toString("base64")}` },
+      headers: {
+        ...API,
+        "tus-resumable": "1.0.0",
+        "upload-length": String(size),
+        "upload-metadata": `filename ${Buffer.from("big.bin").toString("base64")}`,
+      },
     });
     expect(created.statusCode, created.body).toBe(201);
     if (!app.server.listening) await app.listen({ port: 0, host: "127.0.0.1" });
@@ -277,7 +349,13 @@ describe.skipIf(!url)("large files and new formats", () => {
           port,
           method: "PATCH",
           path: String(created.headers.location),
-          headers: { ...API, "tus-resumable": "1.0.0", "upload-offset": "0", "content-type": "application/offset+octet-stream", "content-length": String(size) },
+          headers: {
+            ...API,
+            "tus-resumable": "1.0.0",
+            "upload-offset": "0",
+            "content-type": "application/offset+octet-stream",
+            "content-length": String(size),
+          },
         },
         (res) => {
           res.resume();
@@ -316,18 +394,36 @@ describe.skipIf(!url)("large files and new formats", () => {
       .resize(width, height, { kernel: "nearest" })
       .jpeg({ quality: 80 })
       .toBuffer();
-    const { id } = await tusUpload(app, bytes, { headers: API, filename: "PANO_0001.jpg", filetype: "image/jpeg", chunkSize: 4 * 1024 * 1024 });
-    const res = await app.inject({ method: "POST", url: "/api/uploads", ...(await form({ speciesId: SPECIES, uploadId: id })) });
+    const { id } = await tusUpload(app, bytes, {
+      headers: API,
+      filename: "PANO_0001.jpg",
+      filetype: "image/jpeg",
+      chunkSize: 4 * 1024 * 1024,
+    });
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/uploads",
+      ...(await form({ speciesId: SPECIES, uploadId: id })),
+    });
     expect(res.statusCode, res.body).toBe(201);
-    const photo = await db.query<{ width: number; height: number; display_path: string }>(`SELECT width, height, display_path FROM photos WHERE id = $1`, [res.json().photoId]);
+    const photo = await db.query<{ width: number; height: number; display_path: string }>(
+      `SELECT width, height, display_path FROM photos WHERE id = $1`,
+      [res.json().photoId],
+    );
     expect(photo.rows[0]).toMatchObject({ width: 2560, height: 1280 });
     expect(existsSync(photo.rows[0].display_path)).toBe(true);
   }, 120_000);
 
   it("imports an edited TIFF as a photo paired with its RAW, and a sensor-data TIFF as a RAW", async () => {
     const exif = { IFD0: { Make: "TestCam" }, IFD2: { DateTimeOriginal: "2024:05:02 11:00:00" } };
-    const edited = await sharp({ create: { width: 80, height: 60, channels: 3, background: "#228833" } }).tiff().withExif(exif).toBuffer();
-    const raw = await sharp({ create: { width: 80, height: 60, channels: 3, background: "#228833" } }).jpeg().withExif(exif).toBuffer();
+    const edited = await sharp({ create: { width: 80, height: 60, channels: 3, background: "#228833" } })
+      .tiff()
+      .withExif(exif)
+      .toBuffer();
+    const raw = await sharp({ create: { width: 80, height: 60, channels: 3, background: "#228833" } })
+      .jpeg()
+      .withExif(exif)
+      .toBuffer();
     const pair = await form({ speciesId: SPECIES }, [
       { field: "file", name: "IMG_2000.tif", bytes: edited, type: "image/tiff" },
       // exiftool reads by content, so a JPEG body stands in for camera RAW bytes here.
@@ -335,7 +431,10 @@ describe.skipIf(!url)("large files and new formats", () => {
     ]);
     const res = await app.inject({ method: "POST", url: "/api/uploads", ...pair });
     expect(res.statusCode, res.body).toBe(201);
-    const rows = await db.query<{ kind: string; ref: string }>(`SELECT kind, ref FROM originals WHERE capture_id = $1 ORDER BY kind`, [res.json().captureId]);
+    const rows = await db.query<{ kind: string; ref: string }>(
+      `SELECT kind, ref FROM originals WHERE capture_id = $1 ORDER BY kind`,
+      [res.json().captureId],
+    );
     expect(rows.rows.map((r) => [r.kind, path.basename(r.ref), path.basename(path.dirname(r.ref))])).toEqual([
       ["jpeg", "IMG_2000.tif", "Adjusted"],
       ["raw", "IMG_2000.dng", "RAW"],
@@ -344,47 +443,102 @@ describe.skipIf(!url)("large files and new formats", () => {
     expect(photo.rows[0].width).toBe(80);
 
     // The import screen gets a JPEG preview of a TIFF, which browsers can't show.
-    const check = await app.inject({ method: "POST", url: "/api/uploads/inspect", ...(await form({}, [{ field: "file", name: "IMG_2001.tif", bytes: edited, type: "image/tiff" }])) });
+    const check = await app.inject({
+      method: "POST",
+      url: "/api/uploads/inspect",
+      ...(await form({}, [{ field: "file", name: "IMG_2001.tif", bytes: edited, type: "image/tiff" }])),
+    });
     expect(check.json().previewDataUrl).toMatch(/^data:image\/jpeg;base64,/);
 
     const cfa = setTiffPhotometric(edited, 32803);
-    const rawRes = await app.inject({ method: "POST", url: "/api/uploads", ...(await form({ speciesId: SPECIES }, [{ field: "file", name: "IMG_2002.tif", bytes: cfa, type: "image/tiff" }])) });
+    const rawRes = await app.inject({
+      method: "POST",
+      url: "/api/uploads",
+      ...(await form({ speciesId: SPECIES }, [
+        { field: "file", name: "IMG_2002.tif", bytes: cfa, type: "image/tiff" },
+      ])),
+    });
     expect(rawRes.statusCode, rawRes.body).toBe(201);
     expect(rawRes.json()).toMatchObject({ linkedExisting: false });
-    const rawRows = await db.query<{ kind: string; ref: string }>(`SELECT kind, ref FROM originals WHERE capture_id = $1`, [rawRes.json().captureId]);
+    const rawRows = await db.query<{ kind: string; ref: string }>(
+      `SELECT kind, ref FROM originals WHERE capture_id = $1`,
+      [rawRes.json().captureId],
+    );
     expect(rawRows.rows.map((r) => [r.kind, path.basename(path.dirname(r.ref))])).toEqual([["raw", "RAW"]]);
   }, 60_000);
 
   it("imports a WebP with derivatives, keyword suggestions and metadata written into the file", async () => {
-    const webp = await sharp({ create: { width: 120, height: 90, channels: 3, background: "#884422" } }).webp().toBuffer();
+    const webp = await sharp({ create: { width: 120, height: 90, channels: 3, background: "#884422" } })
+      .webp()
+      .toBuffer();
     const file = path.join(scratch, "IMG_3000.webp");
     writeFileSync(file, webp);
-    await exiftool.write(file, { "XMP-dc:Subject": ["Testus giganticus"], "XMP-exif:DateTimeOriginal": "2024:05:03 09:00:00" } as WriteTags, { writeArgs: ["-overwrite_original"] });
+    await exiftool.write(
+      file,
+      { "XMP-dc:Subject": ["Testus giganticus"], "XMP-exif:DateTimeOriginal": "2024:05:03 09:00:00" } as WriteTags,
+      { writeArgs: ["-overwrite_original"] },
+    );
     const bytes = readFileSync(file);
 
-    const check = await app.inject({ method: "POST", url: "/api/uploads/inspect", ...(await form({}, [{ field: "file", name: "IMG_3000.webp", bytes, type: "image/webp" }])) });
+    const check = await app.inject({
+      method: "POST",
+      url: "/api/uploads/inspect",
+      ...(await form({}, [{ field: "file", name: "IMG_3000.webp", bytes, type: "image/webp" }])),
+    });
     expect(check.statusCode, check.body).toBe(200);
     expect(check.json().suggestions[0]).toMatchObject({ id: SPECIES, source: "keyword_tag" });
     expect(check.json().previewDataUrl).toBeNull();
 
-    const res = await app.inject({ method: "POST", url: "/api/uploads", ...(await form({ speciesId: SPECIES }, [{ field: "file", name: "IMG_3000.webp", bytes, type: "image/webp" }])) });
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/uploads",
+      ...(await form({ speciesId: SPECIES }, [{ field: "file", name: "IMG_3000.webp", bytes, type: "image/webp" }])),
+    });
     expect(res.statusCode, res.body).toBe(201);
-    const row = await db.query<{ ref: string }>(`SELECT ref FROM originals WHERE capture_id = $1`, [res.json().captureId]);
+    const row = await db.query<{ ref: string }>(`SELECT ref FROM originals WHERE capture_id = $1`, [
+      res.json().captureId,
+    ]);
     expect(path.extname(row.rows[0].ref)).toBe(".webp");
-    const photo = await db.query<{ width: number; display_path: string }>(`SELECT width, display_path FROM photos WHERE id = $1`, [res.json().photoId]);
+    const photo = await db.query<{ width: number; display_path: string }>(
+      `SELECT width, display_path FROM photos WHERE id = $1`,
+      [res.json().photoId],
+    );
     expect(photo.rows[0].width).toBe(120);
     expect(existsSync(photo.rows[0].display_path)).toBe(true);
-    await waitFor(async () => ((await exiftool.read(row.rows[0].ref)).Title as string | undefined) === "Large Test Tern");
+    await waitFor(
+      async () => ((await exiftool.read(row.rows[0].ref)).Title as string | undefined) === "Large Test Tern",
+    );
     expect((await sharp(row.rows[0].ref).metadata()).format).toBe("webp");
   }, 60_000);
 
   it("imports a video sent as a resumable upload", async () => {
     const ffmpeg = createRequire(import.meta.url)("ffmpeg-static") as string;
     const video = path.join(scratch, "clip.mp4");
-    execFileSync(ffmpeg, ["-y", "-f", "lavfi", "-i", "testsrc=duration=3:size=64x48:rate=10", "-pix_fmt", "yuv420p", "-c:v", "libx264", video], { stdio: "ignore" });
+    execFileSync(
+      ffmpeg,
+      [
+        "-y",
+        "-f",
+        "lavfi",
+        "-i",
+        "testsrc=duration=3:size=64x48:rate=10",
+        "-pix_fmt",
+        "yuv420p",
+        "-c:v",
+        "libx264",
+        video,
+      ],
+      { stdio: "ignore" },
+    );
     const bytes = readFileSync(video);
     const cookies = { [cookieName]: SESSION };
-    const { id } = await tusUpload(app, bytes, { headers: { "x-lifer-client": "1" }, cookies, filename: "CLIP_0001.mp4", filetype: "video/mp4", chunkSize: 4096 });
+    const { id } = await tusUpload(app, bytes, {
+      headers: { "x-lifer-client": "1" },
+      cookies,
+      filename: "CLIP_0001.mp4",
+      filetype: "video/mp4",
+      chunkSize: 4096,
+    });
     const body = await form({ speciesId: SPECIES, uploadId: id });
     const res = await app.inject({
       method: "POST",
@@ -394,60 +548,121 @@ describe.skipIf(!url)("large files and new formats", () => {
       cookies,
     });
     expect(res.statusCode, res.body).toBe(201);
-    const row = await db.query<{ ref: string; content_hash: string }>(`SELECT ref, content_hash FROM originals WHERE capture_id = $1 AND kind = 'video'`, [res.json().captureId]);
+    const row = await db.query<{ ref: string; content_hash: string }>(
+      `SELECT ref, content_hash FROM originals WHERE capture_id = $1 AND kind = 'video'`,
+      [res.json().captureId],
+    );
     expect(path.basename(row.rows[0].ref)).toBe("CLIP_0001.mp4");
     expect(row.rows[0].content_hash).toBe(createHash("sha256").update(bytes).digest("hex"));
     expect(readFileSync(row.rows[0].ref).equals(bytes)).toBe(true);
   }, 60_000);
 
-  it.skipIf(!hasHeicEncoder)("imports a HEIC upright, reading its EXIF, and matches on the decoded image", async () => {
-    // 300x200 landscape stored as a 90 degree turn: left half red, right half blue. Upright it's
-    // 200x300 with red on top.
-    const src = path.join(scratch, "src.jpg");
-    await sharp({ create: { width: 300, height: 200, channels: 3, background: "#ff0000" } })
-      .composite([{ input: await sharp({ create: { width: 150, height: 200, channels: 3, background: "#0000ff" } }).png().toBuffer(), left: 150, top: 0 }])
-      .jpeg()
-      .withMetadata({ orientation: 6 })
-      .toFile(src);
-    await exiftool.write(src, { DateTimeOriginal: "2024:05:06 07:08:09", GPSLatitude: 49.25, GPSLatitudeRef: "N", GPSLongitude: -123.1, GPSLongitudeRef: "W" } as WriteTags, { writeArgs: ["-overwrite_original"] });
-    const heic = path.join(scratch, "IMG_4000.HEIC");
-    if (process.platform === "darwin") execFileSync("/usr/bin/sips", ["-s", "format", "heic", src, "--out", heic], { stdio: "ignore" });
-    else execFileSync(existsSync("/usr/bin/heif-enc") ? "/usr/bin/heif-enc" : "/opt/homebrew/bin/heif-enc", [src, "-o", heic], { stdio: "ignore" });
-    await exiftool.write(heic, { "XMP-dc:Subject": ["Large Test Tern"] } as WriteTags, { writeArgs: ["-overwrite_original"] });
-    const bytes = readFileSync(heic);
+  it.skipIf(!hasHeicEncoder)(
+    "imports a HEIC upright, reading its EXIF, and matches on the decoded image",
+    async () => {
+      // 300x200 landscape stored as a 90 degree turn: left half red, right half blue. Upright it's
+      // 200x300 with red on top.
+      const src = path.join(scratch, "src.jpg");
+      await sharp({ create: { width: 300, height: 200, channels: 3, background: "#ff0000" } })
+        .composite([
+          {
+            input: await sharp({ create: { width: 150, height: 200, channels: 3, background: "#0000ff" } })
+              .png()
+              .toBuffer(),
+            left: 150,
+            top: 0,
+          },
+        ])
+        .jpeg()
+        .withMetadata({ orientation: 6 })
+        .toFile(src);
+      await exiftool.write(
+        src,
+        {
+          DateTimeOriginal: "2024:05:06 07:08:09",
+          GPSLatitude: 49.25,
+          GPSLatitudeRef: "N",
+          GPSLongitude: -123.1,
+          GPSLongitudeRef: "W",
+        } as WriteTags,
+        { writeArgs: ["-overwrite_original"] },
+      );
+      const heic = path.join(scratch, "IMG_4000.HEIC");
+      if (process.platform === "darwin")
+        execFileSync("/usr/bin/sips", ["-s", "format", "heic", src, "--out", heic], { stdio: "ignore" });
+      else
+        execFileSync(
+          existsSync("/usr/bin/heif-enc") ? "/usr/bin/heif-enc" : "/opt/homebrew/bin/heif-enc",
+          [src, "-o", heic],
+          { stdio: "ignore" },
+        );
+      await exiftool.write(heic, { "XMP-dc:Subject": ["Large Test Tern"] } as WriteTags, {
+        writeArgs: ["-overwrite_original"],
+      });
+      const bytes = readFileSync(heic);
 
-    // Sent as a resumable upload with no MIME type, as most desktop browsers do for HEIC.
-    const { id } = await tusUpload(app, bytes, { headers: API, filename: "IMG_4000.HEIC", filetype: "", chunkSize: 1024 });
-    const check = await app.inject({ method: "POST", url: "/api/uploads/inspect", ...(await form({ uploadId: id })) });
-    expect(check.statusCode, check.body).toBe(200);
-    expect(check.json().suggestions[0]).toMatchObject({ id: SPECIES, source: "keyword_tag" });
-    expect(check.json().previewDataUrl).toMatch(/^data:image\/jpeg;base64,/);
-    const preview = await sharp(Buffer.from(check.json().previewDataUrl.split(",")[1], "base64")).metadata();
-    expect([preview.width, preview.height]).toEqual([200, 300]);
+      // Sent as a resumable upload with no MIME type, as most desktop browsers do for HEIC.
+      const { id } = await tusUpload(app, bytes, {
+        headers: API,
+        filename: "IMG_4000.HEIC",
+        filetype: "",
+        chunkSize: 1024,
+      });
+      const check = await app.inject({
+        method: "POST",
+        url: "/api/uploads/inspect",
+        ...(await form({ uploadId: id })),
+      });
+      expect(check.statusCode, check.body).toBe(200);
+      expect(check.json().suggestions[0]).toMatchObject({ id: SPECIES, source: "keyword_tag" });
+      expect(check.json().previewDataUrl).toMatch(/^data:image\/jpeg;base64,/);
+      const preview = await sharp(Buffer.from(check.json().previewDataUrl.split(",")[1], "base64")).metadata();
+      expect([preview.width, preview.height]).toEqual([200, 300]);
 
-    const res = await app.inject({ method: "POST", url: "/api/uploads", ...(await form({ speciesId: SPECIES, uploadId: id })) });
-    expect(res.statusCode, res.body).toBe(201);
-    const capture = await db.query<{ lat: number; lon: number; taken_at: Date }>(`SELECT lat, lon, taken_at FROM captures WHERE id = $1`, [res.json().captureId]);
-    expect(capture.rows[0].lat).toBeCloseTo(49.25);
-    expect(capture.rows[0].lon).toBeCloseTo(-123.1);
-    expect(capture.rows[0].taken_at).toBeTruthy();
-    const row = await db.query<{ ref: string; content_hash: string }>(`SELECT ref, content_hash FROM originals WHERE capture_id = $1`, [res.json().captureId]);
-    // The original is kept as it came (metadata aside, which is written into it afterwards).
-    expect(path.basename(row.rows[0].ref)).toBe("IMG_4000.heic");
-    expect(row.rows[0].content_hash).toBe(createHash("sha256").update(bytes).digest("hex"));
-    const photo = await db.query<{ width: number; height: number; display_path: string }>(`SELECT width, height, display_path FROM photos WHERE id = $1`, [res.json().photoId]);
-    expect(photo.rows[0]).toMatchObject({ width: 200, height: 300 });
-    const { data, info } = await sharp(photo.rows[0].display_path).raw().toBuffer({ resolveWithObject: true });
-    const at = (x: number, y: number) => Array.from(data.subarray((y * info.width + x) * info.channels, (y * info.width + x) * info.channels + 3));
-    expect(at(100, 20)[0]).toBeGreaterThan(200);
-    expect(at(100, 280)[2]).toBeGreaterThan(200);
+      const res = await app.inject({
+        method: "POST",
+        url: "/api/uploads",
+        ...(await form({ speciesId: SPECIES, uploadId: id })),
+      });
+      expect(res.statusCode, res.body).toBe(201);
+      const capture = await db.query<{ lat: number; lon: number; taken_at: Date }>(
+        `SELECT lat, lon, taken_at FROM captures WHERE id = $1`,
+        [res.json().captureId],
+      );
+      expect(capture.rows[0].lat).toBeCloseTo(49.25);
+      expect(capture.rows[0].lon).toBeCloseTo(-123.1);
+      expect(capture.rows[0].taken_at).toBeTruthy();
+      const row = await db.query<{ ref: string; content_hash: string }>(
+        `SELECT ref, content_hash FROM originals WHERE capture_id = $1`,
+        [res.json().captureId],
+      );
+      // The original is kept as it came (metadata aside, which is written into it afterwards).
+      expect(path.basename(row.rows[0].ref)).toBe("IMG_4000.heic");
+      expect(row.rows[0].content_hash).toBe(createHash("sha256").update(bytes).digest("hex"));
+      const photo = await db.query<{ width: number; height: number; display_path: string }>(
+        `SELECT width, height, display_path FROM photos WHERE id = $1`,
+        [res.json().photoId],
+      );
+      expect(photo.rows[0]).toMatchObject({ width: 200, height: 300 });
+      const { data, info } = await sharp(photo.rows[0].display_path).raw().toBuffer({ resolveWithObject: true });
+      const at = (x: number, y: number) =>
+        Array.from(data.subarray((y * info.width + x) * info.channels, (y * info.width + x) * info.channels + 3));
+      expect(at(100, 20)[0]).toBeGreaterThan(200);
+      expect(at(100, 280)[2]).toBeGreaterThan(200);
 
-    // Species matching gets the decoded pixels: the bundled animal detector runs on it.
-    const { analyzeImage } = await import("@lifer/core/species/inference.js");
-    const analysis = await analyzeImage({ path: row.rows[0].ref }, { targets: [], presence: true, priority: "interactive" });
-    expect(analysis.presence).toBeTruthy();
-    await waitFor(async () => ((await exiftool.read(row.rows[0].ref)).Title as string | undefined) === "Large Test Tern");
-  }, 60_000);
+      // Species matching gets the decoded pixels: the bundled animal detector runs on it.
+      const { analyzeImage } = await import("@lifer/core/species/inference.js");
+      const analysis = await analyzeImage(
+        { path: row.rows[0].ref },
+        { targets: [], presence: true, priority: "interactive" },
+      );
+      expect(analysis.presence).toBeTruthy();
+      await waitFor(
+        async () => ((await exiftool.read(row.rows[0].ref)).Title as string | undefined) === "Large Test Tern",
+      );
+    },
+    60_000,
+  );
 });
 
 async function waitFor(check: () => Promise<boolean>, timeoutMs = 10_000): Promise<void> {

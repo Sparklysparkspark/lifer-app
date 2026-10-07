@@ -82,7 +82,11 @@ export async function syncAlbumIndexForCaptures(captureIds: string[]): Promise<v
   await Promise.all(
     res.rows.map(async (row) => {
       if (!row.ref) return;
-      const resolved = await resolveOriginalPath({ ref: row.ref, volume_id: row.volume_id, volume_relative_path: row.volume_relative_path });
+      const resolved = await resolveOriginalPath({
+        ref: row.ref,
+        volume_id: row.volume_id,
+        volume_relative_path: row.volume_relative_path,
+      });
       if (!resolved.connected || !resolved.path) return;
       const folder = path.dirname(resolved.path);
       const filename = path.basename(resolved.path);
@@ -112,10 +116,21 @@ export async function recoverAlbumMembership(userId: string, absolutePath: strin
   if (!albumNames?.length) return;
 
   for (const name of albumNames) {
-    const existing = await pool.query<{ id: string }>(`SELECT id FROM albums WHERE user_id = $1 AND name = $2 LIMIT 1`, [userId, name]);
+    const existing = await pool.query<{ id: string }>(
+      `SELECT id FROM albums WHERE user_id = $1 AND name = $2 LIMIT 1`,
+      [userId, name],
+    );
     const albumId =
       existing.rows[0]?.id ??
-      (await pool.query<{ id: string }>(`INSERT INTO albums (user_id, name) VALUES ($1, $2) RETURNING id`, [userId, name])).rows[0].id;
-    await pool.query(`INSERT INTO album_captures (album_id, capture_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, [albumId, captureId]);
+      (
+        await pool.query<{ id: string }>(`INSERT INTO albums (user_id, name) VALUES ($1, $2) RETURNING id`, [
+          userId,
+          name,
+        ])
+      ).rows[0].id;
+    await pool.query(`INSERT INTO album_captures (album_id, capture_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, [
+      albumId,
+      captureId,
+    ]);
   }
 }

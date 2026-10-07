@@ -32,7 +32,12 @@ import type { Pool, PoolClient } from "pg";
 
 /** A pool or one client (tests run inside a transaction). */
 type Db = Pool | PoolClient;
-import { composeDescription, IDENTIFICATION_HEADINGS, findSection, splitSections } from "@lifer/core/species/descriptionText.js";
+import {
+  composeDescription,
+  IDENTIFICATION_HEADINGS,
+  findSection,
+  splitSections,
+} from "@lifer/core/species/descriptionText.js";
 import {
   articleUrl,
   fetchFullExtract,
@@ -132,23 +137,42 @@ export async function describeSpecies(
   // 3. The scientific name as a title, only when the article is about this species.
   rest = rows.filter((r) => !found.has(r.id));
   if (rest.length > 0) {
-    const intros = await fetchIntros(clients.wikipedia, opts.lang, rest.map((r) => r.scientific_name));
+    const intros = await fetchIntros(
+      clients.wikipedia,
+      opts.lang,
+      rest.map((r) => r.scientific_name),
+    );
     for (const r of rest) {
       const intro = intros.get(r.scientific_name);
       if (intro && introMatchesSpecies(intro, r.scientific_name)) found.set(r.id, { intro, via: "scientific-name" });
     }
   }
 
-  const sections = opts.sections ? await fetchIdentificationSections(clients.wikipedia, opts.lang, [...found.values()].map((f) => f.intro)) : new Map();
+  const sections = opts.sections
+    ? await fetchIdentificationSections(
+        clients.wikipedia,
+        opts.lang,
+        [...found.values()].map((f) => f.intro),
+      )
+    : new Map();
 
   const out = new Map<string, Outcome>();
   for (const r of rows) {
     const f = found.get(r.id);
-    const description = f ? composeDescription({ lead: f.intro.extract, identificationSection: sections.get(f.intro.title) ?? null }) : null;
+    const description = f
+      ? composeDescription({ lead: f.intro.extract, identificationSection: sections.get(f.intro.title) ?? null })
+      : null;
     out.set(
       r.id,
       f && description
-        ? { kind: "found", title: f.intro.title, revId: f.intro.lastRevId, description, sourceUrl: articleUrl(opts.lang, f.intro.title), via: f.via }
+        ? {
+            kind: "found",
+            title: f.intro.title,
+            revId: f.intro.lastRevId,
+            description,
+            sourceUrl: articleUrl(opts.lang, f.intro.title),
+            via: f.via,
+          }
         : { kind: "none" },
     );
   }
@@ -156,7 +180,11 @@ export async function describeSpecies(
 }
 
 /** The Description/Identification section of every article long enough to have one, by title. */
-export async function fetchIdentificationSections(client: PoliteClient, lang: string, intros: ArticleIntro[]): Promise<Map<string, string>> {
+export async function fetchIdentificationSections(
+  client: PoliteClient,
+  lang: string,
+  intros: ArticleIntro[],
+): Promise<Map<string, string>> {
   const out = new Map<string, string>();
   const long = [...new Map(intros.filter((i) => i.length >= SECTION_MIN_BYTES).map((i) => [i.title, i])).values()];
   for (const intro of long) {
@@ -196,7 +224,10 @@ export async function persistOutcomes(db: Db, lang: string, outcomes: Map<string
   }
   const none = [...outcomes].filter(([, o]) => o.kind === "none").map(([id]) => id);
   if (none.length > 0) {
-    await db.query(`UPDATE species SET wikipedia_checked_at = now(), description_checked_at = now() WHERE id = ANY($1::uuid[])`, [none]);
+    await db.query(
+      `UPDATE species SET wikipedia_checked_at = now(), description_checked_at = now() WHERE id = ANY($1::uuid[])`,
+      [none],
+    );
   }
 }
 
@@ -250,10 +281,22 @@ const newClients = (): Clients => ({
   wikidata: new PoliteClient({ minIntervalMs: 1000 }),
 });
 
-export async function backfillDescriptions(db: Db, opts: BackfillOptions, clients: Clients = newClients()): Promise<RunStats> {
+export async function backfillDescriptions(
+  db: Db,
+  opts: BackfillOptions,
+  clients: Clients = newClients(),
+): Promise<RunStats> {
   const rows = await selectSpeciesToDescribe(db, opts);
   opts.log(`[descriptions] ${rows.length} species to look up on ${opts.lang}.wikipedia.org`);
-  const stats: RunStats = { processed: 0, found: 0, none: 0, skippedRateLimited: 0, stoppedEarly: false, requests: 0, byVia: { "known-title": 0, wikidata: 0, "scientific-name": 0 } };
+  const stats: RunStats = {
+    processed: 0,
+    found: 0,
+    none: 0,
+    skippedRateLimited: 0,
+    stoppedEarly: false,
+    requests: 0,
+    byVia: { "known-title": 0, wikidata: 0, "scientific-name": 0 },
+  };
   // Each chunk is one attempt; half of the last ten throttled means the APIs want a rest.
   const breaker = new RateLimitBreaker(10, 0.5);
   const started = Date.now();
@@ -277,7 +320,11 @@ export async function backfillDescriptions(db: Db, opts: BackfillOptions, client
     if (opts.dryRun) {
       for (const r of chunk) {
         const o = outcomes.get(r.id)!;
-        opts.log(o.kind === "found" ? `  ${r.scientific_name} -> ${o.title} (${o.via}, rev ${o.revId}): ${o.description}` : `  ${r.scientific_name}: no article`);
+        opts.log(
+          o.kind === "found"
+            ? `  ${r.scientific_name} -> ${o.title} (${o.via}, rev ${o.revId}): ${o.description}`
+            : `  ${r.scientific_name}: no article`,
+        );
       }
     } else {
       await persistOutcomes(db, opts.lang, outcomes);
@@ -291,7 +338,9 @@ export async function backfillDescriptions(db: Db, opts: BackfillOptions, client
     stats.processed += chunk.length;
     const perSpeciesMs = (Date.now() - started) / stats.processed;
     const etaMin = Math.round((perSpeciesMs * (rows.length - stats.processed)) / 60000);
-    opts.log(`[descriptions] ${stats.processed}/${rows.length}: ${stats.found} with text, ${stats.none} without; ~${etaMin} min left`);
+    opts.log(
+      `[descriptions] ${stats.processed}/${rows.length}: ${stats.found} with text, ${stats.none} without; ~${etaMin} min left`,
+    );
   }
   stats.requests = clients.wikipedia.requests + clients.wikidata.requests;
   opts.log(
@@ -337,7 +386,11 @@ export async function refreshChangedDescriptions(
     [opts.limit, opts.species],
   );
   opts.log(`[descriptions] checking ${res.rows.length} articles for new revisions`);
-  const current = await fetchRevisionIds(clients.wikipedia, opts.lang, res.rows.map((r) => r.wikipedia_title));
+  const current = await fetchRevisionIds(
+    clients.wikipedia,
+    opts.lang,
+    res.rows.map((r) => r.wikipedia_title),
+  );
   const { changed, gone } = changedArticles(res.rows, current);
   opts.log(`[descriptions] ${changed.length} changed, ${gone.length} gone`);
 
@@ -347,25 +400,40 @@ export async function refreshChangedDescriptions(
     const titles = chunk.map((r) => current.get(r.wikipedia_title)!.title);
     const intros = await fetchIntros(clients.wikipedia, opts.lang, titles);
     const valid = [...intros.values()].filter((x): x is ArticleIntro => x !== null);
-    const sections = opts.sections ? await fetchIdentificationSections(clients.wikipedia, opts.lang, valid) : new Map<string, string>();
+    const sections = opts.sections
+      ? await fetchIdentificationSections(clients.wikipedia, opts.lang, valid)
+      : new Map<string, string>();
     const outcomes = new Map<string, Outcome>();
     for (const r of chunk) {
       const intro = intros.get(current.get(r.wikipedia_title)!.title);
-      const description = intro ? composeDescription({ lead: intro.extract, identificationSection: sections.get(intro.title) ?? null }) : null;
+      const description = intro
+        ? composeDescription({ lead: intro.extract, identificationSection: sections.get(intro.title) ?? null })
+        : null;
       if (intro && description) {
-        outcomes.set(r.id, { kind: "found", title: intro.title, revId: intro.lastRevId, description, sourceUrl: articleUrl(opts.lang, intro.title), via: "known-title" });
+        outcomes.set(r.id, {
+          kind: "found",
+          title: intro.title,
+          revId: intro.lastRevId,
+          description,
+          sourceUrl: articleUrl(opts.lang, intro.title),
+          via: "known-title",
+        });
         updated++;
       }
     }
     if (opts.dryRun) {
-      for (const [id, o] of outcomes) if (o.kind === "found") opts.log(`  ${id} -> ${o.title} rev ${o.revId}: ${o.description}`);
+      for (const [id, o] of outcomes)
+        if (o.kind === "found") opts.log(`  ${id} -> ${o.title} rev ${o.revId}: ${o.description}`);
     } else {
       await persistOutcomes(db, opts.lang, outcomes);
     }
   }
   // An article that's gone keeps its text until a fill run finds the new one.
   if (gone.length > 0 && !opts.dryRun) {
-    await db.query(`UPDATE species SET wikipedia_revision_id = NULL, wikipedia_checked_at = NULL WHERE id = ANY($1::uuid[])`, [gone.map((g) => g.id)]);
+    await db.query(
+      `UPDATE species SET wikipedia_revision_id = NULL, wikipedia_checked_at = NULL WHERE id = ANY($1::uuid[])`,
+      [gone.map((g) => g.id)],
+    );
   }
   const requests = clients.wikipedia.requests + clients.wikidata.requests;
   opts.log(`[descriptions] refresh done: ${updated} updated, ${gone.length} articles gone, ${requests} requests`);
@@ -386,7 +454,11 @@ export function parseArgs(argv: string[]) {
     missingOnly: argv.includes("--missing-only"),
     recheckAfterDays: days,
     limit: limit ? Number(limit) : null,
-    species: value("species")?.split(",").map((s) => s.trim()).filter(Boolean) ?? null,
+    species:
+      value("species")
+        ?.split(",")
+        .map((s) => s.trim())
+        .filter(Boolean) ?? null,
     dryRun: argv.includes("--dry-run"),
   };
 }

@@ -137,7 +137,12 @@ export default function ApiKeysPage() {
             i18nKey="apiKeys.intro"
             components={{
               guide: (
-                <a href={API_GUIDE_URL} target="_blank" rel="noreferrer" className="font-medium text-accent hover:underline" />
+                <a
+                  href={API_GUIDE_URL}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="font-medium text-accent hover:underline"
+                />
               ),
               openapi: (
                 <a

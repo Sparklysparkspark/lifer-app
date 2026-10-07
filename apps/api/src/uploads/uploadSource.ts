@@ -46,7 +46,12 @@ export async function receiveMultipartFile(part: {
 }
 
 /** A photo /uploads/inspect kept, moved to a temp file and re-hashed. Null when it's gone. */
-export async function claimStagedFile(userId: string, stagedId: string, filename: string | null, mimetype: string | null): Promise<ReceivedFile | null> {
+export async function claimStagedFile(
+  userId: string,
+  stagedId: string,
+  filename: string | null,
+  mimetype: string | null,
+): Promise<ReceivedFile | null> {
   const tmpPath = await uploadTempPath(filename);
   if (!(await claimStagedUpload(userId, stagedId, tmpPath))) return null;
   const { size } = await stat(tmpPath);

@@ -34,7 +34,10 @@ describe.skipIf(!url)("migrating to a server over resumable uploads", () => {
 
   async function cleanup() {
     await db.query(`DELETE FROM user_species WHERE user_id = $1`, [USER]);
-    await db.query(`DELETE FROM originals WHERE user_id = $1 OR capture_id IN (SELECT id FROM captures_all WHERE user_id = $1)`, [USER]);
+    await db.query(
+      `DELETE FROM originals WHERE user_id = $1 OR capture_id IN (SELECT id FROM captures_all WHERE user_id = $1)`,
+      [USER],
+    );
     await db.query(`DELETE FROM captures_all WHERE user_id = $1`, [USER]);
     await db.query(`DELETE FROM sessions WHERE user_id = $1`, [USER]);
     await db.query(`DELETE FROM users WHERE id = $1`, [USER]);
@@ -59,7 +62,10 @@ describe.skipIf(!url)("migrating to a server over resumable uploads", () => {
        VALUES ($1, 910807, 'Testus migrans', 'Migrating Test Tern', 'aves') ON CONFLICT (id) DO NOTHING`,
       [SPECIES],
     );
-    await db.query(`INSERT INTO sessions (id, user_id, expires_at) VALUES ($1, $2, now() + interval '1 day')`, [hashToken(SESSION), USER]);
+    await db.query(`INSERT INTO sessions (id, user_id, expires_at) VALUES ($1, $2, now() + interval '1 day')`, [
+      hashToken(SESSION),
+      USER,
+    ]);
 
     app = Fastify({ bodyLimit: 1024 * 1024 });
     app.addHook("onRequest", async (request, reply) => {
@@ -75,7 +81,8 @@ describe.skipIf(!url)("migrating to a server over resumable uploads", () => {
           request.raw.socket.destroy();
           return reply.hijack();
         }
-        if (status === 413) return reply.code(413).header("connection", "close").send({ error: "Request Entity Too Large" });
+        if (status === 413)
+          return reply.code(413).header("connection", "close").send({ error: "Request Entity Too Large" });
       }
     });
     await app.register(cookie);
@@ -99,11 +106,21 @@ describe.skipIf(!url)("migrating to a server over resumable uploads", () => {
 
   it("uploads a photo and its RAW in chunks, halving them on 413, and imports both", async () => {
     // Noise barely compresses, so this JPEG is well over the proxy limit.
-    const photo = await sharp({ create: { width: 1400, height: 1000, channels: 3, background: "#808080", noise: { type: "gaussian", mean: 128, sigma: 60 } } })
+    const photo = await sharp({
+      create: {
+        width: 1400,
+        height: 1000,
+        channels: 3,
+        background: "#808080",
+        noise: { type: "gaussian", mean: 128, sigma: 60 },
+      },
+    })
       .jpeg({ quality: 95 })
       .toBuffer();
     expect(photo.length).toBeGreaterThan(4 * PROXY_LIMIT);
-    const raw = await sharp({ create: { width: 64, height: 48, channels: 3, background: { r: 10, g: 20, b: 30 } } }).jpeg().toBuffer();
+    const raw = await sharp({ create: { width: 64, height: 48, channels: 3, background: { r: 10, g: 20, b: 30 } } })
+      .jpeg()
+      .toBuffer();
     const photoPath = path.join(dataDir, "IMG_5000.jpg");
     const rawPath = path.join(dataDir, "IMG_5000.dng");
     writeFileSync(photoPath, photo);
@@ -113,7 +130,12 @@ describe.skipIf(!url)("migrating to a server over resumable uploads", () => {
     const { TUS_MIN_CHUNK_SIZE } = await import("../lib/tusClient.js");
     const chunkState = { size: 8 * 1024 * 1024 };
     const auth = { Cookie: `${cookieName}=${SESSION}`, "x-lifer-client": "1" };
-    const ok = await sendCaptureToServer(baseUrl, auth, { speciesId: SPECIES, photoPath, rawPath }, { chunkState, tus: { retryDelaysMs: [0, 0, 0] } });
+    const ok = await sendCaptureToServer(
+      baseUrl,
+      auth,
+      { speciesId: SPECIES, photoPath, rawPath },
+      { chunkState, tus: { retryDelaysMs: [0, 0, 0] } },
+    );
     expect(ok).toBe(true);
 
     // Halved from 8 MB on each refusal until 256 KB pieces get through.
@@ -138,7 +160,15 @@ describe.skipIf(!url)("migrating to a server over resumable uploads", () => {
   it("halves the chunk size when the connection drops mid-PATCH too", async () => {
     proxyMode = "drop";
     patches.length = 0;
-    const photo = await sharp({ create: { width: 900, height: 700, channels: 3, background: "#808080", noise: { type: "gaussian", mean: 128, sigma: 60 } } })
+    const photo = await sharp({
+      create: {
+        width: 900,
+        height: 700,
+        channels: 3,
+        background: "#808080",
+        noise: { type: "gaussian", mean: 128, sigma: 60 },
+      },
+    })
       .jpeg({ quality: 95 })
       .toBuffer();
     expect(photo.length).toBeGreaterThan(PROXY_LIMIT);
@@ -147,9 +177,18 @@ describe.skipIf(!url)("migrating to a server over resumable uploads", () => {
     const { sendCaptureToServer } = await import("./migrateToServer.js");
     const chunkState = { size: 1024 * 1024 };
     const auth = { Cookie: `${cookieName}=${SESSION}`, "x-lifer-client": "1" };
-    expect(await sendCaptureToServer(baseUrl, auth, { speciesId: SPECIES, photoPath, rawPath: null }, { chunkState, tus: { retryDelaysMs: [0, 0, 0] } })).toBe(true);
+    expect(
+      await sendCaptureToServer(
+        baseUrl,
+        auth,
+        { speciesId: SPECIES, photoPath, rawPath: null },
+        { chunkState, tus: { retryDelaysMs: [0, 0, 0] } },
+      ),
+    ).toBe(true);
     expect(chunkState.size).toBe(256 * 1024);
-    const row = await db.query(`SELECT 1 FROM originals WHERE content_hash = $1`, [createHash("sha256").update(photo).digest("hex")]);
+    const row = await db.query(`SELECT 1 FROM originals WHERE content_hash = $1`, [
+      createHash("sha256").update(photo).digest("hex"),
+    ]);
     expect(row.rowCount).toBe(1);
   }, 60_000);
 
@@ -157,12 +196,20 @@ describe.skipIf(!url)("migrating to a server over resumable uploads", () => {
     // A run interrupted after the server imported a photo but before it was marked migrated
     // sends it again on the next run.
     proxyMode = "413";
-    const photo = await sharp({ create: { width: 120, height: 90, channels: 3, background: { r: 200, g: 40, b: 90 } } }).jpeg().toBuffer();
+    const photo = await sharp({ create: { width: 120, height: 90, channels: 3, background: { r: 200, g: 40, b: 90 } } })
+      .jpeg()
+      .toBuffer();
     const photoPath = path.join(dataDir, "IMG_5002.jpg");
     writeFileSync(photoPath, photo);
     const { sendCaptureToServer } = await import("./migrateToServer.js");
     const auth = { Cookie: `${cookieName}=${SESSION}`, "x-lifer-client": "1" };
-    const send = () => sendCaptureToServer(baseUrl, auth, { speciesId: SPECIES, photoPath, rawPath: null }, { tus: { retryDelaysMs: [0, 0, 0] } });
+    const send = () =>
+      sendCaptureToServer(
+        baseUrl,
+        auth,
+        { speciesId: SPECIES, photoPath, rawPath: null },
+        { tus: { retryDelaysMs: [0, 0, 0] } },
+      );
     expect(await send()).toBe(true);
     expect(await send()).toBe(true);
     const hash = createHash("sha256").update(photo).digest("hex");

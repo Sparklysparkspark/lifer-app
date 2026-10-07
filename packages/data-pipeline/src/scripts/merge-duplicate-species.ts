@@ -19,7 +19,18 @@ import { lockReferenceData } from "@lifer/core/lib/referenceDataLock.js";
 import { applySpeciesMerges } from "@lifer/core/species/speciesMerges.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const DEFAULT_LIST = path.join(__dirname, "..", "..", "..", "..", "packages", "data-pipeline", "data", "reference", "species-merges.tsv");
+const DEFAULT_LIST = path.join(
+  __dirname,
+  "..",
+  "..",
+  "..",
+  "..",
+  "packages",
+  "data-pipeline",
+  "data",
+  "reference",
+  "species-merges.tsv",
+);
 
 interface Row {
   oldId: string;
@@ -29,7 +40,9 @@ interface Row {
 }
 
 function readList(file: string): Row[] {
-  const [header, ...lines] = readFileSync(file, "utf8").split("\n").filter((l) => l.trim());
+  const [header, ...lines] = readFileSync(file, "utf8")
+    .split("\n")
+    .filter((l) => l.trim());
   const cols = header.split("\t");
   const at = (name: string) => {
     const i = cols.indexOf(name);
@@ -61,7 +74,9 @@ async function main() {
        JOIN species n ON n.id = l.new_id AND n.scientific_name = l.new_name`,
       [rows.map((r) => r.oldId), rows.map((r) => r.oldName), rows.map((r) => r.newId), rows.map((r) => r.newName)],
     );
-    console.log(`[merge-duplicate-species] ${valid.rows.length} still match the catalog (the rest were already merged or renamed)`);
+    console.log(
+      `[merge-duplicate-species] ${valid.rows.length} still match the catalog (the rest were already merged or renamed)`,
+    );
 
     const impact = await client.query<{ regions: string; captures: string; users: string }>(
       `SELECT (SELECT count(*) FROM region_species WHERE species_id = ANY($1)) AS regions,
@@ -70,7 +85,9 @@ async function main() {
       [valid.rows.map((r) => r.old_id)],
     );
     const i = impact.rows[0];
-    console.log(`[merge-duplicate-species] old entries carry ${i.regions} checklist rows, ${i.captures} captures, ${i.users} collected/seen marks`);
+    console.log(
+      `[merge-duplicate-species] old entries carry ${i.regions} checklist rows, ${i.captures} captures, ${i.users} collected/seen marks`,
+    );
 
     await client.query(
       `INSERT INTO species_merges (old_species_id, new_species_id, old_scientific_name)

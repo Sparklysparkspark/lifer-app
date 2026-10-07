@@ -63,7 +63,9 @@ async function main() {
        )`,
     [taxonClass],
   );
-  console.log(`[flag-vagrant-mismatch-inat] ${res.rows.length} included (non-overridden) species/region pairs to check`);
+  console.log(
+    `[flag-vagrant-mismatch-inat] ${res.rows.length} included (non-overridden) species/region pairs to check`,
+  );
 
   const byRegion = new Map<string, CandidateRow[]>();
   for (const row of res.rows) {
@@ -83,7 +85,10 @@ async function main() {
     const region = regionsById.get(regionId)!;
     const country = findCountry(regionId, regionsById)!;
     const countryPlaceId = await resolveInatPlaceId(country.id, country.name, true, null);
-    const placeId = region.id === country.id ? countryPlaceId : await resolveInatPlaceId(region.id, region.name, false, countryPlaceId);
+    const placeId =
+      region.id === country.id
+        ? countryPlaceId
+        : await resolveInatPlaceId(region.id, region.name, false, countryPlaceId);
     done++;
     if (placeId == null) {
       skippedNoPlace += rows.length;

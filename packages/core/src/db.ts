@@ -43,8 +43,10 @@ export async function withTransaction<T>(
   let broken: Error | undefined;
   try {
     await client.query("BEGIN");
-    if (opts.statementTimeoutMs != null) await client.query(`SET LOCAL statement_timeout = ${Math.max(0, Math.floor(opts.statementTimeoutMs))}`);
-    if (opts.lockTimeoutMs != null) await client.query(`SET LOCAL lock_timeout = ${Math.max(0, Math.floor(opts.lockTimeoutMs))}`);
+    if (opts.statementTimeoutMs != null)
+      await client.query(`SET LOCAL statement_timeout = ${Math.max(0, Math.floor(opts.statementTimeoutMs))}`);
+    if (opts.lockTimeoutMs != null)
+      await client.query(`SET LOCAL lock_timeout = ${Math.max(0, Math.floor(opts.lockTimeoutMs))}`);
     if (opts.lockReferenceData) await lockReferenceData(client);
     const result = await fn(client);
     await client.query("COMMIT");

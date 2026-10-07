@@ -30,7 +30,10 @@ export function uploadWorkDir(): string {
   const appData = path.join(APP_DATA_DIR, "uploads");
   const appDev = deviceOf(appData);
   const libraryDev = deviceOf(ORIGINALS_DIR);
-  resolved = appDev !== null && libraryDev !== null && appDev !== libraryDev ? path.join(ORIGINALS_DIR, LIBRARY_UPLOAD_DIR_NAME) : appData;
+  resolved =
+    appDev !== null && libraryDev !== null && appDev !== libraryDev
+      ? path.join(ORIGINALS_DIR, LIBRARY_UPLOAD_DIR_NAME)
+      : appData;
   return resolved;
 }
 

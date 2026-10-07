@@ -36,7 +36,19 @@ export const GROUP_CLADES: Array<[string, string[]]> = [
   ["actinopterygii", ["Cetacea", "Sirenia", "Phocidae", "Otariidae", "Odobenidae"]],
   ["aves", ["Aves"]],
   ["mammalia", ["Mammalia"]],
-  ["actinopterygii", ["Actinopterygii", "Elasmobranchii", "Holocephali", "Myxini", "Petromyzontiformes", "Coelacanthiformes", "Ceratodontiformes", "Lepidosireniformes"]],
+  [
+    "actinopterygii",
+    [
+      "Actinopterygii",
+      "Elasmobranchii",
+      "Holocephali",
+      "Myxini",
+      "Petromyzontiformes",
+      "Coelacanthiformes",
+      "Ceratodontiformes",
+      "Lepidosireniformes",
+    ],
+  ],
   ["squamata", ["Squamata", "Crocodylia", "Rhynchocephalia"]],
   ["testudines", ["Testudines"]],
   ["amphibia", ["Amphibia"]],
@@ -46,7 +58,26 @@ export const GROUP_CLADES: Array<[string, string[]]> = [
   ["nudibranchs", ["Nudibranchia"]],
   [
     "marine_mollusks",
-    ["Neogastropoda", "Littorinimorpha", "Trochida", "Cypraeidae", "Conidae", "Muricidae", "Volutidae", "Strombidae", "Cassidae", "Tonnidae", "Terebridae", "Trochidae", "Turbinidae", "Harpidae", "Olividae", "Mitridae", "Cancellariidae", "Tridacnidae"],
+    [
+      "Neogastropoda",
+      "Littorinimorpha",
+      "Trochida",
+      "Cypraeidae",
+      "Conidae",
+      "Muricidae",
+      "Volutidae",
+      "Strombidae",
+      "Cassidae",
+      "Tonnidae",
+      "Terebridae",
+      "Trochidae",
+      "Turbinidae",
+      "Harpidae",
+      "Olividae",
+      "Mitridae",
+      "Cancellariidae",
+      "Tridacnidae",
+    ],
   ],
   ["cephalopoda", ["Cephalopoda"]],
   ["crustacea", ["Decapoda"]],
@@ -54,7 +85,20 @@ export const GROUP_CLADES: Array<[string, string[]]> = [
 ];
 const VERTEBRATE_GROUPS = new Set(["aves", "mammalia", "actinopterygii", "squamata", "testudines", "amphibia"]);
 // Domestic animals and feral forms iNaturalist lists as their own species.
-const DOMESTIC = new Set(["Canis familiaris", "Felis catus", "Bos taurus", "Capra hircus", "Ovis aries", "Equus caballus", "Equus asinus", "Sus domesticus", "Cavia porcellus", "Oryctolagus domesticus", "Camelus dromedarius domesticus", "Bubalus bubalis"]);
+const DOMESTIC = new Set([
+  "Canis familiaris",
+  "Felis catus",
+  "Bos taurus",
+  "Capra hircus",
+  "Ovis aries",
+  "Equus caballus",
+  "Equus asinus",
+  "Sus domesticus",
+  "Cavia porcellus",
+  "Oryctolagus domesticus",
+  "Camelus dromedarius domesticus",
+  "Bubalus bubalis",
+]);
 
 interface TaxonDetail {
   rank: string;
@@ -65,7 +109,10 @@ interface TaxonDetail {
   extinct: boolean;
   obs: number;
 }
-type TaxaCache = Record<string, TaxonDetail | null> & { __clades__?: Record<string, number | null>; __ancestors__?: Record<string, { rank: string; name: string }> };
+type TaxaCache = Record<string, TaxonDetail | null> & {
+  __clades__?: Record<string, number | null>;
+  __ancestors__?: Record<string, { rank: string; name: string }>;
+};
 
 function loadTaxaCache(): TaxaCache {
   return existsSync(TAXA_CACHE_PATH) ? (JSON.parse(readFileSync(TAXA_CACHE_PATH, "utf8")) as TaxaCache) : {};
@@ -96,14 +143,31 @@ async function resolveCladeIds(cache: TaxaCache, offline: boolean): Promise<Arra
 async function fetchDetails(ids: string[], cache: TaxaCache) {
   for (let i = 0; i < ids.length; i += 30) {
     const batch = ids.slice(i, i + 30);
-    const d = await inatGet<{ results: Array<{ id: number; rank: string; is_active: boolean; ancestor_ids?: number[]; preferred_common_name?: string; name: string; extinct?: boolean; observations_count?: number }> }>(
-      `https://api.inaturalist.org/v1/taxa/${batch.join(",")}`,
-    );
+    const d = await inatGet<{
+      results: Array<{
+        id: number;
+        rank: string;
+        is_active: boolean;
+        ancestor_ids?: number[];
+        preferred_common_name?: string;
+        name: string;
+        extinct?: boolean;
+        observations_count?: number;
+      }>;
+    }>(`https://api.inaturalist.org/v1/taxa/${batch.join(",")}`);
     const got = new Map(d.results.map((t) => [String(t.id), t]));
     for (const id of batch) {
       const t = got.get(id);
       cache[id] = t
-        ? { rank: t.rank, active: t.is_active, ancestors: t.ancestor_ids ?? [], common: t.preferred_common_name ?? null, name: t.name, extinct: !!t.extinct, obs: t.observations_count ?? 0 }
+        ? {
+            rank: t.rank,
+            active: t.is_active,
+            ancestors: t.ancestor_ids ?? [],
+            common: t.preferred_common_name ?? null,
+            name: t.name,
+            extinct: !!t.extinct,
+            obs: t.observations_count ?? 0,
+          }
         : null;
     }
     if ((i / 30) % 20 === 0) saveTaxaCache(cache);
@@ -118,7 +182,9 @@ async function ancestorNames(ids: number[], cache: TaxaCache, offline: boolean) 
   if (!offline) {
     for (let i = 0; i < todo.length; i += 30) {
       const batch = todo.slice(i, i + 30);
-      const d = await inatGet<{ results: Array<{ id: number; rank: string; name: string }> }>(`https://api.inaturalist.org/v1/taxa/${batch.join(",")}`);
+      const d = await inatGet<{ results: Array<{ id: number; rank: string; name: string }> }>(
+        `https://api.inaturalist.org/v1/taxa/${batch.join(",")}`,
+      );
       for (const t of d.results) known[String(t.id)] = { rank: t.rank, name: t.name };
     }
     saveTaxaCache(cache);
@@ -217,7 +283,8 @@ export async function findEbirdFormDuplicates(): Promise<FormDuplicate[]> {
     if (ebirdSpecies.has(b.name)) continue;
     const parentCode = forms.get(b.name);
     const parent = parentCode ? byCode.get(parentCode) : undefined;
-    if (parent && parent.id !== b.id) out.push({ oldId: b.id, oldName: b.name, newId: parent.id, newName: parent.name });
+    if (parent && parent.id !== b.id)
+      out.push({ oldId: b.id, oldName: b.name, newId: parent.id, newName: parent.name });
   }
   return out;
 }
@@ -260,8 +327,18 @@ export interface SpeciesLink {
 // Latin endings that change with a genus' gender (dorsatus/dorsatum, jacobitus/jacobita).
 const epithetStem = (e: string) => e.replace(/(us|um|a|is|e|i|ae)$/, "");
 
-export async function findMissingSpecies(opts: { offline: boolean }): Promise<{ add: NewSpecies[]; synonyms: Array<{ name: string; speciesId: string }>; links: SpeciesLink[] }> {
-  const catalog = await pool.query<{ name: string; id: string; inat_taxon_id: number | null; ebird_code: string | null; taxon_class: string | null; family: string | null; is_synonym: boolean }>(
+export async function findMissingSpecies(opts: {
+  offline: boolean;
+}): Promise<{ add: NewSpecies[]; synonyms: Array<{ name: string; speciesId: string }>; links: SpeciesLink[] }> {
+  const catalog = await pool.query<{
+    name: string;
+    id: string;
+    inat_taxon_id: number | null;
+    ebird_code: string | null;
+    taxon_class: string | null;
+    family: string | null;
+    is_synonym: boolean;
+  }>(
     `SELECT scientific_name AS name, id, inat_taxon_id, ebird_code, taxon_class, family, false AS is_synonym FROM species WHERE NOT is_other_taxa
      UNION ALL SELECT ss.synonym_name, s.id, NULL, NULL, s.taxon_class, s.family, true FROM species_synonyms ss JOIN species s ON s.id = ss.species_id`,
   );
@@ -290,7 +367,10 @@ export async function findMissingSpecies(opts: { offline: boolean }): Promise<{ 
   const cache = loadTaxaCache();
   const missingDetails = [...places.keys()].filter((id) => !(id in cache));
   if (missingDetails.length > 0) {
-    if (opts.offline) console.log(`[add-missing-species] ${missingDetails.length} taxa have no cached details (offline, left for a later run)`);
+    if (opts.offline)
+      console.log(
+        `[add-missing-species] ${missingDetails.length} taxa have no cached details (offline, left for a later run)`,
+      );
     else await fetchDetails(missingDetails, cache);
   }
   const clades = await resolveCladeIds(cache, opts.offline);
@@ -311,12 +391,18 @@ export async function findMissingSpecies(opts: { offline: boolean }): Promise<{ 
     candidates.push({ id, detail: t, group, places: p.count });
   }
 
-  const ancestors = await ancestorNames(candidates.flatMap((c) => c.detail.ancestors), cache, opts.offline);
+  const ancestors = await ancestorNames(
+    candidates.flatMap((c) => c.detail.ancestors),
+    cache,
+    opts.offline,
+  );
 
   // Catalog entries with no iNaturalist id yet are the only ones a new name can be a respelling
   // of: an entry with its own id is a different iNaturalist taxon by definition.
   const currentTaxonCachePath = path.join(DATA_DIR, "inat-current-taxon-cache.json");
-  const currentTaxon: Record<string, number | null> = existsSync(currentTaxonCachePath) ? JSON.parse(readFileSync(currentTaxonCachePath, "utf8")) : {};
+  const currentTaxon: Record<string, number | null> = existsSync(currentTaxonCachePath)
+    ? JSON.parse(readFileSync(currentTaxonCachePath, "utf8"))
+    : {};
   const unlinked = catalog.rows.filter((r) => !r.is_synonym && r.inat_taxon_id == null);
   const byGenusStem = new Map<string, (typeof unlinked)[number]>();
   const byStemFamily = new Map<string, (typeof unlinked)[number]>();
@@ -347,14 +433,22 @@ export async function findMissingSpecies(opts: { offline: boolean }): Promise<{ 
         continue;
       }
     }
-    const rankName = (rank: string) => c.detail.ancestors.map((a) => ancestors[String(a)]).find((a) => a?.rank === rank)?.name ?? null;
+    const rankName = (rank: string) =>
+      c.detail.ancestors.map((a) => ancestors[String(a)]).find((a) => a?.rank === rank)?.name ?? null;
     const [genus, epithet] = c.detail.name.split(" ");
     const family = rankName("family");
     const stem = epithet ? epithetStem(epithet) : "";
     const match =
       (byInatLookup.get(Number(c.id)) && { r: byInatLookup.get(Number(c.id))!, rule: "inat_lookup" as const }) ||
-      (byGenusStem.get(`${c.group}|${genus}|${stem}`) && { r: byGenusStem.get(`${c.group}|${genus}|${stem}`)!, rule: "ending" as const }) ||
-      (family && byStemFamily.get(`${c.group}|${family}|${stem}`) && { r: byStemFamily.get(`${c.group}|${family}|${stem}`)!, rule: "genus_move" as const }) ||
+      (byGenusStem.get(`${c.group}|${genus}|${stem}`) && {
+        r: byGenusStem.get(`${c.group}|${genus}|${stem}`)!,
+        rule: "ending" as const,
+      }) ||
+      (family &&
+        byStemFamily.get(`${c.group}|${family}|${stem}`) && {
+          r: byStemFamily.get(`${c.group}|${family}|${stem}`)!,
+          rule: "genus_move" as const,
+        }) ||
       null;
     if (match && !linkedSpecies.has(match.r.id)) {
       // A shared epithet and family can also match two different species, so a genus move is only
@@ -369,7 +463,13 @@ export async function findMissingSpecies(opts: { offline: boolean }): Promise<{ 
         confirmed = resolved === Number(c.id);
       }
       if (confirmed) {
-        links.push({ speciesId: match.r.id, catalogName: match.r.name, inatTaxonId: Number(c.id), name: c.detail.name, rule: match.rule });
+        links.push({
+          speciesId: match.r.id,
+          catalogName: match.r.name,
+          inatTaxonId: Number(c.id),
+          name: c.detail.name,
+          rule: match.rule,
+        });
         linkedSpecies.add(match.r.id);
         continue;
       }
@@ -395,7 +495,9 @@ export async function findMissingSpecies(opts: { offline: boolean }): Promise<{ 
   // Current eBird species the catalog still lacks and iNaturalist didn't bring in. When
   // iNaturalist knows the name under an id the catalog already has, it's the same species under
   // eBird's name: a synonym, not a new entry.
-  const speciesByInat = new Map(catalog.rows.filter((r) => r.inat_taxon_id != null).map((r) => [r.inat_taxon_id!, r.id]));
+  const speciesByInat = new Map(
+    catalog.rows.filter((r) => r.inat_taxon_id != null).map((r) => [r.inat_taxon_id!, r.id]),
+  );
   for (const r of ebirdBySci.values()) {
     if (r.extinct || knownEbird.has(r.code) || knownNames.has(r.sci) || addedNames.has(r.sci)) continue;
     const inatId = currentTaxon[r.sci];
@@ -419,20 +521,26 @@ export async function findMissingSpecies(opts: { offline: boolean }): Promise<{ 
     });
   }
   saveCurrentTaxonCache(currentTaxonCachePath, currentTaxon);
-  if (deferred > 0) console.log(`[add-missing-species] ${deferred} possible genus moves left for an online run to confirm`);
+  if (deferred > 0)
+    console.log(`[add-missing-species] ${deferred} possible genus moves left for an online run to confirm`);
   return { add, synonyms, links };
 }
 
 let currentTaxonDirty = false;
 /** iNaturalist's current active taxon for a (possibly outdated) name, via its own synonym
  *  tracking; cached in the same file inatChecklist.ts uses. undefined = unknown (offline). */
-async function currentInatTaxonId(name: string, cache: Record<string, number | null>, offline: boolean): Promise<number | null | undefined> {
+async function currentInatTaxonId(
+  name: string,
+  cache: Record<string, number | null>,
+  offline: boolean,
+): Promise<number | null | undefined> {
   if (Object.prototype.hasOwnProperty.call(cache, name)) return cache[name];
   if (offline) return undefined;
   const d = await inatGet<{ results: Array<{ id: number; is_active: boolean; matched_term: string | null }> }>(
     `https://api.inaturalist.org/v1/taxa?${new URLSearchParams({ q: name, per_page: "10", is_active: "any", rank: "species" })}`,
   );
-  const hit = d.results.filter((r) => r.matched_term?.toLowerCase() === name.toLowerCase()).find((r) => r.is_active)?.id ?? null;
+  const hit =
+    d.results.filter((r) => r.matched_term?.toLowerCase() === name.toLowerCase()).find((r) => r.is_active)?.id ?? null;
   cache[name] = hit;
   currentTaxonDirty = true;
   return hit;
@@ -444,7 +552,11 @@ function saveCurrentTaxonCache(file: string, cache: Record<string, number | null
   writeFileSync(file, JSON.stringify({ ...onDisk, ...cache }));
 }
 
-export async function insertMissingSpecies(add: NewSpecies[], synonyms: Array<{ name: string; speciesId: string }>, links: SpeciesLink[] = []): Promise<number> {
+export async function insertMissingSpecies(
+  add: NewSpecies[],
+  synonyms: Array<{ name: string; speciesId: string }>,
+  links: SpeciesLink[] = [],
+): Promise<number> {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
@@ -477,7 +589,10 @@ export async function insertMissingSpecies(add: NewSpecies[], synonyms: Array<{ 
     );
     await client.query(
       `INSERT INTO species_traits (species_id, source_attribution) SELECT * FROM unnest($1::uuid[], $2::text[]) ON CONFLICT DO NOTHING`,
-      [res.rows.map((r) => r.id), res.rows.map((r) => (r.inat_taxon_id != null ? "iNaturalist taxonomy" : "eBird taxonomy"))],
+      [
+        res.rows.map((r) => r.id),
+        res.rows.map((r) => (r.inat_taxon_id != null ? "iNaturalist taxonomy" : "eBird taxonomy")),
+      ],
     );
     await client.query(
       `INSERT INTO species_synonyms (species_id, synonym_name, source) SELECT * FROM unnest($1::uuid[], $2::text[], $3::text[])
@@ -506,7 +621,9 @@ async function main() {
   const { add, synonyms, links } = await findMissingSpecies({ offline });
   const byRule = new Map<string, number>();
   for (const l of links) byRule.set(l.rule, (byRule.get(l.rule) ?? 0) + 1);
-  console.log(`[add-missing-species] ${links.length} are existing entries under another spelling or genus (${[...byRule].map(([r, n]) => `${r} ${n}`).join(", ")}), linked instead of added`);
+  console.log(
+    `[add-missing-species] ${links.length} are existing entries under another spelling or genus (${[...byRule].map(([r, n]) => `${r} ${n}`).join(", ")}), linked instead of added`,
+  );
   const byGroup = new Map<string, number>();
   for (const a of add) byGroup.set(a.taxonClass, (byGroup.get(a.taxonClass) ?? 0) + 1);
   console.log(`[add-missing-species] ${add.length} species to add, ${synonyms.length} eBird names to link as synonyms`);
@@ -515,11 +632,32 @@ async function main() {
   const report = path.join(BUILD_DIR, `added-species-${new Date().toISOString().slice(0, 10)}.tsv`);
   writeFileSync(
     report,
-    ["scientific_name\tcommon_name\tgroup\tinat_taxon_id\tebird_code\tfamily\tsource\tplaces\tinat_observations", ...add
-      .sort((a, b) => b.inatObservations - a.inatObservations)
-      .map((a) => [a.scientificName, a.commonName ?? "", a.taxonClass, a.inatTaxonId ?? "", a.ebirdCode ?? "", a.family ?? "", a.source, a.places, a.inatObservations].join("\t"))].join("\n"),
+    [
+      "scientific_name\tcommon_name\tgroup\tinat_taxon_id\tebird_code\tfamily\tsource\tplaces\tinat_observations",
+      ...add
+        .sort((a, b) => b.inatObservations - a.inatObservations)
+        .map((a) =>
+          [
+            a.scientificName,
+            a.commonName ?? "",
+            a.taxonClass,
+            a.inatTaxonId ?? "",
+            a.ebirdCode ?? "",
+            a.family ?? "",
+            a.source,
+            a.places,
+            a.inatObservations,
+          ].join("\t"),
+        ),
+    ].join("\n"),
   );
-  writeFileSync(report.replace(".tsv", "-linked.tsv"), ["catalog_name\tinat_name\tinat_taxon_id\trule", ...links.map((l) => [l.catalogName, l.name, l.inatTaxonId, l.rule].join("\t"))].join("\n"));
+  writeFileSync(
+    report.replace(".tsv", "-linked.tsv"),
+    [
+      "catalog_name\tinat_name\tinat_taxon_id\trule",
+      ...links.map((l) => [l.catalogName, l.name, l.inatTaxonId, l.rule].join("\t")),
+    ].join("\n"),
+  );
   console.log(`[add-missing-species] lists written to ${report} and its -linked.tsv`);
   if (apply) {
     const n = await insertMissingSpecies(add, synonyms, links);

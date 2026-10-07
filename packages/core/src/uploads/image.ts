@@ -28,11 +28,20 @@ const TRANSCODE_TIMEOUT_MS = 15 * 60_000;
 const ffmpegLimit = createLimiter(2);
 
 function runFfmpeg(args: string[], timeout: number): Promise<{ stdout: string; stderr: string }> {
-  return ffmpegLimit(() => execFileAsync(ffmpegPath, args, { maxBuffer: 1024 * 1024 * 8, timeout, killSignal: "SIGKILL" }));
+  return ffmpegLimit(() =>
+    execFileAsync(ffmpegPath, args, { maxBuffer: 1024 * 1024 * 8, timeout, killSignal: "SIGKILL" }),
+  );
 }
 
 function runFfmpegToBuffer(args: string[], timeout: number): Promise<{ stdout: Buffer; stderr: Buffer }> {
-  return ffmpegLimit(() => execFileAsync(ffmpegPath, args, { encoding: "buffer", maxBuffer: 1024 * 1024 * 64, timeout, killSignal: "SIGKILL" }));
+  return ffmpegLimit(() =>
+    execFileAsync(ffmpegPath, args, {
+      encoding: "buffer",
+      maxBuffer: 1024 * 1024 * 64,
+      timeout,
+      killSignal: "SIGKILL",
+    }),
+  );
 }
 
 const DISPLAY_WIDTH = 2560;
@@ -84,8 +93,14 @@ export async function generateDerivatives(image: Buffer | string, photoId: strin
   // what a masonry tile needs for its aspect ratio.
   const [displayInfo] = await Promise.all([
     fromDecoded().webp({ quality: 85, effort: 2 }).toFile(displayPath),
-    fromDecoded().resize({ width: MEDIUM_WIDTH, withoutEnlargement: true }).webp({ quality: 80, effort: 2 }).toFile(path.join(mediumDir, `${photoId}.webp`)),
-    fromDecoded().resize({ width: THUMB_WIDTH, withoutEnlargement: true }).webp({ quality: 80, effort: 2 }).toFile(thumbPath),
+    fromDecoded()
+      .resize({ width: MEDIUM_WIDTH, withoutEnlargement: true })
+      .webp({ quality: 80, effort: 2 })
+      .toFile(path.join(mediumDir, `${photoId}.webp`)),
+    fromDecoded()
+      .resize({ width: THUMB_WIDTH, withoutEnlargement: true })
+      .webp({ quality: 80, effort: 2 })
+      .toFile(thumbPath),
   ]);
   // Written in parallel, the medium copy can land a moment before the display image, which would
   // make photos/routes.ts think it's out of date and remake it.
@@ -133,7 +148,11 @@ export function parseFfmpegDescription(text: string): { durationSeconds: number 
     videoCodec === "h264" &&
     (pixelFormat === "yuv420p" || pixelFormat === "yuvj420p") &&
     (audioCodec === null || audioCodec === "aac");
-  return { durationSeconds: durationSeconds && Number.isFinite(durationSeconds) && durationSeconds > 0 ? durationSeconds : null, isWebSafe };
+  return {
+    durationSeconds:
+      durationSeconds && Number.isFinite(durationSeconds) && durationSeconds > 0 ? durationSeconds : null,
+    isWebSafe,
+  };
 }
 
 /** One JPEG frame at a timestamp, for video species suggestions. Not resized: the model resizes
@@ -141,7 +160,21 @@ export function parseFfmpegDescription(text: string): { durationSeconds: number 
 export async function extractVideoFrame(filePath: string, atSeconds: number): Promise<Buffer> {
   if (!ffmpegPath) throw new Error("ffmpeg binary not found: reinstall dependencies");
   const { stdout } = await runFfmpegToBuffer(
-    ["-y", "-ss", String(atSeconds), ...FFMPEG_INPUT_RESTRICTIONS, "-i", filePath, "-frames:v", "1", "-f", "image2pipe", "-vcodec", "mjpeg", "-"],
+    [
+      "-y",
+      "-ss",
+      String(atSeconds),
+      ...FFMPEG_INPUT_RESTRICTIONS,
+      "-i",
+      filePath,
+      "-frames:v",
+      "1",
+      "-f",
+      "image2pipe",
+      "-vcodec",
+      "mjpeg",
+      "-",
+    ],
     FRAME_TIMEOUT_MS,
   );
   return stdout;
@@ -163,41 +196,62 @@ export async function generateVideoDerivatives(filePath: string, photoId: string
   // Poster frame about 1 s in (the first is often still black), then the same resize and WebP
   // steps as a photo.
   const { stdout: posterPng } = await runFfmpegToBuffer(
-    ["-y", "-ss", "1", ...FFMPEG_INPUT_RESTRICTIONS, "-i", filePath, "-frames:v", "1", "-f", "image2pipe", "-vcodec", "png", "-"],
+    [
+      "-y",
+      "-ss",
+      "1",
+      ...FFMPEG_INPUT_RESTRICTIONS,
+      "-i",
+      filePath,
+      "-frames:v",
+      "1",
+      "-f",
+      "image2pipe",
+      "-vcodec",
+      "png",
+      "-",
+    ],
     FRAME_TIMEOUT_MS,
   );
 
   const displayPath = path.join(displayDir, `${photoId}.webp`);
   const thumbPath = path.join(thumbDir, `${photoId}.webp`);
   const image = sharp(posterPng).rotate();
-  const displayInfo = await image.clone().resize({ width: DISPLAY_WIDTH, withoutEnlargement: true }).webp({ quality: 85 }).toFile(displayPath);
+  const displayInfo = await image
+    .clone()
+    .resize({ width: DISPLAY_WIDTH, withoutEnlargement: true })
+    .webp({ quality: 85 })
+    .toFile(displayPath);
   await image.clone().resize({ width: THUMB_WIDTH, withoutEnlargement: true }).webp({ quality: 80 }).toFile(thumbPath);
 
   let previewPath: string | null = null;
   if (!isWebSafe) {
     await ensureDir(previewDir);
     previewPath = path.join(previewDir, `${photoId}.mp4`);
-    await runFfmpeg([
-      "-y",
-      ...FFMPEG_INPUT_RESTRICTIONS,
-      "-i",
-      filePath,
-      "-c:v",
-      "libx264",
-      "-preset",
-      "veryfast",
-      "-crf",
-      "23",
-      // 8-bit 4:2:0, the only H.264 browsers and the desktop webview play. Without it a 10-bit
-      // source (iPhone HDR, ProRes) gives a High 10 preview that won't play.
-      "-pix_fmt",
-      "yuv420p",
-      "-c:a",
-      "aac",
-      "-movflags",
-      "+faststart",
-      previewPath,
-    ], TRANSCODE_TIMEOUT_MS);
+    await runFfmpeg(
+      [
+        "-y",
+        ...FFMPEG_INPUT_RESTRICTIONS,
+        "-i",
+        filePath,
+        "-c:v",
+        "libx264",
+        "-preset",
+        "veryfast",
+        "-crf",
+        "23",
+        // 8-bit 4:2:0, the only H.264 browsers and the desktop webview play. Without it a 10-bit
+        // source (iPhone HDR, ProRes) gives a High 10 preview that won't play.
+        "-pix_fmt",
+        "yuv420p",
+        "-c:a",
+        "aac",
+        "-movflags",
+        "+faststart",
+        previewPath,
+      ],
+      TRANSCODE_TIMEOUT_MS,
+    );
   }
 
   return {
@@ -212,7 +266,10 @@ export async function generateVideoDerivatives(filePath: string, photoId: string
 
 // The shared species-reference cache, keyed by species or gallery-photo id. Width-only resize: the
 // crop is stored as data (reference_focal_x/y) and applied at render time.
-export async function generateReferenceDerivatives(buffer: Buffer, key: string): Promise<{ displayPath: string; thumbPath: string }> {
+export async function generateReferenceDerivatives(
+  buffer: Buffer,
+  key: string,
+): Promise<{ displayPath: string; thumbPath: string }> {
   const displayDir = path.join(APP_DATA_DIR, "reference-display");
   const thumbDir = path.join(APP_DATA_DIR, "reference-thumb");
   await ensureDir(displayDir);

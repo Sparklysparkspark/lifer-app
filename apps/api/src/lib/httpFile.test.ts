@@ -33,7 +33,9 @@ describe("parseRange", () => {
 
 describe("contentDisposition", () => {
   it("keeps a plain ASCII name", () => {
-    expect(contentDisposition("IMG_0001.jpg")).toBe(`attachment; filename="IMG_0001.jpg"; filename*=UTF-8''IMG_0001.jpg`);
+    expect(contentDisposition("IMG_0001.jpg")).toBe(
+      `attachment; filename="IMG_0001.jpg"; filename*=UTF-8''IMG_0001.jpg`,
+    );
   });
   it("encodes non-Latin names and gives an ASCII-only fallback", () => {
     const header = contentDisposition("Ästhetik 鳥.jpg");
@@ -48,6 +50,8 @@ describe("contentDisposition", () => {
 
 describe("escapeHtml", () => {
   it("escapes markup and quotes", () => {
-    expect(escapeHtml(`<img src=x onerror="a('b')">&`)).toBe("&lt;img src=x onerror=&quot;a(&#39;b&#39;)&quot;&gt;&amp;");
+    expect(escapeHtml(`<img src=x onerror="a('b')">&`)).toBe(
+      "&lt;img src=x onerror=&quot;a(&#39;b&#39;)&quot;&gt;&amp;",
+    );
   });
 });

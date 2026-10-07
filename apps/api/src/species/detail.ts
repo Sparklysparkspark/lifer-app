@@ -78,11 +78,16 @@ export async function speciesDetailRoutes(fastify: FastifyInstance): Promise<voi
       // shows no map rather than another province's clusters. Seasonality keeps the given region.
       const givenRegionHasHotspots =
         regionId != null &&
-        (await pool.query(`SELECT 1 FROM region_species_hotspots WHERE region_id = $1 AND species_id = $2 LIMIT 1`, [regionId, id]))
-          .rowCount! > 0;
+        (
+          await pool.query(`SELECT 1 FROM region_species_hotspots WHERE region_id = $1 AND species_id = $2 LIMIT 1`, [
+            regionId,
+            id,
+          ])
+        ).rowCount! > 0;
       const givenRegionIsCountry =
         regionId != null &&
-        (await pool.query(`SELECT 1 FROM regions WHERE id = $1 AND sovereignty_group IS NOT NULL`, [regionId])).rowCount! > 0;
+        (await pool.query(`SELECT 1 FROM regions WHERE id = $1 AND sovereignty_group IS NOT NULL`, [regionId]))
+          .rowCount! > 0;
       const hotspotRegionId = givenRegionHasHotspots
         ? regionId
         : givenRegionIsCountry
@@ -170,8 +175,8 @@ export async function speciesDetailRoutes(fastify: FastifyInstance): Promise<voi
         hotspotsRes,
         regionBboxRes,
       ] = await Promise.all([
-          pool.query(
-            `SELECT c.*, p.id AS photo_id, p.display_path, p.thumb_path, p.width, p.height,
+        pool.query(
+          `SELECT c.*, p.id AS photo_id, p.display_path, p.thumb_path, p.width, p.height,
                     p.kind AS photo_kind, p.duration_seconds, reg.name AS region_name,
                     o.ref AS original_ref, o.managed AS original_managed, o.kind AS original_kind,
                     o.volume_id AS original_volume_id, o.volume_relative_path AS original_volume_relative_path,
@@ -189,44 +194,44 @@ export async function speciesDetailRoutes(fastify: FastifyInstance): Promise<voi
              WHERE c.user_id = $1
                AND (c.species_id = $2 OR EXISTS (SELECT 1 FROM capture_species cs WHERE cs.capture_id = c.id AND cs.species_id = $2))
              ORDER BY c.taken_at DESC NULLS LAST, c.created_at DESC`,
-            [userId, id],
-          ),
-          pool.query(`SELECT * FROM user_species WHERE user_id = $1 AND species_id = $2`, [userId, id]),
-          pool.query(`SELECT 1 FROM user_archived_species WHERE user_id = $1 AND species_id = $2`, [userId, id]),
-          pool.query(
-            `SELECT id, photo_url, credit, license, display_path IS NOT NULL AS has_cached_photo, focal_x, focal_y
+          [userId, id],
+        ),
+        pool.query(`SELECT * FROM user_species WHERE user_id = $1 AND species_id = $2`, [userId, id]),
+        pool.query(`SELECT 1 FROM user_archived_species WHERE user_id = $1 AND species_id = $2`, [userId, id]),
+        pool.query(
+          `SELECT id, photo_url, credit, license, display_path IS NOT NULL AS has_cached_photo, focal_x, focal_y
              FROM species_reference_photos WHERE species_id = $1 ORDER BY sort_order`,
-            [id],
-          ),
-          // Monthly and weekly observation data and local rarity only mean something per region.
-          regionId
-            ? pool.query(
-                `SELECT seasonality, local_tier, is_vagrant, is_invasive, weekly_frequency FROM region_species WHERE region_id = $1 AND species_id = $2`,
-                [regionId, id],
-              )
-            : Promise.resolve(null),
-          // Shown beside those charts so they don't read as global data.
-          regionId ? pool.query(`SELECT name FROM regions WHERE id = $1`, [regionId]) : Promise.resolve(null),
-          // Endemic country (species_traits.endemic_country_iso3), resolved to its current name.
-          species.endemic_country_iso3
-            ? pool.query(`SELECT name FROM regions WHERE external_codes = ARRAY[$1]::text[]`, [
-                species.endemic_country_iso3,
-              ])
-            : Promise.resolve(null),
-          // Hotspot clusters (migration 074): which town, park or lake, not just which province.
-          hotspotRegionId
-            ? pool.query(
-                `SELECT centroid_lat, centroid_lon, point_count, bbox_diagonal_km, last_seen_year, distinct_years
+          [id],
+        ),
+        // Monthly and weekly observation data and local rarity only mean something per region.
+        regionId
+          ? pool.query(
+              `SELECT seasonality, local_tier, is_vagrant, is_invasive, weekly_frequency FROM region_species WHERE region_id = $1 AND species_id = $2`,
+              [regionId, id],
+            )
+          : Promise.resolve(null),
+        // Shown beside those charts so they don't read as global data.
+        regionId ? pool.query(`SELECT name FROM regions WHERE id = $1`, [regionId]) : Promise.resolve(null),
+        // Endemic country (species_traits.endemic_country_iso3), resolved to its current name.
+        species.endemic_country_iso3
+          ? pool.query(`SELECT name FROM regions WHERE external_codes = ARRAY[$1]::text[]`, [
+              species.endemic_country_iso3,
+            ])
+          : Promise.resolve(null),
+        // Hotspot clusters (migration 074): which town, park or lake, not just which province.
+        hotspotRegionId
+          ? pool.query(
+              `SELECT centroid_lat, centroid_lon, point_count, bbox_diagonal_km, last_seen_year, distinct_years
                  FROM region_species_hotspots WHERE region_id = $1 AND species_id = $2
                  ORDER BY point_count DESC`,
-                [hotspotRegionId, id],
-              )
-            : Promise.resolve(null),
-          // The hotspot region's extent, to tell "widespread" from "many spots in one corner".
-          hotspotRegionId
-            ? pool.query(`SELECT boundary_geojson FROM regions WHERE id = $1`, [hotspotRegionId])
-            : Promise.resolve(null),
-        ]);
+              [hotspotRegionId, id],
+            )
+          : Promise.resolve(null),
+        // The hotspot region's extent, to tell "widespread" from "many spots in one corner".
+        hotspotRegionId
+          ? pool.query(`SELECT boundary_geojson FROM regions WHERE id = $1`, [hotspotRegionId])
+          : Promise.resolve(null),
+      ]);
       const isArchived = archivedRes.rows.length > 0;
       const seasonality: number[] | null = regionSpeciesRes?.rows[0]?.seasonality ?? null;
       // Rarity ranked against this region's own checklist, alongside the global tier.
@@ -273,7 +278,9 @@ export async function speciesDetailRoutes(fastify: FastifyInstance): Promise<voi
         : species.reference_photo;
       const referencePhotos = referencePhotosRes.rows.map((p) => ({
         ...p,
-        photo_url: p.has_cached_photo ? `/api/species/reference-gallery-photo/${p.id}/display?v=${MEDIA_CACHE_BUST}` : p.photo_url,
+        photo_url: p.has_cached_photo
+          ? `/api/species/reference-gallery-photo/${p.id}/display?v=${MEDIA_CACHE_BUST}`
+          : p.photo_url,
       }));
 
       return {
@@ -295,11 +302,14 @@ export async function speciesDetailRoutes(fastify: FastifyInstance): Promise<voi
           const topShare = hotspots.length > 0 ? hotspots[0].point_count / totalPoints : 0;
           // Widespread needs many clusters with none dominant, spread over most of the region.
           let spanRatio = 1; // no region bbox available: assume it could span the whole thing
-          const bbox = regionBboxRes?.rows[0]?.boundary_geojson?.bbox as
-            | [number, number, number, number]
-            | undefined;
+          const bbox = regionBboxRes?.rows[0]?.boundary_geojson?.bbox as [number, number, number, number] | undefined;
           if (bbox && hotspots.length > 1) {
-            const regionDiagonal = bboxDiagonalDegrees({ minLon: bbox[0], minLat: bbox[1], maxLon: bbox[2], maxLat: bbox[3] });
+            const regionDiagonal = bboxDiagonalDegrees({
+              minLon: bbox[0],
+              minLat: bbox[1],
+              maxLon: bbox[2],
+              maxLat: bbox[3],
+            });
             const centroidBbox: BoundingBox = ringBoundingBox(
               hotspots.map((h): [number, number] => [h.centroid_lon, h.centroid_lat]),
             );
@@ -379,12 +389,15 @@ export async function speciesDetailRoutes(fastify: FastifyInstance): Promise<voi
   app.delete("/species/:id/target", markOptions, async (request) => {
     const { id: speciesId } = request.params;
     const userId = request.user!.id;
-    await pool.query(`UPDATE user_species SET is_target = false WHERE user_id = $1 AND species_id = $2`, [userId, speciesId]);
-    // A row with no state and no target is removed, so "no row" still means "unseen".
-    await pool.query(`DELETE FROM user_species WHERE user_id = $1 AND species_id = $2 AND state IS NULL AND is_target = false`, [
+    await pool.query(`UPDATE user_species SET is_target = false WHERE user_id = $1 AND species_id = $2`, [
       userId,
       speciesId,
     ]);
+    // A row with no state and no target is removed, so "no row" still means "unseen".
+    await pool.query(
+      `DELETE FROM user_species WHERE user_id = $1 AND species_id = $2 AND state IS NULL AND is_target = false`,
+      [userId, speciesId],
+    );
     return { ok: true };
   });
 
@@ -462,7 +475,8 @@ export async function speciesDetailRoutes(fastify: FastifyInstance): Promise<voi
       const prevGroup = groups[groups.length - 1];
       const prev = prevGroup?.[prevGroup.length - 1];
       const gapMs = prev ? new Date(row.taken_at!).getTime() - new Date(prev.taken_at!).getTime() : Infinity;
-      const similar = prev?.embedding && row.embedding && cosineSimilarity(prev.embedding, row.embedding) > BURST_SIMILARITY;
+      const similar =
+        prev?.embedding && row.embedding && cosineSimilarity(prev.embedding, row.embedding) > BURST_SIMILARITY;
       if (prevGroup && similar && gapMs <= BURST_MAX_GAP_MS) prevGroup.push(row);
       else groups.push([row]);
     }

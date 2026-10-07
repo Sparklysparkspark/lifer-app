@@ -159,7 +159,8 @@ export default function DownloadedPacksList({
   async function updatePacks(packIds: string[]) {
     setError(null);
     // Only starts the job; onFinish above refreshes the list when it ends.
-    if (!(await downloadJob.start("/offline-packs/download", { packIds }))) setError(t("offlinePacks.downloaded.updateStartFailed"));
+    if (!(await downloadJob.start("/offline-packs/download", { packIds })))
+      setError(t("offlinePacks.downloaded.updateStartFailed"));
   }
 
   // Downloads the full counterpart of a small pack, then offloads the small one: the full pack
@@ -242,14 +243,13 @@ export default function DownloadedPacksList({
               ? TAXON_CLASS_LABEL[p.taxon]
               : t("offlinePacks.allTaxa")}
           {p.variant === "small" && (
-            <span
-              className="ml-2 text-xs text-muted"
-              title={t("offlinePacks.downloaded.smallTitle")}
-            >
+            <span className="ml-2 text-xs text-muted" title={t("offlinePacks.downloaded.smallTitle")}>
               {t("offlinePacks.downloaded.small")}
             </span>
           )}
-          {p.updateAvailable && <span className="ml-2 text-xs text-accent">{t("offlinePacks.downloaded.updateAvailable")}</span>}
+          {p.updateAvailable && (
+            <span className="ml-2 text-xs text-accent">{t("offlinePacks.downloaded.updateAvailable")}</span>
+          )}
         </span>
         <span
           className="text-xs text-muted"
@@ -316,7 +316,9 @@ export default function DownloadedPacksList({
               }
               className="rounded-md border border-line px-2 py-1 text-xs text-muted hover:bg-surface-muted"
             >
-              {expandedGroups.size === groups.length ? t("offlinePacks.downloaded.collapseAll") : t("offlinePacks.downloaded.expandAll")}
+              {expandedGroups.size === groups.length
+                ? t("offlinePacks.downloaded.collapseAll")
+                : t("offlinePacks.downloaded.expandAll")}
             </button>
           )}
           {downloadedPacks.length > 1 && (
@@ -515,28 +517,22 @@ export default function DownloadedPacksList({
         {deletePreview && (
           <div className="space-y-2 text-sm text-muted">
             <p>
-              {deletePreview.isEstimate ? (
-                t("offlinePacks.offload.estimate", { size: formatBytes(deletePreview.bytesToFree) })
-              ) : (
-                t("offlinePacks.offload.photosRemoved", {
-                  count: deletePreview.speciesToRemoveCount,
-                  size: formatBytes(deletePreview.bytesToFree),
-                })
-              )}
+              {deletePreview.isEstimate
+                ? t("offlinePacks.offload.estimate", { size: formatBytes(deletePreview.bytesToFree) })
+                : t("offlinePacks.offload.photosRemoved", {
+                    count: deletePreview.speciesToRemoveCount,
+                    size: formatBytes(deletePreview.bytesToFree),
+                  })}
             </p>
             {deletePreview.speciesKeptCount > 0 && (
-              <p>
-                {t("offlinePacks.offload.speciesKept", { count: deletePreview.speciesKeptCount })}
-              </p>
+              <p>{t("offlinePacks.offload.speciesKept", { count: deletePreview.speciesKeptCount })}</p>
             )}
             {deletePreview.checklistRegionsAffectedCount > 0 && (
               <p>
                 {t("offlinePacks.offload.checklistsAffected", { count: deletePreview.checklistRegionsAffectedCount })}
               </p>
             )}
-            <p className="text-xs text-muted">
-              {t("offlinePacks.offload.ownPhotosSafe")}
-            </p>
+            <p className="text-xs text-muted">{t("offlinePacks.offload.ownPhotosSafe")}</p>
           </div>
         )}
         <FormMessage error={deleteError} className="mt-3" />

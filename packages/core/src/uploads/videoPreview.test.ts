@@ -34,8 +34,25 @@ describe("generateVideoDerivatives", () => {
   it("makes an 8-bit H.264 preview from a 10-bit source", async () => {
     const source = path.join(dir, "ten-bit.mp4");
     execFileSync(ffmpeg, [
-      "-v", "error", "-f", "lavfi", "-i", "testsrc=size=320x240:rate=25", "-f", "lavfi", "-i", "sine",
-      "-t", "2", "-c:v", "libx264", "-pix_fmt", "yuv420p10le", "-c:a", "aac", source,
+      "-v",
+      "error",
+      "-f",
+      "lavfi",
+      "-i",
+      "testsrc=size=320x240:rate=25",
+      "-f",
+      "lavfi",
+      "-i",
+      "sine",
+      "-t",
+      "2",
+      "-c:v",
+      "libx264",
+      "-pix_fmt",
+      "yuv420p10le",
+      "-c:a",
+      "aac",
+      source,
     ]);
     expect(describeVideo(source)).toContain("High 10");
 

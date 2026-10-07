@@ -70,9 +70,10 @@ describe.skipIf(!url)("adoptFlatLibraryLayout", () => {
     await adoptFlatLibraryLayout();
     await adoptFlatLibraryLayout(); // a second start changes nothing
 
-    const rows = await db.query<{ capture_id: string; ref: string }>(`SELECT capture_id, ref FROM originals WHERE capture_id = ANY($1::uuid[])`, [
-      captureIds,
-    ]);
+    const rows = await db.query<{ capture_id: string; ref: string }>(
+      `SELECT capture_id, ref FROM originals WHERE capture_id = ANY($1::uuid[])`,
+      [captureIds],
+    );
     const refOf = (i: number) => rows.rows.find((r) => r.capture_id === captureIds[i])!.ref;
     expect(refOf(0)).toBe(path.join(dataDir, "Birds", "Osprey", "Adjusted", "IMG_0001.jpg"));
     expect(refOf(1)).toBe(refs.notMoved);

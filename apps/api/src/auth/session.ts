@@ -51,10 +51,18 @@ export function cookieSecureFor(request: Pick<FastifyRequest, "protocol" | "head
   return first === "https";
 }
 
-export async function createSession(userId: string, reply: FastifyReply, db: Pick<PoolClient, "query"> = pool): Promise<void> {
+export async function createSession(
+  userId: string,
+  reply: FastifyReply,
+  db: Pick<PoolClient, "query"> = pool,
+): Promise<void> {
   const token = randomBytes(32).toString("hex");
   const expiresAt = new Date(Date.now() + SESSION_TTL_MS);
-  await db.query(`INSERT INTO sessions (id, user_id, expires_at) VALUES ($1, $2, $3)`, [hashToken(token), userId, expiresAt]);
+  await db.query(`INSERT INTO sessions (id, user_id, expires_at) VALUES ($1, $2, $3)`, [
+    hashToken(token),
+    userId,
+    expiresAt,
+  ]);
 
   reply.setCookie(SESSION_COOKIE_NAME, token, {
     httpOnly: true,
@@ -91,7 +99,11 @@ export async function getSessionUser(request: FastifyRequest): Promise<SessionUs
 }
 
 /** Signs out every session of this user (other devices included) and issues a fresh one here. */
-export async function rotateSessions(userId: string, reply: FastifyReply, db: Pick<PoolClient, "query"> = pool): Promise<void> {
+export async function rotateSessions(
+  userId: string,
+  reply: FastifyReply,
+  db: Pick<PoolClient, "query"> = pool,
+): Promise<void> {
   await db.query(`DELETE FROM sessions WHERE user_id = $1`, [userId]);
   await createSession(userId, reply, db);
 }

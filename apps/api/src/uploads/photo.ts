@@ -10,10 +10,24 @@ import { pool } from "@lifer/core/db.js";
 import { requireScope } from "../auth/session.js";
 import { ORIGINALS_DIR } from "@lifer/core/config.js";
 import { generateDerivatives } from "@lifer/core/uploads/image.js";
-import { captureTimeFromTags, extractExif, computeExifFingerprint, readExifTags, type CaptureTime, type ExifFingerprint, type ExtractedExif } from "./exif.js";
+import {
+  captureTimeFromTags,
+  extractExif,
+  computeExifFingerprint,
+  readExifTags,
+  type CaptureTime,
+  type ExifFingerprint,
+  type ExtractedExif,
+} from "./exif.js";
 import { syncCaptureXmpSidecars } from "./xmpSidecarSync.js";
 import { fetchS3Object } from "../photoSources/s3.js";
-import { claimedPhotoFormat, isRawFile, sniffPhotoFormat, storedPhotoExtension, type PhotoFormat } from "@lifer/core/uploads/formats.js";
+import {
+  claimedPhotoFormat,
+  isRawFile,
+  sniffPhotoFormat,
+  storedPhotoExtension,
+  type PhotoFormat,
+} from "@lifer/core/uploads/formats.js";
 import { originalsFolder } from "./organizedPath.js";
 import { resolveSpeciesFolderName } from "./speciesFolderName.js";
 import { tagWithRegisteredVolume, resolveChosenVolumeDestination } from "../storageVolumes/resolve.js";
@@ -30,7 +44,13 @@ import { handleRawPrimaryUpload } from "./raw.js";
 import { CULL_MARKS_OPTIONS, type CullMarksOption } from "@lifer/shared";
 import { cullDecision, readCullMarks, readPairCullMarks } from "./cullMarks.js";
 import { prepareWorkingImage, type WorkingImage } from "./workingImage.js";
-import { claimStagedFile, claimUploadById, isUploadSourceError, receiveMultipartFile, type ReceivedFile } from "./uploadSource.js";
+import {
+  claimStagedFile,
+  claimUploadById,
+  isUploadSourceError,
+  receiveMultipartFile,
+  type ReceivedFile,
+} from "./uploadSource.js";
 import {
   UPLOAD_TX_TIMEOUTS,
   derivativeFiles,
@@ -139,8 +159,8 @@ async function importPhoto(
     throw err;
   }
   // A resumable upload's own name and type, unless the request names them.
-  const fileName = photo ? (fields.fileName || photo.filename) : null;
-  const fileMimetype = photo ? (fields.fileType || photo.mimetype) : null;
+  const fileName = photo ? fields.fileName || photo.filename : null;
+  const fileMimetype = photo ? fields.fileType || photo.mimetype : null;
 
   // Store mode can write onto a registered external drive instead of ORIGINALS_DIR. Resolved
   // first so a disconnected drive fails before any file work.
@@ -171,7 +191,10 @@ async function importPhoto(
   // An album doesn't change where the file goes; the capture is only added to it before COMMIT.
   let albumId: string | null = null;
   if (fields.albumId) {
-    const albumRes = await pool.query<{ id: string }>(`SELECT id FROM albums WHERE id = $1 AND user_id = $2`, [fields.albumId, userId]);
+    const albumRes = await pool.query<{ id: string }>(`SELECT id FROM albums WHERE id = $1 AND user_id = $2`, [
+      fields.albumId,
+      userId,
+    ]);
     if (albumRes.rows.length === 0) return result(400, { error: "Unknown album" });
     albumId = albumRes.rows[0].id;
   }
@@ -185,7 +208,10 @@ async function importPhoto(
     aba_code: string | null;
     ebird_code: string | null;
     inat_iconic_taxon: string | null;
-  }>(`SELECT id, common_name, scientific_name, taxon_class, family, aba_code, ebird_code, inat_iconic_taxon FROM species WHERE id = $1`, [speciesId]);
+  }>(
+    `SELECT id, common_name, scientific_name, taxon_class, family, aba_code, ebird_code, inat_iconic_taxon FROM species WHERE id = $1`,
+    [speciesId],
+  );
   if (speciesRes.rows.length === 0) return result(400, { error: "Unknown species" });
   const species = speciesRes.rows[0];
 
@@ -243,7 +269,16 @@ async function importPhoto(
     }
     srcPath = await uploadTempPath(bucketKey, ".jpg");
     await writeFile(srcPath, s3Bytes);
-    sources.push({ path: srcPath, filename: null, mimetype: null, sha256: "", size: 0, origin: "multipart", uploadId: null, finish: () => rm(srcPath, { force: true }) });
+    sources.push({
+      path: srcPath,
+      filename: null,
+      mimetype: null,
+      sha256: "",
+      size: 0,
+      origin: "multipart",
+      uploadId: null,
+      finish: () => rm(srcPath, { force: true }),
+    });
     fingerprint = createHash("sha256").update(s3Bytes).digest("hex");
     fileSize = s3Bytes.length;
     originalRef = bucketKey;
@@ -256,7 +291,8 @@ async function importPhoto(
     fileSize = photo.size;
     format = await sniffPhotoFormat(srcPath);
   }
-  if (!format) return result(400, { error: mode === "store" ? UNSUPPORTED_PHOTO : "That file isn't a photo Lifer can read" });
+  if (!format)
+    return result(400, { error: mode === "store" ? UNSUPPORTED_PHOTO : "That file isn't a photo Lifer can read" });
   const photoExtension = storedPhotoExtension(format, fileName);
 
   if (raw && mode !== "store") {
@@ -276,7 +312,11 @@ async function importPhoto(
       [userId, fingerprint],
     );
     if (existing.rows[0]) {
-      return result(200, { captureId: existing.rows[0].id, photoId: existing.rows[0].current_photo_id, duplicate: true });
+      return result(200, {
+        captureId: existing.rows[0].id,
+        photoId: existing.rows[0].current_photo_id,
+        duplicate: true,
+      });
     }
   }
 
@@ -366,7 +406,10 @@ async function importPhoto(
       mode === "link" && finalOriginalRef
         ? await tagWithRegisteredVolume(userId, finalOriginalRef)
         : chosenVolume && finalOriginalRef
-          ? { volumeId: chosenVolume.volumeId, volumeRelativePath: finalOriginalRef.slice(chosenVolume.mountPath.length) }
+          ? {
+              volumeId: chosenVolume.volumeId,
+              volumeRelativePath: finalOriginalRef.slice(chosenVolume.mountPath.length),
+            }
           : { volumeId: null, volumeRelativePath: null };
 
     // A RAW sent with the photo is linked directly, in the same base folder as the photo.
@@ -440,14 +483,10 @@ async function importPhoto(
     );
     captureId = captureRes.rows[0].id;
 
-    await client.query(`INSERT INTO photos (id, capture_id, display_path, thumb_path, width, height) VALUES ($1,$2,$3,$4,$5,$6)`, [
-      photoId,
-      captureId,
-      displayPath,
-      thumbPath,
-      width,
-      height,
-    ]);
+    await client.query(
+      `INSERT INTO photos (id, capture_id, display_path, thumb_path, width, height) VALUES ($1,$2,$3,$4,$5,$6)`,
+      [photoId, captureId, displayPath, thumbPath, width, height],
+    );
 
     await client.query(`UPDATE captures SET current_photo_id = $1 WHERE id = $2`, [photoId, captureId]);
 
@@ -475,7 +514,16 @@ async function importPhoto(
       await client.query(
         `INSERT INTO originals (capture_id, kind, ref_type, ref, managed, content_hash, file_size, exif_fingerprint, exif_fingerprint_loose, volume_id, volume_relative_path)
          VALUES ($1, 'raw', 'path', $2, true, $3, $4, $5, $6, $7, $8)`,
-        [captureId, rawOriginal.dest, rawOriginal.hash, rawOriginal.size, exifFingerprint.strict, exifFingerprint.loose, chosenVolume?.volumeId ?? null, rawOriginal.volumeRelativePath],
+        [
+          captureId,
+          rawOriginal.dest,
+          rawOriginal.hash,
+          rawOriginal.size,
+          exifFingerprint.strict,
+          exifFingerprint.loose,
+          chosenVolume?.volumeId ?? null,
+          rawOriginal.volumeRelativePath,
+        ],
       );
     }
 
@@ -485,14 +533,20 @@ async function importPhoto(
     if (!raw) {
       // Verified before the transaction; capture_id IS NULL is re-checked to close the race.
       if (filenameVerifiedRaw) {
-        const res = await client.query(`UPDATE originals SET capture_id = $1 WHERE id = $2 AND capture_id IS NULL`, [captureId, filenameVerifiedRaw.id]);
+        const res = await client.query(`UPDATE originals SET capture_id = $1 WHERE id = $2 AND capture_id IS NULL`, [
+          captureId,
+          filenameVerifiedRaw.id,
+        ]);
         if ((res.rowCount ?? 0) === 1) claimedRaw = filenameVerifiedRaw;
       }
 
       if (!claimedRaw) {
         let unlinkedRaw: { id: string; ref: string; managed: boolean }[] = [];
         // Strict fingerprint, then loose, then the legacy server-zone pair (exif.ts).
-        const pairs = [{ strict: exifFingerprint.strict, loose: exifFingerprint.loose }, ...(exifFingerprint.legacy ? [exifFingerprint.legacy] : [])];
+        const pairs = [
+          { strict: exifFingerprint.strict, loose: exifFingerprint.loose },
+          ...(exifFingerprint.legacy ? [exifFingerprint.legacy] : []),
+        ];
         for (const pair of pairs) {
           if (pair.strict) {
             const res = await client.query<{ id: string; ref: string; managed: boolean }>(
@@ -519,7 +573,10 @@ async function importPhoto(
     }
 
     if (albumId) {
-      await client.query(`INSERT INTO album_captures (album_id, capture_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, [albumId, captureId]);
+      await client.query(`INSERT INTO album_captures (album_id, capture_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, [
+        albumId,
+        captureId,
+      ]);
     }
 
     // Last, since the rows above are written through the `captures` view, which hides it.
@@ -548,23 +605,27 @@ async function importPhoto(
       const move = await moveManagedOriginalToSpeciesFolder(userId, claimed.id, speciesId);
       if (move) {
         try {
-          await pool.query(`UPDATE originals SET ref = $1, volume_relative_path = COALESCE($2, volume_relative_path) WHERE id = $3`, [
-            move.to,
-            move.volumeRelativePath,
-            claimed.id,
-          ]);
+          await pool.query(
+            `UPDATE originals SET ref = $1, volume_relative_path = COALESCE($2, volume_relative_path) WHERE id = $3`,
+            [move.to, move.volumeRelativePath, claimed.id],
+          );
         } catch (err) {
           await moveToFolder(move.to, path.dirname(move.from), path.basename(move.from)).catch(() => {});
           throw err;
         }
       }
     } catch (err) {
-      request.log.warn({ err, captureId, originalId: claimed.id }, "Linked this capture's RAW but couldn't move it into the species folder");
+      request.log.warn(
+        { err, captureId, originalId: claimed.id },
+        "Linked this capture's RAW but couldn't move it into the species folder",
+      );
     }
   }
 
   // Writes the capture's first XMP sidecar(s) (species, EXIF, rating) in the background.
-  syncCaptureXmpSidecars(userId, captureId).catch((err) => request.log.warn({ err, captureId }, "Couldn't write this capture's XMP sidecar"));
+  syncCaptureXmpSidecars(userId, captureId).catch((err) =>
+    request.log.warn({ err, captureId }, "Couldn't write this capture's XMP sidecar"),
+  );
 
   // Embeddings are queued so the upload never waits on a model; a failure is left for the next
   // backfill. The queue holds a file path when there is one, and a working copy lives until its job ends.

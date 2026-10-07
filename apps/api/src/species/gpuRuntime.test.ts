@@ -25,7 +25,8 @@ describe("RUNTIME_SETS", () => {
         expect(f.bytes).toBeGreaterThan(0);
       }
       const libs = set.nvidia.map((p) => path.basename(p.url));
-      for (const lib of ["cuda_runtime", "cublas", "cudnn", "cufft", "curand"]) expect(libs.some((l) => l.includes(lib))).toBe(true);
+      for (const lib of ["cuda_runtime", "cublas", "cudnn", "cufft", "curand"])
+        expect(libs.some((l) => l.includes(lib))).toBe(true);
       expect(set.ortNode.url).toContain(set.ortVersion);
       expect(set.cudaAddon.url).toContain(set.ortVersion);
     }

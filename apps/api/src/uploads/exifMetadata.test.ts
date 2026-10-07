@@ -100,13 +100,19 @@ describe("writeCaptureMetadata", () => {
       .toFile(file);
     // A keyword added in another tool, before Lifer ever wrote the file.
     const { exiftool } = await import("exiftool-vendored");
-    await exiftool.write(file, { "XMP-dc:Subject": ["portfolio"], "IPTC:Keywords": ["portfolio"] } as never, { writeArgs: ["-overwrite_original"] });
+    await exiftool.write(file, { "XMP-dc:Subject": ["portfolio"], "IPTC:Keywords": ["portfolio"] } as never, {
+      writeArgs: ["-overwrite_original"],
+    });
 
     await writeCaptureMetadata(file, { ...data, tags: ["flight shot", "courtship"] });
     let tags = (await readExifTags(file)) as unknown as Record<string, unknown>;
     expect(tags.Subject).toEqual(["portfolio", "Bald Eagle", "Haliaeetus leucocephalus", "flight shot", "courtship"]);
     expect(tags.Keywords).toEqual(["portfolio", "Bald Eagle", "Haliaeetus leucocephalus", "flight shot", "courtship"]);
-    expect(tags.HierarchicalSubject).toEqual(["Species|Birds|Accipitridae|Bald Eagle", "Lifer Tags|flight shot", "Lifer Tags|courtship"]);
+    expect(tags.HierarchicalSubject).toEqual([
+      "Species|Birds|Accipitridae|Bald Eagle",
+      "Lifer Tags|flight shot",
+      "Lifer Tags|courtship",
+    ]);
 
     // Removing a tag in Lifer removes its keyword; the other tool's keyword stays.
     await writeCaptureMetadata(file, { ...data, tags: ["courtship"] });
@@ -142,7 +148,14 @@ describe("metadataGoesInFile", () => {
 describe("extractLiferTags", () => {
   it("reads back the photo tags Lifer wrote, for reimport", async () => {
     const { extractLiferTags } = await import("./exif.js");
-    const tags = { HierarchicalSubject: ["Species|Birds|Accipitridae|Bald Eagle", "Lifer Tags|flight shot", "Places|Lifer Tags|x", "Lifer Tags|"] };
+    const tags = {
+      HierarchicalSubject: [
+        "Species|Birds|Accipitridae|Bald Eagle",
+        "Lifer Tags|flight shot",
+        "Places|Lifer Tags|x",
+        "Lifer Tags|",
+      ],
+    };
     expect(extractLiferTags(tags as never)).toEqual(["flight shot"]);
     expect(extractLiferTags({ HierarchicalSubject: "Lifer Tags|dawn" } as never)).toEqual(["dawn"]);
     expect(extractLiferTags({} as never)).toEqual([]);

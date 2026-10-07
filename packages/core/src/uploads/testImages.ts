@@ -34,12 +34,23 @@ export interface TusOptions {
 const b64 = (v: string) => Buffer.from(v).toString("base64");
 
 /** Creates a tus upload and PATCHes `bytes` in chunks. Returns the upload id and URL. */
-export async function tusUpload(app: FastifyInstance, bytes: Buffer, opts: TusOptions): Promise<{ id: string; url: string; offset: number }> {
+export async function tusUpload(
+  app: FastifyInstance,
+  bytes: Buffer,
+  opts: TusOptions,
+): Promise<{ id: string; url: string; offset: number }> {
   const base = { ...opts.headers, "tus-resumable": "1.0.0" };
   const created = await app.inject({
     method: "POST",
     url: "/api/uploads/tus",
-    headers: { ...base, "upload-length": String(bytes.length), "upload-metadata": [`filename ${b64(opts.filename)}`, ...(opts.filetype ? [`filetype ${b64(opts.filetype)}`] : [])].join(",") },
+    headers: {
+      ...base,
+      "upload-length": String(bytes.length),
+      "upload-metadata": [
+        `filename ${b64(opts.filename)}`,
+        ...(opts.filetype ? [`filetype ${b64(opts.filetype)}`] : []),
+      ].join(","),
+    },
     cookies: opts.cookies,
   });
   if (created.statusCode !== 201) throw new Error(`create failed: ${created.statusCode} ${created.body}`);
@@ -50,7 +61,13 @@ export async function tusUpload(app: FastifyInstance, bytes: Buffer, opts: TusOp
 }
 
 /** PATCHes bytes from `from` up to opts.stopAt (default the end). Returns the new offset. */
-export async function tusPatch(app: FastifyInstance, url: string, bytes: Buffer, from: number, opts: TusOptions): Promise<number> {
+export async function tusPatch(
+  app: FastifyInstance,
+  url: string,
+  bytes: Buffer,
+  from: number,
+  opts: TusOptions,
+): Promise<number> {
   const chunk = opts.chunkSize ?? 64 * 1024;
   const end = Math.min(opts.stopAt ?? bytes.length, bytes.length);
   let offset = from;
@@ -59,7 +76,12 @@ export async function tusPatch(app: FastifyInstance, url: string, bytes: Buffer,
     const res = await app.inject({
       method: "PATCH",
       url,
-      headers: { ...opts.headers, "tus-resumable": "1.0.0", "upload-offset": String(offset), "content-type": "application/offset+octet-stream" },
+      headers: {
+        ...opts.headers,
+        "tus-resumable": "1.0.0",
+        "upload-offset": String(offset),
+        "content-type": "application/offset+octet-stream",
+      },
       cookies: opts.cookies,
       payload: bytes.subarray(offset, next),
     });

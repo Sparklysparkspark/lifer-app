@@ -82,11 +82,15 @@ async function main() {
     speciesIdToCurrentName.set(row.id, row.scientific_name);
     nameToSpeciesIdDirect.set(row.scientific_name, row.id);
   }
-  const synonymRes = await pool.query<{ species_id: string; synonym_name: string }>(`SELECT species_id, synonym_name FROM species_synonyms`);
+  const synonymRes = await pool.query<{ species_id: string; synonym_name: string }>(
+    `SELECT species_id, synonym_name FROM species_synonyms`,
+  );
   for (const row of synonymRes.rows) nameToSpeciesIdDirect.set(row.synonym_name, row.species_id);
 
   const unresolved = [...nameCounts.keys()].filter((n) => !nameToSpeciesIdDirect.has(n));
-  console.log(`[species-name-index] ${unresolved.length} names not already known (either as a scientific_name or a stored synonym), resolving via GBIF match`);
+  console.log(
+    `[species-name-index] ${unresolved.length} names not already known (either as a scientific_name or a stored synonym), resolving via GBIF match`,
+  );
 
   const nameToSpeciesId = new Map(nameToSpeciesIdDirect);
   let matched = 0;
@@ -110,7 +114,9 @@ async function main() {
     done++;
     if (done % 1000 === 0) console.log(`[species-name-index] resolved ${done}/${unresolved.length}`);
   });
-  console.log(`[species-name-index] match pass done: ${matched} matched an existing species, ${noMatch} matched no catalog species, ${failed} failed`);
+  console.log(
+    `[species-name-index] match pass done: ${matched} matched an existing species, ${noMatch} matched no catalog species, ${failed} failed`,
+  );
 
   // All name variants seen per species, so the rename decision compares them all.
   const variantsBySpeciesId = new Map<string, Array<{ name: string; count: number }>>();
@@ -135,7 +141,10 @@ async function main() {
     const shouldRename = winner.count >= RENAME_MIN_RECORDS && winner.count >= currentCount * RENAME_MARGIN_MULTIPLIER;
     let renameApplied = false;
     if (shouldRename) {
-      const collision = await pool.query(`SELECT 1 FROM species WHERE scientific_name = $1 AND id != $2`, [winner.name, speciesId]);
+      const collision = await pool.query(`SELECT 1 FROM species WHERE scientific_name = $1 AND id != $2`, [
+        winner.name,
+        speciesId,
+      ]);
       if ((collision.rowCount ?? 0) > 0) {
         collided++;
         console.log(`[species-name-index] SKIP (name collision) ${currentName} -> ${winner.name}`);
@@ -157,7 +166,9 @@ async function main() {
         }
         renamed++;
         renameApplied = true;
-        console.log(`[species-name-index] ${currentName} (${currentCount} records) -> ${winner.name} (${winner.count} records)`);
+        console.log(
+          `[species-name-index] ${currentName} (${currentCount} records) -> ${winner.name} (${winner.count} records)`,
+        );
       }
     }
     // Record every other variant as a synonym so future runs match it directly.

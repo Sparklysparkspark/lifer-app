@@ -39,15 +39,25 @@ describe.skipIf(!url)("photo file caching", () => {
     db = new pg.Pool({ connectionString: url });
     await db.query(`DELETE FROM users WHERE id = $1`, [USER]);
     await db.query(`INSERT INTO users (id, email, password_hash) VALUES ($1, 'pc@test', 'x')`, [USER]);
-    await db.query(`INSERT INTO species (id, gbif_key, scientific_name, taxon_class) VALUES ($1, 913500, 'Cachea photo', 'aves') ON CONFLICT (id) DO NOTHING`, [SPECIES]);
-    const webp = await sharp({ create: { width: 64, height: 48, channels: 3, background: "#3a6" } }).webp().toBuffer();
-    const jpeg = await sharp({ create: { width: 64, height: 48, channels: 3, background: "#3a6" } }).jpeg().toBuffer();
+    await db.query(
+      `INSERT INTO species (id, gbif_key, scientific_name, taxon_class) VALUES ($1, 913500, 'Cachea photo', 'aves') ON CONFLICT (id) DO NOTHING`,
+      [SPECIES],
+    );
+    const webp = await sharp({ create: { width: 64, height: 48, channels: 3, background: "#3a6" } })
+      .webp()
+      .toBuffer();
+    const jpeg = await sharp({ create: { width: 64, height: 48, channels: 3, background: "#3a6" } })
+      .jpeg()
+      .toBuffer();
     writeFileSync(path.join(dir, "d.webp"), webp);
     writeFileSync(path.join(dir, "t.webp"), webp);
     writeFileSync(path.join(dir, "orig.jpg"), jpeg);
     writeFileSync(path.join(dir, "clip.mp4"), Buffer.alloc(4096, 7));
     const add = async (fp: string, thumb: string) => {
-      const c = await db.query<{ id: string }>(`INSERT INTO captures_all (user_id, species_id, fingerprint) VALUES ($1, $2, $3) RETURNING id`, [USER, SPECIES, fp]);
+      const c = await db.query<{ id: string }>(
+        `INSERT INTO captures_all (user_id, species_id, fingerprint) VALUES ($1, $2, $3) RETURNING id`,
+        [USER, SPECIES, fp],
+      );
       const p = await db.query<{ id: string }>(
         `INSERT INTO photos (capture_id, display_path, thumb_path, preview_path) VALUES ($1, $2, $3, $4) RETURNING id`,
         [c.rows[0].id, path.join(dir, "d.webp"), thumb, path.join(dir, "clip.mp4")],
@@ -80,7 +90,8 @@ describe.skipIf(!url)("photo file caching", () => {
     rmSync(dirs.base, { recursive: true, force: true });
   });
 
-  const get = (u: string, headers: Record<string, string> = {}) => app.inject({ method: "GET", url: `/api${u}`, headers });
+  const get = (u: string, headers: Record<string, string> = {}) =>
+    app.inject({ method: "GET", url: `/api${u}`, headers });
 
   it("answers 304 for an unchanged thumbnail and original", async () => {
     for (const u of [`/photos/${photoId}/thumb`, `/photos/${photoId}/original`]) {
@@ -112,7 +123,9 @@ describe.skipIf(!url)("photo file caching", () => {
     expect(res.headers.etag).toBeUndefined();
     // The repair rebuilds both files from the JPEG original and repoints the row.
     for (let i = 0; i < 50; i++) {
-      const row = await db.query<{ thumb_path: string }>(`SELECT thumb_path FROM photos WHERE id = $1`, [brokenPhotoId]);
+      const row = await db.query<{ thumb_path: string }>(`SELECT thumb_path FROM photos WHERE id = $1`, [
+        brokenPhotoId,
+      ]);
       if (!row.rows[0].thumb_path.endsWith("gone.webp")) break;
       await new Promise((r) => setTimeout(r, 100));
     }

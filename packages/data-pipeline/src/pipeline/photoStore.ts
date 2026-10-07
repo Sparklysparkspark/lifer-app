@@ -22,7 +22,8 @@ import { assertPhotosPublishable } from "./photoLicensePolicy.js";
 
 export const PHOTO_STORE_RELEASE_TAG = "photos-latest";
 export const PHOTO_STORE_INDEX_NAME = "lifer-photo-store.json.gz";
-export const photoStoreIndexUrl = (): string => `https://github.com/${GITHUB_REPO}/releases/download/${PHOTO_STORE_RELEASE_TAG}/${PHOTO_STORE_INDEX_NAME}`;
+export const photoStoreIndexUrl = (): string =>
+  `https://github.com/${GITHUB_REPO}/releases/download/${PHOTO_STORE_RELEASE_TAG}/${PHOTO_STORE_INDEX_NAME}`;
 // Kept well under GitHub's 2 GB per-asset limit.
 const MAX_SHARD_BYTES = 1_500_000_000;
 
@@ -90,7 +91,11 @@ export async function buildPhotoStore(opts: {
         ? null
         : ((await fetchPublishedIndex(log)) ?? (existsSync(localIndex) ? readPhotoStoreIndex(localIndex) : null));
 
-  const main = await pool.query<{ id: string; reference_display_path: string | null; reference_thumb_path: string | null }>(
+  const main = await pool.query<{
+    id: string;
+    reference_display_path: string | null;
+    reference_thumb_path: string | null;
+  }>(
     `SELECT s.id, s.reference_display_path, s.reference_thumb_path FROM species s
      WHERE NOT s.is_other_taxa
        AND (EXISTS (SELECT 1 FROM region_species rs WHERE rs.species_id = s.id)
@@ -98,7 +103,12 @@ export async function buildPhotoStore(opts: {
        AND (s.reference_display_path IS NOT NULL OR s.reference_thumb_path IS NOT NULL)
      ORDER BY s.id`,
   );
-  const gallery = await pool.query<{ species_id: string; photo_url: string; display_path: string | null; thumb_path: string | null }>(
+  const gallery = await pool.query<{
+    species_id: string;
+    photo_url: string;
+    display_path: string | null;
+    thumb_path: string | null;
+  }>(
     `SELECT p.species_id, p.photo_url, p.display_path, p.thumb_path FROM species_reference_photos p
      JOIN species s ON s.id = p.species_id
      WHERE NOT s.is_other_taxa AND (p.display_path IS NOT NULL OR p.thumb_path IS NOT NULL)
@@ -220,26 +230,45 @@ export async function buildPhotoStore(opts: {
 export async function publishPhotoStore(build: PhotoStoreBuild, log: (m: string) => void = console.log): Promise<void> {
   const { execFileSync } = await import("node:child_process");
   const gh = (args: string[], inherit = true) =>
-    execFileSync("gh", args, { encoding: "utf8", stdio: inherit ? ["ignore", "inherit", "inherit"] : ["ignore", "pipe", "pipe"] });
+    execFileSync("gh", args, {
+      encoding: "utf8",
+      stdio: inherit ? ["ignore", "inherit", "inherit"] : ["ignore", "pipe", "pipe"],
+    });
   try {
     gh(["release", "view", PHOTO_STORE_RELEASE_TAG, "--json", "tagName"], false);
   } catch {
-    gh(["release", "create", PHOTO_STORE_RELEASE_TAG, "--title", "Pack photos", "--notes", "Photos for offline packs, fetched by byte range. See packages/data-pipeline/src/pipeline/photoStore.ts.", "--prerelease", "--latest=false"]);
+    gh([
+      "release",
+      "create",
+      PHOTO_STORE_RELEASE_TAG,
+      "--title",
+      "Pack photos",
+      "--notes",
+      "Photos for offline packs, fetched by byte range. See packages/data-pipeline/src/pipeline/photoStore.ts.",
+      "--prerelease",
+      "--latest=false",
+    ]);
   }
   // Every shard the index uses that the release doesn't have yet, which after a local rebuild
   // can include shards an earlier build wrote.
   const used = readPhotoStoreIndex(build.indexPath).shards;
-  let assets = JSON.parse(gh(["release", "view", PHOTO_STORE_RELEASE_TAG, "--json", "assets", "--jq", "[.assets[].name]"], false)) as string[];
+  let assets = JSON.parse(
+    gh(["release", "view", PHOTO_STORE_RELEASE_TAG, "--json", "assets", "--jq", "[.assets[].name]"], false),
+  ) as string[];
   const toUpload = used.filter((s) => !assets.includes(s.name));
   for (const [i, shard] of toUpload.entries()) {
     const file = path.join(path.dirname(build.indexPath), shard.name);
     if (!existsSync(file)) throw new Error(`Shard ${shard.name} isn't on the release or on disk`);
-    log(`[photo-store] uploading shard ${i + 1}/${toUpload.length}: ${shard.name} (${(statSync(file).size / 1e9).toFixed(2)} GB)`);
+    log(
+      `[photo-store] uploading shard ${i + 1}/${toUpload.length}: ${shard.name} (${(statSync(file).size / 1e9).toFixed(2)} GB)`,
+    );
     gh(["release", "upload", PHOTO_STORE_RELEASE_TAG, file, "--clobber"]);
   }
   gh(["release", "upload", PHOTO_STORE_RELEASE_TAG, build.indexPath, "--clobber"]);
   const usedNames = new Set(used.map((s) => s.name));
-  assets = JSON.parse(gh(["release", "view", PHOTO_STORE_RELEASE_TAG, "--json", "assets", "--jq", "[.assets[].name]"], false)) as string[];
+  assets = JSON.parse(
+    gh(["release", "view", PHOTO_STORE_RELEASE_TAG, "--json", "assets", "--jq", "[.assets[].name]"], false),
+  ) as string[];
   for (const name of assets.filter((n) => n.endsWith(".bin") && !usedNames.has(n))) {
     log(`[photo-store] deleting ${name}, no longer used`);
     gh(["release", "delete-asset", PHOTO_STORE_RELEASE_TAG, name, "--yes"]);

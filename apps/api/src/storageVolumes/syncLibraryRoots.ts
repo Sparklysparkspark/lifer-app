@@ -26,7 +26,9 @@ export async function syncLibraryRootsFromEnv(roots: LibraryRoot[] = LIBRARY_ROO
       [roots.map((r) => r.path)],
     );
     for (const r of removed.rows) {
-      log.info(`[library-roots] "${r.label}" (${r.root_path}) is no longer in LIFER_LIBRARY_ROOTS; its files will show as not connected`);
+      log.info(
+        `[library-roots] "${r.label}" (${r.root_path}) is no longer in LIFER_LIBRARY_ROOTS; its files will show as not connected`,
+      );
     }
   });
 }

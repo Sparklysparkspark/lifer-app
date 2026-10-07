@@ -9,17 +9,20 @@ function tags(overrides: Record<string, unknown>) {
 
 describe("extractExif", () => {
   it("extracts a full set of fields from well-formed tags", async () => {
-    const result = await extractExif("unused.jpg", tags({
-      DateTimeOriginal: { toDate: () => new Date("2026-01-01T00:00:00Z") },
-      FocalLength: "400.0 mm",
-      GPSLatitude: 37.7749,
-      GPSLongitude: -122.4194,
-      Model: "Canon EOS R5",
-      LensModel: "RF100-500mm F4.5-7.1",
-      FNumber: 5.6,
-      ShutterSpeed: "1/1000",
-      ISO: 400,
-    }));
+    const result = await extractExif(
+      "unused.jpg",
+      tags({
+        DateTimeOriginal: { toDate: () => new Date("2026-01-01T00:00:00Z") },
+        FocalLength: "400.0 mm",
+        GPSLatitude: 37.7749,
+        GPSLongitude: -122.4194,
+        Model: "Canon EOS R5",
+        LensModel: "RF100-500mm F4.5-7.1",
+        FNumber: 5.6,
+        ShutterSpeed: "1/1000",
+        ISO: 400,
+      }),
+    );
     expect(result).toEqual({
       takenAt: new Date("2026-01-01T00:00:00Z"),
       lat: 37.7749,
@@ -69,20 +72,26 @@ describe("extractExif", () => {
 
 describe("extractKeywords", () => {
   it("collects Keywords, Subject, TagsList, and HierarchicalSubject, taking only the leaf segment of a hierarchy", async () => {
-    const result = await extractKeywords("unused.jpg", tags({
-      Keywords: ["Mallard"],
-      Subject: ["Waterfowl"],
-      TagsList: ["Birds/Waterfowl/Mallard"],
-      HierarchicalSubject: ["Species/Aves/Anatidae/Mallard"],
-    }));
+    const result = await extractKeywords(
+      "unused.jpg",
+      tags({
+        Keywords: ["Mallard"],
+        Subject: ["Waterfowl"],
+        TagsList: ["Birds/Waterfowl/Mallard"],
+        HierarchicalSubject: ["Species/Aves/Anatidae/Mallard"],
+      }),
+    );
     expect(result.sort()).toEqual(["Mallard", "Waterfowl"].sort());
   });
 
   it("de-duplicates leaves that appear in more than one tag", async () => {
-    const result = await extractKeywords("unused.jpg", tags({
-      Keywords: ["Mallard"],
-      HierarchicalSubject: ["Species/Aves/Anatidae/Mallard"],
-    }));
+    const result = await extractKeywords(
+      "unused.jpg",
+      tags({
+        Keywords: ["Mallard"],
+        HierarchicalSubject: ["Species/Aves/Anatidae/Mallard"],
+      }),
+    );
     expect(result).toEqual(["Mallard"]);
   });
 

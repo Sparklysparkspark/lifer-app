@@ -26,7 +26,8 @@ export type TierStep =
   | { kind: "small_range"; rangeKm2: number };
 
 /** Why a tier is missing, or what decided it outside the rate ladder. */
-export type TierReason = "rated" | "thin_data" | "no_data" | "few_photos" | "domestic" | "vagrant" | "untiered_group" | "inherited";
+export type TierReason =
+  "rated" | "thin_data" | "no_data" | "few_photos" | "domestic" | "vagrant" | "untiered_group" | "inherited";
 
 export interface TierExplain {
   v: 1;
@@ -120,10 +121,13 @@ export function describeTier(explain: TierExplain | null, reason: TierReason | n
     return [`Not enough records${where} yet to say how hard this is to find.`];
   }
   if (reason === "few_photos") {
-    return [`Few people photograph this species, so its photos${where} can't show whether it's hard to find or just overlooked.`];
+    return [
+      `Few people photograph this species, so its photos${where} can't show whether it's hard to find or just overlooked.`,
+    ];
   }
   if (reason === "domestic") return ["Domestic or captive animal, not rated."];
-  if (reason === "untiered_group") return ["Lifer doesn't rate this group yet: there are too few records to be reliable."];
+  if (reason === "untiered_group")
+    return ["Lifer doesn't rate this group yet: there are too few records to be reliable."];
   if (!explain) return [];
   const lines: string[] = [];
   if (reason === "vagrant") lines.push(`A rare visitor${where}, not a regular resident.`);

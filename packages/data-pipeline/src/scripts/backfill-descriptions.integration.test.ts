@@ -10,11 +10,17 @@ const url = process.env.TEST_DATABASE_URL;
 const PAGES: Record<string, { pageid: number; extract: string; lastrevid: number; length: number }> = {
   "Common garter snake": {
     pageid: 1,
-    extract: "The common garter snake (Thamnophis sirtalis) is a species of snake. Most have yellow stripes on a black background.",
+    extract:
+      "The common garter snake (Thamnophis sirtalis) is a species of snake. Most have yellow stripes on a black background.",
     lastrevid: 100,
     length: 3000,
   },
-  "Great blue heron": { pageid: 2, extract: "The great blue heron (Ardea herodias) is a large wading bird with a dagger-like bill.", lastrevid: 200, length: 3000 },
+  "Great blue heron": {
+    pageid: 2,
+    extract: "The great blue heron (Ardea herodias) is a large wading bird with a dagger-like bill.",
+    lastrevid: 200,
+    length: 3000,
+  },
 };
 const REDIRECTS: Record<string, string> = { "Thamnophis sirtalis": "Common garter snake" };
 
@@ -22,12 +28,15 @@ function fakeClients() {
   const wiki = vi.fn(async (input: string | URL | Request) => {
     const params = new URL(String(input)).searchParams;
     const redirects: Array<{ from: string; to: string }> = [];
-    const pages = params.get("titles")!.split("|").map((t) => {
-      const to = REDIRECTS[t];
-      if (to) redirects.push({ from: t, to });
-      const p = PAGES[to ?? t];
-      return p ? { ...p, title: to ?? t } : { title: to ?? t, missing: true };
-    });
+    const pages = params
+      .get("titles")!
+      .split("|")
+      .map((t) => {
+        const to = REDIRECTS[t];
+        if (to) redirects.push({ from: t, to });
+        const p = PAGES[to ?? t];
+        return p ? { ...p, title: to ?? t } : { title: to ?? t, missing: true };
+      });
     return new Response(JSON.stringify({ query: { redirects, pages } }), { status: 200 });
   });
   const wikidata = vi.fn(async () => new Response(JSON.stringify({ results: { bindings: [] } }), { status: 200 }));
@@ -42,7 +51,16 @@ describe.skipIf(!url)("backfill-descriptions on a database", () => {
   const db = new pg.Pool({ connectionString: url });
   let client: pg.PoolClient;
   const log = () => {};
-  const base = { lang: "en", sections: true, missingOnly: false, recheckAfterDays: 90, limit: null, species: null, dryRun: false, log };
+  const base = {
+    lang: "en",
+    sections: true,
+    missingOnly: false,
+    recheckAfterDays: 90,
+    limit: null,
+    species: null,
+    dryRun: false,
+    log,
+  };
 
   beforeEach(async () => {
     client = await db.connect();
@@ -85,10 +103,15 @@ describe.skipIf(!url)("backfill-descriptions on a database", () => {
 
   it("fills text from the article, replacing iNaturalist's cut-off copy, and stamps species with none", async () => {
     const snake = await species("Thamnophis sirtalis", { inat_taxon_id: 28362, enriched_at: new Date() });
-    await client.query(`INSERT INTO inat_response_cache (url, response) VALUES ($1, $2) ON CONFLICT (url) DO UPDATE SET response = EXCLUDED.response`, [
-      "https://api.inaturalist.org/v1/taxa/28362",
-      JSON.stringify({ results: [{ id: 28362, wikipedia_url: "https://en.wikipedia.org/wiki/Thamnophis sirtalis" }] }),
-    ]);
+    await client.query(
+      `INSERT INTO inat_response_cache (url, response) VALUES ($1, $2) ON CONFLICT (url) DO UPDATE SET response = EXCLUDED.response`,
+      [
+        "https://api.inaturalist.org/v1/taxa/28362",
+        JSON.stringify({
+          results: [{ id: 28362, wikipedia_url: "https://en.wikipedia.org/wiki/Thamnophis sirtalis" }],
+        }),
+      ],
+    );
     const heron = await species("Ardea herodias", {
       wikipedia_title: "Great blue heron",
       description: "The great blue heron is a bird. It was once treated as a separate species...",
@@ -137,7 +160,13 @@ describe.skipIf(!url)("backfill-descriptions on a database", () => {
   });
 
   it("--refresh refetches only articles whose revision changed, and forgets deleted ones", async () => {
-    const same = await species("Ardea herodias", { wikipedia_title: "Great blue heron", wikipedia_revision_id: 200, description: "Old.", description_credit: "c", description_source_url: "u" });
+    const same = await species("Ardea herodias", {
+      wikipedia_title: "Great blue heron",
+      wikipedia_revision_id: 200,
+      description: "Old.",
+      description_credit: "c",
+      description_source_url: "u",
+    });
     const edited = await species("Thamnophis sirtalis", {
       wikipedia_title: "Common garter snake",
       wikipedia_revision_id: 90,
@@ -145,12 +174,23 @@ describe.skipIf(!url)("backfill-descriptions on a database", () => {
       description_credit: "c",
       description_source_url: "u",
     });
-    const deleted = await species("Zzdesc deleted", { wikipedia_title: "Deleted page", wikipedia_revision_id: 7, wikipedia_checked_at: new Date() });
+    const deleted = await species("Zzdesc deleted", {
+      wikipedia_title: "Deleted page",
+      wikipedia_revision_id: 7,
+      wikipedia_checked_at: new Date(),
+    });
 
-    const result = await refreshChangedDescriptions(client, { ...base, species: ["Ardea herodias", "Thamnophis sirtalis", "Zzdesc deleted"] }, fakeClients());
+    const result = await refreshChangedDescriptions(
+      client,
+      { ...base, species: ["Ardea herodias", "Thamnophis sirtalis", "Zzdesc deleted"] },
+      fakeClients(),
+    );
     expect(result).toMatchObject({ checked: 3, changed: 1, updated: 1, gone: 1 });
     expect(await row(same)).toMatchObject({ description: "Old.", wikipedia_revision_id: "200" });
-    expect(await row(edited)).toMatchObject({ description: "Most have yellow stripes on a black background.", wikipedia_revision_id: "100" });
+    expect(await row(edited)).toMatchObject({
+      description: "Most have yellow stripes on a black background.",
+      wikipedia_revision_id: "100",
+    });
     expect(await row(deleted)).toMatchObject({ wikipedia_revision_id: null, wikipedia_checked_at: null });
   });
 });

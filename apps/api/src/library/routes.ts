@@ -262,7 +262,16 @@ export async function libraryRoutes(fastify: FastifyInstance): Promise<void> {
       // Background job, polled via /status.
       const started = reimportJob.start(
         (ctx) =>
-          runReimportJob(ctx, userId, walkDir, volumeContext, organize, organizeByYear, Boolean(request.body.path), request.body.cullMarks ?? "hide"),
+          runReimportJob(
+            ctx,
+            userId,
+            walkDir,
+            volumeContext,
+            organize,
+            organizeByYear,
+            Boolean(request.body.path),
+            request.body.cullMarks ?? "hide",
+          ),
         freshExtra(),
       );
       if (!started) return reply.code(409).send({ error: "A reimport is already running" });

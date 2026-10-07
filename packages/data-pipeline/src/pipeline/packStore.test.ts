@@ -33,7 +33,12 @@ describe("writePackStore", () => {
     const bytes = { a: Buffer.from("pack-a-".repeat(30)), b: Buffer.from("pack-b-".repeat(11)) };
     writeFileSync(path.join(dir, "a.pack.tar.gz"), bytes.a);
     writeFileSync(path.join(dir, "b.pack.tar.gz"), bytes.b);
-    const kept = entry("c", { url: `https://example.org/${PACK_SHARD_PREFIX}old-0.bin`, range: [0, 5], sha256: "x", format: 3 });
+    const kept = entry("c", {
+      url: `https://example.org/${PACK_SHARD_PREFIX}old-0.bin`,
+      range: [0, 5],
+      sha256: "x",
+      format: 3,
+    });
     const index: PackIndex = { generatedAt: "", packs: [entry("a"), kept, entry("b")] };
 
     const shards = writePackStore(dir, index, new Set(["a.pack.tar.gz", "b.pack.tar.gz"]));
@@ -51,7 +56,10 @@ describe("writePackStore", () => {
 
   it("refuses a pack that wasn't rebuilt and isn't in the store", () => {
     dir = mkdtempSync(path.join(os.tmpdir(), "lifer-pack-store-"));
-    const index: PackIndex = { generatedAt: "", packs: [entry("old", { url: "https://example.org/packs-europe/old.pack.tar.gz" })] };
+    const index: PackIndex = {
+      generatedAt: "",
+      packs: [entry("old", { url: "https://example.org/packs-europe/old.pack.tar.gz" })],
+    };
     expect(() => writePackStore(dir, index, new Set())).toThrow(/isn't in the pack store/);
   });
 });

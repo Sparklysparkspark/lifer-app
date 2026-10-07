@@ -159,12 +159,7 @@ describe.skipIf(!url)("applyPack checklist replacement", () => {
 
   it("a pack from before the taxon field only adds", async () => {
     await apply({ type: "region", region: COUNTRY, species: [species("Zzpacka newcomer")] });
-    expect(await checklist(COUNTRY)).toEqual([
-      "Zzpacka dropped",
-      "Zzpacka kept",
-      "Zzpacka mammal",
-      "Zzpacka newcomer",
-    ]);
+    expect(await checklist(COUNTRY)).toEqual(["Zzpacka dropped", "Zzpacka kept", "Zzpacka mammal", "Zzpacka newcomer"]);
   });
 
   it("skips a gallery photo whose sortOrder isn't a number, so its file can't land outside the gallery folder", async () => {

@@ -51,7 +51,11 @@ async function findRawFilenameMatch(
 
 // An exported JPEG often loses SubSecTimeOriginal/SerialNumber, so the loose fingerprint is the
 // fallback when the strict one finds nothing (exif.ts).
-async function findRawFingerprintMatches(userId: string, column: "exif_fingerprint" | "exif_fingerprint_loose", value: string) {
+async function findRawFingerprintMatches(
+  userId: string,
+  column: "exif_fingerprint" | "exif_fingerprint_loose",
+  value: string,
+) {
   return pool.query<RawCaptureMatch>(
     `SELECT c.id, c.species_id, s.common_name, s.scientific_name, s.taxon_class, t.destination_folder AS trip_folder, c.location_label
      FROM captures c JOIN species s ON s.id = c.species_id
@@ -74,9 +78,13 @@ export async function findRawRelatedCaptures(
   const filenameMatch = await findRawFilenameMatch(userId, rawFileName, exif.takenAt, time?.legacyTakenAt ?? null);
   if (filenameMatch) return [filenameMatch];
   // The current pair first, then the legacy zone-dependent pair (only differs outside UTC).
-  const pairs = [{ strict: fingerprint.strict, loose: fingerprint.loose }, ...(fingerprint.legacy ? [fingerprint.legacy] : [])];
+  const pairs = [
+    { strict: fingerprint.strict, loose: fingerprint.loose },
+    ...(fingerprint.legacy ? [fingerprint.legacy] : []),
+  ];
   for (const pair of pairs) {
-    let matches = pair.strict != null ? (await findRawFingerprintMatches(userId, "exif_fingerprint", pair.strict)).rows : [];
+    let matches =
+      pair.strict != null ? (await findRawFingerprintMatches(userId, "exif_fingerprint", pair.strict)).rows : [];
     if (matches.length === 0 && pair.loose != null) {
       matches = (await findRawFingerprintMatches(userId, "exif_fingerprint_loose", pair.loose)).rows;
     }

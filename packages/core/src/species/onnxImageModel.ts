@@ -5,7 +5,14 @@ import { existsSync, mkdirSync } from "node:fs";
 import path from "node:path";
 import { downloadResumable } from "../lib/resumableDownload.js";
 import { placementFor, type ModelFamily } from "./acceleration.js";
-import { analyzeImage, isInferenceStuck, releaseModels, type EmbedTarget, type ImageSource, type Priority } from "./inference.js";
+import {
+  analyzeImage,
+  isInferenceStuck,
+  releaseModels,
+  type EmbedTarget,
+  type ImageSource,
+  type Priority,
+} from "./inference.js";
 import { expectedModelSha256 } from "./modelChecksums.js";
 
 export { l2Normalize, preprocessImage } from "./inferenceWorker.js";
@@ -18,7 +25,10 @@ export interface OnnxImageModel {
   isDownloaded(): boolean;
   /** Streams to disk with an atomic rename on completion, resuming a partial file, and checks
    *  the file's sha256 when the default URL's checksum is known (modelChecksums.ts). */
-  download(onProgress?: (downloadedBytes: number, totalBytes: number | null) => void, signal?: AbortSignal): Promise<void>;
+  download(
+    onProgress?: (downloadedBytes: number, totalBytes: number | null) => void,
+    signal?: AbortSignal,
+  ): Promise<void>;
   /** Drops the loaded session (after its file was deleted). */
   release(): void;
   /** L2-normalized embedding of the whole photo. */
@@ -34,7 +44,10 @@ export interface OnnxImageModel {
   /** The full-precision copy GPUs run, when one is published. Downloaded only on a machine with a
    *  GPU that passes the hardware self-test (accelerationSelect.ts). */
   readonly gpuCopy: { path: string; url: string; bytes: number } | null;
-  downloadGpuCopy(onProgress?: (downloadedBytes: number, totalBytes: number | null) => void, signal?: AbortSignal): Promise<void>;
+  downloadGpuCopy(
+    onProgress?: (downloadedBytes: number, totalBytes: number | null) => void,
+    signal?: AbortSignal,
+  ): Promise<void>;
 }
 
 export function createOnnxImageModel(opts: {
@@ -47,11 +60,19 @@ export function createOnnxImageModel(opts: {
   /** Thrown by embed() when the file isn't there. */
   missingMessage: string;
 }): OnnxImageModel {
-  const target = (crop: boolean): EmbedTarget => ({ ...placementFor(opts.family, opts.path), missingMessage: opts.missingMessage, crop });
+  const target = (crop: boolean): EmbedTarget => ({
+    ...placementFor(opts.family, opts.path),
+    missingMessage: opts.missingMessage,
+    crop,
+  });
   const embedVector: OnnxImageModel["embedVector"] = async (image, o = {}) => {
     // Checked here too, so a missing model fails fast without starting the worker.
     if (!existsSync(opts.path)) throw new Error(opts.missingMessage);
-    const { vectors } = await analyzeImage(image, { targets: [target(false)], key: o.key, priority: o.priority ?? "background" });
+    const { vectors } = await analyzeImage(image, {
+      targets: [target(false)],
+      key: o.key,
+      priority: o.priority ?? "background",
+    });
     const v = vectors[0];
     if (!(v instanceof Float32Array)) throw new Error(v.error);
     return v;
@@ -63,7 +84,12 @@ export function createOnnxImageModel(opts: {
     isDownloaded: () => existsSync(opts.path),
     async download(onProgress, signal) {
       mkdirSync(path.dirname(opts.path), { recursive: true });
-      await downloadResumable(opts.url, opts.path, { signal, onProgress, label: opts.label, expectedSha256: expectedModelSha256(opts.url) });
+      await downloadResumable(opts.url, opts.path, {
+        signal,
+        onProgress,
+        label: opts.label,
+        expectedSha256: expectedModelSha256(opts.url),
+      });
     },
     release: () => releaseModels(opts.path),
     embedVector,
@@ -76,7 +102,12 @@ export function createOnnxImageModel(opts: {
       const copy = opts.gpuCopy;
       if (!copy) return;
       mkdirSync(path.dirname(copy.path), { recursive: true });
-      await downloadResumable(copy.url, copy.path, { signal, onProgress, label: opts.label, expectedSha256: expectedModelSha256(copy.url) });
+      await downloadResumable(copy.url, copy.path, {
+        signal,
+        onProgress,
+        label: opts.label,
+        expectedSha256: expectedModelSha256(copy.url),
+      });
     },
   };
 }

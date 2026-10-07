@@ -55,7 +55,12 @@ export async function referencePhotoRoutes(fastify: FastifyInstance): Promise<vo
     const species = speciesRes.rows[0];
     if (!species) return reply.code(404).send({ error: "Species not found" });
 
-    const galleryRes = await pool.query<{ id: string; photo_url: string; credit: string | null; has_cached_photo: boolean }>(
+    const galleryRes = await pool.query<{
+      id: string;
+      photo_url: string;
+      credit: string | null;
+      has_cached_photo: boolean;
+    }>(
       `SELECT id, photo_url, credit, display_path IS NOT NULL AS has_cached_photo
        FROM species_reference_photos WHERE species_id = $1 ORDER BY sort_order`,
       [id],
@@ -72,7 +77,9 @@ export async function referencePhotoRoutes(fastify: FastifyInstance): Promise<vo
     }
     for (const g of galleryRes.rows) {
       photos.push({
-        url: g.has_cached_photo ? `/api/species/reference-gallery-photo/${g.id}/display?v=${MEDIA_CACHE_BUST}` : g.photo_url,
+        url: g.has_cached_photo
+          ? `/api/species/reference-gallery-photo/${g.id}/display?v=${MEDIA_CACHE_BUST}`
+          : g.photo_url,
         credit: g.credit,
       });
     }
@@ -145,9 +152,10 @@ export async function referencePhotoRoutes(fastify: FastifyInstance): Promise<vo
                 photoId,
               ]);
             } else if (filePath) {
-              await pool.query(`UPDATE species_reference_photos SET display_path = NULL, thumb_path = NULL WHERE id = $1`, [
-                photoId,
-              ]);
+              await pool.query(
+                `UPDATE species_reference_photos SET display_path = NULL, thumb_path = NULL WHERE id = $1`,
+                [photoId],
+              );
             }
           });
           return reply.code(404).send({ error: "Gallery photo not found" });

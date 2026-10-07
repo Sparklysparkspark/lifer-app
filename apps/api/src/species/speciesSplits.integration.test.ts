@@ -45,9 +45,15 @@ describe.skipIf(!url)("species splits", () => {
     await cleanup();
     await db.query(`INSERT INTO users (id, email, password_hash) VALUES ($1, 'split@test', 'x')`, [USER]);
     await db.query(`INSERT INTO regions (id, name, parent_id) VALUES ($1, 'Zzsplit World', NULL)`, [WORLD]);
-    await db.query(`INSERT INTO regions (id, name, parent_id) VALUES ($1, 'Zzsplit Continent', $2)`, [CONTINENT, WORLD]);
+    await db.query(`INSERT INTO regions (id, name, parent_id) VALUES ($1, 'Zzsplit Continent', $2)`, [
+      CONTINENT,
+      WORLD,
+    ]);
     await db.query(`INSERT INTO regions (id, name, parent_id) VALUES ($1, 'Zzsplitland', $2)`, [COUNTRY, CONTINENT]);
-    await db.query(`INSERT INTO regions (id, name, parent_id) VALUES ($1, 'Zzsplit North', $3), ($2, 'Zzsplit South', $3)`, [PROVINCE, PROVINCE_OLD, COUNTRY]);
+    await db.query(
+      `INSERT INTO regions (id, name, parent_id) VALUES ($1, 'Zzsplit North', $3), ($2, 'Zzsplit South', $3)`,
+      [PROVINCE, PROVINCE_OLD, COUNTRY],
+    );
     await db.query(
       `INSERT INTO species (id, gbif_key, scientific_name, common_name, taxon_class) VALUES
          ($1, 915100, 'Zzsplitia vetus', 'Old Split Lizard', 'squamata'),
@@ -55,18 +61,28 @@ describe.skipIf(!url)("species splits", () => {
          ($3, 915102, 'Zzsplitia australis', 'Southern Split Lizard', 'squamata')`,
       [PARENT, DAUGHTER1, DAUGHTER2],
     );
-    await db.query(`INSERT INTO species_splits (parent_species_id, daughter_species_id) VALUES ($1, $2), ($1, $3)`, [PARENT, DAUGHTER1, DAUGHTER2]);
+    await db.query(`INSERT INTO species_splits (parent_species_id, daughter_species_id) VALUES ($1, $2), ($1, $3)`, [
+      PARENT,
+      DAUGHTER1,
+      DAUGHTER2,
+    ]);
     // Continents list everything in them: this row must not count as "the old species is here".
-    await db.query(
-      `INSERT INTO region_species (region_id, species_id) VALUES ($1, $3), ($2, $4), ($5, $4)`,
-      [PROVINCE, PROVINCE_OLD, DAUGHTER1, PARENT, CONTINENT],
-    );
+    await db.query(`INSERT INTO region_species (region_id, species_id) VALUES ($1, $3), ($2, $4), ($5, $4)`, [
+      PROVINCE,
+      PROVINCE_OLD,
+      DAUGHTER1,
+      PARENT,
+      CONTINENT,
+    ]);
     await db.query(
       `INSERT INTO captures_all (id, user_id, species_id, fingerprint, region_id) VALUES
          ($1, $4, $5, 'zzsplit-1', $6), ($2, $4, $5, 'zzsplit-2', NULL), ($3, $4, $5, 'zzsplit-3', $7)`,
       [CAP_SETTLED, CAP_NO_PLACE, CAP_STILL_VALID, USER, PARENT, PROVINCE, PROVINCE_OLD],
     );
-    await db.query(`INSERT INTO user_species (user_id, species_id, state) VALUES ($1, $2, 'collected')`, [USER, PARENT]);
+    await db.query(`INSERT INTO user_species (user_id, species_id, state) VALUES ($1, $2, 'collected')`, [
+      USER,
+      PARENT,
+    ]);
   });
 
   afterAll(async () => {
@@ -79,14 +95,18 @@ describe.skipIf(!url)("species splits", () => {
     const { resolveSpeciesSplits } = await import("./speciesSplits.js");
     const result = await resolveSpeciesSplits(USER);
     expect(result).toEqual({ moved: 1, unresolved: 1 });
-    const caps = await db.query<{ id: string; species_id: string }>(`SELECT id, species_id FROM captures_all WHERE id = ANY($1)`, [
-      [CAP_SETTLED, CAP_NO_PLACE, CAP_STILL_VALID],
-    ]);
+    const caps = await db.query<{ id: string; species_id: string }>(
+      `SELECT id, species_id FROM captures_all WHERE id = ANY($1)`,
+      [[CAP_SETTLED, CAP_NO_PLACE, CAP_STILL_VALID]],
+    );
     const bySpecies = Object.fromEntries(caps.rows.map((r) => [r.id, r.species_id]));
     expect(bySpecies[CAP_SETTLED]).toBe(DAUGHTER1);
     expect(bySpecies[CAP_NO_PLACE]).toBe(PARENT);
     expect(bySpecies[CAP_STILL_VALID]).toBe(PARENT);
-    const collected = await db.query(`SELECT 1 FROM user_species WHERE user_id = $1 AND species_id = $2 AND state = 'collected'`, [USER, DAUGHTER1]);
+    const collected = await db.query(
+      `SELECT 1 FROM user_species WHERE user_id = $1 AND species_id = $2 AND state = 'collected'`,
+      [USER, DAUGHTER1],
+    );
     expect(collected.rowCount).toBe(1);
   });
 

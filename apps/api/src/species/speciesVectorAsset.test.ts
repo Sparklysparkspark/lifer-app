@@ -9,7 +9,11 @@ import { Writable } from "node:stream";
 import { gzipSync } from "node:zlib";
 import { describe, expect, it } from "vitest";
 import { encodeSpeciesVectorHeader, encodeSpeciesVectorRecord } from "@lifer/shared/src/speciesVectorFormat.js";
-import { applySpeciesVectorFile, fetchAndApplySpeciesVectorAsset, type SpeciesVectorTableSpec } from "./speciesVectorAsset.js";
+import {
+  applySpeciesVectorFile,
+  fetchAndApplySpeciesVectorAsset,
+  type SpeciesVectorTableSpec,
+} from "./speciesVectorAsset.js";
 import type { CatalogManifest } from "./catalogManifest.js";
 
 const spec: SpeciesVectorTableSpec = {
@@ -39,7 +43,10 @@ function vectorFile(modelVersion: string): string {
   const dimension = 4;
   const body = Buffer.concat([
     encodeSpeciesVectorHeader({ dimension, rowCount: 1, modelVersion }),
-    encodeSpeciesVectorRecord({ speciesId: "00000000-0000-0000-0000-000000000001", embedding: [1, 0, 0, 0] }, dimension),
+    encodeSpeciesVectorRecord(
+      { speciesId: "00000000-0000-0000-0000-000000000001", embedding: [1, 0, 0, 0] },
+      dimension,
+    ),
   ]);
   const file = path.join(mkdtempSync(path.join(os.tmpdir(), "lifer-svec-")), "vectors.bin.gz");
   writeFileSync(file, gzipSync(body));
@@ -65,7 +72,9 @@ describe("species vector assets across a model version bump", () => {
 
   it("rejects a file whose header names another model, without recording it as applied", async () => {
     const { pool, sql } = fakePool();
-    await expect(applySpeciesVectorFile(pool, spec, vectorFile("text-v1"), "7:text-v2", ctx)).rejects.toThrow(/model text-v1/);
+    await expect(applySpeciesVectorFile(pool, spec, vectorFile("text-v1"), "7:text-v2", ctx)).rejects.toThrow(
+      /model text-v1/,
+    );
     expect(sql.some((q) => q.includes("INSERT INTO species_text_embeddings"))).toBe(false);
     expect(sql.some((q) => q.includes("install_settings"))).toBe(false);
     expect(sql.at(-1)).toBe("ROLLBACK");

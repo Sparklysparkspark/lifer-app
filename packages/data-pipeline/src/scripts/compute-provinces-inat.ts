@@ -77,7 +77,9 @@ async function main() {
     if (provincePlaceId == null) {
       skippedNoPlace++;
       if (done % 50 === 0 || done === provinces.length) {
-        console.log(`[compute-provinces-inat] ${done}/${provinces.length} processed (${filled} filled, ${totalLinked} species linked so far)`);
+        console.log(
+          `[compute-provinces-inat] ${done}/${provinces.length} processed (${filled} filled, ${totalLinked} species linked so far)`,
+        );
       }
       continue;
     }
@@ -86,7 +88,9 @@ async function main() {
     if (!taxa || taxa.size === 0) {
       skippedNoSpecies++;
       if (done % 50 === 0 || done === provinces.length) {
-        console.log(`[compute-provinces-inat] ${done}/${provinces.length} processed (${filled} filled, ${totalLinked} species linked so far)`);
+        console.log(
+          `[compute-provinces-inat] ${done}/${provinces.length} processed (${filled} filled, ${totalLinked} species linked so far)`,
+        );
       }
       continue;
     }

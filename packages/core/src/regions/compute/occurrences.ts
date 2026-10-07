@@ -82,7 +82,10 @@ async function loadNonNativeGbifKeys(iso3: string): Promise<Set<number>> {
 export async function computeRegionOccurrences(region: {
   id: string;
   name?: string;
-  boundary_geojson: { bbox?: [number, number, number, number]; geometry?: { type: string; coordinates: unknown } } | null;
+  boundary_geojson: {
+    bbox?: [number, number, number, number];
+    geometry?: { type: string; coordinates: unknown };
+  } | null;
   external_codes: string[] | null;
 }): Promise<void> {
   const regionId = region.id;
@@ -110,7 +113,8 @@ export async function computeRegionOccurrences(region: {
   const fishHighTierNoPhotoGbifKeys = new Set(fishScrutinyRes.rows.map((r) => Number(r.gbif_key)));
   const fishCounts: RegionSpeciesCount[] = [];
   for (const c of fishCountsRaw) {
-    const needsScrutiny = c.recordCount <= GEOGRAPHIC_OUTLIER_MAX_LOCAL_RECORDS || fishHighTierNoPhotoGbifKeys.has(c.gbifKey);
+    const needsScrutiny =
+      c.recordCount <= GEOGRAPHIC_OUTLIER_MAX_LOCAL_RECORDS || fishHighTierNoPhotoGbifKeys.has(c.gbifKey);
     if (!needsScrutiny) {
       fishCounts.push(c);
       continue;
@@ -139,10 +143,18 @@ export async function computeRegionOccurrences(region: {
     const regionBbox: BoundingBox = { minLon: bbox[0], minLat: bbox[1], maxLon: bbox[2], maxLat: bbox[3] };
     // The precomputed links (data-pipeline's build-sea-zones.ts) when the region has them: the live
     // check against 80-point outlines misses coasts along the large IHO seas.
-    const stored = await pool.query<{ nearby_sea_zone_ids: string[] | null }>(`SELECT nearby_sea_zone_ids FROM regions WHERE id = $1`, [regionId]);
+    const stored = await pool.query<{ nearby_sea_zone_ids: string[] | null }>(
+      `SELECT nearby_sea_zone_ids FROM regions WHERE id = $1`,
+      [regionId],
+    );
     const storedIds = stored.rows[0]?.nearby_sea_zone_ids;
     const zones = storedIds
-      ? (await pool.query<{ id: string; name: string; wkt: string }>(`SELECT id, name, wkt FROM sea_zones WHERE id = ANY($1)`, [storedIds])).rows
+      ? (
+          await pool.query<{ id: string; name: string; wkt: string }>(
+            `SELECT id, name, wkt FROM sea_zones WHERE id = ANY($1)`,
+            [storedIds],
+          )
+        ).rows
       : await nearbyZones(regionBbox, exteriorRingsFromGeometry(geometry));
     for (const zone of zones) {
       const zoneRow = await pool.query<{ occurrence_computed_at: Date | null }>(
@@ -207,9 +219,13 @@ export async function computeRegionOccurrences(region: {
     allTimeTotalsByClass.get(cls)!.push(allTime);
   }
   const recurrenceFloorByClass = new Map(
-    [...allTimeTotalsByClass.entries()].map(([cls, totals]) => [cls, medianOf(totals) * RECURRENCE_MIN_RECORDS_FRACTION_OF_MEDIAN]),
+    [...allTimeTotalsByClass.entries()].map(([cls, totals]) => [
+      cls,
+      medianOf(totals) * RECURRENCE_MIN_RECORDS_FRACTION_OF_MEDIAN,
+    ]),
   );
-  const recurrenceFloorFor = (gbifKey: number): number => recurrenceFloorByClass.get(classByGbifKey.get(gbifKey) ?? "") ?? 0;
+  const recurrenceFloorFor = (gbifKey: number): number =>
+    recurrenceFloorByClass.get(classByGbifKey.get(gbifKey) ?? "") ?? 0;
 
   const rescueCandidates = allTimeBirdMammalCounts.filter(
     (c) => !passedGbifKeys.has(c.gbifKey) && c.recordCount >= RECURRENCE_ALLTIME_FLOOR,
@@ -292,12 +308,20 @@ export async function computeRegionOccurrences(region: {
   const baseScoreByIdx = percentileRankScores(wildFiltered.map((c, idx) => ({ idx, value: c.recordCount })));
   const VAGRANT_BURST_BOOST_WEIGHT = 0.6;
   const boostedScores = wildFiltered.map((c, idx) => {
-    const nocturnalBoosted = boostElusivenessForNocturnal(baseScoreByIdx.get(idx) ?? 0.5, nocturnalByGbifKey.get(c.gbifKey) ?? null);
+    const nocturnalBoosted = boostElusivenessForNocturnal(
+      baseScoreByIdx.get(idx) ?? 0.5,
+      nocturnalByGbifKey.get(c.gbifKey) ?? null,
+    );
     const densityBoosted = boostElusivenessForDensity(nocturnalBoosted, densityScoreByGbifKey.get(c.gbifKey) ?? null);
-    const habitatBoosted = boostElusivenessForHabitatDensity(densityBoosted, habitatDensityByGbifKey.get(c.gbifKey) ?? null);
+    const habitatBoosted = boostElusivenessForHabitatDensity(
+      densityBoosted,
+      habitatDensityByGbifKey.get(c.gbifKey) ?? null,
+    );
     const yearConcentration = yearConcentrationByGbifKey.get(c.gbifKey) ?? null;
     const vagrantBoosted =
-      yearConcentration != null ? boostTowardHarderToDetect(habitatBoosted, yearConcentration * VAGRANT_BURST_BOOST_WEIGHT) : habitatBoosted;
+      yearConcentration != null
+        ? boostTowardHarderToDetect(habitatBoosted, yearConcentration * VAGRANT_BURST_BOOST_WEIGHT)
+        : habitatBoosted;
     return { gbifKey: c.gbifKey, score: vagrantBoosted };
   });
   // Scored against the same taxon-calibrated absolute thresholds as the global tier, rather than
@@ -349,87 +373,90 @@ export async function computeRegionOccurrences(region: {
   // iNat data (null) GBIF decides, so a lookup failure never empties a checklist.
   const inatMatchedIds = region.name ? await matchedSpeciesIdsForRegion(regionId, region.name) : null;
 
-  await withTransaction(async (client) => {
-    if (inatMatchedIds) {
-      const { matchedSpeciesIds, rawTaxonIds } = inatMatchedIds;
+  await withTransaction(
+    async (client) => {
+      if (inatMatchedIds) {
+        const { matchedSpeciesIds, rawTaxonIds } = inatMatchedIds;
 
-      const existingRes = await client.query<{ species_id: string; local_tier: string | null }>(
-        `SELECT species_id, local_tier FROM region_species WHERE region_id = $1`,
-        [regionId],
-      );
-      const existingIds = new Set(existingRes.rows.map((r) => r.species_id));
-      const alreadyTieredIds = new Set(existingRes.rows.filter((r) => r.local_tier != null).map((r) => r.species_id));
-
-      // Before dropping species iNat didn't match, rescue any that are only a name change (a
-      // genus move) away from a match.
-      const removalCandidateIds = [...existingIds].filter((id) => !matchedSpeciesIds.has(id));
-      let rescuedIds = new Set<string>();
-      if (removalCandidateIds.length > 0) {
-        const candidateRows = await client.query<{ id: string; scientific_name: string }>(
-          `SELECT id, scientific_name FROM species WHERE id = ANY($1::uuid[])`,
-          [removalCandidateIds],
+        const existingRes = await client.query<{ species_id: string; local_tier: string | null }>(
+          `SELECT species_id, local_tier FROM region_species WHERE region_id = $1`,
+          [regionId],
         );
-        rescuedIds = await resolveRemovalRescues(candidateRows.rows, rawTaxonIds);
-      }
+        const existingIds = new Set(existingRes.rows.map((r) => r.species_id));
+        const alreadyTieredIds = new Set(existingRes.rows.filter((r) => r.local_tier != null).map((r) => r.species_id));
 
-      const idList = [...matchedSpeciesIds, ...rescuedIds];
-      await client.query(
-        `DELETE FROM region_species WHERE region_id = $1 AND NOT (species_id = ANY($2::uuid[]))`,
-        [regionId, idList],
-      );
-      // Listed species that already have a tier are left alone; new or untiered ones are written.
-      const needsTierIds = idList.filter((id) => !alreadyTieredIds.has(id));
-      if (needsTierIds.length > 0) {
-        const gbifKeyRes = await client.query<{ id: string; gbif_key: string | null }>(
-          `SELECT id, gbif_key FROM species WHERE id = ANY($1::uuid[])`,
-          [needsTierIds],
-        );
-        const byGbifKey = new Map(filtered.map((c) => [c.gbifKey, c]));
-        for (const row of gbifKeyRes.rows) {
-          const gbifKey = row.gbif_key != null ? Number(row.gbif_key) : null;
-          const match = gbifKey != null ? byGbifKey.get(gbifKey) : undefined;
-          // Confirmed by iNat but not scored from GBIF: left unrated.
-          const localTier = match ? localTierByGbifKey.get(match.gbifKey) ?? null : null;
-          await client.query(
-            `INSERT INTO region_species (region_id, species_id, local_frequency, seasonality, local_tier, is_vagrant)
+        // Before dropping species iNat didn't match, rescue any that are only a name change (a
+        // genus move) away from a match.
+        const removalCandidateIds = [...existingIds].filter((id) => !matchedSpeciesIds.has(id));
+        let rescuedIds = new Set<string>();
+        if (removalCandidateIds.length > 0) {
+          const candidateRows = await client.query<{ id: string; scientific_name: string }>(
+            `SELECT id, scientific_name FROM species WHERE id = ANY($1::uuid[])`,
+            [removalCandidateIds],
+          );
+          rescuedIds = await resolveRemovalRescues(candidateRows.rows, rawTaxonIds);
+        }
+
+        const idList = [...matchedSpeciesIds, ...rescuedIds];
+        await client.query(`DELETE FROM region_species WHERE region_id = $1 AND NOT (species_id = ANY($2::uuid[]))`, [
+          regionId,
+          idList,
+        ]);
+        // Listed species that already have a tier are left alone; new or untiered ones are written.
+        const needsTierIds = idList.filter((id) => !alreadyTieredIds.has(id));
+        if (needsTierIds.length > 0) {
+          const gbifKeyRes = await client.query<{ id: string; gbif_key: string | null }>(
+            `SELECT id, gbif_key FROM species WHERE id = ANY($1::uuid[])`,
+            [needsTierIds],
+          );
+          const byGbifKey = new Map(filtered.map((c) => [c.gbifKey, c]));
+          for (const row of gbifKeyRes.rows) {
+            const gbifKey = row.gbif_key != null ? Number(row.gbif_key) : null;
+            const match = gbifKey != null ? byGbifKey.get(gbifKey) : undefined;
+            // Confirmed by iNat but not scored from GBIF: left unrated.
+            const localTier = match ? (localTierByGbifKey.get(match.gbifKey) ?? null) : null;
+            await client.query(
+              `INSERT INTO region_species (region_id, species_id, local_frequency, seasonality, local_tier, is_vagrant)
              VALUES ($1,$2,$3,$4,$5,$6)
              ON CONFLICT (region_id, species_id) DO UPDATE SET
                local_frequency = EXCLUDED.local_frequency, seasonality = EXCLUDED.seasonality, local_tier = EXCLUDED.local_tier,
                is_vagrant = EXCLUDED.is_vagrant`,
-            [
-              regionId,
-              row.id,
-              match?.recordCount ?? 0,
-              match ? seasonality.get(match.gbifKey) ?? null : null,
-              localTier,
-              match ? isVagrantByGbifKey.get(match.gbifKey) ?? false : false,
-            ],
-          );
+              [
+                regionId,
+                row.id,
+                match?.recordCount ?? 0,
+                match ? (seasonality.get(match.gbifKey) ?? null) : null,
+                localTier,
+                match ? (isVagrantByGbifKey.get(match.gbifKey) ?? false) : false,
+              ],
+            );
+          }
         }
-      }
-    } else {
-      await client.query(`DELETE FROM region_species WHERE region_id = $1`, [regionId]);
-      for (const c of filtered) {
-        const speciesIdRes = await client.query(`SELECT id FROM species WHERE gbif_key = $1`, [c.gbifKey]);
-        const speciesId = speciesIdRes.rows[0]?.id;
-        if (!speciesId) continue;
-        await client.query(
-          `INSERT INTO region_species (region_id, species_id, local_frequency, seasonality, local_tier, is_vagrant)
+      } else {
+        await client.query(`DELETE FROM region_species WHERE region_id = $1`, [regionId]);
+        for (const c of filtered) {
+          const speciesIdRes = await client.query(`SELECT id FROM species WHERE gbif_key = $1`, [c.gbifKey]);
+          const speciesId = speciesIdRes.rows[0]?.id;
+          if (!speciesId) continue;
+          await client.query(
+            `INSERT INTO region_species (region_id, species_id, local_frequency, seasonality, local_tier, is_vagrant)
            VALUES ($1,$2,$3,$4,$5,$6)
            ON CONFLICT (region_id, species_id) DO UPDATE SET
              local_frequency = EXCLUDED.local_frequency, seasonality = EXCLUDED.seasonality, local_tier = EXCLUDED.local_tier,
              is_vagrant = EXCLUDED.is_vagrant`,
-          [
-            regionId,
-            speciesId,
-            c.recordCount,
-            seasonality.get(c.gbifKey) ?? null,
-            localTierByGbifKey.get(c.gbifKey) ?? null,
-            isVagrantByGbifKey.get(c.gbifKey) ?? false,
-          ],
-        );
+            [
+              regionId,
+              speciesId,
+              c.recordCount,
+              seasonality.get(c.gbifKey) ?? null,
+              localTierByGbifKey.get(c.gbifKey) ?? null,
+              isVagrantByGbifKey.get(c.gbifKey) ?? false,
+            ],
+          );
+        }
       }
-    }
-    await client.query(`UPDATE regions SET occurrence_computed_at = now() WHERE id = $1`, [regionId]);
-  }, { lockReferenceData: true });
+      await client.query(`UPDATE regions SET occurrence_computed_at = now() WHERE id = $1`, [regionId]);
+    },
+    { lockReferenceData: true },
+  );
 }

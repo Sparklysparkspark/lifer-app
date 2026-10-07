@@ -45,7 +45,11 @@ const sleep = (ms: number, signal?: AbortSignal) =>
   });
 
 /** Uploads `filePath` and resolves with its uploadId (the last segment of the upload URL). */
-export async function tusUploadFile(filePath: string, meta: { filename: string; filetype?: string | null }, opts: TusClientOptions): Promise<string> {
+export async function tusUploadFile(
+  filePath: string,
+  meta: { filename: string; filetype?: string | null },
+  opts: TusClientOptions,
+): Promise<string> {
   const minChunk = opts.minChunkSize ?? TUS_MIN_CHUNK_SIZE;
   const chunkState = opts.chunkState ?? { size: opts.initialChunkSize ?? TUS_INITIAL_CHUNK_SIZE };
   const retryDelays = opts.retryDelaysMs ?? [1000, 3000, 10_000];
@@ -57,21 +61,31 @@ export async function tusUploadFile(filePath: string, meta: { filename: string; 
     fetch(url, {
       ...init,
       ...viaDispatcher(opts.dispatcher),
-      signal: opts.signal ? AbortSignal.any([opts.signal, AbortSignal.timeout(timeoutMs)]) : AbortSignal.timeout(timeoutMs),
+      signal: opts.signal
+        ? AbortSignal.any([opts.signal, AbortSignal.timeout(timeoutMs)])
+        : AbortSignal.timeout(timeoutMs),
     });
 
-  const metadata = [`filename ${b64(meta.filename)}`, ...(meta.filetype ? [`filetype ${b64(meta.filetype)}`] : [])].join(",");
-  const created = await request(opts.endpoint, { method: "POST", headers: { ...base, "Upload-Length": String(size), "Upload-Metadata": metadata } });
+  const metadata = [
+    `filename ${b64(meta.filename)}`,
+    ...(meta.filetype ? [`filetype ${b64(meta.filetype)}`] : []),
+  ].join(",");
+  const created = await request(opts.endpoint, {
+    method: "POST",
+    headers: { ...base, "Upload-Length": String(size), "Upload-Metadata": metadata },
+  });
   if (created.status === 413) throw new TusClientError(`${meta.filename} is over the server's upload size limit`, 413);
   const location = created.headers.get("location");
-  if (created.status !== 201 || !location) throw new TusClientError(`Couldn't start the upload (${created.status})`, created.status);
+  if (created.status !== 201 || !location)
+    throw new TusClientError(`Couldn't start the upload (${created.status})`, created.status);
   const uploadUrl = new URL(location, opts.endpoint).toString();
 
   // The server's offset, asked after anything went wrong, so the next PATCH carries on from it.
   const headOffset = async (): Promise<number> => {
     const res = await request(uploadUrl, { method: "HEAD", headers: base });
     const offset = Number(res.headers.get("upload-offset"));
-    if (res.status >= 400 || !Number.isFinite(offset)) throw new TusClientError(`The server lost the upload (${res.status})`, res.status);
+    if (res.status >= 400 || !Number.isFinite(offset))
+      throw new TusClientError(`The server lost the upload (${res.status})`, res.status);
     return offset;
   };
 
@@ -94,7 +108,10 @@ export async function tusUploadFile(filePath: string, meta: { filename: string; 
           const next = Number(res.headers.get("upload-offset"));
           // A missing or stalled offset would end the loop early or resend the same chunk forever.
           if (!Number.isSafeInteger(next) || next <= offset || next > size) {
-            throw new TusClientError(`The server reported an unexpected upload offset (${res.headers.get("upload-offset")})`, status);
+            throw new TusClientError(
+              `The server reported an unexpected upload offset (${res.headers.get("upload-offset")})`,
+              status,
+            );
           }
           offset = next;
           retries = 0;
@@ -113,14 +130,23 @@ export async function tusUploadFile(filePath: string, meta: { filename: string; 
       } else if (status !== null && status < 500 && status !== 409 && status !== 423) {
         throw new TusClientError(`Upload failed (${status})`, status);
       } else {
-        if (retries >= retryDelays.length) throw new TusClientError(status ? `Upload failed (${status})` : "Upload failed: the connection dropped", status);
+        if (retries >= retryDelays.length)
+          throw new TusClientError(
+            status ? `Upload failed (${status})` : "Upload failed: the connection dropped",
+            status,
+          );
         await sleep(retryDelays[retries++], opts.signal);
       }
       offset = await headOffset();
     }
   } catch (err) {
     // Best effort: the server drops an abandoned upload after two hours anyway.
-    void fetch(uploadUrl, { method: "DELETE", headers: base, ...viaDispatcher(opts.dispatcher), signal: AbortSignal.timeout(30_000) }).catch(() => {});
+    void fetch(uploadUrl, {
+      method: "DELETE",
+      headers: base,
+      ...viaDispatcher(opts.dispatcher),
+      signal: AbortSignal.timeout(30_000),
+    }).catch(() => {});
     throw err;
   }
   return new URL(uploadUrl).pathname.replace(/\/+$/, "").split("/").pop()!;

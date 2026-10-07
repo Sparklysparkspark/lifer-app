@@ -82,14 +82,17 @@ export function assertTrustedPackUrl(url: string): void {
 // What each pack adds or holds on this install: its checklist plus photos not yet on disk
 // (main photos only for ".small"), or for an installed pack, its photos on disk.
 const LOCAL_STATE_TTL_MS = 60_000;
-let localState: { at: number; idByName: Map<string, string>; hasMain: Set<string>; hasGallery: Set<string> } | null = null;
+let localState: { at: number; idByName: Map<string, string>; hasMain: Set<string>; hasGallery: Set<string> } | null =
+  null;
 async function localPhotoState() {
   if (localState && Date.now() - localState.at < LOCAL_STATE_TTL_MS) return localState;
   const [species, gallery] = await Promise.all([
     pool.query<{ id: string; scientific_name: string; has_main: boolean }>(
       `SELECT id, scientific_name, reference_display_path IS NOT NULL AS has_main FROM species WHERE NOT is_other_taxa`,
     ),
-    pool.query<{ species_id: string; photo_url: string }>(`SELECT species_id, photo_url FROM species_reference_photos WHERE display_path IS NOT NULL`),
+    pool.query<{ species_id: string; photo_url: string }>(
+      `SELECT species_id, photo_url FROM species_reference_photos WHERE display_path IS NOT NULL`,
+    ),
   ]);
   localState = {
     at: Date.now(),
@@ -105,12 +108,16 @@ export function invalidatePackSizes(): void {
   localState = null;
 }
 
-async function photoSizes(index: PackIndex, packs: PackIndexEntry[]): Promise<Map<string, { missing: number; missingMain: number; present: number }>> {
+async function photoSizes(
+  index: PackIndex,
+  packs: PackIndexEntry[],
+): Promise<Map<string, { missing: number; missingMain: number; present: number }>> {
   const out = new Map<string, { missing: number; missingMain: number; present: number }>();
   if (!index.photoStore) return out;
   const store = await fetchPhotoStoreIndex(index.photoStore.indexUrl);
   const local = await localPhotoState();
-  const refBytes = (pair?: { d?: [number, number, number, string]; t?: [number, number, number, string] }) => (pair?.d?.[2] ?? 0) + (pair?.t?.[2] ?? 0);
+  const refBytes = (pair?: { d?: [number, number, number, string]; t?: [number, number, number, string] }) =>
+    (pair?.d?.[2] ?? 0) + (pair?.t?.[2] ?? 0);
   for (const p of packs) {
     let missing = 0;
     let missingMain = 0;
@@ -250,7 +257,14 @@ export async function packIndexRoutes(fastify: FastifyInstance): Promise<void> {
         const remaining = new Set(scientificNames);
         // Small variants cover the same species as full ones, so only full packs are candidates.
         const candidates = index.packs.filter((p) => !downloadedIds.has(p.id) && (p.variant ?? "full") === "full");
-        const picked: Array<{ id: string; region?: string; seaZone?: string; taxon: string | null; sizeBytes: number; covers: number }> = [];
+        const picked: Array<{
+          id: string;
+          region?: string;
+          seaZone?: string;
+          taxon: string | null;
+          sizeBytes: number;
+          covers: number;
+        }> = [];
 
         while (remaining.size > 0) {
           let best: PackIndexEntry | null = null;
@@ -264,7 +278,14 @@ export async function packIndexRoutes(fastify: FastifyInstance): Promise<void> {
             }
           }
           if (!best || bestCoverage === 0) break;
-          picked.push({ id: best.id, region: best.region, seaZone: best.seaZone, taxon: best.taxon ?? null, sizeBytes: best.sizeBytes, covers: bestCoverage });
+          picked.push({
+            id: best.id,
+            region: best.region,
+            seaZone: best.seaZone,
+            taxon: best.taxon ?? null,
+            sizeBytes: best.sizeBytes,
+            covers: bestCoverage,
+          });
           for (const name of best.scientificNames) remaining.delete(name);
         }
 

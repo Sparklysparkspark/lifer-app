@@ -7,7 +7,16 @@ import compress from "@fastify/compress";
 import multipart from "@fastify/multipart";
 import staticFiles from "@fastify/static";
 import helmet from "@fastify/helmet";
-import { desktopModeStartupError, MAX_JSON_BODY_BYTES, MAX_UPLOAD_BYTES, PORT, SINGLE_USER_MODE, WEB_DIST_DIR, MAPS_DIR, TRUST_PROXY } from "@lifer/core/config.js";
+import {
+  desktopModeStartupError,
+  MAX_JSON_BODY_BYTES,
+  MAX_UPLOAD_BYTES,
+  PORT,
+  SINGLE_USER_MODE,
+  WEB_DIST_DIR,
+  MAPS_DIR,
+  TRUST_PROXY,
+} from "@lifer/core/config.js";
 import { desktopRequestGate } from "./auth/desktopGate.js";
 import { recoverInterruptedStorageMigration } from "./settings/routes.js";
 import { apiRoutes } from "./apiRoutes.js";
@@ -182,7 +191,9 @@ await app.register(apiRoutes, { prefix: "/api" });
 registerHealthRoute(app);
 
 // Set at Docker build time, for the web app's update banner. "dev" never shows an update.
-app.get("/version", { schema: { response: { 200: Type.Object({ version: Type.String() }) } } }, async () => ({ version: process.env.APP_VERSION ?? "dev" }));
+app.get("/version", { schema: { response: { 200: Type.Object({ version: Type.String() }) } } }, async () => ({
+  version: process.env.APP_VERSION ?? "dev",
+}));
 
 // Offline basemap tiles. The folder is created up front so the route works once the map arrives.
 // decorateReply: false because the web app registration below owns reply.sendFile().
@@ -195,7 +206,8 @@ if (existsSync(WEB_DIST_DIR)) {
     root: WEB_DIST_DIR,
     // Hashed files under assets/ can be cached forever; index.html is always re-checked.
     setHeaders: (res, filePath) => {
-      if (filePath.includes(`${path.sep}assets${path.sep}`)) res.header("Cache-Control", "public, max-age=31536000, immutable");
+      if (filePath.includes(`${path.sep}assets${path.sep}`))
+        res.header("Cache-Control", "public, max-age=31536000, immutable");
       else res.header("Cache-Control", "no-cache");
     },
   });

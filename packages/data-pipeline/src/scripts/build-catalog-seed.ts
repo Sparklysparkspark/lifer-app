@@ -89,7 +89,12 @@ async function writeGalleryEmbeddings(
     let after: string = "00000000-0000-0000-0000-000000000000";
     let written = 0;
     while (true) {
-      const page = await pool.query<{ reference_photo_id: string; species_id: string; photo_url: string; embedding: number[] }>(
+      const page = await pool.query<{
+        reference_photo_id: string;
+        species_id: string;
+        photo_url: string;
+        embedding: number[];
+      }>(
         `SELECT ge.reference_photo_id, ge.species_id, p.photo_url, ge.embedding FROM ${from}
          WHERE ${where} AND ge.reference_photo_id > $2 ORDER BY ge.reference_photo_id LIMIT ${GALLERY_PAGE_SIZE}`,
         [modelVersion, after],
@@ -116,7 +121,9 @@ async function writeGalleryEmbeddings(
 // species_reference_embeddings and species_text_embeddings (one 768-float row per species) are
 // also too large as pg_dump text and only usable with the CLIP model, so they ship the same way.
 async function pickModelVersion(table: string, currentVersion: string): Promise<string | null> {
-  const res = await pool.query<{ n: string }>(`SELECT count(*) AS n FROM ${table} WHERE model_version = $1`, [currentVersion]);
+  const res = await pool.query<{ n: string }>(`SELECT count(*) AS n FROM ${table} WHERE model_version = $1`, [
+    currentVersion,
+  ]);
   const n = Number(res.rows[0].n);
   if (n === 0) {
     console.warn(`[build-catalog-seed] no ${table} rows for current model ${currentVersion}, skipping that asset`);
@@ -154,7 +161,8 @@ async function writeSpeciesVectorAsset(
         [modelVersion, after],
       );
       if (page.rows.length === 0) break;
-      for (const r of page.rows) yield encodeSpeciesVectorRecord({ speciesId: r.species_id, embedding: r.embedding }, dimension);
+      for (const r of page.rows)
+        yield encodeSpeciesVectorRecord({ speciesId: r.species_id, embedding: r.embedding }, dimension);
       written += page.rows.length;
       after = page.rows[page.rows.length - 1].species_id;
     }
@@ -258,7 +266,9 @@ async function main() {
     }
     const otherTaxaSpeciesCount = otherTaxaBackups.find((b) => b.table === "species")?.rows.length ?? 0;
     if (otherTaxaSpeciesCount > 0) {
-      console.log(`[build-catalog-seed] excluding ${otherTaxaSpeciesCount} Other Taxa species (and their dependent rows) from the dump`);
+      console.log(
+        `[build-catalog-seed] excluding ${otherTaxaSpeciesCount} Other Taxa species (and their dependent rows) from the dump`,
+      );
     }
 
     // Per-listing tier explanations are ~50 MB and only shown for downloaded regions, whose packs
@@ -291,7 +301,9 @@ async function main() {
     // pg_dump 18, matching the Postgres installs restore into: PG_DUMP_BIN, else a desktop build's,
     // else the Docker container's behind DATABASE_URL, else PATH's (pipeline/pgDump.ts).
     const pgDumpCommand = resolvePgDump(databaseUrl);
-    console.log(`[build-catalog-seed] pg_dump: ${pgDumpCommand.command} ${pgDumpCommand.prefixArgs.join(" ")} (${pgDumpCommand.source})`);
+    console.log(
+      `[build-catalog-seed] pg_dump: ${pgDumpCommand.command} ${pgDumpCommand.prefixArgs.join(" ")} (${pgDumpCommand.source})`,
+    );
     const args = [
       ...pgDumpCommand.prefixArgs,
       pgDumpCommand.databaseUrl,
@@ -316,7 +328,9 @@ async function main() {
     const seedBytes = statSync(outputPath).size;
     console.log(`[build-catalog-seed] wrote ${outputPath} (${(seedBytes / 1024 / 1024).toFixed(1)} MB)`);
     if (seedBytes > MAX_SEED_BYTES) {
-      throw new Error(`Seed is ${(seedBytes / 1024 / 1024).toFixed(0)} MB, over the ${MAX_SEED_BYTES / 1024 / 1024} MB limit. Did a large table get added to CATALOG_TABLES?`);
+      throw new Error(
+        `Seed is ${(seedBytes / 1024 / 1024).toFixed(0)} MB, over the ${MAX_SEED_BYTES / 1024 / 1024} MB limit. Did a large table get added to CATALOG_TABLES?`,
+      );
     }
 
     const outputDir = path.dirname(outputPath);
@@ -326,19 +340,40 @@ async function main() {
     const imageModelVersion = process.env.EMBEDDING_MODEL_VERSION ?? EMBEDDING_MODEL_VERSION;
     const textModelVersion = process.env.TEXT_MODEL_VERSION ?? "clip-vit-l14-text-v2";
     const speciesImage = await writeSpeciesVectorAsset(
-      outputDir, "species_reference_embeddings", "lifer-species-image-embeddings", imageModelVersion, GALLERY_EMBEDDING_DIMENSION,
+      outputDir,
+      "species_reference_embeddings",
+      "lifer-species-image-embeddings",
+      imageModelVersion,
+      GALLERY_EMBEDDING_DIMENSION,
     );
     const speciesText = await writeSpeciesVectorAsset(
-      outputDir, "species_text_embeddings", "lifer-species-text-embeddings", textModelVersion, GALLERY_EMBEDDING_DIMENSION,
+      outputDir,
+      "species_text_embeddings",
+      "lifer-species-text-embeddings",
+      textModelVersion,
+      GALLERY_EMBEDDING_DIMENSION,
     );
     // The species identification model's vectors (id_model_* tables, filled by
     // packages/data-pipeline/python/compute_id_model_vectors.py). Same formats.
-    const idGallery = await writeGalleryEmbeddings(outputDir, "id_model_gallery_embeddings", "lifer-id-gallery-embeddings", ID_MODEL_VERSION);
+    const idGallery = await writeGalleryEmbeddings(
+      outputDir,
+      "id_model_gallery_embeddings",
+      "lifer-id-gallery-embeddings",
+      ID_MODEL_VERSION,
+    );
     const idSpeciesImage = await writeSpeciesVectorAsset(
-      outputDir, "id_model_reference_embeddings", "lifer-id-species-image-embeddings", ID_MODEL_VERSION, GALLERY_EMBEDDING_DIMENSION,
+      outputDir,
+      "id_model_reference_embeddings",
+      "lifer-id-species-image-embeddings",
+      ID_MODEL_VERSION,
+      GALLERY_EMBEDDING_DIMENSION,
     );
     const idSpeciesText = await writeSpeciesVectorAsset(
-      outputDir, "id_model_text_embeddings", "lifer-id-species-text-embeddings", ID_MODEL_VERSION, GALLERY_EMBEDDING_DIMENSION,
+      outputDir,
+      "id_model_text_embeddings",
+      "lifer-id-species-text-embeddings",
+      ID_MODEL_VERSION,
+      GALLERY_EMBEDDING_DIMENSION,
     );
 
     async function describeAsset(a: { fileName: string; modelVersion: string; rowCount: number } | null) {
@@ -402,11 +437,17 @@ async function main() {
           const columns = Object.keys(row).filter((c) => !skip.has(c));
           if (columns.length === 0) continue;
           const placeholders = columns.map((_, i) => `$${i + 1}`);
-          await pool.query(`INSERT INTO ${table} (${columns.join(", ")}) VALUES (${placeholders.join(", ")})`, columns.map((c) => row[c]));
+          await pool.query(
+            `INSERT INTO ${table} (${columns.join(", ")}) VALUES (${placeholders.join(", ")})`,
+            columns.map((c) => row[c]),
+          );
         }
       } catch (err) {
         restoreFailed = true;
-        console.error(`[build-catalog-seed] FAILED to restore Other Taxa rows into ${table}. They are saved in ${otherTaxaBackupPath}.`, err);
+        console.error(
+          `[build-catalog-seed] FAILED to restore Other Taxa rows into ${table}. They are saved in ${otherTaxaBackupPath}.`,
+          err,
+        );
       }
     }
     if (restoreFailed) {

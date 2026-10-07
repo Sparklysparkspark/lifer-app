@@ -138,9 +138,13 @@ async function fillSurvivor(client: PoolClient): Promise<void> {
 
   // Description and its credit move together too, with the revision it came from and its stamp.
   // Stryker disable next-line MethodExpression: equivalent on a migrated schema, where every listed column exists
-  const descCols = ["description", "description_credit", "description_source_url", "description_checked_at", "wikipedia_revision_id"].filter((c) =>
-    cols.has(c),
-  );
+  const descCols = [
+    "description",
+    "description_credit",
+    "description_source_url",
+    "description_checked_at",
+    "wikipedia_revision_id",
+  ].filter((c) => cols.has(c));
   if (descCols.includes("description")) {
     await client.query(`
       UPDATE species n SET ${descCols.map((c) => `${ident(c)} = o.${ident(c)}`).join(", ")}

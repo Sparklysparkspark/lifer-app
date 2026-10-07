@@ -11,7 +11,14 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
-import { API_PORT, LOCAL_DATABASE_URL, LOCAL_PG_CONTAINER, LOCAL_PG_PORT, MIRROR_PORT, MIRROR_URL } from "./constants.js";
+import {
+  API_PORT,
+  LOCAL_DATABASE_URL,
+  LOCAL_PG_CONTAINER,
+  LOCAL_PG_PORT,
+  MIRROR_PORT,
+  MIRROR_URL,
+} from "./constants.js";
 import { insertFixtureCatalog } from "./fixtureCatalog.js";
 import { startMirror, type Mirror } from "./mirror.js";
 

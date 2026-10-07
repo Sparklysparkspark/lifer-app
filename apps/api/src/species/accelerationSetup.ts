@@ -4,7 +4,12 @@
 import { rmSync } from "node:fs";
 import path from "node:path";
 import { APP_DATA_DIR } from "@lifer/core/config.js";
-import { cancelAcceleration, forgetAcceleration, selectAcceleration, type AcceleratedModel } from "./accelerationSelect.js";
+import {
+  cancelAcceleration,
+  forgetAcceleration,
+  selectAcceleration,
+  type AcceleratedModel,
+} from "./accelerationSelect.js";
 import { clipModel } from "@lifer/core/species/embeddings.js";
 import { idModel } from "@lifer/core/species/idModel.js";
 import { DETECTOR_MODEL_PATH } from "@lifer/core/species/inference.js";
@@ -31,7 +36,13 @@ export function startAccelerationSelection(opts: { force?: boolean } = {}): void
   if (gpuDisabled() || !(idModel.isDownloaded() || clipModel.isDownloaded())) return;
   if (opts.force) forgetAcceleration(CACHE_FILE);
   const models: AcceleratedModel[] = [
-    { family: "detector", cpuPath: DETECTOR_MODEL_PATH, gpuPath: DETECTOR_MODEL_PATH, downloadGpuCopy: async () => {}, dims: [1, 3, 640, 640] },
+    {
+      family: "detector",
+      cpuPath: DETECTOR_MODEL_PATH,
+      gpuPath: DETECTOR_MODEL_PATH,
+      downloadGpuCopy: async () => {},
+      dims: [1, 3, 640, 640],
+    },
     ...[idModel, clipModel].filter((m) => m.isDownloaded()).map(encoder),
   ];
   void selectAcceleration({ cacheFile: CACHE_FILE, gpuRuntimeRoot: GPU_RUNTIME_ROOT, models, force: opts.force });

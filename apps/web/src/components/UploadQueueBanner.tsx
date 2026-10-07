@@ -36,7 +36,13 @@ export default function UploadQueueBanner() {
                 {t("upload.banner.uploading", { done: jobs.length - inProgress, total: jobs.length, failed, skipped })}
               </span>
               {uploadFraction != null && (
-                <ProgressBar value={uploadFraction} size="xs" tone="ink" label={t("upload.banner.progressLabel")} className="w-20" />
+                <ProgressBar
+                  value={uploadFraction}
+                  size="xs"
+                  tone="ink"
+                  label={t("upload.banner.progressLabel")}
+                  className="w-20"
+                />
               )}
               {targetsExternalDrive && (
                 <span className="font-medium text-amber-700 dark:text-amber-400">{t("upload.banner.keepDrive")}</span>

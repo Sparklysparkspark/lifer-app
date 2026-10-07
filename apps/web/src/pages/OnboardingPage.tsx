@@ -270,9 +270,7 @@ export default function OnboardingPage() {
               </label>
             )}
             {mapStatus?.error && !mapStatus.downloading && (
-              <FormMessage
-                error={t("onboarding.map.failed", { error: mapStatus.error })}
-              />
+              <FormMessage error={t("onboarding.map.failed", { error: mapStatus.error })} />
             )}
             <button
               type="button"
@@ -342,9 +340,7 @@ export default function OnboardingPage() {
                   phases={PACK_PHASES}
                   fallbackLabel={t("onboarding.pack.downloading")}
                   detail={
-                    status.phase === "preparing"
-                      ? t("onboarding.pack.preparingDetail")
-                      : packProgressDetail(status)
+                    status.phase === "preparing" ? t("onboarding.pack.preparingDetail") : packProgressDetail(status)
                   }
                 />
               </div>
@@ -517,7 +513,9 @@ export default function OnboardingPage() {
                   </div>
                 )}
                 <FormMessage error={job.actionError} />
-                {startedHere && status?.error && <FormMessage error={t("onboarding.pack.downloadFailed", { error: status.error })} />}
+                {startedHere && status?.error && (
+                  <FormMessage error={t("onboarding.pack.downloadFailed", { error: status.error })} />
+                )}
                 <button
                   type="button"
                   onClick={startDownload}
@@ -526,7 +524,10 @@ export default function OnboardingPage() {
                 >
                   {job.starting
                     ? t("onboarding.starting")
-                    : t("onboarding.pack.downloadButton", { count: selectedCountryIds.size, groups: selectedTaxa.size })}
+                    : t("onboarding.pack.downloadButton", {
+                        count: selectedCountryIds.size,
+                        groups: selectedTaxa.size,
+                      })}
                 </button>
               </>
             )}

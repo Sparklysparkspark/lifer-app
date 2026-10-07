@@ -69,9 +69,11 @@ export async function applyIntroducedFlags(opts: { apply: boolean; log?: (m: str
   }
   if (failed > 0) log(`${failed} place(s) couldn't be fetched; their regions use their country's list`);
 
-  const species = (await pool.query<{ id: string; inat_taxon_id: number | null; scientific_name: string }>(
-    `SELECT id, inat_taxon_id, scientific_name FROM species WHERE NOT is_other_taxa`,
-  )).rows;
+  const species = (
+    await pool.query<{ id: string; inat_taxon_id: number | null; scientific_name: string }>(
+      `SELECT id, inat_taxon_id, scientific_name FROM species WHERE NOT is_other_taxa`,
+    )
+  ).rows;
   const byInatId = new Map(species.filter((s) => s.inat_taxon_id != null).map((s) => [s.inat_taxon_id!, s.id]));
   const byName = new Map(species.map((s) => [s.scientific_name, s.id]));
   const introducedIds = (place: number | null): string[] | null => {
@@ -93,7 +95,8 @@ export async function applyIntroducedFlags(opts: { apply: boolean; log?: (m: str
   const countryPairs: Array<[string, string]> = [];
   let noList = 0;
   for (const r of regions) {
-    const ids = introducedIds(r.inat_place_id) ?? (r.country_id ? introducedIds(placeOf.get(r.country_id) ?? null) : null);
+    const ids =
+      introducedIds(r.inat_place_id) ?? (r.country_id ? introducedIds(placeOf.get(r.country_id) ?? null) : null);
     if (!ids) {
       noList++;
       continue;
@@ -106,7 +109,9 @@ export async function applyIntroducedFlags(opts: { apply: boolean; log?: (m: str
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
-    await client.query(`CREATE TEMP TABLE intro (region_id uuid, species_id uuid, PRIMARY KEY (region_id, species_id)) ON COMMIT DROP`);
+    await client.query(
+      `CREATE TEMP TABLE intro (region_id uuid, species_id uuid, PRIMARY KEY (region_id, species_id)) ON COMMIT DROP`,
+    );
     await client.query(
       `INSERT INTO intro SELECT DISTINCT * FROM unnest($1::uuid[], $2::uuid[]) ON CONFLICT DO NOTHING`,
       [pairs.map((p) => p[0]), pairs.map((p) => p[1])],
@@ -145,11 +150,15 @@ export async function applyIntroducedFlags(opts: { apply: boolean; log?: (m: str
           `SELECT s.common_name || ' in ' || r.name AS s FROM ${from} JOIN region_species rs ON rs.region_id = x.region_id AND rs.species_id = x.species_id
            JOIN species s ON s.id = rs.species_id JOIN regions r ON r.id = rs.region_id WHERE ${where} ORDER BY md5(s.id::text || r.id::text) LIMIT 12`,
         )
-      ).rows.map((r) => r.s).join("; ");
+      ).rows
+        .map((r) => r.s)
+        .join("; ");
     if (!opts.apply) {
       log(`e.g. introduced, established: ${await sample(`rs.is_invasive AND NOT rs.is_vagrant`, "intro x")}`);
       log(`e.g. introduced, few records: ${await sample(`NOT ${established}`, "intro x")}`);
-      log(`e.g. natives cleared: ${await sample(`NOT rs.is_vagrant AND NOT EXISTS (SELECT 1 FROM intro i WHERE i.region_id = x.region_id AND i.species_id = x.species_id)`, "old_nonnative x")}`);
+      log(
+        `e.g. natives cleared: ${await sample(`NOT rs.is_vagrant AND NOT EXISTS (SELECT 1 FROM intro i WHERE i.region_id = x.region_id AND i.species_id = x.species_id)`, "old_nonnative x")}`,
+      );
     }
     log(
       `introduced and established: ${introducedEstablished.rowCount}; introduced with few records: ${introducedThin.rowCount}; ` +
@@ -164,7 +173,11 @@ export async function applyIntroducedFlags(opts: { apply: boolean; log?: (m: str
     log(`species_nonnative_countries: ${countryPairs.length} pairs for ${countriesWithList.length} countries`);
     await client.query(opts.apply ? "COMMIT" : "ROLLBACK");
     log(opts.apply ? "applied" : "preview only (pass --apply)");
-    return { introducedEstablished: introducedEstablished.rowCount, introducedThin: introducedThin.rowCount, nativeCleared: nativeCleared.rowCount };
+    return {
+      introducedEstablished: introducedEstablished.rowCount,
+      introducedThin: introducedThin.rowCount,
+      nativeCleared: nativeCleared.rowCount,
+    };
   } catch (err) {
     await client.query("ROLLBACK").catch(() => {});
     throw err;

@@ -51,8 +51,18 @@ async function main() {
     params,
   );
   const rows: Row[] = [
-    ...main.rows.map((r) => ({ kind: "main" as const, url: r.url, displayPath: r.display_path, thumbPath: r.thumb_path })),
-    ...gallery.rows.map((r) => ({ kind: "gallery" as const, url: r.url, displayPath: r.display_path, thumbPath: r.thumb_path })),
+    ...main.rows.map((r) => ({
+      kind: "main" as const,
+      url: r.url,
+      displayPath: r.display_path,
+      thumbPath: r.thumb_path,
+    })),
+    ...gallery.rows.map((r) => ({
+      kind: "gallery" as const,
+      url: r.url,
+      displayPath: r.display_path,
+      thumbPath: r.thumb_path,
+    })),
   ];
   const missing = rows.filter((r) => !existsSync(r.displayPath) || (r.thumbPath != null && !existsSync(r.thumbPath)));
 
@@ -66,7 +76,12 @@ async function main() {
       (r.thumbPath == null || r.thumbPath === path.join(thumbDir, `${keyOf(r)}.webp`)),
   );
   if (process.argv.includes("--adopt")) {
-    await adopt(rows.filter((r) => path.dirname(r.displayPath) !== displayDir), displayDir, thumbDir, dryRun);
+    await adopt(
+      rows.filter((r) => path.dirname(r.displayPath) !== displayDir),
+      displayDir,
+      thumbDir,
+      dryRun,
+    );
     await pool.end();
     return;
   }
@@ -101,7 +116,8 @@ async function main() {
           failed++;
           failures.push(r.url!);
         }
-        if (++done % 100 === 0) console.log(`[repair-missing-reference-photos] ${done}/${writable.length} (${failed} failed)`);
+        if (++done % 100 === 0)
+          console.log(`[repair-missing-reference-photos] ${done}/${writable.length} (${failed} failed)`);
       }),
     ),
   );
@@ -135,20 +151,20 @@ async function adopt(outside: Row[], displayDir: string, thumbDir: string, dryRu
       }
     }
     if (r.kind === "main") {
-      await pool.query(`UPDATE species SET reference_display_path = $1, reference_thumb_path = $2 WHERE reference_display_path = $3`, [
-        display,
-        thumb,
-        r.displayPath,
-      ]);
+      await pool.query(
+        `UPDATE species SET reference_display_path = $1, reference_thumb_path = $2 WHERE reference_display_path = $3`,
+        [display, thumb, r.displayPath],
+      );
     } else {
-      await pool.query(`UPDATE species_reference_photos SET display_path = $1, thumb_path = $2 WHERE display_path = $3`, [
-        display,
-        thumb,
-        r.displayPath,
-      ]);
+      await pool.query(
+        `UPDATE species_reference_photos SET display_path = $1, thumb_path = $2 WHERE display_path = $3`,
+        [display, thumb, r.displayPath],
+      );
     }
   }
-  console.log(`[repair-missing-reference-photos] adopted: ${moved} copied, ${downloaded} re-downloaded, ${failed} failed`);
+  console.log(
+    `[repair-missing-reference-photos] adopted: ${moved} copied, ${downloaded} re-downloaded, ${failed} failed`,
+  );
 }
 
 main().catch((err) => {

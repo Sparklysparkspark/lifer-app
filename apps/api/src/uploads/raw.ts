@@ -9,7 +9,16 @@ import { requireAuth } from "../auth/session.js";
 import { withSchemas } from "../lib/schema.js";
 import { ORIGINALS_DIR } from "@lifer/core/config.js";
 import { generateDerivatives } from "@lifer/core/uploads/image.js";
-import { captureTimeFromTags, extractExif, computeExifFingerprint, readExifTags, extractEmbeddedPreview, type CaptureTime, type ExifFingerprint, type ExtractedExif } from "./exif.js";
+import {
+  captureTimeFromTags,
+  extractExif,
+  computeExifFingerprint,
+  readExifTags,
+  extractEmbeddedPreview,
+  type CaptureTime,
+  type ExifFingerprint,
+  type ExtractedExif,
+} from "./exif.js";
 import { syncCaptureXmpSidecars } from "./xmpSidecarSync.js";
 import { isRawExtension, isRawFile } from "@lifer/core/uploads/formats.js";
 import { originalsFolder } from "./organizedPath.js";
@@ -82,13 +91,27 @@ async function fileRawWithCapture(
     takenAtWallClock: time?.wallClock,
     subfolder: "RAW",
   });
-  const dest = await moveIntoLibrary(file.path, folder, originalFilename(rawFileName, time, path.extname(rawFileName).toLowerCase()));
+  const dest = await moveIntoLibrary(
+    file.path,
+    folder,
+    originalFilename(rawFileName, time, path.extname(rawFileName).toLowerCase()),
+  );
   const volumeRelativePath = chosenVolume ? dest.slice(chosenVolume.mountPath.length) : null;
   try {
     await pool.query(
       `INSERT INTO originals (capture_id, kind, ref_type, ref, managed, content_hash, file_size, exif_fingerprint, exif_fingerprint_loose, user_id, volume_id, volume_relative_path)
        VALUES ($1, 'raw', 'path', $2, true, $3, $4, $5, $6, $7, $8, $9)`,
-      [match.id, dest, file.sha256, file.size, fingerprint.strict, fingerprint.loose, userId, chosenVolume?.volumeId ?? null, volumeRelativePath],
+      [
+        match.id,
+        dest,
+        file.sha256,
+        file.size,
+        fingerprint.strict,
+        fingerprint.loose,
+        userId,
+        chosenVolume?.volumeId ?? null,
+        volumeRelativePath,
+      ],
     );
   } catch (err) {
     await moveFile(dest, file.path).catch(() => rmSync(dest, { force: true }));
@@ -118,7 +141,16 @@ async function processOneRawUpload(
 
   if (matches.length === 1) {
     const match = matches[0];
-    await fileRawWithCapture(match, { path: tmpPath, sha256: contentHash, size: fileSize }, rawFileName, userId, exif, time, fingerprint, chosenVolume);
+    await fileRawWithCapture(
+      match,
+      { path: tmpPath, sha256: contentHash, size: fileSize },
+      rawFileName,
+      userId,
+      exif,
+      time,
+      fingerprint,
+      chosenVolume,
+    );
     return {
       filename: rawFileName,
       linked: true,
@@ -132,10 +164,11 @@ async function processOneRawUpload(
   // No match. The folder import never guesses, but a species page's own picker
   // (allowUnmatchedFallback, RawUpload.tsx) knows the species, so the RAW is filed there.
   if (matches.length === 0 && allowUnmatchedFallback && speciesId) {
-    const speciesRes = await pool.query<{ common_name: string | null; scientific_name: string; taxon_class: string | null }>(
-      `SELECT common_name, scientific_name, taxon_class FROM species WHERE id = $1`,
-      [speciesId],
-    );
+    const speciesRes = await pool.query<{
+      common_name: string | null;
+      scientific_name: string;
+      taxon_class: string | null;
+    }>(`SELECT common_name, scientific_name, taxon_class FROM species WHERE id = $1`, [speciesId]);
     const species = speciesRes.rows[0];
     if (species) {
       const { organizeByYear } = await getUserFileSettings(userId);
@@ -157,13 +190,27 @@ async function processOneRawUpload(
         subfolder: "RAW",
       });
       // A plain name collision gets a "-2" suffix; identical content was ruled out above.
-      const dest = await moveIntoLibrary(tmpPath, folder, originalFilename(rawFileName, time, path.extname(rawFileName).toLowerCase()));
+      const dest = await moveIntoLibrary(
+        tmpPath,
+        folder,
+        originalFilename(rawFileName, time, path.extname(rawFileName).toLowerCase()),
+      );
       const volumeRelativePath = chosenVolume ? dest.slice(chosenVolume.mountPath.length) : null;
       try {
         await pool.query(
           `INSERT INTO originals (capture_id, kind, ref_type, ref, managed, content_hash, file_size, exif_fingerprint, exif_fingerprint_loose, user_id, species_id, volume_id, volume_relative_path)
            VALUES (NULL, 'raw', 'path', $1, true, $2, $3, $4, $5, $6, $7, $8, $9)`,
-          [dest, contentHash, fileSize, fingerprint.strict, fingerprint.loose, userId, speciesId, chosenVolume?.volumeId ?? null, volumeRelativePath],
+          [
+            dest,
+            contentHash,
+            fileSize,
+            fingerprint.strict,
+            fingerprint.loose,
+            userId,
+            speciesId,
+            chosenVolume?.volumeId ?? null,
+            volumeRelativePath,
+          ],
         );
       } catch (err) {
         await moveFile(dest, tmpPath).catch(() => rmSync(dest, { force: true }));
@@ -192,7 +239,13 @@ export async function handleRawPrimaryUpload(
   file: { path: string; sha256: string; size: number },
   rawFileName: string,
   userId: string,
-  species: { id: string; common_name: string | null; scientific_name: string; taxon_class: string | null; family: string | null },
+  species: {
+    id: string;
+    common_name: string | null;
+    scientific_name: string;
+    taxon_class: string | null;
+    family: string | null;
+  },
   chosenVolume: ChosenVolume | null,
   tripBaseDir: string | null,
   tripId: string | null,
@@ -219,7 +272,13 @@ export async function handleRawPrimaryUpload(
   // No match (or an ambiguous one, left for manual review): a new capture under the species being
   // imported into. Files are written before the transaction and removed again on failure.
   const written: string[] = [];
-  let photo: { id: string; displayPath: string; thumbPath: string; width: number | null; height: number | null } | null = null;
+  let photo: {
+    id: string;
+    displayPath: string;
+    thumbPath: string;
+    width: number | null;
+    height: number | null;
+  } | null = null;
   let dest: string | null = null;
   const moveBack = async () => {
     if (dest) await moveFile(dest, file.path).catch(() => rmSync(dest!, { force: true }));
@@ -243,7 +302,11 @@ export async function handleRawPrimaryUpload(
       takenAtWallClock: time?.wallClock,
       subfolder: "RAW",
     });
-    dest = await moveIntoLibrary(file.path, folder, originalFilename(rawFileName, time, path.extname(rawFileName).toLowerCase()));
+    dest = await moveIntoLibrary(
+      file.path,
+      folder,
+      originalFilename(rawFileName, time, path.extname(rawFileName).toLowerCase()),
+    );
   } catch (err) {
     removeFiles(written);
     await moveBack();
@@ -289,14 +352,10 @@ export async function handleRawPrimaryUpload(
     captureId = captureRes.rows[0].id;
 
     if (photo) {
-      await client.query(`INSERT INTO photos (id, capture_id, display_path, thumb_path, width, height) VALUES ($1,$2,$3,$4,$5,$6)`, [
-        photo.id,
-        captureId,
-        photo.displayPath,
-        photo.thumbPath,
-        photo.width,
-        photo.height,
-      ]);
+      await client.query(
+        `INSERT INTO photos (id, capture_id, display_path, thumb_path, width, height) VALUES ($1,$2,$3,$4,$5,$6)`,
+        [photo.id, captureId, photo.displayPath, photo.thumbPath, photo.width, photo.height],
+      );
       await client.query(`UPDATE captures SET current_photo_id = $1 WHERE id = $2`, [photo.id, captureId]);
     }
 
@@ -305,7 +364,17 @@ export async function handleRawPrimaryUpload(
     await client.query(
       `INSERT INTO originals (capture_id, kind, ref_type, ref, managed, content_hash, file_size, exif_fingerprint, exif_fingerprint_loose, user_id, volume_id, volume_relative_path)
        VALUES ($1, 'raw', 'path', $2, true, $3, $4, $5, $6, $7, $8, $9)`,
-      [captureId, filedRaw, rawHash, file.size, fingerprint.strict, fingerprint.loose, userId, chosenVolume?.volumeId ?? null, volumeRelativePath],
+      [
+        captureId,
+        filedRaw,
+        rawHash,
+        file.size,
+        fingerprint.strict,
+        fingerprint.loose,
+        userId,
+        chosenVolume?.volumeId ?? null,
+        volumeRelativePath,
+      ],
     );
 
     // Last, since the rows above are written through the `captures` view, which hides it.
@@ -381,7 +450,16 @@ export async function rawUploadRoutes(fastify: FastifyInstance): Promise<void> {
             ok = true;
             return null;
           }
-          const outcome = await processOneRawUpload(source.path, source.sha256, source.size, filename, userId, spId, fallback, volume);
+          const outcome = await processOneRawUpload(
+            source.path,
+            source.sha256,
+            source.size,
+            filename,
+            userId,
+            spId,
+            fallback,
+            volume,
+          );
           ok = true;
           return source.uploadId ? { ...outcome, uploadId: source.uploadId } : outcome;
         } finally {
@@ -400,8 +478,17 @@ export async function rawUploadRoutes(fastify: FastifyInstance): Promise<void> {
           if (part.fieldname === "speciesId") speciesId = String(part.value);
           else if (part.fieldname === "allowUnmatchedFallback") allowUnmatchedFallback = String(part.value) === "1";
           else if (part.fieldname === "volumeId") volumeId = String(part.value);
-          else if (part.fieldname === "uploadIds" || part.fieldname === "uploadIds[]" || part.fieldname === "uploadId") {
-            uploadIds.push(...String(part.value).split(",").map((v) => v.trim()).filter(Boolean));
+          else if (
+            part.fieldname === "uploadIds" ||
+            part.fieldname === "uploadIds[]" ||
+            part.fieldname === "uploadId"
+          ) {
+            uploadIds.push(
+              ...String(part.value)
+                .split(",")
+                .map((v) => v.trim())
+                .filter(Boolean),
+            );
           }
           continue;
         }
@@ -426,7 +513,16 @@ export async function rawUploadRoutes(fastify: FastifyInstance): Promise<void> {
           throw err;
         }
         queue(
-          { path: tmpPath, filename, mimetype: part.mimetype, sha256: received.fingerprint, size: received.bytes, origin: "multipart", uploadId: null, finish: async () => rmSync(tmpPath, { force: true }) },
+          {
+            path: tmpPath,
+            filename,
+            mimetype: part.mimetype,
+            sha256: received.fingerprint,
+            size: received.bytes,
+            origin: "multipart",
+            uploadId: null,
+            finish: async () => rmSync(tmpPath, { force: true }),
+          },
           filename,
         );
       }

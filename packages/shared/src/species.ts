@@ -63,12 +63,7 @@ export type TrophicNiche =
   | "Scavenger"
   | "Omnivore";
 
-export type PrimaryLifestyle =
-  | "Terrestrial"
-  | "Aquatic"
-  | "Aerial"
-  | "Insessorial"
-  | "Generalist";
+export type PrimaryLifestyle = "Terrestrial" | "Aquatic" | "Aerial" | "Insessorial" | "Generalist";
 
 export interface SpeciesTraits {
   speciesId: string;

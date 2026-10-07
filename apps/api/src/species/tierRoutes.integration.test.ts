@@ -24,7 +24,18 @@ vi.mock("../auth/session.js", () => {
 describe.skipIf(!url)("tier routes", () => {
   let app: FastifyInstance;
   let db: pg.Pool;
-  const explain = { v: 1, group: "birds", rate: 0.2, records: 800, effort: 4_000_000, source: "gbif", base: "uncommon", steps: [{ kind: "nocturnal" }], guard: false, season: null };
+  const explain = {
+    v: 1,
+    group: "birds",
+    rate: 0.2,
+    records: 800,
+    effort: 4_000_000,
+    source: "gbif",
+    base: "uncommon",
+    steps: [{ kind: "nocturnal" }],
+    guard: false,
+    season: null,
+  };
 
   beforeAll(async () => {
     db = new pg.Pool({ connectionString: url });
@@ -33,7 +44,10 @@ describe.skipIf(!url)("tier routes", () => {
     await db.query(`DELETE FROM regions WHERE id = $1`, [REGION]);
     await db.query(`INSERT INTO users (id, email, password_hash) VALUES ($1, 'tier@test', 'x')`, [USER]);
     await db.query(`INSERT INTO regions (id, name, external_codes) VALUES ($1, 'Tierland', '{ZZT}')`, [REGION]);
-    await db.query(`INSERT INTO species (id, gbif_key, scientific_name, taxon_class) VALUES ($1, 915100, 'Tiera nocturna', 'aves')`, [SPECIES]);
+    await db.query(
+      `INSERT INTO species (id, gbif_key, scientific_name, taxon_class) VALUES ($1, 915100, 'Tiera nocturna', 'aves')`,
+      [SPECIES],
+    );
     await db.query(
       `INSERT INTO region_species (region_id, species_id, local_tier, tier_reason, tier_explain) VALUES ($1, $2, 'rare', 'rated', $3)`,
       [REGION, SPECIES, JSON.stringify(explain)],
@@ -57,12 +71,18 @@ describe.skipIf(!url)("tier routes", () => {
   it("returns the local tier with its reasons", async () => {
     const res = await app.inject({ method: "GET", url: `/api/species/${SPECIES}/tier?regionId=${REGION}` });
     expect(res.statusCode).toBe(200);
-    expect(res.json().local).toMatchObject({ tier: "rare", reason: "rated", regionName: "Tierland", explain: { base: "uncommon" } });
+    expect(res.json().local).toMatchObject({
+      tier: "rare",
+      reason: "rated",
+      regionName: "Tierland",
+      explain: { base: "uncommon" },
+    });
     expect(res.json().override).toBeNull();
   });
 
   it("saves the user's own tier, prefers the region's over an everywhere one, and clears it", async () => {
-    const put = (body: object) => app.inject({ method: "PUT", url: `/api/species/${SPECIES}/tier-override`, payload: body });
+    const put = (body: object) =>
+      app.inject({ method: "PUT", url: `/api/species/${SPECIES}/tier-override`, payload: body });
     expect((await put({ regionId: null, tier: "uncommon" })).statusCode).toBe(200);
     expect((await put({ regionId: REGION, tier: "common" })).statusCode).toBe(200);
     let got = (await app.inject({ method: "GET", url: `/api/species/${SPECIES}/tier?regionId=${REGION}` })).json();
@@ -83,7 +103,11 @@ describe.skipIf(!url)("tier routes", () => {
     expect((await tier("nope/tier")).json()).toEqual({ error: "Species not found" });
     expect((await tier("nope/tier")).statusCode).toBe(404);
     expect((await tier(`${SPECIES}/tier?regionId=nope`)).statusCode).toBe(404);
-    const put = await app.inject({ method: "PUT", url: `/api/species/${SPECIES}/tier-override`, payload: { regionId: "nope", tier: "common" } });
+    const put = await app.inject({
+      method: "PUT",
+      url: `/api/species/${SPECIES}/tier-override`,
+      payload: { regionId: "nope", tier: "common" },
+    });
     expect(put.statusCode).toBe(404);
     expect(put.json()).toEqual({ error: "Region not found" });
   });

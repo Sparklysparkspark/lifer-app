@@ -18,19 +18,37 @@ import {
 type Key = keyof typeof fixtures.articles;
 function describeArticle(key: Key) {
   const sections = splitSections(fixtures.articles[key].extract);
-  return composeDescription({ lead: sections[0].body, identificationSection: findSection(sections, IDENTIFICATION_HEADINGS) });
+  return composeDescription({
+    lead: sections[0].body,
+    identificationSection: findSection(sections, IDENTIFICATION_HEADINGS),
+  });
 }
 
 describe("classifySentence", () => {
   it.each([
-    ["The common garter snake (Thamnophis sirtalis) is a species of snake in the subfamily Natricinae of the family Colubridae.", "taxonomy"],
+    [
+      "The common garter snake (Thamnophis sirtalis) is a species of snake in the subfamily Natricinae of the family Colubridae.",
+      "taxonomy",
+    ],
     ["There are several recognized subspecies.", "taxonomy"],
-    ["The American red squirrel (Tamiasciurus hudsonicus) is one of three species of tree squirrels currently classified in the genus Tamiasciurus.", "taxonomy"],
-    ["The great blue heron was one of many species originally described by Carl Linnaeus in his 18th-century work, Systema Naturae.", "taxonomy"],
-    ["Debate exists about whether these white birds are a color morph of the great blue heron, a subspecies of it, or an entirely separate species.", "taxonomy"],
-    ["The specific name maliger is a compound of malus which means \"mast\" and iger meaning \"to bear\".", "etymology"],
+    [
+      "The American red squirrel (Tamiasciurus hudsonicus) is one of three species of tree squirrels currently classified in the genus Tamiasciurus.",
+      "taxonomy",
+    ],
+    [
+      "The great blue heron was one of many species originally described by Carl Linnaeus in his 18th-century work, Systema Naturae.",
+      "taxonomy",
+    ],
+    [
+      "Debate exists about whether these white birds are a color morph of the great blue heron, a subspecies of it, or an entirely separate species.",
+      "taxonomy",
+    ],
+    ['The specific name maliger is a compound of malus which means "mast" and iger meaning "to bear".', "etymology"],
     ["The subspecific name fitchi is in honor of the American herpetologist Henry Sheldon Fitch.", "etymology"],
-    ["The American red squirrel is variously known as the pine squirrel or piney squirrel, North American red squirrel, chickaree, boomer, or simply red squirrel.", "synonyms"],
+    [
+      "The American red squirrel is variously known as the pine squirrel or piney squirrel, North American red squirrel, chickaree, boomer, or simply red squirrel.",
+      "synonyms",
+    ],
     ["The species is indigenous to North America and found widely across the continent.", "range"],
     ["It is occasionally found in the Azores and is a rare vagrant to Europe.", "range"],
     ["It is listed as Least Concern on the IUCN Red List.", "conservation"],
@@ -41,13 +59,28 @@ describe("classifySentence", () => {
     ["This species primarily dwells in salt water reefs.", "ecology"],
     ["The common garter snake is the state reptile of Massachusetts.", "other"],
     ["Taxonomic treatments in 2006 placed this species in the genus Anaxyrus instead of Bufo.", "taxonomy"],
-    ["Before the 2020s, the species was considered cosmopolitan, but the taxon has since been split into at least 28 species.", "taxonomy"],
+    [
+      "Before the 2020s, the species was considered cosmopolitan, but the taxon has since been split into at least 28 species.",
+      "taxonomy",
+    ],
     ["It is a marine gastropod mollusk in the Rissoidae family.", "taxonomy"],
-    ["It is known by a variety of regional names, such as the widemouth bass, bigmouth bass and black bass.", "synonyms"],
+    [
+      "It is known by a variety of regional names, such as the widemouth bass, bigmouth bass and black bass.",
+      "synonyms",
+    ],
     ["The raccoon, sometimes called the North American, northern or common raccoon, is a mammal.", "synonyms"],
-    ["C. sapidus is of considerable economic importance in the United States, particularly in Louisiana, the Carolinas, the Chesapeake Bay, Delaware, and New Jersey.", "range"],
-    ["A 2022 study concluded that the correct scientific name for the Florida bass is Micropterus salmoides.", "taxonomy"],
-    ["Textile cone snails live mostly in the Indian Ocean, along the eastern coast of Africa and around Australia.", "range"],
+    [
+      "C. sapidus is of considerable economic importance in the United States, particularly in Louisiana, the Carolinas, the Chesapeake Bay, Delaware, and New Jersey.",
+      "range",
+    ],
+    [
+      "A 2022 study concluded that the correct scientific name for the Florida bass is Micropterus salmoides.",
+      "taxonomy",
+    ],
+    [
+      "Textile cone snails live mostly in the Indian Ocean, along the eastern coast of Africa and around Australia.",
+      "range",
+    ],
   ] as const)("%s -> %s", (sentence, kind) => {
     expect(classifySentence(sentence)).toBe(kind);
   });
@@ -55,37 +88,59 @@ describe("classifySentence", () => {
 
 describe("naming the subject", () => {
   it("finds the noun phrase a lead opens with", () => {
-    expect(subjectOf("The quillback rockfish (Sebastes maliger), also known as the quillback seaperch, is a fish.")).toBe("The quillback rockfish");
+    expect(
+      subjectOf("The quillback rockfish (Sebastes maliger), also known as the quillback seaperch, is a fish."),
+    ).toBe("The quillback rockfish");
     expect(subjectOf("Turbonilla acuta is a species of sea snail.")).toBe("Turbonilla acuta");
-    expect(subjectOf("The (American) five-lined skink (Plestiodon fasciatus) is a species of lizard.")).toBe("The five-lined skink");
-    expect(subjectOf("Because of a very long and winding opening clause that never names anything at all, it is.")).toBeNull();
+    expect(subjectOf("The (American) five-lined skink (Plestiodon fasciatus) is a species of lizard.")).toBe(
+      "The five-lined skink",
+    );
+    expect(
+      subjectOf("Because of a very long and winding opening clause that never names anything at all, it is."),
+    ).toBeNull();
   });
 
   it("replaces It, Its and This species, and nothing else", () => {
-    expect(nameTheSubject("It is the continent's smallest bear.", "The American black bear")).toBe("The American black bear is the continent's smallest bear.");
-    expect(nameTheSubject("Its embryos host algae.", "The spotted salamander")).toBe("The spotted salamander's embryos host algae.");
-    expect(nameTheSubject("This species dwells in reefs.", "The quillback rockfish")).toBe("The quillback rockfish dwells in reefs.");
+    expect(nameTheSubject("It is the continent's smallest bear.", "The American black bear")).toBe(
+      "The American black bear is the continent's smallest bear.",
+    );
+    expect(nameTheSubject("Its embryos host algae.", "The spotted salamander")).toBe(
+      "The spotted salamander's embryos host algae.",
+    );
+    expect(nameTheSubject("This species dwells in reefs.", "The quillback rockfish")).toBe(
+      "The quillback rockfish dwells in reefs.",
+    );
     expect(nameTheSubject("They are solitary.", "The quillback rockfish")).toBeNull();
   });
 
   it("keeps the ceiling after naming the subject", () => {
-    const filler = Array.from({ length: 12 }, (_, i) => `It has ${i} dark brown stripes on a pale grey body.`).join(" ");
-    const text = composeDescription({ lead: `The extraordinarily long-named example animal (Exempli gratia) is a species of animal. ${filler}` })!;
+    const filler = Array.from({ length: 12 }, (_, i) => `It has ${i} dark brown stripes on a pale grey body.`).join(
+      " ",
+    );
+    const text = composeDescription({
+      lead: `The extraordinarily long-named example animal (Exempli gratia) is a species of animal. ${filler}`,
+    })!;
     expect(text.startsWith("The extraordinarily long-named example animal has 0")).toBe(true);
     expect(text.length).toBeLessThanOrEqual(DESCRIPTION_MAX_CHARS);
   });
 
   it("composes without a dangling pronoun, falling back to the opener for They", () => {
-    const lead = "The American black bear (Ursus americanus) is a species of medium-sized bear in the family Ursidae. It is the continent's smallest bear.";
+    const lead =
+      "The American black bear (Ursus americanus) is a species of medium-sized bear in the family Ursidae. It is the continent's smallest bear.";
     expect(composeDescription({ lead })).toBe("The American black bear is the continent's smallest bear.");
-    const plural = "The quillback rockfish (Sebastes maliger) is a species of fish. They are solitary and give birth to live young.";
+    const plural =
+      "The quillback rockfish (Sebastes maliger) is a species of fish. They are solitary and give birth to live young.";
     expect(composeDescription({ lead: plural })).toBe(plural);
   });
 });
 
 describe("splitSentences", () => {
   it("keeps decimals, initials and abbreviations inside a sentence", () => {
-    expect(splitSentences("The average body mass is 150 g (5.3 oz). It was described by J. E. Gray. Others, e.g. T. douglasii, differ.")).toEqual([
+    expect(
+      splitSentences(
+        "The average body mass is 150 g (5.3 oz). It was described by J. E. Gray. Others, e.g. T. douglasii, differ.",
+      ),
+    ).toEqual([
       "The average body mass is 150 g (5.3 oz).",
       "It was described by J. E. Gray.",
       "Others, e.g. T. douglasii, differ.",
@@ -178,7 +233,10 @@ describe("composeDescription on iNaturalist summaries", () => {
   });
 
   it("agrees with the Wikipedia path on what it keeps (garter snake)", () => {
-    const text = composeDescription({ lead: htmlToText(fixtures.inaturalistSummaries.garterSnake), leadTruncated: true })!;
+    const text = composeDescription({
+      lead: htmlToText(fixtures.inaturalistSummaries.garterSnake),
+      leadTruncated: true,
+    })!;
     expect(text).toMatch(/^Most common garter snakes have a pattern of yellow stripes/);
     expect(text).toContain("about 55 cm (22 in)");
     expect(text).not.toContain("state reptile of...");
@@ -216,8 +274,12 @@ describe("budget and edge cases", () => {
   });
 
   it("tidies pronunciation leftovers and entities", () => {
-    expect(cleanExtractText("The quokka ( ; Setonix brachyurus) is small .")).toBe("The quokka (Setonix brachyurus) is small.");
+    expect(cleanExtractText("The quokka ( ; Setonix brachyurus) is small .")).toBe(
+      "The quokka (Setonix brachyurus) is small.",
+    );
     expect(htmlToText("55&nbsp;cm <b>long</b> &amp; thin")).toBe("55 cm long & thin");
-    expect(cleanExtractText("The raccoon (or US:, Procyon lotor) is a mammal.")).toBe("The raccoon (Procyon lotor) is a mammal.");
+    expect(cleanExtractText("The raccoon (or US:, Procyon lotor) is a mammal.")).toBe(
+      "The raccoon (Procyon lotor) is a mammal.",
+    );
   });
 });

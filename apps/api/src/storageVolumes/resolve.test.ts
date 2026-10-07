@@ -42,7 +42,11 @@ describe("resolveOriginalPath for a library root", () => {
   it("joins the root path and the relative path when the folder is there", async () => {
     const { resolveOriginalPath } = await load(false);
     query.mockResolvedValueOnce({ rows: [rootRow()] });
-    expect(await resolveOriginalPath(original)).toEqual({ path: `${tmp}/Birds/heron.jpg`, connected: true, volumeLabel: "NAS" });
+    expect(await resolveOriginalPath(original)).toEqual({
+      path: `${tmp}/Birds/heron.jpg`,
+      connected: true,
+      volumeLabel: "NAS",
+    });
     expect(identity.listMountedVolumes).not.toHaveBeenCalled();
   });
 
@@ -124,13 +128,19 @@ describe("tagWithRegisteredVolume", () => {
   it("doesn't match a sibling that only shares a name prefix", async () => {
     const { tagWithRegisteredVolume } = await load(false);
     query.mockResolvedValueOnce({ rows: [{ id: "r", root_path: tmp }] });
-    expect(await tagWithRegisteredVolume("u1", `${tmp}-other/a.jpg`)).toEqual({ volumeId: null, volumeRelativePath: null });
+    expect(await tagWithRegisteredVolume("u1", `${tmp}-other/a.jpg`)).toEqual({
+      volumeId: null,
+      volumeRelativePath: null,
+    });
   });
 
   it("never runs drive detection on a server", async () => {
     const { tagWithRegisteredVolume } = await load(false);
     query.mockResolvedValueOnce({ rows: [] });
-    expect(await tagWithRegisteredVolume("u1", "/somewhere/a.jpg")).toEqual({ volumeId: null, volumeRelativePath: null });
+    expect(await tagWithRegisteredVolume("u1", "/somewhere/a.jpg")).toEqual({
+      volumeId: null,
+      volumeRelativePath: null,
+    });
     expect(identity.mountPathFor).not.toHaveBeenCalled();
     expect(identity.getVolumeId).not.toHaveBeenCalled();
   });

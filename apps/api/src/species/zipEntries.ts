@@ -35,7 +35,8 @@ async function readEntries(file: string): Promise<Entry[]> {
     // Zip64: the real values are in the zip64 end record a locator points at.
     if (cdOffset === 0xffffffff || count === 0xffff) {
       const loc = eocd - 20;
-      if (loc < 0 || tail.readUInt32LE(loc) !== 0x07064b50) throw new Error(`${path.basename(file)}: zip64 locator missing`);
+      if (loc < 0 || tail.readUInt32LE(loc) !== 0x07064b50)
+        throw new Error(`${path.basename(file)}: zip64 locator missing`);
       const z64At = Number(tail.readBigUInt64LE(loc + 8));
       const z64 = Buffer.alloc(56);
       await fh.read(z64, 0, 56, z64At);
@@ -87,7 +88,11 @@ async function readEntries(file: string): Promise<Entry[]> {
 }
 
 /** Writes each file whose zip path `pick` maps to a name into `destDir`. Returns what it wrote. */
-export async function extractZipEntries(file: string, destDir: string, pick: (zipPath: string) => string | null): Promise<string[]> {
+export async function extractZipEntries(
+  file: string,
+  destDir: string,
+  pick: (zipPath: string) => string | null,
+): Promise<string[]> {
   const written: string[] = [];
   mkdirSync(destDir, { recursive: true });
   for (const entry of await readEntries(file)) {
@@ -99,7 +104,11 @@ export async function extractZipEntries(file: string, destDir: string, pick: (zi
       await fh.read(header, 0, 30, entry.localHeaderOffset);
       if (header.readUInt32LE(0) !== 0x04034b50) throw new Error(`${entry.name}: damaged local header`);
       const dataStart = entry.localHeaderOffset + 30 + header.readUInt16LE(26) + header.readUInt16LE(28);
-      const source = fh.createReadStream({ start: dataStart, end: dataStart + entry.compressedSize - 1, autoClose: false });
+      const source = fh.createReadStream({
+        start: dataStart,
+        end: dataStart + entry.compressedSize - 1,
+        autoClose: false,
+      });
       const out = path.join(destDir, target);
       mkdirSync(path.dirname(out), { recursive: true });
       if (entry.method === 0) await pipeline(source, createWriteStream(out, { mode: 0o755 }));
@@ -112,4 +121,3 @@ export async function extractZipEntries(file: string, destDir: string, pick: (zi
   }
   return written;
 }
-

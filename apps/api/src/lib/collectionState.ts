@@ -144,7 +144,9 @@ export function scheduleCollectionStateSave(userId: string): void {
     userId,
     setTimeout(() => {
       pendingSaves.delete(userId);
-      saveCollectionState(userId).catch((err) => log.warn(`[collection-state] couldn't save: ${(err as Error).message}`));
+      saveCollectionState(userId).catch((err) =>
+        log.warn(`[collection-state] couldn't save: ${(err as Error).message}`),
+      );
     }, 2000),
   );
 }
@@ -235,7 +237,9 @@ async function tryRestore(userId: string): Promise<RestoreResult | typeof CATALO
   ];
   const ids = await speciesIdsByName(names);
   if (ids.size === 0) return CATALOG_MISSING; // catalog not installed yet: try again later
-  const regionRes = await pool.query<{ key: string; id: string }>(`SELECT ${REGION_KEY_SQL} AS key, r.id FROM regions r`);
+  const regionRes = await pool.query<{ key: string; id: string }>(
+    `SELECT ${REGION_KEY_SQL} AS key, r.id FROM regions r`,
+  );
   const regionIds = new Map(regionRes.rows.map((r) => [r.key, r.id]));
   const zoneRes = await pool.query<{ name: string; id: string }>(`SELECT name, id FROM sea_zones`);
   const seaZoneIds = new Map(zoneRes.rows.map((z) => [z.name, z.id]));
@@ -245,49 +249,88 @@ async function tryRestore(userId: string): Promise<RestoreResult | typeof CATALO
   await withTransaction(async (client) => {
     for (const name of saved.archived) {
       const id = ids.get(name);
-      if (!id) { notFound++; continue; }
-      await client.query(`INSERT INTO user_archived_species (user_id, species_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, [userId, id]);
+      if (!id) {
+        notFound++;
+        continue;
+      }
+      await client.query(
+        `INSERT INTO user_archived_species (user_id, species_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+        [userId, id],
+      );
       restored++;
     }
     for (const h of saved.hiddenInRegions) {
       const id = ids.get(h.species);
       const regionId = regionIds.get(h.region);
-      if (!id || !regionId) { notFound++; continue; }
-      await client.query(`INSERT INTO region_species_hidden (user_id, region_id, species_id) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`, [userId, regionId, id]);
+      if (!id || !regionId) {
+        notFound++;
+        continue;
+      }
+      await client.query(
+        `INSERT INTO region_species_hidden (user_id, region_id, species_id) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
+        [userId, regionId, id],
+      );
       restored++;
     }
     for (const name of saved.seen) {
       const id = ids.get(name);
-      if (!id) { notFound++; continue; }
+      if (!id) {
+        notFound++;
+        continue;
+      }
       // Never downgrades: a species you've since photographed stays collected.
-      await client.query(`INSERT INTO user_species (user_id, species_id, state) VALUES ($1, $2, 'seen') ON CONFLICT (user_id, species_id) DO NOTHING`, [userId, id]);
+      await client.query(
+        `INSERT INTO user_species (user_id, species_id, state) VALUES ($1, $2, 'seen') ON CONFLICT (user_id, species_id) DO NOTHING`,
+        [userId, id],
+      );
       restored++;
     }
     for (const o of saved.tierOverrides ?? []) {
       const id = ids.get(o.species);
       const regionId = o.region == null ? null : regionIds.get(o.region);
       // A tier name this version doesn't know would fail the CHECK and abort the whole restore.
-      if (!id || regionId === undefined || !TIER_ORDER.includes(o.tier as TierValue)) { notFound++; continue; }
-      await client.query(`INSERT INTO user_tier_overrides (user_id, region_id, species_id, tier) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING`, [userId, regionId, id, o.tier]);
+      if (!id || regionId === undefined || !TIER_ORDER.includes(o.tier as TierValue)) {
+        notFound++;
+        continue;
+      }
+      await client.query(
+        `INSERT INTO user_tier_overrides (user_id, region_id, species_id, tier) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING`,
+        [userId, regionId, id, o.tier],
+      );
       restored++;
     }
     for (const a of saved.addedToRegions ?? []) {
       const id = ids.get(a.species);
       const regionId = regionIds.get(a.region);
-      if (!id || !regionId) { notFound++; continue; }
-      await client.query(`INSERT INTO region_species_user_added (user_id, region_id, species_id) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`, [userId, regionId, id]);
+      if (!id || !regionId) {
+        notFound++;
+        continue;
+      }
+      await client.query(
+        `INSERT INTO region_species_user_added (user_id, region_id, species_id) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
+        [userId, regionId, id],
+      );
       restored++;
     }
     for (const a of saved.addedToSeaZones ?? []) {
       const id = ids.get(a.species);
       const seaZoneId = seaZoneIds.get(a.seaZone);
-      if (!id || !seaZoneId) { notFound++; continue; }
-      await client.query(`INSERT INTO sea_zone_species_user_added (user_id, sea_zone_id, species_id) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`, [userId, seaZoneId, id]);
+      if (!id || !seaZoneId) {
+        notFound++;
+        continue;
+      }
+      await client.query(
+        `INSERT INTO sea_zone_species_user_added (user_id, sea_zone_id, species_id) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
+        [userId, seaZoneId, id],
+      );
       restored++;
     }
     for (const name of saved.targets) {
       const id = ids.get(name);
-      if (!id) { notFound++; continue; }
+      if (!id) {
+        notFound++;
+        continue;
+      }
       await client.query(
         `INSERT INTO user_species (user_id, species_id, is_target) VALUES ($1, $2, true) ON CONFLICT (user_id, species_id) DO UPDATE SET is_target = true`,
         [userId, id],
@@ -295,7 +338,9 @@ async function tryRestore(userId: string): Promise<RestoreResult | typeof CATALO
       restored++;
     }
   });
-  log.info(`[collection-state] Restored ${restored} archived, hidden, seen, target, tier and checklist entries from the library${notFound ? ` (${notFound} not in this catalog)` : ""}.`);
+  log.info(
+    `[collection-state] Restored ${restored} archived, hidden, seen, target, tier and checklist entries from the library${notFound ? ` (${notFound} not in this catalog)` : ""}.`,
+  );
   return { restored, notFound };
 }
 

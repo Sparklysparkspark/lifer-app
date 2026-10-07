@@ -51,7 +51,10 @@ export async function importTripFile(
   managed = false,
   cull: CullHandling = {},
 ): Promise<TripImportResult> {
-  const speciesRes = await pool.query<{ id: string; scientific_name: string }>(`SELECT id, scientific_name FROM species WHERE id = $1`, [speciesId]);
+  const speciesRes = await pool.query<{ id: string; scientific_name: string }>(
+    `SELECT id, scientific_name FROM species WHERE id = $1`,
+    [speciesId],
+  );
   if (speciesRes.rows.length === 0) throw new Error("Unknown species");
 
   const tags = await readExifTags(absolutePath);
@@ -206,14 +209,26 @@ export async function importInboxFile(
     rawCopy = await copyToNewFile(rawDir, path.basename(raw.absolutePath), raw.absolutePath).catch(() => null);
   }
   try {
-    const result = await importTripFile(tripId, userId, speciesId, copy, destinationFolder, path.relative(destinationFolder, copy), regionId, true, {
-      marks,
-      hidden: decision === "hide",
-    });
+    const result = await importTripFile(
+      tripId,
+      userId,
+      speciesId,
+      copy,
+      destinationFolder,
+      path.relative(destinationFolder, copy),
+      regionId,
+      true,
+      {
+        marks,
+        hidden: decision === "hide",
+      },
+    );
     // Lifer made the RAW copy too, so it's Lifer's to manage like the photo (rawLink.ts links
     // RAWs as the user's own files).
     if (rawCopy) {
-      await pool.query(`UPDATE originals SET managed = true WHERE capture_id = $1 AND kind = 'raw'`, [result.captureId]).catch(() => {});
+      await pool
+        .query(`UPDATE originals SET managed = true WHERE capture_id = $1 AND kind = 'raw'`, [result.captureId])
+        .catch(() => {});
     }
     return result;
   } catch (err) {

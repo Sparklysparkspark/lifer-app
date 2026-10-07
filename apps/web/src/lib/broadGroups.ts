@@ -8,7 +8,11 @@ import { taxonClassLabel } from "./speciesGroups";
 type Rule = { groups: string[]; families?: string[]; orders?: string[] };
 
 const BIRD_RULES: Rule[] = [
-  { groups: ["taxa.groups.owls", "taxa.groups.raptors"], families: ["Strigidae", "Tytonidae"], orders: ["Strigiformes"] },
+  {
+    groups: ["taxa.groups.owls", "taxa.groups.raptors"],
+    families: ["Strigidae", "Tytonidae"],
+    orders: ["Strigiformes"],
+  },
   {
     groups: ["taxa.groups.raptors"],
     families: ["Accipitridae", "Pandionidae", "Falconidae", "Cathartidae", "Sagittariidae"],
@@ -69,7 +73,11 @@ const BIRD_RULES: Rule[] = [
     orders: ["Ciconiiformes", "Phoenicopteriformes"],
   },
   { groups: ["taxa.groups.railsCoots"], families: ["Rallidae", "Heliornithidae", "Sarothruridae"] },
-  { groups: ["taxa.groups.loonsGrebes"], families: ["Gaviidae", "Podicipedidae"], orders: ["Gaviiformes", "Podicipediformes"] },
+  {
+    groups: ["taxa.groups.loonsGrebes"],
+    families: ["Gaviidae", "Podicipedidae"],
+    orders: ["Gaviiformes", "Podicipediformes"],
+  },
   {
     groups: ["taxa.groups.gamebirds"],
     families: ["Phasianidae", "Odontophoridae", "Numididae", "Cracidae", "Megapodiidae", "Tinamidae"],

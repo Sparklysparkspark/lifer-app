@@ -33,9 +33,14 @@ let nextBurst = 1;
 /** Adds a checked photo and returns its burst's frames (itself included), newest last. */
 export function joinBurst(userId: string, frame: BurstFrame): BurstFrame[] {
   const now = Date.now();
-  const recent = (recentByUser.get(userId) ?? []).filter((r) => now - r.seenAt < RECENT_TTL_MS && r.uploadId !== frame.uploadId);
+  const recent = (recentByUser.get(userId) ?? []).filter(
+    (r) => now - r.seenAt < RECENT_TTL_MS && r.uploadId !== frame.uploadId,
+  );
   const mates = recent.filter(
-    (r) => r.context === frame.context && Math.abs(r.takenAt - frame.takenAt) <= BURST_MAX_GAP_MS && cosineSimilarity(r.clip, frame.clip) >= BURST_SIMILARITY,
+    (r) =>
+      r.context === frame.context &&
+      Math.abs(r.takenAt - frame.takenAt) <= BURST_MAX_GAP_MS &&
+      cosineSimilarity(r.clip, frame.clip) >= BURST_SIMILARITY,
   );
   // Joining two bursts (a frame similar to both) makes them one.
   const burst = mates.length > 0 ? Math.min(...mates.map((m) => m.burst)) : nextBurst++;

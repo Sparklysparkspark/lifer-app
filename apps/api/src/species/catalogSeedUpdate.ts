@@ -168,7 +168,11 @@ async function loadSeedIntoTempTables(
       await client.query(
         `CREATE TEMP TABLE ${ident(tmpName(table))} (${columns.map((c) => `${ident(c)} text`).join(", ")}) ON COMMIT DROP`,
       );
-      await copyInto(client, `COPY ${ident(tmpName(table))} (${columns.map(ident).join(", ")}) FROM STDIN`, blockBody());
+      await copyInto(
+        client,
+        `COPY ${ident(tmpName(table))} (${columns.map(ident).join(", ")}) FROM STDIN`,
+        blockBody(),
+      );
       loaded.set(table, columns);
       // A partial load can stop reading as soon as it has everything it asked for.
       if (onlyTables && [...onlyTables].every((t) => loaded.has(t))) break;
@@ -199,7 +203,8 @@ async function sharedColumns(
 ): Promise<Array<{ name: string; type: string }>> {
   const types = await columnTypes(client, table);
   const unknown = seedColumns.filter((c) => !types.has(c));
-  if (unknown.length > 0) log.warn(`[catalog-update] ${table}: ignoring columns not in this schema: ${unknown.join(", ")}`);
+  if (unknown.length > 0)
+    log.warn(`[catalog-update] ${table}: ignoring columns not in this schema: ${unknown.join(", ")}`);
   return seedColumns.filter((c) => types.has(c)).map((c) => ({ name: c, type: types.get(c)! }));
 }
 
@@ -291,7 +296,8 @@ async function pruneSeaZonesFromSeed(client: PoolClient): Promise<number> {
     `DELETE FROM sea_zones z WHERE NOT EXISTS (SELECT 1 FROM ${seedZones} s WHERE s.id::uuid = z.id) RETURNING z.id`,
   );
   const ids = res.rows.map((r) => r.id);
-  if (ids.length > 0) await client.query(`UPDATE regions SET nearby_sea_zone_ids = NULL WHERE nearby_sea_zone_ids && $1::uuid[]`, [ids]);
+  if (ids.length > 0)
+    await client.query(`UPDATE regions SET nearby_sea_zone_ids = NULL WHERE nearby_sea_zone_ids && $1::uuid[]`, [ids]);
   return ids.length;
 }
 
@@ -315,7 +321,9 @@ async function restoreSeaZoneAdditions(client: PoolClient): Promise<number> {
 export async function normalizeSeedIucnStatus(client: PoolClient, seedColumns: string[]): Promise<string[]> {
   if (!seedColumns.includes("iucn_status")) return seedColumns;
   const tmp = ident(tmpName("species_traits"));
-  const distinct = await client.query<{ v: string }>(`SELECT DISTINCT iucn_status AS v FROM ${tmp} WHERE iucn_status IS NOT NULL`);
+  const distinct = await client.query<{ v: string }>(
+    `SELECT DISTINCT iucn_status AS v FROM ${tmp} WHERE iucn_status IS NOT NULL`,
+  );
   const pairs = distinct.rows.map((r) => [r.v, normalizeIucnStatus(r.v)] as const).filter(([from, to]) => from !== to);
   if (pairs.length > 0) {
     await client.query(
@@ -347,7 +355,9 @@ async function mergeSelfReferencingTable(
   const colListNoParent = cols.filter((c) => c.name !== selfRefColumn).map((c) => ident(c.name));
   const parentCol = cols.find((c) => c.name === selfRefColumn);
 
-  await client.query(`CREATE TEMP TABLE region_id_remap (seed_id uuid PRIMARY KEY, local_id uuid NOT NULL) ON COMMIT DROP`);
+  await client.query(
+    `CREATE TEMP TABLE region_id_remap (seed_id uuid PRIMARY KEY, local_id uuid NOT NULL) ON COMMIT DROP`,
+  );
   // Identity mappings for rows that already exist locally by id. Re-run after each insert pass to
   // pick up rows just inserted.
   const seedIdentity = () =>
@@ -397,7 +407,11 @@ async function mergeSelfReferencingTable(
   if (updatable.length > 0) {
     await client.query(
       `UPDATE ${ident(table)} t SET ${updatable
-        .map((c) => (c.name === selfRefColumn ? `${ident(c.name)} = ${resolvedParent("s")}::${c.type}` : `${ident(c.name)} = s.${ident(c.name)}::${c.type}`))
+        .map((c) =>
+          c.name === selfRefColumn
+            ? `${ident(c.name)} = ${resolvedParent("s")}::${c.type}`
+            : `${ident(c.name)} = s.${ident(c.name)}::${c.type}`,
+        )
         .join(", ")}
          FROM ${ident(tmpName(table))} s
          JOIN region_id_remap r ON r.seed_id = s.${ident(pk)}::uuid
@@ -457,7 +471,10 @@ async function removeBlockedPhotos(client: PoolClient): Promise<{ count: number;
     `DELETE FROM ${PHOTOS_TABLE} p USING reference_photo_blocklist b WHERE b.photo_url = p.photo_url
      RETURNING p.display_path, p.thumb_path`,
   );
-  return { count: res.rows.length, files: res.rows.flatMap((r) => [r.display_path, r.thumb_path].filter((f): f is string => !!f)) };
+  return {
+    count: res.rows.length,
+    files: res.rows.flatMap((r) => [r.display_path, r.thumb_path].filter((f): f is string => !!f)),
+  };
 }
 
 // Older seeds still carry gallery embeddings keyed by the SEED's photo ids; map them onto this
@@ -489,7 +506,12 @@ export async function applyCatalogSeedFile(
     await client.query("BEGIN");
     await lockReferenceData(client);
     progress.update({ phase: "applying", processed: 0, total: null });
-    const loaded = await loadSeedIntoTempTables(client, seedPath, progress, onlyTables ? new Set(onlyTables) : undefined);
+    const loaded = await loadSeedIntoTempTables(
+      client,
+      seedPath,
+      progress,
+      onlyTables ? new Set(onlyTables) : undefined,
+    );
 
     // Main photo URLs before the merge, for dropStaleMainPhotoCaches.
     if (loaded.has("species")) {
@@ -505,11 +527,16 @@ export async function applyCatalogSeedFile(
       progress.throwIfCancelled();
       progress.update({ currentItem: spec.table, processed: done });
       if (spec.table === "sea_zones") merged.sea_zonesRemoved = await pruneSeaZonesFromSeed(client);
-      if (spec.table === "species_traits") loaded.set(spec.table, await normalizeSeedIucnStatus(client, loaded.get(spec.table)!));
+      if (spec.table === "species_traits")
+        loaded.set(spec.table, await normalizeSeedIucnStatus(client, loaded.get(spec.table)!));
       merged[spec.table] = await mergeGenericTable(client, spec, loaded.get(spec.table)!, new Set(loaded.keys()));
       if (spec.table === "sea_zones") merged.seaZoneAdditionsMoved = await restoreSeaZoneAdditions(client);
       if (spec.table in CHECKLIST_GROUP_COLUMN) {
-        merged[`${spec.table}Removed`] = await pruneChecklistsFromSeed(client, spec.table, CHECKLIST_GROUP_COLUMN[spec.table]);
+        merged[`${spec.table}Removed`] = await pruneChecklistsFromSeed(
+          client,
+          spec.table,
+          CHECKLIST_GROUP_COLUMN[spec.table],
+        );
       }
       done++;
     }
@@ -573,7 +600,10 @@ export async function applyCatalogSeedFile(
   }
 }
 
-async function downloadSeed(manifest: CatalogManifest, ctx: Pick<JobContext<unknown>, "signal" | "update">): Promise<string> {
+async function downloadSeed(
+  manifest: CatalogManifest,
+  ctx: Pick<JobContext<unknown>, "signal" | "update">,
+): Promise<string> {
   mkdirSync(CATALOG_DOWNLOAD_DIR, { recursive: true });
   const { url, sha256 } = catalogSeedAsset(manifest);
   const dest = path.join(CATALOG_DOWNLOAD_DIR, `lifer-catalog-seed-${manifest.version}.sql.gz`);
@@ -592,7 +622,8 @@ function pruneDownloads(keep: string | null): void {
   if (!existsSync(CATALOG_DOWNLOAD_DIR)) return;
   for (const name of readdirSafe(CATALOG_DOWNLOAD_DIR)) {
     const full = path.join(CATALOG_DOWNLOAD_DIR, name);
-    if (full !== keep && full !== `${keep}.part` && name.startsWith("lifer-catalog-seed-")) rmSync(full, { force: true });
+    if (full !== keep && full !== `${keep}.part` && name.startsWith("lifer-catalog-seed-"))
+      rmSync(full, { force: true });
   }
 }
 
@@ -714,7 +745,9 @@ export function seedCatalogIfEmpty(pool: Pool): Promise<{ seeded: boolean; merge
     const res = await pool.query<{ count: string }>(`SELECT count(*) FROM species`);
     if (Number(res.rows[0].count) > 0) {
       // A catalog the desktop app restored before the API started: record its version.
-      await recordRestoredSeedVersion(pool).catch((err) => log.warn({ err }, "[catalog] couldn't record the restored seed's version"));
+      await recordRestoredSeedVersion(pool).catch((err) =>
+        log.warn({ err }, "[catalog] couldn't record the restored seed's version"),
+      );
       return { seeded: false };
     }
     return seedEmptyCatalog(pool);

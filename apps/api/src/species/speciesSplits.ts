@@ -90,7 +90,11 @@ export async function resolveSpeciesSplits(userId: string | null = null): Promis
 }
 
 /** Species of this user's with photos a split couldn't settle, for the "Name changed" badge. */
-export async function speciesWithUnresolvedSplits(db: Queryable, userId: string, speciesIds: string[]): Promise<Set<string>> {
+export async function speciesWithUnresolvedSplits(
+  db: Queryable,
+  userId: string,
+  speciesIds: string[],
+): Promise<Set<string>> {
   if (speciesIds.length === 0) return new Set();
   const candidates = await db.query<{ parent_species_id: string }>(
     `SELECT DISTINCT parent_species_id FROM species_splits WHERE parent_species_id = ANY($1::uuid[])`,
@@ -105,8 +109,15 @@ export async function speciesWithUnresolvedSplits(db: Queryable, userId: string,
 /** Marks cards whose species has photos waiting on a split, and drops the tags that no longer fit
  *  it (tiers, Ghost, Lost, Endemic, Vagrant): they describe the old species' narrower meaning, not
  *  your photo. */
-export async function markNameChanged<T extends { speciesId: string }>(userId: string, items: T[]): Promise<Array<T & { nameChanged: boolean }>> {
-  const pending = await speciesWithUnresolvedSplits(pool, userId, items.map((i) => i.speciesId));
+export async function markNameChanged<T extends { speciesId: string }>(
+  userId: string,
+  items: T[],
+): Promise<Array<T & { nameChanged: boolean }>> {
+  const pending = await speciesWithUnresolvedSplits(
+    pool,
+    userId,
+    items.map((i) => i.speciesId),
+  );
   return items.map((item) =>
     pending.has(item.speciesId)
       ? {
@@ -129,7 +140,13 @@ export async function markNameChanged<T extends { speciesId: string }>(userId: s
 
 /** What a "Name changed" card offers: the new species, and this user's photos still to settle. */
 export async function splitOptions(userId: string, speciesId: string) {
-  const daughters = await pool.query<{ id: string; scientific_name: string; common_name: string | null; reference_photo: string | null; has_thumb: boolean }>(
+  const daughters = await pool.query<{
+    id: string;
+    scientific_name: string;
+    common_name: string | null;
+    reference_photo: string | null;
+    has_thumb: boolean;
+  }>(
     `SELECT s.id, s.scientific_name, s.common_name, s.reference_photo, (s.reference_thumb_path IS NOT NULL) AS has_thumb
      FROM species_splits sp JOIN species s ON s.id = sp.daughter_species_id
      WHERE sp.parent_species_id = $1
@@ -137,7 +154,9 @@ export async function splitOptions(userId: string, speciesId: string) {
     [speciesId],
   );
   const decisions = await pool.query<SplitDecision>(SPLIT_DECISIONS_SQL, [userId]);
-  const captureIds = decisions.rows.filter((d) => d.species_id === speciesId && !d.still_valid).map((d) => d.capture_id);
+  const captureIds = decisions.rows
+    .filter((d) => d.species_id === speciesId && !d.still_valid)
+    .map((d) => d.capture_id);
   return {
     captureIds,
     species: daughters.rows.map((d) => ({

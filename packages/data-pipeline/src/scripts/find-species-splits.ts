@@ -46,16 +46,19 @@ async function lookUp(ids: number[], cache: Cache, log: (m: string) => void): Pr
     const c = cache[String(id)];
     return c === undefined || (c !== null && now - c.at > MAX_AGE_MS);
   });
-  if (todo.length > 0) log(`[splits] looking up ${todo.length} taxa on iNaturalist (${Math.ceil(todo.length / BATCH)} requests)`);
+  if (todo.length > 0)
+    log(`[splits] looking up ${todo.length} taxa on iNaturalist (${Math.ceil(todo.length / BATCH)} requests)`);
   for (let i = 0; i < todo.length; i += BATCH) {
     const batch = todo.slice(i, i + BATCH);
-    const d = await inatGet<{ results: Array<{ id: number; name: string; is_active: boolean; current_synonymous_taxon_ids?: number[] | null }> }>(
-      `https://api.inaturalist.org/v1/taxa/${batch.join(",")}`,
-    );
+    const d = await inatGet<{
+      results: Array<{ id: number; name: string; is_active: boolean; current_synonymous_taxon_ids?: number[] | null }>;
+    }>(`https://api.inaturalist.org/v1/taxa/${batch.join(",")}`);
     const got = new Map(d.results.map((t) => [t.id, t]));
     for (const id of batch) {
       const t = got.get(id);
-      cache[String(id)] = t ? { name: t.name, active: t.is_active, current: t.current_synonymous_taxon_ids ?? [], at: Date.now() } : null;
+      cache[String(id)] = t
+        ? { name: t.name, active: t.is_active, current: t.current_synonymous_taxon_ids ?? [], at: Date.now() }
+        : null;
     }
     // Saved as it goes, so an interrupted run keeps what it fetched.
     if ((i / BATCH) % 20 === 0 || i + BATCH >= todo.length) writeFileSync(CACHE_PATH, JSON.stringify(cache));
@@ -70,7 +73,10 @@ export interface SplitFindings {
   missing: number;
 }
 
-export async function findSpeciesSplits(apply: boolean, log: (m: string) => void = console.log): Promise<SplitFindings> {
+export async function findSpeciesSplits(
+  apply: boolean,
+  log: (m: string) => void = console.log,
+): Promise<SplitFindings> {
   const species = await pool.query<{ id: string; scientific_name: string; inat_taxon_id: number }>(
     `SELECT id, scientific_name, inat_taxon_id FROM species WHERE inat_taxon_id IS NOT NULL AND NOT is_other_taxa`,
   );
@@ -84,10 +90,18 @@ export async function findSpeciesSplits(apply: boolean, log: (m: string) => void
   for (const n of names.rows) if (!byName.has(n.name.toLowerCase())) byName.set(n.name.toLowerCase(), n.species_id);
 
   const cache = loadCache();
-  await lookUp(species.rows.map((s) => s.inat_taxon_id), cache, log);
+  await lookUp(
+    species.rows.map((s) => s.inat_taxon_id),
+    cache,
+    log,
+  );
   // The replacements' names too, to match them to catalog species under any name.
   const retired = species.rows.filter((s) => cache[String(s.inat_taxon_id)]?.active === false);
-  await lookUp(retired.flatMap((s) => cache[String(s.inat_taxon_id)]!.current), cache, log);
+  await lookUp(
+    retired.flatMap((s) => cache[String(s.inat_taxon_id)]!.current),
+    cache,
+    log,
+  );
 
   const rows: Array<{ parent: string; daughter: string }> = [];
   const retaxon: Array<{ id: string; inat: number }> = [];
@@ -141,7 +155,9 @@ export async function findSpeciesSplits(apply: boolean, log: (m: string) => void
       await client.query("BEGIN");
       // Only parents judged this run: one renamed onto its same-name taxon below is no longer
       // retired next run, and its splits must survive that.
-      await client.query(`DELETE FROM species_splits WHERE source = 'inaturalist' AND parent_species_id = ANY($1)`, [retired.map((s) => s.id)]);
+      await client.query(`DELETE FROM species_splits WHERE source = 'inaturalist' AND parent_species_id = ANY($1)`, [
+        retired.map((s) => s.id),
+      ]);
       if (rows.length > 0) {
         await client.query(
           `INSERT INTO species_splits (parent_species_id, daughter_species_id, source)

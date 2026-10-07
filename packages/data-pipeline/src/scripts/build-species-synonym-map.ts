@@ -30,7 +30,9 @@ async function gbifKeyFor(name: string): Promise<number | null> {
 }
 
 async function main() {
-  const pairs: Pair[] = JSON.parse(await (await import("node:fs/promises")).readFile("/tmp/all_pairs_scientific.json", "utf-8"));
+  const pairs: Pair[] = JSON.parse(
+    await (await import("node:fs/promises")).readFile("/tmp/all_pairs_scientific.json", "utf-8"),
+  );
 
   const synonymMap: Record<number, number> = { ...EXISTING };
   const existingCount = Object.keys(EXISTING).length;

@@ -80,9 +80,12 @@ export async function fetchPublishedIndex(): Promise<PackIndex> {
   let lastError: unknown;
   for (let attempt = 0; attempt < 5; attempt++) {
     try {
-      const res = await fetch(`https://github.com/${GITHUB_REPO}/releases/download/${INDEX_RELEASE_TAG}/pack-index.json`, {
-        signal: AbortSignal.timeout(120_000),
-      });
+      const res = await fetch(
+        `https://github.com/${GITHUB_REPO}/releases/download/${INDEX_RELEASE_TAG}/pack-index.json`,
+        {
+          signal: AbortSignal.timeout(120_000),
+        },
+      );
       if (res.status === 404) return { generatedAt: new Date(0).toISOString(), packs: [] };
       if (res.ok) return (await res.json()) as PackIndex;
       lastError = new Error(`HTTP ${res.status}`);
@@ -98,7 +101,8 @@ function manifestContentVersion(archivePath: string): string {
   const dir = mkdtempSync(path.join(os.tmpdir(), "lifer-pack-version-"));
   try {
     tar.extract({ file: archivePath, cwd: dir, sync: true, filter: (p) => p === "manifest.json" });
-    return (JSON.parse(readFileSync(path.join(dir, "manifest.json"), "utf8")) as { contentVersion: string }).contentVersion;
+    return (JSON.parse(readFileSync(path.join(dir, "manifest.json"), "utf8")) as { contentVersion: string })
+      .contentVersion;
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -147,7 +151,9 @@ export interface PacksResult {
 
 /** Builds every pack into outDir and keeps only the changed ones. `countries` limits the country
  *  packs (sea zones are always built: country packs depend on them). */
-export async function buildPacks(opts: { countries?: string[] | null; outDir?: string; log?: (m: string) => void } = {}): Promise<PacksResult> {
+export async function buildPacks(
+  opts: { countries?: string[] | null; outDir?: string; log?: (m: string) => void } = {},
+): Promise<PacksResult> {
   const log = opts.log ?? ((m) => console.log(`[packs] ${m}`));
   await assertPhotosPublishable(pool);
   const outDir = opts.outDir ?? mkdtempSync(path.join(os.tmpdir(), "lifer-packs-"));
@@ -155,7 +161,12 @@ export async function buildPacks(opts: { countries?: string[] | null; outDir?: s
   // A reused outDir still holds the last run's archives and shards. build-pack-index.ts indexes
   // every archive in the folder, so leftovers this run doesn't rebuild would break the store.
   for (const f of readdirSync(outDir)) {
-    if (f.endsWith(".pack.tar.gz") || (f.startsWith(PACK_SHARD_PREFIX) && f.endsWith(".bin")) || f === "pack-index.json") rmSync(path.join(outDir, f));
+    if (
+      f.endsWith(".pack.tar.gz") ||
+      (f.startsWith(PACK_SHARD_PREFIX) && f.endsWith(".bin")) ||
+      f === "pack-index.json"
+    )
+      rmSync(path.join(outDir, f));
   }
   // Only packs already in the pack store count as published; anything else is rebuilt.
   const published = await fetchPublishedIndex();
@@ -201,10 +212,11 @@ export async function buildPacks(opts: { countries?: string[] | null; outDir?: s
   log(`${zones.length} sea zones`);
   const zoneJobs = zones.flatMap((zone) =>
     [null, ...zone.taxa].flatMap((taxon) =>
-      VARIANTS.map((variant) => () =>
-        attempt(`sea zone ${zone.name}${taxon ? ` ${taxon}` : ""} ${variant}`, () =>
-          buildSeaZonePack(zone.name, outDir, taxon as TaxonClass | null, variant),
-        ),
+      VARIANTS.map(
+        (variant) => () =>
+          attempt(`sea zone ${zone.name}${taxon ? ` ${taxon}` : ""} ${variant}`, () =>
+            buildSeaZonePack(zone.name, outDir, taxon as TaxonClass | null, variant),
+          ),
       ),
     ),
   );
@@ -220,18 +232,26 @@ export async function buildPacks(opts: { countries?: string[] | null; outDir?: s
       for (const variant of VARIANTS) {
         countryJobs.push(() =>
           attempt(`${country.name} ${taxon} ${variant}`, () =>
-            buildRegionPack(country.name, outDir, taxon, variant, { regionId: country.id, seaZonePackAvailable: (f) => available.has(f) }),
+            buildRegionPack(country.name, outDir, taxon, variant, {
+              regionId: country.id,
+              seaZonePackAvailable: (f) => available.has(f),
+            }),
           ),
         );
       }
     }
   }
   await mapWithConcurrency(countryJobs, PACK_CONCURRENCY, (job) => job());
-  log(`built ${result.built}: ${result.changed.length} changed, ${result.unchanged} unchanged, ${result.failures.length} failed`);
+  log(
+    `built ${result.built}: ${result.changed.length} changed, ${result.unchanged} unchanged, ${result.failures.length} failed`,
+  );
 
   if (result.changed.length > 0) {
     // Indexes the changed packs and merges in every published one it didn't rebuild.
-    execFileSync("npx", ["tsx", "src/build/build-pack-index.ts", outDir], { cwd: DATA_PIPELINE_DIR, stdio: ["ignore", "inherit", "inherit"] });
+    execFileSync("npx", ["tsx", "src/build/build-pack-index.ts", outDir], {
+      cwd: DATA_PIPELINE_DIR,
+      stdio: ["ignore", "inherit", "inherit"],
+    });
     const index = JSON.parse(readFileSync(path.join(outDir, "pack-index.json"), "utf8")) as PackIndex;
     // A pack in this run's scope that it didn't build has lost all its species: dropped, so the
     // index never lists a pack whose data is gone. Not after a failed build, which proves nothing.
@@ -274,4 +294,3 @@ export async function publishPacks(result: PacksResult, log: (m: string) => void
 export function cleanupPacksDir(dir: string) {
   if (existsSync(dir) && dir.startsWith(os.tmpdir())) rmSync(dir, { recursive: true, force: true });
 }
-

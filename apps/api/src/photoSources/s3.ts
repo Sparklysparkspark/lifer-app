@@ -56,9 +56,10 @@ export class S3PhotoSource implements PhotoSource {
 
   async originalUrl(captureId: string): Promise<string | null> {
     if (!S3_BUCKET) return null;
-    const res = await pool.query<{ ref: string }>(`SELECT ref FROM originals WHERE capture_id = $1 AND ref_type = 's3'`, [
-      captureId,
-    ]);
+    const res = await pool.query<{ ref: string }>(
+      `SELECT ref FROM originals WHERE capture_id = $1 AND ref_type = 's3'`,
+      [captureId],
+    );
     const key = res.rows[0]?.ref;
     return key ? signedS3Url(key) : null;
   }

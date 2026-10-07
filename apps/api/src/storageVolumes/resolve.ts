@@ -101,7 +101,10 @@ async function currentMountPath(volume: VolumeRow): Promise<string | null> {
 // Where a store-mode upload to a chosen volume goes. The volume must be the user's (or an
 // install-wide root) and connected: writing to an unmounted path can silently create a plain
 // folder on the main drive.
-export async function resolveChosenVolumeDestination(userId: string, volumeId: string): Promise<ChosenVolumeDestination | null> {
+export async function resolveChosenVolumeDestination(
+  userId: string,
+  volumeId: string,
+): Promise<ChosenVolumeDestination | null> {
   const res = await pool.query<VolumeRow>(
     `SELECT kind, label, platform_volume_id, root_path, removed_at FROM storage_volumes
      WHERE id = $1 AND (user_id = $2 OR kind = 'root')`,

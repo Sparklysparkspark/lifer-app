@@ -76,7 +76,13 @@ export async function trashRoutes(fastify: FastifyInstance): Promise<void> {
 
     // A capture whose file is on a disconnected drive stays in the Trash so the file isn't
     // orphaned; the next purge retries it.
-    const managedRes = await pool.query<{ capture_id: string; kind: string; ref: string; volume_id: string | null; volume_relative_path: string | null }>(
+    const managedRes = await pool.query<{
+      capture_id: string;
+      kind: string;
+      ref: string;
+      volume_id: string | null;
+      volume_relative_path: string | null;
+    }>(
       `SELECT capture_id, kind, ref, volume_id, volume_relative_path FROM originals
        WHERE capture_id = ANY($1::uuid[]) AND managed = true
          AND (kind IN ('jpeg', 'video') OR (kind = 'raw' AND capture_id = ANY($2::uuid[])))`,
@@ -134,7 +140,10 @@ export async function trashRoutes(fastify: FastifyInstance): Promise<void> {
             [userId, cover.species_id],
           );
         } else {
-          await client.query(`DELETE FROM user_species WHERE user_id = $1 AND species_id = $2`, [userId, cover.species_id]);
+          await client.query(`DELETE FROM user_species WHERE user_id = $1 AND species_id = $2`, [
+            userId,
+            cover.species_id,
+          ]);
         }
       }
 
@@ -207,7 +216,9 @@ export async function trashRoutes(fastify: FastifyInstance): Promise<void> {
     } catch {
       return;
     }
-    const shared = entries.some((name) => path.extname(name).toLowerCase() !== ".xmp" && path.basename(name, path.extname(name)) === stem);
+    const shared = entries.some(
+      (name) => path.extname(name).toLowerCase() !== ".xmp" && path.basename(name, path.extname(name)) === stem,
+    );
     if (!shared) await removeFileQuietly(sidecarPathFor(file));
   }
 
@@ -220,7 +231,8 @@ export async function trashRoutes(fastify: FastifyInstance): Promise<void> {
     try {
       await unlink(file);
     } catch (err) {
-      if ((err as NodeJS.ErrnoException).code !== "ENOENT") app.log.warn({ err, file }, "Couldn't delete a purged file");
+      if ((err as NodeJS.ErrnoException).code !== "ENOENT")
+        app.log.warn({ err, file }, "Couldn't delete a purged file");
     }
   }
 
@@ -398,5 +410,8 @@ export async function trashRoutes(fastify: FastifyInstance): Promise<void> {
   }
   const TRASH_SWEEP_INTERVAL_MS = 24 * 60 * 60 * 1000;
   sweepExpiredTrash().catch((err) => app.log.warn({ err }, "Initial trash sweep failed"));
-  setInterval(() => sweepExpiredTrash().catch((err) => app.log.warn({ err }, "Trash sweep failed")), TRASH_SWEEP_INTERVAL_MS);
+  setInterval(
+    () => sweepExpiredTrash().catch((err) => app.log.warn({ err }, "Trash sweep failed")),
+    TRASH_SWEEP_INTERVAL_MS,
+  );
 }

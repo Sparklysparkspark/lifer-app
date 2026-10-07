@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { groupByScientificName, type KeywordMatchedSpecies } from "./matchByKeywords.js";
 
-function species(overrides: Partial<KeywordMatchedSpecies> & { id: string; scientific_name: string }): KeywordMatchedSpecies {
+function species(
+  overrides: Partial<KeywordMatchedSpecies> & { id: string; scientific_name: string },
+): KeywordMatchedSpecies {
   return { common_name: null, taxon_class: null, family: null, ...overrides };
 }
 

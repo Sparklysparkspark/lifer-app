@@ -37,14 +37,44 @@ const LAND_CLASSES = ["mammalia", "amphibia", "squamata", "testudines"];
 // Bats fly; whales, seals, sea cows, sea turtles and sea snakes swim. None of them are escapes.
 const EXCLUDED_ORDERS = ["Chiroptera", "Cetacea", "Sirenia"];
 // Sea snakes are elapids, so they're named by genus.
-const SEA_SNAKE_GENERA = ["Hydrophis", "Aipysurus", "Emydocephalus", "Laticauda", "Microcephalophis", "Ephalophis", "Hydrelaps", "Parahydrophis"];
+const SEA_SNAKE_GENERA = [
+  "Hydrophis",
+  "Aipysurus",
+  "Emydocephalus",
+  "Laticauda",
+  "Microcephalophis",
+  "Ephalophis",
+  "Hydrelaps",
+  "Parahydrophis",
+];
 const EXCLUDED_FAMILIES = [
-  "Balaenidae", "Balaenopteridae", "Delphinidae", "Eschrichtiidae", "Kogiidae", "Monodontidae", "Neobalaenidae",
-  "Phocoenidae", "Physeteridae", "Platanistidae", "Iniidae", "Pontoporiidae", "Lipotidae", "Ziphiidae",
-  "Phocidae", "Otariidae", "Odobenidae", "Trichechidae", "Dugongidae", "Cheloniidae", "Dermochelyidae",
+  "Balaenidae",
+  "Balaenopteridae",
+  "Delphinidae",
+  "Eschrichtiidae",
+  "Kogiidae",
+  "Monodontidae",
+  "Neobalaenidae",
+  "Phocoenidae",
+  "Physeteridae",
+  "Platanistidae",
+  "Iniidae",
+  "Pontoporiidae",
+  "Lipotidae",
+  "Ziphiidae",
+  "Phocidae",
+  "Otariidae",
+  "Odobenidae",
+  "Trichechidae",
+  "Dugongidae",
+  "Cheloniidae",
+  "Dermochelyidae",
 ];
 
-async function deleteListings(client: PoolClient, rows: Array<{ region_id: string; species_id: string }>): Promise<void> {
+async function deleteListings(
+  client: PoolClient,
+  rows: Array<{ region_id: string; species_id: string }>,
+): Promise<void> {
   if (rows.length === 0) return;
   const args = [rows.map((r) => r.region_id), rows.map((r) => r.species_id)];
   await client.query(
@@ -101,7 +131,8 @@ async function unconnectedCandidates(client: PoolClient): Promise<Listing[]> {
         }
       }
     }
-    for (const r of list) if (!reached.has(r.region_id)) lost.push({ species_id: r.species_id, region_id: r.region_id });
+    for (const r of list)
+      if (!reached.has(r.region_id)) lost.push({ species_id: r.species_id, region_id: r.region_id });
   }
   if (lost.length === 0) return [];
   return describe(client, lost);
@@ -109,7 +140,11 @@ async function unconnectedCandidates(client: PoolClient): Promise<Listing[]> {
 
 /** Names and the distance to the nearest established population, for the report. Only the few
  *  rows being removed get a real distance computed. */
-async function describe(client: PoolClient, rows: Array<{ species_id: string; region_id: string }>, countryLevel = false): Promise<Listing[]> {
+async function describe(
+  client: PoolClient,
+  rows: Array<{ species_id: string; region_id: string }>,
+  countryLevel = false,
+): Promise<Listing[]> {
   const out = await client.query<Listing>(
     `SELECT v.species_id, v.region_id, s.common_name AS species, r.name AS region,
             ${countryLevel ? "r.name" : "p.country"} AS country,
@@ -131,7 +166,9 @@ type Listing = { species_id: string; region_id: string; species: string; region:
 // Province pairs this close are all any check here looks at; the widest distance used.
 const NEAR_KM = Math.max(ESCAPE_MIN_DISTANCE_KM, NEIGHBOUR_KM, COUNTRY_ESCAPE_MIN_DISTANCE_KM);
 
-export async function removeEscapes(apply: boolean): Promise<Array<{ species: string; region: string; country: string; km: number }>> {
+export async function removeEscapes(
+  apply: boolean,
+): Promise<Array<{ species: string; region: string; country: string; km: number }>> {
   const client = await pool.connect();
   await requirePostgis(client, "remove-escapes.ts");
   try {
@@ -170,7 +207,10 @@ export async function removeEscapes(apply: boolean): Promise<Array<{ species: st
     );
     await client.query(`CREATE INDEX ON esc_rows (species_id, region_id)`);
     await client.query(`CREATE INDEX ON esc_rows (region_id)`);
-    await client.query(`CREATE TEMP TABLE esc_established ON COMMIT DROP AS SELECT species_id, region_id FROM esc_rows WHERE n >= $1`, [ESTABLISHED_MIN_RECORDS]);
+    await client.query(
+      `CREATE TEMP TABLE esc_established ON COMMIT DROP AS SELECT species_id, region_id FROM esc_rows WHERE n >= $1`,
+      [ESTABLISHED_MIN_RECORDS],
+    );
     await client.query(`CREATE INDEX ON esc_established (species_id, region_id)`);
     await client.query(
       `CREATE TEMP TABLE esc_group_total ON COMMIT DROP AS SELECT region_id, grp, sum(n) AS total FROM esc_rows GROUP BY 1, 2`,
@@ -226,7 +266,16 @@ export async function removeEscapes(apply: boolean): Promise<Array<{ species: st
          AND NOT EXISTS (SELECT 1 FROM esc_province p JOIN esc_near nr ON nr.a = p.id AND nr.km <= $7
                          JOIN esc_rows o ON o.region_id = nr.b AND o.species_id = k.species_id
                          WHERE p.country_id = k.country_id)`,
-      [LAND_CLASSES, EXCLUDED_ORDERS, EXCLUDED_FAMILIES, ESCAPE_MIN_GROUP_RECORDS, ESCAPE_MAX_RECORDS, COUNTRY_ESCAPE_MIN_DISTANCE_KM, NEIGHBOUR_KM, SEA_SNAKE_GENERA],
+      [
+        LAND_CLASSES,
+        EXCLUDED_ORDERS,
+        EXCLUDED_FAMILIES,
+        ESCAPE_MIN_GROUP_RECORDS,
+        ESCAPE_MAX_RECORDS,
+        COUNTRY_ESCAPE_MIN_DISTANCE_KM,
+        NEIGHBOUR_KM,
+        SEA_SNAKE_GENERA,
+      ],
     );
     const countryListings = countries.rows.length > 0 ? await describe(client, countries.rows, true) : [];
     await deleteListings(client, countryListings);

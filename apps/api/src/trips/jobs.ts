@@ -44,12 +44,27 @@ interface ScanSummary {
 // The summary fields are also mirrored top-level, alongside `result`.
 type ScanExtra = { tripId: string } & ScanSummary;
 function emptyScanSummary(): ScanSummary {
-  return { relinked: 0, markedStale: 0, collisions: 0, recovered: 0, rawsLinked: 0, newFiles: [], cullRejected: 0, cullPicked: 0 };
+  return {
+    relinked: 0,
+    markedStale: 0,
+    collisions: 0,
+    recovered: 0,
+    rawsLinked: 0,
+    newFiles: [],
+    cullRejected: 0,
+    cullPicked: 0,
+  };
 }
 
 // `skipped` when a culling app rejected the photo and the import skips those; `hidden` when it
 // was imported hidden.
-type ImportFileResult = { relativePath: string; captureId?: string; error?: string; skipped?: "rejected"; hidden?: boolean };
+type ImportFileResult = {
+  relativePath: string;
+  captureId?: string;
+  error?: string;
+  skipped?: "rejected";
+  hidden?: boolean;
+};
 type ImportSummary = { imported: number; failed: number; skipped: number; hidden: number };
 interface ImportExtra {
   tripId: string;
@@ -174,7 +189,11 @@ async function runImportJob(
         result =
           "skipped" in outcome
             ? { relativePath: file.relativePath, skipped: outcome.skipped }
-            : { relativePath: file.relativePath, captureId: outcome.captureId, ...(outcome.hidden ? { hidden: true } : {}) };
+            : {
+                relativePath: file.relativePath,
+                captureId: outcome.captureId,
+                ...(outcome.hidden ? { hidden: true } : {}),
+              };
       } catch (err) {
         result = { relativePath: file.relativePath, error: (err as Error).message };
       }

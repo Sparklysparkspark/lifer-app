@@ -17,7 +17,11 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { pool } from "@lifer/core/db.js";
-import { resolveInatPlaceId, resolveCurrentInatTaxonId, fetchWithHardTimeout } from "@lifer/core/regions/inatChecklist.js";
+import {
+  resolveInatPlaceId,
+  resolveCurrentInatTaxonId,
+  fetchWithHardTimeout,
+} from "@lifer/core/regions/inatChecklist.js";
 import { mapWithConcurrency } from "@lifer/core/lib/concurrency.js";
 
 const CONCURRENCY = 8;
@@ -226,7 +230,8 @@ async function main() {
     const taxonId = candidate.inat_taxon_id ?? (await resolveCurrentInatTaxonId(candidate.scientific_name));
     if (!taxonId) {
       checkedCount++;
-      if (checkedCount % 500 === 0) console.log(`[flag-nonnative-obscure-taxa] ${checkedCount}/${candidatesRes.rows.length} checked so far`);
+      if (checkedCount % 500 === 0)
+        console.log(`[flag-nonnative-obscure-taxa] ${checkedCount}/${candidatesRes.rows.length} checked so far`);
       return; // no iNat taxon resolvable: no verdict possible, leave untouched
     }
 

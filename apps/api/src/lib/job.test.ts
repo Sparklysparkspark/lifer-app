@@ -11,7 +11,12 @@ describe("createJob", () => {
   it("claims synchronously, so a second start while running is rejected", async () => {
     const job = createJob<number>("test");
     const gate = deferred();
-    expect(job.start(async () => { await gate.promise; return 1; })).toBe(true);
+    expect(
+      job.start(async () => {
+        await gate.promise;
+        return 1;
+      }),
+    ).toBe(true);
     expect(job.status.running).toBe(true);
     expect(job.start(async () => 2)).toBe(false);
     gate.resolve();
@@ -22,7 +27,10 @@ describe("createJob", () => {
 
   it("can start again after the previous run finished, resetting status", async () => {
     const job = createJob<number, { count: number }>("test", { count: 0 });
-    job.start(async (ctx) => { ctx.update({ count: 5, processed: 3 }); throw new Error("boom"); });
+    job.start(async (ctx) => {
+      ctx.update({ count: 5, processed: 3 });
+      throw new Error("boom");
+    });
     await job.settled();
     expect(job.status).toMatchObject({ error: "boom", count: 5, processed: 3, running: false });
     expect(job.start(async () => 7)).toBe(true);
@@ -71,7 +79,9 @@ describe("createJob", () => {
 
   it("does not share array defaults between runs", async () => {
     const job = createJob<void, { notFound: string[] }>("test", { notFound: [] });
-    job.start(async () => { job.status.notFound.push("x"); });
+    job.start(async () => {
+      job.status.notFound.push("x");
+    });
     await job.settled();
     expect(job.status.notFound).toEqual(["x"]);
     job.start(async () => {});
@@ -81,10 +91,13 @@ describe("createJob", () => {
 
   it("surfaces a Postgres error's detail in the job status, not just the bare message", async () => {
     const job = createJob<void>("test");
-    const pgErr = Object.assign(new Error('duplicate key value violates unique constraint "regions_name_parent_id_key"'), {
-      detail: "Key (name, parent_id)=(Central, ...) already exists.",
-      code: "23505",
-    });
+    const pgErr = Object.assign(
+      new Error('duplicate key value violates unique constraint "regions_name_parent_id_key"'),
+      {
+        detail: "Key (name, parent_id)=(Central, ...) already exists.",
+        code: "23505",
+      },
+    );
     job.start(async () => {
       throw pgErr;
     });

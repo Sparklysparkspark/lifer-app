@@ -107,14 +107,25 @@ describe("computeEmbedding", () => {
 
 describe("matchTargets", () => {
   it("keeps the reference gallery when the user has their own photos of a species", () => {
-    const targets = matchTargets({ your_embeddings: [[1, 0]], ref_embedding: [0, 1], gallery_embeddings: [[0.5, 0.5]] });
+    const targets = matchTargets({
+      your_embeddings: [[1, 0]],
+      ref_embedding: [0, 1],
+      gallery_embeddings: [[0.5, 0.5]],
+    });
     expect(targets.map((t) => t.source)).toEqual(["your_photos", "reference_photo", "reference_photo"]);
     expect(targets[0].factor).toBeLessThan(1);
     expect(targets[1].factor).toBe(1);
   });
 
   it("uses every one of the user's photos, not just the latest", () => {
-    const targets = matchTargets({ your_embeddings: [[1, 0], [0, 1]], ref_embedding: null, gallery_embeddings: null });
+    const targets = matchTargets({
+      your_embeddings: [
+        [1, 0],
+        [0, 1],
+      ],
+      ref_embedding: null,
+      gallery_embeddings: null,
+    });
     expect(targets).toHaveLength(2);
   });
 
@@ -131,13 +142,18 @@ describe("rankSpeciesByEmbedding", () => {
 
   // Answers the three queries a regional ranking makes: the region's cached catalog, which of
   // your own photos have vectors, and those vectors themselves.
-  function fakePool(catalog: object[], yours: Array<{ capture_id: string; species_id: string; embedding: number[] }> = []) {
+  function fakePool(
+    catalog: object[],
+    yours: Array<{ capture_id: string; species_id: string; embedding: number[] }> = [],
+  ) {
     const calls: Array<{ sql: string; params: unknown[] }> = [];
     const query = async (sql: string, params: unknown[]) => {
       calls.push({ sql, params });
       if (sql.includes("FROM region_species")) return { rows: catalog };
-      if (sql.includes("JOIN captures c ON c.id = ce.capture_id")) return { rows: yours.map((y) => ({ capture_id: y.capture_id, species_id: y.species_id, computed_at: "t1" })) };
-      if (sql.includes("capture_id = ANY")) return { rows: yours.map((y) => ({ capture_id: y.capture_id, embedding: y.embedding, computed_at: "t1" })) };
+      if (sql.includes("JOIN captures c ON c.id = ce.capture_id"))
+        return { rows: yours.map((y) => ({ capture_id: y.capture_id, species_id: y.species_id, computed_at: "t1" })) };
+      if (sql.includes("capture_id = ANY"))
+        return { rows: yours.map((y) => ({ capture_id: y.capture_id, embedding: y.embedding, computed_at: "t1" })) };
       return { rows: [] };
     };
     return { calls, pool: { query } as never };
@@ -152,16 +168,37 @@ describe("rankSpeciesByEmbedding", () => {
     expect(all).toContain("id_model_gallery_embeddings");
     expect(all).toContain("id_model_text_embeddings");
     expect(all).not.toContain("species_reference_gallery_embeddings");
-    expect(calls.find((c) => c.sql.includes("FROM region_species"))!.params).toEqual([ID_SPACE.modelVersion, ID_SPACE.textModelVersion, ["r1"]]);
-    expect(calls.find((c) => c.sql.includes("JOIN captures c ON c.id = ce.capture_id"))!.params).toEqual(["u1", ID_SPACE.modelVersion]);
+    expect(calls.find((c) => c.sql.includes("FROM region_species"))!.params).toEqual([
+      ID_SPACE.modelVersion,
+      ID_SPACE.textModelVersion,
+      ["r1"],
+    ]);
+    expect(calls.find((c) => c.sql.includes("JOIN captures c ON c.id = ce.capture_id"))!.params).toEqual([
+      "u1",
+      ID_SPACE.modelVersion,
+    ]);
   });
 
   it("blends text at the space's weight and still uses the gallery when the user has photos", async () => {
     const { pool } = fakePool(
       [
         // Gallery matches perfectly; the user's own photo of it doesn't.
-        { ...base, species_id: "a", scientific_name: "A a", ref_embedding: null, gallery_embeddings: [[1, 0]], text_embedding: [1, 0] },
-        { ...base, species_id: "b", scientific_name: "B b", ref_embedding: [0, 1], gallery_embeddings: null, text_embedding: [0, 1] },
+        {
+          ...base,
+          species_id: "a",
+          scientific_name: "A a",
+          ref_embedding: null,
+          gallery_embeddings: [[1, 0]],
+          text_embedding: [1, 0],
+        },
+        {
+          ...base,
+          species_id: "b",
+          scientific_name: "B b",
+          ref_embedding: [0, 1],
+          gallery_embeddings: null,
+          text_embedding: [0, 1],
+        },
       ],
       [{ capture_id: "cap-a", species_id: "a", embedding: [0, 1] }],
     );
@@ -175,14 +212,36 @@ describe("rankSpeciesByEmbedding", () => {
   // out in SQL and come back as no text vector, so they're never scored against.
   it("reads only the current text model's rows and ranks a species without one on its image", async () => {
     expect(CLIP_SPACE.textModelVersion).toBe(TEXT_MODEL_VERSION);
-    const { pool, calls } = fakePool([{ ...base, species_id: "a", scientific_name: "A a", ref_embedding: [0.6, 0.8], gallery_embeddings: null, text_embedding: null }]);
+    const { pool, calls } = fakePool([
+      {
+        ...base,
+        species_id: "a",
+        scientific_name: "A a",
+        ref_embedding: [0.6, 0.8],
+        gallery_embeddings: null,
+        text_embedding: null,
+      },
+    ]);
     const [top] = await rankSpeciesByEmbedding(pool, "u1", [1, 0], "r3", 5, null, CLIP_SPACE);
-    expect(calls.find((c) => c.sql.includes("FROM region_species"))!.params).toEqual([CLIP_SPACE.modelVersion, TEXT_MODEL_VERSION, ["r3"]]);
+    expect(calls.find((c) => c.sql.includes("FROM region_species"))!.params).toEqual([
+      CLIP_SPACE.modelVersion,
+      TEXT_MODEL_VERSION,
+      ["r3"],
+    ]);
     expect(top.score).toBeCloseTo(0.6);
   });
 
   it("reads the region's reference vectors once, then serves them from memory", async () => {
-    const { pool, calls } = fakePool([{ ...base, species_id: "a", scientific_name: "A a", ref_embedding: [1, 0], gallery_embeddings: null, text_embedding: null }]);
+    const { pool, calls } = fakePool([
+      {
+        ...base,
+        species_id: "a",
+        scientific_name: "A a",
+        ref_embedding: [1, 0],
+        gallery_embeddings: null,
+        text_embedding: null,
+      },
+    ]);
     await rankSpeciesByEmbedding(pool, "u1", [1, 0], "r2", 5, null, CLIP_SPACE);
     await rankSpeciesByEmbedding(pool, "u1", [1, 0], "r2", 5, null, CLIP_SPACE);
     expect(calls.filter((c) => c.sql.includes("FROM region_species"))).toHaveLength(1);

@@ -7,7 +7,13 @@ describe("readInatResults", () => {
     expect(
       readInatResults("Accipiter bicolor", [
         { id: 1579012, name: "Astur bicolor", rank: "species", is_active: true, matched_term: "Accipiter bicolor" },
-        { id: 1579013, name: "Astur chilensis", rank: "species", is_active: true, matched_term: "Accipiter bicolor chilensis" },
+        {
+          id: 1579013,
+          name: "Astur chilensis",
+          rank: "species",
+          is_active: true,
+          matched_term: "Accipiter bicolor chilensis",
+        },
       ]),
     ).toEqual({ id: 1579012, name: "Astur bicolor" });
   });
@@ -19,7 +25,9 @@ describe("readInatResults", () => {
         { id: 2, name: "Cus bus", rank: "species", matched_term: "Aus bus" },
       ]),
     ).toBeNull();
-    expect(readInatResults("Aus bus", [{ id: 3, name: "Aus busi", rank: "species", matched_term: "Aus busi" }])).toBeNull();
+    expect(
+      readInatResults("Aus bus", [{ id: 3, name: "Aus busi", rank: "species", matched_term: "Aus busi" }]),
+    ).toBeNull();
   });
 
   it("ignores inactive taxa and higher ranks", () => {
@@ -74,7 +82,9 @@ describe("inatAncestorNames", () => {
 
   it("stops at the depth limit and skips uncommitted changes", async () => {
     expect(await inatAncestorNames(1579016, fetchChanges, 1)).toEqual([{ name: "Accipiter atricapillus", depth: 1 }]);
-    const draft = async () => [{ status: "draft", input_taxa: [{ id: 9, name: "Old name" }], output_taxa: [{ id: 1, name: "New" }] }];
+    const draft = async () => [
+      { status: "draft", input_taxa: [{ id: 9, name: "Old name" }], output_taxa: [{ id: 1, name: "New" }] },
+    ];
     expect(await inatAncestorNames(1, draft)).toEqual([]);
   });
 });

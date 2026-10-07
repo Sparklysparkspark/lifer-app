@@ -10,7 +10,12 @@ import { ensureDir, moveToFolder } from "@lifer/core/lib/safeFs.js";
 import { uploadTempDir } from "../lib/uploadWorkDir.js";
 import { createLimiter } from "@lifer/core/lib/concurrency.js";
 import { removeEmptyDirsUpward } from "../lib/fsCleanup.js";
-import { photoVectors, storeCaptureEmbedding, storeIdCaptureEmbedding, type PhotoVectorKind } from "@lifer/core/species/embeddings.js";
+import {
+  photoVectors,
+  storeCaptureEmbedding,
+  storeIdCaptureEmbedding,
+  type PhotoVectorKind,
+} from "@lifer/core/species/embeddings.js";
 import { idModel } from "@lifer/core/species/idModel.js";
 import type { ImageSource } from "@lifer/core/species/inference.js";
 import type { CaptureTime } from "./exif.js";
@@ -61,7 +66,8 @@ export async function moveIntoLibrary(source: string, dir: string, filename: str
     } catch (err) {
       const code = (err as NodeJS.ErrnoException).code;
       if (code === "EEXIST") continue;
-      if (code !== "EXDEV" && code !== "EPERM" && code !== "ENOTSUP" && code !== "EOPNOTSUPP" && code !== "EMLINK") throw err;
+      if (code !== "EXDEV" && code !== "EPERM" && code !== "ENOTSUP" && code !== "EOPNOTSUPP" && code !== "EMLINK")
+        throw err;
     }
     try {
       await copyFile(source, candidate, constants.COPYFILE_EXCL);
@@ -96,7 +102,13 @@ const MAX_BUFFERED_COMMIT_BYTES = 256 * 1024 * 1024;
 let bufferedCommitBytes = 0;
 
 /** `onDone` runs once the job is over either way, e.g. to remove a working copy it read. */
-export function queueCaptureVectors(captureId: string, image: ImageSource, key: string, onError: (err: unknown) => void, onDone?: () => void): void {
+export function queueCaptureVectors(
+  captureId: string,
+  image: ImageSource,
+  key: string,
+  onError: (err: unknown) => void,
+  onDone?: () => void,
+): void {
   const heldBytes = "path" in image ? 0 : image.byteLength;
   if (heldBytes > 0 && bufferedCommitBytes + heldBytes > MAX_BUFFERED_COMMIT_BYTES) {
     // Left for the next backfill (server start or model download), like a failed computation.

@@ -1,6 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import { PoliteClient } from "../fetch/wikipediaArticles.js";
-import { changedArticles, describeSpecies, knownTitles, parseArgs, type SpeciesToDescribe } from "./backfill-descriptions.js";
+import {
+  changedArticles,
+  describeSpecies,
+  knownTitles,
+  parseArgs,
+  type SpeciesToDescribe,
+} from "./backfill-descriptions.js";
 
 const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200 });
 
@@ -14,12 +20,35 @@ Common garter snakes are thin snakes. Few grow over about 4 ft (1.2 m) long.`;
 
 const PAGES: Record<string, { pageid: number; extract: string; lastrevid: number; length: number }> = {
   "Common garter snake": { pageid: 1, extract: LONG_ARTICLE.split("\n\n==")[0], lastrevid: 100, length: 29000 },
-  "Great blue heron": { pageid: 2, extract: "The great blue heron (Ardea herodias) is a large wading bird with a dagger-like bill.", lastrevid: 200, length: 4000 },
-  "Garter snake": { pageid: 3, extract: "Garter snake is the common name for small snakes of the genus Thamnophis.", lastrevid: 300, length: 3000 },
-  "Turbonilla acuta": { pageid: 4, extract: "Turbonilla acuta is a species of sea snail, a marine gastropod mollusk in the family Pyramidellidae.", lastrevid: 400, length: 2200 },
-  "Quillback rockfish": { pageid: 5, extract: "The quillback rockfish is a species of fish. Their mottled orange-brown coloring blends with reefs.", lastrevid: 500, length: 4000 },
+  "Great blue heron": {
+    pageid: 2,
+    extract: "The great blue heron (Ardea herodias) is a large wading bird with a dagger-like bill.",
+    lastrevid: 200,
+    length: 4000,
+  },
+  "Garter snake": {
+    pageid: 3,
+    extract: "Garter snake is the common name for small snakes of the genus Thamnophis.",
+    lastrevid: 300,
+    length: 3000,
+  },
+  "Turbonilla acuta": {
+    pageid: 4,
+    extract: "Turbonilla acuta is a species of sea snail, a marine gastropod mollusk in the family Pyramidellidae.",
+    lastrevid: 400,
+    length: 2200,
+  },
+  "Quillback rockfish": {
+    pageid: 5,
+    extract: "The quillback rockfish is a species of fish. Their mottled orange-brown coloring blends with reefs.",
+    lastrevid: 500,
+    length: 4000,
+  },
 };
-const REDIRECTS: Record<string, string> = { "Thamnophis sirtalis": "Common garter snake", "Thamnophis fakeus": "Garter snake" };
+const REDIRECTS: Record<string, string> = {
+  "Thamnophis sirtalis": "Common garter snake",
+  "Thamnophis fakeus": "Garter snake",
+};
 
 function fakeClients(wikidata: Record<string, string> = {}) {
   const wikiCalls: URLSearchParams[] = [];
@@ -28,15 +57,22 @@ function fakeClients(wikidata: Record<string, string> = {}) {
     const params = new URL(String(input)).searchParams;
     wikiCalls.push(params);
     const redirects: Array<{ from: string; to: string }> = [];
-    const pages = params.get("titles")!.split("|").map((t) => {
-      const to = REDIRECTS[t];
-      if (to) redirects.push({ from: t, to });
-      const title = to ?? t;
-      const p = PAGES[title];
-      if (!p) return { title, missing: true };
-      const whole = params.get("exintro") !== "1" && params.get("prop") === "extracts";
-      return { ...p, title, extract: whole ? (title === "Common garter snake" ? LONG_ARTICLE : p.extract) : p.extract };
-    });
+    const pages = params
+      .get("titles")!
+      .split("|")
+      .map((t) => {
+        const to = REDIRECTS[t];
+        if (to) redirects.push({ from: t, to });
+        const title = to ?? t;
+        const p = PAGES[title];
+        if (!p) return { title, missing: true };
+        const whole = params.get("exintro") !== "1" && params.get("prop") === "extracts";
+        return {
+          ...p,
+          title,
+          extract: whole ? (title === "Common garter snake" ? LONG_ARTICLE : p.extract) : p.extract,
+        };
+      });
     return json({ query: { redirects, pages } });
   });
   const wikidataFetch = vi.fn(async (_input: string | URL | Request, init?: RequestInit) => {
@@ -89,8 +125,19 @@ describe("describeSpecies", () => {
       [row("heron", "Ardea herodias", { wikipedia_title: "Great blue heron" }), row("fish", "Sebastes maliger")],
       { lang: "en", sections: true },
     );
-    expect(out.get("heron")).toMatchObject({ kind: "found", via: "known-title", title: "Great blue heron", revId: 200, sourceUrl: "https://en.wikipedia.org/wiki/Great_blue_heron" });
-    expect(out.get("fish")).toMatchObject({ kind: "found", via: "wikidata", title: "Quillback rockfish", description: PAGES["Quillback rockfish"].extract }); // "Their ..." keeps the sentence naming it
+    expect(out.get("heron")).toMatchObject({
+      kind: "found",
+      via: "known-title",
+      title: "Great blue heron",
+      revId: 200,
+      sourceUrl: "https://en.wikipedia.org/wiki/Great_blue_heron",
+    });
+    expect(out.get("fish")).toMatchObject({
+      kind: "found",
+      via: "wikidata",
+      title: "Quillback rockfish",
+      description: PAGES["Quillback rockfish"].extract,
+    }); // "Their ..." keeps the sentence naming it
     expect(wikidataCalls).toHaveLength(1);
     expect(wikidataCalls[0]).toContain('"Sebastes maliger"');
     expect(wikidataCalls[0]).not.toContain('"Ardea herodias"');
@@ -98,10 +145,19 @@ describe("describeSpecies", () => {
 
   it("tries the scientific name last and keeps it only when the article names the species", async () => {
     const { clients } = fakeClients();
-    const out = await describeSpecies(clients, [row("snake", "Thamnophis sirtalis"), row("fake", "Thamnophis fakeus"), row("snail", "Turbonilla acuta"), row("none", "Nullus nullus")], {
-      lang: "en",
-      sections: true,
-    });
+    const out = await describeSpecies(
+      clients,
+      [
+        row("snake", "Thamnophis sirtalis"),
+        row("fake", "Thamnophis fakeus"),
+        row("snail", "Turbonilla acuta"),
+        row("none", "Nullus nullus"),
+      ],
+      {
+        lang: "en",
+        sections: true,
+      },
+    );
     expect(out.get("snake")).toMatchObject({ kind: "found", via: "scientific-name", title: "Common garter snake" });
     expect(out.get("fake")).toEqual({ kind: "none" }); // redirected to the genus article
     // A stub with only a taxonomy line still gets it.
@@ -113,7 +169,10 @@ describe("describeSpecies", () => {
     const { clients, wikiCalls } = fakeClients();
     const out = await describeSpecies(
       clients,
-      [row("snake", "Thamnophis sirtalis", { wikipedia_title: "Common garter snake" }), row("heron", "Ardea herodias", { wikipedia_title: "Great blue heron" })],
+      [
+        row("snake", "Thamnophis sirtalis", { wikipedia_title: "Common garter snake" }),
+        row("heron", "Ardea herodias", { wikipedia_title: "Great blue heron" }),
+      ],
       { lang: "en", sections: true },
     );
     const whole = wikiCalls.filter((p) => p.get("exintro") !== "1");
@@ -126,7 +185,10 @@ describe("describeSpecies", () => {
 
   it("with sections off, never fetches a whole article", async () => {
     const { clients, wikiCalls } = fakeClients();
-    await describeSpecies(clients, [row("snake", "Thamnophis sirtalis", { wikipedia_title: "Common garter snake" })], { lang: "en", sections: false });
+    await describeSpecies(clients, [row("snake", "Thamnophis sirtalis", { wikipedia_title: "Common garter snake" })], {
+      lang: "en",
+      sections: false,
+    });
     expect(wikiCalls.every((p) => p.get("exintro") === "1")).toBe(true);
   });
 });
@@ -153,18 +215,39 @@ describe("changedArticles", () => {
   });
 
   it("compares bigint revision ids that pg returns as strings", () => {
-    const { changed } = changedArticles([{ id: "same", wikipedia_title: "Great blue heron", wikipedia_revision_id: "200" as unknown as number }], current);
+    const { changed } = changedArticles(
+      [{ id: "same", wikipedia_title: "Great blue heron", wikipedia_revision_id: "200" as unknown as number }],
+      current,
+    );
     expect(changed).toEqual([]);
   });
 });
 
 describe("parseArgs", () => {
   it("defaults to English, sections on, a 90-day recheck", () => {
-    expect(parseArgs([])).toMatchObject({ refresh: false, lang: "en", sections: true, recheckAfterDays: 90, limit: null, species: null, dryRun: false });
+    expect(parseArgs([])).toMatchObject({
+      refresh: false,
+      lang: "en",
+      sections: true,
+      recheckAfterDays: 90,
+      limit: null,
+      species: null,
+      dryRun: false,
+    });
   });
 
   it("reads every option", () => {
-    expect(parseArgs(["--refresh", "--lead-only", "--missing-only", "--limit=50", "--species=Ardea herodias,Thamnophis sirtalis", "--dry-run", "--lang=de"])).toMatchObject({
+    expect(
+      parseArgs([
+        "--refresh",
+        "--lead-only",
+        "--missing-only",
+        "--limit=50",
+        "--species=Ardea herodias,Thamnophis sirtalis",
+        "--dry-run",
+        "--lang=de",
+      ]),
+    ).toMatchObject({
       refresh: true,
       sections: false,
       missingOnly: true,

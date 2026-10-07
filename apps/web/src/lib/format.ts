@@ -68,7 +68,11 @@ export function formatDate(
 }
 
 /** A month's name (0 = January) in the active locale, in the given width. */
-export function formatMonthName(monthIndex: number, width: "long" | "short" | "narrow" = "long", locale?: string): string {
+export function formatMonthName(
+  monthIndex: number,
+  width: "long" | "short" | "narrow" = "long",
+  locale?: string,
+): string {
   return new Intl.DateTimeFormat(locale ?? currentLocale, { month: width, timeZone: "UTC" }).format(
     new Date(Date.UTC(2000, monthIndex, 1)),
   );
@@ -146,6 +150,10 @@ export function formatBytes(bytes: number, locale?: string): string {
 // --- Lists ---
 
 /** "a, b and c" in the active locale. */
-export function formatList(items: readonly string[], type: Intl.ListFormatType = "conjunction", locale?: string): string {
+export function formatList(
+  items: readonly string[],
+  type: Intl.ListFormatType = "conjunction",
+  locale?: string,
+): string {
   return new Intl.ListFormat(locale ?? currentLocale, { style: "long", type }).format(items);
 }

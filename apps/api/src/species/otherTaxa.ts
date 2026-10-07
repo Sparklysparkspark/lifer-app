@@ -8,7 +8,11 @@ import { pool, withTransaction } from "@lifer/core/db.js";
 import { isUuid } from "../lib/validate.js";
 import { IdParams, Ok, notFoundOnInvalidId, replies, withSchemas } from "../lib/schema.js";
 import { requireAuth } from "../auth/session.js";
-import { enrichSpecies, persistEnrichment, persistGalleryPromotingMainIfMissing } from "@lifer/core/species/lazyEnrich.js";
+import {
+  enrichSpecies,
+  persistEnrichment,
+  persistGalleryPromotingMainIfMissing,
+} from "@lifer/core/species/lazyEnrich.js";
 import { createJob } from "../lib/job.js";
 import { addToRegionChecklist, findChecklistRegion, noChecklistError } from "../regions/checklistAdditions.js";
 import { scheduleCollectionStateSave } from "../lib/collectionState.js";
@@ -22,9 +26,10 @@ function titleCaseCommonName(name: string): string {
 }
 
 async function requireAnyTaxaSearchEnabled(request: FastifyRequest, reply: FastifyReply): Promise<boolean> {
-  const res = await pool.query<{ any_taxa_search_enabled: boolean }>(`SELECT any_taxa_search_enabled FROM users WHERE id = $1`, [
-    request.user!.id,
-  ]);
+  const res = await pool.query<{ any_taxa_search_enabled: boolean }>(
+    `SELECT any_taxa_search_enabled FROM users WHERE id = $1`,
+    [request.user!.id],
+  );
   if (!res.rows[0]?.any_taxa_search_enabled) {
     reply.code(403).send({ error: "Any-taxa search isn't enabled (Settings > Species & Import)" });
     return false;
@@ -34,7 +39,9 @@ async function requireAnyTaxaSearchEnabled(request: FastifyRequest, reply: Fasti
 
 /** The species row for an iNat taxon, created and enriched on first use. Doesn't put it on any
  *  checklist; each caller decides that. */
-async function resolveOrCreateOtherTaxaSpecies(inatTaxonId: number): Promise<{ speciesId: string; scientificName: string }> {
+async function resolveOrCreateOtherTaxaSpecies(
+  inatTaxonId: number,
+): Promise<{ speciesId: string; scientificName: string }> {
   const existing = await pool.query<{ id: string; scientific_name: string }>(
     `SELECT id, scientific_name FROM species WHERE inat_taxon_id = $1 AND is_other_taxa = true`,
     [inatTaxonId],
@@ -54,7 +61,12 @@ async function resolveOrCreateOtherTaxaSpecies(inatTaxonId: number): Promise<{ s
       iconic_taxon_name?: string;
       // The singular `conservation_status` is place-aware and null without a place, so the
       // plural list is what's read.
-      conservation_statuses?: Array<{ status: string; authority: string; place: unknown | null; iucn: number | null }> | null;
+      conservation_statuses?: Array<{
+        status: string;
+        authority: string;
+        place: unknown | null;
+        iucn: number | null;
+      }> | null;
     }>;
   };
   const taxon = taxonData.results[0];
@@ -79,9 +91,12 @@ async function resolveOrCreateOtherTaxaSpecies(inatTaxonId: number): Promise<{ s
   let family: string | null = null;
   let order: string | null = null;
   try {
-    const gbifRes = await fetch(`https://api.gbif.org/v1/species/match?name=${encodeURIComponent(taxon.name)}&strict=false`, {
-      signal: AbortSignal.timeout(15_000),
-    });
+    const gbifRes = await fetch(
+      `https://api.gbif.org/v1/species/match?name=${encodeURIComponent(taxon.name)}&strict=false`,
+      {
+        signal: AbortSignal.timeout(15_000),
+      },
+    );
     const gbifData = (await gbifRes.json()) as { usageKey?: number; family?: string; order?: string };
     if (gbifData.usageKey) gbifKey = gbifData.usageKey;
     family = gbifData.family ?? null;
@@ -219,7 +234,9 @@ export async function otherTaxaRoutes(fastify: FastifyInstance): Promise<void> {
     const { id: speciesId } = request.params;
     const userId = request.user!.id;
 
-    const speciesRes = await pool.query<{ is_other_taxa: boolean }>(`SELECT is_other_taxa FROM species WHERE id = $1`, [speciesId]);
+    const speciesRes = await pool.query<{ is_other_taxa: boolean }>(`SELECT is_other_taxa FROM species WHERE id = $1`, [
+      speciesId,
+    ]);
     if (speciesRes.rows.length === 0) return reply.code(404).send({ error: "Species not found" });
     if (!speciesRes.rows[0].is_other_taxa) {
       return reply.code(400).send({ error: "Only an Other Taxa species can be removed this way" });
@@ -262,7 +279,10 @@ export async function otherTaxaRoutes(fastify: FastifyInstance): Promise<void> {
         return true;
       } catch (err) {
         await client.query("ROLLBACK TO SAVEPOINT drop_species");
-        request.log.warn({ err, speciesId }, "Other Taxa species still referenced elsewhere: removed from your lists, species row kept");
+        request.log.warn(
+          { err, speciesId },
+          "Other Taxa species still referenced elsewhere: removed from your lists, species row kept",
+        );
         return false;
       }
     });
@@ -317,10 +337,13 @@ export async function otherTaxaRoutes(fastify: FastifyInstance): Promise<void> {
               if (/^\d+$/.test(line)) {
                 taxonId = Number(line);
               } else {
-                const searchRes = await fetch(`${INAT_TAXA_API}?q=${encodeURIComponent(line)}&rank=species&is_active=true&per_page=1`, {
-                  headers: { "User-Agent": OTHER_TAXA_USER_AGENT },
-                  signal: AbortSignal.any([ctx.signal, AbortSignal.timeout(15_000)]),
-                });
+                const searchRes = await fetch(
+                  `${INAT_TAXA_API}?q=${encodeURIComponent(line)}&rank=species&is_active=true&per_page=1`,
+                  {
+                    headers: { "User-Agent": OTHER_TAXA_USER_AGENT },
+                    signal: AbortSignal.any([ctx.signal, AbortSignal.timeout(15_000)]),
+                  },
+                );
                 if (searchRes.ok) {
                   const searchData = (await searchRes.json()) as { results: Array<{ id: number }> };
                   taxonId = searchData.results[0]?.id ?? null;

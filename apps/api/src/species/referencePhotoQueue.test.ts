@@ -18,7 +18,11 @@ describe("queueReferenceDownload", () => {
   });
 
   it("never rejects, so a failed download can't crash the process", async () => {
-    await expect(queueReferenceDownload("species:y", async () => { throw new Error("offline"); })).resolves.toBeUndefined();
+    await expect(
+      queueReferenceDownload("species:y", async () => {
+        throw new Error("offline");
+      }),
+    ).resolves.toBeUndefined();
   });
 
   it("runs at most 3 downloads at once", async () => {

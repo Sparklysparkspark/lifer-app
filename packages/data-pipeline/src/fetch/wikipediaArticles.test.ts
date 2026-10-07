@@ -18,14 +18,35 @@ function client(handler: (url: URL, body: URLSearchParams | null) => Response | 
   const fetchImpl = vi.fn(async (input: string | URL | Request, init?: RequestInit) =>
     handler(new URL(String(input)), init?.body ? new URLSearchParams(String(init.body)) : null),
   );
-  return { c: new PoliteClient({ fetchImpl: fetchImpl as unknown as typeof fetch, minIntervalMs: 0, wait: noWait }), fetchImpl };
+  return {
+    c: new PoliteClient({ fetchImpl: fetchImpl as unknown as typeof fetch, minIntervalMs: 0, wait: noWait }),
+    fetchImpl,
+  };
 }
 
 // A fake MediaWiki that knows a few pages and redirects, answering prop=extracts|info queries.
-const PAGES: Record<string, { pageid: number; extract: string; lastrevid: number; length: number; disambiguation?: boolean }> = {
-  "Common garter snake": { pageid: 1, extract: "The common garter snake (Thamnophis sirtalis) is a snake.", lastrevid: 100, length: 29000 },
-  "Great blue heron": { pageid: 2, extract: "The great blue heron (Ardea herodias) is a large wading bird.", lastrevid: 200, length: 39000 },
-  "Garter snake": { pageid: 3, extract: "Garter snake is the common name for snakes of the genus Thamnophis.", lastrevid: 300, length: 34000 },
+const PAGES: Record<
+  string,
+  { pageid: number; extract: string; lastrevid: number; length: number; disambiguation?: boolean }
+> = {
+  "Common garter snake": {
+    pageid: 1,
+    extract: "The common garter snake (Thamnophis sirtalis) is a snake.",
+    lastrevid: 100,
+    length: 29000,
+  },
+  "Great blue heron": {
+    pageid: 2,
+    extract: "The great blue heron (Ardea herodias) is a large wading bird.",
+    lastrevid: 200,
+    length: 39000,
+  },
+  "Garter snake": {
+    pageid: 3,
+    extract: "Garter snake is the common name for snakes of the genus Thamnophis.",
+    lastrevid: 300,
+    length: 34000,
+  },
   Mercury: { pageid: 4, extract: "Mercury may refer to:", lastrevid: 400, length: 900, disambiguation: true },
 };
 const REDIRECTS: Record<string, { to: string; tofragment?: string }> = {
@@ -51,7 +72,14 @@ function fakeWiki(url: URL): Response {
     pages.set(
       t,
       p
-        ? { pageid: p.pageid, title: t, extract: url.searchParams.get("prop")?.includes("extracts") ? p.extract : undefined, lastrevid: p.lastrevid, length: p.length, ...(p.disambiguation ? { pageprops: { disambiguation: "" } } : {}) }
+        ? {
+            pageid: p.pageid,
+            title: t,
+            extract: url.searchParams.get("prop")?.includes("extracts") ? p.extract : undefined,
+            lastrevid: p.lastrevid,
+            length: p.length,
+            ...(p.disambiguation ? { pageprops: { disambiguation: "" } } : {}),
+          }
         : { title: t, missing: true },
     );
   }
@@ -75,8 +103,20 @@ describe("fetchIntros", () => {
 
   it("maps each requested title through normalization and redirects", async () => {
     const { c } = client((url) => fakeWiki(url));
-    const out = await fetchIntros(c, "en", ["Thamnophis sirtalis", "Common_garter_snake", "Ardea herodias", "Nope nope", "Mercury", "Conus obscurus"]);
-    expect(out.get("Thamnophis sirtalis")).toMatchObject({ title: "Common garter snake", lastRevId: 100, redirected: true, length: 29000 });
+    const out = await fetchIntros(c, "en", [
+      "Thamnophis sirtalis",
+      "Common_garter_snake",
+      "Ardea herodias",
+      "Nope nope",
+      "Mercury",
+      "Conus obscurus",
+    ]);
+    expect(out.get("Thamnophis sirtalis")).toMatchObject({
+      title: "Common garter snake",
+      lastRevId: 100,
+      redirected: true,
+      length: 29000,
+    });
     expect(out.get("Common_garter_snake")).toMatchObject({ title: "Common garter snake", redirected: false });
     expect(out.get("Ardea herodias")?.extract).toMatch(/great blue heron/);
     expect(out.get("Nope nope")).toBeNull();
@@ -90,9 +130,21 @@ describe("fetchIntros", () => {
       call++;
       const base = { pageid: 1, title: "Great blue heron", lastrevid: 200, length: 5 };
       if (!url.searchParams.get("excontinue")) {
-        return json({ continue: { excontinue: "1", continue: "||" }, query: { pages: [base, { pageid: 2, title: "Common garter snake", lastrevid: 1, length: 5, extract: "Snake." }] } });
+        return json({
+          continue: { excontinue: "1", continue: "||" },
+          query: {
+            pages: [base, { pageid: 2, title: "Common garter snake", lastrevid: 1, length: 5, extract: "Snake." }],
+          },
+        });
       }
-      return json({ query: { pages: [{ ...base, extract: "Heron." }, { pageid: 2, title: "Common garter snake", lastrevid: 1, length: 5 }] } });
+      return json({
+        query: {
+          pages: [
+            { ...base, extract: "Heron." },
+            { pageid: 2, title: "Common garter snake", lastrevid: 1, length: 5 },
+          ],
+        },
+      });
     });
     const out = await fetchIntros(c, "en", ["Great blue heron", "Common garter snake"]);
     expect(call).toBe(2);
@@ -173,7 +225,9 @@ describe("resolveTitlesViaWikidata", () => {
 
 describe("titles and URLs", () => {
   it("reads titles from Wikipedia URLs of the right language only", () => {
-    expect(titleFromWikipediaUrl("https://en.wikipedia.org/wiki/Thamnophis sirtalis", "en")).toBe("Thamnophis sirtalis");
+    expect(titleFromWikipediaUrl("https://en.wikipedia.org/wiki/Thamnophis sirtalis", "en")).toBe(
+      "Thamnophis sirtalis",
+    );
     expect(titleFromWikipediaUrl("http://en.wikipedia.org/wiki/Worm_pipefish", "en")).toBe("Worm pipefish");
     expect(titleFromWikipediaUrl("https://en.wikipedia.org/wiki/Bewick%27s_wren", "en")).toBe("Bewick's wren");
     expect(titleFromWikipediaUrl("https://fr.wikipedia.org/wiki/H%C3%A9ron", "en")).toBeNull();
@@ -189,9 +243,21 @@ describe("titles and URLs", () => {
   it("accepts a scientific-name lookup only when the article is about the species", () => {
     const intro = (title: string, extract: string, redirectedToSection = false) =>
       ({ title, extract, redirectedToSection }) as ArticleIntro;
-    expect(introMatchesSpecies(intro("Common garter snake", "The common garter snake (Thamnophis sirtalis) is..."), "Thamnophis sirtalis")).toBe(true);
-    expect(introMatchesSpecies(intro("Garter snake", "Garter snake is the common name for the genus Thamnophis."), "Thamnophis fakeus")).toBe(false);
-    expect(introMatchesSpecies(intro("Turbonilla acuta", "Turbonilla acuta is a species of sea snail."), "Turbonilla acuta")).toBe(true);
+    expect(
+      introMatchesSpecies(
+        intro("Common garter snake", "The common garter snake (Thamnophis sirtalis) is..."),
+        "Thamnophis sirtalis",
+      ),
+    ).toBe(true);
+    expect(
+      introMatchesSpecies(
+        intro("Garter snake", "Garter snake is the common name for the genus Thamnophis."),
+        "Thamnophis fakeus",
+      ),
+    ).toBe(false);
+    expect(
+      introMatchesSpecies(intro("Turbonilla acuta", "Turbonilla acuta is a species of sea snail."), "Turbonilla acuta"),
+    ).toBe(true);
     expect(introMatchesSpecies(intro("Conus", "Conus obscurus and others", true), "Conus obscurus")).toBe(false);
   });
 });

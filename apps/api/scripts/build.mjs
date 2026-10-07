@@ -35,7 +35,9 @@ const externalPackages = {
   name: "external-packages",
   setup(b) {
     // Bare imports other than Lifer's own workspaces stay as imports of node_modules.
-    b.onResolve({ filter: /^[^./]/ }, (args) => (WORKSPACE_PACKAGES.test(args.path) ? undefined : { path: args.path, external: true }));
+    b.onResolve({ filter: /^[^./]/ }, (args) =>
+      WORKSPACE_PACKAGES.test(args.path) ? undefined : { path: args.path, external: true },
+    );
   },
 };
 
@@ -49,7 +51,9 @@ const common = {
   logLevel: "warning",
   plugins: [externalPackages],
   // CommonJS packages bundled into ESM still call require(); give them one.
-  banner: { js: 'import { createRequire as __liferCreateRequire } from "node:module"; const require = __liferCreateRequire(import.meta.url);' },
+  banner: {
+    js: 'import { createRequire as __liferCreateRequire } from "node:module"; const require = __liferCreateRequire(import.meta.url);',
+  },
 };
 
 const apiDist = path.join(API_DIR, "dist");
@@ -78,7 +82,9 @@ const results = await Promise.all([
 
 // inference.ts loads the detector from models/ next to itself.
 mkdirSync(path.join(apiDist, "models"), { recursive: true });
-cpSync(path.join(REPO_ROOT, "packages", "core", "src", "species", "models"), path.join(apiDist, "models"), { recursive: true });
+cpSync(path.join(REPO_ROOT, "packages", "core", "src", "species", "models"), path.join(apiDist, "models"), {
+  recursive: true,
+});
 
 const { readFileSync } = await import("node:fs");
 const unsafe = [];
@@ -100,4 +106,6 @@ if (unsafe.length > 0) {
   );
   process.exit(1);
 }
-console.log(`[build] api -> ${path.relative(REPO_ROOT, apiDist)}, migrate -> ${path.relative(REPO_ROOT, pipelineDist)}`);
+console.log(
+  `[build] api -> ${path.relative(REPO_ROOT, apiDist)}, migrate -> ${path.relative(REPO_ROOT, pipelineDist)}`,
+);

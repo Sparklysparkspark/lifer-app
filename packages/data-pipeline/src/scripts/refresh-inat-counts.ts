@@ -11,8 +11,12 @@ import { fileURLToPath } from "node:url";
 import { pool } from "@lifer/core/db.js";
 import { refreshPlaceCounts } from "@lifer/core/regions/inatChecklist.js";
 
-export async function refreshAllPlaceCounts(log: (m: string) => void = console.log): Promise<{ done: number; failed: number }> {
-  const places = await pool.query<{ inat_place_id: number }>(`SELECT DISTINCT inat_place_id FROM regions WHERE inat_place_id IS NOT NULL ORDER BY 1`);
+export async function refreshAllPlaceCounts(
+  log: (m: string) => void = console.log,
+): Promise<{ done: number; failed: number }> {
+  const places = await pool.query<{ inat_place_id: number }>(
+    `SELECT DISTINCT inat_place_id FROM regions WHERE inat_place_id IS NOT NULL ORDER BY 1`,
+  );
   let done = 0;
   let failed = 0;
   for (const [i, p] of places.rows.entries()) {

@@ -184,11 +184,10 @@ export async function reassignCaptureSpecies(
     coverMoved = await withTransaction(async (client) => {
       for (const m of moved) {
         // A file on a drive or library root keeps its volume; its path on it follows the move.
-        await client.query(`UPDATE originals SET ref = $1, volume_relative_path = COALESCE($2, volume_relative_path) WHERE id = $3`, [
-          m.to,
-          m.volumeRelativePath,
-          m.id,
-        ]);
+        await client.query(
+          `UPDATE originals SET ref = $1, volume_relative_path = COALESCE($2, volume_relative_path) WHERE id = $3`,
+          [m.to, m.volumeRelativePath, m.id],
+        );
       }
       await client.query(`UPDATE captures SET species_id = $1 WHERE id = $2`, [speciesId, captureId]);
       await markCollected(client, userId, speciesId, capture.current_photo_id, capture.taken_at);
@@ -236,10 +235,14 @@ export async function captureRoutes(fastify: FastifyInstance): Promise<void> {
       const { speciesId } = request.body;
       const userId = request.user!.id;
 
-      const captureRes = await pool.query<{ species_id: string; current_photo_id: string | null; taken_at: string | null }>(
-        `SELECT species_id, current_photo_id, taken_at FROM captures WHERE id = $1 AND user_id = $2`,
-        [captureId, userId],
-      );
+      const captureRes = await pool.query<{
+        species_id: string;
+        current_photo_id: string | null;
+        taken_at: string | null;
+      }>(`SELECT species_id, current_photo_id, taken_at FROM captures WHERE id = $1 AND user_id = $2`, [
+        captureId,
+        userId,
+      ]);
       const capture = captureRes.rows[0];
       if (!capture) return reply.code(404).send({ error: "Capture not found" });
       if (capture.species_id === speciesId) {
@@ -249,10 +252,10 @@ export async function captureRoutes(fastify: FastifyInstance): Promise<void> {
       const speciesRes = await pool.query(`SELECT id FROM species WHERE id = $1`, [speciesId]);
       if (speciesRes.rows.length === 0) return reply.code(400).send({ error: "Unknown species" });
 
-      await pool.query(
-        `INSERT INTO capture_species (capture_id, species_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
-        [captureId, speciesId],
-      );
+      await pool.query(`INSERT INTO capture_species (capture_id, species_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, [
+        captureId,
+        speciesId,
+      ]);
 
       await markCollected(pool, userId, speciesId, capture.current_photo_id, capture.taken_at);
 
@@ -366,7 +369,14 @@ export async function captureRoutes(fastify: FastifyInstance): Promise<void> {
            location_label = CASE WHEN $5::boolean THEN $2 ELSE location_label END
          WHERE id = $3 AND user_id = $6
          RETURNING id`,
-        [regionId ?? null, locationLabel?.trim() || null, captureId, regionId !== undefined, locationLabel !== undefined, userId],
+        [
+          regionId ?? null,
+          locationLabel?.trim() || null,
+          captureId,
+          regionId !== undefined,
+          locationLabel !== undefined,
+          userId,
+        ],
       );
       if (res.rows.length === 0) return reply.code(404).send({ error: "Capture not found" });
 
@@ -418,4 +428,3 @@ export async function captureRoutes(fastify: FastifyInstance): Promise<void> {
   await app.register(hiddenCaptureRoutes);
   await app.register(speciesSuggestRoutes);
 }
-

@@ -63,7 +63,10 @@ function loadInatCurrentTaxonDiskCache(): Record<string, number | null> {
   if (inatCurrentTaxonDiskCache) return inatCurrentTaxonDiskCache;
   if (existsSync(INAT_CURRENT_TAXON_CACHE_PATH)) {
     try {
-      inatCurrentTaxonDiskCache = JSON.parse(readFileSync(INAT_CURRENT_TAXON_CACHE_PATH, "utf8")) as Record<string, number | null>;
+      inatCurrentTaxonDiskCache = JSON.parse(readFileSync(INAT_CURRENT_TAXON_CACHE_PATH, "utf8")) as Record<
+        string,
+        number | null
+      >;
       return inatCurrentTaxonDiskCache;
     } catch {
       // A corrupt file is treated as missing.
@@ -93,10 +96,9 @@ interface InatPlaceCandidate {
  *  few times the province's. */
 async function inatPlaceByLocation(regionId: string, countryInatPlaceId: number): Promise<number | null> {
   // Stored as a GeoJSON Feature; older rows may hold the bare geometry.
-  const geo = await pool.query<{ boundary_geojson: { type: string; coordinates?: unknown; geometry?: { type: string; coordinates: unknown } } | null }>(
-    `SELECT boundary_geojson FROM regions WHERE id = $1`,
-    [regionId],
-  );
+  const geo = await pool.query<{
+    boundary_geojson: { type: string; coordinates?: unknown; geometry?: { type: string; coordinates: unknown } } | null;
+  }>(`SELECT boundary_geojson FROM regions WHERE id = $1`, [regionId]);
   const stored = geo.rows[0]?.boundary_geojson;
   const geometry = stored?.geometry ?? (stored as { type: string; coordinates: unknown } | undefined);
   if (!geometry) return null;
@@ -188,7 +190,10 @@ export async function resolveInatPlaceId(
     inatPlaceIdCache.set(
       cacheKey,
       (async () => {
-        const existing = await pool.query<{ inat_place_id: number | null }>(`SELECT inat_place_id FROM regions WHERE id = $1`, [regionId]);
+        const existing = await pool.query<{ inat_place_id: number | null }>(
+          `SELECT inat_place_id FROM regions WHERE id = $1`,
+          [regionId],
+        );
         if (existing.rows[0]?.inat_place_id != null) return existing.rows[0].inat_place_id;
         for (const query of inatPlaceQueryNames(regionName)) {
           try {
@@ -196,9 +201,12 @@ export async function resolveInatPlaceId(
             let res: Response | null = null;
             for (let attempt = 0; attempt < 4; attempt++) {
               await paceInatTaxaRequest();
-              res = await fetchWithHardTimeout(`${INAT_PLACES_API}/autocomplete?q=${encodeURIComponent(query)}&per_page=20`, {
-                headers: { "User-Agent": INAT_USER_AGENT },
-              });
+              res = await fetchWithHardTimeout(
+                `${INAT_PLACES_API}/autocomplete?q=${encodeURIComponent(query)}&per_page=20`,
+                {
+                  headers: { "User-Agent": INAT_USER_AGENT },
+                },
+              );
               if (res.ok || (res.status !== 429 && res.status < 500)) break;
               await new Promise((resolve) => setTimeout(resolve, 15_000 * (attempt + 1)));
             }
@@ -208,11 +216,14 @@ export async function resolveInatPlaceId(
             const candidates = data.results.filter(
               (p) =>
                 p.admin_level === wantLevel &&
-                (isCountry || (countryInatPlaceId != null && (p.ancestor_place_ids ?? []).includes(countryInatPlaceId))),
+                (isCountry ||
+                  (countryInatPlaceId != null && (p.ancestor_place_ids ?? []).includes(countryInatPlaceId))),
             );
             // Prefer an exact name match over the first fuzzy hit ("Samoa" vs "American Samoa").
             const match =
-              candidates.find((p) => p.display_name.split(",")[0].trim().toLowerCase() === query.trim().toLowerCase()) ?? candidates[0];
+              candidates.find(
+                (p) => p.display_name.split(",")[0].trim().toLowerCase() === query.trim().toLowerCase(),
+              ) ?? candidates[0];
             if (!match) continue;
             await pool.query(`UPDATE regions SET inat_place_id = $1 WHERE id = $2`, [match.id, regionId]);
             return match.id;
@@ -294,7 +305,8 @@ async function fetchSpeciesCountsPages(placeId: number, extraParams: string): Pr
       total_results: number;
       results: Array<{ count: number; taxon: { id: number; name: string; iconic_taxon_name?: string | null } }>;
     };
-    for (const r of data.results) taxa.push({ id: r.taxon.id, name: r.taxon.name, count: r.count, iconic: r.taxon.iconic_taxon_name ?? null });
+    for (const r of data.results)
+      taxa.push({ id: r.taxon.id, name: r.taxon.name, count: r.count, iconic: r.taxon.iconic_taxon_name ?? null });
     if (data.results.length < 500 || taxa.length >= data.total_results) break;
   }
   return taxa;
@@ -311,7 +323,9 @@ async function fetchInatResearchGradeTaxaCached(placeId: number): Promise<InatTa
         const now = new Date().toISOString();
 
         // Unrecognised cache shapes are treated as absent and regenerated.
-        const rawCached = existsSync(cachePath) ? (JSON.parse(readFileSync(cachePath, "utf8")) as Partial<SpeciesCountsCacheFile> | number[]) : null;
+        const rawCached = existsSync(cachePath)
+          ? (JSON.parse(readFileSync(cachePath, "utf8")) as Partial<SpeciesCountsCacheFile> | number[])
+          : null;
         if (rawCached && !Array.isArray(rawCached) && rawCached.fetchedAt && rawCached.taxa) {
           const cached = rawCached as SpeciesCountsCacheFile;
           if (INAT_OFFLINE || Date.now() - Date.parse(cached.fetchedAt) < INAT_CACHE_MAX_AGE_MS) return cached.taxa;
@@ -319,7 +333,10 @@ async function fetchInatResearchGradeTaxaCached(placeId: number): Promise<InatTa
           try {
             const fresh = await fetchSpeciesCountsPages(placeId, "");
             if (fresh == null) return cached.taxa; // failed: a stale list beats none
-            writeFileSync(cachePath, JSON.stringify({ fetchedAt: now, taxa: fresh, withCounts: true } satisfies SpeciesCountsCacheFile));
+            writeFileSync(
+              cachePath,
+              JSON.stringify({ fetchedAt: now, taxa: fresh, withCounts: true } satisfies SpeciesCountsCacheFile),
+            );
             return fresh;
           } catch {
             return cached.taxa;
@@ -329,7 +346,10 @@ async function fetchInatResearchGradeTaxaCached(placeId: number): Promise<InatTa
         try {
           const taxa = await fetchSpeciesCountsPages(placeId, "");
           if (taxa == null) return null;
-          writeFileSync(cachePath, JSON.stringify({ fetchedAt: now, taxa, withCounts: true } satisfies SpeciesCountsCacheFile));
+          writeFileSync(
+            cachePath,
+            JSON.stringify({ fetchedAt: now, taxa, withCounts: true } satisfies SpeciesCountsCacheFile),
+          );
           return taxa;
         } catch {
           return null;
@@ -348,20 +368,26 @@ export async function refreshPlaceCounts(placeId: number): Promise<boolean> {
   if (existsSync(cachePath)) {
     const cached = JSON.parse(readFileSync(cachePath, "utf8")) as Partial<SpeciesCountsCacheFile>;
     // Counts change, so a list older than the maximum age is fetched again.
-    const fresh = INAT_OFFLINE || (cached.fetchedAt != null && Date.now() - Date.parse(cached.fetchedAt) < INAT_CACHE_MAX_AGE_MS);
+    const fresh =
+      INAT_OFFLINE || (cached.fetchedAt != null && Date.now() - Date.parse(cached.fetchedAt) < INAT_CACHE_MAX_AGE_MS);
     if (cached.withCounts && fresh) return true;
   }
   if (INAT_OFFLINE) return false;
   const taxa = await fetchSpeciesCountsPages(placeId, "");
   if (taxa == null) return false;
-  writeFileSync(cachePath, JSON.stringify({ fetchedAt: new Date().toISOString(), taxa, withCounts: true } satisfies SpeciesCountsCacheFile));
+  writeFileSync(
+    cachePath,
+    JSON.stringify({ fetchedAt: new Date().toISOString(), taxa, withCounts: true } satisfies SpeciesCountsCacheFile),
+  );
   inatResearchGradeTaxaCache.delete(placeId);
   return true;
 }
 
 /** A place's cached research-grade counts by taxon id, with no network call; null when the cache
  *  has no counts yet. For rating tiers on photographs. */
-export function cachedPlaceCounts(placeId: number): Map<number, { count: number; iconic: string | null; name: string }> | null {
+export function cachedPlaceCounts(
+  placeId: number,
+): Map<number, { count: number; iconic: string | null; name: string }> | null {
   const cachePath = path.join(INAT_SPECIES_COUNTS_CACHE_DIR, `${placeId}.json`);
   if (!existsSync(cachePath)) return null;
   const cached = JSON.parse(readFileSync(cachePath, "utf8")) as Partial<SpeciesCountsCacheFile>;
@@ -380,12 +406,16 @@ export async function refreshPlaceIntroduced(placeId: number): Promise<boolean> 
   const cachePath = path.join(INAT_INTRODUCED_CACHE_DIR, `${placeId}.json`);
   if (existsSync(cachePath)) {
     const cached = JSON.parse(readFileSync(cachePath, "utf8")) as Partial<SpeciesCountsCacheFile>;
-    if (INAT_OFFLINE || (cached.fetchedAt && Date.now() - Date.parse(cached.fetchedAt) < INAT_CACHE_MAX_AGE_MS)) return true;
+    if (INAT_OFFLINE || (cached.fetchedAt && Date.now() - Date.parse(cached.fetchedAt) < INAT_CACHE_MAX_AGE_MS))
+      return true;
   }
   if (INAT_OFFLINE) return false;
   const taxa = await fetchSpeciesCountsPages(placeId, "&introduced=true");
   if (taxa == null) return false;
-  writeFileSync(cachePath, JSON.stringify({ fetchedAt: new Date().toISOString(), taxa, withCounts: true } satisfies SpeciesCountsCacheFile));
+  writeFileSync(
+    cachePath,
+    JSON.stringify({ fetchedAt: new Date().toISOString(), taxa, withCounts: true } satisfies SpeciesCountsCacheFile),
+  );
   return true;
 }
 
@@ -435,9 +465,17 @@ export async function resolveCurrentInatTaxonId(scientificName: string): Promise
             );
             if (!res.ok) continue;
             const data = (await res.json()) as {
-              results: Array<{ id: number; name: string; is_active: boolean; matched_term: string | null; rank: string }>;
+              results: Array<{
+                id: number;
+                name: string;
+                is_active: boolean;
+                matched_term: string | null;
+                rank: string;
+              }>;
             };
-            const exactMatches = data.results.filter((r) => r.matched_term?.toLowerCase() === scientificName.toLowerCase());
+            const exactMatches = data.results.filter(
+              (r) => r.matched_term?.toLowerCase() === scientificName.toLowerCase(),
+            );
             const result = exactMatches.find((r) => r.is_active)?.id ?? null;
             saveInatCurrentTaxonDiskCache(scientificName, result);
             return result;
@@ -493,7 +531,10 @@ export interface RegionInatMatch {
   rawTaxonIds: Set<number>;
 }
 
-export async function matchedSpeciesIdsForRegion(regionId: string, regionName: string): Promise<RegionInatMatch | null> {
+export async function matchedSpeciesIdsForRegion(
+  regionId: string,
+  regionName: string,
+): Promise<RegionInatMatch | null> {
   const country = await findCountryForRegion(regionId);
   if (!country) return null; // not a normal country/province (a continent, sea zone, World itself, ...)
   const isCountry = country.id === regionId;

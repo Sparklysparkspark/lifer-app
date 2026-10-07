@@ -30,7 +30,9 @@ describe("parseLibraryRoots", () => {
   });
 
   it("normalizes trailing slashes and drops duplicates", () => {
-    expect(parseLibraryRoots("A=/library/nas/,B=/library/nas,,", "/data")).toEqual([{ label: "A", path: "/library/nas" }]);
+    expect(parseLibraryRoots("A=/library/nas/,B=/library/nas,,", "/data")).toEqual([
+      { label: "A", path: "/library/nas" },
+    ]);
   });
 });
 

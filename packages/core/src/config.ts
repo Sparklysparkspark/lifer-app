@@ -29,19 +29,25 @@ export const APP_DATA_DIR =
 // data shares the folder, so the library and Lifer's own folders never mix.
 export const LEGACY_ORIGINALS_DIR = path.join(DATA_DIR, "Lifer Photos");
 export const ORIGINALS_DIR =
-  existsSync(LEGACY_ORIGINALS_DIR) || path.resolve(APP_DATA_DIR) === path.resolve(DATA_DIR) ? LEGACY_ORIGINALS_DIR : DATA_DIR;
+  existsSync(LEGACY_ORIGINALS_DIR) || path.resolve(APP_DATA_DIR) === path.resolve(DATA_DIR)
+    ? LEGACY_ORIGINALS_DIR
+    : DATA_DIR;
 // Offline basemap tiles (a PMTiles archive). Not user data, so served without auth.
 export const MAPS_DIR = path.join(APP_DATA_DIR, "maps");
 // The opt-in offline map download: the rolling "map-latest" release, so a map update needs no
 // app release.
 export const MAP_DOWNLOAD_URL =
-  process.env.MAP_DOWNLOAD_URL ?? "https://github.com/Sparklysparkspark/lifer-app/releases/download/map-latest/world-z8.pmtiles";
+  process.env.MAP_DOWNLOAD_URL ??
+  "https://github.com/Sparklysparkspark/lifer-app/releases/download/map-latest/world-z8.pmtiles";
 // Per-file upload cap, as a disk-safety net only: 0 (the default) means no cap. Enforced on
 // multipart parts and on a resumable upload's declared Upload-Length.
 export const MAX_UPLOAD_BYTES = Math.max(0, Number(process.env.MAX_UPLOAD_BYTES ?? 0) || 0);
 // Cap on ordinary request bodies (JSON). Uploads never go through it: multipart and resumable
 // uploads stream to disk under their own limits.
-export const MAX_JSON_BODY_BYTES = Math.max(1024 * 1024, Number(process.env.LIFER_MAX_JSON_BODY_BYTES ?? 64 * 1024 * 1024) || 64 * 1024 * 1024);
+export const MAX_JSON_BODY_BYTES = Math.max(
+  1024 * 1024,
+  Number(process.env.LIFER_MAX_JSON_BODY_BYTES ?? 64 * 1024 * 1024) || 64 * 1024 * 1024,
+);
 // Where uploads are received and kept until imported. Unset picks a folder on the library's own
 // drive, so filing an upload is a rename rather than a copy (lib/uploadWorkDir.ts).
 export const UPLOAD_WORK_DIR = process.env.LIFER_UPLOAD_WORK_DIR?.trim() || null;
@@ -83,7 +89,10 @@ export function parseTrustProxy(raw: string | undefined): TrustProxySetting {
     const hops = Number(v);
     return (_address, hop) => hop < hops;
   }
-  return v.split(",").map((s) => s.trim()).filter(Boolean);
+  return v
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
 }
 export const TRUST_PROXY = SINGLE_USER_MODE ? false : parseTrustProxy(process.env.TRUST_PROXY);
 
@@ -130,7 +139,8 @@ export const LIBRARY_ROOTS = parseLibraryRoots(process.env.LIFER_LIBRARY_ROOTS, 
 
 // The published pack index. Override only to test against another index.
 export const PACK_INDEX_URL =
-  process.env.PACK_INDEX_URL ?? "https://github.com/Sparklysparkspark/lifer-app/releases/download/packs-latest/pack-index.json";
+  process.env.PACK_INDEX_URL ??
+  "https://github.com/Sparklysparkspark/lifer-app/releases/download/packs-latest/pack-index.json";
 
 // A small manifest checked before downloading the much larger catalog seed.
 export const CATALOG_MANIFEST_URL =
@@ -148,7 +158,8 @@ export const BUNDLED_CATALOG_SEED_DIR = path.join(REPO_ROOT, "catalog-seed");
 // (packages/data-pipeline/python/export_clip_model.py) on this repo's "models" release. A new
 // checkpoint needs a new EMBEDDING_MODEL_VERSION too.
 export const EMBEDDING_MODEL_URL =
-  process.env.EMBEDDING_MODEL_URL ?? "https://github.com/Sparklysparkspark/lifer-app/releases/download/models/clip-vit-l14-v2.onnx";
+  process.env.EMBEDDING_MODEL_URL ??
+  "https://github.com/Sparklysparkspark/lifer-app/releases/download/models/clip-vit-l14-v2.onnx";
 // Stored with every vector so vectors from different models are never compared.
 export const EMBEDDING_MODEL_VERSION = "clip-vit-l14-v2";
 // The full-precision weights, which GPUs run. The catalog's stored vectors come from this file.
@@ -161,10 +172,12 @@ export const EMBEDDING_MODEL_GPU_BYTES = 1_216_438_437;
 // packages/data-pipeline/python/export_id_model.py), hosted on this repo's "models" release.
 export { ID_MODEL_VERSION } from "@lifer/shared";
 export const ID_MODEL_URL =
-  process.env.ID_MODEL_URL ?? "https://github.com/Sparklysparkspark/lifer-app/releases/download/models/bioclip-2-v1.onnx";
+  process.env.ID_MODEL_URL ??
+  "https://github.com/Sparklysparkspark/lifer-app/releases/download/models/bioclip-2-v1.onnx";
 // Its full-precision copy, which GPUs run (acceleration.ts): int8 gains nothing on a GPU.
 export const ID_MODEL_GPU_URL =
-  process.env.ID_MODEL_GPU_URL ?? "https://github.com/Sparklysparkspark/lifer-app/releases/download/models/bioclip-2-v1-fp32.onnx";
+  process.env.ID_MODEL_GPU_URL ??
+  "https://github.com/Sparklysparkspark/lifer-app/releases/download/models/bioclip-2-v1-fp32.onnx";
 export const ID_MODEL_GPU_BYTES = 1_216_631_032;
 
 // iNaturalist OAuth with PKCE (a secret in an open-source app isn't secret). These are the

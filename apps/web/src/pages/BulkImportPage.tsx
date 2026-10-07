@@ -132,9 +132,7 @@ export default function BulkImportPage() {
                     {r.error ? (
                       <span className="text-red-600 dark:text-red-400">{r.error}</span>
                     ) : r.collision ? (
-                      <span className="text-amber-600 dark:text-amber-400">
-                        {t("upload.raw.collision")}
-                      </span>
+                      <span className="text-amber-600 dark:text-amber-400">{t("upload.raw.collision")}</span>
                     ) : (
                       <span className="text-emerald-700 dark:text-emerald-400">
                         {t("upload.raw.filedUnder", {

@@ -33,9 +33,21 @@ export async function adoptFlatLibraryLayout(): Promise<void> {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
-    await client.query(`UPDATE originals SET ${swap("ref")} WHERE id = ANY($3::uuid[])`, [oldPrefix, DATA_DIR, originalIds]);
-    await client.query(`UPDATE trips SET ${swap("source_folder")} WHERE id = ANY($3::uuid[])`, [oldPrefix, DATA_DIR, tripIds]);
-    await client.query(`UPDATE trips SET ${swap("destination_folder")} WHERE id = ANY($3::uuid[])`, [oldPrefix, DATA_DIR, tripDestinationIds]);
+    await client.query(`UPDATE originals SET ${swap("ref")} WHERE id = ANY($3::uuid[])`, [
+      oldPrefix,
+      DATA_DIR,
+      originalIds,
+    ]);
+    await client.query(`UPDATE trips SET ${swap("source_folder")} WHERE id = ANY($3::uuid[])`, [
+      oldPrefix,
+      DATA_DIR,
+      tripIds,
+    ]);
+    await client.query(`UPDATE trips SET ${swap("destination_folder")} WHERE id = ANY($3::uuid[])`, [
+      oldPrefix,
+      DATA_DIR,
+      tripDestinationIds,
+    ]);
     await client.query("COMMIT");
   } catch (err) {
     await client.query("ROLLBACK").catch(() => {});

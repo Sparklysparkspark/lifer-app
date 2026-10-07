@@ -74,7 +74,11 @@ export default function AlbumSharePanel({ shares }: { shares: AlbumShares }) {
                 >
                   <div className="min-w-0">
                     <p className="truncate">
-                      {share.revoked ? "Revoked" : expired ? "Expired" : (url ?? "This link can't be shown again. It still works.")}
+                      {share.revoked
+                        ? "Revoked"
+                        : expired
+                          ? "Expired"
+                          : (url ?? "This link can't be shown again. It still works.")}
                     </p>
                     <p className="text-xs text-muted">
                       {share.hasPassword ? "Password-protected" : "No password"}

@@ -11,12 +11,7 @@ vi.hoisted(() => {
   if (process.env.TEST_DATABASE_URL) process.env.DATABASE_URL = process.env.TEST_DATABASE_URL;
 });
 
-import {
-  obscureSpeciesSql,
-  ALREADY_OWNED_SQL,
-  NOT_ARCHIVED_SQL,
-  SPECIES_UNLOCKED_SQL,
-} from "../species/obscurity.js";
+import { obscureSpeciesSql, ALREADY_OWNED_SQL, NOT_ARCHIVED_SQL, SPECIES_UNLOCKED_SQL } from "../species/obscurity.js";
 
 const url = process.env.TEST_DATABASE_URL;
 const USER = "ffffffff-0000-4000-8000-000000000111";
@@ -121,8 +116,13 @@ describe.skipIf(!url)("collection query rewrite", () => {
     db = new pg.Pool({ connectionString: url });
     await cleanup();
     await db.query(`INSERT INTO users (id, email, password_hash) VALUES ($1, 'cq@test', 'x')`, [USER]);
-    await db.query(`INSERT INTO regions (id, name, external_codes) VALUES ($1, 'Zzland Query Test', '{ZZQ}')`, [COUNTRY]);
-    await db.query(`INSERT INTO regions (id, name, parent_id, external_codes) VALUES ($1, 'Zzland Province', $2, '{ZZQ.1}')`, [PROVINCE, COUNTRY]);
+    await db.query(`INSERT INTO regions (id, name, external_codes) VALUES ($1, 'Zzland Query Test', '{ZZQ}')`, [
+      COUNTRY,
+    ]);
+    await db.query(
+      `INSERT INTO regions (id, name, parent_id, external_codes) VALUES ($1, 'Zzland Province', $2, '{ZZQ.1}')`,
+      [PROVINCE, COUNTRY],
+    );
     // 0 unlocked bird, 1 bird in a mammal-only pack (locked), 2 other taxa, 3 collected but
     // locked, 4 archived, 5 obscure, 6 seen via eBird
     const classes = ["aves", "aves", "insecta", "aves", "aves", "aves", "aves"];
@@ -133,15 +133,25 @@ describe.skipIf(!url)("collection query rewrite", () => {
         [id, 912000 + i, `Queryus species${i}`, `Query Bird ${i}`, classes[i], i === 2, 900000 + i],
       );
     }
-    await db.query(`INSERT INTO species_traits (species_id, occurrence_count, source_attribution) VALUES ($1, 5, 'test')`, [SP[5]]);
+    await db.query(
+      `INSERT INTO species_traits (species_id, occurrence_count, source_attribution) VALUES ($1, 5, 'test')`,
+      [SP[5]],
+    );
     for (const i of [0, 4, 5, 6]) {
       await db.query(`INSERT INTO region_species (region_id, species_id) VALUES ($1, $2)`, [PROVINCE, SP[i]]);
     }
-    await db.query(`INSERT INTO downloaded_packs (pack_id, region, taxon) VALUES ($1, 'Zzland Query Test', NULL)`, [PACK]);
+    await db.query(`INSERT INTO downloaded_packs (pack_id, region, taxon) VALUES ($1, 'Zzland Query Test', NULL)`, [
+      PACK,
+    ]);
     // SP[1] is only on a country whose downloaded pack is mammals-only.
-    await db.query(`INSERT INTO regions (id, name, external_codes) VALUES ($1, 'Zzmammal Query Test', '{ZZM}')`, [MAMMAL_COUNTRY]);
+    await db.query(`INSERT INTO regions (id, name, external_codes) VALUES ($1, 'Zzmammal Query Test', '{ZZM}')`, [
+      MAMMAL_COUNTRY,
+    ]);
     await db.query(`INSERT INTO region_species (region_id, species_id) VALUES ($1, $2)`, [MAMMAL_COUNTRY, SP[1]]);
-    await db.query(`INSERT INTO downloaded_packs (pack_id, region, taxon) VALUES ($1, 'Zzmammal Query Test', 'mammalia')`, [MAMMAL_PACK]);
+    await db.query(
+      `INSERT INTO downloaded_packs (pack_id, region, taxon) VALUES ($1, 'Zzmammal Query Test', 'mammalia')`,
+      [MAMMAL_PACK],
+    );
     // The hand import (SP[2]) is this user's checklist addition, as migration 125 stores them.
     await db.query(`INSERT INTO region_species_user_added (user_id, region_id, species_id) VALUES ($1, $2, $3)`, [
       USER,
@@ -149,12 +159,10 @@ describe.skipIf(!url)("collection query rewrite", () => {
       SP[2],
     ]);
     await db.query(`INSERT INTO user_archived_species (user_id, species_id) VALUES ($1, $2)`, [USER, SP[4]]);
-    await db.query(`INSERT INTO user_species (user_id, species_id, state) VALUES ($1, $2, 'collected'), ($1, $3, 'collected'), ($1, $4, 'seen')`, [
-      USER,
-      SP[0],
-      SP[3],
-      SP[6],
-    ]);
+    await db.query(
+      `INSERT INTO user_species (user_id, species_id, state) VALUES ($1, $2, 'collected'), ($1, $3, 'collected'), ($1, $4, 'seen')`,
+      [USER, SP[0], SP[3], SP[6]],
+    );
     const takenAt = [
       [SP[0], "2019-05-01T10:00:00Z", null],
       [SP[0], "2021-06-01T10:00:00Z", null],
@@ -252,7 +260,9 @@ describe.skipIf(!url)("collection query rewrite", () => {
         SEA_ADDED,
       ]);
       const ids = async (userId: string) =>
-        (await db.query<{ species_id: string }>(collectionQuerySql(60), [userId, null, true])).rows.map((r) => r.species_id);
+        (await db.query<{ species_id: string }>(collectionQuerySql(60), [userId, null, true])).rows.map(
+          (r) => r.species_id,
+        );
 
       const mine = await ids(USER);
       expect(mine).toContain(SP[2]);
@@ -272,7 +282,8 @@ describe.skipIf(!url)("collection query rewrite", () => {
   it("bumps the collection data version on writes", async () => {
     const has = await db.query(`SELECT 1 FROM pg_class WHERE relname = 'collection_data_version'`);
     if (has.rowCount === 0) return;
-    const read = async () => Number((await db.query(`SELECT last_value FROM collection_data_version`)).rows[0].last_value);
+    const read = async () =>
+      Number((await db.query(`SELECT last_value FROM collection_data_version`)).rows[0].last_value);
     const before = await read();
     await db.query(`UPDATE user_species SET is_target = true WHERE user_id = $1 AND species_id = $2`, [USER, SP[0]]);
     expect(await read()).toBeGreaterThan(before);
@@ -302,7 +313,10 @@ describe.skipIf(!url)("collection query rewrite", () => {
         }
         expect(again.statusCode).toBe(304);
         expect(again.body).toBe("");
-        await db.query(`UPDATE user_species SET is_target = NOT COALESCE(is_target, false) WHERE user_id = $1 AND species_id = $2`, [USER, SP[3]]);
+        await db.query(
+          `UPDATE user_species SET is_target = NOT COALESCE(is_target, false) WHERE user_id = $1 AND species_id = $2`,
+          [USER, SP[3]],
+        );
         const changed = await app.inject({ method: "GET", url: path, headers: { "if-none-match": etag } });
         expect(changed.statusCode).toBe(200);
         expect(changed.headers.etag).not.toBe(etag);
