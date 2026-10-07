@@ -14,6 +14,10 @@ const PLATFORM_ID = "lifer-test-volume-741";
 const MISSING = "eeeeeeee-0000-4000-8000-0000000007ff";
 const invalid = (pattern: RegExp) => ({ error: expect.stringMatching(pattern), code: "invalid_request" });
 
+// Desktop mode answers only the app's own window, which presents the per-launch secret.
+const LAUNCH_TOKEN = "storage-test-launch-token";
+const DESKTOP_HEADERS = { "x-lifer-launch-token": LAUNCH_TOKEN };
+
 describe.skipIf(!url)("desktop-only storage and migration routes", () => {
   let app: FastifyInstance;
   let db: pg.Pool;
@@ -22,7 +26,7 @@ describe.skipIf(!url)("desktop-only storage and migration routes", () => {
   let volumeId: string;
 
   const call = (method: "POST" | "PUT" | "DELETE", route: string, payload?: unknown) =>
-    app.inject({ method, url: route, payload: payload as object });
+    app.inject({ method, url: route, headers: DESKTOP_HEADERS, payload: payload as object });
   const label = async () =>
     (await db.query(`SELECT label FROM storage_volumes WHERE id = $1`, [volumeId])).rows[0]?.label;
 
@@ -32,6 +36,9 @@ describe.skipIf(!url)("desktop-only storage and migration routes", () => {
     process.env.DATA_DIR = dataDir;
     process.env.APP_DATA_DIR = path.join(dataDir, "app-data");
     process.env.SINGLE_USER_MODE = "1";
+    process.env.LIFER_LAUNCH_TOKEN = LAUNCH_TOKEN;
+    // A developer's .env may switch the launch secret off; these tests check the real path.
+    process.env.LIFER_ALLOW_UNTOKENED_DESKTOP = "0";
     db = new pg.Pool({ connectionString: url });
     createdLocalUser = (await db.query(`SELECT 1 FROM users WHERE email = $1`, [LOCAL_EMAIL])).rowCount === 0;
     const { storageVolumesRoutes } = await import("./routes.js");
@@ -43,7 +50,9 @@ describe.skipIf(!url)("desktop-only storage and migration routes", () => {
     await app.ready();
 
     // Desktop mode signs every request in as the local user, created on first use.
-    expect((await app.inject({ method: "GET", url: "/api/storage-volumes" })).statusCode).toBe(200);
+    expect(
+      (await app.inject({ method: "GET", url: "/api/storage-volumes", headers: DESKTOP_HEADERS })).statusCode,
+    ).toBe(200);
     const user = await db.query<{ id: string }>(`SELECT id FROM users WHERE email = $1`, [LOCAL_EMAIL]);
     await db.query(`DELETE FROM storage_volumes WHERE platform_volume_id = $1`, [PLATFORM_ID]);
     volumeId = (

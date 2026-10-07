@@ -11,6 +11,8 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 const url = process.env.TEST_DATABASE_URL;
 // Desktop mode's auto-provisioned user (auth/session.ts).
 const LOCAL_EMAIL = "local@lifer.app";
+// Desktop mode answers only the app's own window, which presents the per-launch secret.
+const LAUNCH_TOKEN = "reveal-test-launch-token";
 
 describe.skipIf(!url)("revealing an original on the desktop", () => {
   let app: FastifyInstance;
@@ -19,7 +21,12 @@ describe.skipIf(!url)("revealing an original on the desktop", () => {
   let localUserExisted = false;
 
   const reveal = (payload: unknown) =>
-    app.inject({ method: "POST", url: "/api/originals/reveal", payload: payload as object });
+    app.inject({
+      method: "POST",
+      url: "/api/originals/reveal",
+      headers: { "x-lifer-launch-token": LAUNCH_TOKEN },
+      payload: payload as object,
+    });
 
   beforeAll(async () => {
     dataDir = mkdtempSync(path.join(tmpdir(), "lifer-reveal-"));
@@ -27,6 +34,9 @@ describe.skipIf(!url)("revealing an original on the desktop", () => {
     process.env.DATA_DIR = dataDir;
     process.env.APP_DATA_DIR = path.join(dataDir, "app-data");
     process.env.SINGLE_USER_MODE = "1";
+    process.env.LIFER_LAUNCH_TOKEN = LAUNCH_TOKEN;
+    // A developer's .env may switch the launch secret off; these tests check the real path.
+    process.env.LIFER_ALLOW_UNTOKENED_DESKTOP = "0";
     db = new pg.Pool({ connectionString: url });
     localUserExisted = (await db.query(`SELECT 1 FROM users WHERE email = $1`, [LOCAL_EMAIL])).rows.length > 0;
     const { originalsRoutes } = await import("./routes.js");

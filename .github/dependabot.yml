@@ -1,12 +1,19 @@
-# Weekly update pull requests, grouped so they don't flood the queue. Security updates arrive as
-# soon as an advisory is published, regardless of this schedule.
+# Update pull requests, grouped so they don't flood the queue: one PR per ecosystem for small
+# updates and one for major versions. Security updates arrive as soon as an advisory is published,
+# regardless of this schedule. Node stays on its LTS line (22), so Node, its types and undici
+# (which must match Node's built-in fetch) never get major-version PRs; move them deliberately.
 version: 2
 updates:
   - package-ecosystem: npm
     directory: /
     schedule:
       interval: weekly
-    open-pull-requests-limit: 10
+    open-pull-requests-limit: 5
+    ignore:
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: undici
+        update-types: ["version-update:semver-major"]
     groups:
       dev-dependencies:
         dependency-type: development
@@ -14,6 +21,8 @@ updates:
       production-dependencies:
         dependency-type: production
         update-types: [minor, patch]
+      major-updates:
+        update-types: [major]
 
   - package-ecosystem: npm
     directory: /docs
@@ -30,6 +39,8 @@ updates:
     groups:
       cargo:
         update-types: [minor, patch]
+      cargo-major:
+        update-types: [major]
 
   # Workflows pin each action by commit SHA with its version in a trailing comment; Dependabot
   # updates both together.
@@ -45,3 +56,6 @@ updates:
     directory: /
     schedule:
       interval: monthly
+    ignore:
+      - dependency-name: node
+        update-types: ["version-update:semver-major"]

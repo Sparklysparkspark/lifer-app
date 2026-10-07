@@ -181,7 +181,7 @@ jobs:
       # them (npm run dist -w desktop); lint only needs placeholders.
       - name: Stage placeholder resources
         run: |
-          for dir in api web node_modules catalog-seed postgres; do
+          for dir in api web node_modules catalog-seed postgres postgres-previous; do
             mkdir -p "resources-staging/$dir" && touch "resources-staging/$dir/.placeholder"
           done
           mkdir -p binaries && touch "binaries/node-$(rustc -vV | sed -n 's/^host: //p')"
