@@ -14,14 +14,14 @@
     "dist": "npm run build -w web && npm run build -w api && npm run prepare-resources && npm run fetch-node-sidecar && npm run fetch-catalog-seed && node scripts/tauri-build.js && npm run resign-macos"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "^2"
+    "@tauri-apps/cli": "^2.12.1"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",
-    "@tauri-apps/plugin-opener": "^2",
     "@tauri-apps/plugin-dialog": "^2",
+    "@tauri-apps/plugin-opener": "^2",
+    "@tauri-apps/plugin-process": "^2",
     "@tauri-apps/plugin-shell": "^2",
-    "@tauri-apps/plugin-updater": "^2",
-    "@tauri-apps/plugin-process": "^2"
+    "@tauri-apps/plugin-updater": "^2"
   }
 }
