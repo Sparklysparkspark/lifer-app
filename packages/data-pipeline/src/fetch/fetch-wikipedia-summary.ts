@@ -1,23 +1,18 @@
 // Source: Wikipedia's action API extracts (en.wikipedia.org/w/api.php?action=query&prop=extracts).
 // License: article text is CC BY-SA - attribution + a link back is required.
 //
-// Pulls the article's "Description" section (plumage, size: the quick-ID content) rather than
-// the lead, which tends to be taxonomy and range boilerplate, falling back to the lead when
-// there's no Description. Not sourced from Merlin, whose text is proprietary. Kept to a couple
-// of sentences: a quick-glance caption, not a field guide.
+// One article's description by the shared rule (packages/core/src/species/descriptionText.ts):
+// the lead and the article's Description/Identification/Appearance section, taxonomy, etymology,
+// synonyms, place-name range lines and conservation boilerplate dropped, whole sentences up to
+// 800 characters. The same rule as backfill-descriptions.ts (which does this in bulk) and the
+// on-view iNaturalist path. Not sourced from Merlin, whose text is proprietary.
 
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { BUILD_DIR } from "../raw-cache.js";
-import { fetchWithRetry } from "../fetch-with-retry.js";
-
-const WIKIPEDIA_API = "https://en.wikipedia.org/w/api.php";
-const MAX_SENTENCES = 2;
-const DESCRIPTION_HEADINGS = ["description", "identification", "appearance"];
-
-// A marker that will never appear in real article text, used to hide a decimal point's
-// period from the sentence splitter, then converted back to a literal period afterward.
-const DECIMAL_MARKER = "@@DECIMALPOINT@@";
+import { BUILD_DIR } from "@lifer/core/rawCache.js";
+import { composeDescription } from "@lifer/core/species/descriptionText.js";
+import { articleUrl, fetchIntros, PoliteClient } from "./wikipediaArticles.js";
+import { fetchIdentificationSections, WIKIPEDIA_DESCRIPTION_CREDIT } from "../scripts/backfill-descriptions.js";
 
 export interface WikipediaSummaryRow {
   description: string | null;
@@ -25,62 +20,16 @@ export interface WikipediaSummaryRow {
   descriptionSourceUrl: string | null;
 }
 
-interface QueryResponse {
-  query?: { pages: Record<string, { title?: string; extract?: string; missing?: string }> };
-}
+const client = new PoliteClient({ minIntervalMs: 200 });
 
-function truncateToSentences(text: string, maxSentences: number): string {
-  const normalized = text.replace(/\s+/g, " ").trim();
-  // Description sections are full of measurements ("0.72-1.58 kg"), so decimal points are swapped
-  // for a marker before splitting on sentence boundaries, then swapped back.
-  const marked = normalized.replace(/(\d)\.(\d)/g, "$1" + DECIMAL_MARKER + "$2");
-  const sentences = marked.split(/(?<=[.!?])\s+(?=[A-Z])/);
-  const joined = sentences.slice(0, maxSentences).join(" ");
-  return joined.split(DECIMAL_MARKER).join(".").trim();
-}
-
-/** Splits the explaintext extract into { heading (lowercased) -> body } sections, plus the lead under "". */
-function splitSections(extract: string): Map<string, string> {
-  const sections = new Map<string, string>();
-  const headingPattern = /^==+\s*(.+?)\s*==+$/gm;
-
-  let lastIndex = 0;
-  let lastHeading = "";
-  let match: RegExpExecArray | null;
-  while ((match = headingPattern.exec(extract))) {
-    sections.set(lastHeading, extract.slice(lastIndex, match.index).trim());
-    lastHeading = match[1].trim().toLowerCase();
-    lastIndex = headingPattern.lastIndex;
-  }
-  sections.set(lastHeading, extract.slice(lastIndex).trim());
-  return sections;
-}
-
-export async function fetchWikipediaSummary(title: string): Promise<WikipediaSummaryRow> {
-  const url =
-    WIKIPEDIA_API +
-    "?action=query&prop=extracts&explaintext=1&redirects=1&format=json&titles=" +
-    encodeURIComponent(title);
-  const res = await fetchWithRetry(url, { headers: { "User-Agent": "lifer-data-pipeline/0.1 (personal project)" } });
-  if (!res.ok) return { description: null, descriptionCredit: null, descriptionSourceUrl: null };
-
-  const data = (await res.json()) as QueryResponse;
-  const page = data.query ? Object.values(data.query.pages)[0] : undefined;
-  if (!page?.extract || page.missing !== undefined) {
-    return { description: null, descriptionCredit: null, descriptionSourceUrl: null };
-  }
-
-  const sections = splitSections(page.extract);
-  const descriptionHeading = DESCRIPTION_HEADINGS.find((h) => sections.has(h) && sections.get(h));
-  const body = descriptionHeading ? sections.get(descriptionHeading)! : sections.get("") ?? page.extract;
-
-  const canonicalTitle = page.title ?? title;
-  const pageUrl = "https://en.wikipedia.org/wiki/" + encodeURIComponent(canonicalTitle.replace(/ /g, "_"));
-  return {
-    description: truncateToSentences(body, MAX_SENTENCES),
-    descriptionCredit: "Wikipedia contributors (CC BY-SA)",
-    descriptionSourceUrl: pageUrl,
-  };
+export async function fetchWikipediaSummary(title: string, lang = "en"): Promise<WikipediaSummaryRow> {
+  const none = { description: null, descriptionCredit: null, descriptionSourceUrl: null };
+  const intro = (await fetchIntros(client, lang, [title])).get(title);
+  if (!intro) return none;
+  const sections = await fetchIdentificationSections(client, lang, [intro]);
+  const description = composeDescription({ lead: intro.extract, identificationSection: sections.get(intro.title) ?? null });
+  if (!description) return none;
+  return { description, descriptionCredit: WIKIPEDIA_DESCRIPTION_CREDIT, descriptionSourceUrl: articleUrl(lang, intro.title) };
 }
 
 async function main() {
@@ -98,7 +47,6 @@ async function main() {
     }
     const summary = await fetchWikipediaSummary(r.wikipediaTitle);
     results.push({ scientificName: r.scientificName, ...summary });
-    await new Promise((resolve) => setTimeout(resolve, 200));
   }
 
   mkdirSync(BUILD_DIR, { recursive: true });

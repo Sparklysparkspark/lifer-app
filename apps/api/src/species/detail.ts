@@ -2,27 +2,54 @@
 import { existsSync } from "node:fs";
 import { access as fsAccess, readFile as fsReadFile } from "node:fs/promises";
 import type { FastifyInstance } from "fastify";
-import { pool } from "../db.js";
-import { isUuid } from "../lib/validate.js";
+import { Type } from "typebox";
+import { pool } from "@lifer/core/db.js";
+import { IdParams, Ok, Uuid, notFoundOnInvalidId, replies, withSchemas } from "../lib/schema.js";
 import { requireAuth, requireScope } from "../auth/session.js";
-import { enrichSpecies, persistEnrichment, fetchAnyGallery, persistGalleryPromotingMainIfMissing } from "./lazyEnrich.js";
-import { MEDIA_CACHE_BUST, EMBEDDING_MODEL_VERSION } from "../config.js";
+import {
+  enrichSpecies,
+  persistEnrichment,
+  fetchAnyGallery,
+  persistGalleryPromotingMainIfMissing,
+  fillDescriptionIfUnchecked,
+} from "@lifer/core/species/lazyEnrich.js";
+import { MEDIA_CACHE_BUST, EMBEDDING_MODEL_VERSION } from "@lifer/core/config.js";
 import { resolveOriginalPath } from "../storageVolumes/resolve.js";
 import { clusterIntoEncounters } from "../lib/clusterEncounters.js";
-import { cosineSimilarity } from "./embeddings.js";
+import { cosineSimilarity } from "@lifer/core/species/embeddings.js";
 import { BURST_MAX_GAP_MS, BURST_SIMILARITY } from "./bursts.js";
 import { computeSharpness } from "../lib/sharpness.js";
-import { log } from "../lib/log.js";
-import { bboxDiagonalDegrees, ringBoundingBox, type BoundingBox } from "data-pipeline/src/geometry.js";
-import { SENSITIVE_CLUSTER_DIAGONAL_KM } from "data-pipeline/src/sensitive-species.js";
+import { log } from "@lifer/core/lib/log.js";
+import { bboxDiagonalDegrees, ringBoundingBox, type BoundingBox } from "@lifer/core/lib/geometry.js";
+import { SENSITIVE_CLUSTER_DIAGONAL_KM } from "@lifer/core/species/sensitiveSpecies.js";
 
-export async function speciesDetailRoutes(app: FastifyInstance): Promise<void> {
-  app.get<{ Params: { id: string }; Querystring: { regionId?: string } }>(
+const speciesNotFound = notFoundOnInvalidId("Species not found");
+// Marking routes take no body: the web app sends none.
+const markOptions = {
+  preValidation: requireAuth,
+  config: speciesNotFound,
+  schema: { params: IdParams, response: replies(Ok) },
+};
+const readOptions = {
+  preValidation: requireScope("species.read"),
+  config: speciesNotFound,
+  schema: { params: IdParams },
+};
+
+export async function speciesDetailRoutes(fastify: FastifyInstance): Promise<void> {
+  const app = withSchemas(fastify);
+
+  app.get(
     "/species/:id",
-    { preHandler: requireScope("species.read") },
+    {
+      preValidation: requireScope("species.read"),
+      config: speciesNotFound,
+      schema: {
+        params: IdParams,
+        querystring: Type.Object({ regionId: Type.Optional(Uuid({ description: "Region context" })) }),
+      },
+    },
     async (request, reply) => {
-      if (!isUuid(request.params.id)) return reply.code(404).send({ error: "Species not found" });
-      if (request.query.regionId && !isUuid(request.query.regionId)) return reply.code(400).send({ error: "regionId must be a region id" });
       const { id } = request.params;
       const userId = request.user!.id;
 
@@ -107,6 +134,28 @@ export async function speciesDetailRoutes(app: FastifyInstance): Promise<void> {
           .then((gallery) => persistGalleryPromotingMainIfMissing(id, gallery, !!species.reference_photo))
           .then(() => pool.query(`UPDATE species SET gallery_backfilled_at = now() WHERE id = $1`, [id]))
           .catch((err) => log.error({ err, speciesId: id }, "Background gallery backfill failed"));
+      }
+
+      // enriched_at only says a photo lookup ran: an offline pack's photos or the photo store set
+      // it without reading any text. A species no text source was ever read for gets one try
+      // here (description_checked_at, migration 128). Best effort: the page never fails on it.
+      if (
+        species.enriched_at &&
+        !species.description &&
+        !species.description_checked_at &&
+        species.inat_taxon_id &&
+        liveCallsAllowed
+      ) {
+        try {
+          const text = await fillDescriptionIfUnchecked(id, species.inat_taxon_id);
+          if (text) {
+            species.description = text.description;
+            species.description_credit = text.descriptionCredit;
+            species.description_source_url = text.descriptionSourceUrl;
+          }
+        } catch (err) {
+          log.warn({ err, speciesId: id }, "Couldn't fetch this species' description");
+        }
       }
 
       // Independent queries, run together.
@@ -294,8 +343,7 @@ export async function speciesDetailRoutes(app: FastifyInstance): Promise<void> {
   );
 
   // Marking "seen" never overwrites `collected`, and unmarking only clears a `seen` row.
-  app.patch<{ Params: { id: string } }>("/species/:id/seen", { preHandler: requireAuth }, async (request, reply) => {
-    if (!isUuid(request.params.id)) return reply.code(404).send({ error: "Species not found" });
+  app.patch("/species/:id/seen", markOptions, async (request) => {
     const { id: speciesId } = request.params;
     const userId = request.user!.id;
     await pool.query(
@@ -306,8 +354,7 @@ export async function speciesDetailRoutes(app: FastifyInstance): Promise<void> {
     return { ok: true };
   });
 
-  app.delete<{ Params: { id: string } }>("/species/:id/seen", { preHandler: requireAuth }, async (request, reply) => {
-    if (!isUuid(request.params.id)) return reply.code(404).send({ error: "Species not found" });
+  app.delete("/species/:id/seen", markOptions, async (request) => {
     const { id: speciesId } = request.params;
     const userId = request.user!.id;
     await pool.query(`DELETE FROM user_species WHERE user_id = $1 AND species_id = $2 AND state = 'seen'`, [
@@ -318,8 +365,7 @@ export async function speciesDetailRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // is_target (migration 090) is independent of `state`, so a collected species can be a target.
-  app.patch<{ Params: { id: string } }>("/species/:id/target", { preHandler: requireAuth }, async (request, reply) => {
-    if (!isUuid(request.params.id)) return reply.code(404).send({ error: "Species not found" });
+  app.patch("/species/:id/target", markOptions, async (request) => {
     const { id: speciesId } = request.params;
     const userId = request.user!.id;
     await pool.query(
@@ -330,8 +376,7 @@ export async function speciesDetailRoutes(app: FastifyInstance): Promise<void> {
     return { ok: true };
   });
 
-  app.delete<{ Params: { id: string } }>("/species/:id/target", { preHandler: requireAuth }, async (request, reply) => {
-    if (!isUuid(request.params.id)) return reply.code(404).send({ error: "Species not found" });
+  app.delete("/species/:id/target", markOptions, async (request) => {
     const { id: speciesId } = request.params;
     const userId = request.user!.id;
     await pool.query(`UPDATE user_species SET is_target = false WHERE user_id = $1 AND species_id = $2`, [userId, speciesId]);
@@ -344,8 +389,7 @@ export async function speciesDetailRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // RAWs filed straight into this species' folder by /uploads/raw (no capture) get their own list.
-  app.get<{ Params: { id: string } }>("/species/:id/unmatched-raws", { preHandler: requireScope("species.read") }, async (request, reply) => {
-    if (!isUuid(request.params.id)) return reply.code(404).send({ error: "Species not found" });
+  app.get("/species/:id/unmatched-raws", readOptions, async (request) => {
     const res = await pool.query<{ id: string; ref: string; file_size: string; last_seen_at: string }>(
       `SELECT id, ref, file_size, last_seen_at FROM originals
        WHERE species_id = $1 AND user_id = $2 AND capture_id IS NULL AND kind = 'raw'
@@ -365,8 +409,7 @@ export async function speciesDetailRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // The stat line: photos, videos, encounters (clusterIntoEncounters), locations, cameras, lenses.
-  app.get<{ Params: { id: string } }>("/species/:id/encounters", { preHandler: requireScope("species.read") }, async (request, reply) => {
-    if (!isUuid(request.params.id)) return reply.code(404).send({ error: "Species not found" });
+  app.get("/species/:id/encounters", readOptions, async (request) => {
     const res = await pool.query<{
       id: string;
       taken_at: string | null;
@@ -398,8 +441,7 @@ export async function speciesDetailRoutes(app: FastifyInstance): Promise<void> {
 
   // Bursts of 3+ near-identical frames, each with its sharpest frame (lib/sharpness.ts) as the
   // representative.
-  app.get<{ Params: { id: string } }>("/species/:id/sequences", { preHandler: requireScope("species.read") }, async (request, reply) => {
-    if (!isUuid(request.params.id)) return reply.code(404).send({ error: "Species not found" });
+  app.get("/species/:id/sequences", readOptions, async (request) => {
     const res = await pool.query<{
       photo_id: string;
       taken_at: string | null;
@@ -448,8 +490,7 @@ export async function speciesDetailRoutes(app: FastifyInstance): Promise<void> {
 
   // Which registered drives already hold this species' photos, for the import destination
   // picker's recommended drive. Every drive in use is returned, busiest first.
-  app.get<{ Params: { id: string } }>("/species/:id/volume-usage", { preHandler: requireScope("species.read") }, async (request, reply) => {
-    if (!isUuid(request.params.id)) return reply.code(404).send({ error: "Species not found" });
+  app.get("/species/:id/volume-usage", readOptions, async (request) => {
     const res = await pool.query<{ volume_id: string | null; label: string | null; count: string }>(
       `SELECT sv.id AS volume_id, sv.label, COUNT(*) AS count
        FROM captures c
