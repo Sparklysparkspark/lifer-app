@@ -17,11 +17,15 @@ import { isTripBusy, tripJobRoutes } from "./jobs.js";
  * parent Lifer is allowed to use (assertAllowedPath); the folder itself may not exist yet. */
 function prepareDestinationFolder(folder: string): { path: string } | { error: string } {
   if (!path.isAbsolute(folder)) return { error: "destinationFolder must be an absolute folder path" };
-  const parent = assertAllowedPath(path.dirname(path.resolve(folder)));
-  const destination = path.join(parent, path.basename(folder));
+  // Resolved first, so the last segment can't be ".." stepping back out of the checked parent.
+  const resolved = path.resolve(folder);
+  const parent = assertAllowedPath(path.dirname(resolved));
+  const destination = path.join(parent, path.basename(resolved));
   if (existsSync(destination) && !statSync(destination).isDirectory())
     return { error: "destinationFolder is a file, not a folder" };
   mkdirSync(destination, { recursive: true });
+  // The folder itself checked too: an existing symlink there must not lead outside.
+  assertAllowedPath(destination);
   return { path: destination };
 }
 

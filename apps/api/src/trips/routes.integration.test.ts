@@ -2,7 +2,7 @@
 //   TEST_DATABASE_URL=postgres://lifer:lifer@127.0.0.1:55470/lifer npx vitest run trips/routes
 // Request validation on the trip routes: malformed input is refused before a handler runs, a
 // malformed trip id answers 404 like an unknown one, and the requests the web app sends still work.
-import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import Fastify, { type FastifyInstance } from "fastify";
@@ -95,6 +95,28 @@ describe.skipIf(!url)("trip route validation", () => {
       400,
       { error: "sourceFolder must be an absolute folder path" },
     ]);
+  });
+
+  it("keeps a destination folder inside the library, whatever its last segment", async () => {
+    mkdirSync(path.join(dataDir, "a", "b"), { recursive: true });
+    const dotDot = await call("POST", "/api/trips", {
+      sourceFolder,
+      destinationFolder: path.join(dataDir, "a", "b", ".."),
+    });
+    expect([dotDot.statusCode, dotDot.json().destinationFolder]).toEqual([201, path.join(dataDir, "a")]);
+    expect(existsSync(path.join(path.dirname(dataDir), "b"))).toBe(false);
+
+    const outside = mkdtempSync(path.join(tmpdir(), "lifer-trip-outside-"));
+    try {
+      symlinkSync(outside, path.join(dataDir, "Escape"));
+      const linked = await call("POST", "/api/trips", {
+        sourceFolder,
+        destinationFolder: path.join(dataDir, "Escape"),
+      });
+      expect(linked.statusCode).toBe(403);
+    } finally {
+      rmSync(outside, { recursive: true, force: true });
+    }
   });
 
   it("answers 404 for a malformed or unknown trip id on every kind of route", async () => {
