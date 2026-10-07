@@ -79,6 +79,11 @@ export interface CollectionItem {
   /** iNaturalist's coarse grouping (e.g. "Insecta") for an isOtherTaxa species, used as a
    *  sub-heading. Null for ordinary species. */
   inatIconicTaxon: string | null;
+  /** Region checklist rows only: you added this species by hand to the viewed region's checklist,
+   *  to a region inside it, or to a sea zone ticked on this view, and the catalog doesn't list it
+   *  here. Where it was added, for removing it (DELETE /regions/:regionId/checklist-additions/:speciesId,
+   *  or /sea-zones/:seaZoneId/... when `kind` is "seaZone"). Null otherwise. */
+  userAddedRegion?: { id: string; name: string; kind: "region" | "seaZone" } | null;
 }
 
 // Response shape for GET /api/collection/stats (spec §9 Phase 4).

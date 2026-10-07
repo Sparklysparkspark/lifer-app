@@ -39,7 +39,7 @@ export function float32ToFloat16Bits(value: number): number {
   const exp = (x >>> 23) & 0xff;
   let mant = x & 0x7fffff;
   if (exp === 0xff) return sign | 0x7c00 | (mant ? 0x200 : 0); // Inf / NaN
-  let e = exp - 127 + 15;
+  const e = exp - 127 + 15;
   if (e >= 0x1f) return sign | 0x7c00; // overflow to Inf
   if (e <= 0) {
     if (e < -10) return sign; // underflow to zero

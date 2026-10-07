@@ -1,0 +1,151 @@
+// species_traits.iucn_status stores IUCN codes (migration 129); getIucnModifier still resolves a
+// legacy spelling, so an un-normalized value can't silently score as no signal.
+import { describe, expect, it } from "vitest";
+import {
+  BIRD_ABSOLUTE_TIER_THRESHOLDS,
+  MAMMAL_DENSITY_ELUSIVENESS_BOOST_WEIGHT,
+  boostElusivenessForDensity,
+  boostElusivenessForHabitatDensity,
+  boostElusivenessForNocturnal,
+  boostTowardHarderToDetect,
+  computeRarityPhase1,
+  getIucnModifier,
+  percentileRankScores,
+  tierForScore,
+} from "./computeRarityPhase1.js";
+
+describe("getIucnModifier", () => {
+  it("reads the stored codes", () => {
+    expect(getIucnModifier("LC")).toBe(0);
+    expect(getIucnModifier("NE")).toBe(0);
+    expect(getIucnModifier("DD")).toBe(0.3);
+    expect(getIucnModifier("VU")).toBe(0.35);
+    expect(getIucnModifier("CR")).toBe(0.85);
+    expect(getIucnModifier("EW")).toBe(1);
+    expect(getIucnModifier("LR/cd")).toBe(0.15);
+  });
+
+  it("still resolves legacy spellings regardless of case", () => {
+    expect(getIucnModifier("least concern")).toBe(0);
+    expect(getIucnModifier("Least Concern")).toBe(0);
+    expect(getIucnModifier("vulnerable")).toBe(0.35);
+    expect(getIucnModifier("Vulnerable")).toBe(0.35);
+    expect(getIucnModifier("CRITICALLY ENDANGERED")).toBe(0.85);
+    expect(getIucnModifier("extinct_in_wild")).toBe(1);
+  });
+
+  it("returns 0 for null/undefined/unknown status rather than throwing", () => {
+    expect(getIucnModifier(null)).toBe(0);
+    expect(getIucnModifier(undefined)).toBe(0);
+    expect(getIucnModifier("not a real status")).toBe(0);
+  });
+});
+
+describe("percentileRankScores", () => {
+  it("gives the smallest value the highest score (rarest) and the largest the lowest", () => {
+    const scores = percentileRankScores([
+      { idx: 0, value: 100 },
+      { idx: 1, value: 1 },
+      { idx: 2, value: 50 },
+    ]);
+    expect(scores.get(1)).toBe(1); // smallest -> rarest
+    expect(scores.get(0)).toBe(0); // largest -> most common
+    expect(scores.get(2)).toBeCloseTo(0.5);
+  });
+
+  it("does not blow up on a single value", () => {
+    const scores = percentileRankScores([{ idx: 0, value: 42 }]);
+    expect(scores.get(0)).toBe(0.5);
+  });
+});
+
+describe("boostTowardHarderToDetect / nocturnal / density boosts", () => {
+  it("boostTowardHarderToDetect scales by remaining headroom, never exceeding 1", () => {
+    expect(boostTowardHarderToDetect(0.5, 0)).toBe(0.5);
+    expect(boostTowardHarderToDetect(0.5, 1)).toBe(1);
+    expect(boostTowardHarderToDetect(0.9, 0.4)).toBeCloseTo(0.94);
+  });
+
+  it("boostElusivenessForNocturnal only boosts actually-nocturnal species", () => {
+    expect(boostElusivenessForNocturnal(0.5, true)).toBeGreaterThan(0.5);
+    expect(boostElusivenessForNocturnal(0.5, false)).toBe(0.5);
+    expect(boostElusivenessForNocturnal(0.5, null)).toBe(0.5);
+  });
+
+  it("boostElusivenessForDensity leaves the score untouched when density is unknown", () => {
+    expect(boostElusivenessForDensity(0.5, null)).toBe(0.5);
+    expect(boostElusivenessForDensity(0.5, 1)).toBeGreaterThan(0.5);
+    expect(boostElusivenessForDensity(0.5, 0)).toBe(0.5);
+  });
+
+  it("boostElusivenessForDensity defaults to the shared (bird) weight, but accepts an override", () => {
+    // Mammals get a stronger density boost than birds, still below full strength (see
+    // MAMMAL_DENSITY_ELUSIVENESS_BOOST_WEIGHT).
+    const defaultBoost = boostElusivenessForDensity(0.5, 1);
+    const strongerBoost = boostElusivenessForDensity(0.5, 1, MAMMAL_DENSITY_ELUSIVENESS_BOOST_WEIGHT);
+    expect(strongerBoost).toBeGreaterThan(defaultBoost);
+    expect(strongerBoost).toBeCloseTo(0.5 + 0.5 * MAMMAL_DENSITY_ELUSIVENESS_BOOST_WEIGHT);
+  });
+
+  it("boostElusivenessForHabitatDensity boosts dense-habitat species more than open-habitat ones", () => {
+    // AVONET Habitat.Density: 1 = dense closed canopy, 3 = open habitat.
+    const dense = boostElusivenessForHabitatDensity(0.5, 1);
+    const semiOpen = boostElusivenessForHabitatDensity(0.5, 2);
+    const open = boostElusivenessForHabitatDensity(0.5, 3);
+    expect(dense).toBeGreaterThan(semiOpen);
+    expect(semiOpen).toBeGreaterThan(open);
+    expect(open).toBe(0.5); // fully open habitat -> no boost at all
+  });
+
+  it("boostElusivenessForHabitatDensity leaves the score untouched when habitat data is unknown", () => {
+    expect(boostElusivenessForHabitatDensity(0.5, null)).toBe(0.5);
+  });
+});
+
+describe("computeRarityPhase1", () => {
+  it("a Critically Endangered species with a small range outranks (rarer than) a Least Concern species with a huge range", () => {
+    const [endangered, common] = computeRarityPhase1([
+      { scientificName: "Rare Thing", rangeSizeKm2: 100, iucnStatus: "CR" },
+      { scientificName: "Common Thing", rangeSizeKm2: 10_000_000, iucnStatus: "LC" },
+    ]);
+    expect(endangered.composite).toBeGreaterThan(common.composite);
+  });
+
+  it("defaults missing range data to mid-pack (0.5) rather than reading as legendary", () => {
+    const [noRange] = computeRarityPhase1([{ scientificName: "Unknown Range", rangeSizeKm2: null, iucnStatus: null }]);
+    expect(noRange.rangeScore).toBe(0.5);
+  });
+
+  it("preserves input order in the output regardless of internal sort-by-composite", () => {
+    const inputs = [
+      { scientificName: "A", rangeSizeKm2: 500, iucnStatus: "VU" },
+      { scientificName: "B", rangeSizeKm2: 5, iucnStatus: "CR" },
+      { scientificName: "C", rangeSizeKm2: 50_000, iucnStatus: "LC" },
+    ];
+    const results = computeRarityPhase1(inputs);
+    expect(results.map((r) => r.scientificName)).toEqual(["A", "B", "C"]);
+  });
+});
+
+describe("tierForScore / BIRD_ABSOLUTE_TIER_THRESHOLDS", () => {
+  it("assigns a tier purely by the score's own value, not by rank among peers", () => {
+    expect(tierForScore(0.65, BIRD_ABSOLUTE_TIER_THRESHOLDS)).toBe("legendary");
+    expect(tierForScore(0.57, BIRD_ABSOLUTE_TIER_THRESHOLDS)).toBe("rare");
+    expect(tierForScore(0.5, BIRD_ABSOLUTE_TIER_THRESHOLDS)).toBe("uncommon");
+    expect(tierForScore(0.4, BIRD_ABSOLUTE_TIER_THRESHOLDS)).toBe("occasional");
+    expect(tierForScore(0.2, BIRD_ABSOLUTE_TIER_THRESHOLDS)).toBe("common");
+  });
+
+  it("is exact at threshold boundaries (>= not >)", () => {
+    expect(tierForScore(0.6, BIRD_ABSOLUTE_TIER_THRESHOLDS)).toBe("legendary");
+    expect(tierForScore(0.599999, BIRD_ABSOLUTE_TIER_THRESHOLDS)).toBe("rare");
+  });
+
+  it("a species can reach the top tier regardless of how many other species also clear the bar", () => {
+    // Unlike tierForPercentile, this never depends on the comparison pool's size or composition.
+    const allHighScores = [0.9, 0.91, 0.92, 0.93, 0.95];
+    for (const score of allHighScores) {
+      expect(tierForScore(score, BIRD_ABSOLUTE_TIER_THRESHOLDS)).toBe("legendary");
+    }
+  });
+});
