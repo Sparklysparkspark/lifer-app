@@ -1,91 +1,108 @@
 // Re-runnable backfill: each species' global GBIF occurrence count and most recent occurrence
 // year, for the "hide obscure/inaccessible species" filter's historical-rarity rule
-// (species_traits.occurrence_count < 20 or last_occurrence_year < 1950, see migration 036).
-// GBIF's records reach back to 1800s specimens, unlike iNaturalist's modern-only counts, so it
-// can tell "never photographed" from "gone from the record". One request per species
-// (facet=year on the count call).
+// (species_traits.occurrence_count < 20 or last_occurrence_year < 1950, see migration 036) and the
+// Ghost/Lost tags. GBIF's records reach back to 1800s specimens, unlike iNaturalist's modern-only
+// counts, so it can tell "never photographed" from "gone from the record".
+//
+// Species are fetched in bulk, many per request, grouped by order (see
+// pipeline/occurrenceStats.ts for how the results stay equal to one call per species). Each
+// species GBIF answered for is stamped in occurrence_checked_at, including those with no records
+// (stored as 0, no year), and skipped until the stamp is older than --recheck-after-days. If GBIF
+// keeps answering 429, the run stops and the next one carries on.
+//
+// Usage: npx tsx src/scripts/fetch-occurrence-stats.ts [--only-missing] [--recheck-after-days=90]
+//          [--limit=N] [--batch-size=200] [--interval-ms=1000]
 import { pool } from "../db.js";
-import { mapWithConcurrency } from "../concurrency.js";
+import {
+  DEFAULT_BATCH_SIZE,
+  GbifOccurrenceClient,
+  packGroups,
+  RateLimitStop,
+  resolveGroup,
+  type ResolveMethod,
+} from "../pipeline/occurrenceStats.js";
+import {
+  saveOccurrenceStats,
+  selectOccurrenceTargets,
+  stampOccurrenceChecked,
+  type OccurrenceTarget,
+  type StatsUpdate,
+} from "../pipeline/occurrenceStatsStore.js";
 
-const CONCURRENCY = 1;
-// GBIF throttles this endpoint hard, so a fixed pause between every request (not just after a
-// 429) keeps under its rate limit.
-const REQUEST_INTERVAL_MS = 1500;
+const arg = (name: string) => process.argv.find((a) => a.startsWith(`--${name}=`))?.split("=")[1];
 
-interface OccurrenceStats {
-  count: number;
-  lastYear: number | null;
-}
-
-async function fetchOccurrenceStats(gbifKey: number): Promise<OccurrenceStats | null> {
-  const url = `https://api.gbif.org/v1/occurrence/search?taxonKey=${gbifKey}&limit=0&facet=year&facetLimit=300`;
-  for (let attempt = 0; attempt <= 4; attempt++) {
-    let res: Response;
-    try {
-      res = await fetch(url);
-    } catch (err) {
-      console.error(`  network error for gbifKey=${gbifKey} (attempt ${attempt}):`, err instanceof Error ? err.message : err);
-      await new Promise((r) => setTimeout(r, 1000 * 2 ** attempt));
-      continue;
-    }
-    if (res.status === 429) {
-      const retryAfter = Number(res.headers.get("retry-after"));
-      const delayMs = Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : 1000 * 2 ** attempt;
-      console.error(`  429 for gbifKey=${gbifKey}, backing off ${Math.round(delayMs / 1000)}s`);
-      await new Promise((r) => setTimeout(r, delayMs));
-      continue;
-    }
-    if (!res.ok) {
-      console.error(`  HTTP ${res.status} for gbifKey=${gbifKey}`);
-      return null;
-    }
-    const data = (await res.json()) as {
-      count: number;
-      facets?: Array<{ field: string; counts: Array<{ name: string; count: number }> }>;
-    };
-    const yearFacet = data.facets?.[0]?.counts ?? [];
-    const years = yearFacet.filter((c) => c.count > 0).map((c) => Number(c.name));
-    const lastYear = years.length > 0 ? Math.max(...years) : null;
-    return { count: data.count, lastYear };
-  }
-  console.error(`  giving up on gbifKey=${gbifKey} after retries`);
-  return null;
+function numberArg(name: string, fallback: number): number {
+  const value = Number(arg(name) ?? fallback);
+  if (!Number.isFinite(value) || value < 0) throw new Error(`--${name} must be a non-negative number`);
+  return value;
 }
 
 async function main() {
   const onlyMissing = process.argv.includes("--only-missing");
-  const limitArg = process.argv.find((a) => a.startsWith("--limit="));
-  const limit = limitArg ? Number(limitArg.split("=")[1]) : null;
-  const res = await pool.query<{ species_id: string; gbif_key: string; scientific_name: string }>(
-    `SELECT s.id AS species_id, s.gbif_key, s.scientific_name
-     FROM species s
-     JOIN species_traits st ON st.species_id = s.id
-     WHERE s.gbif_key IS NOT NULL ${onlyMissing ? "AND st.occurrence_count IS NULL" : ""}
-     ORDER BY s.scientific_name
-     ${limit ? `LIMIT ${limit}` : ""}`,
+  const recheckAfterDays = numberArg("recheck-after-days", 90);
+  const limit = arg("limit") ? numberArg("limit", 0) : null;
+  const batchSize = Math.max(1, numberArg("batch-size", DEFAULT_BATCH_SIZE));
+  const intervalMs = numberArg("interval-ms", 1000);
+
+  const targets = await selectOccurrenceTargets(pool, { onlyMissing, recheckAfterDays, limit });
+  const byGroup = new Map<string, OccurrenceTarget[]>();
+  for (const t of targets) byGroup.set(t.group_name, [...(byGroup.get(t.group_name) ?? []), t]);
+  const sets = packGroups([...byGroup.values()], batchSize);
+  console.log(
+    `[fetch-occurrence-stats] ${targets.length} species to check in ${byGroup.size} groups (${sets.length} sets)`,
   );
-  console.log(`[fetch-occurrence-stats] ${res.rows.length} species to check`);
 
-  let done = 0;
+  const client = new GbifOccurrenceClient({ intervalMs });
+  const started = Date.now();
+  const byMethod: Record<ResolveMethod, number> = { bulk: 0, none: 0, single: 0 };
+  let saved = 0;
   let failed = 0;
-  await mapWithConcurrency(res.rows, CONCURRENCY, async (row) => {
-    const stats = await fetchOccurrenceStats(Number(row.gbif_key));
-    if (!stats) {
-      failed++;
-      return;
-    }
-    await pool.query(
-      `UPDATE species_traits SET occurrence_count = $1, last_occurrence_year = $2 WHERE species_id = $3`,
-      [stats.count, stats.lastYear, row.species_id],
-    );
-    await new Promise((r) => setTimeout(r, REQUEST_INTERVAL_MS));
-    done++;
-    if (done % 500 === 0) {
-      console.log(`[fetch-occurrence-stats] ${done}/${res.rows.length} done, ${failed} failed so far`);
-    }
-  });
+  let stopped = false;
 
-  console.log(`[fetch-occurrence-stats] done. ${done} updated, ${failed} failed.`);
+  for (const rows of sets) {
+    const groupNames = [...new Set(rows.map((r) => r.group_name))];
+    const label = groupNames.length === 1 ? groupNames[0] : `${groupNames.length} small groups (${groupNames[0]}...)`;
+    const byKey = new Map(rows.map((r) => [r.gbif_key, r]));
+    const pending: StatsUpdate[] = [];
+    const stamp: string[] = [];
+    const flush = async () => {
+      await saveOccurrenceStats(pool, pending.splice(0));
+      await stampOccurrenceChecked(pool, stamp.splice(0));
+    };
+    const before = client.requests;
+    try {
+      await resolveGroup([...byKey.keys()], client, {
+        now: new Date().getFullYear(),
+        batchSize,
+        onResolved: (r) => {
+          byMethod[r.method]++;
+          saved++;
+          pending.push({ speciesId: byKey.get(r.gbifKey)!.species_id, stats: r.stats });
+        },
+        onFailed: (f) => {
+          failed++;
+          console.error(`  ${byKey.get(f.gbifKey)!.scientific_name} (gbifKey=${f.gbifKey}): ${f.error.message}`);
+          // A network error or 5xx is retried next run; any other error waits like a checked species.
+          if (!f.error.transient) stamp.push(byKey.get(f.gbifKey)!.species_id);
+        },
+      });
+    } catch (err) {
+      if (!(err instanceof RateLimitStop)) throw err;
+      stopped = true;
+    }
+    await flush();
+    console.log(`[fetch-occurrence-stats] ${label}: ${rows.length} species, ${client.requests - before} requests`);
+    if (stopped) {
+      console.warn("[fetch-occurrence-stats] GBIF is refusing most requests (429); stopping. The next run carries on.");
+      break;
+    }
+  }
+
+  const minutes = ((Date.now() - started) / 60000).toFixed(1);
+  console.log(
+    `[fetch-occurrence-stats] done in ${minutes} min. ${saved} saved (${byMethod.bulk} bulk, ${byMethod.none} with no records, ` +
+      `${byMethod.single} per-species), ${failed} failed, ${client.requests} requests (${client.rateLimited} answered 429).`,
+  );
   await pool.end();
 }
 
