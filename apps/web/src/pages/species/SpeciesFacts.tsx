@@ -2,8 +2,9 @@ import SeasonalityBar from "../../components/SeasonalityBar";
 import WeeklyBar from "../../components/WeeklyBar";
 import SpeciesHotspotMap from "../../components/SpeciesHotspotMap";
 import { buildInaturalistObservationsUrl } from "../../lib/inaturalist";
-import { formatDate } from "../../lib/formatDate";
+import { formatDate } from "../../lib/format";
 import { pluralWord } from "../../lib/pluralize";
+import { iucnBadge, iucnStatValue, type IucnTone } from "../../lib/iucnDisplay";
 import type { EncountersResponse, SpeciesDetail } from "./types";
 
 const BADGE = "inline-block rounded-full px-2 py-0.5 text-xs uppercase tracking-wide";
@@ -11,9 +12,18 @@ const BADGE = "inline-block rounded-full px-2 py-0.5 text-xs uppercase tracking-
 export function SpeciesBadges({ detail }: { detail: SpeciesDetail }) {
   const { species } = detail;
   // Conservation status beside the tier, never folded into it: how hard a species is to find and
-  // how threatened it is often differ (an endangered wader can be on every mudflat).
-  const showIucn = !!species.iucn_status && !/not evaluated/i.test(species.iucn_status);
-  if (!species.tier && !showIucn && !detail.localTier && !detail.endemicCountryName && !detail.isVagrant && !detail.isInvasive) {
+  // how threatened it is often differ (an endangered wader can be on every mudflat). Not Evaluated
+  // shows too, quietly: a blank would read as a gap in Lifer's data, not as IUCN never having
+  // assessed it (most nudibranchs, sponges and sea stars).
+  const iucn = iucnBadge(species.iucn_status, species.iucn_note);
+  if (
+    !species.tier &&
+    !iucn &&
+    !detail.localTier &&
+    !detail.endemicCountryName &&
+    !detail.isVagrant &&
+    !detail.isInvasive
+  ) {
     return null;
   }
   return (
@@ -30,12 +40,9 @@ export function SpeciesBadges({ detail }: { detail: SpeciesDetail }) {
           {species.tier === "unrated" ? "Unrated" : species.tier}
         </span>
       )}
-      {showIucn && (
-        <span
-          className={`${BADGE} ${iucnBadgeTone(species.iucn_status!)}`}
-          title="IUCN Red List conservation status: how threatened the species is, not how hard it is to find"
-        >
-          IUCN: {titleCase(species.iucn_status!)}
+      {iucn && (
+        <span className={`${BADGE} ${IUCN_TONE_CLASS[iucn.tone]}`} title={iucn.title}>
+          {iucn.label}
         </span>
       )}
       {detail.localTier && (
@@ -118,13 +125,22 @@ export function SpeciesAbout({ detail }: { detail: SpeciesDetail }) {
                 not just at particular locations.
               </p>
               {inaturalistUrl && (
-                <a href={inaturalistUrl} target="_blank" rel="noreferrer" className="mt-1 inline-block text-xs text-accent hover:underline">
+                <a
+                  href={inaturalistUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mt-1 inline-block text-xs text-accent hover:underline"
+                >
                   See recent sightings on iNaturalist ↗
                 </a>
               )}
             </>
           ) : (
-            <SpeciesHotspotMap boundaryGeoJson={detail.regionBoundaryGeoJson} hotspots={detail.hotspots} scientificName={species.scientific_name} />
+            <SpeciesHotspotMap
+              boundaryGeoJson={detail.regionBoundaryGeoJson}
+              hotspots={detail.hotspots}
+              scientificName={species.scientific_name}
+            />
           )}
         </div>
       )}
@@ -132,7 +148,12 @@ export function SpeciesAbout({ detail }: { detail: SpeciesDetail }) {
         <p className="text-sm text-ink">
           {species.description}{" "}
           {species.description_source_url && (
-            <a href={species.description_source_url} target="_blank" rel="noreferrer" className="text-muted hover:underline">
+            <a
+              href={species.description_source_url}
+              target="_blank"
+              rel="noreferrer"
+              className="text-muted hover:underline"
+            >
               (Wikipedia)
             </a>
           )}
@@ -149,12 +170,22 @@ export function SpeciesAbout({ detail }: { detail: SpeciesDetail }) {
 
       <div className="flex flex-wrap gap-4 text-sm">
         {species.inat_taxon_id && (
-          <a href={`https://www.inaturalist.org/taxa/${species.inat_taxon_id}`} target="_blank" rel="noreferrer" className="text-muted hover:underline">
+          <a
+            href={`https://www.inaturalist.org/taxa/${species.inat_taxon_id}`}
+            target="_blank"
+            rel="noreferrer"
+            className="text-muted hover:underline"
+          >
             View on iNaturalist ↗
           </a>
         )}
         {species.ebird_code && (
-          <a href={`https://ebird.org/species/${species.ebird_code}`} target="_blank" rel="noreferrer" className="text-muted hover:underline">
+          <a
+            href={`https://ebird.org/species/${species.ebird_code}`}
+            target="_blank"
+            rel="noreferrer"
+            className="text-muted hover:underline"
+          >
             View on eBird ↗
           </a>
         )}
@@ -184,7 +215,10 @@ function SpeciesStats({ species }: { species: SpeciesDetail["species"] }) {
       {species.taxon_class === "mammalia" && (
         <>
           <Stat label="Mass" value={species.mass_g ? formatMass(Number(species.mass_g)) : null} />
-          <Stat label="Home range" value={species.home_range_km2 ? `${Math.round(Number(species.home_range_km2))} km²` : null} />
+          <Stat
+            label="Home range"
+            value={species.home_range_km2 ? `${Math.round(Number(species.home_range_km2))} km²` : null}
+          />
           <Stat label="Nocturnal" value={species.nocturnal == null ? null : species.nocturnal ? "Yes" : "No"} />
           {species.domestic && <Stat label="Domestic" value="Yes" />}
         </>
@@ -199,29 +233,25 @@ function SpeciesStats({ species }: { species: SpeciesDetail["species"] }) {
           }
         />
       )}
-      <Stat label="IUCN" value={species.iucn_status} />
+      <Stat label="IUCN" value={iucnStatValue(species.iucn_status)} />
     </dl>
   );
 }
 
-/** Muted for Least Concern and Data Deficient, amber for Near Threatened, red from Vulnerable up. */
-function iucnBadgeTone(status: string): string {
-  const s = status.toLowerCase().replace(/_/g, " ");
-  if (/critically|endangered|vulnerable|extinct/.test(s)) return "bg-rose-100 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300";
-  if (/near threatened/.test(s)) return "bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300";
-  return "bg-surface-muted text-muted";
-}
+/** Muted for Least Concern and Data Deficient, amber for Near Threatened, red from Vulnerable up,
+ *  dashed and quiet for Not Evaluated (like the Unrated tier). */
+const IUCN_TONE_CLASS: Record<IucnTone, string> = {
+  threatened: "bg-rose-100 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300",
+  near: "bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300",
+  neutral: "bg-surface-muted text-muted",
+  unassessed: "border border-dashed border-line text-muted",
+};
 
 // Grams are stored for every taxon; display picks g / kg / t.
 function formatMass(massG: number): string {
   if (massG >= 1_000_000) return `${(massG / 1_000_000).toLocaleString(undefined, { maximumFractionDigits: 1 })} t`;
   if (massG >= 1_000) return `${(massG / 1_000).toLocaleString(undefined, { maximumFractionDigits: 1 })} kg`;
   return `${Math.round(massG)} g`;
-}
-
-// iNaturalist status names arrive lowercase ("least concern").
-function titleCase(s: string): string {
-  return s.replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 function Stat({ label, value }: { label: string; value: string | null }) {

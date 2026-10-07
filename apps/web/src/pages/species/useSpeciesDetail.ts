@@ -5,6 +5,8 @@ import type { EncountersResponse, SpeciesCapture, SpeciesDetail, UnmatchedRaw } 
 
 const UNAVAILABLE_POLL_START_MS = 8000;
 const UNAVAILABLE_POLL_MAX_MS = 60000;
+// One shared empty list, so callers' memos don't see a new array every render.
+const NO_RAWS: UnmatchedRaw[] = [];
 
 /** Loads a species' detail, encounter summary and unmatched RAWs. Every request is aborted when a
  *  newer one starts or the species changes, so a slow response can't show the previous species. */
@@ -12,28 +14,41 @@ export function useSpeciesDetail(id: string | undefined, regionId: string | null
   const { jobs: uploadJobs } = useUploadQueue();
   const pendingUploadCount = uploadJobs.filter((j) => j.speciesId === id && !j.done).length;
 
-  const [detail, setDetail] = useState<SpeciesDetail | null>(null);
-  const [loadError, setLoadError] = useState(false);
+  // Each result is tagged with the species it belongs to, so a different species never flashes
+  // the previous one's data while it loads. A region change keeps the detail until the new one lands.
+  const [loadedDetail, setLoadedDetail] = useState<{ id: string; detail: SpeciesDetail } | null>(null);
+  const detail = loadedDetail && loadedDetail.id === id ? loadedDetail.detail : null;
+  // The request that failed; a new species or region starts without the old error.
+  const requestKey = JSON.stringify([id ?? null, regionId]);
+  const [failedFor, setFailedFor] = useState<string | null>(null);
+  const loadError = failedFor === requestKey;
   const detailController = useRef<AbortController | null>(null);
 
-  const load = useCallback(() => {
+  const fetchDetail = useCallback(() => {
     if (!id) return;
     detailController.current?.abort();
     const controller = new AbortController();
     detailController.current = controller;
-    setLoadError(false);
+    const key = JSON.stringify([id, regionId]);
     const query = regionId ? `?regionId=${encodeURIComponent(regionId)}` : "";
     api
       .get<SpeciesDetail>(`/species/${id}${query}`, { signal: controller.signal })
       .then((res) => {
-        if (!controller.signal.aborted) setDetail(res);
+        if (!controller.signal.aborted) setLoadedDetail({ id, detail: res });
       })
       .catch(() => {
-        if (!controller.signal.aborted) setLoadError(true);
+        if (!controller.signal.aborted) setFailedFor(key);
       });
   }, [id, regionId]);
 
-  const [unmatchedRaws, setUnmatchedRaws] = useState<UnmatchedRaw[]>([]);
+  // A reload asked for by the page or a timer: the error clears while it retries.
+  const load = useCallback(() => {
+    setFailedFor(null);
+    fetchDetail();
+  }, [fetchDetail]);
+
+  const [loadedRaws, setLoadedRaws] = useState<{ id: string; rawFiles: UnmatchedRaw[] } | null>(null);
+  const unmatchedRaws = loadedRaws && loadedRaws.id === id ? loadedRaws.rawFiles : NO_RAWS;
   const rawsController = useRef<AbortController | null>(null);
   const loadUnmatchedRaws = useCallback(() => {
     if (!id) return;
@@ -43,23 +58,18 @@ export function useSpeciesDetail(id: string | undefined, regionId: string | null
     api
       .get<{ rawFiles: UnmatchedRaw[] }>(`/species/${id}/unmatched-raws`, { signal: controller.signal })
       .then((res) => {
-        if (!controller.signal.aborted) setUnmatchedRaws(res.rawFiles);
+        if (!controller.signal.aborted) setLoadedRaws({ id, rawFiles: res.rawFiles });
       })
       .catch(() => {
-        if (!controller.signal.aborted) setUnmatchedRaws([]);
+        if (!controller.signal.aborted) setLoadedRaws({ id, rawFiles: [] });
       });
   }, [id]);
 
-  // A different species must never flash the previous one's data while it loads.
+  // A new species or region is a new request key, so there's no stale error to clear here.
   useEffect(() => {
-    setDetail(null);
-    setUnmatchedRaws([]);
-  }, [id]);
-
-  useEffect(() => {
-    load();
+    fetchDetail();
     loadUnmatchedRaws();
-  }, [load, loadUnmatchedRaws]);
+  }, [fetchDetail, loadUnmatchedRaws]);
 
   useEffect(
     () => () => {
@@ -79,15 +89,15 @@ export function useSpeciesDetail(id: string | undefined, regionId: string | null
     prevPendingUploadCountRef.current = pendingUploadCount;
   }, [pendingUploadCount, load, loadUnmatchedRaws]);
 
-  const [encounters, setEncounters] = useState<EncountersResponse | null>(null);
+  const [loadedEncounters, setLoadedEncounters] = useState<{ id: string; encounters: EncountersResponse } | null>(null);
+  const encounters = loadedEncounters && loadedEncounters.id === id ? loadedEncounters.encounters : null;
   useEffect(() => {
     if (!id) return;
-    setEncounters(null);
     const controller = new AbortController();
     api
       .get<EncountersResponse>(`/species/${id}/encounters`, { signal: controller.signal })
       .then((res) => {
-        if (!controller.signal.aborted) setEncounters(res);
+        if (!controller.signal.aborted) setLoadedEncounters({ id, encounters: res });
       })
       .catch(() => {});
     return () => controller.abort();
@@ -126,8 +136,16 @@ export function useSpeciesDetail(id: string | undefined, regionId: string | null
   /** Patches captures in place, for optimistic updates that don't need a full reload. */
   const updateCaptures = useCallback((ids: Iterable<string>, patch: (c: SpeciesCapture) => Partial<SpeciesCapture>) => {
     const idSet = new Set(ids);
-    setDetail((prev) =>
-      prev ? { ...prev, captures: prev.captures.map((c) => (idSet.has(c.id) ? { ...c, ...patch(c) } : c)) } : prev,
+    setLoadedDetail((prev) =>
+      prev
+        ? {
+            ...prev,
+            detail: {
+              ...prev.detail,
+              captures: prev.detail.captures.map((c) => (idSet.has(c.id) ? { ...c, ...patch(c) } : c)),
+            },
+          }
+        : prev,
     );
   }, []);
 

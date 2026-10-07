@@ -69,7 +69,9 @@ function PhotoTile({
   } ${selectMode && selected ? "ring-2 ring-inset ring-blue-500" : ""}`;
 
   return (
-    <div className="group relative w-full min-w-0">
+    // The tile's image shares its accessible name with the species card on the collection page,
+    // so the e2e tests need this to know they're looking at a photo grid.
+    <div data-testid="photo-tile" className="group relative w-full min-w-0">
       <button
         onClick={(e) => {
           if (!selectMode) return onOpen();
@@ -132,7 +134,8 @@ function PhotoTile({
           type="checkbox"
           checked={selected}
           onChange={(e) => onToggleSelect((e.nativeEvent as MouseEvent).shiftKey ?? false)}
-          className="absolute left-2 top-2 h-4 w-4 accent-accent"
+          // z-[1]: a caller's `label` overlay renders after this and would otherwise sit on top.
+          className="absolute left-2 top-2 z-[1] h-4 w-4 accent-accent"
           aria-label="Select photo"
         />
       )}
@@ -143,12 +146,7 @@ function PhotoTile({
         </DotMenu>
       )}
       {!selectMode && menuContent !== undefined && contextMenuOpen && (
-        <DotMenu
-          open={contextMenuOpen}
-          onToggle={onToggleMenu}
-          menuRef={menuRef}
-          anchorPoint={contextMenuAnchor}
-        >
+        <DotMenu open={contextMenuOpen} onToggle={onToggleMenu} menuRef={menuRef} anchorPoint={contextMenuAnchor}>
           {menuContent}
         </DotMenu>
       )}

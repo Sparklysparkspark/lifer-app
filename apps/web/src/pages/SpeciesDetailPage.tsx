@@ -1,17 +1,15 @@
 import { useEffect, useState } from "react";
 import { useParams, useSearchParams, useNavigate } from "react-router-dom";
 import { api, ApiError } from "../api/client";
-import { formatBytes } from "../lib/formatBytes";
+import { formatBytes } from "../lib/format";
 import UploadDropzone from "../components/UploadDropzone";
 import RawUpload from "../components/RawUpload";
-import { useVolumeDestination, VolumeDestinationPicker } from "../components/VolumeDestinationPicker";
+import { VolumeDestinationPicker } from "../components/VolumeDestinationPicker";
+import { useVolumeDestination } from "../hooks/useVolumeDestination";
 import CardCropEditor from "../components/CardCropEditor";
-import RegionBrowser from "../components/RegionBrowser";
 import DotMenu from "../components/DotMenu";
 import PageHeader from "../components/PageHeader";
 import Modal from "../components/Modal";
-import Button from "../components/Button";
-import FormMessage from "../components/FormMessage";
 import { LoadingScreen } from "../components/LoadingScreen";
 import { useDropdownMenu } from "../hooks/useDropdownMenu";
 import { useConfirm } from "../hooks/useConfirm";
@@ -21,6 +19,7 @@ import { useSpeciesDetail } from "./species/useSpeciesDetail";
 import SpeciesHero from "./species/SpeciesHero";
 import SpeciesPhotoGrid from "./species/SpeciesPhotoGrid";
 import { EncounterSummary, SpeciesAbout, SpeciesBadges } from "./species/SpeciesFacts";
+import ChecklistAdditions from "./species/ChecklistAdditions";
 
 const GALLERY_VIEW_KEY = "lifer:galleryView";
 const HEADER_ACTION = "text-xs text-muted hover:underline";
@@ -41,10 +40,8 @@ export default function SpeciesDetailPage() {
   const [croppingCover, setCroppingCover] = useState(false);
   const [showUploadDialog, setShowUploadDialog] = useState(false);
   const [removingOtherTaxa, setRemovingOtherTaxa] = useState(false);
-  // An Other Taxa species can sit on several regions' checklists.
-  const [addingToRegion, setAddingToRegion] = useState(false);
-  const [addRegionId, setAddRegionId] = useState<string | null>(null);
-  const [addRegionStatus, setAddRegionStatus] = useState<"idle" | "saving" | "done" | "error">("idle");
+  // Any species, hand-imported or not, can be put on more regions' checklists.
+  const [addingToChecklist, setAddingToChecklist] = useState(false);
   const volumeDestination = useVolumeDestination(id ?? "");
   const { openKey: openRawMenuId, setOpenKey: setOpenRawMenuId, ref: openRawMenuRef } = useDropdownMenu<string>();
 
@@ -114,7 +111,8 @@ export default function SpeciesDetailPage() {
   const addToTargets = () => mutate(() => api.patch(`/species/${id}/target`), "Couldn't add to targets");
   const removeFromTargets = () => mutate(() => api.delete(`/species/${id}/target`), "Couldn't remove from targets");
   const archive = () => mutate(() => api.post(`/species/${id}/archive`), "Couldn't archive this species. Try again.");
-  const unarchive = () => mutate(() => api.delete(`/species/${id}/archive`), "Couldn't unarchive this species. Try again.");
+  const unarchive = () =>
+    mutate(() => api.delete(`/species/${id}/archive`), "Couldn't unarchive this species. Try again.");
 
   async function removeOtherTaxa() {
     const ok = await confirm({
@@ -135,19 +133,6 @@ export default function SpeciesDetailPage() {
     }
   }
 
-  async function addToAnotherRegion() {
-    if (!addRegionId || !species.inat_taxon_id) return;
-    setAddRegionStatus("saving");
-    try {
-      await api.post("/species/other-taxa", { inatTaxonId: species.inat_taxon_id, regionId: addRegionId });
-      setAddRegionStatus("done");
-      setAddRegionId(null);
-      setTimeout(() => setAddingToRegion(false), 1200);
-    } catch {
-      setAddRegionStatus("error");
-    }
-  }
-
   // Errors propagate so CardCropEditor stays open and shows them.
   async function saveCrop(body: object) {
     await api.patch(`/species/${id}/card-crop`, body);
@@ -165,12 +150,12 @@ export default function SpeciesDetailPage() {
           <SpeciesHero detail={detail} />
 
           <div>
-            <div className="flex items-start justify-between">
-              <div>
+            <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
+              <div className="min-w-0">
                 <h1 className="text-2xl font-semibold text-ink">{species.common_name ?? species.scientific_name}</h1>
                 <p className="italic text-muted">{species.scientific_name}</p>
               </div>
-              <div className="flex shrink-0 items-center gap-3">
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
                 {userSpecies?.cover_photo_id && (
                   <button onClick={() => setCroppingCover(true)} className={HEADER_ACTION}>
                     Adjust card preview
@@ -205,11 +190,13 @@ export default function SpeciesDetailPage() {
                     Archive
                   </button>
                 ) : null}
-                {species.is_other_taxa && species.inat_taxon_id && (
-                  <button onClick={() => setAddingToRegion((v) => !v)} className={HEADER_ACTION}>
-                    Add to another region
-                  </button>
-                )}
+                <button
+                  onClick={() => setAddingToChecklist((v) => !v)}
+                  aria-expanded={addingToChecklist}
+                  className={HEADER_ACTION}
+                >
+                  Add to another checklist
+                </button>
                 {/* The server refuses removal once a photo exists, so it's only offered before then. */}
                 {species.is_other_taxa && userSpecies?.state !== "collected" && (
                   <button
@@ -222,18 +209,12 @@ export default function SpeciesDetailPage() {
                 )}
               </div>
             </div>
-            {addingToRegion && (
-              <div className="flex flex-wrap items-center gap-2 rounded-lg border border-line bg-surface p-3 text-sm">
-                <div className="min-w-0 flex-1">
-                  <RegionBrowser regionId={addRegionId} onChange={setAddRegionId} allowAnyRegion />
-                </div>
-                <Button size="sm" className="shrink-0" onClick={addToAnotherRegion} disabled={!addRegionId} loading={addRegionStatus === "saving"}>
-                  Add
-                </Button>
-                {addRegionStatus === "done" && <span className="shrink-0 text-xs text-muted">Added.</span>}
-                {addRegionStatus === "error" && <FormMessage error="Couldn't add. Try again." className="shrink-0" />}
-              </div>
-            )}
+            <ChecklistAdditions
+              speciesId={species.id}
+              speciesName={species.common_name ?? species.scientific_name}
+              adding={addingToChecklist}
+              onDoneAdding={() => setAddingToChecklist(false)}
+            />
             {!galleryView && <SpeciesBadges detail={detail} />}
           </div>
 
@@ -257,8 +238,16 @@ export default function SpeciesDetailPage() {
             <h2 className="mb-2 text-sm font-medium text-ink">RAW gallery</h2>
             <div className="flex flex-wrap gap-3">
               {unmatchedRaws.map((r) => (
-                <div key={r.id} className="group relative w-32 rounded-md border border-line bg-surface p-2 text-center">
-                  <img src={r.previewUrl} alt="" loading="lazy" className="aspect-square w-full rounded-sm bg-surface-muted object-cover" />
+                <div
+                  key={r.id}
+                  className="group relative w-32 rounded-md border border-line bg-surface p-2 text-center"
+                >
+                  <img
+                    src={r.previewUrl}
+                    alt=""
+                    loading="lazy"
+                    className="aspect-square w-full rounded-sm bg-surface-muted object-cover"
+                  />
                   <DotMenu
                     open={openRawMenuId === r.id}
                     onToggle={() => setOpenRawMenuId(openRawMenuId === r.id ? null : r.id)}

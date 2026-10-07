@@ -38,7 +38,10 @@ export interface SpeciesDetail {
     depth_min_m: string | null;
     depth_max_m: string | null;
     domestic: boolean | null;
+    // IUCN code (EX, EW, CR, EN, VU, LR/cd, NT, LC, DD, NE), from species_traits (migration 129).
     iucn_status: string | null;
+    // A caveat to show with it, e.g. a split IUCN still assesses as part of its parent.
+    iucn_note: string | null;
     tier: string | null;
     is_other_taxa: boolean;
     // Other Taxa have no trait dataset, so family/order/genus fill their stats box instead.
@@ -135,7 +138,9 @@ export function filterBucketFor(c: SpeciesCapture): Exclude<PhotoFilter, "all"> 
 
 // Full-resolution JPEG original when it's reachable, otherwise the display WebP (browsers can't
 // render RAW, and an unavailable original would 404).
-export function fullSizeUrl(capture: Pick<SpeciesCapture, "photo_id" | "original_ref" | "original_kind" | "original_available">) {
+export function fullSizeUrl(
+  capture: Pick<SpeciesCapture, "photo_id" | "original_ref" | "original_kind" | "original_available">,
+) {
   if (!capture.photo_id) return null;
   if (capture.original_ref && capture.original_kind === "jpeg" && capture.original_available !== false) {
     return `/api/photos/${capture.photo_id}/original`;

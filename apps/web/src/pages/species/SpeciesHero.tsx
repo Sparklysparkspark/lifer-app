@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import Lightbox, { type LightboxSlide } from "../../components/Lightbox";
 import PhotoPlaceholder from "../../components/PhotoPlaceholder";
 import { fullSizeUrl, type SpeciesDetail } from "./types";
@@ -37,14 +37,21 @@ function buildHeroSlides(detail: SpeciesDetail): LightboxSlide[] {
 export default function SpeciesHero({ detail }: { detail: SpeciesDetail }) {
   const slides = useMemo(() => buildHeroSlides(detail), [detail]);
   const [rawIndex, setRawIndex] = useState(0);
-  const [failed, setFailed] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
 
-  useEffect(() => setRawIndex(0), [slides.length]);
-  // The reset effect runs after render, so clamp for the render in between.
+  // A different set of slides starts over at the first.
+  const [slideCount, setSlideCount] = useState(slides.length);
+  if (slideCount !== slides.length) {
+    setSlideCount(slides.length);
+    setRawIndex(0);
+  }
+  // The render that notices the new count still has the old index, so clamp it.
   const index = slides.length === 0 ? 0 : Math.min(rawIndex, slides.length - 1);
   const slide = slides[index];
-  useEffect(() => setFailed(false), [index, slide?.url]);
+  // Which slide failed to load, so moving to another one tries again.
+  const slideKey = `${index}|${slide?.url ?? ""}`;
+  const [failedKey, setFailedKey] = useState<string | null>(null);
+  const failed = failedKey === slideKey;
 
   const name = detail.species.common_name ?? detail.species.scientific_name;
 
@@ -59,7 +66,7 @@ export default function SpeciesHero({ detail }: { detail: SpeciesDetail }) {
           onClick={() => setLightboxIndex(index)}
           className="aspect-[16/9] w-full cursor-pointer rounded-lg object-cover"
           style={{ objectPosition: `${slide.focalX ?? 50}% ${slide.focalY ?? 50}%` }}
-          onError={() => setFailed(true)}
+          onError={() => setFailedKey(slideKey)}
         />
         {slides.length > 1 && (
           <>
