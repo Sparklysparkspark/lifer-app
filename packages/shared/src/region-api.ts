@@ -32,7 +32,11 @@ export interface RegionStats {
 }
 
 export interface RegionSpeciesResult {
-  needsPack?: false;
+  /** True when the region's pack isn't downloaded yet. Self-hosted installs never compute a
+   *  checklist live, so the catalog's checklist exists only once its pack is downloaded. Until
+   *  then `items` holds only what's yours there: species you photographed in the region and ones
+   *  you added to its checklist yourself. */
+  needsPack?: boolean;
   region: {
     id: string;
     name: string;
@@ -50,14 +54,7 @@ export interface RegionSpeciesResult {
   taxonPackMissing?: boolean;
 }
 
-export interface RegionNeedsPack {
-  /** No region_species data yet. Self-hosted installs never compute this live, so the
-   *  checklist exists only once its region pack is downloaded. */
-  needsPack: true;
-  region: { id: string; name: string };
-}
-
-export type RegionSpeciesResponse = RegionSpeciesResult | RegionNeedsPack;
+export type RegionSpeciesResponse = RegionSpeciesResult;
 
 export interface EbirdImportSummary {
   totalRows: number;

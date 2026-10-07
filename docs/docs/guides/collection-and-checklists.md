@@ -37,7 +37,7 @@ For anything else, like insects, spiders, plants or fungi, add species from iNat
 
 Lifer remembers the last region you viewed. Filters, sorting and grouping are part of the page address, so you can bookmark a view.
 
-If a region's pack isn't downloaded, the page offers a button to **Download** it.
+If a region's pack isn't downloaded, the page offers a button to **Download** it. Species you've photographed there, or [added to its checklist yourself](#add-to-checklist), still show below the button.
 
 ## Reading your progress
 
@@ -63,6 +63,7 @@ Open a species card's **⋯** menu:
 - **Add to targets** / **Remove from targets**: species you're going after. This works for collected species too, if you want a better photo.
 - **Archive**: stops counting a species toward your to-collect total everywhere, for species you're not interested in.
 - **Hide from this region**: takes a species off this region's checklist only, for example a one-off vagrant. In a province you can tick the province, **All of** the country, or both. Hiding it from a country also hides it from every province in that country. Its photos and its place on other checklists aren't affected.
+- **Remove from this checklist**: only for species you added to this checklist yourself. See [Adding a species to a checklist](#add-to-checklist).
 - **Remove species**: only for species you added from iNaturalist. See [Other groups](#other-taxa).
 
 To archive a whole family at once, set **Group** to **Family group** and click **Archive group** on the family's heading.
@@ -73,6 +74,33 @@ You can't hide or archive species you've already collected.
 
 - **Settings > Library > Hidden species** lists everything you've hidden, by country and province. Click **Unhide**, or **Unhide all shown**.
 - **Settings > Library > Archived species** lists archived species by family. Click **Unarchive**, or **Unarchive all** for a family. You can also click **Archived (unarchive)** on the species page.
+
+## Adding a species to a checklist yourself {#add-to-checklist}
+
+A checklist can miss a species you know is there, like an insect you imported by hand for one province that you also find in the next, or a sea turtle off a coast whose [sea zone](#sea-zones) lists only fish. You can add any species Lifer has to any country's, province's or sea zone's checklist.
+
+**From the checklist:** open the region and click **+ Add a species** next to its totals. Search by name, then pick the species (or use the arrow keys and <kbd>Enter</kbd>). If you've ticked sea zones under **Include nearby water:**, choose under **Add it to** whether it goes on the region's checklist or one of the zones'.
+
+**From the species page:** click **Add to another checklist**, then either:
+
+- choose **Country or province**, and pick the country or the province or state, or
+- choose **Sea zone**, and search for the zone by name.
+
+Then click **Add to** it. World and the continents have no checklist of their own, so pick a region inside them.
+
+A species you added:
+
+- Shows on that checklist with an **Added by you** label, and counts toward its totals. One added to a province also shows on its country's checklist.
+- Shows even if its group's pack isn't downloaded, or **Hide obscure species** would hide it, since you asked for it. On a region whose pack isn't downloaded yet, it shows below the **Download** button.
+- On a sea zone, shows on a coastal region's checklist when that zone is ticked under **Include nearby water:**, like the zone's own fish. A zone you've added species to is offered there even without the region's fish pack. World and continent views combine countries' checklists only, so they don't include sea zone additions.
+- Stays when you update the catalog or download, update or remove an offline pack.
+- Is only on your own checklists. Other people on the same server don't see it.
+
+Species you [import from iNaturalist](#other-taxa) work the same way: importing one adds it to the region you pick, marked **Added by you**.
+
+Adding a species you'd hidden from that region also unhides it there.
+
+To take one off again, open its card's **⋯** menu and click **Remove from this checklist**, or click **×** next to the checklist under **Added by you to:** on the species page. This only removes your addition: if the catalog lists the species there too, it stays. On the species page, a sea zone is marked **(sea)**, and its name opens a nearby region's checklist with just that zone ticked.
 
 ## Filters, sorting and grouping {#filters}
 
@@ -93,9 +121,9 @@ You can't hide or archive species you've already collected.
 
 ## Sea zones {#sea-zones}
 
-For fish, a coastal region can include nearby sea zones. Under **Include nearby water:**, tick the zones you want, or **Select all**. Once a zone is ticked, untick **Include (region)'s own species** to see only the zone's fish.
+For fish, a coastal region can include nearby sea zones: the named seas, gulfs, bays and straits of the International Hydrographic Organization's *Limits of Oceans and Seas*, such as the North Sea, the Gulf of Mexico or the Coral Sea. Where a coast faces open ocean, its zone is that country's part of the ocean instead, such as the Portuguese part of the North Atlantic Ocean or the Chilean part of the South Pacific Ocean. Under **Include nearby water:**, tick the zones you want, or **Select all**. Once a zone is ticked, untick **Include (region)'s own species** to see only the zone's fish.
 
-- Sea zones only add fish, so the control shows when you're viewing all groups or Fish, once the region's fish pack is downloaded.
+- Sea zones only add fish, so the control shows when you're viewing all groups or Fish, once the region's fish pack is downloaded. It also shows whenever you've [added species](#add-to-checklist) to one of the zones yourself.
 - If a region has no fish of its own, Lifer ticks its zones for you.
 - A country pack may bring in the sea zones its fish checklist needs. You can also download zones from [Offline packs](./offline-packs-and-map.md).
 
@@ -149,6 +177,7 @@ On species cards:
 | **Ghost** | Rarely documented anywhere, but still out there to find |
 | **Lost** | Not recorded anywhere in over 25 years |
 | **Rediscovered** | Was a Ghost or Lost species when you photographed it, but isn't any more |
+| **Added by you** | You added it to this checklist yourself. See [Adding a species to a checklist](#add-to-checklist) |
 
 Species pages can also show **Invasive here**: an established population in this region that's non-native and considered invasive.
 
@@ -173,7 +202,7 @@ Click any card to open its page. It shows:
 - Links to the species on iNaturalist and eBird (birds only).
 - **Your photos**, with **Size**, **Gallery view** (just the photos, no ratings or camera info), **Sort** (**Newest first**, **Oldest first**, **Highest rated first**), filters for **All**, **Edited**, **RAW** and **Video**, and **Upload** to add more.
 
-Header links let you **Mark as seen**, **Add to targets**, **Archive**, and **Adjust card preview** (the crop used on the species card, once you have a featured photo).
+Header links let you **Mark as seen**, **Add to targets**, **Archive**, **Add to another checklist** (see [Adding a species to a checklist](#add-to-checklist)), and **Adjust card preview** (the crop used on the species card, once you have a featured photo).
 
 Each photo's **⋯** menu has **Rate**, **Set as featured photo** (the species' cover), **Add to album…**, **Download original**, **Download RAW**, **Also features another species…**, **Correct the ID…**, **Set location…**, **Edit tags…** and **Delete photo**. On the desktop app it also has **Reveal in Finder** for photos kept in your own folders, and **Copy original's path**.
 
@@ -185,8 +214,8 @@ For groups Lifer has no checklists for, like insects, spiders, plants and fungi,
 
 1. Turn on [Any-taxa search](../settings.md#any-taxa-search) in **Settings > Species and import**.
 2. Click **Search iNaturalist for a species to add**. (With the setting on, quick search also offers **Search iNaturalist** when you type a species Lifer doesn't have.)
-3. Choose **One species** to search and add a single species, or **Import a list** to paste many names at once, then pick the region.
+3. Choose **One species** to search and add a single species, or **Import a list** to paste many names at once, then pick a country, or a province or state.
 
 See [iNaturalist](./inaturalist.md#any-taxa) for the details.
 
-These species appear on that region's checklist (and on the checklists of the regions that contain it, like the country for a province). Filter to them with their group in **Taxon**, like **Insects**. They have a photo and description from iNaturalist, but no tiers or occurrence data.
+These species appear on that region's checklist marked **Added by you** (and on the checklists of the regions that contain it, like the country for a province). They're yours: other people on the same server don't see them unless they add them too. To put one on another region's checklist too, open its species page and click **Add to another checklist** (see [Adding a species to a checklist](#add-to-checklist)). Filter to them with their group in **Taxon**, like **Insects**. They have a photo and description from iNaturalist, but no tiers or occurrence data.

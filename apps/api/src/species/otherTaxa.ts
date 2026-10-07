@@ -1,28 +1,21 @@
 // Other Taxa: species Lifer has no dataset for (insects, plants, fungi, ...), found and added
 // from iNaturalist by name. Behind the any_taxa_search_enabled opt-in, since it's a live lookup.
+// The species row is shared, but putting it on a region's checklist is a checklist addition for
+// the importing user only (regions/checklistAdditions.ts), never a catalog region_species row.
 import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
-import { pool } from "../db.js";
+import { Type } from "typebox";
+import { pool, withTransaction } from "@lifer/core/db.js";
 import { isUuid } from "../lib/validate.js";
+import { IdParams, Ok, notFoundOnInvalidId, replies, withSchemas } from "../lib/schema.js";
 import { requireAuth } from "../auth/session.js";
-import { enrichSpecies, persistEnrichment, persistGalleryPromotingMainIfMissing } from "./lazyEnrich.js";
+import { enrichSpecies, persistEnrichment, persistGalleryPromotingMainIfMissing } from "@lifer/core/species/lazyEnrich.js";
 import { createJob } from "../lib/job.js";
+import { addToRegionChecklist, findChecklistRegion, noChecklistError } from "../regions/checklistAdditions.js";
+import { scheduleCollectionStateSave } from "../lib/collectionState.js";
+import { iucnCodeFromInatLevel, normalizeIucnStatus } from "@lifer/shared";
 
 const INAT_TAXA_API = "https://api.inaturalist.org/v1/taxa";
 const OTHER_TAXA_USER_AGENT = "lifer-app/0.1 (personal project; any-taxa search)";
-// Every conservation_statuses entry, whatever the authority or place, carries iNat's normalized
-// numeric `iucn` level, so one table labels them all.
-const IUCN_LEVEL_NAMES: Record<number, string> = {
-  0: "Not Evaluated",
-  5: "Data Deficient",
-  10: "Least Concern",
-  20: "Near Threatened",
-  30: "Vulnerable",
-  40: "Endangered",
-  50: "Critically Endangered",
-  60: "Extinct in the Wild",
-  70: "Extinct",
-};
-
 // iNaturalist's vernacular names are inconsistently cased; the rest of the catalog is title case.
 function titleCaseCommonName(name: string): string {
   return name.replace(/(^|[\s-])([a-z])/g, (_, sep: string, ch: string) => sep + ch.toUpperCase());
@@ -39,8 +32,8 @@ async function requireAnyTaxaSearchEnabled(request: FastifyRequest, reply: Fasti
   return true;
 }
 
-/** The species row for an iNat taxon, created and enriched on first use. Doesn't touch
- *  region_species; each caller decides that. */
+/** The species row for an iNat taxon, created and enriched on first use. Doesn't put it on any
+ *  checklist; each caller decides that. */
 async function resolveOrCreateOtherTaxaSpecies(inatTaxonId: number): Promise<{ speciesId: string; scientificName: string }> {
   const existing = await pool.query<{ id: string; scientific_name: string }>(
     `SELECT id, scientific_name FROM species WHERE inat_taxon_id = $1 AND is_other_taxa = true`,
@@ -76,7 +69,9 @@ async function resolveOrCreateOtherTaxaSpecies(inatTaxonId: number): Promise<{ s
     statuses.find((s) => s.authority === "IUCN Red List") ??
     statuses[0] ??
     null;
-  const iucnStatus = best?.iucn != null ? (IUCN_LEVEL_NAMES[best.iucn] ?? best.status) : null;
+  // Every conservation_statuses entry, whatever the authority or place, carries iNat's normalized
+  // numeric `iucn` level, so one mapping (packages/shared/src/iucn.ts) reads them all.
+  const iucnStatus = best ? (iucnCodeFromInatLevel(best.iucn) ?? normalizeIucnStatus(best.status)) : null;
 
   // The real GBIF key when one resolves, else a synthetic negative one (real keys are positive).
   let gbifKey = -taxon.id;
@@ -96,8 +91,8 @@ async function resolveOrCreateOtherTaxaSpecies(inatTaxonId: number): Promise<{ s
   }
 
   const inserted = await pool.query<{ id: string }>(
-    `INSERT INTO species (gbif_key, scientific_name, common_name, taxon_class, is_other_taxa, inat_taxon_id, inat_iconic_taxon, iucn_status, family, taxon_order)
-     VALUES ($1, $2, $3, $4, true, $5, $6, $7, $8, $9)
+    `INSERT INTO species (gbif_key, scientific_name, common_name, taxon_class, is_other_taxa, inat_taxon_id, inat_iconic_taxon, family, taxon_order)
+     VALUES ($1, $2, $3, $4, true, $5, $6, $7, $8)
      ON CONFLICT (gbif_key) DO UPDATE SET gbif_key = species.gbif_key
      RETURNING id`,
     [
@@ -107,12 +102,20 @@ async function resolveOrCreateOtherTaxaSpecies(inatTaxonId: number): Promise<{ s
       (taxon.iconic_taxon_name ?? "other").toLowerCase(),
       taxon.id,
       taxon.iconic_taxon_name ?? null,
-      iucnStatus,
       family,
       order,
     ],
   );
   const speciesId = inserted.rows[0].id;
+  // Conservation status lives in species_traits like every species' (migration 129). DO NOTHING:
+  // the gbif_key conflict above can hand back an existing species, whose status stays its own.
+  if (iucnStatus) {
+    await pool.query(
+      `INSERT INTO species_traits (species_id, iucn_status, iucn_source, source_attribution)
+       VALUES ($1, $2, 'inaturalist', 'iNaturalist') ON CONFLICT (species_id) DO NOTHING`,
+      [speciesId, iucnStatus],
+    );
+  }
 
   // The same photo and description enrichment as every other species; persistEnrichment also
   // computes its reference vector, so it's matchable right away.
@@ -131,8 +134,26 @@ interface OtherTaxaBulkExtra {
   notFound: string[];
 }
 
-export async function otherTaxaRoutes(app: FastifyInstance): Promise<void> {
-  app.get<{ Querystring: { q?: string } }>("/species/inat-search", { preHandler: requireAuth }, async (request, reply) => {
+// regionId stays a plain string in these bodies: a malformed one answers 404 "Region not found"
+// like an unknown one (checked in the handler), not a 400. World and the continents have no
+// checklist of their own, so they're refused like a checklist addition there (400 no_checklist).
+const AddOtherTaxaBody = Type.Object(
+  { inatTaxonId: Type.Integer({ minimum: 1 }), regionId: Type.String() },
+  { additionalProperties: false },
+);
+const BulkBody = Type.Object(
+  { regionId: Type.String(), entries: Type.Array(Type.String(), { minItems: 1 }) },
+  { additionalProperties: false },
+);
+
+export async function otherTaxaRoutes(fastify: FastifyInstance): Promise<void> {
+  const app = withSchemas(fastify);
+
+  const inatSearchOptions = {
+    preValidation: requireAuth,
+    schema: { querystring: Type.Object({ q: Type.Optional(Type.String()) }) },
+  };
+  app.get("/species/inat-search", inatSearchOptions, async (request, reply) => {
     if (!(await requireAnyTaxaSearchEnabled(request, reply))) return;
     const q = (request.query.q ?? "").trim();
     if (q.length < 2) return { results: [] };
@@ -162,17 +183,16 @@ export async function otherTaxaRoutes(app: FastifyInstance): Promise<void> {
     };
   });
 
-  app.post<{ Body: { inatTaxonId?: number; regionId?: string } }>(
+  app.post(
     "/species/other-taxa",
-    { preHandler: requireAuth },
+    { preValidation: requireAuth, schema: { body: AddOtherTaxaBody } },
     async (request, reply) => {
       if (!(await requireAnyTaxaSearchEnabled(request, reply))) return;
-      const { inatTaxonId, regionId } = request.body ?? {};
-      if (!inatTaxonId || !regionId) return reply.code(400).send({ error: "inatTaxonId and regionId are required" });
+      const { inatTaxonId, regionId } = request.body;
 
-      if (!isUuid(regionId)) return reply.code(404).send({ error: "Region not found" });
-      const regionRes = await pool.query(`SELECT id FROM regions WHERE id = $1`, [regionId]);
-      if (regionRes.rows.length === 0) return reply.code(404).send({ error: "Region not found" });
+      const region = isUuid(regionId) ? await findChecklistRegion(regionId) : null;
+      if (!region) return reply.code(404).send({ error: "Region not found" });
+      if (!region.hasChecklist) return reply.code(400).send(noChecklistError(region.name));
 
       let speciesId: string;
       try {
@@ -181,21 +201,21 @@ export async function otherTaxaRoutes(app: FastifyInstance): Promise<void> {
         return reply.code(502).send({ error: (err as Error).message });
       }
 
-      // No rarity or occurrence data for these, so the frequency and tier columns stay NULL.
-      await pool.query(
-        `INSERT INTO region_species (region_id, species_id, is_vagrant, is_invasive)
-         VALUES ($1, $2, false, false)
-         ON CONFLICT (region_id, species_id) DO NOTHING`,
-        [regionId, speciesId],
-      );
-
+      await addToRegionChecklist(pool, request.user!.id, regionId, speciesId);
       return { speciesId };
     },
   );
 
-  // Removes an Other Taxa species. Refused while you have photos of it (they'd be orphaned).
-  app.delete<{ Params: { id: string } }>("/species/:id/other-taxa", { preHandler: requireAuth }, async (request, reply) => {
-    if (!isUuid(request.params.id)) return reply.code(404).send({ error: "Species not found" });
+  // Takes an Other Taxa species off your lists: your checklist additions of it (every region and
+  // sea zone), your seen, target and archive marks. Refused while you have photos of it (they'd be
+  // orphaned). Other people's additions of it are left alone, and the species row itself goes only
+  // once nobody uses it any more, so on a shared server it's gone for you, not for everyone.
+  const removeOptions = {
+    preValidation: requireAuth,
+    config: notFoundOnInvalidId("Species not found"),
+    schema: { params: IdParams, response: replies(Ok) },
+  };
+  app.delete("/species/:id/other-taxa", removeOptions, async (request, reply) => {
     const { id: speciesId } = request.params;
     const userId = request.user!.id;
 
@@ -216,18 +236,37 @@ export async function otherTaxaRoutes(app: FastifyInstance): Promise<void> {
         .send({ error: "You have photos of this species. Delete or reassign them first, then remove it." });
     }
 
-    await pool.query(`DELETE FROM user_species WHERE user_id = $1 AND species_id = $2`, [userId, speciesId]);
-    await pool.query(`DELETE FROM user_archived_species WHERE user_id = $1 AND species_id = $2`, [userId, speciesId]);
-    // region_species is shared, so this removes it for every user on the install.
-    await pool.query(`DELETE FROM region_species WHERE species_id = $1`, [speciesId]);
-
-    // The catalog row goes only when nothing else references it (the FKs don't cascade).
-    try {
-      await pool.query(`DELETE FROM species WHERE id = $1`, [speciesId]);
-    } catch (err) {
-      request.log.warn({ err, speciesId }, "Other Taxa species still referenced elsewhere: checklist entry removed, catalog row kept");
-    }
-
+    const speciesDeleted = await withTransaction(async (client) => {
+      for (const table of [
+        "user_species",
+        "user_archived_species",
+        "region_species_user_added",
+        "sea_zone_species_user_added",
+        "region_species_hidden",
+        "user_tier_overrides",
+      ]) {
+        await client.query(`DELETE FROM ${table} WHERE user_id = $1 AND species_id = $2`, [userId, speciesId]);
+      }
+      // Another user's additions would cascade away with the species row, so it stays while any
+      // remain. Their photos and seen marks keep it too, through the foreign keys, caught below.
+      const othersRes = await client.query(
+        `SELECT 1 FROM region_species_user_added WHERE species_id = $1
+         UNION ALL SELECT 1 FROM sea_zone_species_user_added WHERE species_id = $1
+         LIMIT 1`,
+        [speciesId],
+      );
+      if ((othersRes.rowCount ?? 0) > 0) return false;
+      await client.query("SAVEPOINT drop_species");
+      try {
+        await client.query(`DELETE FROM species WHERE id = $1`, [speciesId]);
+        return true;
+      } catch (err) {
+        await client.query("ROLLBACK TO SAVEPOINT drop_species");
+        request.log.warn({ err, speciesId }, "Other Taxa species still referenced elsewhere: removed from your lists, species row kept");
+        return false;
+      }
+    });
+    request.log.info({ speciesId, speciesDeleted }, "Removed an Other Taxa species");
     return { ok: true };
   });
 
@@ -239,23 +278,27 @@ export async function otherTaxaRoutes(app: FastifyInstance): Promise<void> {
     notFound: [],
   });
 
-  app.get("/species/other-taxa/bulk/status", { preHandler: requireAuth }, async () => otherTaxaBulkJob.status);
+  app.get(
+    "/species/other-taxa/bulk/status",
+    { preValidation: requireAuth, schema: {} },
+    async () => otherTaxaBulkJob.status,
+  );
 
-  app.post("/species/other-taxa/bulk/cancel", { preHandler: requireAuth }, async () => ({ cancelled: otherTaxaBulkJob.cancel() }));
+  app.post("/species/other-taxa/bulk/cancel", { preValidation: requireAuth, schema: {} }, async () => ({
+    cancelled: otherTaxaBulkJob.cancel(),
+  }));
 
-  app.post<{ Body: { regionId?: string; entries?: string[] } }>(
+  app.post(
     "/species/other-taxa/bulk",
-    { preHandler: requireAuth },
+    { preValidation: requireAuth, schema: { body: BulkBody } },
     async (request, reply) => {
       if (!(await requireAnyTaxaSearchEnabled(request, reply))) return;
       if (otherTaxaBulkJob.status.running) return reply.code(409).send({ error: "A bulk import is already running" });
-      const { regionId, entries } = request.body ?? {};
-      if (!regionId || !Array.isArray(entries) || entries.length === 0) {
-        return reply.code(400).send({ error: "regionId and a non-empty entries list are required" });
-      }
-      if (!isUuid(regionId)) return reply.code(404).send({ error: "Region not found" });
-      const regionRes = await pool.query(`SELECT id FROM regions WHERE id = $1`, [regionId]);
-      if (regionRes.rows.length === 0) return reply.code(404).send({ error: "Region not found" });
+      const { regionId, entries } = request.body;
+      const userId = request.user!.id;
+      const region = isUuid(regionId) ? await findChecklistRegion(regionId) : null;
+      if (!region) return reply.code(404).send({ error: "Region not found" });
+      if (!region.hasChecklist) return reply.code(400).send(noChecklistError(region.name));
 
       // Deduped and blanks dropped before the total is reported.
       const lines = [...new Set(entries.map((e) => e.trim()).filter((e) => e.length > 0))];
@@ -287,13 +330,7 @@ export async function otherTaxaRoutes(app: FastifyInstance): Promise<void> {
                 job.notFound.push(line);
               } else {
                 const { speciesId } = await resolveOrCreateOtherTaxaSpecies(taxonId);
-                const insertRes = await pool.query(
-                  `INSERT INTO region_species (region_id, species_id, is_vagrant, is_invasive)
-                   VALUES ($1, $2, false, false)
-                   ON CONFLICT (region_id, species_id) DO NOTHING`,
-                  [regionId, speciesId],
-                );
-                if (insertRes.rowCount && insertRes.rowCount > 0) job.added++;
+                if (await addToRegionChecklist(pool, userId, regionId, speciesId)) job.added++;
                 else job.alreadyPresent++;
               }
             } catch {
@@ -304,6 +341,9 @@ export async function otherTaxaRoutes(app: FastifyInstance): Promise<void> {
             // Paced: each line makes several iNaturalist calls, and an unpaced burst draws 429s.
             await new Promise((resolve) => setTimeout(resolve, 300));
           }
+          // The library's record is saved after each change by the route that made it
+          // (lib/collectionState.ts), but this job's additions land after its response went out.
+          scheduleCollectionStateSave(userId);
           return { added: job.added, alreadyPresent: job.alreadyPresent, notFound: [...job.notFound] };
         },
         { phase: "importing", processed: 0, total: lines.length },
