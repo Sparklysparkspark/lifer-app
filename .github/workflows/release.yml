@@ -4,47 +4,99 @@ on:
   push:
     tags: ["v*"]
 
+# Each job asks for what it needs; nothing else can write.
 permissions:
-  contents: write
-  packages: write
+  contents: read
 
 jobs:
+  # The full CI suite runs first: nothing is built or published from a tag that fails it.
+  ci:
+    uses: ./.github/workflows/ci.yml
+
   # Creates the release as a draft, so "latest" never points at a release without latest.json
-  # (the updater would 404). merge-update-manifest publishes it.
+  # (the updater would 404). merge-update-manifest publishes it. A tag with a hyphen
+  # (v1.0.0-rc.1) is a prerelease: never "latest", and no release/latest image tags.
   create-release:
+    needs: ci
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Check the tag matches package.json
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          PACKAGE_VERSION="$(node -p 'require("./package.json").version')"
+          if [ "$VERSION" != "$PACKAGE_VERSION" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME doesn't match package.json version $PACKAGE_VERSION. See the release process docs."
+            exit 1
+          fi
       - name: Create draft release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          node apps/desktop/scripts/extract-changelog-section.js "${GITHUB_REF_NAME#v}" > "$RUNNER_TEMP/notes.md"
+          node scripts/extract-changelog-section.mjs "${GITHUB_REF_NAME#v}" > "$RUNNER_TEMP/notes.md"
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
             echo "Release $GITHUB_REF_NAME already exists (re-run), reusing it"
           else
+            PRERELEASE=""
+            case "$GITHUB_REF_NAME" in *-*) PRERELEASE="--prerelease" ;; esac
             gh release create "$GITHUB_REF_NAME" --draft --verify-tag --title "$GITHUB_REF_NAME" \
-              --notes-file "$RUNNER_TEMP/notes.md" --generate-notes
+              --notes-file "$RUNNER_TEMP/notes.md" --generate-notes $PRERELEASE
           fi
 
   desktop:
     needs: create-release
+    permissions:
+      contents: write
+      # Lets SignPath's action read this run's artifacts (the unsigned Windows files).
+      actions: read
     strategy:
-      # Each OS builds its own installers from tauri.conf.json's bundle.targets: a zipped .app on
-      # macOS (tauri-bundler's dmg target fails on current runner images), NSIS on Windows, deb
-      # and AppImage on Linux. In-app updates cover macOS, Windows and the AppImage; a .deb lives
-      # under a root-owned prefix, so it updates by reinstalling. Apple Silicon only: GitHub
-      # retired the Intel macOS runner.
+      # Each leg builds its platform's installers from tauri.conf.json's bundle.targets: a zipped
+      # .app on macOS (tauri-bundler's dmg target fails on current runner images), NSIS on
+      # Windows, deb and AppImage on Linux. In-app updates cover macOS, Windows and the AppImage;
+      # a .deb lives under a root-owned prefix, so it updates by reinstalling.
+      #
+      # Both macOS apps build on Apple Silicon. The Intel one is cross-compiled
+      # (LIFER_TARGET_TRIPLE, see apps/desktop/scripts/target.js) rather than built on an Intel
+      # runner: GitHub's last Intel macOS image, macos-15-intel, is supported only until fall
+      # 2027, after which GitHub drops x86_64 macOS altogether.
+      #
+      # asset: the macOS zip's name and the partial manifest's artifact name. mac-arch: the
+      # architecture FFmpeg and PostgreSQL are built for (build-*-macos.sh's argument).
       fail-fast: false
       matrix:
-        os: [macos-14, windows-latest, ubuntu-latest]
+        include:
+          - os: macos-14
+            asset: macos-arm64
+            mac-arch: arm64
+          - os: macos-14
+            asset: macos-x64
+            target: x86_64-apple-darwin
+            mac-arch: x86_64
+          - os: windows-latest
+            asset: windows-x64
+          - os: ubuntu-latest
+            asset: linux-x64
     runs-on: ${{ matrix.os }}
+    env:
+      # Empty except for the Intel macOS leg; every step of `npm run dist` reads it.
+      LIFER_TARGET_TRIPLE: ${{ matrix.target }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          node-version: 22
-      - uses: dtolnay/rust-toolchain@stable
+          node-version-file: .nvmrc
+          cache: npm
+      - uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
+        with:
+          toolchain: stable
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: apps/desktop/src-tauri
+          # The two macOS legs share a runner image but not their Rust target.
+          key: ${{ matrix.asset }}
       # Tauri's Linux bundler links against these, and AppImage tooling needs fuse, the fuse
       # kernel module and a writable /dev/fuse. macOS and Windows runners have everything already.
       - name: Install Linux system dependencies
@@ -54,9 +106,15 @@ jobs:
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf fuse libfuse2
           sudo modprobe fuse
           sudo chmod 666 /dev/fuse
+      # The Intel leg runs its x86_64 FFmpeg, PostgreSQL and Node under Rosetta 2 to check them.
+      - name: Install Rosetta 2
+        if: matrix.target == 'x86_64-apple-darwin'
+        run: /usr/bin/arch -x86_64 /usr/bin/true 2>/dev/null || sudo softwareupdate --install-rosetta --agree-to-license
       - run: npm ci
-      # The real version from the tag (v1.2.3 -> 1.2.3) replaces the "0.1.0" placeholder, so the
-      # updater has something to compare. shell: bash, since Windows defaults to PowerShell.
+      # The version comes from the tag (v1.2.3 -> 1.2.3), so the updater always compares against
+      # what was actually released. shell: bash, since Windows defaults to PowerShell.
+      # LIFER_BUNDLE_DIR is where `tauri build` writes the installers: target/<triple>/release
+      # for a cross build.
       - name: Set app version from tag
         shell: bash
         run: |
@@ -64,6 +122,48 @@ jobs:
           jq --arg v "$VERSION" '.version = $v' apps/desktop/src-tauri/tauri.conf.json > /tmp/tauri.conf.json
           mv /tmp/tauri.conf.json apps/desktop/src-tauri/tauri.conf.json
           echo "LIFER_RELEASE_VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "LIFER_BUNDLE_DIR=apps/desktop/src-tauri/target/${LIFER_TARGET_TRIPLE:+$LIFER_TARGET_TRIPLE/}release/bundle" >> "$GITHUB_ENV"
+      # ffmpeg-static's macOS binary is a nonfree build that can't be redistributed, so the macOS
+      # app ships a GPL one built from pinned sources (build-ffmpeg-macos.sh), which
+      # prepare-resources.js swaps in. The build takes minutes, so it's cached per architecture
+      # until the script (which holds the versions and checksums) changes. Linux and Windows
+      # keep ffmpeg-static's.
+      - name: Restore the macOS FFmpeg build
+        if: startsWith(matrix.os, 'macos')
+        id: ffmpeg-cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ runner.temp }}/lifer-ffmpeg-${{ matrix.mac-arch }}
+          key: ffmpeg-${{ runner.os }}-${{ matrix.mac-arch }}-${{ hashFiles('apps/desktop/scripts/build-ffmpeg-macos.sh') }}
+      - name: Build FFmpeg for macOS
+        if: startsWith(matrix.os, 'macos') && steps.ffmpeg-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: bash apps/desktop/scripts/build-ffmpeg-macos.sh "$RUNNER_TEMP/lifer-ffmpeg-${{ matrix.mac-arch }}" "${{ matrix.mac-arch }}"
+      - name: Bundle the macOS FFmpeg build
+        if: startsWith(matrix.os, 'macos')
+        shell: bash
+        run: echo "LIFER_FFMPEG_DIR=$RUNNER_TEMP/lifer-ffmpeg-${{ matrix.mac-arch }}" >> "$GITHUB_ENV"
+      # The app bundles the embedded database's PostgreSQL, so first launch needs no download. The
+      # downloadable macOS builds require macOS 15, so the macOS app ships one built from pinned
+      # sources for its own floor (build-postgres-macos.sh), cached per architecture like FFmpeg.
+      # stage-postgres.js (in prepare-resources.js) bundles it, and fails a macOS build without
+      # it. Linux and Windows bundle the pinned, hash-checked theseus-rs build, which
+      # stage-postgres.js downloads itself.
+      - name: Restore the macOS PostgreSQL build
+        if: startsWith(matrix.os, 'macos')
+        id: postgres-cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ runner.temp }}/lifer-postgres-${{ matrix.mac-arch }}
+          key: postgres-${{ runner.os }}-${{ matrix.mac-arch }}-${{ hashFiles('apps/desktop/scripts/build-postgres-macos.sh') }}
+      - name: Build PostgreSQL for macOS
+        if: startsWith(matrix.os, 'macos') && steps.postgres-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: bash apps/desktop/scripts/build-postgres-macos.sh "$RUNNER_TEMP/lifer-postgres-${{ matrix.mac-arch }}" "${{ matrix.mac-arch }}"
+      - name: Bundle the macOS PostgreSQL build
+        if: startsWith(matrix.os, 'macos')
+        shell: bash
+        run: echo "LIFER_POSTGRES_DIR=$RUNNER_TEMP/lifer-postgres-${{ matrix.mac-arch }}" >> "$GITHUB_ENV"
       # Signs the macOS app with a stable self-signed "Lifer" identity (see resign-macos.js) so
       # macOS folder permissions and the updater's code requirement survive across versions.
       # Skipped (ad-hoc signing) when the secret isn't set.
@@ -90,20 +190,132 @@ jobs:
           security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
           # codesign signs with this identity by name even though the system doesn't trust it.
           echo "MACOS_SIGNING_IDENTITY=Lifer" >> "$GITHUB_ENV"
+      # Windows Authenticode signing through SignPath Foundation (free for open source projects;
+      # see docs/docs/contributing/releasing.md). Inert until the maintainer sets the
+      # SIGNPATH_API_TOKEN secret and the SIGNPATH_ORGANIZATION_ID variable: until then the
+      # installer ships unsigned, as before. Half a configuration fails here rather than quietly
+      # publishing an unsigned release.
+      - name: Check for SignPath configuration
+        if: matrix.os == 'windows-latest'
+        id: signpath
+        shell: bash
+        env:
+          SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
+          SIGNPATH_ORGANIZATION_ID: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          SIGNPATH_PROJECT_SLUG: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          SIGNPATH_SIGNING_POLICY_SLUG: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+          SIGNPATH_EXE_ARTIFACT_CONFIGURATION_SLUG: ${{ vars.SIGNPATH_EXE_ARTIFACT_CONFIGURATION_SLUG }}
+          SIGNPATH_INSTALLER_ARTIFACT_CONFIGURATION_SLUG: ${{ vars.SIGNPATH_INSTALLER_ARTIFACT_CONFIGURATION_SLUG }}
+        run: |
+          if [ -z "$SIGNPATH_API_TOKEN" ] && [ -z "$SIGNPATH_ORGANIZATION_ID" ]; then
+            echo "SignPath isn't configured; the Windows installer will be unsigned"
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          for name in SIGNPATH_API_TOKEN SIGNPATH_ORGANIZATION_ID SIGNPATH_PROJECT_SLUG SIGNPATH_SIGNING_POLICY_SLUG \
+            SIGNPATH_EXE_ARTIFACT_CONFIGURATION_SLUG SIGNPATH_INSTALLER_ARTIFACT_CONFIGURATION_SLUG; do
+            if [ -z "${!name}" ]; then
+              echo "::error::SignPath is partly configured: $name is missing. See docs/docs/contributing/releasing.md."
+              exit 1
+            fi
+          done
+          echo "enabled=true" >> "$GITHUB_OUTPUT"
+          # Signed in two passes, since SignPath can't sign inside an NSIS installer: the app's
+          # exe first, then the installer bundled around it.
+          echo "TAURI_BUILD_ARGS=--no-bundle" >> "$GITHUB_ENV"
       # APPIMAGE_EXTRACT_AND_RUN: linuxdeploy is itself an AppImage, and the Ubuntu runner blocks
       # unprivileged FUSE mounts, so run it extracted. --verbose shows linuxdeploy's own errors.
-      # Both are no-ops on macOS and Windows.
+      # Both are no-ops on macOS and Windows. TAURI_BUILD_ARGS may already be --no-bundle (above).
       - run: npm run dist -w desktop
         env:
           APPIMAGE_EXTRACT_AND_RUN: "1"
-          TAURI_BUILD_ARGS: ${{ matrix.os == 'ubuntu-latest' && '--verbose' || '' }}
-      # The filename keeps its arch label so an Intel build could be added beside it.
+          TAURI_BUILD_ARGS: ${{ matrix.os == 'ubuntu-latest' && '--verbose' || env.TAURI_BUILD_ARGS }}
+      # Loads every bundled native module with the app's own Node, and runs the bundled
+      # PostgreSQL, so a binary for the wrong CPU fails the release instead of the user's first
+      # launch or photo import. The Intel app runs under Rosetta 2 here.
+      - name: Check the macOS app's native modules
+        if: startsWith(matrix.os, 'macos')
+        shell: bash
+        run: |
+          APP="$LIFER_BUNDLE_DIR/macos/Lifer.app"
+          ARCH=arm64
+          [ "$LIFER_TARGET_TRIPLE" = "x86_64-apple-darwin" ] && ARCH=x86_64
+          file "$APP/Contents/MacOS/"*
+          arch -"$ARCH" "$APP/Contents/MacOS/node" apps/desktop/scripts/check-bundled-natives.js "$APP/Contents/Resources"
+      # Pass one of the Windows signing: the app's own exe, before NSIS packs it. The Node
+      # sidecar is already signed by the OpenJS Foundation. SignPath's action takes a workflow
+      # artifact (actions/upload-artifact v4+, zipped), signs what the artifact configuration
+      # names, and writes the signed files to output-artifact-directory. Inputs are documented at
+      # https://docs.signpath.io/trusted-build-systems/github
+      - name: Upload the unsigned app exe for SignPath
+        if: steps.signpath.outputs.enabled == 'true'
+        id: unsigned-exe
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: unsigned-windows-exe
+          path: apps/desktop/src-tauri/target/release/lifer-desktop.exe
+          if-no-files-found: error
+      - name: Sign the app exe with SignPath
+        if: steps.signpath.outputs.enabled == 'true'
+        uses: signpath/github-action-submit-signing-request@f6d04783b4569d051e0c80105fe66e82819d0092 # v3.0
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+          # Which file in the uploaded zip to sign, and how: see releasing.md.
+          artifact-configuration-slug: ${{ vars.SIGNPATH_EXE_ARTIFACT_CONFIGURATION_SLUG }}
+          github-artifact-id: ${{ steps.unsigned-exe.outputs.artifact-id }}
+          wait-for-completion: true
+          # Foundation-signed requests wait for a person to approve them, so allow an hour.
+          wait-for-completion-timeout-in-seconds: 3600
+          output-artifact-directory: ${{ runner.temp }}/signed-exe
+      - name: Bundle the installer around the signed exe
+        if: steps.signpath.outputs.enabled == 'true'
+        shell: bash
+        run: |
+          cp "$RUNNER_TEMP/signed-exe/lifer-desktop.exe" apps/desktop/src-tauri/target/release/lifer-desktop.exe
+          cd apps/desktop && npx tauri bundle
+      # Pass two: the NSIS installer users download, which the updater also runs.
+      - name: Upload the unsigned installer for SignPath
+        if: steps.signpath.outputs.enabled == 'true'
+        id: unsigned-installer
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: unsigned-windows-installer
+          path: ${{ env.LIFER_BUNDLE_DIR }}/nsis/*.exe
+          if-no-files-found: error
+      - name: Sign the installer with SignPath
+        if: steps.signpath.outputs.enabled == 'true'
+        uses: signpath/github-action-submit-signing-request@f6d04783b4569d051e0c80105fe66e82819d0092 # v3.0
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+          artifact-configuration-slug: ${{ vars.SIGNPATH_INSTALLER_ARTIFACT_CONFIGURATION_SLUG }}
+          github-artifact-id: ${{ steps.unsigned-installer.outputs.artifact-id }}
+          wait-for-completion: true
+          wait-for-completion-timeout-in-seconds: 3600
+          output-artifact-directory: ${{ runner.temp }}/signed-installer
+      # Before the update manifest below: the updater's own signature has to cover the final,
+      # Authenticode-signed bytes.
+      - name: Replace the installer with the signed one
+        if: steps.signpath.outputs.enabled == 'true'
+        shell: bash
+        run: |
+          cp "$RUNNER_TEMP"/signed-installer/*.exe "$LIFER_BUNDLE_DIR/nsis/"
+          pwsh -NoProfile -Command "
+            \$sigs = Get-ChildItem '$LIFER_BUNDLE_DIR/nsis/*.exe' | Get-AuthenticodeSignature
+            \$sigs | Format-List Path,Status,SignerCertificate
+            if (\$sigs | Where-Object Status -ne 'Valid') { exit 1 }"
       - name: Zip the macOS app for upload
         if: startsWith(matrix.os, 'macos')
         shell: bash
         run: |
-          cd apps/desktop/src-tauri/target/release/bundle/macos && zip -r "Lifer-macos-arm64.zip" Lifer.app
-      # After `npm run dist`, so on macOS the update archive is built from the re-signed .app.
+          cd "$LIFER_BUNDLE_DIR/macos" && zip -r "Lifer-${{ matrix.asset }}.zip" Lifer.app
+      # After `npm run dist`, so on macOS the update archive is built from the re-signed .app
+      # (and on Windows from the SignPath-signed installer, when that's set up).
       # Writes a signed update artifact and a partial manifest for this platform only;
       # merge-update-manifest below combines them.
       - name: Build signed update artifact + manifest
@@ -112,30 +324,32 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: npm run build-update-manifest -w desktop
       - name: Upload partial update manifest
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: update-manifest-${{ matrix.os }}
-          path: apps/desktop/src-tauri/target/release/bundle/update-manifest/latest-*.json
+          name: update-manifest-${{ matrix.asset }}
+          path: ${{ env.LIFER_BUNDLE_DIR }}/update-manifest/latest-*.json
       # NSIS can't build an installer over 2GB, and anything near that makes every update a huge
       # download. Fail early with a clear message instead of an opaque makensis error.
       - name: Check installer sizes
         shell: bash
         run: |
-          big=$(find apps/desktop/src-tauri/target/release/bundle -maxdepth 2 -type f \
+          big=$(find "$LIFER_BUNDLE_DIR" -maxdepth 2 -type f \
             \( -name '*.exe' -o -name '*.zip' -o -name '*.tar.gz' -o -name '*.AppImage' -o -name '*.deb' \) -size +1536M)
           if [ -n "$big" ]; then
             echo "::error::Installer over 1.5GB (is the catalog seed or a model being bundled?):"
             ls -lh $big
             exit 1
           fi
+      # The update archives are already distinct per architecture (Lifer-aarch64.app.tar.gz,
+      # Lifer-x86_64.app.tar.gz; see build-update-manifest.js).
       - name: Upload installers to the draft release
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          B=apps/desktop/src-tauri/target/release/bundle
+          B="$LIFER_BUNDLE_DIR"
           case "${{ matrix.os }}" in
-            macos-*) files=("$B"/macos/Lifer-macos-*.zip "$B"/macos/Lifer-*.app.tar.gz "$B"/macos/Lifer-*.app.tar.gz.sig) ;;
+            macos-*) files=("$B/macos/Lifer-${{ matrix.asset }}.zip" "$B"/macos/Lifer-*.app.tar.gz "$B"/macos/Lifer-*.app.tar.gz.sig) ;;
             windows-*) files=("$B"/nsis/*.exe) ;;
             ubuntu-*) files=("$B"/deb/*.deb "$B"/appimage/*.AppImage) ;;
           esac
@@ -149,28 +363,49 @@ jobs:
     needs: [create-release, desktop]
     if: ${{ !cancelled() && needs.create-release.result == 'success' }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           pattern: update-manifest-*
           path: /tmp/update-manifests
-      - run: node apps/desktop/scripts/extract-changelog-section.js "${GITHUB_REF_NAME#v}" > /tmp/notes.md
+      - run: node scripts/extract-changelog-section.mjs "${GITHUB_REF_NAME#v}" > /tmp/notes.md
       - run: node apps/desktop/scripts/merge-update-manifests.js /tmp/update-manifests /tmp/latest.json /tmp/notes.md
-      - name: Attach latest.json and publish the release
+      # Checksums for every installer, so a download can be verified against the release.
+      - name: Attach latest.json and SHA256SUMS
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release upload "$GITHUB_REF_NAME" /tmp/latest.json --clobber
-          gh release edit "$GITHUB_REF_NAME" --draft=false --latest
+          mkdir -p /tmp/assets
+          gh release download "$GITHUB_REF_NAME" --dir /tmp/assets --skip-existing
+          (cd /tmp/assets && rm -f SHA256SUMS && sha256sum -- * > /tmp/SHA256SUMS)
+          gh release upload "$GITHUB_REF_NAME" /tmp/SHA256SUMS --clobber
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          case "$GITHUB_REF_NAME" in
+            *-*) gh release edit "$GITHUB_REF_NAME" --draft=false --prerelease --latest=false ;;
+            *) gh release edit "$GITHUB_REF_NAME" --draft=false --latest ;;
+          esac
 
   docker-image:
+    needs: ci
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      # Build provenance attestation.
+      id-token: write
+      attestations: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-qemu-action@v3
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -183,7 +418,24 @@ jobs:
       - name: Strip v prefix from tag
         id: version
         run: echo "value=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
-      - uses: docker/build-push-action@v6
+      # Tags for v1.2.3: 1.2.3, 1.2, v1.2.3 (the older style), and for a stable release "release"
+      # (what docker-compose.yml pulls by default) plus "latest" (kept for installs from before
+      # 0.9.1). A prerelease (v1.0.0-rc.1) only gets its exact version tags.
+      - name: Image tags
+        id: meta
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5.10.0
+        with:
+          images: ghcr.io/${{ steps.repo.outputs.name }}
+          flavor: latest=false
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern=v{{version}}
+            type=raw,value=release,enable=${{ !contains(github.ref_name, '-') }}
+            type=raw,value=latest,enable=${{ !contains(github.ref_name, '-') }}
+      - name: Build and push
+        id: push
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: .
           platforms: linux/amd64,linux/arm64
@@ -191,6 +443,14 @@ jobs:
           # Reported by GET /version.
           build-args: |
             APP_VERSION=${{ steps.version.outputs.value }}
-          tags: |
-            ghcr.io/${{ steps.repo.outputs.name }}:${{ github.ref_name }}
-            ghcr.io/${{ steps.repo.outputs.name }}:latest
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          sbom: true
+          provenance: mode=max
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
+        with:
+          subject-name: ghcr.io/${{ steps.repo.outputs.name }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true

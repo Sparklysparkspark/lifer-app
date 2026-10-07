@@ -1,6 +1,7 @@
 #!/usr/bin/env node
-// Fails when a tracked source file contains an em dash (U+2014). Lifer's copy and comments avoid
-// them. Paths listed in .em-dash-allowlist (one per line, # comments allowed) are skipped.
+// Fails when a tracked source file contains an em dash (U+2014). House style for Lifer's copy,
+// docs and comments (see the code standards page): use a comma, colon, period or parentheses.
+// Released migrations are history and never edited, so they're skipped.
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -9,9 +10,9 @@ import { fileURLToPath } from "node:url";
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const SCAN_PATHS = [
   "apps",
+  "e2e",
   "packages",
   "docs/docs",
-  "deploy",
   "docker",
   "scripts",
   ".github",
@@ -21,23 +22,14 @@ const SCAN_PATHS = [
   "Dockerfile",
   ".env.example",
   "docker-compose.yml",
-  "docker-compose.dev.yml",
-  "docker-compose.test.yml",
+  "hwaccel.yml",
+  "SECURITY.md",
+  "THIRD_PARTY_NOTICES.md",
 ];
-const EXCLUDED_DIRS = new Set(["node_modules", "dist", "build", "target", "resources-staging"]);
+const EXCLUDED_DIRS = new Set(["node_modules", "dist", "build", "target", "resources-staging", "migrations"]);
 const EXCLUDED_FILES = new Set(["package-lock.json"]);
 const EM_DASH = String.fromCharCode(0x2014);
 
-function loadAllowlist() {
-  const path = join(root, ".em-dash-allowlist");
-  if (!existsSync(path)) return new Set();
-  return new Set(
-    readFileSync(path, "utf8")
-      .split("\n")
-      .map((line) => line.trim())
-      .filter((line) => line && !line.startsWith("#")),
-  );
-}
 
 function isExcluded(file) {
   const parts = file.split("/");
@@ -48,12 +40,11 @@ function isExcluded(file) {
 const files = execFileSync("git", ["ls-files", "-z", "--", ...SCAN_PATHS], { cwd: root, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 })
   .split("\0")
   .filter(Boolean);
-const allowlist = loadAllowlist();
 let hits = 0;
 let offendingFiles = 0;
 
 for (const file of files) {
-  if (isExcluded(file) || allowlist.has(file)) continue;
+  if (isExcluded(file)) continue;
   const fullPath = join(root, file);
   if (!existsSync(fullPath)) continue; // deleted in the working tree
   const buffer = readFileSync(fullPath);

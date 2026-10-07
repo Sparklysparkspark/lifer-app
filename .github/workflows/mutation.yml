@@ -1,0 +1,58 @@
+name: Mutation tests
+
+# StrykerJS against the modules where a weak test would hurt most (path checks, licenses, storage
+# moves, migrations, merges). Too slow for every pull request, so it runs weekly and on demand.
+# See docs/docs/contributing/testing.md.
+on:
+  schedule:
+    - cron: "0 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mutation-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  mutation:
+    name: Mutation tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    # The integration-backed configs run against this throwaway database.
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: lifer
+          POSTGRES_PASSWORD: lifer
+          POSTGRES_DB: lifer
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgres://lifer:lifer@localhost:5432/lifer
+      TEST_DATABASE_URL: postgres://lifer:lifer@localhost:5432/lifer
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - name: Apply migrations
+        run: npm run migrate
+      # Reports the score per file in the job summary; a low score doesn't fail the run.
+      - run: npm run test:mutation
+      - name: Upload the Stryker reports
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: mutation-report
+          path: reports/mutation/
+          retention-days: 30

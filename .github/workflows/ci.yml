@@ -4,14 +4,44 @@ on:
   push:
     branches: [main]
   pull_request:
+  # release.yml runs this first, so a tag only ships what passes.
+  workflow_call:
+
+permissions:
+  contents: read
+
+# A newer push to the same pull request cancels the run it replaces. Runs on main always finish.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  build:
+  lint:
+    name: Lint, format and typecheck
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm run check:em-dashes
+      - run: npm run check:migrations
+      # en.json: valid ICU, every key used, every used key defined (docs: contributing/translating).
+      - run: npm run check:i18n
+      - run: npm run lint
+      - run: npm run format:check
+      - run: npm run typecheck
 
+  test:
+    name: Unit and integration tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
     services:
       postgres:
-        image: postgis/postgis:16-3.4-alpine
+        image: postgres:18-alpine
         env:
           POSTGRES_USER: lifer
           POSTGRES_PASSWORD: lifer
@@ -23,32 +53,137 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
-
     env:
       DATABASE_URL: postgres://lifer:lifer@localhost:5432/lifer
-
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          node-version: 22
+          node-version-file: .nvmrc
           cache: npm
-
-      - name: Check for em dashes
-        run: node scripts/check-em-dashes.mjs
-
       - run: npm ci
-
-      - run: npm run typecheck
-
+      - run: npm test
       - name: Apply migrations
         run: npm run migrate
+      # *.integration.test.ts files skip themselves unless TEST_DATABASE_URL is set. This runs the
+      # core, API and pipeline tests again with it set, integration tests included, under coverage.
+      # The numbers are reported only; no threshold fails the build yet.
+      - name: Integration tests with coverage
+        run: npm run test:coverage
+        env:
+          TEST_DATABASE_URL: postgres://lifer:lifer@localhost:5432/lifer
+      - name: Upload the coverage reports
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: coverage
+          path: |
+            packages/core/coverage/
+            apps/api/coverage/
+            packages/data-pipeline/coverage/
+          retention-days: 14
 
-      - run: npm test
-
-      # Root `npm test` only covers data-pipeline; the api workspace has its own vitest suite.
-      - run: npm test -w api
-      - run: npm test -w web
-
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
       - run: npm run build
+
+  e2e:
+    name: End-to-end tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # A database just for this job: the tests wipe it (its name must contain "e2e").
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: lifer
+          POSTGRES_PASSWORD: lifer
+          POSTGRES_DB: lifer_e2e
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      E2E_DATABASE_URL: postgres://lifer:lifer@localhost:5432/lifer_e2e
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      # Builds the web app and API, then runs the tests against that production build.
+      - run: npm run test:e2e
+      - name: Upload the Playwright report
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: playwright-report
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 14
+
+  docker:
+    name: Docker image
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+      # amd64 only: enough to catch a broken Dockerfile without the slow emulated arm64 build.
+      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: .
+          platforms: linux/amd64
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  desktop:
+    name: Desktop (Rust)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: apps/desktop/src-tauri
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      # Pinned by commit like every action. This action reads the toolchain from its ref, so a
+      # commit pin needs the toolchain named here. It has no version tags, so Dependabot doesn't
+      # update it; bump the commit by hand from the action's master branch.
+      - uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
+        with:
+          toolchain: stable
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: apps/desktop/src-tauri
+      - name: Install Linux system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+      # tauri-build checks that bundled resources and the Node sidecar exist. A real build stages
+      # them (npm run dist -w desktop); lint only needs placeholders.
+      - name: Stage placeholder resources
+        run: |
+          for dir in api web node_modules catalog-seed postgres; do
+            mkdir -p "resources-staging/$dir" && touch "resources-staging/$dir/.placeholder"
+          done
+          mkdir -p binaries && touch "binaries/node-$(rustc -vV | sed -n 's/^host: //p')"
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets --locked -- -D warnings
