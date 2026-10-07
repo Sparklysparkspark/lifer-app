@@ -8,6 +8,7 @@ import path from "node:path";
 import { BUILD_DIR } from "@lifer/core/rawCache.js";
 import { isLicenseAllowed, normalizeLicense } from "@lifer/core/species/licensePolicy.js";
 import { fetchWithRetry } from "@lifer/core/lib/fetchWithRetry.js";
+import { stripTags } from "@lifer/core/species/descriptionText.js";
 
 const COMMONS_API = "https://commons.wikimedia.org/w/api.php";
 
@@ -27,7 +28,7 @@ interface CommonsImageInfo {
 }
 
 function stripHtml(s: string): string {
-  return s.replace(/<[^>]+>/g, "").trim();
+  return stripTags(s).trim();
 }
 
 /** commonsImageUrl looks like "http://commons.wikimedia.org/wiki/Special:FilePath/Foo%20bar.jpg". */

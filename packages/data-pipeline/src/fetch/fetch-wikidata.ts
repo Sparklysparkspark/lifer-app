@@ -32,10 +32,15 @@ interface SparqlBinding {
 // often splits the names into separate items linked by P1420 "taxon synonym", with the IUCN
 // status (P141) only on one of them. Following P1420 in either direction recovers it without
 // changing which name we store.
+/** `value` escaped for a double-quoted SPARQL string: backslashes first, then quotes and newlines. */
+export function sparqlString(value: string): string {
+  return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, "\\n").replace(/\r/g, "\\r");
+}
+
 function buildQuery(names: string[]): string {
   return `
     SELECT ?name ?iucnLabel ?image ?wikipediaTitle WHERE {
-      VALUES ?nameStr { ${names.map((n) => `"${n.replace(/"/g, '\\"')}"`).join(" ")} }
+      VALUES ?nameStr { ${names.map((n) => `"${sparqlString(n)}"`).join(" ")} }
       ?taxon wdt:P225 ?nameStr .
       BIND(?nameStr AS ?name)
       OPTIONAL {

@@ -283,3 +283,17 @@ describe("budget and edge cases", () => {
     );
   });
 });
+
+describe("HTML to text", () => {
+  it("never reassembles a tag split around another", async () => {
+    const { stripTags } = await import("./descriptionText.js");
+    expect(stripTags("<scr<b>ipt>alert(1)</scr</b>ipt>")).toBe("alert(1)");
+  });
+
+  it("decodes entities once, so an escaped entity stays text", async () => {
+    const { htmlToText } = await import("./descriptionText.js");
+    expect(htmlToText("<p>5&nbsp;cm &amp;lt; 6 cm &lt; 7&#160;cm &#x2014; ok&apos;s</p>")).toBe(
+      "5 cm &lt; 6 cm < 7 cm \u2014 ok's",
+    );
+  });
+});

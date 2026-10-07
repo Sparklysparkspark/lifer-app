@@ -18,6 +18,7 @@ import { Ok, replies, withSchemas } from "../lib/schema.js";
 import { desktopOnly } from "./requireDesktopMode.js";
 import type { Agent } from "undici";
 import { assertAllowedTarget, guardedDispatcher, RefusedAddressError, viaDispatcher } from "../lib/outboundGuard.js";
+import { trimEndChars } from "../lib/trimChars.js";
 
 const MigrateBody = Type.Object(
   {
@@ -238,7 +239,7 @@ export async function migrateToServerRoutes(fastify: FastifyInstance): Promise<v
         return reply.code(409).send({ error: "A migration to a server is already in progress" });
       }
       const { serverUrl, email, password } = request.body;
-      const baseUrl = serverUrl.replace(/\/+$/, "");
+      const baseUrl = trimEndChars(serverUrl, "/");
 
       // Migrating to this same instance would loop forever: each upload lands back here as one
       // more capture to migrate.

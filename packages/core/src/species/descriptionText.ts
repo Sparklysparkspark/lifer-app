@@ -173,11 +173,13 @@ const ABBREVIATIONS = [
   "Fig.",
   "al.",
 ];
+/** `text` with every regular-expression special character escaped, to match it literally. */
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 // Whole words only, so "c." never matches the end of "Pacific.".
-const ABBREVIATION_PATTERN = new RegExp(
-  `(?<![\\p{L}.])(${ABBREVIATIONS.map((a) => a.replace(/\./g, "\\.")).join("|")})`,
-  "gu",
-);
+const ABBREVIATION_PATTERN = new RegExp(`(?<![\\p{L}.])(${ABBREVIATIONS.map(escapeRegExp).join("|")})`, "gu");
 
 /** Splits text into sentences: on ., ! or ? followed by whitespace and a capital, digit or
  *  opening bracket, and at every line break. Decimals ("5.3 oz"), initials ("T. douglasii",
@@ -374,18 +376,33 @@ export function composeDescription(sources: DescriptionSources, maxChars = DESCR
   return isSubstantiveText(text) ? text : null;
 }
 
-/** HTML (iNaturalist's wikipedia_summary) to plain text: tags removed, common entities decoded
- *  (a non-breaking space becomes a space rather than vanishing). */
+const NAMED_ENTITIES: Record<string, string> = { nbsp: " ", amp: "&", quot: '"', apos: "'", lt: "<", gt: ">" };
+
+/** `html` with its tags removed. Repeated until nothing changes, so a tag split around another
+ *  (`<scr<b>ipt>`) can't reassemble into one. */
+export function stripTags(html: string): string {
+  let text = html;
+  for (;;) {
+    const next = text.replace(/<[^<>]*>/g, "");
+    if (next === text) return text;
+    text = next;
+  }
+}
+
+/** HTML entities decoded in a single pass, so "&amp;lt;" stays the text "&lt;" instead of being
+ *  decoded twice into "<". A non-breaking space becomes a space; unknown entities are dropped. */
+export function decodeEntities(text: string): string {
+  return text.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (_, entity: string) => {
+    if (entity[0] === "#") {
+      const code = entity[1] === "x" || entity[1] === "X" ? parseInt(entity.slice(2), 16) : Number(entity.slice(1));
+      if (code === 160) return " ";
+      return Number.isInteger(code) && code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : "";
+    }
+    return NAMED_ENTITIES[entity.toLowerCase()] ?? "";
+  });
+}
+
+/** HTML (iNaturalist's wikipedia_summary) to plain text: tags removed, then entities decoded. */
 export function htmlToText(html: string): string {
-  return html
-    .replace(/<[^>]+>/g, "")
-    .replace(/&nbsp;|&#160;/g, " ")
-    .replace(/&amp;/g, "&")
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;|&apos;/g, "'")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&#?\w+;/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
+  return decodeEntities(stripTags(html)).replace(/\s+/g, " ").trim();
 }

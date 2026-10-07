@@ -2,6 +2,7 @@
 // sharing one gets its scientific name appended, which keeps the name the same whichever is
 // imported first and keeps two species out of one folder.
 import { pool } from "@lifer/core/db.js";
+import { trimEndChars } from "../lib/trimChars.js";
 
 /** Drops characters that would make a subfolder or that some OS forbids in a name, and trims. */
 export function stripForbiddenNameChars(name: string): string {
@@ -11,7 +12,7 @@ export function stripForbiddenNameChars(name: string): string {
 /** A folder name: also drops trailing dots and spaces, which Windows silently removes, so
  * "Sp." and "Sp" name the same folder everywhere. */
 export function sanitizeForFilesystem(name: string): string {
-  return stripForbiddenNameChars(name).replace(/[. ]+$/, "");
+  return trimEndChars(stripForbiddenNameChars(name), ". ");
 }
 
 // Shared by the folder-name and EXIF resolvers. The first of the user's species_naming_styles

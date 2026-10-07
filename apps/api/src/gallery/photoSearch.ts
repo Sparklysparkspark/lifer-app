@@ -6,6 +6,7 @@ import { EMBEDDING_MODEL_VERSION } from "@lifer/core/config.js";
 import { captureVectors, clearYourVectorCache } from "@lifer/core/species/embeddings.js";
 import { embedTextVectors } from "@lifer/core/species/textEmbedding.js";
 import { GROUP_TERMS, MAX_GROUP_TERM_WORDS, speciesInGroup, type GroupPredicate } from "./searchTaxonSynonyms.js";
+import { trimChars } from "../lib/trimChars.js";
 
 // A photo matches a description when it scores at least this much above its own noise level
 // (see NOISE_PROMPTS) and is within reach of the best match. A per-photo baseline is needed
@@ -277,7 +278,7 @@ export function parseSearchQuery(
     .toLowerCase()
     .replace(/[^\p{L}\p{N}\s'-]/gu, " ")
     .split(/[\s]+/)
-    .map((t) => t.replace(/^['-]+|['-]+$/g, ""))
+    .map((t) => trimChars(t, "'-"))
     .filter(Boolean);
   // Hyphenated words ("red-tailed") are compared word by word, like names are.
   const words: string[] = tokens.flatMap((t) => wordsOf(t));
