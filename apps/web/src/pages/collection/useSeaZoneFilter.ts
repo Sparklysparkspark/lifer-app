@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { useLatest } from "../../hooks/useLatest";
 import { api } from "../../api/client";
 import type { UpdateParams } from "./useCollectionUrlState";
 
@@ -9,7 +10,10 @@ export function seaZonesRelevantFor(
   regionId: string | null,
   isTaxonPackDownloaded: (id: string | null, taxonClass: string) => boolean,
 ): boolean {
-  return (taxonFilters.size === 0 || taxonFilters.has("actinopterygii")) && (!regionId || isTaxonPackDownloaded(regionId, "actinopterygii"));
+  return (
+    (taxonFilters.size === 0 || taxonFilters.has("actinopterygii")) &&
+    (!regionId || isTaxonPackDownloaded(regionId, "actinopterygii"))
+  );
 }
 
 export function useSeaZoneFilter({
@@ -44,8 +48,7 @@ export function useSeaZoneFilter({
   // region (tracked in a ref so a manual uncheck isn't re-applied).
   const autoSelected = useRef(new Set<string>());
   // The count can land after the user has moved on, and must not set this region's zones on the next.
-  const currentRegionId = useRef(regionId);
-  currentRegionId.current = regionId;
+  const currentRegionId = useLatest(regionId);
   useEffect(() => {
     if (!regionId || regionKnownHub || !seaZonesRelevant) return;
     if (seaZones.length === 0 || seaZoneIds.length > 0) return;
@@ -56,7 +59,8 @@ export function useSeaZoneFilter({
     api
       .get<{ total: number }>(`/regions/${regionId}/species/count?taxon=actinopterygii`)
       .then((res) => {
-        if (res.total === 0 && currentRegionId.current === regionId) updateParams({ seaZones: seaZones.map((z) => z.id).join(",") });
+        if (res.total === 0 && currentRegionId.current === regionId)
+          updateParams({ seaZones: seaZones.map((z) => z.id).join(",") });
       })
       .catch(() => {
         // Let the next render retry instead of treating a failed check as "has fish".
