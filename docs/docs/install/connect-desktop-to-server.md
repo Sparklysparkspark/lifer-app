@@ -21,10 +21,34 @@ If you see "Couldn't reach that address. Check the URL and that the server is ru
 1. Open **Settings > Server**.
 2. In **Sign in to a server**, enter the server address and click **Connect**.
 3. When it says **Connected to** your server, enter your **Email** and **Password**.
-4. Leave **Keep an offline cache after connecting** ticked if you want low-resolution covers and your collected and seen status to stay browsable when this computer loses its connection.
+4. Leave **Keep an offline cache after connecting** ticked if you want low-resolution covers and your collected and seen status to stay browsable when this computer loses its connection. See [Offline cache](#offline-cache).
 5. Click **Sign in**. The window switches to the server's library.
 
 To go back, open **Settings > Server** and click **Switch to local library** in **Connect a server**. You can also use **Change Server / Library…** in the Lifer app menu to start over from the setup screen.
+
+## Offline cache {#offline-cache}
+
+While the desktop app is connected to a server, it keeps a read-only copy of your collection on this computer, so you can still browse it when the server can't be reached. It's on by default, including when you connect from the setup screen.
+
+**What it holds:**
+
+- Every species in your collection: its common and scientific name, group and family, and whether you've collected it, seen it or not yet.
+- A small square cover (192 pixels, a few KB) for up to 3,000 species, your collected ones first, then seen, then the rest. Covers are made from the server's own thumbnails, cropped the way your cards are.
+- Never full-size photos, your captures, trips, albums, notes or settings, and never your password.
+
+It's usually 5 to 30 MB and can never grow past about 150 MB.
+
+**When it syncs:** in the background right after you connect, each time the app starts or reloads while the server answers, and every half hour while you're connected. Only covers that changed are downloaded again. Syncing only talks to your own server.
+
+**When the server can't be reached:** when it doesn't answer as the app starts, or after about a minute without an answer while you're using it, the window shows the cached collection under a banner reading **Offline: showing your last synced collection**, followed by the date and time of the last sync. You can search it and filter by collected, seen and not seen, but it's read-only: nothing can be changed until the server is back. As soon as the server answers again, the window switches back to it by itself. **Try again** checks straight away. **Work in this computer's library** opens the app's own library instead, if you want to add photos while away (Lifer offers to push them to the server when it's back). If there's no cache yet, the app opens this computer's library as before.
+
+**Where it lives:** the `offline-cache` folder in the app's data folder:
+
+- macOS: `~/Library/Application Support/app.lifer.desktop/offline-cache/`
+- Windows: `%APPDATA%\app.lifer.desktop\offline-cache\`
+- Linux: `~/.local/share/app.lifer.desktop/offline-cache/`
+
+**Clearing it:** untick **Keep an offline cache** in **Settings > Server** (it also shows the last sync and size). The cache is also deleted when you sign out, switch to another server, switch to the local library, or use **Change Server / Library…**. A different account signing in on the same server starts a fresh cache. Deleting the folder by hand while Lifer is closed is safe too.
 
 ## Automatic URL switching {#url-switching}
 

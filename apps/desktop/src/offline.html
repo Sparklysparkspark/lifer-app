@@ -1,0 +1,213 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Lifer (offline)</title>
+    <!-- Shown by offline_cache.rs when the connected server can't be reached. Read-only. -->
+    <style>
+      :root {
+        --canvas: #f6eedc;
+        --card: #fffaf0;
+        --ink: #1c1917;
+        --muted: #78716c;
+        --line: #e2d6bd;
+        --banner-bg: #fef3c7;
+        --banner-ink: #78350f;
+        --banner-line: #fcd34d;
+        --collected: #15803d;
+        --seen: #1d4ed8;
+        --placeholder: #ebe1cb;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --canvas: #242c34;
+          --card: #2d3640;
+          --ink: #f5f5f4;
+          --muted: #a8a29e;
+          --line: #3d4753;
+          --banner-bg: #3b2f14;
+          --banner-ink: #fde68a;
+          --banner-line: #78591a;
+          --collected: #4ade80;
+          --seen: #93c5fd;
+          --placeholder: #36404b;
+        }
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--canvas);
+        color: var(--ink);
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        font-size: 13px;
+      }
+      header {
+        position: sticky;
+        top: 0;
+        z-index: 1;
+        background: var(--canvas);
+        padding: 16px 20px 12px;
+        border-bottom: 1px solid var(--line);
+      }
+      html[data-mac-app] header {
+        padding-top: 48px;
+      }
+      .banner {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 8px 16px;
+        padding: 10px 14px;
+        border: 1px solid var(--banner-line);
+        border-radius: 8px;
+        background: var(--banner-bg);
+        color: var(--banner-ink);
+      }
+      .banner strong {
+        font-size: 14px;
+      }
+      .banner .text {
+        flex: 1 1 320px;
+      }
+      .banner .actions {
+        display: flex;
+        gap: 8px;
+      }
+      button {
+        font: inherit;
+        padding: 6px 12px;
+        border-radius: 6px;
+        border: 1px solid var(--line);
+        background: var(--card);
+        color: var(--ink);
+        cursor: pointer;
+      }
+      button:disabled {
+        opacity: 0.6;
+        cursor: default;
+      }
+      .controls {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+        margin-top: 12px;
+      }
+      input[type="search"] {
+        flex: 1 1 220px;
+        max-width: 360px;
+        font: inherit;
+        padding: 6px 10px;
+        border-radius: 6px;
+        border: 1px solid var(--line);
+        background: var(--card);
+        color: var(--ink);
+      }
+      .filters button[aria-pressed="true"] {
+        background: var(--ink);
+        color: var(--canvas);
+        border-color: var(--ink);
+      }
+      .count {
+        color: var(--muted);
+        margin-left: auto;
+      }
+      main {
+        padding: 16px 20px 32px;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+        gap: 12px;
+      }
+      .card {
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        overflow: hidden;
+      }
+      .thumb {
+        aspect-ratio: 1;
+        background: var(--placeholder);
+        display: block;
+        width: 100%;
+        object-fit: cover;
+      }
+      .meta {
+        padding: 6px 8px 8px;
+      }
+      .name {
+        font-weight: 600;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .sci {
+        color: var(--muted);
+        font-style: italic;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .state {
+        margin-top: 4px;
+        font-size: 11px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: var(--muted);
+      }
+      .state.collected {
+        color: var(--collected);
+      }
+      .state.seen {
+        color: var(--seen);
+      }
+      .more {
+        display: block;
+        margin: 20px auto 0;
+      }
+      .empty {
+        color: var(--muted);
+        text-align: center;
+        padding: 48px 0;
+      }
+      .status {
+        color: var(--banner-ink);
+      }
+    </style>
+  </head>
+  <body>
+    <header data-tauri-drag-region>
+      <div class="banner" role="status">
+        <div class="text">
+          <strong id="headline">Offline: showing your last synced collection</strong>
+          <div id="detail">Read-only. Changes are turned off until your server is back.</div>
+          <div id="retry-status" class="status" aria-live="polite"></div>
+        </div>
+        <div class="actions">
+          <button type="button" id="retry">Try again</button>
+          <button type="button" id="use-local">Work in this computer's library</button>
+        </div>
+      </div>
+      <div class="controls">
+        <input type="search" id="search" placeholder="Search species" aria-label="Search species" />
+        <div class="filters" role="group" aria-label="Show">
+          <button type="button" data-filter="all" aria-pressed="true">All</button>
+          <button type="button" data-filter="collected" aria-pressed="false">Collected</button>
+          <button type="button" data-filter="seen" aria-pressed="false">Seen</button>
+          <button type="button" data-filter="unseen" aria-pressed="false">Not seen</button>
+        </div>
+        <span class="count" id="count"></span>
+      </div>
+    </header>
+    <main>
+      <div class="grid" id="grid"></div>
+      <button type="button" class="more" id="more" hidden>Show more</button>
+      <p class="empty" id="empty" hidden></p>
+    </main>
+    <script src="offline.js"></script>
+  </body>
+</html>
