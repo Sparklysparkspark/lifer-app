@@ -30,8 +30,8 @@ jobs:
       LIFER_TARGET_TRIPLE: ${{ inputs.arch == 'x64' && 'x86_64-apple-darwin' || '' }}
       MAC_ARCH: ${{ inputs.arch == 'x64' && 'x86_64' || 'arm64' }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version-file: .nvmrc
           cache: npm
@@ -52,7 +52,7 @@ jobs:
       # release.yml), cached per architecture until build-ffmpeg-macos.sh changes.
       - name: Restore the macOS FFmpeg build
         id: ffmpeg-cache
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ runner.temp }}/lifer-ffmpeg-${{ env.MAC_ARCH }}
           key: ffmpeg-${{ runner.os }}-${{ env.MAC_ARCH }}-${{ hashFiles('apps/desktop/scripts/build-ffmpeg-macos.sh') }}
@@ -64,7 +64,7 @@ jobs:
       # cached per architecture until build-postgres-macos.sh changes.
       - name: Restore the macOS PostgreSQL build
         id: postgres-cache
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ runner.temp }}/lifer-postgres-${{ env.MAC_ARCH }}
           key: postgres-${{ runner.os }}-${{ env.MAC_ARCH }}-${{ hashFiles('apps/desktop/scripts/build-postgres-macos.sh') }}
@@ -86,7 +86,7 @@ jobs:
       # bits, and the downloaded app won't open.
       - name: Zip the app
         run: ditto -c -k --keepParent "$APP" "$RUNNER_TEMP/Lifer-macos-${{ inputs.arch }}.zip"
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: lifer-desktop-macos-${{ inputs.arch }}
           path: ${{ runner.temp }}/Lifer-macos-${{ inputs.arch }}.zip
@@ -105,8 +105,8 @@ jobs:
       # The bundled major and the previous one, as build-postgres-macos.sh names them.
       PREVIOUS_MAJOR: "17"
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version-file: .nvmrc
           cache: npm
@@ -132,7 +132,7 @@ jobs:
       # The same cache the build job uses for the bundled major.
       - name: Restore the macOS PostgreSQL build
         id: postgres-cache
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ runner.temp }}/lifer-postgres-${{ env.MAC_ARCH }}
           key: postgres-${{ runner.os }}-${{ env.MAC_ARCH }}-${{ hashFiles('apps/desktop/scripts/build-postgres-macos.sh') }}
@@ -142,7 +142,7 @@ jobs:
         run: bash apps/desktop/scripts/build-postgres-macos.sh "$RUNNER_TEMP/lifer-postgres-$MAC_ARCH" "$MAC_ARCH"
       - name: Restore the previous major's PostgreSQL build
         id: postgres-previous-cache
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ runner.temp }}/lifer-postgres-${{ env.PREVIOUS_MAJOR }}-${{ env.MAC_ARCH }}
           key: postgres-${{ env.PREVIOUS_MAJOR }}-${{ runner.os }}-${{ env.MAC_ARCH }}-${{ hashFiles('apps/desktop/scripts/build-postgres-macos.sh') }}
