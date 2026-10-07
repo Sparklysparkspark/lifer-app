@@ -6,18 +6,20 @@ import { useMapAvailable } from "../hooks/useMapAvailable";
 import { useSettings } from "../hooks/useSettings";
 import { Spinner } from "../components/LoadingScreen";
 import EmptyState from "../components/EmptyState";
-import { useNavCounts } from "../components/AppNav";
+import { useNavCounts } from "../hooks/useNavCounts";
 import { useCollectionUrlState } from "./collection/useCollectionUrlState";
 import { useCollectionDisplayPrefs } from "./collection/useCollectionDisplayPrefs";
 import { useRegionTree } from "./collection/useRegionTree";
 import { useTaxonAvailability } from "./collection/useTaxonAvailability";
 import { useCollectionData } from "./collection/useCollectionData";
 import { seaZonesRelevantFor, useSeaZoneFilter } from "./collection/useSeaZoneFilter";
+import { useNearbySeaZones } from "./collection/useNearbySeaZones";
 import { useFirstRunRegion } from "./collection/useFirstRunRegion";
 import { filterCollectionItems, searchHaystack } from "./collection/filterItems";
 import RegionBreadcrumb from "./collection/RegionBreadcrumb";
 import CollectionToolbar from "./collection/CollectionToolbar";
 import { NeedsPackPrompt, TaxonPackPrompt } from "./collection/PackPrompts";
+import { useScrollMemory } from "../hooks/useScrollMemory";
 
 // maplibre is large, so the map loads on demand instead of with the startup bundle.
 const RegionMap = lazy(() => import("../components/RegionMap"));
@@ -25,14 +27,30 @@ const RegionMap = lazy(() => import("../components/RegionMap"));
 const MAP_PLACEHOLDER = <div className="h-80 w-full rounded-lg border border-line bg-surface-muted" />;
 
 const ALERT_ICON = (
-  <svg viewBox="0 0 24 24" className="h-6 w-6 text-muted" fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round">
+  <svg
+    viewBox="0 0 24 24"
+    className="h-6 w-6 text-muted"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth={1.75}
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
     <circle cx="12" cy="12" r="9" />
     <path d="M12 8v5M12 16h.01" />
   </svg>
 );
 
 const SEARCH_ICON = (
-  <svg viewBox="0 0 24 24" className="h-6 w-6 text-muted" fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round">
+  <svg
+    viewBox="0 0 24 24"
+    className="h-6 w-6 text-muted"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth={1.75}
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
     <circle cx="11" cy="11" r="7" />
     <path d="m20 20-3.5-3.5" />
   </svg>
@@ -67,8 +85,13 @@ export default function CollectionPage() {
     downloadedRegionTaxons: tree.downloadedRegionTaxons,
   });
 
-  const packsKnown = tree.downloadedRegionTaxons !== null;
-  const seaZonesRelevant = seaZonesRelevantFor(taxonFilters, regionId, tree.isTaxonPackDownloaded);
+  const nearbySeaZones = useNearbySeaZones(regionId, tree.regionKnownHub);
+  // Sea zone relevance needs both the pack index and the region's zones.
+  const packsKnown = tree.downloadedRegionTaxons !== null && nearbySeaZones.known;
+  // A zone you added species to yourself is offered whatever the filter or packs.
+  const seaZonesRelevant =
+    seaZonesRelevantFor(taxonFilters, regionId, tree.isTaxonPackDownloaded) ||
+    nearbySeaZones.zones.some((z) => z.addedByYou > 0);
   const data = useCollectionData({
     regionId,
     taxonRaw: url.taxonRaw,
@@ -89,20 +112,33 @@ export default function CollectionPage() {
     seaZonesRelevant,
     packsKnown,
     seaZoneIds,
-    seaZones: data.seaZones,
+    seaZones: nearbySeaZones.zones,
     isTaxonPackDownloaded: tree.isTaxonPackDownloaded,
     updateParams,
   });
 
   // Removing the last species of an Other Taxa group should also drop that group's filter.
+  // A reload can follow removing a species you added to a sea zone, which changes which zones
+  // are offered.
   const { applyChange, load } = data;
   const { reloadTaxaPresent } = taxa;
+  const reloadSeaZones = nearbySeaZones.reload;
   const handleSpeciesChanged = useCallback(
     (speciesIds: string | string[], change: SpeciesChange) => {
       applyChange(speciesIds, change);
       if (change === "removed") reloadTaxaPresent();
+      if (change === "reload") reloadSeaZones();
     },
-    [applyChange, reloadTaxaPresent],
+    [applyChange, reloadTaxaPresent, reloadSeaZones],
+  );
+  const handleChecklistChanged = useCallback(() => {
+    load();
+    reloadTaxaPresent();
+    reloadSeaZones();
+  }, [load, reloadTaxaPresent, reloadSeaZones]);
+  const selectedSeaZones = useMemo(
+    () => (seaZonesRelevant ? nearbySeaZones.zones.filter((z) => seaZoneIds.includes(z.id)) : []),
+    [seaZonesRelevant, nearbySeaZones.zones, seaZoneIds],
   );
 
   // A pack downloaded from a prompt changes which taxa are unlocked, not only the list.
@@ -137,16 +173,32 @@ export default function CollectionPage() {
   const visibleItems = useMemo(
     () =>
       items
-        ? filterCollectionItems(items, { stateFilter, ghostOnly, lostOnly, likelyThisMonthOnly, yearFilter, search: deferredSearch }, haystacks)
+        ? filterCollectionItems(
+            items,
+            { stateFilter, ghostOnly, lostOnly, likelyThisMonthOnly, yearFilter, search: deferredSearch },
+            haystacks,
+          )
         : null,
     [items, stateFilter, ghostOnly, lostOnly, likelyThisMonthOnly, yearFilter, deferredSearch, haystacks],
   );
+  // Back from a species page returns to the same spot in the list, once it has loaded.
+  const scrollMemory = useScrollMemory(!!visibleItems && visibleItems.length > 0);
   // What's being viewed, not how many times it loaded: the cached list, then the fresh one, then an
   // upload's reload all keep the cards already showing.
-  const gridResetKey = [data.listKey, stateFilter, ghostOnly, lostOnly, likelyThisMonthOnly, yearFilter, deferredSearch].join("|");
+  const gridResetKey = [
+    data.listKey,
+    stateFilter,
+    ghostOnly,
+    lostOnly,
+    likelyThisMonthOnly,
+    yearFilter,
+    deferredSearch,
+  ].join("|");
 
   // The full list once it's in, the fast count until then.
-  const collectedCount = items ? items.filter((i) => i.state === "collected").length : (data.quickCount?.collected ?? 0);
+  const collectedCount = items
+    ? items.filter((i) => i.state === "collected").length
+    : (data.quickCount?.collected ?? 0);
   const totalCount = items ? items.length : (data.quickCount?.total ?? null);
   useNavCounts(collectedCount, totalCount);
 
@@ -163,6 +215,11 @@ export default function CollectionPage() {
   }, [tree.regionKnownHub, items]);
 
   const showMapToggle = !!regionMeta && !tree.regionKnownHub && !!regionMeta.boundaryGeoJson && !!mapAvailable;
+
+  // No pack yet, but some species here are yours: they show, with the download offered above them.
+  const needsPackBanner = data.needsPackFor && (
+    <NeedsPackPrompt region={data.needsPackFor} onDownloaded={handlePackDownloaded} banner />
+  );
 
   return (
     <div className="flex-1 bg-canvas">
@@ -185,6 +242,9 @@ export default function CollectionPage() {
           void refreshRegions().catch(() => {});
           load();
         }}
+        onChecklistChanged={handleChecklistChanged}
+        selectedSeaZones={selectedSeaZones}
+        includeLand={includeLand}
       />
 
       <CollectionToolbar
@@ -198,7 +258,7 @@ export default function CollectionPage() {
         hasLost={hasLost}
         shownCount={visibleItems?.length ?? null}
         totalLoaded={items?.length ?? null}
-        seaZones={data.seaZones}
+        seaZones={nearbySeaZones.zones}
         seaZonesRelevant={seaZonesRelevant}
         regionName={regionMeta?.name}
         onToggleSeaZone={seaZoneActions.toggleSeaZone}
@@ -220,7 +280,11 @@ export default function CollectionPage() {
               Download a region's offline pack to see its checklist and start tracking what you've photographed there.
             </p>
             <div className="mt-4 flex items-center justify-center gap-4">
-              <Link to="/offline-packs" state={{ backLabel: "Collection" }} className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-accent-fg">
+              <Link
+                to="/offline-packs"
+                state={{ backLabel: "Collection" }}
+                className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-accent-fg"
+              >
                 Download a pack
               </Link>
             </div>
@@ -236,7 +300,7 @@ export default function CollectionPage() {
               .
             </p>
           </div>
-        ) : data.needsPackFor ? (
+        ) : data.needsPackFor && items && items.length === 0 ? (
           <NeedsPackPrompt region={data.needsPackFor} onDownloaded={handlePackDownloaded} />
         ) : data.loadError ? (
           <EmptyState
@@ -258,19 +322,35 @@ export default function CollectionPage() {
             onDownloaded={handlePackDownloaded}
           />
         ) : visibleItems.length === 0 ? (
-          <EmptyState icon={SEARCH_ICON} title="Nothing matches that filter" description="Try a different search, or loosen the filters." />
+          <>
+            {needsPackBanner}
+            <EmptyState
+              icon={SEARCH_ICON}
+              title="Nothing matches that filter"
+              description="Try a different search, or loosen the filters."
+            />
+          </>
         ) : (
-          <div className={isGroupingPending || deferredSearch !== url.search ? "opacity-60 transition-opacity" : "transition-opacity"}>
+          <div
+            className={
+              isGroupingPending || deferredSearch !== url.search
+                ? "opacity-60 transition-opacity"
+                : "transition-opacity"
+            }
+          >
+            {needsPackBanner}
             {/* Only photographed species show without the taxon's pack; offer the rest. */}
-            {data.taxonPackMissingFor && data.taxonPackMissingFor.id === regionId && data.taxonPackMissingFor.taxon === singleTaxonFilter && (
-              <TaxonPackPrompt
-                regionId={data.taxonPackMissingFor.id}
-                regionName={data.taxonPackMissingFor.name}
-                taxon={data.taxonPackMissingFor.taxon}
-                onDownloaded={handlePackDownloaded}
-                photographed={visibleItems.filter((i) => i.state === "collected" || i.state === "seen").length}
-              />
-            )}
+            {data.taxonPackMissingFor &&
+              data.taxonPackMissingFor.id === regionId &&
+              data.taxonPackMissingFor.taxon === singleTaxonFilter && (
+                <TaxonPackPrompt
+                  regionId={data.taxonPackMissingFor.id}
+                  regionName={data.taxonPackMissingFor.name}
+                  taxon={data.taxonPackMissingFor.taxon}
+                  onDownloaded={handlePackDownloaded}
+                  photographed={visibleItems.filter((i) => i.state === "collected" || i.state === "seen").length}
+                />
+              )}
             <GroupedSpeciesGrid
               items={visibleItems}
               resetKey={gridResetKey}
@@ -288,6 +368,8 @@ export default function CollectionPage() {
               hideLabels={prefs.hideLabels}
               hideNames={prefs.hideNames}
               hideScientificName={prefs.hideScientificName}
+              initialVisibleCount={scrollMemory.initialVisibleCount}
+              onVisibleCountChange={scrollMemory.onVisibleCountChange}
             />
           </div>
         )}

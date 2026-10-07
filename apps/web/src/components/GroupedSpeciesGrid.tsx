@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { CollectionItem } from "@lifer/shared";
 import { api } from "../api/client";
 import SpeciesCard, { type SpeciesChangeHandler } from "./SpeciesCard";
-import { TIER_LABEL, speciesGroupLabel } from "../lib/speciesGroups";
+import { speciesGroupLabel, tierLabel } from "../lib/speciesGroups";
 import { primaryBroadGroup } from "../lib/broadGroups";
 import { useStorageVolumes } from "../hooks/useStorageVolumes";
 import { useSettings } from "../hooks/useSettings";
@@ -25,7 +25,8 @@ function currentMonthIndex(): number {
 // At or below this card width the name box uses tighter spacing (see SpeciesCard `compact`).
 const COMPACT_CARD_WIDTH = 150;
 
-// Groups with more species than this span the full width instead of sharing a row.
+// In a taxonomic grouping, groups with more species than this span the full width instead of
+// sharing a row. Tier groupings never share rows: tiers read as a ranked list, top to bottom.
 const WIDE_GROUP_MIN = 8;
 
 // Same shrink-with-size gap as GalleryPage's grid.
@@ -47,7 +48,10 @@ function sortItems(items: CollectionItem[], sortBy: SortBy): CollectionItem[] {
     sorted.sort((a, b) => (TIER_RANK[a.tier ?? "common"] ?? 5) - (TIER_RANK[b.tier ?? "common"] ?? 5));
   } else if (sortBy === "localRarity") {
     // localTier only exists on region rows; falls back to the global tier.
-    sorted.sort((a, b) => (TIER_RANK[a.localTier ?? a.tier ?? "common"] ?? 5) - (TIER_RANK[b.localTier ?? b.tier ?? "common"] ?? 5));
+    sorted.sort(
+      (a, b) =>
+        (TIER_RANK[a.localTier ?? a.tier ?? "common"] ?? 5) - (TIER_RANK[b.localTier ?? b.tier ?? "common"] ?? 5),
+    );
   } else if (sortBy === "name") {
     sorted.sort((a, b) => (a.commonName ?? a.scientificName).localeCompare(b.commonName ?? b.scientificName));
   } else if (sortBy === "seasonality") {
@@ -75,6 +79,8 @@ export default function GroupedSpeciesGrid({
   hideLabels,
   hideNames,
   hideScientificName,
+  initialVisibleCount,
+  onVisibleCountChange,
 }: {
   items: CollectionItem[];
   regionId?: string;
@@ -98,9 +104,16 @@ export default function GroupedSpeciesGrid({
   onChanged?: SpeciesChangeHandler;
   /** Changes when the list is really a different one (new load, filter, search). Defaults to items identity. */
   resetKey?: string;
+  /** How many cards to show at first, to return to a scroll position from before (useScrollMemory). */
+  initialVisibleCount?: number;
+  /** Called whenever more cards are revealed, so the count can be remembered. */
+  onVisibleCountChange?: (count: number) => void;
 }) {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
-  const [visibleCount, setVisibleCount] = useState(INITIAL_VISIBLE);
+  const [visibleCount, setVisibleCount] = useState(() => Math.max(INITIAL_VISIBLE, initialVisibleCount ?? 0));
+  useEffect(() => {
+    onVisibleCountChange?.(visibleCount);
+  }, [visibleCount, onVisibleCountChange]);
   // A callback ref, not useRef: toggling grouping renders a new sentinel element, and an observer on
   // the old one would never fire again.
   const [sentinel, setSentinel] = useState<HTMLDivElement | null>(null);
@@ -112,35 +125,33 @@ export default function GroupedSpeciesGrid({
   // A new list starts back at the cap. Reset during render, not in an effect, so a stale large count
   // never commits. resetKey names what's viewed, so a background reload or one-row patch keeps cards.
   const listKey = resetKey ?? items;
-  const resetKeyRef = useRef({ listKey, groupBy, sortBy, collectedFirst, seenFirst, targetFirst });
+  const [shownFor, setShownFor] = useState({ listKey, groupBy, sortBy, collectedFirst, seenFirst, targetFirst });
   const resetKeyChanged =
-    resetKeyRef.current.listKey !== listKey ||
-    resetKeyRef.current.groupBy !== groupBy ||
-    resetKeyRef.current.sortBy !== sortBy ||
-    resetKeyRef.current.collectedFirst !== collectedFirst ||
-    resetKeyRef.current.seenFirst !== seenFirst ||
-    resetKeyRef.current.targetFirst !== targetFirst;
+    shownFor.listKey !== listKey ||
+    shownFor.groupBy !== groupBy ||
+    shownFor.sortBy !== sortBy ||
+    shownFor.collectedFirst !== collectedFirst ||
+    shownFor.seenFirst !== seenFirst ||
+    shownFor.targetFirst !== targetFirst;
   if (resetKeyChanged) {
-    resetKeyRef.current = { listKey, groupBy, sortBy, collectedFirst, seenFirst, targetFirst };
+    setShownFor({ listKey, groupBy, sortBy, collectedFirst, seenFirst, targetFirst });
     if (visibleCount !== INITIAL_VISIBLE) setVisibleCount(INITIAL_VISIBLE);
-  }
-
-  // Ungrouped "float to top" rank: only a state whose toggle is on moves ahead of the rest.
-  function floatRank(item: CollectionItem): number {
-    if (collectedFirst && item.state === "collected") return 0;
-    if (seenFirst && item.state === "seen") return collectedFirst ? 1 : 0;
-    if (targetFirst && item.isTarget) return (collectedFirst ? 1 : 0) + (seenFirst ? 1 : 0);
-    return 3;
   }
 
   const groups = useMemo(() => {
     const sorted = sortItems(items, sortBy);
 
+    // Ungrouped "float to top" rank: only a state whose toggle is on moves ahead of the rest.
+    function floatRank(item: CollectionItem): number {
+      if (collectedFirst && item.state === "collected") return 0;
+      if (seenFirst && item.state === "seen") return collectedFirst ? 1 : 0;
+      if (targetFirst && item.isTarget) return (collectedFirst ? 1 : 0) + (seenFirst ? 1 : 0);
+      return 3;
+    }
+
     if (groupBy === "none") {
       const list =
-        collectedFirst || seenFirst || targetFirst
-          ? [...sorted].sort((a, b) => floatRank(a) - floatRank(b))
-          : sorted;
+        collectedFirst || seenFirst || targetFirst ? [...sorted].sort((a, b) => floatRank(a) - floatRank(b)) : sorted;
       return [{ key: "", label: "", items: list }];
     }
 
@@ -148,13 +159,14 @@ export default function GroupedSpeciesGrid({
     const byKey = new Map<string, CollectionItem[]>();
     for (const item of sorted) {
       // "Rarity here" falls back to the global tier when localTier is null.
-      const key = groupBy === "tier"
-        ? item.tier ?? "common"
-        : groupBy === "localTier"
-          ? item.localTier ?? item.tier ?? "common"
-          : groupBy === "broad"
-            ? primaryBroadGroup(item)
-            : speciesGroupLabel(item.taxonClass, item.family, item.isOtherTaxa, item.inatIconicTaxon, namingStyles);
+      const key =
+        groupBy === "tier"
+          ? (item.tier ?? "common")
+          : groupBy === "localTier"
+            ? (item.localTier ?? item.tier ?? "common")
+            : groupBy === "broad"
+              ? primaryBroadGroup(item)
+              : speciesGroupLabel(item.taxonClass, item.family, item.isOtherTaxa, item.inatIconicTaxon, namingStyles);
       if (!byKey.has(key)) byKey.set(key, []);
       byKey.get(key)!.push(item);
     }
@@ -166,7 +178,7 @@ export default function GroupedSpeciesGrid({
 
     const named = keys.map((key) => ({
       key,
-      label: byTier ? TIER_LABEL[key] ?? key : key,
+      label: byTier ? tierLabel(key) : key,
       items: byKey.get(key)!,
     }));
 
@@ -175,7 +187,8 @@ export default function GroupedSpeciesGrid({
     const pinned: typeof named = [];
     if (collectedFirst) {
       const collectedItems = sorted.filter((i) => i.state === "collected");
-      if (collectedItems.length > 0) pinned.push({ key: COLLECTED_GROUP_KEY, label: "Collected", items: collectedItems });
+      if (collectedItems.length > 0)
+        pinned.push({ key: COLLECTED_GROUP_KEY, label: "Collected", items: collectedItems });
     }
     if (seenFirst) {
       const seenItems = sorted.filter((i) => i.state === "seen");
@@ -202,7 +215,10 @@ export default function GroupedSpeciesGrid({
     }
     return map;
   }, [groups, visibleCount, collapsed]);
-  const totalItemCount = useMemo(() => groups.reduce((sum, g) => sum + (collapsed.has(g.key) ? 0 : g.items.length), 0), [groups, collapsed]);
+  const totalItemCount = useMemo(
+    () => groups.reduce((sum, g) => sum + (collapsed.has(g.key) ? 0 : g.items.length), 0),
+    [groups, collapsed],
+  );
   const hasMore = visibleCount < totalItemCount;
 
   // Re-observed after every reveal: on a tall screen the sentinel can still be in view after a
@@ -231,6 +247,9 @@ export default function GroupedSpeciesGrid({
   }
 
   // Ungrouped keeps the plain wide grid; the column packing below is for small groups.
+  // Taxonomic groups (Owls next to Grebes) can share a row; ranked tiers can't.
+  const packSmallGroups = groupBy === "group" || groupBy === "broad";
+
   if (groupBy === "none") {
     const visible = groups[0].items.slice(0, visibleCountByKey.get(groups[0].key) ?? groups[0].items.length);
     return (
@@ -271,7 +290,9 @@ export default function GroupedSpeciesGrid({
   // Groups with no budget yet aren't rendered: WebKit's column balancing cost scales with the
   // number of blocks, and the scroll sentinel reveals them later anyway.
   const expandedGroups = rest.filter((g) => !collapsed.has(g.key) && (visibleCountByKey.get(g.key) ?? 0) > 0);
-  const expandedPinnedGroups = pinnedGroups.filter((g) => !collapsed.has(g.key) && (visibleCountByKey.get(g.key) ?? 0) > 0);
+  const expandedPinnedGroups = pinnedGroups.filter(
+    (g) => !collapsed.has(g.key) && (visibleCountByKey.get(g.key) ?? 0) > 0,
+  );
   const collapsedPinnedGroups = pinnedGroups.filter((g) => collapsed.has(g.key));
 
   return (
@@ -312,11 +333,16 @@ export default function GroupedSpeciesGrid({
         </div>
       )}
 
-      {/* Small groups sit side by side; a big one takes the full width. A grid, not CSS columns,
-          since WebKit rebalances every column on each revealed batch. */}
+      {/* In a taxonomic grouping, small groups sit side by side and a big one takes the full width.
+          A grid, not CSS columns, since WebKit rebalances every column on each revealed batch. */}
       <div className="grid items-start gap-x-6 sm:grid-cols-2 xl:grid-cols-3">
         {expandedGroups.map((group) => (
-          <div key={group.key} className={group.items.length > WIDE_GROUP_MIN ? "sm:col-span-2 xl:col-span-3" : undefined}>
+          <div
+            key={group.key}
+            className={
+              packSmallGroups && group.items.length <= WIDE_GROUP_MIN ? undefined : "sm:col-span-2 xl:col-span-3"
+            }
+          >
             <GroupSection
               group={group}
               visibleCount={visibleCountByKey.get(group.key) ?? group.items.length}
@@ -406,7 +432,11 @@ function GroupSection({
   return (
     <section className="mb-6" style={{ contentVisibility: "auto", containIntrinsicSize: "auto 320px" }}>
       <div className="mb-2 flex items-center gap-2">
-        <button onClick={onToggle} aria-expanded="true" className="flex flex-1 items-center gap-2 text-left text-sm font-medium text-ink">
+        <button
+          onClick={onToggle}
+          aria-expanded="true"
+          className="flex flex-1 items-center gap-2 text-left text-sm font-medium text-ink"
+        >
           <span className="text-muted">▾</span>
           {group.label}
           <span className="text-xs font-normal text-muted">({group.items.length})</span>
