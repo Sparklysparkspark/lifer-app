@@ -32,6 +32,8 @@ Open **Settings > Library > Offline packs**, click a **Download** button on the 
 
 The download runs in the background with a progress bar and a cancel button. Packs that finished before you cancel are kept.
 
+Some species come without a photo because none of their iNaturalist photos may be shared in a pack (the photographer kept all rights). Once the packs are in, Lifer fetches those species' main photos from iNaturalist in the background, a few at a time, for your own viewing. You can turn this off in [Settings > Offline data](../settings.md#withheld-photos).
+
 A coastal country's pack may also bring in the nearby [sea zones](./collection-and-checklists.md#sea-zones) it needs. Sea zones currently hold ocean fish.
 
 In the continent lists, countries you've downloaded are highlighted. A small dot means it's only partly downloaded: some groups are missing, or an update is waiting.

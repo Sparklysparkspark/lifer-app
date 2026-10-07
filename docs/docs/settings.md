@@ -29,6 +29,10 @@ The desktop app's own library has no login, so it has no Account tab. The Server
 
 Choose **Follow system**, **Light** or **Dark**. **Follow system** matches whatever your computer or phone is set to.
 
+### Language {#language}
+
+Lifer is English only for now, so this setting doesn't appear yet; more languages are on the [roadmap](./roadmap.md). Once there's a second language, you'll choose it here: **Automatic (match my system)** will follow your browser's or computer's language, and the choice will follow your account to other devices. Dates and numbers already follow your system's region.
+
 ### App updates {#app-updates}
 
 Desktop app only. Shows the version you're running ("You're on version …") and checks for a newer one each time you open the card, and again when you come back online.
@@ -83,7 +87,7 @@ This needs the species-matching model. If the model isn't downloaded, the checkb
 
 ### Any-taxa search {#any-taxa-search}
 
-**Enable any-taxa search** (off by default). The offline packs cover birds, mammals, fish, reptiles and amphibians, and marine invertebrates. For everything else (insects, spiders, plants, fungi and more), turning this on lets you add species from iNaturalist. They appear under **Other Taxa** on the Collection page for the region you choose, with a photo and description from iNaturalist. They have no rarity tier or occurrence data.
+**Enable any-taxa search** (off by default). The offline packs cover birds, mammals, fish, reptiles and amphibians, and marine invertebrates. For everything else (insects, spiders, plants, fungi and more), turning this on lets you add species from iNaturalist. They appear under **Other Taxa** on the Collection page for the country, province or state you choose, marked **Added by you**, with a photo and description from iNaturalist. Only you see the ones you add. They have no rarity tier or occurrence data.
 
 Once it's on, open the **Search iNaturalist** window in any of these ways:
 
@@ -148,6 +152,8 @@ Rebuilds your Lifer records from photos already on disk. Use it after a fresh in
 - **Reimport my existing library** scans one location: **Main library**, or one connected drive or library folder chosen under **Reimport from**. It never moves or changes your files. Click **Reimport library now**.
 - **Import a library organized differently** points at any folder, like a Lightroom export or a folder of dated dumps. Lifer matches each photo to a species using tags already in the file (scientific name, common name, or an older name from before a rename). Photos it can't match stay where they are and are listed under **Review unmatched**, where **Ignore** keeps them out of future scans. Type the folder path or click **Browse…**. Tick **Organize matched photos into species folders in my library** to move matched photos into your library, or leave it off to add them without moving anything. Click **Import library now**.
 
+Both modes read the picks and rejects a culling app left in your photos. **Photos a culling app marked rejected** chooses what happens to rejected ones: **Import them hidden** (the default) brings them in hidden, so photos you imported before aren't lost but stay out of the way (find them with the Gallery's **Hidden** filter); **Skip them** leaves them out; and **Import them anyway** ignores the mark. Skipped photos stay on disk untouched, and the results say how many were skipped or hidden. See [Culling with other apps](./guides/culling-with-other-apps.md). Tags you gave photos in Lifer come back too, for photos whose files Lifer wrote them into.
+
 On a server you can only pick folders inside the library folder or an extra [library folder](#library-folders). A running reimport can be stopped with **Cancel**; files already in progress still finish. If recovered species are missing reference photos, the results link to the packs that would restore them.
 
 ## Storage {#storage}
@@ -188,6 +194,8 @@ Appears once **Connect** has reached the server. Uploads your whole local librar
 ### Connect a server {#connect-a-server}
 
 Shown while connected to a server. **Switch to local library** goes back to the app's own library, the one you used last, without asking for a folder. Signing out of the server does the same, and so does **Use This Computer's Library** in the Lifer menu. Lifer remembers the server, so you can connect again from **Sign in to a server**.
+
+**Keep an offline cache** shows when the cache last synced, how many species and covers it holds, and its size. Untick it to delete the cache from this computer. See [Offline cache](./install/connect-desktop-to-server.md#offline-cache).
 
 ### Automatic URL switching {#url-switching}
 
@@ -237,3 +245,9 @@ If a download fails, see [Model download failures](./troubleshooting.md#model-do
 ### Downloaded packs {#downloaded-packs}
 
 Lists the region packs you've downloaded and how much space they use. **Update**, **Update all** and **Offload** work here. To download new regions, use **Browse regions** (when nothing is downloaded yet) or **Manage in Offline packs**. See [Offline packs and the map](./guides/offline-packs-and-map.md).
+
+### Photos packs can't include {#withheld-photos}
+
+Some photos can't be included in packs for licensing reasons: their photographer kept all rights, or chose a license Lifer can't share. With **Fetch withheld photos in the background** on (the default), Lifer downloads the main photo of those species from iNaturalist for your own viewing, so the species in your downloaded packs have a photo offline too. It's the same as opening the species online, with the photographer's credit and license kept with the photo.
+
+It runs quietly after a pack download and each time Lifer starts, one species every few seconds and at most 2,000 a day, so it goes easy on iNaturalist. If iNaturalist asks it to slow down, it waits an hour. A species it couldn't get a photo for is tried again after 30 days. Only the main photo is fetched, not the extra gallery photos. The setting covers the whole install, every account on it, and turning it off stops a fetch that's running.

@@ -1,0 +1,68 @@
+name: Bug report
+description: Something in Lifer doesn't work the way the docs say it should.
+labels: ["bug", "needs triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. Please check the [troubleshooting page](https://sparklysparkspark.github.io/lifer-app/troubleshooting)
+        and [existing issues](https://github.com/Sparklysparkspark/lifer-app/issues) first. Questions go in
+        [Discussions](https://github.com/Sparklysparkspark/lifer-app/discussions).
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Go to ...
+        2. Click ...
+        3. See ...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Lifer version
+      description: Settings, About, or the image tag you run.
+      placeholder: "0.9.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: How do you run Lifer?
+      options:
+        - Desktop app (macOS)
+        - Desktop app (Windows)
+        - Desktop app (Linux)
+        - Docker
+        - TrueNAS (custom app)
+        - Desktop app connected to a server
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: Operating system and hardware
+      placeholder: "macOS 15 on an M2, or Ubuntu 24.04 with an NVIDIA GPU"
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: |
+        Docker: `docker compose logs api --tail 200`. Desktop: see the
+        [support page](https://sparklysparkspark.github.io/lifer-app/support) for where logs live.
+        Remove anything private before pasting.
+      render: text
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else?
+      description: Screenshots, sample files (no personal photos you don't want public), or other context.

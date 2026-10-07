@@ -14,18 +14,36 @@ Get the installer for your computer from the [latest release](https://github.com
 | Computer | File |
 |---|---|
 | Mac with Apple Silicon (M1 or newer) | `Lifer-macos-arm64.zip` |
+| Mac with an Intel processor | `Lifer-macos-x64.zip` |
 | Windows | `Lifer_<version>_x64-setup.exe` |
 | Linux | `Lifer_<version>_amd64.AppImage` (runs directly) or `Lifer_<version>_amd64.deb` (Debian and Ubuntu) |
 
-Macs with Intel processors aren't supported yet.
+Not sure which Mac you have? Open the Apple menu > **About This Mac**. **Chip** (Apple M1, M2 and so on) means Apple Silicon; **Processor** (Intel) means Intel. Both need macOS 14 (Sonoma) or later.
+
+### Check your download {#verify}
+
+Each release also lists a `SHA256SUMS` file with a checksum for every download. To check yours, download `SHA256SUMS` into the same folder, then in Terminal:
+
+```bash
+cd ~/Downloads
+shasum -a 256 -c --ignore-missing SHA256SUMS
+```
+
+It prints `OK` after your file's name if the download is intact and matches the release. `FAILED` means the file is damaged or isn't the one the release published: delete it and download it again. (On Linux, use `sha256sum -c --ignore-missing SHA256SUMS`.)
 
 ## Install on macOS
 
-1. Open the downloaded `.zip`.
+These steps are the same for the Apple Silicon and the Intel download.
+
+1. Open the downloaded `.zip` (`Lifer-macos-arm64.zip` or `Lifer-macos-x64.zip`).
 2. Drag **Lifer** into your **Applications** folder. Run it from Applications, not from Downloads. Updates can't install while Lifer runs from a temporary location, and Lifer will remind you to move it.
-3. Open Lifer. macOS blocks it the first time, because Lifer isn't signed with a paid Apple developer certificate.
-4. Open **System Settings > Privacy & Security**, scroll down, and click **Open Anyway** next to the message about Lifer.
-5. Confirm, and Lifer opens.
+3. Open Lifer. The first time, macOS says it can't check Lifer for malicious software and won't open it. Click **Done** (or **OK**).
+4. Open **System Settings > Privacy & Security**, scroll down to **Security**, and click **Open Anyway** next to the message about Lifer.
+5. Confirm with **Open Anyway** again and your Mac's password or Touch ID, and Lifer opens.
+
+On macOS 14 you can instead right-click Lifer, choose **Open**, then **Open** again. On macOS 15 and later that doesn't skip this; use **Open Anyway** as above.
+
+macOS shows this warning because Lifer, a free project, isn't notarized by Apple; to make sure your download is the one the release published, check it against the release's `SHA256SUMS` [as shown above](#verify).
 
 Updates installed from inside Lifer open without this step. A copy you download and install by hand gets the same one-time warning again.
 
@@ -56,7 +74,7 @@ Lifer opens a **Set up Lifer** window with two choices:
 - **Pick Local Storage Folder:** choose a folder for your photo library. Lifer runs entirely on this computer. Use this if you're not sure.
 - **Connect to a Server:** use a Lifer server you already run. See [Connect the desktop app to a server](./connect-desktop-to-server.md).
 
-After you pick a folder, Lifer shows "Setting up your library… this can take a minute the first time." The first launch needs an internet connection to download its database engine (PostgreSQL). The species catalog comes with the app. Then continue with [Getting started](../getting-started.md).
+After you pick a folder, Lifer shows "Setting up your library… this can take a minute the first time." The first launch doesn't need an internet connection: the database engine (PostgreSQL) and the species catalog both come with the app. Then continue with [Getting started](../getting-started.md).
 
 :::tip Choosing a library folder
 The folder you pick **is** your library. Lifer creates `Birds`, `Mammals`, `Fish` and other folders directly inside it. Pick an empty folder, or one Lifer used before. You can move it later from [Settings > Storage](../settings.md#storage-location).
@@ -71,7 +89,7 @@ To change this choice later, use the **Change Server / Library…** item in the 
 | Your photos | The library folder you chose, plus any [external drives](../settings.md#external-drives) you registered |
 | Lifer's database, thumbnails and downloads (models, offline map, catalog) | macOS: `~/Library/Application Support/app.lifer.desktop/`<br />Windows: `%APPDATA%\app.lifer.desktop\`<br />Linux: `~/.local/share/app.lifer.desktop/` |
 | The database itself | `app-data/postgres-data/` inside that folder |
-| The database engine, downloaded on first launch | `~/.theseus/postgresql/` in your home folder (Windows: `%USERPROFILE%\.theseus\postgresql\`) |
+| The database engine (PostgreSQL) | Inside the app itself. Lifer 0.9.0 and earlier downloaded it to `~/.theseus/postgresql/` in your home folder (Windows: `%USERPROFILE%\.theseus\postgresql\`), which newer versions no longer use. |
 | The chosen library folder and a few local settings | `~/.lifer/settings.json` in your home folder |
 | The server you connected to, if any | `desktop-config.json` in the app data folder |
 | Collected and seen status, for recovery | `.lifer/collection-state.json` inside your library folder |
@@ -94,4 +112,4 @@ Updating never touches your photos or database.
 
 ## Uninstalling
 
-Delete the app like any other. Your photo library folder stays where it is. To remove Lifer's own data too, delete the app data folder listed above, `~/.lifer`, and `~/.theseus/postgresql` (the downloaded database engine).
+Delete the app like any other. Your photo library folder stays where it is. To remove Lifer's own data too, delete the app data folder listed above and `~/.lifer`. If you used Lifer 0.9.0 or earlier, also delete `~/.theseus/postgresql`, the database engine it downloaded.

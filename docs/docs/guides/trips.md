@@ -32,7 +32,7 @@ Costa Rica 2026/
 3. Under **Trip folder**, click **Choose a folder…** and pick the trip's folder.
 4. Under **Save wildlife to**, keep the suggested `Wildlife` folder or click **Change** to pick another.
 5. Click **Create trip**.
-6. Lifer scans the folder. Photos it already knows are picked up automatically. New ones are listed for review.
+6. Lifer scans the folder. Photos it already knows are picked up automatically. New ones are listed for review. Photos you rejected in a culling app are left out by default; see [Culling with other apps](./culling-with-other-apps.md#trips).
 7. Assign a species to each new photo: click **Type a species…** on its row and type a name, or tick several and use **Assign N selected to:**. Optionally pick a region under **Location for this batch (optional)**. Then click **Import N photos**.
 
 Scanning and importing run in the background with a progress bar and a cancel button, so you can keep using Lifer.

@@ -64,7 +64,12 @@ const config: Config = {
   ],
 
   themeConfig: {
-    image: "img/gallery.jpg",
+    image: "img/social-card.jpg",
+    announcementBar: {
+      id: "beta-2026",
+      content: `Lifer is in beta: back up before updating, and <a href="${repoUrl}/discussions">tell us what you think</a>.`,
+      isCloseable: true,
+    },
     colorMode: {
       respectPrefersColorScheme: true,
     },
@@ -77,7 +82,7 @@ const config: Config = {
       },
       items: [
         { type: "docSidebar", sidebarId: "docs", position: "left", label: "Docs" },
-        { to: "/install/desktop", label: "Install", position: "left" },
+        { to: "/install", label: "Install", position: "left" },
         { to: "/api/overview", label: "API", position: "left" },
         { href: `${repoUrl}/releases/latest`, label: "Download", position: "right" },
         { href: repoUrl, label: "GitHub", position: "right" },
@@ -97,9 +102,20 @@ const config: Config = {
         {
           title: "Install",
           items: [
+            { label: "Requirements", to: "/install/requirements" },
             { label: "Desktop app", to: "/install/desktop" },
             { label: "Docker server", to: "/install/docker" },
+            { label: "Upgrading", to: "/install/upgrading" },
             { label: "Backup and restore", to: "/install/backup-restore" },
+          ],
+        },
+        {
+          title: "Community",
+          items: [
+            { label: "Discussions", href: `${repoUrl}/discussions` },
+            { label: "Issues", href: `${repoUrl}/issues` },
+            { label: "Getting help", to: "/support" },
+            { label: "Code of Conduct", href: `${repoUrl}/blob/main/CODE_OF_CONDUCT.md` },
           ],
         },
         {
@@ -107,7 +123,10 @@ const config: Config = {
           items: [
             { label: "GitHub", href: repoUrl },
             { label: "Releases", href: `${repoUrl}/releases` },
-            { label: "Issues", href: `${repoUrl}/issues` },
+            { label: "Changelog", href: `${repoUrl}/blob/main/CHANGELOG.md` },
+            { label: "Contributing", href: `${repoUrl}/blob/main/CONTRIBUTING.md` },
+            { label: "Security", href: `${repoUrl}/security/policy` },
+            { label: "Credits", to: "/credits" },
           ],
         },
       ],

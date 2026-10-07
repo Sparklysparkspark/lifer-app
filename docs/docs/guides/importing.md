@@ -14,6 +14,8 @@ There are four ways to get photos into Lifer:
 | [Trips](./trips.md) | A trip's folder you want to keep where it is | **Albums & trips > Trips** |
 | [Existing library](#existing-library) | Years of photos already tagged in Lightroom, digiKam or similar | **Settings > Library > Reimport library** |
 
+Already culled the shoot in Lightroom, Photo Mechanic, digiKam, Vireo, SuperPicky or another culling app? Lifer reads your picks, rejects and colour labels, and leaves rejected photos out by default. See [Culling with other apps](./culling-with-other-apps.md).
+
 ## Supported files {#supported-files}
 
 - **Photos:** JPEG, PNG, WebP, TIFF and HEIC/HEIF (`.heic`, `.heif`, `.hif`).
@@ -54,6 +56,8 @@ A server admin can set a per-file size cap or change the panorama limit. See [En
 6. Click **Import N photos** (or videos, or files).
 
 A line above the rows keeps count, like "40 files · 32 ready to import · 0 imported".
+
+If a culling app marked some files rejected, a line above that says how many, with a **Rejected photos** choice: **Skip them** (the default), **Import them hidden** or **Import them anyway**. See [Culling with other apps](./culling-with-other-apps.md#bulk-import).
 
 Each row shows **Uploading…** then **✓ Imported**. If you assigned every row, Lifer takes you back to the Collection page and finishes uploading in the background. A small banner in the bottom-left corner shows progress.
 
@@ -168,7 +172,7 @@ During a batch import, if the tags name exactly one species, it appears as a 100
 
 ## What Lifer reads and writes
 
-**Read from each file:** capture time, GPS location, camera, lens, focal length, aperture, shutter speed, ISO, and star rating. Ratings set in Lightroom or a culling tool come along. A rating of 0 or "rejected" counts as unrated.
+**Read from each file:** capture time, GPS location, camera, lens, focal length, aperture, shutter speed, ISO, and star rating. Ratings set in Lightroom or a culling tool come along. A rating of 0 or "rejected" counts as unrated. A culling app's pick or reject and colour label are read too, from the file and its `.xmp` sidecar: see [Culling with other apps](./culling-with-other-apps.md).
 
 **Written back to files Lifer stores:** so other tools see your work, Lifer writes into the photo:
 

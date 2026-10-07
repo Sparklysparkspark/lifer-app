@@ -104,6 +104,8 @@ To zoom, pinch on a trackpad or hold <kbd>Ctrl</kbd> and scroll (up to 4x). Doub
 
 Tags are your own labels, like "courtship" or "backyard". Add them from a photo's **⋯** menu, in the viewer, or to many photos at once in select mode. Manage them in **Settings > Library > Manage tags**, where you can rename (or merge) and delete tags.
 
+Lifer also writes your tags into the photo files it keeps, as ordinary keywords, so Lightroom, digiKam and other apps show them, and a [reimport](../settings.md#reimport) brings them back. Renaming or deleting a tag updates the files too. Keywords you added in other apps are left alone. Photos kept in your own folders (linked, not copied) are never changed.
+
 ## Quick search {#quick-search}
 
 Press <kbd>Cmd</kbd>+<kbd>K</kbd> on a Mac or <kbd>Ctrl</kbd>+<kbd>K</kbd> on Windows and Linux, from any page (even while typing in a box), to open quick search. Press the shortcut again, click **×** or press <kbd>Esc</kbd> to close it.

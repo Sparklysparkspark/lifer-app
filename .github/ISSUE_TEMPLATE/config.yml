@@ -1,0 +1,14 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Question or help with setup
+    url: https://github.com/Sparklysparkspark/lifer-app/discussions/categories/q-a
+    about: Ask in Discussions. Issues are for confirmed bugs.
+  - name: Feature idea
+    url: https://github.com/Sparklysparkspark/lifer-app/discussions/categories/ideas
+    about: Suggest it in Discussions first, so it can be talked through before any work starts.
+  - name: Security vulnerability
+    url: https://github.com/Sparklysparkspark/lifer-app/security/advisories/new
+    about: Report it privately. Please don't open a public issue.
+  - name: Documentation
+    url: https://sparklysparkspark.github.io/lifer-app/
+    about: Install guides, troubleshooting and the FAQ.

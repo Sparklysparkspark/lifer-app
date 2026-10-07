@@ -69,11 +69,11 @@ Yes, on a server. Create an API key in **Settings > Account > API keys > Manage 
 
 ## Can I use Lifer with Immich, Lightroom or digiKam?
 
-Yes, and no API is needed. Point the other app at the folder where Lifer stores your photos (in Immich, add it as an external library). Lifer writes each photo's species into the file as keywords, with a `Species|<group>|<family>|<name>` hierarchy, plus its star rating, so those apps pick them up from the files. See [Keyword matching from photo tags](./guides/importing.md#keyword-matching). Keep making species changes in Lifer, since it rewrites those keywords when a photo's species changes.
+Yes, and no API is needed. Point the other app at the folder where Lifer stores your photos (in Immich, add it as an external library). Lifer writes each photo's species into the file as keywords, with a `Species|<group>|<family>|<name>` hierarchy, plus its star rating and your tags, so those apps pick them up from the files. See [Keyword matching from photo tags](./guides/importing.md#keyword-matching). Keep making species changes in Lifer, since it rewrites those keywords when a photo's species changes.
 
 ## Is there a Windows, Linux or Intel Mac version?
 
-There's a Windows installer, and Linux builds as a `.deb` and an AppImage. Macs are Apple Silicon only for now. See [Install the desktop app](./install/desktop.md).
+Yes. There's a Windows installer, Linux builds as a `.deb` and an AppImage, and separate downloads for Apple Silicon and Intel Macs (macOS 14 or later). See [Install the desktop app](./install/desktop.md).
 
 ## What file types and sizes can I import?
 

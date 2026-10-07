@@ -1,7 +1,7 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="./assets/branding/Dark%20Wordmark.png">
-    <img src="./assets/branding/Wordmark.png" alt="Lifer" width="360">
+    <source media="(prefers-color-scheme: dark)" srcset="./assets/branding/dark-wordmark.png">
+    <img src="./assets/branding/wordmark.png" alt="Lifer" width="360">
   </picture>
 </p>
 
@@ -10,7 +10,14 @@
   <a href="https://sparklysparkspark.github.io/lifer-app/install/desktop">Install</a> ·
   <a href="https://sparklysparkspark.github.io/lifer-app/getting-started">Getting started</a> ·
   <a href="https://sparklysparkspark.github.io/lifer-app/api/overview">API</a> ·
-  <a href="../../releases/latest">Download</a>
+  <a href="https://github.com/Sparklysparkspark/lifer-app/releases/latest">Download</a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/Sparklysparkspark/lifer-app/releases/latest"><img src="https://img.shields.io/github/v/release/Sparklysparkspark/lifer-app?label=release" alt="Latest release"></a>
+  <a href="https://github.com/Sparklysparkspark/lifer-app/actions/workflows/ci.yml"><img src="https://github.com/Sparklysparkspark/lifer-app/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
+  <a href="./LICENSE"><img src="https://img.shields.io/github/license/Sparklysparkspark/lifer-app" alt="License: AGPL-3.0"></a>
+  <a href="https://github.com/Sparklysparkspark/lifer-app/discussions"><img src="https://img.shields.io/github/discussions/Sparklysparkspark/lifer-app" alt="Discussions"></a>
 </p>
 
 Lifer is an open-source photo and video management and archival application built for wildlife
@@ -24,7 +31,7 @@ your own photo of it. This isn't a sightings log.
 Your photographs and videos remain on the drives you choose. Lifer provides the wildlife-specific
 organization and information built around them.
 
-![Lifer gallery](./assets/Gallery.png)
+![The Lifer gallery](./docs/static/img/gallery.jpg)
 
 ## Your wildlife collection, organized
 
@@ -38,7 +45,7 @@ at a time from a species' own page. Lifer can use local AI to suggest a species 
 still unidentified, trained against your own collection rather than a cloud service, and you
 confirm or correct it in a couple keystrokes.
 
-![Lifer import](./assets/Import.png)
+![Importing photos in Lifer](./docs/static/img/import.jpg)
 
 Once imported, a photo belongs to a species, a trip, a location, a date, and your life list all at
 once. You don't have to build those relationships by hand.
@@ -52,8 +59,8 @@ using common names, scientific names, eBird codes, ABA codes, or full taxonomy, 
 prefer:
 
 ```
-Lifer Photos/Birds/<species name>/Adjusted/<your edited JPEG>
-Lifer Photos/Birds/<species name>/RAW/<matching RAW file>
+<your library>/Birds/<species name>/Adjusted/<your edited JPEG>
+<your library>/Birds/<species name>/RAW/<matching RAW file>
 ```
 
 Your physical file organization is yours to set, and can be changed later if your preferences
@@ -67,7 +74,7 @@ watch photographed species join your life list automatically. Each species carri
 (how hard it is to actually go find and photograph, not conservation status), a reference photo,
 and habitat info, so you know roughly what you're looking for.
 
-![Lifer collection](./assets/Collection%20View.png)
+![A regional checklist in Lifer](./docs/static/img/collection.jpg)
 
 Checklists are meant to be personal: hide or archive species you're not pursuing so the list
 reflects your own goals, not every species that could theoretically occur somewhere in the region.
@@ -79,7 +86,7 @@ Download the ones you care about and they work fully offline afterward. Full che
 reference-photo coverage is live for **birds, mammals, fish, reptiles, turtles, amphibians and
 marine invertebrates**.
 
-![Lifer offline packs](./assets/Offline%20Packs.png)
+![Offline species packs in Lifer](./docs/static/img/offline-packs.jpg)
 
 For anything outside Lifer's curated data, species can be imported from iNaturalist instead:
 insects, plants, fungi, and the rest of the iNaturalist taxonomy.
@@ -91,7 +98,7 @@ natural-language description of the shot ("fox playing"). Group favorites into A
 at a trip's folder without copying anything in, and check Stats for a real breakdown of your own
 archive: most-photographed species, gear-and-species patterns, year-over-year comparisons.
 
-![Lifer stats](./assets/Stats.png)
+![Lifer stats](./docs/static/img/stats.jpg)
 
 ## Your files stay yours
 
@@ -103,7 +110,7 @@ needing every drive connected just to browse.
 
 Species and taxonomy get written into your actual files, not hidden away in a Lifer-only database:
 a flat keyword list (common name, scientific name, eBird/ABA codes) plus a Lightroom/digiKam-style
-hierarchical tag (`Species/Aves/Alcedinidae/Belted Kingfisher`), using the same standard IPTC/XMP
+hierarchical tag (`Species|Birds|Alcedinidae|Belted Kingfisher`), using the same standard IPTC/XMP
 fields those tools already read. That means a collection already tagged in Lightroom or digiKam
 can be recognized on import instead of asking you to identify everything again, and if you ever
 stop using Lifer, pointing a fresh install at the same files rebuilds the collection from that
@@ -127,18 +134,18 @@ to a server whenever you're ready.
 
 ## Quick install
 
-**Desktop app:** download the installer for your OS from the [latest release](../../releases/latest):
-`Lifer-macos-arm64.zip` (Apple Silicon Macs), the `.exe` for Windows, or the `.AppImage`/`.deb` for
+**Desktop app:** download the installer for your OS from the [latest release](https://github.com/Sparklysparkspark/lifer-app/releases/latest):
+`Lifer-macos-arm64.zip` (Apple Silicon Macs), `Lifer-macos-x64.zip` (Intel Macs), the `.exe` for Windows, or the `.AppImage`/`.deb` for
 Linux. The builds aren't signed with a paid certificate, so macOS needs **Open Anyway** in
 System Settings > Privacy & Security, and Windows needs **More info > Run anyway**. See the
 [desktop install guide](https://sparklysparkspark.github.io/lifer-app/install/desktop).
 
 **Docker server:**
 
-1. Download [`docker-compose.yml`](./docker-compose.yml) and [`.env.example`](./.env.example) into a
-   folder, and rename `.env.example` to `.env`.
-2. In `.env`, set `LIFER_STORAGE_DIR` to your photo folder.
-3. Run `docker compose up -d`, then open `http://<server-ip>:4000` and create your account.
+1. Copy the short `docker-compose.yml` from the
+   [Docker install guide](https://sparklysparkspark.github.io/lifer-app/install/docker#install) and fill in
+   your photo folder, a folder for Lifer's own files, and a database password.
+2. Run `docker compose up -d`, then open `http://<server-ip>:4000` and create your account.
 
 The [Docker install guide](https://sparklysparkspark.github.io/lifer-app/install/docker) covers
 volumes, extra library folders, HTTPS, backups, updating, and every
@@ -160,9 +167,16 @@ Discussions.
 
 ## Contributing
 
-Working on Lifer itself, not just running it? See [CONTRIBUTING.md](./CONTRIBUTING.md) and the
-[development setup guide](https://sparklysparkspark.github.io/lifer-app/contributing/development).
+Working on Lifer itself, not just running it? Start with [CONTRIBUTING.md](./CONTRIBUTING.md),
+then the [development setup guide](https://sparklysparkspark.github.io/lifer-app/contributing/development).
+[Design and architecture](https://sparklysparkspark.github.io/lifer-app/contributing/architecture) explains how Lifer
+is built and why, including the data model, the [security model](https://sparklysparkspark.github.io/lifer-app/security-model)
+and the architecture decision records.
+Everyone taking part follows the [Code of Conduct](./CODE_OF_CONDUCT.md). Lifer has no telemetry: [Privacy](https://sparklysparkspark.github.io/lifer-app/privacy) lists everything it connects to. Please report security
+problems privately, as described in [SECURITY.md](./SECURITY.md).
 
 ## License
 
-[AGPL-3.0](./LICENSE).
+[AGPL-3.0](./LICENSE). Lifer builds on open data and models from many projects; see
+[Data sources and credits](https://sparklysparkspark.github.io/lifer-app/credits) and
+[THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md).

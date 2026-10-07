@@ -61,7 +61,9 @@ Naming and organization settings only apply to new photos. To bring older photos
 - **Update existing photos to match** (under Species naming) renames species folders and refreshes the tags in your files.
 - **Reorganize existing photos now** (under Photo library organization) moves files into the current folder scheme.
 
-Both confirm first, then report how many files were changed, were already in place, or failed. Empty old folders are removed.
+Both confirm first, then report how many files were changed, were already in place, or failed. Empty old folders are removed. Each file stays where it was kept: on its drive or library folder, or in its trip's folder. Files on a drive that isn't plugged in are left for next time.
+
+When you correct a photo's species, its files move to the new species' folder in the same place: the same drive or trip folder, and the same year and location folders.
 
 ## Multiple drives {#drives}
 

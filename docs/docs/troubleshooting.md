@@ -81,7 +81,7 @@ Lifer doesn't send email, so a forgotten password is reset from a shell on the s
      docker compose exec api lifer-admin reset-password
      ```
 
-   - **TrueNAS:** open **Apps**, select **Lifer**, click **Shell** on the lifer container, then run:
+   - **TrueNAS Custom App:** open the app's **Shell** in the TrueNAS web interface (on the `api` container), then run:
 
      ```bash
      lifer-admin reset-password
@@ -95,7 +95,7 @@ Every device that was signed in is signed out. To see which email your account u
 
 - **"Another program (possibly an earlier copy of Lifer) is still using port 4310."** Quit any other copy of Lifer (check the menu bar or Task Manager), then open it again. Restarting the computer also clears it.
 - **"Lifer's backend didn't respond in time."** Quit and reopen Lifer. The first launch can be slow while it sets up its database.
-- **"Lifer stopped unexpectedly."** The dialog includes the last error messages. Copy them into a [GitHub issue](https://github.com/Sparklysparkspark/lifer-app/issues).
+- **"Lifer stopped unexpectedly."** The dialog includes the last error messages. Copy them into a [bug report](./support.md).
 - **macOS says Lifer can't be opened.** See [Install on macOS](./install/desktop.md#install-on-macos) for **Open Anyway**.
 
 ## Countries or checklists are empty on a new server
@@ -126,4 +126,4 @@ On a NAS, open the Lifer container's logs in its interface. Lines worth knowing:
 
 ## Still stuck?
 
-Search or open an issue on [GitHub](https://github.com/Sparklysparkspark/lifer-app/issues). Include your Lifer version (**Settings > General > App updates** in the desktop app, or open `/version` on your server's address, like `http://192.168.1.50:4000/version`), whether you use the desktop app or Docker, and any log lines.
+Ask in [Discussions](https://github.com/Sparklysparkspark/lifer-app/discussions), or [report a bug](https://github.com/Sparklysparkspark/lifer-app/issues/new/choose). [Getting help](./support.md) lists what to include: your Lifer version (**Settings > General > App updates** in the desktop app, or `/version` on your server's address, like `http://192.168.1.50:4000/version`), whether you use the desktop app or Docker, and any log lines.

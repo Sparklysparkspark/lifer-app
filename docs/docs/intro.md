@@ -13,7 +13,7 @@ Lifer is a free, open-source photo archive and life list for wildlife photograph
 Your photos stay on your own drives. There is no Lifer cloud service and no account to sign up for.
 
 :::tip New here?
-1. [Install Lifer](./install/desktop.md) on your computer, or [on a server with Docker](./install/docker.md).
+1. Check the [requirements](./install/requirements.md), then [install Lifer](./install/desktop.md) on your computer, or [on a server with Docker](./install/docker.md).
 2. Follow [Getting started](./getting-started.md) for your first import.
 :::
 
@@ -89,4 +89,4 @@ The desktop app can also be a window onto a server you already run. Connected th
 
 ## Status
 
-Lifer is in beta. It's actively developed, and some features may change before the first stable release. Bug reports and ideas are welcome on [GitHub Issues](https://github.com/Sparklysparkspark/lifer-app/issues).
+Lifer is in beta. It's actively developed, and some features may change before the first stable release. Questions and ideas are welcome in [Discussions](https://github.com/Sparklysparkspark/lifer-app/discussions), and bug reports in [Issues](https://github.com/Sparklysparkspark/lifer-app/issues). See [Getting help](./support.md) and the [Roadmap](./roadmap.md).
