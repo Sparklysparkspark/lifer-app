@@ -156,6 +156,11 @@ banner.
 - A Docker server checks its bundled species catalog against the published checksum before
   loading it.
 - Build workflows pin their third-party GitHub Actions to exact commits.
+- A server limits how many requests one address can make per minute (3000 by default; set
+  `RATE_LIMIT_PER_MINUTE`, or `0` to turn it off). Sign-in keeps its own, stricter limit.
+- A trip's destination folder can no longer end up outside the folders Lifer may use, through a
+  trailing `..` or a symlink.
+- Searches and names with long runs of spaces, dashes or slashes can no longer tie up the server.
 
 ### Fixed
 
