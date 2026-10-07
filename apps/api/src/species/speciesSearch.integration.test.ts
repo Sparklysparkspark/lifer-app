@@ -74,7 +74,7 @@ describe.skipIf(!url)("GET /species search", () => {
     await app?.close();
     await cleanup();
     await db.end();
-    const { pool } = await import("../db.js");
+    const { pool } = await import("@lifer/core/db.js");
     await pool.end();
   });
 
@@ -113,5 +113,7 @@ describe.skipIf(!url)("GET /species search", () => {
 
   it("refuses a malformed regionId", async () => {
     expect((await search("zzquux", "&regionId=nope")).status).toBe(400);
+    // Left empty, as the web app sends it when no region is picked, it's simply not given.
+    expect((await search("zzquux", "&regionId=")).status).toBe(200);
   });
 });

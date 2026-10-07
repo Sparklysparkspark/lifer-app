@@ -2,10 +2,11 @@
 // is configured (env var, or a server admin's own in Settings).
 import { randomBytes } from "node:crypto";
 import type { FastifyInstance, FastifyRequest } from "fastify";
-import { pool } from "../db.js";
-import { isUuid } from "../lib/validate.js";
+import { Type } from "typebox";
+import { pool, withTransaction } from "@lifer/core/db.js";
+import { Nullable, Ok, Uuid, notFoundOnInvalidId, replies, withSchemas } from "../lib/schema.js";
 import { cookieSecureFor, requireAuth } from "../auth/session.js";
-import { INAT_CLIENT_ID, INAT_REDIRECT_URI, SINGLE_USER_MODE } from "../config.js";
+import { INAT_CLIENT_ID, INAT_REDIRECT_URI, SINGLE_USER_MODE } from "@lifer/core/config.js";
 import { escapeHtml } from "../lib/httpFile.js";
 import {
   generatePkce,
@@ -18,9 +19,7 @@ import {
   fetchObservationLocation,
 } from "./client.js";
 import { clusterForImport, type ClusterableCapture } from "./grouping.js";
-
-// Deliberately coarse so a rough location visibly needs refining rather than passing as accurate.
-const DEFAULT_POSITIONAL_ACCURACY_METERS = 50_000;
+import { loadInatAccount, saveInatAccount } from "./tokenStore.js";
 
 // Maps the OAuth redirect back to the user who clicked Connect. One-time, short-lived, in memory.
 interface PendingConnect {
@@ -40,7 +39,8 @@ function prunePendingConnects(): void {
 
 function notAvailable(reply: { code: (n: number) => { send: (b: unknown) => void } }): void {
   reply.code(501).send({
-    error: "iNaturalist linking isn't available yet. Register your own app at inaturalist.org/oauth/applications and set it in Settings, or set INAT_CLIENT_ID.",
+    error:
+      "iNaturalist linking isn't available yet. Register your own app at inaturalist.org/oauth/applications and set it in Settings, or set INAT_CLIENT_ID.",
   });
 }
 
@@ -72,39 +72,33 @@ async function resolveInatConfig(request: FastifyRequest): Promise<{ clientId: s
   };
 }
 
-async function regionCentroid(regionId: string): Promise<{ lat: number; lon: number } | null> {
-  const res = await pool.query<{ boundary_geojson: { bbox?: [number, number, number, number] } | null }>(
-    `SELECT boundary_geojson FROM regions WHERE id = $1`,
+/** A region's name with its parent's ("British Columbia, Canada"), for iNaturalist's place text. */
+async function regionPlaceName(regionId: string): Promise<string | null> {
+  const res = await pool.query<{ name: string; parent_name: string | null }>(
+    `SELECT r.name, p.name AS parent_name FROM regions r LEFT JOIN regions p ON p.id = r.parent_id WHERE r.id = $1`,
     [regionId],
   );
-  const bbox = res.rows[0]?.boundary_geojson?.bbox;
-  if (!bbox) return null;
-  return { lon: (bbox[0] + bbox[2]) / 2, lat: (bbox[1] + bbox[3]) / 2 };
+  const row = res.rows[0];
+  if (!row) return null;
+  return row.parent_name ? `${row.name}, ${row.parent_name}` : row.name;
 }
 
-interface AccountRow {
-  access_token: string;
-  inat_username: string;
-}
+// The tokens are stored encrypted (tokenStore.ts).
+const requireAccount = (userId: string) => loadInatAccount(userId);
 
-async function requireAccount(userId: string): Promise<AccountRow | null> {
-  const res = await pool.query<AccountRow>(`SELECT access_token, inat_username FROM user_inaturalist_accounts WHERE user_id = $1`, [
-    userId,
-  ]);
-  return res.rows[0] ?? null;
-}
+export async function inaturalistRoutes(fastify: FastifyInstance): Promise<void> {
+  const app = withSchemas(fastify);
 
-export async function inaturalistRoutes(app: FastifyInstance): Promise<void> {
-  app.get("/inaturalist/status", { preHandler: requireAuth }, async (request) => {
+  app.get("/inaturalist/status", { preValidation: requireAuth, schema: {} }, async (request) => {
     const [account, { clientId }] = await Promise.all([requireAccount(request.user!.id), resolveInatConfig(request)]);
     return {
       available: clientId !== null,
       connected: account !== null,
-      username: account?.inat_username ?? null,
+      username: account?.inatUsername ?? null,
     };
   });
 
-  app.post("/inaturalist/connect", { preHandler: requireAuth }, async (request, reply) => {
+  app.post("/inaturalist/connect", { preValidation: requireAuth, schema: {} }, async (request, reply) => {
     const { clientId, redirectUri } = await resolveInatConfig(request);
     if (!clientId) return notAvailable(reply);
     prunePendingConnects();
@@ -115,11 +109,22 @@ export async function inaturalistRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // Not behind requireAuth: the redirect carries no session cookie, so `state` identifies the attempt.
-  app.get<{ Querystring: { code?: string; state?: string; error?: string } }>(
+  // iNaturalist adds its own parameters (error_description and the like), so extras are allowed.
+  app.get(
     "/inaturalist/callback",
+    {
+      schema: {
+        querystring: Type.Object({
+          code: Type.Optional(Type.String()),
+          state: Type.Optional(Type.String()),
+          error: Type.Optional(Type.String()),
+        }),
+      },
+    },
     async (request, reply) => {
       const { code, state, error } = request.query;
-      const page = (body: string) => reply.type("text/html").send(`<html><body style="font-family:sans-serif;padding:2rem">${body}</body></html>`);
+      const page = (body: string) =>
+        reply.type("text/html").send(`<html><body style="font-family:sans-serif;padding:2rem">${body}</body></html>`);
       if (error) return page(`<p>iNaturalist sign-in was cancelled or denied. You can close this window.</p>`);
       if (!code || !state) return reply.code(400).send({ error: "Missing code or state" });
       const pending = pendingConnects.get(state);
@@ -135,44 +140,59 @@ export async function inaturalistRoutes(app: FastifyInstance): Promise<void> {
         const tokens = await exchangeCodeForToken(clientId, redirectUri, code, pending.verifier);
         const jwt = await fetchJwt(tokens.access_token);
         const identity = await fetchInatIdentity(jwt);
-        await pool.query(
-          `INSERT INTO user_inaturalist_accounts (user_id, access_token, refresh_token, inat_user_id, inat_username)
-           VALUES ($1, $2, $3, $4, $5)
-           ON CONFLICT (user_id) DO UPDATE SET
-             access_token = EXCLUDED.access_token,
-             refresh_token = EXCLUDED.refresh_token,
-             inat_user_id = EXCLUDED.inat_user_id,
-             inat_username = EXCLUDED.inat_username,
-             connected_at = now()`,
-          [pending.userId, tokens.access_token, tokens.refresh_token, identity.id, identity.login],
+        await saveInatAccount({
+          userId: pending.userId,
+          accessToken: tokens.access_token,
+          refreshToken: tokens.refresh_token,
+          inatUserId: identity.id,
+          inatUsername: identity.login,
+        });
+        return page(
+          `<p>Connected as ${escapeHtml(String(identity.login))}. You can close this window and return to Lifer.</p>`,
         );
-        return page(`<p>Connected as ${escapeHtml(String(identity.login))}. You can close this window and return to Lifer.</p>`);
       } catch (err) {
         return page(`<p>Connecting to iNaturalist failed: ${escapeHtml((err as Error).message ?? "")}</p>`);
       }
     },
   );
 
-  app.post("/inaturalist/disconnect", { preHandler: requireAuth }, async (request) => {
-    await pool.query(`DELETE FROM user_inaturalist_accounts WHERE user_id = $1`, [request.user!.id]);
-    return { ok: true };
-  });
+  app.post(
+    "/inaturalist/disconnect",
+    { preValidation: requireAuth, schema: { response: replies(Ok) } },
+    async (request) => {
+      await pool.query(`DELETE FROM user_inaturalist_accounts WHERE user_id = $1`, [request.user!.id]);
+      return { ok: true };
+    },
+  );
 
   // Server admin config. GET says whether a client ID is set (it's never sent back) and gives the
   // effective redirect URI to register. PUT sets both; an empty or default redirect URI clears it.
-  app.get("/inaturalist/server-config", { preHandler: requireAuth }, async (request) => {
+  app.get("/inaturalist/server-config", { preValidation: requireAuth, schema: {} }, async (request) => {
     const { clientId, redirectUri } = await resolveInatConfig(request);
     return { hasClientId: clientId !== null, redirectUri };
   });
 
-  app.put<{ Body: { clientId?: string | null; clearClientId?: boolean; redirectUri?: string | null } }>(
+  app.put(
     "/inaturalist/server-config",
-    { preHandler: requireAuth },
+    {
+      preValidation: requireAuth,
+      schema: {
+        body: Type.Object(
+          {
+            clientId: Type.Optional(Nullable(Type.String())),
+            clearClientId: Type.Optional(Type.Boolean()),
+            redirectUri: Type.Optional(Nullable(Type.String())),
+          },
+          { additionalProperties: false },
+        ),
+        response: replies(Ok),
+      },
+    },
     async (request) => {
       // A blank or missing client ID keeps the saved one, so saving only the redirect URI can't erase it.
-      const clientId = request.body?.clientId?.trim() || null;
-      const clearClientId = request.body?.clearClientId === true;
-      const redirectUri = customRedirectUri(request.body?.redirectUri);
+      const clientId = request.body.clientId?.trim() || null;
+      const clearClientId = request.body.clearClientId === true;
+      const redirectUri = customRedirectUri(request.body.redirectUri);
       await pool.query(
         `INSERT INTO inat_server_config (id, client_id, redirect_uri) VALUES (true, $1, $2)
          ON CONFLICT (id) DO UPDATE SET
@@ -184,7 +204,7 @@ export async function inaturalistRoutes(app: FastifyInstance): Promise<void> {
     },
   );
 
-  app.get("/inaturalist/import", { preHandler: requireAuth }, async (request) => {
+  app.get("/inaturalist/import", { preValidation: requireAuth, schema: {} }, async (request) => {
     const res = await pool.query<{
       id: string;
       species_id: string;
@@ -201,7 +221,11 @@ export async function inaturalistRoutes(app: FastifyInstance): Promise<void> {
        ORDER BY c.taken_at DESC NULLS LAST`,
       [request.user!.id],
     );
-    const captures: ClusterableCapture[] = res.rows.map((r) => ({ id: r.id, speciesId: r.species_id, takenAt: r.taken_at }));
+    const captures: ClusterableCapture[] = res.rows.map((r) => ({
+      id: r.id,
+      speciesId: r.species_id,
+      takenAt: r.taken_at,
+    }));
     const clusters = clusterForImport(captures);
     const byId = new Map(res.rows.map((r) => [r.id, r]));
     return {
@@ -216,15 +240,21 @@ export async function inaturalistRoutes(app: FastifyInstance): Promise<void> {
     };
   });
 
-  app.post<{ Body: { captureIds: string[]; regionId?: string } }>(
+  app.post(
     "/inaturalist/observations",
-    { preHandler: requireAuth },
+    {
+      preValidation: requireAuth,
+      schema: {
+        body: Type.Object(
+          { captureIds: Type.Array(Uuid(), { minItems: 1 }), regionId: Type.Optional(Uuid()) },
+          { additionalProperties: false },
+        ),
+      },
+    },
     async (request, reply) => {
       const account = await requireAccount(request.user!.id);
       if (!account) return reply.code(409).send({ error: "iNaturalist account not connected" });
       const { captureIds, regionId } = request.body;
-      if (!captureIds?.length) return reply.code(400).send({ error: "captureIds required" });
-      if (!Array.isArray(captureIds) || !captureIds.every(isUuid)) return reply.code(404).send({ error: "One or more captures not found" });
 
       const capturesRes = await pool.query<{
         id: string;
@@ -233,8 +263,10 @@ export async function inaturalistRoutes(app: FastifyInstance): Promise<void> {
         lon: string | null;
         inat_taxon_id: number | null;
         display_path: string | null;
+        region_id: string | null;
+        location_label: string | null;
       }>(
-        `SELECT c.id, c.taken_at, c.lat, c.lon, s.inat_taxon_id, p.display_path
+        `SELECT c.id, c.taken_at, c.lat, c.lon, s.inat_taxon_id, p.display_path, c.region_id, c.location_label
          FROM captures c
          JOIN species s ON s.id = c.species_id
          LEFT JOIN photos p ON p.id = c.current_photo_id
@@ -247,26 +279,23 @@ export async function inaturalistRoutes(app: FastifyInstance): Promise<void> {
       const taxonId = capturesRes.rows[0].inat_taxon_id;
       if (!taxonId) return reply.code(422).send({ error: "This species isn't matched to an iNaturalist taxon yet" });
 
+      // Only what the photos recorded is sent; nothing is guessed. Most cameras have no GPS: then
+      // the observation goes without coordinates (Casual on iNaturalist) and the user places it
+      // with iNaturalist's map, and "Confirm complete" copies that location back here.
       const withGps = capturesRes.rows.find((r) => r.lat !== null && r.lon !== null);
-      const centroid = withGps
-        ? { lat: Number(withGps.lat), lon: Number(withGps.lon) }
-        : regionId && isUuid(regionId)
-          ? await regionCentroid(regionId)
-          : null;
-      if (!centroid) return reply.code(422).send({ error: "No location available. Pick a region first" });
-      const positionalAccuracy = withGps ? 100 : DEFAULT_POSITIONAL_ACCURACY_METERS;
-
-      const observedOn = capturesRes.rows.find((r) => r.taken_at)?.taken_at ?? new Date().toISOString();
+      const location = withGps ? { lat: Number(withGps.lat), lon: Number(withGps.lon) } : null;
+      const observedOn = capturesRes.rows.find((r) => r.taken_at)?.taken_at ?? null;
+      const labelled = capturesRes.rows.find((r) => r.location_label);
+      const placeRegionId = regionId ?? capturesRes.rows.find((r) => r.region_id)?.region_id ?? null;
+      const regionName = placeRegionId ? await regionPlaceName(placeRegionId) : null;
+      const placeGuess =
+        labelled?.location_label && regionName
+          ? `${labelled.location_label}, ${regionName}`
+          : (labelled?.location_label ?? regionName);
 
       try {
-        const jwt = await fetchJwt(account.access_token);
-        const observationId = await createObservation(jwt, {
-          taxonId,
-          observedOn,
-          lat: centroid.lat,
-          lon: centroid.lon,
-          positionalAccuracyMeters: positionalAccuracy,
-        });
+        const jwt = await fetchJwt(account.accessToken);
+        const observationId = await createObservation(jwt, { taxonId, observedOn, location, placeGuess });
         for (const capture of capturesRes.rows) {
           if (capture.display_path) await addObservationPhoto(jwt, observationId, capture.display_path);
         }
@@ -275,56 +304,96 @@ export async function inaturalistRoutes(app: FastifyInstance): Promise<void> {
             `INSERT INTO capture_inaturalist_observations
                (capture_id, inat_observation_id, submitted_lat, submitted_lon, submitted_positional_accuracy)
              VALUES ($1, $2, $3, $4, $5)`,
-            [capture.id, observationId, centroid.lat, centroid.lon, positionalAccuracy],
+            [capture.id, observationId, location?.lat ?? null, location?.lon ?? null, null],
           );
         }
-        return { observationId, editUrl: `https://www.inaturalist.org/observations/${observationId}/edit` };
+        return {
+          observationId,
+          editUrl: `https://www.inaturalist.org/observations/${observationId}/edit`,
+          // No GPS was sent, so the location still has to be placed on iNaturalist.
+          needsLocation: location === null,
+          needsDate: observedOn === null,
+        };
       } catch (err) {
         return reply.code(502).send({ error: (err as Error).message });
       }
     },
   );
 
-  app.get("/inaturalist/pending", { preHandler: requireAuth }, async (request) => {
+  app.get("/inaturalist/pending", { preValidation: requireAuth, schema: {} }, async (request) => {
     return listByStatus(request.user!.id, "pending");
   });
 
-  app.get("/inaturalist/completed", { preHandler: requireAuth }, async (request) => {
+  app.get("/inaturalist/completed", { preValidation: requireAuth, schema: {} }, async (request) => {
     return listByStatus(request.user!.id, "completed");
   });
 
-  app.post<{ Params: { observationId: string } }>(
+  app.post(
     "/inaturalist/observations/:observationId/confirm",
-    { preHandler: requireAuth },
+    {
+      preValidation: requireAuth,
+      // iNaturalist observation ids are numbers; anything else can't be one of ours.
+      config: notFoundOnInvalidId("Observation not found or already confirmed"),
+      schema: { params: Type.Object({ observationId: Type.String({ pattern: "^[0-9]+$" }) }) },
+    },
     async (request, reply) => {
       const account = await requireAccount(request.user!.id);
       if (!account) return reply.code(409).send({ error: "iNaturalist account not connected" });
       const { observationId } = request.params;
-      const rowsRes = await pool.query<{ id: string; submitted_lat: string; submitted_lon: string }>(
-        `SELECT o.id, o.submitted_lat, o.submitted_lon
+      const rowsRes = await pool.query<{
+        id: string;
+        capture_id: string;
+        submitted_lat: string | null;
+        submitted_lon: string | null;
+        submitted_positional_accuracy: string | null;
+      }>(
+        `SELECT o.id, o.capture_id, o.submitted_lat, o.submitted_lon, o.submitted_positional_accuracy
          FROM capture_inaturalist_observations o
          JOIN captures c ON c.id = o.capture_id
          WHERE o.inat_observation_id = $1 AND c.user_id = $2 AND o.status = 'pending'`,
         [observationId, request.user!.id],
       );
-      if (rowsRes.rows.length === 0) return reply.code(404).send({ error: "Observation not found or already confirmed" });
+      if (rowsRes.rows.length === 0)
+        return reply.code(404).send({ error: "Observation not found or already confirmed" });
 
       try {
-        const jwt = await fetchJwt(account.access_token);
+        const jwt = await fetchJwt(account.accessToken);
         const remote = await fetchObservationLocation(jwt, observationId);
         const submitted = rowsRes.rows[0];
-        const stillCoarse =
-          remote.lat !== null &&
-          remote.lon !== null &&
+        if (remote.lat === null || remote.lon === null) {
+          return {
+            confirmed: false,
+            message: "This observation has no location yet. Place it on iNaturalist, then confirm again.",
+          };
+        }
+        // Observations sent before Lifer stopped guessing carry a region-centre location (sent
+        // with a 50 km accuracy); one still sitting there hasn't been placed yet.
+        const sentGuess =
+          submitted.submitted_positional_accuracy !== null && Number(submitted.submitted_positional_accuracy) >= 50_000;
+        const stillGuess =
+          sentGuess &&
           Math.abs(remote.lat - Number(submitted.submitted_lat)) < 1e-6 &&
           Math.abs(remote.lon - Number(submitted.submitted_lon)) < 1e-6;
-        if (stillCoarse) {
-          return { confirmed: false, message: "This still looks like the default location. Finish editing it on iNaturalist, then confirm again." };
+        if (stillGuess) {
+          return {
+            confirmed: false,
+            message:
+              "This still looks like the default location. Finish editing it on iNaturalist, then confirm again.",
+          };
         }
-        await pool.query(
-          `UPDATE capture_inaturalist_observations SET status = 'completed', confirmed_at = now() WHERE inat_observation_id = $1`,
-          [observationId],
-        );
+        await withTransaction(async (client) => {
+          // Photos without their own GPS take the location the user placed on iNaturalist. A
+          // camera's GPS is never overwritten.
+          await client.query(
+            `UPDATE captures_all SET lat = $1, lon = $2, location_source = 'inaturalist', location_accuracy_m = $3
+             WHERE id = ANY($4) AND lat IS NULL AND lon IS NULL`,
+            [remote.lat, remote.lon, remote.positionalAccuracyMeters, rowsRes.rows.map((r) => r.capture_id)],
+          );
+          await client.query(
+            `UPDATE capture_inaturalist_observations SET status = 'completed', confirmed_at = now() WHERE inat_observation_id = $1`,
+            [observationId],
+          );
+        });
         return { confirmed: true };
       } catch (err) {
         return reply.code(502).send({ error: (err as Error).message });

@@ -3,21 +3,28 @@ import { copyFile, mkdir, rename, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { FastifyInstance } from "fastify";
-import { pool } from "../db.js";
+import { Type, type TSchema } from "typebox";
+import { pool } from "@lifer/core/db.js";
 import { requireAuth } from "../auth/session.js";
-import { DATA_DIR, ORIGINALS_DIR, SINGLE_USER_MODE, LIBRARY_ROOTS } from "../config.js";
-import { allowedRootFor, allowedRoots, assertAllowedPath } from "../lib/allowedPaths.js";
+import { DATA_DIR, SINGLE_USER_MODE, LIBRARY_ROOTS } from "@lifer/core/config.js";
+import { allowedRootFor, allowedRoots, assertAllowedPath } from "@lifer/core/lib/allowedPaths.js";
 import { LIBRARY_UPLOAD_DIR_NAME } from "../lib/uploadWorkDir.js";
-import { originalsFolder } from "../uploads/organizedPath.js";
-import { resolveSpeciesFolderName } from "../uploads/speciesFolderName.js";
+import { locateManagedOriginal, organizedFolderFor } from "../uploads/managedFolders.js";
 import { extractExif } from "../uploads/exif.js";
 import { syncCaptureXmpSidecarsLogged } from "../uploads/xmpSidecarSync.js";
 import { resyncSpeciesMetadata } from "../captures/routes.js";
-import { checkCatalogUpdate, startCatalogUpdateJob, catalogUpdate, catalogFirstBootState } from "../species/catalogSeedUpdate.js";
+import {
+  checkCatalogUpdate,
+  startCatalogUpdateJob,
+  catalogUpdate,
+  catalogFirstBootState,
+} from "../species/catalogSeedUpdate.js";
+import { isWithheldPhotoFetchEnabled, setWithheldPhotoFetchEnabled } from "../species/withheldPhotos.js";
 import { createJob, type JobContext } from "../lib/job.js";
 import { removeEmptyDirsUpward } from "../lib/fsCleanup.js";
-import { log } from "../lib/log.js";
+import { log } from "@lifer/core/lib/log.js";
 import { getUserFileSettings } from "../lib/userFileSettings.js";
+import { Flag, Nullable, replies, withSchemas } from "../lib/schema.js";
 import { assetRoutes } from "./assets.js";
 import { migrateToServerRoutes } from "./migrateToServer.js";
 import { storageMoveRoutes } from "./storageMove.js";
@@ -25,11 +32,27 @@ import { storageMoveRoutes } from "./storageMove.js";
 export { recoverInterruptedStorageMigration } from "./storageMove.js";
 
 // Lifer's own subfolders, hidden when picking a library folder (uploads: lib/uploadWorkDir.ts).
-const LIFER_INTERNAL_DIR_NAMES = new Set(["Lifer Photos", "display", "thumb", "reference-display", "reference-thumb", "maps", "tmp", "uploads", LIBRARY_UPLOAD_DIR_NAME]);
+const LIFER_INTERNAL_DIR_NAMES = new Set([
+  "Lifer Photos",
+  "display",
+  "thumb",
+  "reference-display",
+  "reference-thumb",
+  "maps",
+  "tmp",
+  "uploads",
+  LIBRARY_UPLOAD_DIR_NAME,
+]);
 
-interface OrganizeBody {
-  enabled?: boolean;
-}
+// Every on/off setting is a PUT of `{ enabled }` answered with the saved value under its own name.
+const EnabledBody = Type.Object({ enabled: Type.Boolean() }, { additionalProperties: false });
+const toggleSchema = (name: string) => ({
+  body: EnabledBody,
+  response: replies(Type.Object({ [name]: Type.Boolean() }) as TSchema),
+});
+
+const Started = Type.Object({ started: Type.Boolean() });
+const Cancelled = Type.Object({ cancelled: Type.Boolean() });
 
 // ABA alpha codes only exist for North and Central American birds, so the naming option is only
 // offered once a downloaded pack actually has aba-coded species.
@@ -44,8 +67,10 @@ async function abaCodesAvailable(): Promise<boolean> {
 
 // Toggling an organize setting only changes where future uploads land; moving existing files is
 // the explicit POST /settings/reorganize-originals. Only managed originals are ever moved.
-export async function settingsRoutes(app: FastifyInstance): Promise<void> {
-  app.get("/settings", { preHandler: requireAuth }, async (request) => {
+export async function settingsRoutes(fastify: FastifyInstance): Promise<void> {
+  const app = withSchemas(fastify);
+
+  app.get("/settings", { preValidation: requireAuth, schema: {} }, async (request) => {
     const res = await pool.query<{
       organize_originals_by_year: boolean;
       organize_originals_by_location: boolean;
@@ -54,8 +79,9 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
       any_taxa_search_enabled: boolean;
       technical_diving: boolean;
       species_naming_styles: string[];
+      locale: string | null;
     }>(
-      `SELECT organize_originals_by_year, organize_originals_by_location, hide_obscure_species, species_suggest_enabled, any_taxa_search_enabled, technical_diving, species_naming_styles FROM users WHERE id = $1`,
+      `SELECT organize_originals_by_year, organize_originals_by_location, hide_obscure_species, species_suggest_enabled, any_taxa_search_enabled, technical_diving, species_naming_styles, locale FROM users WHERE id = $1`,
       [request.user!.id],
     );
     return {
@@ -64,8 +90,12 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
       hideObscureSpecies: res.rows[0]?.hide_obscure_species ?? true,
       speciesSuggestEnabled: res.rows[0]?.species_suggest_enabled ?? true,
       anyTaxaSearchEnabled: res.rows[0]?.any_taxa_search_enabled ?? false,
+      // Per install, not per account: the photos are shared by everyone on it.
+      fetchWithheldPhotos: await isWithheldPhotoFetchEnabled(),
       technicalDiving: res.rows[0]?.technical_diving ?? false,
       speciesNamingStyles: res.rows[0]?.species_naming_styles ?? [],
+      // The interface language, or null for automatic (the browser's or system's language).
+      locale: res.rows[0]?.locale ?? null,
       abaCodesAvailable: await abaCodesAvailable(),
       // Where the photo library lives (not APP_DATA_DIR, which is app-internal downloads), and
       // which kind of install this is, so the web app never has to infer the mode from a 404.
@@ -77,89 +107,160 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
     };
   });
 
-  app.put<{ Body: OrganizeBody }>("/settings/organize-originals", { preHandler: requireAuth }, async (request, reply) => {
-    const { enabled } = request.body ?? {};
-    if (typeof enabled !== "boolean") return reply.code(400).send({ error: "enabled must be a boolean" });
-    await pool.query(`UPDATE users SET organize_originals_by_year = $1 WHERE id = $2`, [enabled, request.user!.id]);
-    return { organizeOriginalsByYear: enabled };
-  });
+  app.put(
+    "/settings/organize-originals",
+    { preValidation: requireAuth, schema: toggleSchema("organizeOriginalsByYear") },
+    async (request) => {
+      const { enabled } = request.body;
+      await pool.query(`UPDATE users SET organize_originals_by_year = $1 WHERE id = $2`, [enabled, request.user!.id]);
+      return { organizeOriginalsByYear: enabled };
+    },
+  );
 
   // Adds an outer folder named after the location label typed at import (not GPS). Future
   // uploads only, like organize-originals.
-  app.put<{ Body: OrganizeBody }>("/settings/organize-originals-by-location", { preHandler: requireAuth }, async (request, reply) => {
-    const { enabled } = request.body ?? {};
-    if (typeof enabled !== "boolean") return reply.code(400).send({ error: "enabled must be a boolean" });
-    await pool.query(`UPDATE users SET organize_originals_by_location = $1 WHERE id = $2`, [enabled, request.user!.id]);
-    return { organizeOriginalsByLocation: enabled };
-  });
+  app.put(
+    "/settings/organize-originals-by-location",
+    { preValidation: requireAuth, schema: toggleSchema("organizeOriginalsByLocation") },
+    async (request) => {
+      const { enabled } = request.body;
+      await pool.query(`UPDATE users SET organize_originals_by_location = $1 WHERE id = $2`, [
+        enabled,
+        request.user!.id,
+      ]);
+      return { organizeOriginalsByLocation: enabled };
+    },
+  );
 
   // An account preference, so it's decided once rather than per region.
-  app.put<{ Body: { enabled?: boolean } }>("/settings/hide-obscure-species", { preHandler: requireAuth }, async (request, reply) => {
-    const { enabled } = request.body ?? {};
-    if (typeof enabled !== "boolean") return reply.code(400).send({ error: "enabled must be a boolean" });
-    await pool.query(`UPDATE users SET hide_obscure_species = $1 WHERE id = $2`, [enabled, request.user!.id]);
-    return { hideObscureSpecies: enabled };
-  });
+  app.put(
+    "/settings/hide-obscure-species",
+    { preValidation: requireAuth, schema: toggleSchema("hideObscureSpecies") },
+    async (request) => {
+      const { enabled } = request.body;
+      await pool.query(`UPDATE users SET hide_obscure_species = $1 WHERE id = $2`, [enabled, request.user!.id]);
+      return { hideObscureSpecies: enabled };
+    },
+  );
 
   // Changes which depth counts as obscure (recreational ~60m vs technical 120m), separately
   // from whether obscure species are hidden at all.
-  app.put<{ Body: { enabled?: boolean } }>("/settings/technical-diving", { preHandler: requireAuth }, async (request, reply) => {
-    const { enabled } = request.body ?? {};
-    if (typeof enabled !== "boolean") return reply.code(400).send({ error: "enabled must be a boolean" });
-    await pool.query(`UPDATE users SET technical_diving = $1 WHERE id = $2`, [enabled, request.user!.id]);
-    return { technicalDiving: enabled };
-  });
+  app.put(
+    "/settings/technical-diving",
+    { preValidation: requireAuth, schema: toggleSchema("technicalDiving") },
+    async (request) => {
+      const { enabled } = request.body;
+      await pool.query(`UPDATE users SET technical_diving = $1 WHERE id = $2`, [enabled, request.user!.id]);
+      return { technicalDiving: enabled };
+    },
+  );
 
   // Folder naming and EXIF species tags app-wide (see composeSpeciesName). Array order is display
   // order: the first part that resolves is the primary name, the rest go in parens. aba_code is
   // refused when no pack has any, since it would never do anything.
-  const SPECIES_NAMING_STYLES = new Set(["common", "latin", "aba_code", "ebird_code", "tree"]);
-  app.put<{ Body: { styles?: string[] } }>("/settings/species-naming-style", { preHandler: requireAuth }, async (request, reply) => {
-    const { styles } = request.body ?? {};
-    if (!Array.isArray(styles) || styles.some((s) => !SPECIES_NAMING_STYLES.has(s))) {
-      return reply.code(400).send({ error: "styles must be an array containing only: common, latin, aba_code, ebird_code, tree" });
-    }
-    if (styles.includes("aba_code") && !(await abaCodesAvailable())) {
-      return reply.code(400).send({ error: "No downloaded pack has any ABA-coded species yet" });
-    }
-    // De-dupe keeping each style's first position, since order is display order.
-    const deduped = styles.filter((s, i) => styles.indexOf(s) === i);
-    await pool.query(`UPDATE users SET species_naming_styles = $1 WHERE id = $2`, [deduped, request.user!.id]);
-    return { speciesNamingStyles: deduped };
-  });
+  const SpeciesNamingStyle = Type.Enum(["common", "latin", "aba_code", "ebird_code", "tree"]);
+  app.put(
+    "/settings/species-naming-style",
+    {
+      preValidation: requireAuth,
+      schema: {
+        body: Type.Object({ styles: Type.Array(SpeciesNamingStyle) }, { additionalProperties: false }),
+        response: replies(Type.Object({ speciesNamingStyles: Type.Array(SpeciesNamingStyle) })),
+      },
+    },
+    async (request, reply) => {
+      const { styles } = request.body;
+      if (styles.includes("aba_code") && !(await abaCodesAvailable())) {
+        return reply.code(400).send({ error: "No downloaded pack has any ABA-coded species yet" });
+      }
+      // De-dupe keeping each style's first position, since order is display order.
+      const deduped = styles.filter((s, i) => styles.indexOf(s) === i);
+      await pool.query(`UPDATE users SET species_naming_styles = $1 WHERE id = $2`, [deduped, request.user!.id]);
+      return { speciesNamingStyles: deduped };
+    },
+  );
+
+  // The interface language: a BCP 47 tag like "de" or "zh-Hans", or null for automatic. The web app
+  // falls back to English for a language it has no translation of, so any well-formed tag is kept.
+  const LocaleTag = Type.String({ pattern: "^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$", maxLength: 35 });
+  app.put(
+    "/settings/locale",
+    {
+      preValidation: requireAuth,
+      schema: {
+        body: Type.Object({ locale: Nullable(LocaleTag) }, { additionalProperties: false }),
+        response: replies(Type.Object({ locale: Nullable(Type.String()) })),
+      },
+    },
+    async (request) => {
+      const { locale } = request.body;
+      await pool.query(`UPDATE users SET locale = $1 WHERE id = $2`, [locale, request.user!.id]);
+      return { locale };
+    },
+  );
 
   // On by default since matching runs on-device; users can still turn the suggestion cards off.
-  app.put<{ Body: { enabled?: boolean } }>("/settings/species-suggest", { preHandler: requireAuth }, async (request, reply) => {
-    const { enabled } = request.body ?? {};
-    if (typeof enabled !== "boolean") return reply.code(400).send({ error: "enabled must be a boolean" });
-    await pool.query(`UPDATE users SET species_suggest_enabled = $1 WHERE id = $2`, [enabled, request.user!.id]);
-    return { speciesSuggestEnabled: enabled };
-  });
+  app.put(
+    "/settings/species-suggest",
+    { preValidation: requireAuth, schema: toggleSchema("speciesSuggestEnabled") },
+    async (request) => {
+      const { enabled } = request.body;
+      await pool.query(`UPDATE users SET species_suggest_enabled = $1 WHERE id = $2`, [enabled, request.user!.id]);
+      return { speciesSuggestEnabled: enabled };
+    },
+  );
 
   // Off by default: a live third-party lookup (/species/inat-search, /species/other-taxa).
-  app.put<{ Body: { enabled?: boolean } }>("/settings/any-taxa-search", { preHandler: requireAuth }, async (request, reply) => {
-    const { enabled } = request.body ?? {};
-    if (typeof enabled !== "boolean") return reply.code(400).send({ error: "enabled must be a boolean" });
-    await pool.query(`UPDATE users SET any_taxa_search_enabled = $1 WHERE id = $2`, [enabled, request.user!.id]);
-    return { anyTaxaSearchEnabled: enabled };
-  });
+  app.put(
+    "/settings/any-taxa-search",
+    { preValidation: requireAuth, schema: toggleSchema("anyTaxaSearchEnabled") },
+    async (request) => {
+      const { enabled } = request.body;
+      await pool.query(`UPDATE users SET any_taxa_search_enabled = $1 WHERE id = $2`, [enabled, request.user!.id]);
+      return { anyTaxaSearchEnabled: enabled };
+    },
+  );
+
+  // On by default: downloads, for personal viewing, the iNaturalist photos packs can't include
+  // for licensing reasons (species/withheldPhotos.ts). Turning it off stops a running fetch.
+  app.put(
+    "/settings/fetch-withheld-photos",
+    { preValidation: requireAuth, schema: toggleSchema("fetchWithheldPhotos") },
+    async (request) => {
+      const { enabled } = request.body;
+      await setWithheldPhotoFetchEnabled(enabled);
+      return { fetchWithheldPhotos: enabled };
+    },
+  );
 
   // Check first, apply on demand, like pack updates: the fresh-install seed never reaches a
   // running install.
-  app.get("/settings/catalog-update", { preHandler: requireAuth }, async (request) => {
+  app.get("/settings/catalog-update", { preValidation: requireAuth, schema: {} }, async (request) => {
     return checkCatalogUpdate(pool, request.user!.id);
   });
 
   // Background job + poll (see lib/job.ts): download, then one-transaction apply, then the
   // gallery vectors when the model is installed.
-  app.post("/settings/catalog-update/apply", { preHandler: requireAuth }, async (_request, reply) => {
-    if (!startCatalogUpdateJob(pool)) return reply.code(409).send({ error: "A catalog update is already running" });
-    return { started: true };
-  });
+  app.post(
+    "/settings/catalog-update/apply",
+    { preValidation: requireAuth, schema: { response: replies(Started) } },
+    async (_request, reply) => {
+      if (!startCatalogUpdateJob(pool)) return reply.code(409).send({ error: "A catalog update is already running" });
+      return { started: true };
+    },
+  );
 
-  app.get("/settings/catalog-update/status", { preHandler: requireAuth }, async () => catalogUpdate.status);
+  app.get(
+    "/settings/catalog-update/status",
+    { preValidation: requireAuth, schema: {} },
+    async () => catalogUpdate.status,
+  );
 
-  app.post("/settings/catalog-update/cancel", { preHandler: requireAuth }, async () => ({ cancelled: catalogUpdate.cancel() }));
+  app.post(
+    "/settings/catalog-update/cancel",
+    { preValidation: requireAuth, schema: { response: replies(Cancelled) } },
+    async () => ({ cancelled: catalogUpdate.cancel() }),
+  );
 
   // A background job, so a dropped connection doesn't stop it halfway. POST still waits for the
   // result by default; ?background=1 returns at once for polling.
@@ -171,34 +272,43 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
   interface ReorganizeResult extends ReorganizeCounts {
     total: number;
   }
-  const reorganizeJob = createJob<ReorganizeResult, ReorganizeCounts>("reorganize-originals", { moved: 0, skipped: 0, failed: 0 });
+  const reorganizeJob = createJob<ReorganizeResult, ReorganizeCounts>("reorganize-originals", {
+    moved: 0,
+    skipped: 0,
+    failed: 0,
+  });
 
-  async function runReorganize(ctx: JobContext<ReorganizeResult, ReorganizeCounts>, userId: string): Promise<ReorganizeResult> {
+  async function runReorganize(
+    ctx: JobContext<ReorganizeResult, ReorganizeCounts>,
+    userId: string,
+  ): Promise<ReorganizeResult> {
     const counts = reorganizeJob.status;
-    const { organizeByYear } = await getUserFileSettings(userId);
+    const settings = await getUserFileSettings(userId);
 
     const originalsRes = await pool.query<{
       id: string;
       ref: string;
-      kind: "raw" | "jpeg";
+      kind: string;
       capture_id: string | null;
       species_id: string | null;
-      common_name: string | null;
       scientific_name: string | null;
-      taxon_class: string | null;
       taken_at: Date | null;
+      location_label: string | null;
+      volume_id: string | null;
+      volume_relative_path: string | null;
+      trip_destination: string | null;
     }>(
-      `SELECT o.id, o.ref, o.kind, o.capture_id,
+      // captures_all without trashed ones: a hidden photo's files are organized like any other.
+      `SELECT o.id, o.ref, o.kind, o.capture_id, o.volume_id, o.volume_relative_path,
               COALESCE(c.species_id, o.species_id) AS species_id,
-              COALESCE(s1.common_name, s2.common_name) AS common_name,
               COALESCE(s1.scientific_name, s2.scientific_name) AS scientific_name,
-              COALESCE(s1.taxon_class, s2.taxon_class) AS taxon_class,
-              c.taken_at
+              c.taken_at, c.location_label, t.destination_folder AS trip_destination
        FROM originals o
-       LEFT JOIN captures c ON c.id = o.capture_id
+       LEFT JOIN captures_all c ON c.id = o.capture_id AND c.deleted_at IS NULL
+       LEFT JOIN trips t ON t.id = c.trip_id
        LEFT JOIN species s1 ON s1.id = c.species_id
        LEFT JOIN species s2 ON s2.id = o.species_id
-       WHERE o.managed = true AND COALESCE(c.user_id, o.user_id) = $1`,
+       WHERE o.managed = true AND o.ref_type = 'path' AND COALESCE(c.user_id, o.user_id) = $1`,
       [userId],
     );
     const total = originalsRes.rows.length;
@@ -212,24 +322,29 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
       // Stops between files; the files already moved stay moved and get their metadata resynced.
       if (ctx.signal.aborted) break;
       ctx.update({ currentItem: path.basename(original.ref) });
-      if (!original.species_id || !original.scientific_name || !existsSync(original.ref)) {
+      // Each file is re-filed under the folder it was filed under (the library, its drive's
+      // "Lifer Originals" folder or its trip's folder), never moved to another. One on a drive
+      // that isn't connected, or outside every folder Lifer files into, is left alone.
+      const location =
+        original.species_id && original.scientific_name ? await locateManagedOriginal(userId, original) : null;
+      if (!location?.root || !existsSync(location.path)) {
         counts.skipped++;
         bump();
         continue;
       }
+      const current = location.path;
       // Unmatched RAWs (capture_id NULL, filed straight into a species' own folder) have no
       // captures.taken_at to read a year from; the file's own EXIF is the only place left to look.
-      const takenAt = original.capture_id ? original.taken_at : (await extractExif(original.ref)).takenAt;
+      const takenAt = original.capture_id ? original.taken_at : (await extractExif(current)).takenAt;
 
-      const folder = originalsFolder(ORIGINALS_DIR, {
-        organizeByYear,
-        speciesFolderName: await resolveSpeciesFolderName(userId, original.species_id),
-        taxonClass: original.taxon_class,
-        takenAt,
-        subfolder: original.kind === "raw" ? "RAW" : "Adjusted",
-      });
-      const dest = `${folder}/${original.ref.split("/").pop()}`;
-      if (dest === original.ref) {
+      const folder = await organizedFolderFor(
+        userId,
+        location,
+        { kind: original.kind, speciesId: original.species_id!, takenAt, locationLabel: original.location_label },
+        settings,
+      );
+      const dest = folder ? path.join(folder, path.basename(current)) : current;
+      if (!folder || path.resolve(dest) === path.resolve(current)) {
         counts.skipped++;
         bump();
         continue;
@@ -242,38 +357,38 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
           bump();
           continue;
         }
-        const oldFolder = path.dirname(original.ref);
+        const oldFolder = path.dirname(current);
         let copied = false;
         try {
-          await rename(original.ref, dest);
+          await rename(current, dest);
         } catch {
           try {
-            await copyFile(original.ref, dest);
+            await copyFile(current, dest);
           } catch (err) {
             await rm(dest, { force: true }).catch(() => {});
             throw err;
           }
           copied = true;
         }
-        // Clears volume_id/volume_relative_path too: a foreign-import file organized here now
-        // lives inside ORIGINALS_DIR on the primary library, not on its original external volume.
+        // A file on a drive or library root stays on it: its volume path follows the move.
+        const volumeRelativePath = location.mountPath ? dest.slice(location.mountPath.length) : null;
         try {
-          await pool.query(`UPDATE originals SET ref = $1, volume_id = NULL, volume_relative_path = NULL WHERE id = $2`, [
-            dest,
-            original.id,
-          ]);
+          await pool.query(
+            `UPDATE originals SET ref = $1, volume_relative_path = COALESCE($2, volume_relative_path) WHERE id = $3`,
+            [dest, volumeRelativePath, original.id],
+          );
         } catch (err) {
           // Put the file back so the row still points at it.
           if (copied) await rm(dest, { force: true }).catch(() => {});
-          else await rename(dest, original.ref).catch(() => {});
+          else await rename(dest, current).catch(() => {});
           throw err;
         }
-        if (copied) await rm(original.ref, { force: true });
+        if (copied) await rm(current, { force: true });
         counts.moved++;
         if (original.capture_id) captureIdsToResync.add(original.capture_id);
         // Tidying the now-empty old folder is cosmetic, not part of the move.
         try {
-          await removeEmptyDirsUpward(oldFolder, ORIGINALS_DIR);
+          await removeEmptyDirsUpward(oldFolder, location.root);
         } catch (err) {
           log.warn(`[reorganize] Couldn't clean up ${oldFolder}: ${(err as Error).message}`);
         }
@@ -294,27 +409,46 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
     return { moved: counts.moved, skipped: counts.skipped, failed: counts.failed, total };
   }
 
-  app.post<{ Querystring: { background?: string } }>("/settings/reorganize-originals", { preHandler: requireAuth }, async (request, reply) => {
-    const userId = request.user!.id;
-    if (!reorganizeJob.start((ctx) => runReorganize(ctx, userId), { phase: "preparing" })) {
-      return reply.code(409).send({ error: "Photos are already being reorganized" });
-    }
-    if (request.query.background === "1") return { started: true };
-    await reorganizeJob.settled();
-    const status = reorganizeJob.status;
-    if (status.error) return reply.code(500).send({ error: status.error, code: "reorganize_failed" });
-    if (status.result) return status.result;
-    const { moved, skipped, failed } = status;
-    return { moved, skipped, failed, total: status.total ?? moved + skipped + failed };
-  });
+  app.post(
+    "/settings/reorganize-originals",
+    {
+      preValidation: requireAuth,
+      schema: { querystring: Type.Object({ background: Flag("1 to start the job and return at once, for polling") }) },
+    },
+    async (request, reply) => {
+      const userId = request.user!.id;
+      if (!reorganizeJob.start((ctx) => runReorganize(ctx, userId), { phase: "preparing" })) {
+        return reply.code(409).send({ error: "Photos are already being reorganized" });
+      }
+      if (request.query.background === "1") return { started: true };
+      await reorganizeJob.settled();
+      const status = reorganizeJob.status;
+      if (status.error) return reply.code(500).send({ error: status.error, code: "reorganize_failed" });
+      if (status.result) return status.result;
+      const { moved, skipped, failed } = status;
+      return { moved, skipped, failed, total: status.total ?? moved + skipped + failed };
+    },
+  );
 
-  app.get("/settings/reorganize-originals/status", { preHandler: requireAuth }, async () => reorganizeJob.status);
+  app.get(
+    "/settings/reorganize-originals/status",
+    { preValidation: requireAuth, schema: {} },
+    async () => reorganizeJob.status,
+  );
 
-  app.post("/settings/reorganize-originals/cancel", { preHandler: requireAuth }, async () => ({ cancelled: reorganizeJob.cancel() }));
+  app.post(
+    "/settings/reorganize-originals/cancel",
+    { preValidation: requireAuth, schema: { response: replies(Cancelled) } },
+    async () => ({ cancelled: reorganizeJob.cancel() }),
+  );
 
-  app.get<{ Querystring: { path?: string } }>(
+  app.get(
     "/settings/browse-directory",
-    { preHandler: requireAuth },
+    {
+      preValidation: requireAuth,
+      // The absolute-path and allowed-root checks stay in the handler (lib/allowedPaths.ts).
+      schema: { querystring: Type.Object({ path: Type.Optional(Type.String()) }) },
+    },
     async (request, reply) => {
       // On a server the browser is confined to the allowed roots: with no path it lists them,
       // and it can't climb above one (see lib/allowedPaths.ts).

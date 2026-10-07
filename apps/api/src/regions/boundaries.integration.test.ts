@@ -48,7 +48,7 @@ describe.skipIf(!url)("GET /regions/boundaries", () => {
     await app?.close();
     await db.query(`DELETE FROM regions WHERE id = $1`, [REGION]);
     await db.end();
-    const { pool } = await import("../db.js");
+    const { pool } = await import("@lifer/core/db.js");
     await pool.end();
   });
 

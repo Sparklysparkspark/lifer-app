@@ -1,10 +1,11 @@
 import type { FastifyInstance } from "fastify";
+import { Type } from "typebox";
 import { existsSync, statSync, mkdirSync } from "node:fs";
 import path from "node:path";
-import { pool } from "../db.js";
-import { isUuid } from "../lib/validate.js";
+import { pool } from "@lifer/core/db.js";
+import { IdParams, Nullable, Ok, Uuid, notFoundOnInvalidId, replies, withSchemas } from "../lib/schema.js";
 import { requireAuth, requireScope } from "../auth/session.js";
-import { assertAllowedPath } from "../lib/allowedPaths.js";
+import { assertAllowedPath } from "@lifer/core/lib/allowedPaths.js";
 import { sanitizeForFilesystem } from "../uploads/speciesFolderName.js";
 import { toCollectionItem } from "../collection/collectionItem.js";
 import { markNameChanged } from "../species/speciesSplits.js";
@@ -18,72 +19,112 @@ function prepareDestinationFolder(folder: string): { path: string } | { error: s
   if (!path.isAbsolute(folder)) return { error: "destinationFolder must be an absolute folder path" };
   const parent = assertAllowedPath(path.dirname(path.resolve(folder)));
   const destination = path.join(parent, path.basename(folder));
-  if (existsSync(destination) && !statSync(destination).isDirectory()) return { error: "destinationFolder is a file, not a folder" };
+  if (existsSync(destination) && !statSync(destination).isDirectory())
+    return { error: "destinationFolder is a file, not a folder" };
   mkdirSync(destination, { recursive: true });
   return { path: destination };
 }
 
-export async function tripsRoutes(app: FastifyInstance): Promise<void> {
-  app.post<{ Body: { name?: string; sourceFolder?: string; destinationFolder?: string } }>("/trips", { preHandler: requireAuth }, async (request, reply) => {
-    const userId = request.user!.id;
-    const { sourceFolder, destinationFolder } = request.body ?? {};
-    let name = request.body?.name?.trim();
-    if (!sourceFolder) return reply.code(400).send({ error: "sourceFolder is required" });
-    if (!path.isAbsolute(sourceFolder)) return reply.code(400).send({ error: "sourceFolder must be an absolute folder path" });
-    const allowedSource = assertAllowedPath(sourceFolder);
-    if (!existsSync(allowedSource) || !statSync(allowedSource).isDirectory()) {
-      return reply.code(400).send({ error: "That folder doesn't exist on this server" });
-    }
-    if (!name) {
-      const countRes = await pool.query(
-        `SELECT count(*) FROM trips WHERE user_id = $1 AND name ~ '^Untitled Trip( [A-Za-z-]+)?$'`,
-        [userId],
+const tripNotFound = notFoundOnInvalidId("Trip not found");
+// Folder paths are checked against the allowed roots in the handlers, not here.
+const FolderPath = Type.String({ minLength: 1 });
+
+export async function tripsRoutes(fastify: FastifyInstance): Promise<void> {
+  const app = withSchemas(fastify);
+
+  app.post(
+    "/trips",
+    {
+      preValidation: requireAuth,
+      schema: {
+        body: Type.Object(
+          {
+            name: Type.Optional(Type.String()),
+            sourceFolder: FolderPath,
+            destinationFolder: Type.Optional(FolderPath),
+          },
+          { additionalProperties: false },
+        ),
+        response: replies(Type.Object({ id: Uuid(), destinationFolder: Type.String() }), 201),
+      },
+    },
+    async (request, reply) => {
+      const userId = request.user!.id;
+      const { sourceFolder, destinationFolder } = request.body;
+      let name = request.body.name?.trim();
+      if (!path.isAbsolute(sourceFolder))
+        return reply.code(400).send({ error: "sourceFolder must be an absolute folder path" });
+      const allowedSource = assertAllowedPath(sourceFolder);
+      if (!existsSync(allowedSource) || !statSync(allowedSource).isDirectory()) {
+        return reply.code(400).send({ error: "That folder doesn't exist on this server" });
+      }
+      if (!name) {
+        const countRes = await pool.query(
+          `SELECT count(*) FROM trips WHERE user_id = $1 AND name ~ '^Untitled Trip( [A-Za-z-]+)?$'`,
+          [userId],
+        );
+        name = nextDefaultName("Trip", Number(countRes.rows[0].count));
+      }
+
+      const destination = prepareDestinationFolder(destinationFolder ?? path.join(allowedSource, "Wildlife"));
+      if ("error" in destination) return reply.code(400).send({ error: destination.error });
+
+      const res = await pool.query<{ id: string }>(
+        `INSERT INTO trips (user_id, name, source_folder, destination_folder) VALUES ($1, $2, $3, $4) RETURNING id`,
+        [userId, name, allowedSource, destination.path],
       );
-      name = nextDefaultName("Trip", Number(countRes.rows[0].count));
-    }
-
-    const destination = prepareDestinationFolder(destinationFolder ?? path.join(allowedSource, "Wildlife"));
-    if ("error" in destination) return reply.code(400).send({ error: destination.error });
-
-    const res = await pool.query<{ id: string }>(
-      `INSERT INTO trips (user_id, name, source_folder, destination_folder) VALUES ($1, $2, $3, $4) RETURNING id`,
-      [userId, name, allowedSource, destination.path],
-    );
-    return reply.code(201).send({ id: res.rows[0].id, destinationFolder: destination.path });
-  });
+      return reply.code(201).send({ id: res.rows[0].id, destinationFolder: destination.path });
+    },
+  );
 
   // "Build a Trip": creates a new trip folder with an empty "Wildlife" destination inside it.
   // Photos arrive through the normal upload flow (filed into the destination by tripId) rather
   // than a scan; every other trip route works as usual.
-  app.post<{ Body: { name?: string; parentDir?: string } }>("/trips/build", { preHandler: requireAuth }, async (request, reply) => {
-    const userId = request.user!.id;
-    const { parentDir } = request.body ?? {};
-    let name = request.body?.name?.trim();
-    if (!parentDir) return reply.code(400).send({ error: "parentDir is required" });
-    if (!path.isAbsolute(parentDir)) return reply.code(400).send({ error: "parentDir must be an absolute folder path" });
-    const allowedParent = assertAllowedPath(parentDir);
-    if (!name) {
-      const countRes = await pool.query(
-        `SELECT count(*) FROM trips WHERE user_id = $1 AND name ~ '^Untitled Trip( [A-Za-z-]+)?$'`,
-        [userId],
+  app.post(
+    "/trips/build",
+    {
+      preValidation: requireAuth,
+      schema: {
+        body: Type.Object(
+          { name: Type.Optional(Type.String()), parentDir: FolderPath },
+          { additionalProperties: false },
+        ),
+        response: replies(
+          Type.Object({ id: Uuid(), sourceFolder: Type.String(), destinationFolder: Type.String() }),
+          201,
+        ),
+      },
+    },
+    async (request, reply) => {
+      const userId = request.user!.id;
+      const { parentDir } = request.body;
+      let name = request.body.name?.trim();
+      if (!path.isAbsolute(parentDir))
+        return reply.code(400).send({ error: "parentDir must be an absolute folder path" });
+      const allowedParent = assertAllowedPath(parentDir);
+      if (!name) {
+        const countRes = await pool.query(
+          `SELECT count(*) FROM trips WHERE user_id = $1 AND name ~ '^Untitled Trip( [A-Za-z-]+)?$'`,
+          [userId],
+        );
+        name = nextDefaultName("Trip", Number(countRes.rows[0].count));
+      }
+
+      const folderName = sanitizeForFilesystem(name);
+      if (!folderName) return reply.code(400).send({ error: "That name can't be used as a folder name" });
+      const sourceFolder = path.join(allowedParent, folderName);
+      const destinationFolder = path.join(sourceFolder, "Wildlife");
+      mkdirSync(destinationFolder, { recursive: true });
+
+      const res = await pool.query<{ id: string }>(
+        `INSERT INTO trips (user_id, name, source_folder, destination_folder) VALUES ($1, $2, $3, $4) RETURNING id`,
+        [userId, name, sourceFolder, destinationFolder],
       );
-      name = nextDefaultName("Trip", Number(countRes.rows[0].count));
-    }
+      return reply.code(201).send({ id: res.rows[0].id, sourceFolder, destinationFolder });
+    },
+  );
 
-    const folderName = sanitizeForFilesystem(name);
-    if (!folderName) return reply.code(400).send({ error: "That name can't be used as a folder name" });
-    const sourceFolder = path.join(allowedParent, folderName);
-    const destinationFolder = path.join(sourceFolder, "Wildlife");
-    mkdirSync(destinationFolder, { recursive: true });
-
-    const res = await pool.query<{ id: string }>(
-      `INSERT INTO trips (user_id, name, source_folder, destination_folder) VALUES ($1, $2, $3, $4) RETURNING id`,
-      [userId, name, sourceFolder, destinationFolder],
-    );
-    return reply.code(201).send({ id: res.rows[0].id, sourceFolder, destinationFolder });
-  });
-
-  app.get("/trips", { preHandler: requireScope("trips.read") }, async (request, reply) => {
+  app.get("/trips", { preValidation: requireScope("trips.read"), schema: {} }, async (request) => {
     const userId = request.user!.id;
     const res = await pool.query(
       `SELECT
@@ -150,43 +191,59 @@ export async function tripsRoutes(app: FastifyInstance): Promise<void> {
     };
   });
 
-  app.get<{ Params: { id: string } }>("/trips/:id", { preHandler: requireScope("trips.read") }, async (request, reply) => {
-    if (!isUuid(request.params.id)) return reply.code(404).send({ error: "Trip not found" });
-    const userId = request.user!.id;
-    const res = await pool.query(
-      `SELECT id, name, description, source_folder, destination_folder, cover_capture_id, cover_crop_x, cover_crop_y, cover_crop_size, cover_layout
+  app.get(
+    "/trips/:id",
+    { preValidation: requireScope("trips.read"), config: tripNotFound, schema: { params: IdParams } },
+    async (request, reply) => {
+      const userId = request.user!.id;
+      const res = await pool.query(
+        `SELECT id, name, description, source_folder, destination_folder, cover_capture_id, cover_crop_x, cover_crop_y, cover_crop_size, cover_layout
        FROM trips WHERE id = $1 AND user_id = $2`,
-      [request.params.id, userId],
-    );
-    if (res.rows.length === 0) return reply.code(404).send({ error: "Trip not found" });
-    const trip = res.rows[0];
-    return {
-      id: trip.id,
-      name: trip.name,
-      description: trip.description,
-      sourceFolder: trip.source_folder,
-      destinationFolder: trip.destination_folder,
-      coverCaptureId: trip.cover_capture_id,
-      coverCropX: trip.cover_crop_x == null ? null : Number(trip.cover_crop_x),
-      coverCropY: trip.cover_crop_y == null ? null : Number(trip.cover_crop_y),
-      coverCropSize: trip.cover_crop_size == null ? null : Number(trip.cover_crop_size),
-      coverLayout: trip.cover_layout,
-    };
-  });
+        [request.params.id, userId],
+      );
+      if (res.rows.length === 0) return reply.code(404).send({ error: "Trip not found" });
+      const trip = res.rows[0];
+      return {
+        id: trip.id,
+        name: trip.name,
+        description: trip.description,
+        sourceFolder: trip.source_folder,
+        destinationFolder: trip.destination_folder,
+        coverCaptureId: trip.cover_capture_id,
+        coverCropX: trip.cover_crop_x == null ? null : Number(trip.cover_crop_x),
+        coverCropY: trip.cover_crop_y == null ? null : Number(trip.cover_crop_y),
+        coverCropSize: trip.cover_crop_size == null ? null : Number(trip.cover_crop_size),
+        coverLayout: trip.cover_layout,
+      };
+    },
+  );
 
   // Points a trip at a new source or destination folder (a moved drive or restored backup). No
   // files move and no rows change here: the next scan relinks the destination's copies by
   // content hash, as when a file moves within the folder.
-  app.patch<{
-    Params: { id: string };
-    Body: { sourceFolder?: string; destinationFolder?: string; name?: string; description?: string | null; coverLayout?: "single" | "quad" };
-  }>(
+  app.patch(
     "/trips/:id",
-    { preHandler: requireAuth },
+    {
+      preValidation: requireAuth,
+      config: tripNotFound,
+      schema: {
+        params: IdParams,
+        body: Type.Object(
+          {
+            sourceFolder: Type.Optional(FolderPath),
+            destinationFolder: Type.Optional(FolderPath),
+            name: Type.Optional(Type.String()),
+            description: Type.Optional(Nullable(Type.String())),
+            coverLayout: Type.Optional(Type.Enum(["single", "quad"])),
+          },
+          { additionalProperties: false },
+        ),
+        response: replies(Ok),
+      },
+    },
     async (request, reply) => {
-      if (!isUuid(request.params.id)) return reply.code(404).send({ error: "Trip not found" });
       const userId = request.user!.id;
-      const { sourceFolder, destinationFolder, name, description, coverLayout } = request.body ?? {};
+      const { sourceFolder, destinationFolder, name, description, coverLayout } = request.body;
       if (
         sourceFolder === undefined &&
         destinationFolder === undefined &&
@@ -194,7 +251,9 @@ export async function tripsRoutes(app: FastifyInstance): Promise<void> {
         description === undefined &&
         coverLayout === undefined
       ) {
-        return reply.code(400).send({ error: "sourceFolder, destinationFolder, name, description, or coverLayout is required" });
+        return reply
+          .code(400)
+          .send({ error: "sourceFolder, destinationFolder, name, description, or coverLayout is required" });
       }
       let allowedDestination: string | undefined;
       if (destinationFolder !== undefined) {
@@ -204,7 +263,8 @@ export async function tripsRoutes(app: FastifyInstance): Promise<void> {
       }
       let allowedSource: string | undefined;
       if (sourceFolder !== undefined) {
-        if (!path.isAbsolute(sourceFolder)) return reply.code(400).send({ error: "sourceFolder must be an absolute folder path" });
+        if (!path.isAbsolute(sourceFolder))
+          return reply.code(400).send({ error: "sourceFolder must be an absolute folder path" });
         allowedSource = assertAllowedPath(sourceFolder);
         if (!existsSync(allowedSource) || !statSync(allowedSource).isDirectory()) {
           return reply.code(400).send({ error: "That folder doesn't exist on this server" });
@@ -213,10 +273,10 @@ export async function tripsRoutes(app: FastifyInstance): Promise<void> {
       if (name !== undefined && !name.trim()) {
         return reply.code(400).send({ error: "name can't be empty" });
       }
-      if (coverLayout !== undefined && coverLayout !== "single" && coverLayout !== "quad") {
-        return reply.code(400).send({ error: "coverLayout must be 'single' or 'quad'" });
-      }
-      const tripRes = await pool.query(`SELECT id FROM trips WHERE id = $1 AND user_id = $2`, [request.params.id, userId]);
+      const tripRes = await pool.query(`SELECT id FROM trips WHERE id = $1 AND user_id = $2`, [
+        request.params.id,
+        userId,
+      ]);
       if (tripRes.rows.length === 0) return reply.code(404).send({ error: "Trip not found" });
 
       await pool.query(
@@ -242,26 +302,41 @@ export async function tripsRoutes(app: FastifyInstance): Promise<void> {
   );
 
   // Deletes the trip only; its captures are detached (ON DELETE SET NULL), never deleted.
-  app.delete<{ Params: { id: string } }>("/trips/:id", { preHandler: requireAuth }, async (request, reply) => {
-    if (!isUuid(request.params.id)) return reply.code(404).send({ error: "Trip not found" });
-    const res = await pool.query(`DELETE FROM trips WHERE id = $1 AND user_id = $2`, [request.params.id, request.user!.id]);
-    if (res.rowCount === 0) return reply.code(404).send({ error: "Trip not found" });
-    return { ok: true };
-  });
+  app.delete(
+    "/trips/:id",
+    { preValidation: requireAuth, config: tripNotFound, schema: { params: IdParams, response: replies(Ok) } },
+    async (request, reply) => {
+      const res = await pool.query(`DELETE FROM trips WHERE id = $1 AND user_id = $2`, [
+        request.params.id,
+        request.user!.id,
+      ]);
+      if (res.rowCount === 0) return reply.code(404).send({ error: "Trip not found" });
+      return { ok: true };
+    },
+  );
 
   // Manual cover pick. captureId=null goes back to the default, the most recent capture with a
   // photo.
-  app.put<{ Params: { id: string }; Body: { captureId: string | null } }>(
+  app.put(
     "/trips/:id/cover",
-    { preHandler: requireAuth },
+    {
+      preValidation: requireAuth,
+      config: tripNotFound,
+      schema: {
+        params: IdParams,
+        body: Type.Object({ captureId: Nullable(Uuid()) }, { additionalProperties: false }),
+        response: replies(Ok),
+      },
+    },
     async (request, reply) => {
-      if (!isUuid(request.params.id)) return reply.code(404).send({ error: "Trip not found" });
       const userId = request.user!.id;
-      const { captureId } = request.body ?? {};
-      const tripRes = await pool.query(`SELECT id FROM trips WHERE id = $1 AND user_id = $2`, [request.params.id, userId]);
+      const { captureId } = request.body;
+      const tripRes = await pool.query(`SELECT id FROM trips WHERE id = $1 AND user_id = $2`, [
+        request.params.id,
+        userId,
+      ]);
       if (tripRes.rows.length === 0) return reply.code(404).send({ error: "Trip not found" });
 
-      if (captureId != null && !isUuid(captureId)) return reply.code(400).send({ error: "That photo isn't part of this trip" });
       if (captureId) {
         const captureRes = await pool.query(`SELECT id FROM captures WHERE id = $1 AND trip_id = $2 AND user_id = $3`, [
           captureId,
@@ -281,24 +356,42 @@ export async function tripsRoutes(app: FastifyInstance): Promise<void> {
   );
 
   // Same request shape as /species/:id/card-crop.
-  app.patch<{ Params: { id: string }; Body: { x?: number; y?: number; size?: number; reset?: boolean } }>(
+  app.patch(
     "/trips/:id/cover-crop",
-    { preHandler: requireAuth },
+    {
+      preValidation: requireAuth,
+      config: tripNotFound,
+      schema: {
+        params: IdParams,
+        // Either a crop (all three, checked by isValidCrop below) or reset: true.
+        body: Type.Object(
+          {
+            x: Type.Optional(Type.Number({ minimum: 0, maximum: 100 })),
+            y: Type.Optional(Type.Number({ minimum: 0, maximum: 100 })),
+            size: Type.Optional(Type.Number({ exclusiveMinimum: 0, maximum: 100 })),
+            reset: Type.Optional(Type.Boolean()),
+          },
+          { additionalProperties: false },
+        ),
+        response: replies(Ok),
+      },
+    },
     async (request, reply) => {
-      if (!isUuid(request.params.id)) return reply.code(404).send({ error: "Trip not found" });
       const userId = request.user!.id;
-      const { x, y, size, reset } = request.body ?? {};
+      const { x, y, size, reset } = request.body;
       const tripRes = await pool.query<{ cover_capture_id: string | null }>(
         `SELECT cover_capture_id FROM trips WHERE id = $1 AND user_id = $2`,
         [request.params.id, userId],
       );
       if (tripRes.rows.length === 0) return reply.code(404).send({ error: "Trip not found" });
-      if (!tripRes.rows[0].cover_capture_id) return reply.code(400).send({ error: "No cover photo set for this trip yet" });
+      if (!tripRes.rows[0].cover_capture_id)
+        return reply.code(400).send({ error: "No cover photo set for this trip yet" });
 
       if (reset) {
-        await pool.query(`UPDATE trips SET cover_crop_x = NULL, cover_crop_y = NULL, cover_crop_size = NULL WHERE id = $1`, [
-          request.params.id,
-        ]);
+        await pool.query(
+          `UPDATE trips SET cover_crop_x = NULL, cover_crop_y = NULL, cover_crop_size = NULL WHERE id = $1`,
+          [request.params.id],
+        );
         return { ok: true };
       }
 
@@ -315,14 +408,19 @@ export async function tripsRoutes(app: FastifyInstance): Promise<void> {
   );
 
   // The trip's species as collection items (same shape as /collection), for the Species view.
-  app.get<{ Params: { id: string } }>("/trips/:id/species", { preHandler: requireScope("trips.read") }, async (request, reply) => {
-    if (!isUuid(request.params.id)) return reply.code(404).send({ error: "Trip not found" });
-    const userId = request.user!.id;
-    const tripRes = await pool.query(`SELECT id FROM trips WHERE id = $1 AND user_id = $2`, [request.params.id, userId]);
-    if (tripRes.rows.length === 0) return reply.code(404).send({ error: "Trip not found" });
+  app.get(
+    "/trips/:id/species",
+    { preValidation: requireScope("trips.read"), config: tripNotFound, schema: { params: IdParams } },
+    async (request, reply) => {
+      const userId = request.user!.id;
+      const tripRes = await pool.query(`SELECT id FROM trips WHERE id = $1 AND user_id = $2`, [
+        request.params.id,
+        userId,
+      ]);
+      if (tripRes.rows.length === 0) return reply.code(404).send({ error: "Trip not found" });
 
-    const res = await pool.query(
-      `SELECT
+      const res = await pool.query(
+        `SELECT
          s.id AS species_id,
          s.scientific_name,
          s.common_name,
@@ -354,27 +452,35 @@ export async function tripsRoutes(app: FastifyInstance): Promise<void> {
        LEFT JOIN storage_volumes sv ON sv.id = o.volume_id
        WHERE EXISTS (SELECT 1 FROM captures tc WHERE tc.trip_id = $2 AND tc.species_id = s.id)
        ORDER BY s.scientific_name`,
-      [userId, request.params.id],
-    );
-    return { items: await markNameChanged(userId, res.rows.map((row) => toCollectionItem(row))) };
-  });
+        [userId, request.params.id],
+      );
+      return {
+        items: await markNameChanged(
+          userId,
+          res.rows.map((row) => toCollectionItem(row)),
+        ),
+      };
+    },
+  );
 
   // Lifers gained and notable species on this trip. A lifer is a species whose first-ever capture
   // is one of this trip's captures (not just on the same dates).
-  app.get<{ Params: { id: string } }>("/trips/:id/summary", { preHandler: requireScope("trips.read") }, async (request, reply) => {
-    if (!isUuid(request.params.id)) return reply.code(404).send({ error: "Trip not found" });
-    const userId = request.user!.id;
-    const tripId = request.params.id;
-    const tripRes = await pool.query(`SELECT id FROM trips WHERE id = $1 AND user_id = $2`, [tripId, userId]);
-    if (tripRes.rows.length === 0) return reply.code(404).send({ error: "Trip not found" });
+  app.get(
+    "/trips/:id/summary",
+    { preValidation: requireScope("trips.read"), config: tripNotFound, schema: { params: IdParams } },
+    async (request, reply) => {
+      const userId = request.user!.id;
+      const tripId = request.params.id;
+      const tripRes = await pool.query(`SELECT id FROM trips WHERE id = $1 AND user_id = $2`, [tripId, userId]);
+      if (tripRes.rows.length === 0) return reply.code(404).send({ error: "Trip not found" });
 
-    const res = await pool.query<{
-      species_count: string;
-      lifer_count: string;
-      rare_count: string;
-      endemic_count: string;
-    }>(
-      `WITH trip_species AS (
+      const res = await pool.query<{
+        species_count: string;
+        lifer_count: string;
+        rare_count: string;
+        endemic_count: string;
+      }>(
+        `WITH trip_species AS (
          SELECT DISTINCT c.species_id FROM captures c WHERE c.trip_id = $1
        )
        SELECT
@@ -391,26 +497,32 @@ export async function tripsRoutes(app: FastifyInstance): Promise<void> {
          (SELECT COUNT(*) FROM trip_species ts
             JOIN species_traits t ON t.species_id = ts.species_id
             WHERE t.endemic_country_iso3 IS NOT NULL OR t.endemic_region_label IS NOT NULL) AS endemic_count`,
-      [tripId, userId],
-    );
-    const row = res.rows[0];
-    return {
-      speciesCount: Number(row.species_count),
-      liferCount: Number(row.lifer_count),
-      rareCount: Number(row.rare_count),
-      endemicCount: Number(row.endemic_count),
-    };
-  });
+        [tripId, userId],
+      );
+      const row = res.rows[0];
+      return {
+        speciesCount: Number(row.species_count),
+        liferCount: Number(row.lifer_count),
+        rareCount: Number(row.rare_count),
+        endemicCount: Number(row.endemic_count),
+      };
+    },
+  );
 
   // Every photo from the trip, in the same shape as /gallery items so the web can reuse its grid.
-  app.get<{ Params: { id: string } }>("/trips/:id/photos", { preHandler: requireScope("trips.read") }, async (request, reply) => {
-    if (!isUuid(request.params.id)) return reply.code(404).send({ error: "Trip not found" });
-    const userId = request.user!.id;
-    const tripRes = await pool.query(`SELECT id FROM trips WHERE id = $1 AND user_id = $2`, [request.params.id, userId]);
-    if (tripRes.rows.length === 0) return reply.code(404).send({ error: "Trip not found" });
+  app.get(
+    "/trips/:id/photos",
+    { preValidation: requireScope("trips.read"), config: tripNotFound, schema: { params: IdParams } },
+    async (request, reply) => {
+      const userId = request.user!.id;
+      const tripRes = await pool.query(`SELECT id FROM trips WHERE id = $1 AND user_id = $2`, [
+        request.params.id,
+        userId,
+      ]);
+      if (tripRes.rows.length === 0) return reply.code(404).send({ error: "Trip not found" });
 
-    const res = await pool.query(
-      `SELECT p.id AS photo_id, p.width, p.height, c.id AS capture_id, c.species_id, s.scientific_name, s.common_name, c.taken_at, c.created_at,
+      const res = await pool.query(
+        `SELECT p.id AS photo_id, p.width, p.height, c.id AS capture_id, c.species_id, s.scientific_name, s.common_name, c.taken_at, c.created_at,
               c.camera_model, c.lens, c.focal_length_mm, c.aperture, c.shutter, c.iso, c.quality_rating,
               EXISTS (SELECT 1 FROM originals ro WHERE ro.capture_id = c.id AND ro.kind = 'raw') AS has_raw,
               o.ref AS original_ref, o.kind AS original_kind
@@ -426,32 +538,33 @@ export async function tripsRoutes(app: FastifyInstance): Promise<void> {
        ) o ON true
        WHERE c.trip_id = $1 AND c.user_id = $2
        ORDER BY c.taken_at DESC NULLS LAST, c.created_at DESC`,
-      [request.params.id, userId],
-    );
+        [request.params.id, userId],
+      );
 
-    return {
-      items: res.rows.map((row) => ({
-        photoId: row.photo_id,
-        width: row.width,
-        height: row.height,
-        captureId: row.capture_id,
-        speciesId: row.species_id,
-        scientificName: row.scientific_name,
-        commonName: row.common_name,
-        takenAt: row.taken_at,
-        hasRaw: row.has_raw,
-        originalRef: row.original_ref,
-        originalKind: row.original_kind,
-        cameraModel: row.camera_model,
-        lens: row.lens,
-        focalLengthMm: row.focal_length_mm,
-        aperture: row.aperture,
-        shutter: row.shutter,
-        iso: row.iso,
-        qualityRating: row.quality_rating,
-      })),
-    };
-  });
+      return {
+        items: res.rows.map((row) => ({
+          photoId: row.photo_id,
+          width: row.width,
+          height: row.height,
+          captureId: row.capture_id,
+          speciesId: row.species_id,
+          scientificName: row.scientific_name,
+          commonName: row.common_name,
+          takenAt: row.taken_at,
+          hasRaw: row.has_raw,
+          originalRef: row.original_ref,
+          originalKind: row.original_kind,
+          cameraModel: row.camera_model,
+          lens: row.lens,
+          focalLengthMm: row.focal_length_mm,
+          aperture: row.aperture,
+          shutter: row.shutter,
+          iso: row.iso,
+          qualityRating: row.quality_rating,
+        })),
+      };
+    },
+  );
 
   await app.register(tripJobRoutes);
 }

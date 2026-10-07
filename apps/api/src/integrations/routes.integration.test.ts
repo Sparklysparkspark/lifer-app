@@ -17,7 +17,8 @@ describe.skipIf(!url)("integration endpoints (API key)", () => {
   let db: pg.Pool;
   const captures: string[] = [];
 
-  const get = (path: string, token = TOKEN) => app.inject({ method: "GET", url: path, headers: { "x-api-key": token } });
+  const get = (path: string, token = TOKEN) =>
+    app.inject({ method: "GET", url: path, headers: { "x-api-key": token } });
 
   beforeAll(async () => {
     process.env.DATABASE_URL = url;
@@ -82,7 +83,7 @@ describe.skipIf(!url)("integration endpoints (API key)", () => {
     await db.query(`DELETE FROM users WHERE id = $1`, [USER]);
     await db.query(`DELETE FROM species WHERE id IN ($1, $2)`, [SPECIES_A, SPECIES_B]);
     await db.end();
-    const { pool } = await import("../db.js");
+    const { pool } = await import("@lifer/core/db.js");
     await pool.end();
   });
 
@@ -143,5 +144,79 @@ describe.skipIf(!url)("integration endpoints (API key)", () => {
   it("refuses a malformed speciesId or regionId instead of failing", async () => {
     expect((await get("/api/captures?speciesId=nope")).statusCode).toBe(400);
     expect((await get("/api/life-list/summary?regionId=nope")).statusCode).toBe(404);
+  });
+
+  it("checks the feed's query against its schema", async () => {
+    const invalid = { error: expect.stringMatching(/^Invalid query: /), code: "invalid_request" };
+    for (const query of ["limit=0", "limit=-3", "limit=abc", "includeDeleted=yes", "speciesId=42"]) {
+      const res = await get(`/api/captures?${query}`);
+      expect([query, res.statusCode, res.json()]).toEqual([query, 400, invalid]);
+    }
+    expect((await get("/api/captures?speciesId=nope")).json().error).toBe(
+      "Invalid query: speciesId must be an id (a UUID)",
+    );
+    // An unknown key never learns about the schema: authentication comes first.
+    expect((await get("/api/captures?limit=0", "lifer_no_such_key")).statusCode).toBe(401);
+    // Larger pages are capped, as documented, and an empty parameter means it wasn't given.
+    const capped = await get("/api/captures?limit=100000&speciesId=&since=");
+    expect([capped.statusCode, capped.json().items.length]).toEqual([200, 2]);
+    expect((await get("/api/captures?includeDeleted=0&limit=1")).json().items).toHaveLength(1);
+  });
+
+  it("checks the life list's query, keeping 404 for a malformed region", async () => {
+    expect((await get("/api/life-list?include=all")).statusCode).toBe(400);
+    expect((await get("/api/life-list?include=seen")).statusCode).toBe(200);
+    expect((await get("/api/life-list/summary?regionId=")).json().region).toBeNull();
+    const bad = await get("/api/life-list/summary?regionId=12345");
+    expect([bad.statusCode, bad.json()]).toEqual([404, { error: "Unknown region" }]);
+  });
+
+  it("answers with exactly the documented fields", async () => {
+    const item = (await get("/api/captures")).json().items[0];
+    expect(Object.keys(item).sort()).toEqual(
+      [
+        "captureId",
+        "photoId",
+        "speciesId",
+        "scientificName",
+        "commonName",
+        "taxonClass",
+        "additionalSpecies",
+        "takenAt",
+        "createdAt",
+        "updatedAt",
+        "deletedAt",
+        "lat",
+        "lon",
+        "regionId",
+        "regionName",
+        "locationLabel",
+        "tripId",
+        "camera",
+        "rating",
+        "tags",
+        "kind",
+        "width",
+        "height",
+        "originals",
+        "images",
+      ].sort(),
+    );
+    // Dates keep their full ISO form through the response schema.
+    expect(item.takenAt).toMatch(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/);
+    const latest = (await get("/api/life-list/summary")).json().latestLifer;
+    expect(latest.firstCollected).toMatch(/^\d{4}-\d\d-\d\dT/);
+  });
+
+  it("serves an OpenAPI document generated from the route schemas", async () => {
+    const doc = (await app.inject({ method: "GET", url: "/api/openapi.json" })).json();
+    const feed = doc.paths["/captures"].get;
+    expect(feed["x-required-scope"]).toBe("photos.read");
+    expect(feed.parameters.find((p: { name: string }) => p.name === "limit")).toMatchObject({
+      in: "query",
+      required: false,
+      schema: { type: "integer", minimum: 1 },
+    });
+    expect(feed.responses["200"].content["application/json"].schema.properties.items.type).toBe("array");
   });
 });

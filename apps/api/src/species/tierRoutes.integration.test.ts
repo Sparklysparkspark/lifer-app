@@ -50,7 +50,7 @@ describe.skipIf(!url)("tier routes", () => {
     await db.query(`DELETE FROM species WHERE id = $1`, [SPECIES]);
     await db.query(`DELETE FROM regions WHERE id = $1`, [REGION]);
     await db.end();
-    const { pool } = await import("../db.js");
+    const { pool } = await import("@lifer/core/db.js");
     await pool.end();
   });
 
@@ -72,7 +72,10 @@ describe.skipIf(!url)("tier routes", () => {
     got = (await app.inject({ method: "GET", url: `/api/species/${SPECIES}/tier?regionId=${REGION}` })).json();
     expect(got.override).toEqual({ tier: "uncommon", everywhere: true });
 
-    expect((await put({ regionId: null, tier: "mythical" })).statusCode).toBe(400);
+    const mythical = await put({ regionId: null, tier: "mythical" });
+    expect([mythical.statusCode, mythical.json().code]).toEqual([400, "invalid_request"]);
+    expect(mythical.json().error).toMatch(/^Invalid body: tier must be one of common, occasional/);
+    expect((await put({ regionId: null, tier: "rare", note: "x" })).statusCode).toBe(400);
   });
 
   it("answers 404 for a malformed species or region id", async () => {

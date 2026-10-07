@@ -12,12 +12,12 @@ import cookie from "@fastify/cookie";
 import multipart from "@fastify/multipart";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { tusUpload } from "../uploads/testImages.js";
+import { tusUpload } from "@lifer/core/uploads/testImages.js";
 
 // The model isn't what's tested here: only that frames were read from the uploaded file.
 const frameCounts: number[] = [];
-vi.mock("../species/embeddings.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../species/embeddings.js")>()),
+vi.mock("@lifer/core/species/embeddings.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@lifer/core/species/embeddings.js")>()),
   suggestSpeciesForFrames: vi.fn(async (_pool: unknown, _user: string, frames: Buffer[]) => {
     frameCounts.push(frames.length);
     return [];
@@ -63,7 +63,7 @@ describe.skipIf(!url)("video species suggestions by uploadId", () => {
     process.env.SINGLE_USER_MODE = "0";
     db = new pg.Pool({ connectionString: url });
     const { hashToken } = await import("../auth/session.js");
-    ({ SESSION_COOKIE_NAME: cookieName } = await import("../config.js"));
+    ({ SESSION_COOKIE_NAME: cookieName } = await import("@lifer/core/config.js"));
     const { uploadRoutes } = await import("../uploads/routes.js");
     const { speciesSuggestRoutes } = await import("./suggest.js");
     await cleanup();
@@ -94,7 +94,7 @@ describe.skipIf(!url)("video species suggestions by uploadId", () => {
     await db.end();
     const { closeExiftool } = await import("../uploads/exif.js");
     await closeExiftool();
-    const { pool } = await import("../db.js");
+    const { pool } = await import("@lifer/core/db.js");
     await pool.end();
     rmSync(dataDir, { recursive: true, force: true });
   });

@@ -1,8 +1,10 @@
 // Endpoints for integrations rather than Lifer's own UI: stable field names, paging, incremental
-// sync. Keep openapi.ts in step (integrationsDocs.test.ts checks it).
+// sync. The OpenAPI document is built from these schemas, with the prose in openapi.ts
+// (integrationsDocs.test.ts checks both against the routes and the API guide).
 import type { FastifyInstance } from "fastify";
-import { pool } from "../db.js";
-import { isUuid } from "../lib/validate.js";
+import { Type } from "typebox";
+import { pool } from "@lifer/core/db.js";
+import { Nullable, Uuid, replies, routeCatalog, withSchemas } from "../lib/schema.js";
 import { requireScope } from "../auth/session.js";
 import { buildOpenApi } from "./openapi.js";
 
@@ -21,45 +23,157 @@ function decodeCursor(cursor: string): { updatedAt: string; id: string } | null 
   return { updatedAt, id };
 }
 
-const fileName = (ref: string | null) => (ref ? ref.split(/[\\/]/).pop() ?? null : null);
+const fileName = (ref: string | null) => (ref ? (ref.split(/[\\/]/).pop() ?? null) : null);
 
-export async function integrationRoutes(app: FastifyInstance): Promise<void> {
-  // Public: describes the API, holds no data.
-  const openApi = buildOpenApi();
-  app.get("/openapi.json", async () => openApi);
+const StrNull = Nullable(Type.String());
+const NumNull = Nullable(Type.Number());
+const IntNull = Nullable(Type.Integer());
+// Dates come from Postgres as Date objects; no `format` here, since the serializer would rewrite them.
+const Time = (description?: string) => Type.String(description ? { description } : {});
+const TimeNull = (description?: string) => Nullable(Time(description));
+
+const OriginalFile = Nullable(
+  Type.Object({
+    fileName: StrNull,
+    sizeBytes: IntNull,
+    sha256: Nullable(Type.String({ description: "SHA-256 of the file's bytes" })),
+  }),
+);
+
+const CaptureItem = Type.Object({
+  captureId: Uuid(),
+  photoId: Nullable(Uuid({ description: "Current photo; image URLs below use it" })),
+  speciesId: Uuid(),
+  scientificName: Type.String(),
+  commonName: StrNull,
+  taxonClass: StrNull,
+  additionalSpecies: Type.Array(Type.Object({ speciesId: Uuid(), scientificName: Type.String(), commonName: StrNull })),
+  takenAt: TimeNull("ISO 8601"),
+  createdAt: Time("ISO 8601"),
+  updatedAt: Type.String({ description: "Full-precision time of the last change; pass it back as `since`" }),
+  deletedAt: TimeNull("Set when the photo is in the trash (only with includeDeleted=1)"),
+  lat: NumNull,
+  lon: NumNull,
+  regionId: Nullable(Uuid()),
+  regionName: StrNull,
+  locationLabel: StrNull,
+  tripId: Nullable(Uuid()),
+  camera: Type.Object({
+    model: StrNull,
+    lens: StrNull,
+    focalLengthMm: NumNull,
+    aperture: NumNull,
+    shutter: StrNull,
+    iso: IntNull,
+  }),
+  rating: Nullable(Type.Integer({ description: "1-5" })),
+  tags: Type.Array(Type.String()),
+  kind: Type.Enum(["image", "video"]),
+  width: IntNull,
+  height: IntNull,
+  originals: Type.Object({ jpeg: OriginalFile, raw: OriginalFile, video: OriginalFile }),
+  images: Nullable(
+    Type.Object(
+      { thumb: Type.String(), display: Type.String(), original: Type.String() },
+      { description: "Paths under the server; fetch with a photos.read key" },
+    ),
+  ),
+});
+
+const LifeListSpecies = Type.Object({
+  speciesId: Uuid(),
+  scientificName: Type.String(),
+  commonName: StrNull,
+  taxonClass: StrNull,
+  family: StrNull,
+  status: Type.Enum(["photographed", "seen"]),
+  firstCollected: TimeNull(),
+  lastPhotographed: TimeNull(),
+  photoCount: Type.Integer(),
+  bestRating: IntNull,
+  coverPhotoId: Nullable(Uuid()),
+  coverImage: StrNull,
+});
+
+const LifeListSummary = Type.Object({
+  photographedSpecies: Type.Integer(),
+  seenOnlySpecies: Type.Integer(),
+  photos: Type.Integer(),
+  newThisYear: Type.Integer(),
+  byTaxonClass: Type.Record(Type.String(), Type.Integer()),
+  latestLifer: Nullable(
+    Type.Object({
+      speciesId: Uuid(),
+      scientificName: Type.String(),
+      commonName: StrNull,
+      firstCollected: TimeNull(),
+      coverImage: StrNull,
+    }),
+  ),
+  region: Nullable(
+    Type.Object({ regionId: Uuid(), name: Type.String(), photographed: Type.Integer(), checklistSize: Type.Integer() }),
+  ),
+});
+
+export async function integrationRoutes(fastify: FastifyInstance): Promise<void> {
+  const app = withSchemas(fastify);
+
+  // Public: describes the API, holds no data. Built on first request, once every route exists.
+  let openApi: object | undefined;
+  app.get("/openapi.json", { schema: {} }, async () => (openApi ??= buildOpenApi(routeCatalog.values())));
 
   // Every capture, oldest change first, for syncing. includeDeleted=1 returns trashed photos with
   // deletedAt set; permanently deleted ones simply stop appearing.
-  app.get<{
-    Querystring: { since?: string; cursor?: string; limit?: string; speciesId?: string; includeDeleted?: string };
-  }>("/captures", { preHandler: requireScope("photos.read") }, async (request, reply) => {
-    const userId = request.user!.id;
-    const limit = Math.min(Math.max(Number(request.query.limit) || DEFAULT_LIMIT, 1), MAX_LIMIT);
-    const params: unknown[] = [userId];
-    const where = ["c.user_id = $1"];
-    if (request.query.includeDeleted !== "1") where.push("c.deleted_at IS NULL");
-    if (request.query.since) {
-      if (Number.isNaN(Date.parse(request.query.since))) return reply.code(400).send({ error: "since must be an ISO 8601 date-time" });
-      params.push(request.query.since);
-      where.push(`c.updated_at > $${params.length}`);
-    }
-    if (request.query.speciesId) {
-      if (!isUuid(request.query.speciesId)) return reply.code(400).send({ error: "speciesId must be a species id" });
-      params.push(request.query.speciesId);
-      where.push(
-        `(c.species_id = $${params.length} OR EXISTS (SELECT 1 FROM capture_species cs WHERE cs.capture_id = c.id AND cs.species_id = $${params.length}))`,
-      );
-    }
-    if (request.query.cursor) {
-      const cursor = decodeCursor(request.query.cursor);
-      if (!cursor) return reply.code(400).send({ error: "Invalid cursor" });
-      params.push(cursor.updatedAt, cursor.id);
-      where.push(`(c.updated_at, c.id) > ($${params.length - 1}::timestamptz, $${params.length}::uuid)`);
-    }
-    params.push(limit + 1);
+  app.get(
+    "/captures",
+    {
+      preValidation: requireScope("photos.read"),
+      schema: {
+        querystring: Type.Object({
+          // Not format date-time: an `updatedAt` passed back has microseconds, and a plain date is
+          // fine too. The handler checks it parses.
+          since: Type.Optional(
+            Type.String({ description: "Only photos changed after this time (an `updatedAt` from an earlier call)" }),
+          ),
+          cursor: Type.Optional(Type.String({ description: "`nextCursor` from the previous page" })),
+          // Larger pages are capped rather than refused.
+          limit: Type.Optional(Type.Integer({ minimum: 1, description: "Page size, 1-500 (default 100)" })),
+          speciesId: Type.Optional(Uuid({ description: "Only photos showing this species (primary or additional)" })),
+          includeDeleted: Type.Optional(
+            Type.Enum(["0", "1"], { description: "1 to include photos in the trash, with deletedAt set" }),
+          ),
+        }),
+        response: replies(Type.Object({ items: Type.Array(CaptureItem), nextCursor: StrNull })),
+      },
+    },
+    async (request, reply) => {
+      const userId = request.user!.id;
+      const limit = Math.min(request.query.limit ?? DEFAULT_LIMIT, MAX_LIMIT);
+      const params: unknown[] = [userId];
+      const where = ["c.user_id = $1"];
+      if (request.query.includeDeleted !== "1") where.push("c.deleted_at IS NULL");
+      if (request.query.since) {
+        if (Number.isNaN(Date.parse(request.query.since)))
+          return reply.code(400).send({ error: "since must be an ISO 8601 date-time" });
+        params.push(request.query.since);
+        where.push(`c.updated_at > $${params.length}`);
+      }
+      if (request.query.speciesId) {
+        params.push(request.query.speciesId);
+        where.push(
+          `(c.species_id = $${params.length} OR EXISTS (SELECT 1 FROM capture_species cs WHERE cs.capture_id = c.id AND cs.species_id = $${params.length}))`,
+        );
+      }
+      if (request.query.cursor) {
+        const cursor = decodeCursor(request.query.cursor);
+        if (!cursor) return reply.code(400).send({ error: "Invalid cursor" });
+        params.push(cursor.updatedAt, cursor.id);
+        where.push(`(c.updated_at, c.id) > ($${params.length - 1}::timestamptz, $${params.length}::uuid)`);
+      }
+      params.push(limit + 1);
 
-    const res = await pool.query(
-      `SELECT c.id, c.current_photo_id, c.species_id, s.scientific_name, s.common_name, s.taxon_class,
+      const res = await pool.query(
+        `SELECT c.id, c.current_photo_id, c.species_id, s.scientific_name, s.common_name, s.taxon_class,
               c.taken_at, c.created_at, ${UPDATED_AT_TEXT} AS updated_at, c.deleted_at, c.lat, c.lon, c.region_id, r.name AS region_name,
               c.location_label, c.camera_model, c.lens, c.focal_length_mm, c.aperture, c.shutter, c.iso,
               c.quality_rating, c.tags, c.trip_id, p.kind AS photo_kind, p.width, p.height,
@@ -78,66 +192,76 @@ export async function integrationRoutes(app: FastifyInstance): Promise<void> {
        WHERE ${where.join(" AND ")}
        ORDER BY c.updated_at, c.id
        LIMIT $${params.length}`,
-      params,
-    );
-    const rows = res.rows.slice(0, limit);
-    const last = rows[rows.length - 1];
-    const original = (ref: string | null, size: string | number | null, hash: string | null) =>
-      ref ? { fileName: fileName(ref), sizeBytes: size != null ? Number(size) : null, sha256: hash } : null;
+        params,
+      );
+      const rows = res.rows.slice(0, limit);
+      const last = rows[rows.length - 1];
+      const original = (ref: string | null, size: string | number | null, hash: string | null) =>
+        ref ? { fileName: fileName(ref), sizeBytes: size != null ? Number(size) : null, sha256: hash } : null;
 
-    return {
-      items: rows.map((r) => ({
-        captureId: r.id,
-        photoId: r.current_photo_id,
-        speciesId: r.species_id,
-        scientificName: r.scientific_name,
-        commonName: r.common_name,
-        taxonClass: r.taxon_class,
-        additionalSpecies: r.additional_species,
-        takenAt: r.taken_at,
-        createdAt: r.created_at,
-        updatedAt: r.updated_at,
-        deletedAt: r.deleted_at,
-        lat: r.lat != null ? Number(r.lat) : null,
-        lon: r.lon != null ? Number(r.lon) : null,
-        regionId: r.region_id,
-        regionName: r.region_name,
-        locationLabel: r.location_label,
-        tripId: r.trip_id,
-        camera: {
-          model: r.camera_model,
-          lens: r.lens,
-          focalLengthMm: r.focal_length_mm != null ? Number(r.focal_length_mm) : null,
-          aperture: r.aperture != null ? Number(r.aperture) : null,
-          shutter: r.shutter,
-          iso: r.iso,
-        },
-        rating: r.quality_rating,
-        tags: r.tags ?? [],
-        kind: r.photo_kind ?? "image",
-        width: r.width,
-        height: r.height,
-        originals: {
-          jpeg: original(r.jpeg_ref, r.jpeg_size, r.jpeg_hash),
-          raw: original(r.raw_ref, r.raw_size, r.raw_hash),
-          video: original(r.video_ref, r.video_size, r.video_hash),
-        },
-        images: r.current_photo_id
-          ? {
-              thumb: `/api/photos/${r.current_photo_id}/thumb`,
-              display: `/api/photos/${r.current_photo_id}/display`,
-              original: `/api/photos/${r.current_photo_id}/original`,
-            }
-          : null,
-      })),
-      nextCursor: res.rows.length > limit && last ? encodeCursor(last.updated_at, last.id) : null,
-    };
-  });
+      return {
+        items: rows.map((r) => ({
+          captureId: r.id,
+          photoId: r.current_photo_id,
+          speciesId: r.species_id,
+          scientificName: r.scientific_name,
+          commonName: r.common_name,
+          taxonClass: r.taxon_class,
+          additionalSpecies: r.additional_species,
+          takenAt: r.taken_at,
+          createdAt: r.created_at,
+          updatedAt: r.updated_at,
+          deletedAt: r.deleted_at,
+          lat: r.lat != null ? Number(r.lat) : null,
+          lon: r.lon != null ? Number(r.lon) : null,
+          regionId: r.region_id,
+          regionName: r.region_name,
+          locationLabel: r.location_label,
+          tripId: r.trip_id,
+          camera: {
+            model: r.camera_model,
+            lens: r.lens,
+            focalLengthMm: r.focal_length_mm != null ? Number(r.focal_length_mm) : null,
+            aperture: r.aperture != null ? Number(r.aperture) : null,
+            shutter: r.shutter,
+            iso: r.iso,
+          },
+          rating: r.quality_rating,
+          tags: r.tags ?? [],
+          kind: r.photo_kind ?? "image",
+          width: r.width,
+          height: r.height,
+          originals: {
+            jpeg: original(r.jpeg_ref, r.jpeg_size, r.jpeg_hash),
+            raw: original(r.raw_ref, r.raw_size, r.raw_hash),
+            video: original(r.video_ref, r.video_size, r.video_hash),
+          },
+          images: r.current_photo_id
+            ? {
+                thumb: `/api/photos/${r.current_photo_id}/thumb`,
+                display: `/api/photos/${r.current_photo_id}/display`,
+                original: `/api/photos/${r.current_photo_id}/original`,
+              }
+            : null,
+        })),
+        nextCursor: res.rows.length > limit && last ? encodeCursor(last.updated_at, last.id) : null,
+      };
+    },
+  );
 
   // One row per species photographed or marked seen. Cover image URLs need photos.read.
-  app.get<{ Querystring: { taxonClass?: string; include?: string } }>(
+  app.get(
     "/life-list",
-    { preHandler: requireScope("collection.read") },
+    {
+      preValidation: requireScope("collection.read"),
+      schema: {
+        querystring: Type.Object({
+          taxonClass: Type.Optional(Type.String({ description: "Comma-separated taxon classes, e.g. aves,mammalia" })),
+          include: Type.Optional(Type.Enum(["seen"], { description: "`seen` to include seen-only species" })),
+        }),
+        response: replies(Type.Object({ species: Type.Array(LifeListSpecies) })),
+      },
+    },
     async (request) => {
       const states = request.query.include === "seen" ? ["collected", "seen"] : ["collected"];
       const params: unknown[] = [request.user!.id, states];
@@ -163,7 +287,7 @@ export async function integrationRoutes(app: FastifyInstance): Promise<void> {
           commonName: r.common_name,
           taxonClass: r.taxon_class,
           family: r.family,
-          status: r.state === "collected" ? "photographed" : "seen",
+          status: r.state === "collected" ? ("photographed" as const) : ("seen" as const),
           firstCollected: r.first_collected,
           lastPhotographed: r.last_photographed,
           photoCount: r.photo_count,
@@ -176,9 +300,19 @@ export async function integrationRoutes(app: FastifyInstance): Promise<void> {
   );
 
   // A cheap life-list counter for polling. With regionId, also that region's checklist progress.
-  app.get<{ Querystring: { regionId?: string } }>(
+  app.get(
     "/life-list/summary",
-    { preHandler: requireScope("collection.read") },
+    {
+      preValidation: requireScope("collection.read"),
+      // A malformed region id is just an unknown region, as it always was.
+      config: { invalidInput: { querystring: { status: 404, error: "Unknown region" } } },
+      schema: {
+        querystring: Type.Object({
+          regionId: Type.Optional(Uuid({ description: "Also report progress on this region's checklist" })),
+        }),
+        response: replies(LifeListSummary),
+      },
+    },
     async (request, reply) => {
       const userId = request.user!.id;
       const totals = await pool.query<{ photographed: number; seen: number; photos: number }>(
@@ -207,7 +341,6 @@ export async function integrationRoutes(app: FastifyInstance): Promise<void> {
       );
       let region = null;
       if (request.query.regionId) {
-        if (!isUuid(request.query.regionId)) return reply.code(404).send({ error: "Unknown region" });
         const r = await pool.query<{ name: string; checklist: number; photographed: number }>(
           `SELECT reg.name,
                   (SELECT count(*)::int FROM region_species rs WHERE rs.region_id = reg.id) AS checklist,
@@ -217,7 +350,12 @@ export async function integrationRoutes(app: FastifyInstance): Promise<void> {
           [request.query.regionId, userId],
         );
         if (!r.rows[0]) return reply.code(404).send({ error: "Unknown region" });
-        region = { regionId: request.query.regionId, name: r.rows[0].name, photographed: r.rows[0].photographed, checklistSize: r.rows[0].checklist };
+        region = {
+          regionId: request.query.regionId,
+          name: r.rows[0].name,
+          photographed: r.rows[0].photographed,
+          checklistSize: r.rows[0].checklist,
+        };
       }
       const l = latest.rows[0];
       return {

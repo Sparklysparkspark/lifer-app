@@ -1,8 +1,9 @@
 // eBird "Download My Data" CSV import, which fills the `seen` state. Only a "Scientific Name"
 // column is required, since eBird's headers vary between export versions.
 import type { FastifyInstance } from "fastify";
-import { pool } from "../db.js";
+import { pool } from "@lifer/core/db.js";
 import { requireAuth } from "../auth/session.js";
+import { withSchemas } from "../lib/schema.js";
 
 function parseCsv(text: string): Record<string, string>[] {
   // Doesn't handle commas inside quoted fields, which eBird's export doesn't use.
@@ -17,8 +18,11 @@ function parseCsv(text: string): Record<string, string>[] {
   });
 }
 
-export async function importRoutes(app: FastifyInstance): Promise<void> {
-  app.post("/imports/ebird-csv", { preHandler: requireAuth }, async (request, reply) => {
+export async function importRoutes(fastify: FastifyInstance): Promise<void> {
+  const app = withSchemas(fastify);
+
+  // Multipart: the CSV is read with request.file(), so there's no JSON body to describe.
+  app.post("/imports/ebird-csv", { preValidation: requireAuth, schema: {} }, async (request, reply) => {
     const file = await request.file();
     if (!file) return reply.code(400).send({ error: "No CSV file uploaded" });
 

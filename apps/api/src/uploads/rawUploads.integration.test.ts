@@ -11,7 +11,7 @@ import multipart from "@fastify/multipart";
 import pg from "pg";
 import sharp from "sharp";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { setTiffPhotometric } from "./testImages.js";
+import { setTiffPhotometric } from "@lifer/core/uploads/testImages.js";
 
 const url = process.env.TEST_DATABASE_URL;
 const USER = "dddddddd-0000-4000-8000-000000000109";
@@ -60,7 +60,7 @@ describe.skipIf(!url)("RAW uploads", () => {
     process.env.SINGLE_USER_MODE = "0";
     db = new pg.Pool({ connectionString: url });
     const { hashToken } = await import("../auth/session.js");
-    ({ SESSION_COOKIE_NAME: cookieName } = await import("../config.js"));
+    ({ SESSION_COOKIE_NAME: cookieName } = await import("@lifer/core/config.js"));
     const { uploadRoutes } = await import("./routes.js");
     await cleanup();
     await db.query(`INSERT INTO users (id, email, password_hash) VALUES ($1, 'raw-uploads@test', 'x'), ($2, 'raw-other@test', 'x')`, [USER, OTHER_USER]);
@@ -90,7 +90,7 @@ describe.skipIf(!url)("RAW uploads", () => {
     await db.end();
     const { closeExiftool } = await import("./exif.js");
     await closeExiftool();
-    const { pool } = await import("../db.js");
+    const { pool } = await import("@lifer/core/db.js");
     await pool.end();
     rmSync(dataDir, { recursive: true, force: true });
   });

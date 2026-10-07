@@ -1,7 +1,8 @@
 // Albums: named, hand-picked sets of captures. Contents use the gallery's item shape so the web
 // reuses the gallery grid.
 import type { FastifyInstance } from "fastify";
-import { pool } from "../db.js";
+import { Type } from "typebox";
+import { pool } from "@lifer/core/db.js";
 import { requireScope } from "../auth/session.js";
 import { GALLERY_ITEM_COLUMNS, GALLERY_ITEM_JOINS, toGalleryItem } from "../gallery/routes.js";
 import { nextDefaultName } from "../lib/defaultName.js";
@@ -9,32 +10,24 @@ import { syncAlbumIndexForCaptures } from "./albumIndex.js";
 import { toCollectionItem } from "../collection/collectionItem.js";
 import { markNameChanged } from "../species/speciesSplits.js";
 import { resolveQuadSlots } from "../lib/quadCover.js";
-import { isUuid } from "../lib/validate.js";
 import { isValidCrop } from "../lib/crop.js";
+import { IdParams, Nullable, Ok, Uuid, notFoundOnInvalidId, replies, withSchemas } from "../lib/schema.js";
 
-interface CreateAlbumBody {
-  name?: string;
-  description?: string | null;
-}
-
-interface UpdateAlbumBody {
-  name?: string;
-  description?: string | null;
-  coverPhotoId?: string | null;
-  coverLayout?: "single" | "quad";
-}
-
-interface AddCapturesBody {
-  captureIds?: string[];
-}
+const albumNotFound = notFoundOnInvalidId("Album not found");
+const Percent = Type.Number({ minimum: 0, maximum: 100 });
+// A crop's size can't be 0: it would frame nothing (lib/crop.ts isValidCrop).
+const CropSize = Type.Number({ exclusiveMinimum: 0, maximum: 100 });
+const Crop = Type.Object({ x: Percent, y: Percent, size: CropSize }, { additionalProperties: false });
 
 async function assertOwnedAlbum(albumId: string, userId: string): Promise<boolean> {
   const res = await pool.query(`SELECT 1 FROM albums WHERE id = $1 AND user_id = $2`, [albumId, userId]);
   return res.rows.length > 0;
 }
 
-export async function albumRoutes(app: FastifyInstance): Promise<void> {
-  app.get("/albums", { preHandler: requireScope("album.read") }, async (request) => {
+export async function albumRoutes(fastify: FastifyInstance): Promise<void> {
+  const app = withSchemas(fastify);
+
+  app.get("/albums", { preValidation: requireScope("album.read"), schema: {} }, async (request) => {
     const res = await pool.query(
       `SELECT a.id, a.name, a.description, a.cover_layout, a.cover_crop_x, a.cover_crop_y, a.cover_crop_size, a.created_at,
               a.quad_photo_ids, a.quad_crops,
@@ -90,94 +83,134 @@ export async function albumRoutes(app: FastifyInstance): Promise<void> {
     };
   });
 
-  app.post<{ Body: CreateAlbumBody }>("/albums", { preHandler: requireScope("album.write") }, async (request, reply) => {
-    const userId = request.user!.id;
-    let name = request.body?.name?.trim();
-    if (!name) {
-      const countRes = await pool.query(
-        `SELECT count(*) FROM albums WHERE user_id = $1 AND name ~ '^Untitled Album( [A-Za-z-]+)?$'`,
-        [userId],
+  app.post(
+    "/albums",
+    {
+      preValidation: requireScope("album.write"),
+      schema: {
+        // A blank or missing name gets the next "Untitled Album" name.
+        body: Type.Object(
+          { name: Type.Optional(Type.String()), description: Type.Optional(Nullable(Type.String())) },
+          { additionalProperties: false },
+        ),
+      },
+    },
+    async (request) => {
+      const userId = request.user!.id;
+      let name = request.body?.name?.trim();
+      if (!name) {
+        const countRes = await pool.query(
+          `SELECT count(*) FROM albums WHERE user_id = $1 AND name ~ '^Untitled Album( [A-Za-z-]+)?$'`,
+          [userId],
+        );
+        name = nextDefaultName("Album", Number(countRes.rows[0].count));
+      }
+
+      const res = await pool.query(
+        `INSERT INTO albums (user_id, name, description) VALUES ($1, $2, $3) RETURNING id, name, description, cover_photo_id, created_at`,
+        [userId, name, request.body?.description?.trim() || null],
       );
-      name = nextDefaultName("Album", Number(countRes.rows[0].count));
-    }
+      const r = res.rows[0];
+      return {
+        id: r.id,
+        name: r.name,
+        description: r.description,
+        coverPhotoId: r.cover_photo_id,
+        createdAt: r.created_at,
+        captureCount: 0,
+      };
+    },
+  );
 
-    const res = await pool.query(
-      `INSERT INTO albums (user_id, name, description) VALUES ($1, $2, $3) RETURNING id, name, description, cover_photo_id, created_at`,
-      [userId, name, request.body?.description?.trim() || null],
-    );
-    const r = res.rows[0];
-    return { id: r.id, name: r.name, description: r.description, coverPhotoId: r.cover_photo_id, createdAt: r.created_at, captureCount: 0 };
-  });
-
-  app.get<{ Params: { id: string } }>("/albums/:id", { preHandler: requireScope("album.read") }, async (request, reply) => {
-    if (!isUuid(request.params.id)) return reply.code(404).send({ error: "Album not found" });
-    const userId = request.user!.id;
-    const albumRes = await pool.query(
-      // NULL when the cover's capture is trashed: soft delete doesn't clear cover_photo_id.
-      `SELECT a.id, a.name, a.description, a.cover_layout, a.cover_crop_x, a.cover_crop_y, a.cover_crop_size, a.created_at,
-              a.quad_photo_ids, a.quad_crops,
-              cover_p.id AS resolved_cover_photo_id,
-              (
-                SELECT array_agg(sub.photo_id) FROM (
-                  SELECT c.current_photo_id AS photo_id
-                  FROM album_captures ac2 JOIN captures c ON c.id = ac2.capture_id
-                  WHERE ac2.album_id = a.id AND c.current_photo_id IS NOT NULL
-                  ORDER BY ac2.added_at DESC
-                ) sub
-              ) AS quad_candidate_photo_ids
-       FROM albums a
-       LEFT JOIN LATERAL (
-         SELECT p.id FROM photos p JOIN captures c ON c.id = p.capture_id WHERE p.id = a.cover_photo_id
-       ) cover_p ON true
-       WHERE a.id = $1 AND a.user_id = $2`,
-      [request.params.id, userId],
-    );
-    const album = albumRes.rows[0];
-    if (!album) return reply.code(404).send({ error: "Album not found" });
-
-    // Through the trash-excluding captures view, so trashed photos drop out of albums.
-    const itemsRes = await pool.query(
-      `SELECT ${GALLERY_ITEM_COLUMNS}
-       FROM album_captures ac
-       JOIN captures c ON c.id = ac.capture_id
-       ${GALLERY_ITEM_JOINS}
-       WHERE ac.album_id = $1 AND c.user_id = $2
-       ORDER BY ac.added_at DESC`,
-      [album.id, userId],
-    );
-
-    return {
-      id: album.id,
-      name: album.name,
-      description: album.description,
-      // Falls back to the first item once the manual pick's capture is gone.
-      coverPhotoId: album.resolved_cover_photo_id ?? itemsRes.rows[0]?.photo_id ?? null,
-      coverLayout: album.cover_layout,
-      // The crop belongs to the picked photo, so drop it when we fell back to another.
-      coverCropX: album.resolved_cover_photo_id == null ? null : album.cover_crop_x == null ? null : Number(album.cover_crop_x),
-      coverCropY: album.resolved_cover_photo_id == null ? null : album.cover_crop_y == null ? null : Number(album.cover_crop_y),
-      coverCropSize: album.resolved_cover_photo_id == null ? null : album.cover_crop_size == null ? null : Number(album.cover_crop_size),
-      quadSlots: resolveQuadSlots(album.quad_photo_ids, album.quad_crops, album.quad_candidate_photo_ids ?? []),
-      createdAt: album.created_at,
-      items: itemsRes.rows.map((row) => toGalleryItem(row, null)),
-    };
-  });
-
-  app.patch<{ Params: { id: string }; Body: UpdateAlbumBody }>(
+  app.get(
     "/albums/:id",
-    { preHandler: requireScope("album.write") },
+    { preValidation: requireScope("album.read"), config: albumNotFound, schema: { params: IdParams } },
     async (request, reply) => {
-      if (!isUuid(request.params.id)) return reply.code(404).send({ error: "Album not found" });
+      const userId = request.user!.id;
+      const albumRes = await pool.query(
+        // NULL when the cover's capture is trashed: soft delete doesn't clear cover_photo_id.
+        `SELECT a.id, a.name, a.description, a.cover_layout, a.cover_crop_x, a.cover_crop_y, a.cover_crop_size, a.created_at,
+                a.quad_photo_ids, a.quad_crops,
+                cover_p.id AS resolved_cover_photo_id,
+                (
+                  SELECT array_agg(sub.photo_id) FROM (
+                    SELECT c.current_photo_id AS photo_id
+                    FROM album_captures ac2 JOIN captures c ON c.id = ac2.capture_id
+                    WHERE ac2.album_id = a.id AND c.current_photo_id IS NOT NULL
+                    ORDER BY ac2.added_at DESC
+                  ) sub
+                ) AS quad_candidate_photo_ids
+         FROM albums a
+         LEFT JOIN LATERAL (
+           SELECT p.id FROM photos p JOIN captures c ON c.id = p.capture_id WHERE p.id = a.cover_photo_id
+         ) cover_p ON true
+         WHERE a.id = $1 AND a.user_id = $2`,
+        [request.params.id, userId],
+      );
+      const album = albumRes.rows[0];
+      if (!album) return reply.code(404).send({ error: "Album not found" });
+
+      // Through the trash-excluding captures view, so trashed photos drop out of albums.
+      const itemsRes = await pool.query(
+        `SELECT ${GALLERY_ITEM_COLUMNS}
+         FROM album_captures ac
+         JOIN captures c ON c.id = ac.capture_id
+         ${GALLERY_ITEM_JOINS}
+         WHERE ac.album_id = $1 AND c.user_id = $2
+         ORDER BY ac.added_at DESC`,
+        [album.id, userId],
+      );
+
+      return {
+        id: album.id,
+        name: album.name,
+        description: album.description,
+        // Falls back to the first item once the manual pick's capture is gone.
+        coverPhotoId: album.resolved_cover_photo_id ?? itemsRes.rows[0]?.photo_id ?? null,
+        coverLayout: album.cover_layout,
+        // The crop belongs to the picked photo, so drop it when we fell back to another.
+        coverCropX:
+          album.resolved_cover_photo_id == null ? null : album.cover_crop_x == null ? null : Number(album.cover_crop_x),
+        coverCropY:
+          album.resolved_cover_photo_id == null ? null : album.cover_crop_y == null ? null : Number(album.cover_crop_y),
+        coverCropSize:
+          album.resolved_cover_photo_id == null
+            ? null
+            : album.cover_crop_size == null
+              ? null
+              : Number(album.cover_crop_size),
+        quadSlots: resolveQuadSlots(album.quad_photo_ids, album.quad_crops, album.quad_candidate_photo_ids ?? []),
+        createdAt: album.created_at,
+        items: itemsRes.rows.map((row) => toGalleryItem(row, null)),
+      };
+    },
+  );
+
+  app.patch(
+    "/albums/:id",
+    {
+      preValidation: requireScope("album.write"),
+      config: albumNotFound,
+      schema: {
+        params: IdParams,
+        body: Type.Object(
+          {
+            name: Type.Optional(Type.String()),
+            description: Type.Optional(Nullable(Type.String())),
+            coverPhotoId: Type.Optional(Nullable(Uuid())),
+            coverLayout: Type.Optional(Type.Enum(["single", "quad"])),
+          },
+          { additionalProperties: false },
+        ),
+      },
+    },
+    async (request, reply) => {
       const userId = request.user!.id;
       if (!(await assertOwnedAlbum(request.params.id, userId))) {
         return reply.code(404).send({ error: "Album not found" });
       }
-      const { name, description, coverPhotoId, coverLayout } = request.body ?? {};
-      if (coverLayout !== undefined && coverLayout !== "single" && coverLayout !== "quad") {
-        return reply.code(400).send({ error: "coverLayout must be 'single' or 'quad'" });
-      }
+      const { name, description, coverPhotoId, coverLayout } = request.body;
       if (coverPhotoId !== undefined && coverPhotoId !== null) {
-        if (!isUuid(coverPhotoId)) return reply.code(400).send({ error: "coverPhotoId must be a photo id" });
         const owned = await pool.query(
           `SELECT 1 FROM photos p JOIN captures c ON c.id = p.capture_id WHERE p.id = $1 AND c.user_id = $2`,
           [coverPhotoId, userId],
@@ -222,25 +255,40 @@ export async function albumRoutes(app: FastifyInstance): Promise<void> {
     },
   );
 
-  app.delete<{ Params: { id: string } }>("/albums/:id", { preHandler: requireScope("album.write") }, async (request, reply) => {
-    if (!isUuid(request.params.id)) return reply.code(404).send({ error: "Album not found" });
-    const res = await pool.query(`DELETE FROM albums WHERE id = $1 AND user_id = $2`, [request.params.id, request.user!.id]);
-    if (res.rowCount === 0) return reply.code(404).send({ error: "Album not found" });
-    return { ok: true };
-  });
-
-  app.post<{ Params: { id: string }; Body: AddCapturesBody }>(
-    "/albums/:id/captures",
-    { preHandler: requireScope("album.write") },
+  app.delete(
+    "/albums/:id",
+    {
+      preValidation: requireScope("album.write"),
+      config: albumNotFound,
+      schema: { params: IdParams, response: replies(Ok) },
+    },
     async (request, reply) => {
-      if (!isUuid(request.params.id)) return reply.code(404).send({ error: "Album not found" });
+      const res = await pool.query(`DELETE FROM albums WHERE id = $1 AND user_id = $2`, [
+        request.params.id,
+        request.user!.id,
+      ]);
+      if (res.rowCount === 0) return reply.code(404).send({ error: "Album not found" });
+      return { ok: true };
+    },
+  );
+
+  app.post(
+    "/albums/:id/captures",
+    {
+      preValidation: requireScope("album.write"),
+      config: albumNotFound,
+      schema: {
+        params: IdParams,
+        body: Type.Object({ captureIds: Type.Array(Uuid(), { minItems: 1 }) }, { additionalProperties: false }),
+        response: replies(Ok),
+      },
+    },
+    async (request, reply) => {
       const userId = request.user!.id;
       if (!(await assertOwnedAlbum(request.params.id, userId))) {
         return reply.code(404).send({ error: "Album not found" });
       }
-      const captureIds = request.body?.captureIds ?? [];
-      if (captureIds.length === 0) return reply.code(400).send({ error: "captureIds is required" });
-      if (!Array.isArray(captureIds) || !captureIds.every(isUuid)) return reply.code(400).send({ error: "captureIds must be capture ids" });
+      const { captureIds } = request.body;
 
       // Only the user's own captures: the caller supplies capture IDs directly here.
       const inserted = await pool.query(
@@ -271,11 +319,14 @@ export async function albumRoutes(app: FastifyInstance): Promise<void> {
     },
   );
 
-  app.delete<{ Params: { id: string; captureId: string } }>(
+  app.delete(
     "/albums/:id/captures/:captureId",
-    { preHandler: requireScope("album.write") },
+    {
+      preValidation: requireScope("album.write"),
+      config: albumNotFound,
+      schema: { params: Type.Object({ id: Uuid(), captureId: Uuid() }), response: replies(Ok) },
+    },
     async (request, reply) => {
-      if (!isUuid(request.params.id) || !isUuid(request.params.captureId)) return reply.code(404).send({ error: "Album not found" });
       if (!(await assertOwnedAlbum(request.params.id, request.user!.id))) {
         return reply.code(404).send({ error: "Album not found" });
       }
@@ -289,24 +340,42 @@ export async function albumRoutes(app: FastifyInstance): Promise<void> {
   );
 
   // Same as /trips/:id/cover-crop: a crop needs a manual cover_photo_id first.
-  app.patch<{ Params: { id: string }; Body: { x?: number; y?: number; size?: number; reset?: boolean } }>(
+  app.patch(
     "/albums/:id/cover-crop",
-    { preHandler: requireScope("album.write") },
+    {
+      preValidation: requireScope("album.write"),
+      config: albumNotFound,
+      schema: {
+        params: IdParams,
+        // Either { reset: true } or a full crop, which the handler checks once it knows which.
+        body: Type.Object(
+          {
+            x: Type.Optional(Percent),
+            y: Type.Optional(Percent),
+            size: Type.Optional(CropSize),
+            reset: Type.Optional(Type.Boolean()),
+          },
+          { additionalProperties: false },
+        ),
+        response: replies(Ok),
+      },
+    },
     async (request, reply) => {
-      if (!isUuid(request.params.id)) return reply.code(404).send({ error: "Album not found" });
       const userId = request.user!.id;
       const albumRes = await pool.query<{ cover_photo_id: string | null }>(
         `SELECT cover_photo_id FROM albums WHERE id = $1 AND user_id = $2`,
         [request.params.id, userId],
       );
       if (albumRes.rows.length === 0) return reply.code(404).send({ error: "Album not found" });
-      if (!albumRes.rows[0].cover_photo_id) return reply.code(400).send({ error: "No cover photo set for this album yet" });
+      if (!albumRes.rows[0].cover_photo_id)
+        return reply.code(400).send({ error: "No cover photo set for this album yet" });
 
-      const { x, y, size, reset } = request.body ?? {};
+      const { x, y, size, reset } = request.body;
       if (reset) {
-        await pool.query(`UPDATE albums SET cover_crop_x = NULL, cover_crop_y = NULL, cover_crop_size = NULL WHERE id = $1`, [
-          request.params.id,
-        ]);
+        await pool.query(
+          `UPDATE albums SET cover_crop_x = NULL, cover_crop_y = NULL, cover_crop_size = NULL WHERE id = $1`,
+          [request.params.id],
+        );
         return { ok: true };
       }
 
@@ -324,91 +393,107 @@ export async function albumRoutes(app: FastifyInstance): Promise<void> {
 
   /** Sets the photo and/or crop of one quad-grid tile. Omitted fields are left as-is; null
    * clears back to auto-pick. */
-  app.patch<{
-    Params: { id: string };
-    Body: { slot: number; photoId?: string | null; crop?: { x: number; y: number; size: number } | null };
-  }>("/albums/:id/quad-slot", { preHandler: requireScope("album.write") }, async (request, reply) => {
-    if (!isUuid(request.params.id)) return reply.code(404).send({ error: "Album not found" });
-    const userId = request.user!.id;
-    const { slot, photoId, crop } = request.body ?? {};
-    if (typeof slot !== "number" || !Number.isInteger(slot) || slot < 0 || slot > 3) {
-      return reply.code(400).send({ error: "slot must be an integer 0-3" });
-    }
-    if (photoId != null && !isUuid(photoId)) return reply.code(400).send({ error: "photoId must be a photo id" });
-    if (crop != null && !isValidCrop(crop.x, crop.y, crop.size)) {
-      return reply.code(400).send({ error: "crop x, y, size must each be within 0-100" });
-    }
+  app.patch(
+    "/albums/:id/quad-slot",
+    {
+      preValidation: requireScope("album.write"),
+      config: albumNotFound,
+      schema: {
+        params: IdParams,
+        body: Type.Object(
+          {
+            slot: Type.Integer({ minimum: 0, maximum: 3 }),
+            photoId: Type.Optional(Nullable(Uuid())),
+            crop: Type.Optional(Nullable(Crop)),
+          },
+          { additionalProperties: false },
+        ),
+        response: replies(Ok),
+      },
+    },
+    async (request, reply) => {
+      const userId = request.user!.id;
+      const { slot, photoId, crop } = request.body;
 
-    const albumRes = await pool.query<{ quad_photo_ids: (string | null)[] | null; quad_crops: unknown[] | null }>(
-      `SELECT quad_photo_ids, quad_crops FROM albums WHERE id = $1 AND user_id = $2`,
-      [request.params.id, userId],
-    );
-    if (albumRes.rows.length === 0) return reply.code(404).send({ error: "Album not found" });
-    const current = albumRes.rows[0];
+      const albumRes = await pool.query<{ quad_photo_ids: (string | null)[] | null; quad_crops: unknown[] | null }>(
+        `SELECT quad_photo_ids, quad_crops FROM albums WHERE id = $1 AND user_id = $2`,
+        [request.params.id, userId],
+      );
+      if (albumRes.rows.length === 0) return reply.code(404).send({ error: "Album not found" });
+      const current = albumRes.rows[0];
 
-    const ids = [0, 1, 2, 3].map((i) => current.quad_photo_ids?.[i] ?? null);
-    const crops = [0, 1, 2, 3].map((i) => current.quad_crops?.[i] ?? null);
-    if (photoId !== undefined) {
-      ids[slot] = photoId;
-      crops[slot] = null; // the old crop was framed for a different photo
-    }
-    if (crop !== undefined) crops[slot] = crop;
+      const ids = [0, 1, 2, 3].map((i) => current.quad_photo_ids?.[i] ?? null);
+      const crops = [0, 1, 2, 3].map((i) => current.quad_crops?.[i] ?? null);
+      if (photoId !== undefined) {
+        ids[slot] = photoId;
+        crops[slot] = null; // the old crop was framed for a different photo
+      }
+      if (crop !== undefined) crops[slot] = crop;
 
-    // All slots cleared: store NULL so new captures can join the auto-picked default.
-    const allEmpty = ids.every((id) => id == null);
-    await pool.query(`UPDATE albums SET quad_photo_ids = $1, quad_crops = $2 WHERE id = $3`, [
-      allEmpty ? null : ids,
-      allEmpty ? null : JSON.stringify(crops),
-      request.params.id,
-    ]);
-    return { ok: true };
-  });
+      // All slots cleared: store NULL so new captures can join the auto-picked default.
+      const allEmpty = ids.every((id) => id == null);
+      await pool.query(`UPDATE albums SET quad_photo_ids = $1, quad_crops = $2 WHERE id = $3`, [
+        allEmpty ? null : ids,
+        allEmpty ? null : JSON.stringify(crops),
+        request.params.id,
+      ]);
+      return { ok: true };
+    },
+  );
 
   // Same shape as /trips/:id/species, so the web reuses the species grid.
-  app.get<{ Params: { id: string } }>("/albums/:id/species", { preHandler: requireScope("album.read") }, async (request, reply) => {
-    if (!isUuid(request.params.id)) return reply.code(404).send({ error: "Album not found" });
-    const userId = request.user!.id;
-    if (!(await assertOwnedAlbum(request.params.id, userId))) {
-      return reply.code(404).send({ error: "Album not found" });
-    }
-    const res = await pool.query(
-      `SELECT
-         s.id AS species_id,
-         s.scientific_name,
-         s.common_name,
-         s.taxon_class,
-         s.family,
-         s.taxon_order,
-         s.reference_photo,
-         s.reference_credit,
-         s.reference_thumb_path IS NOT NULL AS has_reference_thumb,
-         s.reference_focal_x,
-         s.reference_focal_y,
-         r.tier,
-         t.endemic_country_iso3,
-         t.endemic_region_label,
-         us.state,
-         us.is_target,
-         us.cover_photo_id,
-         us.card_crop_x,
-         us.card_crop_y,
-         us.card_crop_size,
-         p.thumb_path IS NOT NULL AS has_cover_photo,
-         sv.label AS cover_volume_label
-       FROM species s
-       LEFT JOIN species_rarity r ON r.species_id = s.id
-       LEFT JOIN species_traits t ON t.species_id = s.id
-       LEFT JOIN user_species us ON us.user_id = $1 AND us.species_id = s.id
-       LEFT JOIN photos p ON p.id = us.cover_photo_id
-       LEFT JOIN originals o ON o.capture_id = p.capture_id AND o.kind = 'jpeg'
-       LEFT JOIN storage_volumes sv ON sv.id = o.volume_id
-       WHERE EXISTS (
-         SELECT 1 FROM album_captures ac JOIN captures c ON c.id = ac.capture_id
-         WHERE ac.album_id = $2 AND c.species_id = s.id
-       )
-       ORDER BY s.scientific_name`,
-      [userId, request.params.id],
-    );
-    return { items: await markNameChanged(userId, res.rows.map((row) => toCollectionItem(row))) };
-  });
+  app.get(
+    "/albums/:id/species",
+    { preValidation: requireScope("album.read"), config: albumNotFound, schema: { params: IdParams } },
+    async (request, reply) => {
+      const userId = request.user!.id;
+      if (!(await assertOwnedAlbum(request.params.id, userId))) {
+        return reply.code(404).send({ error: "Album not found" });
+      }
+      const res = await pool.query(
+        `SELECT
+           s.id AS species_id,
+           s.scientific_name,
+           s.common_name,
+           s.taxon_class,
+           s.family,
+           s.taxon_order,
+           s.reference_photo,
+           s.reference_credit,
+           s.reference_thumb_path IS NOT NULL AS has_reference_thumb,
+           s.reference_focal_x,
+           s.reference_focal_y,
+           r.tier,
+           t.endemic_country_iso3,
+           t.endemic_region_label,
+           us.state,
+           us.is_target,
+           us.cover_photo_id,
+           us.card_crop_x,
+           us.card_crop_y,
+           us.card_crop_size,
+           p.thumb_path IS NOT NULL AS has_cover_photo,
+           sv.label AS cover_volume_label
+         FROM species s
+         LEFT JOIN species_rarity r ON r.species_id = s.id
+         LEFT JOIN species_traits t ON t.species_id = s.id
+         LEFT JOIN user_species us ON us.user_id = $1 AND us.species_id = s.id
+         LEFT JOIN photos p ON p.id = us.cover_photo_id
+         LEFT JOIN originals o ON o.capture_id = p.capture_id AND o.kind = 'jpeg'
+         LEFT JOIN storage_volumes sv ON sv.id = o.volume_id
+         WHERE EXISTS (
+           SELECT 1 FROM album_captures ac JOIN captures c ON c.id = ac.capture_id
+           WHERE ac.album_id = $2 AND c.species_id = s.id
+         )
+         ORDER BY s.scientific_name`,
+        [userId, request.params.id],
+      );
+      return {
+        items: await markNameChanged(
+          userId,
+          res.rows.map((row) => toCollectionItem(row)),
+        ),
+      };
+    },
+  );
 }

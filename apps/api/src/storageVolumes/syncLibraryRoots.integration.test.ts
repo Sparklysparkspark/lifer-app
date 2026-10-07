@@ -2,7 +2,7 @@
 //   TEST_DATABASE_URL=postgres://lifer@127.0.0.1:55432/lifer npx vitest run syncLibraryRoots.integration
 import pg from "pg";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { log } from "../lib/log.js";
+import { log } from "@lifer/core/lib/log.js";
 
 const url = process.env.TEST_DATABASE_URL;
 const USER = "bbbbbbbb-0000-4000-8000-000000000104";
@@ -10,7 +10,7 @@ const USER = "bbbbbbbb-0000-4000-8000-000000000104";
 describe.skipIf(!url)("syncLibraryRootsFromEnv (integration)", () => {
   const pool = new pg.Pool({ connectionString: url });
   // withTransaction bound to this test pool (the real db.js would connect to DATABASE_URL).
-  vi.doMock("../db.js", () => ({
+  vi.doMock("@lifer/core/db.js", () => ({
     pool,
     withTransaction: async <T>(fn: (client: pg.PoolClient) => Promise<T>): Promise<T> => {
       const client = await pool.connect();

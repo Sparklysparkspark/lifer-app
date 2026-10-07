@@ -62,7 +62,7 @@ describe.skipIf(!url)("GET /gallery keyset pages", () => {
     await db.query(`DELETE FROM users WHERE id = $1`, [USER]);
     await db.query(`DELETE FROM species WHERE id = $1`, [SPECIES]);
     await db.end();
-    const { pool } = await import("../db.js");
+    const { pool } = await import("@lifer/core/db.js");
     await pool.end();
   });
 
@@ -113,6 +113,50 @@ describe.skipIf(!url)("GET /gallery keyset pages", () => {
     expect((await get(`/gallery?sort=newest&limit=2&cursor=${first.body.nextCursor}`)).status).toBe(400);
     expect((await get(`/gallery/search?q=warbler&regionId=nope`)).status).toBe(400);
     expect((await get(`/gallery?regionId=uncategorized`)).status).toBe(200);
+  });
+
+  it("checks the query against its schema, keeping lenient values clients send", async () => {
+    const invalid = (status: number, body: { error: string; code?: string }, pattern: RegExp) => {
+      expect(status).toBe(400);
+      expect(body.code).toBe("invalid_request");
+      expect(body.error).toMatch(pattern);
+    };
+    const badTrip = await get(`/gallery?tripId=nope`);
+    invalid(badTrip.status, badTrip.body, /^Invalid query: tripId must be an id/);
+    const badAlbum = await get(`/gallery/ids?albumId=123`);
+    invalid(badAlbum.status, badAlbum.body, /^Invalid query: albumId must be an id/);
+    const badFlag = await get(`/gallery?onlyVideo=yes`);
+    invalid(badFlag.status, badFlag.body, /^Invalid query: onlyVideo must be one of 0, 1$/);
+    const badQuick = await get(`/gallery/search?q=warbler&quick=true`);
+    invalid(badQuick.status, badQuick.body, /^Invalid query: quick /);
+    const negative = await get(`/gallery?limit=-1`);
+    invalid(negative.status, negative.body, /^Invalid query: limit must be >= 1$/);
+    const word = await get(`/gallery?limit=ten`);
+    invalid(word.status, word.body, /^Invalid query: limit must be integer$/);
+    const badDate = await get(`/gallery/ids?dateTo=05/01/2024`);
+    invalid(badDate.status, badDate.body, /^Invalid query: dateTo /);
+
+    // Empty values mean "not given", a larger limit is capped rather than refused, an unknown
+    // sort (a stale one the browser remembered) is the default, and "0" leaves a flag off.
+    const lenient = await get(`/gallery?regionId=&tripId=&limit=100000&sort=bogus&onlyVideo=0`);
+    expect(lenient.status).toBe(200);
+    expect(lenient.body.items).toHaveLength(18);
+    expect(lenient.body.total).toBe(18);
+    const ids = await get(`/gallery/ids?missingDate=1`);
+    expect(ids.status).toBe(200);
+    expect(Object.keys(ids.body).sort()).toEqual(["captureIds", "rawCaptureIds", "videoCaptureIds"]);
+    expect(ids.body.captureIds.length).toBeGreaterThan(0);
+  });
+
+  it("keeps every item field through the response schema", async () => {
+    const page = await get(`/gallery?limit=1`);
+    expect(Object.keys(page.body.items[0])).toEqual(
+      expect.arrayContaining(["photoId", "captureId", "scientificName", "takenAt", "tags", "isFeatured", "matchScore"]),
+    );
+    expect(page.body.items[0].scientificName).toBe("Galleria pagina");
+    const search = await get(`/gallery/search?q=paging%20warbler&quick=1`);
+    expect(search.body.items[0].commonName).toBe("Paging Warbler");
+    expect(search.body).toHaveProperty("interpretation");
   });
 
   it("applies tag and missingDate to search", async () => {

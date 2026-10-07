@@ -1,9 +1,10 @@
 import { createHash, randomBytes } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import type { FastifyInstance, FastifyReply } from "fastify";
+import { Type } from "typebox";
 import type { PoolClient } from "pg";
-import { pool } from "../db.js";
-import { isUuid } from "../lib/validate.js";
+import { pool } from "@lifer/core/db.js";
+import { IdParams, Nullable, Ok, Uuid, notFoundOnInvalidId, replies, withSchemas } from "../lib/schema.js";
 import { requireAuth } from "../auth/session.js";
 import { toCollectionItem } from "./collectionItem.js";
 import { markNameChanged } from "../species/speciesSplits.js";
@@ -25,8 +26,8 @@ async function syncCoverCaptureXmp(userId: string, photoId: string | null): Prom
 }
 
 // Species a downloaded pack covers, computed once per request instead of SPECIES_UNLOCKED_SQL's
-// two EXISTS subqueries per catalog row. Same logic as obscurity.ts's SPECIES_UNLOCKED_SQL; the
-// is_other_taxa carve-out stays in the WHERE clause.
+// two EXISTS subqueries per catalog row. Same logic as obscurity.ts's SPECIES_UNLOCKED_SQL, except
+// for hand-imported species, which COLLECTION_WHERE counts per user through their additions.
 const UNLOCKED_SPECIES_CTE = `pack_regions AS MATERIALIZED (
   -- The handful of regions a downloaded pack covers, resolved first so region_species is read
   -- through its (region_id, species_id) key instead of scanned in full.
@@ -56,7 +57,11 @@ const COLLECTION_WHERE = (maxDepthM: number) => `
   WHERE (($2::text[] IS NULL) OR ($2 @> ARRAY['other-taxa']::text[] AND s.is_other_taxa = true) OR s.taxon_class = ANY($2)) AND COALESCE(t.fully_extinct, false) = false
     AND ($3 = false OR ${ALREADY_OWNED_SQL} OR NOT ${obscureSpeciesSql(maxDepthM)})
     AND ${NOT_ARCHIVED_SQL}
-    AND (${ALREADY_OWNED_SQL} OR s.is_other_taxa = true OR s.id IN (SELECT species_id FROM unlocked))`;
+    AND (${ALREADY_OWNED_SQL} OR s.id IN (SELECT species_id FROM unlocked)
+      -- One you added to a checklist yourself counts even without its pack (regions/checklistAdditions.ts).
+      -- Hand-imported species are additions too, so another user's imports stay out of your list.
+      OR s.id IN (SELECT species_id FROM region_species_user_added WHERE user_id = $1)
+      OR s.id IN (SELECT species_id FROM sea_zone_species_user_added WHERE user_id = $1))`;
 
 // state: collected (user_species row with state='collected'), seen (state='seen'), else unseen.
 // ?taxon= filters by species.taxon_class.
@@ -186,10 +191,19 @@ async function collectionVersion(
   }
 }
 
-export async function collectionRoutes(app: FastifyInstance): Promise<void> {
-  app.get<{ Querystring: { taxon?: string } }>(
+const TaxonQuery = Type.Object({
+  taxon: Type.Optional(Type.String({ description: "Comma-separated taxon classes, e.g. aves,mammalia" })),
+});
+const speciesNotFound = notFoundOnInvalidId("Species not found");
+// Percent of the photo, the same bounds as lib/crop.ts isValidCrop.
+const Percent = Type.Number({ minimum: 0, maximum: 100 });
+
+export async function collectionRoutes(fastify: FastifyInstance): Promise<void> {
+  const app = withSchemas(fastify);
+
+  app.get(
     "/collection",
-    { preHandler: requireAuth },
+    { preValidation: requireAuth, schema: { querystring: TaxonQuery } },
     async (request, reply) => {
       const userId = request.user!.id;
       const taxa = request.query.taxon ? request.query.taxon.split(",").filter(Boolean) : null;
@@ -209,9 +223,9 @@ export async function collectionRoutes(app: FastifyInstance): Promise<void> {
   );
 
   // GET /collection's counts only, so the header can show a total before the list loads.
-  app.get<{ Querystring: { taxon?: string } }>(
+  app.get(
     "/collection/count",
-    { preHandler: requireAuth },
+    { preValidation: requireAuth, schema: { querystring: TaxonQuery } },
     async (request, reply) => {
       const userId = request.user!.id;
       const taxa = request.query.taxon ? request.query.taxon.split(",").filter(Boolean) : null;
@@ -229,7 +243,7 @@ export async function collectionRoutes(app: FastifyInstance): Promise<void> {
   );
 
   // Totals collected by tier, by family and by year.
-  app.get("/collection/stats", { preHandler: requireAuth }, async (request) => {
+  app.get("/collection/stats", { preValidation: requireAuth, schema: {} }, async (request) => {
     const userId = request.user!.id;
 
     const totalRes = await pool.query(
@@ -276,13 +290,21 @@ export async function collectionRoutes(app: FastifyInstance): Promise<void> {
     };
   });
 
-  app.patch<{ Params: { id: string }; Body: { photoId?: string | null } }>(
+  app.patch(
     "/species/:id/cover",
-    { preHandler: requireAuth },
+    {
+      preValidation: requireAuth,
+      config: speciesNotFound,
+      schema: {
+        params: IdParams,
+        // null un-features the species (the Gallery's featured toggle).
+        body: Type.Object({ photoId: Nullable(Uuid()) }, { additionalProperties: false }),
+        response: replies(Ok),
+      },
+    },
     async (request, reply) => {
-      if (!isUuid(request.params.id)) return reply.code(404).send({ error: "Species not found" });
       const { id: speciesId } = request.params;
-      const { photoId } = request.body ?? {};
+      const { photoId } = request.body;
       const userId = request.user!.id;
 
       // Resolve the old cover before overwriting cover_photo_id, to re-sync its sidecar.
@@ -302,9 +324,6 @@ export async function collectionRoutes(app: FastifyInstance): Promise<void> {
         await syncCoverCaptureXmp(userId, priorCoverPhotoId);
         return { ok: true };
       }
-      if (!photoId) return reply.code(400).send({ error: "photoId is required" });
-      if (!isUuid(photoId)) return reply.code(403).send({ error: "That photo doesn't belong to you for this species" });
-
       // Confirm this photo belongs to a capture the user owns, for this species.
       const ownershipRes = await pool.query<{ capture_id: string; display_path: string | null }>(
         `SELECT c.id AS capture_id, p.display_path FROM photos p
@@ -335,13 +354,29 @@ export async function collectionRoutes(app: FastifyInstance): Promise<void> {
     },
   );
 
-  app.patch<{ Params: { id: string }; Body: { x?: number; y?: number; size?: number; reset?: boolean } }>(
+  app.patch(
     "/species/:id/card-crop",
-    { preHandler: requireAuth },
+    {
+      preValidation: requireAuth,
+      config: speciesNotFound,
+      schema: {
+        params: IdParams,
+        // Either `reset: true`, or all of x, y and size (checked below, since reset makes them optional).
+        body: Type.Object(
+          {
+            x: Type.Optional(Percent),
+            y: Type.Optional(Percent),
+            size: Type.Optional(Type.Number({ exclusiveMinimum: 0, maximum: 100 })),
+            reset: Type.Optional(Type.Boolean()),
+          },
+          { additionalProperties: false },
+        ),
+        response: replies(Ok),
+      },
+    },
     async (request, reply) => {
-      if (!isUuid(request.params.id)) return reply.code(404).send({ error: "Species not found" });
       const { id: speciesId } = request.params;
-      const { x, y, size, reset } = request.body ?? {};
+      const { x, y, size, reset } = request.body;
       const userId = request.user!.id;
 
       if (reset) {

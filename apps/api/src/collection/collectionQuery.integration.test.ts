@@ -142,6 +142,12 @@ describe.skipIf(!url)("collection query rewrite", () => {
     await db.query(`INSERT INTO regions (id, name, external_codes) VALUES ($1, 'Zzmammal Query Test', '{ZZM}')`, [MAMMAL_COUNTRY]);
     await db.query(`INSERT INTO region_species (region_id, species_id) VALUES ($1, $2)`, [MAMMAL_COUNTRY, SP[1]]);
     await db.query(`INSERT INTO downloaded_packs (pack_id, region, taxon) VALUES ($1, 'Zzmammal Query Test', 'mammalia')`, [MAMMAL_PACK]);
+    // The hand import (SP[2]) is this user's checklist addition, as migration 125 stores them.
+    await db.query(`INSERT INTO region_species_user_added (user_id, region_id, species_id) VALUES ($1, $2, $3)`, [
+      USER,
+      PROVINCE,
+      SP[2],
+    ]);
     await db.query(`INSERT INTO user_archived_species (user_id, species_id) VALUES ($1, $2)`, [USER, SP[4]]);
     await db.query(`INSERT INTO user_species (user_id, species_id, state) VALUES ($1, $2, 'collected'), ($1, $3, 'collected'), ($1, $4, 'seen')`, [
       USER,
@@ -168,7 +174,7 @@ describe.skipIf(!url)("collection query rewrite", () => {
   afterAll(async () => {
     await cleanup();
     await db.end();
-    const { pool } = await import("../db.js");
+    const { pool } = await import("@lifer/core/db.js");
     await pool.end();
   });
 
@@ -207,6 +213,59 @@ describe.skipIf(!url)("collection query rewrite", () => {
       const oldRes = await db.query(OLD_COUNT_SQL(maxDepthM), [USER, taxa, hideObscure]);
       const newRes = await db.query(collectionCountSql(maxDepthM), [USER, taxa, hideObscure]);
       expect(newRes.rows).toEqual(oldRes.rows);
+    }
+  }, 180_000);
+
+  it("lists hand imports and sea zone additions only for the user who added them", async () => {
+    const { collectionQuerySql, collectionCountSql } = await import("./routes.js");
+    const OTHER_USER = "ffffffff-0000-4000-8000-000000000121";
+    const OTHERS_IMPORT = "ffffffff-0000-4000-8000-000000000122";
+    const SEA_ADDED = "ffffffff-0000-4000-8000-000000000123";
+    const ZONE = "ffffffff-0000-4000-8000-0000000001d1";
+    const clean = async () => {
+      await db.query(`DELETE FROM users WHERE id = $1`, [OTHER_USER]);
+      await db.query(`DELETE FROM species WHERE id = ANY($1)`, [[OTHERS_IMPORT, SEA_ADDED]]);
+      await db.query(`DELETE FROM sea_zones WHERE id = $1`, [ZONE]);
+    };
+    await clean();
+    try {
+      await db.query(`INSERT INTO users (id, email, password_hash) VALUES ($1, 'cq-other@test', 'x')`, [OTHER_USER]);
+      await db.query(
+        `INSERT INTO species (id, gbif_key, scientific_name, taxon_class, is_other_taxa, reference_photo, reference_credit, reference_license, sort_order) VALUES
+           ($1, -912100, 'Queryus importus', 'insecta', true, 'http://x/y.jpg', 'Test', 'cc0', 900100),
+           ($2, 912101, 'Queryus marinus', 'aves', false, 'http://x/y.jpg', 'Test', 'cc0', 900101)`,
+        [OTHERS_IMPORT, SEA_ADDED],
+      );
+      await db.query(
+        `INSERT INTO sea_zones (id, name, wkt, bbox_min_lon, bbox_min_lat, bbox_max_lon, bbox_max_lat)
+         VALUES ($1, 'Zzquery Sea', 'POLYGON((0 0,1 0,1 1,0 1,0 0))', 0, 0, 1, 1)`,
+        [ZONE],
+      );
+      await db.query(`INSERT INTO region_species_user_added (user_id, region_id, species_id) VALUES ($1, $2, $3)`, [
+        OTHER_USER,
+        PROVINCE,
+        OTHERS_IMPORT,
+      ]);
+      await db.query(`INSERT INTO sea_zone_species_user_added (user_id, sea_zone_id, species_id) VALUES ($1, $2, $3)`, [
+        USER,
+        ZONE,
+        SEA_ADDED,
+      ]);
+      const ids = async (userId: string) =>
+        (await db.query<{ species_id: string }>(collectionQuerySql(60), [userId, null, true])).rows.map((r) => r.species_id);
+
+      const mine = await ids(USER);
+      expect(mine).toContain(SP[2]);
+      expect(mine).toContain(SEA_ADDED);
+      expect(mine).not.toContain(OTHERS_IMPORT);
+      const theirs = await ids(OTHER_USER);
+      expect(theirs).toContain(OTHERS_IMPORT);
+      expect(theirs).not.toContain(SP[2]);
+      expect(theirs).not.toContain(SEA_ADDED);
+      const count = await db.query(collectionCountSql(60), [USER, null, true]);
+      expect(Number(count.rows[0].total)).toBe(mine.length);
+    } finally {
+      await clean();
     }
   }, 180_000);
 

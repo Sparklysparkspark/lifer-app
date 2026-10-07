@@ -10,7 +10,7 @@ import cookie from "@fastify/cookie";
 import multipart from "@fastify/multipart";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { tusUpload } from "./testImages.js";
+import { tusUpload } from "@lifer/core/uploads/testImages.js";
 
 const url = process.env.TEST_DATABASE_URL;
 const USER = "dddddddd-0000-4000-8000-000000000122";
@@ -48,7 +48,7 @@ describe.skipIf(!url)("resumable upload limits", () => {
     await db.query(`DELETE FROM api_keys WHERE user_id = $1`, [USER]);
     await db.query(`DELETE FROM users WHERE id = $1`, [USER]);
     await db.end();
-    const { pool } = await import("../db.js");
+    const { pool } = await import("@lifer/core/db.js");
     await pool.end();
     delete process.env.MAX_UPLOAD_BYTES;
     rmSync(dataDir, { recursive: true, force: true });
@@ -60,6 +60,16 @@ describe.skipIf(!url)("resumable upload limits", () => {
     const options = await app.inject({ method: "OPTIONS", url: "/api/uploads/tus", headers: API });
     expect(options.headers["tus-max-size"]).toBe("1000");
     expect(String(options.headers["tus-extension"])).toContain("creation-with-upload");
+  });
+
+  it("answers an unknown upload id the tus way, and a signed-out caller with 401", async () => {
+    const tus = { ...API, "tus-resumable": "1.0.0" };
+    for (const method of ["HEAD", "DELETE", "PATCH"] as const) {
+      const res = await app.inject({ method, url: "/api/uploads/tus/not-an-upload", headers: { ...tus, "upload-offset": "0" } });
+      expect([method, res.statusCode, res.headers["tus-resumable"]]).toEqual([method, 404, "1.0.0"]);
+    }
+    const signedOut = await app.inject({ method: "HEAD", url: "/api/uploads/tus/not-an-upload", headers: { "tus-resumable": "1.0.0" } });
+    expect(signedOut.statusCode).toBe(401);
   });
 
   it("sweeps uploads with no activity for two hours, finished or not", async () => {

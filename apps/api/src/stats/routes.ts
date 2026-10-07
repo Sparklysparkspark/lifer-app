@@ -1,6 +1,8 @@
 import type { FastifyInstance } from "fastify";
-import { pool } from "../db.js";
+import { Type } from "typebox";
+import { pool } from "@lifer/core/db.js";
 import { requireScope } from "../auth/session.js";
+import { withSchemas } from "../lib/schema.js";
 import { isGhostSpecies, isLostSpecies, type CollectionRow } from "../collection/collectionItem.js";
 import { getObscurityPreferences } from "../species/obscurity.js";
 import { parseShutterSeconds } from "./shutter.js";
@@ -119,10 +121,22 @@ function fullHourLabel(hour: number): string {
   return `${hour - 12} PM`;
 }
 
-export async function statsRoutes(app: FastifyInstance): Promise<void> {
-  app.get<{ Querystring: { filter?: string } }>("/stats", { preHandler: requireScope("stats.read") }, async (request) => {
+const FilterQuery = Type.Object({
+  filter: Type.Optional(
+    Type.Enum(["all", "featured", "topRated"], {
+      description: "all (default), featured (species cover photos) or topRated (5 stars)",
+    }),
+  ),
+});
+
+export async function statsRoutes(fastify: FastifyInstance): Promise<void> {
+  const app = withSchemas(fastify);
+
+  const filtered = { preValidation: requireScope("stats.read"), schema: { querystring: FilterQuery } };
+
+  app.get("/stats", filtered, async (request) => {
     const userId = request.user!.id;
-    const filter: PhotoFilter = request.query.filter === "featured" || request.query.filter === "topRated" ? request.query.filter : "all";
+    const filter: PhotoFilter = request.query.filter ?? "all";
     const scope = `${KEEPER_FILTER} ${photoFilterFragment(filter)}`;
 
     const { maxDepthM } = await getObscurityPreferences(userId);
@@ -279,12 +293,6 @@ export async function statsRoutes(app: FastifyInstance): Promise<void> {
     }));
 
     const focalLengths = exifRes.rows.filter((r) => r.focal_length_mm != null).map((r) => Number(r.focal_length_mm));
-    const isos = exifRes.rows.filter((r) => r.iso != null).map((r) => r.iso!);
-    const apertures = exifRes.rows.filter((r) => r.aperture != null).map((r) => Number(r.aperture));
-    const shutters = exifRes.rows
-      .filter((r) => r.shutter != null)
-      .map((r) => parseShutterSeconds(r.shutter!))
-      .filter((s): s is number => s != null);
     const focalLengthsWithIds = exifRes.rows
       .filter((r) => r.focal_length_mm != null)
       .map((r) => ({ value: Number(r.focal_length_mm), photoId: r.photo_id }));
@@ -411,9 +419,9 @@ export async function statsRoutes(app: FastifyInstance): Promise<void> {
   }
 
   // One row per keeper capture with raw EXIF/species fields, for charting elsewhere.
-  app.get<{ Querystring: { filter?: string } }>("/stats/export.csv", { preHandler: requireScope("stats.read") }, async (request, reply) => {
+  app.get("/stats/export.csv", filtered, async (request, reply) => {
     const userId = request.user!.id;
-    const filter: PhotoFilter = request.query.filter === "featured" || request.query.filter === "topRated" ? request.query.filter : "all";
+    const filter: PhotoFilter = request.query.filter ?? "all";
     const scope = `${KEEPER_FILTER} ${photoFilterFragment(filter)}`;
 
     const res = await pool.query<{

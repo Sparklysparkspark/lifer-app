@@ -10,7 +10,7 @@ import { ExifTool, type WriteTags } from "exiftool-vendored";
 import pg from "pg";
 import sharp from "sharp";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { setTiffPhotometric } from "../uploads/testImages.js";
+import { setTiffPhotometric } from "@lifer/core/uploads/testImages.js";
 
 const url = process.env.TEST_DATABASE_URL;
 const USER = "dddddddd-0000-4000-8000-000000000130";
@@ -91,7 +91,7 @@ describe.skipIf(!url)("library reimport of TIFF, RAW and HEIC", () => {
     await exiftool.end();
     const { closeExiftool } = await import("../uploads/exif.js");
     await closeExiftool();
-    const { pool } = await import("../db.js");
+    const { pool } = await import("@lifer/core/db.js");
     await pool.end();
     rmSync(dataDir, { recursive: true, force: true });
   });

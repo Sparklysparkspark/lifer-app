@@ -76,7 +76,7 @@ describe.skipIf(!url)("uploads", () => {
     await db.end();
     const { closeExiftool } = await import("./exif.js");
     await closeExiftool();
-    const { pool } = await import("../db.js");
+    const { pool } = await import("@lifer/core/db.js");
     await pool.end();
     rmSync(dataDir, { recursive: true, force: true });
   });

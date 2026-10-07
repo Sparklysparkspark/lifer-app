@@ -49,9 +49,9 @@ describe.skipIf(!url)("migrating to a server over resumable uploads", () => {
     delete process.env.MAX_UPLOAD_BYTES;
     db = new pg.Pool({ connectionString: url });
     const { hashToken } = await import("../auth/session.js");
-    ({ SESSION_COOKIE_NAME: cookieName } = await import("../config.js"));
+    ({ SESSION_COOKIE_NAME: cookieName } = await import("@lifer/core/config.js"));
     const { uploadRoutes } = await import("../uploads/routes.js");
-    const { isBlockedCrossSiteWrite } = await import("../lib/requestGuard.js");
+    const { isBlockedCrossSiteWrite } = await import("@lifer/core/lib/requestGuard.js");
     await cleanup();
     await db.query(`INSERT INTO users (id, email, password_hash) VALUES ($1, 'migrate@test', 'x')`, [USER]);
     await db.query(
@@ -92,7 +92,7 @@ describe.skipIf(!url)("migrating to a server over resumable uploads", () => {
     await db.end();
     const { closeExiftool } = await import("../uploads/exif.js");
     await closeExiftool();
-    const { pool } = await import("../db.js");
+    const { pool } = await import("@lifer/core/db.js");
     await pool.end();
     rmSync(dataDir, { recursive: true, force: true });
   });
@@ -151,5 +151,22 @@ describe.skipIf(!url)("migrating to a server over resumable uploads", () => {
     expect(chunkState.size).toBe(256 * 1024);
     const row = await db.query(`SELECT 1 FROM originals WHERE content_hash = $1`, [createHash("sha256").update(photo).digest("hex")]);
     expect(row.rowCount).toBe(1);
+  }, 60_000);
+
+  it("a retried capture the server already has comes back as a duplicate, not a second photo", async () => {
+    // A run interrupted after the server imported a photo but before it was marked migrated
+    // sends it again on the next run.
+    proxyMode = "413";
+    const photo = await sharp({ create: { width: 120, height: 90, channels: 3, background: { r: 200, g: 40, b: 90 } } }).jpeg().toBuffer();
+    const photoPath = path.join(dataDir, "IMG_5002.jpg");
+    writeFileSync(photoPath, photo);
+    const { sendCaptureToServer } = await import("./migrateToServer.js");
+    const auth = { Cookie: `${cookieName}=${SESSION}`, "x-lifer-client": "1" };
+    const send = () => sendCaptureToServer(baseUrl, auth, { speciesId: SPECIES, photoPath, rawPath: null }, { tus: { retryDelaysMs: [0, 0, 0] } });
+    expect(await send()).toBe(true);
+    expect(await send()).toBe(true);
+    const hash = createHash("sha256").update(photo).digest("hex");
+    const captures = await db.query(`SELECT 1 FROM captures WHERE user_id = $1 AND fingerprint = $2`, [USER, hash]);
+    expect(captures.rowCount).toBe(1);
   }, 60_000);
 });

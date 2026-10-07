@@ -1,0 +1,55 @@
+// Every /api route plugin, in one list so the server and the schema tests register the same set.
+import type { FastifyInstance } from "fastify";
+import { authRoutes } from "./auth/routes.js";
+import { apiKeyRoutes } from "./auth/apiKeyRoutes.js";
+import { speciesRoutes } from "./species/routes.js";
+import { matchingRoutes } from "./species/matchingRoutes.js";
+import { uploadRoutes } from "./uploads/routes.js";
+import { photoRoutes } from "./photos/routes.js";
+import { collectionRoutes } from "./collection/routes.js";
+import { galleryRoutes } from "./gallery/routes.js";
+import { originalsRoutes } from "./originals/routes.js";
+import { captureRoutes } from "./captures/routes.js";
+import { regionRoutes } from "./regions/routes.js";
+import { tierRoutes } from "./species/tierRoutes.js";
+import { splitRoutes } from "./species/splitRoutes.js";
+import { importRoutes } from "./imports/routes.js";
+import { settingsRoutes } from "./settings/routes.js";
+import { offlinePacksRoutes } from "./offlinePacks/routes.js";
+import { archiveRoutes } from "./archive/routes.js";
+import { tripsRoutes } from "./trips/routes.js";
+import { libraryRoutes } from "./library/routes.js";
+import { storageVolumesRoutes } from "./storageVolumes/routes.js";
+import { statsRoutes } from "./stats/routes.js";
+import { albumRoutes } from "./albums/routes.js";
+import { albumShareRoutes } from "./shares/routes.js";
+import { integrationRoutes } from "./integrations/routes.js";
+import { inaturalistRoutes } from "./inaturalist/routes.js";
+
+export async function apiRoutes(api: FastifyInstance): Promise<void> {
+  await api.register(authRoutes);
+  await api.register(speciesRoutes);
+  await api.register(matchingRoutes);
+  await api.register(uploadRoutes);
+  await api.register(photoRoutes);
+  await api.register(collectionRoutes);
+  await api.register(galleryRoutes);
+  await api.register(originalsRoutes);
+  await api.register(captureRoutes);
+  await api.register(regionRoutes);
+  await api.register(tierRoutes);
+  await api.register(splitRoutes);
+  await api.register(importRoutes);
+  await api.register(settingsRoutes);
+  await api.register(offlinePacksRoutes);
+  await api.register(archiveRoutes);
+  await api.register(tripsRoutes);
+  await api.register(libraryRoutes);
+  await api.register(storageVolumesRoutes);
+  await api.register(statsRoutes);
+  await api.register(albumRoutes);
+  await api.register(albumShareRoutes);
+  await api.register(apiKeyRoutes);
+  await api.register(integrationRoutes);
+  await api.register(inaturalistRoutes);
+}

@@ -58,13 +58,13 @@ describe.skipIf(!url)("adoptFlatLibraryLayout", () => {
     await db.query(`DELETE FROM users WHERE id = $1`, [USER]);
     await db.query(`DELETE FROM species WHERE id = $1`, [SPECIES]);
     await db.end();
-    const { pool } = await import("../db.js");
+    const { pool } = await import("@lifer/core/db.js");
     await pool.end();
     rmSync(dataDir, { recursive: true, force: true });
   });
 
   it("repoints only the files that moved", async () => {
-    const { ORIGINALS_DIR } = await import("../config.js");
+    const { ORIGINALS_DIR } = await import("@lifer/core/config.js");
     expect(ORIGINALS_DIR).toBe(dataDir);
     const { adoptFlatLibraryLayout } = await import("./adoptFlatLibraryLayout.js");
     await adoptFlatLibraryLayout();

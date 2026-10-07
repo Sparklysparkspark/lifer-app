@@ -6,7 +6,8 @@ import { videoUploadRoutes } from "./video.js";
 import { tusUploadRoutes } from "./tus.js";
 
 // Re-exported for captures/routes.ts and library/reimport.ts.
-export { moveManagedOriginalToSpeciesFolder } from "./common.js";
+export { fileIntoMainLibrary } from "./common.js";
+export { moveManagedOriginalToSpeciesFolder } from "./managedFolders.js";
 
 export async function uploadRoutes(app: FastifyInstance): Promise<void> {
   await inspectUploadRoutes(app);

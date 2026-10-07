@@ -22,7 +22,7 @@ describe.skipIf(!url)("suggestions for a continent or World", () => {
   beforeAll(async () => {
     process.env.DATABASE_URL = url;
     db = new pg.Pool({ connectionString: url });
-    const { EMBEDDING_MODEL_VERSION } = await import("../config.js");
+    const { EMBEDDING_MODEL_VERSION } = await import("@lifer/core/config.js");
     await db.query(
       `INSERT INTO species (id, gbif_key, scientific_name, common_name, taxon_class, reference_photo, reference_credit, reference_license)
        VALUES ($1, 910899, 'Testus hubensis', 'Hub Test Heron', 'aves', 'https://example.com/hub.jpg', 'Test', 'CC0') ON CONFLICT (id) DO NOTHING`,
@@ -47,14 +47,14 @@ describe.skipIf(!url)("suggestions for a continent or World", () => {
     await db.query(`DELETE FROM users WHERE id = $1`, [USER]);
     await db.query(`DELETE FROM species WHERE id = $1`, [SPECIES]);
     await db.end();
-    const { pool } = await import("../db.js");
+    const { pool } = await import("@lifer/core/db.js");
     await pool.end();
   });
 
   it("matches the downloaded countries' species from the country, its continent and World", async () => {
-    const { rankSpeciesByEmbeddings, CLIP_SPACE, invalidateSuggestionCache } = await import("./embeddings.js");
+    const { rankSpeciesByEmbeddings, CLIP_SPACE, invalidateSuggestionCache } = await import("@lifer/core/species/embeddings.js");
     invalidateSuggestionCache();
-    const { pool } = await import("../db.js");
+    const { pool } = await import("@lifer/core/db.js");
     for (const region of [COUNTRY, CONTINENT, WORLD]) {
       const suggestions = await rankSpeciesByEmbeddings(pool, USER, [embedding], region, 5, null, CLIP_SPACE);
       expect(suggestions[0]?.id, `top suggestion with region ${region}`).toBe(speciesId);

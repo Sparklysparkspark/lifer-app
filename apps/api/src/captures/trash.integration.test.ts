@@ -27,7 +27,7 @@ describe.skipIf(!url)("captures trash and reassign", () => {
   let albumId: string;
   let linkedFile: string;
 
-  const call = (method: "POST" | "PATCH", url: string, payload: unknown) =>
+  const call = (method: "POST" | "PATCH" | "DELETE", url: string, payload?: unknown) =>
     app.inject({ method, url, payload: payload as object, cookies: { [cookieName]: TOKEN } });
 
   beforeAll(async () => {
@@ -39,7 +39,7 @@ describe.skipIf(!url)("captures trash and reassign", () => {
     process.env.SINGLE_USER_MODE = "0";
     db = new pg.Pool({ connectionString: url });
     const { hashToken } = await import("../auth/session.js");
-    ({ SESSION_COOKIE_NAME: cookieName } = await import("../config.js"));
+    ({ SESSION_COOKIE_NAME: cookieName } = await import("@lifer/core/config.js"));
     const { captureRoutes } = await import("./routes.js");
 
     await db.query(`DELETE FROM user_species WHERE user_id = $1`, [USER]);
@@ -109,7 +109,7 @@ describe.skipIf(!url)("captures trash and reassign", () => {
     await db.query(`DELETE FROM users WHERE id = $1`, [USER]);
     await db.query(`DELETE FROM species WHERE id = ANY($1)`, [[SPECIES_A, SPECIES_B]]);
     await db.end();
-    const { pool } = await import("../db.js");
+    const { pool } = await import("@lifer/core/db.js");
     await pool.end();
     rmSync(dataDir, { recursive: true, force: true });
   });
@@ -118,7 +118,11 @@ describe.skipIf(!url)("captures trash and reassign", () => {
     const tooMany = Array.from({ length: 5001 }, () => captures[0]);
     expect((await call("POST", "/api/captures/batch-delete", { captureIds: tooMany })).statusCode).toBe(400);
 
-    const res = await call("POST", "/api/captures/batch-delete", { captureIds: [captures[0], captures[1], "not-a-uuid"] });
+    // A malformed id fails the whole batch; an unknown one only counts as not found.
+    const malformed = await call("POST", "/api/captures/batch-delete", { captureIds: [captures[0], "not-a-uuid"] });
+    expect([malformed.statusCode, malformed.json().code]).toEqual([400, "invalid_request"]);
+    const unknownId = "eeeeeeee-0000-4000-8000-0000000002ff";
+    const res = await call("POST", "/api/captures/batch-delete", { captureIds: [captures[0], captures[1], unknownId] });
     expect(res.statusCode, res.body).toBe(200);
     expect(res.json()).toEqual({ deleted: 2, notFound: 1 });
   });
@@ -169,8 +173,42 @@ describe.skipIf(!url)("captures trash and reassign", () => {
   it("refuses a malformed species or region id in the body", async () => {
     const tag = await call("POST", `/api/captures/${captures[2]}/species`, { speciesId: "nope" });
     expect(tag.statusCode).toBe(400);
-    expect(tag.json()).toEqual({ error: "Unknown species" });
+    expect(tag.json()).toEqual({ error: expect.stringMatching(/^Invalid body: speciesId must be an id/), code: "invalid_request" });
     expect((await call("PATCH", `/api/captures/${captures[2]}/reassign`, { speciesId: "nope" })).statusCode).toBe(400);
     expect((await call("PATCH", `/api/captures/${captures[2]}/region`, { regionId: "nope" })).statusCode).toBe(400);
+  });
+
+  it("validates trash and tag input", async () => {
+    const invalid = (res: { statusCode: number; json: () => { code?: string; error?: string } }) => [
+      res.statusCode,
+      res.json().code,
+    ];
+    const batch = (body: unknown) => call("POST", "/api/captures/batch-delete", body);
+    expect(invalid(await batch({}))).toEqual([400, "invalid_request"]);
+    expect(invalid(await batch({ captureIds: [] }))).toEqual([400, "invalid_request"]);
+    expect(invalid(await batch({ captureIds: captures[2] }))).toEqual([400, "invalid_request"]);
+    expect(invalid(await batch({ captureIds: [captures[2]], deleteRaw: "yes" }))).toEqual([400, "invalid_request"]);
+    expect((await batch({ captureIds: [captures[2]], extra: 1 })).json().error).toBe("Invalid body: unexpected field extra");
+    // A malformed id is a 404 like an unknown one; deleteRaw only takes "1".
+    expect((await call("DELETE", "/api/captures/nope")).json()).toEqual({ error: "Capture not found" });
+    expect(invalid(await call("DELETE", `/api/captures/${captures[2]}?deleteRaw=yes`))).toEqual([400, "invalid_request"]);
+
+    const tagsUrl = `/api/captures/${captures[2]}/tags`;
+    expect(invalid(await call("PATCH", tagsUrl, { tags: "flight" }))).toEqual([400, "invalid_request"]);
+    expect(invalid(await call("PATCH", tagsUrl, { tags: [1] }))).toEqual([400, "invalid_request"]);
+    expect(invalid(await call("PATCH", tagsUrl, {}))).toEqual([400, "invalid_request"]);
+    const tagged = await call("PATCH", tagsUrl, { tags: [" flight ", "flight", ""] });
+    expect([tagged.statusCode, tagged.json()]).toEqual([200, { tags: ["flight"] }]);
+
+    const bulk = (body: unknown) => call("PATCH", "/api/captures/tags", body);
+    expect(invalid(await bulk({ captureIds: ["nope"], tags: ["a"] }))).toEqual([400, "invalid_request"]);
+    expect(invalid(await bulk({ captureIds: [], tags: ["a"] }))).toEqual([400, "invalid_request"]);
+    expect((await bulk({ captureIds: [captures[2]], tags: ["perched"] })).json()).toEqual({ ok: true, updated: 1 });
+    expect(invalid(await call("PATCH", "/api/captures/tags/rename", { from: "perched" }))).toEqual([400, "invalid_request"]);
+    expect((await call("PATCH", "/api/captures/tags/rename", { from: " ", to: "x" })).statusCode).toBe(400);
+    const renamed = await call("PATCH", "/api/captures/tags/rename", { from: "perched", to: "sitting" });
+    expect(renamed.json()).toEqual({ ok: true, updated: 1 });
+    expect(invalid(await call("DELETE", "/api/captures/tags", { tag: 3 }))).toEqual([400, "invalid_request"]);
+    expect((await call("DELETE", "/api/captures/tags", { tag: "sitting" })).json()).toEqual({ ok: true, updated: 1 });
   });
 });

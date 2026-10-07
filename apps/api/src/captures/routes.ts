@@ -2,20 +2,21 @@
 // touches its original file, only Lifer's records and generated derivatives.
 import path from "node:path";
 import type { FastifyInstance } from "fastify";
+import { Type } from "typebox";
 import type { PoolClient } from "pg";
-import { pool, withTransaction } from "../db.js";
-import { isUuid } from "../lib/validate.js";
+import { pool, withTransaction } from "@lifer/core/db.js";
+import { IdParams, Nullable, Ok, Uuid, notFoundOnInvalidId, replies, withSchemas } from "../lib/schema.js";
 import { requireScope } from "../auth/session.js";
-import { captureTimeFromTags, readExifTags, writeSpeciesMetadata } from "../uploads/exif.js";
+import { writeSpeciesMetadata } from "../uploads/exif.js";
 import { syncCaptureXmpSidecarsLogged } from "../uploads/xmpSidecarSync.js";
-import { invalidateUserVectors } from "../species/embeddings.js";
+import { invalidateUserVectors } from "@lifer/core/species/embeddings.js";
 import { ensureDefaultCardCropLater } from "../collection/defaultCardCrop.js";
 import { moveManagedOriginalToSpeciesFolder } from "../uploads/routes.js";
-import { moveToFolder } from "../lib/safeFs.js";
+import { moveToFolder } from "@lifer/core/lib/safeFs.js";
 import { markCollected } from "../lib/userSpecies.js";
-import { getUserFileSettings } from "../lib/userFileSettings.js";
 import { captureTagRoutes } from "./tags.js";
 import { trashRoutes } from "./trash.js";
+import { hiddenCaptureRoutes } from "./hidden.js";
 import { speciesSuggestRoutes } from "./suggest.js";
 
 type Queryable = Pick<PoolClient, "query">;
@@ -155,16 +156,11 @@ export async function reassignCaptureSpecies(
   const newSpecies = newSpeciesRes.rows[0];
   if (!newSpecies) return { ok: false, status: 400, error: "Unknown species" };
 
-  const { organizeByYear } = await getUserFileSettings(userId);
-
-  const takenAt = capture.taken_at ? new Date(capture.taken_at) : null;
-  const originalsRes = await pool.query<{ id: string; kind: "raw" | "jpeg"; ref: string; managed: boolean }>(
-    `SELECT id, kind, ref, managed FROM originals WHERE capture_id = $1`,
-    [captureId],
-  );
-  // Files move first, then DB changes commit together; a failed transaction moves the files
-  // back so no original is left where its row doesn't point.
-  const moved: Array<{ id: string; from: string; to: string }> = [];
+  const originalsRes = await pool.query<{ id: string }>(`SELECT id FROM originals WHERE capture_id = $1`, [captureId]);
+  // Files move first (each within the folder it was filed under: the library, its drive or its
+  // trip's folder), then DB changes commit together; a failed transaction moves the files back
+  // so no original is left where its row doesn't point.
+  const moved: Array<{ id: string; from: string; to: string; volumeRelativePath: string | null }> = [];
   const undoMoves = async () => {
     for (const m of moved.reverse()) {
       await moveToFolder(m.to, path.dirname(m.from), path.basename(m.from)).catch((err) =>
@@ -174,18 +170,8 @@ export async function reassignCaptureSpecies(
   };
   try {
     for (const original of originalsRes.rows) {
-      const newRef = await moveManagedOriginalToSpeciesFolder(
-        original.ref,
-        original.managed,
-        userId,
-        newSpecies.id,
-        original.kind,
-        organizeByYear,
-        newSpecies.taxon_class,
-        takenAt,
-        organizeByYear && original.managed ? await wallClockOf(original.ref) : null,
-      );
-      if (newRef !== original.ref) moved.push({ id: original.id, from: original.ref, to: newRef });
+      const move = await moveManagedOriginalToSpeciesFolder(userId, original.id, newSpecies.id);
+      if (move) moved.push({ id: original.id, ...move });
     }
   } catch (err) {
     await undoMoves();
@@ -193,11 +179,16 @@ export async function reassignCaptureSpecies(
   }
 
   const oldSpeciesId = capture.species_id;
-  let coverMoved = false;
+  let coverMoved: boolean;
   try {
     coverMoved = await withTransaction(async (client) => {
       for (const m of moved) {
-        await client.query(`UPDATE originals SET ref = $1 WHERE id = $2`, [m.to, m.id]);
+        // A file on a drive or library root keeps its volume; its path on it follows the move.
+        await client.query(`UPDATE originals SET ref = $1, volume_relative_path = COALESCE($2, volume_relative_path) WHERE id = $3`, [
+          m.to,
+          m.volumeRelativePath,
+          m.id,
+        ]);
       }
       await client.query(`UPDATE captures SET species_id = $1 WHERE id = $2`, [speciesId, captureId]);
       await markCollected(client, userId, speciesId, capture.current_photo_id, capture.taken_at);
@@ -226,18 +217,24 @@ export async function reassignCaptureSpecies(
   return { ok: true };
 }
 
-export async function captureRoutes(app: FastifyInstance): Promise<void> {
+const SpeciesBody = Type.Object({ speciesId: Uuid() }, { additionalProperties: false });
+const captureNotFound = notFoundOnInvalidId("Capture not found");
+
+export async function captureRoutes(fastify: FastifyInstance): Promise<void> {
+  const app = withSchemas(fastify);
+
   // Tags a second species in a photo (a hawk catching a fish). It counts as collected too.
-  app.post<{ Params: { id: string }; Body: { speciesId?: string } }>(
+  app.post(
     "/captures/:id/species",
-    { preHandler: requireScope("photos.write") },
+    {
+      preValidation: requireScope("photos.write"),
+      config: captureNotFound,
+      schema: { params: IdParams, body: SpeciesBody, response: replies(Ok, 201) },
+    },
     async (request, reply) => {
-      if (!isUuid(request.params.id)) return reply.code(404).send({ error: "Capture not found" });
       const { id: captureId } = request.params;
-      const { speciesId } = request.body ?? {};
+      const { speciesId } = request.body;
       const userId = request.user!.id;
-      if (!speciesId) return reply.code(400).send({ error: "speciesId is required" });
-      if (!isUuid(speciesId)) return reply.code(400).send({ error: "Unknown species" });
 
       const captureRes = await pool.query<{ species_id: string; current_photo_id: string | null; taken_at: string | null }>(
         `SELECT species_id, current_photo_id, taken_at FROM captures WHERE id = $1 AND user_id = $2`,
@@ -265,11 +262,14 @@ export async function captureRoutes(app: FastifyInstance): Promise<void> {
     },
   );
 
-  app.delete<{ Params: { id: string; speciesId: string } }>(
+  app.delete(
     "/captures/:id/species/:speciesId",
-    { preHandler: requireScope("photos.write") },
+    {
+      preValidation: requireScope("photos.write"),
+      config: notFoundOnInvalidId("Tag not found"),
+      schema: { params: Type.Object({ id: Uuid(), speciesId: Uuid() }), response: replies(Ok) },
+    },
     async (request, reply) => {
-      if (!isUuid(request.params.id) || !isUuid(request.params.speciesId)) return reply.code(404).send({ error: "Tag not found" });
       const { id: captureId, speciesId } = request.params;
       const userId = request.user!.id;
 
@@ -288,16 +288,17 @@ export async function captureRoutes(app: FastifyInstance): Promise<void> {
   );
 
   // Corrects a misidentified capture's primary species.
-  app.patch<{ Params: { id: string }; Body: { speciesId?: string } }>(
+  app.patch(
     "/captures/:id/reassign",
-    { preHandler: requireScope("photos.write") },
+    {
+      preValidation: requireScope("photos.write"),
+      config: captureNotFound,
+      schema: { params: IdParams, body: SpeciesBody, response: replies(Ok) },
+    },
     async (request, reply) => {
-      if (!isUuid(request.params.id)) return reply.code(404).send({ error: "Capture not found" });
       const { id: captureId } = request.params;
-      const { speciesId } = request.body ?? {};
+      const { speciesId } = request.body;
       const userId = request.user!.id;
-      if (!speciesId) return reply.code(400).send({ error: "speciesId is required" });
-      if (!isUuid(speciesId)) return reply.code(400).send({ error: "Unknown species" });
       const result = await reassignCaptureSpecies(userId, captureId, speciesId, request.log);
       if (!result.ok) return reply.code(result.status).send({ error: result.error });
       return { ok: true };
@@ -305,13 +306,22 @@ export async function captureRoutes(app: FastifyInstance): Promise<void> {
   );
 
   // Sets or clears taken_at, e.g. for a scan with no EXIF date (Stats > Missing date).
-  app.patch<{ Params: { id: string }; Body: { takenAt: string | null } }>(
+  app.patch(
     "/captures/:id/taken-at",
-    { preHandler: requireScope("photos.write") },
+    {
+      preValidation: requireScope("photos.write"),
+      config: captureNotFound,
+      schema: {
+        params: IdParams,
+        // Not format date-time: that needs a UTC offset, and scripts may send a local time. The
+        // handler checks the string parses as a date.
+        body: Type.Object({ takenAt: Nullable(Type.String({ minLength: 1 })) }, { additionalProperties: false }),
+        response: replies(Ok),
+      },
+    },
     async (request, reply) => {
-      if (!isUuid(request.params.id)) return reply.code(404).send({ error: "Capture not found" });
       const { id: captureId } = request.params;
-      const { takenAt } = request.body ?? {};
+      const { takenAt } = request.body;
       const userId = request.user!.id;
 
       if (takenAt !== null && Number.isNaN(new Date(takenAt).getTime())) {
@@ -331,15 +341,24 @@ export async function captureRoutes(app: FastifyInstance): Promise<void> {
 
   /** Corrects a capture's region (catalog country/province) and free-text location label.
    * Each field is optional; one left out stays as it is. */
-  app.patch<{ Params: { id: string }; Body: { regionId?: string | null; locationLabel?: string | null } }>(
+  app.patch(
     "/captures/:id/region",
-    { preHandler: requireScope("photos.write") },
+    {
+      preValidation: requireScope("photos.write"),
+      config: captureNotFound,
+      schema: {
+        params: IdParams,
+        body: Type.Object(
+          { regionId: Type.Optional(Nullable(Uuid())), locationLabel: Type.Optional(Nullable(Type.String())) },
+          { additionalProperties: false },
+        ),
+        response: replies(Ok),
+      },
+    },
     async (request, reply) => {
-      if (!isUuid(request.params.id)) return reply.code(404).send({ error: "Capture not found" });
       const { id: captureId } = request.params;
-      const { regionId, locationLabel } = request.body ?? {};
+      const { regionId, locationLabel } = request.body;
       const userId = request.user!.id;
-      if (regionId != null && !isUuid(regionId)) return reply.code(400).send({ error: "regionId must be a region id" });
 
       const res = await pool.query(
         `UPDATE captures SET
@@ -356,18 +375,24 @@ export async function captureRoutes(app: FastifyInstance): Promise<void> {
   );
 
   // Per-photo quality rating. user_species.best_quality is recomputed server-side as the max.
-  app.patch<{ Params: { id: string }; Body: { rating: number | null } }>(
+  app.patch(
     "/captures/:id/rating",
-    { preHandler: requireScope("photos.write") },
+    {
+      preValidation: requireScope("photos.write"),
+      config: captureNotFound,
+      schema: {
+        params: IdParams,
+        body: Type.Object(
+          { rating: Nullable(Type.Integer({ minimum: 1, maximum: 5, description: "1-5, or null to clear" })) },
+          { additionalProperties: false },
+        ),
+        response: replies(Ok),
+      },
+    },
     async (request, reply) => {
-      if (!isUuid(request.params.id)) return reply.code(404).send({ error: "Capture not found" });
       const { id: captureId } = request.params;
-      const { rating } = request.body ?? {};
+      const { rating } = request.body;
       const userId = request.user!.id;
-
-      if (rating !== null && (typeof rating !== "number" || rating < 1 || rating > 5 || !Number.isInteger(rating))) {
-        return reply.code(400).send({ error: "rating must be an integer 1-5, or null to clear" });
-      }
 
       const captureRes = await pool.query<{ species_id: string }>(
         `UPDATE captures SET quality_rating = $1 WHERE id = $2 AND user_id = $3 RETURNING species_id`,
@@ -390,15 +415,7 @@ export async function captureRoutes(app: FastifyInstance): Promise<void> {
 
   await app.register(captureTagRoutes);
   await app.register(trashRoutes);
+  await app.register(hiddenCaptureRoutes);
   await app.register(speciesSuggestRoutes);
 }
 
-// The camera's wall-clock time from the file, which the year folder goes by. Null when
-// unreadable, so the folder falls back to taken_at.
-async function wallClockOf(ref: string): Promise<string | null> {
-  try {
-    return captureTimeFromTags(await readExifTags(ref))?.wallClock ?? null;
-  } catch {
-    return null;
-  }
-}

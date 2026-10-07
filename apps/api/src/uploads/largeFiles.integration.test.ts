@@ -19,7 +19,7 @@ import { ExifTool, type WriteTags } from "exiftool-vendored";
 import pg from "pg";
 import sharp from "sharp";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { setTiffPhotometric, tusPatch, tusUpload } from "./testImages.js";
+import { setTiffPhotometric, tusPatch, tusUpload } from "@lifer/core/uploads/testImages.js";
 
 const url = process.env.TEST_DATABASE_URL;
 const USER = "dddddddd-0000-4000-8000-000000000120";
@@ -81,9 +81,9 @@ describe.skipIf(!url)("large files and new formats", () => {
     exiftool = new ExifTool();
     const { hashApiKey } = await import("../auth/apiKeys.js");
     const { hashToken } = await import("../auth/session.js");
-    ({ SESSION_COOKIE_NAME: cookieName } = await import("../config.js"));
+    ({ SESSION_COOKIE_NAME: cookieName } = await import("@lifer/core/config.js"));
     const { uploadRoutes } = await import("./routes.js");
-    const { isBlockedCrossSiteWrite } = await import("../lib/requestGuard.js");
+    const { isBlockedCrossSiteWrite } = await import("@lifer/core/lib/requestGuard.js");
     await cleanup();
     await db.query(`INSERT INTO users (id, email, password_hash) VALUES ($1, 'large@test', 'x'), ($2, 'large-other@test', 'x')`, [USER, OTHER_USER]);
     await db.query(
@@ -128,7 +128,7 @@ describe.skipIf(!url)("large files and new formats", () => {
     await exiftool.end();
     const { closeExiftool } = await import("./exif.js");
     await closeExiftool();
-    const { pool } = await import("../db.js");
+    const { pool } = await import("@lifer/core/db.js");
     await pool.end();
     rmSync(dataDir, { recursive: true, force: true });
     rmSync(scratch, { recursive: true, force: true });
@@ -443,7 +443,7 @@ describe.skipIf(!url)("large files and new formats", () => {
     expect(at(100, 280)[2]).toBeGreaterThan(200);
 
     // Species matching gets the decoded pixels: the bundled animal detector runs on it.
-    const { analyzeImage } = await import("../species/inference.js");
+    const { analyzeImage } = await import("@lifer/core/species/inference.js");
     const analysis = await analyzeImage({ path: row.rows[0].ref }, { targets: [], presence: true, priority: "interactive" });
     expect(analysis.presence).toBeTruthy();
     await waitFor(async () => ((await exiftool.read(row.rows[0].ref)).Title as string | undefined) === "Large Test Tern");

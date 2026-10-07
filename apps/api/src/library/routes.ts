@@ -1,18 +1,19 @@
 // Library reimport. Reading every file's EXIF and rebuilding derivatives takes minutes, so it's a
 // single background job the client polls.
-import { idleJobStatus } from "@lifer/shared";
+import { CULL_MARKS_OPTIONS, idleJobStatus, type CullMarksOption } from "@lifer/shared";
 import { existsSync, statSync } from "node:fs";
 import path from "node:path";
 import type { FastifyInstance, FastifyReply } from "fastify";
+import { Type } from "typebox";
 import sharp from "sharp";
-import { originalSharpOptions } from "../lib/imageLimits.js";
-import { claimedPhotoFormat, sniffPhotoFormat } from "../uploads/formats.js";
+import { originalSharpOptions } from "@lifer/core/lib/imageLimits.js";
+import { claimedPhotoFormat, sniffPhotoFormat } from "@lifer/core/uploads/formats.js";
 import { prepareWorkingImage, type WorkingImage } from "../uploads/workingImage.js";
 import { requireAuth } from "../auth/session.js";
-import { assertAllowedPath } from "../lib/allowedPaths.js";
-import { isUuid } from "../lib/validate.js";
-import { ORIGINALS_DIR } from "../config.js";
-import { mapWithConcurrency } from "data-pipeline/src/concurrency.js";
+import { assertAllowedPath } from "@lifer/core/lib/allowedPaths.js";
+import { Ok, Uuid, replies, withSchemas } from "../lib/schema.js";
+import { ORIGINALS_DIR } from "@lifer/core/config.js";
+import { mapWithConcurrency } from "@lifer/core/lib/concurrency.js";
 import {
   listManagedFiles,
   recoverJpeg,
@@ -23,11 +24,12 @@ import {
 } from "./reimport.js";
 import { resolveChosenVolumeDestination } from "../storageVolumes/resolve.js";
 import { friendlyFsErrorMessage } from "../lib/friendlyFsError.js";
-import { libraryFolderStatus } from "../lib/libraryFolder.js";
+import { libraryFolderStatus } from "@lifer/core/lib/libraryFolder.js";
 import { restoreCollectionState } from "../lib/collectionState.js";
 import { createJob, type JobContext } from "../lib/job.js";
-import { log } from "../lib/log.js";
+import { log } from "@lifer/core/lib/log.js";
 import { getUserFileSettings } from "../lib/userFileSettings.js";
+import { stemOf } from "../trips/rawLink.js";
 
 // Each file costs an exiftool round-trip and often a resize, so files run in parallel.
 const CONCURRENCY = 4;
@@ -50,6 +52,10 @@ interface ReimportExtra {
   jpegsAlreadyKnown: number;
   jpegsRelinked: number;
   jpegsIgnored: number;
+  /** Rejected in a culling app and left out, as the reimport's cullMarks option asked. */
+  jpegsRejected: number;
+  /** Rejected in a culling app and recovered hidden. */
+  jpegsHidden: number;
   // Unrecognized and ambiguous files form one review list; both can be ignored so they stop
   // resurfacing.
   unmatched: UnmatchedFile[];
@@ -75,6 +81,8 @@ function freshExtra(): ReimportExtra {
     jpegsAlreadyKnown: 0,
     jpegsRelinked: 0,
     jpegsIgnored: 0,
+    jpegsRejected: 0,
+    jpegsHidden: 0,
     unmatched: [],
     rawsRecovered: 0,
     rawsAlreadyKnown: 0,
@@ -103,11 +111,18 @@ async function runReimportJob(
   organize: boolean,
   organizeByYear: boolean,
   foreign: boolean,
+  cullOption: CullMarksOption,
 ): Promise<ReimportResult> {
   const job = reimportJob.status;
   try {
     const { jpegs, raws } = await listManagedFiles(walkDir);
     ctx.update({ totalJpegs: jpegs.length, totalRaws: raws.length, phase: "jpegs", processed: 0, total: jpegs.length });
+    // A reject on a photo's RAW twin (same file stem) counts for the photo too, as at upload.
+    const rawsByStem = new Map<string, string[]>();
+    for (const raw of raws) {
+      const stem = stemOf(path.basename(raw));
+      rawsByStem.set(stem, [...(rawsByStem.get(stem) ?? []), raw]);
+    }
 
     const recoveredScientificNames = new Set<string>();
 
@@ -117,10 +132,16 @@ async function runReimportJob(
       const relativePath = path.relative(walkDir, absolutePath);
       ctx.update({ currentItem: relativePath });
       try {
-        const outcome = await recoverJpeg(userId, absolutePath, volumeContext, organize, organizeByYear, foreign);
+        const outcome = await recoverJpeg(userId, absolutePath, volumeContext, organize, organizeByYear, foreign, {
+          option: cullOption,
+          raws: rawsByStem.get(stemOf(path.basename(absolutePath))),
+        });
         if (outcome.status === "recovered") {
           job.jpegsRecovered++;
+          if (outcome.hidden) job.jpegsHidden++;
           recoveredScientificNames.add(outcome.scientificName);
+        } else if (outcome.status === "rejected") {
+          job.jpegsRejected++;
         } else if (outcome.status === "already-known") {
           job.jpegsAlreadyKnown++;
         } else if (outcome.status === "relinked") {
@@ -130,7 +151,11 @@ async function runReimportJob(
         } else if (outcome.status === "unrecognized") {
           job.unmatched.push({ relativePath, contentHash: outcome.contentHash, scientificNames: null });
         } else {
-          job.unmatched.push({ relativePath, contentHash: outcome.contentHash, scientificNames: outcome.scientificNames });
+          job.unmatched.push({
+            relativePath,
+            contentHash: outcome.contentHash,
+            scientificNames: outcome.scientificNames,
+          });
         }
       } catch (err) {
         job.unmatched.push({
@@ -166,21 +191,43 @@ async function runReimportJob(
 
     // Pointing a fresh install at an old library: also bring back archived, hidden, seen and
     // target species from the library's own record (only if this install has none of its own).
-    await restoreCollectionState(userId).catch((err) => log.warn(`[collection-state] couldn't restore: ${(err as Error).message}`));
+    await restoreCollectionState(userId).catch((err) =>
+      log.warn(`[collection-state] couldn't restore: ${(err as Error).message}`),
+    );
     return { missingReferenceData: await findMissingReferenceData([...recoveredScientificNames]) };
   } catch (err) {
     if (ctx.signal.aborted) throw err;
-    throw new Error(friendlyFsErrorMessage(err));
+    throw new Error(friendlyFsErrorMessage(err), { cause: err });
   }
 }
 
-export async function libraryRoutes(app: FastifyInstance): Promise<void> {
-  // Polled by the app's banner: is the photo library folder still there?
-  app.get("/library/folder-status", { preHandler: requireAuth }, async () => libraryFolderStatus());
+export async function libraryRoutes(fastify: FastifyInstance): Promise<void> {
+  const app = withSchemas(fastify);
 
-  app.post<{ Body: { volumeId?: string; path?: string; organize?: boolean } }>(
+  // Polled by the app's banner: is the photo library folder still there?
+  app.get("/library/folder-status", { preValidation: requireAuth, schema: {} }, async () => libraryFolderStatus());
+
+  app.post(
     "/library/reimport",
-    { preHandler: requireAuth },
+    {
+      preValidation: requireAuth,
+      schema: {
+        body: Type.Object(
+          {
+            volumeId: Type.Optional(Uuid()),
+            path: Type.Optional(Type.String()),
+            organize: Type.Optional(Type.Boolean()),
+            cullMarks: Type.Optional(
+              Type.Enum([...CULL_MARKS_OPTIONS], {
+                description:
+                  "Photos a culling app rejected: hide (the default) recovers them hidden, skip leaves them out, ignore recovers them as usual",
+              }),
+            ),
+          },
+          { additionalProperties: false },
+        ),
+      },
+    },
     async (request, reply) => {
       if (reimportJob.status.running) return reply.code(409).send({ error: "A reimport is already running" });
       const userId = request.user!.id;
@@ -191,21 +238,22 @@ export async function libraryRoutes(app: FastifyInstance): Promise<void> {
       // Lifer's species folders.
       let walkDir = ORIGINALS_DIR;
       let volumeContext: VolumeContext | null = null;
-      if (request.body?.path) {
-        if (!path.isAbsolute(request.body.path)) return reply.code(400).send({ error: "path must be an absolute folder path" });
+      if (request.body.path) {
+        if (!path.isAbsolute(request.body.path))
+          return reply.code(400).send({ error: "path must be an absolute folder path" });
         const candidate = assertAllowedPath(request.body.path);
         if (!existsSync(candidate) || !statSync(candidate).isDirectory()) {
           return reply.code(400).send({ error: "That folder doesn't exist" });
         }
         walkDir = candidate;
-      } else if (request.body?.volumeId) {
-        const resolved = isUuid(request.body.volumeId) ? await resolveChosenVolumeDestination(userId, request.body.volumeId) : null;
+      } else if (request.body.volumeId) {
+        const resolved = await resolveChosenVolumeDestination(userId, request.body.volumeId);
         if (!resolved) return reply.code(400).send({ error: "That drive isn't connected right now" });
         walkDir = resolved.baseDir;
         volumeContext = resolved;
       }
 
-      const organize = Boolean(request.body?.organize);
+      const organize = Boolean(request.body.organize);
       let organizeByYear = false;
       if (organize) {
         ({ organizeByYear } = await getUserFileSettings(userId));
@@ -213,7 +261,8 @@ export async function libraryRoutes(app: FastifyInstance): Promise<void> {
 
       // Background job, polled via /status.
       const started = reimportJob.start(
-        (ctx) => runReimportJob(ctx, userId, walkDir, volumeContext, organize, organizeByYear, Boolean(request.body?.path)),
+        (ctx) =>
+          runReimportJob(ctx, userId, walkDir, volumeContext, organize, organizeByYear, Boolean(request.body.path), request.body.cullMarks ?? "hide"),
         freshExtra(),
       );
       if (!started) return reply.code(409).send({ error: "A reimport is already running" });
@@ -224,29 +273,42 @@ export async function libraryRoutes(app: FastifyInstance): Promise<void> {
     },
   );
 
-  app.get("/library/reimport/status", { preHandler: requireAuth }, async (request) => {
+  app.get("/library/reimport/status", { preValidation: requireAuth, schema: {} }, async (request) => {
     if (isJobOwner(request.user!.id)) return reimportJob.status;
     // Someone else's scan: report only that one is running, none of its results.
     return { ...idleJobStatus<ReimportResult>(), ...freshExtra(), running: reimportJob.status.running };
   });
 
   // Stops between files; in-flight files finish and queued ones are left untouched.
-  app.post("/library/reimport/cancel", { preHandler: requireAuth }, async (request, reply) => {
-    if (!isJobOwner(request.user!.id)) return reply.code(409).send({ error: "No reimport is running" });
-    if (!reimportJob.cancel()) return reply.code(409).send({ error: "No reimport is running" });
-    return { ok: true };
-  });
+  app.post(
+    "/library/reimport/cancel",
+    { preValidation: requireAuth, schema: { response: replies(Ok) } },
+    async (request, reply) => {
+      if (!isJobOwner(request.user!.id)) return reply.code(409).send({ error: "No reimport is running" });
+      if (!reimportJob.cancel()) return reply.code(409).send({ error: "No reimport is running" });
+      return { ok: true };
+    },
+  );
 
   // Marks an unmatched file so it stops resurfacing, and drops it from the current job's list.
-  app.post<{ Body: { contentHash?: string } }>("/library/ignore", { preHandler: requireAuth }, async (request, reply) => {
-    const contentHash = request.body?.contentHash;
-    if (!contentHash) return reply.code(400).send({ error: "contentHash is required" });
-    await ignoreLibraryFile(request.user!.id, contentHash);
-    if (isJobOwner(request.user!.id)) {
-      reimportJob.status.unmatched = reimportJob.status.unmatched.filter((f) => f.contentHash !== contentHash);
-    }
-    return { ok: true };
-  });
+  app.post(
+    "/library/ignore",
+    {
+      preValidation: requireAuth,
+      schema: {
+        body: Type.Object({ contentHash: Type.String({ minLength: 1 }) }, { additionalProperties: false }),
+        response: replies(Ok),
+      },
+    },
+    async (request) => {
+      const { contentHash } = request.body;
+      await ignoreLibraryFile(request.user!.id, contentHash);
+      if (isJobOwner(request.user!.id)) {
+        reimportJob.status.unmatched = reimportJob.status.unmatched.filter((f) => f.contentHash !== contentHash);
+      }
+      return { ok: true };
+    },
+  );
 
   // A small thumbnail of one unmatched file for the review UI. The file is picked from the last
   // scan's own list (by position or content hash), never from a client-supplied path.
@@ -260,7 +322,11 @@ export async function libraryRoutes(app: FastifyInstance): Promise<void> {
       const format = (await sniffPhotoFormat(absolutePath)) ?? claimedPhotoFormat(null, absolutePath);
       if (format === "heic") working = await prepareWorkingImage(absolutePath, format);
       const source = working?.decodePath ?? absolutePath;
-      const buffer = await sharp(source, originalSharpOptions()).rotate().resize({ width: 300, withoutEnlargement: true }).webp({ quality: 75 }).toBuffer();
+      const buffer = await sharp(source, originalSharpOptions())
+        .rotate()
+        .resize({ width: 300, withoutEnlargement: true })
+        .webp({ quality: 75 })
+        .toBuffer();
       reply.header("Content-Type", "image/webp");
       return reply.send(buffer);
     } catch {
@@ -270,24 +336,31 @@ export async function libraryRoutes(app: FastifyInstance): Promise<void> {
     }
   }
 
-  app.get<{ Params: { index: string } }>(
+  app.get(
     "/library/reimport/unmatched-preview/:index",
-    { preHandler: requireAuth },
+    {
+      preValidation: requireAuth,
+      // A bad index is a file that isn't in the list, as before.
+      config: { invalidInput: { params: { status: 404, error: "Not found" } } },
+      schema: { params: Type.Object({ index: Type.Integer({ minimum: 0 }) }) },
+    },
     async (request, reply) => {
       if (!isJobOwner(request.user!.id)) return reply.code(404).send({ error: "Not found" });
-      const index = Number(request.params.index);
-      return sendUnmatchedPreview(Number.isInteger(index) ? reimportJob.status.unmatched[index] : undefined, reply);
+      return sendUnmatchedPreview(reimportJob.status.unmatched[request.params.index], reply);
     },
   );
 
   // Keyed by content hash, so a preview stays right when the list changes (a file ignored or
   // assigned shifts every index after it).
-  app.get<{ Params: { hash: string } }>(
+  app.get(
     "/library/reimport/unmatched-preview-by-hash/:hash",
-    { preHandler: requireAuth },
+    { preValidation: requireAuth, schema: { params: Type.Object({ hash: Type.String({ minLength: 1 }) }) } },
     async (request, reply) => {
       if (!isJobOwner(request.user!.id)) return reply.code(404).send({ error: "Not found" });
-      return sendUnmatchedPreview(reimportJob.status.unmatched.find((f) => f.contentHash === request.params.hash), reply);
+      return sendUnmatchedPreview(
+        reimportJob.status.unmatched.find((f) => f.contentHash === request.params.hash),
+        reply,
+      );
     },
   );
 }

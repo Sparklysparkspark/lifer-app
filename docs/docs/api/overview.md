@@ -40,7 +40,8 @@ extra header.
 |---|---|
 | `photos.read` | The photo feed (`GET /captures`) and image files: thumbnails, display images, originals, RAWs, videos |
 | `photos.write` | Importing photos (`POST /uploads`, [resumable uploads](#large-files)) and editing them: species, extra species, rating, tags, capture time, location |
-| `collection.read` | The life list and its summary counts |
+| `collection.read` | The life list and its summary counts, and the species you added to checklists yourself |
+| `collection.write` | Adding species to region checklists yourself, and removing them again |
 | `gallery.read` | The gallery listing and content search |
 | `species.read` | Species search and details, reference photos |
 | `stats.read` | Statistics, including the life list as CSV |
@@ -53,6 +54,7 @@ extra header.
 - **Base path:** everything is under `/api`, e.g. `http://lifer.local:4000/api/captures`.
 - **JSON** in and out, except file downloads, `POST /uploads` and `POST /uploads/inspect` (multipart), and [resumable uploads](#large-files).
 - **Errors** are `{ "error": "message", "code": "reason" }` with a 4xx/5xx status. `error` is written for a person; `code` is only there on some errors, as a stable reason your script can check. A 5xx says only `Internal server error`, with the details in the server log.
+- **Input is checked** against each route's schema (the same one `/api/openapi.json` shows), after the key and before the route does anything. A query parameter, path parameter or JSON body that doesn't match (a wrong type, a missing or unknown field, a number out of range, a malformed id) gets `400` with `"code": "invalid_request"` and an `error` naming the field, like `Invalid body: rating must be <= 5`. Some routes answer `404` for a malformed id instead, the same as for an unknown id. An empty query parameter (`?regionId=`) counts as not given.
 - **Image links** in responses are paths on the server (like `/api/photos/<id>/thumb`); prefix your
   server URL and send the key.
 - **IDs** are UUIDs. Look species and region IDs up on the server you're talking to (for example with `GET /api/species?q=`) rather than copying them from another install: they usually match between installs, but aren't guaranteed to. To match species across installs, use `scientificName`.
@@ -71,9 +73,9 @@ Every photo in your library, ordered by when it last changed. Built for syncing.
 |---|---|
 | `since` | Only photos changed after this time: new photos, and changes to species, rating, tags, location, capture time, or moving to/from the trash |
 | `cursor` | The previous page's `nextCursor` |
-| `limit` | Page size, 1-500 (default 100) |
+| `limit` | Page size, 1-500 (default 100). Larger values are capped at 500 |
 | `speciesId` | Only photos showing this species |
-| `includeDeleted=1` | Include photos in the trash, with `deletedAt` set |
+| `includeDeleted=1` | Include photos in the trash, with `deletedAt` set (`0`, the default, leaves them out) |
 
 ```json
 {
@@ -129,6 +131,36 @@ Cheap enough to poll. `?regionId=` adds progress on that region's checklist.
 Find a region ID in the Lifer UI (the region page URL) or in any photo's `regionId`. An unknown
 region returns `404`.
 
+### Checklist additions (collection.read, collection.write)
+
+Put a species on a country's, province's or sea zone's checklist yourself, for example a species you
+imported by hand that you also found in another province. Your additions are kept apart from the
+catalog's own checklists, so catalog updates and offline packs never remove them, and removing one
+never removes anything the catalog lists. Species imported by hand from iNaturalist are stored the
+same way, as the importing user's additions.
+
+| Request | |
+|---|---|
+| `PUT /api/regions/{regionId}/checklist-additions/{speciesId}` | Adds it (collection.write). No body. Safe to repeat: a second call answers `200` with `"added": false` |
+| `DELETE /api/regions/{regionId}/checklist-additions/{speciesId}` | Removes your addition (collection.write). `404` with `"code": "not_added"` if you hadn't added it there |
+| `GET /api/regions/{id}/checklist-additions` | The species you added to this region (collection.read) |
+| `GET /api/sea-zones` | Every sea zone, with its ID and name (collection.read) |
+| `PUT /api/sea-zones/{seaZoneId}/checklist-additions/{speciesId}` | Adds it to a sea zone's checklist (collection.write). No body. Safe to repeat |
+| `DELETE /api/sea-zones/{seaZoneId}/checklist-additions/{speciesId}` | Removes your addition (collection.write). `404` with `"code": "not_added"` if you hadn't added it there |
+| `GET /api/sea-zones/{id}/checklist-additions` | The species you added to this sea zone (collection.read) |
+| `GET /api/species/{id}/checklist-additions` | The regions (`items`) and sea zones (`seaZones`) you added this species to (collection.read) |
+
+```json
+{ "ok": true, "added": true, "alreadyOnChecklist": false }
+```
+
+`alreadyOnChecklist` is `true` when the catalog already lists the species there. World and the
+continents have no checklist of their own, so adding to one answers `400` with
+`"code": "no_checklist"`. An addition to a province also shows on its country's checklist. A sea
+zone has no page of its own: its additions show on a coastal region's checklist when that zone is
+selected as nearby water. Each entry in `seaZones` carries a `nearRegionId`, a region that offers
+the zone, or `null`.
+
 ### Image files (photos.read)
 
 `/api/photos/{photoId}/thumb` (400px wide), `/medium` (1,024px) and `/display` (2,560px) as WebP, `/original` (the original file as imported; add
@@ -146,14 +178,17 @@ original on a drive that isn't connected returns `409`.
 | `speciesId` | Required. Look it up with `GET /api/species?q=mallard` (species.read) |
 | `regionId`, `locationLabel`, `albumId`, `tripId` | Optional |
 | `skipDuplicates` | `1` to return the existing photo (`200`, `"duplicate": true`) when you already have this exact file, instead of importing it again. Use this in any script that might resend files |
+| `cullMarks` | What to do with a photo a culling app rejected: `ignore` (the default) imports it, `skip` answers `200` with `"skipped": "rejected"` and imports nothing, `hide` imports it hidden (`"hidden": true`). See [Culling with other apps](../guides/culling-with-other-apps.md) |
 
 Capture time, GPS, camera details and the **star rating** are read from the file itself, so ratings
-set in Lightroom, digiKam or a culling tool come along. Returns `201` with `captureId` and `photoId`.
+set in Lightroom, digiKam or a culling tool come along, and so do a culling app's pick or reject
+flag and colour label. Returns `201` with `captureId` and `photoId`.
 
 ### `POST /api/uploads/inspect` (photos.write): checking before importing
 
 Send the `file` (and optionally `regionId`) to learn whether you already have it (`possibleDuplicate`,
-exact or near-identical) and, with a region, the likely species (`suggestions`). The server keeps
+exact or near-identical) and, with a region, the likely species (`suggestions`). `cull` says what a
+culling app marked in the file: `{ "verdict": "reject", "label": "red" }` (either can be `null`). The server keeps
 the file for two hours and returns a `stagedId`: import it with `POST /api/uploads` sending
 `stagedId`, `fileName` and `fileType` instead of `file`, so it doesn't go over the network twice.
 A `410` means the kept copy has expired; send the file instead.
@@ -212,8 +247,9 @@ file, so Lightroom and digiKam see them too.
 ### `GET /api/gallery` (gallery.read): browsing with filters
 
 The same filtered list the Gallery page shows. Filters include `taxa`, `regionId`, `dateFrom`,
-`dateTo`, `tag`, `tripId`, `albumId`, `onlyTopRated=1`, `onlyVideo=1` and `sort` (`newest`,
-`oldest`, `ratingHigh`, `ratingLow`).
+`dateTo`, `tag`, `tripId`, `albumId`, `onlyTopRated=1`, `onlyVideo=1`, `hidden=1` (only the photos
+imported hidden because a culling app rejected them) and `sort` (`newest`, `oldest`, `ratingHigh`,
+`ratingLow`). Each item has `cullVerdict` and `cullLabel`, what a culling app marked it at import.
 
 Without `limit`, it returns every matching photo at once as `{ "items": [...] }`. With `limit`
 (1-500), it returns one page plus `nextCursor` (`null` on the last page), and the first page also

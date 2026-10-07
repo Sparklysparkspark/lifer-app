@@ -1,9 +1,11 @@
 // Gallery of every photo across all species, plus photo search.
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
-import { pool } from "../db.js";
+import { pool } from "@lifer/core/db.js";
+import { Type, type Static } from "typebox";
 import { isUuid, parseDate, parseLimit } from "../lib/validate.js";
+import { Uuid, replies, withSchemas } from "../lib/schema.js";
 import { requireScope } from "../auth/session.js";
-import { EMBEDDING_MODEL_VERSION } from "../config.js";
+import { EMBEDDING_MODEL_VERSION } from "@lifer/core/config.js";
 import { parseSearchQuery, rankSearch, type PlaceEntry, type SearchRow, type SpeciesEntry } from "./photoSearch.js";
 import type { GroupPredicate } from "./searchTaxonSynonyms.js";
 
@@ -32,6 +34,7 @@ export const GALLERY_ITEM_COLUMNS = `
   c.id AS capture_id, p.id AS photo_id, p.width, p.height, c.species_id, s.scientific_name, s.common_name, s.taxon_class,
   c.taken_at, c.created_at, c.camera_model, c.lens, c.focal_length_mm, c.aperture, c.shutter, c.iso, c.quality_rating,
   c.lat, c.lon, c.region_id, reg.name AS region_name, p.kind AS photo_kind, p.duration_seconds, c.tags,
+  c.cull_verdict, c.cull_label, c.hidden_at IS NOT NULL AS hidden,
   (p.id = us.cover_photo_id) AS is_featured,
   EXISTS (SELECT 1 FROM originals ro WHERE ro.capture_id = c.id AND ro.kind = 'raw') AS has_raw_original,
   o.ref AS original_ref, o.managed AS original_managed, o.kind AS original_kind,
@@ -53,6 +56,7 @@ export const GALLERY_ITEM_JOINS = `
 // The filters /gallery and /gallery/search share, parsed and validated once. Ids and dates that
 // wouldn't survive a Postgres cast get a 400 instead of a 500.
 export interface GalleryFilters {
+  onlyHidden: boolean;
   onlyTopRated: boolean;
   onlyFeatured: boolean;
   taxa: string[];
@@ -70,7 +74,47 @@ export interface GalleryFilters {
   albumId: string | null;
 }
 
-type GalleryFilterQuery = Partial<Record<keyof GalleryFilters, string>>;
+// "1" turns a filter on; "0" (or leaving it out) leaves it off.
+const OnOff = (description: string) => Type.Optional(Type.Enum(["0", "1"], { description }));
+
+/** The captures a filter set lists from: the `captures` view, or with `hidden=1` the hidden
+ *  photos it leaves out (hidden.ts). */
+export function galleryCapturesSource(f: Pick<GalleryFilters, "onlyHidden">): string {
+  return f.onlyHidden ? "(SELECT * FROM captures_all WHERE deleted_at IS NULL AND hidden_at IS NOT NULL)" : "captures";
+}
+
+// The filters /gallery, /gallery/ids and /gallery/search share.
+const GalleryFilterQuery = Type.Object({
+  taxa: Type.Optional(Type.String({ description: "Comma-separated taxon classes" })),
+  regionId: Type.Optional(
+    Type.Union([Uuid(), Type.Literal(UNCATEGORIZED_REGION_ID)], {
+      description: 'Region, or "uncategorized" for photos with no region',
+    }),
+  ),
+  // A prefix check only: parseDay below also refuses dates that don't exist.
+  dateFrom: Type.Optional(
+    Type.String({ pattern: "^\\d{4}-\\d{2}-\\d{2}", description: "Taken on or after (YYYY-MM-DD)" }),
+  ),
+  dateTo: Type.Optional(
+    Type.String({ pattern: "^\\d{4}-\\d{2}-\\d{2}", description: "Taken on or before (YYYY-MM-DD)" }),
+  ),
+  tag: Type.Optional(Type.String({ description: "Only photos with this tag" })),
+  tripId: Type.Optional(Uuid({ description: "Only photos in this trip" })),
+  albumId: Type.Optional(Uuid({ description: "Only photos in this album" })),
+  missingDate: OnOff("1 for photos with no capture date only"),
+  onlyTopRated: OnOff("1 for 5-star photos only"),
+  onlyFeatured: OnOff("1 for species cover photos only"),
+  onlyVideo: OnOff("1 for videos only"),
+  excludeVideo: OnOff("1 to leave videos out"),
+  onlyHasRaw: OnOff("1 for photos with a RAW original only"),
+  excludeHasRaw: OnOff("1 for photos without a RAW original only"),
+  includeRaw: OnOff("0 to leave out photos whose only original is a RAW"),
+  hidden: OnOff("1 for only the photos imported hidden because a culling app rejected them"),
+});
+type GalleryFilterQuery = Static<typeof GalleryFilterQuery>;
+
+// Only the fields integrations rely on are declared; the rest pass through unchanged.
+const GalleryItem = Type.Object({ captureId: Uuid(), photoId: Uuid() }, { additionalProperties: true });
 
 // Plain YYYY-MM-DD from a native <input type="date">; anything else Postgres can't cast is refused.
 function parseDay(value: string | undefined): string | null | undefined {
@@ -84,13 +128,12 @@ export function parseGalleryFilters(q: GalleryFilterQuery): GalleryFilters | { e
   const dateFrom = parseDay(q.dateFrom);
   const dateTo = parseDay(q.dateTo);
   if (dateFrom === undefined || dateTo === undefined) return { error: "dateFrom and dateTo must be YYYY-MM-DD dates" };
+  // The query schema already refused malformed region, trip and album ids.
   const regionId = q.regionId || null;
-  if (regionId && regionId !== UNCATEGORIZED_REGION_ID && !isUuid(regionId)) return { error: "regionId must be a region id" };
   const tripId = q.tripId || null;
-  if (tripId && !isUuid(tripId)) return { error: "tripId must be a trip id" };
   const albumId = q.albumId || null;
-  if (albumId && !isUuid(albumId)) return { error: "albumId must be an album id" };
   return {
+    onlyHidden: q.hidden === "1",
     onlyTopRated: q.onlyTopRated === "1",
     onlyFeatured: q.onlyFeatured === "1",
     taxa: q.taxa?.split(",").filter(Boolean) ?? [],
@@ -122,11 +165,17 @@ export function galleryFilterSql(f: GalleryFilters, param: (v: unknown) => strin
     f.taxa.length > 0 ? `AND s.taxon_class = ANY(${param(f.taxa)})` : "",
     f.dateFrom ? `AND c.taken_at >= ${param(f.dateFrom)}::date` : "",
     f.dateTo ? `AND c.taken_at < (${param(f.dateTo)}::date + INTERVAL '1 day')` : "",
-    isUncategorized ? "AND c.region_id IS NULL" : f.regionId ? regionMatchClause(Number(param(f.regionId).slice(1))) : "",
+    isUncategorized
+      ? "AND c.region_id IS NULL"
+      : f.regionId
+        ? regionMatchClause(Number(param(f.regionId).slice(1)))
+        : "",
     f.tag ? `AND ${param(f.tag)} = ANY(c.tags)` : "",
     f.tripId ? `AND c.trip_id = ${param(f.tripId)}::uuid` : "",
     // EXISTS rather than a JOIN so a photo in an album is never listed twice.
-    f.albumId ? `AND EXISTS (SELECT 1 FROM album_captures fac WHERE fac.capture_id = c.id AND fac.album_id = ${param(f.albumId)}::uuid)` : "",
+    f.albumId
+      ? `AND EXISTS (SELECT 1 FROM album_captures fac WHERE fac.capture_id = c.id AND fac.album_id = ${param(f.albumId)}::uuid)`
+      : "",
     f.includeRaw ? "" : "AND o.kind IS DISTINCT FROM 'raw'",
     f.excludeHasRaw
       ? "AND NOT EXISTS (SELECT 1 FROM originals hr WHERE hr.capture_id = c.id AND hr.kind = 'raw')"
@@ -168,7 +217,10 @@ const GALLERY_SORTS: Record<string, SortKey[]> = {
 };
 
 export function galleryOrderBy(keys: SortKey[]): string {
-  return [...keys.map((k) => `${k.expr} ${k.desc ? "DESC" : "ASC"}${k.nullable ? " NULLS LAST" : ""}`), "c.id ASC"].join(", ");
+  return [
+    ...keys.map((k) => `${k.expr} ${k.desc ? "DESC" : "ASC"}${k.nullable ? " NULLS LAST" : ""}`),
+    "c.id ASC",
+  ].join(", ");
 }
 
 interface GalleryCursor {
@@ -186,7 +238,8 @@ export function decodeGalleryCursor(raw: string): GalleryCursor | null {
   try {
     const [sort, values, id] = JSON.parse(Buffer.from(raw, "base64url").toString("utf8"));
     if (typeof sort !== "string" || !GALLERY_SORTS[sort] || !Array.isArray(values) || !isUuid(id)) return null;
-    if (values.length !== GALLERY_SORTS[sort].length || values.some((v) => v !== null && typeof v !== "string")) return null;
+    if (values.length !== GALLERY_SORTS[sort].length || values.some((v) => v !== null && typeof v !== "string"))
+      return null;
     return { sort, values, id };
   } catch {
     return null;
@@ -253,7 +306,12 @@ async function libraryStamp(userId: string): Promise<string> {
   return stamp;
 }
 
-async function searchRows(userId: string, stamp: string, sql: string, params: unknown[]): Promise<{ rows: SearchRow[] }> {
+async function searchRows(
+  userId: string,
+  stamp: string,
+  sql: string,
+  params: unknown[],
+): Promise<{ rows: SearchRow[] }> {
   const key = `${userId}|${sql}|${JSON.stringify(params)}`;
   const hit = searchRowsCache.get(key);
   if (hit && hit.stamp === stamp && Date.now() - hit.at < SEARCH_ROWS_TTL_MS) return { rows: hit.rows };
@@ -266,9 +324,15 @@ async function searchRows(userId: string, stamp: string, sql: string, params: un
 
 // Places, trips and albums a query can name, and old scientific names for the user's species,
 // kept per user while the library stamp holds (and a minute at most, for renames).
-const vocabCache = new Map<string, { stamp: string; at: number; places: PlaceEntry[]; synonyms: Map<string, string[]> }>();
+const vocabCache = new Map<
+  string,
+  { stamp: string; at: number; places: PlaceEntry[]; synonyms: Map<string, string[]> }
+>();
 
-async function searchVocabulary(userId: string, stamp: string): Promise<{ places: PlaceEntry[]; synonyms: Map<string, string[]> }> {
+async function searchVocabulary(
+  userId: string,
+  stamp: string,
+): Promise<{ places: PlaceEntry[]; synonyms: Map<string, string[]> }> {
   const hit = vocabCache.get(userId);
   if (hit && hit.stamp === stamp && Date.now() - hit.at < SEARCH_ROWS_TTL_MS) return hit;
   const [places, synonymRes] = await Promise.all([
@@ -350,206 +414,312 @@ async function regionSubtree(regionIds: string[]): Promise<Set<string>> {
   return new Set(res.rows.map((r) => r.id));
 }
 
-type GalleryQuery = GalleryFilterQuery & { sort?: string; limit?: string; cursor?: string };
+const GallerySearchQuery = Type.Object({
+  ...GalleryFilterQuery.properties,
+  q: Type.Optional(Type.String({ description: 'What to look for, e.g. "bird in flight" or "costa rica trip"' })),
+  // The page follows a quick answer up with the full search.
+  quick: OnOff("1 to skip picture matching and answer at once"),
+});
 
-export async function galleryRoutes(app: FastifyInstance): Promise<void> {
-  app.get<{
-    Querystring: GalleryFilterQuery & {
-      q?: string;
-      /** 1: skip picture matching and answer at once; the page follows up with the full search. */
-      quick?: string;
-    };
-  }>("/gallery/search", { preHandler: requireScope("gallery.read") }, async (request, reply) => {
-    const userId = request.user!.id;
-    const q = request.query.q?.trim();
-    // The same filters as /gallery, so a search never widens past what's already checked.
-    const filters = parseGalleryFilters(request.query);
-    if ("error" in filters) return reply.code(400).send({ error: filters.error });
-    if (!q) return { items: [] };
-    const quick = request.query.quick === "1";
-    const isGone = watchClientGone(request, reply);
+const GalleryListQuery = Type.Object({
+  ...GalleryFilterQuery.properties,
+  // Not an enum: the web app sends a sort remembered in the browser, and an unknown one has
+  // always meant the default.
+  sort: Type.Optional(Type.String({ description: "newest (default), oldest, ratingHigh or ratingLow" })),
+  // No maximum: a larger limit has always been capped at 500, not refused.
+  limit: Type.Optional(
+    Type.Integer({
+      minimum: 1,
+      description: "Page size, 1 to 500 (larger is capped at 500). When given, the response adds nextCursor",
+    }),
+  ),
+  cursor: Type.Optional(
+    Type.String({ description: "nextCursor from the previous page, with the same sort and filters" }),
+  ),
+});
 
-    const params: unknown[] = [userId, EMBEDDING_MODEL_VERSION];
-    const param = (v: unknown) => {
-      params.push(v);
-      return `$${params.length}`;
-    };
-    const where = galleryFilterSql(filters, param);
-    const stamp = await libraryStamp(userId);
-    // LEFT JOIN: a photo without a vector is still found by name, group, place and date.
-    const [res, vocab, latinGroups] = await Promise.all([
-      searchRows(
-        userId,
-        stamp,
-        `SELECT ${GALLERY_ITEM_COLUMNS},
+export async function galleryRoutes(fastify: FastifyInstance): Promise<void> {
+  const app = withSchemas(fastify);
+  app.get(
+    "/gallery/search",
+    {
+      preValidation: requireScope("gallery.read"),
+      schema: {
+        querystring: GallerySearchQuery,
+        response: replies(
+          Type.Object({
+            items: Type.Array(GalleryItem),
+            interpretation: Type.Optional(Type.Unknown()),
+            pending: Type.Optional(Type.Boolean()),
+          }),
+        ),
+      },
+    },
+    async (request, reply) => {
+      const userId = request.user!.id;
+      const q = request.query.q?.trim();
+      // The same filters as /gallery, so a search never widens past what's already checked.
+      const filters = parseGalleryFilters(request.query);
+      if ("error" in filters) return reply.code(400).send({ error: filters.error });
+      if (!q) return { items: [] };
+      const quick = request.query.quick === "1";
+      const isGone = watchClientGone(request, reply);
+
+      const params: unknown[] = [userId, EMBEDDING_MODEL_VERSION];
+      const param = (v: unknown) => {
+        params.push(v);
+        return `$${params.length}`;
+      };
+      const where = galleryFilterSql(filters, param);
+      const stamp = await libraryStamp(userId);
+      // LEFT JOIN: a photo without a vector is still found by name, group, place and date.
+      const [res, vocab, latinGroups] = await Promise.all([
+        searchRows(
+          userId,
+          stamp,
+          `SELECT ${GALLERY_ITEM_COLUMNS},
                 c.location_label, c.trip_id::text AS trip_id, s.common_name_aliases, s.aba_code, s.ebird_code, s.taxon_order, s.family,
                 (SELECT array_agg(ac.album_id::text) FROM album_captures ac WHERE ac.capture_id = c.id) AS album_ids,
                 ce.computed_at::text AS embedding_computed_at
-           FROM captures c
+           FROM ${galleryCapturesSource(filters)} c
            ${GALLERY_ITEM_JOINS}
            LEFT JOIN capture_embeddings ce ON ce.capture_id = c.id AND ce.model_version = $2
            WHERE c.user_id = $1
              ${where}`,
-        params,
-      ),
-      searchVocabulary(userId, stamp),
-      latinGroupNames(),
-    ]);
+          params,
+        ),
+        searchVocabulary(userId, stamp),
+        latinGroupNames(),
+      ]);
 
-    const speciesById = new Map<string, SpeciesEntry>();
-    for (const r of res.rows) {
-      if (speciesById.has(r.species_id)) continue;
-      speciesById.set(r.species_id, {
-        id: r.species_id,
-        commonName: r.common_name,
-        scientificName: r.scientific_name,
-        taxonClass: r.taxon_class,
-        taxonOrder: r.taxon_order,
-        family: r.family,
-        // Old scientific names (species_synonyms) match the same way an alias does.
-        aliases: [...((r.common_name_aliases as string[] | null) ?? []), ...(vocab.synonyms.get(r.species_id) ?? [])],
-        codes: [r.aba_code, r.ebird_code].filter((c): c is string => typeof c === "string" && c.length > 0),
-      });
-    }
-    const parsed = parseSearchQuery(q, { species: [...speciesById.values()], places: vocab.places, latinGroups }, { partialWordPicksSpecies: quick });
-    // The full pass embeds the description with CLIP; not worth doing for a cancelled request.
-    if (!quick && parsed.description && isGone()) return reply.code(499).send();
-    const outcome = await rankSearch(q, parsed, res.rows, regionSubtree, { quick });
-    return {
-      items: outcome.items.map(({ row, score }) => toGalleryItem(row, score)),
-      interpretation: outcome.interpretation,
-      pending: outcome.pending ?? false,
-    };
-  });
+      const speciesById = new Map<string, SpeciesEntry>();
+      for (const r of res.rows) {
+        if (speciesById.has(r.species_id)) continue;
+        speciesById.set(r.species_id, {
+          id: r.species_id,
+          commonName: r.common_name,
+          scientificName: r.scientific_name,
+          taxonClass: r.taxon_class,
+          taxonOrder: r.taxon_order,
+          family: r.family,
+          // Old scientific names (species_synonyms) match the same way an alias does.
+          aliases: [...((r.common_name_aliases as string[] | null) ?? []), ...(vocab.synonyms.get(r.species_id) ?? [])],
+          codes: [r.aba_code, r.ebird_code].filter((c): c is string => typeof c === "string" && c.length > 0),
+        });
+      }
+      const parsed = parseSearchQuery(
+        q,
+        { species: [...speciesById.values()], places: vocab.places, latinGroups },
+        { partialWordPicksSpecies: quick },
+      );
+      // The full pass embeds the description with CLIP; not worth doing for a cancelled request.
+      if (!quick && parsed.description && isGone()) return reply.code(499).send({ error: "Search cancelled" });
+      const outcome = await rankSearch(q, parsed, res.rows, regionSubtree, { quick });
+      return {
+        items: outcome.items.map(({ row, score }) => toGalleryItem(row, score)),
+        interpretation: outcome.interpretation,
+        pending: outcome.pending ?? false,
+      };
+    },
+  );
 
-  app.get<{ Querystring: GalleryQuery }>("/gallery", { preHandler: requireScope("gallery.read") }, async (request, reply) => {
-    const userId = request.user!.id;
-    const filters = parseGalleryFilters(request.query);
-    if ("error" in filters) return reply.code(400).send({ error: filters.error });
-    const sortName = request.query.sort && GALLERY_SORTS[request.query.sort] ? request.query.sort : "newest";
-    const sortKeys = GALLERY_SORTS[sortName];
+  app.get(
+    "/gallery",
+    {
+      preValidation: requireScope("gallery.read"),
+      schema: {
+        querystring: GalleryListQuery,
+        response: replies(
+          Type.Object({
+            items: Type.Array(GalleryItem),
+            nextCursor: Type.Optional(
+              Type.Union([Type.String(), Type.Null()], {
+                description: "Only when limit is given: pass as cursor for the next page; null on the last page",
+              }),
+            ),
+            total: Type.Optional(
+              Type.Integer({
+                description:
+                  "Only on the first page (limit given, no cursor): how many photos match the filters in all",
+              }),
+            ),
+          }),
+        ),
+      },
+    },
+    async (request, reply) => {
+      const userId = request.user!.id;
+      const filters = parseGalleryFilters(request.query);
+      if ("error" in filters) return reply.code(400).send({ error: filters.error });
+      const sortName = request.query.sort && GALLERY_SORTS[request.query.sort] ? request.query.sort : "newest";
+      const sortKeys = GALLERY_SORTS[sortName];
 
-    // Optional keyset paging: ?limit= (1-500) returns one page plus nextCursor. Without it, all photos.
-    const paged = request.query.limit !== undefined;
-    const limit = paged ? parseLimit(request.query.limit, 0, 500) : 0;
-    if (paged && limit === 0) return reply.code(400).send({ error: "limit must be a whole number from 1 to 500" });
-    let cursor: GalleryCursor | null = null;
-    if (request.query.cursor) {
-      cursor = decodeGalleryCursor(request.query.cursor);
-      if (!cursor || cursor.sort !== sortName) return reply.code(400).send({ error: "Invalid cursor" });
-    }
+      // Optional keyset paging: ?limit= (1-500) returns one page plus nextCursor. Without it, all photos.
+      const paged = request.query.limit !== undefined;
+      const limit = paged ? parseLimit(request.query.limit, 0, 500) : 0;
+      let cursor: GalleryCursor | null = null;
+      if (request.query.cursor) {
+        cursor = decodeGalleryCursor(request.query.cursor);
+        if (!cursor || cursor.sort !== sortName) return reply.code(400).send({ error: "Invalid cursor" });
+      }
 
-    const params: unknown[] = [userId];
-    const param = (v: unknown) => {
-      params.push(v);
-      return `$${params.length}`;
-    };
-    const where = galleryFilterSql(filters, param);
-    // The filter params only, captured before the cursor adds its own, for the first page's count.
-    const filterParams = [...params];
-    const after = cursor ? galleryAfterCursorSql(sortKeys, cursor, param) : "";
-    // Counted on the first page only.
-    const countQuery =
-      paged && !cursor
-        ? pool.query<{ total: number }>(
-            `SELECT count(*)::int AS total
-               FROM captures c
+      const params: unknown[] = [userId];
+      const param = (v: unknown) => {
+        params.push(v);
+        return `$${params.length}`;
+      };
+      const where = galleryFilterSql(filters, param);
+      // The filter params only, captured before the cursor adds its own, for the first page's count.
+      const filterParams = [...params];
+      const after = cursor ? galleryAfterCursorSql(sortKeys, cursor, param) : "";
+      // Counted on the first page only.
+      const countQuery =
+        paged && !cursor
+          ? pool.query<{ total: number }>(
+              `SELECT count(*)::int AS total
+               FROM ${galleryCapturesSource(filters)} c
                ${GALLERY_ITEM_JOINS}
                WHERE c.user_id = $1
                  ${where}`,
-            filterParams,
-          )
-        : null;
-    const [res, countRes] = await Promise.all([
-      pool.query(
-        `SELECT ${GALLERY_ITEM_COLUMNS}${paged ? `, ${sortKeys.map((k, i) => `(${k.expr})::text AS _sort${i}`).join(", ")}` : ""}
-           FROM captures c
+              filterParams,
+            )
+          : null;
+      const [res, countRes] = await Promise.all([
+        pool.query(
+          `SELECT ${GALLERY_ITEM_COLUMNS}${paged ? `, ${sortKeys.map((k, i) => `(${k.expr})::text AS _sort${i}`).join(", ")}` : ""}
+           FROM ${galleryCapturesSource(filters)} c
            ${GALLERY_ITEM_JOINS}
            WHERE c.user_id = $1
              ${where}
              ${after}
            ORDER BY ${galleryOrderBy(sortKeys)}
            ${paged ? `LIMIT ${limit + 1}` : ""}`,
-        params,
-      ),
-      countQuery,
-    ]);
+          params,
+        ),
+        countQuery,
+      ]);
 
-    if (!paged) return { items: res.rows.map((row) => toGalleryItem(row, null)) };
-    const page = res.rows.slice(0, limit);
-    const last = page.at(-1);
-    const nextCursor =
-      res.rows.length > limit && last
-        ? encodeGalleryCursor({ sort: sortName, values: sortKeys.map((_, i) => last[`_sort${i}`] ?? null), id: last.capture_id })
-        : null;
-    const total = countRes ? (countRes.rows[0]?.total ?? 0) : undefined;
-    return { items: page.map((row) => toGalleryItem(row, null)), nextCursor, ...(total !== undefined ? { total } : {}) };
-  });
+      if (!paged) return { items: res.rows.map((row) => toGalleryItem(row, null)) };
+      const page = res.rows.slice(0, limit);
+      const last = page.at(-1);
+      const nextCursor =
+        res.rows.length > limit && last
+          ? encodeGalleryCursor({
+              sort: sortName,
+              values: sortKeys.map((_, i) => last[`_sort${i}`] ?? null),
+              id: last.capture_id,
+            })
+          : null;
+      const total = countRes ? (countRes.rows[0]?.total ?? 0) : undefined;
+      return {
+        items: page.map((row) => toGalleryItem(row, null)),
+        nextCursor,
+        ...(total !== undefined ? { total } : {}),
+      };
+    },
+  );
 
   // Every capture id the /gallery filters match, so select all needn't page through full items.
   // Video and RAW ids come along for the batch actions that word or offer things by them.
-  app.get<{ Querystring: GalleryFilterQuery }>("/gallery/ids", { preHandler: requireScope("gallery.read") }, async (request, reply) => {
-    const userId = request.user!.id;
-    const filters = parseGalleryFilters(request.query);
-    if ("error" in filters) return reply.code(400).send({ error: filters.error });
-    const params: unknown[] = [userId];
-    const param = (v: unknown) => {
-      params.push(v);
-      return `$${params.length}`;
-    };
-    const where = galleryFilterSql(filters, param);
-    const res = await pool.query<{ capture_id: string; is_video: boolean; has_raw: boolean }>(
-      `SELECT c.id::text AS capture_id, p.kind = 'video' AS is_video,
+  app.get(
+    "/gallery/ids",
+    {
+      preValidation: requireScope("gallery.read"),
+      schema: {
+        querystring: GalleryFilterQuery,
+        response: replies(
+          Type.Object({
+            captureIds: Type.Array(Uuid()),
+            videoCaptureIds: Type.Array(Uuid()),
+            rawCaptureIds: Type.Array(Uuid()),
+          }),
+        ),
+      },
+    },
+    async (request, reply) => {
+      const userId = request.user!.id;
+      const filters = parseGalleryFilters(request.query);
+      if ("error" in filters) return reply.code(400).send({ error: filters.error });
+      const params: unknown[] = [userId];
+      const param = (v: unknown) => {
+        params.push(v);
+        return `$${params.length}`;
+      };
+      const where = galleryFilterSql(filters, param);
+      const res = await pool.query<{ capture_id: string; is_video: boolean; has_raw: boolean }>(
+        `SELECT c.id::text AS capture_id, p.kind = 'video' AS is_video,
               EXISTS (SELECT 1 FROM originals ro WHERE ro.capture_id = c.id AND ro.kind = 'raw') AS has_raw
-         FROM captures c
+         FROM ${galleryCapturesSource(filters)} c
          ${GALLERY_ITEM_JOINS}
          WHERE c.user_id = $1
            ${where}`,
-      params,
-    );
-    const captureIds: string[] = [];
-    const videoCaptureIds: string[] = [];
-    const rawCaptureIds: string[] = [];
-    for (const r of res.rows) {
-      captureIds.push(r.capture_id);
-      if (r.is_video) videoCaptureIds.push(r.capture_id);
-      if (r.has_raw) rawCaptureIds.push(r.capture_id);
-    }
-    return { captureIds, videoCaptureIds, rawCaptureIds };
-  });
+        params,
+      );
+      const captureIds: string[] = [];
+      const videoCaptureIds: string[] = [];
+      const rawCaptureIds: string[] = [];
+      for (const r of res.rows) {
+        captureIds.push(r.capture_id);
+        if (r.is_video) videoCaptureIds.push(r.capture_id);
+        if (r.has_raw) rawCaptureIds.push(r.capture_id);
+      }
+      return { captureIds, videoCaptureIds, rawCaptureIds };
+    },
+  );
 
   // Whether the user has any video, so the "Video" filter only shows when useful.
-  app.get("/gallery/has-video", { preHandler: requireScope("gallery.read") }, async (request) => {
-    const userId = request.user!.id;
-    const res = await pool.query<{ exists: boolean }>(
-      `SELECT EXISTS (
+  app.get(
+    "/gallery/has-video",
+    {
+      preValidation: requireScope("gallery.read"),
+      schema: { response: replies(Type.Object({ hasVideo: Type.Boolean() })) },
+    },
+    async (request) => {
+      const userId = request.user!.id;
+      const res = await pool.query<{ exists: boolean }>(
+        `SELECT EXISTS (
          SELECT 1 FROM photos p JOIN captures c ON c.id = p.capture_id
          WHERE c.user_id = $1 AND p.kind = 'video'
        ) AS exists`,
-      [userId],
-    );
-    return { hasVideo: res.rows[0]?.exists ?? false };
-  });
+        [userId],
+      );
+      return { hasVideo: res.rows[0]?.exists ?? false };
+    },
+  );
 
   // Taxon classes the user has photographed, so the Taxon filter never offers empty choices.
-  app.get("/gallery/taxa", { preHandler: requireScope("gallery.read") }, async (request) => {
-    const userId = request.user!.id;
-    const res = await pool.query<{ taxon_class: string }>(
-      `SELECT DISTINCT s.taxon_class
+  app.get(
+    "/gallery/taxa",
+    {
+      preValidation: requireScope("gallery.read"),
+      // Nullable: a species without a class still shows up here as null.
+      schema: { response: replies(Type.Object({ taxa: Type.Array(Type.Union([Type.String(), Type.Null()])) })) },
+    },
+    async (request) => {
+      const userId = request.user!.id;
+      const res = await pool.query<{ taxon_class: string }>(
+        `SELECT DISTINCT s.taxon_class
          FROM captures c
          JOIN species s ON s.id = c.species_id
          WHERE c.user_id = $1`,
-      [userId],
-    );
-    return { taxa: res.rows.map((r) => r.taxon_class) };
-  });
+        [userId],
+      );
+      return { taxa: res.rows.map((r) => r.taxon_class) };
+    },
+  );
 
   // Regions the Region filter offers: those with photos, plus their ancestors so the tree can
   // be drilled down to them.
-  app.get("/gallery/regions-with-photos", { preHandler: requireScope("gallery.read") }, async (request) => {
-    const userId = request.user!.id;
-    const res = await pool.query<{ id: string }>(
-      `WITH RECURSIVE used AS (
+  app.get(
+    "/gallery/regions-with-photos",
+    {
+      preValidation: requireScope("gallery.read"),
+      schema: { response: replies(Type.Object({ regionIds: Type.Array(Uuid()) })) },
+    },
+    async (request) => {
+      const userId = request.user!.id;
+      const res = await pool.query<{ id: string }>(
+        `WITH RECURSIVE used AS (
          SELECT DISTINCT region_id AS id FROM captures WHERE user_id = $1 AND region_id IS NOT NULL
        ),
        ancestors AS (
@@ -558,19 +728,20 @@ export async function galleryRoutes(app: FastifyInstance): Promise<void> {
          SELECT r.parent_id FROM regions r JOIN ancestors a ON r.id = a.id WHERE r.parent_id IS NOT NULL
        )
        SELECT DISTINCT id FROM ancestors`,
-      [userId],
-    );
-    return { regionIds: res.rows.map((r) => r.id) };
-  });
+        [userId],
+      );
+      return { regionIds: res.rows.map((r) => r.id) };
+    },
+  );
 }
 
 // Response shape for /gallery and /gallery/search; score is null for the plain listing.
 export function toGalleryItem(row: Record<string, unknown>, score: number | null) {
   return {
-    photoId: row.photo_id,
+    photoId: row.photo_id as string,
     width: row.width,
     height: row.height,
-    captureId: row.capture_id,
+    captureId: row.capture_id as string,
     speciesId: row.species_id,
     scientificName: row.scientific_name,
     commonName: row.common_name,
@@ -590,6 +761,11 @@ export function toGalleryItem(row: Record<string, unknown>, score: number | null
     kind: row.photo_kind ?? "image",
     durationSeconds: row.duration_seconds,
     tags: row.tags ?? [],
+    // What a culling app marked the photo (shown in the lightbox's info), and whether it was
+    // imported hidden.
+    cullVerdict: row.cull_verdict ?? null,
+    cullLabel: row.cull_label ?? null,
+    hidden: row.hidden ?? false,
     isFeatured: row.is_featured,
     hasRawOriginal: row.has_raw_original,
     originalRef: row.original_ref,
