@@ -42,6 +42,10 @@ export const MAP_DOWNLOAD_URL =
 // Per-file upload cap, as a disk-safety net only: 0 (the default) means no cap. Enforced on
 // multipart parts and on a resumable upload's declared Upload-Length.
 export const MAX_UPLOAD_BYTES = Math.max(0, Number(process.env.MAX_UPLOAD_BYTES ?? 0) || 0);
+// Requests per minute from one address on a server; 0 turns the limit off. Generous, since a
+// gallery scroll fetches many thumbnails at once and a household shares one address. Sign-in has
+// its own, much tighter limit. Desktop mode has none: only the app's own window can reach it.
+export const RATE_LIMIT_PER_MINUTE = Math.max(0, Number(process.env.RATE_LIMIT_PER_MINUTE ?? 3000) || 0);
 // Cap on ordinary request bodies (JSON). Uploads never go through it: multipart and resumable
 // uploads stream to disk under their own limits.
 export const MAX_JSON_BODY_BYTES = Math.max(

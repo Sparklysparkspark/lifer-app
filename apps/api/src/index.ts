@@ -11,6 +11,7 @@ import {
   desktopModeStartupError,
   MAX_JSON_BODY_BYTES,
   MAX_UPLOAD_BYTES,
+  RATE_LIMIT_PER_MINUTE,
   PORT,
   SINGLE_USER_MODE,
   WEB_DIST_DIR,
@@ -36,6 +37,7 @@ import { pool } from "@lifer/core/db.js";
 import { stopInference } from "@lifer/core/species/inference.js";
 import { closeExiftool } from "./uploads/exif.js";
 import { friendlyFsErrorMessage } from "./lib/friendlyFsError.js";
+import { registerRateLimit } from "./lib/rateLimit.js";
 import { startEventLoopWatchdog } from "./lib/eventLoopWatchdog.js";
 import { startParentWatchdog } from "./lib/parentWatchdog.js";
 import { watchLibraryFolder } from "@lifer/core/lib/libraryFolder.js";
@@ -147,6 +149,9 @@ await app.register(cookie);
 // routes, the desktop app's own credential only (auth/desktopGate.ts). Registered after the cookie
 // plugin, whose own onRequest hook parses the credential cookie.
 if (SINGLE_USER_MODE) app.addHook("onRequest", desktopRequestGate(PORT));
+
+// Servers only: see config.ts RATE_LIMIT_PER_MINUTE.
+if (!SINGLE_USER_MODE) await registerRateLimit(app, RATE_LIMIT_PER_MINUTE);
 
 // Security headers. ipc: is the desktop shell's bridge. No HSTS, since plain http on a home
 // network is supported and a reverse proxy can add it.
