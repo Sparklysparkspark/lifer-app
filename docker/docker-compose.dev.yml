@@ -1,0 +1,22 @@
+# Local development overrides. Paths resolve from the repo root (the first compose file's folder).
+#
+# Postgres for `npm run dev` and pipeline jobs, published on this machine only:
+#   docker compose -f docker-compose.yml -f docker/docker-compose.dev.yml up -d postgres
+# The full stack from a locally built image:
+#   docker compose -f docker-compose.yml -f docker/docker-compose.dev.yml up -d --build
+services:
+  postgres:
+    # Maintainers' and developers' database: the same Postgres 18 Alpine build, plus PostGIS, which
+    # two data pipeline scripts use for distances between region outlines (remove-escapes.ts,
+    # compute-local-tiers.ts). The app itself never needs it, so docker-compose.yml stays plain
+    # Postgres. imresamu/postgis is the PostGIS Docker maintainer's multi-arch build (native on ARM).
+    image: imresamu/postgis:18-3.6-alpine
+    ports:
+      - "127.0.0.1:5432:5432"
+
+  permissions:
+    image: lifer-app:dev
+
+  api:
+    image: lifer-app:dev
+    build: .

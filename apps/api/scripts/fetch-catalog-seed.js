@@ -38,7 +38,7 @@ async function main() {
 
   const seedUrl = manifest.seed ? new URL(manifest.seed.url, CATALOG_MANIFEST_URL).toString() : LEGACY_SEED_URL;
   if (manifest.seed?.bytes > MAX_SEED_BYTES) {
-    throw new Error(`Published seed is ${Math.round(manifest.seed.bytes / 1048576)} MB, over the 200 MB limit`);
+    throw new Error(`Published seed is ${Math.round(manifest.seed.bytes / 1048576)} MB, over the ${MAX_SEED_BYTES / 1048576} MB limit`);
   }
   const dest = path.join(destDir, "lifer-catalog-seed.sql.gz");
   console.log(`[fetch-catalog-seed] downloading ${seedUrl}`);
@@ -49,14 +49,20 @@ async function main() {
   const bytes = statSync(dest).size;
   if (bytes > MAX_SEED_BYTES) {
     rmSync(dest);
-    throw new Error(`Seed is ${Math.round(bytes / 1048576)} MB, over the 200 MB limit. Republish it with build-catalog-seed.ts.`);
+    throw new Error(`Seed is ${Math.round(bytes / 1048576)} MB, over the ${MAX_SEED_BYTES / 1048576} MB limit. Republish it with build-catalog-seed.ts.`);
   }
   if (manifest.seed?.sha256 && (await sha256(dest)) !== manifest.seed.sha256) {
     rmSync(dest);
     throw new Error("Seed checksum doesn't match the manifest");
   }
   console.log(`[fetch-catalog-seed] wrote ${dest} (${(bytes / 1048576).toFixed(1)} MB)`);
-  await extractRegions(dest, path.join(destDir, "lifer-catalog-regions.sql.gz"));
+  const regionsPath = path.join(destDir, "lifer-catalog-regions.sql.gz");
+  if (await extractRegions(dest, regionsPath)) {
+    // The server checks both bundled files against this manifest copy before loading them
+    // (catalogSeedUpdate.ts verifiedBundledSeed); the regions file is ours, so its checksum is too.
+    manifest.regionsOnly = { sha256: await sha256(regionsPath), bytes: statSync(regionsPath).size };
+    writeFileSync(path.join(destDir, "catalog-manifest.json"), JSON.stringify(manifest, null, 2));
+  }
 }
 
 // A light copy of the seed's regions table (names and hierarchy, no map outlines), so a fresh
@@ -90,13 +96,14 @@ async function extractRegions(seedPath, outPath) {
   lines.close();
   if (!keep || out[out.length - 1] !== "\\.") {
     console.warn("[fetch-catalog-seed] no complete regions table in the seed; skipping the regions-only file");
-    return;
+    return false;
   }
   const gzip = createGzip();
   const done = pipeline(gzip, createWriteStream(outPath));
   gzip.end(out.join("\n") + "\n");
   await done;
   console.log(`[fetch-catalog-seed] wrote ${outPath} (${out.length - 2} regions)`);
+  return true;
 }
 
 main().catch((err) => {

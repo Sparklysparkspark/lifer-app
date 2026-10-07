@@ -1,0 +1,22 @@
+# Optional GPU access for species matching. Download this file next to docker-compose.yml, then in
+# docker-compose.yml uncomment the `extends` block under `api` and set `service` to your GPU type.
+# See https://sparklysparkspark.github.io/lifer-app/install/hardware-acceleration
+
+services:
+  # Needs the NVIDIA driver (525 or newer) and the NVIDIA Container Toolkit on the server.
+  nvidia:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  # Intel and AMD GPUs through /dev/dri. RENDER_GROUP_ID is the number
+  # `stat -c %g /dev/dri/renderD128` prints on the server; set it in .env.
+  intel-amd:
+    devices:
+      - /dev/dri:/dev/dri
+    group_add:
+      - "${RENDER_GROUP_ID:-107}"

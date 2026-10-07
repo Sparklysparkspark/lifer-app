@@ -1,25 +1,212 @@
+# Moves the database of a server installed before Postgres 18 (volume lifer-postgres-data,
+# Postgres 16) into the new lifer-db volume, once, before Lifer starts. Two one-shot services run
+# it: db-upgrade saves a copy of the old database (dump), db-upgrade-restore loads it into
+# Postgres 18 (restore). The old volume is only ever mounted read-only, so it stays as it was.
+# On a new install, or once the move is done, both exit straight away. See the docs, upgrading.
+x-db-upgrade-script: &db-upgrade-script |
+  set -eu
+  state=/new-db/lifer-upgrade
+  log() { echo "[db-upgrade] $$*"; }
+  if [ "$${LIFER_SKIP_DB_UPGRADE:-0}" != 0 ]; then
+    log "LIFER_SKIP_DB_UPGRADE is set, so the old database isn't moved"
+    # Lifer may now fill the new database, which a later restore must not mistake for its own.
+    rm -f "$$state/restore-started"
+    exit 0
+  fi
+  if [ -e "$$state/restored" ]; then
+    log "Database already moved to Postgres 18 ($$(cat "$$state/restored")), nothing to do"
+    exit 0
+  fi
+
+  if [ "$$1" = dump ]; then
+    if [ ! -s /old-db/PG_VERSION ]; then
+      log "No database from an earlier release (volume lifer-postgres-data), nothing to move"
+      exit 0
+    fi
+    if [ -s "$$state/lifer.dump" ]; then
+      log "A copy of the old database is already saved and waiting to be restored"
+      exit 0
+    fi
+    if [ -n "$$(find /new-db -maxdepth 3 -path "$$state" -prune -o -name PG_VERSION -print)" ]; then
+      log "The new database (volume lifer-db) already exists, so the old one isn't moved into it."
+      log "The old volume lifer-postgres-data is still there, untouched. See the docs, upgrading."
+      exit 0
+    fi
+    old_version=$$(cat /old-db/PG_VERSION)
+    if [ "$$old_version" != 16 ]; then
+      log "The old database is Postgres $$old_version, but only Postgres 16 can be moved. Lifer won't start."
+      exit 1
+    fi
+    # Give a shutdown that's still going on time to finish. If the file stays, the old server was
+    # stopped before it finished (Docker's stop timeout): its files are then as after a power cut,
+    # which Postgres recovers from. Whether it's still running is checked around the copy below.
+    waited=0
+    while [ -e /old-db/postmaster.pid ] && [ "$$waited" -lt 30 ]; do
+      [ "$$waited" = 0 ] && log "Waiting for the old database to stop"
+      sleep 2
+      waited=$$((waited + 2))
+    done
+    old_kb=$$(du -sk /old-db | cut -f1)
+    free_kb=$$(df -Pk /new-db | awk 'NR == 2 { print $$4 }')
+    if [ "$$free_kb" -lt $$((old_kb * 2)) ]; then
+      log "Moving the database needs about $$((old_kb * 2 / 1024)) MB free on the Docker disk, but only $$((free_kb / 1024)) MB is. Lifer won't start."
+      exit 1
+    fi
+
+    rm -rf "$$state"
+    mkdir -p "$$state/work" /tmp/sock
+    chown postgres:postgres "$$state/work" /tmp/sock
+    log "Found a Postgres 16 database from an earlier release ($$((old_kb / 1024)) MB). Copying it to move it to Postgres 18."
+    touch /tmp/copy-started
+    cp -a /old-db "$$state/work/pgdata"
+    # A copy is only safe if nothing wrote to the old files meanwhile (a write, new file or rename
+    # changes a file's or folder's time).
+    if [ -n "$$(find /old-db -newer /tmp/copy-started | head -n 1)" ]; then
+      rm -rf "$$state"
+      log "The old database changed while it was being copied, so it's still running somewhere."
+      log "Stop it ('docker compose down', or stop the old Lifer), then run 'docker compose up -d' again. Lifer won't start until then."
+      exit 1
+    fi
+    if [ -e /old-db/postmaster.pid ]; then
+      log "The old database wasn't shut down cleanly. Postgres recovers the copy as after a power cut."
+      rm -f "$$state/work/pgdata/postmaster.pid"
+    fi
+    # The copy is ours to change: local connections without a password, and no PostGIS (below).
+    echo "local all all trust" > "$$state/work/pgdata/pg_hba.conf"
+    chown -R postgres:postgres "$$state/work/pgdata"
+    chmod 700 "$$state/work/pgdata"
+    # shellcheck disable=SC2329 # called by the trap below
+    cleanup() {
+      su-exec postgres pg_ctl -D "$$state/work/pgdata" -m fast stop > /dev/null 2>&1 || true
+      rm -rf "$$state/work"
+    }
+    trap cleanup EXIT
+    if ! su-exec postgres pg_ctl -D "$$state/work/pgdata" -w -t 900 -l "$$state/work/postgres.log"       -o "-c listen_addresses='' -k /tmp/sock -c max_parallel_workers_per_gather=0" start > /dev/null; then
+      tail -n 20 "$$state/work/postgres.log"
+      log "The copy of the old database didn't start. The old volume is untouched. Lifer won't start."
+      exit 1
+    fi
+    q() { PGOPTIONS="-c client_min_messages=warning" su-exec postgres psql -h /tmp/sock -U lifer -d lifer -v ON_ERROR_STOP=1 -qAt "$$@"; }
+    # Lifer never used PostGIS, which the old image added by itself. Postgres 18 here doesn't have
+    # it, so geometry columns become text (WKT) and the PostGIS extensions are removed. Without
+    # CASCADE: if anything else depended on them, this fails rather than dropping it.
+    q -c "SELECT format('ALTER TABLE %I.%I ALTER COLUMN %I TYPE text USING ST_AsText(%I);', n.nspname, c.relname, a.attname, a.attname)
+      FROM pg_attribute a JOIN pg_class c ON c.oid = a.attrelid JOIN pg_namespace n ON n.oid = c.relnamespace
+      JOIN pg_type t ON t.oid = a.atttypid
+      WHERE t.typname IN ('geometry', 'geography') AND c.relkind IN ('r', 'p') AND a.attnum > 0 AND NOT a.attisdropped
+        AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.classid = 'pg_class'::regclass AND d.objid = c.oid AND d.deptype = 'e')"       > "$$state/work/convert.sql"
+    if [ -s "$$state/work/convert.sql" ]; then
+      log "Converting PostGIS columns to text: $$(grep -o 'ALTER TABLE [^ ]*' "$$state/work/convert.sql" | cut -d' ' -f3 | tr '\n' ' ')"
+      q -f "$$state/work/convert.sql"
+    fi
+    for ext in postgis_tiger_geocoder postgis_topology postgis_raster postgis_sfcgal postgis; do
+      q -c "DROP EXTENSION IF EXISTS $$ext"
+    done
+    # Their schemas, if empty (no CASCADE).
+    for schema in tiger_data tiger topology; do
+      q -c "DROP SCHEMA IF EXISTS $$schema" 2> /dev/null || true
+    done
+    log "Saving a copy of the database"
+    su-exec postgres pg_dump -h /tmp/sock -U lifer -d lifer -Fc -f "$$state/work/lifer.dump"
+    mv "$$state/work/lifer.dump" "$$state/lifer.dump"
+    log "Saved ($$(du -k "$$state/lifer.dump" | cut -f1) KB). Postgres 18 starts next and the copy is restored into it."
+    exit 0
+  fi
+
+  # Restore, after the new Postgres 18 has started.
+  if [ ! -s "$$state/lifer.dump" ]; then
+    exit 0
+  fi
+  export PGHOST=postgres PGUSER=lifer PGDATABASE=lifer
+  tables=$$(psql -v ON_ERROR_STOP=1 -qAt -c "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE c.relkind IN ('r', 'p') AND n.nspname NOT IN ('pg_catalog', 'information_schema') AND n.nspname NOT LIKE 'pg_toast%'")
+  if [ "$$tables" -gt 0 ]; then
+    # One transaction: the restore is either all there or not at all, so tables after a restore
+    # that started (and didn't fail) mean it finished, and was only stopped before saying so.
+    if [ ! -e "$$state/restore-started" ]; then
+      log "The new database isn't empty, so the old one isn't restored over it. Lifer won't start."
+      log "To keep the new database and not move the old one, set LIFER_SKIP_DB_UPGRADE=1 in .env. See the docs, upgrading."
+      exit 1
+    fi
+    log "The restore finished last time"
+  else
+    touch "$$state/restore-started"
+    log "Restoring the old database into Postgres 18. On a big library this can take several minutes."
+    if ! pg_restore --single-transaction --exit-on-error --no-owner --no-privileges -d lifer "$$state/lifer.dump"; then
+      rm -f "$$state/restore-started"
+      log "The restore failed and was undone, so the new database is still empty. Lifer won't start."
+      log "Your old database (volume lifer-postgres-data) is untouched. See the docs, upgrading."
+      exit 1
+    fi
+    psql -v ON_ERROR_STOP=1 -qAt -c ANALYZE
+  fi
+  date -u '+%Y-%m-%d %H:%M UTC' > "$$state/restored"
+  rm -f "$$state/lifer.dump" "$$state/restore-started"
+  log "Done: your database is on Postgres 18. The old volume lifer-postgres-data is kept until you remove it."
+
 services:
   postgres:
-    image: postgis/postgis:16-3.4-alpine
+    # Plain Postgres: Lifer only needs pgcrypto, pg_trgm and unaccent, which it ships with. Pin the
+    # major version: a new major can't open an older one's data without a dump and restore.
+    image: postgres:18-alpine
     restart: unless-stopped
+    # Time to finish writing on shutdown, instead of Docker's 10 seconds, after which it's killed.
+    stop_grace_period: 1m
+    # Docker's default 64 MB of shared memory is too little for Postgres's parallel queries on a
+    # large catalog ("could not resize shared memory segment").
+    shm_size: 256mb
     environment:
       POSTGRES_USER: lifer
-      POSTGRES_PASSWORD: lifer
+      # Set DB_PASSWORD in .env before the first start: Postgres only reads it when it creates the
+      # database. Letters and numbers only, since it also goes into DATABASE_URL below.
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-lifer}
       POSTGRES_DB: lifer
     # No host port: only Lifer talks to the database, over the compose network.
     volumes:
-      - lifer-postgres-data:/var/lib/postgresql/data
+      # Postgres 18 images keep their data under /var/lib/postgresql/<major>/, so the volume is
+      # mounted one level up from where older images expected it.
+      - lifer-db:/var/lib/postgresql
     # -h 127.0.0.1 waits for the real TCP listener, not the socket-only init phase on first boot.
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U lifer -d lifer"]
       interval: 2s
       timeout: 3s
       retries: 30
+    depends_on:
+      db-upgrade:
+        condition: service_completed_successfully
+
+  # One-shot: saves a copy of a Postgres 16 database from an earlier release (see the top of this
+  # file). The PostGIS 16 image matches the old one; this build of it also runs on ARM.
+  db-upgrade:
+    image: imresamu/postgis:16-3.4-alpine
+    network_mode: none
+    restart: "no"
+    entrypoint: ["sh", "-c", *db-upgrade-script, "db-upgrade", "dump"]
+    environment:
+      LIFER_SKIP_DB_UPGRADE: ${LIFER_SKIP_DB_UPGRADE:-0}
+    volumes:
+      - lifer-postgres-data:/old-db:ro
+      - lifer-db:/new-db
+
+  # One-shot: restores that copy into the new database before Lifer starts.
+  db-upgrade-restore:
+    image: postgres:18-alpine
+    restart: "no"
+    entrypoint: ["sh", "-c", *db-upgrade-script, "db-upgrade", "restore"]
+    environment:
+      PGPASSWORD: ${DB_PASSWORD:-lifer}
+      LIFER_SKIP_DB_UPGRADE: ${LIFER_SKIP_DB_UPGRADE:-0}
+    volumes:
+      - lifer-db:/new-db
+    depends_on:
+      postgres:
+        condition: service_healthy
 
   # One-shot, runs as root: creates the folders Lifer writes to and gives them to PUID:PGID
   # (only entries whose owner differs), since the api container runs as that non-root user.
   permissions:
-    image: ghcr.io/sparklysparkspark/lifer-app:latest
+    image: ghcr.io/sparklysparkspark/lifer-app:${LIFER_VERSION:-release}
     user: "0:0"
     network_mode: none
     restart: "no"
@@ -34,8 +221,11 @@ services:
 
   # Serves the API and the built web UI on one port. Put your own reverse proxy in front for TLS.
   api:
-    image: ghcr.io/sparklysparkspark/lifer-app:latest
-    build: .
+    # "release" is the newest stable version. Pin one (LIFER_VERSION=0.9.0 in .env) to update on
+    # your own schedule.
+    image: ghcr.io/sparklysparkspark/lifer-app:${LIFER_VERSION:-release}
+    # Reaps the ExifTool and ffmpeg helper processes Lifer starts.
+    init: true
     # Brings Lifer back after a crash or a freeze-watchdog restart (LIFER_FREEZE_RESTART_SECONDS).
     restart: unless-stopped
     # Non-root; the permissions service above makes the volumes writable for this user.
@@ -45,13 +235,16 @@ services:
         condition: service_healthy
       permissions:
         condition: service_completed_successfully
+      db-upgrade-restore:
+        condition: service_completed_successfully
     environment:
-      DATABASE_URL: postgres://lifer:lifer@postgres:5432/lifer
+      DATABASE_URL: postgres://lifer:${DB_PASSWORD:-lifer}@postgres:5432/lifer
       NODE_ENV: production
       PORT: ${PORT:-4000}
       DATA_DIR: /data
       APP_DATA_DIR: /app-data
-      # Reverse proxies in front of Lifer, as a hop count or proxy IPs (see the docs, reverse-proxy).
+      # The reverse proxy in front of Lifer, by address or range; unset trusts none. Set it when
+      # Lifer is behind a proxy (see the docs, reverse-proxy).
       TRUST_PROXY: ${TRUST_PROXY:-}
       # Extra folders Lifer may read and write besides /data: reimporting an existing library,
       # building trips, and saving uploads to another disk. Comma-separated, each
@@ -78,34 +271,15 @@ services:
       - lifer-app-data:/app-data
       # Example library root (pair with LIFER_LIBRARY_ROOTS=NAS=/library/nas):
       # - /srv/nas/photos:/library/nas
-    # Optional GPU for faster species matching (see the docs, hardware-acceleration).
-    # NVIDIA: needs the NVIDIA driver and NVIDIA Container Toolkit on the server. Uncomment:
-    # deploy:
-    #   resources:
-    #     reservations:
-    #       devices:
-    #         - driver: nvidia
-    #           count: all
-    #           capabilities: [gpu]
-    # Intel or AMD: uncomment, and set 107 to your server's render group number, which
-    # `stat -c %g /dev/dri/renderD128` prints.
-    # devices:
-    #   - /dev/dri:/dev/dri
-    # group_add:
-    #   - "107"
-    # Opts this container into Watchtower below. Remove it to update by hand instead.
-    labels:
-      - "com.centurylinklabs.watchtower.enable=true"
-
-  # Optional auto-update: hourly, pulls a newer image for labeled containers (only api, never
-  # the database) and recreates them. Delete this service to update by hand.
-  watchtower:
-    image: containrrr/watchtower
-    restart: unless-stopped
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-    command: --label-enable --cleanup --interval 3600
+    # Optional GPU for faster species matching: download hwaccel.yml next to this file, uncomment
+    # these lines and set `service` to nvidia or intel-amd. See the docs, hardware-acceleration.
+    # extends:
+    #   file: hwaccel.yml
+    #   service: nvidia
 
 volumes:
-  lifer-postgres-data:
+  lifer-db:
   lifer-app-data:
+  # The database volume of releases before Postgres 18, only read by db-upgrade. On a new install
+  # it stays empty. Once you're happy with the move, you can remove it (see the docs, upgrading).
+  lifer-postgres-data:

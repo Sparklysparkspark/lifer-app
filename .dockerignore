@@ -25,8 +25,8 @@ packages/data-pipeline/ops
 apps/desktop
 docs
 assets
-deploy
 docker-compose*.yml
+docker/docker-compose*.yml
 
 # Tests and fixtures never run in the container.
 **/*.test.ts
@@ -36,4 +36,4 @@ apps/api/vitest*.config.*
 packages/data-pipeline/vitest*.config.*
 
 # Maintainer scripts run from a checkout; the server never loads them.
-apps/api/src/scripts
+packages/data-pipeline/src/scripts

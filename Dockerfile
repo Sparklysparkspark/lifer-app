@@ -10,33 +10,53 @@ COPY package.json package-lock.json ./
 COPY apps/api/package.json apps/api/package.json
 COPY apps/web/package.json apps/web/package.json
 COPY packages/shared/package.json packages/shared/package.json
+COPY packages/core/package.json packages/core/package.json
 COPY packages/data-pipeline/package.json packages/data-pipeline/package.json
-RUN npm ci
+# ONNXRUNTIME_NODE_INSTALL=skip: onnxruntime-node's install script otherwise fetches its CUDA and
+# TensorRT providers (~270 MB) on linux/x64. Nothing uses them: GPU matching downloads its own
+# ONNX Runtime with the CUDA provider on demand (apps/api/src/species/gpuRuntime.ts).
+RUN ONNXRUNTIME_NODE_INSTALL=skip npm ci
 COPY . .
-RUN npm run build -w web
+RUN npm run build -w web && npm run build -w api
 # Bundled so a fresh container shows countries and checklists offline on first launch.
 RUN node apps/api/scripts/fetch-catalog-seed.js
 
-# Runtime stage: production deps of the server workspaces only (no vite, typescript, web deps).
+# Production dependencies, cut down to what the compiled server loads (docker/prune-node-modules.mjs,
+# which shares how it finds them with the desktop app's bundle via scripts/runtime-deps.mjs):
+# the workspaces also list packages only the data pipeline's scripts use, and npm installs builds
+# for other platforms (onnxruntime-node's macOS, Windows and other-CPU binaries, sharp's musl and
+# wasm builds). The prune step fails the build if a package the server imports no longer loads.
+# onnxruntime-node's GPU providers are skipped here as in the build stage, and the prune step
+# removes any that turn up anyway.
+FROM base AS deps
+COPY package.json package-lock.json ./
+COPY apps/api/package.json apps/api/package.json
+COPY packages/shared/package.json packages/shared/package.json
+COPY packages/core/package.json packages/core/package.json
+COPY packages/data-pipeline/package.json packages/data-pipeline/package.json
+RUN ONNXRUNTIME_NODE_INSTALL=skip npm ci --omit=dev -w api -w data-pipeline -w @lifer/core -w @lifer/shared \
+  && npm cache clean --force && rm -rf /root/.npm
+COPY --from=build /app/apps/api/dist apps/api/dist
+COPY --from=build /app/packages/data-pipeline/dist packages/data-pipeline/dist
+COPY docker/prune-node-modules.mjs /tmp/prune/docker/prune-node-modules.mjs
+COPY scripts/runtime-deps.mjs /tmp/prune/scripts/runtime-deps.mjs
+RUN node /tmp/prune/docker/prune-node-modules.mjs /app apps/api/dist packages/data-pipeline/dist
+
+# Runtime stage: the compiled server, the web app and the pruned dependencies.
 FROM base AS runtime
 # Vulkan and Mesa drivers let matching use a passed-in Intel/AMD GPU (python3-minimal: Mesa needs a python).
 RUN apt-get update && apt-get install -y --no-install-recommends libvulkan1 mesa-vulkan-drivers python3-minimal \
   && rm -rf /var/lib/apt/lists/*
-COPY package.json package-lock.json ./
+# The package.json files mark dist/*.js as ES modules ("type": "module").
+COPY package.json ./
 COPY apps/api/package.json apps/api/package.json
-COPY packages/shared/package.json packages/shared/package.json
 COPY packages/data-pipeline/package.json packages/data-pipeline/package.json
-# onnxruntime-node ships macOS and Windows binaries too; only Linux ones can load here.
-RUN npm ci --omit=dev -w api -w data-pipeline -w @lifer/shared \
-  && find node_modules -type d -path '*onnxruntime-node/bin/napi-v*' \( -name darwin -o -name win32 \) -prune -exec rm -rf {} + \
-  && npm cache clean --force && rm -rf /root/.npm
-# tsx runs the TypeScript sources directly; it's a dev dependency, so it's copied in on its own.
-COPY --from=build /app/node_modules/tsx node_modules/tsx
-COPY --from=build /app/node_modules/esbuild node_modules/esbuild
-COPY --from=build /app/node_modules/@esbuild node_modules/@esbuild
-COPY apps/api apps/api
-COPY packages/shared packages/shared
-COPY packages/data-pipeline packages/data-pipeline
+COPY --from=deps /app/node_modules node_modules
+# The compiled server (apps/api/scripts/build.mjs) and migrations. Lifer's own TypeScript is bundled
+# into dist/, so nothing else of the workspaces is needed.
+COPY --from=build /app/apps/api/dist apps/api/dist
+COPY --from=build /app/packages/data-pipeline/dist packages/data-pipeline/dist
+COPY packages/data-pipeline/migrations packages/data-pipeline/migrations
 COPY --from=build /app/apps/web/dist apps/web/dist
 COPY --from=build /app/catalog-seed catalog-seed
 

@@ -47,49 +47,62 @@ That's about 2.7 GB in total. Until it finishes, matching runs on the CPU as usu
 
 ## Give a Docker container the GPU {#docker}
 
-The shipped [`docker-compose.yml`](https://raw.githubusercontent.com/Sparklysparkspark/lifer-app/main/docker-compose.yml) has the lines below in the `api` service, commented out. Uncomment the ones for your GPU, then run `docker compose up -d`.
+GPU access lives in a second file, [`hwaccel.yml`](https://raw.githubusercontent.com/Sparklysparkspark/lifer-app/main/hwaccel.yml), so `docker-compose.yml` stays the same for everyone.
+
+1. Download `hwaccel.yml` into the folder with your `docker-compose.yml`.
+2. In `docker-compose.yml`, uncomment the `extends` lines under `api:` and set `service` to your GPU type:
+
+   ```yaml
+       extends:
+         file: hwaccel.yml
+         service: nvidia   # or intel-amd
+   ```
+
+3. Do the setup for your GPU below, then run `docker compose up -d`.
 
 ### NVIDIA
 
-On the server, install the NVIDIA driver (version 525 or newer) and the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html). Check that the driver works by running `nvidia-smi` on the server. Then add this under `api:`:
-
-```yaml
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
-```
+On the server, install the NVIDIA driver (version 525 or newer) and the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html). Check that the driver works by running `nvidia-smi` on the server. Use `service: nvidia`.
 
 With plain `docker run`, add `--gpus all` instead.
 
 ### Intel and AMD
 
-Pass in `/dev/dri`, and add the server's `render` group so Lifer's user can open the GPU. Find the group's number on the server:
+Lifer's user needs the server's `render` group to open the GPU. Find the group's number on the server:
 
 ```bash
 stat -c %g /dev/dri/renderD128
 ```
 
-Then add this under `api:`, with your number in place of `107`:
+Put it in `.env` as `RENDER_GROUP_ID` (for example `RENDER_GROUP_ID=993`), and use `service: intel-amd`.
 
-```yaml
-    devices:
-      - /dev/dri:/dev/dri
-    group_add:
-      - "107"
-```
+## Give a TrueNAS Custom App the GPU {#truenas}
 
-## Give the TrueNAS app the GPU {#truenas}
+Lifer isn't in the TrueNAS app catalog yet, so on TrueNAS you run it as a Custom App from `docker-compose.yml`.
 
 1. **NVIDIA only:** open **Apps > Configuration > Settings**, tick **Install NVIDIA Drivers**, and save.
-2. Open **Apps > Lifer > Edit**.
-3. Under **Resources Configuration > GPU Configuration**, select your NVIDIA GPU, or tick **Passthrough available (non-NVIDIA) GPUs** for Intel or AMD.
-4. Save. TrueNAS restarts Lifer with the GPU.
+2. A Custom App is a single YAML file, so `hwaccel.yml` can't be used. Add the lines for your GPU under `api:` directly, and save. TrueNAS restarts Lifer with the GPU.
 
-If you run Lifer as a TrueNAS Custom App from `docker-compose.yml`, follow the [Docker](#docker) steps instead.
+   NVIDIA:
+
+   ```yaml
+       deploy:
+         resources:
+           reservations:
+             devices:
+               - driver: nvidia
+                 count: all
+                 capabilities: [gpu]
+   ```
+
+   Intel or AMD, with your render group's number (see [Intel and AMD](#intel-and-amd)) in place of `107`:
+
+   ```yaml
+       devices:
+         - /dev/dri:/dev/dri
+       group_add:
+         - "107"
+   ```
 
 ## Check where matching runs {#check}
 
@@ -99,7 +112,7 @@ Click **Re-test hardware** to run the test again, for example after you add a GP
 
 ## Turn it off {#turn-off}
 
-You shouldn't need to. For troubleshooting, set the `LIFER_GPU` environment variable to `off` and restart Lifer. Matching then always runs on the CPU. With Docker, set `LIFER_GPU=off` in `.env` and run `docker compose up -d`. On TrueNAS, add it under **Lifer Configuration > Additional Environment Variables**.
+You shouldn't need to. For troubleshooting, set the `LIFER_GPU` environment variable to `off` and restart Lifer. Matching then always runs on the CPU. With Docker, set `LIFER_GPU=off` in `.env` and run `docker compose up -d`. On a TrueNAS Custom App, change the `LIFER_GPU` line in the app's YAML to `LIFER_GPU: "off"`.
 
 ## Troubleshooting {#troubleshooting}
 

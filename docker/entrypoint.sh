@@ -6,7 +6,7 @@ set -e
 mkdir -p "${APP_DATA_DIR:-/app-data}/pipeline-cache" 2>/dev/null || true
 
 cd /app/packages/data-pipeline
-node --import tsx src/migrate.ts
+node dist/migrate.js
 
 cd /app/apps/api
-exec node --import tsx src/index.ts
+exec node dist/index.js
