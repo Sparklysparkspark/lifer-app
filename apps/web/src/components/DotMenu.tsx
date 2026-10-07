@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import {
   cloneElement,
   isValidElement,
@@ -33,35 +34,36 @@ export default function DotMenu({
    *  clamped to the window edges. */
   anchorPoint?: { x: number; y: number } | null;
 }) {
-  const panelRef = useRef<HTMLDivElement>(null);
+  const { t } = useTranslation();
+  // The panel mounts in the same commit `open` turns on, so it's attached before the layout
+  // effects below measure it.
+  const panelRef = useRef<HTMLDivElement | null>(null);
   const [fixedPosition, setFixedPosition] = useState<{ top: number; left: number } | null>(null);
+  // A closed trigger menu forgets its clamped spot, so it reopens at its natural place.
+  if (!anchorPoint && !open && fixedPosition !== null) setFixedPosition(null);
 
+  const anchorX = anchorPoint?.x;
+  const anchorY = anchorPoint?.y;
   useLayoutEffect(() => {
-    if (!anchorPoint || !open) return;
     const el = panelRef.current;
-    if (!el) return;
+    if (anchorX == null || anchorY == null || !open || !el) return;
     const rect = el.getBoundingClientRect();
     const margin = 8;
-    let top = anchorPoint.y;
-    let left = anchorPoint.x;
+    let top = anchorY;
+    let left = anchorX;
     if (top + rect.height > window.innerHeight - margin) top = window.innerHeight - rect.height - margin;
     if (left + rect.width > window.innerWidth - margin) left = window.innerWidth - rect.width - margin;
     top = Math.max(margin, top);
     left = Math.max(margin, left);
     setFixedPosition({ top, left });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, anchorPoint?.x, anchorPoint?.y]);
+  }, [open, anchorX, anchorY]);
 
   // A panel that would overflow the viewport switches to position: fixed at clamped coordinates.
-  // Re-measures after every commit (content can grow without `open` changing), with a ResizeObserver backstop.
+  // Re-measures whenever the content changes (it can grow without `open` changing), with a
+  // ResizeObserver backstop for growth that happens inside it.
   useLayoutEffect(() => {
-    if (anchorPoint) return;
-    if (!open) {
-      setFixedPosition((prev) => (prev === null ? prev : null));
-      return;
-    }
     const el = panelRef.current;
-    if (!el) return;
+    if (anchorPoint || !open || !el) return;
 
     const reposition = () => {
       const rect = el.getBoundingClientRect();
@@ -84,11 +86,12 @@ export default function DotMenu({
     const observer = new ResizeObserver(reposition);
     observer.observe(el);
     return () => observer.disconnect();
-  });
+  }, [anchorPoint, open, children]);
 
   const panel =
     open &&
     isValidElement(children) &&
+    // eslint-disable-next-line react-hooks/refs -- cloneElement only attaches the ref, as ref={panelRef} would in JSX; nothing reads it during render
     cloneElement(children as ReactElement<{ ref?: RefObject<HTMLDivElement | null>; style?: CSSProperties }>, {
       ref: panelRef,
       style: fixedPosition
@@ -121,7 +124,7 @@ export default function DotMenu({
           e.stopPropagation();
           onToggle();
         }}
-        aria-label="More options"
+        aria-label={t("ui.moreOptions")}
         className={`rounded-full bg-black/40 px-1.5 py-0.5 text-xs text-white hover:bg-black/60 ${
           open ? "opacity-100" : "opacity-0 group-hover:opacity-100"
         }`}

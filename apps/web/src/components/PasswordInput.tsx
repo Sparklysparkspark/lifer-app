@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { useState } from "react";
 
 // A password input with a show/hide toggle, so a typo in a new password can be caught before submitting.
@@ -20,6 +21,7 @@ export default function PasswordInput({
   autoComplete?: string;
   autoFocus?: boolean;
 }) {
+  const { t } = useTranslation();
   const [visible, setVisible] = useState(false);
 
   return (
@@ -38,7 +40,7 @@ export default function PasswordInput({
       <button
         type="button"
         onClick={() => setVisible((v) => !v)}
-        aria-label={visible ? "Hide password" : "Show password"}
+        aria-label={visible ? t("auth.password.hide") : t("auth.password.show")}
         tabIndex={-1}
         className="absolute inset-y-0 right-0 flex items-center px-2.5 text-muted hover:text-ink"
       >

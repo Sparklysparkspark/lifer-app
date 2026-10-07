@@ -1,0 +1,650 @@
+{
+  "albums": {
+    "create": {
+      "failed": "Couldn't create this album",
+      "namePlaceholder": "Best raptor shots",
+      "submit": "Create"
+    },
+    "delete": {
+      "body": "This removes the album, but the photos in it aren't deleted. They stay right where they are.",
+      "failed": "Couldn't delete this album",
+      "title": "Delete this album?"
+    },
+    "empty": {
+      "description": "Group your favorite photos into a named collection you can browse or share.",
+      "title": "No albums yet"
+    },
+    "list": {
+      "loadFailed": "Couldn't load albums.",
+      "newAlbum": "New album",
+      "photoCount": "{count, plural, one {# photo} other {# photos}}"
+    },
+    "rename": {
+      "title": "Rename album"
+    }
+  },
+  "apiKeys": {
+    "backLabel": "Settings",
+    "copied": "Copied",
+    "copy": "Copy",
+    "copyFailed": "Couldn't copy. Select the key and copy it by hand.",
+    "createFailed": "Couldn't create this key",
+    "empty": {
+      "description": "Create a key to let another app or script read (and, for some resources, write) your data over the API.",
+      "guideHint": "New to the API? The <guide>API guide</guide> covers the endpoints, permissions and pagination.",
+      "title": "No API keys yet"
+    },
+    "form": {
+      "create": "Create key",
+      "creating": "Creating…",
+      "name": "Name",
+      "namePlaceholder": "Home Assistant dashboard",
+      "permissions": "Permissions",
+      "permissionsHint": "Give the key only the permissions your integration needs. The <guide>API guide</guide> lists what each one allows.",
+      "read": "Read",
+      "write": "Write"
+    },
+    "intro": "Build your own integrations: life-list counters, new-lifer bots, imports and backups. See the <guide>API guide</guide> or this server's <openapi>OpenAPI description</openapi>.",
+    "lastUsed": "Last used {date}",
+    "loadFailed": "Couldn't load your API keys",
+    "neverUsed": "Never used",
+    "newKey": "New key",
+    "revealed": {
+      "description": "Copy it now. You won't be able to see it again. If you lose it, revoke this key and create a new one.",
+      "title": "Your new API key"
+    },
+    "revoke": "Revoke",
+    "revokeConfirm": {
+      "message": "Anything using this key stops working right away. This can't be undone.",
+      "title": "Revoke \"{name}\"?"
+    },
+    "revokeFailed": "Couldn't revoke that key",
+    "scopes": {
+      "albums": "Albums",
+      "gallery": "Gallery",
+      "lifeList": "Life list",
+      "photos": "Photos",
+      "shares": "Shares",
+      "species": "Species",
+      "stats": "Stats",
+      "trips": "Trips"
+    },
+    "title": "API keys"
+  },
+  "auth": {
+    "password": {
+      "hide": "Hide password",
+      "show": "Show password"
+    }
+  },
+  "collection": {
+    "tiers": {
+      "common": "Common",
+      "legendary": "Legendary",
+      "occasional": "Occasional",
+      "rare": "Rare",
+      "uncommon": "Uncommon",
+      "unrated": "Unrated"
+    }
+  },
+  "collections": {
+    "tabs": {
+      "albums": "Albums",
+      "trips": "Trips"
+    },
+    "title": "Albums & trips"
+  },
+  "common": {
+    "cancel": "Cancel",
+    "creating": "Creating…",
+    "delete": "Delete",
+    "deleting": "Deleting…",
+    "done": "Done",
+    "name": "Name",
+    "rename": "Rename",
+    "retry": "Retry",
+    "save": "Save",
+    "saving": "Saving…"
+  },
+  "errors": {
+    "api": {
+      "desktop_only": "Only available in the desktop app",
+      "invalid_request": "The request wasn't valid. Check what you entered and try again.",
+      "no_checklist": "This region has no checklist of its own. Pick a country, or a province or state inside one.",
+      "no_video_frames": "Couldn't read any frames from this video",
+      "not_added": "You haven't added that species to this checklist",
+      "pack_index_unavailable": "Couldn't reach the offline pack index. Check your connection and try again.",
+      "reorganize_failed": "Couldn't reorganize your originals",
+      "storage_move_failed": "Couldn't move this library",
+      "suggestion_failed": "Couldn't suggest a species for this file"
+    }
+  },
+  "gallery": {
+    "albumPicker": {
+      "title": "Add photos to {album}",
+      "titleUnnamed": "Add photos to album"
+    },
+    "count": {
+      "loadedMore": "{count, plural, one {# photo} other {# photos}} loaded, more as you scroll",
+      "matching": "{count, plural, one {# photo} other {# photos}} matching \"{query}\"",
+      "matchingRead": "{count, plural, one {# photo} other {# photos}} matching \"{query}\": {reading}",
+      "missingDate": "{count, plural, one {# photo} other {# photos}} missing a date. Pick one below to fix it",
+      "missingDateAtLeast": "At least {count, plural, one {# photo} other {# photos}} missing a date. Pick one below to fix it",
+      "photos": "{count, plural, one {# photo} other {# photos}}"
+    },
+    "hidden": {
+      "unhidToast": "Unhid {count, plural, one {# photo} other {# photos}}",
+      "unhideFailed": "Couldn't unhide those photos"
+    },
+    "loadMoreFailed": "Couldn't load more photos.",
+    "loadingMore": "Loading more photos",
+    "searchReading": {
+      "looksLike": "looks like “{description}”",
+      "more": "+{count} more"
+    },
+    "title": "Gallery",
+    "unknownRegion": "Unknown region"
+  },
+  "import": {
+    "bulk": {
+      "raw": {
+        "description": "Point this at a whole export folder or SD card instead of assigning species one by one. Each RAW is matched against photos already in your library by camera timestamp and filed straight into the right species' RAW folder, no species picker needed. Anything that doesn't match a photo you've already kept is left untouched on your drive rather than guessed at.",
+        "linkedCount": "{linked} of {total} linked",
+        "title": "Bulk import RAW files"
+      },
+      "title": "Bulk import"
+    }
+  },
+  "iucn": {
+    "badge": {
+      "assessedTitle": "IUCN Red List conservation status: how threatened the species is, not how hard it is to find",
+      "label": "IUCN: {category}",
+      "notEvaluated": "Not evaluated by IUCN",
+      "notEvaluatedTitle": "IUCN hasn't assessed this species, so its global conservation status is unknown. That says nothing either way about how it's doing."
+    },
+    "category": {
+      "criticallyEndangered": "Critically Endangered",
+      "dataDeficient": "Data Deficient",
+      "endangered": "Endangered",
+      "extinct": "Extinct",
+      "extinctInTheWild": "Extinct in the Wild",
+      "leastConcern": "Least Concern",
+      "lowerRiskConservationDependent": "Lower Risk/conservation dependent",
+      "nearThreatened": "Near Threatened",
+      "notEvaluated": "Not Evaluated",
+      "vulnerable": "Vulnerable"
+    },
+    "stat": {
+      "notEvaluated": "Not evaluated"
+    }
+  },
+  "nav": {
+    "account": {
+      "help": "Help",
+      "logOut": "Log out",
+      "menu": "Account menu",
+      "settings": "Account settings"
+    },
+    "albumsAndTrips": "Albums & trips",
+    "collectedCount": "{collected} / {total} collected",
+    "collection": "Collection",
+    "gallery": "Gallery",
+    "import": "Import",
+    "settings": "Settings",
+    "stats": "Stats"
+  },
+  "offlinePacks": {
+    "allTaxa": "All taxa",
+    "download": {
+      "cancelFailed": "Couldn't cancel",
+      "lostTrack": "Lost track of the download: the server stopped answering",
+      "packProgress": "Pack {current} of {total}",
+      "signedOut": "You were signed out",
+      "startFailed": "Couldn't start",
+      "unreachable": "Couldn't reach the server"
+    },
+    "downloaded": {
+      "collapseAll": "Collapse all",
+      "deselectAll": "Deselect all",
+      "downloadCancelled": "The download was cancelled",
+      "downloadStartFailed": "Couldn't start the download",
+      "expandAll": "Expand all",
+      "getFull": "Get full version ({size})",
+      "getFullTitle": "Downloads the full reference gallery for every species in this pack, then removes the small version.",
+      "gettingFull": "Getting full version…",
+      "groupPackCount": "({count, plural, one {# pack} other {# packs}})",
+      "nameWithTaxon": "{name} ({taxon})",
+      "packsTab": "Packs ({count, number})",
+      "seaZonesTab": "Sea zones ({count, number})",
+      "selectAll": "Select all",
+      "sizeBreakdown": "~{photos} photos, ~{checklist} checklist (uncompressed estimate)",
+      "small": "small",
+      "smallTitle": "Small pack: only the single featured photo per species. Extra reference photos load on demand when you're online.",
+      "title": "Downloaded",
+      "update": "Update",
+      "updateAll": "Update all",
+      "updateAvailable": "update available",
+      "updateStartFailed": "Couldn't start the update",
+      "updating": "Updating…",
+      "upgradeFailed": "Couldn't get the full version"
+    },
+    "map": {
+      "notDownloaded": "The offline world map isn't downloaded yet. See Settings to enable it, or use the search box below instead."
+    },
+    "offload": {
+      "button": "Offload",
+      "checking": "Checking what this would affect…",
+      "checklistsAffected": "{count, plural, one {# region's checklist (including this one)} other {# regions' checklists (including this one)}} would go back to being unavailable until re-downloaded.",
+      "estimate": "This pack takes up about {size}. Offloading it will free that space.",
+      "failed": "Couldn't remove these packs",
+      "offloading": "Offloading…",
+      "ownPhotosSafe": "This only affects downloaded reference photos and checklist data. Your own captures and Gallery photos are never touched.",
+      "photosRemoved": "{count, plural, one {# species' reference photos would be removed, freeing {size}.} other {# species' reference photos would be removed, freeing {size}.}}",
+      "previewFailed": "Couldn't check what offloading this would affect",
+      "selected": "Offload selected ({count, number})",
+      "speciesKept": "{count, plural, one {# species would keep their photos: you've photographed them yourself, or another downloaded pack still covers them.} other {# species would keep their photos: you've photographed them yourself, or another downloaded pack still covers them.}}",
+      "titleMany": "{count, plural, one {Offload # selected pack?} other {Offload # selected packs?}}",
+      "titleOne": "Offload {name}?",
+      "titleOneWithTaxon": "Offload {name} ({taxon})?"
+    },
+    "phases": {
+      "applying": "Applying",
+      "downloading": "Downloading",
+      "photos": "Downloading photos",
+      "preparing": "Finishing setup",
+      "updatingCatalog": "Updating the species catalog first"
+    }
+  },
+  "onboarding": {
+    "continue": "Continue",
+    "guide": {
+      "backLabel": "Setup",
+      "description": "Take a couple minutes to see how uploading, bulk import, and trips fit together, or jump straight in and figure it out as you go. You can always open this later from Settings.",
+      "open": "Open the getting started guide",
+      "skip": "Skip",
+      "title": "You're all set"
+    },
+    "map": {
+      "checkbox": "Download the offline map (recommended)",
+      "description": "An offline basemap (~550 MB): this is what makes locality info work on species detail pages, showing roughly where within a downloaded region each species is found. Skip this and download it later from Settings if you'd rather save the space.",
+      "failed": "Couldn't download the map: {error}. You can retry or continue without it.",
+      "phaseDownloading": "Downloading the map",
+      "starting": "Starting the map download…",
+      "title": "Offline map"
+    },
+    "matching": {
+      "description": "When you import photos, Lifer can suggest which species each one shows, using models that run entirely on your device, so your photos never leave it. It needs a one-time download of about 620MB, which carries on in the background while you finish setting up. You can turn this on or off later in Settings.",
+      "enable": "Enable species matching",
+      "failed": "{error}. You can try again or skip this for now.",
+      "notNow": "Not now",
+      "startFailed": "Couldn't start the download",
+      "title": "Species matching"
+    },
+    "pack": {
+      "catalogFailed": "Lifer couldn't load its species catalog. Restart the server to try again, and check its logs if this keeps happening.",
+      "catalogLoading": "Lifer is loading its species catalog for the first time. This only happens once and can take a few minutes. Countries will appear here as soon as it's done.",
+      "catalogUnreachable": "Couldn't reach the server to check on the species catalog. Retrying…",
+      "continueToLifer": "Continue to Lifer",
+      "description": "Pick at least one country to build your species checklist for. Lifer needs at least one downloaded region before there's anything to collect. You can add or remove regions anytime later from Offline Packs.",
+      "deselectAll": "Deselect all",
+      "downloadButton": "Download {count, plural, =0 {regions} one {# region} other {# regions}}{groups, plural, =0 {} one { (# group)} other { (# groups)}}",
+      "downloadFailed": "Download failed: {error}",
+      "downloaded": "Downloaded, {count, plural, one {# pack} other {# packs}} applied.",
+      "downloading": "Downloading…",
+      "groupSelected": "{group} ({selected}/{total} selected)",
+      "noTaxonData": "No taxon data available yet for the selected {count, plural, one {region} other {regions}}.",
+      "packListFailed": "Couldn't load the pack list. All taxa will be downloaded.",
+      "phasePreparing": "Finishing setup",
+      "preparingDetail": "This only happens the first time and can take a few minutes.",
+      "regionsFailed": "Couldn't load the region list. Retrying…",
+      "regionsSelected": "{count, plural, one {# region} other {# regions}} selected. Choose taxon groups",
+      "searchPlaceholder": "Search for a country…",
+      "selectAll": "Select all",
+      "title": "Download a region"
+    },
+    "starting": "Starting…"
+  },
+  "regions": {
+    "checklist": {
+      "added": "Added {species} to {kind, select, seaZone {the {name} checklist} other {{name}'s checklist}}.",
+      "alreadyAdded": "You'd already added {species} to {kind, select, seaZone {the {name} checklist} other {{name}'s checklist}}.",
+      "alreadyOn": "{species} is already on {kind, select, seaZone {the {name} checklist} other {{name}'s checklist}}.",
+      "label": "{kind, select, seaZone {the {name} checklist} other {{name}'s checklist}}",
+      "removed": "Removed {species} from {kind, select, seaZone {the {name} checklist} other {{name}'s checklist}}."
+    }
+  },
+  "settings": {
+    "general": {
+      "language": {
+        "automatic": "Automatic (match my system)",
+        "description": "The language of Lifer's menus, buttons and messages. Species names come from the catalog and don't change.",
+        "saveFailed": "Couldn't save your language",
+        "title": "Language"
+      }
+    },
+    "groups": {
+      "account": "Account",
+      "general": "General",
+      "integrations": "Integrations",
+      "library": "Library",
+      "offlineData": "Offline data",
+      "server": "Server",
+      "species": "Species and import",
+      "storage": "Storage"
+    },
+    "help": "Help",
+    "loadFailed": "Couldn't load your settings. Some options are hidden until they load.",
+    "retry": "Retry",
+    "title": "Settings"
+  },
+  "species": {
+    "edits": {
+      "addTagFailed": "Couldn't add the tag",
+      "copyPathFailed": "Couldn't copy the path",
+      "deleteFailed": "Couldn't delete. Try again.",
+      "featuredFailed": "Couldn't set the featured photo",
+      "locationFailed": "Couldn't save the location",
+      "pathCopied": "Path copied",
+      "placeNameFailed": "Couldn't save the place name",
+      "ratingFailed": "Couldn't save the rating",
+      "reassignFailed": "Couldn't reassign this photo",
+      "reassignSomeFailed": "{failed} of {total, plural, one {# photo} other {# photos}} couldn't be reassigned",
+      "revealFailed": "Couldn't reveal that file. It may be unavailable.",
+      "tagSpeciesFailed": "Couldn't tag that species",
+      "tagsFailed": "Couldn't save the tags"
+    },
+    "photos": {
+      "placeInRegion": "{place}, {region}",
+      "yourPhotos": "Your photos",
+      "yourPhotosAndVideos": "Your photos and videos",
+      "yourVideos": "Your videos"
+    },
+    "picker": {
+      "label": "Jump to species",
+      "listLabel": "Species",
+      "placeholder": "Jump to species…",
+      "searchInaturalist": "Search iNaturalist ↗",
+      "searchInaturalistNoMatch": "No local match for \"{query}\", search iNaturalist ↗"
+    },
+    "shotData": {
+      "aperture": "f/{aperture}",
+      "focalLength": "{mm}mm",
+      "iso": "ISO {iso}"
+    },
+    "suggestion": {
+      "match": "{percent} match"
+    }
+  },
+  "status": {
+    "libraryFolder": {
+      "cantSave": "Lifer can't save photos right now"
+    },
+    "migration": {
+      "cancelled": "Sync cancelled after {count, plural, one {# photo} other {# photos}}",
+      "cancelling": "Cancelling sync…",
+      "done": "Synced {count, plural, one {# photo} other {# photos}} to server",
+      "failed": "Sync failed: {error}",
+      "syncing": "Syncing to server…",
+      "syncingProgress": "Syncing to server ({done} of {total})"
+    }
+  },
+  "taxa": {
+    "class": {
+      "actinopterygii": "Fish",
+      "amphibia": "Amphibians",
+      "aquatic_mammalia": "Marine Mammals",
+      "aves": "Birds",
+      "cephalopoda": "Cephalopods",
+      "corals": "Corals",
+      "crustacea": "Crustaceans",
+      "echinodermata": "Echinoderms",
+      "elasmobranchii": "Sharks & Rays",
+      "jellies_and_anemones": "Jellies & Anemones",
+      "mammalia": "Mammals",
+      "marine_mollusks": "Shells & Marine Mollusks",
+      "nudibranchs": "Nudibranchs",
+      "sponges_tunicates_other": "Sponges & Tunicates",
+      "squamata": "Reptiles",
+      "testudines": "Turtles"
+    },
+    "groups": {
+      "anhingas": "Anhingas",
+      "antbirds": "Antbirds",
+      "armadillosAnteatersSloths": "Armadillos, Anteaters & Sloths",
+      "auksMurresPuffins": "Auks, Murres & Puffins",
+      "bats": "Bats",
+      "bears": "Bears",
+      "blackbirdsOrioles": "Blackbirds & Orioles",
+      "boobiesGannets": "Boobies & Gannets",
+      "caecilians": "Caecilians",
+      "cardinalsGrosbeaks": "Cardinals & Grosbeaks",
+      "cats": "Cats",
+      "chickadeesTitmice": "Chickadees & Titmice",
+      "cormorants": "Cormorants",
+      "cormorantsPelicans": "Cormorants & Pelicans",
+      "cotingas": "Cotingas",
+      "cranes": "Cranes",
+      "crocodilians": "Crocodilians",
+      "crowsJaysMagpies": "Crows, Jays & Magpies",
+      "cuckoos": "Cuckoos",
+      "cuckoosRoadrunners": "Cuckoos & Roadrunners",
+      "dogsFoxes": "Dogs & Foxes",
+      "falconsCaracaras": "Falcons & Caracaras",
+      "finches": "Finches",
+      "frigatebirds": "Frigatebirds",
+      "frogmouths": "Frogmouths",
+      "frogsToads": "Frogs & Toads",
+      "gamebirds": "Gamebirds",
+      "gnatcatchers": "Gnatcatchers",
+      "grebes": "Grebes",
+      "grouseQuailPheasants": "Grouse, Quail & Pheasants",
+      "gullsTerns": "Gulls & Terns",
+      "hawksEaglesKites": "Hawks, Eagles & Kites",
+      "heronsEgretsBitterns": "Herons, Egrets & Bitterns",
+      "heronsWaders": "Herons & Waders",
+      "hoofedMammals": "Hoofed Mammals",
+      "hornbillsHoopoes": "Hornbills & Hoopoes",
+      "hummingbirds": "Hummingbirds",
+      "ibisesSpoonbills": "Ibises & Spoonbills",
+      "jacanas": "Jacanas",
+      "jaegersSkuas": "Jaegers & Skuas",
+      "kingfishers": "Kingfishers",
+      "larks": "Larks",
+      "lizards": "Lizards",
+      "loons": "Loons",
+      "loonsGrebes": "Loons & Grebes",
+      "manakins": "Manakins",
+      "manateesDugongs": "Manatees & Dugongs",
+      "marsupials": "Marsupials",
+      "mockingbirdsThrashers": "Mockingbirds & Thrashers",
+      "motmotsBeeEatersRollers": "Motmots, Bee-eaters & Rollers",
+      "newWorldQuail": "New World Quail",
+      "newWorldSparrows": "New World Sparrows",
+      "nightjars": "Nightjars",
+      "nightjarsPotoos": "Nightjars & Potoos",
+      "nuthatches": "Nuthatches",
+      "oldWorldBuntings": "Old World Buntings",
+      "oldWorldSparrows": "Old World Sparrows",
+      "ospreys": "Ospreys",
+      "otherAmphibians": "Other Amphibians",
+      "otherBirds": "Other Birds",
+      "otherCarnivores": "Other Carnivores",
+      "otherMammals": "Other Mammals",
+      "ovenbirdsWoodcreepers": "Ovenbirds & Woodcreepers",
+      "owls": "Owls",
+      "oystercatchers": "Oystercatchers",
+      "parrots": "Parrots",
+      "pelicans": "Pelicans",
+      "pigeonsDoves": "Pigeons & Doves",
+      "pipitsWagtails": "Pipits & Wagtails",
+      "plovers": "Plovers",
+      "primates": "Primates",
+      "puffbirds": "Puffbirds",
+      "puffbirdsJacamars": "Puffbirds & Jacamars",
+      "rabbitsHares": "Rabbits & Hares",
+      "rails": "Rails",
+      "railsCoots": "Rails & Coots",
+      "railsCrakesCoots": "Rails, Crakes & Coots",
+      "raptors": "Raptors",
+      "rodents": "Rodents",
+      "salamandersNewts": "Salamanders & Newts",
+      "sandpipersShorebirds": "Sandpipers & Shorebirds",
+      "seabirds": "Seabirds",
+      "sealsSeaLions": "Seals & Sea Lions",
+      "shorebirds": "Shorebirds",
+      "shrewsMolesHedgehogs": "Shrews, Moles & Hedgehogs",
+      "shrikes": "Shrikes",
+      "silkyFlycatchers": "Silky-flycatchers",
+      "snakes": "Snakes",
+      "songbirds": "Songbirds",
+      "starlings": "Starlings",
+      "stiltsAvocets": "Stilts & Avocets",
+      "storks": "Storks",
+      "swallows": "Swallows",
+      "swifts": "Swifts",
+      "tanagers": "Tanagers",
+      "thrushes": "Thrushes",
+      "toucans": "Toucans",
+      "toucansBarbets": "Toucans & Barbets",
+      "treecreepers": "Treecreepers",
+      "trogons": "Trogons",
+      "turtles": "Turtles",
+      "tyrantFlycatchers": "Tyrant Flycatchers",
+      "vireos": "Vireos",
+      "vulturesCondors": "Vultures & Condors",
+      "waterfowl": "Waterfowl",
+      "waxwings": "Waxwings",
+      "weaselsOtters": "Weasels & Otters",
+      "whalesDolphins": "Whales & Dolphins",
+      "woodWarblers": "Wood-Warblers",
+      "woodpeckers": "Woodpeckers",
+      "wrens": "Wrens",
+      "yellowthroats": "Yellowthroats"
+    },
+    "other": "Other",
+    "otherTaxa": "Other Taxa"
+  },
+  "trips": {
+    "create": {
+      "buildHint": "Lifer will create \"{name}/Wildlife\" inside this folder.",
+      "buildParentLabel": "Where should the trip folder go?",
+      "buildSubmit": "Create folder & start",
+      "change": "Change",
+      "chooseFolder": "Choose a folder…",
+      "destinationHint": "Each photo you import is copied here, sorted into Birds, Mammals and so on by species, with its RAW.",
+      "destinationLabel": "Save wildlife to",
+      "failed": "Couldn't create this trip",
+      "folderHint": "Your trip's own folder, edits and all. Lifer only reads it and offers the wildlife it finds.",
+      "folderLabel": "Trip folder",
+      "namePlaceholder": "Costa Rica 2026",
+      "submit": "Create trip",
+      "untitled": "Untitled Trip"
+    },
+    "delete": {
+      "body": "This removes the trip, but the photos in it aren't deleted. They just won't be grouped under it anymore.",
+      "failed": "Couldn't delete this trip",
+      "title": "Delete this trip?"
+    },
+    "detail": {
+      "addMorePhotos": "Add more photos",
+      "backLabel": "Trips",
+      "build": {
+        "dropPhotos": "Drop in this trip's photos, then assign each one to a species below.",
+        "scanInstead": "Prefer to organize the folder yourself first? Use \"Add more photos\" above to scan it instead."
+      },
+      "deletePhoto": {
+        "title": "Delete this photo?"
+      },
+      "deleteRawToo": "Also delete the matching RAW file when this is permanently removed",
+      "deleteSelected": "Delete selected",
+      "deleteSelectedTitle": "Delete {count, plural, one {# photo} other {# photos}}?",
+      "empty": {
+        "assignThenImport": "Assign a species to each photo above, then import.",
+        "scanFolder": "Scan this trip's folder to bring in what's there.",
+        "title": "Nothing imported yet"
+      },
+      "filters": {
+        "labels": "Labels",
+        "topRated": "Top rated"
+      },
+      "loadFailed": "Couldn't load this trip.",
+      "noPhotosMatch": "No photos match \"{search}\".",
+      "noSpecies": "No species collected on this trip yet.",
+      "noSpeciesMatch": "No species match \"{search}\".",
+      "scanning": "Looking for photos…",
+      "searchPlaceholder": "Search this trip's species…",
+      "selectedCount": "{count, number} selected",
+      "trashMessage": "Deleted photos go to Trash for 7 days first, where you can still restore them. After 7 days they're gone for good and can't be recovered."
+    },
+    "empty": {
+      "description": "Create one to start referencing wildlife photos from an external folder.",
+      "title": "No trips yet"
+    },
+    "info": {
+      "addMore": "Add more photos to the trip folder anytime, then use \"Add more photos\": only photos you haven't imported yet are offered.",
+      "copiedOnImport": "Each photo you import is copied into the trip's \"Save wildlife to\" folder (a \"Wildlife\" folder inside the trip unless you choose another), sorted into Birds, Mammals and so on by species. Its RAW comes along when one with the same filename is in the trip folder.",
+      "pointAtFolder": "Point a trip at your trip's own folder, however it's organized. Lifer only reads it: it finds the photos, and you pick out the wildlife.",
+      "relocate": "If a folder ever moves (a new computer, a reinstall, a renamed drive), use \"Relocate…\" on the trip to point at it again instead of re-importing from scratch."
+    },
+    "list": {
+      "buildTrip": "Build a trip",
+      "importTrip": "Import trip",
+      "loadFailed": "Couldn't load trips."
+    },
+    "rename": {
+      "title": "Rename trip"
+    }
+  },
+  "ui": {
+    "cropEditor": {
+      "instructions": "Drag the box to move it, drag the corner handle to resize.",
+      "preview": "Card preview",
+      "reset": "Reset to default",
+      "resetFailed": "Couldn't reset this crop. Try again.",
+      "saveFailed": "Couldn't save this crop. Try again.",
+      "title": "Adjust crop"
+    },
+    "moreOptions": "More options"
+  },
+  "updates": {
+    "appAvailable": "Lifer {version} is available.",
+    "dismiss": "Dismiss",
+    "packsAvailable": "{count, plural, one {# pack update} other {# pack updates}} available ({size}).",
+    "seeWhatsNew": "See what's new",
+    "update": "Update",
+    "updateAllPacks": "Update all packs",
+    "updating": "Updating…",
+    "updatingPacksProgress": "Updating packs ({current} of {total})"
+  },
+  "upload": {
+    "banner": {
+      "finished": "Upload finished",
+      "keepDrive": "Don't unplug the drive yet",
+      "progressLabel": "Upload progress",
+      "uploading": "Uploading… {done}/{total}{failed, plural, =0 {} other { (# failed)}}{skipped, plural, =0 {} other { (# skipped)}}"
+    },
+    "choosePhotosOrVideos": "Choose photos or videos…",
+    "duplicate": {
+      "importAnyway": "Import anyway",
+      "message": "\"{fileName}\" looks like a photo you already have of {species}.",
+      "messageWithDate": "\"{fileName}\" looks like a photo you already have of {species} from {date}.",
+      "position": "(1 of {total})",
+      "skip": "Skip",
+      "title": "Possible duplicate"
+    },
+    "failed": "Upload failed",
+    "raw": {
+      "addedCount": "{added} of {total} added",
+      "addedToFolder": "added to {name}'s RAW folder",
+      "chooseFiles": "Choose RAW files…",
+      "chooseFolder": "Choose a folder…",
+      "collision": "matched more than one photo with the same camera fingerprint, skipped",
+      "descriptionMatchOnly": "Point this at a folder of RAWs. Each is matched by camera timestamp/serial against photos you've already added and filed into the right species' RAW folder. Anything that doesn't match a photo you've kept is left untouched on your own drive.",
+      "descriptionSpecies": "Point this at RAW files. Each is matched by camera timestamp/serial against your uploads and filed straight into the right species' RAW folder. A RAW with no match still gets filed here, under this species, since that's already known. Point it at a whole export folder instead, though, and only the RAWs that match a JPEG you've kept get imported. A folder could span species this page has no way to know about, so anything else in it is left untouched on your own drive.",
+      "duplicate": "already added, skipped",
+      "filedUnder": "filed under {name}",
+      "noneFound": "No supported RAW files found in that selection",
+      "title": "Upload RAW files"
+    }
+  }
+}

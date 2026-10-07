@@ -1,15 +1,21 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import { api } from "../../api/client";
-import Button, { buttonClasses } from "../../components/Button";
+import Button from "../../components/Button";
+import { buttonClasses } from "../../lib/buttonClasses";
 import FormMessage from "../../components/FormMessage";
 import InlineSpinner from "../../components/InlineSpinner";
 import JobProgress from "../../components/JobProgress";
 import SegmentedControl from "../../components/SegmentedControl";
+import Select from "../../components/Select";
+import { useLocalePreference } from "../../hooks/useLocalePreference";
+import { AVAILABLE_LOCALES } from "../../i18n";
+import { nativeLanguageName } from "../../i18n/resolveLocale";
 import { useIsTauri } from "../../hooks/useDeploymentMode";
 import { useOnline } from "../../hooks/useOnline";
 import { useTheme } from "../../hooks/useTheme";
-import { DEV_BUILD_VERSION, GITHUB_REPO } from "../../lib/appInfo";
+import { DEV_BUILD_VERSION, GITHUB_REPO, macUpdateDownloadUrl } from "../../lib/appInfo";
 import { errorMessage } from "../../lib/errorMessage";
 import { pluralize } from "../../lib/pluralize";
 import { platform } from "../../lib/platform";
@@ -24,6 +30,8 @@ export default function GeneralSettings() {
   return (
     <>
       <AppearanceSection />
+      {/* English is the only language for now; the picker appears once there's another (or the dev pseudo-locale). */}
+      {AVAILABLE_LOCALES.length > 1 && <LanguageSection />}
       {isTauri && <AppUpdatesSection />}
       <GettingStartedSection />
     </>
@@ -38,15 +46,54 @@ function AppearanceSection() {
     { value: "dark", label: "Dark" },
   ] as const;
   return (
-    <Card title="Appearance" description="Light or dark mode, or follow whatever this device is set to." learnMore="appearance">
+    <Card
+      title="Appearance"
+      description="Light or dark mode, or follow whatever this device is set to."
+      learnMore="appearance"
+    >
       <SegmentedControl value={preference} onChange={setPreference} options={options} size="md" />
+    </Card>
+  );
+}
+
+// Only locales with a translation file (plus the dev-only pseudo-locale) are offered, each by
+// its own name, so a reader finds their language whatever language is showing.
+function LanguageSection() {
+  const { t } = useTranslation();
+  const { preference, saving, error, setPreference } = useLocalePreference();
+  return (
+    <Card
+      title={t("settings.general.language.title")}
+      description={t("settings.general.language.description")}
+      learnMore="language"
+    >
+      <Select
+        variant="form"
+        aria-label={t("settings.general.language.title")}
+        value={AVAILABLE_LOCALES.includes(preference) ? preference : "auto"}
+        disabled={saving}
+        onChange={(e) => void setPreference(e.target.value)}
+        className="max-w-xs"
+      >
+        <option value="auto">{t("settings.general.language.automatic")}</option>
+        {AVAILABLE_LOCALES.map((code) => (
+          <option key={code} value={code} lang={code}>
+            {nativeLanguageName(code)}
+          </option>
+        ))}
+      </Select>
+      <FormMessage error={error} />
     </Card>
   );
 }
 
 function GettingStartedSection() {
   return (
-    <Card title="Getting started" description="A quick tour of how Lifer's collection, import, and offline pack features fit together." learnMore="general">
+    <Card
+      title="Getting started"
+      description="A quick tour of how Lifer's collection, import, and offline pack features fit together."
+      learnMore="general"
+    >
       <Link to="/guide" className={buttonClasses("secondary", "sm")}>
         Open the guide
       </Link>
@@ -84,6 +131,23 @@ function AppUpdatesSection() {
   const [packUpdateCount, setPackUpdateCount] = useState(0);
   const online = useOnline();
 
+  // The check itself, once "checking" is showing. Only touches state setters, so one copy serves.
+  const runUpdateCheck = useCallback(
+    (): Promise<void> =>
+      import("@tauri-apps/plugin-updater")
+        .then(({ check }) => check())
+        .then((result) => {
+          setUpdate(result ?? null);
+          setStatus(result ? "available" : "up-to-date");
+        })
+        .catch((err) => {
+          console.error("Update check failed", err);
+          setError(errorMessage(err, "Couldn't check for updates"));
+          setStatus("error");
+        }),
+    [],
+  );
+
   async function checkForUpdate() {
     if (!online) {
       setError("You're offline. Connect to the internet to check for updates.");
@@ -93,16 +157,7 @@ function AppUpdatesSection() {
     setStatus("checking");
     setError(null);
     setInstallFailed(false);
-    try {
-      const { check } = await import("@tauri-apps/plugin-updater");
-      const result = await check();
-      setUpdate(result ?? null);
-      setStatus(result ? "available" : "up-to-date");
-    } catch (err) {
-      console.error("Update check failed", err);
-      setError(errorMessage(err, "Couldn't check for updates"));
-      setStatus("error");
-    }
+    await runUpdateCheck();
   }
 
   // Version first: dev builds report DEV_BUILD_VERSION and would always see an "update".
@@ -120,12 +175,23 @@ function AppUpdatesSection() {
       .finally(() => setVersionResolved(true));
   }, []);
 
-  // Checked on mount and again whenever connectivity comes back.
+  // Checked once the version is known and again whenever connectivity comes back. "checking" is
+  // set as the trigger changes, while rendering; the effect then runs the check.
+  const autoCheckTrigger = `${online}|${versionResolved}`;
+  const [seenTrigger, setSeenTrigger] = useState<string | null>(null);
+  const [autoChecks, setAutoChecks] = useState(0);
+  if (seenTrigger !== autoCheckTrigger) {
+    setSeenTrigger(autoCheckTrigger);
+    if (window.liferSetup && online && versionResolved && currentVersion !== DEV_BUILD_VERSION) {
+      setStatus("checking");
+      setError(null);
+      setInstallFailed(false);
+      setAutoChecks((n) => n + 1);
+    }
+  }
   useEffect(() => {
-    if (!window.liferSetup || !online || !versionResolved || currentVersion === DEV_BUILD_VERSION) return;
-    void checkForUpdate();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [online, versionResolved]);
+    if (autoChecks > 0) void runUpdateCheck();
+  }, [autoChecks, runUpdateCheck]);
 
   useEffect(() => {
     if (!online) return;
@@ -190,7 +256,7 @@ function AppUpdatesSection() {
 
   async function openZipDownload() {
     if (!update) return;
-    const url = `https://github.com/${GITHUB_REPO}/releases/download/v${update.version}/Lifer-macos-arm64.zip`;
+    const url = macUpdateDownloadUrl(update.version, window.liferSetup?.arch);
     try {
       const { openUrl } = await import("@tauri-apps/plugin-opener");
       await openUrl(url);
@@ -243,7 +309,11 @@ function AppUpdatesSection() {
             <span className="font-medium text-accent">v{update.version}</span>
           </div>
           {/* The release's changelog section (markdown), shown as plain text. */}
-          {update.body && <div className="max-h-60 overflow-y-auto whitespace-pre-wrap break-words text-sm text-muted">{update.body.trim()}</div>}
+          {update.body && (
+            <div className="max-h-60 overflow-y-auto whitespace-pre-wrap break-words text-sm text-muted">
+              {update.body.trim()}
+            </div>
+          )}
           <Button onClick={installUpdate}>Update now</Button>
         </div>
       )}
@@ -267,7 +337,11 @@ function AppUpdatesSection() {
       {status === "error" && (
         <div className="space-y-2">
           <FormMessage error={error} />
-          <button type="button" onClick={update && !installFailed ? installUpdate : checkForUpdate} className="text-sm text-ink underline">
+          <button
+            type="button"
+            onClick={update && !installFailed ? installUpdate : checkForUpdate}
+            className="text-sm text-ink underline"
+          >
             {update && !installFailed ? "Retry" : "Check again"}
           </button>
         </div>
@@ -275,7 +349,9 @@ function AppUpdatesSection() {
       {installFailed && (
         <div className="space-y-2 text-sm text-muted">
           {platform === "mac" && translocated && (
-            <p>Lifer is running from a temporary location. Move Lifer.app into your Applications folder, then try again.</p>
+            <p>
+              Lifer is running from a temporary location. Move Lifer.app into your Applications folder, then try again.
+            </p>
           )}
           {platform === "mac" && !translocated && (
             <>
@@ -290,14 +366,15 @@ function AppUpdatesSection() {
           {/* A manual download isn't notarized, so it gets the first-launch warning again. */}
           {platform === "mac" && !translocated && (
             <p>
-              The first time you open the new version, macOS may block it. Open <strong>System Settings, Privacy &amp; Security</strong>,
-              scroll down, click <strong>Open Anyway</strong>, then open Lifer again.
+              The first time you open the new version, macOS may block it. Open{" "}
+              <strong>System Settings, Privacy &amp; Security</strong>, scroll down, click <strong>Open Anyway</strong>,
+              then open Lifer again.
             </p>
           )}
           {platform === "windows" && (
             <p>
-              Windows may warn "Windows protected your PC" on a manually downloaded installer. Click <strong>More info</strong>, then{" "}
-              <strong>Run anyway</strong>.
+              Windows may warn "Windows protected your PC" on a manually downloaded installer. Click{" "}
+              <strong>More info</strong>, then <strong>Run anyway</strong>.
             </p>
           )}
         </div>

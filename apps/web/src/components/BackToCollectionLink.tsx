@@ -1,16 +1,18 @@
+import { useTranslation } from "react-i18next";
 import { useLocation, useNavigate } from "react-router-dom";
 
 // Real history back, so the collection's URL-held filters survive; `fallbackTo` when there's no
 // in-app history. The label can come from `location.state.backLabel`.
 export default function BackToCollectionLink({
   fallbackTo = "/",
-  label = "Collection",
+  label,
   className,
 }: {
   fallbackTo?: string;
   label?: string;
   className?: string;
 }) {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const location = useLocation();
   const state = location.state as { backLabel?: string } | null;
@@ -22,7 +24,7 @@ export default function BackToCollectionLink({
       }}
       className={className}
     >
-      ← {state?.backLabel ?? label}
+      ← {state?.backLabel ?? label ?? t("nav.collection")}
     </button>
   );
 }

@@ -1,0 +1,170 @@
+{
+  "albums": {
+    "create": {
+      "namePlaceholder": "Example album name in the name field."
+    },
+    "list": {
+      "photoCount": "Small uppercase pill on an album card."
+    }
+  },
+  "apiKeys": {
+    "form": {
+      "namePlaceholder": "Example name for an API key, shown greyed out in the empty field.",
+      "read": "Checkbox column: allow reading this resource.",
+      "write": "Checkbox column: allow changing this resource."
+    },
+    "intro": "<guide> and <openapi> wrap links. new-lifer: a lifer is a species photographed for the first time ever.",
+    "lastUsed": "{date} is a formatted date.",
+    "revoke": "Button: permanently disable an API key.",
+    "revokeConfirm": {
+      "title": "{name} is the API key's name, chosen by the user."
+    },
+    "scopes": {
+      "gallery": "Row label in the API key permission grid: the resource a key can access.",
+      "lifeList": "Row label in the API key permission grid. Life list: the user's list of species photographed (a birding term)."
+    }
+  },
+  "collections": {
+    "title": "Page title. Albums are hand-picked photo collections; trips are photos imported from one trip's folder on disk."
+  },
+  "errors": {
+    "api": {
+      "desktop_only": "API error code desktop_only: the server refused an action that only the desktop app (with its local library) can do.",
+      "invalid_request": "API error code invalid_request: the server rejected malformed input. The English server message names the field; this is the generic version.",
+      "no_checklist": "API error code no_checklist: a species can't be added to a region (like a continent) that has no species checklist of its own.",
+      "no_video_frames": "API error code no_video_frames: species matching couldn't decode any frames from an uploaded video.",
+      "not_added": "API error code not_added: removing a species the user hadn't added to a region's or sea zone's checklist.",
+      "pack_index_unavailable": "API error code pack_index_unavailable: the list of downloadable offline packs couldn't be fetched (usually offline).",
+      "reorganize_failed": "API error code reorganize_failed: moving original photo files into the year or location folder layout failed.",
+      "storage_move_failed": "API error code storage_move_failed: moving the photo library to another folder or drive failed.",
+      "suggestion_failed": "API error code suggestion_failed: the species suggestion model couldn't analyse a photo or video (often because it isn't downloaded yet)."
+    }
+  },
+  "gallery": {
+    "albumPicker": {
+      "title": "Heading when the Gallery is opened to pick photos for an album. {album} is the album's name.",
+      "titleUnnamed": "Same heading while the album's name is still loading."
+    },
+    "count": {
+      "matching": "{query} is the user's search text.",
+      "matchingRead": "{query} is the user's search text; {reading} is how it was understood, e.g. \"ducks · Washington · 2024\".",
+      "missingDate": "The Gallery's missing-date view, a to-do list of photos with no capture date.",
+      "missingDateAtLeast": "Same, while more photos are still loading.",
+      "photos": "Count under the Gallery heading."
+    },
+    "hidden": {
+      "unhidToast": "Toast after unhiding photos that were imported hidden because a culling app rejected them."
+    },
+    "loadingMore": "Screen reader label of the spinner at the bottom of the grid.",
+    "searchReading": {
+      "looksLike": "How a photo search was understood: the part matched by what the picture looks like. {description} is from the user's search text.",
+      "more": "How a photo search was understood: after the first three species names, how many more matched."
+    },
+    "title": "Page title of the Gallery: every photo in the library in one grid.",
+    "unknownRegion": "Group heading for photos with no region when the grid is grouped by region."
+  },
+  "import": {
+    "bulk": {
+      "raw": {
+        "linkedCount": "{linked} of {total} RAW files were matched to photos already in the library."
+      }
+    }
+  },
+  "iucn": {
+    "badge": {
+      "assessedTitle": "Hover text on the IUCN badge.",
+      "label": "Badge on a species page. {category} is an IUCN Red List category name, like Least Concern."
+    },
+    "category": {
+      "extinct": "IUCN Red List category name. Use the official IUCN Red List term in your language if one exists.",
+      "lowerRiskConservationDependent": "Old (1994) IUCN Red List category, still on a few assessments. Use the official IUCN term if one exists."
+    },
+    "stat": {
+      "notEvaluated": "Value in the species stats box when IUCN has not assessed the species."
+    }
+  },
+  "settings": {
+    "general": {
+      "language": {
+        "automatic": "First option of the language picker: use the browser's or operating system's language when Lifer has it, else English.",
+        "description": "Under the Language heading in Settings > General. Species common names are data from the catalog, not part of the interface."
+      }
+    },
+    "groups": {
+      "general": "A tab in the Settings sidebar (also listed in the command palette). Keep tab names short.",
+      "offlineData": "Settings tab for the downloaded species catalog, offline packs and maps."
+    },
+    "help": "Link at the bottom of the Settings sidebar to the online Settings documentation.",
+    "retry": "Button to try loading again after an error."
+  },
+  "species": {
+    "photos": {
+      "placeInRegion": "Where a photo was taken. {place} is the place name the user typed (like Prince George), {region} the province, state or country it is in.",
+      "yourPhotos": "Heading of the user's own photos section on a species page."
+    },
+    "picker": {
+      "listLabel": "Accessible name of the species search results list.",
+      "searchInaturalistNoMatch": "Last row of the species search results. {query} is what the user typed. The arrow means it opens a search on the iNaturalist website."
+    },
+    "shotData": {
+      "aperture": "Photographic aperture (f-number), e.g. f/5.6. Usually left as is.",
+      "focalLength": "Lens focal length in a compact camera-settings line under a photo, e.g. 400mm.",
+      "iso": "Camera sensor sensitivity, e.g. ISO 800."
+    },
+    "suggestion": {
+      "match": "Under a suggested species card. {percent} is a formatted percentage like 87%: how closely the photo matches the species."
+    }
+  },
+  "trips": {
+    "create": {
+      "buildHint": "{name} is the trip's name as typed by the user (user data). \"Wildlife\" is the folder name on disk and stays as is.",
+      "buildSubmit": "Button that creates a new trip folder on disk and starts importing into it.",
+      "namePlaceholder": "Example trip name in the name field.",
+      "untitled": "Default trip name when none is typed; also used as a folder name."
+    },
+    "detail": {
+      "addMorePhotos": "Button that rescans the trip's folder for photos not imported yet.",
+      "backLabel": "Label of the back link at the top of a trip's page, leading to the trips list.",
+      "build": {
+        "scanInstead": "\"Add more photos\" is the label of the button above; keep it matching that translation."
+      },
+      "deleteRawToo": "RAW is the camera raw file stored alongside the photo.",
+      "filters": {
+        "labels": "Checkbox in the filter menu: show species name labels on photo thumbnails.",
+        "topRated": "Checkbox in the filter menu: show only the highest-rated photos."
+      },
+      "noPhotosMatch": "{search} is the text typed in the search box.",
+      "noSpeciesMatch": "{search} is the text typed in the search box.",
+      "trashMessage": "Trash is the app's bin for deleted photos (its own page)."
+    },
+    "info": {
+      "addMore": "\"Add more photos\" is the label of a button on the trip page; keep it matching that translation.",
+      "copiedOnImport": "\"Save wildlife to\" is the label of a field on this page; \"Wildlife\" is the actual default folder name on disk and should stay as is. RAW is a camera raw file.",
+      "relocate": "\"Relocate…\" is the label of a menu item on the trip page; keep it matching that translation."
+    },
+    "list": {
+      "buildTrip": "Button: start a new trip by creating a fresh folder and importing photos into it (as opposed to importing an existing trip folder).",
+      "importTrip": "Button: point Lifer at an existing trip folder on disk."
+    }
+  },
+  "upload": {
+    "banner": {
+      "keepDrive": "Shown while uploads are being saved to an external drive.",
+      "uploading": "Status pill shown on every page while uploads run in the background. {done} of {total} files finished; the bracketed parts appear only when some files failed or were skipped as duplicates."
+    },
+    "duplicate": {
+      "message": "{fileName} is the uploaded file's name, {species} a species name.",
+      "messageWithDate": "{fileName} is the uploaded file's name, {species} a species name, {date} the date the existing photo was taken.",
+      "position": "After the dialog title when several possible duplicates wait: this is the first of {total}.",
+      "skip": "Button: don't import this file because it is probably a duplicate."
+    },
+    "raw": {
+      "addedCount": "{added} of {total} RAW files were filed.",
+      "addedToFolder": "Lower-case status after a RAW file's name. {name} is a species name; each species has a folder for RAW files.",
+      "collision": "Lower-case status after a RAW file's name. The camera fingerprint is the camera serial plus capture timestamp from EXIF.",
+      "descriptionSpecies": "On a species page. RAW: a camera's unprocessed image file (CR3, NEF, ARW...). JPEG: the processed photo.",
+      "duplicate": "Lower-case status after a RAW file's name.",
+      "filedUnder": "Lower-case status after a RAW file's name. {name} is a species name."
+    }
+  }
+}

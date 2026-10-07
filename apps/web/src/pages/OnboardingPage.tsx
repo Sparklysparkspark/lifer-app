@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import type { RegionSummary, TaxonClass } from "@lifer/shared";
 import { taxonDisplayLabel, TAXON_GROUPS, GROUPED_TAXON_CLASSES } from "@lifer/shared";
 import { api } from "../api/client";
@@ -13,8 +14,8 @@ import type { PackEntry } from "../components/DownloadedPacksList";
 import { PACK_DOWNLOAD_PHASES, packProgressDetail, usePackDownloadJob } from "../hooks/usePackDownloadStatus";
 import { useRegions } from "../hooks/useRegions";
 import { useSettings } from "../hooks/useSettings";
+import i18n from "../i18n";
 import { errorMessage } from "../lib/errorMessage";
-import { pluralize } from "../lib/pluralize";
 
 interface MapStatus {
   available: boolean;
@@ -25,14 +26,31 @@ interface MapStatus {
   error: string | null;
 }
 
-const MAP_PHASES = { downloading: { label: "Downloading the map", progress: "bytes" as const } };
+// Labels are getters, so they're translated when shown rather than when this module loads.
+const MAP_PHASES = {
+  downloading: {
+    get label() {
+      return i18n.t("onboarding.map.phaseDownloading");
+    },
+    progress: "bytes" as const,
+  },
+};
 
 // A brand-new server may still be loading its catalog: the downloaded pack waits in "preparing".
-const PACK_PHASES = { ...PACK_DOWNLOAD_PHASES, preparing: { label: "Finishing setup", progress: "none" as const } };
+const PACK_PHASES = {
+  ...PACK_DOWNLOAD_PHASES,
+  preparing: {
+    get label() {
+      return i18n.t("onboarding.pack.phasePreparing");
+    },
+    progress: "none" as const,
+  },
+};
 
 // Shown once, right after account creation. The region pack step can't be skipped: Collection
 // is empty without one. The map and species matching steps are optional.
 export default function OnboardingPage() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const [step, setStep] = useState<"map" | "matching" | "pack" | "guide">("map");
 
@@ -78,9 +96,9 @@ export default function OnboardingPage() {
     }
   }
 
-  useEffect(() => {
-    if (step === "map" && mapStatus && !mapStatus.downloading && startingMap === false && mapStatus.downloaded) setStep("matching");
-  }, [step, mapStatus, startingMap]);
+  // Once the map has finished downloading, move on by itself.
+  if (step === "map" && mapStatus && !mapStatus.downloading && startingMap === false && mapStatus.downloaded)
+    setStep("matching");
 
   // --- Step A2: species matching (optional) ---
   // Offered here since the model download otherwise hides in Settings. It runs server-side, so setup moves on.
@@ -106,7 +124,7 @@ export default function OnboardingPage() {
       await api.post("/settings/embedding-model/download");
       setStep("pack");
     } catch (err) {
-      setModelError(errorMessage(err, "Couldn't start the download"));
+      setModelError(errorMessage(err, t("onboarding.matching.startFailed")));
     } finally {
       setStartingModel(false);
     }
@@ -131,9 +149,9 @@ export default function OnboardingPage() {
   const namingStyles = settings?.speciesNamingStyles ?? [];
   const catalogLoading = settings?.catalogLoading ?? null;
 
+  // Steps only move forward, so this runs once and there's no earlier error to clear.
   useEffect(() => {
     if (step !== "pack") return;
-    setPacksError(false);
     api
       .get<{ packs: PackEntry[] }>("/offline-packs/index")
       .then((res) => setPacks(res.packs))
@@ -185,7 +203,7 @@ export default function OnboardingPage() {
   }, [packs, regions]);
   const availableTaxaForSelection = useMemo(() => {
     const set = new Set<TaxonClass>();
-    for (const id of selectedCountryIds) for (const t of availableTaxaByRegion[id] ?? []) set.add(t);
+    for (const id of selectedCountryIds) for (const taxon of availableTaxaByRegion[id] ?? []) set.add(taxon);
     return [...set];
   }, [selectedCountryIds, availableTaxaByRegion]);
   function toggleTaxon(taxon: TaxonClass) {
@@ -200,11 +218,14 @@ export default function OnboardingPage() {
     if (searchTerm.trim().length < 2) return [];
     const term = searchTerm.trim().toLowerCase();
     const continentIds = new Set(continents.map((c) => c.id));
-    return (regions ?? []).filter((r) => r.parentId && continentIds.has(r.parentId) && r.name.toLowerCase().includes(term)).slice(0, 8);
+    return (regions ?? [])
+      .filter((r) => r.parentId && continentIds.has(r.parentId) && r.name.toLowerCase().includes(term))
+      .slice(0, 8);
   }, [searchTerm, regions, continents]);
 
   const packsApplied = status?.processed ?? 0;
-  const alreadySucceeded = !!status && !status.running && status.finishedAt != null && !status.error && packsApplied > 0;
+  const alreadySucceeded =
+    !!status && !status.running && status.finishedAt != null && !status.error && packsApplied > 0;
 
   async function startDownload() {
     setStartedHere(true);
@@ -237,27 +258,21 @@ export default function OnboardingPage() {
         {step === "map" && (
           <>
             <div>
-              <h2 className="text-lg font-semibold text-ink">Offline map</h2>
-              <p className="mt-1 text-sm text-muted">
-                An offline basemap (~550 MB): this is what makes locality info work on species detail pages, showing roughly where
-                within a downloaded region each species is found. Skip this and download it later from Settings if you'd rather save the
-                space.
-              </p>
+              <h2 className="text-lg font-semibold text-ink">{t("onboarding.map.title")}</h2>
+              <p className="mt-1 text-sm text-muted">{t("onboarding.map.description")}</p>
             </div>
             {startingMap || mapStatus?.downloading ? (
-              <JobProgress
-                status={mapJob}
-                phases={MAP_PHASES}
-                fallbackLabel="Starting the map download…"
-              />
+              <JobProgress status={mapJob} phases={MAP_PHASES} fallbackLabel={t("onboarding.map.starting")} />
             ) : (
               <label className="flex items-center gap-2 text-sm text-ink">
                 <input type="checkbox" checked={wantMap} onChange={(e) => setWantMap(e.target.checked)} />
-                Download the offline map (recommended)
+                {t("onboarding.map.checkbox")}
               </label>
             )}
             {mapStatus?.error && !mapStatus.downloading && (
-              <FormMessage error={`Couldn't download the map: ${mapStatus.error}. You can retry or continue without it.`} />
+              <FormMessage
+                error={t("onboarding.map.failed", { error: mapStatus.error })}
+              />
             )}
             <button
               type="button"
@@ -265,7 +280,7 @@ export default function OnboardingPage() {
               disabled={startingMap || !!mapStatus?.downloading}
               className="w-full rounded-md bg-accent py-2 text-sm font-medium text-accent-fg disabled:opacity-50"
             >
-              Continue
+              {t("onboarding.continue")}
             </button>
           </>
         )}
@@ -273,14 +288,10 @@ export default function OnboardingPage() {
         {step === "matching" && modelStatus && (
           <>
             <div>
-              <h2 className="text-lg font-semibold text-ink">Species matching</h2>
-              <p className="mt-1 text-sm text-muted">
-                When you import photos, Lifer can suggest which species each one shows, using models that run entirely on your
-                device, so your photos never leave it. It needs a one-time download of about 620MB, which carries on in the background
-                while you finish setting up. You can turn this on or off later in Settings.
-              </p>
+              <h2 className="text-lg font-semibold text-ink">{t("onboarding.matching.title")}</h2>
+              <p className="mt-1 text-sm text-muted">{t("onboarding.matching.description")}</p>
             </div>
-            <FormMessage error={modelError ? `${modelError}. You can try again or skip this for now.` : null} />
+            <FormMessage error={modelError ? t("onboarding.matching.failed", { error: modelError }) : null} />
             <div className="flex gap-2">
               <button
                 type="button"
@@ -288,7 +299,7 @@ export default function OnboardingPage() {
                 disabled={startingModel}
                 className="flex-1 rounded-md border border-line py-2 text-sm font-medium text-ink hover:bg-surface-muted disabled:opacity-50"
               >
-                Not now
+                {t("onboarding.matching.notNow")}
               </button>
               <button
                 type="button"
@@ -296,7 +307,7 @@ export default function OnboardingPage() {
                 disabled={startingModel}
                 className="flex-1 rounded-md bg-accent py-2 text-sm font-medium text-accent-fg disabled:opacity-50"
               >
-                {startingModel ? "Starting…" : "Enable species matching"}
+                {startingModel ? t("onboarding.starting") : t("onboarding.matching.enable")}
               </button>
             </div>
           </>
@@ -305,26 +316,23 @@ export default function OnboardingPage() {
         {step === "pack" && (
           <>
             <div>
-              <h2 className="text-lg font-semibold text-ink">Download a region</h2>
-              <p className="mt-1 text-sm text-muted">
-                Pick at least one country to build your species checklist for. Lifer needs at least one downloaded region before
-                there's anything to collect. You can add or remove regions anytime later from Offline Packs.
-              </p>
+              <h2 className="text-lg font-semibold text-ink">{t("onboarding.pack.title")}</h2>
+              <p className="mt-1 text-sm text-muted">{t("onboarding.pack.description")}</p>
             </div>
 
             {!regions && regionsError ? (
-              <FormMessage error="Couldn't load the region list. Retrying…" />
+              <FormMessage error={t("onboarding.pack.regionsFailed")} />
             ) : !regions ? (
               <Spinner />
             ) : alreadySucceeded ? (
               <>
-                <FormMessage success={`Downloaded, ${pluralize(packsApplied, "pack")} applied.`} />
+                <FormMessage success={t("onboarding.pack.downloaded", { count: packsApplied })} />
                 <button
                   type="button"
                   onClick={() => setStep("guide")}
                   className="w-full rounded-md bg-accent py-2 text-sm font-medium text-accent-fg"
                 >
-                  Continue to Lifer
+                  {t("onboarding.pack.continueToLifer")}
                 </button>
               </>
             ) : status?.running ? (
@@ -332,10 +340,10 @@ export default function OnboardingPage() {
                 <JobProgress
                   status={status}
                   phases={PACK_PHASES}
-                  fallbackLabel="Downloading…"
+                  fallbackLabel={t("onboarding.pack.downloading")}
                   detail={
                     status.phase === "preparing"
-                      ? "This only happens the first time and can take a few minutes."
+                      ? t("onboarding.pack.preparingDetail")
                       : packProgressDetail(status)
                   }
                 />
@@ -343,29 +351,29 @@ export default function OnboardingPage() {
             ) : !hasCountries ? (
               <div className="rounded-xl border border-line bg-surface p-4 text-sm text-ink">
                 {settingsError && !settings ? (
-                  <p>Couldn't reach the server to check on the species catalog. Retrying…</p>
+                  <p>{t("onboarding.pack.catalogUnreachable")}</p>
                 ) : catalogLoading === "failed" ? (
-                  <p>
-                    Lifer couldn't load its species catalog. Restart the server to try again, and check its logs if
-                    this keeps happening.
-                  </p>
+                  <p>{t("onboarding.pack.catalogFailed")}</p>
                 ) : (
-                  <p>
-                    Lifer is loading its species catalog for the first time. This only happens once and can take a
-                    few minutes. Countries will appear here as soon as it's done.
-                  </p>
+                  <p>{t("onboarding.pack.catalogLoading")}</p>
                 )}
               </div>
             ) : (
               <>
                 <RegionPicker
                   mode="multi"
-                  search={{ term: searchTerm, onTermChange: setSearchTerm, results: searchResults, onSelectResult: (r) => {
-                    setSelectedCountryIds((prev) => new Set(prev).add(r.id));
-                    setSearchTerm("");
-                    const continentId = (r as RegionSummary).parentId;
-                    if (continentId) setOpenContinentIds((prev) => new Set(prev).add(continentId));
-                  }, placeholder: "Search for a country…" }}
+                  search={{
+                    term: searchTerm,
+                    onTermChange: setSearchTerm,
+                    results: searchResults,
+                    onSelectResult: (r) => {
+                      setSelectedCountryIds((prev) => new Set(prev).add(r.id));
+                      setSearchTerm("");
+                      const continentId = (r as RegionSummary).parentId;
+                      if (continentId) setOpenContinentIds((prev) => new Set(prev).add(continentId));
+                    },
+                    placeholder: t("onboarding.pack.searchPlaceholder"),
+                  }}
                 />
                 <RegionPicker
                   mode="multi"
@@ -404,19 +412,23 @@ export default function OnboardingPage() {
                   <div className="rounded-xl border border-line bg-surface p-4">
                     <div className="flex items-center justify-between">
                       <p className="text-sm font-semibold text-ink">
-                        {pluralize(selectedCountryIds.size, "region")} selected. Choose taxon groups
+                        {t("onboarding.pack.regionsSelected", { count: selectedCountryIds.size })}
                       </p>
                       {availableTaxaForSelection.length > 0 && (
                         <button
                           type="button"
                           onClick={() =>
                             setSelectedTaxa(
-                              availableTaxaForSelection.every((t) => selectedTaxa.has(t)) ? new Set() : new Set(availableTaxaForSelection),
+                              availableTaxaForSelection.every((taxon) => selectedTaxa.has(taxon))
+                                ? new Set()
+                                : new Set(availableTaxaForSelection),
                             )
                           }
                           className="text-xs text-accent hover:underline"
                         >
-                          {availableTaxaForSelection.every((t) => selectedTaxa.has(t)) ? "Deselect all" : "Select all"}
+                          {availableTaxaForSelection.every((taxon) => selectedTaxa.has(taxon))
+                            ? t("onboarding.pack.deselectAll")
+                            : t("onboarding.pack.selectAll")}
                         </button>
                       )}
                     </div>
@@ -424,8 +436,8 @@ export default function OnboardingPage() {
                       {availableTaxaForSelection.length === 0 && (
                         <p className="text-xs text-muted">
                           {packsError
-                            ? "Couldn't load the pack list. All taxa will be downloaded."
-                            : `No taxon data available yet for the selected ${selectedCountryIds.size === 1 ? "region" : "regions"}.`}
+                            ? t("onboarding.pack.packListFailed")
+                            : t("onboarding.pack.noTaxonData", { count: selectedCountryIds.size })}
                         </p>
                       )}
                       {availableTaxaForSelection
@@ -441,11 +453,11 @@ export default function OnboardingPage() {
                     </div>
                     {/* A group is only a disclosure: opening it never selects anything. */}
                     {TAXON_GROUPS.map((group) => {
-                      const availableInGroup = group.taxa.filter((t) => availableTaxaForSelection.includes(t));
+                      const availableInGroup = group.taxa.filter((taxon) => availableTaxaForSelection.includes(taxon));
                       if (availableInGroup.length === 0) return null;
-                      const selectedCount = availableInGroup.filter((t) => selectedTaxa.has(t)).length;
+                      const selectedCount = availableInGroup.filter((taxon) => selectedTaxa.has(taxon)).length;
                       const isOpen = openTaxonGroups.has(group.key);
-                      const allInGroupSelected = availableInGroup.every((t) => selectedTaxa.has(t));
+                      const allInGroupSelected = availableInGroup.every((taxon) => selectedTaxa.has(taxon));
                       return (
                         <div key={group.key} className="mt-2 border-t border-line pt-2">
                           <div className="flex w-full items-center justify-between gap-2">
@@ -462,7 +474,11 @@ export default function OnboardingPage() {
                               className="flex flex-1 items-center justify-between text-xs font-medium text-ink"
                             >
                               <span>
-                                {group.label} ({selectedCount}/{availableInGroup.length} selected)
+                                {t("onboarding.pack.groupSelected", {
+                                  group: group.label,
+                                  selected: selectedCount,
+                                  total: availableInGroup.length,
+                                })}
                               </span>
                               <span className="text-muted">{isOpen ? "▾" : "▸"}</span>
                             </button>
@@ -471,16 +487,16 @@ export default function OnboardingPage() {
                               onClick={() =>
                                 setSelectedTaxa((prev) => {
                                   const next = new Set(prev);
-                                  for (const t of availableInGroup) {
-                                    if (allInGroupSelected) next.delete(t);
-                                    else next.add(t);
+                                  for (const taxon of availableInGroup) {
+                                    if (allInGroupSelected) next.delete(taxon);
+                                    else next.add(taxon);
                                   }
                                   return next;
                                 })
                               }
                               className="shrink-0 text-xs text-accent hover:underline"
                             >
-                              {allInGroupSelected ? "Deselect all" : "Select all"}
+                              {allInGroupSelected ? t("onboarding.pack.deselectAll") : t("onboarding.pack.selectAll")}
                             </button>
                           </div>
                           {isOpen && (
@@ -501,7 +517,7 @@ export default function OnboardingPage() {
                   </div>
                 )}
                 <FormMessage error={job.actionError} />
-                {startedHere && status?.error && <FormMessage error={`Download failed: ${status.error}`} />}
+                {startedHere && status?.error && <FormMessage error={t("onboarding.pack.downloadFailed", { error: status.error })} />}
                 <button
                   type="button"
                   onClick={startDownload}
@@ -509,10 +525,8 @@ export default function OnboardingPage() {
                   className="w-full rounded-md bg-accent py-2 text-sm font-medium text-accent-fg disabled:opacity-50"
                 >
                   {job.starting
-                    ? "Starting…"
-                    : `Download ${selectedCountryIds.size || ""} region${selectedCountryIds.size === 1 ? "" : "s"}${
-                        selectedTaxa.size > 0 ? ` (${selectedTaxa.size} group${selectedTaxa.size === 1 ? "" : "s"})` : ""
-                      }`}
+                    ? t("onboarding.starting")
+                    : t("onboarding.pack.downloadButton", { count: selectedCountryIds.size, groups: selectedTaxa.size })}
                 </button>
               </>
             )}
@@ -522,26 +536,23 @@ export default function OnboardingPage() {
         {step === "guide" && (
           <>
             <div>
-              <h2 className="text-lg font-semibold text-ink">You're all set</h2>
-              <p className="mt-1 text-sm text-muted">
-                Take a couple minutes to see how uploading, bulk import, and trips fit together, or jump straight in and
-                figure it out as you go. You can always open this later from Settings.
-              </p>
+              <h2 className="text-lg font-semibold text-ink">{t("onboarding.guide.title")}</h2>
+              <p className="mt-1 text-sm text-muted">{t("onboarding.guide.description")}</p>
             </div>
             <button
               type="button"
               // Not replace: the guide's back link uses real history and should return here.
-              onClick={() => navigate("/guide", { state: { backLabel: "Setup" } })}
+              onClick={() => navigate("/guide", { state: { backLabel: t("onboarding.guide.backLabel") } })}
               className="w-full rounded-md bg-accent py-2 text-sm font-medium text-accent-fg"
             >
-              Open the getting started guide
+              {t("onboarding.guide.open")}
             </button>
             <button
               type="button"
               onClick={() => navigate("/", { replace: true })}
               className="w-full rounded-md border border-line py-2 text-sm text-ink hover:bg-surface-muted"
             >
-              Skip
+              {t("onboarding.guide.skip")}
             </button>
           </>
         )}
