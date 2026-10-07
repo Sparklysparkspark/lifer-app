@@ -5,7 +5,7 @@ import { existsSync, mkdirSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { gunzipSync } from "node:zlib";
 import type { Pool, PoolClient } from "pg";
-import { APP_DATA_DIR } from "../config.js";
+import { APP_DATA_DIR } from "@lifer/core/config.js";
 
 type Queryable = Pick<Pool | PoolClient, "query">;
 

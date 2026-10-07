@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../api/client";
-import Button, { buttonClasses } from "../../components/Button";
+import Button from "../../components/Button";
+import { buttonClasses } from "../../lib/buttonClasses";
 import DownloadedPacksList, { type PackEntry } from "../../components/DownloadedPacksList";
 import FormMessage from "../../components/FormMessage";
 import InlineSpinner from "../../components/InlineSpinner";
@@ -9,7 +10,7 @@ import JobProgress from "../../components/JobProgress";
 import { useConfirm } from "../../hooks/useConfirm";
 import { useJobPoll } from "../../hooks/useJobPoll";
 import { errorMessage } from "../../lib/errorMessage";
-import { formatBytes } from "../../lib/formatBytes";
+import { formatBytes } from "../../lib/format";
 import { pluralize } from "../../lib/pluralize";
 import {
   CATALOG_PHASES,
@@ -20,8 +21,9 @@ import {
   type MapStatus,
   type ModelStatus,
 } from "./phases";
-import { Card } from "./shared";
+import { Card, SettingToggleCard } from "./shared";
 import MatchingHardware from "./MatchingHardware";
+import { useServerSetting } from "./useServerSetting";
 
 export default function OfflineDataSettings() {
   return (
@@ -30,7 +32,23 @@ export default function OfflineDataSettings() {
       <MapSection />
       <EmbeddingModelSection />
       <OfflinePacksSummarySection />
+      <WithheldPhotosSection />
     </>
+  );
+}
+
+// Species in a downloaded pack whose only iNaturalist photos can't be redistributed get them
+// fetched in the background, for this install only (apps/api/src/species/withheldPhotos.ts).
+function WithheldPhotosSection() {
+  const setting = useServerSetting("fetchWithheldPhotos", "/settings/fetch-withheld-photos");
+  return (
+    <SettingToggleCard
+      setting={setting}
+      learnMore="withheld-photos"
+      title="Photos packs can't include"
+      description="Some photos can't be included in packs for licensing reasons. Lifer can download them from iNaturalist for your own viewing, a few at a time in the background, so the species in your packs have photos offline too."
+      label="Fetch withheld photos in the background"
+    />
   );
 }
 
@@ -49,30 +67,42 @@ function CatalogUpdateSection() {
     },
   });
 
+  // The request itself, once "checking" is showing. Only touches state setters, so one copy serves.
+  const fetchCatalogUpdate = useCallback(
+    (): Promise<void> =>
+      api
+        .get<{ available: boolean; downloadBytes?: number | null }>("/settings/catalog-update")
+        .then((result) => {
+          setDownloadBytes(result.downloadBytes ?? null);
+          setCheck(result.available ? "available" : "up-to-date");
+        })
+        .catch((err) => {
+          console.error(err);
+          setCheckError(errorMessage(err, "Couldn't check for a catalog update"));
+          setCheck("error");
+        }),
+    [],
+  );
+
   async function checkForUpdate(clearOutcome = true) {
     setCheck("checking");
     setCheckError(null);
     if (clearOutcome) setFinished(null);
-    try {
-      const result = await api.get<{ available: boolean; downloadBytes?: number | null }>("/settings/catalog-update");
-      setDownloadBytes(result.downloadBytes ?? null);
-      setCheck(result.available ? "available" : "up-to-date");
-    } catch (err) {
-      console.error(err);
-      setCheckError(errorMessage(err, "Couldn't check for a catalog update"));
-      setCheck("error");
-    }
+    await fetchCatalogUpdate();
   }
 
-  // The job survives navigation, so a remount lets the poll find a running one before checking.
+  // One automatic check per mount. The job survives navigation, so it waits for the poll to find
+  // a running one first. A just-failed run's outcome stays visible (with Retry) through it.
+  // "checking" is set while rendering; the effect then sends the request.
   const initialStatusSeen = job.status !== null || job.loadError !== null;
+  const [autoChecked, setAutoChecked] = useState(false);
+  if (!autoChecked && initialStatusSeen && check === "idle" && !job.status?.running) {
+    setAutoChecked(true);
+    setCheck("checking");
+  }
   useEffect(() => {
-    if (!initialStatusSeen || check !== "idle") return;
-    if (job.status?.running) return;
-    // Keeps a just-failed run's error visible (with Retry) after the automatic check.
-    void checkForUpdate(false);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialStatusSeen, job.status?.running]);
+    if (autoChecked) void fetchCatalogUpdate();
+  }, [autoChecked, fetchCatalogUpdate]);
 
   async function applyUpdate() {
     setFinished(null);
@@ -91,7 +121,12 @@ function CatalogUpdateSection() {
       description="Refreshes rarity tiers, occurrence stats, and endemic labels from the latest published data. Never touches your own downloaded reference photos."
     >
       {running ? (
-        <JobProgress status={job.status} phases={CATALOG_PHASES} onCancel={() => void job.cancel("/settings/catalog-update/cancel")} cancelling={job.cancelling} />
+        <JobProgress
+          status={job.status}
+          phases={CATALOG_PHASES}
+          onCancel={() => void job.cancel("/settings/catalog-update/cancel")}
+          cancelling={job.cancelling}
+        />
       ) : check === "idle" || check === "checking" ? (
         <p className="flex items-center gap-2 text-sm text-muted">
           <InlineSpinner />
@@ -107,10 +142,14 @@ function CatalogUpdateSection() {
       ) : check === "up-to-date" ? (
         <div className="space-y-2">
           <p className="text-sm text-muted">
-            {doneOk ? `Done, ${speciesCount != null ? speciesCount.toLocaleString() : "your"} species refreshed.` : "Your species catalog is up to date."}
+            {doneOk
+              ? `Done, ${speciesCount != null ? speciesCount.toLocaleString() : "your"} species refreshed.`
+              : "Your species catalog is up to date."}
           </p>
           {doneOk && vectorErrors.length > 0 && (
-            <p className="text-sm text-muted">Species reference vectors couldn't be fully updated: {vectorErrors.join(" ")}</p>
+            <p className="text-sm text-muted">
+              Species reference vectors couldn't be fully updated: {vectorErrors.join(" ")}
+            </p>
           )}
           <button type="button" onClick={() => void checkForUpdate()} className="text-sm text-ink underline">
             Check again
@@ -126,7 +165,13 @@ function CatalogUpdateSection() {
           )}
         </div>
       )}
-      {!running && <JobProgress status={finished} error={job.actionError} onRetry={check === "available" ? applyUpdate : undefined} />}
+      {!running && (
+        <JobProgress
+          status={finished}
+          error={job.actionError}
+          onRetry={check === "available" ? applyUpdate : undefined}
+        />
+      )}
     </Card>
   );
 }
@@ -162,7 +207,11 @@ function OfflinePacksSummarySection() {
     <Card
       title="Downloaded packs"
       learnMore="downloaded-packs"
-      description={downloaded.length === 0 ? "No region packs downloaded yet." : `${pluralize(downloaded.length, "pack")} downloaded, ${formatBytes(totalBytes)} total.`}
+      description={
+        downloaded.length === 0
+          ? "No region packs downloaded yet."
+          : `${pluralize(downloaded.length, "pack")} downloaded, ${formatBytes(totalBytes)} total.`
+      }
     >
       {downloaded.length === 0 ? (
         <Link to="/offline-packs" className={buttonClasses("secondary", "sm")}>
@@ -226,7 +275,12 @@ function MapSection() {
       description="An offline basemap: this is what makes locality/occurrence data work at all, showing roughly where within a downloaded region each species is found. It doesn't render without this, even with an internet connection. Everything else in Lifer works the same either way."
     >
       {status.running ? (
-        <JobProgress status={status} phases={MAP_PHASES} onCancel={() => void job.cancel("/settings/map/download/cancel")} cancelling={job.cancelling} />
+        <JobProgress
+          status={status}
+          phases={MAP_PHASES}
+          onCancel={() => void job.cancel("/settings/map/download/cancel")}
+          cancelling={job.cancelling}
+        />
       ) : status.downloaded ? (
         <Button variant="secondary" size="sm" onClick={offload} loading={busy}>
           {busy ? "Offloading…" : `Offload${status.sizeBytes ? ` (frees ${formatBytes(status.sizeBytes)})` : ""}`}
@@ -312,14 +366,20 @@ function EmbeddingModelSection() {
             {busy ? "Offloading…" : `Offload${status.sizeBytes ? ` (frees ${formatBytes(status.sizeBytes)})` : ""}`}
           </Button>
           {vectorErrors.length > 0 && (
-            <p className="text-sm text-muted">Species reference vectors couldn't be fully downloaded: {vectorErrors.join(" ")}</p>
+            <p className="text-sm text-muted">
+              Species reference vectors couldn't be fully downloaded: {vectorErrors.join(" ")}
+            </p>
           )}
           <MatchingHardware />
         </>
       ) : (
         <>
           <Button onClick={download} loading={job.starting}>
-            {job.starting ? "Starting…" : status.usable ? "Download the identification model (~310 MB)" : "Download models (~620 MB)"}
+            {job.starting
+              ? "Starting…"
+              : status.usable
+                ? "Download the identification model (~310 MB)"
+                : "Download models (~620 MB)"}
           </Button>
           <JobProgress status={status} error={job.actionError} errorPrefix="Download failed" />
         </>

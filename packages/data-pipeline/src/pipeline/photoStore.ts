@@ -18,6 +18,7 @@ import path from "node:path";
 import { gunzipSync, gzipSync } from "node:zlib";
 import { pool } from "../db.js";
 import { GITHUB_REPO } from "../build/release-groups.js";
+import { assertPhotosPublishable } from "./photoLicensePolicy.js";
 
 export const PHOTO_STORE_RELEASE_TAG = "photos-latest";
 export const PHOTO_STORE_INDEX_NAME = "lifer-photo-store.json.gz";
@@ -73,14 +74,21 @@ export async function buildPhotoStore(opts: {
   log?: (m: string) => void;
 }): Promise<PhotoStoreBuild> {
   const log = opts.log ?? console.log;
+  await assertPhotosPublishable(pool);
   mkdirSync(opts.outDir, { recursive: true });
   // Builds on the published store, or on the last local build when nothing is published yet
   // (its shards are still in outDir), so a rebuild never rewrites photos it already has.
   const localIndex = path.join(opts.outDir, PHOTO_STORE_INDEX_NAME);
+  // PHOTO_STORE_FROM_SCRATCH=1 writes every photo anew, so no published shard is reused: after
+  // publishing, every old shard is unused and gets deleted. Needed when published shards hold
+  // photos that must go (such as ones whose license doesn't allow publishing).
+  const fromScratch = process.env.PHOTO_STORE_FROM_SCRATCH === "1";
   const previous =
     opts.previous !== undefined
       ? opts.previous
-      : ((await fetchPublishedIndex(log)) ?? (existsSync(localIndex) ? readPhotoStoreIndex(localIndex) : null));
+      : fromScratch
+        ? null
+        : ((await fetchPublishedIndex(log)) ?? (existsSync(localIndex) ? readPhotoStoreIndex(localIndex) : null));
 
   const main = await pool.query<{ id: string; reference_display_path: string | null; reference_thumb_path: string | null }>(
     `SELECT s.id, s.reference_display_path, s.reference_thumb_path FROM species s
@@ -216,7 +224,7 @@ export async function publishPhotoStore(build: PhotoStoreBuild, log: (m: string)
   try {
     gh(["release", "view", PHOTO_STORE_RELEASE_TAG, "--json", "tagName"], false);
   } catch {
-    gh(["release", "create", PHOTO_STORE_RELEASE_TAG, "--title", "Pack photos", "--notes", "Photos for offline packs, fetched by byte range. See packages/data-pipeline/src/pipeline/photoStore.ts."]);
+    gh(["release", "create", PHOTO_STORE_RELEASE_TAG, "--title", "Pack photos", "--notes", "Photos for offline packs, fetched by byte range. See packages/data-pipeline/src/pipeline/photoStore.ts.", "--prerelease", "--latest=false"]);
   }
   // Every shard the index uses that the release doesn't have yet, which after a local rebuild
   // can include shards an earlier build wrote.
