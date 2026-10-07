@@ -1,6 +1,6 @@
 // Daily housekeeping: drop expired sessions so the table doesn't grow forever. Uploads nobody
 // imported are cleared more often, since they can be gigabytes.
-import { pool } from "../db.js";
+import { pool } from "@lifer/core/db.js";
 import { sweepStagedUploads } from "./stagedUploads.js";
 import { sweepTusUploads } from "./tusUploads.js";
 

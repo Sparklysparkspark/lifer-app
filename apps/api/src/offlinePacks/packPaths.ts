@@ -1,6 +1,7 @@
 // Guards for reading files out of an extracted (untrusted) pack archive.
 import { realpathSync, type Stats } from "node:fs";
 import path from "node:path";
+import { isWithin } from "@lifer/core/lib/pathContainment.js";
 
 // Only plain files and folders are extracted. A symlink or hardlink entry could otherwise point
 // outside the extract dir, and the later copy would follow it.
@@ -20,6 +21,6 @@ export function resolveWithinDir(dir: string, relativePath: string): string | nu
   } catch {
     return null;
   }
-  if (real !== root && !real.startsWith(root + path.sep)) return null;
+  if (!isWithin(root, real)) return null;
   return real;
 }

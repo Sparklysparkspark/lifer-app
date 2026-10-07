@@ -4,10 +4,12 @@ import os from "node:os";
 import path from "node:path";
 import { rmSync } from "node:fs";
 import type { FastifyInstance } from "fastify";
-import { pool, withTransaction } from "../db.js";
+import { Type } from "typebox";
+import { pool, withTransaction } from "@lifer/core/db.js";
 import { requireAuth } from "../auth/session.js";
+import { withSchemas } from "../lib/schema.js";
 // Cross-package import: pure id derivation with no heavy dependencies.
-import { packIdFromFileName } from "data-pipeline/src/build/pack-id.js";
+import { packIdFromFileName } from "@lifer/core/packs/packId.js";
 import { createJob, type JobContext } from "../lib/job.js";
 import {
   catalogFirstBootState,
@@ -17,12 +19,14 @@ import {
   waitForFirstBootCatalog,
 } from "../species/catalogSeedUpdate.js";
 import { downloadToFile } from "../lib/download.js";
-import { sha256OfFile } from "../lib/resumableDownload.js";
-import { invalidateSuggestionCache } from "../species/embeddings.js";
+import { sha256OfFile } from "@lifer/core/lib/resumableDownload.js";
+import { invalidateSuggestionCache } from "@lifer/core/species/embeddings.js";
 import { resolveSpeciesSplits } from "../species/speciesSplits.js";
 import { assertTrustedPackUrl, basePackId, computePackStatuses, fetchPackIndex, invalidatePackSizes, SMALL_SUFFIX } from "./index.js";
 import { downloadPhotos, fetchPhotoStoreIndex, missingPhotos, type PhotoStoreIndex } from "./photoStore.js";
 import { applyPack, type PackManifest } from "./apply.js";
+import { startWithheldPhotoFetch } from "../species/withheldPhotos.js";
+import { log } from "@lifer/core/lib/log.js";
 
 // `packIds` lets a remounting client show which packs are updating. Packs applied before a
 // cancel stay applied (each commits on its own).
@@ -36,7 +40,18 @@ const downloadJob = createJob<{ packsApplied: number }, DownloadJobExtra>("pack-
 export const isPackDownloadRunning = (): boolean => downloadJob.status.running;
 
 function startDownloadJob(packIds: string[], force = false): boolean {
-  return downloadJob.start((ctx) => runDownloadJob(ctx, packIds, force), { packIds, total: packIds.length, processed: 0 });
+  return downloadJob.start(
+    async (ctx) => {
+      try {
+        return await runDownloadJob(ctx, packIds, force);
+      } finally {
+        // Whatever packs got applied, even when a later one failed: their checklists may have
+        // species whose photo the packs couldn't include. In the background, never part of the job.
+        startWithheldPhotoFetch("pack download");
+      }
+    },
+    { packIds, total: packIds.length, processed: 0 },
+  );
 }
 
 // A pack can't add species this install's catalog lacks, so a newer published catalog is
@@ -51,7 +66,7 @@ async function ensureCatalogCurrent(ctx: JobContext<{ packsApplied: number }, Do
     try {
       available = (await checkCatalogUpdate(pool)).available;
     } catch (err) {
-      console.warn("[packs] couldn't check for a catalog update, applying packs against the current catalog", err);
+      log.warn({ err }, "[packs] couldn't check for a catalog update, applying packs against the current catalog");
       return;
     }
     if (!available) return;
@@ -131,7 +146,7 @@ async function runDownloadJob(ctx: JobContext<{ packsApplied: number }, Download
         }
       } catch (err) {
         ctx.throwIfCancelled();
-        throw new Error(`Couldn't download "${id}": ${(err as Error).message}`);
+        throw new Error(`Couldn't download "${id}": ${(err as Error).message}`, { cause: err });
       }
       ctx.throwIfCancelled();
       // On a brand-new server the catalog may still be loading (seedCatalogIfEmpty), so applying
@@ -152,7 +167,7 @@ async function runDownloadJob(ctx: JobContext<{ packsApplied: number }, Download
         const applyResult = await applyPack(client, tmpFile);
         if (applyResult.skippedNames.length > 0) {
           const sample = applyResult.skippedNames.slice(0, 10).join(", ");
-          console.warn(`[packs] ${id}: ${applyResult.skippedNames.length} species aren't in this install's catalog and were left out (${sample}${applyResult.skippedNames.length > 10 ? ", ..." : ""})`);
+          log.warn(`[packs] ${id}: ${applyResult.skippedNames.length} species aren't in this install's catalog and were left out (${sample}${applyResult.skippedNames.length > 10 ? ", ..." : ""})`);
         }
         const speciesCount = applyResult.speciesCount;
         const { touched, allChildRegionIds, territoryChildRegionIds } = applyResult;
@@ -211,7 +226,7 @@ async function runDownloadJob(ctx: JobContext<{ packsApplied: number }, Download
             assertUrl: assertTrustedPackUrl,
             onProgress: (downloadedBytes, totalBytes) => ctx.update({ downloadedBytes, totalBytes }),
           });
-          if (result.failed > 0) console.warn(`[packs] ${id}: ${result.failed} photo(s) didn't download and will be retried next time`);
+          if (result.failed > 0) log.warn(`[packs] ${id}: ${result.failed} photo(s) didn't download and will be retried next time`);
         }
       }
 
@@ -232,19 +247,30 @@ async function runDownloadJob(ctx: JobContext<{ packsApplied: number }, Download
   return { packsApplied };
 }
 
-export async function packDownloadRoutes(app: FastifyInstance): Promise<void> {
-  app.get("/offline-packs/download/status", { preHandler: requireAuth }, async () => downloadJob.status);
+// Pack ids come from the published index (like "united-states-aves"), not the database.
+export const PackId = Type.String({ minLength: 1, maxLength: 200 });
+const PackIds = Type.Array(PackId, { minItems: 1 });
 
-  app.post<{ Body: { packIds?: string[]; force?: boolean } }>(
+export async function packDownloadRoutes(fastify: FastifyInstance): Promise<void> {
+  const app = withSchemas(fastify);
+
+  app.get("/offline-packs/download/status", { preValidation: requireAuth, schema: {} }, async () => downloadJob.status);
+
+  app.post(
     "/offline-packs/download",
-    { preHandler: requireAuth },
+    {
+      preValidation: requireAuth,
+      schema: {
+        body: Type.Object(
+          { packIds: PackIds, force: Type.Optional(Type.Boolean({ description: "Download again even when up to date" })) },
+          { additionalProperties: false },
+        ),
+      },
+    },
     async (request, reply) => {
-      const packIds = request.body?.packIds;
-      if (!packIds || packIds.length === 0) {
-        return reply.code(400).send({ error: "packIds is required" });
-      }
+      const { packIds, force } = request.body;
       // Runs in the background so a large download doesn't hold an HTTP request open.
-      if (!startDownloadJob(packIds, request.body?.force ?? false)) {
+      if (!startDownloadJob(packIds, force ?? false)) {
         return reply.code(409).send({ error: "A pack download is already in progress" });
       }
       return { started: true };
@@ -252,22 +278,32 @@ export async function packDownloadRoutes(app: FastifyInstance): Promise<void> {
   );
 
   // Stops the current pack's download and the rest of the queue. 200 even when nothing runs.
-  app.post("/offline-packs/download/cancel", { preHandler: requireAuth }, async () => ({ cancelled: downloadJob.cancel() }));
+  // No body schema: the web app sends `{}` and nothing in it is read.
+  app.post("/offline-packs/download/cancel", { preValidation: requireAuth, schema: {} }, async () => ({ cancelled: downloadJob.cancel() }));
 
   // Resolves the map picker's countries x taxa selection to pack ids and starts the download.
-  app.post<{ Body: { regionNames?: string[]; taxa?: string[] | "all"; variant?: "full" | "small" } }>(
+  app.post(
     "/offline-packs/download-batch",
-    { preHandler: requireAuth },
+    {
+      preValidation: requireAuth,
+      schema: {
+        body: Type.Object(
+          {
+            regionNames: Type.Array(Type.String({ minLength: 1 }), { minItems: 1 }),
+            // Taxa to download, or "all". Left out, only packs that cover every taxon match.
+            taxa: Type.Optional(Type.Union([Type.Array(Type.String()), Type.Literal("all")])),
+            variant: Type.Optional(Type.Enum(["full", "small"])),
+          },
+          { additionalProperties: false },
+        ),
+      },
+    },
     async (request, reply) => {
       if (downloadJob.status.running) {
         return reply.code(409).send({ error: "A pack download is already in progress" });
       }
-      const regionNames = request.body?.regionNames;
-      const taxa = request.body?.taxa;
-      const variant = request.body?.variant ?? "full";
-      if (!regionNames || regionNames.length === 0) {
-        return reply.code(400).send({ error: "regionNames is required" });
-      }
+      const { regionNames, taxa } = request.body;
+      const variant = request.body.variant ?? "full";
       try {
         const statuses = await computePackStatuses();
         const regionSet = new Set(regionNames);

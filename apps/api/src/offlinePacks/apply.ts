@@ -100,7 +100,8 @@ async function copyFilesConcurrently(tasks: Array<{ src: string; dest: string }>
 }
 
 // A pack is the whole checklist for its region (or sea zone) and taxon, so rows it no longer lists
-// are removed. Other Taxa species are the user's own additions and always stay.
+// are removed. The user's own additions, hand imports included, live in separate tables
+// (regions/checklistAdditions.ts) that this never touches.
 async function pruneChecklist(
   db: PoolClient,
   target: { regionId: string } | { seaZoneId: string },
@@ -111,7 +112,7 @@ async function pruneChecklist(
   const [table, column, id] = "regionId" in target ? ["region_species", "region_id", target.regionId] : ["sea_zone_species", "sea_zone_id", target.seaZoneId];
   const res = await db.query<{ species_id: string }>(
     `DELETE FROM ${table} t USING species s
-     WHERE t.${column} = $1 AND s.id = t.species_id AND NOT s.is_other_taxa
+     WHERE t.${column} = $1 AND s.id = t.species_id
        AND ($2::text IS NULL OR s.taxon_class = $2)
        AND NOT (t.species_id = ANY($3::uuid[]))
      RETURNING t.species_id`,
@@ -312,8 +313,12 @@ async function applyChecklist(
     await db.query(
       `UPDATE species AS s SET
          habitat_description = COALESCE(s.habitat_description, v.habitat),
-         reference_credit = COALESCE(s.reference_credit, v.credit),
-         reference_license = COALESCE(s.reference_license, v.license),
+         -- The credit and license describe whichever photo ends up installed: the pack's when it
+         -- brings one, otherwise the one already there.
+         reference_credit = CASE WHEN v.display IS NOT NULL AND v.credit IS NOT NULL THEN v.credit
+                                 ELSE COALESCE(s.reference_credit, v.credit) END,
+         reference_license = CASE WHEN v.display IS NOT NULL AND v.credit IS NOT NULL THEN v.license
+                                  ELSE COALESCE(s.reference_license, v.license) END,
          reference_display_path = COALESCE(v.display, s.reference_display_path),
          reference_thumb_path = COALESCE(v.thumb, s.reference_thumb_path),
          enriched_at = now()

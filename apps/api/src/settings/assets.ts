@@ -2,17 +2,22 @@ import { existsSync, mkdirSync, renameSync, rmSync, statSync } from "node:fs";
 import { readdir, stat } from "node:fs/promises";
 import path from "node:path";
 import type { FastifyInstance } from "fastify";
-import { pool } from "../db.js";
+import { Type } from "typebox";
+import { pool } from "@lifer/core/db.js";
 import { requireAuth } from "../auth/session.js";
-import { MAPS_DIR, MAP_DOWNLOAD_URL } from "../config.js";
+import { MAPS_DIR, MAP_DOWNLOAD_URL } from "@lifer/core/config.js";
 import { offloadAcceleration } from "../species/accelerationSetup.js";
 import { modelDownload, startModelDownloadJob } from "../species/modelDownloadJob.js";
-import { activeSuggestionModel, isModelDownloaded, offloadModel, MODEL_DIR } from "../species/embeddings.js";
-import { idModel } from "../species/idModel.js";
+import { activeSuggestionModel, isModelDownloaded, offloadModel, MODEL_DIR } from "@lifer/core/species/embeddings.js";
+import { idModel } from "@lifer/core/species/idModel.js";
 import { galleryEmbeddingsJob, vectorUpdateProgress } from "../species/galleryEmbeddingsAsset.js";
-import { isTextModelDownloaded } from "../species/textEmbedding.js";
+import { isTextModelDownloaded } from "@lifer/core/species/textEmbedding.js";
 import { createJob } from "../lib/job.js";
 import { downloadToFile } from "../lib/download.js";
+import { Ok, replies, withSchemas } from "../lib/schema.js";
+
+const Started = Type.Object({ started: Type.Boolean() });
+const Cancelled = Type.Object({ cancelled: Type.Boolean() });
 
 async function dirSizeBytes(dir: string): Promise<number> {
   let entries;
@@ -32,12 +37,15 @@ async function dirSizeBytes(dir: string): Promise<number> {
 
 // Opt-in downloads of app-wide assets: the offline basemap and the species-matching models.
 // Available on every install (a server wants the same downloads), unlike requireDesktopMode routes.
-export async function assetRoutes(app: FastifyInstance): Promise<void> {
+// None of these routes take input; job status answers are left unschematized because the web app
+// reads whatever fields the job reports.
+export async function assetRoutes(fastify: FastifyInstance): Promise<void> {
+  const app = withSchemas(fastify);
   // Streams straight to disk and reports byte counts, since the server may not send a length.
   const mapJob = createJob<{ bytes: number }>("offline-map");
   const MAP_FILE_PATH = path.join(MAPS_DIR, "world-z8.pmtiles");
 
-  app.get("/settings/map/status", { preHandler: requireAuth }, async () => ({
+  app.get("/settings/map/status", { preValidation: requireAuth, schema: {} }, async () => ({
     available: MAP_DOWNLOAD_URL != null,
     downloaded: existsSync(MAP_FILE_PATH),
     // The on-disk size: the job's downloadedBytes resets on every restart.
@@ -47,30 +55,38 @@ export async function assetRoutes(app: FastifyInstance): Promise<void> {
     downloading: mapJob.status.running,
   }));
 
-  app.post("/settings/map/download", { preHandler: requireAuth }, async (_request, reply) => {
-    const url = MAP_DOWNLOAD_URL;
-    if (!url) return reply.code(400).send({ error: "No offline map is configured for this instance" });
-    const started = mapJob.start(
-      async (ctx) => {
-        const tmpPath = `${MAP_FILE_PATH}.download`;
-        mkdirSync(MAPS_DIR, { recursive: true });
-        const { bytes } = await downloadToFile(url, tmpPath, {
-          signal: ctx.signal,
-          onProgress: (downloadedBytes, totalBytes) => ctx.update({ downloadedBytes, totalBytes }),
-        });
-        ctx.throwIfCancelled();
-        renameSync(tmpPath, MAP_FILE_PATH);
-        return { bytes };
-      },
-      { phase: "downloading", downloadedBytes: 0 },
-    );
-    if (!started) return reply.code(409).send({ error: "The map is already downloading" });
-    return { started: true };
-  });
+  app.post(
+    "/settings/map/download",
+    { preValidation: requireAuth, schema: { response: replies(Started) } },
+    async (_request, reply) => {
+      const url = MAP_DOWNLOAD_URL;
+      if (!url) return reply.code(400).send({ error: "No offline map is configured for this instance" });
+      const started = mapJob.start(
+        async (ctx) => {
+          const tmpPath = `${MAP_FILE_PATH}.download`;
+          mkdirSync(MAPS_DIR, { recursive: true });
+          const { bytes } = await downloadToFile(url, tmpPath, {
+            signal: ctx.signal,
+            onProgress: (downloadedBytes, totalBytes) => ctx.update({ downloadedBytes, totalBytes }),
+          });
+          ctx.throwIfCancelled();
+          renameSync(tmpPath, MAP_FILE_PATH);
+          return { bytes };
+        },
+        { phase: "downloading", downloadedBytes: 0 },
+      );
+      if (!started) return reply.code(409).send({ error: "The map is already downloading" });
+      return { started: true };
+    },
+  );
 
-  app.post("/settings/map/download/cancel", { preHandler: requireAuth }, async () => ({ cancelled: mapJob.cancel() }));
+  app.post(
+    "/settings/map/download/cancel",
+    { preValidation: requireAuth, schema: { response: replies(Cancelled) } },
+    async () => ({ cancelled: mapJob.cancel() }),
+  );
 
-  app.delete("/settings/map", { preHandler: requireAuth }, async () => {
+  app.delete("/settings/map", { preValidation: requireAuth, schema: { response: replies(Ok) } }, async () => {
     rmSync(MAP_FILE_PATH, { force: true });
     return { ok: true };
   });
@@ -111,7 +127,7 @@ export async function assetRoutes(app: FastifyInstance): Promise<void> {
   }
 
   // JobStatus plus what's installed and how big it is.
-  app.get("/settings/embedding-model/status", { preHandler: requireAuth }, async () => ({
+  app.get("/settings/embedding-model/status", { preValidation: requireAuth, schema: {} }, async () => ({
     ...modelDownload.status,
     // While this download waits for the reference vectors, or another job installs them, show
     // that job's progress instead of a bare "waiting".
@@ -126,30 +142,44 @@ export async function assetRoutes(app: FastifyInstance): Promise<void> {
     sizeBytes: (await modelDirSizeBytes()) || null,
   }));
 
-  app.post("/settings/embedding-model/download", { preHandler: requireAuth }, async (request, reply) => {
-    if (!startModelDownloadJob(pool, app.log)) return reply.code(409).send({ error: "The model is already downloading" });
-    invalidateModelSize();
-    // Offloading turned suggestions off for everyone; downloading again is the way back.
-    await pool.query(`UPDATE users SET species_suggest_enabled = true WHERE id = $1`, [request.user!.id]);
-    return { started: true };
-  });
+  app.post(
+    "/settings/embedding-model/download",
+    { preValidation: requireAuth, schema: { response: replies(Started) } },
+    async (request, reply) => {
+      if (!startModelDownloadJob(pool, app.log)) {
+        return reply.code(409).send({ error: "The model is already downloading" });
+      }
+      invalidateModelSize();
+      // Offloading turned suggestions off for everyone; downloading again is the way back.
+      await pool.query(`UPDATE users SET species_suggest_enabled = true WHERE id = $1`, [request.user!.id]);
+      return { started: true };
+    },
+  );
 
-  app.post("/settings/embedding-model/download/cancel", { preHandler: requireAuth }, async () => {
-    const download = modelDownload.cancel();
-    const vectors = galleryEmbeddingsJob.cancel();
-    return { cancelled: download || vectors };
-  });
+  app.post(
+    "/settings/embedding-model/download/cancel",
+    { preValidation: requireAuth, schema: { response: replies(Cancelled) } },
+    async () => {
+      const download = modelDownload.cancel();
+      const vectors = galleryEmbeddingsJob.cancel();
+      return { cancelled: download || vectors };
+    },
+  );
 
   // Also turns species-suggest off for every user (there's one model per install), so no one is
   // left with a suggestion UI that can't return results.
-  app.delete("/settings/embedding-model", { preHandler: requireAuth }, async () => {
-    // Stop a running download or vector install so it doesn't carry on against deleted files.
-    modelDownload.cancel();
-    galleryEmbeddingsJob.cancel();
-    offloadModel();
-    offloadAcceleration();
-    invalidateModelSize();
-    await pool.query(`UPDATE users SET species_suggest_enabled = false`);
-    return { ok: true };
-  });
+  app.delete(
+    "/settings/embedding-model",
+    { preValidation: requireAuth, schema: { response: replies(Ok) } },
+    async () => {
+      // Stop a running download or vector install so it doesn't carry on against deleted files.
+      modelDownload.cancel();
+      galleryEmbeddingsJob.cancel();
+      offloadModel();
+      offloadAcceleration();
+      invalidateModelSize();
+      await pool.query(`UPDATE users SET species_suggest_enabled = false`);
+      return { ok: true };
+    },
+  );
 }

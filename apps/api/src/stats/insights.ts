@@ -1,17 +1,21 @@
 import type { FastifyInstance } from "fastify";
-import { pool } from "../db.js";
+import { Type } from "typebox";
+import { pool } from "@lifer/core/db.js";
 import { requireScope } from "../auth/session.js";
-import { cosineSimilarity } from "../species/embeddings.js";
-import { embedQueryText } from "../species/textEmbedding.js";
-import { EMBEDDING_MODEL_VERSION } from "../config.js";
+import { withSchemas } from "../lib/schema.js";
+import { cosineSimilarity } from "@lifer/core/species/embeddings.js";
+import { embedQueryText } from "@lifer/core/species/textEmbedding.js";
+import { EMBEDDING_MODEL_VERSION } from "@lifer/core/config.js";
 import { parseShutterSeconds } from "./shutter.js";
 
 // Deeper stats views: species portfolio, library health, gear usage, year over year, and the
 // "photography DNA" profile.
-export async function statsInsightRoutes(app: FastifyInstance): Promise<void> {
+export async function statsInsightRoutes(fastify: FastifyInstance): Promise<void> {
+  const app = withSchemas(fastify);
+
   // Per-species photo counts behind the leaderboard, one-and-done species, rating prompts and the
   // portfolio table. Every confirmed photo counts here, not only keepers.
-  app.get("/stats/species-portfolio", { preHandler: requireScope("stats.read") }, async (request) => {
+  app.get("/stats/species-portfolio", { preValidation: requireScope("stats.read"), schema: {} }, async (request) => {
     const userId = request.user!.id;
     const res = await pool.query<{
       species_id: string;
@@ -53,7 +57,7 @@ export async function statsInsightRoutes(app: FastifyInstance): Promise<void> {
 
   // Library health: how much is missing data a normal photo would have. Ratings, GPS and
   // one-photo species aren't counted, since none of them is a problem to fix.
-  app.get("/stats/archive-health", { preHandler: requireScope("stats.read") }, async (request) => {
+  app.get("/stats/archive-health", { preValidation: requireScope("stats.read"), schema: {} }, async (request) => {
     const userId = request.user!.id;
     const res = await pool.query<{
       total: number;
@@ -72,9 +76,17 @@ export async function statsInsightRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // Taxon breakdown of photos taken with a camera, a lens, or both.
-  app.get<{ Querystring: { camera?: string; lens?: string } }>(
+  app.get(
     "/stats/gear-species-breakdown",
-    { preHandler: requireScope("stats.read") },
+    {
+      preValidation: requireScope("stats.read"),
+      schema: {
+        querystring: Type.Object({
+          camera: Type.Optional(Type.String({ description: "Camera model, as in GET /stats" })),
+          lens: Type.Optional(Type.String({ description: "Lens, as in GET /stats" })),
+        }),
+      },
+    },
     async (request) => {
       const userId = request.user!.id;
       const { camera, lens } = request.query;
@@ -109,16 +121,16 @@ export async function statsInsightRoutes(app: FastifyInstance): Promise<void> {
 
   // Year over year: the library-wide numbers computed for each year side by side. Plain EXIF and
   // count aggregates only, so it stays fast over a whole year.
-  app.get<{ Querystring: { yearA: string; yearB: string } }>(
+  const Year = (description: string) => Type.Integer({ minimum: 1, maximum: 9999, description });
+  app.get(
     "/stats/year-comparison",
-    { preHandler: requireScope("stats.read") },
-    async (request, reply) => {
+    {
+      preValidation: requireScope("stats.read"),
+      schema: { querystring: Type.Object({ yearA: Year("First year, e.g. 2025"), yearB: Year("Second year") }) },
+    },
+    async (request) => {
       const userId = request.user!.id;
-      const yearA = Number(request.query.yearA);
-      const yearB = Number(request.query.yearB);
-      if (!Number.isInteger(yearA) || !Number.isInteger(yearB)) {
-        return reply.code(400).send({ error: "yearA and yearB must both be integers" });
-      }
+      const { yearA, yearB } = request.query;
 
       async function statsForYear(year: number) {
         const res = await pool.query<{
@@ -154,7 +166,7 @@ export async function statsInsightRoutes(app: FastifyInstance): Promise<void> {
   // "Photography DNA": the taxa someone shoots, the kind of shot (portrait, flight, behavior,
   // habitat, by the same CLIP matching as best-by-category), and median focal length, shutter and
   // ISO (medians, so one outlier doesn't skew them).
-  app.get("/stats/photography-dna", { preHandler: requireScope("stats.read") }, async (request) => {
+  app.get("/stats/photography-dna", { preValidation: requireScope("stats.read"), schema: {} }, async (request) => {
     const userId = request.user!.id;
 
     const taxonRes = await pool.query<{ taxon_class: string; count: number }>(
@@ -175,8 +187,12 @@ export async function statsInsightRoutes(app: FastifyInstance): Promise<void> {
       const mid = Math.floor(sorted.length / 2);
       return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
     }
-    const focalLengths = exifRes.rows.map((r) => (r.focal_length_mm != null ? Number(r.focal_length_mm) : null)).filter((v): v is number => v != null);
-    const shutters = exifRes.rows.map((r) => (r.shutter != null ? parseShutterSeconds(r.shutter) : null)).filter((v): v is number => v != null);
+    const focalLengths = exifRes.rows
+      .map((r) => (r.focal_length_mm != null ? Number(r.focal_length_mm) : null))
+      .filter((v): v is number => v != null);
+    const shutters = exifRes.rows
+      .map((r) => (r.shutter != null ? parseShutterSeconds(r.shutter) : null))
+      .filter((v): v is number => v != null);
     const isos = exifRes.rows.map((r) => r.iso).filter((v): v is number => v != null);
 
     const embeddingsRes = await pool.query<{ embedding: number[] }>(

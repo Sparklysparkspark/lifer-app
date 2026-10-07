@@ -18,11 +18,11 @@ import http from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { EMBED_PIPELINE_VERSION } from "@lifer/shared";
-import { downloadResumable, sha256OfFile } from "../lib/resumableDownload.js";
-import { CLIENT_FIELD_KIND, CLIENT_VECTOR_DIMS, encodeVector, type ClientVectors, type EncodedVector } from "./clientVectors.js";
-import type { PhotoVectorKind } from "./embeddings.js";
-import { DETECTOR_MODEL_PATH, analyzeImage, contentHash, inferenceRuntime, warmModels, type EmbedTarget } from "./inference.js";
-import { placementFor } from "./acceleration.js";
+import { downloadResumable, sha256OfFile } from "@lifer/core/lib/resumableDownload.js";
+import { CLIENT_FIELD_KIND, CLIENT_VECTOR_DIMS, encodeVector, type ClientVectors, type EncodedVector } from "@lifer/core/species/clientVectors.js";
+import type { PhotoVectorKind } from "@lifer/core/species/embeddings.js";
+import { DETECTOR_MODEL_PATH, analyzeImage, contentHash, inferenceRuntime, warmModels, type EmbedTarget } from "@lifer/core/species/inference.js";
+import { placementFor } from "@lifer/core/species/acceleration.js";
 import { selectAcceleration } from "./accelerationSelect.js";
 
 const MAX_BODY_BYTES = 512 * 1024 * 1024;
@@ -282,6 +282,8 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   const token = process.env.LIFER_INFERENCE_TOKEN;
   const modelDir = process.env.LIFER_MODEL_DIR;
   if (!token || token.length < 16 || !modelDir) {
+    // A usage error for whoever launched it, before anything else runs.
+    // eslint-disable-next-line no-console
     console.error("LIFER_INFERENCE_TOKEN (16+ chars) and LIFER_MODEL_DIR are required");
     process.exit(2);
   }
@@ -289,6 +291,8 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   const server = createLocalInferenceServer({ token, modelDir });
   server.listen(0, "127.0.0.1", () => {
     const address = server.address();
+    // The desktop app reads this exact line from stdout (local_inference.rs), so it stays plain.
+    // eslint-disable-next-line no-console
     if (address && typeof address === "object") console.log(`LIFER_INFERENCE_PORT=${address.port}`);
   });
 }

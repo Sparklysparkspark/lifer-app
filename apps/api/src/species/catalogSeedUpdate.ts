@@ -11,19 +11,21 @@ import { Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { createGunzip } from "node:zlib";
 import type { Pool, PoolClient } from "pg";
-import { APP_DATA_DIR, BUNDLED_CATALOG_SEED_DIR } from "../config.js";
+import { APP_DATA_DIR, BUNDLED_CATALOG_SEED_DIR } from "@lifer/core/config.js";
 import { createJob, describeError, JobCancelledError, type JobContext } from "../lib/job.js";
 import { getInstallSetting, setInstallSetting } from "../lib/installSettings.js";
 import { copyInto, readLines } from "../lib/pgCopy.js";
-import { downloadResumable } from "../lib/resumableDownload.js";
+import { downloadResumable, sha256OfFile } from "@lifer/core/lib/resumableDownload.js";
 import { catalogSeedAsset, fetchCatalogManifest, type CatalogManifest } from "./catalogManifest.js";
-import { invalidateSuggestionCache, isModelDownloaded } from "./embeddings.js";
+import { invalidateSuggestionCache, isModelDownloaded } from "@lifer/core/species/embeddings.js";
 import { runGalleryEmbeddingsUpdate, type ReferenceVectorsResult } from "./galleryEmbeddingsAsset.js";
-import { lockReferenceData } from "../lib/referenceDataLock.js";
-import { applySpeciesMerges } from "./speciesMerges.js";
+import { lockReferenceData } from "@lifer/core/lib/referenceDataLock.js";
+import { applySpeciesMerges } from "@lifer/core/species/speciesMerges.js";
 import { resolveSpeciesSplits } from "./speciesSplits.js";
 import { syncCaptureXmpSidecarsLogged } from "../uploads/xmpSidecarSync.js";
-import { log } from "../lib/log.js";
+import { log } from "@lifer/core/lib/log.js";
+import { normalizeIucnStatus } from "@lifer/shared";
+import { recordRestoredSeedVersion } from "./restoredSeedVersion.js";
 
 export { fetchCatalogManifest, type CatalogManifest };
 
@@ -53,7 +55,12 @@ export async function checkCatalogUpdate(
 // FK-safe order: species first, regions before region_species, etc. Tables in the seed that
 // aren't listed here are skipped.
 const MERGE_TABLES: Array<{ table: string; pkColumns: string[]; excludeFromUpdate: string[] }> = [
-  { table: "species", pkColumns: ["id"], excludeFromUpdate: ["reference_display_path", "reference_thumb_path"] },
+  // photo_checked_at: when this install last tried to fetch a withheld photo (species/withheldPhotos.ts).
+  {
+    table: "species",
+    pkColumns: ["id"],
+    excludeFromUpdate: ["reference_display_path", "reference_thumb_path", "photo_checked_at"],
+  },
   // Duplicate species folded into one; applied by applySpeciesMerges after every table is in.
   { table: "species_merges", pkColumns: ["old_species_id"], excludeFromUpdate: [] },
   // Species split into several; photos filed under one are re-filed by place after commit.
@@ -79,6 +86,17 @@ const LOADED_TABLES = new Set([...MERGE_TABLES.map((t) => t.table), PHOTOS_TABLE
 // Self-referencing parent pointers are inserted NULL first and set in a second pass, so a child
 // row never lands before the parent it points at.
 const SELF_REFERENCING_PARENT_COLUMN: Record<string, string> = { regions: "parent_id" };
+
+// A species the seed ships without its photo for licensing reasons (photo_withheld) keeps the one
+// this install fetched for itself (species/withheldPhotos.ts, or opening the species online).
+// Otherwise the seed's empty photo would wipe it, and the install would fetch it all over again.
+const LOCAL_WITHHELD_PHOTO_COLUMNS = new Set([
+  "reference_photo",
+  "reference_credit",
+  "reference_license",
+  "reference_focal_x",
+  "reference_focal_y",
+]);
 
 const tmpName = (table: string) => `tmp_seed_${table}`;
 const ident = (name: string) => `"${name.replace(/"/g, '""')}"`;
@@ -181,7 +199,7 @@ async function sharedColumns(
 ): Promise<Array<{ name: string; type: string }>> {
   const types = await columnTypes(client, table);
   const unknown = seedColumns.filter((c) => !types.has(c));
-  if (unknown.length > 0) console.warn(`[catalog-update] ${table}: ignoring columns not in this schema: ${unknown.join(", ")}`);
+  if (unknown.length > 0) log.warn(`[catalog-update] ${table}: ignoring columns not in this schema: ${unknown.join(", ")}`);
   return seedColumns.filter((c) => types.has(c)).map((c) => ({ name: c, type: types.get(c)! }));
 }
 
@@ -206,10 +224,17 @@ async function mergeGenericTable(
   }
   const select = cols.map((c) => `${ident(c.name)}::${c.type}`);
   const updatable = cols.filter((c) => !pkColumns.includes(c.name) && !excludeFromUpdate.includes(c.name));
+  const keepLocalWithheldPhoto =
+    table === "species" &&
+    cols.some((c) => c.name === "photo_withheld") &&
+    cols.some((c) => c.name === "reference_photo");
+  const assign = (column: string) =>
+    keepLocalWithheldPhoto && LOCAL_WITHHELD_PHOTO_COLUMNS.has(column)
+      ? `${ident(column)} = CASE WHEN EXCLUDED.photo_withheld AND EXCLUDED.reference_photo IS NULL ` +
+        `THEN ${ident(table)}.${ident(column)} ELSE EXCLUDED.${ident(column)} END`
+      : `${ident(column)} = EXCLUDED.${ident(column)}`;
   const onConflict =
-    updatable.length > 0
-      ? `DO UPDATE SET ${updatable.map((c) => `${ident(c.name)} = EXCLUDED.${ident(c.name)}`).join(", ")}`
-      : "DO NOTHING";
+    updatable.length > 0 ? `DO UPDATE SET ${updatable.map((c) => assign(c.name)).join(", ")}` : "DO NOTHING";
   const res = await client.query(
     `INSERT INTO ${ident(table)} (${cols.map((c) => ident(c.name)).join(", ")})
      SELECT ${select.join(", ")} FROM ${ident(tmpName(table))}
@@ -219,8 +244,9 @@ async function mergeGenericTable(
 }
 
 // The seed carries each region's and sea zone's whole checklist, so local rows it no longer lists
-// are removed. Only groups the seed has rows for are touched, and Other Taxa species (the user's
-// own additions) always stay. Runs after the region id remap, so ids are local.
+// are removed. Only groups the seed has rows for are touched. The user's own additions, hand
+// imports included, live in separate tables (regions/checklistAdditions.ts) and are never pruned.
+// Runs after the region id remap, so ids are local.
 const CHECKLIST_GROUP_COLUMN: Record<string, string> = { region_species: "region_id", sea_zone_species: "sea_zone_id" };
 
 async function pruneChecklistsFromSeed(client: PoolClient, table: string, groupColumn: string): Promise<number> {
@@ -233,7 +259,6 @@ async function pruneChecklistsFromSeed(client: PoolClient, table: string, groupC
     `DELETE FROM ${ident(table)} t
      WHERE t.${col} IN (SELECT DISTINCT ${col}::uuid FROM ${tmp})
        AND NOT EXISTS (SELECT 1 FROM ${tmp} s WHERE s.${col}::uuid = t.${col} AND s.species_id::uuid = t.species_id)
-       AND NOT EXISTS (SELECT 1 FROM species sp WHERE sp.id = t.species_id AND sp.is_other_taxa)
      RETURNING t.${col} AS group_id, t.species_id`,
   );
   if (table === "region_species" && res.rows.length > 0) {
@@ -245,6 +270,63 @@ async function pruneChecklistsFromSeed(client: PoolClient, table: string, groupC
     );
   }
   return res.rows.length;
+}
+
+// Sea zones are catalog data only and the seed carries the whole table, so a local zone it doesn't
+// list was dropped upstream (the MEOW ecoregions, replaced by IHO sea areas). Runs before the
+// merge: a dropped zone's name can come back under a new id, and names are unique. Its checklist
+// rows cascade, and a region still pointing at it is reset to have its nearby zones recomputed.
+// Users' own additions to a zone that comes back under its old name are set aside by name first,
+// and restoreSeaZoneAdditions puts them on the new id once the merge has inserted it.
+async function pruneSeaZonesFromSeed(client: PoolClient): Promise<number> {
+  const seedZones = ident(tmpName("sea_zones"));
+  await client.query(
+    `CREATE TEMP TABLE sea_zone_additions_kept ON COMMIT DROP AS
+     SELECT a.user_id, z.name, a.species_id, a.added_at
+     FROM sea_zone_species_user_added a JOIN sea_zones z ON z.id = a.sea_zone_id
+     WHERE NOT EXISTS (SELECT 1 FROM ${seedZones} s WHERE s.id::uuid = z.id)
+       AND EXISTS (SELECT 1 FROM ${seedZones} s WHERE s.name = z.name)`,
+  );
+  const res = await client.query<{ id: string }>(
+    `DELETE FROM sea_zones z WHERE NOT EXISTS (SELECT 1 FROM ${seedZones} s WHERE s.id::uuid = z.id) RETURNING z.id`,
+  );
+  const ids = res.rows.map((r) => r.id);
+  if (ids.length > 0) await client.query(`UPDATE regions SET nearby_sea_zone_ids = NULL WHERE nearby_sea_zone_ids && $1::uuid[]`, [ids]);
+  return ids.length;
+}
+
+async function restoreSeaZoneAdditions(client: PoolClient): Promise<number> {
+  const res = await client.query(
+    `INSERT INTO sea_zone_species_user_added (user_id, sea_zone_id, species_id, added_at)
+     SELECT k.user_id, z.id, k.species_id, k.added_at
+     FROM sea_zone_additions_kept k JOIN sea_zones z ON z.name = k.name
+     ON CONFLICT DO NOTHING`,
+  );
+  await client.query(`DROP TABLE sea_zone_additions_kept`);
+  return res.rowCount ?? 0;
+}
+
+// IUCN status is stored as a code with a CHECK constraint (migration 129). A seed published before
+// that carries Wikidata labels ("least concern", "extinct_in_wild"), which would fail the check and
+// roll back the whole update, so they're rewritten to codes first (anything unrecognized becomes
+// NULL). Such a seed has no iucn_source either: its statuses all came from Wikidata, so that's
+// added, keeping the merged row's source true to its status. Returns the seed's column list,
+// grown by any column added here.
+export async function normalizeSeedIucnStatus(client: PoolClient, seedColumns: string[]): Promise<string[]> {
+  if (!seedColumns.includes("iucn_status")) return seedColumns;
+  const tmp = ident(tmpName("species_traits"));
+  const distinct = await client.query<{ v: string }>(`SELECT DISTINCT iucn_status AS v FROM ${tmp} WHERE iucn_status IS NOT NULL`);
+  const pairs = distinct.rows.map((r) => [r.v, normalizeIucnStatus(r.v)] as const).filter(([from, to]) => from !== to);
+  if (pairs.length > 0) {
+    await client.query(
+      `UPDATE ${tmp} t SET iucn_status = m.code FROM unnest($1::text[], $2::text[]) AS m(raw, code) WHERE t.iucn_status = m.raw`,
+      [pairs.map(([from]) => from), pairs.map(([, to]) => to)],
+    );
+  }
+  if (seedColumns.includes("iucn_source")) return seedColumns;
+  await client.query(`ALTER TABLE ${tmp} ADD COLUMN iucn_source text`);
+  await client.query(`UPDATE ${tmp} SET iucn_source = 'wikidata' WHERE iucn_status IS NOT NULL`);
+  return [...seedColumns, "iucn_source"];
 }
 
 // regions has a self-reference (parent_id) and an immediate UNIQUE(name, parent_id), so:
@@ -422,7 +504,10 @@ export async function applyCatalogSeedFile(
     for (const spec of steps) {
       progress.throwIfCancelled();
       progress.update({ currentItem: spec.table, processed: done });
+      if (spec.table === "sea_zones") merged.sea_zonesRemoved = await pruneSeaZonesFromSeed(client);
+      if (spec.table === "species_traits") loaded.set(spec.table, await normalizeSeedIucnStatus(client, loaded.get(spec.table)!));
       merged[spec.table] = await mergeGenericTable(client, spec, loaded.get(spec.table)!, new Set(loaded.keys()));
+      if (spec.table === "sea_zones") merged.seaZoneAdditionsMoved = await restoreSeaZoneAdditions(client);
       if (spec.table in CHECKLIST_GROUP_COLUMN) {
         merged[`${spec.table}Removed`] = await pruneChecklistsFromSeed(client, spec.table, CHECKLIST_GROUP_COLUMN[spec.table]);
       }
@@ -539,7 +624,7 @@ async function runCatalogUpdate(pool: Pool, ctx: JobContext<CatalogMergeResult>)
       referenceVectors = await runGalleryEmbeddingsUpdate(pool, ctx, { manifest });
     } catch (err) {
       if (err instanceof JobCancelledError || ctx.signal.aborted) throw err;
-      console.warn("[catalog-update] reference vectors refresh failed", err);
+      log.warn({ err }, "[catalog-update] reference vectors refresh failed");
       const failed = { status: "failed" as const, error: describeError(err) };
       referenceVectors = { gallery: failed, speciesImage: failed, speciesText: failed };
     }
@@ -554,19 +639,54 @@ export function startCatalogUpdateJob(pool: Pool, _userId?: string): boolean {
 
 const noProgress: Progress = { update: () => {}, throwIfCancelled: () => {} };
 
-function bundledSeed(): { path: string; version: number | null } | null {
-  const seedPath = path.join(BUNDLED_CATALOG_SEED_DIR, "lifer-catalog-seed.sql.gz");
+export const BUNDLED_SEED_FILE = "lifer-catalog-seed.sql.gz";
+export const BUNDLED_REGIONS_FILE = "lifer-catalog-regions.sql.gz";
+
+/** The Docker image's bundled copy of the published manifest. regionsOnly is added by the image
+ *  build (scripts/fetch-catalog-seed.js) for the regions-only file it derives from the seed. */
+type BundledManifest = Partial<CatalogManifest> & { regionsOnly?: { sha256?: string } };
+
+export interface BundledSeed {
+  path: string;
+  version: number | null;
+  /** The regions-only copy, when present and matching its checksum. */
+  regionsPath: string | null;
+}
+
+async function assertSha256(file: string, expected: string, label: string): Promise<void> {
+  const actual = await sha256OfFile(file);
+  if (actual !== expected.toLowerCase()) {
+    throw new Error(
+      `${label} (${file}) doesn't match the checksum in its manifest, so Lifer won't load it. ` +
+        "The image may be damaged: pull it again, or run the catalog update from Settings.",
+    );
+  }
+}
+
+/** The catalog seed baked into the Docker image, checked against the sha256 in the manifest
+ *  bundled next to it. Throws on a mismatch rather than loading it. Without a manifest (or one
+ *  from before seeds had checksums) there's nothing to check it against, and it's used as is. */
+export async function verifiedBundledSeed(dir: string = BUNDLED_CATALOG_SEED_DIR): Promise<BundledSeed | null> {
+  const seedPath = path.join(dir, BUNDLED_SEED_FILE);
   if (!existsSync(seedPath)) return null;
-  let version: number | null = null;
+  let manifest: BundledManifest | null = null;
   try {
-    const manifest = JSON.parse(
-      readFileSync(path.join(BUNDLED_CATALOG_SEED_DIR, "catalog-manifest.json"), "utf8"),
-    ) as CatalogManifest;
-    version = typeof manifest.version === "number" ? manifest.version : null;
+    manifest = JSON.parse(readFileSync(path.join(dir, "catalog-manifest.json"), "utf8")) as BundledManifest;
   } catch {
     // No bundled manifest: apply without recording a version, so Settings offers the update.
   }
-  return { path: seedPath, version };
+  const version = typeof manifest?.version === "number" ? manifest.version : null;
+  if (manifest?.seed?.sha256) await assertSha256(seedPath, manifest.seed.sha256, "The bundled catalog seed");
+
+  // Derived from the checked seed at image build time, with its own checksum. Without one, the
+  // first-boot regions pass reads the full seed instead.
+  const regionsFile = path.join(dir, BUNDLED_REGIONS_FILE);
+  let regionsPath: string | null = null;
+  if (existsSync(regionsFile) && manifest?.regionsOnly?.sha256) {
+    await assertSha256(regionsFile, manifest.regionsOnly.sha256, "The bundled regions file");
+    regionsPath = regionsFile;
+  }
+  return { path: seedPath, version, regionsPath };
 }
 
 // First-boot seed progress. A fresh server loads regions first so onboarding can list countries
@@ -592,7 +712,11 @@ export function seedCatalogIfEmpty(pool: Pool): Promise<{ seeded: boolean; merge
   firstBootSeedState = "running";
   const run = (async () => {
     const res = await pool.query<{ count: string }>(`SELECT count(*) FROM species`);
-    if (Number(res.rows[0].count) > 0) return { seeded: false };
+    if (Number(res.rows[0].count) > 0) {
+      // A catalog the desktop app restored before the API started: record its version.
+      await recordRestoredSeedVersion(pool).catch((err) => log.warn({ err }, "[catalog] couldn't record the restored seed's version"));
+      return { seeded: false };
+    }
     return seedEmptyCatalog(pool);
   })().then(
     (result) => {
@@ -609,12 +733,13 @@ export function seedCatalogIfEmpty(pool: Pool): Promise<{ seeded: boolean; merge
 }
 
 async function seedEmptyCatalog(pool: Pool): Promise<{ seeded: boolean; merged?: Record<string, number> }> {
-  const bundled = bundledSeed();
+  const bundled = await verifiedBundledSeed();
   let seedPath: string;
   let version: number | null;
   if (bundled) {
     ({ path: seedPath, version } = bundled);
   } else {
+    // Checked against the manifest's sha256 as it downloads (downloadSeed).
     const manifest = await fetchCatalogManifest();
     seedPath = await downloadSeed(manifest, { signal: new AbortController().signal, update: () => {} });
     version = manifest.version;
@@ -622,8 +747,7 @@ async function seedEmptyCatalog(pool: Pool): Promise<{ seeded: boolean; merged?:
   try {
     // Regions first, committed, so the country list works while the rest loads. Uses the image's
     // regions-only copy when present; the full pass re-merges regions harmlessly.
-    const regionsOnly = path.join(BUNDLED_CATALOG_SEED_DIR, "lifer-catalog-regions.sql.gz");
-    await applyCatalogSeedFile(pool, bundled && existsSync(regionsOnly) ? regionsOnly : seedPath, null, noProgress, ["regions"]);
+    await applyCatalogSeedFile(pool, bundled?.regionsPath ?? seedPath, null, noProgress, ["regions"]);
     const merged = await applyCatalogSeedFile(pool, seedPath, version, noProgress);
     return { seeded: true, merged };
   } finally {

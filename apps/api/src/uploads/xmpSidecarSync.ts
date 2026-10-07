@@ -1,7 +1,7 @@
 // Runs writeCaptureMetadata (exif.ts) on every managed original of a capture whenever its
-// species, rating or cover status changes.
-import { pool } from "../db.js";
-import { log } from "../lib/log.js";
+// species, rating, cover status or tags change.
+import { pool } from "@lifer/core/db.js";
+import { log } from "@lifer/core/lib/log.js";
 import { writeCaptureMetadata, type SpeciesMetadata } from "./exif.js";
 
 export async function syncCaptureXmpSidecars(userId: string, captureId: string): Promise<void> {
@@ -13,6 +13,7 @@ export async function syncCaptureXmpSidecars(userId: string, captureId: string):
 
   const captureRes = await pool.query<{
     quality_rating: number | null;
+    cull_verdict: string | null;
     taken_at: Date | null;
     lat: number | null;
     lon: number | null;
@@ -24,12 +25,14 @@ export async function syncCaptureXmpSidecars(userId: string, captureId: string):
     iso: number | null;
     species_id: string;
     cover_photo_id: string | null;
+    tags: string[];
   }>(
-    `SELECT c.quality_rating, c.taken_at, c.lat, c.lon, c.camera_model, c.lens, c.focal_length_mm, c.aperture, c.shutter, c.iso,
-            c.species_id, us.cover_photo_id
-     FROM captures c
+    `SELECT c.quality_rating, c.cull_verdict, c.taken_at, c.lat, c.lon, c.camera_model, c.lens, c.focal_length_mm, c.aperture, c.shutter, c.iso,
+            c.species_id, us.cover_photo_id, c.tags
+     FROM captures_all c
      LEFT JOIN user_species us ON us.user_id = c.user_id AND us.species_id = c.species_id
-     WHERE c.id = $1`,
+     -- Hidden photos included: their files carry Lifer's tags like any other.
+     WHERE c.id = $1 AND c.deleted_at IS NULL`,
     [captureId],
   );
   const capture = captureRes.rows[0];
@@ -57,7 +60,9 @@ export async function syncCaptureXmpSidecars(userId: string, captureId: string):
   const data = {
     species: speciesRes.rows,
     namingStyles: namingStyleRes.rows[0]?.species_naming_styles ?? [],
-    rating: capture.quality_rating,
+    // Unrated in Lifer but rejected in a culling app: the file's own rating stays, so a
+    // "Rating -1" reject isn't erased from Lifer's copy.
+    rating: capture.quality_rating ?? (capture.cull_verdict === "reject" ? undefined : null),
     isCover,
     takenAt: capture.taken_at,
     lat: capture.lat,
@@ -68,6 +73,9 @@ export async function syncCaptureXmpSidecars(userId: string, captureId: string):
     aperture: capture.aperture != null ? Number(capture.aperture) : null,
     shutter: capture.shutter,
     iso: capture.iso,
+    // Free-form photo tags, as plain keywords other tools show (exif.ts keeps them apart from
+    // the keywords those tools added).
+    tags: capture.tags,
   };
 
   await Promise.all(originalsRes.rows.map((o) => writeCaptureMetadata(o.ref, data).catch(() => {})));

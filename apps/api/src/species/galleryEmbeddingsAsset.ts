@@ -10,17 +10,17 @@ import { createGunzip } from "node:zlib";
 import type { Pool } from "pg";
 import type { JobStatus } from "@lifer/shared";
 import { decodeGalleryEmbeddings, type GalleryEmbeddingsHeader } from "@lifer/shared/src/galleryEmbeddingsFormat.js";
-import { APP_DATA_DIR, EMBEDDING_MODEL_VERSION, ID_MODEL_VERSION } from "../config.js";
+import { APP_DATA_DIR, EMBEDDING_MODEL_VERSION, ID_MODEL_VERSION } from "@lifer/core/config.js";
 import { getInstallSetting, setInstallSetting } from "../lib/installSettings.js";
 import { createJob, describeError, type JobContext } from "../lib/job.js";
 import { copyInto, copyTextField } from "../lib/pgCopy.js";
-import { downloadResumable } from "../lib/resumableDownload.js";
+import { downloadResumable } from "@lifer/core/lib/resumableDownload.js";
 import { fetchCatalogManifest, resolveCatalogAssetUrl, type CatalogManifest, type VectorAsset } from "./catalogManifest.js";
-import { invalidateSuggestionCache, isModelDownloaded, resetIdModelReadiness } from "./embeddings.js";
-import { idModel } from "./idModel.js";
+import { invalidateSuggestionCache, isModelDownloaded, resetIdModelReadiness } from "@lifer/core/species/embeddings.js";
+import { idModel } from "@lifer/core/species/idModel.js";
 import { fetchAndApplySpeciesVectorAsset, type VectorAssetResult } from "./speciesVectorAsset.js";
-import { TEXT_MODEL_VERSION } from "./textEmbedding.js";
-import { lockReferenceData } from "../lib/referenceDataLock.js";
+import { TEXT_MODEL_VERSION } from "@lifer/core/species/textEmbedding.js";
+import { lockReferenceData } from "@lifer/core/lib/referenceDataLock.js";
 
 const DOWNLOAD_DIR = path.join(APP_DATA_DIR, "catalog-downloads");
 // Which table a per-gallery-photo asset installs into, and where its applied version is kept.

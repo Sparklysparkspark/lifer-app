@@ -2,14 +2,15 @@
 // themselves (re-downloaded in the background when missing on this machine).
 import { existsSync } from "node:fs";
 import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
-import { pool } from "../db.js";
-import { isUuid } from "../lib/validate.js";
+import { pool } from "@lifer/core/db.js";
+import { Type } from "typebox";
+import { IdParams, Uuid, notFoundOnInvalidId, withSchemas } from "../lib/schema.js";
 import { requireScope } from "../auth/session.js";
-import { downloadAndCacheImage } from "./lazyEnrich.js";
-import { MEDIA_CACHE_BUST } from "../config.js";
-import { createLimiter } from "../lib/concurrency.js";
+import { downloadAndCacheImage } from "@lifer/core/species/lazyEnrich.js";
+import { MEDIA_CACHE_BUST } from "@lifer/core/config.js";
+import { createLimiter } from "@lifer/core/lib/concurrency.js";
 import { sendCachedImage, statFile } from "../lib/cachedFile.js";
-import { log } from "../lib/log.js";
+import { log } from "@lifer/core/lib/log.js";
 
 // Cache misses are re-downloaded at most 3 at a time, and concurrent misses for the same photo
 // share one download.
@@ -34,11 +35,17 @@ async function sendReferenceFile(request: FastifyRequest, reply: FastifyReply, f
   return sendCachedImage(request, reply, filePath, st, { cacheControl: "no-cache" });
 }
 
-export async function referencePhotoRoutes(app: FastifyInstance): Promise<void> {
+export async function referencePhotoRoutes(fastify: FastifyInstance): Promise<void> {
+  const app = withSchemas(fastify);
+  const listOptions = {
+    preValidation: requireScope("species.read"),
+    config: notFoundOnInvalidId("Species not found"),
+    schema: { params: IdParams },
+  };
+
   // Every reference photo (main and gallery) of one species, for flipping through on an import
   // suggestion card. Never triggers enrichment: a suggested species is already enriched.
-  app.get<{ Params: { id: string } }>("/species/:id/reference-photos", { preHandler: requireScope("species.read") }, async (request, reply) => {
-    if (!isUuid(request.params.id)) return reply.code(404).send({ error: "Species not found" });
+  app.get("/species/:id/reference-photos", listOptions, async (request, reply) => {
     const { id } = request.params;
     const speciesRes = await pool.query<{
       reference_photo: string | null;
@@ -75,8 +82,13 @@ export async function referencePhotoRoutes(app: FastifyInstance): Promise<void> 
   // Reference photos aren't private to anyone, so there's no ownership check.
   for (const kind of ["display", "thumb"] as const) {
     const column = kind === "display" ? "reference_display_path" : "reference_thumb_path";
-    app.get<{ Params: { id: string } }>(`/species/:id/reference-photo/${kind}`, { preHandler: requireScope("species.read") }, async (request, reply) => {
-      if (!isUuid(request.params.id)) return reply.code(404).send({ error: "Reference photo not found" });
+    // The ?v= cache buster isn't read, so there's no querystring schema.
+    const photoOptions = {
+      preValidation: requireScope("species.read"),
+      config: notFoundOnInvalidId("Reference photo not found"),
+      schema: { params: IdParams },
+    };
+    app.get(`/species/:id/reference-photo/${kind}`, photoOptions, async (request, reply) => {
       const res = await pool.query<{ path: string | null; photo_url: string | null }>(
         `SELECT ${column} AS path, reference_photo AS photo_url FROM species WHERE id = $1`,
         [request.params.id],
@@ -108,11 +120,14 @@ export async function referencePhotoRoutes(app: FastifyInstance): Promise<void> 
     });
 
     const galleryColumn = kind === "display" ? "display_path" : "thumb_path";
-    app.get<{ Params: { photoId: string } }>(
+    app.get(
       `/species/reference-gallery-photo/:photoId/${kind}`,
-      { preHandler: requireScope("species.read") },
+      {
+        preValidation: requireScope("species.read"),
+        config: notFoundOnInvalidId("Gallery photo not found"),
+        schema: { params: Type.Object({ photoId: Uuid() }) },
+      },
       async (request, reply) => {
-        if (!isUuid(request.params.photoId)) return reply.code(404).send({ error: "Gallery photo not found" });
         const res = await pool.query<{ path: string | null; photo_url: string }>(
           `SELECT ${galleryColumn} AS path, photo_url FROM species_reference_photos WHERE id = $1`,
           [request.params.photoId],

@@ -1,7 +1,7 @@
 // Finds which already-imported JPEG capture a RAW file belongs to: by filename stem verified
 // against the capture time, then by EXIF fingerprint (strict, then loose).
 import path from "node:path";
-import { pool } from "../db.js";
+import { pool } from "@lifer/core/db.js";
 import type { CaptureTime, ExifFingerprint, ExtractedExif } from "./exif.js";
 import { sanitizeUploadName } from "./common.js";
 
@@ -38,7 +38,7 @@ async function findRawFilenameMatch(
      LEFT JOIN trips t ON t.id = c.trip_id
      WHERE c.user_id = $1
        AND NOT EXISTS (SELECT 1 FROM originals ro WHERE ro.capture_id = c.id AND ro.kind = 'raw')
-       AND lower(regexp_replace(regexp_replace(o.ref, '^.*/', ''), '(-[0-9]+)?\.[^.]+$', '')) = $2`,
+       AND lower(regexp_replace(regexp_replace(o.ref, '^.*/', ''), '(-[0-9]+)?\\.[^.]+$', '')) = $2`,
     [userId, rawStem],
   );
   if (candidates.rows.length !== 1) return null;

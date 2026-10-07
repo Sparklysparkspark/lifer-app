@@ -35,11 +35,18 @@ export function originalsFolder(
   },
 ): string {
   const root =
-    opts.organizeByLocation && opts.locationLabel ? path.join(baseDir, sanitizeForFilesystem(opts.locationLabel)) : baseDir;
+    opts.organizeByLocation && opts.locationLabel
+      ? path.join(baseDir, sanitizeForFilesystem(opts.locationLabel))
+      : baseDir;
+  // Stryker disable next-line ArrayDeclaration: equivalent, an unknown style in the list falls back to the same English name as none
   const taxon = taxonLabel(opts.taxonClass, opts.inatIconicTaxon ?? null, opts.namingStyles ?? []);
   if (!opts.organizeByYear) {
     return path.join(root, taxon, opts.speciesFolderName, opts.subfolder);
   }
-  const year = opts.takenAtWallClock ? opts.takenAtWallClock.slice(0, 4) : opts.takenAt ? String(opts.takenAt.getFullYear()) : "Undated";
+  const year = opts.takenAtWallClock
+    ? opts.takenAtWallClock.slice(0, 4)
+    : opts.takenAt
+      ? String(opts.takenAt.getFullYear())
+      : "Undated";
   return path.join(root, `Wildlife ${year}`, taxon, opts.speciesFolderName, opts.subfolder);
 }

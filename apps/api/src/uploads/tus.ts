@@ -3,13 +3,15 @@
 // photos.write; the cross-site guard in index.ts runs first), checked against the upload id's
 // owner, then handed to the tus server with the raw request stream untouched.
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import { Type } from "typebox";
 import { requireScope } from "../auth/session.js";
+import { withSchemas } from "../lib/schema.js";
 import { ownsTusUpload, setTusRequestUser, tusServer } from "../lib/tusUploads.js";
 
 export async function tusUploadRoutes(parent: FastifyInstance): Promise<void> {
   // Own scope: the tus server reads the body itself, so nothing here may parse or buffer it,
   // and Fastify's bodyLimit never applies.
-  await parent.register(async (app) => {
+  await withSchemas(parent).register(async (app) => {
     app.removeAllContentTypeParsers();
     app.addContentTypeParser("*", (_request, _payload, done) => done(null));
     const routePath = `${app.prefix}/uploads/tus`;
@@ -32,11 +34,16 @@ export async function tusUploadRoutes(parent: FastifyInstance): Promise<void> {
       }
     };
 
-    app.post("/uploads/tus", { preHandler: requireScope("photos.write") }, handler);
-    app.options("/uploads/tus", { preHandler: requireScope("photos.write") }, handler);
-    app.patch("/uploads/tus/:id", { preHandler: requireScope("photos.write") }, handler);
-    app.head("/uploads/tus/:id", { preHandler: requireScope("photos.write") }, handler);
-    app.delete("/uploads/tus/:id", { preHandler: requireScope("photos.write") }, handler);
-    app.options("/uploads/tus/:id", { preHandler: requireScope("photos.write") }, handler);
+    // Only the path is checked here. Headers and the body are the tus server's: it answers a
+    // missing Tus-Resumable or a bad Upload-Offset with the protocol's own status codes. Any id
+    // string is accepted so an unknown one still gets the tus-style 404 above.
+    const auth = { preValidation: requireScope("photos.write") };
+    const params = Type.Object({ id: Type.String({ minLength: 1 }) });
+    app.post("/uploads/tus", { ...auth, schema: {} }, handler);
+    app.options("/uploads/tus", { ...auth, schema: {} }, handler);
+    app.patch("/uploads/tus/:id", { ...auth, schema: { params } }, handler);
+    app.head("/uploads/tus/:id", { ...auth, schema: { params } }, handler);
+    app.delete("/uploads/tus/:id", { ...auth, schema: { params } }, handler);
+    app.options("/uploads/tus/:id", { ...auth, schema: { params } }, handler);
   });
 }

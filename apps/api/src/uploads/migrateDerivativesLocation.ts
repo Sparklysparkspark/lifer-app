@@ -2,9 +2,9 @@
 // rows. Idempotent; the row rewrite always runs, so an interrupted run finishes next start.
 import { copyFileSync, existsSync, mkdirSync, readdirSync, renameSync, rmSync } from "node:fs";
 import path from "node:path";
-import { pool } from "../db.js";
-import { DATA_DIR, APP_DATA_DIR } from "../config.js";
-import { log } from "../lib/log.js";
+import { pool } from "@lifer/core/db.js";
+import { DATA_DIR, APP_DATA_DIR } from "@lifer/core/config.js";
+import { log } from "@lifer/core/lib/log.js";
 
 const DERIVATIVE_FILE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.\w+$/i;
 

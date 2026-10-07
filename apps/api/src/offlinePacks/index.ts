@@ -1,9 +1,12 @@
 // The published pack index: fetching and caching it, and the routes that list packs.
 import type { FastifyInstance } from "fastify";
-import { pool } from "../db.js";
+import { Type } from "typebox";
+import { pool } from "@lifer/core/db.js";
 import { requireAuth } from "../auth/session.js";
-import { PACK_INDEX_URL } from "../config.js";
+import { withSchemas } from "../lib/schema.js";
+import { PACK_INDEX_URL } from "@lifer/core/config.js";
 import { fetchPhotoStoreIndex } from "./photoStore.js";
+import { log } from "@lifer/core/lib/log.js";
 
 export interface PackIndexEntry {
   id: string;
@@ -151,7 +154,7 @@ export async function computePackStatuses(): Promise<{
   // With a photo store, every pack is offered two ways: with its gallery photos, and as ".small"
   // without them. Both install the same checklist.
   const sizes = await photoSizes(index, index.packs).catch((err) => {
-    console.warn("[packs] couldn't work out pack sizes from the photo store", err);
+    log.warn({ err }, "[packs] couldn't work out pack sizes from the photo store");
     return new Map<string, { missing: number; missingMain: number; present: number }>();
   });
   const offered = index.photoStore
@@ -194,8 +197,10 @@ export async function computePackStatuses(): Promise<{
   return { generatedAt: index.generatedAt, packs: [...packs, ...missingFromIndex] };
 }
 
-export async function packIndexRoutes(app: FastifyInstance): Promise<void> {
-  app.get("/offline-packs/index", { preHandler: requireAuth }, async (_request, reply) => {
+export async function packIndexRoutes(fastify: FastifyInstance): Promise<void> {
+  const app = withSchemas(fastify);
+
+  app.get("/offline-packs/index", { preValidation: requireAuth, schema: {} }, async (_request, reply) => {
     try {
       const statuses = await computePackStatuses();
       return {
@@ -209,7 +214,7 @@ export async function packIndexRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // Small payload so it's cheap to check at app launch without the full index.
-  app.get("/offline-packs/updates-summary", { preHandler: requireAuth }, async (_request, reply) => {
+  app.get("/offline-packs/updates-summary", { preValidation: requireAuth, schema: {} }, async (_request, reply) => {
     try {
       const statuses = await computePackStatuses();
       const stale = statuses.packs.filter((p) => p.updateAvailable);
@@ -224,40 +229,49 @@ export async function packIndexRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // Greedy set cover: the fewest not-yet-downloaded packs that cover the given species.
-  app.post<{ Body: { scientificNames?: string[] } }>("/offline-packs/recommend", { preHandler: requireAuth }, async (request, reply) => {
-    const scientificNames = request.body?.scientificNames;
-    if (!scientificNames || scientificNames.length === 0) {
-      return reply.code(400).send({ error: "scientificNames is required" });
-    }
-    try {
-      const index = await fetchPackIndex();
-      const downloadedRes = await pool.query<{ pack_id: string }>(`SELECT pack_id FROM downloaded_packs`);
-      const downloadedIds = new Set(downloadedRes.rows.map((r) => r.pack_id));
+  app.post(
+    "/offline-packs/recommend",
+    {
+      preValidation: requireAuth,
+      schema: {
+        body: Type.Object(
+          { scientificNames: Type.Array(Type.String({ minLength: 1 }), { minItems: 1 }) },
+          { additionalProperties: false },
+        ),
+      },
+    },
+    async (request, reply) => {
+      const { scientificNames } = request.body;
+      try {
+        const index = await fetchPackIndex();
+        const downloadedRes = await pool.query<{ pack_id: string }>(`SELECT pack_id FROM downloaded_packs`);
+        const downloadedIds = new Set(downloadedRes.rows.map((r) => r.pack_id));
 
-      let remaining = new Set(scientificNames);
-      // Small variants cover the same species as full ones, so only full packs are candidates.
-      const candidates = index.packs.filter((p) => !downloadedIds.has(p.id) && (p.variant ?? "full") === "full");
-      const picked: Array<{ id: string; region?: string; seaZone?: string; taxon: string | null; sizeBytes: number; covers: number }> = [];
+        const remaining = new Set(scientificNames);
+        // Small variants cover the same species as full ones, so only full packs are candidates.
+        const candidates = index.packs.filter((p) => !downloadedIds.has(p.id) && (p.variant ?? "full") === "full");
+        const picked: Array<{ id: string; region?: string; seaZone?: string; taxon: string | null; sizeBytes: number; covers: number }> = [];
 
-      while (remaining.size > 0) {
-        let best: PackIndexEntry | null = null;
-        let bestCoverage = 0;
-        for (const pack of candidates) {
-          if (picked.some((p) => p.id === pack.id)) continue;
-          const coverage = pack.scientificNames.filter((n) => remaining.has(n)).length;
-          if (coverage > bestCoverage) {
-            best = pack;
-            bestCoverage = coverage;
+        while (remaining.size > 0) {
+          let best: PackIndexEntry | null = null;
+          let bestCoverage = 0;
+          for (const pack of candidates) {
+            if (picked.some((p) => p.id === pack.id)) continue;
+            const coverage = pack.scientificNames.filter((n) => remaining.has(n)).length;
+            if (coverage > bestCoverage) {
+              best = pack;
+              bestCoverage = coverage;
+            }
           }
+          if (!best || bestCoverage === 0) break;
+          picked.push({ id: best.id, region: best.region, seaZone: best.seaZone, taxon: best.taxon ?? null, sizeBytes: best.sizeBytes, covers: bestCoverage });
+          for (const name of best.scientificNames) remaining.delete(name);
         }
-        if (!best || bestCoverage === 0) break;
-        picked.push({ id: best.id, region: best.region, seaZone: best.seaZone, taxon: best.taxon ?? null, sizeBytes: best.sizeBytes, covers: bestCoverage });
-        for (const name of best.scientificNames) remaining.delete(name);
-      }
 
-      return { recommended: picked, uncovered: [...remaining] };
-    } catch (err) {
-      return reply.code(503).send({ error: (err as Error).message, code: "pack_index_unavailable" });
-    }
-  });
+        return { recommended: picked, uncovered: [...remaining] };
+      } catch (err) {
+        return reply.code(503).send({ error: (err as Error).message, code: "pack_index_unavailable" });
+      }
+    },
+  );
 }

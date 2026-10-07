@@ -1,7 +1,7 @@
 // A burst: near-identical photos (whole-photo CLIP vectors) taken close together, like frames of
 // one sighting. The species page collapses them (species/detail.ts), and suggestions pool their
 // evidence, so one frame with the bird turned away or behind a twig doesn't get its own answer.
-import { cosineSimilarity } from "./embeddings.js";
+import { cosineSimilarity } from "@lifer/core/species/embeddings.js";
 
 export const BURST_SIMILARITY = 0.9;
 export const BURST_MAX_GAP_MS = 120_000;

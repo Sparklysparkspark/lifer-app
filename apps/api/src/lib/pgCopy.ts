@@ -63,7 +63,7 @@ export async function copyInto(client: PoolClient, copySql: string, source: Asyn
 export async function* readLines(source: AsyncIterable<Buffer>): AsyncGenerator<Buffer> {
   let rest: Buffer | null = null;
   for await (const chunk of source) {
-    let buf: Buffer = rest ? Buffer.concat([rest, chunk]) : chunk;
+    const buf: Buffer = rest ? Buffer.concat([rest, chunk]) : chunk;
     let start = 0;
     let nl: number;
     while ((nl = buf.indexOf(0x0a, start)) !== -1) {
@@ -71,7 +71,6 @@ export async function* readLines(source: AsyncIterable<Buffer>): AsyncGenerator<
       start = nl + 1;
     }
     rest = start < buf.length ? Buffer.from(buf.subarray(start)) : null;
-    buf = Buffer.alloc(0);
   }
   if (rest && rest.length > 0) yield rest;
 }

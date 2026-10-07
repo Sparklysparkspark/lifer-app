@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isAllowedReferenceImageUrl, readBodyCapped } from "./lazyEnrich.js";
+import { isAllowedReferenceImageUrl, readBodyCapped } from "@lifer/core/species/lazyEnrich.js";
 
 describe("isAllowedReferenceImageUrl", () => {
   it("allows the hosts reference photos come from", () => {

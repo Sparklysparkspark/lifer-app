@@ -6,33 +6,35 @@ import { existsSync } from "node:fs";
 import { rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { FastifyInstance, FastifyRequest } from "fastify";
-import { pool } from "../db.js";
+import { pool } from "@lifer/core/db.js";
 import { requireScope } from "../auth/session.js";
-import { ORIGINALS_DIR } from "../config.js";
-import { generateDerivatives } from "./image.js";
+import { ORIGINALS_DIR } from "@lifer/core/config.js";
+import { generateDerivatives } from "@lifer/core/uploads/image.js";
 import { captureTimeFromTags, extractExif, computeExifFingerprint, readExifTags, type CaptureTime, type ExifFingerprint, type ExtractedExif } from "./exif.js";
 import { syncCaptureXmpSidecars } from "./xmpSidecarSync.js";
 import { fetchS3Object } from "../photoSources/s3.js";
-import { claimedPhotoFormat, isRawFile, sniffPhotoFormat, storedPhotoExtension, type PhotoFormat } from "./formats.js";
+import { claimedPhotoFormat, isRawFile, sniffPhotoFormat, storedPhotoExtension, type PhotoFormat } from "@lifer/core/uploads/formats.js";
 import { originalsFolder } from "./organizedPath.js";
 import { resolveSpeciesFolderName } from "./speciesFolderName.js";
 import { tagWithRegisteredVolume, resolveChosenVolumeDestination } from "../storageVolumes/resolve.js";
-import { assertAllowedPath } from "../lib/allowedPaths.js";
-import { moveToFolder } from "../lib/safeFs.js";
+import { assertAllowedPath } from "@lifer/core/lib/allowedPaths.js";
+import { moveToFolder } from "@lifer/core/lib/safeFs.js";
 import { hashFile, moveFile } from "../lib/stagedUploads.js";
 import { ensureDefaultCardCropLater } from "../collection/defaultCardCrop.js";
 import { isUuid } from "../lib/validate.js";
+import { withSchemas } from "../lib/schema.js";
 import { markCollected } from "../lib/userSpecies.js";
 import { getUserFileSettings } from "../lib/userFileSettings.js";
-import type { ImageSource } from "../species/inference.js";
+import type { ImageSource } from "@lifer/core/species/inference.js";
 import { handleRawPrimaryUpload } from "./raw.js";
+import { CULL_MARKS_OPTIONS, type CullMarksOption } from "@lifer/shared";
+import { cullDecision, readCullMarks, readPairCullMarks } from "./cullMarks.js";
 import { prepareWorkingImage, type WorkingImage } from "./workingImage.js";
 import { claimStagedFile, claimUploadById, isUploadSourceError, receiveMultipartFile, type ReceivedFile } from "./uploadSource.js";
 import {
   UPLOAD_TX_TIMEOUTS,
   derivativeFiles,
   moveIntoLibrary,
-  moveManagedOriginalToSpeciesFolder,
   originalFilename,
   queueCaptureVectors,
   removeFiles,
@@ -40,6 +42,7 @@ import {
   uploadTempPath,
   type ChosenVolume,
 } from "./common.js";
+import { moveManagedOriginalToSpeciesFolder } from "./managedFolders.js";
 
 type UploadMode = "store" | "link" | "s3";
 
@@ -54,8 +57,10 @@ async function moveBack(moved: Moved[]): Promise<void> {
   for (const m of moved.reverse()) await moveFile(m.to, m.from).catch(() => rm(m.to, { force: true }).catch(() => {}));
 }
 
-export async function photoUploadRoutes(app: FastifyInstance): Promise<void> {
-  app.post("/uploads", { preHandler: requireScope("photos.write") }, async (request, reply) => {
+export async function photoUploadRoutes(fastify: FastifyInstance): Promise<void> {
+  const app = withSchemas(fastify);
+  // Multipart: no body schema, the handler reads and checks each field as it streams in.
+  app.post("/uploads", { preValidation: requireScope("photos.write"), schema: {} }, async (request, reply) => {
     // Each file part is streamed to its own temp file as it arrives (busboy needs every part
     // drained before it reads the next), so parts and fields can come in any order.
     const fields: Record<string, string> = {};
@@ -105,6 +110,10 @@ async function importPhoto(
   if (!isUuid(speciesId)) return result(400, { error: "Unknown species" });
   if (fields.tripId && !isUuid(fields.tripId)) return result(400, { error: "Unknown trip" });
   if (fields.albumId && !isUuid(fields.albumId)) return result(400, { error: "Unknown album" });
+  // What to do with a photo a culling app rejected. "ignore" when not sent, so a script keeps
+  // importing exactly what it sends; the app's import screen sends the user's choice.
+  const cullOption = (fields.cullMarks || "ignore") as CullMarksOption;
+  if (!CULL_MARKS_OPTIONS.includes(cullOption)) return result(400, { error: "cullMarks must be skip, hide or ignore" });
 
   let photo = photoPart;
   let raw = rawPart;
@@ -182,6 +191,9 @@ async function importPhoto(
 
   // A camera RAW (or a sensor-data TIFF) as the main file.
   if (mode === "store" && photo && fileName && (await isRawFile(photo.path, fileName))) {
+    const rawMarks = await readCullMarks(photo.path);
+    const rawDecision = cullDecision(rawMarks, cullOption);
+    if (rawDecision === "skip") return result(200, { skipped: "rejected" });
     const rawResult = await handleRawPrimaryUpload(
       { path: photo.path, sha256: photo.sha256, size: photo.size },
       fileName,
@@ -191,8 +203,9 @@ async function importPhoto(
       tripBaseDir,
       tripId,
       { regionId, locationLabel: fields.locationLabel?.trim() || null },
+      { marks: rawMarks, hidden: rawDecision === "hide" },
     );
-    return result(201, rawResult);
+    return result(201, { ...rawResult, hidden: rawDecision === "hide" });
   }
 
   // The photo as a file on disk, wherever it came from.
@@ -267,6 +280,13 @@ async function importPhoto(
     }
   }
 
+  // A verdict on the photo or on the RAW sent with it applies to both. Only the reading happens
+  // here: a mark never changes or removes the file it's on.
+  const marks = await readPairCullMarks(srcPath, raw?.path ?? null);
+  const decision = cullDecision(marks, cullOption);
+  if (decision === "skip") return result(200, { skipped: "rejected" });
+  const hidden = decision === "hide";
+
   // exiftool reads the file where it is: a temp file, a resumable upload or a linked file.
   let exif: ExtractedExif;
   let time: CaptureTime | null;
@@ -292,7 +312,7 @@ async function importPhoto(
       const candidates = await pool.query<{ id: string; ref: string; managed: boolean }>(
         `SELECT id, ref, managed FROM originals
          WHERE kind = 'raw' AND capture_id IS NULL AND user_id = $1
-           AND lower(regexp_replace(regexp_replace(ref, '^.*/', ''), '(-[0-9]+)?\.[^.]+$', '')) = $2`,
+           AND lower(regexp_replace(regexp_replace(ref, '^.*/', ''), '(-[0-9]+)?\\.[^.]+$', '')) = $2`,
         [userId, stem],
       );
       if (candidates.rows.length === 1 && existsSync(candidates.rows[0].ref)) {
@@ -392,8 +412,8 @@ async function importPhoto(
 
     const captureRes = await client.query<{ id: string }>(
       `INSERT INTO captures
-         (user_id, species_id, fingerprint, exif_fingerprint, exif_fingerprint_loose, taken_at, lat, lon, camera_model, lens, focal_length_mm, aperture, shutter, iso, trip_id, region_id, location_label, quality_rating)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+         (user_id, species_id, fingerprint, exif_fingerprint, exif_fingerprint_loose, taken_at, lat, lon, camera_model, lens, focal_length_mm, aperture, shutter, iso, trip_id, region_id, location_label, quality_rating, cull_verdict, cull_label)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
        RETURNING id`,
       [
         userId,
@@ -414,6 +434,8 @@ async function importPhoto(
         regionId,
         locationLabel,
         exif.rating,
+        marks.verdict,
+        marks.label,
       ],
     );
     captureId = captureRes.rows[0].id;
@@ -429,7 +451,8 @@ async function importPhoto(
 
     await client.query(`UPDATE captures SET current_photo_id = $1 WHERE id = $2`, [photoId, captureId]);
 
-    await markCollected(client, userId, speciesId, photoId, exif.takenAt);
+    // A hidden photo doesn't add its species to the life list until it's unhidden.
+    if (!hidden) await markCollected(client, userId, speciesId, photoId, exif.takenAt);
 
     await client.query(
       `INSERT INTO originals (capture_id, kind, ref_type, ref, managed, content_hash, file_size, exif_fingerprint, exif_fingerprint_loose, volume_id, volume_relative_path)
@@ -499,6 +522,9 @@ async function importPhoto(
       await client.query(`INSERT INTO album_captures (album_id, capture_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, [albumId, captureId]);
     }
 
+    // Last, since the rows above are written through the `captures` view, which hides it.
+    if (hidden) await client.query(`UPDATE captures_all SET hidden_at = now() WHERE id = $1`, [captureId]);
+
     await client.query("COMMIT");
   } catch (err) {
     await client.query("ROLLBACK").catch(() => {});
@@ -511,19 +537,24 @@ async function importPhoto(
   }
 
   // This photo may just have become the species' cover: frame the card on the animal.
-  ensureDefaultCardCropLater(userId, speciesId);
+  if (!hidden) ensureDefaultCardCropLater(userId, speciesId);
 
-  // The claimed RAW now belongs to this capture: file it in the species' RAW folder. If the
-  // move works but the ref can't be saved, it's moved back so the stored path stays true.
+  // The claimed RAW now belongs to this capture: file it in the species' RAW folder, within the
+  // folder (library, drive or trip) it was filed under. If the move works but the ref can't be
+  // saved, it's moved back so the stored path stays true.
   if (claimedRaw) {
     const claimed = claimedRaw;
     try {
-      const newRef = await moveManagedOriginalToSpeciesFolder(claimed.ref, claimed.managed, userId, speciesId, "raw", organizeByYear, species.taxon_class, exif.takenAt, time?.wallClock ?? null);
-      if (newRef !== claimed.ref) {
+      const move = await moveManagedOriginalToSpeciesFolder(userId, claimed.id, speciesId);
+      if (move) {
         try {
-          await pool.query(`UPDATE originals SET ref = $1 WHERE id = $2`, [newRef, claimed.id]);
+          await pool.query(`UPDATE originals SET ref = $1, volume_relative_path = COALESCE($2, volume_relative_path) WHERE id = $3`, [
+            move.to,
+            move.volumeRelativePath,
+            claimed.id,
+          ]);
         } catch (err) {
-          await moveToFolder(newRef, path.dirname(claimed.ref), path.basename(claimed.ref)).catch(() => {});
+          await moveToFolder(move.to, path.dirname(move.from), path.basename(move.from)).catch(() => {});
           throw err;
         }
       }
@@ -552,5 +583,5 @@ async function importPhoto(
     removeCopy ?? undefined,
   );
 
-  return result(201, { captureId, photoId });
+  return result(201, { captureId, photoId, hidden });
 }

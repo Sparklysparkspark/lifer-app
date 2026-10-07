@@ -1,9 +1,10 @@
 import { createHash, randomBytes } from "node:crypto";
 import type { PoolClient } from "pg";
 import type { FastifyReply, FastifyRequest } from "fastify";
-import { pool } from "../db.js";
+import { pool } from "@lifer/core/db.js";
 import { hashApiKey } from "./apiKeys.js";
-import { SESSION_COOKIE_NAME, SESSION_TTL_MS, SINGLE_USER_MODE } from "../config.js";
+import { SESSION_COOKIE_NAME, SESSION_TTL_MS, SINGLE_USER_MODE } from "@lifer/core/config.js";
+import { hasLocalCredential } from "./localCredential.js";
 
 export interface SessionUser {
   id: string;
@@ -13,7 +14,7 @@ export interface SessionUser {
 const LOCAL_USER_EMAIL = "local@lifer.app";
 
 // Desktop mode's single auto-provisioned user, created on first run. No password: getSessionUser
-// always returns it.
+// returns it for every request that carries the desktop app's credential (localCredential.ts).
 let cachedLocalUserId: string | null = null;
 async function getOrCreateLocalUser(): Promise<SessionUser> {
   if (cachedLocalUserId) return { id: cachedLocalUserId, email: LOCAL_USER_EMAIL };
@@ -73,7 +74,9 @@ export async function destroySession(request: FastifyRequest, reply: FastifyRepl
 }
 
 export async function getSessionUser(request: FastifyRequest): Promise<SessionUser | null> {
-  if (SINGLE_USER_MODE) return getOrCreateLocalUser();
+  // Desktop mode: the local user, but only for the desktop app itself. Session cookies don't count
+  // there, and API keys are checked separately by requireScope.
+  if (SINGLE_USER_MODE) return hasLocalCredential(request) ? getOrCreateLocalUser() : null;
 
   const token = request.cookies[SESSION_COOKIE_NAME];
   if (!token) return null;
@@ -93,15 +96,20 @@ export async function rotateSessions(userId: string, reply: FastifyReply, db: Pi
   await createSession(userId, reply, db);
 }
 
-/** Fastify preHandler: 401s unless a valid session cookie is present. Attaches request.user. */
-export async function requireAuth(request: FastifyRequest, reply: FastifyReply): Promise<void> {
-  const user = await getSessionUser(request);
-  if (!user) {
-    reply.code(401).send({ error: "Not authenticated" });
-    return;
-  }
-  request.user = user;
-}
+/** Fastify preValidation hook: 401s unless a valid session cookie is present. Attaches request.user.
+ *  It runs before schema validation, so a signed-out caller learns nothing about a route's input.
+ *  authKind marks it as a sign-in hook for the route catalog (lib/schema.ts). */
+export const requireAuth = Object.assign(
+  async function requireAuth(request: FastifyRequest, reply: FastifyReply): Promise<void> {
+    const user = await getSessionUser(request);
+    if (!user) {
+      reply.code(401).send({ error: "Not authenticated" });
+      return;
+    }
+    request.user = user;
+  },
+  { authKind: "session" as const },
+);
 
 // Checks an `x-api-key` header and that its permissions include `scope`. Returns the owning user,
 // or null for every failure alike (missing header, unknown key, wrong scope).
@@ -126,11 +134,13 @@ async function verifyApiKeyScope(
 }
 
 /**
- * Fastify preHandler factory: passes for any valid session cookie, or for an `x-api-key` whose
- * permissions include `scope`. Attaches request.user either way. Always passes in desktop mode.
+ * Fastify preValidation hook factory: passes for any valid session cookie, or for an `x-api-key`
+ * whose permissions include `scope`. Attaches request.user either way. In desktop mode it passes for
+ * the desktop app's own requests. The hook carries its scope, which the OpenAPI document reads
+ * (lib/schema.ts routeCatalog).
  */
 export function requireScope(scope: string) {
-  return async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
+  const hook = async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
     const sessionUser = await getSessionUser(request);
     if (sessionUser) {
       request.user = sessionUser;
@@ -143,4 +153,5 @@ export function requireScope(scope: string) {
     }
     request.user = apiKeyUser;
   };
+  return Object.assign(hook, { scope, authKind: "scope" as const });
 }

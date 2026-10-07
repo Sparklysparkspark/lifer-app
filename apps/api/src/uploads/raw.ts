@@ -4,24 +4,27 @@ import { randomUUID } from "node:crypto";
 import { rmSync } from "node:fs";
 import path from "node:path";
 import type { FastifyInstance } from "fastify";
-import { pool } from "../db.js";
+import { pool } from "@lifer/core/db.js";
 import { requireAuth } from "../auth/session.js";
-import { ORIGINALS_DIR } from "../config.js";
-import { generateDerivatives } from "./image.js";
+import { withSchemas } from "../lib/schema.js";
+import { ORIGINALS_DIR } from "@lifer/core/config.js";
+import { generateDerivatives } from "@lifer/core/uploads/image.js";
 import { captureTimeFromTags, extractExif, computeExifFingerprint, readExifTags, extractEmbeddedPreview, type CaptureTime, type ExifFingerprint, type ExtractedExif } from "./exif.js";
 import { syncCaptureXmpSidecars } from "./xmpSidecarSync.js";
-import { isRawExtension, isRawFile } from "./formats.js";
+import { isRawExtension, isRawFile } from "@lifer/core/uploads/formats.js";
 import { originalsFolder } from "./organizedPath.js";
 import { resolveSpeciesFolderName } from "./speciesFolderName.js";
 import { resolveChosenVolumeDestination } from "../storageVolumes/resolve.js";
-import { ensureDir } from "../lib/safeFs.js";
+import { ensureDir } from "@lifer/core/lib/safeFs.js";
 import { moveFile, receiveToFile } from "../lib/stagedUploads.js";
 import { ensureDefaultCardCropLater } from "../collection/defaultCardCrop.js";
-import { createLimiter } from "../lib/concurrency.js";
-import { log } from "../lib/log.js";
+import { createLimiter } from "@lifer/core/lib/concurrency.js";
+import { log } from "@lifer/core/lib/log.js";
 import { markCollected } from "../lib/userSpecies.js";
+import type { CullMarks } from "@lifer/shared";
+import { NO_CULL_MARKS } from "./cullMarks.js";
 import { getUserFileSettings } from "../lib/userFileSettings.js";
-import { contentHash } from "../species/inference.js";
+import { contentHash } from "@lifer/core/species/inference.js";
 import { findRawRelatedCaptures, type RawCaptureMatch } from "./rawMatching.js";
 import { claimUploadById, isUploadSourceError, type ReceivedFile } from "./uploadSource.js";
 import {
@@ -195,6 +198,8 @@ export async function handleRawPrimaryUpload(
   tripId: string | null,
   // The region and place picked at import, so the capture shows on that region's checklist.
   place: { regionId: string | null; locationLabel: string | null },
+  // The culling app's marks, kept on a new capture; `hidden` imports it hidden (captures/hidden.ts).
+  cull: { marks: CullMarks; hidden: boolean } = { marks: NO_CULL_MARKS, hidden: false },
 ): Promise<{ captureId: string; photoId: string | null; linkedExisting: boolean }> {
   const tags = await readExifTags(file.path);
   const exif: ExtractedExif = await extractExif(file.path, tags);
@@ -255,8 +260,8 @@ export async function handleRawPrimaryUpload(
     await client.query(UPLOAD_TX_TIMEOUTS);
     const captureRes = await client.query<{ id: string }>(
       `INSERT INTO captures
-         (user_id, species_id, fingerprint, exif_fingerprint, exif_fingerprint_loose, taken_at, lat, lon, camera_model, lens, focal_length_mm, aperture, shutter, iso, trip_id, quality_rating, region_id, location_label)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+         (user_id, species_id, fingerprint, exif_fingerprint, exif_fingerprint_loose, taken_at, lat, lon, camera_model, lens, focal_length_mm, aperture, shutter, iso, trip_id, quality_rating, region_id, location_label, cull_verdict, cull_label)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
        RETURNING id`,
       [
         userId,
@@ -277,6 +282,8 @@ export async function handleRawPrimaryUpload(
         exif.rating,
         place.regionId,
         place.locationLabel,
+        cull.marks.verdict,
+        cull.marks.label,
       ],
     );
     captureId = captureRes.rows[0].id;
@@ -293,13 +300,16 @@ export async function handleRawPrimaryUpload(
       await client.query(`UPDATE captures SET current_photo_id = $1 WHERE id = $2`, [photo.id, captureId]);
     }
 
-    await markCollected(client, userId, species.id, photoId, exif.takenAt);
+    if (!cull.hidden) await markCollected(client, userId, species.id, photoId, exif.takenAt);
 
     await client.query(
       `INSERT INTO originals (capture_id, kind, ref_type, ref, managed, content_hash, file_size, exif_fingerprint, exif_fingerprint_loose, user_id, volume_id, volume_relative_path)
        VALUES ($1, 'raw', 'path', $2, true, $3, $4, $5, $6, $7, $8, $9)`,
       [captureId, filedRaw, rawHash, file.size, fingerprint.strict, fingerprint.loose, userId, chosenVolume?.volumeId ?? null, volumeRelativePath],
     );
+
+    // Last, since the rows above are written through the `captures` view, which hides it.
+    if (cull.hidden) await client.query(`UPDATE captures_all SET hidden_at = now() WHERE id = $1`, [captureId]);
 
     await client.query("COMMIT");
   } catch (err) {
@@ -312,7 +322,7 @@ export async function handleRawPrimaryUpload(
   }
 
   // This photo may just have become the species' cover: frame the card on the animal.
-  ensureDefaultCardCropLater(userId, species.id);
+  if (!cull.hidden) ensureDefaultCardCropLater(userId, species.id);
   // A RAW's species keywords and rating go in an .xmp sidecar next to it, where Lightroom and
   // digiKam look.
   syncCaptureXmpSidecars(userId, captureId).catch(() => {});
@@ -326,10 +336,12 @@ export async function handleRawPrimaryUpload(
   return { captureId, photoId, linkedExisting: false };
 }
 
-export async function rawUploadRoutes(app: FastifyInstance): Promise<void> {
+export async function rawUploadRoutes(fastify: FastifyInstance): Promise<void> {
+  const app = withSchemas(fastify);
   // One or many RAWs per request (file parts or `uploadIds`), each matched against imported
   // JPEGs. Only a unique match links; anything else is not kept.
-  app.post("/uploads/raw", { preHandler: requireAuth }, async (request, reply) => {
+  // Multipart: no body schema, the handler reads and checks each field as it streams in.
+  app.post("/uploads/raw", { preValidation: requireAuth, schema: {} }, async (request, reply) => {
     const userId = request.user!.id;
     // Each part is streamed to a temp file and processed in the background while the next is
     // read. The client sends the fields below before any file part.

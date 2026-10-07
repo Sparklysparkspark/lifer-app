@@ -1,17 +1,27 @@
 import type { FastifyInstance } from "fastify";
-import { pool } from "../db.js";
+import { Type } from "typebox";
+import { pool } from "@lifer/core/db.js";
 import { isUuid } from "../lib/validate.js";
 import { requireAuth } from "../auth/session.js";
-import { MEDIA_CACHE_BUST } from "../config.js";
+import { IdParams, Ok, Uuid, notFoundOnInvalidId, replies, withSchemas } from "../lib/schema.js";
+import { MEDIA_CACHE_BUST } from "@lifer/core/config.js";
 
-export async function regionHiddenSpeciesRoutes(app: FastifyInstance): Promise<void> {
+const RegionSpeciesParams = Type.Object({ regionId: Uuid(), speciesId: Uuid() });
+const regionNotFound = notFoundOnInvalidId("Region not found");
+
+export async function regionHiddenSpeciesRoutes(fastify: FastifyInstance): Promise<void> {
+  const app = withSchemas(fastify);
   // Hides a species from one region's checklist only (unlike /species/:id/archive, which hides
   // it everywhere).
-  app.post<{ Params: { regionId: string; speciesId: string } }>(
+  // No body: the web app posts without one.
+  app.post(
     "/regions/:regionId/species/:speciesId/hide",
-    { preHandler: requireAuth },
+    {
+      preValidation: requireAuth,
+      config: regionNotFound,
+      schema: { params: RegionSpeciesParams, response: replies(Ok) },
+    },
     async (request, reply) => {
-      if (!isUuid(request.params.regionId) || !isUuid(request.params.speciesId)) return reply.code(404).send({ error: "Region not found" });
       const userId = request.user!.id;
       const { regionId, speciesId } = request.params;
       const regionRes = await pool.query<{ id: string; sovereignty_group: string | null }>(
@@ -39,11 +49,10 @@ export async function regionHiddenSpeciesRoutes(app: FastifyInstance): Promise<v
 
   // Provinces with their own hide for this species, so the Hidden species page can ask before
   // unhiding them along with the country.
-  app.get<{ Params: { regionId: string; speciesId: string } }>(
+  app.get(
     "/regions/:regionId/species/:speciesId/hidden-children",
-    { preHandler: requireAuth },
-    async (request, reply) => {
-      if (!isUuid(request.params.regionId) || !isUuid(request.params.speciesId)) return reply.code(404).send({ error: "Region not found" });
+    { preValidation: requireAuth, config: regionNotFound, schema: { params: RegionSpeciesParams } },
+    async (request) => {
       const userId = request.user!.id;
       const { regionId, speciesId } = request.params;
       const res = await pool.query<{ id: string; name: string }>(
@@ -57,11 +66,19 @@ export async function regionHiddenSpeciesRoutes(app: FastifyInstance): Promise<v
     },
   );
 
-  app.delete<{ Params: { regionId: string; speciesId: string }; Querystring: { cascadeRegionIds?: string } }>(
+  app.delete(
     "/regions/:regionId/species/:speciesId/hide",
-    { preHandler: requireAuth },
+    {
+      preValidation: requireAuth,
+      config: regionNotFound,
+      schema: {
+        params: RegionSpeciesParams,
+        // Comma-separated region ids; each is checked below, answering 404 like an unknown region.
+        querystring: Type.Object({ cascadeRegionIds: Type.Optional(Type.String()) }),
+        response: replies(Ok),
+      },
+    },
     async (request, reply) => {
-      if (!isUuid(request.params.regionId) || !isUuid(request.params.speciesId)) return reply.code(404).send({ error: "Region not found" });
       const userId = request.user!.id;
       const { regionId, speciesId } = request.params;
       // The client confirms which provinces to unhide too and passes them here, so it's one call.
@@ -78,7 +95,7 @@ export async function regionHiddenSpeciesRoutes(app: FastifyInstance): Promise<v
   );
 
   // Every region-scoped hide for the Hidden species page, grouped by region.
-  app.get("/regions/hidden-species", { preHandler: requireAuth }, async (request) => {
+  app.get("/regions/hidden-species", { preValidation: requireAuth, schema: {} }, async (request) => {
     const userId = request.user!.id;
     const [res, regionsRes] = await Promise.all([
       pool.query<{
@@ -138,30 +155,33 @@ export async function regionHiddenSpeciesRoutes(app: FastifyInstance): Promise<v
     };
   });
 
-  app.get<{ Params: { id: string } }>("/regions/:id/hidden-species", { preHandler: requireAuth }, async (request, reply) => {
-    if (!isUuid(request.params.id)) return reply.code(404).send({ error: "Region not found" });
-    const userId = request.user!.id;
-    const { id: regionId } = request.params;
-    const res = await pool.query<{
-      species_id: string;
-      scientific_name: string;
-      common_name: string | null;
-      hidden_at: Date;
-    }>(
-      `SELECT s.id AS species_id, s.scientific_name, s.common_name, rsh.hidden_at
-       FROM region_species_hidden rsh
-       JOIN species s ON s.id = rsh.species_id
-       WHERE rsh.user_id = $1 AND rsh.region_id = $2
-       ORDER BY s.scientific_name`,
-      [userId, regionId],
-    );
-    return {
-      items: res.rows.map((r) => ({
-        speciesId: r.species_id,
-        scientificName: r.scientific_name,
-        commonName: r.common_name,
-        hiddenAt: r.hidden_at,
-      })),
-    };
-  });
+  app.get(
+    "/regions/:id/hidden-species",
+    { preValidation: requireAuth, config: regionNotFound, schema: { params: IdParams } },
+    async (request) => {
+      const userId = request.user!.id;
+      const { id: regionId } = request.params;
+      const res = await pool.query<{
+        species_id: string;
+        scientific_name: string;
+        common_name: string | null;
+        hidden_at: Date;
+      }>(
+        `SELECT s.id AS species_id, s.scientific_name, s.common_name, rsh.hidden_at
+         FROM region_species_hidden rsh
+         JOIN species s ON s.id = rsh.species_id
+         WHERE rsh.user_id = $1 AND rsh.region_id = $2
+         ORDER BY s.scientific_name`,
+        [userId, regionId],
+      );
+      return {
+        items: res.rows.map((r) => ({
+          speciesId: r.species_id,
+          scientificName: r.scientific_name,
+          commonName: r.common_name,
+          hiddenAt: r.hidden_at,
+        })),
+      };
+    },
+  );
 }

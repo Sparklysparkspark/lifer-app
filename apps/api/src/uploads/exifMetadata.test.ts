@@ -4,8 +4,26 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import sharp from "sharp";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { closeExiftool, extractExif, extractKeywords, metadataGoesInFile, readExifTags, writeCaptureMetadata } from "./exif.js";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+// keywordsToKeep asks the catalog which existing keywords are species names; answer for the one
+// species these tests write, so no database is needed.
+vi.mock("@lifer/core/db.js", () => ({
+  pool: {
+    query: (_sql: string, [words]: [string[]]) => {
+      const known = new Set(["bald eagle", "haliaeetus leucocephalus"]);
+      return Promise.resolve({ rows: words.filter((k) => known.has(k)).map((k) => ({ k })) });
+    },
+  },
+}));
+
+import {
+  closeExiftool,
+  extractExif,
+  extractKeywords,
+  metadataGoesInFile,
+  readExifTags,
+  writeCaptureMetadata,
+} from "./exif.js";
 
 let dir: string;
 beforeAll(() => {
@@ -17,7 +35,14 @@ afterAll(async () => {
 });
 
 const data = {
-  species: [{ commonName: "Bald Eagle", scientificName: "Haliaeetus leucocephalus", taxonClass: "aves", family: "Accipitridae" }],
+  species: [
+    {
+      commonName: "Bald Eagle",
+      scientificName: "Haliaeetus leucocephalus",
+      taxonClass: "aves",
+      family: "Accipitridae",
+    },
+  ],
   namingStyles: [],
   rating: 4,
   isCover: false,
@@ -35,7 +60,9 @@ const data = {
 describe("writeCaptureMetadata", () => {
   it("embeds tags and the rating in a JPEG, each keyword once, with a Lightroom-style hierarchy", async () => {
     const file = path.join(dir, "a.jpg");
-    await sharp({ create: { width: 8, height: 8, channels: 3, background: "#888" } }).jpeg().toFile(file);
+    await sharp({ create: { width: 8, height: 8, channels: 3, background: "#888" } })
+      .jpeg()
+      .toFile(file);
     await writeCaptureMetadata(file, data);
     const tags = (await readExifTags(file)) as unknown as Record<string, unknown>;
     expect(tags.Subject).toEqual(["Bald Eagle", "Haliaeetus leucocephalus"]);
@@ -46,7 +73,9 @@ describe("writeCaptureMetadata", () => {
 
   it("clears the file's rating when Lifer's is cleared", async () => {
     const file = path.join(dir, "b.jpg");
-    await sharp({ create: { width: 8, height: 8, channels: 3, background: "#888" } }).jpeg().toFile(file);
+    await sharp({ create: { width: 8, height: 8, channels: 3, background: "#888" } })
+      .jpeg()
+      .toFile(file);
     await writeCaptureMetadata(file, data);
     await writeCaptureMetadata(file, { ...data, rating: null });
     expect((await extractExif(file)).rating).toBeNull();
@@ -63,6 +92,42 @@ describe("writeCaptureMetadata", () => {
     // No stray field with every keyword dot-joined into one string.
     expect(String(sidecar.Keywords ?? "")).not.toContain("Bald Eagle.");
   });
+
+  it("writes photo tags as plain keywords next to Lifer's and other tools', and removes only its own", async () => {
+    const file = path.join(dir, "tags.jpg");
+    await sharp({ create: { width: 8, height: 8, channels: 3, background: "#888" } })
+      .jpeg()
+      .toFile(file);
+    // A keyword added in another tool, before Lifer ever wrote the file.
+    const { exiftool } = await import("exiftool-vendored");
+    await exiftool.write(file, { "XMP-dc:Subject": ["portfolio"], "IPTC:Keywords": ["portfolio"] } as never, { writeArgs: ["-overwrite_original"] });
+
+    await writeCaptureMetadata(file, { ...data, tags: ["flight shot", "courtship"] });
+    let tags = (await readExifTags(file)) as unknown as Record<string, unknown>;
+    expect(tags.Subject).toEqual(["portfolio", "Bald Eagle", "Haliaeetus leucocephalus", "flight shot", "courtship"]);
+    expect(tags.Keywords).toEqual(["portfolio", "Bald Eagle", "Haliaeetus leucocephalus", "flight shot", "courtship"]);
+    expect(tags.HierarchicalSubject).toEqual(["Species|Birds|Accipitridae|Bald Eagle", "Lifer Tags|flight shot", "Lifer Tags|courtship"]);
+
+    // Removing a tag in Lifer removes its keyword; the other tool's keyword stays.
+    await writeCaptureMetadata(file, { ...data, tags: ["courtship"] });
+    tags = (await readExifTags(file)) as unknown as Record<string, unknown>;
+    expect(tags.Subject).toEqual(["portfolio", "Bald Eagle", "Haliaeetus leucocephalus", "courtship"]);
+    expect(tags.HierarchicalSubject).toEqual(["Species|Birds|Accipitridae|Bald Eagle", "Lifer Tags|courtship"]);
+
+    // A write that doesn't carry the tags (a species-only rewrite) leaves them as they are.
+    const { writeSpeciesMetadata } = await import("./exif.js");
+    await writeSpeciesMetadata(file, data.species, []);
+    tags = (await readExifTags(file)) as unknown as Record<string, unknown>;
+    expect(tags.Subject).toEqual(["portfolio", "Bald Eagle", "Haliaeetus leucocephalus", "courtship"]);
+    expect(tags.HierarchicalSubject).toEqual(["Species|Birds|Accipitridae|Bald Eagle", "Lifer Tags|courtship"]);
+
+    // A tag named like a species is still the user's tag, and goes when the tag does.
+    await writeCaptureMetadata(file, { ...data, tags: ["Haliaeetus leucocephalus"] });
+    await writeCaptureMetadata(file, { ...data, tags: [] });
+    tags = (await readExifTags(file)) as unknown as Record<string, unknown>;
+    expect(tags.Subject).toEqual(["portfolio", "Bald Eagle", "Haliaeetus leucocephalus"]);
+    expect(tags.HierarchicalSubject).toEqual(["Species|Birds|Accipitridae|Bald Eagle"]);
+  });
 });
 
 describe("metadataGoesInFile", () => {
@@ -71,6 +136,16 @@ describe("metadataGoesInFile", () => {
     expect(metadataGoesInFile("x.dng")).toBe(true);
     expect(metadataGoesInFile("x.CR3")).toBe(false);
     expect(metadataGoesInFile("x.NEF")).toBe(false);
+  });
+});
+
+describe("extractLiferTags", () => {
+  it("reads back the photo tags Lifer wrote, for reimport", async () => {
+    const { extractLiferTags } = await import("./exif.js");
+    const tags = { HierarchicalSubject: ["Species|Birds|Accipitridae|Bald Eagle", "Lifer Tags|flight shot", "Places|Lifer Tags|x", "Lifer Tags|"] };
+    expect(extractLiferTags(tags as never)).toEqual(["flight shot"]);
+    expect(extractLiferTags({ HierarchicalSubject: "Lifer Tags|dawn" } as never)).toEqual(["dawn"]);
+    expect(extractLiferTags({} as never)).toEqual([]);
   });
 });
 

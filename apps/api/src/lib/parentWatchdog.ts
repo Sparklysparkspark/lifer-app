@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { log } from "./log.js";
+import { log } from "@lifer/core/lib/log.js";
 
 // Exits when the desktop shell that spawned this sidecar is gone. A force-quit SIGKILLs only the
 // Tauri process and Unix doesn't cascade that to children, so the sidecar would keep holding

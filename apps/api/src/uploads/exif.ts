@@ -6,7 +6,7 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import { ExifTool } from "exiftool-vendored";
 import { TAXON_CLASS_LABEL, type TaxonClass } from "@lifer/shared";
-import { pool } from "../db.js";
+import { pool } from "@lifer/core/db.js";
 import { composeSpeciesName } from "./speciesFolderName.js";
 
 // The library's default caps exiftool processes at a quarter of the cores; an import burst is
@@ -40,6 +40,23 @@ export type ExifTags = Awaited<ReturnType<typeof exiftool.read>>;
 
 export async function readExifTags(filePath: string): Promise<ExifTags> {
   return exiftool.read(filePath);
+}
+
+// The fields culling apps leave their verdicts in (cullMarks.ts), group-qualified so an EXIF
+// Rating can't stand in for xmp:Rating, and so the read skips everything else in a big RAW.
+const CULL_TAGS = [
+  "-XMP-xmp:Rating",
+  "-XMP-xmp:Label",
+  "-XMP-xmpDM:Pick",
+  "-XMP-xmpDM:Good",
+  "-XMP-digiKam:PickLabel",
+  "-XMP-digiKam:ColorLabel",
+  "-XMP-photomech:Tagged",
+  "-XMP-photomech:Prefs",
+];
+
+export async function readCullTags(filePath: string): Promise<Record<string, unknown>> {
+  return (await exiftool.read(filePath, { readArgs: CULL_TAGS })) as unknown as Record<string, unknown>;
 }
 
 // What exiftool-vendored hands back for DateTimeOriginal (an ExifDateTime).
@@ -263,7 +280,8 @@ export function metadataGoesInFile(filePath: string): boolean {
 export interface XmpSidecarData {
   species: SpeciesMetadata[];
   namingStyles: string[];
-  rating: number | null;
+  /** undefined leaves the file's rating alone (see syncCaptureXmpSidecars); null clears it. */
+  rating: number | null | undefined;
   isCover: boolean;
   takenAt: Date | null;
   lat: number | null;
@@ -274,6 +292,9 @@ export interface XmpSidecarData {
   aperture: number | null;
   shutter: string | null;
   iso: number | null;
+  /** The photo's own tags ("flight shot"), written as plain keywords. undefined leaves the
+   *  file's Lifer tags as they are. */
+  tags?: string[];
 }
 
 // A standalone ".xmp" sidecar (created fresh if it doesn't exist) carrying what Lifer knows about
@@ -300,10 +321,18 @@ interface LiferTags {
   rating?: number | null;
   lat?: number | null;
   lon?: number | null;
+  /** undefined leaves the file's Lifer tags as they are; [] removes them. */
+  tags?: string[];
 }
 
 const COVER_KEYWORD = "Lifer:Cover";
 const SPECIES_ROOT = "Species";
+// Each photo tag is written twice: as a plain keyword, which every tool shows, and under this
+// hierarchy root, which records that the keyword is Lifer's, so removing the tag in Lifer removes
+// it from the file and never a keyword another tool added. "|" is the hierarchy separator, so a
+// tag's own "|" is written as "/" there.
+const TAGS_ROOT = "Lifer Tags";
+const tagMarker = (tag: string) => `${TAGS_ROOT}|${tag.replaceAll("|", "/")}`;
 
 // One write at a time per file, in request order, so the upload's background write can't
 // overwrite a later species change or rating.
@@ -340,8 +369,9 @@ async function writeLiferMetadataNow(target: string, data: LiferTags, mode: "emb
       .join("|"),
   );
   const kept = await keywordsToKeep(target);
-  const subject = [...new Set([...kept.flat, ...ours])];
-  const hierarchical = [...new Set([...kept.hierarchical, ...ourHierarchies])];
+  const photoTags = data.tags ?? kept.liferTags;
+  const subject = [...new Set([...kept.flat, ...ours, ...photoTags])];
+  const hierarchical = [...new Set([...kept.hierarchical, ...ourHierarchies, ...photoTags.map(tagMarker)])];
   const title = labels.join(", ");
 
   const tags: Record<string, unknown> = {
@@ -361,30 +391,46 @@ async function writeLiferMetadataNow(target: string, data: LiferTags, mode: "emb
   await exiftool.write(target, tags, { writeArgs: ["-overwrite_original"] });
 }
 
+/** The photo tags Lifer wrote into a file (its "Lifer Tags|..." keywords), so a reimport brings
+ *  them back with the photo. */
+export function extractLiferTags(tags: ExifTags | Record<string, unknown>): string[] {
+  const raw = (tags as Record<string, unknown>).HierarchicalSubject;
+  const list = Array.isArray(raw) ? raw.map(String) : typeof raw === "string" ? [raw] : [];
+  const prefix = `${TAGS_ROOT}|`;
+  return [...new Set(list.filter((h) => h.startsWith(prefix)).map((h) => h.slice(prefix.length).trim()))].filter(Boolean);
+}
+
 /** The keywords already in a file or sidecar that aren't Lifer's to replace: everything except
- * species names and codes (Lifer owns which species a photo shows), Lifer's cover marker, and
- * Lifer's own "Species|..." hierarchy, so keywords added in other tools survive. */
-async function keywordsToKeep(target: string): Promise<{ flat: string[]; hierarchical: string[] }> {
-  if (!existsSync(target)) return { flat: [], hierarchical: [] };
+ * species names and codes (Lifer owns which species a photo shows), Lifer's cover marker,
+ * Lifer's own "Species|..." hierarchy, and the photo tags Lifer wrote (marked under "Lifer
+ * Tags|..."), so keywords added in other tools survive. `liferTags` are those photo tags, for a
+ * write that leaves them as they are. */
+async function keywordsToKeep(target: string): Promise<{ flat: string[]; hierarchical: string[]; liferTags: string[] }> {
+  if (!existsSync(target)) return { flat: [], hierarchical: [], liferTags: [] };
   let raw: Record<string, unknown>;
   try {
     raw = (await exiftool.read(target)) as unknown as Record<string, unknown>;
   } catch {
-    return { flat: [], hierarchical: [] };
+    return { flat: [], hierarchical: [], liferTags: [] };
   }
   const list = (v: unknown): string[] => (Array.isArray(v) ? v.map(String) : typeof v === "string" ? [v] : []);
-  const flat = [...new Set([...list(raw.Subject), ...list(raw.Keywords)])].filter((k) => k !== COVER_KEYWORD);
-  const hierarchical = list(raw.HierarchicalSubject).filter(
-    (h) => !h.startsWith(`${SPECIES_ROOT}|`) && !h.startsWith(`${SPECIES_ROOT}/`),
+  const allHierarchical = list(raw.HierarchicalSubject);
+  const markers = new Set(allHierarchical.filter((h) => h.startsWith(`${TAGS_ROOT}|`)));
+  const isLiferTag = (k: string) => markers.has(tagMarker(k));
+  const allFlat = [...new Set([...list(raw.Subject), ...list(raw.Keywords)])].filter((k) => k !== COVER_KEYWORD);
+  const liferTags = allFlat.filter(isLiferTag);
+  const flat = allFlat.filter((k) => !isLiferTag(k));
+  const hierarchical = allHierarchical.filter(
+    (h) => !h.startsWith(`${SPECIES_ROOT}|`) && !h.startsWith(`${SPECIES_ROOT}/`) && !markers.has(h),
   );
-  if (flat.length === 0) return { flat, hierarchical };
+  if (flat.length === 0) return { flat, hierarchical, liferTags };
   const speciesWords = await pool.query<{ k: string }>(
     `SELECT DISTINCT lower(k) AS k FROM species, unnest(ARRAY[common_name, scientific_name, aba_code, ebird_code]) AS k
      WHERE k IS NOT NULL AND lower(k) = ANY($1)`,
     [flat.map((k) => k.toLowerCase())],
   );
   const species = new Set(speciesWords.rows.map((r) => r.k));
-  return { flat: flat.filter((k) => !species.has(k.toLowerCase())), hierarchical };
+  return { flat: flat.filter((k) => !species.has(k.toLowerCase())), hierarchical, liferTags };
 }
 
 export async function closeExiftool(): Promise<void> {

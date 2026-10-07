@@ -1,7 +1,7 @@
 // Finds the animal in a photo, for the species card's default framing and the import screen's
 // "doesn't look like wildlife" check. Detection runs in the inference worker, which remembers
 // each photo's result by content hash so one pass serves every use.
-import { analyzeImage, contentHash, type CardCrop, type Priority, type SubjectPresence } from "./inference.js";
+import { analyzeImage, contentHash, type CardCrop, type Priority, type SubjectPresence } from "@lifer/core/species/inference.js";
 
 export type { CardCrop, SubjectPresence };
 

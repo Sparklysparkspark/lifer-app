@@ -7,7 +7,7 @@
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { writeFileAtomicSync } from "../lib/atomicWrite.js";
 import path from "node:path";
-import { pool } from "../db.js";
+import { pool } from "@lifer/core/db.js";
 import { resolveOriginalPath } from "../storageVolumes/resolve.js";
 
 interface AlbumIndex {

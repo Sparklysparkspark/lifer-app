@@ -2,7 +2,7 @@
 // Only fills an empty crop, and only if the cover is unchanged once detection finishes.
 // Best-effort: no subject or any error leaves the crop empty.
 import { readFile } from "node:fs/promises";
-import { pool } from "../db.js";
+import { pool } from "@lifer/core/db.js";
 import { detectDefaultCardCrop } from "../species/detectAndCrop.js";
 
 export async function ensureDefaultCardCrop(userId: string, speciesId: string): Promise<void> {

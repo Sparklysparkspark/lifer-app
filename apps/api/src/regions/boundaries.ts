@@ -1,8 +1,10 @@
 import { createHash } from "node:crypto";
 import type { FastifyInstance } from "fastify";
-import { pool } from "../db.js";
+import { pool } from "@lifer/core/db.js";
+import { Type } from "typebox";
 import { requireAuth } from "../auth/session.js";
-import { simplifyRing, type Point } from "data-pipeline/src/geometry.js";
+import { withSchemas } from "../lib/schema.js";
+import { simplifyRing, type Point } from "@lifer/core/lib/geometry.js";
 
 // USG (the Guantanamo Bay naval base) is left out, as in GET /regions.
 const COUNTRY_BOUNDARY_WHERE = `external_codes IS NOT NULL AND array_length(external_codes, 1) > 0
@@ -60,18 +62,26 @@ async function countryBoundariesBody(): Promise<{ body: string; etag: string }> 
   return boundariesCache;
 }
 
-export async function regionBoundaryRoutes(app: FastifyInstance): Promise<void> {
+export async function regionBoundaryRoutes(fastify: FastifyInstance): Promise<void> {
+  const app = withSchemas(fastify);
   // Every country's outline at once, for the offline packs map. GET /regions leaves boundaries
   // out, so this is the one place that sends them all.
-  app.get<{ Querystring: { level?: string } }>("/regions/boundaries", { preHandler: requireAuth }, async (request, reply) => {
-    if (request.query.level && request.query.level !== "country") {
-      return reply.code(400).send({ error: 'only level=country is supported' });
-    }
-    const cached = await countryBoundariesBody();
-    reply.header("ETag", cached.etag);
-    reply.header("Cache-Control", "private, max-age=3600");
-    const inm = request.headers["if-none-match"];
-    if (inm && inm.split(",").some((t) => t.trim() === cached.etag)) return reply.code(304).send();
-    return reply.type("application/json; charset=utf-8").send(cached.body);
-  });
+  app.get(
+    "/regions/boundaries",
+    {
+      preValidation: requireAuth,
+      schema: {
+        querystring: Type.Object({ level: Type.Optional(Type.Enum(["country"])) }),
+        headers: Type.Object({ "if-none-match": Type.Optional(Type.String()) }),
+      },
+    },
+    async (request, reply) => {
+      const cached = await countryBoundariesBody();
+      reply.header("ETag", cached.etag);
+      reply.header("Cache-Control", "private, max-age=3600");
+      const inm = request.headers["if-none-match"];
+      if (inm && inm.split(",").some((t) => t.trim() === cached.etag)) return reply.code(304).send();
+      return reply.type("application/json; charset=utf-8").send(cached.body);
+    },
+  );
 }

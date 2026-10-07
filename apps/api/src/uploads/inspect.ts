@@ -5,13 +5,14 @@
 import { readFile, stat } from "node:fs/promises";
 import type { FastifyInstance } from "fastify";
 import sharp from "sharp";
-import { pool } from "../db.js";
+import { pool } from "@lifer/core/db.js";
 import { requireScope } from "../auth/session.js";
+import { withSchemas } from "../lib/schema.js";
 import { extractExif, extractKeywords, readExifTags, extractEmbeddedPreview } from "./exif.js";
-import { claimedPhotoFormat, isRawFile, PHOTO_FORMATS, sniffPhotoFormat, type PhotoFormat } from "./formats.js";
+import { claimedPhotoFormat, isRawFile, PHOTO_FORMATS, sniffPhotoFormat, type PhotoFormat } from "@lifer/core/uploads/formats.js";
 import { stageUpload, sweepStagedUploads } from "../lib/stagedUploads.js";
 import { finishedTusUpload } from "../lib/tusUploads.js";
-import { originalSharpOptions } from "../lib/imageLimits.js";
+import { originalSharpOptions } from "@lifer/core/lib/imageLimits.js";
 import {
   findNearDuplicate,
   photoVectors,
@@ -22,13 +23,14 @@ import {
   suggestSpecies,
   suggestionVectorKind,
   type SpeciesSuggestion,
-} from "../species/embeddings.js";
-import { contentHash, type ImageSource } from "../species/inference.js";
+} from "@lifer/core/species/embeddings.js";
+import { contentHash, type ImageSource } from "@lifer/core/species/inference.js";
 import { joinBurst, pooledVectors } from "../species/bursts.js";
 import { matchSpeciesByKeywords, groupByScientificName } from "../species/matchByKeywords.js";
 import { checkNotWildlife } from "../species/wildlifeCheck.js";
 import { prepareWorkingImage, previewDataUrlFor, type WorkingImage } from "./workingImage.js";
 import { receiveMultipartFile, type ReceivedFile } from "./uploadSource.js";
+import { readCullMarks } from "./cullMarks.js";
 
 // The rare checks that need the photo's bytes in memory (the no-wildlife check's detector pass,
 // the CLIP fallback for suggestions) read the file only up to this size, else a smaller copy.
@@ -39,8 +41,10 @@ async function boundedBytes(filePath: string): Promise<Buffer> {
   return sharp(filePath, originalSharpOptions()).rotate().resize({ width: 4096, height: 4096, fit: "inside", withoutEnlargement: true }).jpeg({ quality: 92 }).toBuffer();
 }
 
-export async function inspectUploadRoutes(app: FastifyInstance): Promise<void> {
-  app.post("/uploads/inspect", { preHandler: requireScope("photos.write") }, async (request, reply) => {
+export async function inspectUploadRoutes(fastify: FastifyInstance): Promise<void> {
+  const app = withSchemas(fastify);
+  // Multipart: no body schema, the handler reads and checks each field as it streams in.
+  app.post("/uploads/inspect", { preValidation: requireScope("photos.write"), schema: {} }, async (request, reply) => {
     const userId = request.user!.id;
     let received: ReceivedFile | null = null;
     // Optional: with the batch's region, the same request also returns species suggestions from
@@ -85,6 +89,9 @@ export async function inspectUploadRoutes(app: FastifyInstance): Promise<void> {
       // lookups (and loading your photos' vectors for them), and the models.
       const exifRead = readExifTags(file.path).then(async (tags) => ({ exif: await extractExif(file.path, tags), keywords: await extractKeywords(file.path, tags) }));
       exifRead.catch(() => {}); // awaited below, where a failure fails the request
+      // What a culling app marked it, so the import screen can count and skip rejected photos.
+      // Only the file's own metadata: a browser upload doesn't bring a sidecar along.
+      const cullRead = readCullMarks(file.path);
       prefetchUserVectors(pool, userId);
 
       // The same content hash the commit stores on captures.fingerprint, so the client can offer
@@ -236,15 +243,6 @@ export async function inspectUploadRoutes(app: FastifyInstance): Promise<void> {
       if (isRaw && embedSource?.buffer) previewDataUrl = `data:image/jpeg;base64,${embedSource.buffer.toString("base64")}`;
       else if (format && workingImage && !PHOTO_FORMATS[format].browserViewable) previewDataUrl = await previewDataUrlFor(workingImage.decodePath).catch(() => null);
 
-      // A multipart file is kept so the import can refer to it instead of sending it again
-      // (lib/stagedUploads.ts). A resumable upload is already kept under its uploadId.
-      void sweepStagedUploads();
-      let stagedId: string | null = null;
-      if (received) {
-        kept = await stageUpload(userId, fingerprint, received.path);
-        stagedId = kept ? fingerprint : null;
-      }
-
       // A photo with no wildlife in it is flagged so the import screen leaves it out. Skipped for
       // duplicates and photos whose own keywords name a species.
       const notWildlife =
@@ -254,9 +252,24 @@ export async function inspectUploadRoutes(app: FastifyInstance): Promise<void> {
               .catch(() => null)
           : null;
 
+      // Staging moves the file, so it comes last, once nothing else reads it: the cull marks
+      // read (started above, queued behind other exiftool reads) and the no-wildlife check both
+      // open file.path, and a moved file reads as no marks and no verdict rather than an error.
+      const cull = await cullRead;
+
+      // A multipart file is kept so the import can refer to it instead of sending it again
+      // (lib/stagedUploads.ts). A resumable upload is already kept under its uploadId.
+      void sweepStagedUploads();
+      let stagedId: string | null = null;
+      if (received) {
+        kept = await stageUpload(userId, fingerprint, received.path);
+        stagedId = kept ? fingerprint : null;
+      }
+
       return {
         takenAt: exif.takenAt,
         keywords,
+        cull,
         possibleDuplicate,
         suggestions,
         burst,

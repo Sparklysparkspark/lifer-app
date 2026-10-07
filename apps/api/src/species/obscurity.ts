@@ -1,4 +1,4 @@
-import { pool } from "../db.js";
+import { pool } from "@lifer/core/db.js";
 
 // Shared "hide obscure/inaccessible species" rule for checklist endpoints. A species is obscure
 // if it's too deep (fish only), historically unfindable, or has no photo from either enrichment

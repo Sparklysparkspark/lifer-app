@@ -6,19 +6,20 @@ import { existsSync, rmSync } from "node:fs";
 import { stat } from "node:fs/promises";
 import path from "node:path";
 import type { FastifyInstance } from "fastify";
-import { pool } from "../db.js";
+import { pool } from "@lifer/core/db.js";
 import { requireAuth } from "../auth/session.js";
-import { APP_DATA_DIR, ORIGINALS_DIR } from "../config.js";
-import { generateVideoDerivatives } from "./image.js";
+import { APP_DATA_DIR, ORIGINALS_DIR } from "@lifer/core/config.js";
+import { generateVideoDerivatives } from "@lifer/core/uploads/image.js";
 import { captureTimeFromTags, extractExif, readExifTags, type CaptureTime, type ExtractedExif } from "./exif.js";
 import { originalsFolder } from "./organizedPath.js";
 import { resolveSpeciesFolderName } from "./speciesFolderName.js";
 import { resolveChosenVolumeDestination } from "../storageVolumes/resolve.js";
-import { ensureDir } from "../lib/safeFs.js";
+import { ensureDir } from "@lifer/core/lib/safeFs.js";
 import { claimStagedUpload, moveFile, receiveToFile } from "../lib/stagedUploads.js";
 import { claimUploadById, isUploadSourceError, type ReceivedFile } from "./uploadSource.js";
 import { ensureDefaultCardCropLater } from "../collection/defaultCardCrop.js";
 import { isUuid } from "../lib/validate.js";
+import { withSchemas } from "../lib/schema.js";
 import { markCollected } from "../lib/userSpecies.js";
 import { getUserFileSettings } from "../lib/userFileSettings.js";
 import { UPLOAD_TX_TIMEOUTS, derivativeFiles, moveIntoLibrary, originalFilename, removeFiles, uploadTmpDir, type ChosenVolume } from "./common.js";
@@ -35,8 +36,10 @@ function videoMimetypeFor(mimetype: string | null, filename: string | null): str
   return ext === ".mp4" ? "video/mp4" : ext === ".mov" ? "video/quicktime" : mimetype;
 }
 
-export async function videoUploadRoutes(app: FastifyInstance): Promise<void> {
-  app.post("/uploads/video", { preHandler: requireAuth }, async (request, reply) => {
+export async function videoUploadRoutes(fastify: FastifyInstance): Promise<void> {
+  const app = withSchemas(fastify);
+  // Multipart: no body schema, the handler reads and checks each field as it streams in.
+  app.post("/uploads/video", { preValidation: requireAuth, schema: {} }, async (request, reply) => {
     const fields: Record<string, string> = {};
     let fileMimetype: string | null = null;
     let fileName: string | null = null;
@@ -162,8 +165,9 @@ export async function videoUploadRoutes(app: FastifyInstance): Promise<void> {
     let exif: ExtractedExif;
     let time: CaptureTime | null = null;
     try {
-      // exiftool reads QuickTime/MP4 metadata too (CreateDate, GPS); a video without any just
-      // gets null takenAt/lat/lon.
+      // exiftool reads QuickTime/MP4 metadata too. The capture time is DateTimeOriginal, as for
+      // photos (captureTimeFromTags); QuickTime's CreateDate isn't read. A video without those
+      // tags or GPS just gets null takenAt/lat/lon.
       const tags = await readExifTags(tmpPath);
       exif = await extractExif(tmpPath, tags);
       time = captureTimeFromTags(tags);

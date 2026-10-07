@@ -8,7 +8,7 @@
 import { readdirSync } from "node:fs";
 import path from "node:path";
 import type { Pool } from "pg";
-import { APP_DATA_DIR } from "../config.js";
+import { APP_DATA_DIR } from "@lifer/core/config.js";
 
 const UUID_FILE = /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.webp$/i;
 

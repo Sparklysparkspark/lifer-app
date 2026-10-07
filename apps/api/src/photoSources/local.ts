@@ -1,5 +1,5 @@
 import type { PhotoSource, PhotoSourceAsset } from "@lifer/shared";
-import { pool } from "../db.js";
+import { pool } from "@lifer/core/db.js";
 
 // The local-filesystem PhotoSource.
 export class LocalPhotoSource implements PhotoSource {

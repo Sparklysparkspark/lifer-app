@@ -2,29 +2,43 @@
 // doesn't settle which of the new species they are (species/speciesSplits.ts). You pick one, or
 // keep the old name, for all of that species' photos still waiting.
 import type { FastifyInstance } from "fastify";
-import { pool } from "../db.js";
+import { Type } from "typebox";
+import { pool } from "@lifer/core/db.js";
 import { requireAuth, requireScope } from "../auth/session.js";
 import { reassignCaptureSpecies } from "../captures/routes.js";
-import { isUuid } from "../lib/validate.js";
+import { IdParams, Uuid, notFoundOnInvalidId, withSchemas } from "../lib/schema.js";
 import { splitOptions } from "./speciesSplits.js";
 
-export async function splitRoutes(app: FastifyInstance): Promise<void> {
-  app.get<{ Params: { id: string } }>("/species/:id/split", { preHandler: requireAuth }, async (request, reply) => {
-    if (!isUuid(request.params.id)) return reply.code(404).send({ error: "Species not found" });
-    return splitOptions(request.user!.id, request.params.id);
-  });
+const speciesNotFound = notFoundOnInvalidId("Species not found");
+
+export async function splitRoutes(fastify: FastifyInstance): Promise<void> {
+  const app = withSchemas(fastify);
+
+  const optionsRoute = { preValidation: requireAuth, config: speciesNotFound, schema: { params: IdParams } };
+  app.get("/species/:id/split", optionsRoute, async (request) => splitOptions(request.user!.id, request.params.id));
 
   // Body: { speciesId } to move the waiting photos to one of the new species, or { keep: true }
   // to say the old name is right for them.
-  app.post<{ Params: { id: string }; Body: { speciesId?: string; keep?: boolean } }>(
+  app.post(
     "/species/:id/split",
-    { preHandler: requireScope("photos.write") },
+    {
+      preValidation: requireScope("photos.write"),
+      config: speciesNotFound,
+      schema: {
+        params: IdParams,
+        body: Type.Object(
+          {
+            speciesId: Type.Optional(Uuid({ description: "One of the species it was split into" })),
+            keep: Type.Optional(Type.Boolean({ description: "True to keep the old name for these photos" })),
+          },
+          { additionalProperties: false },
+        ),
+      },
+    },
     async (request, reply) => {
       const { id } = request.params;
-      const { speciesId, keep } = request.body ?? {};
+      const { speciesId, keep } = request.body;
       const userId = request.user!.id;
-      if (!isUuid(id)) return reply.code(404).send({ error: "Species not found" });
-      if (speciesId !== undefined && !isUuid(speciesId)) return reply.code(400).send({ error: "Pick one of the species it was split into" });
       const options = await splitOptions(userId, id);
       if (keep === true) {
         await pool.query(`INSERT INTO species_split_kept (capture_id) SELECT unnest($1::uuid[]) ON CONFLICT DO NOTHING`, [options.captureIds]);

@@ -7,7 +7,7 @@ import { copyFile, readdir, rename, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import { Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
-import { ensureDir } from "./safeFs.js";
+import { ensureDir } from "@lifer/core/lib/safeFs.js";
 import { uploadStagingDir, uploadTempDir } from "./uploadWorkDir.js";
 
 export const STAGE_MAX_AGE_MS = 2 * 60 * 60_000;
@@ -22,7 +22,7 @@ function stagedPath(userId: string, fingerprint: string): string | null {
 /** sha256 hex of a file, streamed so a file of any size is never held in memory. */
 export async function hashFile(filePath: string): Promise<string> {
   const hash = createHash("sha256");
-  await pipeline(createReadStream(filePath), async function* (source: AsyncIterable<Buffer>) {
+  await pipeline(createReadStream(filePath), async function (source: AsyncIterable<Buffer>) {
     for await (const chunk of source) hash.update(chunk);
   });
   return hash.digest("hex");

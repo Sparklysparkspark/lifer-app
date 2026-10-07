@@ -1,17 +1,26 @@
 // A species' rarity tier with its reasons, for the tier badge's popover, and the user's own tier
 // for it, which wins on this install.
 import type { FastifyInstance } from "fastify";
-import { pool } from "../db.js";
+import { Type } from "typebox";
+import { pool } from "@lifer/core/db.js";
 import { requireAuth } from "../auth/session.js";
 import { isUuid } from "../lib/validate.js";
-import { TIER_ORDER, type TierValue } from "@lifer/shared";
+import { TIER_ORDER } from "@lifer/shared";
+import { IdParams, Nullable, Ok, Uuid, replies, withSchemas } from "../lib/schema.js";
 
-export async function tierRoutes(app: FastifyInstance): Promise<void> {
-  app.get<{ Params: { id: string }; Querystring: { regionId?: string } }>("/species/:id/tier", { preHandler: requireAuth }, async (request, reply) => {
+const speciesNotFound = { status: 404, error: "Species not found" };
+
+export async function tierRoutes(fastify: FastifyInstance): Promise<void> {
+  const app = withSchemas(fastify);
+
+  const tierOptions = {
+    preValidation: requireAuth,
+    config: { invalidInput: { params: speciesNotFound, querystring: { status: 404, error: "Region not found" } } },
+    schema: { params: IdParams, querystring: Type.Object({ regionId: Type.Optional(Uuid()) }) },
+  };
+  app.get("/species/:id/tier", tierOptions, async (request) => {
     const { id } = request.params;
-    const regionId = request.query.regionId || undefined;
-    if (!isUuid(id)) return reply.code(404).send({ error: "Species not found" });
-    if (regionId !== undefined && !isUuid(regionId)) return reply.code(404).send({ error: "Region not found" });
+    const regionId = request.query.regionId;
     const [global, local, override] = await Promise.all([
       pool.query<{ tier: string | null; tier_reason: string | null; tier_explain: unknown }>(
         `SELECT tier, tier_reason, tier_explain FROM species_rarity WHERE species_id = $1`,
@@ -53,16 +62,29 @@ export async function tierRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // tier null removes the user's own tier; regionId null sets it everywhere.
-  app.put<{ Params: { id: string }; Body: { regionId?: string | null; tier?: string | null } }>(
+  app.put(
     "/species/:id/tier-override",
-    { preHandler: requireAuth },
+    {
+      preValidation: requireAuth,
+      config: { invalidInput: { params: speciesNotFound } },
+      schema: {
+        params: IdParams,
+        body: Type.Object(
+          {
+            // A plain string: a malformed region answers 404 like an unknown one (checked below).
+            regionId: Type.Optional(Nullable(Type.String())),
+            tier: Type.Optional(Nullable(Type.Enum([...TIER_ORDER]))),
+          },
+          { additionalProperties: false },
+        ),
+        response: replies(Ok),
+      },
+    },
     async (request, reply) => {
       const { id } = request.params;
-      const regionId = request.body?.regionId || null;
-      const tier = request.body?.tier ?? null;
-      if (!isUuid(id)) return reply.code(404).send({ error: "Species not found" });
+      const regionId = request.body.regionId || null;
+      const tier = request.body.tier ?? null;
       if (regionId !== null && !isUuid(regionId)) return reply.code(404).send({ error: "Region not found" });
-      if (tier !== null && !TIER_ORDER.includes(tier as TierValue)) return reply.code(400).send({ error: `tier must be one of ${TIER_ORDER.join(", ")}` });
       const userId = request.user!.id;
       await pool.query(
         `DELETE FROM user_tier_overrides WHERE user_id = $1 AND species_id = $2 AND region_id IS NOT DISTINCT FROM $3`,

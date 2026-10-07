@@ -3,6 +3,8 @@
 // from disk as it's sent, so memory stays flat for a file of any size.
 import { openAsBlob } from "node:fs";
 import { stat } from "node:fs/promises";
+import type { Agent } from "undici";
+import { viaDispatcher } from "./outboundGuard.js";
 
 export const TUS_INITIAL_CHUNK_SIZE = 8 * 1024 * 1024;
 export const TUS_MIN_CHUNK_SIZE = 256 * 1024;
@@ -20,6 +22,9 @@ export interface TusClientOptions {
   requestTimeoutMs?: number;
   /** Waits before each retry of a failed request that isn't fixed by a smaller chunk. */
   retryDelaysMs?: number[];
+  /** Connections go through this (lib/outboundGuard.ts guardedDispatcher), the upload URL the
+   *  server answers with included. */
+  dispatcher?: Agent;
 }
 
 export class TusClientError extends Error {
@@ -49,7 +54,11 @@ export async function tusUploadFile(filePath: string, meta: { filename: string; 
   const blob = await openAsBlob(filePath);
   const base = { ...opts.headers, "Tus-Resumable": "1.0.0" };
   const request = (url: string, init: RequestInit) =>
-    fetch(url, { ...init, signal: opts.signal ? AbortSignal.any([opts.signal, AbortSignal.timeout(timeoutMs)]) : AbortSignal.timeout(timeoutMs) });
+    fetch(url, {
+      ...init,
+      ...viaDispatcher(opts.dispatcher),
+      signal: opts.signal ? AbortSignal.any([opts.signal, AbortSignal.timeout(timeoutMs)]) : AbortSignal.timeout(timeoutMs),
+    });
 
   const metadata = [`filename ${b64(meta.filename)}`, ...(meta.filetype ? [`filetype ${b64(meta.filetype)}`] : [])].join(",");
   const created = await request(opts.endpoint, { method: "POST", headers: { ...base, "Upload-Length": String(size), "Upload-Metadata": metadata } });
@@ -111,7 +120,7 @@ export async function tusUploadFile(filePath: string, meta: { filename: string; 
     }
   } catch (err) {
     // Best effort: the server drops an abandoned upload after two hours anyway.
-    void fetch(uploadUrl, { method: "DELETE", headers: base, signal: AbortSignal.timeout(30_000) }).catch(() => {});
+    void fetch(uploadUrl, { method: "DELETE", headers: base, ...viaDispatcher(opts.dispatcher), signal: AbortSignal.timeout(30_000) }).catch(() => {});
     throw err;
   }
   return new URL(uploadUrl).pathname.replace(/\/+$/, "").split("/").pop()!;

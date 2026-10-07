@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 
-vi.mock("../db.js", () => ({ pool: { query: vi.fn() } }));
+vi.mock("@lifer/core/db.js", () => ({ pool: { query: vi.fn() } }));
 
-import { pool } from "../db.js";
-import { sanitizeForFilesystem, resolveSpeciesFolderName } from "./speciesFolderName.js";
+import { pool } from "@lifer/core/db.js";
+import { composeSpeciesName, sanitizeForFilesystem, resolveSpeciesFolderName } from "./speciesFolderName.js";
 
 describe("sanitizeForFilesystem", () => {
   it("leaves an ordinary name unchanged", () => {
@@ -31,6 +31,44 @@ describe("sanitizeForFilesystem", () => {
 
   it("boundary value: an already-empty string stays empty", () => {
     expect(sanitizeForFilesystem("")).toBe("");
+  });
+});
+
+describe("composeSpeciesName", () => {
+  const noCodes = { abaCode: null, ebirdCode: null };
+  const taxonomy = { taxonClass: "aves", taxonOrder: "Accipitriformes", family: "Pandionidae" };
+
+  it("writes the taxonomy tree as one label, capitalizing the class", () => {
+    expect(composeSpeciesName("Osprey", "Pandion haliaetus", ["tree"], noCodes, undefined, taxonomy)).toBe(
+      "Aves / Accipitriformes / Pandionidae / Pandion haliaetus",
+    );
+  });
+
+  it("skips missing ranks in the tree, and works with no taxonomy at all", () => {
+    const partial = { taxonClass: null, taxonOrder: "Accipitriformes", family: null };
+    expect(composeSpeciesName("Osprey", "Pandion haliaetus", ["tree"], noCodes, undefined, partial)).toBe(
+      "Accipitriformes / Pandion haliaetus",
+    );
+    expect(composeSpeciesName("Osprey", "Pandion haliaetus", ["tree"], noCodes)).toBe("Pandion haliaetus");
+  });
+
+  it("keeps the tree's separators through folder-name sanitizing", () => {
+    expect(
+      composeSpeciesName("Osprey", "Pandion haliaetus", ["common", "tree"], noCodes, sanitizeForFilesystem, taxonomy),
+    ).toBe("Osprey (Aves  Accipitriformes  Pandionidae  Pandion haliaetus)");
+  });
+
+  it("ignores a naming style it doesn't know", () => {
+    expect(
+      composeSpeciesName("Osprey", "Pandion haliaetus", ["future_style", "common"], {
+        abaCode: "OSPR",
+        ebirdCode: "osprey",
+      }),
+    ).toBe("Osprey");
+  });
+
+  it("falls back to the scientific name when no chosen part exists", () => {
+    expect(composeSpeciesName(null, "Pandion haliaetus", ["aba_code"], noCodes)).toBe("Pandion haliaetus");
   });
 });
 

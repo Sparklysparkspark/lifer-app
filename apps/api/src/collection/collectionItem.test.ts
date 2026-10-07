@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { toCollectionItem, type CollectionRow } from "./collectionItem.js";
-import { MEDIA_CACHE_BUST } from "../config.js";
+import { MEDIA_CACHE_BUST } from "@lifer/core/config.js";
 
 function baseRow(overrides: Partial<CollectionRow> = {}): CollectionRow {
   return {
@@ -104,5 +104,18 @@ describe("toCollectionItem", () => {
     const item = toCollectionItem(baseRow({ state: "collected", has_cover_photo: true, card_crop_x: "0", card_crop_y: null }));
     expect(item.cardCropX).toBe(0);
     expect(item.cardCropY).toBeNull();
+  });
+
+  it("marks a species the user added to a checklist, only on region rows", () => {
+    const added = toCollectionItem(baseRow({ user_added_region_id: "r1", user_added_region_name: "British Columbia" }));
+    expect(added.userAddedRegion).toStrictEqual({ id: "r1", name: "British Columbia", kind: "region" });
+    const sea = toCollectionItem(
+      baseRow({ user_added_region_id: "z1", user_added_region_name: "Gulf of Alaska", user_added_kind: "seaZone" }),
+    );
+    expect(sea.userAddedRegion).toStrictEqual({ id: "z1", name: "Gulf of Alaska", kind: "seaZone" });
+    // A catalog row on a region checklist: the key is there, with no addition.
+    expect(toCollectionItem(baseRow({ user_added_region_id: null })).userAddedRegion).toBeNull();
+    // GET /collection rows never select it, so their items don't carry the key at all.
+    expect("userAddedRegion" in toCollectionItem(baseRow())).toBe(false);
   });
 });

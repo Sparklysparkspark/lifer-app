@@ -1,38 +1,59 @@
 import { readdir, unlink } from "node:fs/promises";
 import path from "node:path";
 import type { FastifyInstance } from "fastify";
-import { pool, withTransaction } from "../db.js";
+import { Type } from "typebox";
+import { pool, withTransaction } from "@lifer/core/db.js";
 import { requireAuth } from "../auth/session.js";
 import { metadataGoesInFile, sidecarPathFor } from "../uploads/exif.js";
-import { invalidateUserVectors } from "../species/embeddings.js";
+import { invalidateUserVectors } from "@lifer/core/species/embeddings.js";
 import { ensureDefaultCardCropLater } from "../collection/defaultCardCrop.js";
-import { APP_DATA_DIR, ORIGINALS_DIR } from "../config.js";
+import { repointCoversOffTrashedCaptures, restoreCoversForCapture } from "../lib/userSpecies.js";
+import { APP_DATA_DIR, ORIGINALS_DIR } from "@lifer/core/config.js";
 import { removeEmptyDirsUpward } from "../lib/fsCleanup.js";
+import { canonicalPath, isWithinResolved } from "@lifer/core/lib/pathContainment.js";
 import { resolveOriginalPath } from "../storageVolumes/resolve.js";
-import { isUuid } from "../lib/validate.js";
+import { Flag, IdParams, Ok, Uuid, notFoundOnInvalidId, replies, withSchemas } from "../lib/schema.js";
 
 // Trash: deleting a capture hides it for TRASH_RETENTION_DAYS, then it's purged for good.
-export async function trashRoutes(app: FastifyInstance): Promise<void> {
-  // Only sets deleted_at, which hides the capture everywhere via the `captures` view, so
-  // restoring is a no-op. deleteRaw is recorded as intent and acted on at purge time.
-  async function trashCapture(userId: string, captureId: string, deleteRaw: boolean): Promise<{ notFound?: true }> {
-    const res = await pool.query(
-      `UPDATE captures_all SET deleted_at = now(), pending_delete_raw = $1 WHERE id = $2 AND user_id = $3 AND deleted_at IS NULL`,
-      [deleteRaw, captureId, userId],
-    );
-    if ((res.rowCount ?? 0) === 0) return { notFound: true };
-    invalidateUserVectors(userId);
-    return {};
+export async function trashRoutes(fastify: FastifyInstance): Promise<void> {
+  const app = withSchemas(fastify);
+
+  // Sets deleted_at, which hides the capture everywhere via the `captures` view. deleteRaw is
+  // recorded as intent and acted on at purge time. Returns the ids actually trashed.
+  async function trashCaptures(userId: string, captureIds: string[], deleteRaw: boolean): Promise<string[]> {
+    const recropSpecies: string[] = [];
+    const trashed = await withTransaction(async (client) => {
+      const res = await client.query<{ id: string }>(
+        `UPDATE captures_all SET deleted_at = now(), pending_delete_raw = $1
+         WHERE id = ANY($2::uuid[]) AND user_id = $3 AND deleted_at IS NULL RETURNING id`,
+        [deleteRaw, captureIds, userId],
+      );
+      const ids = res.rows.map((r) => r.id);
+      // Soft delete leaves user_species.cover_photo_id alone, so without this a trashed featured
+      // photo stays the species cover and every card that reads it shows a missing thumbnail.
+      recropSpecies.push(...(await repointCoversOffTrashedCaptures(client, userId, ids)));
+      return ids;
+    });
+    if (trashed.length > 0) invalidateUserVectors(userId);
+    for (const speciesId of recropSpecies) ensureDefaultCardCropLater(userId, speciesId);
+    return trashed;
   }
 
   /** Un-trashes a capture, clearing deleted_at and the pending RAW delete. */
   async function restoreCapture(userId: string, captureId: string): Promise<{ notFound?: true }> {
-    const res = await pool.query(
-      `UPDATE captures_all SET deleted_at = NULL, pending_delete_raw = false WHERE id = $1 AND user_id = $2 AND deleted_at IS NOT NULL`,
-      [captureId, userId],
-    );
-    if ((res.rowCount ?? 0) === 0) return { notFound: true };
+    const recropSpecies: string[] = [];
+    const restored = await withTransaction(async (client) => {
+      const res = await client.query(
+        `UPDATE captures_all SET deleted_at = NULL, pending_delete_raw = false WHERE id = $1 AND user_id = $2 AND deleted_at IS NOT NULL`,
+        [captureId, userId],
+      );
+      if ((res.rowCount ?? 0) === 0) return false;
+      recropSpecies.push(...(await restoreCoversForCapture(client, userId, captureId)));
+      return true;
+    });
+    if (!restored) return { notFound: true };
     invalidateUserVectors(userId);
+    for (const speciesId of recropSpecies) ensureDefaultCardCropLater(userId, speciesId);
     return {};
   }
 
@@ -191,8 +212,7 @@ export async function trashRoutes(app: FastifyInstance): Promise<void> {
   }
 
   function isInside(file: string, dir: string): boolean {
-    const rel = path.relative(path.resolve(dir), path.resolve(file));
-    return rel !== "" && !rel.startsWith("..") && !path.isAbsolute(rel);
+    return canonicalPath(file) !== canonicalPath(dir) && isWithinResolved(dir, file);
   }
 
   async function removeFileQuietly(file: string | null): Promise<void> {
@@ -227,38 +247,45 @@ export async function trashRoutes(app: FastifyInstance): Promise<void> {
     return purged;
   }
 
-  app.delete<{ Params: { id: string }; Querystring: { deleteRaw?: string } }>(
+  app.delete(
     "/captures/:id",
-    { preHandler: requireAuth },
+    {
+      preValidation: requireAuth,
+      config: notFoundOnInvalidId("Capture not found"),
+      schema: {
+        params: IdParams,
+        querystring: Type.Object({ deleteRaw: Flag("1 to also delete the RAW file when the trash is purged") }),
+        response: replies(Ok),
+      },
+    },
     async (request, reply) => {
-      if (!isUuid(request.params.id)) return reply.code(404).send({ error: "Capture not found" });
-      const result = await trashCapture(request.user!.id, request.params.id, request.query.deleteRaw === "1");
-      if (result.notFound) return reply.code(404).send({ error: "Capture not found" });
+      const trashed = await trashCaptures(request.user!.id, [request.params.id], request.query.deleteRaw === "1");
+      if (trashed.length === 0) return reply.code(404).send({ error: "Capture not found" });
       return { ok: true };
     },
   );
 
   // Multi-select delete. deleteRaw applies to the whole batch.
   const MAX_BATCH_TRASH = 5000;
-  app.post<{ Body: { captureIds?: string[]; deleteRaw?: boolean } }>(
+  app.post(
     "/captures/batch-delete",
-    { preHandler: requireAuth },
-    async (request, reply) => {
-      const { captureIds, deleteRaw } = request.body ?? {};
-      if (!Array.isArray(captureIds) || captureIds.length === 0) {
-        return reply.code(400).send({ error: "captureIds is required" });
-      }
-      if (captureIds.length > MAX_BATCH_TRASH) {
-        return reply.code(400).send({ error: `At most ${MAX_BATCH_TRASH} photos can be deleted at once` });
-      }
+    {
+      preValidation: requireAuth,
+      schema: {
+        body: Type.Object(
+          {
+            captureIds: Type.Array(Uuid(), { minItems: 1, maxItems: MAX_BATCH_TRASH }),
+            deleteRaw: Type.Optional(Type.Boolean()),
+          },
+          { additionalProperties: false },
+        ),
+        response: replies(Type.Object({ deleted: Type.Integer(), notFound: Type.Integer() })),
+      },
+    },
+    async (request) => {
+      const { captureIds, deleteRaw } = request.body;
       const userId = request.user!.id;
-      const res = await pool.query(
-        `UPDATE captures_all SET deleted_at = now(), pending_delete_raw = $1
-         WHERE id = ANY($2::uuid[]) AND user_id = $3 AND deleted_at IS NULL`,
-        [!!deleteRaw, [...new Set(captureIds.filter(isUuid))], userId],
-      );
-      const deleted = res.rowCount ?? 0;
-      if (deleted > 0) invalidateUserVectors(userId);
+      const deleted = (await trashCaptures(userId, [...new Set(captureIds)], !!deleteRaw)).length;
       const notFound = captureIds.length - deleted;
       return { deleted, notFound };
     },
@@ -267,7 +294,8 @@ export async function trashRoutes(app: FastifyInstance): Promise<void> {
   // Trashed Photos (Settings), newest first. Reads captures_all, since the `captures` view
   // hides trashed rows.
   const TRASH_RETENTION_DAYS = 7;
-  app.get("/trash", { preHandler: requireAuth }, async (request) => {
+  // No response schema: the trash page reads these rows as they are.
+  app.get("/trash", { preValidation: requireAuth, schema: {} }, async (request) => {
     const userId = request.user!.id;
     const res = await pool.query<{
       id: string;
@@ -319,26 +347,38 @@ export async function trashRoutes(app: FastifyInstance): Promise<void> {
     };
   });
 
-  app.post<{ Params: { id: string } }>("/trash/:id/restore", { preHandler: requireAuth }, async (request, reply) => {
-    if (!isUuid(request.params.id)) return reply.code(404).send({ error: "Not in trash" });
-    const result = await restoreCapture(request.user!.id, request.params.id);
-    if (result.notFound) return reply.code(404).send({ error: "Not in trash" });
-    return { ok: true };
-  });
+  // The web app sends `{}`, so no body schema: there's nothing in it to read.
+  app.post(
+    "/trash/:id/restore",
+    {
+      preValidation: requireAuth,
+      config: notFoundOnInvalidId("Not in trash"),
+      schema: { params: IdParams, response: replies(Ok) },
+    },
+    async (request, reply) => {
+      const result = await restoreCapture(request.user!.id, request.params.id);
+      if (result.notFound) return reply.code(404).send({ error: "Not in trash" });
+      return { ok: true };
+    },
+  );
 
   // Purges the whole trash now, whatever its age.
-  app.post("/trash/empty", { preHandler: requireAuth }, async (request) => {
-    const userId = request.user!.id;
-    const res = await pool.query<{ id: string; pending_delete_raw: boolean }>(
-      `SELECT id, pending_delete_raw FROM captures_all WHERE user_id = $1 AND deleted_at IS NOT NULL`,
-      [userId],
-    );
-    const purged = await purgeManyCaptures(
-      userId,
-      res.rows.map((r) => ({ id: r.id, deleteRaw: r.pending_delete_raw })),
-    );
-    return { purged };
-  });
+  app.post(
+    "/trash/empty",
+    { preValidation: requireAuth, schema: { response: replies(Type.Object({ purged: Type.Integer() })) } },
+    async (request) => {
+      const userId = request.user!.id;
+      const res = await pool.query<{ id: string; pending_delete_raw: boolean }>(
+        `SELECT id, pending_delete_raw FROM captures_all WHERE user_id = $1 AND deleted_at IS NOT NULL`,
+        [userId],
+      );
+      const purged = await purgeManyCaptures(
+        userId,
+        res.rows.map((r) => ({ id: r.id, deleteRaw: r.pending_delete_raw })),
+      );
+      return { purged };
+    },
+  );
 
   // Purges every user's trash past its retention window, at startup and then daily.
   async function sweepExpiredTrash(): Promise<void> {

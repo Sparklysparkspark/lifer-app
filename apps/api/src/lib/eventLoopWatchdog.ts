@@ -5,7 +5,7 @@
 // LIFER_FREEZE_RESTART_SECONDS sets the limit (default 120); 0 keeps only the warnings.
 import { Worker } from "node:worker_threads";
 import type { FastifyInstance } from "fastify";
-import { log } from "./log.js";
+import { log } from "@lifer/core/lib/log.js";
 
 const WARN_MS = 15_000;
 const DEFAULT_RESTART_SECONDS = 120;

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-vi.mock("../db.js", () => ({ pool: { query: vi.fn() } }));
+vi.mock("@lifer/core/db.js", () => ({ pool: { query: vi.fn() } }));
 
 import { queueReferenceDownload } from "./referencePhotos.js";
 

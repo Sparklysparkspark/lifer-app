@@ -3,12 +3,12 @@
 // keeps everything on the CPU, for troubleshooting.
 import { rmSync } from "node:fs";
 import path from "node:path";
-import { APP_DATA_DIR } from "../config.js";
+import { APP_DATA_DIR } from "@lifer/core/config.js";
 import { cancelAcceleration, forgetAcceleration, selectAcceleration, type AcceleratedModel } from "./accelerationSelect.js";
-import { clipModel } from "./embeddings.js";
-import { idModel } from "./idModel.js";
-import { DETECTOR_MODEL_PATH } from "./inference.js";
-import type { OnnxImageModel } from "./onnxImageModel.js";
+import { clipModel } from "@lifer/core/species/embeddings.js";
+import { idModel } from "@lifer/core/species/idModel.js";
+import { DETECTOR_MODEL_PATH } from "@lifer/core/species/inference.js";
+import type { OnnxImageModel } from "@lifer/core/species/onnxImageModel.js";
 
 const CACHE_FILE = path.join(APP_DATA_DIR, "acceleration.json");
 const GPU_RUNTIME_ROOT = path.join(APP_DATA_DIR, "gpu-runtime");

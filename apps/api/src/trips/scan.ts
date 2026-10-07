@@ -1,14 +1,19 @@
 // Scans a trip. The source folder is the user's own and only ever read; the destination folder
 // holds Lifer's sorted copies. In order: relink or mark stale known originals in the destination,
-// recover unknown destination files from the trip index, list unimported source files for review,
-// then link RAWs to their imported JPEGs (rawLink.ts).
+// recover unknown destination files from the trip index, list unimported source files for review
+// with the marks a culling app left on them (cullMarks.ts), then link RAWs to their imported JPEGs
+// (rawLink.ts).
 import { existsSync, readdirSync, realpathSync, statSync } from "node:fs";
 import path from "node:path";
-import { pool } from "../db.js";
+import { pool } from "@lifer/core/db.js";
+import { canonicalPath, isWithin } from "@lifer/core/lib/pathContainment.js";
+import { mapWithConcurrency } from "@lifer/core/lib/concurrency.js";
+import type { CullMarks } from "@lifer/shared";
+import { readPairCullMarks } from "../uploads/cullMarks.js";
 import { computeContentHash } from "../uploads/fileFingerprint.js";
-import { ACCEPTED_PHOTO_EXTENSIONS, isRawFile } from "../uploads/formats.js";
+import { ACCEPTED_PHOTO_EXTENSIONS, isRawFile } from "@lifer/core/uploads/formats.js";
 import { resolveTripIndexSpecies } from "./tripIndex.js";
-import { importTripFile } from "./import.js";
+import { importTripFile, matchingSourceRaw } from "./import.js";
 import { listRawFiles, autoLinkMissingRaws } from "./rawLink.js";
 
 // Every photo format the app accepts (JPEG, PNG, WebP, TIFF, HEIC). A TIFF holding sensor data
@@ -59,7 +64,28 @@ export interface ScanResult {
   collisions: number;
   recovered: number;
   rawsLinked: number;
-  newFiles: CandidateFile[];
+  newFiles: Array<CandidateFile & { cull: CullMarks }>;
+}
+
+// Each read is a small exiftool call (two with a sidecar, four with a RAW twin).
+const CULL_READ_CONCURRENCY = 8;
+
+/** Each file with its culling marks, read from it, its sidecar and its RAW twin in the source
+ *  folder (the same stem rule the import uses to bring the RAW along). */
+export async function withCullMarks(
+  sourceFolder: string,
+  destinationFolder: string,
+  files: CandidateFile[],
+  signal?: AbortSignal,
+): Promise<Array<CandidateFile & { cull: CullMarks }>> {
+  if (files.length === 0) return [];
+  const destination = canonicalPath(destinationFolder);
+  const sourceRaws = (await listRawFiles(sourceFolder)).filter((r) => !isWithin(destination, canonicalPath(r.absolutePath)));
+  return mapWithConcurrency(files, CULL_READ_CONCURRENCY, async (file) => {
+    signal?.throwIfAborted();
+    const raw = matchingSourceRaw(file.absolutePath, sourceRaws);
+    return { ...file, cull: await readPairCullMarks(file.absolutePath, raw?.absolutePath ?? null) };
+  });
 }
 
 /** Reconciles every original linked to this trip with what's on disk. `candidates` is the full
@@ -71,9 +97,10 @@ export async function matchAgainstKnownOriginals(tripId: string, candidates: Can
   claimedAbsolutePaths: Set<string>;
 }> {
   const knownRes = await pool.query<KnownOriginal>(
+    // captures_all, so a photo imported hidden is still a known file here.
     `SELECT o.id, o.ref, o.content_hash FROM originals o
-     JOIN captures c ON c.id = o.capture_id
-     WHERE c.trip_id = $1`,
+     JOIN captures_all c ON c.id = o.capture_id
+     WHERE c.trip_id = $1 AND c.deleted_at IS NULL`,
     [tripId],
   );
 
@@ -186,17 +213,24 @@ export async function scanTrip(
   const { recovered } = await autoRecoverFromIndex(tripId, userId, destinationFolder, unclaimedCopies, signal);
   signal?.throwIfAborted();
   onPhase?.("finding-new");
-  const newFiles = await findUnimportedFiles(userId, await onlyPhotos(listCandidateFiles(sourceFolder, destinationFolder)), signal);
+  const unimported = await findUnimportedFiles(userId, await onlyPhotos(listCandidateFiles(sourceFolder, destinationFolder)), signal);
+  onPhase?.("reading-cull-marks");
+  const newFiles = await withCullMarks(sourceFolder, destinationFolder, unimported, signal);
   onPhase?.("linking-raws");
   const rawsLinked = await autoLinkMissingRaws(tripId, destinationFolder);
   return { relinked, markedStale, collisions, recovered, rawsLinked, newFiles };
 }
 
 /** Source-folder photos whose content hash isn't yet a captures.fingerprint for this user, so a
- * photo imported any other way isn't offered again. */
+ * photo imported any other way isn't offered again. One imported hidden counts as imported. */
 export async function findUnimportedFiles(userId: string, files: CandidateFile[], signal?: AbortSignal): Promise<CandidateFile[]> {
   const known = new Set(
-    (await pool.query<{ fingerprint: string }>(`SELECT fingerprint FROM captures WHERE user_id = $1 AND fingerprint IS NOT NULL`, [userId])).rows.map(
+    (
+      await pool.query<{ fingerprint: string }>(
+        `SELECT fingerprint FROM captures_all WHERE user_id = $1 AND deleted_at IS NULL AND fingerprint IS NOT NULL`,
+        [userId],
+      )
+    ).rows.map(
       (r) => r.fingerprint,
     ),
   );
@@ -224,9 +258,7 @@ export function resolveWithinTripFolder(sourceFolder: string, relativePath: stri
   } catch {
     return null;
   }
-  // path.relative rather than startsWith(root + sep), which fails on a drive root.
-  const rel = path.relative(root, real);
-  if (rel === "" || rel === ".." || rel.startsWith(".." + path.sep) || path.isAbsolute(rel)) return null;
+  if (real === root || !isWithin(root, real)) return null;
   if (!statSync(real).isFile()) return null;
   return real;
 }

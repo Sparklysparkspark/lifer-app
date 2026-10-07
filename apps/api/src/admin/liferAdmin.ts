@@ -6,7 +6,7 @@
 // The only way back in after a forgotten password; container access proves you run the server.
 import { createInterface } from "node:readline";
 import { Writable } from "node:stream";
-import { pool, withTransaction } from "../db.js";
+import { pool, withTransaction } from "@lifer/core/db.js";
 import { hashPassword } from "../auth/password.js";
 
 const MIN_PASSWORD_LENGTH = 8;

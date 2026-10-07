@@ -1,14 +1,27 @@
 // GET /species: the species picker's search.
 import type { FastifyInstance } from "fastify";
-import { pool } from "../db.js";
+import { Type } from "typebox";
+import { pool } from "@lifer/core/db.js";
 import { requireScope } from "../auth/session.js";
-import { isUuid } from "../lib/validate.js";
-import { log } from "../lib/log.js";
+import { Nullable, Uuid, replies, withSchemas } from "../lib/schema.js";
+import { log } from "@lifer/core/lib/log.js";
 
-interface SearchQuery {
-  q?: string;
-  regionId?: string;
-}
+const SearchQuery = Type.Object({
+  q: Type.Optional(Type.String({ description: "Search text. Empty returns your most recently photographed species" })),
+  regionId: Type.Optional(Uuid({ description: "Rank species on this region's checklist higher" })),
+});
+
+// The recent-species list (no q) has no rank.
+const SearchResults = Type.Object({
+  results: Type.Array(
+    Type.Object({
+      id: Type.String({ format: "uuid" }),
+      scientific_name: Type.String(),
+      common_name: Nullable(Type.String()),
+      rank: Type.Optional(Type.Number({ description: "Higher is better" })),
+    }),
+  ),
+});
 
 // GET /species over species_search_names (migration 111). $1 normalized text, $2 the same with
 // LIKE wildcards escaped, $3 user id, $4 optional region id. Tiers: exact 4/6-letter code, exact
@@ -85,17 +98,26 @@ async function ensureSpeciesSearchNames(): Promise<void> {
   searchNamesReady = true;
 }
 
-export async function speciesSearchRoutes(app: FastifyInstance): Promise<void> {
-  searchNamesCheck ??= ensureSpeciesSearchNames().catch((err) => log.error({ err }, "Species search index check failed"));
+export async function speciesSearchRoutes(fastify: FastifyInstance): Promise<void> {
+  const app = withSchemas(fastify);
+  searchNamesCheck ??= ensureSpeciesSearchNames().catch((err) =>
+    log.error({ err }, "Species search index check failed"),
+  );
 
-  app.get<{ Querystring: SearchQuery }>("/species", { preHandler: requireScope("species.read") }, async (request, reply) => {
-    const q = (request.query.q ?? "").trim();
-    const userId = request.user!.id;
+  app.get(
+    "/species",
+    {
+      preValidation: requireScope("species.read"),
+      schema: { querystring: SearchQuery, response: replies(SearchResults) },
+    },
+    async (request) => {
+      const q = (request.query.q ?? "").trim();
+      const userId = request.user!.id;
 
-    if (!q) {
-      // No query yet: pin the user's most recently photographed species first.
-      const recent = await pool.query(
-        `SELECT s.id, s.scientific_name, s.common_name, u.last_used
+      if (!q) {
+        // No query yet: pin the user's most recently photographed species first.
+        const recent = await pool.query(
+          `SELECT s.id, s.scientific_name, s.common_name, u.last_used
          FROM (
            SELECT species_id, MAX(created_at) AS last_used
            FROM captures
@@ -105,27 +127,24 @@ export async function speciesSearchRoutes(app: FastifyInstance): Promise<void> {
          JOIN species s ON s.id = u.species_id
          ORDER BY u.last_used DESC
          LIMIT 10`,
-        [userId],
-      );
-      return { results: recent.rows };
-    }
+          [userId],
+        );
+        return { results: recent.rows };
+      }
 
-    if (request.query.regionId && !isUuid(request.query.regionId)) {
-      return reply.code(400).send({ error: "regionId must be a UUID" });
-    }
-    if (searchNamesReady) {
-      const norm = (await pool.query<{ n: string | null }>(`SELECT lifer_search_norm($1) AS n`, [q])).rows[0].n ?? "";
-      if (!norm) return { results: [] };
-      const like = norm.replace(/[\\%_]/g, (m) => `\\${m}`);
-      const res = await pool.query(SPECIES_SEARCH_SQL, [norm, like, userId, request.query.regionId || null]);
-      return { results: res.rows };
-    }
+      if (searchNamesReady) {
+        const norm = (await pool.query<{ n: string | null }>(`SELECT lifer_search_norm($1) AS n`, [q])).rows[0].n ?? "";
+        if (!norm) return { results: [] };
+        const like = norm.replace(/[\\%_]/g, (m) => `\\${m}`);
+        const res = await pool.query(SPECIES_SEARCH_SQL, [norm, like, userId, request.query.regionId || null]);
+        return { results: res.rows };
+      }
 
-    // Legacy scan, used only until species_search_names is built: fuzzy match on common and
-    // scientific names and aliases, prefix match on codes, genus and family (ranked lower).
-    // Fully extinct species can't be photographed, so they're left out.
-    const res = await pool.query(
-      `SELECT s.id, s.scientific_name, s.common_name,
+      // Legacy scan, used only until species_search_names is built: fuzzy match on common and
+      // scientific names and aliases, prefix match on codes, genus and family (ranked lower).
+      // Fully extinct species can't be photographed, so they're left out.
+      const res = await pool.query(
+        `SELECT s.id, s.scientific_name, s.common_name,
               GREATEST(
                 similarity(s.common_name, $1),
                 similarity(s.scientific_name, $1),
@@ -146,8 +165,9 @@ export async function speciesSearchRoutes(app: FastifyInstance): Promise<void> {
          AND COALESCE(t.fully_extinct, false) = false
        ORDER BY rank DESC
        LIMIT 20`,
-      [q],
-    );
-    return { results: res.rows };
-  });
+        [q],
+      );
+      return { results: res.rows };
+    },
+  );
 }

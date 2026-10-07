@@ -3,9 +3,9 @@
 // smaller copy). Temp files live in the upload temp folder and are removed by release().
 import { rm } from "node:fs/promises";
 import sharp from "sharp";
-import { INFERENCE_SOURCE_MAX_PIXELS, originalSharpOptions } from "../lib/imageLimits.js";
-import type { PhotoFormat } from "./formats.js";
-import { heicToJpegFile } from "./heic.js";
+import { INFERENCE_SOURCE_MAX_PIXELS, originalSharpOptions } from "@lifer/core/lib/imageLimits.js";
+import type { PhotoFormat } from "@lifer/core/uploads/formats.js";
+import { heicToJpegFile } from "@lifer/core/uploads/heic.js";
 import { uploadTempPath } from "./common.js";
 
 // A panorama's matching copy: big enough for the detector's tiles to find a small bird.
@@ -35,8 +35,8 @@ export interface WorkingImage {
 export async function prepareWorkingImage(originalPath: string, format: PhotoFormat): Promise<WorkingImage> {
   const made: string[] = [];
   let decodePath = originalPath;
-  let width: number | null = null;
-  let height: number | null = null;
+  let width: number | null;
+  let height: number | null;
   try {
     if (format === "heic") {
       decodePath = await uploadTempPath(null, ".jpg");

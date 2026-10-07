@@ -3,7 +3,7 @@
 // is a rename instead of a second full copy of a multi-gigabyte file.
 import { mkdirSync, statSync } from "node:fs";
 import path from "node:path";
-import { APP_DATA_DIR, ORIGINALS_DIR, UPLOAD_WORK_DIR } from "../config.js";
+import { APP_DATA_DIR, ORIGINALS_DIR, UPLOAD_WORK_DIR } from "@lifer/core/config.js";
 
 // A dot folder, which every library scan skips (library/reimport.ts, trips/scan.ts).
 export const LIBRARY_UPLOAD_DIR_NAME = ".lifer-uploads";

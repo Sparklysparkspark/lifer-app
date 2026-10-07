@@ -1,4 +1,4 @@
-import { pool } from "../db.js";
+import { pool } from "@lifer/core/db.js";
 
 export interface UserFileSettings {
   organizeByYear: boolean;

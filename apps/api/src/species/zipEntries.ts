@@ -65,8 +65,14 @@ async function readEntries(file: string): Promise<Entry[]> {
         const len = cd.readUInt16LE(x + 2);
         if (id === 0x0001) {
           let q = x + 4;
-          if (uncompressedSize === 0xffffffff) (uncompressedSize = Number(cd.readBigUInt64LE(q))), (q += 8);
-          if (compressedSize === 0xffffffff) (compressedSize = Number(cd.readBigUInt64LE(q))), (q += 8);
+          if (uncompressedSize === 0xffffffff) {
+            uncompressedSize = Number(cd.readBigUInt64LE(q));
+            q += 8;
+          }
+          if (compressedSize === 0xffffffff) {
+            compressedSize = Number(cd.readBigUInt64LE(q));
+            q += 8;
+          }
           if (localHeaderOffset === 0xffffffff) localHeaderOffset = Number(cd.readBigUInt64LE(q));
         }
         x += 4 + len;

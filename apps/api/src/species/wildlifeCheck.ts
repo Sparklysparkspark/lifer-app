@@ -8,7 +8,7 @@
 //     finding one vetoes the flag (a person feeding ducks is still wildlife).
 // Needs the CLIP model: the detector alone isn't reliable enough.
 import { detectSubjectPresence } from "./detectAndCrop.js";
-import { embedTextVectors, isTextModelDownloaded } from "./textEmbedding.js";
+import { embedTextVectors, isTextModelDownloaded } from "@lifer/core/species/textEmbedding.js";
 
 const NOT_WILDLIFE = [
   "a photo of a person",

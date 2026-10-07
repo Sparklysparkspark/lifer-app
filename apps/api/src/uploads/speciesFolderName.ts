@@ -1,7 +1,7 @@
 // The browsable folder a species' originals live in. Common names aren't unique, so every species
 // sharing one gets its scientific name appended, which keeps the name the same whichever is
 // imported first and keeps two species out of one folder.
-import { pool } from "../db.js";
+import { pool } from "@lifer/core/db.js";
 
 /** Drops characters that would make a subfolder or that some OS forbids in a name, and trims. */
 export function stripForbiddenNameChars(name: string): string {
@@ -41,7 +41,9 @@ export function composeSpeciesName(
                 ? // Spaced " / ": sanitizeForFilesystem strips a bare "/", which would run the
                   // ranks together. A label, not nested folders.
                   [
-                    taxonomy?.taxonClass ? taxonomy.taxonClass.charAt(0).toUpperCase() + taxonomy.taxonClass.slice(1) : null,
+                    taxonomy?.taxonClass
+                      ? taxonomy.taxonClass.charAt(0).toUpperCase() + taxonomy.taxonClass.slice(1)
+                      : null,
                     taxonomy?.taxonOrder,
                     taxonomy?.family,
                     scientificName,
@@ -82,6 +84,7 @@ export async function resolveSpeciesFolderName(userId: string, speciesId: string
   const scientificName = row.scientific_name;
   const codes = { abaCode: row.aba_code, ebirdCode: row.ebird_code };
   const taxonomy = { taxonClass: row.taxon_class, taxonOrder: row.taxon_order, family: row.family };
+  // Stryker disable next-line ArrayDeclaration: equivalent, an unknown style is ignored just like an empty list
   const styles = row.species_naming_styles ?? [];
   const composed = composeSpeciesName(commonName, scientificName, styles, codes, (part) => part, taxonomy);
   const base = composeSpeciesName(commonName, scientificName, styles, codes, sanitizeForFilesystem, taxonomy);

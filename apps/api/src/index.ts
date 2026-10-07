@@ -1,59 +1,44 @@
 import path from "node:path";
 import { constants as zlibConstants } from "node:zlib";
 import { existsSync, mkdirSync } from "node:fs";
-import Fastify from "fastify";
+import Fastify, { type FastifyError } from "fastify";
 import cookie from "@fastify/cookie";
 import compress from "@fastify/compress";
 import multipart from "@fastify/multipart";
 import staticFiles from "@fastify/static";
 import helmet from "@fastify/helmet";
-import { desktopModeStartupError, MAX_JSON_BODY_BYTES, MAX_UPLOAD_BYTES, PORT, SINGLE_USER_MODE, WEB_DIST_DIR, MAPS_DIR, TRUST_PROXY } from "./config.js";
-import { isAllowedLocalHost } from "./auth/hostCheck.js";
-import { authRoutes } from "./auth/routes.js";
-import { apiKeyRoutes } from "./auth/apiKeyRoutes.js";
-import { speciesRoutes } from "./species/routes.js";
-import { matchingRoutes } from "./species/matchingRoutes.js";
-import { uploadRoutes } from "./uploads/routes.js";
-import { photoRoutes } from "./photos/routes.js";
-import { collectionRoutes } from "./collection/routes.js";
-import { galleryRoutes } from "./gallery/routes.js";
-import { originalsRoutes } from "./originals/routes.js";
-import { captureRoutes } from "./captures/routes.js";
-import { regionRoutes } from "./regions/routes.js";
-import { tierRoutes } from "./species/tierRoutes.js";
-import { splitRoutes } from "./species/splitRoutes.js";
-import { importRoutes } from "./imports/routes.js";
-import { settingsRoutes, recoverInterruptedStorageMigration } from "./settings/routes.js";
+import { desktopModeStartupError, MAX_JSON_BODY_BYTES, MAX_UPLOAD_BYTES, PORT, SINGLE_USER_MODE, WEB_DIST_DIR, MAPS_DIR, TRUST_PROXY } from "@lifer/core/config.js";
+import { desktopRequestGate } from "./auth/desktopGate.js";
+import { recoverInterruptedStorageMigration } from "./settings/routes.js";
+import { apiRoutes } from "./apiRoutes.js";
+import { Type } from "typebox";
+import { installSchemas, replyToValidationError } from "./lib/schema.js";
 import { migrateDerivativesLocation } from "./uploads/migrateDerivativesLocation.js";
 import { adoptFlatLibraryLayout } from "./uploads/adoptFlatLibraryLayout.js";
 import { syncLibraryRootsFromEnv } from "./storageVolumes/syncLibraryRoots.js";
-import { offlinePacksRoutes } from "./offlinePacks/routes.js";
-import { archiveRoutes } from "./archive/routes.js";
-import { tripsRoutes } from "./trips/routes.js";
-import { libraryRoutes } from "./library/routes.js";
-import { storageVolumesRoutes } from "./storageVolumes/routes.js";
-import { statsRoutes } from "./stats/routes.js";
-import { albumRoutes } from "./albums/routes.js";
-import { albumShareRoutes } from "./shares/routes.js";
-import { inaturalistRoutes } from "./inaturalist/routes.js";
 import { runEmbeddingBackfill } from "./species/embeddingBackfill.js";
 import { seedCatalogIfEmpty } from "./species/catalogSeedUpdate.js";
 import { relinkCachedReferenceFiles } from "./species/relinkReferenceFiles.js";
 import { ensureGalleryEmbeddingsOnStartup } from "./species/galleryEmbeddingsAsset.js";
 import { ensureIdModelOnStartup } from "./species/modelDownloadJob.js";
+import { startWithheldPhotoFetch, stopWithheldPhotoFetch } from "./species/withheldPhotos.js";
 import { startAccelerationSelection } from "./species/accelerationSetup.js";
-import { integrationRoutes } from "./integrations/routes.js";
-import { pool } from "./db.js";
-import { stopInference } from "./species/inference.js";
+import { pool } from "@lifer/core/db.js";
+import { stopInference } from "@lifer/core/species/inference.js";
 import { closeExiftool } from "./uploads/exif.js";
 import { friendlyFsErrorMessage } from "./lib/friendlyFsError.js";
 import { startEventLoopWatchdog } from "./lib/eventLoopWatchdog.js";
 import { startParentWatchdog } from "./lib/parentWatchdog.js";
-import { watchLibraryFolder } from "./lib/libraryFolder.js";
+import { watchLibraryFolder } from "@lifer/core/lib/libraryFolder.js";
 import { registerCollectionStateSaving, syncCollectionStateOnStartup } from "./lib/collectionState.js";
-import { hasForwardedHeaders, isBlockedCrossSiteWrite } from "./lib/requestGuard.js";
+import { isBlockedCrossSiteWrite } from "@lifer/core/lib/requestGuard.js";
 import { startMaintenance } from "./lib/maintenance.js";
-import { log } from "./lib/log.js";
+import { log } from "@lifer/core/lib/log.js";
+import { servesWebApp } from "./lib/spaFallback.js";
+import { registerHealthRoute } from "./lib/health.js";
+import { trustProxyHint } from "./lib/trustProxyHint.js";
+import { encryptStoredInatTokens } from "./inaturalist/tokenStore.js";
+import { encryptStoredShareTokens } from "./shares/routes.js";
 
 const desktopModeError = desktopModeStartupError(process.env);
 if (desktopModeError) {
@@ -68,6 +53,15 @@ await adoptFlatLibraryLayout();
 await syncLibraryRootsFromEnv();
 
 startParentWatchdog();
+
+// Secrets older versions stored as plain text (iNaturalist tokens, share links) are re-stored
+// encrypted (lib/secretBox.ts) before any request reads them. Reads cope with plain text too, so
+// a failure here only delays it to the next start.
+await Promise.all([encryptStoredInatTokens(), encryptStoredShareTokens()])
+  .then(([inat, shares]) => {
+    if (inat || shares) log.info({ inat, shares }, "[startup] Encrypted secrets stored by an older version");
+  })
+  .catch((err) => log.warn({ err }, "[startup] Couldn't encrypt stored secrets; will retry at the next start"));
 
 // trustProxy: see config.ts TRUST_PROXY.
 const app = Fastify({
@@ -93,6 +87,7 @@ async function shutdown(signal: NodeJS.Signals): Promise<void> {
   shuttingDown = true;
   app.log.info(`${signal} received, shutting down`);
   setTimeout(() => process.exit(0), 5000).unref();
+  stopWithheldPhotoFetch();
   await app.close().catch((err) => app.log.warn({ err }, "Server close failed"));
   await Promise.allSettled([stopInference(), closeExiftool()]);
   await pool.end().catch(() => {});
@@ -106,21 +101,11 @@ startEventLoopWatchdog(app);
 // Keeps archived/hidden/seen/target species in the library too, so a fresh install gets them back.
 registerCollectionStateSaving(app);
 
-// Desktop mode signs every request in, so only loopback Host headers (DNS-rebinding guard) and
-// unrelayed requests (no forwarded headers) are accepted there.
-if (SINGLE_USER_MODE) {
-  app.addHook("onRequest", async (request, reply) => {
-    if (!isAllowedLocalHost(request.headers.host, PORT)) {
-      return reply.code(403).send({ error: "Forbidden host" });
-    }
-    if (hasForwardedHeaders(request.headers)) {
-      return reply.code(403).send({ error: "Forwarded requests aren't accepted in desktop mode" });
-    }
-  });
-}
+// Behind a reverse proxy with TRUST_PROXY unset, say once how to fix it (lib/trustProxyHint.ts).
+if (!SINGLE_USER_MODE) app.addHook("onRequest", trustProxyHint(app.log, process.env.TRUST_PROXY));
 
 // Cross-site write guard, both modes: a page on another site can still make the browser send
-// our cookie on a POST, and desktop mode signs every request in. See lib/requestGuard.ts.
+// our cookie on a POST. See lib/requestGuard.ts.
 app.addHook("onRequest", async (request, reply) => {
   if (isBlockedCrossSiteWrite(request.method, request.headers, [request.headers.host, request.host])) {
     return reply.code(403).send({ error: "Cross-site request blocked" });
@@ -129,7 +114,10 @@ app.addHook("onRequest", async (request, reply) => {
 
 // Every error response is { error: string, code?: string } (see integrations/openapi.ts).
 // File permission errors (macOS folder access) get one actionable message for every route.
+installSchemas(app);
 app.setErrorHandler((err, request, reply) => {
+  // Schema validation (lib/schema.ts): 400 with what was wrong, or the route's own answer.
+  if (replyToValidationError(err as FastifyError, request, reply)) return;
   const code = (err as NodeJS.ErrnoException).code;
   const statusCode = (err as { statusCode?: number }).statusCode ?? 500;
   if (code === "EPERM" || code === "EACCES" || code === "ENOENT") {
@@ -145,6 +133,11 @@ app.setErrorHandler((err, request, reply) => {
 });
 
 await app.register(cookie);
+
+// Desktop mode has no sign-in: loopback Host headers, unrelayed requests and, past the public
+// routes, the desktop app's own credential only (auth/desktopGate.ts). Registered after the cookie
+// plugin, whose own onRequest hook parses the credential cookie.
+if (SINGLE_USER_MODE) app.addHook("onRequest", desktopRequestGate(PORT));
 
 // Security headers. ipc: is the desktop shell's bridge. No HSTS, since plain http on a home
 // network is supported and a reverse proxy can add it.
@@ -182,42 +175,14 @@ if (!SINGLE_USER_MODE) {
 // Per-file cap. 0 would make the plugin fall back to bodyLimit, so "no cap" is passed as Infinity.
 await app.register(multipart, { limits: { fileSize: MAX_UPLOAD_BYTES > 0 ? MAX_UPLOAD_BYTES : Infinity } });
 
-// No CORS plugin: Vite proxies /api to this server in dev, and both sit behind the same
-// origin in production (Nginx), so cross-origin requests are never expected.
-await app.register(async (api) => {
-  await api.register(authRoutes);
-  await api.register(speciesRoutes);
-  await api.register(matchingRoutes);
-  await api.register(uploadRoutes);
-  await api.register(photoRoutes);
-  await api.register(collectionRoutes);
-  await api.register(galleryRoutes);
-  await api.register(originalsRoutes);
-  await api.register(captureRoutes);
-  await api.register(regionRoutes);
-  await api.register(tierRoutes);
-  await api.register(splitRoutes);
-  await api.register(importRoutes);
-  await api.register(settingsRoutes);
-  await api.register(offlinePacksRoutes);
-  await api.register(archiveRoutes);
-  await api.register(tripsRoutes);
-  await api.register(libraryRoutes);
-  await api.register(storageVolumesRoutes);
-  await api.register(statsRoutes);
-  await api.register(albumRoutes);
-  await api.register(albumShareRoutes);
-  await api.register(apiKeyRoutes);
-  await api.register(integrationRoutes);
-  await api.register(inaturalistRoutes);
-}, { prefix: "/api" });
+// No CORS plugin: Vite proxies /api to this server in dev, and in production this server
+// serves the web app itself, so cross-origin requests are never expected.
+await app.register(apiRoutes, { prefix: "/api" });
 
-// launchToken lets the desktop shell tell this process apart from an older instance on the port.
-// Warn level, so the container healthcheck doesn't fill the log.
-app.get("/health", { logLevel: "warn" }, async () => ({ ok: true, launchToken: process.env.LIFER_LAUNCH_TOKEN ?? null }));
+registerHealthRoute(app);
 
 // Set at Docker build time, for the web app's update banner. "dev" never shows an update.
-app.get("/version", async () => ({ version: process.env.APP_VERSION ?? "dev" }));
+app.get("/version", { schema: { response: { 200: Type.Object({ version: Type.String() }) } } }, async () => ({ version: process.env.APP_VERSION ?? "dev" }));
 
 // Offline basemap tiles. The folder is created up front so the route works once the map arrives.
 // decorateReply: false because the web app registration below owns reply.sendFile().
@@ -234,9 +199,9 @@ if (existsSync(WEB_DIST_DIR)) {
       else res.header("Cache-Control", "no-cache");
     },
   });
-  // SPA fallback: any non-/api path that isn't a static file gets index.html for client routing.
+  // SPA fallback: an app route that isn't a static file gets index.html for client routing.
   app.setNotFoundHandler((request, reply) => {
-    if (request.url.startsWith("/api")) return reply.code(404).send({ error: "Not found" });
+    if (!servesWebApp(request.url)) return reply.code(404).send({ error: "Not found" });
     return reply.sendFile("index.html");
   });
 }
@@ -253,7 +218,6 @@ startMaintenance(app.log);
 
 // Logs when the library folder goes missing under a running server.
 watchLibraryFolder();
-syncCollectionStateOnStartup().catch((err) => app.log.warn({ err }, "collection state sync failed"));
 
 // Background, best-effort startup work: never delays listening, and a failure only means the
 // feature waits for the next restart (or a manual retry in Settings).
@@ -269,6 +233,8 @@ seedCatalogIfEmpty(pool)
   .catch((err) => app.log.warn({ err }, "Catalog auto-seed failed. Settings > Update can still be run manually."))
   // After the seed, since gallery vectors attach to catalog photos.
   .finally(async () => {
+    // The collection-state restore matches species by name, so it needs the catalog in place.
+    syncCollectionStateOnStartup().catch((err) => app.log.warn({ err }, "collection state sync failed"));
     await relinkCachedReferenceFiles(pool)
       .then((n) => {
         if (n) app.log.info({ relinked: n }, "Linked cached reference photos to a fresh database");
@@ -276,4 +242,6 @@ seedCatalogIfEmpty(pool)
       .catch((err) => app.log.warn({ err }, "Couldn't link cached reference photos"));
     ensureGalleryEmbeddingsOnStartup(pool);
     ensureIdModelOnStartup(pool, app.log);
+    // Picks up photos packs couldn't include that are still left to fetch.
+    startWithheldPhotoFetch("startup");
   });

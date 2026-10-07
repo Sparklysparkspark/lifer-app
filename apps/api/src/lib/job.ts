@@ -3,7 +3,7 @@
 // - One AbortController per run, aborted by cancel() and passed to fetch and streams.
 // - running/finishedAt/cancelRequested are reset in a finally, so an error can't leave it running.
 import { idleJobStatus, type JobStatus } from "@lifer/shared";
-import { log } from "./log.js";
+import { log } from "@lifer/core/lib/log.js";
 
 export class JobCancelledError extends Error {
   constructor() {

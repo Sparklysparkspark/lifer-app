@@ -23,6 +23,7 @@ function sweep(now: number): void {
 export function isRateLimited(key: string, max = MAX_ATTEMPTS): boolean {
   const now = Date.now();
   sweep(now);
+  // Stryker disable next-line ArrayDeclaration: equivalent, a non-number in a new key's list is filtered out as NaN
   const timestamps = (attempts.get(key) ?? []).filter((t) => now - t < WINDOW_MS);
   if (timestamps.length === 0) attempts.delete(key);
   else attempts.set(key, timestamps);
@@ -30,6 +31,7 @@ export function isRateLimited(key: string, max = MAX_ATTEMPTS): boolean {
 }
 
 export function recordAttempt(key: string): void {
+  // Stryker disable next-line ArrayDeclaration: equivalent, a non-number in a new key's list is filtered out as NaN
   const timestamps = attempts.get(key) ?? [];
   timestamps.push(Date.now());
   attempts.set(key, timestamps);
@@ -51,7 +53,10 @@ export function ipRateLimitKey(ip: string): string {
   const tailParts = addr.includes("::") && tail ? tail.split(":") : [];
   const missing = 8 - headParts.length - tailParts.length;
   const full = addr.includes("::") ? [...headParts, ...Array(Math.max(missing, 0)).fill("0"), ...tailParts] : headParts;
-  return `${full.slice(0, 4).map((p) => p.replace(/^0+(?=.)/, "")).join(":")}::/64`;
+  return `${full
+    .slice(0, 4)
+    .map((p) => p.replace(/^0+(?=.)/, ""))
+    .join(":")}::/64`;
 }
 
 // For tests.

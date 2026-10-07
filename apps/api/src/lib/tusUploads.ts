@@ -9,7 +9,7 @@ import { pipeline as pipelineCallback, Transform, type Readable } from "node:str
 import type http from "node:http";
 import { FileStore } from "@tus/file-store";
 import { Server, type Upload } from "@tus/server";
-import { MAX_UPLOAD_BYTES } from "../config.js";
+import { MAX_UPLOAD_BYTES } from "@lifer/core/config.js";
 import { hashFile, STAGE_MAX_AGE_MS } from "./stagedUploads.js";
 import { tusUploadDir } from "./uploadWorkDir.js";
 

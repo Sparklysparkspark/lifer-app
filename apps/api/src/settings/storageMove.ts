@@ -3,17 +3,15 @@ import { cp, mkdir, rename, rm } from "node:fs/promises";
 import path from "node:path";
 import type { FastifyInstance } from "fastify";
 import type { PoolClient } from "pg";
-import { withTransaction } from "../db.js";
+import { Type } from "typebox";
+import { withTransaction } from "@lifer/core/db.js";
 import { requireAuth } from "../auth/session.js";
-import { DATA_DIR, SINGLE_USER_MODE } from "../config.js";
-import { readLocalSettings, writeLocalSettings } from "../localSettings.js";
+import { DATA_DIR, SINGLE_USER_MODE } from "@lifer/core/config.js";
+import { readLocalSettings, writeLocalSettings } from "@lifer/core/localSettings.js";
 import { createJob, type JobContext } from "../lib/job.js";
-import { log } from "../lib/log.js";
-import { requireDesktopMode } from "./requireDesktopMode.js";
-
-interface StorageBody {
-  dataDir?: string;
-}
+import { log } from "@lifer/core/lib/log.js";
+import { Flag, withSchemas } from "../lib/schema.js";
+import { desktopOnly } from "./requireDesktopMode.js";
 
 interface StorageMoveResult {
   dataDir: string;
@@ -80,7 +78,9 @@ export async function recoverInterruptedStorageMigration(): Promise<void> {
   if (moveNeverCompleted) {
     await rm(to, { recursive: true, force: true });
     writeLocalSettings({ dataDir: from, migration: undefined });
-    log.warn(`[storage] An interrupted move to ${to} was rolled back on startup, still using ${from}. Retry from Settings when ready.`);
+    log.warn(
+      `[storage] An interrupted move to ${to} was rolled back on startup, still using ${from}. Retry from Settings when ready.`,
+    );
     return;
   }
 
@@ -93,10 +93,11 @@ export async function recoverInterruptedStorageMigration(): Promise<void> {
   );
 }
 
-export async function storageMoveRoutes(app: FastifyInstance): Promise<void> {
+export async function storageMoveRoutes(fastify: FastifyInstance): Promise<void> {
+  const app = withSchemas(fastify);
   // Readable on every install; only desktop can change it (a server's library folder is its
   // LIFER_STORAGE_DIR bind mount).
-  app.get("/settings/storage", { preHandler: requireAuth }, async () => {
+  app.get("/settings/storage", { preValidation: requireAuth, schema: {} }, async () => {
     return { dataDir: DATA_DIR, changeable: SINGLE_USER_MODE };
   });
 
@@ -104,18 +105,25 @@ export async function storageMoveRoutes(app: FastifyInstance): Promise<void> {
   // result by default; ?background=1 returns at once and GET /settings/storage/status reports it.
   const storageMoveJob = createJob<StorageMoveResult>("storage-move");
 
-  async function runStorageMove(ctx: JobContext<StorageMoveResult>, oldDir: string, dataDir: string, hadExistingContent: boolean): Promise<StorageMoveResult> {
+  async function runStorageMove(
+    ctx: JobContext<StorageMoveResult>,
+    oldDir: string,
+    dataDir: string,
+    hadExistingContent: boolean,
+  ): Promise<StorageMoveResult> {
     if (hadExistingContent) {
       // Recorded before a single file moves, so a crash from here on is recoverable at startup.
       writeLocalSettings({ migration: { from: oldDir, to: dataDir } });
       ctx.update({ phase: "moving" });
       try {
-        await moveDirectoryContents(oldDir, dataDir, () => writeLocalSettings({ migration: { from: oldDir, to: dataDir, copied: true } }));
+        await moveDirectoryContents(oldDir, dataDir, () =>
+          writeLocalSettings({ migration: { from: oldDir, to: dataDir, copied: true } }),
+        );
       } catch (err) {
         // Nothing (or only a since-cleared partial copy) moved, so `from` still holds the real
         // data: drop the marker and leave dataDir untouched.
         writeLocalSettings({ migration: undefined });
-        throw new Error(`Couldn't move your library: ${(err as Error).message}`);
+        throw new Error(`Couldn't move your library: ${(err as Error).message}`, { cause: err });
       }
       ctx.update({ phase: "relinking" });
       // On failure the marker stays: the files already moved, so startup recovery finishes it.
@@ -130,40 +138,62 @@ export async function storageMoveRoutes(app: FastifyInstance): Promise<void> {
 
   // Moves everything under DATA_DIR to the chosen folder and rewrites stored paths to match.
   // Picking the old location again moves it back. Confirmation lives in the Settings UI.
-  app.put<{ Body: StorageBody; Querystring: { background?: string } }>("/settings/storage", { preHandler: requireAuth }, async (request, reply) => {
-    if (!requireDesktopMode(reply)) return;
-    const { dataDir } = request.body ?? {};
-    if (!dataDir || !path.isAbsolute(dataDir)) {
-      return reply.code(400).send({ error: "dataDir must be an absolute path" });
-    }
-    if (dataDir === DATA_DIR) {
-      return reply.code(400).send({ error: "That's already the current storage location" });
-    }
-    if (storageMoveJob.status.running || storageMoveJob.status.result) {
-      // A finished move still needs a restart before DATA_DIR reflects it; moving again from the
-      // stale DATA_DIR would try to move a folder that is already gone.
-      return reply.code(409).send({ error: storageMoveJob.status.running ? "Your library is already being moved" : "Restart Lifer before moving the library again" });
-    }
+  app.put(
+    "/settings/storage",
+    {
+      preValidation: [requireAuth, desktopOnly],
+      schema: {
+        // Absolute is checked in the handler, where path.isAbsolute knows this platform's rules.
+        body: Type.Object({ dataDir: Type.String({ minLength: 1 }) }, { additionalProperties: false }),
+        querystring: Type.Object({ background: Flag("1 to start the move and return at once, for polling") }),
+      },
+    },
+    async (request, reply) => {
+      const { dataDir } = request.body;
+      if (!path.isAbsolute(dataDir)) {
+        return reply.code(400).send({ error: "dataDir must be an absolute path" });
+      }
+      if (dataDir === DATA_DIR) {
+        return reply.code(400).send({ error: "That's already the current storage location" });
+      }
+      if (storageMoveJob.status.running || storageMoveJob.status.result) {
+        // A finished move still needs a restart before DATA_DIR reflects it; moving again from the
+        // stale DATA_DIR would try to move a folder that is already gone.
+        return reply.code(409).send({
+          error: storageMoveJob.status.running
+            ? "Your library is already being moved"
+            : "Restart Lifer before moving the library again",
+        });
+      }
 
-    const oldDir = DATA_DIR;
-    const hadExistingContent = existsSync(oldDir) && readdirSync(oldDir).length > 0;
-    if (hadExistingContent && existsSync(dataDir) && readdirSync(dataDir).length > 0) {
-      return reply.code(400).send({ error: "That folder isn't empty. Choose an empty folder to move your library into" });
-    }
+      const oldDir = DATA_DIR;
+      const hadExistingContent = existsSync(oldDir) && readdirSync(oldDir).length > 0;
+      if (hadExistingContent && existsSync(dataDir) && readdirSync(dataDir).length > 0) {
+        return reply
+          .code(400)
+          .send({ error: "That folder isn't empty. Choose an empty folder to move your library into" });
+      }
 
-    if (!storageMoveJob.start((ctx) => runStorageMove(ctx, oldDir, dataDir, hadExistingContent), { phase: "preparing", currentItem: dataDir })) {
-      return reply.code(409).send({ error: "Your library is already being moved" });
-    }
-    if (request.query.background === "1") return { started: true };
-    await storageMoveJob.settled();
-    const status = storageMoveJob.status;
-    if (status.result) return status.result;
-    // The job's error is already a user-facing message, so it's sent as is.
-    return reply.code(500).send({ error: status.error ?? "Couldn't move this library", code: "storage_move_failed" });
-  });
+      if (
+        !storageMoveJob.start((ctx) => runStorageMove(ctx, oldDir, dataDir, hadExistingContent), {
+          phase: "preparing",
+          currentItem: dataDir,
+        })
+      ) {
+        return reply.code(409).send({ error: "Your library is already being moved" });
+      }
+      if (request.query.background === "1") return { started: true };
+      await storageMoveJob.settled();
+      const status = storageMoveJob.status;
+      if (status.result) return status.result;
+      // The job's error is already a user-facing message, so it's sent as is.
+      return reply.code(500).send({ error: status.error ?? "Couldn't move this library", code: "storage_move_failed" });
+    },
+  );
 
-  app.get("/settings/storage/status", { preHandler: requireAuth }, async (_request, reply) => {
-    if (!requireDesktopMode(reply)) return;
-    return storageMoveJob.status;
-  });
+  app.get(
+    "/settings/storage/status",
+    { preValidation: [requireAuth, desktopOnly], schema: {} },
+    async () => storageMoveJob.status,
+  );
 }

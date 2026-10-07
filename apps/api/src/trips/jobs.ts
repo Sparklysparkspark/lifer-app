@@ -1,25 +1,26 @@
 import type { FastifyInstance } from "fastify";
+import { Type } from "typebox";
 import { createReadStream } from "node:fs";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { pool } from "../db.js";
-import { isUuid } from "../lib/validate.js";
+import { pool } from "@lifer/core/db.js";
+import { IdParams, Nullable, Uuid, notFoundOnInvalidId, replies, withSchemas } from "../lib/schema.js";
 import { requireAuth, requireScope } from "../auth/session.js";
 import { scanTrip, resolveWithinTripFolder } from "./scan.js";
 import { importInboxFile } from "./import.js";
 import { listRawFiles } from "./rawLink.js";
 import { extractExif, extractKeywords, readExifTags } from "../uploads/exif.js";
-import { computeEmbedding, suggestSpecies, type SpeciesSuggestion } from "../species/embeddings.js";
+import { computeEmbedding, suggestSpecies, type SpeciesSuggestion } from "@lifer/core/species/embeddings.js";
 import { matchSpeciesByKeywords, groupByScientificName } from "../species/matchByKeywords.js";
 import { checkNotWildlife } from "../species/wildlifeCheck.js";
-import { sniffPhotoFormat } from "../uploads/formats.js";
+import { sniffPhotoFormat } from "@lifer/core/uploads/formats.js";
 import { prepareWorkingImage } from "../uploads/workingImage.js";
-import { originalSharpOptions } from "../lib/imageLimits.js";
-import { isWithin } from "../lib/allowedPaths.js";
+import { originalSharpOptions } from "@lifer/core/lib/imageLimits.js";
+import { canonicalPath, isWithin } from "@lifer/core/lib/pathContainment.js";
 import sharp from "sharp";
-import { mapWithConcurrency } from "data-pipeline/src/concurrency.js";
+import { mapWithConcurrency } from "@lifer/core/lib/concurrency.js";
 import { createJob, type Job, type JobContext } from "../lib/job.js";
-import { idleJobStatus, type JobStatus } from "@lifer/shared";
+import { CULL_MARKS_OPTIONS, idleJobStatus, type CullMarks, type CullMarksOption, type JobStatus } from "@lifer/shared";
 
 // Each file pays an exiftool round trip plus a sharp resize, so files import in parallel.
 const IMPORT_CONCURRENCY = 4;
@@ -34,15 +35,22 @@ interface ScanSummary {
   collisions: number;
   recovered: number;
   rawsLinked: number;
-  newFiles: Array<{ relativePath: string }>;
+  /** Each new photo with the marks a culling app left on it (or its sidecar or RAW twin). */
+  newFiles: Array<{ relativePath: string; cull: CullMarks }>;
+  /** How many of newFiles a culling app rejected, and how many it picked. */
+  cullRejected: number;
+  cullPicked: number;
 }
 // The summary fields are also mirrored top-level, alongside `result`.
 type ScanExtra = { tripId: string } & ScanSummary;
 function emptyScanSummary(): ScanSummary {
-  return { relinked: 0, markedStale: 0, collisions: 0, recovered: 0, rawsLinked: 0, newFiles: [] };
+  return { relinked: 0, markedStale: 0, collisions: 0, recovered: 0, rawsLinked: 0, newFiles: [], cullRejected: 0, cullPicked: 0 };
 }
 
-type ImportFileResult = { relativePath: string; captureId?: string; error?: string };
+// `skipped` when a culling app rejected the photo and the import skips those; `hidden` when it
+// was imported hidden.
+type ImportFileResult = { relativePath: string; captureId?: string; error?: string; skipped?: "rejected"; hidden?: boolean };
+type ImportSummary = { imported: number; failed: number; skipped: number; hidden: number };
 interface ImportExtra {
   tripId: string;
   // Grows live as files finish.
@@ -50,7 +58,7 @@ interface ImportExtra {
 }
 
 type ScanJob = Job<ScanSummary, ScanExtra>;
-type ImportJob = Job<{ imported: number; failed: number }, ImportExtra>;
+type ImportJob = Job<ImportSummary, ImportExtra>;
 const scanJobs = new Map<string, ScanJob>();
 const importJobs = new Map<string, ImportJob>();
 
@@ -75,7 +83,10 @@ function importJobFor(tripId: string): ImportJob {
   let job = importJobs.get(tripId);
   if (!job) {
     pruneFinished(importJobs);
-    job = createJob<{ imported: number; failed: number }, ImportExtra>(`trip-import:${tripId}`, { tripId, results: [] });
+    job = createJob<ImportSummary, ImportExtra>(`trip-import:${tripId}`, {
+      tripId,
+      results: [],
+    });
     importJobs.set(tripId, job);
   }
   return job;
@@ -85,8 +96,8 @@ function idleScanStatus(tripId: string): JobStatus<ScanSummary> & ScanExtra {
   return { ...idleJobStatus<ScanSummary>(), tripId, ...emptyScanSummary() };
 }
 
-function idleImportStatus(tripId: string): JobStatus<{ imported: number; failed: number }> & ImportExtra {
-  return { ...idleJobStatus<{ imported: number; failed: number }>(), tripId, results: [] };
+function idleImportStatus(tripId: string): JobStatus<ImportSummary> & ImportExtra {
+  return { ...idleJobStatus<ImportSummary>(), tripId, results: [] };
 }
 
 // Lets GET /trips show a loading state on a trip's card while either job runs.
@@ -111,14 +122,16 @@ async function runScanJob(
     collisions: result.collisions,
     recovered: result.recovered,
     rawsLinked: result.rawsLinked,
-    newFiles: result.newFiles.map((f) => ({ relativePath: f.relativePath })),
+    newFiles: result.newFiles.map((f) => ({ relativePath: f.relativePath, cull: f.cull })),
+    cullRejected: result.newFiles.filter((f) => f.cull.verdict === "reject").length,
+    cullPicked: result.newFiles.filter((f) => f.cull.verdict === "pick").length,
   };
   ctx.update(summary);
   return summary;
 }
 
 async function runImportJob(
-  ctx: JobContext<{ imported: number; failed: number }, ImportExtra>,
+  ctx: JobContext<ImportSummary, ImportExtra>,
   job: ImportJob,
   tripId: string,
   userId: string,
@@ -126,11 +139,18 @@ async function runImportJob(
   destinationFolder: string,
   files: Array<{ relativePath: string; speciesId: string }>,
   regionId: string | null,
-): Promise<{ imported: number; failed: number }> {
+  cullOption: CullMarksOption,
+): Promise<ImportSummary> {
   let imported = 0;
   let failed = 0;
+  let skipped = 0;
+  let hidden = 0;
   // Read once for the whole batch: each photo's RAW is looked up in it (importInboxFile).
-  const sourceRaws = (await listRawFiles(sourceFolder)).filter((r) => !isWithin(path.resolve(destinationFolder), path.resolve(r.absolutePath)));
+  // Resolved on both sides: older trips stored the folders as typed, newer ones as realpaths.
+  const destination = canonicalPath(destinationFolder);
+  const sourceRaws = (await listRawFiles(sourceFolder)).filter(
+    (r) => !isWithin(destination, canonicalPath(r.absolutePath)),
+  );
   // Cancel stops new files from starting.
   await mapWithConcurrency(files, IMPORT_CONCURRENCY, async (file) => {
     if (ctx.signal.aborted) return;
@@ -141,20 +161,36 @@ async function runImportJob(
       result = { relativePath: file.relativePath, error: "File not found" };
     } else {
       try {
-        const { captureId } = await importInboxFile(tripId, userId, file.speciesId, absolutePath, destinationFolder, regionId, sourceRaws);
-        result = { relativePath: file.relativePath, captureId };
+        const outcome = await importInboxFile(
+          tripId,
+          userId,
+          file.speciesId,
+          absolutePath,
+          destinationFolder,
+          regionId,
+          sourceRaws,
+          cullOption,
+        );
+        result =
+          "skipped" in outcome
+            ? { relativePath: file.relativePath, skipped: outcome.skipped }
+            : { relativePath: file.relativePath, captureId: outcome.captureId, ...(outcome.hidden ? { hidden: true } : {}) };
       } catch (err) {
         result = { relativePath: file.relativePath, error: (err as Error).message };
       }
     }
     if (result.error) failed++;
-    else imported++;
+    else if (result.skipped) skipped++;
+    else {
+      imported++;
+      if (result.hidden) hidden++;
+    }
     job.status.results.push(result);
     ctx.update({ processed: (job.status.processed ?? 0) + 1 });
     return result;
   });
   ctx.throwIfCancelled();
-  return { imported, failed };
+  return { imported, failed, skipped, hidden };
 }
 
 // Scan/import jobs are keyed by trip id alone; a server has several accounts, so their cancel
@@ -182,47 +218,80 @@ const TRIP_PREVIEW_CONTENT_TYPES: Record<string, string> = {
 const TRANSCODED_PREVIEW_EXTENSIONS = new Set([".tif", ".tiff", ".heic", ".heif"]);
 
 // Scan and import run as per-trip background jobs the client polls.
-export async function tripJobRoutes(app: FastifyInstance): Promise<void> {
-  app.post<{ Params: { id: string } }>("/trips/:id/scan", { preHandler: requireAuth }, async (request, reply) => {
-    if (!isUuid(request.params.id)) return reply.code(404).send({ error: "Trip not found" });
-    const userId = request.user!.id;
-    const tripId = request.params.id;
-    if (scanJobs.get(tripId)?.status.running) return reply.code(409).send({ error: "A scan is already running for this trip" });
+const tripNotFound = notFoundOnInvalidId("Trip not found");
+const Started = replies(Type.Object({ started: Type.Boolean() }));
+const Cancelled = replies(Type.Object({ cancelled: Type.Boolean() }));
 
-    const tripRes = await pool.query<{ source_folder: string; destination_folder: string }>(
-      `SELECT source_folder, destination_folder FROM trips WHERE id = $1 AND user_id = $2`,
-      [tripId, userId],
-    );
-    if (tripRes.rows.length === 0) return reply.code(404).send({ error: "Trip not found" });
+export async function tripJobRoutes(fastify: FastifyInstance): Promise<void> {
+  const app = withSchemas(fastify);
 
-    const job = scanJobFor(tripId);
-    const { source_folder: sourceFolder, destination_folder: destinationFolder } = tripRes.rows[0];
-    const started = job.start((ctx) => runScanJob(ctx, tripId, userId, sourceFolder, destinationFolder), {
-      tripId,
-      ...emptyScanSummary(),
-      phase: "checking",
-    });
-    if (!started) return reply.code(409).send({ error: "A scan is already running for this trip" });
-    return { started: true };
-  });
-
-  app.post<{ Params: { id: string } }>("/trips/:id/scan/cancel", { preHandler: requireAuth }, async (request, reply) => {
-    if (!isUuid(request.params.id)) return reply.code(404).send({ error: "Trip not found" });
-    if (!(await ownsTrip(request.params.id, request.user!.id))) return reply.code(404).send({ error: "Trip not found" });
-    return { cancelled: scanJobs.get(request.params.id)?.cancel() ?? false };
-  });
-
-  app.get<{ Params: { id: string } }>("/trips/:id/scan/status", { preHandler: requireScope("trips.read") }, async (request, reply) => {
-    if (!isUuid(request.params.id)) return reply.code(404).send({ error: "Trip not found" });
-    if (!(await ownsTrip(request.params.id, request.user!.id))) return reply.code(404).send({ error: "Trip not found" });
-    return scanJobs.get(request.params.id)?.status ?? idleScanStatus(request.params.id);
-  });
-
-  app.get<{ Params: { id: string }; Querystring: { file?: string } }>(
-    "/trips/:id/scan-preview",
-    { preHandler: requireScope("trips.read") },
+  app.post(
+    "/trips/:id/scan",
+    {
+      preValidation: requireAuth,
+      config: tripNotFound,
+      schema: { params: IdParams, response: Started },
+    },
     async (request, reply) => {
-      if (!isUuid(request.params.id)) return reply.code(404).send({ error: "Trip not found" });
+      const userId = request.user!.id;
+      const tripId = request.params.id;
+      if (scanJobs.get(tripId)?.status.running)
+        return reply.code(409).send({ error: "A scan is already running for this trip" });
+
+      const tripRes = await pool.query<{ source_folder: string; destination_folder: string }>(
+        `SELECT source_folder, destination_folder FROM trips WHERE id = $1 AND user_id = $2`,
+        [tripId, userId],
+      );
+      if (tripRes.rows.length === 0) return reply.code(404).send({ error: "Trip not found" });
+
+      const job = scanJobFor(tripId);
+      const { source_folder: sourceFolder, destination_folder: destinationFolder } = tripRes.rows[0];
+      const started = job.start((ctx) => runScanJob(ctx, tripId, userId, sourceFolder, destinationFolder), {
+        tripId,
+        ...emptyScanSummary(),
+        phase: "checking",
+      });
+      if (!started) return reply.code(409).send({ error: "A scan is already running for this trip" });
+      return { started: true };
+    },
+  );
+
+  app.post(
+    "/trips/:id/scan/cancel",
+    {
+      preValidation: requireAuth,
+      config: tripNotFound,
+      schema: { params: IdParams, response: Cancelled },
+    },
+    async (request, reply) => {
+      if (!(await ownsTrip(request.params.id, request.user!.id)))
+        return reply.code(404).send({ error: "Trip not found" });
+      return { cancelled: scanJobs.get(request.params.id)?.cancel() ?? false };
+    },
+  );
+
+  app.get(
+    "/trips/:id/scan/status",
+    { preValidation: requireScope("trips.read"), config: tripNotFound, schema: { params: IdParams } },
+    async (request, reply) => {
+      if (!(await ownsTrip(request.params.id, request.user!.id)))
+        return reply.code(404).send({ error: "Trip not found" });
+      return scanJobs.get(request.params.id)?.status ?? idleScanStatus(request.params.id);
+    },
+  );
+
+  app.get(
+    "/trips/:id/scan-preview",
+    {
+      preValidation: requireScope("trips.read"),
+      config: tripNotFound,
+      schema: {
+        params: IdParams,
+        // Resolved inside the trip's source folder by resolveWithinTripFolder.
+        querystring: Type.Object({ file: Type.String({ description: "Path of the file inside the trip folder" }) }),
+      },
+    },
+    async (request, reply) => {
       const userId = request.user!.id;
       const tripRes = await pool.query<{ source_folder: string }>(
         `SELECT source_folder FROM trips WHERE id = $1 AND user_id = $2`,
@@ -230,7 +299,6 @@ export async function tripJobRoutes(app: FastifyInstance): Promise<void> {
       );
       if (tripRes.rows.length === 0) return reply.code(404).send({ error: "Trip not found" });
       const relativePath = request.query.file;
-      if (!relativePath) return reply.code(400).send({ error: "file query param is required" });
       const contentType = TRIP_PREVIEW_CONTENT_TYPES[path.extname(relativePath).toLowerCase()];
       if (!contentType) return reply.code(400).send({ error: "Only image and video files can be previewed" });
       const absolutePath = resolveWithinTripFolder(tripRes.rows[0].source_folder, relativePath);
@@ -261,36 +329,63 @@ export async function tripJobRoutes(app: FastifyInstance): Promise<void> {
     },
   );
 
-  app.post<{ Params: { id: string }; Body: { files?: Array<{ relativePath: string; speciesId: string }>; regionId?: string } }>(
+  app.post(
     "/trips/:id/import",
-    { preHandler: requireAuth },
+    {
+      preValidation: requireAuth,
+      config: tripNotFound,
+      schema: {
+        params: IdParams,
+        body: Type.Object(
+          {
+            files: Type.Array(
+              Type.Object(
+                { relativePath: Type.String({ minLength: 1 }), speciesId: Uuid() },
+                { additionalProperties: false },
+              ),
+              { minItems: 1 },
+            ),
+            regionId: Type.Optional(Nullable(Uuid())),
+            cullMarks: Type.Optional(
+              Type.Enum([...CULL_MARKS_OPTIONS], {
+                description:
+                  "Photos a culling app rejected: skip (the default) leaves them out, hide imports them hidden, ignore imports them as usual",
+              }),
+            ),
+          },
+          { additionalProperties: false },
+        ),
+        response: Started,
+      },
+    },
     async (request, reply) => {
-      if (!isUuid(request.params.id)) return reply.code(404).send({ error: "Trip not found" });
       const userId = request.user!.id;
       const tripId = request.params.id;
-      if (importJobs.get(tripId)?.status.running) return reply.code(409).send({ error: "An import is already running for this trip" });
+      if (importJobs.get(tripId)?.status.running)
+        return reply.code(409).send({ error: "An import is already running for this trip" });
 
       const tripRes = await pool.query<{ source_folder: string; destination_folder: string }>(
         `SELECT source_folder, destination_folder FROM trips WHERE id = $1 AND user_id = $2`,
         [tripId, userId],
       );
       if (tripRes.rows.length === 0) return reply.code(404).send({ error: "Trip not found" });
-      const files = request.body?.files;
-      if (!files || files.length === 0) return reply.code(400).send({ error: "files is required" });
-      if (!Array.isArray(files) || !files.every((f) => isUuid(f?.speciesId))) return reply.code(400).send({ error: "Unknown species" });
-      const regionId = request.body?.regionId ?? null;
-      if (regionId !== null && !isUuid(regionId)) return reply.code(400).send({ error: "regionId must be a region id" });
+      const { files } = request.body;
+      const regionId = request.body.regionId ?? null;
+      const cullOption = request.body.cullMarks ?? "skip";
 
       // Background job, polled via /import/status.
       const job = importJobFor(tripId);
       const { source_folder: sourceFolder, destination_folder: destinationFolder } = tripRes.rows[0];
-      const started = job.start((ctx) => runImportJob(ctx, job, tripId, userId, sourceFolder, destinationFolder, files, regionId), {
-        tripId,
-        results: [],
-        phase: "importing",
-        processed: 0,
-        total: files.length,
-      });
+      const started = job.start(
+        (ctx) => runImportJob(ctx, job, tripId, userId, sourceFolder, destinationFolder, files, regionId, cullOption),
+        {
+          tripId,
+          results: [],
+          phase: "importing",
+          processed: 0,
+          total: files.length,
+        },
+      );
       if (!started) return reply.code(409).send({ error: "An import is already running for this trip" });
       return { started: true };
     },
@@ -298,23 +393,30 @@ export async function tripJobRoutes(app: FastifyInstance): Promise<void> {
 
   // One scanned photo's checks for trip review, as /uploads/inspect: region suggestions, an exact
   // keyword match from its tags (put first), and a wildlife check. Writes nothing.
-  app.post<{ Params: { id: string }; Body: { relativePath?: string; regionId?: string | null } }>(
+  app.post(
     "/trips/:id/inspect",
-    { preHandler: requireAuth },
+    {
+      preValidation: requireAuth,
+      config: tripNotFound,
+      schema: {
+        params: IdParams,
+        body: Type.Object(
+          { relativePath: Type.String({ minLength: 1 }), regionId: Type.Optional(Nullable(Uuid())) },
+          { additionalProperties: false },
+        ),
+      },
+    },
     async (request, reply) => {
-      if (!isUuid(request.params.id)) return reply.code(404).send({ error: "Trip not found" });
       const userId = request.user!.id;
-      const tripRes = await pool.query<{ source_folder: string }>(`SELECT source_folder FROM trips WHERE id = $1 AND user_id = $2`, [
-        request.params.id,
-        userId,
-      ]);
+      const tripRes = await pool.query<{ source_folder: string }>(
+        `SELECT source_folder FROM trips WHERE id = $1 AND user_id = $2`,
+        [request.params.id, userId],
+      );
       if (tripRes.rows.length === 0) return reply.code(404).send({ error: "Trip not found" });
-      const relativePath = request.body?.relativePath;
-      if (!relativePath) return reply.code(400).send({ error: "relativePath is required" });
+      const { relativePath } = request.body;
       const absolutePath = resolveWithinTripFolder(tripRes.rows[0].source_folder, relativePath);
       if (!absolutePath) return reply.code(404).send({ error: "File not found" });
-      const regionId = request.body?.regionId ?? null;
-      if (regionId !== null && !isUuid(regionId)) return reply.code(400).send({ error: "regionId must be a region id" });
+      const regionId = request.body.regionId ?? null;
 
       // HEIC can't be decoded by the matching models directly: prepareWorkingImage makes an
       // upright JPEG copy for them (a no-op for other formats).
@@ -335,25 +437,45 @@ export async function tripJobRoutes(app: FastifyInstance): Promise<void> {
           const species = [...byName.values()][0][0];
           keywordMatched = true;
           suggestions = [
-            { id: species.id, scientific_name: species.scientific_name, common_name: species.common_name, score: 1, source: "keyword_tag" },
+            {
+              id: species.id,
+              scientific_name: species.scientific_name,
+              common_name: species.common_name,
+              score: 1,
+              source: "keyword_tag",
+            },
             ...suggestions.filter((s) => s.id !== species.id),
           ];
         }
       }
-      const notWildlife = keywordMatched ? null : await checkNotWildlife(buffer, await computeEmbedding(buffer).catch(() => null));
+      const notWildlife = keywordMatched
+        ? null
+        : await checkNotWildlife(buffer, await computeEmbedding(buffer).catch(() => null));
       return { suggestions, notWildlife, takenAt: exif.takenAt };
     },
   );
 
-  app.post<{ Params: { id: string } }>("/trips/:id/import/cancel", { preHandler: requireAuth }, async (request, reply) => {
-    if (!isUuid(request.params.id)) return reply.code(404).send({ error: "Trip not found" });
-    if (!(await ownsTrip(request.params.id, request.user!.id))) return reply.code(404).send({ error: "Trip not found" });
-    return { cancelled: importJobs.get(request.params.id)?.cancel() ?? false };
-  });
+  app.post(
+    "/trips/:id/import/cancel",
+    {
+      preValidation: requireAuth,
+      config: tripNotFound,
+      schema: { params: IdParams, response: Cancelled },
+    },
+    async (request, reply) => {
+      if (!(await ownsTrip(request.params.id, request.user!.id)))
+        return reply.code(404).send({ error: "Trip not found" });
+      return { cancelled: importJobs.get(request.params.id)?.cancel() ?? false };
+    },
+  );
 
-  app.get<{ Params: { id: string } }>("/trips/:id/import/status", { preHandler: requireScope("trips.read") }, async (request, reply) => {
-    if (!isUuid(request.params.id)) return reply.code(404).send({ error: "Trip not found" });
-    if (!(await ownsTrip(request.params.id, request.user!.id))) return reply.code(404).send({ error: "Trip not found" });
-    return importJobs.get(request.params.id)?.status ?? idleImportStatus(request.params.id);
-  });
+  app.get(
+    "/trips/:id/import/status",
+    { preValidation: requireScope("trips.read"), config: tripNotFound, schema: { params: IdParams } },
+    async (request, reply) => {
+      if (!(await ownsTrip(request.params.id, request.user!.id)))
+        return reply.code(404).send({ error: "Trip not found" });
+      return importJobs.get(request.params.id)?.status ?? idleImportStatus(request.params.id);
+    },
+  );
 }

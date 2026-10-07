@@ -1,10 +1,10 @@
 // Photo search: one query box for species names, groups, places, dates and picture content.
 // Stages take the words they understand in order: full names, places and dates, multi-word
 // species fits, group words, species head nouns; whatever is left is scored with CLIP.
-import { pool } from "../db.js";
-import { EMBEDDING_MODEL_VERSION } from "../config.js";
-import { captureVectors, clearYourVectorCache } from "../species/embeddings.js";
-import { embedTextVectors } from "../species/textEmbedding.js";
+import { pool } from "@lifer/core/db.js";
+import { EMBEDDING_MODEL_VERSION } from "@lifer/core/config.js";
+import { captureVectors, clearYourVectorCache } from "@lifer/core/species/embeddings.js";
+import { embedTextVectors } from "@lifer/core/species/textEmbedding.js";
 import { GROUP_TERMS, MAX_GROUP_TERM_WORDS, speciesInGroup, type GroupPredicate } from "./searchTaxonSynonyms.js";
 
 // A photo matches a description when it scores at least this much above its own noise level

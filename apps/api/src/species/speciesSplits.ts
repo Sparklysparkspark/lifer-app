@@ -7,9 +7,9 @@
 // - otherwise it stays, and the card says "Name changed" and asks which it is.
 // Runs after a catalog update and after a pack install.
 import type { PoolClient } from "pg";
-import { MEDIA_CACHE_BUST } from "../config.js";
-import { pool } from "../db.js";
-import { log } from "../lib/log.js";
+import { MEDIA_CACHE_BUST } from "@lifer/core/config.js";
+import { pool } from "@lifer/core/db.js";
+import { log } from "@lifer/core/lib/log.js";
 import { reassignCaptureSpecies } from "../captures/routes.js";
 
 type Queryable = Pick<PoolClient, "query">;

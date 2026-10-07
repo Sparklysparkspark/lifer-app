@@ -1,19 +1,24 @@
 import { rmSync } from "node:fs";
 import { readFile, rm } from "node:fs/promises";
 import type { FastifyInstance } from "fastify";
-import { pool } from "../db.js";
+import { pool } from "@lifer/core/db.js";
 import { requireAuth } from "../auth/session.js";
-import { suggestSpecies, suggestSpeciesForFrames } from "../species/embeddings.js";
-import { probeVideo, extractVideoFrame } from "../uploads/image.js";
+import { suggestSpecies, suggestSpeciesForFrames } from "@lifer/core/species/embeddings.js";
+import { probeVideo, extractVideoFrame } from "@lifer/core/uploads/image.js";
 import { uploadTempPath } from "../uploads/common.js";
-import { claimedPhotoFormat, sniffPhotoFormat } from "../uploads/formats.js";
+import { claimedPhotoFormat, sniffPhotoFormat } from "@lifer/core/uploads/formats.js";
 import { prepareWorkingImage, type WorkingImage } from "../uploads/workingImage.js";
 import { receiveToFile, stageUpload, sweepStagedUploads } from "../lib/stagedUploads.js";
 import { finishedTusUpload } from "../lib/tusUploads.js";
+import { withSchemas } from "../lib/schema.js";
 
-export async function speciesSuggestRoutes(app: FastifyInstance): Promise<void> {
+// Both routes take multipart/form-data, read part by part from the stream, so there's no body
+// schema: the handlers check the fields (`file`, `regionId`, `uploadId`) as they arrive.
+export async function speciesSuggestRoutes(fastify: FastifyInstance): Promise<void> {
+  const app = withSchemas(fastify);
+
   // Ranks candidate species for an unassigned photo, for the picker to offer. Never assigns.
-  app.post("/captures/suggest-species", { preHandler: requireAuth }, async (request, reply) => {
+  app.post("/captures/suggest-species", { preValidation: requireAuth, schema: {} }, async (request, reply) => {
     // Checked server side before any costly work, not only as a UI gate.
     const settingRes = await pool.query<{ species_suggest_enabled: boolean }>(`SELECT species_suggest_enabled FROM users WHERE id = $1`, [
       request.user!.id,
@@ -59,7 +64,7 @@ export async function speciesSuggestRoutes(app: FastifyInstance): Promise<void> 
 
   // Same for a video: several frames spread across the clip are sampled and the best match
   // decides.
-  app.post("/captures/suggest-species-from-video", { preHandler: requireAuth }, async (request, reply) => {
+  app.post("/captures/suggest-species-from-video", { preValidation: requireAuth, schema: {} }, async (request, reply) => {
     const settingRes = await pool.query<{ species_suggest_enabled: boolean }>(`SELECT species_suggest_enabled FROM users WHERE id = $1`, [
       request.user!.id,
     ]);

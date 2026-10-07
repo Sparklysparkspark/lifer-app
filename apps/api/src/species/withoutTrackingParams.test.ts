@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { withoutTrackingParams } from "./lazyEnrich.js";
+import { withoutTrackingParams } from "@lifer/core/species/lazyEnrich.js";
 
 describe("withoutTrackingParams", () => {
   it("drops the utm_ parameters Commons adds, so the fetch can hit Wikimedia's cache", () => {

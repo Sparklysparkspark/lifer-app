@@ -3,7 +3,7 @@
 import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import type { PhotoSource, PhotoSourceAsset } from "@lifer/shared";
-import { pool } from "../db.js";
+import { pool } from "@lifer/core/db.js";
 import { contentDisposition } from "../lib/httpFile.js";
 
 const S3_ENDPOINT = process.env.LIFER_S3_ENDPOINT; // unset = real AWS S3

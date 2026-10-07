@@ -4,15 +4,15 @@ import { rmSync, existsSync } from "node:fs";
 import { copyFile, link, rm, unlink } from "node:fs/promises";
 import { constants } from "node:fs";
 import path from "node:path";
-import { pool } from "../db.js";
-import { APP_DATA_DIR, ORIGINALS_DIR } from "../config.js";
-import { ensureDir, moveToFolder } from "../lib/safeFs.js";
+import { pool } from "@lifer/core/db.js";
+import { APP_DATA_DIR, ORIGINALS_DIR } from "@lifer/core/config.js";
+import { ensureDir, moveToFolder } from "@lifer/core/lib/safeFs.js";
 import { uploadTempDir } from "../lib/uploadWorkDir.js";
-import { createLimiter } from "../lib/concurrency.js";
+import { createLimiter } from "@lifer/core/lib/concurrency.js";
 import { removeEmptyDirsUpward } from "../lib/fsCleanup.js";
-import { photoVectors, storeCaptureEmbedding, storeIdCaptureEmbedding, type PhotoVectorKind } from "../species/embeddings.js";
-import { idModel } from "../species/idModel.js";
-import type { ImageSource } from "../species/inference.js";
+import { photoVectors, storeCaptureEmbedding, storeIdCaptureEmbedding, type PhotoVectorKind } from "@lifer/core/species/embeddings.js";
+import { idModel } from "@lifer/core/species/idModel.js";
+import type { ImageSource } from "@lifer/core/species/inference.js";
 import type { CaptureTime } from "./exif.js";
 import { originalsFolder } from "./organizedPath.js";
 import { resolveSpeciesFolderName, stripForbiddenNameChars } from "./speciesFolderName.js";
@@ -120,10 +120,11 @@ export function queueCaptureVectors(captureId: string, image: ImageSource, key: 
     .finally(() => onDone?.());
 }
 
-/** Files a Lifer-managed original into its species' RAW or Adjusted folder after it was linked
- *  to a capture. A file Lifer doesn't manage (managed=false) is never moved. Returns the new
- *  path, or the old one when nothing moved. */
-export async function moveManagedOriginalToSpeciesFolder(
+/** Reimport's "organize": files a recovered original into its species' RAW or Adjusted folder in
+ *  the main library (ORIGINALS_DIR), wherever it was found. A file Lifer doesn't manage
+ *  (managed=false) is never moved. Returns the new path, or the old one when nothing moved. A
+ *  species change moves a file within its own folder instead (managedFolders.ts). */
+export async function fileIntoMainLibrary(
   currentRef: string,
   managed: boolean,
   userId: string,

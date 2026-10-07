@@ -2,9 +2,9 @@
 // folder behaves like any other volume everywhere else (uploads, reimport, the 409 "not
 // connected" responses). Roots dropped from the env are soft-removed, never deleted: their files
 // keep their volume and read as "not connected" until the path is declared again.
-import { withTransaction } from "../db.js";
-import { LIBRARY_ROOTS, type LibraryRoot } from "../config.js";
-import { log } from "../lib/log.js";
+import { withTransaction } from "@lifer/core/db.js";
+import { LIBRARY_ROOTS, type LibraryRoot } from "@lifer/core/config.js";
+import { log } from "@lifer/core/lib/log.js";
 
 export async function syncLibraryRootsFromEnv(roots: LibraryRoot[] = LIBRARY_ROOTS): Promise<void> {
   await withTransaction(async (client) => {

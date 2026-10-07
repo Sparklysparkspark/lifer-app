@@ -3,10 +3,10 @@
 // fallback, so an unmatched RAW stays unlinked. RAWs are never offered for species review.
 import { existsSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
-import { pool } from "../db.js";
+import { pool } from "@lifer/core/db.js";
 import { extractExif, readExifTags } from "../uploads/exif.js";
 import { computeFileFingerprint } from "../uploads/fileFingerprint.js";
-import { isRawExtension, isRawFile } from "../uploads/formats.js";
+import { isRawExtension, isRawFile } from "@lifer/core/uploads/formats.js";
 import { tagWithRegisteredVolume } from "../storageVolumes/resolve.js";
 
 export interface RawCandidate {
@@ -85,13 +85,14 @@ export async function linkRawForCapture(captureId: string, jpegFileName: string,
   return true;
 }
 
-// Tries to link a RAW for every capture in this trip that has a JPEG but no RAW yet.
+// Tries to link a RAW for every capture in this trip that has a JPEG but no RAW yet, hidden ones
+// included (captures_all), so unhiding a photo finds its RAW already there.
 export async function autoLinkMissingRaws(tripId: string, sourceFolder: string): Promise<number> {
   const res = await pool.query<{ id: string; taken_at: string | null; jpeg_ref: string }>(
     `SELECT c.id, c.taken_at, o.ref AS jpeg_ref
-     FROM captures c
+     FROM captures_all c
      JOIN originals o ON o.capture_id = c.id AND o.kind = 'jpeg'
-     WHERE c.trip_id = $1
+     WHERE c.trip_id = $1 AND c.deleted_at IS NULL
        AND NOT EXISTS (SELECT 1 FROM originals ro WHERE ro.capture_id = c.id AND ro.kind = 'raw')`,
     [tripId],
   );

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { desktopModeStartupError } from "./config.js";
+import { desktopModeStartupError } from "@lifer/core/config.js";
 
 describe("desktopModeStartupError", () => {
   it("is fine outside desktop mode", () => {

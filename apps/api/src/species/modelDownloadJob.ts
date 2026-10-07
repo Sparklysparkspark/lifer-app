@@ -4,13 +4,13 @@
 import type { Pool } from "pg";
 import { startAccelerationSelection } from "./accelerationSetup.js";
 import { createJob, type JobContext } from "../lib/job.js";
-import { clipModel, downloadModel, dropOlderClipModels, isModelDownloaded } from "./embeddings.js";
+import { clipModel, downloadModel, dropOlderClipModels, isModelDownloaded } from "@lifer/core/species/embeddings.js";
 import { runEmbeddingBackfill, runIdEmbeddingBackfill, runSpeciesEmbeddingBackfill } from "./embeddingBackfill.js";
-import { idModel } from "./idModel.js";
+import { idModel } from "@lifer/core/species/idModel.js";
 import { runGalleryEmbeddingsUpdate, type ReferenceVectorsResult } from "./galleryEmbeddingsAsset.js";
-import { downloadTextModel } from "./textEmbedding.js";
-import { verifyModelFile } from "./modelChecksums.js";
-import type { OnnxImageModel } from "./onnxImageModel.js";
+import { downloadTextModel } from "@lifer/core/species/textEmbedding.js";
+import { verifyModelFile } from "@lifer/core/species/modelChecksums.js";
+import type { OnnxImageModel } from "@lifer/core/species/onnxImageModel.js";
 
 export interface ModelDownloadResult {
   referenceVectors: ReferenceVectorsResult;

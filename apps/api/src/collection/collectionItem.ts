@@ -1,5 +1,5 @@
 // Per-user card state shared by GET /collection and GET /regions/:id/species.
-import { MEDIA_CACHE_BUST } from "../config.js";
+import { MEDIA_CACHE_BUST } from "@lifer/core/config.js";
 import { TECHNICAL_MAX_DEPTH_M, WELL_DOCUMENTED_MIN_OCCURRENCES } from "../species/obscurity.js";
 
 export interface CollectionRow {
@@ -60,6 +60,12 @@ export interface CollectionRow {
   inat_iconic_taxon?: string | null;
   /** Every year with a non-trashed capture, not just the first, so "big year" filters work. */
   captured_years?: number[] | null;
+  /** Region rows only: the region (or selected sea zone) the user added this species to by hand,
+   *  when the catalog doesn't list it here (regions/checklistAdditions.ts). */
+  user_added_region_id?: string | null;
+  user_added_region_name?: string | null;
+  /** "seaZone" when user_added_region_id is a sea zone; null or absent for a region. */
+  user_added_kind?: string | null;
 }
 
 // Ghost: fewer GBIF records than this, or no reference photo at all. Packs set only the thumb
@@ -146,6 +152,16 @@ export function toCollectionItem(row: CollectionRow, maxDepthM: number = TECHNIC
     isOtherTaxa: row.is_other_taxa === true,
     inatIconicTaxon: row.inat_iconic_taxon ?? null,
     capturedYears: row.captured_years ?? null,
+    // Only region rows carry it, so GET /collection items are unchanged.
+    ...(row.user_added_region_id !== undefined && {
+      userAddedRegion: row.user_added_region_id
+        ? {
+            id: row.user_added_region_id,
+            name: row.user_added_region_name ?? "",
+            kind: row.user_added_kind === "seaZone" ? ("seaZone" as const) : ("region" as const),
+          }
+        : null,
+    }),
   };
 }
 

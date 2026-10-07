@@ -2,7 +2,7 @@
 // EXIF fingerprint pair (exif.ts), which matches a RAW to its JPEG or a moved file to its row.
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { computeExifFingerprint, readExifTags, type ExifFingerprint, type ExifTags } from "./exif.js";
+import { computeExifFingerprint, type ExifFingerprint, type ExifTags } from "./exif.js";
 
 export interface FileFingerprint {
   contentHash: string;
