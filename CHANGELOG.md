@@ -1,19 +1,219 @@
 # Changelog
 
-All notable user-facing changes to Lifer are recorded here, in [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
-style. This file is what actually reaches users: its `[Unreleased]` section gets extracted by
-`.github/workflows/release.yml` into the GitHub release body for whatever tag you push, which is
-exactly what the app's own update banners display (`AppUpdatesSection`'s `update.body`, and the
-Docker/self-hosted release-notes link).
-
-**Workflow**: as you land user-facing changes, add a bullet under `[Unreleased]` in the right
-category. When you're ready to cut a release, rename `[Unreleased]` to the new version (matching
-the git tag you're about to push, without the `v` prefix) and add today's date, then add a fresh
-empty `[Unreleased]` section above it for whatever comes next.
-
-Categories: `Added`, `Changed`, `Fixed`, `Removed`: omit any with nothing to say.
+All notable user-facing changes to Lifer are recorded here. The format follows
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
+[Semantic Versioning](https://semver.org/). Each release's section is also its notes on the
+[releases page](https://github.com/Sparklysparkspark/lifer-app/releases) and in the app's update
+banner.
 
 ## [Unreleased]
+
+### Added
+
+- Desktop: when an update moves the app to a new PostgreSQL major version, the app upgrades your
+  library's database automatically on first launch, offline, showing "Upgrading your database
+  (one time)...". It recovers if it's interrupted, and keeps the old database until you choose to
+  delete it. The bundled PostgreSQL now includes pg_dump, pg_restore, pg_dumpall and pg_upgrade.
+- Reimport library reads culling apps' marks too, and imports rejected photos hidden by default.
+- Desktop app: **Keep an offline cache after connecting** now works. While connected to a server,
+  the app keeps a read-only copy of your collection (names, collected and seen status, and small
+  covers, never full photos) and shows it under an "Offline" banner when the server can't be
+  reached, switching back by itself when it returns. See or delete the cache in Settings >
+  Server. It's stored unencrypted in the app data folder and deleted on sign-out, when switching
+  servers, or when the option is unticked.
+- Lifer reads the picks, rejects and colour labels left by culling apps (Lightroom Classic 13.2
+  and later, Bridge, Photo Mechanic, digiKam, Vireo, SuperPicky, FastRawViewer and others), from
+  the photo, its `.xmp` sidecar and its RAW. Rejected photos are skipped at import by default, or
+  can be imported hidden or as usual, and trip scans and Bulk import say how many were rejected.
+  Your files are never changed. See
+  [Culling with other apps](https://sparklysparkspark.github.io/lifer-app/guides/culling-with-other-apps).
+- A **Hidden** filter in the Gallery for photos imported hidden, with **Unhide**; the full-screen
+  view shows a photo's pick and colour label.
+- API: `POST /api/uploads` takes `cullMarks` (`ignore` by default, `skip` or `hide`),
+  `POST /api/uploads/inspect` returns `cull`, and `GET /api/gallery` takes `hidden=1`.
+- Docs: a Design and architecture section (data model, state and sync, imports and metadata,
+  architecture decision records) and a security model page.
+- You can add a species to a sea zone's checklist too, from the species page or from a coastal
+  region with the zone ticked.
+- Conservation status now comes straight from the IUCN Red List (version 2026-1, via GBIF),
+  filling statuses for thousands of species that showed none, including about 680 birds, 750
+  amphibians and 3,300 fish on checklists. Species IUCN has never assessed (most nudibranchs,
+  sponges, sea stars and many shells) say "Not evaluated by IUCN" instead of showing nothing, and
+  a species split from one IUCN still assesses as a whole shows as not evaluated, with a note
+  naming the parent instead of borrowing its status.
+- Add any species, including ones you imported by hand, to another country's or province's
+  checklist: **Add to another checklist** on a species page, or **+ Add a species** on a region's
+  checklist. Species you add are marked **Added by you**, can be removed again, and are never
+  removed by catalog updates or offline packs. API keys get a `collection.write` permission for
+  this.
+- `npm run doctor -w data-pipeline` checks a machine against everything the data pipeline needs
+  (database, migrations, PostGIS, Python environment, keys, disk, gh) and prints a pass/fail list.
+- Docs: "Rebuilding the data" explains how to rebuild every data release from scratch on a fork.
+- Species in your downloaded packs whose photos can't be included for licensing reasons now get
+  their main photo from iNaturalist in the background, for your own viewing. Turn it off in
+  Settings > Offline data.
+- `LOG_LEVEL` sets how much a server logs (`debug` when troubleshooting).
+- `/api/openapi.json` is generated from the routes, so it always matches what the server accepts.
+- Lifer for Intel Macs: download `Lifer-macos-x64.zip` (macOS 14 or later). It updates itself like
+  the Apple Silicon app.
+- Release builds can sign the Windows installer and app through SignPath Foundation once it's set
+  up.
+
+### Changed
+
+- **Docker: the database is now plain Postgres 18** (`postgres:18-alpine`) instead of the PostGIS
+  16 image, so it runs natively on ARM servers such as a Raspberry Pi. On the first start with the
+  new `docker-compose.yml`, your database moves to the new `lifer-db` volume by itself, and the old
+  volume is left untouched. See
+  [Upgrading](https://sparklysparkspark.github.io/lifer-app/install/upgrading#postgres-18).
+- Docker: the image is much smaller to download (x86-64 about 840 to 490 MB, ARM about 605 to
+  470 MB). It no longer ships packages the server never loads, or ONNX Runtime's own CUDA
+  libraries: with an NVIDIA GPU, Lifer still downloads the GPU libraries it needs on first use.
+- Docker: GPU settings moved to `hwaccel.yml`, used with one `extends` line in
+  `docker-compose.yml`. See
+  [GPU acceleration](https://sparklysparkspark.github.io/lifer-app/install/hardware-acceleration).
+- The server runs as compiled JavaScript instead of TypeScript through tsx, so the Docker image and
+  desktop app no longer ship TypeScript tooling.
+- Docker: `docker-compose.yml` pulls the `release` image tag (the newest stable version) and no
+  longer includes Watchtower, so Lifer only updates when you choose to. Set `LIFER_VERSION` in
+  `.env` to pin a version. Images are now also tagged by version (`0.9.1`, `0.9`). See
+  [Upgrading](https://sparklysparkspark.github.io/lifer-app/install/upgrading).
+- Docker: the database password can be set with `DB_PASSWORD` in `.env` before the first start.
+- Docker: on start, Lifer no longer walks your whole photo library to change file owners. It
+  only takes ownership of the library's top folder and, once, of files left owned by root by
+  images before 0.9.0. Files owned by other users or apps are never changed.
+
+- Offline packs only include reference photos whose license allows sharing them (CC0, public
+  domain, or any Creative Commons license). Some species show a different reference photo; for the
+  rest, Lifer fetches one from iNaturalist just for you.
+
+- Marine checklists use new sea zones: the named seas of the IHO's "Limits of Oceans and Seas"
+  (such as the North Sea or the Gulf of Mexico), plus each country's part of the open oceans (such
+  as the Chilean part of the South Pacific). They replace the Marine Ecoregions of the World, whose
+  license doesn't allow Lifer to share them. The old zones are removed when you update the
+  catalog; download the new ones from Offline packs.
+- Notifications are announced to screen readers.
+
+- Security: the text-search model now runs on a maintained library (Hugging Face's
+  transformers.js 4), removing vulnerable copies of protobufjs, sharp and libvips. Search results
+  may differ very slightly.
+- API requests are checked against each route's schema: invalid input answers 400 with code
+  `invalid_request` and names the field.
+- Intel Macs use the full-precision species-matching model (about 1.2 GB, downloaded once),
+  because the compact one can't run on the ONNX Runtime the Intel build needs.
+- Species suggestions and text search are more accurate: the text model now runs at full
+  optimization, and the catalog's species text vectors are recomputed to match.
+- Species descriptions now come straight from the Wikipedia article and keep what helps in the
+  field (size, colours and markings, look-alikes, behaviour), leaving out taxonomy, name history,
+  range lists and conservation boilerplate. They're never cut off mid-sentence.
+- The desktop app bundles only the packages its server actually loads, traced the same way as
+  the Docker image: its bundled packages drop from about 409 MB to 215 MB.
+- Data pipeline: occurrence stats are fetched from GBIF about 200 species per request instead of
+  one, and each species is stamped when checked, so species with no records aren't refetched
+  every run. Descriptions are backfilled from Wikipedia in batches, and a refresh only refetches
+  articles edited since the last run.
+- Species you import from iNaturalist are now your own: they're marked "Added by you", other
+  people on the same server don't see them, and removing one no longer removes it for everyone.
+- A country or province without a downloaded pack still shows the species you've photographed
+  there or added to its checklist, with the download button above them.
+- Importing from iNaturalist asks for a country, province or state, since World and the
+  continents have no checklist of their own.
+- The Gallery, trip, album, species and stats pages, and the top bar, fit a phone screen without
+  scrolling sideways.
+- The desktop app now comes with its database engine, so the first launch works offline and no
+  longer downloads PostgreSQL. Existing libraries open as before. If you used an earlier
+  version, you can delete `~/.theseus/postgresql` once Lifer has updated.
+- The Mac app now runs on macOS 14 (Sonoma) or later, on both Apple Silicon and Intel. It
+  needed macOS 15 before.
+- Sea zone checklists only list fish and marine mammals that live in the sea: freshwater-only
+  species picked up from records near the coast are left off, using WoRMS (World Register of
+  Marine Species) habitats, and rare visitors at the edge of their range, like a basking shark in
+  the Adriatic, stay when a neighbouring sea has them well recorded. Sea zones also count records
+  cited from published surveys and papers, so seas known mostly from fisheries research, like the
+  Black Sea, keep their common fish.
+- Grouping a checklist by tier shows each tier at full width, from Legendary down, instead of
+  putting small tiers side by side. Taxonomic groupings still pair up small groups.
+
+### Security
+
+- The desktop app checks its species catalog against the published checksum before loading it.
+- The desktop app's local library now only answers the app itself: its window signs in with a
+  secret made at each launch, so other programs and other accounts on the computer can no longer
+  use Lifer's local server, and `/health` no longer gives out the launch token.
+- **Breaking for reverse proxies:** Lifer no longer trusts proxies on private networks by default,
+  so a device on your network can't fake its address to get around the login limit. Behind a
+  reverse proxy, set `TRUST_PROXY` to the proxy's address
+  ([Reverse proxy and HTTPS](https://sparklysparkspark.github.io/lifer-app/install/reverse-proxy#trust-proxy)).
+  Lifer logs a warning if it's missing.
+- Share links are stored as a hash, and your copy for the share list is encrypted, so a copy of
+  the database can't open them. Existing links keep working.
+- A linked iNaturalist account's sign-in is stored encrypted, with a key kept in the app data
+  folder rather than the database. Losing that key only means linking iNaturalist again; see
+  Backup and restore.
+- Migrating the desktop library to a server refuses loopback and link-local addresses after
+  looking the name up, and again on every connection, so DNS tricks and redirects can't point it
+  at this computer.
+- A Docker server checks its bundled species catalog against the published checksum before
+  loading it.
+- Build workflows pin their third-party GitHub Actions to exact commits.
+
+### Fixed
+
+- Going back from a species page returns the checklist to where you were scrolled, instead of
+  jumping, even far down a long list.
+- Sending photos to iNaturalist no longer invents a location or a date. Photos without GPS (most
+  cameras) are sent without coordinates and Lifer opens the observation on iNaturalist to place
+  it; **Confirm complete** then copies that location back onto the photos in Lifer, never
+  replacing a camera's GPS. Photos with GPS can be confirmed too, and photos without GPS can be
+  sent at all.
+- API: `POST /api/uploads/inspect` with a `file` now flags a photo with no wildlife in it; the
+  check used to read the file after it had been moved and found nothing.
+- Changing a photo's species, or reorganizing the library, keeps its files on their own drive or
+  library folder and in their trip folder, with their year and location folders, instead of
+  moving them to the main library. A photo on a drive no longer loses track of its file after a
+  species change.
+- Reorganize and trip imports file photos under the camera's own year, whatever the server's time
+  zone, and reorganize includes hidden photos.
+- Moving a library to a server no longer creates duplicate photos when an interrupted move is run
+  again.
+- A new desktop install no longer offers the catalog it already has as an update.
+- On a first Docker start, archived, hidden, seen and target species come back from the library
+  once the catalog has loaded, instead of being skipped until a restart.
+- Photo tags are written into the photo files Lifer keeps, as keywords other apps show; renaming
+  or deleting a tag updates the files, and reimport brings tags back.
+- Removing an offline pack that fails partway no longer leaves species pointing at deleted
+  reference photos.
+- Lifer's recovery files in the library (`.lifer`) are flushed to disk when saved, so a power cut
+  can't leave an empty file.
+- Trashed photos show their thumbnails on the Trash page, and hidden photos' originals open again.
+- The IUCN status backfill matched nothing, statuses were stored in two places with mixed
+  spellings, and the status of a species added through Other Taxa never showed on its page.
+- Species descriptions were missing for many species: a throttled iNaturalist request was
+  recorded as "no description" and never retried. Text is now tracked separately from photos,
+  and a species whose text was never looked up gets it the next time you open it.
+- Deleting a species' featured photo now moves its cover to your next best photo, instead of
+  leaving a broken thumbnail on its cards until the trash is emptied.
+- On a species page, the "Best shot" badge no longer covers the photo's checkbox in select mode.
+- Grouping the Gallery by region no longer shows two "Unknown region" groups.
+- The Gallery's Tag filter, the Collection page's Show and Found in year filters, the species
+  map's year filter and the RAW and Media type filters now have names screen readers announce.
+- On Intel Macs, the manual download link in Settings > App updates gets the Intel build.
+
+- Creating a trip without a destination folder no longer fails with "Lifer doesn't have access to
+  that folder" when the library folder is reached through a symlink (such as macOS's `/tmp` or a
+  symlinked NAS mount). The same mismatch is fixed for library roots, linking files to their
+  storage volume, and tidying empty folders after a delete.
+
+- Docker: the database gets 256 MB of shared memory instead of Docker's 64 MB default, so large
+  queries no longer fail with "could not resize shared memory segment".
+- A reference photo installed from an offline pack now always shows its own photographer's
+  credit and license. When it replaced a missing photo, the old photo's credit could stay.
+- The sign-in page no longer makes requests that fail before you've signed in.
+- A server without the offline map downloaded no longer answers requests for it with the web app
+  itself, which made the offline packs page report a damaged map.
+- Video previews of 10-bit footage (iPhone HDR, ProRes, and 10-bit H.264 from cameras like
+  Sony's) now play in the browser and the desktop app. 10-bit H.264 used to skip the preview.
+- RAW files are paired with their edited copy correctly when a file name has no extension.
 
 ## [0.9.0] - 2026-10-03
 
