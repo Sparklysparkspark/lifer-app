@@ -2305,7 +2305,7 @@ name = "lifer-desktop"
 version = "0.9.0"
 dependencies = [
  "flate2",
- "getrandom 0.3.4",
+ "getrandom 0.4.3",
  "postgresql_commands",
  "postgresql_embedded",
  "reqwest 0.12.28",
