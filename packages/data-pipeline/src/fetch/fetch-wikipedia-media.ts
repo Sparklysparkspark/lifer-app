@@ -9,9 +9,9 @@
 
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { BUILD_DIR } from "../raw-cache.js";
+import { BUILD_DIR } from "@lifer/core/rawCache.js";
 import { fetchCommonsFileMetadata, type CommonsPhotoRow } from "./fetch-commons-photo.js";
-import { fetchWithRetry } from "../fetch-with-retry.js";
+import { fetchWithRetry } from "@lifer/core/lib/fetchWithRetry.js";
 
 const MEDIA_LIST_API = "https://en.wikipedia.org/api/rest_v1/page/media-list/";
 const MAX_PHOTOS = 6;

@@ -2,13 +2,13 @@
 // carries a mandatory reference_credit + reference_license (a CHECK constraint in schema.sql).
 // Only photos served from the inaturalist-open-data.s3 domain (AWS Open Data) are confirmed open;
 // anything else is skipped. The allowed license set (and the LIFER_ALLOW_NONCOMMERCIAL_PHOTOS
-// escape hatch) live in ../license-policy.ts, shared with the Wikimedia Commons fallback.
+// escape hatch) live in @lifer/core/species/licensePolicy.ts, shared with the Wikimedia Commons fallback.
 
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { BUILD_DIR } from "../raw-cache.js";
-import { isLicenseAllowed, isRestrictedLicense, normalizeLicense } from "../license-policy.js";
-import { fetchWithRetry } from "../fetch-with-retry.js";
+import { BUILD_DIR } from "@lifer/core/rawCache.js";
+import { isLicenseAllowed, isRestrictedLicense, normalizeLicense } from "@lifer/core/species/licensePolicy.js";
+import { fetchWithRetry } from "@lifer/core/lib/fetchWithRetry.js";
 
 const INAT_API = "https://api.inaturalist.org/v1";
 const OPEN_DATA_DOMAIN = "inaturalist-open-data.s3";

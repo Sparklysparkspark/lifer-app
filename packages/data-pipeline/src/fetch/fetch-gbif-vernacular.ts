@@ -2,7 +2,7 @@
 // GBIF's `language` param doesn't filter server-side, so English is filtered client-side.
 // Clements/IOC are preferred for birds as the standard birder references.
 
-import { fetchWithRetry } from "../fetch-with-retry.js";
+import { fetchWithRetry } from "@lifer/core/lib/fetchWithRetry.js";
 
 const PREFERRED_SOURCES = ["The Clements Checklist", "IOC World Bird List"];
 

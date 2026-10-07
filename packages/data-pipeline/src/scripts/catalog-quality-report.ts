@@ -100,8 +100,9 @@ async function main() {
   report.withoutInat = (await pool.query<{ n: number }>(`SELECT count(*)::int AS n FROM species WHERE inat_taxon_id IS NULL AND is_other_taxa = false`)).rows[0].n;
 
   writeFileSync(out, JSON.stringify(report, null, 1));
-  for (const [name, r] of Object.entries(report.regions as Record<string, any>)) {
-    const missing = r.mustHave.filter((m: any) => !m.onChecklist).map((m: any) => m.common ?? m.name);
+  type RegionReport = { total: number; zeroLegendary: number; mustHave: Array<{ name: string; common: string | null; onChecklist: boolean }> };
+  for (const [name, r] of Object.entries(report.regions as Record<string, RegionReport>)) {
+    const missing = r.mustHave.filter((m) => !m.onChecklist).map((m) => m.common ?? m.name);
     console.log(`${name}: ${r.total} species, ${r.zeroLegendary} "legendary with 0 records", missing: ${missing.join(", ") || "none"}`);
   }
   await pool.end();

@@ -10,7 +10,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { fetchCached, RAW_DIR } from "../raw-cache.js";
+import { fetchCached, RAW_DIR } from "@lifer/core/rawCache.js";
 
 const execFileAsync = promisify(execFile);
 const DATA_URL = "https://ndownloader.figshare.com/files/38323722";
@@ -70,6 +70,7 @@ export async function fetchFishDepth(): Promise<FishDepthRow[]> {
     } catch (err) {
       throw new Error(
         `[fish-depth] Rscript failed: is R installed? (brew install r on macOS). Original error: ${err}`,
+        { cause: err },
       );
     }
   }

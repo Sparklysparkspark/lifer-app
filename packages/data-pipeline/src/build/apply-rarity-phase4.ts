@@ -17,7 +17,7 @@ import {
   CAMOUFLAGED_FISH_FAMILIES,
   MAMMAL_DENSITY_ELUSIVENESS_BOOST_WEIGHT,
   type RarityTier,
-} from "./compute-rarity-phase1.js";
+} from "@lifer/core/species/computeRarityPhase1.js";
 
 // Tier tracks photographic encounter difficulty, so elusiveness is the majority weight and range
 // and abundance moderate it. With a lower elusiveness weight, widespread species could never
@@ -62,11 +62,12 @@ export async function applyElusiveness(
 ): Promise<void> {
   // Range score is recomputed from species_traits rather than trusted from species_rarity, so a
   // rerun fixes already-loaded rows. Extinct species are excluded: they can't be photographed and
-  // would skew the tier boundaries.
+  // would skew the tier boundaries. Other Taxa species can have a traits row (their IUCN status,
+  // migration 129) but never get a tier.
   const res = await pool.query(
     `SELECT s.id, s.gbif_key, s.taxon_class, s.family, t.range_size_km2, t.iucn_status, t.nocturnal, t.population_estimate, t.density_per_km2, t.home_range_km2, t.habitat_density, t.domestic
      FROM species s JOIN species_traits t ON t.species_id = s.id
-     WHERE t.fully_extinct = false`,
+     WHERE t.fully_extinct = false AND s.is_other_taxa = false`,
   );
   const rows = res.rows as Array<{
     id: string;
@@ -241,7 +242,7 @@ export async function applyElusiveness(
         row.id,
       ]);
       // Introduced countries aren't written here: the distance heuristic misfires on native ranges.
-      // species_nonnative_countries comes from iNaturalist (apps/api/src/scripts/apply-introduced-flags.ts).
+      // species_nonnative_countries comes from iNaturalist (packages/data-pipeline/src/scripts/apply-introduced-flags.ts).
     }
     await client.query("COMMIT");
   } catch (err) {

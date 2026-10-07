@@ -14,10 +14,10 @@ function square(lon: number, lat: number, size: number): [number, number][] {
   ];
 }
 
-vi.mock("../fetch/fetch-region-boundary.js", () => ({
+vi.mock("@lifer/core/regions/regionBoundary.js", () => ({
   fetchAllCountries: vi.fn(),
 }));
-vi.mock("./build-region-species.js", () => ({
+vi.mock("@lifer/core/regions/buildRegionSpecies.js", () => ({
   fetchSpeciesCountsForRegion: vi.fn(),
   MIN_RECORDS: 30,
   FISH_MIN_RECORDS: 30,
@@ -32,8 +32,8 @@ const MAMMAL_RARE = 101; // genuinely rare mammal
 
 describe("computeElusiveness", () => {
   beforeEach(async () => {
-    const { fetchAllCountries } = await import("../fetch/fetch-region-boundary.js");
-    const { fetchSpeciesCountsForRegion } = await import("./build-region-species.js");
+    const { fetchAllCountries } = await import("@lifer/core/regions/regionBoundary.js");
+    const { fetchSpeciesCountsForRegion } = await import("@lifer/core/regions/buildRegionSpecies.js");
 
     vi.mocked(fetchAllCountries).mockResolvedValue([{ iso3: "USA", iso2: "US" } as never]);
 
@@ -77,12 +77,12 @@ describe("computeElusiveness", () => {
   });
 
   it("flags a species present in exactly one country as endemic", async () => {
-    const { fetchAllCountries } = await import("../fetch/fetch-region-boundary.js");
+    const { fetchAllCountries } = await import("@lifer/core/regions/regionBoundary.js");
     vi.mocked(fetchAllCountries).mockResolvedValue([
       { iso3: "USA", iso2: "US" } as never,
       { iso3: "CAN", iso2: "CA" } as never,
     ]);
-    const { fetchSpeciesCountsForRegion } = await import("./build-region-species.js");
+    const { fetchSpeciesCountsForRegion } = await import("@lifer/core/regions/buildRegionSpecies.js");
     vi.mocked(fetchSpeciesCountsForRegion).mockImplementation(async (code, taxonKeys = []) => {
       if (!taxonKeys.includes(998)) return [];
       if (code === "USA") return [{ gbifKey: MAMMAL_COMMON, recordCount: 6_000 }, { gbifKey: MAMMAL_RARE, recordCount: 50 }];

@@ -3,12 +3,12 @@
 // are shared across taxa and seeded by build-seed.ts; this only adds species, traits and rarity.
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { fetchGbifBackboneForKeys, MAMMALIA_CLASS_KEY, type GbifSpeciesRow } from "../fetch/fetch-gbif-backbone.js";
+import { fetchGbifBackboneForKeys, MAMMALIA_CLASS_KEY, type GbifSpeciesRow } from "@lifer/core/gbif/backbone.js";
 import { fetchMdd } from "../fetch/fetch-mdd.js";
 import { fetchCombine } from "../fetch/fetch-combine.js";
 import { fetchWikidataForSpecies } from "../fetch/fetch-wikidata.js";
-import { computeRarityPhase1 } from "./compute-rarity-phase1.js";
-import { BUILD_DIR } from "../raw-cache.js";
+import { computeRarityPhase1 } from "@lifer/core/species/computeRarityPhase1.js";
+import { BUILD_DIR } from "@lifer/core/rawCache.js";
 
 function canonical(g: GbifSpeciesRow): string {
   return g.canonicalName ?? g.scientificName;

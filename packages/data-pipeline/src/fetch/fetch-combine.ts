@@ -2,7 +2,7 @@
 // (doi.org/10.6084/m9.figshare.13028255.v4). License: no copyright restriction per the paper's
 // data-availability statement; figshare reports CC-BY-4.0. Mammals' AVONET-equivalent trait
 // source per spec §7 (density, home range, nocturnality).
-import { fetchCached } from "../raw-cache.js";
+import { fetchCached } from "@lifer/core/rawCache.js";
 import { readFileSync } from "node:fs";
 
 // figshare's ndownloader redirects to a signed, expiring S3 URL; fetch() follows the redirect,

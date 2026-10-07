@@ -3,22 +3,22 @@
 //
 // Excludes per-species enrichment (photos, Wikipedia text and galleries) and per-region
 // occurrence computation: those are slow live API calls, done lazily on first view instead
-// (apps/api/src/species/lazyEnrich.ts and apps/api/src/regions/routes.ts). This only does what's
+// (packages/core/src/species/lazyEnrich.ts and apps/api/src/regions/routes.ts). This only does what's
 // fast and local: GBIF backbone and common names, AVONET/EltonTraits traits, Wikidata (IUCN
 // status, image, Wikipedia sitelink), rarity, and the region hierarchy (see build-regions.ts).
 
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { fetchGbifBackboneAves, type GbifSpeciesRow } from "../fetch/fetch-gbif-backbone.js";
+import { fetchGbifBackboneAves, type GbifSpeciesRow } from "@lifer/core/gbif/backbone.js";
 import { fetchCommonName } from "../fetch/fetch-gbif-vernacular.js";
 import { fetchAvonet } from "../fetch/fetch-avonet.js";
 import { fetchEltonTraits } from "../fetch/fetch-elton-traits.js";
 import { fetchWikidataForSpecies } from "../fetch/fetch-wikidata.js";
 import { fetchBirdAbundance } from "../fetch/fetch-bird-abundance.js";
 import { buildRegions } from "./build-regions.js";
-import { computeRarityPhase1 } from "./compute-rarity-phase1.js";
-import { BUILD_DIR } from "../raw-cache.js";
-import { mapWithConcurrency } from "../concurrency.js";
+import { computeRarityPhase1 } from "@lifer/core/species/computeRarityPhase1.js";
+import { BUILD_DIR } from "@lifer/core/rawCache.js";
+import { mapWithConcurrency } from "@lifer/core/lib/concurrency.js";
 
 // 16 concurrent requests: fast enough (minutes instead of an hour-plus) without hammering GBIF.
 const GBIF_CONCURRENCY = 16;
@@ -91,7 +91,7 @@ async function main() {
       // eBird taxonomy licensing is unresolved, so this stays null until it's verified.
       ebirdCode: null,
       // Reference photo, description and gallery are fetched lazily on first species view (see
-      // apps/api/src/species/lazyEnrich.ts); null here just means not fetched yet.
+      // packages/core/src/species/lazyEnrich.ts); null here just means not fetched yet.
       inatTaxonId: null,
       scientificName: canonical(g),
       commonName: commonNameByGbifKey.get(g.gbifKey) ?? null,

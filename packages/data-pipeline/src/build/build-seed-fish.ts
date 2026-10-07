@@ -4,14 +4,14 @@
 // from GBIF's vernacularNames endpoint, as for birds.
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { fetchGbifBackboneForKeys, type GbifSpeciesRow } from "../fetch/fetch-gbif-backbone.js";
-import { fetchFishTaxonKeys } from "../fetch/fetch-fish-orders.js";
+import { fetchGbifBackboneForKeys, type GbifSpeciesRow } from "@lifer/core/gbif/backbone.js";
+import { fetchFishTaxonKeys } from "@lifer/core/gbif/fishOrders.js";
 import { fetchCommonName } from "../fetch/fetch-gbif-vernacular.js";
 import { fetchWikidataForSpecies } from "../fetch/fetch-wikidata.js";
 import { fetchFishDepth } from "../fetch/fetch-fish-depth.js";
-import { computeRarityPhase1 } from "./compute-rarity-phase1.js";
-import { mapWithConcurrency } from "../concurrency.js";
-import { BUILD_DIR } from "../raw-cache.js";
+import { computeRarityPhase1 } from "@lifer/core/species/computeRarityPhase1.js";
+import { mapWithConcurrency } from "@lifer/core/lib/concurrency.js";
+import { BUILD_DIR } from "@lifer/core/rawCache.js";
 
 const GBIF_CONCURRENCY = 16;
 

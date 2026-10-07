@@ -1,7 +1,7 @@
 // Source: Mammal Diversity Database (MDD) v2.0, via Zenodo (doi.org/10.5281/zenodo.17033774).
 // License: CC-BY-4.0. Mammals' AVONET equivalent: scientific names, curated common names,
 // family/order and IUCN status in one file.
-import { fetchCached, BUILD_DIR } from "../raw-cache.js";
+import { fetchCached, BUILD_DIR } from "@lifer/core/rawCache.js";
 import path from "node:path";
 import { readFileSync } from "node:fs";
 

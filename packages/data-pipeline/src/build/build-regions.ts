@@ -5,8 +5,8 @@
 
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { BUILD_DIR } from "../raw-cache.js";
-import { fetchAllCountries } from "../fetch/fetch-region-boundary.js";
+import { BUILD_DIR } from "@lifer/core/rawCache.js";
+import { fetchAllCountries } from "@lifer/core/regions/regionBoundary.js";
 
 export interface RegionSeed {
   name: string;

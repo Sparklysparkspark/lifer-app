@@ -126,7 +126,7 @@ async function ancestorNames(ids: number[], cache: TaxaCache, offline: boolean) 
   return known;
 }
 
-interface EbirdRow {
+export interface EbirdRow {
   sci: string;
   common: string;
   code: string;
@@ -134,6 +134,7 @@ interface EbirdRow {
   family: string;
   order: string;
   extinct: boolean;
+  reportAs: string;
 }
 function loadEbird(): EbirdRow[] {
   const lines = readFileSync(EBIRD_TAXONOMY_CSV, "utf8").split("\n");
@@ -151,6 +152,7 @@ function loadEbird(): EbirdRow[] {
       family: f[at("FAMILY_SCI_NAME")],
       order: f[at("ORDER")],
       extinct: f[at("EXTINCT")] === "true" || f[at("EXTINCT")] === "1",
+      reportAs: f[at("REPORT_AS")] ?? "",
     });
   }
   return rows;
@@ -174,6 +176,49 @@ function parseCsvLine(line: string): string[] {
     } else cur += c;
   }
   out.push(cur);
+  return out;
+}
+
+/** eBird subspecies groups as the species name other lists give them ("Setophaga auduboni" for
+ *  Yellow-rumped Warbler (Audubon's)), each with the eBird species it's reported as. Groups
+ *  spanning several subspecies ("[auduboni Group]", "a/b") have no such name. */
+export function ebirdFormsByBinomial(ebird: EbirdRow[]): Map<string, string> {
+  const speciesCodes = new Set(ebird.filter((r) => r.category === "species").map((r) => r.code));
+  const forms = new Map<string, string>();
+  for (const r of ebird) {
+    if ((r.category !== "issf" && r.category !== "form") || !speciesCodes.has(r.reportAs)) continue;
+    const parts = r.sci.split(" ");
+    if (parts.length !== 3 || /[[/]/.test(r.sci)) continue;
+    forms.set(`${parts[0]} ${parts[2]}`, r.reportAs);
+  }
+  return forms;
+}
+
+export interface FormDuplicate {
+  oldId: string;
+  oldName: string;
+  newId: string;
+  newName: string;
+}
+
+/** Catalog birds eBird treats as a subspecies group of another catalog species (Audubon's
+ *  Warbler, a form of Yellow-rumped Warbler): the same species twice, for review into
+ *  species-merges.tsv. */
+export async function findEbirdFormDuplicates(): Promise<FormDuplicate[]> {
+  const ebird = loadEbird();
+  const ebirdSpecies = new Set(ebird.filter((r) => r.category === "species").map((r) => r.sci));
+  const forms = ebirdFormsByBinomial(ebird);
+  const birds = await pool.query<{ id: string; name: string; ebird_code: string | null }>(
+    `SELECT id, scientific_name AS name, ebird_code FROM species WHERE taxon_class = 'aves' AND NOT is_other_taxa`,
+  );
+  const byCode = new Map(birds.rows.filter((b) => b.ebird_code).map((b) => [b.ebird_code!, b]));
+  const out: FormDuplicate[] = [];
+  for (const b of birds.rows) {
+    if (ebirdSpecies.has(b.name)) continue;
+    const parentCode = forms.get(b.name);
+    const parent = parentCode ? byCode.get(parentCode) : undefined;
+    if (parent && parent.id !== b.id) out.push({ oldId: b.id, oldName: b.name, newId: parent.id, newName: parent.name });
+  }
   return out;
 }
 
@@ -252,6 +297,8 @@ export async function findMissingSpecies(opts: { offline: boolean }): Promise<{ 
 
   const ebird = loadEbird();
   const ebirdBySci = new Map(ebird.filter((r) => r.category === "species").map((r) => [r.sci, r]));
+  const ebirdForms = ebirdFormsByBinomial(ebird);
+  const speciesByEbird = new Map(catalog.rows.filter((r) => r.ebird_code).map((r) => [r.ebird_code!, r.id]));
 
   const candidates: Array<{ id: string; detail: TaxonDetail; group: string; places: number }> = [];
   for (const [id, p] of places) {
@@ -288,7 +335,18 @@ export async function findMissingSpecies(opts: { offline: boolean }): Promise<{ 
 
   const add: NewSpecies[] = [];
   const addedNames = new Set<string>();
+  const synonyms: Array<{ name: string; speciesId: string }> = [];
   for (const c of candidates) {
+    // Birds follow eBird: a species iNaturalist recognises that eBird counts as a form of a catalog
+    // species is another name for that species, not a new one.
+    if (c.group === "aves" && !ebirdBySci.has(c.detail.name)) {
+      const parentCode = ebirdForms.get(c.detail.name);
+      const parent = parentCode ? speciesByEbird.get(parentCode) : undefined;
+      if (parent) {
+        synonyms.push({ name: c.detail.name, speciesId: parent });
+        continue;
+      }
+    }
     const rankName = (rank: string) => c.detail.ancestors.map((a) => ancestors[String(a)]).find((a) => a?.rank === rank)?.name ?? null;
     const [genus, epithet] = c.detail.name.split(" ");
     const family = rankName("family");
@@ -338,7 +396,6 @@ export async function findMissingSpecies(opts: { offline: boolean }): Promise<{ 
   // iNaturalist knows the name under an id the catalog already has, it's the same species under
   // eBird's name: a synonym, not a new entry.
   const speciesByInat = new Map(catalog.rows.filter((r) => r.inat_taxon_id != null).map((r) => [r.inat_taxon_id!, r.id]));
-  const synonyms: Array<{ name: string; speciesId: string }> = [];
   for (const r of ebirdBySci.values()) {
     if (r.extinct || knownEbird.has(r.code) || knownNames.has(r.sci) || addedNames.has(r.sci)) continue;
     const inatId = currentTaxon[r.sci];

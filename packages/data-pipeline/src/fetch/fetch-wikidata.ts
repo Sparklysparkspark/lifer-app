@@ -5,15 +5,18 @@
 
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { BUILD_DIR } from "../raw-cache.js";
-import { fetchWithRetry } from "../fetch-with-retry.js";
+import { BUILD_DIR } from "@lifer/core/rawCache.js";
+import { fetchWithRetry } from "@lifer/core/lib/fetchWithRetry.js";
+import { normalizeIucnStatus, type IucnCode } from "@lifer/shared";
 
 const SPARQL_ENDPOINT = "https://query.wikidata.org/sparql";
 const BATCH_SIZE = 100;
 
 export interface WikidataRow {
   scientificName: string;
-  iucnStatus: string | null;
+  /** IUCN code (packages/shared/src/iucn.ts) from P141's English label; null for a label that
+   *  isn't a global Red List category. */
+  iucnStatus: IucnCode | null;
   commonsImage: string | null;
   wikipediaTitle: string | null;
 }
@@ -66,7 +69,7 @@ async function runQuery(names: string[]): Promise<WikidataRow[]> {
   for (const b of data.results.bindings) {
     rows.push({
       scientificName: b.name.value,
-      iucnStatus: b.iucnLabel?.value ?? null,
+      iucnStatus: normalizeIucnStatus(b.iucnLabel?.value),
       commonsImage: b.image?.value ?? null,
       wikipediaTitle: b.wikipediaTitle?.value ?? null,
     });

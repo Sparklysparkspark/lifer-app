@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { inatAncestorNames, readInatResults } from "./reconcile-species-names.js";
+import { inatAncestorNames, readInatResults, type InatTaxonChange } from "./reconcile-species-names.js";
 
 // Shapes taken from real iNaturalist responses.
 describe("readInatResults", () => {
@@ -35,7 +35,7 @@ describe("readInatResults", () => {
 describe("inatAncestorNames", () => {
   // iNaturalist's real history: Accipiter gentilis was split (Accipiter atricapillus out of it),
   // then Accipiter atricapillus was renamed Astur atricapillus.
-  const changes: Record<number, any[]> = {
+  const changes: Record<number, InatTaxonChange[]> = {
     1579016: [
       {
         type: "TaxonSwap",

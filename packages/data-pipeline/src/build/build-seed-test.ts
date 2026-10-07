@@ -4,7 +4,7 @@
 
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { fetchGbifSpeciesByNames } from "../fetch/fetch-gbif-backbone.js";
+import { fetchGbifSpeciesByNames } from "@lifer/core/gbif/backbone.js";
 import { fetchCommonName } from "../fetch/fetch-gbif-vernacular.js";
 import { fetchAvonet } from "../fetch/fetch-avonet.js";
 import { fetchEltonTraits } from "../fetch/fetch-elton-traits.js";
@@ -13,10 +13,10 @@ import { fetchReferencePhotos } from "../fetch/fetch-reference-photos.js";
 import { fetchCommonsPhoto } from "../fetch/fetch-commons-photo.js";
 import { fetchWikipediaSummary } from "../fetch/fetch-wikipedia-summary.js";
 import { fetchWikipediaMediaPhotos } from "../fetch/fetch-wikipedia-media.js";
-import { fetchOccurrenceCountForSpecies } from "./build-region-species.js";
+import { fetchOccurrenceCountForSpecies } from "@lifer/core/regions/buildRegionSpecies.js";
 import { buildRegions } from "./build-regions.js";
-import { computeRarityPhase1 } from "./compute-rarity-phase1.js";
-import { BUILD_DIR } from "../raw-cache.js";
+import { computeRarityPhase1 } from "@lifer/core/species/computeRarityPhase1.js";
+import { BUILD_DIR } from "@lifer/core/rawCache.js";
 
 const MIN_OCCURRENCE_RECORDS = 3;
 

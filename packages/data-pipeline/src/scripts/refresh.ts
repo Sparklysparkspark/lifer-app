@@ -17,11 +17,14 @@
 //   catalog      Names: link catalog species to the names GBIF, iNaturalist and eBird use now.
 //                Missing species: add every species on iNaturalist or eBird lists the catalog lacks.
 //                Merges: fold duplicate species into one.
+//                IUCN: Red List status for every catalog species (backfill-iucn-status.ts).
 //   enrich       Photos and descriptions for species that have none yet, and a retry for those
-//                that came up empty.
+//                that came up empty. Then descriptions straight from Wikipedia for every species
+//                without Wikipedia-sourced text, and a refetch of articles edited since.
 //   regions      iNaturalist places for regions that have none, then province checklists, then each
-//                country's list from its provinces and its own iNaturalist list. From cached data
-//                (iNaturalist lists are reused while younger than LIFER_INAT_CACHE_MAX_AGE_DAYS, 90).
+//                country's list from its provinces and its own iNaturalist list, then every sea
+//                zone's list from the same downloads. From cached data (iNaturalist lists are
+//                reused while younger than LIFER_INAT_CACHE_MAX_AGE_DAYS, 90).
 //   tiers        Absolute rarity tiers for every checklist row, then the worldwide tier (a species'
 //                easiest country), offline, in minutes.
 //   vectors      Image and text embeddings (CLIP and the BioCLIP identification model) for species
@@ -37,26 +40,23 @@ import { execFileSync, spawn } from "node:child_process";
 import readline from "node:readline";
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { pool } from "../db.js";
-import { findMissingSpecies, insertMissingSpecies } from "./add-missing-species.js";
+import { findEbirdFormDuplicates, findMissingSpecies, insertMissingSpecies } from "./add-missing-species.js";
 import { buildPacks, publishPacks, cleanupPacksDir, type PacksResult } from "../pipeline/packs.js";
 import { buildPhotoStore, publishPhotoStore, type PhotoStoreBuild } from "../pipeline/photoStore.js";
 import { runGate, summarizeGate } from "../pipeline/gate.js";
 import { findSpeciesSplits } from "./find-species-splits.js";
+import { CATALOG_GBIF_CLASSES } from "../catalogClasses.js";
 
 const PIPELINE_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const REPO_ROOT = path.join(PIPELINE_DIR, "..", "..");
-const API_DIR = path.join(REPO_ROOT, "apps", "api");
 const DATA_DIR = path.join(PIPELINE_DIR, "data");
 const BUILD_DIR = path.join(DATA_DIR, "build");
 const GBIF_CACHE_DIR = path.join(DATA_DIR, "gbif-country-cache");
 const ZIP_NAMES = path.join(BUILD_DIR, "zip-names.tsv");
 const CURRENT_RUN = path.join(BUILD_DIR, "refresh-current-run.json");
-// The desktop app's embedded Postgres 18 ships a pg_dump matching what installs restore into.
-const EMBEDDED_PG_DUMP = path.join(os.homedir(), ".theseus/postgresql/18.6.0/bin/pg_dump");
 const STAGES = ["occurrences", "catalog", "enrich", "regions", "tiers", "vectors", "packs", "gate", "publish"] as const;
 type Stage = (typeof STAGES)[number];
 
@@ -128,7 +128,7 @@ async function occurrences(opts: Options) {
   // The regions stage downloads any missing country file itself; this re-downloads them when asked.
   if (opts.refreshOccurrences) {
     log("occurrences", "re-downloading GBIF country data");
-    runScript(API_DIR, "src/scripts/compute-provinces-bulk.ts", ["--cache-only", "--refresh-gbif-cache", ...(opts.countries ? [`--countries=${opts.countries.join(",")}`] : [])]);
+    runScript(PIPELINE_DIR, "src/scripts/compute-provinces-bulk.ts", ["--cache-only", "--refresh-gbif-cache", ...(opts.countries ? [`--countries=${opts.countries.join(",")}`] : [])]);
   }
   // Every species name in the country files, for name reconciliation. Only rebuilt when a file
   // is newer than the list, so it costs nothing on a run with no new downloads.
@@ -141,7 +141,9 @@ async function occurrences(opts: Options) {
   return { zips: zips.length };
 }
 
-/** "name<TAB>class<TAB>records" for every species name in the country files, summed. */
+/** "name<TAB>class<TAB>records" for every species name in the catalog's classes in the country
+ *  files, summed. Other classes (insects and plants are most of GBIF) are skipped: nothing reads
+ *  them, and tallying every name on Earth ran out of memory. */
 async function listZipNames(zips: string[], out: string) {
   const totals = new Map<string, number>();
   const one = (zip: string) =>
@@ -155,7 +157,7 @@ async function listZipNames(zips: string[], out: string) {
           return;
         }
         const f = line.split("\t");
-        if (!f[0]) return;
+        if (!f[0] || !CATALOG_GBIF_CLASSES.has(f[3])) return;
         const key = `${f[0]}\t${f[3]}`;
         totals.set(key, (totals.get(key) ?? 0) + (Number(f[7]) || 1));
       });
@@ -192,13 +194,29 @@ async function catalog(runId: string) {
   const added = add.length + synonyms.length + links.length > 0 ? await insertMissingSpecies(add, synonyms, links) : 0;
   log("catalog", `added ${added} species, linked ${links.length} respellings`);
 
+  // Merges are vetted, never automatic: these go to a review file for species-merges.tsv.
+  const reviewed = readFileSync(path.join(DATA_DIR, "reference", "species-merges.tsv"), "utf8");
+  const formDupes = (await findEbirdFormDuplicates()).filter((d) => !reviewed.includes(d.oldId));
+  if (formDupes.length > 0) {
+    mkdirSync(path.join(DATA_DIR, "review"), { recursive: true });
+    const file = path.join(DATA_DIR, "review", "ebird-form-duplicates.tsv");
+    writeFileSync(file, formDupes.map((d) => [d.oldId, d.oldName, d.newId, d.newName, "eBird counts it as a form of this species"].join("\t")).join("\n") + "\n");
+    log("catalog", `${formDupes.length} birds eBird counts as forms of another catalog species, for review in ${path.relative(PIPELINE_DIR, file)}`);
+  }
+
   log("catalog", "merging duplicate species");
-  runScript(API_DIR, "src/scripts/merge-duplicate-species.ts", ["--apply"]);
+  runScript(PIPELINE_DIR, "src/scripts/merge-duplicate-species.ts", ["--apply"]);
 
   // After species are added, so a split's new species are in the catalog to point at. Installs
   // re-file photos under a split species by where they were taken.
   log("catalog", "finding species iNaturalist has split");
   const splits = await findSpeciesSplits(true, (m) => log("catalog", m));
+
+  // Last: it reads the names, synonyms and splits the steps above just settled. One archive
+  // download, plus a cached GBIF call for each listed bird, mammal, amphibian, reptile or coral
+  // the names can't place (about 2,000 the first time, none after). Before tiers, which read it.
+  log("catalog", "IUCN Red List status");
+  runScript(PIPELINE_DIR, "src/scripts/backfill-iucn-status.ts", ["--apply", `--report=${path.join(BUILD_DIR, "iucn-status-report.tsv")}`]);
   return { added, linked: links.length, splits: splits.splits };
 }
 
@@ -206,10 +224,18 @@ const ALL_TAXA = "aves,mammalia,actinopterygii,amphibia,squamata,testudines,cora
 
 async function enrich() {
   log("enrich", "photos and descriptions for listed species that have none");
-  runScript(API_DIR, "src/scripts/enrich-all-species.ts", [`--taxa=${ALL_TAXA}`, "--listed-only"]);
+  runScript(PIPELINE_DIR, "src/scripts/enrich-all-species.ts", [`--taxa=${ALL_TAXA}`, "--listed-only"]);
   // Retry species whose enrichment came up empty, since a rate limit can look like "no photo exists".
   log("enrich", "retrying species that came up with no photo");
-  runScript(API_DIR, "src/scripts/recheck-null-photo-species.ts", []);
+  runScript(PIPELINE_DIR, "src/scripts/recheck-null-photo-species.ts", ["--listed-only"]);
+  // Text from the Wikipedia article itself (the lead and its Description section, by the shared
+  // rule), for species iNaturalist had no summary for or only its cut-off copy; then only the
+  // articles edited since their text was fetched. After the photo passes, which can add species'
+  // iNaturalist links to the cache this reads titles from.
+  log("enrich", "descriptions from Wikipedia");
+  runScript(PIPELINE_DIR, "src/scripts/backfill-descriptions.ts", []);
+  log("enrich", "descriptions whose Wikipedia article changed");
+  runScript(PIPELINE_DIR, "src/scripts/backfill-descriptions.ts", ["--refresh"]);
   // Public interest, which corrects photo-based tiers for species few people photograph.
   log("enrich", "Wikipedia pageviews");
   runScript(PIPELINE_DIR, "src/scripts/fetch-wiki-pageviews.ts", []);
@@ -221,7 +247,7 @@ async function vectors() {
   log("vectors", "CLIP reference photo embeddings");
   runScript(PIPELINE_DIR, "src/scripts/backfill-reference-embeddings.ts", []);
   log("vectors", "CLIP text embeddings");
-  runScript(API_DIR, "src/scripts/backfill-text-embeddings.ts", []);
+  runScript(PIPELINE_DIR, "src/scripts/backfill-text-embeddings.ts", []);
   const python = path.join(PIPELINE_DIR, ".venv", "bin", "python");
   if (!existsSync(python)) {
     throw new Error(
@@ -237,35 +263,42 @@ async function vectors() {
 
 async function regions(opts: Options) {
   // Regions without an iNaturalist place never get their lists checked against iNaturalist.
-  runScript(API_DIR, "src/scripts/resolve-inat-places.ts", []);
+  runScript(PIPELINE_DIR, "src/scripts/resolve-inat-places.ts", []);
   const args = ["--apply"];
   if (opts.countries) args.push(`--countries=${opts.countries.join(",")}`);
   // New downloads or an explicit country list mean those countries are rebuilt from scratch;
   // otherwise the run continues where the last one left off.
   // Not when resuming: that keeps the provinces already rebuilt.
   if (!opts.resume && (opts.full || opts.countries || opts.refreshOccurrences)) args.push("--reset-checkpoint");
-  runScript(API_DIR, "src/scripts/refresh-all-provinces.ts", args);
+  runScript(PIPELINE_DIR, "src/scripts/refresh-all-provinces.ts", args);
   // Species the catalog stage added after a province was built, from the cached lists.
-  runScript(API_DIR, "src/scripts/add-new-species-to-checklists.ts", ["--apply"]);
+  runScript(PIPELINE_DIR, "src/scripts/add-new-species-to-checklists.ts", ["--apply"]);
   // iNaturalist photo counts per place: what tiers are rated on, and what tells an escaped pet
   // from a sensitive species whose GBIF records are hidden.
-  runScript(API_DIR, "src/scripts/refresh-inat-counts.ts", []);
-  runScript(API_DIR, "src/scripts/remove-escapes.ts", ["--apply"]);
+  runScript(PIPELINE_DIR, "src/scripts/refresh-inat-counts.ts", []);
+  runScript(PIPELINE_DIR, "src/scripts/remove-escapes.ts", ["--apply"]);
   // Each country's list from its provinces and its own iNaturalist list, then escapes again: the
   // country's iNaturalist list can bring back one its provinces dropped.
-  runScript(API_DIR, "src/scripts/build-country-checklists.ts", ["--apply", ...(opts.countries ? [`--countries=${opts.countries.join(",")}`] : [])]);
-  runScript(API_DIR, "src/scripts/remove-escapes.ts", ["--apply"]);
+  runScript(PIPELINE_DIR, "src/scripts/build-country-checklists.ts", ["--apply", ...(opts.countries ? [`--countries=${opts.countries.join(",")}`] : [])]);
+  runScript(PIPELINE_DIR, "src/scripts/remove-escapes.ts", ["--apply"]);
   // Introduced or native, from iNaturalist's establishment status per place: sets the Introduced
   // and Vagrant flags the tiers and cards use.
-  runScript(API_DIR, "src/scripts/apply-introduced-flags.ts", ["--apply"]);
+  runScript(PIPELINE_DIR, "src/scripts/apply-introduced-flags.ts", ["--apply"]);
+  // Every sea zone's fish and marine mammals, from the same country downloads in one pass. Always
+  // every zone and every coastal download, even with --countries: a zone's records come from all
+  // the countries around it.
+  // WoRMS habitats for fish and marine mammals, which the sea zones use to leave freshwater-only
+  // species off and keep a marine species at the edge of its range.
+  runScript(PIPELINE_DIR, "src/scripts/fetch-worms-environment.ts", []);
+  runScript(PIPELINE_DIR, "src/scripts/compute-sea-zones-offline.ts", ["--apply"]);
   return { countries: opts.countries ?? "all" };
 }
 
 async function tiers(opts: Options) {
   // Checklists changed, so their tier inputs are re-read from the province data before rating.
-  runScript(API_DIR, "src/scripts/compute-local-tiers.ts", ["--apply", "--inputs", "--calibrate", ...(opts.countries ? [`--countries=${opts.countries.join(",")}`] : [])]);
+  runScript(PIPELINE_DIR, "src/scripts/compute-local-tiers.ts", ["--apply", "--inputs", "--calibrate", ...(opts.countries ? [`--countries=${opts.countries.join(",")}`] : [])]);
   // Worldwide tiers come from the local ones, so always every species.
-  runScript(API_DIR, "src/scripts/compute-global-tiers.ts", ["--apply"]);
+  runScript(PIPELINE_DIR, "src/scripts/compute-global-tiers.ts", ["--apply"]);
 }
 
 // ---------- main ----------
@@ -336,10 +369,10 @@ async function main() {
           const seedDir = path.join(BUILD_DIR, "catalog-seed");
           mkdirSync(seedDir, { recursive: true });
           // The same database this run used, dumped with a pg_dump matching the Postgres installs
-          // restore into (18, desktop and server alike) unless PG_DUMP_BIN says otherwise.
+          // restore into (18, desktop and server alike): build-catalog-seed.ts picks it
+          // (PG_DUMP_BIN, a desktop build's, the Docker container's, PATH's; pipeline/pgDump.ts).
           runScript(PIPELINE_DIR, "src/scripts/build-catalog-seed.ts", [path.join(seedDir, "lifer-catalog-seed.sql.gz")], {
             DATABASE_URL: process.env.DATABASE_URL ?? "postgres://lifer:lifer@localhost:5432/lifer",
-            PG_DUMP_BIN: process.env.PG_DUMP_BIN ?? (existsSync(EMBEDDED_PG_DUMP) ? EMBEDDED_PG_DUMP : "pg_dump"),
           });
           const assets = readdirSync(seedDir).filter((f) => f.endsWith(".sql.gz") || f.endsWith(".bin.gz")).map((f) => path.join(seedDir, f));
           execFileSync("gh", ["release", "upload", "catalog-latest", ...assets, "--clobber"], { stdio: "inherit" });

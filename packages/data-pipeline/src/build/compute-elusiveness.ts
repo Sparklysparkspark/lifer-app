@@ -11,7 +11,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 import readline from "node:readline";
-import { fetchAllCountries, type CountryEntry } from "../fetch/fetch-region-boundary.js";
+import { fetchAllCountries, type CountryEntry } from "@lifer/core/regions/regionBoundary.js";
 import {
   fetchSpeciesCountsForRegion,
   MIN_RECORDS,
@@ -19,10 +19,10 @@ import {
   FISH_YEARS_WINDOW,
   RECENT_YEARS_WINDOW,
   REAL_BASIS_OF_RECORD,
-} from "./build-region-species.js";
-import { AVES_CLASS_KEY } from "../fetch/fetch-gbif-backbone.js";
-import { BUILD_DIR } from "../raw-cache.js";
-import { exteriorRingsFromGeometry, minRingDistance, simplifyRingToMaxPoints, pointInAnyRing } from "../geometry.js";
+} from "@lifer/core/regions/buildRegionSpecies.js";
+import { AVES_CLASS_KEY } from "@lifer/core/gbif/backbone.js";
+import { BUILD_DIR } from "@lifer/core/rawCache.js";
+import { exteriorRingsFromGeometry, minRingDistance, simplifyRingToMaxPoints, pointInAnyRing } from "@lifer/core/lib/geometry.js";
 import { pool } from "../db.js";
 
 // Per-country GBIF download zips cached by compute-provinces-bulk.ts. Countries with a cached
@@ -472,10 +472,10 @@ async function main() {
   // One crawl covering every taxon group. Each group is fetched and ranked separately within a
   // country, since record volumes differ hugely between taxa, and carries its own
   // minRecords/yearsWindow (fish are far more permissive).
-  const { MAMMALIA_CLASS_KEY } = await import("../fetch/fetch-gbif-backbone.js");
-  const { fetchFishTaxonKeys } = await import("../fetch/fetch-fish-orders.js");
+  const { MAMMALIA_CLASS_KEY } = await import("@lifer/core/gbif/backbone.js");
+  const { fetchFishTaxonKeys } = await import("@lifer/core/gbif/fishOrders.js");
   const fishKeys = await fetchFishTaxonKeys();
-  const { CASUAL_OBSERVATION_BASIS_OF_RECORD } = await import("./build-region-species.js");
+  const { CASUAL_OBSERVATION_BASIS_OF_RECORD } = await import("@lifer/core/regions/buildRegionSpecies.js");
   // Every group counts casual sightings only (CASUAL_OBSERVATION_BASIS_OF_RECORD): museum,
   // camera-trap and zoo records inflate documentation for species that are hard to see.
   const taxonGroups: TaxonGroup[] = [

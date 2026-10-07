@@ -20,7 +20,7 @@ import { pool } from "../db.js";
 const MODEL_VERSION = "clip-vit-l14-v2";
 const PIPELINE_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const BUILD_DIR = path.join(PIPELINE_DIR, "data", "build");
-const SPECIES_DIR = path.join(PIPELINE_DIR, "..", "..", "apps", "api", "src", "species");
+const SPECIES_DIR = path.join(PIPELINE_DIR, "..", "core", "src", "species");
 const DEFAULT_MODEL = path.join(BUILD_DIR, "models", `${MODEL_VERSION}-fp32.onnx`);
 const BATCH = 200;
 // Keeps the inference worker fed while results are written.

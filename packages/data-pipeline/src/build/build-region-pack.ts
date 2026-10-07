@@ -26,8 +26,8 @@ import {
   exteriorRingsFromGeometry,
   parseWktPolygonRing,
   type BoundingBox,
-} from "../geometry.js";
-import { sanitize, regionPackFileName, seaZonePackFileName, type PackVariant } from "./pack-id.js";
+} from "@lifer/core/lib/geometry.js";
+import { sanitize, regionPackFileName, seaZonePackFileName, type PackVariant } from "@lifer/core/packs/packId.js";
 
 // A manifest must stay well under V8's ~512MB string limit, since both the builder and the app
 // serialize it in one piece. Province-level hotspot clusters grow without bound, so an
@@ -333,7 +333,7 @@ function packSpecies(
   if (missingFiles.length > 0 && process.env.ALLOW_MISSING_PHOTOS !== "1") {
     throw new Error(
       `${missingFiles.length} cached photo file(s) are missing (e.g. ${missingFiles.slice(0, 3).join(", ")}). ` +
-        `Run apps/api/src/scripts/repair-missing-reference-photos.ts, or set ALLOW_MISSING_PHOTOS=1 to build without them.`,
+        `Run packages/data-pipeline/src/scripts/repair-missing-reference-photos.ts, or set ALLOW_MISSING_PHOTOS=1 to build without them.`,
     );
   }
   return { manifestSpecies, photoCount, galleryPhotoCount };
@@ -506,8 +506,10 @@ export async function buildRegionPack(
     seaZonePackAvailable?: (fileName: string) => boolean;
   } = {},
 ): Promise<BuiltPack | null> {
-  const regionRes = await pool.query<{ id: string; boundary_geojson: unknown }>(
-    opts.regionId ? `SELECT id, boundary_geojson FROM regions WHERE id = $1` : `SELECT id, boundary_geojson FROM regions WHERE name = $1`,
+  const regionRes = await pool.query<{ id: string; boundary_geojson: unknown; nearby_sea_zone_ids: string[] | null }>(
+    opts.regionId
+      ? `SELECT id, boundary_geojson, nearby_sea_zone_ids FROM regions WHERE id = $1`
+      : `SELECT id, boundary_geojson, nearby_sea_zone_ids FROM regions WHERE name = $1`,
     [opts.regionId ?? regionName],
   );
   const region = regionRes.rows[0];
@@ -543,9 +545,13 @@ export async function buildRegionPack(
 
   // See TAXA_WITH_SEA_ZONE_DATA.
   const includeSeaZones = taxon === null || TAXA_WITH_SEA_ZONE_DATA.includes(taxon);
-  const seaZones = includeSeaZones
-    ? await nearbyZonesForRegion(region.boundary_geojson as Parameters<typeof nearbyZonesForRegion>[0])
-    : [];
+  // The precomputed links (build-sea-zones.ts) when the region has them, the same ones the app's
+  // "nearby water" list shows; the geometry check is only the fallback.
+  const seaZones = !includeSeaZones
+    ? []
+    : region.nearby_sea_zone_ids
+      ? (await pool.query<{ id: string; name: string }>(`SELECT id, name FROM sea_zones WHERE id = ANY($1) ORDER BY name`, [region.nearby_sea_zone_ids])).rows
+      : await nearbyZonesForRegion(region.boundary_geojson as Parameters<typeof nearbyZonesForRegion>[0]);
 
   const suffix = taxon ? `-${taxon}` : "";
   const variantSuffix = variant === "small" ? "-small" : "";

@@ -6,12 +6,12 @@
 // listed explicitly (COLLECTOR_SHELL_FAMILY_KEYS) under the same taxon_class.
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { fetchGbifBackboneForKeys, type GbifSpeciesRow } from "../fetch/fetch-gbif-backbone.js";
+import { fetchGbifBackboneForKeys, type GbifSpeciesRow } from "@lifer/core/gbif/backbone.js";
 import { fetchCommonName } from "../fetch/fetch-gbif-vernacular.js";
 import { fetchWikidataForSpecies } from "../fetch/fetch-wikidata.js";
-import { computeRarityPhase1 } from "./compute-rarity-phase1.js";
-import { mapWithConcurrency } from "../concurrency.js";
-import { BUILD_DIR } from "../raw-cache.js";
+import { computeRarityPhase1 } from "@lifer/core/species/computeRarityPhase1.js";
+import { mapWithConcurrency } from "@lifer/core/lib/concurrency.js";
+import { BUILD_DIR } from "@lifer/core/rawCache.js";
 
 const NEOGASTROPODA_KEY = 982;
 const LITTORINIMORPHA_KEY = 7390893;

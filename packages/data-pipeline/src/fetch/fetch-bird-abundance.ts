@@ -7,7 +7,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
-import { fetchCached, RAW_DIR } from "../raw-cache.js";
+import { fetchCached, RAW_DIR } from "@lifer/core/rawCache.js";
 
 const execFileAsync = promisify(execFile);
 const TABLES_ZIP_URL = "https://zenodo.org/records/4723365/files/Tables.zip?download=1";

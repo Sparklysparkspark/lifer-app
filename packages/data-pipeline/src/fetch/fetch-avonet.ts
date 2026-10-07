@@ -9,7 +9,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import ExcelJS from "exceljs";
-import { fetchCached, RAW_DIR, BUILD_DIR } from "../raw-cache.js";
+import { fetchCached, RAW_DIR, BUILD_DIR } from "@lifer/core/rawCache.js";
 
 const AVONET_RECORD_ZIP_URL = "https://figshare.com/ndownloader/articles/16586228/versions/7";
 const WORKBOOK_NAME = "AVONET Supplementary dataset 1.xlsx";

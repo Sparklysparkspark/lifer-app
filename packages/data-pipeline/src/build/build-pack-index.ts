@@ -1,4 +1,4 @@
-// Builds pack-index.json, the file apps/api/src/config.ts's PACK_INDEX_URL points to: which packs
+// Builds pack-index.json, the file packages/core/src/config.ts's PACK_INDEX_URL points to: which packs
 // exist, their sizes and content versions. Reads each built pack's manifest.json rather than
 // re-deriving anything, so the index can't drift from the packs.
 //
@@ -8,7 +8,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import * as tar from "tar";
-import { packIdFromFileName } from "./pack-id.js";
+import { packIdFromFileName } from "@lifer/core/packs/packId.js";
 import { GITHUB_REPO, INDEX_RELEASE_TAG } from "./release-groups.js";
 import { photoStoreIndexUrl } from "../pipeline/photoStore.js";
 

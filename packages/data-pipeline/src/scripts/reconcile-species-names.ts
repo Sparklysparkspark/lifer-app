@@ -24,7 +24,8 @@ import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { pool } from "../db.js";
-import { mapWithConcurrency } from "../concurrency.js";
+import { mapWithConcurrency } from "@lifer/core/lib/concurrency.js";
+import { CATALOG_GBIF_CLASSES } from "../catalogClasses.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const EBIRD_TAXONOMY_CSV = path.join(__dirname, "..", "..", "data", "reference", "ebird-taxonomy.csv");
@@ -35,15 +36,6 @@ const HISTORY_VERTEBRATE_CLASSES = new Set([
   "Aves", "Mammalia", "Reptilia", "Amphibia",
   "Myxini", "Petromyzonti", "Elasmobranchii", "Holocephali", "Coelacanthi", "Dipneusti", "Actinopterygii", "Teleostei",
   "Chondrostei", "Cladistii", "Holostei",
-]);
-// GBIF classes (as the country downloads spell them) whose species the catalog carries.
-const HISTORY_GBIF_CLASSES = new Set([
-  "Aves", "Mammalia", "Reptilia", "Amphibia",
-  "Myxini", "Petromyzonti", "Elasmobranchii", "Holocephali", "Coelacanthi", "Dipneusti", "Actinopterygii", "Teleostei",
-  "Chondrostei", "Cladistii", "Holostei",
-  "Anthozoa", "Hydrozoa", "Scyphozoa", "Cubozoa", "Staurozoa", "Echinoidea", "Asteroidea", "Ophiuroidea", "Holothuroidea",
-  "Crinoidea", "Gastropoda", "Bivalvia", "Polyplacophora", "Scaphopoda", "Cephalopoda", "Malacostraca", "Copepoda",
-  "Thecostraca", "Demospongiae", "Hexactinellida", "Calcarea", "Ascidiacea",
 ]);
 const USER_AGENT = "Lifer catalog builder (github.com/Sparklysparkspark/lifer-app)";
 // iNaturalist asks API users to stay around one request a second.
@@ -74,34 +66,57 @@ function arg(name: string): string | undefined {
 }
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-async function getJson(url: string, attempt = 0): Promise<any> {
+// The parts of each service's JSON this script reads; everything else is ignored.
+interface ColMatch {
+  usage?: {
+    status?: string;
+    classification?: Array<{ rank?: string; status?: string; name?: string }>;
+    accepted?: { name?: { scientificName?: string } };
+  };
+}
+export interface InatTaxonResult {
+  id: number;
+  name: string;
+  rank?: string;
+  is_active?: boolean;
+  matched_term?: string;
+}
+export interface InatTaxonChange {
+  /** TaxonSwap, TaxonSplit, TaxonMerge and so on. */
+  type?: string;
+  status?: string;
+  output_taxa?: Array<{ id: number; name?: string }>;
+  input_taxa?: Array<{ id: number; name: string }>;
+}
+
+async function getJson<T>(url: string, attempt = 0): Promise<T> {
   const res = await fetch(url, { headers: { "User-Agent": USER_AGENT, Accept: "application/json" } });
   // Refused for going too fast (429): wait a full minute each time, since quick retries only
   // spend more of iNaturalist's daily allowance.
   if (res.status === 429 && attempt < 30) {
     await sleep(60_000);
-    return getJson(url, attempt + 1);
+    return getJson<T>(url, attempt + 1);
   }
   if (res.status >= 500 && attempt < 5) {
     await sleep(2000 * 2 ** attempt);
-    return getJson(url, attempt + 1);
+    return getJson<T>(url, attempt + 1);
   }
   if (!res.ok) throw new Error(`${res.status} for ${url}`);
-  return res.json();
+  return (await res.json()) as T;
 }
 
 /** Catalogue of Life's accepted species name for `name`, when `name` is a synonym there. */
 export async function colAcceptedName(name: string): Promise<string | null> {
-  const d = await getJson(`${COL_MATCH_URL}?scientificName=${encodeURIComponent(name)}`);
+  const d = await getJson<ColMatch>(`${COL_MATCH_URL}?scientificName=${encodeURIComponent(name)}`);
   const u = d?.usage;
   if (!u || u.status === "accepted") return null;
-  const acceptedSpecies = (u.classification ?? []).find((c: any) => c.rank === "species" && c.status === "accepted");
+  const acceptedSpecies = (u.classification ?? []).find((c) => c.rank === "species" && c.status === "accepted");
   const accepted = acceptedSpecies?.name ?? u.accepted?.name?.scientificName ?? null;
   return accepted && accepted !== name ? accepted : null;
 }
 
 /** iNaturalist's current species for a name (it matches old names too, via "matched_term"). */
-export function readInatResults(name: string, results: any[]): { id: number; name: string } | null {
+export function readInatResults(name: string, results: InatTaxonResult[]): { id: number; name: string } | null {
   const lower = name.toLowerCase();
   const exactMatches = results.filter(
     (r) =>
@@ -116,7 +131,7 @@ export function readInatResults(name: string, results: any[]): { id: number; nam
  * merges ("taxon changes"), nearest first, up to `maxDepth` steps. */
 export async function inatAncestorNames(
   taxonId: number,
-  fetchChanges: (taxonId: number) => Promise<any[]>,
+  fetchChanges: (taxonId: number) => Promise<InatTaxonChange[]>,
   maxDepth = 3,
 ): Promise<Array<{ name: string; depth: number }>> {
   const out: Array<{ name: string; depth: number }> = [];
@@ -127,7 +142,7 @@ export async function inatAncestorNames(
     for (const id of frontier) {
       for (const change of await fetchChanges(id)) {
         if (change.status && change.status !== "committed") continue;
-        if (!(change.output_taxa ?? []).some((t: any) => t.id === id)) continue;
+        if (!(change.output_taxa ?? []).some((t) => t.id === id)) continue;
         for (const input of change.input_taxa ?? []) {
           if (seen.has(input.id)) continue;
           seen.add(input.id);
@@ -204,9 +219,9 @@ async function main() {
   if (checkpointPath && existsSync(checkpointPath)) {
     for (const line of readFileSync(checkpointPath, "utf8").split("\n")) {
       if (!line) continue;
-      const entry = JSON.parse(line) as { t: "p" | "c" | "d"; v?: any; k?: string };
+      const entry = JSON.parse(line) as { t: "p" | "c" | "d"; v?: unknown; k?: string };
       if (entry.t === "d") finished.add(entry.k!);
-      else if (entry.t === "c") conflicts.push(entry.v);
+      else if (entry.t === "c") conflicts.push(entry.v as Record<string, string>);
       else {
         const prop = entry.v as Proposal;
         proposals.push(prop);
@@ -300,7 +315,7 @@ async function main() {
       if (finished.has(`inat:${s.id}`)) continue;
       let ok = true;
       try {
-        const d = await getJson(`${INAT_TAXA_URL}?q=${encodeURIComponent(s.scientific_name)}&per_page=10`);
+        const d = await getJson<{ results?: InatTaxonResult[] }>(`${INAT_TAXA_URL}?q=${encodeURIComponent(s.scientific_name)}&per_page=10`);
         const exact = readInatResults(s.scientific_name, d.results ?? []);
         if (exact) {
           const owner = takenInatIds.get(exact.id);
@@ -335,7 +350,7 @@ async function main() {
     const recordsByName = new Map<string, number>();
     for (const line of readFileSync(zipNamesPath, "utf8").split("\n")) {
       const [name, cls, records] = line.split("\t");
-      if (!name || !(includeInvertebrates ? HISTORY_GBIF_CLASSES : HISTORY_VERTEBRATE_CLASSES).has(cls)) continue;
+      if (!name || !(includeInvertebrates ? CATALOG_GBIF_CLASSES : HISTORY_VERTEBRATE_CLASSES).has(cls)) continue;
       recordsByName.set(name, (recordsByName.get(name) ?? 0) + Number(records || 0));
     }
     const unmatched = [...recordsByName.entries()]
@@ -345,8 +360,8 @@ async function main() {
     console.log(`[history] ${unmatched.length} names in the GBIF data with ${minRecords}+ records match no catalog species`);
     const fetchChanges = async (taxonId: number) => {
       await sleep(INAT_DELAY_MS);
-      const d = await getJson(`${INAT_CHANGES_URL}?taxon_id=${taxonId}`);
-      return Array.isArray(d) ? d : [];
+      const d = await getJson<unknown>(`${INAT_CHANGES_URL}?taxon_id=${taxonId}`);
+      return Array.isArray(d) ? (d as InatTaxonChange[]) : [];
     };
     let done = 0;
     for (const [name] of unmatched) {
@@ -354,7 +369,7 @@ async function main() {
       let ok = true;
       try {
         await sleep(INAT_DELAY_MS);
-        const found = readInatResults(name, (await getJson(`${INAT_TAXA_URL}?q=${encodeURIComponent(name)}&per_page=10`)).results ?? []);
+        const found = readInatResults(name, (await getJson<{ results?: InatTaxonResult[] }>(`${INAT_TAXA_URL}?q=${encodeURIComponent(name)}&per_page=10`)).results ?? []);
         if (found) {
           const ancestors = await inatAncestorNames(found.id, fetchChanges);
           // The nearest step back that reaches the catalog decides; two species there is a merge.

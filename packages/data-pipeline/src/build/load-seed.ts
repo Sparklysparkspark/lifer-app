@@ -6,7 +6,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { PoolClient } from "pg";
 import { pool } from "../db.js";
-import { BUILD_DIR } from "../raw-cache.js";
+import { BUILD_DIR } from "@lifer/core/rawCache.js";
+import { normalizeIucnStatus } from "@lifer/shared";
 import { SPECIES_SYNONYM_GBIF_KEYS } from "../species-synonyms.js";
 
 export interface SeedRarityInput {
@@ -180,12 +181,14 @@ async function main() {
       const id = res.rows[0].id as string;
       speciesIdByGbifKey.set(s.gbifKey, id);
 
+      // Build files carry Wikidata labels ("least concern"); stored as the IUCN code (migration 129).
+      const iucnStatus = normalizeIucnStatus(s.traits.iucnStatus);
       await client.query(
         `INSERT INTO species_traits
            (species_id, mass_g, length_mm, wingspan_mm, hand_wing_index, trophic_niche, primary_lifestyle, nocturnal,
             density_per_km2, home_range_km2, depth_min_m, depth_max_m, population_estimate, iucn_status, range_size_km2,
-            primary_habitat, habitat_density, domestic, source_attribution)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
+            primary_habitat, habitat_density, domestic, source_attribution, iucn_source)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
          ON CONFLICT (species_id) DO UPDATE SET
            mass_g = EXCLUDED.mass_g, length_mm = EXCLUDED.length_mm, wingspan_mm = EXCLUDED.wingspan_mm,
            hand_wing_index = EXCLUDED.hand_wing_index, trophic_niche = EXCLUDED.trophic_niche,
@@ -193,7 +196,11 @@ async function main() {
            density_per_km2 = EXCLUDED.density_per_km2, home_range_km2 = EXCLUDED.home_range_km2,
            depth_min_m = EXCLUDED.depth_min_m, depth_max_m = EXCLUDED.depth_max_m,
            population_estimate = EXCLUDED.population_estimate,
-           iucn_status = EXCLUDED.iucn_status, range_size_km2 = EXCLUDED.range_size_km2,
+           -- A status the Red List backfill set (backfill-iucn-status.ts) outranks the build's
+           -- Wikidata copy, so a reload never undoes it.
+           iucn_status = CASE WHEN species_traits.iucn_source = 'iucn_red_list' THEN species_traits.iucn_status ELSE EXCLUDED.iucn_status END,
+           iucn_source = CASE WHEN species_traits.iucn_source = 'iucn_red_list' THEN species_traits.iucn_source ELSE EXCLUDED.iucn_source END,
+           range_size_km2 = EXCLUDED.range_size_km2,
            primary_habitat = EXCLUDED.primary_habitat, habitat_density = EXCLUDED.habitat_density,
            domestic = EXCLUDED.domestic,
            source_attribution = EXCLUDED.source_attribution`,
@@ -211,12 +218,13 @@ async function main() {
           s.traits.depthMinM,
           s.traits.depthMaxM,
           s.traits.populationEstimate,
-          s.traits.iucnStatus,
+          iucnStatus,
           s.traits.rangeSizeKm2,
           s.traits.primaryHabitat,
           s.traits.habitatDensity,
           s.traits.domestic,
           s.traits.sourceAttribution,
+          iucnStatus ? "wikidata" : null,
         ],
       );
 

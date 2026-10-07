@@ -8,7 +8,7 @@
 
 import { readFileSync, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { fetchCached, BUILD_DIR } from "../raw-cache.js";
+import { fetchCached, BUILD_DIR } from "@lifer/core/rawCache.js";
 
 const ELTON_BIRDS_URL = "https://figshare.com/ndownloader/files/5631081";
 

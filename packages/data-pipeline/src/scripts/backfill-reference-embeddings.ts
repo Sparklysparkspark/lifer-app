@@ -1,6 +1,6 @@
 // Computes an embedding for every enriched species' reference photo into
 // species_reference_embeddings, the "not yet photographed" side of species auto-suggest (see
-// apps/api/src/species/embeddings.ts's suggestSpecies). Shipped to users in the catalog seed.
+// packages/core/src/species/embeddings.ts's suggestSpecies). Shipped to users in the catalog seed.
 //
 // Also embeds every gallery photo into species_reference_gallery_embeddings (migration 101), so
 // matching takes the best score across several poses, not just the one main photo.

@@ -1,13 +1,13 @@
 // Source: Wikimedia Commons (commons.wikimedia.org). License: CC/PD per file.
 // Fallback reference photo when iNaturalist has no usable one: the Commons file Wikidata points
 // at (P18, see fetch-wikidata.ts), with its license and credit from the Commons API, held to the
-// same allowlist as iNaturalist (../license-policy.ts).
+// same allowlist as iNaturalist (@lifer/core/species/licensePolicy.ts).
 
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { BUILD_DIR } from "../raw-cache.js";
-import { isLicenseAllowed, normalizeLicense } from "../license-policy.js";
-import { fetchWithRetry } from "../fetch-with-retry.js";
+import { BUILD_DIR } from "@lifer/core/rawCache.js";
+import { isLicenseAllowed, normalizeLicense } from "@lifer/core/species/licensePolicy.js";
+import { fetchWithRetry } from "@lifer/core/lib/fetchWithRetry.js";
 
 const COMMONS_API = "https://commons.wikimedia.org/w/api.php";
 

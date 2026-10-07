@@ -10,7 +10,7 @@ const execFileAsync = promisify(execFile);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.join(__dirname, "..", "..", "..", "..");
 
-// Mirrors apps/api/src/config.ts's DATA_DIR default without importing from apps/api (which would
+// Mirrors packages/core/src/config.ts's DATA_DIR default without importing from apps/api (which would
 // pull in sharp/exiftool-vendored).
 const DATA_DIR = process.env.DATA_DIR ?? path.join(REPO_ROOT, "data", "lifer");
 const BACKUP_DIR = process.env.LIFER_BACKUP_DIR ?? path.join(REPO_ROOT, "data", "backups");

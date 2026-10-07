@@ -4,7 +4,9 @@
 // per-user or per-install.
 //
 // Local filesystem path columns are nulled before dumping, since they point at the build
-// machine; installs fill them in from region packs or a live fetch.
+// machine; installs fill them in from region packs or a live fetch. So is species.photo_checked_at,
+// the pipeline's own bookkeeping: on an install it records that install's own attempts to fetch a
+// withheld photo (apps/api/src/species/withheldPhotos.ts). species.photo_withheld does ship.
 //
 // Embedding tables are not in the pg_dump (as float text they blow past NSIS's installer limit).
 // They're written as compact float16 binaries (format in
@@ -34,6 +36,8 @@ import { encodeSpeciesVectorHeader, encodeSpeciesVectorRecord } from "@lifer/sha
 import { ID_MODEL_VERSION } from "@lifer/shared/src/idModel.js";
 import { pool } from "../db.js";
 import { EMBEDDING_MODEL_VERSION } from "../embeddings.js";
+import { assertPhotosPublishable } from "../pipeline/photoLicensePolicy.js";
+import { resolvePgDump } from "../pipeline/pgDump.js";
 
 // Installers bundle the seed, and NSIS can't exceed 2GB (the installer is about 350 MB). Catch a
 // regression here, not in CI.
@@ -187,7 +191,7 @@ const CATALOG_TABLES = [
 ];
 
 const PATH_COLUMNS: Record<string, string[]> = {
-  species: ["reference_display_path", "reference_thumb_path"],
+  species: ["reference_display_path", "reference_thumb_path", "photo_checked_at"],
   species_reference_photos: ["display_path", "thumb_path"],
 };
 
@@ -225,6 +229,7 @@ async function main() {
     console.error("Set DATABASE_URL to the database to export from.");
     process.exit(1);
   }
+  await assertPhotosPublishable(pool);
 
   // pg_dump uses its own connection and can't see an uncommitted UPDATE, so the path values are
   // backed up, committed as NULL, dumped, then restored by primary key. Assumes no concurrent
@@ -283,18 +288,20 @@ async function main() {
     console.log(`[build-catalog-seed] dumping ${CATALOG_TABLES.length} tables with local paths stripped...`);
     // --disable-triggers: regions references itself (parent region), so a --data-only dump can't
     // replay rows in FK-safe order.
+    // pg_dump 18, matching the Postgres installs restore into: PG_DUMP_BIN, else a desktop build's,
+    // else the Docker container's behind DATABASE_URL, else PATH's (pipeline/pgDump.ts).
+    const pgDumpCommand = resolvePgDump(databaseUrl);
+    console.log(`[build-catalog-seed] pg_dump: ${pgDumpCommand.command} ${pgDumpCommand.prefixArgs.join(" ")} (${pgDumpCommand.source})`);
     const args = [
-      databaseUrl,
+      ...pgDumpCommand.prefixArgs,
+      pgDumpCommand.databaseUrl,
       "--data-only",
       "--disable-triggers",
       ...CATALOG_TABLES.flatMap((t) => ["--table", t]),
     ];
 
-    // With only the embedded Postgres available (see embedded_db.rs), point PG_DUMP_BIN at its
-    // bundled binary, e.g. ~/.theseus/postgresql/<version>/bin/pg_dump, matching the restore's version.
-    const pgDumpBin = process.env.PG_DUMP_BIN ?? "pg_dump";
     // Streamed into gzip+file: the dump exceeds execFileSync's maxBuffer.
-    const pgDump = spawn(pgDumpBin, args, { stdio: ["ignore", "pipe", "pipe"] });
+    const pgDump = spawn(pgDumpCommand.command, args, { stdio: ["ignore", "pipe", "pipe"] });
     let stderr = "";
     pgDump.stderr.on("data", (chunk) => (stderr += chunk.toString()));
     // Registered before awaiting the pipeline: pg_dump's "close" can fire before the await resolves,
@@ -317,7 +324,7 @@ async function main() {
     // The text version must match textEmbedding.ts TEXT_MODEL_VERSION. Both overridable via env
     // for a mid-bump database.
     const imageModelVersion = process.env.EMBEDDING_MODEL_VERSION ?? EMBEDDING_MODEL_VERSION;
-    const textModelVersion = process.env.TEXT_MODEL_VERSION ?? "clip-vit-l14-text-v1";
+    const textModelVersion = process.env.TEXT_MODEL_VERSION ?? "clip-vit-l14-text-v2";
     const speciesImage = await writeSpeciesVectorAsset(
       outputDir, "species_reference_embeddings", "lifer-species-image-embeddings", imageModelVersion, GALLERY_EMBEDDING_DIMENSION,
     );
