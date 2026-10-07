@@ -1,4 +1,5 @@
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
+import { useLatest } from "./useLatest";
 import { isMac } from "../lib/platform";
 
 /** Normalizes a KeyboardEvent into one of the map keys below: "escape", "delete", "mod+a", "s",
@@ -26,8 +27,7 @@ function isTypingTarget(target: EventTarget | null): boolean {
 export function useKeyboardShortcuts(map: Record<string, (e: KeyboardEvent) => void>, opts?: { enabled?: boolean }) {
   const enabled = opts?.enabled ?? true;
   // Read from a ref so a fresh object literal each render doesn't re-add the listener.
-  const mapRef = useRef(map);
-  mapRef.current = map;
+  const mapRef = useLatest(map);
 
   useEffect(() => {
     if (!enabled) return;
@@ -40,5 +40,5 @@ export function useKeyboardShortcuts(map: Record<string, (e: KeyboardEvent) => v
     }
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [enabled]);
+  }, [enabled, mapRef]);
 }

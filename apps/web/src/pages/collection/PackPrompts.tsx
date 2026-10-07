@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from "react";
+import { useLatest } from "../../hooks/useLatest";
 import { Link } from "react-router-dom";
 import { api } from "../../api/client";
-import { formatBytes } from "../../lib/formatBytes";
+import { formatBytes } from "../../lib/format";
 import AddOtherTaxaModal from "../../components/AddOtherTaxaModal";
 import JobProgress from "../../components/JobProgress";
-import { buttonClasses } from "../../components/Button";
+import { buttonClasses } from "../../lib/buttonClasses";
 import { PACK_DOWNLOAD_PHASES, packProgressDetail, usePackDownloadJob } from "../../hooks/usePackDownloadStatus";
 import { isOtherTaxaFilter, taxonFilterLabel, type TaxonFilter } from "./taxonLabels";
 
@@ -26,8 +27,7 @@ const CANCEL_URL = "/offline-packs/download/cancel";
 function usePackDownloadAndWait(onDone: (packIds: string[]) => void) {
   const startedIds = useRef<string[] | null>(null);
   const [startedHere, setStartedHere] = useState(false);
-  const onDoneRef = useRef(onDone);
-  onDoneRef.current = onDone;
+  const onDoneRef = useLatest(onDone);
   const job = usePackDownloadJob({
     onFinish: (status) => {
       const ids = startedIds.current;
@@ -64,27 +64,44 @@ function DownloadProgress({ job }: { job: ReturnType<typeof usePackDownloadJob> 
 function DownloadOutcome({ job, startedHere }: { job: ReturnType<typeof usePackDownloadJob>; startedHere: boolean }) {
   return (
     <div className="mx-auto mt-2 max-w-sm text-left">
-      <JobProgress status={startedHere ? job.status : null} error={job.actionError} errorPrefix="Couldn't download this pack" />
+      <JobProgress
+        status={startedHere ? job.status : null}
+        error={job.actionError}
+        errorPrefix="Couldn't download this pack"
+      />
     </div>
   );
 }
 
 // Shown for a region with no downloaded pack: offers its all-taxa pack directly instead of
-// sending the user off to Offline packs for what's usually one obvious action.
-export function NeedsPackPrompt({ region, onDownloaded }: { region: { id: string; name: string }; onDownloaded: () => void }) {
-  const [pack, setPack] = useState<OfflinePackEntry | null | undefined>(undefined);
+// sending the user off to Offline packs for what's usually one obvious action. With `banner`, it
+// sits compactly above the species that are already yours there (photographed or added by hand).
+export function NeedsPackPrompt({
+  region,
+  onDownloaded,
+  banner,
+}: {
+  region: { id: string; name: string };
+  onDownloaded: () => void;
+  banner?: boolean;
+}) {
+  // Tagged with the region it was looked up for, so another region reads as "checking" until its
+  // own answer arrives.
+  const [found, setFound] = useState<{ region: string; pack: OfflinePackEntry | null } | null>(null);
+  const pack = found?.region === region.name ? found.pack : undefined;
   const { job, download, running, startedHere } = usePackDownloadAndWait(onDownloaded);
 
   useEffect(() => {
     let cancelled = false;
-    setPack(undefined);
+    const name = region.name;
     api
       .get<{ packs: OfflinePackEntry[] }>("/offline-packs/index")
       .then((res) => {
-        if (!cancelled) setPack(res.packs.find((p) => p.type === "region" && p.region === region.name) ?? null);
+        if (!cancelled)
+          setFound({ region: name, pack: res.packs.find((p) => p.type === "region" && p.region === name) ?? null });
       })
       .catch(() => {
-        if (!cancelled) setPack(null);
+        if (!cancelled) setFound({ region: name, pack: null });
       });
     return () => {
       cancelled = true;
@@ -92,8 +109,21 @@ export function NeedsPackPrompt({ region, onDownloaded }: { region: { id: string
   }, [region.name]);
 
   return (
-    <div className="rounded-xl border border-line bg-surface p-8 text-center">
-      <h2 className="text-lg font-semibold text-ink">{region.name}'s checklist isn't downloaded yet</h2>
+    <div
+      className={
+        banner
+          ? "mb-4 rounded-xl border border-line bg-surface p-5 text-center"
+          : "rounded-xl border border-line bg-surface p-8 text-center"
+      }
+    >
+      <h2 className={banner ? "text-base font-semibold text-ink" : "text-lg font-semibold text-ink"}>
+        {region.name}'s checklist isn't downloaded yet
+      </h2>
+      {banner && (
+        <p className="mx-auto mt-1 max-w-md text-sm text-muted">
+          Below are the species you've photographed here or added yourself. The pack adds the rest.
+        </p>
+      )}
       {pack === undefined ? (
         <p className="mt-2 text-sm text-muted">Checking for a pack…</p>
       ) : pack === null ? (
@@ -113,7 +143,11 @@ export function NeedsPackPrompt({ region, onDownloaded }: { region: { id: string
             <DownloadProgress job={job} />
           ) : (
             <>
-              <button onClick={() => void download([pack.id])} disabled={job.starting} className={buttonClasses("primary", "md", "mt-4")}>
+              <button
+                onClick={() => void download([pack.id])}
+                disabled={job.starting}
+                className={buttonClasses("primary", "md", "mt-4")}
+              >
                 {job.starting ? "Starting…" : `Download ${region.name}'s pack`}
               </button>
               <DownloadOutcome job={job} startedHere={startedHere} />
@@ -123,6 +157,12 @@ export function NeedsPackPrompt({ region, onDownloaded }: { region: { id: string
       )}
     </div>
   );
+}
+
+interface SeaZonePack {
+  zoneId: string;
+  zoneName: string;
+  pack: OfflinePackEntry;
 }
 
 // Shown instead of an empty grid when the region has some pack, just not the filtered taxon's.
@@ -141,27 +181,30 @@ export function TaxonPackPrompt({
   photographed?: number;
 }) {
   const otherTaxa = isOtherTaxaFilter(taxon);
-  const [pack, setPack] = useState<OfflinePackEntry | null | undefined>(undefined);
-  // Fish can also come from a nearby sea zone's own pack, for someone after ocean fish.
-  const [seaZonePacks, setSeaZonePacks] = useState<Array<{ zoneId: string; zoneName: string; pack: OfflinePackEntry }> | null>(null);
+  // Tagged with what it was looked up for, so a different region or taxon reads as "checking"
+  // until its own answer arrives. Fish can also come from a nearby sea zone's own pack.
+  const lookupKey = JSON.stringify([regionId, regionName, taxon]);
+  const [found, setFound] = useState<{
+    key: string;
+    pack: OfflinePackEntry | null;
+    seaZonePacks: SeaZonePack[];
+  } | null>(null);
+  const current = found?.key === lookupKey ? found : null;
+  const pack = current ? current.pack : undefined;
+  const seaZonePacks = current ? current.seaZonePacks : null;
   const [downloadingZoneId, setDownloadingZoneId] = useState<string | null>(null);
   const [otherTaxaModalOpen, setOtherTaxaModalOpen] = useState(false);
   const { job, download, running, startedHere } = usePackDownloadAndWait((ids) => {
-    setSeaZonePacks((prev) => prev?.filter((z) => !ids.includes(z.pack.id)) ?? null);
+    setFound((prev) => prev && { ...prev, seaZonePacks: prev.seaZonePacks.filter((z) => !ids.includes(z.pack.id)) });
     setDownloadingZoneId(null);
     onDownloaded();
   });
 
   useEffect(() => {
-    // Other Taxa species are added one at a time, never from a pack.
-    if (otherTaxa) {
-      setPack(null);
-      setSeaZonePacks([]);
-      return;
-    }
+    // Other Taxa species are added one at a time, never from a pack (and that view returns early).
+    if (otherTaxa) return;
     let cancelled = false;
-    setPack(undefined);
-    setSeaZonePacks(null);
+    const key = JSON.stringify([regionId, regionName, taxon]);
     Promise.all([
       api.get<{ packs: OfflinePackEntry[] }>("/offline-packs/index"),
       taxon === "actinopterygii"
@@ -171,17 +214,20 @@ export function TaxonPackPrompt({
       .then(([{ packs }, { zones }]) => {
         if (cancelled) return;
         const candidates = packs.filter((p) => p.type === "region" && p.region === regionName);
-        setPack(candidates.find((p) => p.taxon === taxon) ?? candidates.find((p) => !p.taxon) ?? null);
-        setSeaZonePacks(
-          zones
-            .map((zone) => ({ zoneId: zone.id, zoneName: zone.name, pack: packs.find((p) => p.type === "seaZone" && p.seaZone === zone.name) }))
-            .filter((z): z is { zoneId: string; zoneName: string; pack: OfflinePackEntry } => !!z.pack && !z.pack.downloaded),
-        );
+        setFound({
+          key,
+          pack: candidates.find((p) => p.taxon === taxon) ?? candidates.find((p) => !p.taxon) ?? null,
+          seaZonePacks: zones
+            .map((zone) => ({
+              zoneId: zone.id,
+              zoneName: zone.name,
+              pack: packs.find((p) => p.type === "seaZone" && p.seaZone === zone.name),
+            }))
+            .filter((z): z is SeaZonePack => !!z.pack && !z.pack.downloaded),
+        });
       })
       .catch(() => {
-        if (cancelled) return;
-        setPack(null);
-        setSeaZonePacks([]);
+        if (!cancelled) setFound({ key, pack: null, seaZonePacks: [] });
       });
     return () => {
       cancelled = true;
@@ -193,14 +239,17 @@ export function TaxonPackPrompt({
       <div className="rounded-xl border border-line bg-surface p-8 text-center">
         <h2 className="text-lg font-semibold text-ink">No Other Taxa added for {regionName} yet</h2>
         <p className="mx-auto mt-2 max-w-sm text-sm text-muted">
-          There's no pack to download for this one, Other Taxa covers whatever Lifer doesn't already have a dataset for (insects,
-          plants, fungi, and more). Jump to a species by scientific name (that matches best) and you'll get the option to search
-          iNaturalist and add it here, or paste in a whole list of names at once from the same search screen.
+          There's no pack to download for this one, Other Taxa covers whatever Lifer doesn't already have a dataset for
+          (insects, plants, fungi, and more). Jump to a species by scientific name (that matches best) and you'll get
+          the option to search iNaturalist and add it here, or paste in a whole list of names at once from the same
+          search screen.
         </p>
         <button onClick={() => setOtherTaxaModalOpen(true)} className={buttonClasses("primary", "md", "mt-4")}>
           Search iNaturalist
         </button>
-        {otherTaxaModalOpen && <AddOtherTaxaModal initialQuery="" initialRegionId={regionId} onClose={() => setOtherTaxaModalOpen(false)} />}
+        {otherTaxaModalOpen && (
+          <AddOtherTaxaModal initialQuery="" initialRegionId={regionId} onClose={() => setOtherTaxaModalOpen(false)} />
+        )}
       </div>
     );
   }
@@ -210,7 +259,13 @@ export function TaxonPackPrompt({
   const banner = photographed != null && photographed > 0;
 
   return (
-    <div className={banner ? "mb-4 rounded-xl border border-line bg-surface p-5 text-center" : "rounded-xl border border-line bg-surface p-8 text-center"}>
+    <div
+      className={
+        banner
+          ? "mb-4 rounded-xl border border-line bg-surface p-5 text-center"
+          : "rounded-xl border border-line bg-surface p-8 text-center"
+      }
+    >
       <h2 className={banner ? "text-base font-semibold text-ink" : "text-lg font-semibold text-ink"}>
         {banner
           ? `You've photographed ${photographed} ${taxonName} species in ${regionName}`
@@ -255,7 +310,8 @@ export function TaxonPackPrompt({
       {seaZonePacks !== null && seaZonePacks.length > 0 && (
         <div className="mx-auto mt-6 max-w-sm border-t border-line pt-4 text-left">
           <p className="text-sm text-muted">
-            Or get fish from a nearby sea zone instead. It's a separate, optional download, not part of {regionName}'s own pack above:
+            Or get fish from a nearby sea zone instead. It's a separate, optional download, not part of {regionName}'s
+            own pack above:
           </p>
           <div className="mt-3 space-y-2">
             {seaZonePacks.map((zone) => (
@@ -287,7 +343,11 @@ export function TaxonPackPrompt({
                       cancelling={job.cancelling}
                     />
                   ) : (
-                    <JobProgress status={startedHere ? job.status : null} error={job.actionError} errorPrefix="Couldn't download this pack" />
+                    <JobProgress
+                      status={startedHere ? job.status : null}
+                      error={job.actionError}
+                      errorPrefix="Couldn't download this pack"
+                    />
                   ))}
               </div>
             ))}

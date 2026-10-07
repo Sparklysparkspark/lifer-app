@@ -23,7 +23,11 @@ function toServerInfo(settings: Settings | null): ServerInfo | null {
   // Same object back while the source is unchanged, so useSyncExternalStore stays stable.
   if (settings !== derivedFrom) {
     derivedFrom = settings;
-    derived = { deploymentMode: settings.deploymentMode, dataDir: settings.dataDir, libraryRoots: settings.libraryRoots ?? [] };
+    derived = {
+      deploymentMode: settings.deploymentMode,
+      dataDir: settings.dataDir,
+      libraryRoots: settings.libraryRoots ?? [],
+    };
   }
   return derived;
 }

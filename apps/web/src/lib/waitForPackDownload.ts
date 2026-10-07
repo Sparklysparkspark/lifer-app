@@ -3,7 +3,10 @@ import { onPackDownloadAbandoned, onPackDownloadFinish, type PackDownloadStatus 
 /** Waits for the shared pack-download job to finish downloading any of `packIds`. Call before
  *  starting the job, so a run that ends on the very first poll isn't missed, and `cancel` if the
  *  job never starts. Rejects when the store stops following the job (signed out, server gone). */
-export function nextPackDownloadFinish(packIds: string[]): { finished: Promise<PackDownloadStatus>; cancel: () => void } {
+export function nextPackDownloadFinish(packIds: string[]): {
+  finished: Promise<PackDownloadStatus>;
+  cancel: () => void;
+} {
   let cancel = () => {};
   const finished = new Promise<PackDownloadStatus>((resolve, reject) => {
     const stop = () => {

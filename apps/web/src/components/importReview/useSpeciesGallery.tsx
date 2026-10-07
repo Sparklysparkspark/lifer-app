@@ -11,8 +11,13 @@ export function useSpeciesGallery() {
     const caption = (credit: string | null) => (credit ? `${label} · ${credit}` : label);
     const single = [{ url: `/api/species/${speciesId}/reference-photo/display`, caption: caption(null) }];
     try {
-      const res = await api.get<{ photos: Array<{ url: string; credit: string | null }> }>(`/species/${speciesId}/reference-photos`);
-      setGallery({ slides: res.photos.length > 0 ? res.photos.map((p) => ({ url: p.url, caption: caption(p.credit) })) : single, index: 0 });
+      const res = await api.get<{ photos: Array<{ url: string; credit: string | null }> }>(
+        `/species/${speciesId}/reference-photos`,
+      );
+      setGallery({
+        slides: res.photos.length > 0 ? res.photos.map((p) => ({ url: p.url, caption: caption(p.credit) })) : single,
+        index: 0,
+      });
     } catch {
       // Fall back to the single reference photo the card already shows.
       setGallery({ slides: single, index: 0 });

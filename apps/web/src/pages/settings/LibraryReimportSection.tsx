@@ -1,9 +1,10 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import type { JobStatus } from "@lifer/shared";
+import type { CullMarksOption, JobStatus } from "@lifer/shared";
 import { api } from "../../api/client";
 import Button from "../../components/Button";
-import { FolderBrowser, pickFolderNative } from "../../components/FolderPicker";
+import { FolderBrowser } from "../../components/FolderPicker";
+import { pickFolderNative } from "../../lib/pickFolderNative";
 import FormMessage from "../../components/FormMessage";
 import JobProgress from "../../components/JobProgress";
 import Select from "../../components/Select";
@@ -32,6 +33,8 @@ type ReimportStatus = JobStatus<{ missingReferenceData: string[] }> & {
   jpegsAlreadyKnown: number;
   jpegsRelinked: number;
   jpegsIgnored: number;
+  jpegsRejected: number;
+  jpegsHidden: number;
   unmatched: UnmatchedFile[];
   rawsRecovered: number;
   rawsAlreadyKnown: number;
@@ -63,7 +66,10 @@ function UnmatchedReviewPanel({ files, onIgnored }: { files: UnmatchedFile[]; on
   return (
     <div className="max-h-96 space-y-1 overflow-y-auto rounded-md border border-line bg-canvas p-2">
       {files.map((f, i) => (
-        <div key={f.contentHash ?? f.relativePath} className="flex items-center gap-3 rounded-md p-1.5 hover:bg-surface-muted">
+        <div
+          key={f.contentHash ?? f.relativePath}
+          className="flex items-center gap-3 rounded-md p-1.5 hover:bg-surface-muted"
+        >
           {/* The index route can't bust the browser cache per file, so it gets the path as a key. */}
           <img
             src={
@@ -81,7 +87,9 @@ function UnmatchedReviewPanel({ files, onIgnored }: { files: UnmatchedFile[]; on
           <div className="min-w-0 flex-1">
             <p className="truncate text-xs text-ink">{f.relativePath}</p>
             <p className="truncate text-[11px] text-muted">
-              {f.scientificNames ? `Matched more than one species: ${f.scientificNames.join(", ")}` : "No species tag found"}
+              {f.scientificNames
+                ? `Matched more than one species: ${f.scientificNames.join(", ")}`
+                : "No species tag found"}
             </p>
           </div>
           {f.contentHash && (
@@ -115,6 +123,7 @@ export default function LibraryReimportSection() {
   const [foreignPath, setForeignPath] = useState("");
   const [browsingForeignPath, setBrowsingForeignPath] = useState(false);
   const [organize, setOrganize] = useState(false);
+  const [cullMarks, setCullMarks] = useState<CullMarksOption>("hide");
   const [showUnmatched, setShowUnmatched] = useState(false);
 
   async function chooseForeignPath() {
@@ -132,7 +141,9 @@ export default function LibraryReimportSection() {
     const message =
       mode === "foreign"
         ? `This walks "${foreignPath}", matches each photo to a species using tags already embedded in the file (species name, common name, or a past alias), and ${
-            organize ? "moves matched photos into your library's own species folders" : "adds matched photos to your library without moving them"
+            organize
+              ? "moves matched photos into your library's own species folders"
+              : "adds matched photos to your library without moving them"
           }. Anything it can't confidently match is left untouched on disk and listed for you to review.`
         : targetLabel
           ? `This walks "${targetLabel}"'s own photo folder and rebuilds any missing records, and repairs any already-known photo whose saved location has drifted (e.g. this drive remounting under a different name). It never modifies or moves your files.`
@@ -144,7 +155,7 @@ export default function LibraryReimportSection() {
     });
     if (!ok) return;
     setShowUnmatched(false);
-    const body = mode === "foreign" ? { path: foreignPath, organize } : volumeId ? { volumeId } : undefined;
+    const body = mode === "foreign" ? { path: foreignPath, organize, cullMarks } : volumeId ? { volumeId, cullMarks } : { cullMarks };
     await job.start("/library/reimport", body);
   }
 
@@ -195,9 +206,10 @@ export default function LibraryReimportSection() {
       {mode === "existing" ? (
         <>
           <p className="text-xs text-muted">
-            This only scans the one location you pick below, either your main library folder, or a single connected drive or library
-            folder, never everything at once. Pick "Main library" for a fresh install or server migration; pick a specific drive if
-            that drive's own photos have gone stale (path drifted after reconnecting under a different name, for example).
+            This only scans the one location you pick below, either your main library folder, or a single connected
+            drive or library folder, never everything at once. Pick "Main library" for a fresh install or server
+            migration; pick a specific drive if that drive's own photos have gone stale (path drifted after reconnecting
+            under a different name, for example).
           </p>
           {connectedVolumes.length > 0 && (
             <div className="space-y-1">
@@ -216,11 +228,12 @@ export default function LibraryReimportSection() {
       ) : (
         <>
           <p className="text-xs text-muted">
-            Point this at any folder of photos, however it's organized: Lightroom exports, a flat dump by date, whatever. We'll match
-            each photo to a species using tags already embedded in the file: its species name, common name, or an older name it may
-            have been tagged with before a taxonomic rename. Anything we can't confidently match won't be touched. It's left in place
-            and listed below, where you can review it or mark it "Ignore" so it stops showing up on future scans (handy for e.g. a
-            folder of insect photos this app doesn't track).
+            Point this at any folder of photos, however it's organized: Lightroom exports, a flat dump by date,
+            whatever. We'll match each photo to a species using tags already embedded in the file: its species name,
+            common name, or an older name it may have been tagged with before a taxonomic rename. Anything we can't
+            confidently match won't be touched. It's left in place and listed below, where you can review it or mark it
+            "Ignore" so it stops showing up on future scans (handy for e.g. a folder of insect photos this app doesn't
+            track).
           </p>
           <div className="space-y-1">
             <label className="text-xs font-medium text-muted">Folder to import</label>
@@ -239,8 +252,8 @@ export default function LibraryReimportSection() {
             </div>
             {isServer && serverInfo.libraryRoots.length === 0 && (
               <p className="text-xs text-muted">
-                On this server you can pick folders inside the library folder. To import from somewhere else, mount it and declare it
-                with LIFER_LIBRARY_ROOTS (see Settings &gt; Storage).
+                On this server you can pick folders inside the library folder. To import from somewhere else, mount it
+                and declare it with LIFER_LIBRARY_ROOTS (see Settings &gt; Storage).
               </p>
             )}
             {browsingForeignPath && (
@@ -254,13 +267,40 @@ export default function LibraryReimportSection() {
             )}
           </div>
           <label className="flex items-center gap-2 text-xs text-ink">
-            <input type="checkbox" checked={organize} onChange={(e) => setOrganize(e.target.checked)} disabled={busy} className="h-3.5 w-3.5" />
-            Organize matched photos into species folders in my library (leave off to add them to Lifer without moving the files from
-            where they are now: you can migrate them into the folder scheme later from Settings &gt; Library &gt; Photo library
-            organization)
+            <input
+              type="checkbox"
+              checked={organize}
+              onChange={(e) => setOrganize(e.target.checked)}
+              disabled={busy}
+              className="h-3.5 w-3.5"
+            />
+            Organize matched photos into species folders in my library (leave off to add them to Lifer without moving
+            the files from where they are now: you can migrate them into the folder scheme later from Settings &gt;
+            Library &gt; Photo library organization)
           </label>
         </>
       )}
+
+      <div className="space-y-1">
+        <label className="text-xs font-medium text-muted" htmlFor="reimport-cull-marks">
+          Photos a culling app marked rejected
+        </label>
+        <Select
+          id="reimport-cull-marks"
+          variant="form"
+          value={cullMarks}
+          onChange={(e) => setCullMarks(e.target.value as CullMarksOption)}
+          disabled={busy}
+        >
+          <option value="skip">Skip them</option>
+          <option value="hide">Import them hidden</option>
+          <option value="ignore">Import them anyway</option>
+        </Select>
+        <p className="text-xs text-muted">
+          Read from Lightroom, Photo Mechanic, digiKam and similar apps. Skipped photos stay on disk untouched; hidden
+          ones are found with the Gallery's Hidden filter.
+        </p>
+      </div>
 
       <div className="flex items-center gap-2">
         <Button variant="secondary" size="sm" onClick={start} disabled={busy || (mode === "foreign" && !foreignPath)}>
@@ -277,7 +317,9 @@ export default function LibraryReimportSection() {
         />
       )}
       {!status.running && status.finishedAt !== null && status.cancelled && (
-        <p className="text-xs text-muted">Cancelled. Files already in progress when you cancelled were still recorded below.</p>
+        <p className="text-xs text-muted">
+          Cancelled. Files already in progress when you cancelled were still recorded below.
+        </p>
       )}
       {!status.running && status.finishedAt !== null && (
         <div className="space-y-2 text-xs text-muted">
@@ -288,9 +330,19 @@ export default function LibraryReimportSection() {
           </p>
           {relinked > 0 && <p>Repaired {pluralize(relinked, "file")} whose saved location had drifted.</p>}
           {status.jpegsIgnored > 0 && <p>Skipped {pluralize(status.jpegsIgnored, "previously-ignored file")}.</p>}
+          {status.jpegsRejected > 0 && (
+            <p>Skipped {pluralize(status.jpegsRejected, "photo")} a culling app marked rejected.</p>
+          )}
+          {status.jpegsHidden > 0 && (
+            <p>Imported {pluralize(status.jpegsHidden, "rejected photo")} hidden.</p>
+          )}
           {status.unmatched.length > 0 && (
             <div>
-              <button type="button" onClick={() => setShowUnmatched((v) => !v)} className="text-ink underline hover:no-underline">
+              <button
+                type="button"
+                onClick={() => setShowUnmatched((v) => !v)}
+                className="text-ink underline hover:no-underline"
+              >
                 {showUnmatched ? "Hide" : "Review"} unmatched ({status.unmatched.length})
               </button>
               {showUnmatched && (
@@ -300,12 +352,17 @@ export default function LibraryReimportSection() {
               )}
             </div>
           )}
-          {status.rawsUnmatched > 0 && <p>{pluralize(status.rawsUnmatched, "RAW file")} couldn't be matched to a recovered photo.</p>}
+          {status.rawsUnmatched > 0 && (
+            <p>{pluralize(status.rawsUnmatched, "RAW file")} couldn't be matched to a recovered photo.</p>
+          )}
           {missingReferenceData.length > 0 && (
             <p>
-              {missingReferenceData.length} recovered species {pluralWord(missingReferenceData.length, "is", "are")} missing reference
-              photos/descriptions,{" "}
-              <Link to={`/offline-packs?missing=${encodeURIComponent(missingReferenceData.join(","))}`} className="underline hover:no-underline">
+              {missingReferenceData.length} recovered species {pluralWord(missingReferenceData.length, "is", "are")}{" "}
+              missing reference photos/descriptions,{" "}
+              <Link
+                to={`/offline-packs?missing=${encodeURIComponent(missingReferenceData.join(","))}`}
+                className="underline hover:no-underline"
+              >
                 see which packs would restore them
               </Link>
               .

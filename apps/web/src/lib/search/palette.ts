@@ -18,7 +18,8 @@ export interface PaletteItem {
   action: PaletteAction;
 }
 
-export type PaletteGroupId = "recent" | "species" | "photos" | "scope" | "regions" | "trips" | "albums" | "settings" | "actions";
+export type PaletteGroupId =
+  "recent" | "species" | "photos" | "scope" | "regions" | "trips" | "albums" | "settings" | "actions";
 
 export interface PaletteGroup {
   id: PaletteGroupId;
@@ -44,7 +45,9 @@ export function derivePaletteContext(pathname: string, search: string): PaletteC
   if (regionId && !UUIDISH.test(regionId)) regionId = null;
 
   const match = /^\/(trips|albums)\/([^/]+)\/?$/.exec(pathname);
-  const scope = match ? { kind: match[1] === "trips" ? ("trip" as const) : ("album" as const), id: decodeURIComponent(match[2]) } : null;
+  const scope = match
+    ? { kind: match[1] === "trips" ? ("trip" as const) : ("album" as const), id: decodeURIComponent(match[2]) }
+    : null;
   return { regionId, scope };
 }
 
@@ -112,5 +115,7 @@ export interface StaticEntry {
 
 /** Client-side filter for lists the palette already holds (regions, trips, settings, actions). */
 export function filterEntries(entries: readonly StaticEntry[], query: string, limit: number): PaletteItem[] {
-  return filterByQuery(entries, query, (e) => [e.label, ...(e.keywords ?? [])], limit).map(({ keywords: _k, ...item }) => item);
+  return filterByQuery(entries, query, (e) => [e.label, ...(e.keywords ?? [])], limit).map(
+    ({ keywords: _k, ...item }) => item,
+  );
 }

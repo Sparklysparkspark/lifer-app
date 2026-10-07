@@ -1,4 +1,5 @@
 import { useRef } from "react";
+import { useTranslation } from "react-i18next";
 import { enqueueUploads } from "../lib/uploadQueue";
 import { PHOTO_ACCEPT, VIDEO_ACCEPT } from "../lib/photoFormats";
 
@@ -19,6 +20,7 @@ export default function UploadDropzone({
   onUploaded: () => void;
   onClose?: () => void;
 }) {
+  const { t } = useTranslation();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   function handleUpload(files: File[]) {
@@ -49,7 +51,7 @@ export default function UploadDropzone({
         id="upload-input"
         onChange={(e) => handleUpload(Array.from(e.target.files ?? []))}
       />
-      <span className="text-sm text-muted hover:underline">Choose photos or videos…</span>
+      <span className="text-sm text-muted hover:underline">{t("upload.choosePhotosOrVideos")}</span>
     </div>
   );
 }

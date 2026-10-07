@@ -63,8 +63,8 @@ export default function NameChangedModal({
       ) : (
         <div className="space-y-3 text-sm">
           <p className="text-muted">
-            {speciesName} (<i>{scientificName}</i>) has been split into {options.species.length} species. Which is in your{" "}
-            {count === 1 ? "photo" : `${count} photos`}?
+            {speciesName} (<i>{scientificName}</i>) has been split into {options.species.length} species. Which is in
+            your {count === 1 ? "photo" : `${count} photos`}?
           </p>
           <ul className="space-y-2">
             {options.species.map((s) => (
@@ -78,14 +78,25 @@ export default function NameChangedModal({
                   <p className="truncate font-medium text-ink">{s.commonName ?? s.scientificName}</p>
                   <p className="truncate text-xs italic text-muted">{s.scientificName}</p>
                 </div>
-                <Button size="sm" loading={saving === s.id} disabled={saving !== null} onClick={() => void choose({ speciesId: s.id }, s.id)}>
+                <Button
+                  size="sm"
+                  loading={saving === s.id}
+                  disabled={saving !== null}
+                  onClick={() => void choose({ speciesId: s.id }, s.id)}
+                >
                   This one
                 </Button>
               </li>
             ))}
           </ul>
           <div className="border-t border-line pt-3">
-            <Button variant="secondary" size="sm" loading={saving === "keep"} disabled={saving !== null} onClick={() => void choose({ keep: true }, "keep")}>
+            <Button
+              variant="secondary"
+              size="sm"
+              loading={saving === "keep"}
+              disabled={saving !== null}
+              onClick={() => void choose({ keep: true }, "keep")}
+            >
               Keep {scientificName}
             </Button>
           </div>

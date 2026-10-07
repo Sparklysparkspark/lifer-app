@@ -67,7 +67,8 @@ async function start(): Promise<void> {
 
 /** Starts getting local matching ready in the background, if this is the desktop app. */
 export function prepareLocalInference(): void {
-  if (phase === "idle" || (phase === "unavailable" && Date.now() - unavailableAt > RETRY_MS && tauriInvoke())) void start();
+  if (phase === "idle" || (phase === "unavailable" && Date.now() - unavailableAt > RETRY_MS && tauriInvoke()))
+    void start();
 }
 
 // Matching runs wherever it's faster: this computer, or the server (a NAS with a GPU can beat a
@@ -111,7 +112,10 @@ export async function computeClientVectors(file: Blob): Promise<string | null> {
   try {
     const bytes = new Uint8Array(await file.arrayBuffer());
     const startedAt = performance.now();
-    const vectors = await withTimeout(invoke("local_embed", bytes, { headers: { "x-lifer-targets": targets.join(",") } }), EMBED_TIMEOUT_MS);
+    const vectors = await withTimeout(
+      invoke("local_embed", bytes, { headers: { "x-lifer-targets": targets.join(",") } }),
+      EMBED_TIMEOUT_MS,
+    );
     if (!vectors || typeof vectors !== "object") return null;
     recordLocalMatching(performance.now() - startedAt);
     return JSON.stringify(vectors);

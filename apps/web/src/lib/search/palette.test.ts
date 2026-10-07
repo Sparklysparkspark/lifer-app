@@ -78,7 +78,11 @@ describe("flattenGroups and highlight", () => {
 
 describe("filterEntries", () => {
   it("matches keywords and strips them from the result", () => {
-    const res = filterEntries([{ id: "x", label: "Trash", keywords: ["deleted"], action: { type: "navigate", to: "/trash" } }], "delet", 5);
+    const res = filterEntries(
+      [{ id: "x", label: "Trash", keywords: ["deleted"], action: { type: "navigate", to: "/trash" } }],
+      "delet",
+      5,
+    );
     expect(res).toEqual([{ id: "x", label: "Trash", action: { type: "navigate", to: "/trash" } }]);
   });
 });

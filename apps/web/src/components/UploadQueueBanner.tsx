@@ -1,5 +1,6 @@
+import { useTranslation } from "react-i18next";
 import { useUploadQueue, resolveDuplicate } from "../lib/uploadQueue";
-import { formatDate } from "../lib/formatDate";
+import { formatDate } from "../lib/format";
 import InlineSpinner from "./InlineSpinner";
 import Modal from "./Modal";
 import Button from "./Button";
@@ -8,13 +9,15 @@ import ProgressBar from "./ProgressBar";
 // Rendered on every page (positioned by StatusTray), since uploads keep running in the background
 // after the page that started them closes.
 export default function UploadQueueBanner() {
+  const { t } = useTranslation();
   const { jobs, targetsExternalDrive, justFinishedAt, pendingDuplicates } = useUploadQueue();
   // One prompt at a time; the rest wait their turn in the queue.
   const pendingDuplicate = pendingDuplicates[0] ?? null;
   const inProgress = jobs.filter((j) => !j.done).length;
   const failed = jobs.filter((j) => j.done && j.error).length;
   const skipped = jobs.filter((j) => j.skipped).length;
-  const justFinished = jobs.length === 0 && justFinishedAt != null && Date.now() - justFinishedAt < 6000;
+  // The queue clears justFinishedAt itself after a few seconds (lib/uploadQueue.ts).
+  const justFinished = jobs.length === 0 && justFinishedAt != null;
   // Bytes across the files whose uploads report a size; a finished file counts as fully sent.
   const sized = jobs.filter((j) => j.totalBytes);
   const totalBytes = sized.reduce((sum, j) => sum + j.totalBytes!, 0);
@@ -30,15 +33,17 @@ export default function UploadQueueBanner() {
             <>
               <InlineSpinner tone="ink" />
               <span>
-                Uploading… {jobs.length - inProgress}/{jobs.length}
-                {failed > 0 ? ` (${failed} failed)` : ""}
-                {skipped > 0 ? ` (${skipped} skipped)` : ""}
+                {t("upload.banner.uploading", { done: jobs.length - inProgress, total: jobs.length, failed, skipped })}
               </span>
-              {uploadFraction != null && <ProgressBar value={uploadFraction} size="xs" tone="ink" label="Upload progress" className="w-20" />}
-              {targetsExternalDrive && <span className="font-medium text-amber-700 dark:text-amber-400">Don't unplug the drive yet</span>}
+              {uploadFraction != null && (
+                <ProgressBar value={uploadFraction} size="xs" tone="ink" label={t("upload.banner.progressLabel")} className="w-20" />
+              )}
+              {targetsExternalDrive && (
+                <span className="font-medium text-amber-700 dark:text-amber-400">{t("upload.banner.keepDrive")}</span>
+              )}
             </>
           ) : (
-            <span>Upload finished</span>
+            <span>{t("upload.banner.finished")}</span>
           )}
         </div>
       )}
@@ -51,18 +56,22 @@ export default function UploadQueueBanner() {
         dismissOnBackdrop={false}
         title={
           <>
-            Possible duplicate
-            {pendingDuplicates.length > 1 && <span className="ml-2 font-normal text-muted">(1 of {pendingDuplicates.length})</span>}
+            {t("upload.duplicate.title")}
+            {pendingDuplicates.length > 1 && (
+              <span className="ml-2 font-normal text-muted">
+                {t("upload.duplicate.position", { total: pendingDuplicates.length })}
+              </span>
+            )}
           </>
         }
         footer={
           pendingDuplicate && (
             <>
               <Button variant="secondary" size="sm" onClick={() => resolveDuplicate(pendingDuplicate.jobId, "skip")}>
-                Skip
+                {t("upload.duplicate.skip")}
               </Button>
               <Button size="sm" onClick={() => resolveDuplicate(pendingDuplicate.jobId, "import")}>
-                Import anyway
+                {t("upload.duplicate.importAnyway")}
               </Button>
             </>
           )
@@ -70,8 +79,16 @@ export default function UploadQueueBanner() {
       >
         {pendingDuplicate && (
           <p className="text-sm text-muted">
-            "{pendingDuplicate.fileName}" looks like a photo you already have of {pendingDuplicate.info.speciesName}
-            {takenOn ? ` from ${takenOn}` : ""}.
+            {takenOn
+              ? t("upload.duplicate.messageWithDate", {
+                  fileName: pendingDuplicate.fileName,
+                  species: pendingDuplicate.info.speciesName,
+                  date: takenOn,
+                })
+              : t("upload.duplicate.message", {
+                  fileName: pendingDuplicate.fileName,
+                  species: pendingDuplicate.info.speciesName,
+                })}
           </p>
         )}
       </Modal>

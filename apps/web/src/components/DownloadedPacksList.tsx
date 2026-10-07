@@ -3,10 +3,10 @@ import type { TaxonClass } from "@lifer/shared";
 import { TAXON_CLASS_LABEL } from "@lifer/shared";
 import { api, ApiError } from "../api/client";
 import { usePackDownloadJob, packProgressDetail, PACK_DOWNLOAD_PHASES } from "../hooks/usePackDownloadStatus";
-import { formatBytes } from "../lib/formatBytes";
+import { formatBytes } from "../lib/format";
 import { errorMessage } from "../lib/errorMessage";
 import { nextPackDownloadFinish } from "../lib/waitForPackDownload";
-import { pluralize } from "../lib/pluralize";
+import { useTranslation } from "react-i18next";
 import JobProgress from "./JobProgress";
 import { useEnterToConfirm } from "../hooks/useEnterToConfirm";
 import Pill from "./Pill";
@@ -41,9 +41,6 @@ export interface DeletePreview {
   isEstimate: boolean;
 }
 
-// Re-exported for existing importers; the one shared formatter lives in lib/formatBytes.
-export { formatBytes };
-
 // A country's packs grouped with the sea-zone packs it depends on. Keyed by pack id, since a zone
 // can have a pack per taxon.
 function groupPacks(packs: PackEntry[]): [string, { main: PackEntry[]; seaZones: PackEntry[] }][] {
@@ -67,7 +64,12 @@ function groupPacks(packs: PackEntry[]): [string, { main: PackEntry[]; seaZones:
 function siblingVariantPack(p: PackEntry, allPacks: PackEntry[]): PackEntry | undefined {
   const wantVariant = (p.variant ?? "full") === "small" ? "full" : "small";
   return allPacks.find(
-    (o) => o.type === p.type && o.region === p.region && o.seaZone === p.seaZone && o.taxon === p.taxon && (o.variant ?? "full") === wantVariant,
+    (o) =>
+      o.type === p.type &&
+      o.region === p.region &&
+      o.seaZone === p.seaZone &&
+      o.taxon === p.taxon &&
+      (o.variant ?? "full") === wantVariant,
   );
 }
 
@@ -108,6 +110,7 @@ export default function DownloadedPacksList({
   /** false when the page already shows its own pack-download progress (Offline Packs). */
   showJobProgress?: boolean;
 }) {
+  const { t } = useTranslation();
   const downloadedPacks = packs.filter((p) => p.downloaded);
   const groups = groupPacks(downloadedPacks);
   const [upgradingIds, setUpgradingIds] = useState<Set<string>>(new Set());
@@ -156,7 +159,7 @@ export default function DownloadedPacksList({
   async function updatePacks(packIds: string[]) {
     setError(null);
     // Only starts the job; onFinish above refreshes the list when it ends.
-    if (!(await downloadJob.start("/offline-packs/download", { packIds }))) setError("Couldn't start the update");
+    if (!(await downloadJob.start("/offline-packs/download", { packIds }))) setError(t("offlinePacks.downloaded.updateStartFailed"));
   }
 
   // Downloads the full counterpart of a small pack, then offloads the small one: the full pack
@@ -168,16 +171,16 @@ export default function DownloadedPacksList({
       const wait = nextPackDownloadFinish([fullPack.id]);
       if (!(await downloadJob.start("/offline-packs/download", { packIds: [fullPack.id] }))) {
         wait.cancel();
-        throw new Error("Couldn't start the download");
+        throw new Error(t("offlinePacks.downloaded.downloadStartFailed"));
       }
       const status = await wait.finished;
       if (status.error) throw new Error(status.error);
-      if (status.cancelled) throw new Error("The download was cancelled");
+      if (status.cancelled) throw new Error(t("offlinePacks.downloaded.downloadCancelled"));
       await api.post("/offline-packs/offload-batch", { packIds: [smallPack.id] });
       onRefresh();
     } catch (err) {
       console.error(err);
-      setError(errorMessage(err, "Couldn't get the full version"));
+      setError(errorMessage(err, t("offlinePacks.downloaded.upgradeFailed")));
     } finally {
       setUpgradingIds((prev) => {
         const next = new Set(prev);
@@ -192,10 +195,12 @@ export default function DownloadedPacksList({
     setDeletePreview(null);
     setDeleteError(null);
     try {
-      const preview = await api.post<DeletePreview>("/offline-packs/offload-preview", { packIds: targets.map((p) => p.id) });
+      const preview = await api.post<DeletePreview>("/offline-packs/offload-preview", {
+        packIds: targets.map((p) => p.id),
+      });
       setDeletePreview(preview);
     } catch (err) {
-      setDeleteError(err instanceof ApiError ? err.message : "Couldn't check what offloading this would affect");
+      setDeleteError(err instanceof ApiError ? err.message : t("offlinePacks.offload.previewFailed"));
     }
   }
 
@@ -209,7 +214,7 @@ export default function DownloadedPacksList({
       setSelectedIds(new Set());
       onRefresh();
     } catch (err) {
-      setDeleteError(err instanceof ApiError ? err.message : "Couldn't remove these packs");
+      setDeleteError(err instanceof ApiError ? err.message : t("offlinePacks.offload.failed"));
     } finally {
       setDeleting(false);
     }
@@ -222,28 +227,38 @@ export default function DownloadedPacksList({
     const upgrading = upgradingIds.has(p.id);
     return (
       <div className="flex items-center gap-2 text-sm">
-        <input type="checkbox" checked={selectedIds.has(p.id)} onChange={() => toggleSelection(p.id)} className="h-4 w-4" />
+        <input
+          type="checkbox"
+          checked={selectedIds.has(p.id)}
+          onChange={() => toggleSelection(p.id)}
+          className="h-4 w-4"
+        />
         <span className="flex-1 text-ink">
           {p.type === "seaZone"
-            ? `${p.seaZone}${p.taxon ? ` (${TAXON_CLASS_LABEL[p.taxon]})` : ""}`
+            ? p.taxon
+              ? t("offlinePacks.downloaded.nameWithTaxon", { name: p.seaZone, taxon: TAXON_CLASS_LABEL[p.taxon] })
+              : p.seaZone
             : p.taxon
               ? TAXON_CLASS_LABEL[p.taxon]
-              : "All taxa"}
+              : t("offlinePacks.allTaxa")}
           {p.variant === "small" && (
             <span
               className="ml-2 text-xs text-muted"
-              title="Small pack: only the single featured photo per species. Extra reference photos load on demand when you're online."
+              title={t("offlinePacks.downloaded.smallTitle")}
             >
-              small
+              {t("offlinePacks.downloaded.small")}
             </span>
           )}
-          {p.updateAvailable && <span className="ml-2 text-xs text-accent">update available</span>}
+          {p.updateAvailable && <span className="ml-2 text-xs text-accent">{t("offlinePacks.downloaded.updateAvailable")}</span>}
         </span>
         <span
           className="text-xs text-muted"
           title={
             p.photoBytes != null && p.checklistBytes != null
-              ? `~${formatBytes(p.photoBytes)} photos, ~${formatBytes(p.checklistBytes)} checklist (uncompressed estimate)`
+              ? t("offlinePacks.downloaded.sizeBreakdown", {
+                  photos: formatBytes(p.photoBytes),
+                  checklist: formatBytes(p.checklistBytes),
+                })
               : undefined
           }
         >
@@ -254,11 +269,13 @@ export default function DownloadedPacksList({
             type="button"
             disabled={upgrading}
             onClick={() => upgradeToFull(p, fullSibling)}
-            title="Downloads the full reference gallery for every species in this pack, then removes the small version."
+            title={t("offlinePacks.downloaded.getFullTitle")}
             className="flex items-center gap-1.5 rounded-md border border-line px-2 py-1 text-xs text-ink hover:bg-surface-muted disabled:opacity-50"
           >
             {upgrading && <InlineSpinner size="xs" tone="ink" />}
-            {upgrading ? "Getting full version…" : `Get full version (${formatBytes(fullSibling.sizeBytes)})`}
+            {upgrading
+              ? t("offlinePacks.downloaded.gettingFull")
+              : t("offlinePacks.downloaded.getFull", { size: formatBytes(fullSibling.sizeBytes) })}
           </button>
         )}
         {p.updateAvailable && (
@@ -269,7 +286,7 @@ export default function DownloadedPacksList({
             className="flex items-center gap-1.5 rounded-md border border-accent px-2 py-1 text-xs font-medium text-accent hover:bg-surface-muted disabled:opacity-50"
           >
             {updatingIds.has(p.id) && <InlineSpinner size="xs" />}
-            {updatingIds.has(p.id) ? "Updating…" : "Update"}
+            {updatingIds.has(p.id) ? t("offlinePacks.downloaded.updating") : t("offlinePacks.downloaded.update")}
           </button>
         )}
         {renderPackExtra?.(p)}
@@ -278,7 +295,7 @@ export default function DownloadedPacksList({
           onClick={() => openOffloadConfirm([p, ...orphanedSeaZoneDependents(downloadedPacks, [p])])}
           className="rounded-md border border-line px-2 py-1 text-xs text-muted hover:bg-surface-muted"
         >
-          Offload
+          {t("offlinePacks.offload.button")}
         </button>
       </div>
     );
@@ -287,26 +304,36 @@ export default function DownloadedPacksList({
   return (
     <div className="rounded-xl border border-line bg-surface p-4">
       <div className="flex items-center justify-between">
-        <p className="text-sm font-semibold text-ink">Downloaded</p>
+        <p className="text-sm font-semibold text-ink">{t("offlinePacks.downloaded.title")}</p>
         <div className="flex gap-2">
           {groups.length > 0 && (
             <button
               type="button"
-              onClick={() => setExpandedGroups(expandedGroups.size === groups.length ? new Set() : new Set(groups.map(([name]) => name)))}
+              onClick={() =>
+                setExpandedGroups(
+                  expandedGroups.size === groups.length ? new Set() : new Set(groups.map(([name]) => name)),
+                )
+              }
               className="rounded-md border border-line px-2 py-1 text-xs text-muted hover:bg-surface-muted"
             >
-              {expandedGroups.size === groups.length ? "Collapse all" : "Expand all"}
+              {expandedGroups.size === groups.length ? t("offlinePacks.downloaded.collapseAll") : t("offlinePacks.downloaded.expandAll")}
             </button>
           )}
           {downloadedPacks.length > 1 && (
             <button
               type="button"
               onClick={() =>
-                setSelectedIds(downloadedPacks.every((p) => selectedIds.has(p.id)) ? new Set() : new Set(downloadedPacks.map((p) => p.id)))
+                setSelectedIds(
+                  downloadedPacks.every((p) => selectedIds.has(p.id))
+                    ? new Set()
+                    : new Set(downloadedPacks.map((p) => p.id)),
+                )
               }
               className="rounded-md border border-line px-2 py-1 text-xs text-muted hover:bg-surface-muted"
             >
-              {downloadedPacks.every((p) => selectedIds.has(p.id)) ? "Deselect all" : "Select all"}
+              {downloadedPacks.every((p) => selectedIds.has(p.id))
+                ? t("offlinePacks.downloaded.deselectAll")
+                : t("offlinePacks.downloaded.selectAll")}
             </button>
           )}
           {downloadedPacks.some((p) => p.updateAvailable) && (
@@ -317,7 +344,7 @@ export default function DownloadedPacksList({
               className="flex items-center gap-1.5 rounded-md bg-accent px-2 py-1 text-xs font-medium text-accent-fg disabled:opacity-50"
             >
               {bulkUpdating && <InlineSpinner size="xs" tone="onAccent" />}
-              {bulkUpdating ? "Updating…" : "Update all"}
+              {bulkUpdating ? t("offlinePacks.downloaded.updating") : t("offlinePacks.downloaded.updateAll")}
             </button>
           )}
           {selectedIds.size > 0 && (
@@ -329,7 +356,7 @@ export default function DownloadedPacksList({
               }}
               className="rounded-md border border-line px-2 py-1 text-xs text-muted hover:bg-surface-muted"
             >
-              Offload selected ({selectedIds.size})
+              {t("offlinePacks.offload.selected", { count: selectedIds.size })}
             </button>
           )}
         </div>
@@ -357,7 +384,8 @@ export default function DownloadedPacksList({
           const activeTab = groupTab.get(groupName) ?? (main.length > 0 ? "main" : "seaZones");
           const activePacks = activeTab === "seaZones" ? seaZones : main;
           // A standalone sea zone pack would be a group of one with its own name: show it flat.
-          const isTrivialSelfGroup = allPacks.length === 1 && allPacks[0].type === "seaZone" && allPacks[0].seaZone === groupName;
+          const isTrivialSelfGroup =
+            allPacks.length === 1 && allPacks[0].type === "seaZone" && allPacks[0].seaZone === groupName;
           if (isTrivialSelfGroup) {
             const p = allPacks[0];
             return (
@@ -385,9 +413,16 @@ export default function DownloadedPacksList({
                   }
                   className="h-4 w-4"
                 />
-                <button type="button" onClick={() => toggleGroupCollapsed(groupName)} className="flex flex-1 items-center justify-between text-left text-ink">
+                <button
+                  type="button"
+                  onClick={() => toggleGroupCollapsed(groupName)}
+                  className="flex flex-1 items-center justify-between text-left text-ink"
+                >
                   <span>
-                    {groupName} <span className="text-xs text-muted">({pluralize(allPacks.length, "pack")})</span>
+                    {groupName}{" "}
+                    <span className="text-xs text-muted">
+                      {t("offlinePacks.downloaded.groupPackCount", { count: allPacks.length })}
+                    </span>
                   </span>
                   <span className="text-xs text-muted">
                     {formatBytes(groupBytes)} {collapsed ? "▸" : "▾"}
@@ -396,11 +431,19 @@ export default function DownloadedPacksList({
               </div>
               {!collapsed && hasBothTabs && (
                 <div className="mt-1.5 ml-6 flex gap-1">
-                  <Pill size="sm" active={activeTab === "main"} onClick={() => setGroupTab(new Map(groupTab).set(groupName, "main"))}>
-                    Packs ({main.length})
+                  <Pill
+                    size="sm"
+                    active={activeTab === "main"}
+                    onClick={() => setGroupTab(new Map(groupTab).set(groupName, "main"))}
+                  >
+                    {t("offlinePacks.downloaded.packsTab", { count: main.length })}
                   </Pill>
-                  <Pill size="sm" active={activeTab === "seaZones"} onClick={() => setGroupTab(new Map(groupTab).set(groupName, "seaZones"))}>
-                    Sea zones ({seaZones.length})
+                  <Pill
+                    size="sm"
+                    active={activeTab === "seaZones"}
+                    onClick={() => setGroupTab(new Map(groupTab).set(groupName, "seaZones"))}
+                  >
+                    {t("offlinePacks.downloaded.seaZonesTab", { count: seaZones.length })}
                   </Pill>
                 </div>
               )}
@@ -422,7 +465,9 @@ export default function DownloadedPacksList({
                     }
                     className="text-xs text-muted hover:underline"
                   >
-                    {activePacks.every((p) => selectedIds.has(p.id)) ? "Deselect all" : "Select all"}
+                    {activePacks.every((p) => selectedIds.has(p.id))
+                      ? t("offlinePacks.downloaded.deselectAll")
+                      : t("offlinePacks.downloaded.selectAll")}
                   </button>
                 </div>
               )}
@@ -446,55 +491,51 @@ export default function DownloadedPacksList({
         onClose={() => setOffloadTargets(null)}
         size="sm"
         title={
-          offloadTargets?.length === 1 ? (
-            <>
-              Offload {offloadTargets[0].region ?? offloadTargets[0].seaZone}
-              {offloadTargets[0].taxon ? ` (${TAXON_CLASS_LABEL[offloadTargets[0].taxon]})` : ""}?
-            </>
-          ) : (
-            <>Offload {offloadTargets?.length ?? 0} selected packs?</>
-          )
+          offloadTargets?.length === 1
+            ? offloadTargets[0].taxon
+              ? t("offlinePacks.offload.titleOneWithTaxon", {
+                  name: offloadTargets[0].region ?? offloadTargets[0].seaZone,
+                  taxon: TAXON_CLASS_LABEL[offloadTargets[0].taxon],
+                })
+              : t("offlinePacks.offload.titleOne", { name: offloadTargets[0].region ?? offloadTargets[0].seaZone })
+            : t("offlinePacks.offload.titleMany", { count: offloadTargets?.length ?? 0 })
         }
         footer={
           <>
             <Button variant="secondary" size="sm" onClick={() => setOffloadTargets(null)}>
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button variant="danger" size="sm" onClick={confirmOffload} disabled={!deletePreview} loading={deleting}>
-              {deleting ? "Offloading…" : "Offload"}
+              {deleting ? t("offlinePacks.offload.offloading") : t("offlinePacks.offload.button")}
             </Button>
           </>
         }
       >
-        {!deletePreview && !deleteError && <p className="text-sm text-muted">Checking what this would affect…</p>}
+        {!deletePreview && !deleteError && <p className="text-sm text-muted">{t("offlinePacks.offload.checking")}</p>}
         {deletePreview && (
           <div className="space-y-2 text-sm text-muted">
             <p>
               {deletePreview.isEstimate ? (
-                <>This pack takes up about {formatBytes(deletePreview.bytesToFree)}. Offloading it will free that space.</>
+                t("offlinePacks.offload.estimate", { size: formatBytes(deletePreview.bytesToFree) })
               ) : (
-                <>
-                  {deletePreview.speciesToRemoveCount} species' reference photos would be removed, freeing{" "}
-                  {formatBytes(deletePreview.bytesToFree)}.
-                </>
+                t("offlinePacks.offload.photosRemoved", {
+                  count: deletePreview.speciesToRemoveCount,
+                  size: formatBytes(deletePreview.bytesToFree),
+                })
               )}
             </p>
             {deletePreview.speciesKeptCount > 0 && (
               <p>
-                {deletePreview.speciesKeptCount} species would keep their photos: you've photographed them yourself, or another
-                downloaded pack still covers them.
+                {t("offlinePacks.offload.speciesKept", { count: deletePreview.speciesKeptCount })}
               </p>
             )}
             {deletePreview.checklistRegionsAffectedCount > 0 && (
               <p>
-                {deletePreview.checklistRegionsAffectedCount === 1
-                  ? "1 region's checklist (including this one)"
-                  : `${deletePreview.checklistRegionsAffectedCount} regions' checklists (including this one)`}{" "}
-                would go back to being unavailable until re-downloaded.
+                {t("offlinePacks.offload.checklistsAffected", { count: deletePreview.checklistRegionsAffectedCount })}
               </p>
             )}
             <p className="text-xs text-muted">
-              This only affects downloaded reference photos and checklist data. Your own captures and Gallery photos are never touched.
+              {t("offlinePacks.offload.ownPhotosSafe")}
             </p>
           </div>
         )}

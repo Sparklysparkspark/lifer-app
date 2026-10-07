@@ -1,6 +1,7 @@
 import type { JobStatus } from "@lifer/shared";
 import { api, ApiError } from "../api/client";
 import { errorMessage } from "./errorMessage";
+import i18n from "../i18n";
 
 export type PackDownloadStatus = JobStatus<{ packsApplied: number }> & {
   packIds: string[];
@@ -35,7 +36,13 @@ function isHidden(): boolean {
 }
 
 /** How long until the next poll, or null to stay paused until woken. */
-export function nextPackPollDelay(opts: { subscribers: number; hidden: boolean; authed: boolean; stopped: boolean; running: boolean }): number | null {
+export function nextPackPollDelay(opts: {
+  subscribers: number;
+  hidden: boolean;
+  authed: boolean;
+  stopped: boolean;
+  running: boolean;
+}): number | null {
   if (opts.subscribers <= 0 || opts.hidden || !opts.authed || opts.stopped) return null;
   return opts.running ? RUNNING_POLL_MS : IDLE_POLL_MS;
 }
@@ -52,7 +59,13 @@ function clearTimer() {
 
 function schedule() {
   clearTimer();
-  const delay = nextPackPollDelay({ subscribers, hidden: isHidden(), authed, stopped, running: state.status?.running ?? wasRunning });
+  const delay = nextPackPollDelay({
+    subscribers,
+    hidden: isHidden(),
+    authed,
+    stopped,
+    running: state.status?.running ?? wasRunning,
+  });
   if (delay != null) timer = setTimeout(() => void poll(), delay);
 }
 
@@ -70,9 +83,9 @@ async function poll(): Promise<PackDownloadStatus | null> {
     } catch (err) {
       if (err instanceof ApiError && (err.status === 404 || err.status === 401)) {
         stopped = true;
-        abandonListeners.forEach((l) => l("Lost track of the download: the server stopped answering"));
+        abandonListeners.forEach((l) => l(i18n.t("offlinePacks.download.lostTrack")));
       }
-      setState({ ...state, loadError: errorMessage(err, "Couldn't reach the server") });
+      setState({ ...state, loadError: errorMessage(err, i18n.t("offlinePacks.download.unreachable")) });
       return null;
     } finally {
       inflight = null;
@@ -108,7 +121,7 @@ export function setPackDownloadAuthed(next: boolean): void {
     clearTimer();
     wasRunning = false;
     setState({ status: null, loadError: null });
-    abandonListeners.forEach((l) => l("You were signed out"));
+    abandonListeners.forEach((l) => l(i18n.t("offlinePacks.download.signedOut")));
   }
 }
 

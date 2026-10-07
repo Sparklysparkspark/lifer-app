@@ -1,6 +1,10 @@
 // Small concurrency-limited map, so bulk-importing dozens/hundreds of files doesn't fire
 // them all at the API at once (or run them fully one-by-one either).
-export async function mapWithConcurrency<T, R>(items: T[], limit: number, fn: (item: T, index: number) => Promise<R>): Promise<R[]> {
+export async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
   const results = new Array<R>(items.length);
   let nextIndex = 0;
 

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 /** Always-editable inline text (a name or description) that saves on blur, and only when the
  * trimmed value changed. A bottom border on hover/focus is the only edit affordance. */
@@ -19,7 +19,12 @@ export default function EditableTextField({
   multiline?: boolean;
 }) {
   const [draft, setDraft] = useState(value);
-  useEffect(() => setDraft(value), [value]);
+  // A new value from outside (a save landed, or another item) replaces the draft.
+  const [shownValue, setShownValue] = useState(value);
+  if (shownValue !== value) {
+    setShownValue(value);
+    setDraft(value);
+  }
 
   function commit() {
     if (draft.trim() !== value.trim()) onSave(draft.trim());

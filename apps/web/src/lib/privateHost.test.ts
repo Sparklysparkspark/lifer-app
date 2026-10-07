@@ -25,12 +25,18 @@ describe("isPrivateHost", () => {
     expect(isPrivateHost(host)).toBe(true);
   });
 
-  it.each(["lifer.example.com", "8.8.8.8", "172.32.0.1", "172.15.0.1", "100.63.0.1", "100.128.0.1", "192.169.0.1", "2001:db8::1"])(
-    "treats %s as public",
-    (host) => {
-      expect(isPrivateHost(host)).toBe(false);
-    },
-  );
+  it.each([
+    "lifer.example.com",
+    "8.8.8.8",
+    "172.32.0.1",
+    "172.15.0.1",
+    "100.63.0.1",
+    "100.128.0.1",
+    "192.169.0.1",
+    "2001:db8::1",
+  ])("treats %s as public", (host) => {
+    expect(isPrivateHost(host)).toBe(false);
+  });
 });
 
 describe("isInsecurePublicUrl", () => {

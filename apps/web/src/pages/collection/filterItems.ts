@@ -7,7 +7,12 @@ import { normalizeForSearch } from "../../lib/searchNormalize";
 export const normalizeSearchText = normalizeForSearch;
 
 // Extra names some rows may carry (not every endpoint sends them).
-type SearchableExtras = { aliases?: string[] | null; codes?: string[] | null; speciesCode?: string | null; bandingCode?: string | null };
+type SearchableExtras = {
+  aliases?: string[] | null;
+  codes?: string[] | null;
+  speciesCode?: string | null;
+  bandingCode?: string | null;
+};
 
 /** Every name a row can be found by, normalized and joined. Built once per list. */
 export function searchHaystack(item: CollectionItem): string {
@@ -45,7 +50,11 @@ export function filterCollectionItems(
 ): CollectionItem[] {
   const { stateFilter, ghostOnly, lostOnly, likelyThisMonthOnly, yearFilter, search } = filters;
   let filtered =
-    stateFilter === "all" ? items : stateFilter === "target" ? items.filter((i) => i.isTarget) : items.filter((i) => i.state === stateFilter);
+    stateFilter === "all"
+      ? items
+      : stateFilter === "target"
+        ? items.filter((i) => i.isTarget)
+        : items.filter((i) => i.state === stateFilter);
   if (ghostOnly) filtered = filtered.filter((i) => i.isGhost);
   if (lostOnly) filtered = filtered.filter((i) => i.isLost);
   if (likelyThisMonthOnly) {

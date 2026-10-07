@@ -12,6 +12,7 @@ import { isInsecurePublicUrl } from "../../lib/privateHost";
 import { chooseConnection, openLocalLibrary } from "../../lib/desktopConnection";
 import type { DesktopBridgeConfig } from "../../types/liferSetup";
 import { Card, inputClass } from "./shared";
+import OfflineCacheSetting from "./OfflineCacheSetting";
 
 export default function ServerSettings() {
   return (
@@ -26,9 +27,12 @@ function InsecureUrlWarning({ urls }: { urls: string[] }) {
   const insecure = urls.filter(isInsecurePublicUrl);
   if (insecure.length === 0) return null;
   return (
-    <p role="status" className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-300">
-      {insecure.join(", ")} uses plain http on a public network, so your password and photos travel unencrypted. Use https:// if your
-      server supports it.
+    <p
+      role="status"
+      className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-300"
+    >
+      {insecure.join(", ")} uses plain http on a public network, so your password and photos travel unencrypted. Use
+      https:// if your server supports it.
     </p>
   );
 }
@@ -158,7 +162,13 @@ function ServerSection() {
 
   // Mirrors the API's delete gate (settings/deleteLibraryGate.ts): finished, no failures or skips.
   const cleanMigration =
-    status && !status.running && status.finishedAt != null && status.error == null && !status.cancelled && status.failed === 0 && status.skipped === 0;
+    status &&
+    !status.running &&
+    status.finishedAt != null &&
+    status.error == null &&
+    !status.cancelled &&
+    status.failed === 0 &&
+    status.skipped === 0;
 
   if (config.mode === "remote") {
     const connectionDescription =
@@ -171,16 +181,22 @@ function ServerSection() {
         <Button variant="secondary" size="sm" onClick={switchToLocal} loading={busy}>
           Switch to local library
         </Button>
+        <OfflineCacheSetting />
       </Card>
     );
   }
 
   const offlineCacheToggle = (
     <label className="flex items-start gap-2 text-sm text-ink">
-      <input type="checkbox" checked={offlineMode} onChange={(e) => setOfflineMode(e.target.checked)} className="mt-0.5" />
+      <input
+        type="checkbox"
+        checked={offlineMode}
+        onChange={(e) => setOfflineMode(e.target.checked)}
+        className="mt-0.5"
+      />
       <span>
-        Keep an offline cache after connecting. Low-res cover photos and your collected/seen status stay browsable here even if this
-        computer loses its connection to the server.
+        Keep an offline cache after connecting. Low-res cover photos and your collected/seen status stay browsable here
+        even if this computer loses its connection to the server.
       </span>
     </label>
   );
@@ -213,8 +229,22 @@ function ServerSection() {
           <form onSubmit={signIn} className="space-y-3">
             <p className="text-sm text-green-700 dark:text-green-400">Connected to {signInUrl}.</p>
             <InsecureUrlWarning urls={[signInUrl]} />
-            <input type="email" placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} required className={inputClass} />
-            <PasswordInput placeholder="Password" value={password} onChange={setPassword} required autoComplete="current-password" className={inputClass} />
+            <input
+              type="email"
+              placeholder="Email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+              className={inputClass}
+            />
+            <PasswordInput
+              placeholder="Password"
+              value={password}
+              onChange={setPassword}
+              required
+              autoComplete="current-password"
+              className={inputClass}
+            />
             {offlineCacheToggle}
             <div className="flex items-center gap-3">
               <Button type="submit" loading={signingIn || busy}>
@@ -270,7 +300,14 @@ function ServerSection() {
                 required
                 className={inputClass}
               />
-              <PasswordInput placeholder="Password" value={password} onChange={setPassword} required autoComplete="current-password" className={inputClass} />
+              <PasswordInput
+                placeholder="Password"
+                value={password}
+                onChange={setPassword}
+                required
+                autoComplete="current-password"
+                className={inputClass}
+              />
               {offlineCacheToggle}
               <FormMessage error={error ?? status?.error ?? null} />
               <Button type="submit" loading={starting}>
@@ -281,9 +318,15 @@ function ServerSection() {
 
           {status && !status.running && status.finishedAt != null && (
             <div className="space-y-3 border-t border-line pt-3">
-              <p className={cleanMigration ? "text-sm text-green-700 dark:text-green-400" : "text-sm text-rose-700 dark:text-rose-400"}>
-                {status.cancelled ? "Last run was cancelled: " : "Last run: "}migrated {status.migrated} of {status.total ?? "?"} ({status.skipped}{" "}
-                skipped, {status.failed} failed).
+              <p
+                className={
+                  cleanMigration
+                    ? "text-sm text-green-700 dark:text-green-400"
+                    : "text-sm text-rose-700 dark:text-rose-400"
+                }
+              >
+                {status.cancelled ? "Last run was cancelled: " : "Last run: "}migrated {status.migrated} of{" "}
+                {status.total ?? "?"} ({status.skipped} skipped, {status.failed} failed).
               </p>
               <div className="flex flex-wrap gap-2">
                 <Button onClick={() => connectToServer(serverUrl)} loading={busy}>
@@ -409,9 +452,17 @@ function AutomaticUrlSwitchingSection() {
       <div className="space-y-3">
         <div>
           <p className="text-sm font-medium text-ink">Local network</p>
-          <p className="mt-0.5 text-sm text-muted">The app will connect to the server through this URL when using the specified Wi-Fi network.</p>
+          <p className="mt-0.5 text-sm text-muted">
+            The app will connect to the server through this URL when using the specified Wi-Fi network.
+          </p>
           <div className="mt-2 flex flex-col gap-2 sm:flex-row">
-            <input type="text" placeholder="http://192.168.1.10:4310" value={localUrl} onChange={(e) => setLocalUrl(e.target.value)} className={inputClass} />
+            <input
+              type="text"
+              placeholder="http://192.168.1.10:4310"
+              value={localUrl}
+              onChange={(e) => setLocalUrl(e.target.value)}
+              className={inputClass}
+            />
             <input
               type="text"
               placeholder="Wi-Fi network name"
@@ -428,8 +479,8 @@ function AutomaticUrlSwitchingSection() {
         <div>
           <p className="text-sm font-medium text-ink">External networks</p>
           <p className="mt-0.5 text-sm text-muted">
-            When not on the preferred Wi-Fi network, the app will connect to the server through the first of the below URLs it can
-            reach, starting from the top to bottom.
+            When not on the preferred Wi-Fi network, the app will connect to the server through the first of the below
+            URLs it can reach, starting from the top to bottom.
           </p>
           <ul className="mt-2 space-y-1.5">
             {externalUrls.map((entry, index) => (
@@ -461,7 +512,12 @@ function AutomaticUrlSwitchingSection() {
                     ✕
                   </span>
                 )}
-                <button type="button" onClick={() => removeExternalUrl(entry.url)} className="text-muted hover:text-ink" aria-label={`Remove ${entry.url}`}>
+                <button
+                  type="button"
+                  onClick={() => removeExternalUrl(entry.url)}
+                  className="text-muted hover:text-ink"
+                  aria-label={`Remove ${entry.url}`}
+                >
                   ✕
                 </button>
               </li>

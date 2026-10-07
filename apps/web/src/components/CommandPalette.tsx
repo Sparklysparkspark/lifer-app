@@ -1,4 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { openExternal } from "../lib/openExternal";
 import { useLocation, useNavigate } from "react-router-dom";
 import { api } from "../api/client";
 import { useDeploymentMode, useIsTauri } from "../hooks/useDeploymentMode";
@@ -25,8 +26,7 @@ import {
   type StaticEntry,
 } from "../lib/search/palette";
 import { SEARCH_DEBOUNCE_MS } from "../lib/searchNormalize";
-import { isTauri } from "../lib/tauri";
-import { GROUPS as SETTINGS_GROUPS } from "../pages/SettingsPage";
+import { GROUPS as SETTINGS_GROUPS } from "../pages/settings/groups";
 import EmptyState from "./EmptyState";
 import InlineSpinner from "./InlineSpinner";
 import Modal from "./Modal";
@@ -64,8 +64,14 @@ function loadLists(fresh = false) {
         return fallback;
       });
     listsCache = Promise.all([
-      soft(api.get<{ trips: Named[] }>("/trips").then((r) => r.trips), []),
-      soft(api.get<{ albums: Named[] }>("/albums").then((r) => r.albums), []),
+      soft(
+        api.get<{ trips: Named[] }>("/trips").then((r) => r.trips),
+        [],
+      ),
+      soft(
+        api.get<{ albums: Named[] }>("/albums").then((r) => r.albums),
+        [],
+      ),
     ]).then(([trips, albums]) => {
       if (!failed) return { trips, albums };
       listsCache = previous;
@@ -76,20 +82,36 @@ function loadLists(fresh = false) {
 }
 
 const ACTIONS: StaticEntry[] = [
-  { id: "action:import", label: "Import photos", keywords: ["upload", "add"], action: { type: "navigate", to: "/import" } },
+  {
+    id: "action:import",
+    label: "Import photos",
+    keywords: ["upload", "add"],
+    action: { type: "navigate", to: "/import" },
+  },
   { id: "action:gallery", label: "Gallery", keywords: ["photos"], action: { type: "navigate", to: "/gallery" } },
   { id: "action:albums", label: "Albums and trips", keywords: ["trips"], action: { type: "navigate", to: "/albums" } },
-  { id: "action:stats", label: "Stats", keywords: ["statistics", "charts"], action: { type: "navigate", to: "/stats" } },
-  { id: "action:offline", label: "Offline packs", keywords: ["download", "pack", "maps"], action: { type: "navigate", to: "/offline-packs" } },
+  {
+    id: "action:stats",
+    label: "Stats",
+    keywords: ["statistics", "charts"],
+    action: { type: "navigate", to: "/stats" },
+  },
+  {
+    id: "action:offline",
+    label: "Offline packs",
+    keywords: ["download", "pack", "maps"],
+    action: { type: "navigate", to: "/offline-packs" },
+  },
   { id: "action:trash", label: "Trash", keywords: ["deleted", "restore"], action: { type: "navigate", to: "/trash" } },
-  { id: "action:help", label: "Help and user guide", sublabel: "Opens the docs site", keywords: ["docs", "guide"], action: { type: "external", url: docsUrl("/") } },
+  {
+    id: "action:help",
+    label: "Help and user guide",
+    sublabel: "Opens the docs site",
+    keywords: ["docs", "guide"],
+    action: { type: "external", url: docsUrl("/") },
+  },
 ];
 
-function openExternal(url: string) {
-  // The desktop shell only allows external URLs through the opener plugin (see main.tsx).
-  if (isTauri()) import("@tauri-apps/plugin-opener").then(({ openUrl }) => openUrl(url)).catch(() => {});
-  else window.open(url, "_blank", "noopener,noreferrer");
-}
 
 export default function CommandPalette({
   onClose,
@@ -101,7 +123,10 @@ export default function CommandPalette({
 }) {
   const navigate = useNavigate();
   const location = useLocation();
-  const context = useMemo(() => derivePaletteContext(location.pathname, location.search), [location.pathname, location.search]);
+  const context = useMemo(
+    () => derivePaletteContext(location.pathname, location.search),
+    [location.pathname, location.search],
+  );
   const { regions } = useRegions();
   const mode = useDeploymentMode();
   const inTauri = useIsTauri();
@@ -153,17 +178,24 @@ export default function CommandPalette({
       () => {
         const params = new URLSearchParams({ q: trimmed });
         if (regionId) params.set("regionId", regionId);
-        track(api.get<{ results: SpeciesHit[] }>(`/species?${params}`, { signal: controller.signal }), (r) => setSpecies(r.results.slice(0, 6)));
+        track(api.get<{ results: SpeciesHit[] }>(`/species?${params}`, { signal: controller.signal }), (r) =>
+          setSpecies(r.results.slice(0, 6)),
+        );
         if (trimmed.length >= MIN_PHOTO_QUERY) {
-          const photoParams = new URLSearchParams({ q: trimmed, quick: "1", ...galleryPresetParams(rawPreset, mediaPreset) });
+          const photoParams = new URLSearchParams({
+            q: trimmed,
+            quick: "1",
+            ...galleryPresetParams(rawPreset, mediaPreset),
+          });
           track(api.get<{ items: PhotoHit[] }>(`/gallery/search?${photoParams}`, { signal: controller.signal }), (r) =>
             setPhotos(r.items.slice(0, PHOTO_LIMIT)),
           );
           if (scopeKind && scopeId) {
             const scopeParams = new URLSearchParams(photoParams);
             scopeParams.set(scopeKind === "trip" ? "tripId" : "albumId", scopeId);
-            track(api.get<{ items: PhotoHit[] }>(`/gallery/search?${scopeParams}`, { signal: controller.signal }), (r) =>
-              setScopePhotos(r.items.slice(0, PHOTO_LIMIT)),
+            track(
+              api.get<{ items: PhotoHit[] }>(`/gallery/search?${scopeParams}`, { signal: controller.signal }),
+              (r) => setScopePhotos(r.items.slice(0, PHOTO_LIMIT)),
             );
           } else {
             setScopePhotos([]);
@@ -181,8 +213,15 @@ export default function CommandPalette({
     };
   }, [trimmed, regionId, rawPreset, mediaPreset, scopeKind, scopeId]);
 
-  const regionName = useMemo(() => (regionId ? (regions?.find((r) => r.id === regionId)?.name ?? null) : null), [regions, regionId]);
-  const scopeName = scope && (scope.kind === "trip" ? lists?.trips.find((t) => t.id === scope.id)?.name : lists?.albums.find((a) => a.id === scope.id)?.name);
+  const regionName = useMemo(
+    () => (regionId ? (regions?.find((r) => r.id === regionId)?.name ?? null) : null),
+    [regions, regionId],
+  );
+  const scopeName =
+    scope &&
+    (scope.kind === "trip"
+      ? lists?.trips.find((t) => t.id === scope.id)?.name
+      : lists?.albums.find((a) => a.id === scope.id)?.name);
 
   const groups = useMemo<PaletteGroup[]>(() => {
     const speciesItems: PaletteItem[] = species.map((s) => ({
@@ -221,7 +260,9 @@ export default function CommandPalette({
       });
     }
 
-    const photoGroup: PaletteItem[] = photos.map((p) => photoItem("photo", p, `/gallery?q=${encodeURIComponent(trimmed)}`));
+    const photoGroup: PaletteItem[] = photos.map((p) =>
+      photoItem("photo", p, `/gallery?q=${encodeURIComponent(trimmed)}`),
+    );
     if (trimmed.length >= MIN_PHOTO_QUERY) {
       photoGroup.push({
         id: "photos:all",
@@ -249,19 +290,33 @@ export default function CommandPalette({
       keywords: r.ebirdRegionCode ? [r.ebirdRegionCode] : undefined,
       action: { type: "navigate", to: `/?region=${encodeURIComponent(r.id)}` },
     }));
-    const tripEntries: StaticEntry[] = (lists?.trips ?? []).map((t) => ({ id: `trip:${t.id}`, label: t.name, action: { type: "navigate", to: `/trips/${t.id}` } }));
-    const albumEntries: StaticEntry[] = (lists?.albums ?? []).map((a) => ({ id: `album:${a.id}`, label: a.name, action: { type: "navigate", to: `/albums/${a.id}` } }));
-    const settingsEntries: StaticEntry[] = SETTINGS_GROUPS.filter((g) => g.visible({ mode, isTauri: inTauri })).map((g) => ({
-      id: `settings:${g.id}`,
-      label: g.label,
-      sublabel: "Settings",
-      keywords: ["settings", "preferences"],
-      action: { type: "navigate", to: `/settings/${g.id}` },
+    const tripEntries: StaticEntry[] = (lists?.trips ?? []).map((t) => ({
+      id: `trip:${t.id}`,
+      label: t.name,
+      action: { type: "navigate", to: `/trips/${t.id}` },
     }));
+    const albumEntries: StaticEntry[] = (lists?.albums ?? []).map((a) => ({
+      id: `album:${a.id}`,
+      label: a.name,
+      action: { type: "navigate", to: `/albums/${a.id}` },
+    }));
+    const settingsEntries: StaticEntry[] = SETTINGS_GROUPS.filter((g) => g.visible({ mode, isTauri: inTauri })).map(
+      (g) => ({
+        id: `settings:${g.id}`,
+        label: g.label,
+        sublabel: "Settings",
+        keywords: ["settings", "preferences"],
+        action: { type: "navigate", to: `/settings/${g.id}` },
+      }),
+    );
 
     return [
       { id: "species", title: regionName ? `Species, ${regionName} first` : "Species", items: speciesItems },
-      { id: "scope", title: `Photos in this ${scope?.kind ?? "trip"}${scopeName ? `: ${scopeName}` : ""}`, items: scopeGroup },
+      {
+        id: "scope",
+        title: `Photos in this ${scope?.kind ?? "trip"}${scopeName ? `: ${scopeName}` : ""}`,
+        items: scopeGroup,
+      },
       { id: "photos", title: "Your photos", items: photoGroup },
       { id: "regions", title: "Regions", items: filterEntries(regionEntries, trimmed, 5) },
       { id: "trips", title: "Trips", items: filterEntries(tripEntries, trimmed, 4) },
@@ -269,7 +324,23 @@ export default function CommandPalette({
       { id: "settings", title: "Settings", items: filterEntries(settingsEntries, trimmed, 4) },
       { id: "actions", title: "Go to", items: filterEntries(ACTIONS, trimmed, 4) },
     ];
-  }, [trimmed, species, photos, recentQueries, regionId, regionName, regions, lists, scope, scopePhotos, scopeName, mode, inTauri, anyTaxaSearchEnabled, onInatSearch]);
+  }, [
+    trimmed,
+    species,
+    photos,
+    recentQueries,
+    regionId,
+    regionName,
+    regions,
+    lists,
+    scope,
+    scopePhotos,
+    scopeName,
+    mode,
+    inTauri,
+    anyTaxaSearchEnabled,
+    onInatSearch,
+  ]);
 
   const flat = useMemo(() => flattenGroups(groups), [groups]);
   const active = resolveHighlight(flat.items, highlightedId);
@@ -339,7 +410,9 @@ export default function CommandPalette({
         className={`flex cursor-pointer items-baseline gap-2 rounded-md px-2.5 py-1.5 text-sm ${selected ? "bg-surface-muted" : ""}`}
       >
         <span className="truncate text-ink">{item.label}</span>
-        {item.sublabel && <span className={`truncate text-xs text-muted ${item.italicSublabel ? "italic" : ""}`}>{item.sublabel}</span>}
+        {item.sublabel && (
+          <span className={`truncate text-xs text-muted ${item.italicSublabel ? "italic" : ""}`}>{item.sublabel}</span>
+        )}
       </div>
     );
   }
@@ -402,7 +475,14 @@ export default function CommandPalette({
         {nothingFound ? (
           <EmptyState
             icon={
-              <svg viewBox="0 0 24 24" className="h-6 w-6 text-muted" fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round">
+              <svg
+                viewBox="0 0 24 24"
+                className="h-6 w-6 text-muted"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={1.75}
+                strokeLinecap="round"
+              >
                 <circle cx="11" cy="11" r="7" />
                 <path d="m20 20-3.5-3.5" />
               </svg>
@@ -416,10 +496,15 @@ export default function CommandPalette({
             const rows = group.items.filter((i) => !i.thumbUrl);
             return (
               <div key={group.id} role="group" aria-labelledby={`${listId}-g-${group.id}`}>
-                <div id={`${listId}-g-${group.id}`} className="px-2.5 pb-1 text-[11px] font-medium uppercase tracking-wide text-muted">
+                <div
+                  id={`${listId}-g-${group.id}`}
+                  className="px-2.5 pb-1 text-[11px] font-medium uppercase tracking-wide text-muted"
+                >
                   {group.title}
                 </div>
-                {thumbs.length > 0 && <div className="mb-1 grid grid-cols-6 gap-1.5 px-1">{thumbs.map(renderOption)}</div>}
+                {thumbs.length > 0 && (
+                  <div className="mb-1 grid grid-cols-6 gap-1.5 px-1">{thumbs.map(renderOption)}</div>
+                )}
                 {rows.map(renderOption)}
               </div>
             );

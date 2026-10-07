@@ -4,8 +4,8 @@ import { api } from "../api/client";
 import { usePackDownloadStatus } from "../hooks/usePackDownloadStatus";
 import { useIsTauri } from "../hooks/useDeploymentMode";
 import { useOnline } from "../hooks/useOnline";
-import { formatBytes } from "../lib/formatBytes";
-import { pluralize } from "../lib/pluralize";
+import { formatBytes } from "../lib/format";
+import { useTranslation } from "react-i18next";
 import { DEV_BUILD_VERSION, GITHUB_REPO } from "../lib/appInfo";
 import InlineSpinner from "./InlineSpinner";
 
@@ -41,6 +41,7 @@ function writeDismissed(key: string) {
 // One pill for both app and offline-pack updates, positioned by StatusTray. Skips every check
 // while offline and re-checks once back online.
 export default function UpdatesBanner() {
+  const { t } = useTranslation();
   const isTauri = useIsTauri();
   const online = useOnline();
   const location = useLocation();
@@ -60,6 +61,8 @@ export default function UpdatesBanner() {
       });
   }
 
+  // Re-checked when leaving Offline packs, where something may have just downloaded.
+  const onPacksPage = location.pathname === "/offline-packs";
   useEffect(() => {
     if (!online) return;
     let cancelled = false;
@@ -75,7 +78,9 @@ export default function UpdatesBanner() {
         } else {
           const [versionRes, releaseRes] = await Promise.all([
             fetch("/version").then((r) => r.json() as Promise<{ version: string }>),
-            fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`).then((r) => r.json() as Promise<{ tag_name?: string }>),
+            fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`).then(
+              (r) => r.json() as Promise<{ tag_name?: string }>,
+            ),
           ]);
           if (cancelled || versionRes.version === "dev" || !releaseRes.tag_name) return;
           const latest = releaseRes.tag_name.replace(/^v/, "");
@@ -101,8 +106,7 @@ export default function UpdatesBanner() {
     return () => {
       cancelled = true;
     };
-    // Re-checked when leaving Offline packs, where something may have just downloaded.
-  }, [online, location.pathname === "/offline-packs"]);
+  }, [online, onPacksPage, isTauri]);
 
   // Offline packs shows per-pack state inline, so only the pack half is hidden there.
   const showPacks = packSummary !== null && location.pathname !== "/offline-packs";
@@ -115,17 +119,20 @@ export default function UpdatesBanner() {
   return (
     <div className="flex items-center gap-3 rounded-full border border-line bg-surface px-4 py-2 text-xs text-ink shadow-sm">
       <span>
-        {showApp && <>Lifer {appVersion} is available.</>}
+        {showApp && t("updates.appAvailable", { version: appVersion })}
         {showApp && showPacks && " "}
         {showPacks && packSummary && (
           <>
-            {pluralize(packSummary.updateCount, "pack update")} available ({formatBytes(packSummary.totalBytes)}).
+            {t("updates.packsAvailable", {
+              count: packSummary.updateCount,
+              size: formatBytes(packSummary.totalBytes),
+            })}
           </>
         )}
       </span>
       {showApp && isTauri && (
         <Link to="/settings/general" className="font-medium text-accent hover:underline">
-          Update
+          {t("updates.update")}
         </Link>
       )}
       {showApp && !isTauri && (
@@ -136,7 +143,7 @@ export default function UpdatesBanner() {
           rel="noreferrer"
           className="font-medium text-accent hover:underline"
         >
-          See what's new
+          {t("updates.seeWhatsNew")}
         </a>
       )}
       {showPacks &&
@@ -145,18 +152,23 @@ export default function UpdatesBanner() {
           <span className="inline-flex items-center gap-1 font-medium text-muted">
             <InlineSpinner />
             {downloadStatus.total != null && downloadStatus.total > 1
-              ? `Updating packs (${Math.min((downloadStatus.processed ?? 0) + 1, downloadStatus.total)} of ${downloadStatus.total})`
-              : "Updating…"}
+              ? t("updates.updatingPacksProgress", {
+                  current: Math.min((downloadStatus.processed ?? 0) + 1, downloadStatus.total),
+                  total: downloadStatus.total,
+                })
+              : t("updates.updating")}
           </span>
         ) : (
           <Link
             to="/offline-packs"
             onClick={() => {
-              api.post("/offline-packs/download", { packIds: packSummary.packIds }).catch((err) => console.error("Couldn't start pack update", err));
+              api
+                .post("/offline-packs/download", { packIds: packSummary.packIds })
+                .catch((err) => console.error("Couldn't start pack update", err));
             }}
             className="font-medium text-accent hover:underline"
           >
-            Update all packs
+            {t("updates.updateAllPacks")}
           </Link>
         ))}
       <button
@@ -165,7 +177,7 @@ export default function UpdatesBanner() {
           writeDismissed(key);
           setDismissed(true);
         }}
-        aria-label="Dismiss"
+        aria-label={t("updates.dismiss")}
         className="text-muted hover:text-ink"
       >
         ✕

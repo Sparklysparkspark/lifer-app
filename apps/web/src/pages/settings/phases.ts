@@ -8,13 +8,24 @@ export type VectorAssetResult =
   | { status: "failed"; error: string };
 
 // Per-gallery-photo, per-species image and per-species text vectors, applied together server-side.
-export type VectorBundle = { gallery: VectorAssetResult; speciesImage: VectorAssetResult; speciesText: VectorAssetResult };
+export type VectorBundle = {
+  gallery: VectorAssetResult;
+  speciesImage: VectorAssetResult;
+  speciesText: VectorAssetResult;
+};
 // `idModel`: the same three for the species identification model, once it's downloaded.
 export type ReferenceVectorsResult = VectorBundle & { idModel?: VectorBundle };
 
-export type CatalogUpdateStatus = JobStatus<{ merged: Record<string, number>; referenceVectors?: ReferenceVectorsResult | null }>;
+export type CatalogUpdateStatus = JobStatus<{
+  merged: Record<string, number>;
+  referenceVectors?: ReferenceVectorsResult | null;
+}>;
 
-export type MapStatus = JobStatus<{ bytes: number }> & { available: boolean; downloaded: boolean; sizeBytes: number | null };
+export type MapStatus = JobStatus<{ bytes: number }> & {
+  available: boolean;
+  downloaded: boolean;
+  sizeBytes: number | null;
+};
 
 export type ModelStatus = JobStatus<{ referenceVectors: ReferenceVectorsResult | null }> & {
   downloaded: boolean;

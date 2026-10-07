@@ -36,7 +36,9 @@ interface RegionPickerProps {
 // Same shape as Pill.
 function pillClass(selected: boolean): string {
   return `rounded-md border px-2.5 py-1 text-xs font-medium transition-colors ${
-    selected ? "border-accent bg-accent text-accent-fg" : "border-line bg-surface-muted text-muted hover:bg-surface-muted"
+    selected
+      ? "border-accent bg-accent text-accent-fg"
+      : "border-line bg-surface-muted text-muted hover:bg-surface-muted"
   }`;
 }
 
@@ -59,7 +61,11 @@ export default function RegionPicker({
     <div className="space-y-4">
       {search && (
         <div className="relative">
-          <SearchInput value={search.term} onChange={search.onTermChange} placeholder={search.placeholder ?? "Search…"} />
+          <SearchInput
+            value={search.term}
+            onChange={search.onTermChange}
+            placeholder={search.placeholder ?? "Search…"}
+          />
           {search.results.length > 0 && (
             <ul className="absolute z-10 mt-1 w-full rounded-md border border-line bg-surface shadow-md">
               {search.results.map((r) => (
@@ -84,7 +90,12 @@ export default function RegionPicker({
             if (group.items.length === 0) return null;
             const isOpen = openGroupIds?.has(group.id) ?? false;
             return (
-              <button key={group.id} type="button" onClick={() => onToggleGroup?.(group.id)} className={pillClass(isOpen)}>
+              <button
+                key={group.id}
+                type="button"
+                onClick={() => onToggleGroup?.(group.id)}
+                className={pillClass(isOpen)}
+              >
                 {group.label}
               </button>
             );
@@ -103,16 +114,27 @@ export default function RegionPicker({
                 {[...group.items]
                   .sort((a, b) => a.name.localeCompare(b.name))
                   .map((item) => (
-                    <button key={item.id} type="button" onClick={() => select(item.id)} className={pillClass(isSelected(item.id))}>
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => select(item.id)}
+                      className={pillClass(isSelected(item.id))}
+                    >
                       {item.name}
                     </button>
                   ))}
               </div>
             ))
-        : items && items.length > 0 && (
+        : items &&
+          items.length > 0 && (
             <div className="flex flex-wrap items-center gap-2">
               {items.map((item) => (
-                <button key={item.id} type="button" onClick={() => select(item.id)} className={pillClass(isSelected(item.id))}>
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => select(item.id)}
+                  className={pillClass(isSelected(item.id))}
+                >
                   {item.name}
                 </button>
               ))}

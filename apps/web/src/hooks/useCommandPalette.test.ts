@@ -1,7 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { isCommandPaletteShortcut } from "./useCommandPalette";
 
-const key = (over: Partial<KeyboardEvent>) => ({ key: "k", metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, ...over });
+const key = (over: Partial<KeyboardEvent>) => ({
+  key: "k",
+  metaKey: false,
+  ctrlKey: false,
+  altKey: false,
+  shiftKey: false,
+  ...over,
+});
 
 describe("isCommandPaletteShortcut", () => {
   it("is Cmd+K on Mac", () => {

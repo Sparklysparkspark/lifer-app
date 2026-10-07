@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../api/client";
-import Button, { buttonClasses } from "../../components/Button";
+import Button from "../../components/Button";
+import { buttonClasses } from "../../lib/buttonClasses";
 import FormMessage from "../../components/FormMessage";
 import InlineSpinner from "../../components/InlineSpinner";
 import PasswordInput from "../../components/PasswordInput";
@@ -18,20 +19,24 @@ export default function AccountSettings() {
   const [account, setAccount] = useState<AccountInfo | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  function load() {
-    setLoadError(null);
+  function fetchAccount() {
     api
       .get<AccountInfo>("/auth/settings")
       .then(setAccount)
       .catch((err) => setLoadError(errorMessage(err, "Couldn't load your account details")));
   }
-  useEffect(load, []);
+  // There's no error to clear on the first load, only on Retry.
+  useEffect(fetchAccount, []);
+  function retry() {
+    setLoadError(null);
+    fetchAccount();
+  }
 
   if (loadError) {
     return (
       <div className="space-y-2">
         <FormMessage error={loadError} />
-        <Button variant="secondary" size="sm" onClick={load}>
+        <Button variant="secondary" size="sm" onClick={retry}>
           Retry
         </Button>
       </div>
@@ -90,7 +95,14 @@ function EmailSection({ currentEmail, onChanged }: { currentEmail: string; onCha
   return (
     <Card title="Email" description={`Currently signed in as ${currentEmail}.`} learnMore="email">
       <form onSubmit={handleSubmit} className="space-y-3">
-        <input type="email" placeholder="New email" value={newEmail} onChange={(e) => setNewEmail(e.target.value)} required className={inputClass} />
+        <input
+          type="email"
+          placeholder="New email"
+          value={newEmail}
+          onChange={(e) => setNewEmail(e.target.value)}
+          required
+          className={inputClass}
+        />
         <PasswordInput
           placeholder="Current password"
           value={currentPassword}

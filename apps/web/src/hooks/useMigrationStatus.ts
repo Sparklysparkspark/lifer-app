@@ -20,5 +20,9 @@ export type MigrationStatus = JobStatus<MigrationResult> & {
 // exists on a desktop API, so nothing polls until the mode is known.
 export function useMigrationStatus(pollMs = 3000): JobPoll<MigrationStatus> {
   const enabled = useDeploymentMode() === "desktop";
-  return useJobPoll<MigrationStatus>("/settings/migrate-to-server/status", { intervalMs: pollMs, idleIntervalMs: pollMs, enabled });
+  return useJobPoll<MigrationStatus>("/settings/migrate-to-server/status", {
+    intervalMs: pollMs,
+    idleIntervalMs: pollMs,
+    enabled,
+  });
 }

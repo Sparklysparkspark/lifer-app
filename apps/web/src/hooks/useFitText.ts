@@ -6,7 +6,10 @@ const MAX_LINES = 2;
 
 // Shrinks font size (down to MIN_FONT_PX) until the full text fits in MAX_LINES lines, for long
 // species card names. Don't pair with CSS line-clamp: it breaks the scrollHeight measurement.
-export function useFitText(deps: readonly unknown[]): { ref: React.RefObject<HTMLParagraphElement | null>; fontSize: number } {
+export function useFitText(deps: readonly unknown[]): {
+  ref: React.RefObject<HTMLParagraphElement | null>;
+  fontSize: number;
+} {
   const ref = useRef<HTMLParagraphElement>(null);
   const [fontSize, setFontSize] = useState(MAX_FONT_PX);
 

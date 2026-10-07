@@ -9,13 +9,14 @@ import InfoTip from "../components/InfoTip";
 import PacksMap, { type CountryBoundary } from "../components/PacksMap";
 import RegionPicker from "../components/RegionPicker";
 import DownloadedPacksList, { type PackEntry } from "../components/DownloadedPacksList";
+import ShowForAWhile from "../components/ShowForAWhile";
 import JobProgress from "../components/JobProgress";
 import FormMessage from "../components/FormMessage";
 import { usePackDownloadJob, packProgressDetail, PACK_DOWNLOAD_PHASES } from "../hooks/usePackDownloadStatus";
 import { useRegions } from "../hooks/useRegions";
 import { useSettings } from "../hooks/useSettings";
 import { nextPackDownloadFinish } from "../lib/waitForPackDownload";
-import { formatBytes } from "../lib/formatBytes";
+import { formatBytes } from "../lib/format";
 import { pluralize } from "../lib/pluralize";
 
 const PACKS_INFO_PARAGRAPHS = [
@@ -49,7 +50,6 @@ const CENTRAL_AMERICA_CONTINENT: RegionSummary = {
   sovereigntyGroup: null,
   isSovereignDependency: false,
 };
-
 
 interface RecommendedPack {
   id: string;
@@ -133,7 +133,9 @@ export default function OfflinePacksPage() {
     api
       .post<Recommendation>("/offline-packs/recommend", { scientificNames })
       .then(setRecommendation)
-      .catch((err) => setRecommendationError(err instanceof ApiError ? err.message : "Couldn't compute pack recommendations"));
+      .catch((err) =>
+        setRecommendationError(err instanceof ApiError ? err.message : "Couldn't compute pack recommendations"),
+      );
   }, []);
 
   const downloadJob = usePackDownloadJob({ onFinish: () => void refreshPacks() });
@@ -210,7 +212,10 @@ export default function OfflinePacksPage() {
   }, [regions]);
 
   // Opening a continent group never selects its countries.
-  const openContinents = useMemo(() => continents.filter((c) => openContinentIds.has(c.id)), [continents, openContinentIds]);
+  const openContinents = useMemo(
+    () => continents.filter((c) => openContinentIds.has(c.id)),
+    [continents, openContinentIds],
+  );
 
   // Countries of map-widened continents, outlined (not selected) on the map.
   const openCountryIds = useMemo(() => {
@@ -305,8 +310,24 @@ export default function OfflinePacksPage() {
     const continentId = continentIdForCountry(region);
     if (continentId) setOpenContinentIds((prev) => new Set(prev).add(continentId));
     // Next tick, once the row has rendered.
-    setTimeout(() => countryRowRefs.current.get(region.id)?.scrollIntoView({ behavior: "smooth", block: "nearest" }), 0);
+    setTimeout(
+      () => countryRowRefs.current.get(region.id)?.scrollIntoView({ behavior: "smooth", block: "nearest" }),
+      0,
+    );
   }
+
+  const packsByRegion = useMemo(() => {
+    const map = new Map<string, PackEntry[]>();
+    for (const p of packs ?? []) {
+      const region = p.region ?? p.seaZone;
+      if (!region) continue;
+      // Full and small cover the same species; count only the chosen variant.
+      if ((p.variant ?? "full") !== downloadVariant) continue;
+      if (!map.has(region)) map.set(region, []);
+      map.get(region)!.push(p);
+    }
+    return map;
+  }, [packs, downloadVariant]);
 
   // An all-taxa pack (taxon null) means full coverage; only taxon-specific packs means partial.
   function countryCoverage(countryName: string): "full" | "partial" | "none" {
@@ -329,19 +350,6 @@ export default function OfflinePacksPage() {
       return next;
     });
   }
-
-  const packsByRegion = useMemo(() => {
-    const map = new Map<string, PackEntry[]>();
-    for (const p of packs ?? []) {
-      const region = p.region ?? p.seaZone;
-      if (!region) continue;
-      // Full and small cover the same species; count only the chosen variant.
-      if ((p.variant ?? "full") !== downloadVariant) continue;
-      if (!map.has(region)) map.set(region, []);
-      map.get(region)!.push(p);
-    }
-    return map;
-  }, [packs, downloadVariant]);
 
   const selectionSizeBytes = useMemo(() => {
     let total = 0;
@@ -380,7 +388,9 @@ export default function OfflinePacksPage() {
     setStartError(null);
     setStarting(true);
     try {
-      const regionNames = [...selectedCountryIds].map((id) => countryById.get(id)?.name).filter((n): n is string => !!n);
+      const regionNames = [...selectedCountryIds]
+        .map((id) => countryById.get(id)?.name)
+        .filter((n): n is string => !!n);
       await api.post("/offline-packs/download-batch", {
         regionNames,
         taxa: selectedTaxa.size > 0 ? [...selectedTaxa] : "all",
@@ -451,7 +461,9 @@ export default function OfflinePacksPage() {
       if (stillExcluded.length > 0) {
         await api.post(`/offline-packs/${encodeURIComponent(packId)}/provinces/offload`, { regionIds: stillExcluded });
       }
-      const res = await api.get<{ provinces: ProvinceEntry[] }>(`/offline-packs/${encodeURIComponent(packId)}/provinces`);
+      const res = await api.get<{ provinces: ProvinceEntry[] }>(
+        `/offline-packs/${encodeURIComponent(packId)}/provinces`,
+      );
       setProvinceList(res.provinces);
       refreshPacks();
     } catch (err) {
@@ -465,7 +477,8 @@ export default function OfflinePacksPage() {
 
   return (
     <div className="flex-1 bg-canvas">
-      <PageHeader sticky
+      <PageHeader
+        sticky
         title="Offline packs"
         backFallbackTo="/settings"
         backLabel="Settings"
@@ -486,16 +499,19 @@ export default function OfflinePacksPage() {
           <div className="rounded-xl border border-line bg-surface p-4">
             {recommendation.recommended.length === 0 ? (
               <p className="text-sm text-muted">
-                None of the available packs cover the missing species from your library. They may not have offline packs yet.
+                None of the available packs cover the missing species from your library. They may not have offline packs
+                yet.
               </p>
             ) : (
               <>
-                <p className="text-sm text-ink">These packs would restore reference data for the species your reimport found missing:</p>
+                <p className="text-sm text-ink">
+                  These packs would restore reference data for the species your reimport found missing:
+                </p>
                 <ul className="mt-2 space-y-1 text-sm text-muted">
                   {recommendation.recommended.map((p) => (
                     <li key={p.id}>
-                      {p.region ?? p.seaZone} {p.taxon ? `(${TAXON_CLASS_LABEL[p.taxon]})` : ""}: covers {p.covers} species,{" "}
-                      {formatBytes(p.sizeBytes)}
+                      {p.region ?? p.seaZone} {p.taxon ? `(${TAXON_CLASS_LABEL[p.taxon]})` : ""}: covers {p.covers}{" "}
+                      species, {formatBytes(p.sizeBytes)}
                     </li>
                   ))}
                 </ul>
@@ -506,7 +522,9 @@ export default function OfflinePacksPage() {
                 )}
                 <button
                   onClick={async () => {
-                    const idsToNames = recommendation.recommended.map((p) => p.region ?? p.seaZone).filter((n): n is string => !!n);
+                    const idsToNames = recommendation.recommended
+                      .map((p) => p.region ?? p.seaZone)
+                      .filter((n): n is string => !!n);
                     const matching = (regions ?? []).filter((r) => idsToNames.includes(r.name));
                     setSelectedCountryIds((prev) => {
                       const next = new Set(prev);
@@ -534,21 +552,26 @@ export default function OfflinePacksPage() {
             />
           </div>
         )}
-        {status && !status.running && status.finishedAt && Date.now() - status.finishedAt < 15000 &&
-          (status.error ? (
-            <FormMessage error={`Download failed: ${status.error}`} />
-          ) : (
-            <div className="rounded-xl border border-line bg-surface p-4">
-              <p className="text-sm text-ink">
-                {status.cancelled
-                  ? `Cancelled. ${pluralize(status.processed ?? 0, "pack")} had already finished applying before you stopped it.`
-                  : `Done, ${pluralize(status.result?.packsApplied ?? status.processed ?? 0, "pack")} applied.`}
-              </p>
-            </div>
-          ))}
+        {status && !status.running && status.finishedAt && (
+          <ShowForAWhile key={status.finishedAt} since={status.finishedAt} forMs={15000}>
+            {status.error ? (
+              <FormMessage error={`Download failed: ${status.error}`} />
+            ) : (
+              <div className="rounded-xl border border-line bg-surface p-4">
+                <p className="text-sm text-ink">
+                  {status.cancelled
+                    ? `Cancelled. ${pluralize(status.processed ?? 0, "pack")} had already finished applying before you stopped it.`
+                    : `Done, ${pluralize(status.result?.packsApplied ?? status.processed ?? 0, "pack")} applied.`}
+                </p>
+              </div>
+            )}
+          </ShowForAWhile>
+        )}
 
         {!regions || !countryBoundaries || !packs ? (
-          regionsError && !regions ? null : <Spinner />
+          regionsError && !regions ? null : (
+            <Spinner />
+          )
         ) : (
           <>
             <PacksMap
@@ -581,7 +604,9 @@ export default function OfflinePacksPage() {
             {openContinents.length > 0 && (
               <div className="space-y-4 rounded-xl border border-line bg-surface p-4">
                 {openContinents.map((continent) => {
-                  const countries = [...(countriesByContinent.get(continent.id) ?? [])].sort((a, b) => a.name.localeCompare(b.name));
+                  const countries = [...(countriesByContinent.get(continent.id) ?? [])].sort((a, b) =>
+                    a.name.localeCompare(b.name),
+                  );
                   return (
                     <div key={continent.id}>
                       <div className="mb-1.5 flex items-center justify-between">
@@ -593,7 +618,9 @@ export default function OfflinePacksPage() {
                           onClick={() => toggleAllInContinent(countries)}
                           className="ml-auto text-xs font-medium text-accent hover:underline"
                         >
-                          {countries.length > 0 && countries.every((c) => selectedCountryIds.has(c.id)) ? "Deselect all" : "Select all"}
+                          {countries.length > 0 && countries.every((c) => selectedCountryIds.has(c.id))
+                            ? "Deselect all"
+                            : "Select all"}
                         </button>
                       </div>
                       <div className="flex flex-wrap gap-1.5">
@@ -610,7 +637,13 @@ export default function OfflinePacksPage() {
                                   else countryRowRefs.current.delete(country.id);
                                 }}
                                 onClick={() => toggleCountry(country.id)}
-                                title={coverage === "full" ? "Fully downloaded" : coverage === "partial" ? "Partially downloaded" : undefined}
+                                title={
+                                  coverage === "full"
+                                    ? "Fully downloaded"
+                                    : coverage === "partial"
+                                      ? "Partially downloaded"
+                                      : undefined
+                                }
                                 className={`flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs transition-colors ${
                                   coverage !== "none"
                                     ? isSelected
@@ -644,7 +677,9 @@ export default function OfflinePacksPage() {
                                     }
                                     className="text-[11px] font-medium text-accent hover:underline"
                                   >
-                                    {territories.every((t) => selectedCountryIds.has(t.id)) ? "Deselect all" : "Select all"}
+                                    {territories.every((t) => selectedCountryIds.has(t.id))
+                                      ? "Deselect all"
+                                      : "Select all"}
                                   </button>
                                   {territories.map((territory) => {
                                     const territoryCoverage = countryCoverage(territory.name);
@@ -672,7 +707,10 @@ export default function OfflinePacksPage() {
                                         }`}
                                       >
                                         {territoryCoverage === "partial" && (
-                                          <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent-fg/70" />
+                                          <span
+                                            aria-hidden
+                                            className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent-fg/70"
+                                          />
                                         )}
                                         {territory.name}
                                       </button>
@@ -721,7 +759,13 @@ export default function OfflinePacksPage() {
                                     key={territory.id}
                                     type="button"
                                     onClick={() => toggleCountry(territory.id)}
-                                    title={coverage === "full" ? "Fully downloaded" : coverage === "partial" ? "Partially downloaded" : undefined}
+                                    title={
+                                      coverage === "full"
+                                        ? "Fully downloaded"
+                                        : coverage === "partial"
+                                          ? "Partially downloaded"
+                                          : undefined
+                                    }
                                     className={`flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs transition-colors ${
                                       coverage === "full"
                                         ? isSelected
@@ -760,7 +804,9 @@ export default function OfflinePacksPage() {
                       type="button"
                       onClick={() =>
                         setSelectedTaxa(
-                          availableTaxaForSelection.every((t) => selectedTaxa.has(t)) ? new Set() : new Set(availableTaxaForSelection),
+                          availableTaxaForSelection.every((t) => selectedTaxa.has(t))
+                            ? new Set()
+                            : new Set(availableTaxaForSelection),
                         )
                       }
                       className="text-xs text-accent hover:underline"
@@ -772,7 +818,8 @@ export default function OfflinePacksPage() {
                 <div className="mt-2 flex flex-wrap gap-2">
                   {availableTaxaForSelection.length === 0 && (
                     <p className="text-xs text-muted">
-                      No taxon data available yet for the selected {selectedCountryIds.size === 1 ? "region" : "regions"}.
+                      No taxon data available yet for the selected{" "}
+                      {selectedCountryIds.size === 1 ? "region" : "regions"}.
                     </p>
                   )}
                   {availableTaxaForSelection
@@ -943,7 +990,6 @@ export default function OfflinePacksPage() {
           </div>
         </div>
       </main>
-
     </div>
   );
 }

@@ -30,7 +30,12 @@ export function matchScore(text: string, query: string): number {
 }
 
 /** The best matches first, ties kept in their original order. `texts` may return several names per item. */
-export function filterByQuery<T>(items: readonly T[], query: string, texts: (item: T) => Array<string | null | undefined>, limit = Infinity): T[] {
+export function filterByQuery<T>(
+  items: readonly T[],
+  query: string,
+  texts: (item: T) => Array<string | null | undefined>,
+  limit = Infinity,
+): T[] {
   if (!normalizeForSearch(query)) return items.slice(0, limit);
   const scored: Array<{ item: T; score: number; i: number }> = [];
   items.forEach((item, i) => {

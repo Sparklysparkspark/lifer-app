@@ -23,27 +23,37 @@ function ToastCard({ toast, onDismiss }: { toast: ToastItem; onDismiss: (id: num
     <div
       className={`pointer-events-auto flex w-full items-start gap-2 rounded-lg border bg-surface px-3 py-2 text-sm shadow-sm ${TONE[toast.tone]}`}
     >
-      <span aria-hidden className={`mt-px shrink-0 ${ICON[toast.tone]}`}>
-        {toast.tone === "error" ? "!" : toast.tone === "success" ? "✓" : "i"}
-      </span>
-      <p className="min-w-0 flex-1 break-words">{toast.message}</p>
-      <button type="button" onClick={() => onDismiss(toast.id)} aria-label="Dismiss" className="shrink-0 text-muted hover:text-ink">
+      {/* Errors interrupt (alert); the rest wait their turn (status). The role wraps only the
+          message, so a screen reader doesn't read "Dismiss" as part of every toast. */}
+      <div role={toast.tone === "error" ? "alert" : "status"} className="flex min-w-0 flex-1 items-start gap-2">
+        <span aria-hidden className={`mt-px shrink-0 ${ICON[toast.tone]}`}>
+          {toast.tone === "error" ? "!" : toast.tone === "success" ? "✓" : "i"}
+        </span>
+        <p className="min-w-0 flex-1 break-words">{toast.message}</p>
+      </div>
+      <button
+        type="button"
+        onClick={() => onDismiss(toast.id)}
+        aria-label="Dismiss"
+        className="shrink-0 text-muted hover:text-ink"
+      >
         ✕
       </button>
     </div>
   );
 }
 
-// Bottom-right, opposite StatusTray. The live region stays mounted so new toasts are announced.
+// Bottom-right, opposite StatusTray. Each toast carries its own live-region role; the named
+// region lets assistive tech (and the e2e checks) tell toasts apart from other alerts on the page.
 export function ToastViewport({ toasts, onDismiss }: { toasts: ToastItem[]; onDismiss: (id: number) => void }) {
   return (
-    <div
-      aria-live="polite"
+    <section
+      aria-label="Notifications"
       className="pointer-events-none fixed bottom-4 right-4 z-50 flex w-[min(22rem,calc(100%-2rem))] flex-col items-end gap-2"
     >
       {toasts.map((t) => (
         <ToastCard key={t.id} toast={t} onDismiss={onDismiss} />
       ))}
-    </div>
+    </section>
   );
 }

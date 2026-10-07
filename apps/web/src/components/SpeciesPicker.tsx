@@ -1,9 +1,12 @@
 import { useEffect, useId, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import { api } from "../api/client";
 import { SEARCH_DEBOUNCE_MS } from "../lib/searchNormalize";
 import AddOtherTaxaModal from "./AddOtherTaxaModal";
 import SearchInput from "./SearchInput";
+import { useLatest } from "../hooks/useLatest";
+import { useSpeciesName } from "../lib/speciesName";
 
 export interface SpeciesResult {
   id: string;
@@ -37,6 +40,8 @@ export default function SpeciesPicker({
   /** Ranks this region's checklist first. */
   regionId?: string | null;
 }) {
+  const { t } = useTranslation();
+  const speciesName = useSpeciesName();
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SpeciesResult[]>([]);
   // The query `results` answer, so Enter never picks from an older query's list.
@@ -52,8 +57,7 @@ export default function SpeciesPicker({
   const abortRef = useRef<AbortController | null>(null);
   // Enter pressed before the current query's results arrived: pick the top one when they do.
   const enterPendingRef = useRef(false);
-  const onSelectRef = useRef(onSelect);
-  onSelectRef.current = onSelect;
+  const onSelectRef = useLatest(onSelect);
 
   // The bulk-import picker already has a region for the whole batch, so no per-row iNat fallback.
   useEffect(() => {
@@ -86,8 +90,7 @@ export default function SpeciesPicker({
         if (!controller.signal.aborted) enterPendingRef.current = false;
       });
   }
-  const fetchRef = useRef(fetchResults);
-  fetchRef.current = fetchResults;
+  const fetchRef = useLatest(fetchResults);
 
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -96,7 +99,7 @@ export default function SpeciesPicker({
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [query, regionId]);
+  }, [query, regionId, fetchRef]);
 
   useEffect(
     () => () => {
@@ -161,9 +164,9 @@ export default function SpeciesPicker({
           setQuery(v);
           setOpen(true);
         }}
-        placeholder={placeholder ?? "Jump to species…"}
+        placeholder={placeholder ?? t("species.picker.placeholder")}
         autoFocus={autoFocus}
-        aria-label={placeholder ?? "Jump to species"}
+        aria-label={placeholder ?? t("species.picker.label")}
         onFocus={() => {
           if (blurTimerRef.current) clearTimeout(blurTimerRef.current);
           setOpen(true);
@@ -186,7 +189,7 @@ export default function SpeciesPicker({
         <ul
           id={listId}
           role="listbox"
-          aria-label="Species"
+          aria-label={t("species.picker.listLabel")}
           className="absolute z-10 mt-1 max-h-72 w-full overflow-y-auto rounded-md border border-line bg-surface shadow-lg"
         >
           {results.map((r, i) => (
@@ -202,7 +205,8 @@ export default function SpeciesPicker({
               onMouseEnter={() => setHighlighted(i)}
               className={`cursor-pointer px-3 py-2 text-sm ${i === active ? "bg-surface-muted" : ""}`}
             >
-              <span className="font-medium text-ink">{r.common_name ?? r.scientific_name}</span>{" "}
+              <span className="font-medium text-ink">{speciesName({ commonName: r.common_name, scientificName: r.scientific_name })}
+              </span>{" "}
               <span className="italic text-muted">{r.scientific_name}</span>
             </li>
           ))}
@@ -218,7 +222,9 @@ export default function SpeciesPicker({
               onMouseEnter={() => setHighlighted(results.length)}
               className={`cursor-pointer px-3 py-2 text-left text-sm text-accent ${active === results.length ? "bg-surface-muted" : ""}`}
             >
-              {results.length === 0 ? `No local match for "${query}", search` : "Search"} iNaturalist ↗
+              {results.length === 0
+                ? t("species.picker.searchInaturalistNoMatch", { query })
+                : t("species.picker.searchInaturalist")}
             </li>
           )}
         </ul>

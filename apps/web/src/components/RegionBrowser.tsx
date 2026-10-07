@@ -31,7 +31,9 @@ export default function RegionBrowser({
     api
       .get<{ packs: Array<{ type: string; region: string | null; downloaded: boolean }> }>("/offline-packs/index")
       .then((res) => {
-        setDownloadedCountryNames(new Set(res.packs.filter((p) => p.type === "region" && p.region && p.downloaded).map((p) => p.region!)));
+        setDownloadedCountryNames(
+          new Set(res.packs.filter((p) => p.type === "region" && p.region && p.downloaded).map((p) => p.region!)),
+        );
       })
       .catch(() => setDownloadedCountryNames(new Set()));
   }, [allowAnyRegion]);
@@ -65,7 +67,7 @@ export default function RegionBrowser({
       }
     }
     return available;
-  }, [allRegions, downloadedCountryNames, restrictToIds]);
+  }, [allRegions, downloadedCountryNames, restrictToIds, allowAnyRegion]);
 
   const worldRegion = useMemo(() => allRegions.find((r) => r.parentId === null && r.name === "World"), [allRegions]);
   const allChildren = useMemo(() => allRegions.filter((r) => r.parentId === regionId), [allRegions, regionId]);

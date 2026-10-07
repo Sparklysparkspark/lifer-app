@@ -8,7 +8,8 @@ import FormMessage from "../../components/FormMessage";
 import { useConfirm } from "../../hooks/useConfirm";
 import { useSettings } from "../../hooks/useSettings";
 import { errorMessage } from "../../lib/errorMessage";
-import { Card, SettingToggleCard, useServerSetting } from "./shared";
+import { Card, SettingToggleCard } from "./shared";
+import { useServerSetting } from "./useServerSetting";
 
 export default function SpeciesImportSettings() {
   return (
@@ -150,7 +151,8 @@ function SpeciesNamingSection() {
   const [updateResult, setUpdateResult] = useState<string | null>(null);
 
   if (!settings) return null;
-  const styles: NamingStyle[] = settings.speciesNamingStyles.length > 0 ? (settings.speciesNamingStyles as NamingStyle[]) : ["common"];
+  const styles: NamingStyle[] =
+    settings.speciesNamingStyles.length > 0 ? (settings.speciesNamingStyles as NamingStyle[]) : ["common"];
   const abaAvailable = settings.abaCodesAvailable;
 
   async function apply(next: NamingStyle[]) {
@@ -180,8 +182,12 @@ function SpeciesNamingSection() {
     setError(null);
     setUpdateResult(null);
     try {
-      const res = await api.post<{ moved: number; skipped: number; failed: number; total: number }>("/settings/reorganize-originals");
-      setUpdateResult(`Updated ${res.moved} of ${res.total} photos to match (${res.skipped} already matched, ${res.failed} failed).`);
+      const res = await api.post<{ moved: number; skipped: number; failed: number; total: number }>(
+        "/settings/reorganize-originals",
+      );
+      setUpdateResult(
+        `Updated ${res.moved} of ${res.total} photos to match (${res.skipped} already matched, ${res.failed} failed).`,
+      );
     } catch (err) {
       setError(errorMessage(err, "Couldn't update your existing photos"));
     } finally {
@@ -202,7 +208,13 @@ function SpeciesNamingSection() {
     void apply(next);
   }
 
-  const available: NamingStyle[] = ["common", "latin", "ebird_code", "tree", ...(abaAvailable ? (["aba_code"] as const) : [])];
+  const available: NamingStyle[] = [
+    "common",
+    "latin",
+    "ebird_code",
+    "tree",
+    ...(abaAvailable ? (["aba_code"] as const) : []),
+  ];
   // Selected first in their real order, since only those are reorderable.
   const ordered = [...styles, ...available.filter((s) => !styles.includes(s))];
 
@@ -249,13 +261,13 @@ function SpeciesNamingSection() {
         })}
         {!abaAvailable && (
           <p className="text-xs text-muted">
-            ABA codes will show up here once you've downloaded a region pack covering North America, Mexico, Central America, or the
-            Caribbean.
+            ABA codes will show up here once you've downloaded a region pack covering North America, Mexico, Central
+            America, or the Caribbean.
           </p>
         )}
         <p className="text-xs text-muted">
-          This only changes what new photos get named. Photos already in your library keep their existing folder name and embedded
-          tags until you update them.
+          This only changes what new photos get named. Photos already in your library keep their existing folder name
+          and embedded tags until you update them.
         </p>
         <Button variant="secondary" size="sm" onClick={updateExistingPhotos} loading={updating} className="self-start">
           {updating ? "Updating…" : "Update existing photos to match"}

@@ -2,7 +2,14 @@ import { useEffect, useRef, useState } from "react";
 import { api, ApiError } from "../api/client";
 import { errorMessage } from "../lib/errorMessage";
 import { mapWithConcurrency } from "../lib/concurrency";
-import { postUploadedFile, registerExternalJob, reportJobProgress, settleExternalJob, suggestSpeciesFromVideo, type PossibleDuplicate } from "../lib/uploadQueue";
+import {
+  postUploadedFile,
+  registerExternalJob,
+  reportJobProgress,
+  settleExternalJob,
+  suggestSpeciesFromVideo,
+  type PossibleDuplicate,
+} from "../lib/uploadQueue";
 import { discardUpload, uploadFile } from "../lib/tusUpload";
 import SpeciesPicker, { type SuggestedSpecies } from "./SpeciesPicker";
 import RegionBrowser from "./RegionBrowser";
@@ -12,11 +19,21 @@ import { useImportReview, type ReviewRowBase } from "./importReview/useImportRev
 import { useSpeciesGallery } from "./importReview/useSpeciesGallery";
 import { isRawFile, VENDOR_RAW_EXTENSIONS } from "../lib/rawExtensions";
 import { isBrowserDisplayable, isVideoFile, photoFormatOf, PHOTO_ACCEPT, VIDEO_ACCEPT } from "../lib/photoFormats";
-import { computeClientVectors, recordServerMatching, shouldMatchLocally, prepareLocalInference, useLocalInferenceReady } from "../lib/localInference";
+import {
+  computeClientVectors,
+  recordServerMatching,
+  shouldMatchLocally,
+  prepareLocalInference,
+  useLocalInferenceReady,
+} from "../lib/localInference";
 import { useSettings } from "../hooks/useSettings";
 import { pluralize, pluralWord } from "../lib/pluralize";
 import Button from "./Button";
 import ProgressBar from "./ProgressBar";
+import { useLatest } from "../hooks/useLatest";
+import type { CullMarks, CullMarksOption } from "@lifer/shared";
+import CullMarksChoice from "./importReview/CullMarksChoice";
+import { isRejected, rejectedRowNote } from "../lib/cullInfo";
 
 // Shared with CollectionPage, so the last region picked in either place is the default in both.
 const LAST_REGION_KEY = "lifer:lastRegionId";
@@ -107,9 +124,14 @@ export default function PhotoImportRows({
     if (existing) return existing;
     const controller = new AbortController();
     uploadAbortsRef.current.set(key, controller);
-    const promise = uploadFile(file, { signal: controller.signal, onProgress: (sent, total) => setRowProgress(key, sent, total) })
+    const promise = uploadFile(file, {
+      signal: controller.signal,
+      onProgress: (sent, total) => setRowProgress(key, sent, total),
+    })
       .then((uploadId) => {
-        setRows((prev) => prev.map((r) => (r.key === key ? { ...r, uploadId, uploadProgress: null, uploadError: undefined } : r)));
+        setRows((prev) =>
+          prev.map((r) => (r.key === key ? { ...r, uploadId, uploadProgress: null, uploadError: undefined } : r)),
+        );
         return uploadId;
       })
       .catch((err: unknown) => {
@@ -137,16 +159,18 @@ export default function PhotoImportRows({
 
   // Blob URLs outlive the component, so revoke whatever rows remain on unmount. Uploads of rows
   // not being imported stop too; the importing ones carry on in the background.
-  const rowsRef = useRef(rows);
-  rowsRef.current = rows;
+  const rowsRef = useLatest(rows);
   useEffect(() => {
+    // The same Set for the component's life (importAll adds to it), so it's safe to hold here.
+    const importingKeys = importingKeysRef.current;
     return () => {
+      // eslint-disable-next-line react-hooks/exhaustive-deps -- a latest-value ref, not a DOM node: the rows left at unmount are the ones to clean up
       for (const row of rowsRef.current) {
         URL.revokeObjectURL(row.previewUrl);
-        if (!importingKeysRef.current.has(row.key) && !row.captureId) dropUpload(row.key, row.uploadId);
+        if (!importingKeys.has(row.key) && !row.captureId) dropUpload(row.key, row.uploadId);
       }
     };
-  }, []);
+  }, [rowsRef]);
 
   // Suggestions are skipped entirely (not just hidden) unless the setting is on.
   const suggestEnabled = useSettings().settings?.speciesSuggestEnabled ?? false;
@@ -156,6 +180,11 @@ export default function PhotoImportRows({
 
   // One free-text place name per batch; not persisted like the region.
   const [locationLabel, setLocationLabel] = useState("");
+
+  // What to do with photos a culling app rejected (read from each file's own metadata by
+  // /uploads/inspect). Skipping them is the default.
+  const [cullOption, setCullOption] = useState<CullMarksOption>("skip");
+  const skipsRow = (r: ImportRow) => cullOption === "skip" && isRejected(r);
 
   // In the desktop app connected to a server, photos can be matched on this computer instead.
   const localMatching = useLocalInferenceReady();
@@ -229,6 +258,7 @@ export default function PhotoImportRows({
           matchingMs?: number | null;
           previewDataUrl: string | null;
           notWildlife?: { looksLike: string } | null;
+          cull?: CullMarks;
         }>("/uploads/inspect", form);
       };
       let res;
@@ -255,15 +285,16 @@ export default function PhotoImportRows({
           r.key !== key && r.uploadId && mates.has(r.uploadId) && !r.isInspecting
             ? { ...r, suggestions: pooledFor(r.suggestions) }
             : r.key === key
-            ? {
-                ...r,
-                possibleDuplicate: res.possibleDuplicate,
-                suggestions: res.suggestions,
-                rawPreviewUrl: res.previewDataUrl,
-                notWildlife: res.notWildlife ?? null,
-                isInspecting: false,
-              }
-            : r,
+              ? {
+                  ...r,
+                  possibleDuplicate: res.possibleDuplicate,
+                  suggestions: res.suggestions,
+                  rawPreviewUrl: res.previewDataUrl,
+                  notWildlife: res.notWildlife ?? null,
+                  cull: res.cull ?? null,
+                  isInspecting: false,
+                }
+              : r,
         ),
       );
     } catch {
@@ -280,18 +311,34 @@ export default function PhotoImportRows({
         if (fresh) uploadsRef.current.delete(key);
         return ensureUploaded(key, file);
       };
-      const res = await suggestSpeciesFromVideo<{ suggestions: SuggestedSpecies[]; error?: string; stagedId?: string | null }>(upload, forRegionId);
+      const res = await suggestSpeciesFromVideo<{
+        suggestions: SuggestedSpecies[];
+        error?: string;
+        stagedId?: string | null;
+      }>(upload, forRegionId);
       if (!isLatest()) return;
       setRows((prev) =>
         prev.map((r) =>
-          r.key === key ? { ...r, suggestions: res.suggestions, suggestError: res.error, stagedId: res.stagedId ?? null, isInspecting: false } : r,
+          r.key === key
+            ? {
+                ...r,
+                suggestions: res.suggestions,
+                suggestError: res.error,
+                stagedId: res.stagedId ?? null,
+                isInspecting: false,
+              }
+            : r,
         ),
       );
     } catch (err) {
       console.error(err);
       if (!isLatest()) return;
       setRows((prev) =>
-        prev.map((r) => (r.key === key ? { ...r, suggestError: errorMessage(err, "Couldn't analyze this video"), isInspecting: false } : r)),
+        prev.map((r) =>
+          r.key === key
+            ? { ...r, suggestError: errorMessage(err, "Couldn't analyze this video"), isInspecting: false }
+            : r,
+        ),
       );
     }
   }
@@ -307,22 +354,39 @@ export default function PhotoImportRows({
     review.forgetRow(key);
   }
 
-  const readyRows = rows.filter((r) => r.speciesId && r.status === "ready");
+  const readyRows = rows.filter((r) => r.speciesId && r.status === "ready" && !skipsRow(r));
   const readyCount = readyRows.length;
 
-  const review = useImportReview(rows, setRows, { onAllAssignedEnter: () => void importAll(), enterStartsImport: !importing && readyCount > 0 });
-  const { selected, setSelected, toggleSelected, focusedRowKey, setFocusedRowKey, activeRow, highlightIndex, assignSpecies, assignAndAdvance } = review;
+  const review = useImportReview(rows, setRows, {
+    onAllAssignedEnter: () => void importAll(),
+    enterStartsImport: !importing && readyCount > 0,
+  });
+  const {
+    selected,
+    setSelected,
+    toggleSelected,
+    focusedRowKey,
+    setFocusedRowKey,
+    activeRow,
+    highlightIndex,
+    assignSpecies,
+    assignAndAdvance,
+  } = review;
 
   async function importAll() {
-    const toImport = rows.filter((r) => r.speciesId && (r.status === "ready" || r.status === "error"));
+    const toImport = rows.filter((r) => r.speciesId && (r.status === "ready" || r.status === "error") && !skipsRow(r));
     if (toImport.length === 0) return;
     setImporting(true);
     for (const row of toImport) importingKeysRef.current.add(row.key);
     setRows((prev) =>
-      prev.map((r) => (toImport.some((t) => t.key === r.key) ? { ...r, status: "uploading", uploadError: undefined } : r)),
+      prev.map((r) =>
+        toImport.some((t) => t.key === r.key) ? { ...r, status: "uploading", uploadError: undefined } : r,
+      ),
     );
     // Rows already imported earlier count as covered; anything still unassigned would be lost.
-    onImportStarted?.(rows.every((r) => r.status === "done" || r.notWildlife || toImport.some((t) => t.key === r.key)));
+    onImportStarted?.(
+      rows.every((r) => r.status === "done" || r.notWildlife || skipsRow(r) || toImport.some((t) => t.key === r.key)),
+    );
 
     const committed: Array<{ key: string; captureId: string }> = [];
     await mapWithConcurrency(toImport, UPLOAD_CONCURRENCY, async (row) => {
@@ -333,7 +397,10 @@ export default function PhotoImportRows({
       try {
         // /uploads/video is store-mode only, so no mode field for videos.
         const form = new FormData();
-        if (!row.isVideo) form.append("mode", "store");
+        if (!row.isVideo) {
+          form.append("mode", "store");
+          form.append("cullMarks", cullOption);
+        }
         form.append("speciesId", row.speciesId!);
         if (tripId) form.append("tripId", tripId);
         if (albumId) form.append("albumId", albumId);
@@ -347,24 +414,51 @@ export default function PhotoImportRows({
           // The upload from the species check is reused (awaited if still going), so gigabytes
           // aren't sent twice; a 410 resends it.
           const uploadId = await ensureUploaded(row.key, row.file);
-          const res = await postUploadedFile<{ captureId: string }>("/uploads/video", row.file, { stagedId: row.stagedId, uploadId, onProgress, addFields });
+          const res = await postUploadedFile<{ captureId: string }>("/uploads/video", row.file, {
+            stagedId: row.stagedId,
+            uploadId,
+            onProgress,
+            addFields,
+          });
           uploadsRef.current.delete(row.key);
           committed.push({ key: row.key, captureId: res.captureId });
-          setRows((prev) => prev.map((r) => (r.key === row.key ? { ...r, status: "done", captureId: res.captureId } : r)));
+          setRows((prev) =>
+            prev.map((r) => (r.key === row.key ? { ...r, status: "done", captureId: res.captureId } : r)),
+          );
           settleExternalJob(jobId);
           return;
         }
         // A RAW matching an imported JPEG is filed as its sibling (linkedExisting), still "done".
         // The upload from the check is reused (awaited if it's still going); a 410 resends it.
         const uploadId = await ensureUploaded(row.key, row.file);
-        const res = await postUploadedFile<{ captureId: string; linkedExisting?: boolean }>("/uploads", row.file, { uploadId, onProgress, addFields });
+        const res = await postUploadedFile<{ captureId?: string; linkedExisting?: boolean; skipped?: "rejected" }>(
+          "/uploads",
+          row.file,
+          { uploadId, onProgress, addFields },
+        );
         uploadsRef.current.delete(row.key);
-        committed.push({ key: row.key, captureId: res.captureId });
-        setRows((prev) => prev.map((r) => (r.key === row.key ? { ...r, status: "done", captureId: res.captureId } : r)));
+        if (!res.captureId) {
+          // The server read a reject this screen hadn't seen yet (the check failed or was still
+          // running), and the import skips those.
+          setRows((prev) =>
+            prev.map((r) =>
+              r.key === row.key
+                ? { ...r, status: "ready", uploadId: null, cull: { verdict: "reject", label: r.cull?.label ?? null } }
+                : r,
+            ),
+          );
+          settleExternalJob(jobId);
+          return;
+        }
+        const captureId = res.captureId;
+        committed.push({ key: row.key, captureId });
+        setRows((prev) => prev.map((r) => (r.key === row.key ? { ...r, status: "done", captureId } : r)));
         settleExternalJob(jobId);
       } catch (err) {
         const message = err instanceof Error ? err.message : "Upload failed";
-        setRows((prev) => prev.map((r) => (r.key === row.key ? { ...r, status: "error", error: message, uploadProgress: null } : r)));
+        setRows((prev) =>
+          prev.map((r) => (r.key === row.key ? { ...r, status: "error", error: message, uploadProgress: null } : r)),
+        );
         settleExternalJob(jobId, message);
       } finally {
         rowJobsRef.current.delete(row.key);
@@ -417,7 +511,9 @@ export default function PhotoImportRows({
           </div>
           <RegionBrowser regionId={regionId} onChange={selectRegion} />
           {!regionId && <p className="mt-1 text-xs text-muted">Pick a region to see species suggestions below.</p>}
-          {localMatching && <p className="mt-1 text-xs text-muted">Matching on this computer or the server, whichever is faster</p>}
+          {localMatching && (
+            <p className="mt-1 text-xs text-muted">Matching on this computer or the server, whichever is faster</p>
+          )}
         </div>
       )}
 
@@ -475,6 +571,13 @@ export default function PhotoImportRows({
 
       {rows.length > 0 && (
         <>
+          <CullMarksChoice
+            total={rows.length}
+            rejected={rows.filter((r) => isRejected(r) && r.status !== "done").length}
+            value={cullOption}
+            onChange={setCullOption}
+            disabled={importing}
+          />
           <div className="flex items-center gap-3 text-sm text-muted">
             <span>
               {pluralize(rows.length, "file")} · {readyCount} ready to import · {doneCount} imported
@@ -502,7 +605,11 @@ export default function PhotoImportRows({
                 </button>
               )}
               <Button size="sm" onClick={importAll} loading={importing} disabled={readyCount === 0}>
-                {importing ? "Importing…" : readyCount > 0 ? `Import ${pluralize(readyCount, readyNoun)}` : `Import ${pluralWord(0, readyNoun)}`}
+                {importing
+                  ? "Importing…"
+                  : readyCount > 0
+                    ? `Import ${pluralize(readyCount, readyNoun)}`
+                    : `Import ${pluralWord(0, readyNoun)}`}
               </Button>
             </div>
           </div>
@@ -523,7 +630,12 @@ export default function PhotoImportRows({
                       {row.isRaw ? "RAW" : (photoFormatOf(row.file) ?? "photo")}
                     </div>
                   ) : row.previewFromServer ? (
-                    <img src={row.rawPreviewUrl!} alt="" onClick={() => setLightboxIndex(i)} className="h-14 w-14 cursor-pointer rounded-md object-cover" />
+                    <img
+                      src={row.rawPreviewUrl!}
+                      alt=""
+                      onClick={() => setLightboxIndex(i)}
+                      className="h-14 w-14 cursor-pointer rounded-md object-cover"
+                    />
                   ) : row.isVideo ? (
                     // Seeking past 0 once metadata loads forces a first frame to paint.
                     <video
@@ -537,13 +649,23 @@ export default function PhotoImportRows({
                       className="h-14 w-14 cursor-pointer rounded-md object-cover"
                     />
                   ) : (
-                    <img src={row.previewUrl} alt="" onClick={() => setLightboxIndex(i)} className="h-14 w-14 cursor-pointer rounded-md object-cover" />
+                    <img
+                      src={row.previewUrl}
+                      alt=""
+                      onClick={() => setLightboxIndex(i)}
+                      className="h-14 w-14 cursor-pointer rounded-md object-cover"
+                    />
                   )
                 }
                 status={
                   <>
                     {row.uploadProgress != null && (
-                      <ProgressBar value={row.uploadProgress} size="xs" label={`Uploading ${row.file.name}`} className="w-16" />
+                      <ProgressBar
+                        value={row.uploadProgress}
+                        size="xs"
+                        label={`Uploading ${row.file.name}`}
+                        className="w-16"
+                      />
                     )}
                     <span className="text-xs text-muted">
                       {row.status === "done"
@@ -552,7 +674,7 @@ export default function PhotoImportRows({
                           ? row.error
                           : row.status === "uploading"
                             ? "Uploading…"
-                            : (row.uploadError ?? "")}
+                            : (row.uploadError ?? rejectedRowNote(row, cullOption) ?? "")}
                     </span>
                   </>
                 }

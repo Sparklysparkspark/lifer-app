@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../api/client";
-import Button, { buttonClasses } from "../../components/Button";
+import Button from "../../components/Button";
+import { buttonClasses } from "../../lib/buttonClasses";
 import FormMessage from "../../components/FormMessage";
 import { useDeploymentMode } from "../../hooks/useDeploymentMode";
 import { useToast } from "../../hooks/useToast";
@@ -150,7 +151,10 @@ function InaturalistServerConfigSection({ onSaved }: { onSaved: () => void }) {
     setSuccess(null);
     setSaving(true);
     try {
-      await api.put("/inaturalist/server-config", { clientId: clientId.trim() || null, redirectUri: redirectUri.trim() });
+      await api.put("/inaturalist/server-config", {
+        clientId: clientId.trim() || null,
+        redirectUri: redirectUri.trim(),
+      });
       setClientId("");
       setSuccess("Saved.");
       load();
@@ -186,15 +190,25 @@ function InaturalistServerConfigSection({ onSaved }: { onSaved: () => void }) {
           </Button>
         </div>
       </label>
-      <p className="text-sm text-ink">{config.hasClientId ? "A client ID is currently set." : "No client ID set yet."}</p>
+      <p className="text-sm text-ink">
+        {config.hasClientId ? "A client ID is currently set." : "No client ID set yet."}
+      </p>
       <div className="flex gap-2">
-        <input type="text" value={clientId} onChange={(e) => setClientId(e.target.value)} placeholder="Client ID" className={`${inputClass} flex-1`} />
+        <input
+          type="text"
+          value={clientId}
+          onChange={(e) => setClientId(e.target.value)}
+          placeholder="Client ID"
+          className={`${inputClass} flex-1`}
+        />
         <Button variant="secondary" size="sm" onClick={save} loading={saving}>
           Save
         </Button>
       </div>
       {/* The saved client ID is never sent back; an empty box keeps it. */}
-      {config.hasClientId && !clientId.trim() && <p className="text-xs text-muted">Leave the Client ID box empty to keep the saved one.</p>}
+      {config.hasClientId && !clientId.trim() && (
+        <p className="text-xs text-muted">Leave the Client ID box empty to keep the saved one.</p>
+      )}
       <FormMessage error={error} success={success} />
     </Card>
   );

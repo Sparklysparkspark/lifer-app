@@ -1,21 +1,9 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { api } from "../api/client";
-import { resetSettingsCache } from "./useSettings";
-
-interface AuthUser {
-  id: string;
-  email: string;
-}
-
-interface AuthContextValue {
-  user: AuthUser | null;
-  loading: boolean;
-  login: (email: string, password: string) => Promise<void>;
-  register: (email: string, password: string) => Promise<void>;
-  logout: () => Promise<void>;
-}
-
-const AuthContext = createContext<AuthContextValue | null>(null);
+import { AuthContext, type AuthUser } from "../hooks/useAuth";
+import { resetSettingsCache } from "../hooks/useSettings";
+import { tauriInvoke } from "../lib/tauri";
+import OfflineCacheSync from "./OfflineCacheSync";
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
@@ -43,17 +31,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   async function logout() {
+    // The desktop app's offline copy of this account's collection goes with the session.
+    await tauriInvoke()?.("offline_cache_clear").catch(() => {});
     await api.post("/auth/logout");
     // The next account on this browser shouldn't see a stale copy.
     resetSettingsCache();
     setUser(null);
   }
 
-  return <AuthContext.Provider value={{ user, loading, login, register, logout }}>{children}</AuthContext.Provider>;
-}
-
-export function useAuth(): AuthContextValue {
-  const ctx = useContext(AuthContext);
-  if (!ctx) throw new Error("useAuth must be used within AuthProvider");
-  return ctx;
+  return (
+    <AuthContext.Provider value={{ user, loading, login, register, logout }}>
+      <OfflineCacheSync userId={user?.id ?? null} />
+      {children}
+    </AuthContext.Provider>
+  );
 }

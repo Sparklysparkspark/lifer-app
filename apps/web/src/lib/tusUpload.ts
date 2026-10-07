@@ -89,7 +89,11 @@ async function tooLargeMessage(file: File): Promise<string> {
   // The server advertises its cap on OPTIONS (Tus-Max-Size); a 413 on creation doesn't carry it.
   let max: number | null = null;
   try {
-    const res = await fetch(ENDPOINT, { method: "OPTIONS", credentials: "same-origin", headers: { ...CLIENT_HEADER, "Tus-Resumable": "1.0.0" } });
+    const res = await fetch(ENDPOINT, {
+      method: "OPTIONS",
+      credentials: "same-origin",
+      headers: { ...CLIENT_HEADER, "Tus-Resumable": "1.0.0" },
+    });
     const header = Number(res.headers.get("Tus-Max-Size"));
     if (Number.isFinite(header) && header > 0) max = header;
   } catch {
@@ -170,7 +174,9 @@ export function uploadFile(
       });
       current = upload;
       if (resumePrevious) {
-        const previous = (await upload.findPreviousUploads().catch(() => [])).find((p) => p.uploadUrl && !activeUrls.has(p.uploadUrl));
+        const previous = (await upload.findPreviousUploads().catch(() => [])).find(
+          (p) => p.uploadUrl && !activeUrls.has(p.uploadUrl),
+        );
         if (previous) upload.resumeFromPreviousUpload(previous);
       }
       if (!settled) upload.start();
@@ -199,11 +205,14 @@ export function uploadFile(
         const message = await tooLargeMessage(file);
         return settle(() => reject(new Error(message)));
       }
-      const message = responseError(err) ?? (status ? `Upload failed (${status})` : "Upload failed: the connection dropped");
+      const message =
+        responseError(err) ?? (status ? `Upload failed (${status})` : "Upload failed: the connection dropped");
       settle(() => reject(new Error(message)));
     };
 
-    void start(null, true).catch((err) => settle(() => reject(err instanceof Error ? err : new Error("Upload failed"))));
+    void start(null, true).catch((err) =>
+      settle(() => reject(err instanceof Error ? err : new Error("Upload failed"))),
+    );
   });
 }
 

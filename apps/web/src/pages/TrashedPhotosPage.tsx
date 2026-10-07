@@ -154,7 +154,8 @@ export default function TrashedPhotosPage() {
 
   return (
     <div className="flex-1 bg-canvas">
-      <PageHeader sticky
+      <PageHeader
+        sticky
         title="Trash"
         backFallbackTo="/settings"
         backLabel="Settings"
@@ -209,7 +210,15 @@ export default function TrashedPhotosPage() {
             {data.items.length === 0 ? (
               <EmptyState
                 icon={
-                  <svg viewBox="0 0 24 24" className="h-6 w-6 text-muted" fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round">
+                  <svg
+                    viewBox="0 0 24 24"
+                    className="h-6 w-6 text-muted"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth={1.75}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
                     <path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0-1 14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2L4 6" />
                     <path d="M10 11v6M14 11v6" />
                   </svg>
@@ -273,7 +282,11 @@ export default function TrashedPhotosPage() {
                           type="checkbox"
                           checked={isSelected(item.captureId)}
                           onChange={(e) =>
-                            select.toggle(item.captureId, indexById.get(item.captureId) ?? 0, (e.nativeEvent as MouseEvent).shiftKey ?? false)
+                            select.toggle(
+                              item.captureId,
+                              indexById.get(item.captureId) ?? 0,
+                              (e.nativeEvent as MouseEvent).shiftKey ?? false,
+                            )
                           }
                           className="absolute left-2 top-2 h-4 w-4 accent-accent"
                           aria-label="Select photo"
@@ -320,7 +333,8 @@ export default function TrashedPhotosPage() {
                           <p className="mt-1 truncate text-[11px] text-muted">{item.speciesName}</p>
                           <p className="truncate text-[10px] text-muted">
                             {pluralize(daysLeft(item.purgesAt), "day")} left
-                            {item.hasRawOriginal && (item.pendingDeleteRaw ? " · RAW will also be deleted" : " · RAW will be kept")}
+                            {item.hasRawOriginal &&
+                              (item.pendingDeleteRaw ? " · RAW will also be deleted" : " · RAW will be kept")}
                           </p>
                         </>
                       )}
@@ -334,7 +348,12 @@ export default function TrashedPhotosPage() {
       </main>
 
       {lightboxIndex !== null && (
-        <Lightbox slides={slides} index={lightboxIndex} onIndexChange={setLightboxIndex} onClose={() => setLightboxIndex(null)} />
+        <Lightbox
+          slides={slides}
+          index={lightboxIndex}
+          onIndexChange={setLightboxIndex}
+          onClose={() => setLightboxIndex(null)}
+        />
       )}
 
       <ConfirmDialog

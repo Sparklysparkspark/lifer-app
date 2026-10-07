@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { progressDisplay } from "./ProgressBar";
+import { progressDisplay } from "./progressDisplay";
 
 describe("progressDisplay", () => {
   it("is indeterminate for unknown or zero progress", () => {

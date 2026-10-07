@@ -39,32 +39,31 @@ export function useSelectMode<T>(items: T[] | null, getId: (item: T) => string, 
     [idsBetween],
   );
 
-  const [drag, setDrag] = useState<{ anchor: number; hover: number } | null>(null);
+  // `moved` tells a real drag apart from a plain click that starts on a tile: it turns true once
+  // the pointer enters any tile other than the anchor.
+  const [drag, setDrag] = useState<{ anchor: number; hover: number; moved: boolean } | null>(null);
   const dragRef = useRef(drag);
-  // Tells a real drag apart from a plain click that starts on a tile.
-  const dragOccurredRef = useRef(false);
 
   const beginDragSelect = useCallback((index: number) => {
-    dragOccurredRef.current = false;
-    dragRef.current = { anchor: index, hover: index };
+    dragRef.current = { anchor: index, hover: index, moved: false };
     setDrag(dragRef.current);
   }, []);
 
   const continueDragSelect = useCallback((index: number) => {
     const current = dragRef.current;
     if (!current) return;
-    if (index !== current.anchor) dragOccurredRef.current = true;
-    if (index === current.hover) return;
-    dragRef.current = { anchor: current.anchor, hover: index };
+    const moved = current.moved || index !== current.anchor;
+    if (index === current.hover && moved === current.moved) return;
+    dragRef.current = { anchor: current.anchor, hover: index, moved };
     setDrag(dragRef.current);
   }, []);
 
   // Only set during an actual drag; callers OR it with selectedIds to preview the range.
   const dragPreviewIds = useMemo(() => {
-    if (!drag || !items || !dragOccurredRef.current) return null;
+    if (!drag || !items || !drag.moved) return null;
     const [from, to] = [drag.anchor, drag.hover].sort((a, b) => a - b);
-    return new Set(items.slice(from, to + 1).map(getIdRef.current));
-  }, [drag, items]);
+    return new Set(items.slice(from, to + 1).map(getId));
+  }, [drag, items, getId]);
 
   const dragging = drag !== null;
   useEffect(() => {
@@ -77,7 +76,7 @@ export function useSelectMode<T>(items: T[] | null, getId: (item: T) => string, 
       setDrag(null);
       const list = itemsRef.current;
       if (!current || !list) return;
-      if (!dragOccurredRef.current) {
+      if (!current.moved) {
         const anchorItem = list[current.anchor];
         if (anchorItem) toggle(getIdRef.current(anchorItem), current.anchor, e.shiftKey);
       } else {

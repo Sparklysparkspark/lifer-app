@@ -73,7 +73,9 @@ export default function SpeciesHotspotMap({
   const bestBet = useMemo(() => {
     const reliable = hotspots.filter((h) => h.isReliable);
     if (reliable.length === 0) return undefined;
-    return [...reliable].sort((a, b) => (b.distinctYears ?? 0) - (a.distinctYears ?? 0) || b.recordShare - a.recordShare)[0];
+    return [...reliable].sort(
+      (a, b) => (b.distinctYears ?? 0) - (a.distinctYears ?? 0) || b.recordShare - a.recordShare,
+    )[0];
   }, [hotspots]);
 
   // eBird Sensitive species are blurred to a coarse 20x20km area; say why it looks vague.
@@ -81,13 +83,18 @@ export default function SpeciesHotspotMap({
 
   const currentYear = new Date().getFullYear();
   const mostRecentYear = useMemo(
-    () => hotspots.reduce<number | null>((max, h) => (h.lastSeenYear != null && (max == null || h.lastSeenYear > max) ? h.lastSeenYear : max), null),
+    () =>
+      hotspots.reduce<number | null>(
+        (max, h) => (h.lastSeenYear != null && (max == null || h.lastSeenYear > max) ? h.lastSeenYear : max),
+        null,
+      ),
     [hotspots],
   );
 
   const filteredHotspots = useMemo(() => {
     const cutoff = cutoffYearFor(yearFilter, currentYear);
-    const byYear = cutoff == null ? hotspots : hotspots.filter((h) => h.lastSeenYear != null && h.lastSeenYear >= cutoff);
+    const byYear =
+      cutoff == null ? hotspots : hotspots.filter((h) => h.lastSeenYear != null && h.lastSeenYear >= cutoff);
     const query = search.trim().toLowerCase();
     if (!query) return byYear;
     // Clusters have no name, so coordinates are searchable.
@@ -95,7 +102,8 @@ export default function SpeciesHotspotMap({
   }, [hotspots, yearFilter, search, currentYear]);
 
   useEffect(() => {
-    if (!expanded || !containerRef.current || !boundaryGeoJson || filteredHotspots.length === 0 || !mapAvailable) return;
+    if (!expanded || !containerRef.current || !boundaryGeoJson || filteredHotspots.length === 0 || !mapAvailable)
+      return;
     ensurePmtilesProtocol();
 
     const map = new MapLibreMap({
@@ -109,7 +117,9 @@ export default function SpeciesHotspotMap({
 
     map.on("load", () => {
       const feature = boundaryGeoJson as { type: "Feature"; geometry: { coordinates: unknown } };
-      map.addSource("hotspot-region-boundary", { type: "geojson", data: feature } as Parameters<typeof map.addSource>[1] as never);
+      map.addSource("hotspot-region-boundary", { type: "geojson", data: feature } as Parameters<
+        typeof map.addSource
+      >[1] as never);
       map.addLayer({
         id: "hotspot-region-boundary-fill",
         type: "fill",
@@ -167,22 +177,35 @@ export default function SpeciesHotspotMap({
       map.on("click", "hotspot-points-circle", (e) => {
         const f = e.features?.[0];
         if (!f || f.geometry.type !== "Point") return;
-        const { idx, pointCount, recordShare, lastSeenYear, distinctYears, isReliable, isSensitive, centroidLat, centroidLon, bboxDiagonalKm } =
-          f.properties as {
-            idx: number;
-            pointCount: number;
-            recordShare: number;
-            lastSeenYear: number | null;
-            distinctYears: number | null;
-            isReliable: boolean;
-            isSensitive: boolean;
-            centroidLat: number;
-            centroidLon: number;
-            bboxDiagonalKm: number;
-          };
+        const {
+          idx,
+          pointCount,
+          recordShare,
+          lastSeenYear,
+          distinctYears,
+          isReliable,
+          isSensitive,
+          centroidLat,
+          centroidLon,
+          bboxDiagonalKm,
+        } = f.properties as {
+          idx: number;
+          pointCount: number;
+          recordShare: number;
+          lastSeenYear: number | null;
+          distinctYears: number | null;
+          isReliable: boolean;
+          isSensitive: boolean;
+          centroidLat: number;
+          centroidLon: number;
+          bboxDiagonalKm: number;
+        };
         setSelectedIdx(idx);
         // No individual sightings to show, so zoom to the cluster's own extent.
-        map.easeTo({ center: f.geometry.coordinates as [number, number], zoom: Math.max(map.getZoom(), zoomForClusterExtent(bboxDiagonalKm)) });
+        map.easeTo({
+          center: f.geometry.coordinates as [number, number],
+          zoom: Math.max(map.getZoom(), zoomForClusterExtent(bboxDiagonalKm)),
+        });
         const recencyLine =
           lastSeenYear != null
             ? `Last seen ${lastSeenYear}${distinctYears != null && distinctYears > 1 ? ` (seen across ${distinctYears} different years)` : ""}`
@@ -228,7 +251,10 @@ export default function SpeciesHotspotMap({
     const h = filteredHotspots[idx];
     const map = mapRef.current;
     if (!map || !h) return;
-    map.flyTo({ center: [h.centroidLon, h.centroidLat], zoom: Math.max(map.getZoom(), zoomForClusterExtent(h.bboxDiagonalKm)) });
+    map.flyTo({
+      center: [h.centroidLon, h.centroidLat],
+      zoom: Math.max(map.getZoom(), zoomForClusterExtent(h.bboxDiagonalKm)),
+    });
   }
 
   return (
@@ -245,15 +271,17 @@ export default function SpeciesHotspotMap({
             {mostRecentYear != null ? `, last seen ${mostRecentYear}` : ""})
           </span>
         </span>
-        <span className="rounded-md border border-line px-2 py-0.5 text-xs text-muted">{expanded ? "Hide" : "Show"}</span>
+        <span className="rounded-md border border-line px-2 py-0.5 text-xs text-muted">
+          {expanded ? "Hide" : "Show"}
+        </span>
       </button>
       {expanded && (
         <div className="border-t border-line p-3">
           {hasSensitiveHotspot && (
             <p className="mb-2 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs text-amber-900">
-              This is an eBird Sensitive Species (or sensitive in this region/season). Its exact
-              location can't be shown, the marked area is deliberately widened to protect it from
-              targeted disturbance, capture, or hunting, matching eBird's own sensitive-species list.
+              This is an eBird Sensitive Species (or sensitive in this region/season). Its exact location can't be
+              shown, the marked area is deliberately widened to protect it from targeted disturbance, capture, or
+              hunting, matching eBird's own sensitive-species list.
             </p>
           )}
           {bestBet && (
@@ -273,14 +301,23 @@ export default function SpeciesHotspotMap({
             </a>
           )}
           <div className="mb-2 flex flex-wrap items-center gap-2">
-            <Select value={yearFilter} onChange={(e) => setYearFilter(e.target.value as YearFilter)}>
+            <Select
+              aria-label="Sighting years"
+              value={yearFilter}
+              onChange={(e) => setYearFilter(e.target.value as YearFilter)}
+            >
               {(Object.keys(YEAR_FILTER_LABEL) as YearFilter[]).map((f) => (
                 <option key={f} value={f}>
                   {YEAR_FILTER_LABEL[f]}
                 </option>
               ))}
             </Select>
-            <SearchInput value={search} onChange={setSearch} placeholder="Search coordinates…" className="min-w-0 flex-1" />
+            <SearchInput
+              value={search}
+              onChange={setSearch}
+              placeholder="Search coordinates…"
+              className="min-w-0 flex-1"
+            />
           </div>
           {filteredHotspots.length === 0 ? (
             <p className="text-xs text-muted">No locations match this filter.</p>
@@ -302,7 +339,10 @@ export default function SpeciesHotspotMap({
                         <span className="text-muted">(±{Math.max(h.bboxDiagonalKm / 2, 0.5).toFixed(1)}km)</span>
                         {h.isReliable && <span className="ml-1.5 text-green-700">●</span>}
                         {h.isSensitive && (
-                          <span className="ml-1.5 text-amber-700" title="eBird Sensitive Species, exact location withheld">
+                          <span
+                            className="ml-1.5 text-amber-700"
+                            title="eBird Sensitive Species, exact location withheld"
+                          >
                             ⚠ sensitive
                           </span>
                         )}

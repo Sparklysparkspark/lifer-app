@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { JobStatus } from "@lifer/shared";
 import { api, ApiError } from "../api/client";
 import { errorMessage } from "../lib/errorMessage";
+import { useLatest } from "./useLatest";
 
 export interface JobPollOptions<S> {
   // Poll cadence while the job is running.
@@ -33,7 +34,12 @@ export interface JobPoll<S> {
 
 // Keep polling through a transient failure mid-run; otherwise follow the idle cadence. A 404
 // means the endpoint doesn't exist here, and waiting won't turn it into a 200.
-export function nextPollDelay(opts: { notFound: boolean; running: boolean; intervalMs: number; idleIntervalMs: number | null }): number | null {
+export function nextPollDelay(opts: {
+  notFound: boolean;
+  running: boolean;
+  intervalMs: number;
+  idleIntervalMs: number | null;
+}): number | null {
   if (opts.notFound) return null;
   return opts.running ? opts.intervalMs : opts.idleIntervalMs;
 }
@@ -51,8 +57,7 @@ export function useJobPoll<S extends JobStatus<unknown> = JobStatus<unknown>>(
   const [starting, setStarting] = useState(false);
   const [cancelling, setCancelling] = useState(false);
 
-  const onFinishRef = useRef(options.onFinish);
-  onFinishRef.current = options.onFinish;
+  const onFinishRef = useLatest(options.onFinish);
   // Bumped on unmount/URL change so in-flight responses from an old session are ignored.
   const session = useRef(0);
   // Bumped per poll so only the newest poll schedules the next one.
@@ -61,39 +66,46 @@ export function useJobPoll<S extends JobStatus<unknown> = JobStatus<unknown>>(
   const wasRunning = useRef(false);
   const live = enabled && statusUrl != null;
 
-  const poll = useCallback(async (): Promise<S | null> => {
-    if (!live || !statusUrl) return null;
-    const mySession = session.current;
-    const mySeq = ++pollSeq.current;
-    if (timer.current) clearTimeout(timer.current);
-    timer.current = null;
-    let next: S | null = null;
-    let notFound = false;
-    try {
-      next = await api.get<S>(statusUrl);
-      if (mySession !== session.current) return null;
-      setStatus(next);
-      setLoadError(null);
-      if (wasRunning.current && !next.running) onFinishRef.current?.(next);
-      wasRunning.current = next.running;
-    } catch (err) {
-      if (mySession !== session.current) return null;
-      setLoadError(errorMessage(err, "Couldn't reach the server"));
-      notFound = err instanceof ApiError && err.status === 404;
+  const poll = useCallback((): Promise<S | null> => {
+    // Named so the timer can schedule the next round of this same poll.
+    async function run(): Promise<S | null> {
+      if (!live || !statusUrl) return null;
+      const mySession = session.current;
+      const mySeq = ++pollSeq.current;
+      if (timer.current) clearTimeout(timer.current);
+      timer.current = null;
+      let next: S | null = null;
+      let notFound = false;
+      try {
+        next = await api.get<S>(statusUrl);
+        if (mySession !== session.current) return null;
+        setStatus(next);
+        setLoadError(null);
+        if (wasRunning.current && !next.running) onFinishRef.current?.(next);
+        wasRunning.current = next.running;
+      } catch (err) {
+        if (mySession !== session.current) return null;
+        setLoadError(errorMessage(err, "Couldn't reach the server"));
+        notFound = err instanceof ApiError && err.status === 404;
+      }
+      if (mySession === session.current && mySeq === pollSeq.current) {
+        const running = next ? next.running : wasRunning.current;
+        const delay = nextPollDelay({ notFound, running, intervalMs, idleIntervalMs });
+        if (delay != null) timer.current = setTimeout(() => void run(), delay);
+      }
+      return next;
     }
-    if (mySession === session.current && mySeq === pollSeq.current) {
-      const running = next ? next.running : wasRunning.current;
-      const delay = nextPollDelay({ notFound, running, intervalMs, idleIntervalMs });
-      if (delay != null) timer.current = setTimeout(() => void poll(), delay);
-    }
-    return next;
-  }, [live, statusUrl, intervalMs, idleIntervalMs]);
+    return run();
+  }, [live, statusUrl, intervalMs, idleIntervalMs, onFinishRef]);
 
   useEffect(() => {
     if (!live) return;
+    // Only this effect's cleanup moves the session on, so it can bump from the value it started
+    // with; responses still in flight then see a newer session and are dropped.
+    const mySession = session.current;
     void poll();
     return () => {
-      session.current++;
+      session.current = mySession + 1;
       wasRunning.current = false;
       if (timer.current) clearTimeout(timer.current);
       timer.current = null;

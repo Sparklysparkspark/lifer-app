@@ -16,11 +16,24 @@ export function useFirstRunRegion({
   allRegions: RegionSummary[];
   downloadedCountryNames: Set<string> | null;
 }) {
-  const restored = useRef(false);
+  // Decided once, from the URL and storage as the page first renders: restore a stored region,
+  // or (with none) wait for the region list and then show the first-run prompt.
+  const [decision] = useState<{ restore: string | null; pending: boolean }>(() => {
+    if (regionId) return { restore: null, pending: false };
+    try {
+      const lastRegionId = localStorage.getItem("lifer:lastRegionId");
+      if (lastRegionId) return { restore: lastRegionId, pending: false };
+    } catch {
+      // Storage disabled: fall through to the first-run decision.
+    }
+    return { restore: null, pending: true };
+  });
   const [firstRunPrompt, setFirstRunPrompt] = useState(false);
-  const [pendingFirstRunDecision, setPendingFirstRunDecision] = useState(false);
-  // Gates the first fetch until the restore decision has been made.
+  const [pendingFirstRunDecision, setPendingFirstRunDecision] = useState(decision.pending);
+  // Gates the first fetch until the restored region is in the URL, so the page doesn't load the
+  // whole collection first. Latched: leaving the region later doesn't un-resolve it.
   const [regionResolved, setRegionResolved] = useState(false);
+  if (!regionResolved && (decision.restore === null || regionId)) setRegionResolved(true);
 
   const navigateToRegion = useCallback(
     (id: string | null) => {
@@ -30,27 +43,14 @@ export function useFirstRunRegion({
     [setRegionParam],
   );
 
+  // setRegionParam writes the URL, so it runs after render. Latched to once: a new setRegionParam
+  // (it changes with the URL) mustn't send the user back to the stored region.
+  const restored = useRef(false);
   useEffect(() => {
-    if (restored.current) return;
+    if (restored.current || !decision.restore) return;
     restored.current = true;
-    if (regionId) {
-      setRegionResolved(true);
-      return;
-    }
-    try {
-      const lastRegionId = localStorage.getItem("lifer:lastRegionId");
-      if (lastRegionId) {
-        setRegionParam(lastRegionId);
-        setRegionResolved(true);
-        return;
-      }
-    } catch {
-      // Storage disabled: fall through to the first-run decision.
-    }
-    setPendingFirstRunDecision(true);
-    setRegionResolved(true);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    setRegionParam(decision.restore);
+  }, [decision.restore, setRegionParam]);
 
   useEffect(() => {
     if (!regionId) return;
@@ -61,20 +61,20 @@ export function useFirstRunRegion({
     }
   }, [regionId]);
 
-  useEffect(() => {
-    if (!pendingFirstRunDecision || !regionsLoaded) return;
+  if (pendingFirstRunDecision && regionsLoaded) {
     setPendingFirstRunDecision(false);
     setFirstRunPrompt(true);
-  }, [pendingFirstRunDecision, regionsLoaded]);
+  }
 
-  // Stops applying on its own once a second country is downloaded.
+  // With exactly one downloaded country and no region chosen, go straight into it. Stops applying
+  // on its own once a second country is downloaded.
+  const onlyName = downloadedCountryNames?.size === 1 ? [...downloadedCountryNames][0] : null;
+  const autoRegionId =
+    regionResolved && !regionId && onlyName ? (allRegions.find((r) => r.name === onlyName)?.id ?? null) : null;
+  if (autoRegionId && firstRunPrompt) setFirstRunPrompt(false);
   useEffect(() => {
-    if (!regionResolved || regionId || !downloadedCountryNames || downloadedCountryNames.size !== 1) return;
-    const onlyName = [...downloadedCountryNames][0];
-    const onlyCountry = allRegions.find((r) => r.name === onlyName);
-    if (onlyCountry) navigateToRegion(onlyCountry.id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [regionResolved, regionId, downloadedCountryNames, allRegions]);
+    if (autoRegionId) setRegionParam(autoRegionId);
+  }, [autoRegionId, setRegionParam]);
 
   return { firstRunPrompt, regionResolved, navigateToRegion };
 }

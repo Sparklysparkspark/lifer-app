@@ -13,7 +13,7 @@ export default function SegmentedControl<T extends string>({
   size?: "sm" | "md";
 }) {
   return (
-    <div className="flex gap-1">
+    <div className="flex flex-wrap gap-1">
       {options.map((o) => (
         <Pill key={o.value} size={size} active={value === o.value} onClick={() => onChange(o.value)}>
           {o.label}

@@ -4,7 +4,11 @@ import Button from "../components/Button";
 
 const COMMANDS = [
   { label: "Docker", command: "docker compose exec api lifer-admin reset-password" },
-  { label: "TrueNAS", intro: "Open Apps, select Lifer, click Shell on the lifer container, then run:", command: "lifer-admin reset-password" },
+  {
+    label: "TrueNAS",
+    intro: "Open Apps, select Lifer, click Shell on the lifer container, then run:",
+    command: "lifer-admin reset-password",
+  },
 ];
 
 function CommandBlock({ command }: { command: string }) {

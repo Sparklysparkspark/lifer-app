@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../api/client";
-import Button, { buttonClasses } from "../../components/Button";
+import Button from "../../components/Button";
+import { buttonClasses } from "../../lib/buttonClasses";
 import FormMessage from "../../components/FormMessage";
 import { useServerInfo } from "../../hooks/useDeploymentMode";
 import { useConfirm } from "../../hooks/useConfirm";
@@ -64,7 +65,11 @@ function OrganizePhotosSection() {
 
   if (!settings) return null;
 
-  async function save(endpoint: string, patch: { organizeOriginalsByYear: boolean } | { organizeOriginalsByLocation: boolean }, next: boolean) {
+  async function save(
+    endpoint: string,
+    patch: { organizeOriginalsByYear: boolean } | { organizeOriginalsByLocation: boolean },
+    next: boolean,
+  ) {
     setSaving(true);
     setError(null);
     try {
@@ -88,7 +93,9 @@ function OrganizePhotosSection() {
     setError(null);
     setResult(null);
     try {
-      const res = await api.post<{ moved: number; skipped: number; failed: number; total: number }>("/settings/reorganize-originals");
+      const res = await api.post<{ moved: number; skipped: number; failed: number; total: number }>(
+        "/settings/reorganize-originals",
+      );
       setResult(`Moved ${res.moved} of ${res.total} files (${res.skipped} already in place, ${res.failed} failed).`);
     } catch (err) {
       setError(errorMessage(err, "Couldn't reorganize your photos"));
@@ -108,12 +115,15 @@ function OrganizePhotosSection() {
           type="checkbox"
           checked={settings.organizeOriginalsByYear}
           disabled={saving}
-          onChange={(e) => void save("/settings/organize-originals", { organizeOriginalsByYear: e.target.checked }, e.target.checked)}
+          onChange={(e) =>
+            void save("/settings/organize-originals", { organizeOriginalsByYear: e.target.checked }, e.target.checked)
+          }
           className="mt-0.5"
         />
         <span>
-          Organize into <span className={pathChip}>Wildlife &lt;year taken&gt;/Birds|Mammals|Fish/Species name</span> folders instead of
-          just <span className={pathChip}>Species name</span>, using each photo's own year, not the year you uploaded it
+          Organize into <span className={pathChip}>Wildlife &lt;year taken&gt;/Birds|Mammals|Fish/Species name</span>{" "}
+          folders instead of just <span className={pathChip}>Species name</span>, using each photo's own year, not the
+          year you uploaded it
         </span>
       </label>
       <label className="flex items-start gap-2 text-sm text-ink">
@@ -122,15 +132,20 @@ function OrganizePhotosSection() {
           checked={settings.organizeOriginalsByLocation}
           disabled={saving}
           onChange={(e) =>
-            void save("/settings/organize-originals-by-location", { organizeOriginalsByLocation: e.target.checked }, e.target.checked)
+            void save(
+              "/settings/organize-originals-by-location",
+              { organizeOriginalsByLocation: e.target.checked },
+              e.target.checked,
+            )
           }
           className="mt-0.5"
         />
         <span>
-          Add an outermost folder named after the location you type in at import time. Stacks with the year folders above (location
-          comes first): with year folders on, that's <span className={pathChip}>Prince George/Wildlife &lt;year taken&gt;/Birds/Species name</span>
-          , or just <span className={pathChip}>Prince George/Birds/Species name</span> with year folders off. Only applies to photos you
-          actually gave a location to; everything else stays where it already would.
+          Add an outermost folder named after the location you type in at import time. Stacks with the year folders
+          above (location comes first): with year folders on, that's{" "}
+          <span className={pathChip}>Prince George/Wildlife &lt;year taken&gt;/Birds/Species name</span>, or just{" "}
+          <span className={pathChip}>Prince George/Birds/Species name</span> with year folders off. Only applies to
+          photos you actually gave a location to; everything else stays where it already would.
         </span>
       </label>
       <div>

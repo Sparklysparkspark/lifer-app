@@ -1,6 +1,18 @@
-// Mirrors apps/api/src/uploads/formats.ts VENDOR_RAW_EXTENSIONS and uploads/rawExtensions.ts.
+// Mirrors packages/core/src/uploads/formats.ts VENDOR_RAW_EXTENSIONS and uploads/rawExtensions.ts.
 // Keep them in sync.
-export const VENDOR_RAW_EXTENSIONS = new Set([".cr2", ".cr3", ".nef", ".nrw", ".arw", ".raf", ".rw2", ".orf", ".dng", ".pef", ".srw"]);
+export const VENDOR_RAW_EXTENSIONS = new Set([
+  ".cr2",
+  ".cr3",
+  ".nef",
+  ".nrw",
+  ".arw",
+  ".raf",
+  ".rw2",
+  ".orf",
+  ".dng",
+  ".pef",
+  ".srw",
+]);
 
 // Names the RAW pickers accept. A TIFF may hold sensor data (the server decides), so it's offered
 // there too; everywhere else a TIFF is an edited photo.

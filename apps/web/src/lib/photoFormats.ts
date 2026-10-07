@@ -1,4 +1,4 @@
-// Mirrors apps/api/src/uploads/formats.ts PHOTO_FORMATS. Keep the two in sync.
+// Mirrors packages/core/src/uploads/formats.ts PHOTO_FORMATS. Keep the two in sync.
 import { extname } from "./rawExtensions";
 
 export type PhotoFormat = "jpeg" | "png" | "webp" | "tiff" | "heic";
@@ -11,11 +11,23 @@ interface FormatInfo {
 }
 
 export const PHOTO_FORMATS: Record<PhotoFormat, FormatInfo> = {
-  jpeg: { mimeTypes: ["image/jpeg", "image/jpg", "image/pjpeg"], extensions: [".jpg", ".jpeg", ".jpe"], browserDisplayable: true },
+  jpeg: {
+    mimeTypes: ["image/jpeg", "image/jpg", "image/pjpeg"],
+    extensions: [".jpg", ".jpeg", ".jpe"],
+    browserDisplayable: true,
+  },
   png: { mimeTypes: ["image/png"], extensions: [".png"], browserDisplayable: true },
   webp: { mimeTypes: ["image/webp"], extensions: [".webp"], browserDisplayable: true },
-  tiff: { mimeTypes: ["image/tiff", "image/tif", "image/x-tiff"], extensions: [".tif", ".tiff"], browserDisplayable: false },
-  heic: { mimeTypes: ["image/heic", "image/heif", "image/heic-sequence", "image/heif-sequence"], extensions: [".heic", ".heif", ".hif"], browserDisplayable: false },
+  tiff: {
+    mimeTypes: ["image/tiff", "image/tif", "image/x-tiff"],
+    extensions: [".tif", ".tiff"],
+    browserDisplayable: false,
+  },
+  heic: {
+    mimeTypes: ["image/heic", "image/heif", "image/heic-sequence", "image/heif-sequence"],
+    extensions: [".heic", ".heif", ".hif"],
+    browserDisplayable: false,
+  },
 };
 
 export const PHOTO_MIME_TYPES: string[] = Object.values(PHOTO_FORMATS).flatMap((f) => f.mimeTypes);

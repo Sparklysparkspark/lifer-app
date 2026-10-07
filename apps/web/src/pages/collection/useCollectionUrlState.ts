@@ -41,13 +41,17 @@ export function useCollectionUrlState() {
 
   const search = searchParams.get("search") ?? "";
   // replace: one history entry per keystroke would make Back step through the typing.
-  const setSearch = useCallback((value: string) => updateParam("search", value || null, { replace: true }), [updateParam]);
+  const setSearch = useCallback(
+    (value: string) => updateParam("search", value || null, { replace: true }),
+    [updateParam],
+  );
 
   // A search or sea zone picked for one region means nothing in another. Only on a real change,
   // so a bookmarked ?region=X&search=Y still works on first load.
   const prevRegionId = useRef(regionId);
   useEffect(() => {
-    if (prevRegionId.current !== regionId) updateParams({ search: null, seaZones: null, includeLand: null }, { replace: true });
+    if (prevRegionId.current !== regionId)
+      updateParams({ search: null, seaZones: null, includeLand: null }, { replace: true });
     prevRegionId.current = regionId;
   }, [regionId, updateParams]);
 

@@ -75,7 +75,10 @@ export async function postUploadedFile<T>(
 
 /** Species suggestions for a video, read from its resumable upload so the import can use the
  *  same uploadId. `upload(true)` must send the file again (after a 410); tried once. */
-export async function suggestSpeciesFromVideo<T>(upload: (fresh: boolean) => Promise<string>, regionId: string | null): Promise<T> {
+export async function suggestSpeciesFromVideo<T>(
+  upload: (fresh: boolean) => Promise<string>,
+  regionId: string | null,
+): Promise<T> {
   const suggest = (uploadId: string) => {
     const form = new FormData();
     form.append("uploadId", uploadId);
@@ -190,7 +193,12 @@ export function enqueueUploads(
   } = {},
 ): void {
   if (files.length === 0) return;
-  const jobs: UploadJob[] = files.map((f) => ({ id: `${Date.now()}-${Math.random()}`, fileName: f.name, speciesId, done: false }));
+  const jobs: UploadJob[] = files.map((f) => ({
+    id: `${Date.now()}-${Math.random()}`,
+    fileName: f.name,
+    speciesId,
+    done: false,
+  }));
   setState({
     jobs: [...state.jobs, ...jobs],
     targetsExternalDrive: state.targetsExternalDrive || Boolean(opts.targetsExternalDrive),
@@ -259,10 +267,19 @@ export function enqueueRawUploads<T extends { filename?: string }>(
   files: File[],
   requestPart: (file: File, form: FormData) => void,
   parseResult: (body: { results: T[] }) => T,
-  opts: { onResult?: (file: File, result: T | null, error: string | null) => void; onBatchSettled?: () => void; targetsExternalDrive?: boolean } = {},
+  opts: {
+    onResult?: (file: File, result: T | null, error: string | null) => void;
+    onBatchSettled?: () => void;
+    targetsExternalDrive?: boolean;
+  } = {},
 ): void {
   if (files.length === 0) return;
-  const jobs: UploadJob[] = files.map((f) => ({ id: `${Date.now()}-${Math.random()}`, fileName: f.name, speciesId, done: false }));
+  const jobs: UploadJob[] = files.map((f) => ({
+    id: `${Date.now()}-${Math.random()}`,
+    fileName: f.name,
+    speciesId,
+    done: false,
+  }));
   setState({
     jobs: [...state.jobs, ...jobs],
     targetsExternalDrive: state.targetsExternalDrive || Boolean(opts.targetsExternalDrive),
@@ -276,7 +293,9 @@ export function enqueueRawUploads<T extends { filename?: string }>(
       let result: T | null = null;
       let error: string | null = null;
       try {
-        const uploadId = await uploadFile(file, { onProgress: (sent, total) => reportJobProgress(job.id, sent, total) });
+        const uploadId = await uploadFile(file, {
+          onProgress: (sent, total) => reportJobProgress(job.id, sent, total),
+        });
         const form = new FormData();
         requestPart(file, form);
         form.append("uploadIds", uploadId);

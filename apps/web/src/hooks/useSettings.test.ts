@@ -3,10 +3,17 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const get = vi.fn();
 vi.mock("../api/client", () => ({ api: { get: (...args: unknown[]) => get(...args) } }));
 
-const { loadSettings, refreshSettings, setLocalSettings, getSettingsState, resetSettingsCache } = await import("./useSettings");
+const { loadSettings, refreshSettings, setLocalSettings, getSettingsState, resetSettingsCache } =
+  await import("./useSettings");
 const { loadServerInfo } = await import("./useDeploymentMode");
 
-const base = { deploymentMode: "server", dataDir: "/data", libraryRoots: [], hideObscureSpecies: true, speciesNamingStyles: [] };
+const base = {
+  deploymentMode: "server",
+  dataDir: "/data",
+  libraryRoots: [],
+  hideObscureSpecies: true,
+  speciesNamingStyles: [],
+};
 
 describe("settings cache", () => {
   beforeEach(() => {

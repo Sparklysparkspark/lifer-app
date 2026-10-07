@@ -3,7 +3,7 @@ import type { EbirdImportSummary } from "@lifer/shared";
 import { api } from "../api/client";
 import { docsUrl } from "../lib/docs";
 import { errorMessage } from "../lib/errorMessage";
-import { buttonClasses } from "./Button";
+import { buttonClasses } from "../lib/buttonClasses";
 import FormMessage from "./FormMessage";
 import InlineSpinner from "./InlineSpinner";
 
@@ -35,7 +35,12 @@ export default function EbirdImport({ onImported }: { onImported: () => void }) 
     <section className="rounded-xl border border-line bg-surface p-5">
       <div className="flex items-baseline justify-between gap-3">
         <h2 className="text-sm font-semibold text-ink">Import eBird checklist data</h2>
-        <a href={docsUrl("/settings#ebird")} target="_blank" rel="noreferrer" className="shrink-0 text-xs text-muted underline hover:text-ink">
+        <a
+          href={docsUrl("/settings#ebird")}
+          target="_blank"
+          rel="noreferrer"
+          className="shrink-0 text-xs text-muted underline hover:text-ink"
+        >
           Learn more
         </a>
       </div>
@@ -44,8 +49,8 @@ export default function EbirdImport({ onImported }: { onImported: () => void }) 
         <a href="https://ebird.org/downloadMyData" target="_blank" rel="noreferrer" className="underline">
           Download My Data
         </a>{" "}
-        page. Species you've seen but haven't photographed will show as <em>seen</em> instead of <em>unseen</em>. Already-photographed
-        species are never downgraded.
+        page. Species you've seen but haven't photographed will show as <em>seen</em> instead of <em>unseen</em>.
+        Already-photographed species are never downgraded.
       </p>
       <input
         ref={inputRef}
@@ -62,7 +67,11 @@ export default function EbirdImport({ onImported }: { onImported: () => void }) 
       <label
         htmlFor="ebird-csv-input"
         aria-disabled={importing || undefined}
-        className={buttonClasses("secondary", "sm", `mt-4 cursor-pointer ${importing ? "pointer-events-none opacity-50" : ""}`)}
+        className={buttonClasses(
+          "secondary",
+          "sm",
+          `mt-4 cursor-pointer ${importing ? "pointer-events-none opacity-50" : ""}`,
+        )}
       >
         {importing && <InlineSpinner />}
         {importing ? "Importing…" : "Choose CSV file…"}
@@ -70,8 +79,9 @@ export default function EbirdImport({ onImported }: { onImported: () => void }) 
       <FormMessage error={error} className="mt-3" />
       {summary && (
         <p className="mt-3 text-xs text-muted">
-          {summary.uniqueSpecies} species in file · {summary.matched} matched · newly seen: {summary.matched - summary.alreadySeenOrCollected} ·
-          already seen/collected: {summary.alreadySeenOrCollected} · unmatched: {summary.unmatched}
+          {summary.uniqueSpecies} species in file · {summary.matched} matched · newly seen:{" "}
+          {summary.matched - summary.alreadySeenOrCollected} · already seen/collected: {summary.alreadySeenOrCollected}{" "}
+          · unmatched: {summary.unmatched}
         </p>
       )}
     </section>

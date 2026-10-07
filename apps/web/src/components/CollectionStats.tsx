@@ -4,7 +4,14 @@ import { api } from "../api/client";
 import { errorMessage } from "../lib/errorMessage";
 import FormMessage from "./FormMessage";
 
-const TIER_ORDER: Array<keyof CollectionStats["byTier"]> = ["legendary", "rare", "uncommon", "occasional", "common", "unrated"];
+const TIER_ORDER: Array<keyof CollectionStats["byTier"]> = [
+  "legendary",
+  "rare",
+  "uncommon",
+  "occasional",
+  "common",
+  "unrated",
+];
 
 export default function CollectionStatsPanel() {
   const [stats, setStats] = useState<CollectionStats | null>(null);

@@ -17,9 +17,14 @@ export default function AddToAlbumButton({ captureIds, onAdded }: { captureIds: 
   const [loadFailed, setLoadFailed] = useState(false);
   const toast = useToast();
 
+  // Reopening the menu after a failed load clears the error while it tries again.
+  const [wasOpen, setWasOpen] = useState(!!open);
+  if (wasOpen !== !!open) {
+    setWasOpen(!!open);
+    if (open && !albums) setLoadFailed(false);
+  }
   useEffect(() => {
     if (!open || albums) return;
-    setLoadFailed(false);
     api
       .get<{ albums: AlbumOption[] }>("/albums")
       .then((res) => setAlbums(res.albums))
@@ -87,7 +92,11 @@ export default function AddToAlbumButton({ captureIds, onAdded }: { captureIds: 
               ))}
             </div>
           )}
-          <form onSubmit={createAndAdd} className="border-t border-line px-3 py-1.5" onClick={(e) => e.stopPropagation()}>
+          <form
+            onSubmit={createAndAdd}
+            className="border-t border-line px-3 py-1.5"
+            onClick={(e) => e.stopPropagation()}
+          >
             <input
               type="text"
               value={newName}

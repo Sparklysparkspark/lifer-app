@@ -9,8 +9,12 @@ export interface Settings {
   hideObscureSpecies: boolean;
   speciesSuggestEnabled: boolean;
   anyTaxaSearchEnabled: boolean;
+  // Per install, shared by every account on it.
+  fetchWithheldPhotos: boolean;
   technicalDiving: boolean;
   speciesNamingStyles: string[];
+  // The interface language (a locale code), or null for automatic. See i18n/index.ts.
+  locale?: string | null;
   abaCodesAvailable: boolean;
   dataDir: string;
   deploymentMode: "desktop" | "server";
@@ -100,5 +104,11 @@ export function useSettings(): {
   useEffect(() => {
     if (!getSettingsState().settings) loadSettings().catch(() => {});
   }, []);
-  return { settings, loading: settings === null && error === null, error, refresh: refreshSettings, setLocal: setLocalSettings };
+  return {
+    settings,
+    loading: settings === null && error === null,
+    error,
+    refresh: refreshSettings,
+    setLocal: setLocalSettings,
+  };
 }

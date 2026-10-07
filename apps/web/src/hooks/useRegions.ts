@@ -51,7 +51,12 @@ function getState(): RegionsState {
   return state;
 }
 
-export function useRegions(): { regions: RegionSummary[] | null; loading: boolean; error: unknown; refresh: () => Promise<RegionSummary[]> } {
+export function useRegions(): {
+  regions: RegionSummary[] | null;
+  loading: boolean;
+  error: unknown;
+  refresh: () => Promise<RegionSummary[]>;
+} {
   const { regions, error } = useSyncExternalStore(subscribe, getState, getState);
   useEffect(() => {
     if (!getState().regions) loadRegions().catch(() => {});

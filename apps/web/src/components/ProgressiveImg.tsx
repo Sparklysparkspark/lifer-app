@@ -36,7 +36,8 @@ export default function ProgressiveImg({
   style?: CSSProperties;
 }) {
   const imgRef = useRef<HTMLImageElement>(null);
-  const [near, setNear] = useState(false);
+  // Without IntersectionObserver there's no way to wait, so everything counts as near.
+  const [near, setNear] = useState(() => typeof IntersectionObserver === "undefined");
   const [loadedSrc, setLoadedSrc] = useState(thumbSrc);
   // A record pointing at a photo whose file has since moved or been deleted would otherwise show
   // the browser's broken-image icon; the placeholder reads as "nothing here" instead.
@@ -44,18 +45,17 @@ export default function ProgressiveImg({
   const [attempt, setAttempt] = useState(0);
   const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  useEffect(() => () => {
-    if (retryTimer.current) clearTimeout(retryTimer.current);
-  }, []);
+  useEffect(
+    () => () => {
+      if (retryTimer.current) clearTimeout(retryTimer.current);
+    },
+    [],
+  );
 
   useEffect(() => {
     // Observes the containing box: an unloaded or cropped image may never intersect by itself.
     const el = imgRef.current?.parentElement ?? imgRef.current;
     if (!el || near) return;
-    if (typeof IntersectionObserver === "undefined") {
-      setNear(true);
-      return;
-    }
     const observer = new IntersectionObserver(
       (entries) => {
         if (entries.some((e) => e.isIntersecting)) {
@@ -69,10 +69,17 @@ export default function ProgressiveImg({
     return () => observer.disconnect();
   }, [near]);
 
-  useEffect(() => {
+  // A new photo (or the tile coming near) starts over from its thumbnail.
+  const sourceKey = `${thumbSrc}|${fullSrc}|${near}`;
+  const [shownKey, setShownKey] = useState(sourceKey);
+  if (shownKey !== sourceKey) {
+    setShownKey(sourceKey);
     setFailed(false);
     setAttempt(0);
     setLoadedSrc(thumbSrc);
+  }
+
+  useEffect(() => {
     if (!near) return;
     const el = imgRef.current;
     const shownWidth = (el?.getBoundingClientRect().width ?? 0) * (window.devicePixelRatio || 1);

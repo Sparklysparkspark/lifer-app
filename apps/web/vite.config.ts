@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import { cpSync, existsSync, mkdirSync } from "node:fs";
 import path from "node:path";
 import { defineConfig, type Plugin } from "vite";
@@ -27,6 +28,10 @@ export default defineConfig({
   // The dev pre-bundler mishandles the same runtime worker URL; Vite's own warning suggests excluding it.
   optimizeDeps: {
     exclude: ["maplibre-gl"],
+  },
+  // Components translate through i18next; tests get the same English setup the app starts with.
+  test: {
+    setupFiles: ["src/i18n/testSetup.ts"],
   },
   server: {
     proxy: {

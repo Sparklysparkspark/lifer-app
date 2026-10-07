@@ -9,10 +9,14 @@ describe("errorMessage", () => {
     expect(errorMessage(new Error("boom"), "fallback")).toBe("boom");
   });
   it("reads API { error } bodies", () => {
-    expect(errorMessage({ error: "A catalog update is already running" }, "fallback")).toBe("A catalog update is already running");
+    expect(errorMessage({ error: "A catalog update is already running" }, "fallback")).toBe(
+      "A catalog update is already running",
+    );
   });
   it("describes Response-like objects", () => {
-    expect(errorMessage({ ok: false, status: 502, statusText: "Bad Gateway" }, "Couldn't check")).toBe("Couldn't check (502 Bad Gateway)");
+    expect(errorMessage({ ok: false, status: 502, statusText: "Bad Gateway" }, "Couldn't check")).toBe(
+      "Couldn't check (502 Bad Gateway)",
+    );
   });
   it("falls back for empty or unknown values", () => {
     expect(errorMessage("", "fallback")).toBe("fallback");

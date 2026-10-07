@@ -3,10 +3,25 @@ import type { CollectionItem } from "@lifer/shared";
 import { filterCollectionItems, normalizeSearchText, searchHaystack } from "./filterItems";
 
 function item(partial: Partial<CollectionItem> & { speciesId: string; scientificName: string }): CollectionItem {
-  return { commonName: null, state: "unseen", isTarget: false, isGhost: false, isLost: false, seasonality: null, capturedYears: null, ...partial } as CollectionItem;
+  return {
+    commonName: null,
+    state: "unseen",
+    isTarget: false,
+    isGhost: false,
+    isLost: false,
+    seasonality: null,
+    capturedYears: null,
+    ...partial,
+  } as CollectionItem;
 }
 
-const base = { stateFilter: "all" as const, ghostOnly: false, lostOnly: false, likelyThisMonthOnly: false, yearFilter: "" };
+const base = {
+  stateFilter: "all" as const,
+  ghostOnly: false,
+  lostOnly: false,
+  likelyThisMonthOnly: false,
+  yearFilter: "",
+};
 
 function search(items: CollectionItem[], q: string) {
   const haystacks = new Map(items.map((i) => [i.speciesId, searchHaystack(i)]));
@@ -43,10 +58,36 @@ describe("collection search", () => {
 
 describe("collection search by broad group", () => {
   const items = [
-    item({ speciesId: "hawk", commonName: "Cooper's Hawk", scientificName: "Accipiter cooperii", taxonClass: "aves", family: "Accipitridae" }),
-    item({ speciesId: "owl", commonName: "Great Horned Owl", scientificName: "Bubo virginianus", taxonClass: "aves", family: "Strigidae" }),
-    item({ speciesId: "robin", commonName: "American Robin", scientificName: "Turdus migratorius", taxonClass: "aves", family: "Turdidae", taxonOrder: "Passeriformes" }),
-    item({ speciesId: "frog", commonName: "Red-eyed Treefrog", scientificName: "Agalychnis callidryas", taxonClass: "amphibia", family: "Phyllomedusidae", taxonOrder: "Anura" }),
+    item({
+      speciesId: "hawk",
+      commonName: "Cooper's Hawk",
+      scientificName: "Accipiter cooperii",
+      taxonClass: "aves",
+      family: "Accipitridae",
+    }),
+    item({
+      speciesId: "owl",
+      commonName: "Great Horned Owl",
+      scientificName: "Bubo virginianus",
+      taxonClass: "aves",
+      family: "Strigidae",
+    }),
+    item({
+      speciesId: "robin",
+      commonName: "American Robin",
+      scientificName: "Turdus migratorius",
+      taxonClass: "aves",
+      family: "Turdidae",
+      taxonOrder: "Passeriformes",
+    }),
+    item({
+      speciesId: "frog",
+      commonName: "Red-eyed Treefrog",
+      scientificName: "Agalychnis callidryas",
+      taxonClass: "amphibia",
+      family: "Phyllomedusidae",
+      taxonOrder: "Anura",
+    }),
   ];
 
   it("finds every raptor, owls included, by the group's name", () => {
@@ -59,4 +100,3 @@ describe("collection search by broad group", () => {
     expect(search(items, "frogs")).toEqual(["frog"]);
   });
 });
-

@@ -97,7 +97,15 @@ export default function ManageTagsPage() {
         {tags && tags.length === 0 && (
           <EmptyState
             icon={
-              <svg viewBox="0 0 24 24" className="h-6 w-6 text-muted" fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round">
+              <svg
+                viewBox="0 0 24 24"
+                className="h-6 w-6 text-muted"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={1.75}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
                 <path d="M20.59 13.41 11 22.99l-9-9L11 4.4 20.59 13.4Z" />
                 <path d="M11 4.41V2h9.59L22 3.41V11" />
                 <circle cx="16.5" cy="7.5" r="1" />
@@ -148,7 +156,10 @@ export default function ManageTagsPage() {
                     >
                       {pluralize(row.count, "photo")}
                     </Link>
-                    <button onClick={() => startRename(row.tag)} className="shrink-0 text-xs text-muted hover:underline">
+                    <button
+                      onClick={() => startRename(row.tag)}
+                      className="shrink-0 text-xs text-muted hover:underline"
+                    >
                       Rename
                     </button>
                     <button

@@ -5,7 +5,13 @@ import { pluralize } from "../lib/pluralize";
 const MONTH_LABELS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 // Weekly observation bars (52 ISO weeks). Only some regions have weekly data yet.
-export default function WeeklyBar({ weeklyFrequency, regionName }: { weeklyFrequency: number[] | null; regionName?: string | null }) {
+export default function WeeklyBar({
+  weeklyFrequency,
+  regionName,
+}: {
+  weeklyFrequency: number[] | null;
+  regionName?: string | null;
+}) {
   const [hoverIdx, setHoverIdx] = useState<number | null>(null);
   if (!weeklyFrequency || weeklyFrequency.every((v) => v === 0)) return null;
 

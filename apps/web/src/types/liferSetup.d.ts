@@ -34,6 +34,8 @@ declare global {
       testLogin: (url: string, email: string, password: string) => Promise<void>;
       setLocalDataDir?: (dataDir: string) => Promise<void>;
       platform: string;
+      // Node's process.arch naming ("arm64", "x64"). Missing from desktop builds before it was added.
+      arch?: string;
     };
   }
 }

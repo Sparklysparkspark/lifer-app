@@ -22,7 +22,13 @@ function Checkbox({
 }) {
   return (
     <label className={`flex items-center gap-1.5 text-xs ${disabled ? "text-muted" : "text-ink"}`} title={title}>
-      <input type="checkbox" checked={checked} disabled={disabled} onChange={(e) => onChange(e.target.checked)} className="accent-accent" />
+      <input
+        type="checkbox"
+        checked={checked}
+        disabled={disabled}
+        onChange={(e) => onChange(e.target.checked)}
+        className="accent-accent"
+      />
       {label}
     </label>
   );
@@ -78,8 +84,17 @@ export default function CollectionToolbar({
 
   return (
     // data-header-extension: TitleBarDragRegion treats this strip as the bottom of the header.
-    <div data-header-extension="" className="relative flex flex-wrap items-center gap-3 border-b border-line bg-surface py-2 pl-6 pr-12 text-xs">
-      <SearchInput value={url.search} onChange={url.setSearch} placeholder="Search this area…" className="w-48" aria-label="Search this area" />
+    <div
+      data-header-extension=""
+      className="relative flex flex-wrap items-center gap-3 border-b border-line bg-surface py-2 pl-6 pr-12 text-xs"
+    >
+      <SearchInput
+        value={url.search}
+        onChange={url.setSearch}
+        placeholder="Search this area…"
+        className="w-48"
+        aria-label="Search this area"
+      />
       {/* Regrouping a large list is slow, so it runs in a transition that keeps the old grid up. */}
       <Select
         label="Group"
@@ -156,9 +171,21 @@ export default function CollectionToolbar({
           )}
         </div>
         <div className="space-y-1.5 border-t border-line pt-2">
-          <Checkbox checked={url.collectedFirst} onChange={(c) => updateParam("collectedFirst", c ? null : "0")} label="Collected first" />
-          <Checkbox checked={url.seenFirst} onChange={(c) => updateParam("seenFirst", c ? "1" : null)} label="Seen first" />
-          <Checkbox checked={url.targetFirst} onChange={(c) => updateParam("targetFirst", c ? "1" : null)} label="Targets first" />
+          <Checkbox
+            checked={url.collectedFirst}
+            onChange={(c) => updateParam("collectedFirst", c ? null : "0")}
+            label="Collected first"
+          />
+          <Checkbox
+            checked={url.seenFirst}
+            onChange={(c) => updateParam("seenFirst", c ? "1" : null)}
+            label="Seen first"
+          />
+          <Checkbox
+            checked={url.targetFirst}
+            onChange={(c) => updateParam("targetFirst", c ? "1" : null)}
+            label="Targets first"
+          />
           <Checkbox checked={prefs.hideLabels} onChange={prefs.setHideLabels} label="Hide labels" />
           <Checkbox checked={prefs.hideNames} onChange={prefs.setHideNames} label="Hide names" />
           <Checkbox
@@ -170,7 +197,12 @@ export default function CollectionToolbar({
         </div>
         <div className="border-t border-line pt-2">
           <FilterFieldLabel>Show</FilterFieldLabel>
-          <Select value={url.stateFilter} onChange={(e) => updateParam("show", e.target.value === "all" ? null : e.target.value)} className="w-full">
+          <Select
+            aria-label="Show"
+            value={url.stateFilter}
+            onChange={(e) => updateParam("show", e.target.value === "all" ? null : e.target.value)}
+            className="w-full"
+          >
             <option value="all">All</option>
             <option value="collected">Collected</option>
             <option value="seen">Seen only</option>
@@ -191,7 +223,12 @@ export default function CollectionToolbar({
             {availableYears.length > 0 && (
               <div className="space-y-1">
                 <FilterFieldLabel>Found in year</FilterFieldLabel>
-                <Select value={url.yearFilter} onChange={(e) => updateParam("year", e.target.value || null)} className="w-full">
+                <Select
+                  aria-label="Found in year"
+                  value={url.yearFilter}
+                  onChange={(e) => updateParam("year", e.target.value || null)}
+                  className="w-full"
+                >
                   <option value="">Any year</option>
                   {availableYears.map((y) => (
                     <option key={y} value={y}>
@@ -230,13 +267,21 @@ export default function CollectionToolbar({
           <span>Include nearby water:</span>
           {seaZones.length > 1 && (
             <label className="flex items-center gap-1 font-medium text-ink">
-              <input type="checkbox" checked={seaZoneIds.length === seaZones.length} onChange={(e) => onSetAllSeaZones(e.target.checked)} />
+              <input
+                type="checkbox"
+                checked={seaZoneIds.length === seaZones.length}
+                onChange={(e) => onSetAllSeaZones(e.target.checked)}
+              />
               Select all
             </label>
           )}
           {seaZones.map((z) => (
             <label key={z.id} className="flex items-center gap-1">
-              <input type="checkbox" checked={seaZoneIds.includes(z.id)} onChange={(e) => onToggleSeaZone(z.id, e.target.checked)} />
+              <input
+                type="checkbox"
+                checked={seaZoneIds.includes(z.id)}
+                onChange={(e) => onToggleSeaZone(z.id, e.target.checked)}
+              />
               {z.name}
             </label>
           ))}

@@ -98,7 +98,10 @@ describe("nextPackDownloadFinish", () => {
     store.resetPackDownloadStore();
     const mine = nextPackDownloadFinish(["costa_rica-aves"]);
     let settled = false;
-    mine.finished.then(() => (settled = true), () => (settled = true));
+    mine.finished.then(
+      () => (settled = true),
+      () => (settled = true),
+    );
     // Signing out gives up on it rather than leaving it waiting forever.
     store.setPackDownloadAuthed(false);
     await expect(mine.finished).rejects.toThrow(/signed out/);

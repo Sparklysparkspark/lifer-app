@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useState } from "react";
 import { Navigate, Outlet, Route, Routes } from "react-router-dom";
 import { useAuth } from "./hooks/useAuth";
+import { useLocaleSync } from "./hooks/useLocalePreference";
 import LoginPage from "./pages/LoginPage";
 import CollectionPage from "./pages/CollectionPage";
 import MigrationStatusIndicator from "./components/MigrationStatusIndicator";
@@ -9,9 +10,9 @@ import LibraryFolderBanner from "./components/LibraryFolderBanner";
 import TitleBarDragRegion from "./components/TitleBarDragRegion";
 import AppNav from "./components/AppNav";
 import { LoadingScreen } from "./components/LoadingScreen";
-import { ToastProvider } from "./hooks/useToast";
-import { ConfirmProvider } from "./hooks/useConfirm";
-import { CommandPaletteProvider } from "./hooks/useCommandPalette";
+import { ToastProvider } from "./components/ToastProvider";
+import { ConfirmProvider } from "./components/ConfirmProvider";
+import { CommandPaletteProvider } from "./components/CommandPaletteProvider";
 
 // Every page but the collection (where the app opens) and login loads on first visit, so opening
 // Lifer doesn't wait for the code of 20 pages you may never open this session.
@@ -46,6 +47,28 @@ function PageLoading() {
   return show ? <LoadingScreen /> : null;
 }
 
+// The status pills and banners shown on every page read signed-in API routes (settings, pack
+// updates, the library folder check). Mounting them only once a session exists keeps the login,
+// password reset and share pages from firing requests that can only 401.
+function SignedInStatus() {
+  const { user } = useAuth();
+  if (!user) return null;
+  return (
+    <>
+      <LocaleSync />
+      <MigrationStatusIndicator />
+      <StatusTray />
+      <LibraryFolderBanner />
+    </>
+  );
+}
+
+// Applies the account's interface language once settings load (see hooks/useLocalePreference.ts).
+function LocaleSync() {
+  useLocaleSync();
+  return null;
+}
+
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
   if (loading) return <LoadingScreen />;
@@ -75,9 +98,7 @@ export default function App() {
     <ToastProvider>
       <ConfirmProvider>
         <TitleBarDragRegion />
-        <MigrationStatusIndicator />
-        <StatusTray />
-        <LibraryFolderBanner />
+        <SignedInStatus />
         <Suspense fallback={<PageLoading />}>
           <Routes>
             <Route path="/login" element={<LoginPage />} />

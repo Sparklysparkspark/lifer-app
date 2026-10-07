@@ -3,7 +3,7 @@ import { api } from "../../api/client";
 import Button from "../../components/Button";
 import FormMessage from "../../components/FormMessage";
 import { errorMessage } from "../../lib/errorMessage";
-import { formatBytes } from "../../lib/formatBytes";
+import { formatBytes } from "../../lib/format";
 
 interface HardwareStatus {
   state: "idle" | "testing" | "downloading" | "done" | "failed";
@@ -82,11 +82,13 @@ export default function MatchingHardware() {
         <p className="text-muted">{status.message} Matching runs on the CPU.</p>
       ) : onGpu && main ? (
         <p className="text-ink">
-          Matching runs on <span className="font-medium">{status.device ?? "the GPU"}</span>: about {Math.round(main.ms)} ms a photo,{" "}
-          {Math.max(1, main.cpuMs / main.ms).toFixed(1)}x faster than the CPU.
+          Matching runs on <span className="font-medium">{status.device ?? "the GPU"}</span>: about{" "}
+          {Math.round(main.ms)} ms a photo, {Math.max(1, main.cpuMs / main.ms).toFixed(1)}x faster than the CPU.
         </p>
       ) : (
-        <p className="text-muted">Matching runs on the CPU{status.models.length > 0 ? ": no faster GPU was found." : "."}</p>
+        <p className="text-muted">
+          Matching runs on the CPU{status.models.length > 0 ? ": no faster GPU was found." : "."}
+        </p>
       )}
       <Button variant="secondary" size="sm" onClick={retest} loading={starting} disabled={busy}>
         Re-test hardware

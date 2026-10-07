@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { Map as MapLibreMap, LngLatBounds } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { useTheme } from "../hooks/useTheme";
@@ -32,7 +32,9 @@ export default function RegionMap({ boundaryGeoJson, regionKey }: { boundaryGeoJ
 
     map.on("load", () => {
       const feature = boundaryGeoJson as { type: "Feature"; geometry: { coordinates: unknown } };
-      map.addSource("region-boundary", { type: "geojson", data: feature } as Parameters<typeof map.addSource>[1] as never);
+      map.addSource("region-boundary", { type: "geojson", data: feature } as Parameters<
+        typeof map.addSource
+      >[1] as never);
       map.addLayer({
         id: "region-boundary-fill",
         type: "fill",
@@ -63,7 +65,10 @@ export default function RegionMap({ boundaryGeoJson, regionKey }: { boundaryGeoJ
 
     if (regionKey) {
       map.on("moveend", () => {
-        lastCameraByRegion.set(regionKey, { center: map.getCenter().toArray() as [number, number], zoom: map.getZoom() });
+        lastCameraByRegion.set(regionKey, {
+          center: map.getCenter().toArray() as [number, number],
+          zoom: map.getZoom(),
+        });
       });
     }
 

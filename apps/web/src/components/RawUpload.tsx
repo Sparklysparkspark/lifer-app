@@ -1,4 +1,6 @@
 import { useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { useSpeciesName } from "../lib/speciesName";
 import { enqueueRawUploads } from "../lib/uploadQueue";
 import FormMessage from "./FormMessage";
 import { RAW_EXTENSIONS, extname } from "../lib/rawExtensions";
@@ -34,6 +36,8 @@ export default function RawUpload({
   matchOnly?: boolean;
   onFiled?: () => void;
 }) {
+  const { t } = useTranslation();
+  const speciesName = useSpeciesName();
   const [results, setResults] = useState<RawUploadOutcome[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const filesInputRef = useRef<HTMLInputElement>(null);
@@ -45,12 +49,17 @@ export default function RawUpload({
     const files = Array.from(fileList).filter((f) => RAW_EXTENSIONS.has(extname(f.name)));
     setError(null);
     if (files.length === 0) {
-      setError("No supported RAW files found in that selection");
+      setError(t("upload.raw.noneFound"));
       return;
     }
     // Keyed per file, not by filename, which RAWs in different subfolders can share.
     const batchId = `${Date.now()}-${Math.random()}`;
-    const placeholders: RawUploadOutcome[] = files.map((f, i) => ({ filename: f.name, linked: false, collision: false, _key: `${batchId}-${i}` }));
+    const placeholders: RawUploadOutcome[] = files.map((f, i) => ({
+      filename: f.name,
+      linked: false,
+      collision: false,
+      _key: `${batchId}-${i}`,
+    }));
     setResults((prev) => [...(prev ?? []), ...placeholders]);
 
     enqueueRawUploads<RawUploadOutcome>(
@@ -70,7 +79,15 @@ export default function RawUpload({
           setResults((prev) =>
             (prev ?? []).map((r) =>
               r._key === key
-                ? { ...(result ?? { filename: file.name, linked: false, collision: false, error: requestError ?? "Upload failed" }), _key: key }
+                ? {
+                    ...(result ?? {
+                      filename: file.name,
+                      linked: false,
+                      collision: false,
+                      error: requestError ?? t("upload.failed"),
+                    }),
+                    _key: key,
+                  }
                 : r,
             ),
           );
@@ -88,15 +105,16 @@ export default function RawUpload({
     if (folderInputRef.current) folderInputRef.current.value = "";
   }
 
+  const rowSpeciesName = (r: RawUploadOutcome) =>
+    speciesName({ commonName: r.speciesCommonName, scientificName: r.speciesScientificName ?? "" });
+
   const successCount = results?.filter((r) => r.linked || r.filed).length ?? 0;
 
   return (
     <div className="rounded-lg border border-line bg-surface p-4">
-      <h2 className="text-sm font-medium text-ink">Upload RAW files</h2>
+      <h2 className="text-sm font-medium text-ink">{t("upload.raw.title")}</h2>
       <p className="mt-1 text-xs text-muted">
-        {matchOnly
-          ? "Point this at a folder of RAWs. Each is matched by camera timestamp/serial against photos you've already added and filed into the right species' RAW folder. Anything that doesn't match a photo you've kept is left untouched on your own drive."
-          : "Point this at RAW files. Each is matched by camera timestamp/serial against your uploads and filed straight into the right species' RAW folder. A RAW with no match still gets filed here, under this species, since that's already known. Point it at a whole export folder instead, though, and only the RAWs that match a JPEG you've kept get imported. A folder could span species this page has no way to know about, so anything else in it is left untouched on your own drive."}
+        {matchOnly ? t("upload.raw.descriptionMatchOnly") : t("upload.raw.descriptionSpecies")}
       </p>
       {!matchOnly && (
         <input
@@ -126,18 +144,18 @@ export default function RawUpload({
       <div className="mt-2 flex gap-4">
         {!matchOnly && (
           <label htmlFor="raw-upload-files-input" className="cursor-pointer text-sm text-muted hover:underline">
-            Choose RAW files…
+            {t("upload.raw.chooseFiles")}
           </label>
         )}
         <label htmlFor="raw-upload-folder-input" className="cursor-pointer text-sm text-muted hover:underline">
-          Choose a folder…
+          {t("upload.raw.chooseFolder")}
         </label>
       </div>
       <FormMessage error={error} className="mt-2" />
       {results && (
         <div className="mt-2 space-y-1">
           <p className="text-xs font-medium text-muted">
-            {successCount} of {results.length} added
+            {t("upload.raw.addedCount", { added: successCount, total: results.length })}
           </p>
           {/* A folder run can be hundreds of files, so plain "no match" rows are left out. */}
           {results
@@ -149,13 +167,17 @@ export default function RawUpload({
                 {r.error ? (
                   <span className="text-rose-700 dark:text-rose-400">{r.error}</span>
                 ) : r.collision ? (
-                  <span className="text-amber-600">matched more than one photo with the same camera fingerprint, skipped</span>
+                  <span className="text-amber-600">
+                    {t("upload.raw.collision")}
+                  </span>
                 ) : r.duplicate ? (
-                  <span className="text-muted">already added, skipped</span>
+                  <span className="text-muted">{t("upload.raw.duplicate")}</span>
                 ) : r.filed ? (
-                  <span className="text-emerald-700">added to {r.speciesCommonName ?? r.speciesScientificName}'s RAW folder</span>
+                  <span className="text-emerald-700">
+                    {t("upload.raw.addedToFolder", { name: rowSpeciesName(r) })}
+                  </span>
                 ) : (
-                  <span className="text-emerald-700">filed under {r.speciesCommonName ?? r.speciesScientificName}</span>
+                  <span className="text-emerald-700">{t("upload.raw.filedUnder", { name: rowSpeciesName(r) })}</span>
                 )}
               </p>
             ))}

@@ -31,7 +31,8 @@ export default function LoginPage() {
     window.liferSetup
       ?.getConfig()
       .then((config) => {
-        if (config?.mode === "remote") setConnectedServer(config.serverUrl ?? config.localUrl ?? window.location.origin);
+        if (config?.mode === "remote")
+          setConnectedServer(config.serverUrl ?? config.localUrl ?? window.location.origin);
       })
       .catch(() => {});
   }, []);
@@ -85,7 +86,10 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-canvas">
-      <form onSubmit={handleSubmit} className="w-full max-w-sm space-y-4 rounded-xl border border-line bg-surface p-8 shadow-sm">
+      <form
+        onSubmit={handleSubmit}
+        className="w-full max-w-sm space-y-4 rounded-xl border border-line bg-surface p-8 shadow-sm"
+      >
         <Logo variant="wordmark" className="h-8 w-auto" />
         <p className="text-sm text-muted">
           {needsSetup
@@ -137,7 +141,12 @@ export default function LoginPage() {
         {connectedServer && (
           <div className="border-t border-line pt-4 text-center text-sm text-muted">
             <p>Connected to {connectedServer}.</p>
-            <button type="button" onClick={switchToLocal} disabled={switchingToLocal} className="mt-1 text-ink hover:underline disabled:opacity-50">
+            <button
+              type="button"
+              onClick={switchToLocal}
+              disabled={switchingToLocal}
+              className="mt-1 text-ink hover:underline disabled:opacity-50"
+            >
               {switchingToLocal ? "Switching…" : "Use the library on this computer instead"}
             </button>
           </div>

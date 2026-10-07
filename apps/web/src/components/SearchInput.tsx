@@ -25,7 +25,8 @@ export default function SearchInput({
   "aria-label"?: string;
   inputRef?: Ref<HTMLInputElement>;
   // Combobox wiring (role, aria-expanded, aria-controls, aria-activedescendant, id).
-  inputProps?: AriaAttributes & Pick<InputHTMLAttributes<HTMLInputElement>, "id" | "role" | "autoComplete" | "spellCheck">;
+  inputProps?: AriaAttributes &
+    Pick<InputHTMLAttributes<HTMLInputElement>, "id" | "role" | "autoComplete" | "spellCheck">;
 }) {
   return (
     <div className={`relative ${className ?? ""}`}>

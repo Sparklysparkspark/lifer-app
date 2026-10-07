@@ -14,7 +14,10 @@ export async function downloadFile(url: string, fallbackFilename: string): Promi
     const { save } = await import("@tauri-apps/plugin-dialog");
     const { writeFile } = await import("@tauri-apps/plugin-fs");
     const extension = filename.includes(".") ? filename.slice(filename.lastIndexOf(".") + 1) : undefined;
-    const path = await save({ defaultPath: filename, filters: extension ? [{ name: extension.toUpperCase(), extensions: [extension] }] : undefined });
+    const path = await save({
+      defaultPath: filename,
+      filters: extension ? [{ name: extension.toUpperCase(), extensions: [extension] }] : undefined,
+    });
     if (!path) return; // user cancelled the dialog
     await writeFile(path, new Uint8Array(await blob.arrayBuffer()));
     return;

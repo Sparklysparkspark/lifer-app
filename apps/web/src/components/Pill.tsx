@@ -19,6 +19,7 @@ export default function Pill({
     <button
       type="button"
       onClick={onClick}
+      aria-pressed={active}
       className={`inline-flex items-center justify-center rounded-md border transition-colors ${sizeClasses} ${
         active ? "border-accent bg-accent text-accent-fg" : "border-line text-muted hover:bg-surface-muted"
       } ${className ?? ""}`}

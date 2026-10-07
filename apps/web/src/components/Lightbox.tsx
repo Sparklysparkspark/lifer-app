@@ -1,10 +1,16 @@
-import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type WheelEvent as ReactWheelEvent } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type MouseEvent as ReactMouseEvent,
+  type WheelEvent as ReactWheelEvent,
+} from "react";
 import { Link } from "react-router-dom";
 import PhotoPlaceholder from "./PhotoPlaceholder";
 import { markDragBlocked } from "../lib/modalDragBlock";
 import { tauriCurrentWindow } from "../lib/tauri";
 import { useEscapeToClose } from "../hooks/useEscapeToClose";
-import { formatDate } from "../lib/formatDate";
+import { formatDate } from "../lib/format";
 import { downloadFile } from "../lib/downloadFile";
 
 export interface LightboxSlide {
@@ -33,17 +39,13 @@ export interface LightboxSlide {
     durationSeconds?: number | string | null;
     /** Stored file locations (edited JPEG and any RAW), shown by file name. See photoFilePaths. */
     files?: string[];
+    /** What a culling app marked it at import (lib/cullInfo.ts). */
+    cull?: string | null;
   } | null;
   tags?: string[] | null;
   onTagsChange?: (tags: string[]) => void;
   /** When set, shows a download button for this slide. */
   download?: { url: string; filename: string } | null;
-}
-
-/** The stored files for a photo, for LightboxSlide.info.files: the main original and its RAW,
- *  without repeats (a RAW-only photo has the same file as both). */
-export function photoFilePaths(...refs: Array<string | null | undefined>): string[] {
-  return [...new Set(refs.filter((r): r is string => !!r))];
 }
 
 function isTypingTarget(target: EventTarget | null): boolean {
@@ -196,13 +198,16 @@ export default function Lightbox({
     if (idleTimeoutRef.current) clearTimeout(idleTimeoutRef.current);
     idleTimeoutRef.current = setTimeout(() => setVideoControlsIdle(true), 1000);
   }
+  // The idle state itself resets with the other per-slide state below; its timer stops here.
   useEffect(() => {
-    setVideoControlsIdle(false);
     if (idleTimeoutRef.current) clearTimeout(idleTimeoutRef.current);
   }, [index]);
-  useEffect(() => () => {
-    if (idleTimeoutRef.current) clearTimeout(idleTimeoutRef.current);
-  }, []);
+  useEffect(
+    () => () => {
+      if (idleTimeoutRef.current) clearTimeout(idleTimeoutRef.current);
+    },
+    [],
+  );
   // Tauri window fullscreen, since requestFullscreen() is unreliable in the frameless desktop
   // window; the DOM API is the fallback in a plain browser.
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -250,7 +255,7 @@ export default function Lightbox({
   const dragRef = useRef<{ startX: number; startY: number; panX: number; panY: number } | null>(null);
   const [dragging, setDragging] = useState(false);
   // Skips the transform transition during a continuous pinch; restarting it per event stutters.
-  const wheelZoomingRef = useRef(false);
+  const [wheelZooming, setWheelZooming] = useState(false);
   const wheelZoomTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -265,12 +270,24 @@ export default function Lightbox({
     markDragBlocked(true);
     return () => markDragBlocked(false);
   }, []);
-  useEffect(() => () => {
-    if (wheelZoomTimeoutRef.current) clearTimeout(wheelZoomTimeoutRef.current);
-  }, []);
+  useEffect(
+    () => () => {
+      if (wheelZoomTimeoutRef.current) clearTimeout(wheelZoomTimeoutRef.current);
+    },
+    [],
+  );
   // A missing file shows a placeholder for that slide only; navigation keeps working.
   const [imageFailed, setImageFailed] = useState(false);
-  useEffect(() => setImageFailed(false), [index]);
+
+  // A new slide starts unzoomed, with its controls showing and no failure carried over.
+  const [shownIndex, setShownIndex] = useState(index);
+  if (shownIndex !== index) {
+    setShownIndex(index);
+    setVideoControlsIdle(false);
+    setImageFailed(false);
+    setScale(1);
+    setPan({ x: 0, y: 0 });
+  }
 
   const videoRef = useRef<HTMLVideoElement>(null);
 
@@ -310,7 +327,7 @@ export default function Lightbox({
         slide.onRate(slide.rating === rating ? null : rating);
       } else if (e.key === " " && slide?.videoUrl) {
         e.preventDefault();
-        if (video) (video.paused ? video.play() : video.pause());
+        if (video) video.paused ? video.play() : video.pause();
       } else if (e.key.toLowerCase() === "f") {
         toggleFullscreen();
       }
@@ -320,21 +337,14 @@ export default function Lightbox({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [index, slides, onIndexChange, isFullscreen]);
 
-  useEffect(() => {
-    setScale(1);
-    setPan({ x: 0, y: 0 });
-  }, [index]);
-
   // A trackpad pinch arrives as a wheel event with ctrlKey set; a plain scroll pans once zoomed.
   function onWheel(e: ReactWheelEvent) {
     e.preventDefault();
     e.stopPropagation();
     if (e.ctrlKey) {
-      wheelZoomingRef.current = true;
+      setWheelZooming(true);
       if (wheelZoomTimeoutRef.current) clearTimeout(wheelZoomTimeoutRef.current);
-      wheelZoomTimeoutRef.current = setTimeout(() => {
-        wheelZoomingRef.current = false;
-      }, 150);
+      wheelZoomTimeoutRef.current = setTimeout(() => setWheelZooming(false), 150);
       setScale((s) => {
         const next = Math.min(4, Math.max(1, s - e.deltaY * 0.01));
         if (next === 1) setPan({ x: 0, y: 0 });
@@ -395,6 +405,7 @@ export default function Lightbox({
     durationLabel ||
     takenLabel ||
     (slide.info?.files?.length ?? 0) > 0 ||
+    !!slide.info?.cull ||
     slide.onTagsChange
   );
   const iconButtonClass =
@@ -417,7 +428,9 @@ export default function Lightbox({
           isFullscreen ? "" : "p-4"
         }`}
       >
-        <div className={`absolute right-4 top-4 z-10 flex items-center gap-2 transition-opacity duration-300 ${overlayFadeClass}`}>
+        <div
+          className={`absolute right-4 top-4 z-10 flex items-center gap-2 transition-opacity duration-300 ${overlayFadeClass}`}
+        >
           {slide.download && (
             <button
               onClick={(e) => {
@@ -429,7 +442,16 @@ export default function Lightbox({
               aria-label="Download"
               title="Download"
             >
-              <svg viewBox="0 0 24 24" className="h-[1.125rem] w-[1.125rem]" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <svg
+                viewBox="0 0 24 24"
+                className="h-[1.125rem] w-[1.125rem]"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={2}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden
+              >
                 <path d="M12 4v11m0 0-4-4m4 4 4-4M5 20h14" />
               </svg>
             </button>
@@ -505,7 +527,7 @@ export default function Lightbox({
             className={`${mediaClass} select-none object-contain`}
             style={{
               transform: `translate(${pan.x}px, ${pan.y}px) scale(${scale})`,
-              transition: dragging || wheelZoomingRef.current ? "none" : "transform 0.05s ease-out",
+              transition: dragging || wheelZooming ? "none" : "transform 0.05s ease-out",
               cursor: scale > 1 ? (dragging ? "grabbing" : "grab") : "zoom-in",
             }}
             onClick={(e) => e.stopPropagation()}
@@ -537,6 +559,7 @@ export default function Lightbox({
             )}
             {cameraLine && <p className="mt-0.5 text-xs text-white/50">{cameraLine}</p>}
             {takenLabel && <p className="mt-0.5 text-xs text-white/50">{takenLabel}</p>}
+            {slide.info?.cull && <p className="mt-0.5 text-xs text-white/50">{slide.info.cull}</p>}
             {slide.info?.files && slide.info.files.length > 0 && (
               // Selectable, with the full stored location on hover, for finding the file yourself.
               <p className="mt-0.5 select-text text-xs text-white/50" onClick={(e) => e.stopPropagation()}>
@@ -555,10 +578,20 @@ export default function Lightbox({
             )}
             {slide.onTagsChange && (
               <div className="mt-2 flex justify-center">
-                <TagEditor compact dark tags={slide.tags ?? []} onChange={slide.onTagsChange} existingTags={tagOptions} />
+                <TagEditor
+                  compact
+                  dark
+                  tags={slide.tags ?? []}
+                  onChange={slide.onTagsChange}
+                  existingTags={tagOptions}
+                />
               </div>
             )}
-            {slides.length > 1 && <p className="mt-1 text-xs text-white/40">{index + 1} / {slides.length}</p>}
+            {slides.length > 1 && (
+              <p className="mt-1 text-xs text-white/40">
+                {index + 1} / {slides.length}
+              </p>
+            )}
           </div>
         )}
       </div>

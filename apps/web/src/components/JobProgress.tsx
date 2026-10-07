@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import type { JobStatus } from "@lifer/shared";
 import FormMessage from "./FormMessage";
 import ProgressBar from "./ProgressBar";
-import { formatBytes } from "../lib/formatBytes";
+import { formatBytes } from "../lib/format";
 
 export interface PhaseConfig {
   label: string;
@@ -21,10 +21,20 @@ export type PhaseLabels = Record<string, string | PhaseConfig>;
 // updater's download progress comes from Tauri events, not a status endpoint).
 export type JobProgressStatus = Pick<
   JobStatus,
-  "running" | "phase" | "downloadedBytes" | "totalBytes" | "processed" | "total" | "currentItem" | "error" | "cancelRequested" | "cancelled"
+  | "running"
+  | "phase"
+  | "downloadedBytes"
+  | "totalBytes"
+  | "processed"
+  | "total"
+  | "currentItem"
+  | "error"
+  | "cancelRequested"
+  | "cancelled"
 >;
 
-const smallButtonClass = "shrink-0 rounded-md border border-line px-3 py-1 text-xs text-ink hover:bg-surface-muted disabled:opacity-50";
+const smallButtonClass =
+  "shrink-0 rounded-md border border-line px-3 py-1 text-xs text-ink hover:bg-surface-muted disabled:opacity-50";
 
 function describe(status: JobProgressStatus, phases: PhaseLabels | undefined, fallbackLabel: string) {
   const raw = status.phase ? phases?.[status.phase] : undefined;

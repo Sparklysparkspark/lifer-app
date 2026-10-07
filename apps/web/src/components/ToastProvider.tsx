@@ -1,19 +1,9 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ToastViewport, type ToastItem, type ToastTone } from "../components/Toast";
-
-export interface ToastApi {
-  success: (message: string) => number;
-  error: (message: string) => number;
-  info: (message: string) => number;
-  // durationMs: null keeps it until dismissed.
-  show: (message: string, options?: { tone?: ToastTone; durationMs?: number | null }) => number;
-  dismiss: (id: number) => void;
-}
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { ToastContext, type ToastApi } from "../hooks/useToast";
+import { ToastViewport, type ToastItem, type ToastTone } from "./Toast";
 
 const TOAST_DURATION_MS: Record<ToastTone, number> = { success: 4000, info: 4000, error: 6000 };
 const MAX_VISIBLE = 5;
-
-const ToastContext = createContext<ToastApi | null>(null);
 
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<ToastItem[]>([]);
@@ -34,7 +24,11 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       // Oldest drop off first once the stack is full.
       setToasts((list) => [...list, { id, tone, message }].slice(-MAX_VISIBLE));
       const duration = options.durationMs === undefined ? TOAST_DURATION_MS[tone] : options.durationMs;
-      if (duration != null) timers.current.set(id, setTimeout(() => dismiss(id), duration));
+      if (duration != null)
+        timers.current.set(
+          id,
+          setTimeout(() => dismiss(id), duration),
+        );
       return id;
     },
     [dismiss],
@@ -62,11 +56,4 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       <ToastViewport toasts={toasts} onDismiss={dismiss} />
     </ToastContext.Provider>
   );
-}
-
-/** `const toast = useToast(); toast.success("Saved"); toast.error("Couldn't save")` */
-export function useToast(): ToastApi {
-  const ctx = useContext(ToastContext);
-  if (!ctx) throw new Error("useToast must be used within ToastProvider");
-  return ctx;
 }

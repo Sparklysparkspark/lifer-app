@@ -57,8 +57,7 @@ export default function HiddenSpeciesPage() {
   }
 
   // A refetch after an unhide keeps the current grid up instead of flashing a spinner.
-  function load() {
-    setLoadError(false);
+  function fetchHidden() {
     api
       .get<HiddenResponse>("/regions/hidden-species")
       .then((res) => {
@@ -73,7 +72,13 @@ export default function HiddenSpeciesPage() {
       .catch(() => setLoadError(true));
   }
 
-  useEffect(load, []);
+  // Later reloads clear an earlier error while they retry; the first load has none to clear.
+  function load() {
+    setLoadError(false);
+    fetchHidden();
+  }
+
+  useEffect(fetchHidden, []);
 
   // One entry per country with something hidden under it; its provinces only show once opened.
   const countryGroups = useMemo(() => {
@@ -92,7 +97,13 @@ export default function HiddenSpeciesPage() {
       if (!item.countryId || !item.countryName) continue;
       let g = byId.get(item.countryId);
       if (!g) {
-        g = { id: item.countryId, name: item.countryName, speciesIds: new Set(), countryLevelCount: 0, provinces: new Map() };
+        g = {
+          id: item.countryId,
+          name: item.countryName,
+          speciesIds: new Set(),
+          countryLevelCount: 0,
+          provinces: new Map(),
+        };
         byId.set(item.countryId, g);
       }
       // A country-wide hide writes a row per province too (so one province can be unhidden
@@ -205,7 +216,10 @@ export default function HiddenSpeciesPage() {
   // every province row under it.
   async function unhideScope() {
     const uniqueSpeciesCount = new Set(scopedItems.map((i) => i.speciesId)).size;
-    const ok = await confirm({ title: `Unhide all ${uniqueSpeciesCount} species from "${scopeLabel}"?`, confirmLabel: "Unhide all" });
+    const ok = await confirm({
+      title: `Unhide all ${uniqueSpeciesCount} species from "${scopeLabel}"?`,
+      confirmLabel: "Unhide all",
+    });
     if (!ok) return;
     setBulkBusy(true);
     try {
@@ -220,14 +234,20 @@ export default function HiddenSpeciesPage() {
 
   return (
     <div className="flex-1 bg-canvas">
-      <PageHeader sticky
+      <PageHeader
+        sticky
         title="Hidden species"
         backFallbackTo="/settings"
         backLabel="Settings"
         titleAddon={<InfoTip paragraphs={HIDDEN_INFO_PARAGRAPHS} />}
         actions={
           <>
-            <SearchInput value={search} onChange={setSearch} placeholder="Search hidden or a region…" className="w-56" />
+            <SearchInput
+              value={search}
+              onChange={setSearch}
+              placeholder="Search hidden or a region…"
+              className="w-56"
+            />
           </>
         }
       />
@@ -296,7 +316,15 @@ export default function HiddenSpeciesPage() {
           {data.items.length === 0 ? (
             <EmptyState
               icon={
-                <svg viewBox="0 0 24 24" className="h-6 w-6 text-muted" fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round">
+                <svg
+                  viewBox="0 0 24 24"
+                  className="h-6 w-6 text-muted"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={1.75}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
                   <path d="M3 3l18 18" />
                   <path d="M10.6 5.2A9.4 9.4 0 0 1 12 5c5.5 0 9 5 9 7a11 11 0 0 1-3 3.4M6.1 6.1C3.9 7.7 2.5 10 2.5 12c0 2 3.5 7 9.5 7 1.5 0 2.8-.3 4-.8" />
                   <path d="M9.9 9.9a3 3 0 0 0 4.2 4.2" />
@@ -344,7 +372,9 @@ export default function HiddenSpeciesPage() {
                           <PhotoPlaceholder className="h-full w-full" />
                         )}
                       </div>
-                      <p className="mt-1 truncate text-xs font-medium text-ink">{item.commonName ?? item.scientificName}</p>
+                      <p className="mt-1 truncate text-xs font-medium text-ink">
+                        {item.commonName ?? item.scientificName}
+                      </p>
                       <p className="truncate text-[10px] italic text-muted">{item.scientificName}</p>
                     </Link>
                     <button

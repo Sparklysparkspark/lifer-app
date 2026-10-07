@@ -18,7 +18,8 @@ vi.mock("./tusUpload", () => ({
   discardUpload: vi.fn(),
 }));
 
-const { enqueueUploads, resolveDuplicate, getUploadQueueState, suggestSpeciesFromVideo } = await import("./uploadQueue");
+const { enqueueUploads, resolveDuplicate, getUploadQueueState, suggestSpeciesFromVideo } =
+  await import("./uploadQueue");
 const { ApiError } = await import("../api/client");
 
 const dup = { captureId: "c1", speciesName: "Cedar Waxwing", takenAt: null, exact: true };
@@ -77,7 +78,12 @@ describe("video species suggestions", () => {
     const res = await suggestSpeciesFromVideo<{ uploadId: string }>(upload, "region-1");
     expect(res.uploadId).toBe("u2");
     expect(upload.mock.calls).toEqual([[false], [true]]);
-    const forms = post.mock.calls.map(([path, form]) => [path, (form as FormData).get("uploadId"), (form as FormData).get("regionId"), (form as FormData).has("file")]);
+    const forms = post.mock.calls.map(([path, form]) => [
+      path,
+      (form as FormData).get("uploadId"),
+      (form as FormData).get("regionId"),
+      (form as FormData).has("file"),
+    ]);
     expect(forms).toEqual([
       ["/captures/suggest-species-from-video", "u1", "region-1", false],
       ["/captures/suggest-species-from-video", "u2", "region-1", false],

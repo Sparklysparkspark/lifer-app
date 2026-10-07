@@ -21,8 +21,14 @@ export function useTaxonAvailability({
   const [taxaPresentForRegion, setTaxaPresentForRegion] = useState<Set<string> | null>(null);
   // Taxa photographed in the region or anywhere inside it (hubs included).
   const [photographedTaxa, setPhotographedTaxa] = useState<Set<string>>(new Set());
+  // Without a region (or for a hub) there's nothing to ask the server, so these are cleared.
+  const clearUnfetched = useCallback(() => {
+    if (!regionId) setPhotographedTaxa(new Set());
+    if (!regionId || regionKnownHub) setTaxaPresentForRegion(null);
+  }, [regionId, regionKnownHub]);
+
   const generation = useRef(0);
-  const reloadTaxaPresent = useCallback(() => {
+  const fetchTaxaPresent = useCallback(() => {
     const current = ++generation.current;
     if (regionId) {
       api
@@ -33,13 +39,8 @@ export function useTaxonAvailability({
         .catch(() => {
           if (current === generation.current) setPhotographedTaxa(new Set());
         });
-    } else {
-      setPhotographedTaxa(new Set());
     }
-    if (!regionId || regionKnownHub) {
-      setTaxaPresentForRegion(null);
-      return;
-    }
+    if (!regionId || regionKnownHub) return;
     api
       .get<Record<string, string[]>>(`/regions/taxon-presence?regionIds=${regionId}`)
       .then((res) => {
@@ -49,7 +50,20 @@ export function useTaxonAvailability({
         if (current === generation.current) setTaxaPresentForRegion(null);
       });
   }, [regionId, regionKnownHub]);
-  useEffect(reloadTaxaPresent, [reloadTaxaPresent]);
+
+  const reloadTaxaPresent = useCallback(() => {
+    clearUnfetched();
+    fetchTaxaPresent();
+  }, [clearUnfetched, fetchTaxaPresent]);
+
+  // A new region clears in the same render rather than from the effect after it.
+  const regionKey = JSON.stringify([regionId, regionKnownHub]);
+  const [clearedFor, setClearedFor] = useState<string | null>(null);
+  if (clearedFor !== regionKey) {
+    setClearedFor(regionKey);
+    clearUnfetched();
+  }
+  useEffect(fetchTaxaPresent, [fetchTaxaPresent]);
 
   const taxaDownloadedAnywhere = useMemo(() => {
     const set = new Set<string>();
@@ -76,10 +90,19 @@ export function useTaxonAvailability({
         .filter((t, i, arr) => arr.indexOf(t) === i)
         .filter((t) => {
           if (taxonFilters.has(t) || otherTaxaIconicFiltersPresent.includes(t) || photographedTaxa.has(t)) return true;
-          if (regionId) return isTaxonPackDownloaded(regionId, t) && (!taxaPresentForRegion || taxaPresentForRegion.has(t));
+          if (regionId)
+            return isTaxonPackDownloaded(regionId, t) && (!taxaPresentForRegion || taxaPresentForRegion.has(t));
           return taxaDownloadedAnywhere.has(t);
         }),
-    [regionId, taxonFilters, isTaxonPackDownloaded, taxaPresentForRegion, taxaDownloadedAnywhere, otherTaxaIconicFiltersPresent, photographedTaxa],
+    [
+      regionId,
+      taxonFilters,
+      isTaxonPackDownloaded,
+      taxaPresentForRegion,
+      taxaDownloadedAnywhere,
+      otherTaxaIconicFiltersPresent,
+      photographedTaxa,
+    ],
   );
 
   return { availableTaxonFilters, reloadTaxaPresent };

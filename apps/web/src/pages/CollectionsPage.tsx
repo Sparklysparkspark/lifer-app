@@ -9,7 +9,8 @@ import DotMenu from "../components/DotMenu";
 import RenameModal from "../components/RenameModal";
 import TripCard from "../components/TripCard";
 import EmptyState from "../components/EmptyState";
-import { FolderBrowser, pickFolderNative } from "../components/FolderPicker";
+import { FolderBrowser } from "../components/FolderPicker";
+import { pickFolderNative } from "../lib/pickFolderNative";
 import InfoTip from "../components/InfoTip";
 import { useDropdownMenu } from "../hooks/useDropdownMenu";
 import { useEnterToConfirm } from "../hooks/useEnterToConfirm";
@@ -17,7 +18,7 @@ import { useToast } from "../hooks/useToast";
 import Modal from "../components/Modal";
 import Button from "../components/Button";
 import FormMessage from "../components/FormMessage";
-import { pluralize } from "../lib/pluralize";
+import { useTranslation } from "react-i18next";
 
 interface Album {
   id: string;
@@ -33,12 +34,12 @@ interface Album {
   captureCount: number;
 }
 
-const TRIPS_INFO_PARAGRAPHS = [
-  "Point a trip at your trip's own folder, however it's organized. Lifer only reads it: it finds the photos, and you pick out the wildlife.",
-  'Each photo you import is copied into the trip\'s "Save wildlife to" folder (a "Wildlife" folder inside the trip unless you choose another), sorted into Birds, Mammals and so on by species. Its RAW comes along when one with the same filename is in the trip folder.',
-  'Add more photos to the trip folder anytime, then use "Add more photos": only photos you haven\'t imported yet are offered.',
-  'If a folder ever moves (a new computer, a reinstall, a renamed drive), use "Relocate…" on the trip to point at it again instead of re-importing from scratch.',
-];
+const TRIPS_INFO_PARAGRAPH_KEYS = [
+  "trips.info.pointAtFolder",
+  "trips.info.copiedOnImport",
+  "trips.info.addMore",
+  "trips.info.relocate",
+] as const;
 
 // Albums (curated) and Trips (from a scanned folder) are the same idea with different origins,
 // so they share one page with a tab switch.
@@ -46,24 +47,26 @@ export default function CollectionsPage() {
   const location = useLocation();
   const navigate = useNavigate();
   const tab = location.pathname.startsWith("/trips") ? "trips" : "albums";
+  const { t } = useTranslation();
 
   return (
     <div className="flex-1 bg-canvas">
-      <PageHeader sticky
-        title="Albums & trips"
+      <PageHeader
+        sticky
+        title={t("collections.title")}
         actions={
           <div className="flex rounded-md border border-line text-sm">
             <button
               onClick={() => navigate("/albums", { replace: true })}
               className={`rounded-l-md px-3 py-1.5 ${tab === "albums" ? "bg-accent text-accent-fg" : "text-muted hover:bg-surface-muted"}`}
             >
-              Albums
+              {t("collections.tabs.albums")}
             </button>
             <button
               onClick={() => navigate("/trips", { replace: true })}
               className={`rounded-r-md px-3 py-1.5 ${tab === "trips" ? "bg-accent text-accent-fg" : "text-muted hover:bg-surface-muted"}`}
             >
-              Trips
+              {t("collections.tabs.trips")}
             </button>
           </div>
         }
@@ -88,26 +91,32 @@ function AlbumsPanel() {
   useEnterToConfirm(() => void deleteAlbum(), !!confirmingDeleteId && !deleting);
   const toast = useToast();
   const navigate = useNavigate();
+  const { t } = useTranslation();
 
-  function load() {
-    setLoadError(false);
+  function fetchAlbums() {
     api
       .get<{ albums: Album[] }>("/albums")
       .then((res) => setAlbums(res.albums))
       .catch(() => setLoadError(true));
   }
 
-  useEffect(load, []);
+  // Later reloads clear an earlier error while they retry; the first load has none to clear.
+  function load() {
+    setLoadError(false);
+    fetchAlbums();
+  }
+
+  useEffect(fetchAlbums, []);
 
   async function createAlbum(e: React.FormEvent) {
     e.preventDefault();
     setSaving(true);
     setError(null);
     try {
-      const res = await api.post<{ id: string }>("/albums", { name: name.trim() || undefined });
+      await api.post<{ id: string }>("/albums", { name: name.trim() || undefined });
       navigate("/gallery?select=1");
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Couldn't create this album");
+      setError(err instanceof ApiError ? err.message : t("albums.create.failed"));
     } finally {
       setSaving(false);
     }
@@ -128,7 +137,7 @@ function AlbumsPanel() {
       setConfirmingDeleteId(null);
       load();
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : "Couldn't delete this album");
+      toast.error(err instanceof ApiError ? err.message : t("albums.delete.failed"));
     } finally {
       setDeleting(false);
     }
@@ -144,20 +153,23 @@ function AlbumsPanel() {
           }}
           className="rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-accent-fg"
         >
-          {creating ? "Cancel" : "New album"}
+          {creating ? t("common.cancel") : t("albums.list.newAlbum")}
         </button>
       </div>
 
       <main className="space-y-6 p-6">
         {creating && (
-          <form onSubmit={createAlbum} className="flex max-w-md items-end gap-2 rounded-lg border border-line bg-surface p-4">
+          <form
+            onSubmit={createAlbum}
+            className="flex max-w-md items-end gap-2 rounded-lg border border-line bg-surface p-4"
+          >
             <div className="flex-1">
-              <label className="mb-1 block text-sm font-medium text-ink">Name</label>
+              <label className="mb-1 block text-sm font-medium text-ink">{t("common.name")}</label>
               <input
                 type="text"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="Best raptor shots"
+                placeholder={t("albums.create.namePlaceholder")}
                 autoFocus
                 className="w-full rounded-md border border-line px-3 py-2 text-sm"
               />
@@ -167,7 +179,7 @@ function AlbumsPanel() {
               disabled={saving}
               className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-accent-fg disabled:opacity-50"
             >
-              {saving ? "Creating…" : "Create"}
+              {saving ? t("common.creating") : t("albums.create.submit")}
             </button>
             <FormMessage error={error} />
           </form>
@@ -175,9 +187,9 @@ function AlbumsPanel() {
 
         {loadError ? (
           <div className="flex flex-col items-center gap-3 py-24">
-            <p className="text-muted">Couldn't load albums.</p>
+            <p className="text-muted">{t("albums.list.loadFailed")}</p>
             <button onClick={load} className="text-sm text-ink underline">
-              Retry
+              {t("common.retry")}
             </button>
           </div>
         ) : !albums ? (
@@ -185,14 +197,22 @@ function AlbumsPanel() {
         ) : albums.length === 0 ? (
           <EmptyState
             icon={
-              <svg viewBox="0 0 24 24" className="h-6 w-6 text-muted" fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round">
+              <svg
+                viewBox="0 0 24 24"
+                className="h-6 w-6 text-muted"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={1.75}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
                 <path d="M3 15.5V5.5A2 2 0 0 1 5 3.5h10" />
                 <rect x="6" y="6" width="14" height="14" rx="2" />
               </svg>
             }
-            title="No albums yet"
-            description="Group your favorite photos into a named collection you can browse or share."
-            action={{ label: "New album", onClick: () => setCreating(true) }}
+            title={t("albums.empty.title")}
+            description={t("albums.empty.description")}
+            action={{ label: t("albums.list.newAlbum"), onClick: () => setCreating(true) }}
           />
         ) : (
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
@@ -212,7 +232,11 @@ function AlbumsPanel() {
                     quadSlots={album.quadSlots}
                     alt={album.name}
                   />
-                  <DotMenu open={openMenuId === album.id} onToggle={() => setOpenMenuId(openMenuId === album.id ? null : album.id)} menuRef={openMenuRef}>
+                  <DotMenu
+                    open={openMenuId === album.id}
+                    onToggle={() => setOpenMenuId(openMenuId === album.id ? null : album.id)}
+                    menuRef={openMenuRef}
+                  >
                     <div className="absolute right-0 top-full z-10 mt-1 w-36 rounded-md border border-line bg-surface py-1 shadow-lg">
                       <button
                         type="button"
@@ -224,7 +248,7 @@ function AlbumsPanel() {
                         }}
                         className="block w-full px-3 py-1.5 text-left text-xs text-ink hover:bg-surface-muted"
                       >
-                        Rename
+                        {t("common.rename")}
                       </button>
                       <button
                         type="button"
@@ -236,7 +260,7 @@ function AlbumsPanel() {
                         }}
                         className="block w-full px-3 py-1.5 text-left text-xs text-red-600 hover:bg-surface-muted dark:text-red-400"
                       >
-                        Delete
+                        {t("common.delete")}
                       </button>
                     </div>
                   </DotMenu>
@@ -246,7 +270,7 @@ function AlbumsPanel() {
                   {/* Same count pill as TripCard. */}
                   <div className="mt-1 flex flex-wrap items-center gap-1">
                     <span className="inline-block rounded-full bg-surface-muted px-2 py-0.5 text-[10px] uppercase tracking-wide text-muted">
-                      {pluralize(album.captureCount, "photo")}
+                      {t("albums.list.photoCount", { count: album.captureCount })}
                     </span>
                   </div>
                 </div>
@@ -258,7 +282,7 @@ function AlbumsPanel() {
 
       {renamingAlbum && (
         <RenameModal
-          title="Rename album"
+          title={t("albums.rename.title")}
           initialName={renamingAlbum.name}
           onCancel={() => setRenamingAlbum(null)}
           onSave={renameAlbum}
@@ -269,19 +293,21 @@ function AlbumsPanel() {
         open={!!confirmingDeleteId}
         onClose={() => setConfirmingDeleteId(null)}
         size="sm"
-        title="Delete this album?"
+        title={t("albums.delete.title")}
         footer={
           <>
             <Button variant="ghost" size="sm" onClick={() => setConfirmingDeleteId(null)}>
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button variant="danger" size="sm" onClick={deleteAlbum} loading={deleting}>
-              {deleting ? "Deleting…" : "Delete"}
+              {deleting ? t("common.deleting") : t("common.delete")}
             </Button>
           </>
         }
       >
-        <p className="text-sm text-muted">This removes the album, but the photos in it aren't deleted. They stay right where they are.</p>
+        <p className="text-sm text-muted">
+          {t("albums.delete.body")}
+        </p>
       </Modal>
     </>
   );
@@ -307,16 +333,22 @@ function TripsPanel() {
   useEnterToConfirm(() => void deleteTrip(), !!confirmingDeleteId && !deleting);
   const toast = useToast();
   const navigate = useNavigate();
+  const { t } = useTranslation();
 
-  function load() {
-    setLoadError(false);
+  function fetchTrips() {
     api
       .get<{ trips: TripSummary[] }>("/trips")
       .then((res) => setTrips(res.trips))
       .catch(() => setLoadError(true));
   }
 
-  useEffect(load, []);
+  // Later reloads clear an earlier error while they retry; the first load has none to clear.
+  function load() {
+    setLoadError(false);
+    fetchTrips();
+  }
+
+  useEffect(fetchTrips, []);
 
   // A trip still scanning its folder refreshes every 2s (paused while the tab is hidden), and
   // nothing lands after the panel unmounts.
@@ -377,7 +409,7 @@ function TripsPanel() {
       });
       navigate(`/trips/${res.id}`);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Couldn't create this trip");
+      setError(err instanceof ApiError ? err.message : t("trips.create.failed"));
     } finally {
       setSaving(false);
     }
@@ -389,10 +421,13 @@ function TripsPanel() {
     setSaving(true);
     setError(null);
     try {
-      const res = await api.post<{ id: string }>("/trips/build", { name: name.trim() || undefined, parentDir: chosenFolder });
+      const res = await api.post<{ id: string }>("/trips/build", {
+        name: name.trim() || undefined,
+        parentDir: chosenFolder,
+      });
       navigate(`/trips/${res.id}?mode=build`);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Couldn't create this trip");
+      setError(err instanceof ApiError ? err.message : t("trips.create.failed"));
     } finally {
       setSaving(false);
     }
@@ -413,7 +448,7 @@ function TripsPanel() {
       setConfirmingDeleteId(null);
       load();
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : "Couldn't delete this trip");
+      toast.error(err instanceof ApiError ? err.message : t("trips.delete.failed"));
     } finally {
       setDeleting(false);
     }
@@ -422,7 +457,7 @@ function TripsPanel() {
   return (
     <>
       <div className="flex items-center justify-end gap-2 border-b border-line bg-surface px-6 py-2">
-        <InfoTip paragraphs={TRIPS_INFO_PARAGRAPHS} align="right" />
+        <InfoTip paragraphs={TRIPS_INFO_PARAGRAPH_KEYS.map((key) => t(key))} align="right" />
         <button
           onClick={() => {
             setBuilding(false);
@@ -433,7 +468,7 @@ function TripsPanel() {
           }}
           className="rounded-md border border-line px-3 py-1.5 text-sm font-medium text-ink hover:bg-surface-muted"
         >
-          {creating && !building ? "Cancel" : "Import trip"}
+          {creating && !building ? t("common.cancel") : t("trips.list.importTrip")}
         </button>
         <button
           onClick={() => {
@@ -444,7 +479,7 @@ function TripsPanel() {
           }}
           className="rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-accent-fg"
         >
-          {building ? "Cancel" : "Build a trip"}
+          {building ? t("common.cancel") : t("trips.list.buildTrip")}
         </button>
       </div>
 
@@ -455,28 +490,30 @@ function TripsPanel() {
             className="max-w-md space-y-3 rounded-lg border border-line bg-surface p-4"
           >
             <div>
-              <label className="mb-1 block text-sm font-medium text-ink">Name</label>
+              <label className="mb-1 block text-sm font-medium text-ink">{t("common.name")}</label>
               <input
                 type="text"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="Costa Rica 2026"
+                placeholder={t("trips.create.namePlaceholder")}
                 className="w-full rounded-md border border-line px-3 py-2 text-sm"
               />
             </div>
             <div>
               <label className="mb-1 block text-sm font-medium text-ink">
-                {building ? "Where should the trip folder go?" : "Trip folder"}
+                {building ? t("trips.create.buildParentLabel") : t("trips.create.folderLabel")}
               </label>
               {chosenFolder && !browsingFolder ? (
                 <div className="flex items-center gap-2">
-                  <code className="flex-1 truncate rounded-md border border-line px-3 py-2 text-xs">{chosenFolder}</code>
+                  <code className="flex-1 truncate rounded-md border border-line px-3 py-2 text-xs">
+                    {chosenFolder}
+                  </code>
                   <button
                     type="button"
                     onClick={chooseFolder}
                     className="rounded-md border border-line px-3 py-1.5 text-sm text-ink hover:bg-surface-muted"
                   >
-                    Change
+                    {t("trips.create.change")}
                   </button>
                 </div>
               ) : browsingFolder ? (
@@ -493,23 +530,23 @@ function TripsPanel() {
                   onClick={chooseFolder}
                   className="rounded-md border border-line px-3 py-1.5 text-sm text-ink hover:bg-surface-muted"
                 >
-                  Choose a folder…
+                  {t("trips.create.chooseFolder")}
                 </button>
               )}
               {building && chosenFolder && (
                 <p className="mt-1 text-xs text-muted">
-                  Lifer will create "{name.trim() || "Untitled Trip"}/Wildlife" inside this folder.
+                  {t("trips.create.buildHint", { name: name.trim() || t("trips.create.untitled") })}
                 </p>
               )}
               {!building && (
                 <p className="mt-1 text-xs text-muted">
-                  Your trip's own folder, edits and all. Lifer only reads it and offers the wildlife it finds.
+                  {t("trips.create.folderHint")}
                 </p>
               )}
             </div>
             {!building && chosenFolder && (
               <div>
-                <label className="mb-1 block text-sm font-medium text-ink">Save wildlife to</label>
+                <label className="mb-1 block text-sm font-medium text-ink">{t("trips.create.destinationLabel")}</label>
                 {browsingDestination ? (
                   <FolderBrowser
                     onChoose={(path) => {
@@ -528,12 +565,12 @@ function TripsPanel() {
                       onClick={chooseDestination}
                       className="rounded-md border border-line px-3 py-1.5 text-sm text-ink hover:bg-surface-muted"
                     >
-                      Change
+                      {t("trips.create.change")}
                     </button>
                   </div>
                 )}
                 <p className="mt-1 text-xs text-muted">
-                  Each photo you import is copied here, sorted into Birds, Mammals and so on by species, with its RAW.
+                  {t("trips.create.destinationHint")}
                 </p>
               </div>
             )}
@@ -543,16 +580,16 @@ function TripsPanel() {
               disabled={saving || !chosenFolder}
               className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-accent-fg disabled:opacity-50"
             >
-              {saving ? "Creating…" : building ? "Create folder & start" : "Create trip"}
+              {saving ? t("common.creating") : building ? t("trips.create.buildSubmit") : t("trips.create.submit")}
             </button>
           </form>
         )}
 
         {loadError ? (
           <div className="flex flex-col items-center gap-3 py-24">
-            <p className="text-muted">Couldn't load trips.</p>
+            <p className="text-muted">{t("trips.list.loadFailed")}</p>
             <button onClick={load} className="text-sm text-ink underline">
-              Retry
+              {t("common.retry")}
             </button>
           </div>
         ) : !trips ? (
@@ -560,15 +597,23 @@ function TripsPanel() {
         ) : trips.length === 0 ? (
           <EmptyState
             icon={
-              <svg viewBox="0 0 24 24" className="h-6 w-6 text-muted" fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round">
+              <svg
+                viewBox="0 0 24 24"
+                className="h-6 w-6 text-muted"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={1.75}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
                 <path d="M12 21s-7-6.5-7-11.5A7 7 0 0 1 19 9.5C19 14.5 12 21 12 21Z" />
                 <circle cx="12" cy="9.5" r="2.25" />
               </svg>
             }
-            title="No trips yet"
-            description="Create one to start referencing wildlife photos from an external folder."
+            title={t("trips.empty.title")}
+            description={t("trips.empty.description")}
             action={{
-              label: "Build a trip",
+              label: t("trips.list.buildTrip"),
               onClick: () => {
                 setCreating(false);
                 setBuilding(true);
@@ -596,7 +641,7 @@ function TripsPanel() {
 
       {renamingTrip && (
         <RenameModal
-          title="Rename trip"
+          title={t("trips.rename.title")}
           initialName={renamingTrip.name}
           onCancel={() => setRenamingTrip(null)}
           onSave={renameTrip}
@@ -607,19 +652,21 @@ function TripsPanel() {
         open={!!confirmingDeleteId}
         onClose={() => setConfirmingDeleteId(null)}
         size="sm"
-        title="Delete this trip?"
+        title={t("trips.delete.title")}
         footer={
           <>
             <Button variant="ghost" size="sm" onClick={() => setConfirmingDeleteId(null)}>
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button variant="danger" size="sm" onClick={deleteTrip} loading={deleting}>
-              {deleting ? "Deleting…" : "Delete"}
+              {deleting ? t("common.deleting") : t("common.delete")}
             </Button>
           </>
         }
       >
-        <p className="text-sm text-muted">This removes the trip, but the photos in it aren't deleted. They just won't be grouped under it anymore.</p>
+        <p className="text-sm text-muted">
+          {t("trips.delete.body")}
+        </p>
       </Modal>
     </>
   );

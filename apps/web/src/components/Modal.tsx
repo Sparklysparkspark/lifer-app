@@ -1,4 +1,11 @@
-import { useEffect, useId, useRef, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type RefObject } from "react";
+import {
+  useEffect,
+  useId,
+  useRef,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode,
+  type RefObject,
+} from "react";
 import { createPortal } from "react-dom";
 import { useEscapeToClose } from "../hooks/useEscapeToClose";
 import { markDragBlocked } from "../lib/modalDragBlock";
@@ -44,7 +51,9 @@ function unlockScroll() {
 }
 
 function focusables(root: HTMLElement): HTMLElement[] {
-  return Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE)).filter((el) => el.offsetParent !== null || el === document.activeElement);
+  return Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(
+    (el) => el.offsetParent !== null || el === document.activeElement,
+  );
 }
 
 export default function Modal(props: ModalProps) {

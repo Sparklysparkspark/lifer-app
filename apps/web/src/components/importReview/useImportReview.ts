@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import type { SpeciesResult, SuggestedSpecies } from "../SpeciesPicker";
 import type { PossibleDuplicate } from "../../lib/uploadQueue";
+import type { CullMarks } from "@lifer/shared";
 
 // What every species-review row has, wherever its photo came from: a file dropped on the import
 // screen (PhotoImportRows) or one found by a trip scan (TripDetailPage).
@@ -17,6 +18,8 @@ export interface ReviewRowBase {
   isInspecting?: boolean;
   /** Suggestions couldn't be computed at all, so the row doesn't read as "no species matched". */
   suggestError?: string;
+  /** What a culling app marked the photo (CullMarksChoice). `undefined` = not read yet. */
+  cull?: CullMarks | null;
 }
 
 /** Selection, bulk and one-at-a-time assignment, and the keyboard flow of a species review:
@@ -43,7 +46,14 @@ export function useImportReview<R extends ReviewRowBase>(
     setRows((prev) =>
       prev.map((r) =>
         // Picking a species by hand overrides a "doesn't look like wildlife" flag.
-        keys.includes(r.key) ? { ...r, speciesId: result.id, speciesLabel: result.common_name ?? result.scientific_name, notWildlife: null } : r,
+        keys.includes(r.key)
+          ? {
+              ...r,
+              speciesId: result.id,
+              speciesLabel: result.common_name ?? result.scientific_name,
+              notWildlife: null,
+            }
+          : r,
       ),
     );
     // Assigned rows get checked, which shows progress and pre-selects them for bulk actions.
@@ -84,15 +94,21 @@ export function useImportReview<R extends ReviewRowBase>(
 
   // Keyboard actions target the first unassigned row; not-wildlife rows are skipped.
   const activeRow = rows.find((r) => !r.speciesId && !r.notWildlife);
+  const activeKey = activeRow?.key;
+  // A new active row starts at its first suggestion.
   const [highlightIndex, setHighlightIndex] = useState(0);
-  useEffect(() => {
+  const [highlightFor, setHighlightFor] = useState(activeKey);
+  if (highlightFor !== activeKey) {
+    setHighlightFor(activeKey);
     setHighlightIndex(0);
-  }, [activeRow?.key]);
+  }
   useEffect(() => {
-    if (!scrollToActiveRow.current || !activeRow) return;
+    if (!scrollToActiveRow.current || !activeKey) return;
     scrollToActiveRow.current = false;
-    document.querySelector(`[data-import-row="${CSS.escape(activeRow.key)}"]`)?.scrollIntoView({ block: "center", behavior: "smooth" });
-  }, [activeRow?.key]);
+    document
+      .querySelector(`[data-import-row="${CSS.escape(activeKey)}"]`)
+      ?.scrollIntoView({ block: "center", behavior: "smooth" });
+  }, [activeKey]);
 
   // Up undoes a stray Enter: reopens the previous assigned row with its pick still highlighted.
   function goBackToPreviousRow() {

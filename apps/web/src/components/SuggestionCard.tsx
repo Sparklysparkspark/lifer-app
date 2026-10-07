@@ -1,4 +1,7 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
+import { formatPercent } from "../lib/format";
+import { useSpeciesName } from "../lib/speciesName";
 import type { SuggestedSpecies } from "./SpeciesPicker";
 import PhotoPlaceholder from "./PhotoPlaceholder";
 
@@ -19,7 +22,9 @@ export default function SuggestionCard({
   onViewPhoto: () => void;
 }) {
   const [photoFailed, setPhotoFailed] = useState(false);
-  const displayName = suggestion.common_name ?? suggestion.scientific_name;
+  const { t } = useTranslation();
+  const speciesName = useSpeciesName();
+  const displayName = speciesName({ commonName: suggestion.common_name, scientificName: suggestion.scientific_name });
 
   return (
     <div
@@ -43,7 +48,8 @@ export default function SuggestionCard({
       <button type="button" onClick={onSelect} className="block w-full p-1.5 text-left">
         <p className="truncate text-xs font-medium leading-tight text-ink">{displayName}</p>
         <p className="truncate text-[10px] italic text-muted">{suggestion.scientific_name}</p>
-        <p className="text-[10px] font-medium text-muted">{matchPercent}% match</p>
+        <p className="text-[10px] font-medium text-muted">{t("species.suggestion.match", { percent: formatPercent(matchPercent / 100) })}
+        </p>
       </button>
     </div>
   );

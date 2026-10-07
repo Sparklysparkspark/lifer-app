@@ -1,10 +1,18 @@
+import { apiErrorMessage } from "../lib/apiErrors";
+
 const BASE = "/api";
 
+// `message` is what to show: the translation of `code` in the active language when there is one,
+// otherwise the server's English `error` (see lib/apiErrors.ts). `serverMessage` is always the latter.
 export class ApiError extends Error {
   status: number;
-  constructor(status: number, message: string) {
-    super(message);
+  code?: string;
+  serverMessage: string;
+  constructor(status: number, message: string, code?: string) {
+    super(code ? apiErrorMessage(code, message) || message : message);
     this.status = status;
+    this.code = code;
+    this.serverMessage = message;
   }
 }
 
@@ -27,7 +35,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({ error: res.statusText }));
-    throw new ApiError(res.status, body.error ?? res.statusText);
+    throw new ApiError(res.status, body.error ?? res.statusText, typeof body.code === "string" ? body.code : undefined);
   }
   // 204 and other empty bodies resolve to undefined instead of a JSON parse error.
   if (res.status === 204) return undefined as T;
@@ -47,7 +55,8 @@ export const api = {
     request<T>(path, { ...options, method: "POST", body: encodeBody(body) }),
   patch: <T>(path: string, body?: unknown, options?: RequestInit) =>
     request<T>(path, { ...options, method: "PATCH", body: encodeBody(body) }),
-  put: <T>(path: string, body?: unknown, options?: RequestInit) => request<T>(path, { ...options, method: "PUT", body: encodeBody(body) }),
+  put: <T>(path: string, body?: unknown, options?: RequestInit) =>
+    request<T>(path, { ...options, method: "PUT", body: encodeBody(body) }),
   // Most DELETEs have no body, but bulk actions (e.g. /archive/bulk) send the ids to act on.
   delete: <T>(path: string, body?: unknown, options?: RequestInit) =>
     request<T>(path, { ...options, method: "DELETE", body: encodeBody(body) }),

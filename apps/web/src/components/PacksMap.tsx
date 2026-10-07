@@ -4,6 +4,8 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import { useTheme } from "../hooks/useTheme";
 import { useMapAvailable } from "../hooks/useMapAvailable";
 import { ensurePmtilesProtocol, pmtilesStyle } from "../lib/pmtiles";
+import { useLatest } from "../hooks/useLatest";
+import { useTranslation } from "react-i18next";
 
 export interface CountryBoundary {
   id: string;
@@ -49,15 +51,14 @@ export default function PacksMap({
   // Countries of an open continent group, drawn as an outline so they don't read as selected.
   openCountryIds?: Set<string>;
 }) {
+  const { t } = useTranslation();
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
   const mapAvailable = useMapAvailable();
   const [loaded, setLoaded] = useState(false);
   const { theme } = useTheme();
-  const onToggleCountryRef = useRef(onToggleCountry);
-  onToggleCountryRef.current = onToggleCountry;
-  const onDeselectAllRef = useRef(onDeselectAll);
-  onDeselectAllRef.current = onDeselectAll;
+  const onToggleCountryRef = useLatest(onToggleCountry);
+  const onDeselectAllRef = useLatest(onDeselectAll);
 
   // One map instance per mount; data and selection are pushed into it, never re-created.
   useEffect(() => {
@@ -135,7 +136,7 @@ export default function PacksMap({
       mapRef.current = null;
       setLoaded(false);
     };
-  }, [mapAvailable, theme]);
+  }, [mapAvailable, theme, onToggleCountryRef, onDeselectAllRef]);
 
   // Country geometry, set on load and whenever the list changes.
   useEffect(() => {
@@ -189,7 +190,7 @@ export default function PacksMap({
   if (mapAvailable === false) {
     return (
       <div className="flex h-80 w-full items-center justify-center rounded-lg border border-line bg-surface-muted text-sm text-muted">
-        The offline world map isn't downloaded yet. See Settings to enable it, or use the search box below instead.
+        {t("offlinePacks.map.notDownloaded")}
       </div>
     );
   }

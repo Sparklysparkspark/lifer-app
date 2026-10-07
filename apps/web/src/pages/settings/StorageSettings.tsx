@@ -2,13 +2,14 @@ import { useEffect, useState } from "react";
 import type { StorageVolume } from "@lifer/shared";
 import { api } from "../../api/client";
 import Button from "../../components/Button";
-import { FolderBrowser, pickFolderNative } from "../../components/FolderPicker";
+import { FolderBrowser } from "../../components/FolderPicker";
+import { pickFolderNative } from "../../lib/pickFolderNative";
 import FormMessage from "../../components/FormMessage";
 import { useConfirm } from "../../hooks/useConfirm";
 import { useDeploymentMode } from "../../hooks/useDeploymentMode";
 import { useToast } from "../../hooks/useToast";
 import { errorMessage } from "../../lib/errorMessage";
-import { formatDate } from "../../lib/formatDate";
+import { formatDate } from "../../lib/format";
 import { pluralize } from "../../lib/pluralize";
 import { Card, inputClass } from "./shared";
 
@@ -92,20 +93,28 @@ function StorageLocationSection() {
 
   if (!changeable) {
     return (
-      <Card title="Storage location" description="Where your photo library lives, so you can find all the files." learnMore="storage-location">
+      <Card
+        title="Storage location"
+        description="Where your photo library lives, so you can find all the files."
+        learnMore="storage-location"
+      >
         <p className="text-sm text-ink">
           Library folder: <code className="text-xs">{currentDataDir}</code>
         </p>
         <p className="text-xs text-muted">
-          This is the folder inside the container. On the host it's whatever LIFER_STORAGE_DIR points at in your docker-compose setup
-          (it's bind-mounted here). To move your library, change LIFER_STORAGE_DIR and redeploy.
+          This is the folder inside the container. On the host it's whatever LIFER_STORAGE_DIR points at in your
+          docker-compose setup (it's bind-mounted here). To move your library, change LIFER_STORAGE_DIR and redeploy.
         </p>
       </Card>
     );
   }
 
   return (
-    <Card title="Storage location" description="Where your photo library lives, so you can find all the files." learnMore="storage-location">
+    <Card
+      title="Storage location"
+      description="Where your photo library lives, so you can find all the files."
+      learnMore="storage-location"
+    >
       <p className="text-sm text-ink">
         Currently: <code className="text-xs">{currentDataDir}</code>
       </p>
@@ -170,10 +179,14 @@ function StorageVolumesSection() {
     setError(null);
     setResult(null);
     try {
-      const res = await api.post<{ readopted?: number }>("/storage-volumes", { path: pendingPath, label: label.trim() });
+      const res = await api.post<{ readopted?: number }>("/storage-volumes", {
+        path: pendingPath,
+        label: label.trim(),
+      });
       setPendingPath(null);
       setLabel("");
-      if (res.readopted) setResult(`Recognized ${pluralize(res.readopted, "photo")} already on this drive from before.`);
+      if (res.readopted)
+        setResult(`Recognized ${pluralize(res.readopted, "photo")} already on this drive from before.`);
       load();
     } catch (err) {
       setError(errorMessage(err, "Couldn't register that drive"));
@@ -196,7 +209,8 @@ function StorageVolumesSection() {
   async function remove(id: string) {
     const ok = await confirm({
       title: "Stop tracking this drive?",
-      message: "Photos already imported from it stay in your library. This just stops Lifer from checking whether it's connected.",
+      message:
+        "Photos already imported from it stay in your library. This just stops Lifer from checking whether it's connected.",
       confirmLabel: "Stop tracking",
       danger: true,
     });
@@ -209,7 +223,9 @@ function StorageVolumesSection() {
 
   async function rename(id: string) {
     if (!renameValue.trim()) return;
-    if (await mutate(() => api.put(`/storage-volumes/${id}`, { label: renameValue.trim() }), "Couldn't rename that drive")) {
+    if (
+      await mutate(() => api.put(`/storage-volumes/${id}`, { label: renameValue.trim() }), "Couldn't rename that drive")
+    ) {
       setRenamingId(null);
     }
   }
@@ -226,7 +242,10 @@ function StorageVolumesSection() {
         {volumes && volumes.length > 0 ? (
           <ul className="space-y-2">
             {volumes.map((v) => (
-              <li key={v.id} className="flex items-center justify-between gap-3 rounded-md border border-line px-3 py-2 text-sm">
+              <li
+                key={v.id}
+                className="flex items-center justify-between gap-3 rounded-md border border-line px-3 py-2 text-sm"
+              >
                 <div className="min-w-0 flex-1">
                   <p className="text-ink">{v.label}</p>
                   <p className="truncate text-xs text-muted">{v.rootPath ?? v.mountPath}</p>
@@ -279,10 +298,18 @@ function StorageVolumesSection() {
                   />
                   <div className="flex items-center justify-between">
                     <div className="flex gap-3">
-                      <button type="button" onClick={() => rename(v.id)} className="text-xs text-accent hover:underline">
+                      <button
+                        type="button"
+                        onClick={() => rename(v.id)}
+                        className="text-xs text-accent hover:underline"
+                      >
                         Save
                       </button>
-                      <button type="button" onClick={() => setRenamingId(null)} className="text-xs text-muted hover:underline">
+                      <button
+                        type="button"
+                        onClick={() => setRenamingId(null)}
+                        className="text-xs text-muted hover:underline"
+                      >
                         Cancel
                       </button>
                     </div>
@@ -321,11 +348,19 @@ function StorageVolumesSection() {
                           Rename
                         </button>
                         {!v.isDefault && (
-                          <button type="button" onClick={() => setDefault(v.id)} className="text-xs text-muted hover:underline">
+                          <button
+                            type="button"
+                            onClick={() => setDefault(v.id)}
+                            className="text-xs text-muted hover:underline"
+                          >
                             Set as default
                           </button>
                         )}
-                        <button type="button" onClick={() => remove(v.id)} className="text-xs text-muted hover:underline">
+                        <button
+                          type="button"
+                          onClick={() => remove(v.id)}
+                          className="text-xs text-muted hover:underline"
+                        >
                           Remove
                         </button>
                       </>
@@ -383,5 +418,9 @@ function StorageVolumesSection() {
 }
 
 function ConnectedLabel({ connected, offline = "Not connected" }: { connected: boolean; offline?: string }) {
-  return <span className={`text-xs ${connected ? "text-green-700 dark:text-green-400" : "text-muted"}`}>{connected ? "Connected" : offline}</span>;
+  return (
+    <span className={`text-xs ${connected ? "text-green-700 dark:text-green-400" : "text-muted"}`}>
+      {connected ? "Connected" : offline}
+    </span>
+  );
 }

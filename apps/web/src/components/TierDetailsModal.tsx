@@ -2,7 +2,8 @@ import { useEffect, useState } from "react";
 import { describeTier, TIER_ORDER, type TierExplain, type TierReason } from "@lifer/shared";
 import { api } from "../api/client";
 import { errorMessage } from "../lib/errorMessage";
-import { TIER_LABEL } from "../lib/speciesGroups";
+import { tierLabel } from "../lib/speciesGroups";
+import { iucnBadge } from "../lib/iucnDisplay";
 import Modal from "./Modal";
 import Button from "./Button";
 import Select from "./Select";
@@ -76,8 +77,11 @@ export default function TierDetailsModal({
 
   const side = details?.local ?? details?.global ?? null;
   const place = details?.local ? (details.local.regionName ?? null) : null;
+  // Not Evaluated stays on the species page; this explains tiers, and NE adds nothing to that.
+  const iucn = iucnBadge(details?.iucnStatus);
   const lines = side ? describeTier(side.explain, side.reason, place) : [];
-  const worldLines = details?.local && details.global.tier ? describeTier(details.global.explain, details.global.reason, null) : [];
+  const worldLines =
+    details?.local && details.global.tier ? describeTier(details.global.explain, details.global.reason, null) : [];
 
   return (
     <Modal open onClose={onClose} title={speciesName} size="sm">
@@ -88,7 +92,9 @@ export default function TierDetailsModal({
         <div className="space-y-4 text-sm">
           <section>
             <h3 className="font-medium text-ink">
-              {side?.tier ? `${TIER_LABEL[side.tier] ?? side.tier}${place ? ` in ${place}` : " worldwide"}` : `Not rated${place ? ` in ${place}` : ""}`}
+              {side?.tier
+                ? `${tierLabel(side.tier)}${place ? ` in ${place}` : " worldwide"}`
+                : `Not rated${place ? ` in ${place}` : ""}`}
             </h3>
             <ul className="mt-1 space-y-0.5 text-muted">
               {lines.map((l) => (
@@ -98,7 +104,9 @@ export default function TierDetailsModal({
           </section>
           {worldLines.length > 0 && (
             <section>
-              <h3 className="font-medium text-ink">{TIER_LABEL[details.global.tier!] ?? details.global.tier} worldwide</h3>
+              <h3 className="font-medium text-ink">
+                {tierLabel(details.global.tier!)} worldwide
+              </h3>
               <ul className="mt-1 space-y-0.5 text-muted">
                 {worldLines.map((l) => (
                   <li key={l}>{l}</li>
@@ -106,28 +114,35 @@ export default function TierDetailsModal({
               </ul>
             </section>
           )}
-          {details.iucnStatus && !/not evaluated/i.test(details.iucnStatus) && (
+          {iucn && iucn.code !== "NE" && (
             <section>
-              <h3 className="font-medium text-ink">IUCN: {details.iucnStatus.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}</h3>
+              <h3 className="font-medium text-ink">{iucn.label}</h3>
               <p className="mt-1 text-muted">
-                Conservation status, from the IUCN Red List. It's about how threatened the species is, not how hard it is to
-                find, so it doesn't change the tier.
+                Conservation status, from the IUCN Red List. It's about how threatened the species is, not how hard it
+                is to find, so it doesn't change the tier.
               </p>
             </section>
           )}
           <section className="border-t border-line pt-3">
             <h3 className="font-medium text-ink">Your own tier</h3>
-            <p className="mt-0.5 text-xs text-muted">Wrong for where you look? Your tier replaces Lifer's on this device.</p>
+            <p className="mt-0.5 text-xs text-muted">
+              Wrong for where you look? Your tier replaces Lifer's on this device.
+            </p>
             <div className="mt-2 flex items-center gap-2">
               <Select value={choice} onChange={(e) => setChoice(e.target.value)} className="flex-1">
                 <option value="">Lifer's tier</option>
                 {TIER_ORDER.map((t) => (
                   <option key={t} value={t}>
-                    {TIER_LABEL[t] ?? t}
+                    {tierLabel(t)}
                   </option>
                 ))}
               </Select>
-              <Button size="sm" loading={saving} disabled={choice === (details.override?.tier ?? "")} onClick={() => void save(choice || null)}>
+              <Button
+                size="sm"
+                loading={saving}
+                disabled={choice === (details.override?.tier ?? "")}
+                onClick={() => void save(choice || null)}
+              >
                 Save
               </Button>
             </div>

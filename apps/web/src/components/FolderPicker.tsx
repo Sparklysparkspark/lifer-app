@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { api } from "../api/client";
-import { loadServerInfo } from "../hooks/useDeploymentMode";
 import { errorMessage } from "../lib/errorMessage";
 import Button from "./Button";
 import FormMessage from "./FormMessage";
@@ -10,24 +9,6 @@ interface DirectoryListing {
   path: string | null;
   parent: string | null;
   entries: Array<{ name: string; path: string }>;
-}
-
-// The native folder dialog, only when the desktop shell talks to its own local API. Resolves
-// `undefined` when no usable dialog exists (fall back to <FolderBrowser>); null means cancelled.
-export async function pickFolderNative(): Promise<string | null | undefined> {
-  if (!window.liferSetup) return undefined;
-  const mode = await loadServerInfo()
-    .then((info) => info.deploymentMode)
-    .catch(() => null);
-  if (mode !== "desktop") return undefined;
-  try {
-    const { open } = await import("@tauri-apps/plugin-dialog");
-    const path = await open({ directory: true });
-    return typeof path === "string" ? path : null;
-  } catch (err) {
-    console.error("Native folder dialog failed", err);
-    return undefined;
-  }
 }
 
 // Directory listing of the API's filesystem (GET /settings/browse-directory). A server starts at
@@ -40,7 +21,6 @@ export function FolderBrowser({ onChoose, onCancel }: { onChoose: (path: string)
 
   useEffect(() => {
     browse();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   function browse(dirPath?: string) {
@@ -62,12 +42,18 @@ export function FolderBrowser({ onChoose, onCancel }: { onChoose: (path: string)
       <p className="truncate text-xs text-muted">{currentPath ?? "Folders Lifer can use"}</p>
       <div className="max-h-48 space-y-0.5 overflow-y-auto">
         {rooted && currentPath !== null && !browsing.parent && (
-          <button onClick={() => browse()} className="block w-full rounded px-2 py-1 text-left text-sm text-muted hover:bg-surface-muted">
+          <button
+            onClick={() => browse()}
+            className="block w-full rounded px-2 py-1 text-left text-sm text-muted hover:bg-surface-muted"
+          >
             .. (all folders)
           </button>
         )}
         {browsing.parent && (
-          <button onClick={() => browse(browsing.parent!)} className="block w-full rounded px-2 py-1 text-left text-sm text-muted hover:bg-surface-muted">
+          <button
+            onClick={() => browse(browsing.parent!)}
+            className="block w-full rounded px-2 py-1 text-left text-sm text-muted hover:bg-surface-muted"
+          >
             .. (up one level)
           </button>
         )}

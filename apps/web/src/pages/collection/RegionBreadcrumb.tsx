@@ -5,6 +5,18 @@ import { api } from "../../api/client";
 import ProgressBar from "../../components/ProgressBar";
 import { useToast } from "../../hooks/useToast";
 import { errorMessage } from "../../lib/errorMessage";
+import type { ChecklistTarget } from "../../lib/checklistAdditions";
+import AddSpeciesToChecklistModal from "./AddSpeciesToChecklistModal";
+
+function addTargets(
+  region: { id: string; name: string },
+  seaZones: Array<{ id: string; name: string }>,
+  includeLand: boolean,
+): ChecklistTarget[] {
+  const land: ChecklistTarget = { kind: "region", id: region.id, name: region.name };
+  const sea = seaZones.map((z): ChecklistTarget => ({ kind: "seaZone", id: z.id, name: z.name }));
+  return includeLand || sea.length === 0 ? [land, ...sea] : [...sea, land];
+}
 
 // The main-screen drill-down: no region means everything collected worldwide; picking one
 // narrows the same grid to that region's checklist.
@@ -24,6 +36,9 @@ export default function RegionBreadcrumb({
   allChildren,
   availableRegionIds,
   onDrilledDown,
+  onChecklistChanged,
+  selectedSeaZones,
+  includeLand,
 }: {
   regionId: string | null;
   worldRegion: RegionSummary | undefined;
@@ -40,8 +55,15 @@ export default function RegionBreadcrumb({
   allChildren: RegionSummary[];
   availableRegionIds: Set<string> | null;
   onDrilledDown: () => void;
+  /** After a species was added to this region's checklist by hand. */
+  onChecklistChanged: () => void;
+  /** Sea zones ticked on this view, which "+ Add a species" can add to as well. */
+  selectedSeaZones: Array<{ id: string; name: string }>;
+  /** False when the view shows only the ticked sea zones, so they come first in the dialog. */
+  includeLand: boolean;
 }) {
   const [drillingDown, setDrillingDown] = useState(false);
+  const [addingSpecies, setAddingSpecies] = useState(false);
   const toast = useToast();
 
   async function drillDown() {
@@ -104,7 +126,7 @@ export default function RegionBreadcrumb({
           )}
         </nav>
         {regionMeta && regionStats && !regionKnownHub && (
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
             <ProgressBar
               size="sm"
               determinate
@@ -125,6 +147,14 @@ export default function RegionBreadcrumb({
                 eBird Illustrated Checklist ↗
               </a>
             )}
+            <button
+              type="button"
+              onClick={() => setAddingSpecies(true)}
+              title="Put a species this checklist is missing on it yourself"
+              className="text-xs text-muted hover:underline"
+            >
+              + Add a species
+            </button>
           </div>
         )}
         {regionKnownHub && hubStats && (
@@ -177,6 +207,13 @@ export default function RegionBreadcrumb({
           </p>
         )}
       </div>
+      {addingSpecies && regionMeta && (
+        <AddSpeciesToChecklistModal
+          targets={addTargets(regionMeta, selectedSeaZones, includeLand)}
+          onClose={() => setAddingSpecies(false)}
+          onAdded={onChecklistChanged}
+        />
+      )}
     </div>
   );
 }

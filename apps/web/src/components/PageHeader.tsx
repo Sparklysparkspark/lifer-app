@@ -68,7 +68,7 @@ export default function PageHeader({
         )}
         {children}
       </div>
-      {actions && <div className="flex items-center gap-2">{actions}</div>}
+      {actions && <div className="flex min-w-0 flex-wrap items-center gap-2">{actions}</div>}
     </header>
   );
 }

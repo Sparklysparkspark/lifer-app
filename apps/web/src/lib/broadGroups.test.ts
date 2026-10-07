@@ -8,13 +8,21 @@ describe("broad groups", () => {
   });
 
   it("uses the order when the family isn't listed", () => {
-    expect(primaryBroadGroup({ taxonClass: "aves", family: "Turdidae", taxonOrder: "Passeriformes" })).toBe("Songbirds");
-    expect(primaryBroadGroup({ taxonClass: "mammalia", family: "Vespertilionidae", taxonOrder: "Chiroptera" })).toBe("Bats");
+    expect(primaryBroadGroup({ taxonClass: "aves", family: "Turdidae", taxonOrder: "Passeriformes" })).toBe(
+      "Songbirds",
+    );
+    expect(primaryBroadGroup({ taxonClass: "mammalia", family: "Vespertilionidae", taxonOrder: "Chiroptera" })).toBe(
+      "Bats",
+    );
   });
 
   it("files whales by family, though most sit under Artiodactyla", () => {
-    expect(primaryBroadGroup({ taxonClass: "mammalia", family: "Balaenopteridae", taxonOrder: "Artiodactyla" })).toBe("Whales & Dolphins");
-    expect(primaryBroadGroup({ taxonClass: "mammalia", family: "Cervidae", taxonOrder: "Artiodactyla" })).toBe("Hoofed Mammals");
+    expect(primaryBroadGroup({ taxonClass: "mammalia", family: "Balaenopteridae", taxonOrder: "Artiodactyla" })).toBe(
+      "Whales & Dolphins",
+    );
+    expect(primaryBroadGroup({ taxonClass: "mammalia", family: "Cervidae", taxonOrder: "Artiodactyla" })).toBe(
+      "Hoofed Mammals",
+    );
   });
 
   it("splits reptiles into snakes, crocodilians and lizards", () => {
@@ -25,7 +33,9 @@ describe("broad groups", () => {
   });
 
   it("falls back to Other Birds, or the class's own name", () => {
-    expect(primaryBroadGroup({ taxonClass: "aves", family: "Otididae", taxonOrder: "Otidiformes" })).toBe("Other Birds");
+    expect(primaryBroadGroup({ taxonClass: "aves", family: "Otididae", taxonOrder: "Otidiformes" })).toBe(
+      "Other Birds",
+    );
     expect(primaryBroadGroup({ taxonClass: "actinopterygii", family: "Salmonidae" })).toBe("Fish");
     expect(broadGroups({ taxonClass: "actinopterygii", family: "Salmonidae" })).toEqual([]);
   });

@@ -121,7 +121,10 @@ export function useRegionTree(regionId: string | null) {
     if (!downloadedCountryNames) return [];
     const hubIds = new Set(allRegions.filter((r) => !r.hasScopedChecklist).map((r) => r.id));
     return allRegions
-      .filter((r) => downloadedCountryNames.has(r.name) && r.hasScopedChecklist && r.parentId != null && hubIds.has(r.parentId))
+      .filter(
+        (r) =>
+          downloadedCountryNames.has(r.name) && r.hasScopedChecklist && r.parentId != null && hubIds.has(r.parentId),
+      )
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [allRegions, downloadedCountryNames]);
   const allChildren = useMemo(() => allRegions.filter((r) => r.parentId === regionId), [allRegions, regionId]);

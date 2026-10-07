@@ -158,7 +158,9 @@ export default function SharePage() {
                       className="block h-full w-full cursor-pointer object-cover"
                     />
                   </div>
-                  {showLabels && <p className="mt-1 truncate text-[11px] text-muted">{item.commonName || item.scientificName}</p>}
+                  {showLabels && (
+                    <p className="mt-1 truncate text-[11px] text-muted">{item.commonName || item.scientificName}</p>
+                  )}
                 </button>
                 {content.allowDownload && (
                   <button
@@ -168,7 +170,16 @@ export default function SharePage() {
                     title="Download"
                     className="absolute right-2 top-2 rounded-full bg-black/50 p-1.5 text-white opacity-0 transition-opacity hover:bg-black/70 focus-visible:opacity-100 group-hover:opacity-100"
                   >
-                    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                    <svg
+                      viewBox="0 0 24 24"
+                      className="h-4 w-4"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth={2}
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      aria-hidden
+                    >
                       <path d="M12 4v11m0 0-4-4m4 4 4-4M5 20h14" />
                     </svg>
                   </button>
@@ -180,7 +191,12 @@ export default function SharePage() {
       </main>
 
       {lightboxIndex !== null && (
-        <Lightbox slides={slides} index={lightboxIndex} onIndexChange={setLightboxIndex} onClose={() => setLightboxIndex(null)} />
+        <Lightbox
+          slides={slides}
+          index={lightboxIndex}
+          onIndexChange={setLightboxIndex}
+          onClose={() => setLightboxIndex(null)}
+        />
       )}
     </div>
   );

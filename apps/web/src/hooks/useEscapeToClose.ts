@@ -1,4 +1,5 @@
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
+import { useLatest } from "./useLatest";
 
 // Every open overlay, oldest first. Only the newest one closes on Escape, so a confirm dialog
 // opened over a menu (or over another dialog) backs out one level per press.
@@ -17,8 +18,7 @@ function handleKeyDown(e: KeyboardEvent) {
  * or Cancel. Listens on document (bubble phase), so an inner field's own Escape handler that
  * calls preventDefault (e.g. closing an autocomplete) wins first. */
 export function useEscapeToClose(onClose: () => void, enabled: boolean = true): void {
-  const ref = useRef(onClose);
-  ref.current = onClose;
+  const ref = useLatest(onClose);
 
   useEffect(() => {
     if (!enabled) return;
@@ -30,5 +30,5 @@ export function useEscapeToClose(onClose: () => void, enabled: boolean = true): 
       if (i >= 0) stack.splice(i, 1);
       if (stack.length === 0) document.removeEventListener("keydown", handleKeyDown);
     };
-  }, [enabled]);
+  }, [enabled, ref]);
 }

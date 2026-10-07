@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { classifyFailure, INITIAL_CHUNK_SIZE, MIN_CHUNK_SIZE, nextChunkSize, shrinkChunkSize, uploadIdFromUrl } from "./tusUpload";
+import {
+  classifyFailure,
+  INITIAL_CHUNK_SIZE,
+  MIN_CHUNK_SIZE,
+  nextChunkSize,
+  shrinkChunkSize,
+  uploadIdFromUrl,
+} from "./tusUpload";
 
 describe("chunk size adaptation", () => {
   it("halves from 8 MB down to the 256 KB floor, then stops", () => {

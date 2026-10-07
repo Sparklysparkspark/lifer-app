@@ -5,7 +5,7 @@ import { useFitText } from "../hooks/useFitText";
 import CoverImage from "./CoverImage";
 import DotMenu from "./DotMenu";
 import InlineSpinner from "./InlineSpinner";
-import { formatDate } from "../lib/formatDate";
+import { formatDate } from "../lib/format";
 import { pluralize } from "../lib/pluralize";
 
 function formatDateRange(earliest: string | null, latest: string | null): string | null {
@@ -77,13 +77,19 @@ export default function TripCard({ trip, menuOpen, onToggleMenu, menuRef, onRena
             cropX={trip.coverCropX}
             cropY={trip.coverCropY}
             cropSize={trip.coverCropSize}
-            quadSlots={trip.quadPhotoIds.map((photoId) => (photoId ? { photoId, cropX: null, cropY: null, cropSize: null } : null))}
+            quadSlots={trip.quadPhotoIds.map((photoId) =>
+              photoId ? { photoId, cropX: null, cropY: null, cropSize: null } : null,
+            )}
             alt={trip.name}
           />
         )}
       </div>
       <div className="p-3">
-        <p ref={nameRef} className="overflow-hidden font-medium leading-tight text-ink" style={{ fontSize: nameFontSize }}>
+        <p
+          ref={nameRef}
+          className="overflow-hidden font-medium leading-tight text-ink"
+          style={{ fontSize: nameFontSize }}
+        >
           {trip.name}
         </p>
         {dateRange && <p className="truncate text-xs text-muted">{dateRange}</p>}

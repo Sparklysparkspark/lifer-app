@@ -1,10 +1,13 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
-import { AuthProvider } from "./hooks/useAuth";
-import { ThemeProvider } from "./hooks/useTheme";
+import { AuthProvider } from "./components/AuthProvider";
+import { ThemeProvider } from "./components/ThemeProvider";
 import App from "./App";
+import LocaleBoundary from "./components/LocaleBoundary";
+import { applyLocalePreference, readCachedLocalePreference } from "./i18n";
 import { tauriInvoke } from "./lib/tauri";
+import { startLocalApiSession } from "./lib/localApiSession";
 import "./index.css";
 
 // Inside Tauri, rebuild window.liferSetup from invoke() since no preload script survives the
@@ -14,12 +17,15 @@ if (!window.liferSetup && invoke) {
   window.liferSetup = {
     choose: (config) => invoke("choose_setup", { config }) as ReturnType<NonNullable<Window["liferSetup"]>["choose"]>,
     getConfig: () => invoke("get_config") as ReturnType<NonNullable<Window["liferSetup"]>["getConfig"]>,
-    currentNetworkInfo: () => invoke("current_network_info") as ReturnType<NonNullable<Window["liferSetup"]>["currentNetworkInfo"]>,
-    testEndpoint: (url) => invoke("test_endpoint", { url }) as ReturnType<NonNullable<Window["liferSetup"]>["testEndpoint"]>,
+    currentNetworkInfo: () =>
+      invoke("current_network_info") as ReturnType<NonNullable<Window["liferSetup"]>["currentNetworkInfo"]>,
+    testEndpoint: (url) =>
+      invoke("test_endpoint", { url }) as ReturnType<NonNullable<Window["liferSetup"]>["testEndpoint"]>,
     testLogin: (url, email, password) =>
       invoke("test_login", { url, email, password }) as ReturnType<NonNullable<Window["liferSetup"]>["testLogin"]>,
     setLocalDataDir: (dataDir) => invoke("set_local_data_dir", { dataDir }) as Promise<void>,
     platform: (window as unknown as { __LIFER_PLATFORM__?: string }).__LIFER_PLATFORM__ ?? "",
+    arch: (window as unknown as { __LIFER_ARCH__?: string }).__LIFER_ARCH__,
   };
 }
 
@@ -35,7 +41,15 @@ if (invoke) {
   document.addEventListener(
     "click",
     (event) => {
-      if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      if (
+        event.defaultPrevented ||
+        event.button !== 0 ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.shiftKey ||
+        event.altKey
+      )
+        return;
       const anchor = (event.target as Element).closest?.("a[href]") as HTMLAnchorElement | null;
       if (!anchor || anchor.target !== "_blank") return;
       const href = anchor.href;
@@ -47,14 +61,24 @@ if (invoke) {
   );
 }
 
-createRoot(document.getElementById("root")!).render(
-  <StrictMode>
-    <ThemeProvider>
-      <BrowserRouter>
-        <AuthProvider>
-          <App />
-        </AuthProvider>
-      </BrowserRouter>
-    </ThemeProvider>
-  </StrictMode>,
-);
+// In the desktop app's local library, sign this window in before the first request (see
+// lib/localApiSession.ts). Resolves at once in a browser. The interface language loads alongside
+// (at once for English), so the first paint is already in it.
+void Promise.allSettled([
+  startLocalApiSession(invoke),
+  applyLocalePreference(readCachedLocalePreference()),
+]).finally(() => {
+  createRoot(document.getElementById("root")!).render(
+    <StrictMode>
+      <ThemeProvider>
+        <BrowserRouter>
+          <AuthProvider>
+            <LocaleBoundary>
+              <App />
+            </LocaleBoundary>
+          </AuthProvider>
+        </BrowserRouter>
+      </ThemeProvider>
+    </StrictMode>,
+  );
+});
