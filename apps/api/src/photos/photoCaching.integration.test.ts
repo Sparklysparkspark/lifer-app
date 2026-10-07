@@ -74,7 +74,7 @@ describe.skipIf(!url)("photo file caching", () => {
     await db.query(`DELETE FROM users WHERE id = $1`, [USER]);
     await db.query(`DELETE FROM species WHERE id = $1`, [SPECIES]);
     await db.end();
-    const { pool } = await import("../db.js");
+    const { pool } = await import("@lifer/core/db.js");
     await pool.end();
     rmSync(dir, { recursive: true, force: true });
     rmSync(dirs.base, { recursive: true, force: true });
@@ -121,11 +121,60 @@ describe.skipIf(!url)("photo file caching", () => {
     expect(healed.headers.etag).toBeTruthy();
   });
 
-  it("answers 404 for a malformed photo id", async () => {
-    for (const u of ["/photos/nope/thumb", "/photos/nope/original", "/photos/nope/original-raw", "/photos/nope/video"]) {
+  it("answers 404 for a malformed photo id, as for an unknown one", async () => {
+    const expected: Record<string, string> = {
+      "/photos/nope/thumb": "Photo not found",
+      "/photos/nope/medium": "Photo not found",
+      "/photos/nope/original": "Original not found",
+      "/photos/nope/original-raw": "No RAW original for this photo",
+      "/photos/nope/video": "No video for this photo",
+    };
+    for (const [u, error] of Object.entries(expected)) {
       const res = await get(u);
-      expect(res.statusCode, u).toBe(404);
-      expect(res.json().error).toBeTruthy();
+      expect([u, res.statusCode, res.json()]).toEqual([u, 404, { error }]);
     }
+  });
+
+  it("serves the owner's trashed and hidden photos, for the Trash page and the Hidden filter", async () => {
+    const trashed = await db.query<{ id: string }>(
+      `INSERT INTO captures_all (user_id, species_id, fingerprint, deleted_at) VALUES ($1, $2, 'pc-trashed', now()) RETURNING id`,
+      [USER, SPECIES],
+    );
+    const hidden = await db.query<{ id: string }>(
+      `INSERT INTO captures_all (user_id, species_id, fingerprint, hidden_at) VALUES ($1, $2, 'pc-hidden', now()) RETURNING id`,
+      [USER, SPECIES],
+    );
+    const ids: string[] = [];
+    for (const c of [trashed.rows[0].id, hidden.rows[0].id]) {
+      const p = await db.query<{ id: string }>(
+        `INSERT INTO photos (capture_id, display_path, thumb_path, preview_path, kind) VALUES ($1, $2, $3, $4, 'video') RETURNING id`,
+        [c, path.join(dir, "d.webp"), path.join(dir, "t.webp"), path.join(dir, "clip.mp4")],
+      );
+      await db.query(
+        `INSERT INTO originals (capture_id, kind, ref_type, ref, managed, content_hash, file_size) VALUES ($1, 'jpeg', 'path', $2, false, 'h', 1)`,
+        [c, path.join(dir, "orig.jpg")],
+      );
+      ids.push(p.rows[0].id);
+    }
+    for (const id of ids) {
+      for (const kind of ["thumb", "display", "medium", "video", "original"]) {
+        const res = await get(`/photos/${id}/${kind}`);
+        expect([id, kind, res.statusCode]).toEqual([id, kind, 200]);
+      }
+    }
+  });
+
+  it("only accepts 0 or 1 for download", async () => {
+    const bad = await get(`/photos/${photoId}/original?download=yes`);
+    expect([bad.statusCode, bad.json()]).toEqual([
+      400,
+      { error: "Invalid query: download must be one of 0, 1", code: "invalid_request" },
+    ]);
+    const inline = await get(`/photos/${photoId}/original?download=0`);
+    expect(inline.statusCode).toBe(200);
+    expect(inline.headers["content-disposition"]).toBeUndefined();
+    const download = await get(`/photos/${photoId}/original?download=1`);
+    expect(download.statusCode).toBe(200);
+    expect(download.headers["content-disposition"]).toMatch(/^attachment/);
   });
 });
