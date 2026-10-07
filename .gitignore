@@ -1,35 +1,49 @@
+# Dependencies and build output
 node_modules/
 dist/
+coverage/
+*.log
+
+# Local configuration and OS files
 .env
 .DS_Store
+docker-compose.override.yml
+
+# Python tooling (model export and pipeline helpers)
+.venv/
+__pycache__/
+
+# Local app data, backups and script reports: never commit
 data/raw/
 data/build/
-# Pack, photo store and model builds (several GB).
-packages/data-pipeline/data/build/
-*.log
 data/lifer/
-# Local dev app data (downloaded models, maps, caches): never commit.
 data/lifer-app-data/
 data/backups/
+data/reports/
 data/junk_species_candidates.tsv
 /archive/
-packs/
-packages/data-pipeline/data/build/refresh-all-provinces-checkpoint.json
-packages/data-pipeline/data/gbif-country-cache/
-packages/data-pipeline/data/province-aggregate-cache/
+/packs/
+packages/data-pipeline/packs/
 .cache/
-packages/data-pipeline/data/ebird-spplist-cache/
-packages/data-pipeline/data/inat-species-counts-cache/
-packages/data-pipeline/data/inat-introduced-cache/
+
+# Data pipeline builds and download caches (several GB). The few caches that are committed on
+# purpose are tracked explicitly and unaffected by these patterns.
+packages/data-pipeline/data/build/
+packages/data-pipeline/data/*-cache/
 packages/data-pipeline/data/inat-current-taxon-cache.json
 packages/data-pipeline/data/inat-taxa-cache.json
 packages/data-pipeline/data/inat-taxon-status-cache.json
 
-# Docs site (Docusaurus): dependencies and build output.
+# Docs site (Docusaurus)
 docs/node_modules/
 docs/build/
 docs/.docusaurus/
 
-# Local compose overrides (see docker-compose.dev.yml)
-docker-compose.override.yml
-__pycache__/
+# Playwright end-to-end test output (npm run test:e2e)
+test-results/
+playwright-report/
+blob-report/
+
+# Mutation testing (npm run test:mutation): Stryker's sandboxes and reports
+.stryker-tmp/
+reports/mutation/

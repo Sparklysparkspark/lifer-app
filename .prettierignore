@@ -1,0 +1,15 @@
+# Generated, vendored or data files Prettier shouldn't touch.
+package-lock.json
+**/dist
+**/build
+**/coverage
+**/.stryker-tmp
+reports
+**/node_modules
+docs/.docusaurus
+apps/desktop/src-tauri/target
+apps/desktop/src-tauri/gen
+apps/desktop/src-tauri/resources-staging
+packages/data-pipeline/data
+packages/data-pipeline/migrations
+CHANGELOG.md

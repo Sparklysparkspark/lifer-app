@@ -1,22 +1,53 @@
 {
   "name": "lifer",
+  "version": "0.9.0",
   "description": "Self-hosted, species-indexed life-list app for wildlife photography.",
   "license": "AGPL-3.0-only",
   "private": true,
+  "type": "module",
   "workspaces": [
     "apps/*",
     "packages/*"
   ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Sparklysparkspark/lifer-app.git"
+  },
+  "homepage": "https://sparklysparkspark.github.io/lifer-app/",
+  "bugs": "https://github.com/Sparklysparkspark/lifer-app/issues",
   "scripts": {
     "migrate": "npm run migrate -w data-pipeline",
     "build-seed": "npm run build-seed -w data-pipeline",
     "load-seed": "npm run load-seed -w data-pipeline",
-    "test": "npm run test:unit -w data-pipeline",
-    "test:integration": "npm run test:integration -w data-pipeline",
-    "typecheck": "npm run typecheck --workspaces --if-present",
+    "lint": "eslint apps packages scripts e2e playwright.config.ts eslint.config.mjs",
+    "format": "prettier --write \"**/*.{ts,tsx,js,mjs,cjs,json,css,yml,yaml}\"",
+    "format:check": "prettier --check \"**/*.{ts,tsx,js,mjs,cjs,json,css,yml,yaml}\"",
+    "typecheck": "npm run typecheck --workspaces --if-present && tsc -p e2e",
+    "test": "npm run test:unit -w data-pipeline && npm test -w @lifer/core -w api -w web",
+    "test:integration": "npm run test:integration -w data-pipeline -w @lifer/core -w api",
+    "test:e2e": "npm run build -w web && npm run build -w api && playwright test",
+    "test:coverage": "npm run test:coverage -w @lifer/core -w api -w data-pipeline && node scripts/coverage-summary.mjs",
+    "test:mutation": "node scripts/mutation.mjs",
+    "check:em-dashes": "node scripts/check-em-dashes.mjs",
+    "check:migrations": "node scripts/check-migrations.mjs",
+    "check:i18n": "node scripts/check-i18n.mjs",
     "build": "npm run build --workspaces --if-present"
   },
   "engines": {
     "node": ">=22"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.63.0",
+    "@stryker-mutator/core": "^10.0.0",
+    "@stryker-mutator/vitest-runner": "^10.0.0",
+    "eslint": "^10.12.0",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-i18next": "^6.1.5",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-react-refresh": "^0.5.7",
+    "globals": "^17.13.0",
+    "prettier": "^3.9.9",
+    "typescript-eslint": "^8.71.0"
   }
 }
