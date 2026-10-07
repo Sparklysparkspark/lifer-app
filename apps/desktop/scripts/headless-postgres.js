@@ -5,7 +5,7 @@
 //
 // Usage: node headless-postgres.js start|stop|status|url
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import path from "node:path";
 import os from "node:os";
 
@@ -18,6 +18,13 @@ const HOST = "127.0.0.1";
 const APP_DATA_DIR = path.join(os.homedir(), "Library", "Application Support", "app.lifer.desktop");
 const DATA_DIR = path.join(APP_DATA_DIR, "app-data", "postgres-data");
 const LOG_FILE = path.join(APP_DATA_DIR, "app-data", "headless-postgres.log");
+// Where a pg_ctl can be, in order: the installed app's bundled server, the one prepare-resources
+// staged in this checkout (stage-postgres.js), and the theseus-rs download that builds without a
+// bundled server (and every build from before it was bundled) use. Any PostgreSQL 18 runs the data dir.
+const BUNDLED_PG_BINS = [
+  "/Applications/Lifer.app/Contents/Resources/postgres/bin",
+  path.join(import.meta.dirname, "..", "src-tauri", "resources-staging", "postgres", "bin"),
+];
 const PG_BIN_ROOT = path.join(os.homedir(), ".theseus", "postgresql");
 // Per-install password the app writes on first launch (embedded_db.rs PASSWORD_FILE).
 const PASSWORD_FILE = path.join(APP_DATA_DIR, "app-data", "postgres-password");
@@ -29,7 +36,9 @@ function dbPassword() {
     const value = readFileSync(PASSWORD_FILE, "utf8").trim();
     if (value) return value;
   }
-  console.error(`[headless-postgres] ${PASSWORD_FILE} not found, using the legacy password. Launch the app once to migrate.`);
+  console.error(
+    `[headless-postgres] ${PASSWORD_FILE} not found, using the legacy password. Launch the app once to migrate.`,
+  );
   return LEGACY_DB_PASSWORD;
 }
 
@@ -37,11 +46,17 @@ function connectionUrl() {
   return `postgres://${DB_USER}:${encodeURIComponent(dbPassword())}@${HOST}:${PORT}/${DB_NAME}`;
 }
 
-// theseus caches postgres under a version folder (e.g. ~/.theseus/postgresql/18.6.0/), so
-// resolve it rather than hardcoding a version.
+// The postgresql_embedded crate (its "theseus" feature, see src-tauri/Cargo.toml) caches a
+// downloaded Postgres under a version folder (e.g. ~/.theseus/postgresql/18.6.0/), so resolve it
+// rather than hardcoding a version.
 function findPgCtl() {
+  for (const bin of BUNDLED_PG_BINS) {
+    if (existsSync(path.join(bin, "pg_ctl"))) return path.join(bin, "pg_ctl");
+  }
   if (!existsSync(PG_BIN_ROOT)) {
-    throw new Error(`No theseus-managed Postgres found under ${PG_BIN_ROOT}. Launch the app at least once first.`);
+    throw new Error(
+      `No Postgres found in ${BUNDLED_PG_BINS.join(" or ")} or under ${PG_BIN_ROOT}. Install the app or run prepare-resources first.`,
+    );
   }
   const versions = spawnSync("ls", [PG_BIN_ROOT]).stdout.toString().trim().split("\n").filter(Boolean).sort();
   const latest = versions[versions.length - 1];
@@ -74,13 +89,7 @@ function start() {
   const pgCtl = findPgCtl();
   mkdirSync(path.dirname(LOG_FILE), { recursive: true });
   console.log(`[headless-postgres] starting on port ${PORT}...`);
-  const res = spawnSync(pgCtl, [
-    "start",
-    "-D", DATA_DIR,
-    "-l", LOG_FILE,
-    "-w",
-    "-o", `-p ${PORT} -h ${HOST}`,
-  ]);
+  const res = spawnSync(pgCtl, ["start", "-D", DATA_DIR, "-l", LOG_FILE, "-w", "-o", `-p ${PORT} -h ${HOST}`]);
   if (res.status !== 0) {
     console.error(res.stdout?.toString());
     console.error(res.stderr?.toString());
