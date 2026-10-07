@@ -1,4 +1,4 @@
--- Desktop-only multi-drive support (see ~/.claude/plans/multi-drive-storage.md): a photographer
+-- Desktop-only multi-drive support: a photographer
 -- without a NAS often spreads their library across several external drives instead. Each
 -- registered drive gets one row here, keyed by a STABLE platform volume identifier (macOS:
 -- Volume UUID from `diskutil info`) rather than its mount path — a drive can mount at a

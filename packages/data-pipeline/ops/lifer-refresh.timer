@@ -1,7 +1,7 @@
-# Fires lifer-refresh.service twice a year (Jan 1 and Jul 1, 03:00 local) — GBIF's underlying
+# Fires lifer-refresh.service twice a year (Jan 1 and Jul 1, 03:00 local), GBIF's underlying
 # data doesn't meaningfully change fast enough to warrant refreshing more often than that; see
 # scheduled-refresh.sh's own header for the equivalent plain-crontab line if you'd rather not
-# use systemd at all. Not installed/enabled by default — see lifer-refresh.service's own header
+# use systemd at all. Not installed/enabled by default, see lifer-refresh.service's own header
 # for the install steps.
 [Unit]
 Description=Twice-yearly trigger for the Lifer world-data refresh

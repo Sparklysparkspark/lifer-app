@@ -22,13 +22,18 @@ import { fileURLToPath } from "node:url";
 import * as tar from "tar";
 import { pool } from "../db.js";
 import { buildRegionPack, buildSeaZonePack } from "../build/build-region-pack.js";
-import type { PackVariant } from "../build/pack-id.js";
+import type { PackVariant } from "@lifer/core/packs/packId.js";
 import { GITHUB_REPO, INDEX_RELEASE_TAG } from "../build/release-groups.js";
 import { PACK_SHARD_PREFIX, publishPackStore, writePackStore } from "./packStore.js";
 import type { TaxonClass } from "@lifer/shared";
+import { assertPhotosPublishable } from "./photoLicensePolicy.js";
+import { mapWithConcurrency } from "@lifer/core/lib/concurrency.js";
 
 const DATA_PIPELINE_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const VARIANTS: PackVariant[] = ["full"];
+// Packs built at once. Each mostly waits on the database and on gzip (which runs off the main
+// thread), so a few in parallel cut a full build's time; the pool has room for them.
+const PACK_CONCURRENCY = Math.max(1, Number(process.env.PACK_CONCURRENCY ?? 6) || 6);
 export const PACK_TAXA: TaxonClass[] = [
   "aves",
   "mammalia",
@@ -144,6 +149,7 @@ export interface PacksResult {
  *  packs (sea zones are always built: country packs depend on them). */
 export async function buildPacks(opts: { countries?: string[] | null; outDir?: string; log?: (m: string) => void } = {}): Promise<PacksResult> {
   const log = opts.log ?? ((m) => console.log(`[packs] ${m}`));
+  await assertPhotosPublishable(pool);
   const outDir = opts.outDir ?? mkdtempSync(path.join(os.tmpdir(), "lifer-packs-"));
   mkdirSync(outDir, { recursive: true });
   // A reused outDir still holds the last run's archives and shards. build-pack-index.ts indexes
@@ -188,29 +194,39 @@ export async function buildPacks(opts: { countries?: string[] | null; outDir?: s
   // Only sea zone packs this run actually builds count as available: one the database no longer
   // has species for is gone after this run, so nothing may depend on it.
   for (const p of published.packs) if (p.type === "seaZone") available.delete(`${p.id}.pack.tar.gz`);
+  // Packs build PACK_CONCURRENCY at a time: each stages in its own folder and writes its own
+  // archive, and the bookkeeping above runs between awaits. Every sea zone pack is built before
+  // any country pack, which checks whether its sea zones' packs exist.
   const zones = await seaZoneTaxa();
   log(`${zones.length} sea zones`);
-  for (const zone of zones) {
-    for (const taxon of [null, ...zone.taxa]) {
-      for (const variant of VARIANTS) {
-        await attempt(`sea zone ${zone.name}${taxon ? ` ${taxon}` : ""} ${variant}`, () => buildSeaZonePack(zone.name, outDir, taxon as TaxonClass | null, variant));
-      }
-    }
-  }
+  const zoneJobs = zones.flatMap((zone) =>
+    [null, ...zone.taxa].flatMap((taxon) =>
+      VARIANTS.map((variant) => () =>
+        attempt(`sea zone ${zone.name}${taxon ? ` ${taxon}` : ""} ${variant}`, () =>
+          buildSeaZonePack(zone.name, outDir, taxon as TaxonClass | null, variant),
+        ),
+      ),
+    ),
+  );
+  await mapWithConcurrency(zoneJobs, PACK_CONCURRENCY, (job) => job());
 
   const countries = await packCountries(opts.countries ?? null);
   log(`${countries.length} countries`);
+  const countryJobs: Array<() => Promise<void>> = [];
   for (const country of countries) {
     const taxa = await taxaForCountry(country.id);
     for (const taxon of PACK_TAXA) {
       if (!taxa.has(taxon)) continue;
       for (const variant of VARIANTS) {
-        await attempt(`${country.name} ${taxon} ${variant}`, () =>
-          buildRegionPack(country.name, outDir, taxon, variant, { regionId: country.id, seaZonePackAvailable: (f) => available.has(f) }),
+        countryJobs.push(() =>
+          attempt(`${country.name} ${taxon} ${variant}`, () =>
+            buildRegionPack(country.name, outDir, taxon, variant, { regionId: country.id, seaZonePackAvailable: (f) => available.has(f) }),
+          ),
         );
       }
     }
   }
+  await mapWithConcurrency(countryJobs, PACK_CONCURRENCY, (job) => job());
   log(`built ${result.built}: ${result.changed.length} changed, ${result.unchanged} unchanged, ${result.failures.length} failed`);
 
   if (result.changed.length > 0) {

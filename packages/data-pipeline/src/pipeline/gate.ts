@@ -20,7 +20,7 @@ import { fileURLToPath } from "node:url";
 import { pool } from "../db.js";
 import { findMissingSpecies } from "../scripts/add-missing-species.js";
 import { checkIndex, fetchPublishedIndex, PACK_TAXA, type PackIndex } from "./packs.js";
-import { packIdFromFileName, regionPackFileName } from "../build/pack-id.js";
+import { packIdFromFileName, regionPackFileName } from "@lifer/core/packs/packId.js";
 
 const DATA_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "data");
 const ANCHORS_PATH = path.join(DATA_DIR, "reference", "checklist-anchors.json");
@@ -35,7 +35,11 @@ export interface GateReport {
 }
 
 async function checkAnchors(report: GateReport) {
-  const anchors = JSON.parse(readFileSync(ANCHORS_PATH, "utf8")) as Array<{ region: string; name: string; tier?: string }>;
+  const anchors = JSON.parse(readFileSync(ANCHORS_PATH, "utf8")) as Array<{
+    region: string;
+    name: string;
+    tier?: string;
+  }>;
   for (const a of anchors) {
     // By catalog name or synonym, on the region's own list or any of its provinces'.
     const res = await pool.query<{ on_list: boolean; tier: string | null }>(
@@ -53,9 +57,14 @@ async function checkAnchors(report: GateReport) {
       [a.region, a.name],
     );
     const row = res.rows[0];
-    if (!row.on_list) report.failures.push({ check: "anchor_missing", detail: `${a.name} is not on ${a.region}'s list` });
+    if (!row.on_list)
+      report.failures.push({ check: "anchor_missing", detail: `${a.name} is not on ${a.region}'s list` });
     // "rare/legendary" accepts either.
-    else if (a.tier && !a.tier.split("/").includes(row.tier ?? "")) report.failures.push({ check: "anchor_tier", detail: `${a.name} in ${a.region} is ${row.tier ?? "unrated"}, expected ${a.tier}` });
+    else if (a.tier && !a.tier.split("/").includes(row.tier ?? ""))
+      report.failures.push({
+        check: "anchor_tier",
+        detail: `${a.name} in ${a.region} is ${row.tier ?? "unrated"}, expected ${a.tier}`,
+      });
   }
 }
 
@@ -68,16 +77,27 @@ async function checkFakeRare(report: GateReport) {
        AND COALESCE(rs.tier_reason, 'rated') NOT IN ('vagrant', 'inherited')`,
   );
   const n = Number(res.rows[0].n);
-  if (n > 0) report.failures.push({ check: "rare_without_records", detail: `${n} rare/legendary rows have no records of any age and no photos behind them (e.g. ${res.rows[0].sample.join("; ")})` });
+  if (n > 0)
+    report.failures.push({
+      check: "rare_without_records",
+      detail: `${n} rare/legendary rows have no records of any age and no photos behind them (e.g. ${res.rows[0].sample.join("; ")})`,
+    });
 }
 
 async function checkCatalogGaps(report: GateReport) {
   const { add } = await findMissingSpecies({ offline: true });
-  const serious = add.filter((a) => ["aves", "mammalia", "actinopterygii", "squamata", "testudines", "amphibia"].includes(a.taxonClass) || a.inatObservations >= 100);
+  const serious = add.filter(
+    (a) =>
+      ["aves", "mammalia", "actinopterygii", "squamata", "testudines", "amphibia"].includes(a.taxonClass) ||
+      a.inatObservations >= 100,
+  );
   if (serious.length > 0) {
     report.failures.push({
       check: "catalog_gaps",
-      detail: `${serious.length} species on iNaturalist or eBird lists are missing from the catalog (e.g. ${serious.slice(0, 5).map((a) => a.scientificName).join(", ")}); run the catalog stage`,
+      detail: `${serious.length} species on iNaturalist or eBird lists are missing from the catalog (e.g. ${serious
+        .slice(0, 5)
+        .map((a) => a.scientificName)
+        .join(", ")}); run the catalog stage`,
     });
   }
 }
@@ -91,13 +111,15 @@ async function checkCoverage(report: GateReport, index: PackIndex) {
      JOIN region_species rs ON rs.region_id = r.id JOIN species s ON s.id = rs.species_id
      WHERE NOT s.is_other_taxa GROUP BY c.name`,
   );
+  // Stryker disable next-line StringLiteral: equivalent, any variant but "small" names the full pack
   const packId = (country: string, taxon: string) => packIdFromFileName(regionPackFileName(country, taxon, "full"));
   for (const row of res.rows) {
     for (const taxon of row.taxa) {
       if (!PACK_TAXA.includes(taxon as never)) continue;
       const id = packId(row.name, taxon);
       // One pack each: "small" is the same pack installed without gallery photos.
-      if (!ids.has(id)) report.failures.push({ check: "pack_missing", detail: `${row.name} has ${taxon} species but no ${id} pack` });
+      if (!ids.has(id))
+        report.failures.push({ check: "pack_missing", detail: `${row.name} has ${taxon} species but no ${id} pack` });
     }
   }
   for (const problem of checkIndex(index)) report.failures.push({ check: "index", detail: problem });
@@ -105,7 +127,10 @@ async function checkCoverage(report: GateReport, index: PackIndex) {
 
 async function checkOtherTaxa(report: GateReport, index: PackIndex) {
   const names = new Set(index.packs.flatMap((p) => p.scientificNames));
-  const res = await pool.query<{ scientific_name: string }>(`SELECT scientific_name FROM species WHERE is_other_taxa AND scientific_name = ANY($1)`, [[...names]]);
+  const res = await pool.query<{ scientific_name: string }>(
+    `SELECT scientific_name FROM species WHERE is_other_taxa AND scientific_name = ANY($1)`,
+    [[...names]],
+  );
   // An Other Taxa species can share a name with a catalog one; only a name with no catalog
   // species is certainly a personal addition leaking into a pack.
   const catalogToo = await pool.query<{ scientific_name: string }>(
@@ -114,7 +139,11 @@ async function checkOtherTaxa(report: GateReport, index: PackIndex) {
   );
   const shared = new Set(catalogToo.rows.map((r) => r.scientific_name));
   const leaked = res.rows.map((r) => r.scientific_name).filter((n) => !shared.has(n));
-  if (leaked.length > 0) report.failures.push({ check: "other_taxa_in_pack", detail: `${leaked.length} Other Taxa species are in packs (e.g. ${leaked.slice(0, 5).join(", ")})` });
+  if (leaked.length > 0)
+    report.failures.push({
+      check: "other_taxa_in_pack",
+      detail: `${leaked.length} Other Taxa species are in packs (e.g. ${leaked.slice(0, 5).join(", ")})`,
+    });
 }
 
 async function checkDrift(report: GateReport, index: PackIndex, accepted: Set<string> | "all") {
@@ -127,7 +156,10 @@ async function checkDrift(report: GateReport, index: PackIndex, accepted: Set<st
     if (change <= DRIFT_LIMIT) continue;
     report.drift.push({ pack: p.id, published: was, now: p.speciesCount });
     if (accepted !== "all" && !accepted.has(p.id)) {
-      report.failures.push({ check: "drift", detail: `${p.id}: ${was} species published, ${p.speciesCount} now (${Math.round(change * 100)}%)` });
+      report.failures.push({
+        check: "drift",
+        detail: `${p.id}: ${was} species published, ${p.speciesCount} now (${Math.round(change * 100)}%)`,
+      });
     }
   }
 }
@@ -141,7 +173,12 @@ async function checkPhotos(report: GateReport) {
   if (n > 0) report.warnings.push({ check: "no_photo", detail: `${n} listed species have no reference photo yet` });
 }
 
-export async function runGate(opts: { index: PackIndex | null; acceptDrift?: string[] | "all"; out?: string }): Promise<GateReport> {
+export async function runGate(opts: {
+  index: PackIndex | null;
+  acceptDrift?: string[] | "all";
+  out?: string;
+}): Promise<GateReport> {
+  // Stryker disable next-line BooleanLiteral: equivalent, ok is set from the failures before anyone reads it
   const report: GateReport = { at: new Date().toISOString(), ok: false, failures: [], warnings: [], drift: [] };
   await checkAnchors(report);
   await checkFakeRare(report);
@@ -150,6 +187,7 @@ export async function runGate(opts: { index: PackIndex | null; acceptDrift?: str
   if (opts.index) {
     await checkCoverage(report, opts.index);
     await checkOtherTaxa(report, opts.index);
+    // Stryker disable next-line ArrayDeclaration: equivalent, a placeholder entry in an empty accept list matches no real pack id
     await checkDrift(report, opts.index, opts.acceptDrift === "all" ? "all" : new Set(opts.acceptDrift ?? []));
   }
   report.ok = report.failures.length === 0;
@@ -160,7 +198,9 @@ export async function runGate(opts: { index: PackIndex | null; acceptDrift?: str
 }
 
 export function summarizeGate(report: GateReport): string {
-  const lines = [`Gate ${report.ok ? "passed" : "FAILED"}: ${report.failures.length} failure(s), ${report.warnings.length} warning(s), ${report.drift.length} pack(s) with a big species-count change.`];
+  const lines = [
+    `Gate ${report.ok ? "passed" : "FAILED"}: ${report.failures.length} failure(s), ${report.warnings.length} warning(s), ${report.drift.length} pack(s) with a big species-count change.`,
+  ];
   const byCheck = new Map<string, string[]>();
   for (const f of report.failures) byCheck.set(f.check, [...(byCheck.get(f.check) ?? []), f.detail]);
   for (const [check, details] of byCheck) {

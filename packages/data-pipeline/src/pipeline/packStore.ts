@@ -76,7 +76,7 @@ export async function publishPackStore(outDir: string, index: PackIndex, log: (m
   try {
     gh(["release", "view", INDEX_RELEASE_TAG, "--json", "tagName"], false);
   } catch {
-    gh(["release", "create", INDEX_RELEASE_TAG, "--title", "Offline packs", "--notes", "Offline pack index and pack store. See packages/data-pipeline/src/pipeline/packStore.ts.", "--latest=false"]);
+    gh(["release", "create", INDEX_RELEASE_TAG, "--title", "Offline packs", "--notes", "Offline pack index and pack store. See packages/data-pipeline/src/pipeline/packStore.ts.", "--prerelease", "--latest=false"]);
   }
   const used = new Set(index.packs.map(shardNameOf).filter((n): n is string => n != null));
   const onRelease = new Set(assetNames());

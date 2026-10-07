@@ -1,9 +1,9 @@
-// Standalone copy of apps/api/src/species/embeddings.ts's model download and CLIP preprocessing,
+// Standalone copy of packages/core/src/species/embeddings.ts's model download and CLIP preprocessing,
 // for scripts/backfill-reference-embeddings.ts. Duplicated rather than shared, so neither
 // data-pipeline nor @lifer/shared (used by the web app) has to carry sharp/onnxruntime-node.
 //
 // Keep EMBEDDING_MODEL_URL/EMBEDDING_MODEL_VERSION and the preprocessing constants in sync with
-// apps/api/src/config.ts and species/embeddings.ts: both must produce identical vectors for the
+// packages/core/src/config.ts and species/embeddings.ts: both must produce identical vectors for the
 // same model_version.
 import { mkdirSync, existsSync, renameSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
@@ -16,7 +16,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.join(__dirname, "..", "..", "..");
 
 // The full-precision weights: the catalog's stored vectors must match what GPUs compute, and the
-// int8 copy CPUs run agrees with them closely enough. Must match apps/api/src/config.ts.
+// int8 copy CPUs run agrees with them closely enough. Must match packages/core/src/config.ts.
 export const EMBEDDING_MODEL_URL =
   process.env.EMBEDDING_MODEL_URL ??
   "https://huggingface.co/Xenova/clip-vit-large-patch14/resolve/c307790166907339eed5a9a53a249af534102536/onnx/vision_model.onnx";
