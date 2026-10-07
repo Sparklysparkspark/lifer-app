@@ -1,5 +1,8 @@
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { parseLibraryRoots } from "./config.js";
+import { parseLibraryRoots } from "@lifer/core/config.js";
 
 describe("parseLibraryRoots", () => {
   vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -28,5 +31,24 @@ describe("parseLibraryRoots", () => {
 
   it("normalizes trailing slashes and drops duplicates", () => {
     expect(parseLibraryRoots("A=/library/nas/,B=/library/nas,,", "/data")).toEqual([{ label: "A", path: "/library/nas" }]);
+  });
+});
+
+describe("parseLibraryRoots with a symlinked DATA_DIR", () => {
+  vi.spyOn(console, "warn").mockImplementation(() => {});
+
+  it("skips a root inside DATA_DIR whichever side is spelled through the symlink", () => {
+    const tmp = realpathSync(mkdtempSync(path.join(os.tmpdir(), "lifer-roots-")));
+    try {
+      const realData = path.join(tmp, "data");
+      mkdirSync(path.join(realData, "sub"), { recursive: true });
+      const linkedData = path.join(tmp, "linked-data");
+      symlinkSync(realData, linkedData);
+      expect(parseLibraryRoots(path.join(realData, "sub"), linkedData)).toEqual([]);
+      expect(parseLibraryRoots(path.join(linkedData, "sub"), realData)).toEqual([]);
+      expect(parseLibraryRoots(`${realData}2`, linkedData)).toEqual([{ label: "data2", path: `${realData}2` }]);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
   });
 });

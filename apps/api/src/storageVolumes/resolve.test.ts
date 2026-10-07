@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -9,8 +9,8 @@ let tmp: string;
 
 async function load(desktop: boolean) {
   vi.resetModules();
-  vi.doMock("../db.js", () => ({ pool: { query } }));
-  vi.doMock("../config.js", () => ({ SINGLE_USER_MODE: desktop }));
+  vi.doMock("@lifer/core/db.js", () => ({ pool: { query } }));
+  vi.doMock("@lifer/core/config.js", () => ({ SINGLE_USER_MODE: desktop }));
   vi.doMock("./volumeIdentity.js", () => identity);
   return import("./resolve.js");
 }
@@ -85,6 +85,39 @@ describe("tagWithRegisteredVolume", () => {
     expect(await tagWithRegisteredVolume("u1", `${inner}/Alaska/a.jpg`)).toEqual({
       volumeId: "inner",
       volumeRelativePath: "/Alaska/a.jpg",
+    });
+  });
+
+  it("tags a realpath against a root configured through a symlink, and still rebuilds the path", async () => {
+    // A NAS root listed as a symlink: assertAllowedPath hands back the realpath of files under it.
+    const nas = path.join(tmp, "nas");
+    mkdirSync(path.join(nas, "Birds"), { recursive: true });
+    const linkedNas = path.join(tmp, "linked-nas");
+    symlinkSync(nas, linkedNas);
+    const { tagWithRegisteredVolume, resolveOriginalPath } = await load(false);
+    query.mockResolvedValueOnce({ rows: [{ id: "nas", root_path: linkedNas }] });
+    const tag = await tagWithRegisteredVolume("u1", path.join(nas, "Birds", "a.jpg"));
+    expect(tag).toEqual({ volumeId: "nas", volumeRelativePath: "/Birds/a.jpg" });
+    query.mockResolvedValueOnce({ rows: [rootRow({ root_path: linkedNas })] });
+    const resolved = await resolveOriginalPath({
+      ref: "/stale",
+      volume_id: "nas",
+      volume_relative_path: tag.volumeRelativePath,
+    });
+    expect(resolved.path).toBe(path.join(linkedNas, "Birds", "a.jpg"));
+  });
+
+  it("doesn't tag a file reached through a symlink leading out of the root", async () => {
+    const nas = path.join(tmp, "nas");
+    const elsewhere = path.join(tmp, "elsewhere");
+    mkdirSync(nas);
+    mkdirSync(elsewhere);
+    symlinkSync(elsewhere, path.join(nas, "escape"));
+    const { tagWithRegisteredVolume } = await load(false);
+    query.mockResolvedValueOnce({ rows: [{ id: "nas", root_path: nas }] });
+    expect(await tagWithRegisteredVolume("u1", path.join(nas, "escape", "a.jpg"))).toEqual({
+      volumeId: null,
+      volumeRelativePath: null,
     });
   });
 

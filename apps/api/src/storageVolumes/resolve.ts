@@ -5,8 +5,9 @@
 // is checked.
 import { accessSync, constants, statSync } from "node:fs";
 import path from "node:path";
-import { pool } from "../db.js";
-import { SINGLE_USER_MODE } from "../config.js";
+import { pool } from "@lifer/core/db.js";
+import { SINGLE_USER_MODE } from "@lifer/core/config.js";
+import { canonicalPath, isWithin } from "@lifer/core/lib/pathContainment.js";
 import { listMountedVolumes, mountPathFor, getVolumeId } from "./volumeIdentity.js";
 
 export const VOLUME_ORIGINALS_SUBDIR = "Lifer Originals";
@@ -29,19 +30,23 @@ export function isReadableDir(p: string): boolean {
 }
 
 // Longest active root containing absolutePath, if any. Nested roots are allowed; the most
-// specific one owns the file.
+// specific one owns the file. Compared resolved: a file path that went through assertAllowedPath
+// is a realpath, while root_path is stored as configured and may sit behind a symlink.
 async function tagWithLibraryRoot(absolutePath: string): Promise<VolumeTag | null> {
   const res = await pool.query<{ id: string; root_path: string }>(
     `SELECT id, root_path FROM storage_volumes WHERE kind = 'root' AND removed_at IS NULL`,
   );
   if (res.rows.length === 0) return null;
-  const abs = path.resolve(absolutePath);
-  let best: { id: string; root_path: string } | null = null;
+  const abs = canonicalPath(absolutePath);
+  let best: { id: string; root: string } | null = null;
   for (const row of res.rows) {
-    const inside = abs === row.root_path || abs.startsWith(row.root_path + path.sep);
-    if (inside && (!best || row.root_path.length > best.root_path.length)) best = row;
+    const root = canonicalPath(row.root_path);
+    if (isWithin(root, abs) && (!best || root.length > best.root.length)) best = { id: row.id, root };
   }
-  return best ? { volumeId: best.id, volumeRelativePath: abs.slice(best.root_path.length) } : null;
+  if (!best) return null;
+  // resolveOriginalPath rebuilds the path as root_path + this, so keep the leading separator.
+  const rel = path.relative(best.root, abs);
+  return { volumeId: best.id, volumeRelativePath: rel === "" ? "" : path.sep + rel };
 }
 
 // Only tags against an explicitly registered volume (a drive added in Settings, or an admin

@@ -1,13 +1,18 @@
 // The rule for any route that takes a filesystem path: on a server only DATA_DIR and
-// LIFER_LIBRARY_ROOTS are allowed, checked lexically before touching the disk so a 403 never
-// reveals whether a path exists. On desktop any path the user picks is allowed.
+// LIFER_LIBRARY_ROOTS are allowed, checked lexically before touching the candidate on disk so a
+// 403 never reveals whether a path exists. On desktop any path the user picks is allowed.
 import { realpathSync } from "node:fs";
 import path from "node:path";
 import { DATA_DIR, LIBRARY_ROOTS, SINGLE_USER_MODE } from "../config.js";
+import { canonicalPath, isWithin } from "./pathContainment.js";
+
+export { isWithin } from "./pathContainment.js";
 
 export class PathNotAllowedError extends Error {
   statusCode = 403;
-  constructor(message = "Lifer doesn't have access to that folder. Add it to LIFER_LIBRARY_ROOTS on the server to use it.") {
+  constructor(
+    message = "Lifer doesn't have access to that folder. Add it to LIFER_LIBRARY_ROOTS on the server to use it.",
+  ) {
     super(message);
     this.name = "PathNotAllowedError";
   }
@@ -22,18 +27,21 @@ export function allowedRoots(): AllowedRoot[] {
   return [{ label: "Lifer library", path: path.resolve(DATA_DIR) }, ...LIBRARY_ROOTS];
 }
 
-// path.relative rather than startsWith(root + sep), which breaks on a filesystem root.
-export function isWithin(root: string, candidate: string): boolean {
-  const rel = path.relative(root, candidate);
-  return rel === "" || (rel !== ".." && !rel.startsWith(".." + path.sep) && !path.isAbsolute(rel));
-}
-
-/** The allowed root containing absPath (lexically), or null. */
+/** The allowed root containing absPath (lexically), or null. absPath may be spelled through the
+ *  root as configured or through its resolved form: assertAllowedPath hands back realpaths, and
+ *  those come back in (a trip's default destination, the folder browser's entries). Only the root
+ *  is resolved here, never absPath. The most specific root wins. */
 export function allowedRootFor(absPath: string): AllowedRoot | null {
   const resolved = path.resolve(absPath);
   let best: AllowedRoot | null = null;
+  let bestLength = -1;
   for (const root of allowedRoots()) {
-    if (isWithin(root.path, resolved) && (!best || root.path.length > best.path.length)) best = root;
+    for (const form of new Set([root.path, canonicalPath(root.path)])) {
+      if (isWithin(form, resolved) && form.length > bestLength) {
+        best = root;
+        bestLength = form.length;
+      }
+    }
   }
   return best;
 }
@@ -45,7 +53,8 @@ export function assertAllowedPath(absPath: string): string {
   if (typeof absPath !== "string" || !path.isAbsolute(absPath)) throw new PathNotAllowedError();
   const root = allowedRootFor(absPath);
   if (!root) throw new PathNotAllowedError();
-  // A symlink inside an allowed root must not lead outside it.
+  // A symlink inside an allowed root must not lead outside it. Both sides realpath'd, so the
+  // comparison is in one form whichever spelling matched above.
   let realRoot: string;
   let real: string;
   try {
