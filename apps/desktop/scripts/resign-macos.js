@@ -4,25 +4,15 @@
 import { execSync, execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+import { bundleRoot } from "./target.js";
 
 if (process.platform !== "darwin") {
   console.log("[resign-macos] not on macOS, skipping");
   process.exit(0);
 }
 
-const appPath = path.join(
-  __dirname,
-  "..",
-  "src-tauri",
-  "target",
-  "release",
-  "bundle",
-  "macos",
-  "Lifer.app",
-);
+// target/release/bundle, or target/<triple>/release/bundle for a cross build (target.js).
+const appPath = path.join(bundleRoot, "macos", "Lifer.app");
 
 if (!existsSync(appPath)) {
   console.error(`[resign-macos] ${appPath} doesn't exist. Did tauri build actually produce a bundle?`);

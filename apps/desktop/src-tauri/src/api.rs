@@ -5,7 +5,7 @@ use postgresql_embedded::PostgreSQL;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter};
 use tauri_plugin_dialog::DialogExt;
@@ -77,49 +77,36 @@ fn ensure_dev_map(app_data_dir: &std::path::Path) {
     }
 }
 
-// Random per-launch id passed to the API as LIFER_LAUNCH_TOKEN and echoed by its /health, so a
-// previous launch's still-exiting API is never mistaken for ours.
-fn launch_token() -> &'static str {
-    static TOKEN: OnceLock<String> = OnceLock::new();
-    TOKEN.get_or_init(|| {
-        use std::hash::{BuildHasher, Hasher};
-        let nanos = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or(0);
-        (0..2u8)
-            .map(|i| {
-                let mut h = std::collections::hash_map::RandomState::new().build_hasher();
-                h.write_u128(nanos);
-                h.write_u32(std::process::id());
-                h.write_u8(i);
-                format!("{:016x}", h.finish())
-            })
-            .collect()
-    })
-}
-
 enum LocalApi {
     Absent,
     Ours,
-    // Another launch's API, or an older API that predates launchToken.
+    // Another launch's API, or an older API that predates launchId.
     Foreign,
 }
 
 async fn probe_local_api() -> LocalApi {
     #[derive(serde::Deserialize)]
     struct Health {
-        #[serde(rename = "launchToken")]
-        launch_token: Option<String>,
+        #[serde(rename = "launchId")]
+        launch_id: Option<String>,
     }
-    let Ok(client) = reqwest::Client::builder().timeout(Duration::from_secs(2)).build() else {
+    let Ok(client) = reqwest::Client::builder()
+        .timeout(Duration::from_secs(2))
+        .build()
+    else {
         return LocalApi::Absent;
     };
-    let Ok(res) = client.get(format!("http://127.0.0.1:{LOCAL_PORT}/health")).send().await else {
+    let Ok(res) = client
+        .get(format!("http://127.0.0.1:{LOCAL_PORT}/health"))
+        .send()
+        .await
+    else {
         return LocalApi::Absent;
     };
     match res.json::<Health>().await {
-        Ok(Health { launch_token: Some(t) }) if t == launch_token() => LocalApi::Ours,
+        Ok(Health {
+            launch_id: Some(id),
+        }) if id == crate::local_credential::launch_id() => LocalApi::Ours,
         _ => LocalApi::Foreign,
     }
 }
@@ -166,9 +153,24 @@ pub async fn start_api(app: &AppHandle, data_dir: Option<String>) -> Result<(), 
     envs.insert("NODE_ENV".into(), "production".into());
     envs.insert("SINGLE_USER_MODE".into(), "1".into());
     // A force-quit skips our exit handlers, so the sidecar polls this pid and exits once it's gone.
-    envs.insert("LIFER_WATCH_PARENT_PID".into(), std::process::id().to_string());
-    envs.insert("LIFER_LAUNCH_TOKEN".into(), launch_token().to_string());
-    envs.insert("WEB_DIST_DIR".into(), web_dist.to_string_lossy().into_owned());
+    envs.insert(
+        "LIFER_WATCH_PARENT_PID".into(),
+        std::process::id().to_string(),
+    );
+    // The desktop credential (secret) and the per-launch id /health echoes (not secret); see
+    // local_credential.rs.
+    envs.insert(
+        "LIFER_LAUNCH_TOKEN".into(),
+        crate::local_credential::launch_token().to_string(),
+    );
+    envs.insert(
+        "LIFER_LAUNCH_ID".into(),
+        crate::local_credential::launch_id().to_string(),
+    );
+    envs.insert(
+        "WEB_DIST_DIR".into(),
+        web_dist.to_string_lossy().into_owned(),
+    );
     // Rolling "map-latest" release, so a map update needs no app release. An env override wins.
     envs
         .entry("MAP_DOWNLOAD_URL".into())
@@ -185,7 +187,7 @@ pub async fn start_api(app: &AppHandle, data_dir: Option<String>) -> Result<(), 
     } else if let Some(url) = already_running_url {
         url
     } else {
-        let (postgresql, url) = embedded_db::start_embedded_postgres(&app_data_dir)
+        let (postgresql, url) = embedded_db::start_embedded_postgres(&app_data_dir, &resources)
             .await
             .map_err(|e| format!("Couldn't start the embedded database: {e}"))?;
         run_migrations(app, &resources, &url).await?;
@@ -205,13 +207,23 @@ pub async fn start_api(app: &AppHandle, data_dir: Option<String>) -> Result<(), 
     };
     envs.insert("DATABASE_URL".into(), database_url);
     // Lets the sidecar's parent watchdog stop the embedded Postgres if this app is killed.
-    if let Some((pg_ctl, pg_data)) = state.postgres.lock().unwrap().as_ref().map(embedded_db::pg_ctl_and_data_dir) {
+    if let Some((pg_ctl, pg_data)) = state
+        .postgres
+        .lock()
+        .unwrap()
+        .as_ref()
+        .map(embedded_db::pg_ctl_and_data_dir)
+    {
         envs.insert("LIFER_PG_CTL".into(), pg_ctl.to_string_lossy().into_owned());
-        envs.insert("LIFER_PG_DATA".into(), pg_data.to_string_lossy().into_owned());
+        envs.insert(
+            "LIFER_PG_DATA".into(),
+            pg_data.to_string_lossy().into_owned(),
+        );
     }
     // Same fallback chain as main.js: the folder chosen in the picker, persisted in config,
     // falling back to a stable per-install default under Tauri's own app data dir.
-    let resolved_data_dir = data_dir.unwrap_or_else(|| app_data_dir.join("data").to_string_lossy().into_owned());
+    let resolved_data_dir =
+        data_dir.unwrap_or_else(|| app_data_dir.join("data").to_string_lossy().into_owned());
     envs.insert("DATA_DIR".into(), resolved_data_dir);
     // Shared app assets (offline basemap, reference-photo cache), independent of DATA_DIR.
     envs.insert(
@@ -219,19 +231,13 @@ pub async fn start_api(app: &AppHandle, data_dir: Option<String>) -> Result<(), 
         app_data_dir.join("app-data").to_string_lossy().into_owned(),
     );
 
-    let tsx_dir = resources.join("node_modules").join("tsx").join("dist");
-    let entry = api_dir.join("src").join("index.ts");
+    // The compiled server (apps/api/scripts/build.mjs).
+    let entry = api_dir.join("dist").join("index.js");
 
     let spec = SpawnSpec {
         api_dir,
         envs,
-        args: vec![
-            "--require".into(),
-            tsx_dir.join("preflight.cjs").to_string_lossy().into_owned(),
-            "--import".into(),
-            format!("file://{}", tsx_dir.join("loader.mjs").to_string_lossy()),
-            entry.to_string_lossy().into_owned(),
-        ],
+        args: vec![entry.to_string_lossy().into_owned()],
     };
     *state.spawn_spec.lock().unwrap() = Some(spec.clone());
     state.restarts.lock().unwrap().clear();
@@ -251,7 +257,10 @@ fn spawn_child(app: &AppHandle, spec: &SpawnSpec) -> Result<(), String> {
         .map_err(|e| format!("Couldn't start the API: {e}"))?;
 
     let stopping = Arc::new(AtomicBool::new(false));
-    *app.state::<ApiState>().child.lock().unwrap() = Some(RunningChild { child, stopping: stopping.clone() });
+    *app.state::<ApiState>().child.lock().unwrap() = Some(RunningChild {
+        child,
+        stopping: stopping.clone(),
+    });
 
     let app_handle = app.clone();
     tauri::async_runtime::spawn(async move {
@@ -316,15 +325,26 @@ async fn handle_unexpected_exit(app: &AppHandle, stopping: &AtomicBool, code: i3
         }
     }
     let stderr = state.recent_stderr.lock().unwrap().clone();
-    let detail = if stderr.trim().is_empty() { "No error output was captured.".to_string() } else { stderr };
+    let detail = if stderr.trim().is_empty() {
+        "No error output was captured.".to_string()
+    } else {
+        stderr
+    };
     let _ = app.emit("api-crashed", format!("{failure}\n\n{detail}"));
 }
 
 // apps/api doesn't run migrations itself, so run data-pipeline's migrate.ts as a one-off sidecar
 // before starting the API. Idempotent via schema_migrations.
-async fn run_migrations(app: &AppHandle, resources: &Path, database_url: &str) -> Result<(), String> {
-    let migrate_entry = resources.join("node_modules").join("data-pipeline").join("src").join("migrate.ts");
-    let tsx_dir = resources.join("node_modules").join("tsx").join("dist");
+async fn run_migrations(
+    app: &AppHandle,
+    resources: &Path,
+    database_url: &str,
+) -> Result<(), String> {
+    let migrate_entry = resources
+        .join("node_modules")
+        .join("data-pipeline")
+        .join("dist")
+        .join("migrate.js");
 
     let mut envs: HashMap<String, String> = std::env::vars().collect();
     envs.insert("DATABASE_URL".into(), database_url.to_string());
@@ -334,13 +354,7 @@ async fn run_migrations(app: &AppHandle, resources: &Path, database_url: &str) -
         .sidecar("node")
         .map_err(|e| format!("Couldn't resolve the node sidecar for migrations: {e}"))?
         .envs(envs)
-        .args([
-            "--require".into(),
-            tsx_dir.join("preflight.cjs").to_string_lossy().into_owned(),
-            "--import".into(),
-            format!("file://{}", tsx_dir.join("loader.mjs").to_string_lossy()),
-            migrate_entry.to_string_lossy().into_owned(),
-        ])
+        .args([migrate_entry.to_string_lossy().into_owned()])
         .spawn()
         .map_err(|e| format!("Couldn't run database migrations: {e}"))?;
 
@@ -372,7 +386,10 @@ pub async fn stop_api_async(app: &AppHandle) {
     }
     let taken_postgres = state.postgres.lock().unwrap().take();
     if let Some(postgresql) = taken_postgres {
-        if tokio::time::timeout(Duration::from_secs(10), postgresql.stop()).await.is_err() {
+        if tokio::time::timeout(Duration::from_secs(10), postgresql.stop())
+            .await
+            .is_err()
+        {
             eprintln!("[stop_api] embedded postgres didn't stop within 10s, proceeding anyway");
         }
     }
@@ -414,7 +431,9 @@ pub async fn wait_for_server(url: &str, timeout_ms: u64) -> Result<(), String> {
             return Ok(());
         }
         if start.elapsed().as_millis() as u64 > timeout_ms {
-            return Err("Lifer's backend didn't respond in time. Check that Postgres is running.".into());
+            return Err(
+                "Lifer's backend didn't respond in time. Check that Postgres is running.".into(),
+            );
         }
         tokio::time::sleep(std::time::Duration::from_millis(300)).await;
     }
@@ -446,6 +465,11 @@ pub async fn test_login(url: &str, email: &str, password: &str) -> Result<(), St
     struct ErrorBody {
         error: Option<String>,
     }
-    let message = res.json::<ErrorBody>().await.ok().and_then(|b| b.error).unwrap_or_else(|| "Invalid email or password".into());
+    let message = res
+        .json::<ErrorBody>()
+        .await
+        .ok()
+        .and_then(|b| b.error)
+        .unwrap_or_else(|| "Invalid email or password".into());
     Err(message)
 }

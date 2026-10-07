@@ -53,11 +53,16 @@ pub fn read_config(app_data_dir: &Path) -> Option<DesktopConfig> {
 
 pub fn write_config(app_data_dir: &Path, config: &DesktopConfig) -> std::io::Result<()> {
     let json = serde_json::to_string_pretty(config)?;
-    write_atomic(app_data_dir, json.as_bytes())
+    write_atomic(app_data_dir, json.as_bytes())?;
+    // Every connection change passes through here: drop an offline cache that no longer applies.
+    crate::offline_cache::reconcile(app_data_dir, config);
+    Ok(())
 }
 
 pub fn clear_config(app_data_dir: &Path) -> std::io::Result<()> {
-    write_atomic(app_data_dir, b"{}")
+    write_atomic(app_data_dir, b"{}")?;
+    crate::offline_cache::reconcile(app_data_dir, &DesktopConfig::default());
+    Ok(())
 }
 
 // Temp file in the same dir, fsync, then rename, so a crash never leaves a half-written config.

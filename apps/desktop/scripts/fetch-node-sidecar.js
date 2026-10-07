@@ -7,6 +7,7 @@ import { createHash } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { pipeline } from "node:stream/promises";
+import { target } from "./target.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const NODE_VERSION = "22.22.1"; // keep in sync with root package.json's engines.node
@@ -90,5 +91,5 @@ async function fetchAndExtract(targetTriple) {
   console.log(`[fetch-node-sidecar] vendored ${dest}`);
 }
 
-const target = process.argv[2] || currentTargetTriple();
-await fetchAndExtract(target);
+// An explicit argument wins, then LIFER_TARGET_TRIPLE (a cross build), then this machine.
+await fetchAndExtract(process.argv[2] || target.triple || currentTargetTriple());

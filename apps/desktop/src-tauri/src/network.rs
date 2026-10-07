@@ -17,18 +17,26 @@ pub fn current_wifi_ssid() -> Option<String> {
     {
         // Look up the WiFi hardware port rather than assuming "en0", which varies by model.
         let device = macos_wifi_device()?;
-        let output = std::process::Command::new("networksetup").args(["-getairportnetwork", &device]).output().ok()?;
+        let output = std::process::Command::new("networksetup")
+            .args(["-getairportnetwork", &device])
+            .output()
+            .ok()?;
         if !output.status.success() {
             return None;
         }
         let text = String::from_utf8_lossy(&output.stdout);
         // "Current Wi-Fi Network: HomeWiFi"; the not-connected message has no colon.
-        text.split_once(": ").map(|(_, name)| name.trim().to_string()).filter(|s| !s.is_empty())
+        text.split_once(": ")
+            .map(|(_, name)| name.trim().to_string())
+            .filter(|s| !s.is_empty())
     }
     #[cfg(target_os = "linux")]
     {
         // nmcli's terse "ACTIVE:SSID" output first, then `iwgetid` when nmcli isn't installed.
-        if let Ok(output) = std::process::Command::new("nmcli").args(["-t", "-f", "active,ssid", "dev", "wifi"]).output() {
+        if let Ok(output) = std::process::Command::new("nmcli")
+            .args(["-t", "-f", "active,ssid", "dev", "wifi"])
+            .output()
+        {
             if output.status.success() {
                 let text = String::from_utf8_lossy(&output.stdout);
                 for line in text.lines() {
@@ -40,7 +48,10 @@ pub fn current_wifi_ssid() -> Option<String> {
                 }
             }
         }
-        let output = std::process::Command::new("iwgetid").args(["-r"]).output().ok()?;
+        let output = std::process::Command::new("iwgetid")
+            .args(["-r"])
+            .output()
+            .ok()?;
         if !output.status.success() {
             return None;
         }
@@ -53,7 +64,10 @@ pub fn current_wifi_ssid() -> Option<String> {
     }
     #[cfg(target_os = "windows")]
     {
-        let output = std::process::Command::new("netsh").args(["wlan", "show", "interfaces"]).output().ok()?;
+        let output = std::process::Command::new("netsh")
+            .args(["wlan", "show", "interfaces"])
+            .output()
+            .ok()?;
         if !output.status.success() {
             return None;
         }
@@ -77,13 +91,18 @@ pub fn current_wifi_ssid() -> Option<String> {
 #[cfg(target_os = "macos")]
 fn macos_wifi_device() -> Option<String> {
     // The line after "Hardware Port: Wi-Fi" is "Device: enX".
-    let output = std::process::Command::new("networksetup").arg("-listallhardwareports").output().ok()?;
+    let output = std::process::Command::new("networksetup")
+        .arg("-listallhardwareports")
+        .output()
+        .ok()?;
     let text = String::from_utf8_lossy(&output.stdout);
     let mut lines = text.lines();
     while let Some(line) = lines.next() {
         if line.trim() == "Hardware Port: Wi-Fi" {
             let device_line = lines.next()?;
-            return device_line.strip_prefix("Device: ").map(|s| s.trim().to_string());
+            return device_line
+                .strip_prefix("Device: ")
+                .map(|s| s.trim().to_string());
         }
     }
     None

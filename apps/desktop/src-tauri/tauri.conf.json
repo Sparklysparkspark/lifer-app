@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Lifer",
-  "version": "0.1.0",
+  "version": "0.9.0",
   "identifier": "app.lifer.desktop",
   "build": {
     "frontendDist": "../src"
@@ -31,25 +31,20 @@
       "resources-staging/api": "api",
       "resources-staging/web": "web",
       "resources-staging/node_modules": "node_modules",
-      "resources-staging/catalog-seed": "catalog-seed"
+      "resources-staging/catalog-seed": "catalog-seed",
+      "resources-staging/postgres": "postgres",
+      "resources-staging/postgres-previous": "postgres-previous"
     },
     "macOS": {
-      "entitlements": null
+      "entitlements": null,
+      "minimumSystemVersion": "14.0"
     },
-    "icon": [
-      "icons/32x32.png",
-      "icons/128x128.png",
-      "icons/128x128@2x.png",
-      "icons/icon.icns",
-      "icons/icon.ico"
-    ]
+    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.ico"]
   },
   "plugins": {
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDcwMDBCQkM0QUIxQUNFQ0EKUldUS3pocXJ4THNBY0lZYkZOUUd2VElHTkZKZXZTSlR6TTQ0dGpURlRjMDJKUDdyMTBaWG96eFgK",
-      "endpoints": [
-        "https://github.com/Sparklysparkspark/lifer-app/releases/latest/download/latest.json"
-      ]
+      "endpoints": ["https://github.com/Sparklysparkspark/lifer-app/releases/latest/download/latest.json"]
     }
   }
 }

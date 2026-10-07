@@ -35,17 +35,30 @@ async fn spawn(app: &AppHandle, generation: u64) -> Result<Sidecar, String> {
     use tauri::Manager;
     let resources = api::resources_root(app);
     let api_dir = resources.join("api");
-    let tsx_dir = resources.join("node_modules").join("tsx").join("dist");
-    let entry = api_dir.join("src").join("species").join("localInferenceServer.ts");
-    let app_data_dir = app.path().app_data_dir().map_err(|e| format!("Couldn't resolve app data dir: {e}"))?;
+    // Compiled as its own entry by apps/api/scripts/build.mjs.
+    let entry = api_dir.join("dist").join("localInferenceServer.js");
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Couldn't resolve app data dir: {e}"))?;
     let token = random_token()?;
 
     let mut envs: HashMap<String, String> = std::env::vars().collect();
     envs.insert("NODE_ENV".into(), "production".into());
     envs.insert("LIFER_INFERENCE_TOKEN".into(), token.clone());
     // The local API's own model folder, so a model downloaded in either mode serves both.
-    envs.insert("LIFER_MODEL_DIR".into(), app_data_dir.join("app-data").join("models").to_string_lossy().into_owned());
-    envs.insert("LIFER_WATCH_PARENT_PID".into(), std::process::id().to_string());
+    envs.insert(
+        "LIFER_MODEL_DIR".into(),
+        app_data_dir
+            .join("app-data")
+            .join("models")
+            .to_string_lossy()
+            .into_owned(),
+    );
+    envs.insert(
+        "LIFER_WATCH_PARENT_PID".into(),
+        std::process::id().to_string(),
+    );
 
     let (mut rx, child) = app
         .shell()
@@ -53,13 +66,7 @@ async fn spawn(app: &AppHandle, generation: u64) -> Result<Sidecar, String> {
         .map_err(|e| format!("Couldn't resolve the node sidecar: {e}"))?
         .current_dir(&api_dir)
         .envs(envs)
-        .args([
-            "--require".into(),
-            tsx_dir.join("preflight.cjs").to_string_lossy().into_owned(),
-            "--import".into(),
-            format!("file://{}", tsx_dir.join("loader.mjs").to_string_lossy()),
-            entry.to_string_lossy().into_owned(),
-        ])
+        .args([entry.to_string_lossy().into_owned()])
         .spawn()
         .map_err(|e| format!("Couldn't start local matching: {e}"))?;
 
@@ -69,12 +76,23 @@ async fn spawn(app: &AppHandle, generation: u64) -> Result<Sidecar, String> {
             match event {
                 CommandEvent::Stdout(line) => {
                     let text = String::from_utf8_lossy(&line);
-                    if let Some(port) = text.trim().strip_prefix(PORT_PREFIX).and_then(|p| p.parse::<u16>().ok()) {
+                    if let Some(port) = text
+                        .trim()
+                        .strip_prefix(PORT_PREFIX)
+                        .and_then(|p| p.parse::<u16>().ok())
+                    {
                         return Ok(port);
                     }
                 }
-                CommandEvent::Stderr(line) => eprint!("[inference] {}", String::from_utf8_lossy(&line)),
-                CommandEvent::Terminated(p) => return Err(format!("Local matching exited on start (code {:?})", p.code)),
+                CommandEvent::Stderr(line) => {
+                    eprint!("[inference] {}", String::from_utf8_lossy(&line))
+                }
+                CommandEvent::Terminated(p) => {
+                    return Err(format!(
+                        "Local matching exited on start (code {:?})",
+                        p.code
+                    ))
+                }
                 _ => {}
             }
         }
@@ -96,7 +114,9 @@ async fn spawn(app: &AppHandle, generation: u64) -> Result<Sidecar, String> {
     tauri::async_runtime::spawn(async move {
         while let Some(event) = rx.recv().await {
             match event {
-                CommandEvent::Stderr(line) => eprint!("[inference] {}", String::from_utf8_lossy(&line)),
+                CommandEvent::Stderr(line) => {
+                    eprint!("[inference] {}", String::from_utf8_lossy(&line))
+                }
                 CommandEvent::Terminated(_) => {
                     let state = app_handle.state::<LocalInferenceState>();
                     let mut guard = state.sidecar.lock().await;
@@ -110,7 +130,12 @@ async fn spawn(app: &AppHandle, generation: u64) -> Result<Sidecar, String> {
         }
     });
 
-    Ok(Sidecar { child, port, token, generation })
+    Ok(Sidecar {
+        child,
+        port,
+        token,
+        generation,
+    })
 }
 
 /// Base URL and token of the running sidecar, starting it first when `start` is set.
@@ -119,23 +144,38 @@ async fn endpoint(app: &AppHandle, start: bool) -> Result<Option<(String, String
     let state = app.state::<LocalInferenceState>();
     let mut guard = state.sidecar.lock().await;
     if guard.is_none() && start {
-        let generation = state.generation.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+        let generation = state
+            .generation
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+            + 1;
         *guard = Some(spawn(app, generation).await?);
     }
-    Ok(guard.as_ref().map(|s| (format!("http://127.0.0.1:{}", s.port), s.token.clone())))
+    Ok(guard
+        .as_ref()
+        .map(|s| (format!("http://127.0.0.1:{}", s.port), s.token.clone())))
 }
 
 fn client(timeout: Duration) -> Result<reqwest::Client, String> {
-    reqwest::Client::builder().timeout(timeout).build().map_err(|e| e.to_string())
+    reqwest::Client::builder()
+        .timeout(timeout)
+        .build()
+        .map_err(|e| e.to_string())
 }
 
 async fn json_or_error(res: reqwest::Response) -> Result<serde_json::Value, String> {
     let ok = res.status().is_success();
-    let body: serde_json::Value = res.json().await.map_err(|e| format!("Local matching sent a bad reply: {e}"))?;
+    let body: serde_json::Value = res
+        .json()
+        .await
+        .map_err(|e| format!("Local matching sent a bad reply: {e}"))?;
     if ok {
         return Ok(body);
     }
-    Err(body.get("error").and_then(|e| e.as_str()).unwrap_or("Local matching failed").to_string())
+    Err(body
+        .get("error")
+        .and_then(|e| e.as_str())
+        .unwrap_or("Local matching failed")
+        .to_string())
 }
 
 pub async fn status(app: &AppHandle) -> Result<serde_json::Value, String> {
@@ -143,7 +183,11 @@ pub async fn status(app: &AppHandle) -> Result<serde_json::Value, String> {
     let Some((base, token)) = endpoint(app, false).await? else {
         return Ok(not_started);
     };
-    let res = client(Duration::from_secs(5))?.get(format!("{base}/status")).bearer_auth(token).send().await;
+    let res = client(Duration::from_secs(5))?
+        .get(format!("{base}/status"))
+        .bearer_auth(token)
+        .send()
+        .await;
     match res {
         Ok(res) => {
             let mut body = json_or_error(res).await?;
@@ -154,8 +198,13 @@ pub async fn status(app: &AppHandle) -> Result<serde_json::Value, String> {
     }
 }
 
-pub async fn prepare(app: &AppHandle, info: serde_json::Value) -> Result<serde_json::Value, String> {
-    let (base, token) = endpoint(app, true).await?.ok_or("Local matching isn't running")?;
+pub async fn prepare(
+    app: &AppHandle,
+    info: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    let (base, token) = endpoint(app, true)
+        .await?
+        .ok_or("Local matching isn't running")?;
     let res = client(Duration::from_secs(10))?
         .post(format!("{base}/prepare"))
         .bearer_auth(token)
@@ -168,11 +217,20 @@ pub async fn prepare(app: &AppHandle, info: serde_json::Value) -> Result<serde_j
     Ok(body)
 }
 
-pub async fn embed(app: &AppHandle, bytes: Vec<u8>, targets: &str) -> Result<serde_json::Value, String> {
-    if !targets.chars().all(|c| c.is_ascii_lowercase() || c == '-' || c == ',') {
+pub async fn embed(
+    app: &AppHandle,
+    bytes: Vec<u8>,
+    targets: &str,
+) -> Result<serde_json::Value, String> {
+    if !targets
+        .chars()
+        .all(|c| c.is_ascii_lowercase() || c == '-' || c == ',')
+    {
         return Err("Unknown vector kind".into());
     }
-    let (base, token) = endpoint(app, false).await?.ok_or("Local matching isn't running")?;
+    let (base, token) = endpoint(app, false)
+        .await?
+        .ok_or("Local matching isn't running")?;
     let res = client(Duration::from_secs(60))?
         .post(format!("{base}/embed?targets={targets}"))
         .bearer_auth(token)
@@ -187,7 +245,11 @@ pub async fn embed(app: &AppHandle, bytes: Vec<u8>, targets: &str) -> Result<ser
 pub fn stop(app: &AppHandle) {
     use tauri::Manager;
     let state = app.state::<LocalInferenceState>();
-    let taken = state.sidecar.try_lock().ok().and_then(|mut guard| guard.take());
+    let taken = state
+        .sidecar
+        .try_lock()
+        .ok()
+        .and_then(|mut guard| guard.take());
     if let Some(sidecar) = taken {
         let _ = sidecar.child.kill();
     }

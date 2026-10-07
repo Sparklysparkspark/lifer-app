@@ -20,4 +20,17 @@ commands.allow = [
   "local_inference_prepare",
   "local_embed",
   "use_local_library",
+  "local_api_credential",
+  # offline_cache.rs: writes are checked against the connected server's origin, reads against the
+  # bundled offline.html page.
+  "offline_cache_begin",
+  "offline_cache_put_thumb",
+  "offline_cache_commit",
+  "offline_cache_clear",
+  "offline_cache_info",
+  "set_offline_cache",
+  "offline_cache_snapshot",
+  "offline_cache_thumb",
+  "offline_retry",
+  "offline_use_local_library",
 ]

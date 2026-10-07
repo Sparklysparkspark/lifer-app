@@ -8,7 +8,7 @@ import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 const [, , inputDir, outputPath, notesFile] = process.argv;
-const EXPECTED_PLATFORMS = ["darwin-aarch64", "windows-x86_64", "linux-x86_64"];
+const EXPECTED_PLATFORMS = ["darwin-aarch64", "darwin-x86_64", "windows-x86_64", "linux-x86_64"];
 if (!inputDir || !outputPath) {
   console.error("Usage: node merge-update-manifests.js <dir-of-latest-*.json> <outputPath>");
   process.exit(1);

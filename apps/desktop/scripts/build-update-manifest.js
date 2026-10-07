@@ -9,11 +9,10 @@
 import { execSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+// bundleRoot is target/release/bundle, or target/<triple>/release/bundle for a cross build.
+import { target, tauriArch, bundleRoot } from "./target.js";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const GITHUB_REPO = "Sparklysparkspark/lifer-app";
-const BUNDLE_ROOT = path.join(__dirname, "..", "src-tauri", "target", "release", "bundle");
 
 const version = process.env.LIFER_RELEASE_VERSION;
 if (!version) {
@@ -21,8 +20,10 @@ if (!version) {
   process.exit(1);
 }
 
-// Tauri's target naming: "aarch64" for Apple Silicon, "x86_64" otherwise.
-const arch = process.arch === "arm64" ? "aarch64" : "x86_64";
+// Tauri's target naming: "aarch64" for Apple Silicon, "x86_64" otherwise. From the build's
+// target, not this machine: the Intel macOS app is cross-built on Apple Silicon and must be
+// listed as darwin-x86_64.
+const arch = tauriArch;
 
 function findOne(dir, matcher) {
   if (!existsSync(dir)) return null;
@@ -47,8 +48,8 @@ function signAndDescribe(filePath, platformKey, downloadFileName) {
 }
 
 let platforms;
-if (process.platform === "darwin") {
-  const bundleDir = path.join(BUNDLE_ROOT, "macos");
+if (target.platform === "darwin") {
+  const bundleDir = path.join(bundleRoot, "macos");
   const appPath = path.join(bundleDir, "Lifer.app");
   if (!existsSync(appPath)) {
     console.error(`[build-update-manifest] ${appPath} doesn't exist. Did tauri build + resign-macos actually run first?`);
@@ -59,16 +60,16 @@ if (process.platform === "darwin") {
   console.log(`[build-update-manifest] archiving ${appPath}`);
   execSync(`tar -czf ${JSON.stringify(archivePath)} -C ${JSON.stringify(bundleDir)} Lifer.app`, { stdio: "inherit" });
   platforms = signAndDescribe(archivePath, `darwin-${arch}`, archiveName);
-} else if (process.platform === "win32") {
-  const bundleDir = path.join(BUNDLE_ROOT, "nsis");
+} else if (target.platform === "win32") {
+  const bundleDir = path.join(bundleRoot, "nsis");
   const installerPath = findOne(bundleDir, (f) => f.endsWith(".exe"));
   if (!installerPath) {
     console.error(`[build-update-manifest] no .exe found under ${bundleDir}. Did tauri build run first?`);
     process.exit(1);
   }
   platforms = signAndDescribe(installerPath, `windows-${arch}`, path.basename(installerPath));
-} else if (process.platform === "linux") {
-  const bundleDir = path.join(BUNDLE_ROOT, "appimage");
+} else if (target.platform === "linux") {
+  const bundleDir = path.join(bundleRoot, "appimage");
   const appImagePath = findOne(bundleDir, (f) => f.endsWith(".AppImage"));
   if (!appImagePath) {
     console.error(`[build-update-manifest] no .AppImage found under ${bundleDir}. Did tauri build run first?`);
@@ -76,12 +77,12 @@ if (process.platform === "darwin") {
   }
   platforms = signAndDescribe(appImagePath, `linux-${arch}`, path.basename(appImagePath));
 } else {
-  console.error(`[build-update-manifest] unrecognized platform ${process.platform}`);
+  console.error(`[build-update-manifest] unrecognized platform ${target.platform}`);
   process.exit(1);
 }
 
 // One fixed output location so release.yml's upload step needs a single glob.
-const manifestDir = path.join(BUNDLE_ROOT, "update-manifest");
+const manifestDir = path.join(bundleRoot, "update-manifest");
 mkdirSync(manifestDir, { recursive: true });
 const manifest = {
   version,
