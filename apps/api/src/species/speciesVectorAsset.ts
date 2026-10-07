@@ -6,14 +6,14 @@ import { pipeline } from "node:stream/promises";
 import { createGunzip } from "node:zlib";
 import type { Pool } from "pg";
 import { decodeSpeciesVectors, type SpeciesVectorHeader } from "@lifer/shared/src/speciesVectorFormat.js";
-import { APP_DATA_DIR } from "../config.js";
+import { APP_DATA_DIR } from "@lifer/core/config.js";
 import { getInstallSetting, setInstallSetting } from "../lib/installSettings.js";
 import { type JobContext } from "../lib/job.js";
 import { copyInto } from "../lib/pgCopy.js";
-import { downloadResumable } from "../lib/resumableDownload.js";
+import { downloadResumable } from "@lifer/core/lib/resumableDownload.js";
 import { resolveCatalogAssetUrl, type CatalogManifest, type VectorAsset } from "./catalogManifest.js";
-import { invalidateSuggestionCache } from "./embeddings.js";
-import { lockReferenceData } from "../lib/referenceDataLock.js";
+import { invalidateSuggestionCache } from "@lifer/core/species/embeddings.js";
+import { lockReferenceData } from "@lifer/core/lib/referenceDataLock.js";
 
 const DOWNLOAD_DIR = path.join(APP_DATA_DIR, "catalog-downloads");
 
@@ -104,6 +104,12 @@ export async function applySpeciesVectorFile(
       gunzip.destroy();
     }
     const modelVersion = (header as SpeciesVectorHeader | null)?.modelVersion ?? spec.currentModelVersion;
+    // The manifest said this file matches the install's model; its own header must agree.
+    // Otherwise its rows would be stored under the other version (and never used), while the
+    // applied tag claimed this install was up to date, so it would never fetch the right file.
+    if (modelVersion !== spec.currentModelVersion) {
+      throw new Error(`The ${spec.label} file is for model ${modelVersion}, this install uses ${spec.currentModelVersion}`);
+    }
 
     ctx.throwIfCancelled();
     const res = await client.query(

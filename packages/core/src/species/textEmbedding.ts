@@ -11,7 +11,7 @@ const TEXT_MODEL_ID = "Xenova/clip-vit-large-patch14";
 const MODEL_REVISION = "c307790166907339eed5a9a53a249af534102536";
 const CACHE_DIR = path.join(APP_DATA_DIR, "models", "clip-text-cache");
 // Distinct from EMBEDDING_MODEL_VERSION so a text-model swap can't collide with a vision bump.
-export const TEXT_MODEL_VERSION = "clip-vit-l14-text-v1";
+export const TEXT_MODEL_VERSION = "clip-vit-l14-text-v2";
 
 /** What the inference worker needs to load the text encoder. */
 export const TEXT_MODEL: TextModelSpec = {

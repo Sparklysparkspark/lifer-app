@@ -9,7 +9,7 @@ import { existsSync, mkdirSync, readdirSync, renameSync, rmSync, statSync, utime
 import path from "node:path";
 import { promisify } from "node:util";
 import * as tar from "tar";
-import { downloadResumable } from "../lib/resumableDownload.js";
+import { downloadResumable } from "@lifer/core/lib/resumableDownload.js";
 import { extractZipEntries } from "./zipEntries.js";
 
 const run = promisify(execFile);

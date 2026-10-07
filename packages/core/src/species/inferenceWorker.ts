@@ -7,10 +7,12 @@ import { existsSync, readdirSync } from "node:fs";
 import { open, readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import os from "node:os";
+import path from "node:path";
 import { parentPort, workerData } from "node:worker_threads";
 import sharp, { type FormatEnum } from "sharp";
 import type { InferenceSession, Tensor } from "onnxruntime-node";
-import type { PreTrainedTokenizer, CLIPTextModelWithProjection } from "@xenova/transformers";
+import type { PreTrainedTokenizer, CLIPTextModelWithProjection } from "@huggingface/transformers";
+import { log } from "../lib/log.js";
 
 // ---------------------------------------------------------------------------------------------
 // Protocol shared with inference.ts
@@ -44,10 +46,19 @@ async function decodableInput(filePath: string): Promise<ImageData> {
   } finally {
     await fh.close();
   }
-  if (head.toString("latin1", 4, 8) !== "ftyp" || !/^(heic|heix|hevc|hevx|heim|heis)$/.test(head.toString("latin1", 8, 12))) return filePath;
-  const decode = createRequire(import.meta.url)("heic-decode") as (input: { buffer: Uint8Array }) => Promise<{ width: number; height: number; data: Uint8ClampedArray }>;
+  if (
+    head.toString("latin1", 4, 8) !== "ftyp" ||
+    !/^(heic|heix|hevc|hevx|heim|heis)$/.test(head.toString("latin1", 8, 12))
+  )
+    return filePath;
+  const decode = createRequire(import.meta.url)("heic-decode") as (input: {
+    buffer: Uint8Array;
+  }) => Promise<{ width: number; height: number; data: Uint8ClampedArray }>;
   const { width, height, data } = await decode({ buffer: await readFile(filePath) });
-  return sharp(Buffer.from(data.buffer, data.byteOffset, data.byteLength), { raw: { width, height, channels: 4 }, limitInputPixels: false })
+  return sharp(Buffer.from(data.buffer, data.byteOffset, data.byteLength), {
+    raw: { width, height, channels: 4 },
+    limitInputPixels: false,
+  })
     .flatten({ background: "#ffffff" })
     .jpeg({ quality: 92, chromaSubsampling: "4:4:4" })
     .toBuffer();
@@ -167,7 +178,11 @@ interface SessionEntry {
 }
 const sessions = new Map<string, SessionEntry>();
 
-async function createSession(modelPath: string, providers: ProviderSpec[], extra: InferenceSession.SessionOptions = {}): Promise<InferenceSession> {
+async function createSession(
+  modelPath: string,
+  providers: ProviderSpec[],
+  extra: InferenceSession.SessionOptions = {},
+): Promise<InferenceSession> {
   const { InferenceSession } = await ort();
   return InferenceSession.create(modelPath, {
     intraOpNumThreads: INTRA_OP_THREADS,
@@ -179,7 +194,8 @@ async function createSession(modelPath: string, providers: ProviderSpec[], extra
   });
 }
 
-const sessionKey = (modelPath: string, providers?: ProviderSpec[]) => `${modelPath}|${JSON.stringify(providers ?? ["cpu"])}`;
+const sessionKey = (modelPath: string, providers?: ProviderSpec[]) =>
+  `${modelPath}|${JSON.stringify(providers ?? ["cpu"])}`;
 
 function getSession(modelPath: string, missingMessage: string, providers?: ProviderSpec[]): Promise<InferenceSession> {
   const key = sessionKey(modelPath, providers);
@@ -197,7 +213,9 @@ function getSession(modelPath: string, missingMessage: string, providers?: Provi
     } catch (err) {
       // A backend that passed the self-test can stop loading (a driver update); the CPU gives the
       // same answers, only slower.
-      console.warn(`[inference] Couldn't load ${modelPath} on the GPU, using the CPU: ${(err as Error).message.split("\n")[0]}`);
+      log.warn(
+        `[inference] Couldn't load ${modelPath} on the GPU, using the CPU: ${(err as Error).message.split("\n")[0]}`,
+      );
       return createSession(modelPath, []);
     }
   })();
@@ -352,7 +370,11 @@ interface Rect {
 
 /** Letterboxes an image into a gray-padded 640x640 canvas (ultralytics' preprocessing), returning
  * [0,1] CHW floats and how to map boxes back. width and height are the upright size. */
-async function letterbox(bytes: ImageData, width: number, height: number): Promise<{ floats: Float32Array; scale: number; padX: number; padY: number }> {
+async function letterbox(
+  bytes: ImageData,
+  width: number,
+  height: number,
+): Promise<{ floats: Float32Array; scale: number; padX: number; padY: number }> {
   const scale = Math.min(DETECT_SIZE / width, DETECT_SIZE / height);
   const newWidth = Math.round(width * scale);
   const newHeight = Math.round(height * scale);
@@ -361,7 +383,13 @@ async function letterbox(bytes: ImageData, width: number, height: number): Promi
   const { data, info } = await openImage(bytes)
     .rotate()
     .resize(newWidth, newHeight, { fit: "fill" })
-    .extend({ top: padY, bottom: DETECT_SIZE - newHeight - padY, left: padX, right: DETECT_SIZE - newWidth - padX, background: { r: 114, g: 114, b: 114 } })
+    .extend({
+      top: padY,
+      bottom: DETECT_SIZE - newHeight - padY,
+      left: padX,
+      right: DETECT_SIZE - newWidth - padX,
+      background: { r: 114, g: 114, b: 114 },
+    })
     .removeAlpha()
     .raw()
     .toBuffer({ resolveWithObject: true });
@@ -396,7 +424,11 @@ function pickBestDetection(output: Float32Array, numAnchors: number, numClasses:
     const cy = output[1 * numAnchors + i];
     const w = output[2 * numAnchors + i];
     const h = output[3 * numAnchors + i];
-    const detection: Detection = { score: bestClassScore, classIndex: bestClassIndex, box: [cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2] };
+    const detection: Detection = {
+      score: bestClassScore,
+      classIndex: bestClassIndex,
+      box: [cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2],
+    };
     if (isAnimal) {
       if (!bestAnimal || bestClassScore > bestAnimal.score) bestAnimal = detection;
     } else if (!bestAny || bestClassScore > bestAny.score) {
@@ -442,7 +474,13 @@ interface DetectionOutcome {
 
 /** One pass over an encoded image (the photo, or one tile of it at `offset`). Returns the best
  * detection mapped into the photo's space, plus the raw output for the presence reading. */
-async function detectPass(session: InferenceSession, bytes: ImageData, size: { width: number; height: number }, offset: Rect | null, hooks: RunHooks) {
+async function detectPass(
+  session: InferenceSession,
+  bytes: ImageData,
+  size: { width: number; height: number },
+  offset: Rect | null,
+  hooks: RunHooks,
+) {
   const { floats, scale, padX, padY } = await letterbox(bytes, size.width, size.height);
   const out = await run(session, floats, [1, 3, DETECT_SIZE, DETECT_SIZE], hooks, "detect");
   const [, numAttrs, numAnchors] = out.dims as [number, number, number];
@@ -512,8 +550,10 @@ export function mergeTileDetections(found: Detection[]): Detection | null {
   if (!best) return null;
   const box = [...best.box] as Detection["box"];
   const longest = (b: Detection["box"]) => Math.max(b[2] - b[0], b[3] - b[1]);
-  const pieces = found.filter((d) => d !== best && d.classIndex === best!.classIndex && d.score >= TILE_MERGE_MIN_SCORE);
-  for (let grew = true; grew; ) {
+  const pieces = found.filter(
+    (d) => d !== best && d.classIndex === best!.classIndex && d.score >= TILE_MERGE_MIN_SCORE,
+  );
+  for (let grew = true; grew;) {
     grew = false;
     for (let i = pieces.length - 1; i >= 0; i--) {
       const b = pieces[i].box;
@@ -533,7 +573,12 @@ export function mergeTileDetections(found: Detection[]): Detection | null {
   return { ...best, box };
 }
 
-async function detect(bytes: ImageData, detectorPath: string, hooks: RunHooks, providers?: ProviderSpec[]): Promise<DetectionOutcome> {
+async function detect(
+  bytes: ImageData,
+  detectorPath: string,
+  hooks: RunHooks,
+  providers?: ProviderSpec[],
+): Promise<DetectionOutcome> {
   const session = await getSession(detectorPath, "The animal detector model is missing", providers);
   try {
     const size = await originalSize(bytes);
@@ -680,7 +725,7 @@ async function analyze(req: Extract<InferenceRequest, { op: "analyze" }>, hooks:
 }
 
 // ---------------------------------------------------------------------------------------------
-// CLIP text encoder (@xenova/transformers ships the tokenizer and the paired text model)
+// CLIP text encoder (@huggingface/transformers ships the tokenizer and the paired text model)
 // ---------------------------------------------------------------------------------------------
 
 interface TextModel {
@@ -688,6 +733,9 @@ interface TextModel {
   textModel: CLIPTextModelWithProjection;
 }
 let textModel: { key: string; model: Promise<TextModel>; timer: ReturnType<typeof setTimeout> | null } | null = null;
+
+// Everything the text encoder loads, relative to its revision's cache folder.
+const TEXT_MODEL_FILES = ["config.json", "tokenizer.json", "tokenizer_config.json", "onnx/text_model_quantized.onnx"];
 
 export function isTextCachePopulated(cacheDir: string): boolean {
   return existsSync(cacheDir) && readdirSync(cacheDir).length > 0;
@@ -704,11 +752,26 @@ function getTextModel(spec: TextModelSpec, allowDownload: boolean): Promise<Text
   }
   releaseText();
   const model = (async () => {
-    const { AutoTokenizer, CLIPTextModelWithProjection, env } = await import("@xenova/transformers");
+    const { AutoTokenizer, CLIPTextModelWithProjection, env } = await import("@huggingface/transformers");
     env.cacheDir = spec.cacheDir;
+    // A cached revision loads from its folder: the library's tokenizer lookup ignores `revision`
+    // and would otherwise go to the network (or fail offline) for a file that's already here.
+    const revisionDir = path.join(spec.cacheDir, spec.modelId, spec.revision);
+    const cached = TEXT_MODEL_FILES.every((f) => existsSync(path.join(revisionDir, f)));
+    const source = cached ? revisionDir : spec.modelId;
     const [tokenizer, loaded] = await Promise.all([
-      AutoTokenizer.from_pretrained(spec.modelId, { revision: spec.revision }),
-      CLIPTextModelWithProjection.from_pretrained(spec.modelId, { quantized: true, revision: spec.revision }),
+      AutoTokenizer.from_pretrained(source, { revision: spec.revision }),
+      CLIPTextModelWithProjection.from_pretrained(source, {
+        revision: spec.revision,
+        // The int8 file installs have always used, on the CPU like the image models.
+        device: "cpu",
+        dtype: "q8",
+        // "all", like the image models: its fused int8 attention lands closest to the
+        // full-precision model (0.990 cosine on average, 0.971 worst), where the onnxruntime 1.14
+        // vectors of clip-vit-l14-text-v1 averaged 0.887. The level changes the vectors, so
+        // changing it needs a new TEXT_MODEL_VERSION and a backfill of species_text_embeddings.
+        session_options: { graphOptimizationLevel: "all", intraOpNumThreads: INTRA_OP_THREADS, interOpNumThreads: 1 },
+      }),
     ]);
     return { tokenizer, textModel: loaded };
   })();
@@ -781,7 +844,11 @@ async function probe(req: Extract<InferenceRequest, { op: "probe" }>, hooks: Run
       times.push(performance.now() - start);
     }
     times.sort((a, b) => a - b);
-    return { probe: true, ms: times[Math.floor(times.length / 2)], vector: l2Normalize(Float32Array.from(out!.data as Float32Array)) };
+    return {
+      probe: true,
+      ms: times[Math.floor(times.length / 2)],
+      vector: l2Normalize(Float32Array.from(out!.data as Float32Array)),
+    };
   } finally {
     await session.release().catch(() => {});
   }
@@ -861,7 +928,11 @@ if (process.send && process.env.LIFER_INFERENCE_CHILD === WORKER_MARKER) {
       const result = await handleRequest(msg.request, hooks);
       port.postMessage({ type: "result", id: msg.id, result } satisfies WorkerMessage, transferablesOf(result));
     } catch (err) {
-      port.postMessage({ type: "error", id: msg.id, message: (err as Error)?.message ?? String(err) } satisfies WorkerMessage);
+      port.postMessage({
+        type: "error",
+        id: msg.id,
+        message: (err as Error)?.message ?? String(err),
+      } satisfies WorkerMessage);
     }
   });
   port.postMessage({ type: "ready" } satisfies WorkerMessage);

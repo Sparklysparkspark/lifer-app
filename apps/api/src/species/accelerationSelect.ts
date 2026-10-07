@@ -7,9 +7,10 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, wri
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
-import { setPlan, type AccelerationPlan, type ModelFamily, type Placement } from "./acceleration.js";
+import { setPlan, type AccelerationPlan, type ModelFamily, type Placement } from "@lifer/core/species/acceleration.js";
 import { ensureGpuRuntime, detectNvidiaGpu, installedGpuRuntime, type NvidiaGpu } from "./gpuRuntime.js";
-import { probeModel, type ProbeResult, type ProviderSpec } from "./inference.js";
+import { probeModel, type ProbeResult, type ProviderSpec } from "@lifer/core/species/inference.js";
+import { log as appLog } from "@lifer/core/lib/log.js";
 
 // A GPU result must match the CPU's full-precision one this closely (it's 1.0000 when right; a
 // backend that mishandles a model lands far lower).
@@ -156,7 +157,7 @@ export function cancelAcceleration(): void {
 }
 
 async function run(opts: Parameters<typeof selectAcceleration>[0]): Promise<void> {
-  const log = opts.log ?? ((m: string) => console.log(`[acceleration] ${m}`));
+  const log = opts.log ?? ((m: string) => appLog.info(`[acceleration] ${m}`));
   const gen = generation;
   const cancelled = () => gen !== generation;
   const models = opts.models.filter((m) => existsSync(m.cpuPath));
@@ -218,7 +219,7 @@ async function run(opts: Parameters<typeof selectAcceleration>[0]): Promise<void
           }
           runtime = { id: `cuda${major}`, ortModule: rt.ortModule, libraryPath: rt.libraryPath };
         } catch (err) {
-          log(`${backend.id}: couldn't download its libraries (${(err as Error).message})`);
+          log(`${backend.id}: couldn't download its libraries (${(err as Error).message}), so ${backend.label} isn't used; tried again next start`);
           incomplete = true;
           continue;
         }
@@ -266,7 +267,13 @@ async function run(opts: Parameters<typeof selectAcceleration>[0]): Promise<void
     const done: AccelerationStatus = { state: "done", message: null, progress: null, models: summary, device: plan.device, testedAt: new Date().toISOString() };
     if (incomplete) status = done;
     else save(opts.cacheFile, print, plan, done);
-    log(best ? `using ${best.backend.label}: ${summary.map((s) => `${s.family} ${s.backend} ${Math.round(s.ms)} ms (CPU ${Math.round(s.cpuMs)})`).join(", ")}` : "the CPU is fastest here");
+    log(
+      best
+        ? `using ${best.backend.label}: ${summary.map((s) => `${s.family} ${s.backend} ${Math.round(s.ms)} ms (CPU ${Math.round(s.cpuMs)})`).join(", ")}`
+        : incomplete
+          ? "using the CPU: a GPU's libraries couldn't be downloaded"
+          : "the CPU is fastest here",
+    );
   } catch (err) {
     setPlan(cpuOnly);
     update({ state: "failed", message: `Couldn't set up GPU matching: ${(err as Error).message}`, progress: null });
@@ -280,7 +287,9 @@ function save(file: string, print: string, plan: AccelerationPlan, s: Accelerati
   try {
     mkdirSync(path.dirname(file), { recursive: true });
     writeFileSync(file, JSON.stringify({ fingerprint: print, plan, status: s } satisfies Cache));
-  } catch {}
+  } catch {
+    // Only a cache: the next start re-tests the hardware.
+  }
 }
 
 /** Forgets the remembered result, so the next selectAcceleration tests again. */

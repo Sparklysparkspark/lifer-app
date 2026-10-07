@@ -1,9 +1,9 @@
-import { readFileSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { readFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { deflateRawSync } from "node:zlib";
 import { describe, expect, it } from "vitest";
-import { RUNTIME_SETS, cudaMajorForDriver } from "./gpuRuntime.js";
+import { RUNTIME_SETS, cudaMajorForDriver, installedGpuRuntime } from "./gpuRuntime.js";
 import { extractZipEntries } from "./zipEntries.js";
 
 describe("cudaMajorForDriver", () => {
@@ -28,6 +28,51 @@ describe("RUNTIME_SETS", () => {
       for (const lib of ["cuda_runtime", "cublas", "cudnn", "cufft", "curand"]) expect(libs.some((l) => l.includes(lib))).toBe(true);
       expect(set.ortNode.url).toContain(set.ortVersion);
       expect(set.cudaAddon.url).toContain(set.ortVersion);
+    }
+  });
+});
+
+describe("installedGpuRuntime", () => {
+  const binding = path.join("node_modules", "onnxruntime-node", "bin", "napi-v6", "linux", "x64");
+  const files = [
+    path.join(binding, "onnxruntime_binding.node"),
+    path.join(binding, "libonnxruntime_providers_cuda.so"),
+    path.join(binding, "libonnxruntime_providers_shared.so"),
+    path.join("lib", "libcudart.so.12"),
+  ];
+  function assemble(root: string): string {
+    const dir = path.join(root, `cuda12-ort${RUNTIME_SETS[12].ortVersion}`);
+    for (const f of files) {
+      mkdirSync(path.dirname(path.join(dir, f)), { recursive: true });
+      writeFileSync(path.join(dir, f), "");
+    }
+    writeFileSync(path.join(dir, "ready"), JSON.stringify({ files }));
+    return dir;
+  }
+
+  it("loads ONNX Runtime from the download, with its CUDA provider's folder on the library path", () => {
+    const root = mkdtempSync(path.join(os.tmpdir(), "lifer-gpu-"));
+    try {
+      const dir = assemble(root);
+      const rt = installedGpuRuntime(root, 12);
+      expect(rt?.ortModule).toBe(path.join(dir, "node_modules", "onnxruntime-node"));
+      expect(rt?.libraryPath.split(":")).toEqual([path.join(dir, "lib"), path.join(dir, binding)]);
+      expect(installedGpuRuntime(root, 13)).toBeNull();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("is missing when the downloaded CUDA provider is gone, or the runtime was never finished", () => {
+    const root = mkdtempSync(path.join(os.tmpdir(), "lifer-gpu-"));
+    try {
+      const dir = assemble(root);
+      rmSync(path.join(dir, binding, "libonnxruntime_providers_cuda.so"));
+      expect(installedGpuRuntime(root, 12)).toBeNull();
+      rmSync(path.join(dir, "ready"));
+      expect(installedGpuRuntime(root, 12)).toBeNull();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
     }
   });
 });

@@ -46,30 +46,30 @@ beforeAll(async () => {
   process.env.APP_DATA_DIR = appData;
   process.env.LIFER_INFERENCE_IN_PROCESS = "1";
   vi.resetModules();
-  const { EMBEDDING_MODEL_VERSION } = await import("../config.js");
+  const { EMBEDDING_MODEL_VERSION } = await import("@lifer/core/config.js");
   mkdirSync(path.join(appData, "models"), { recursive: true });
   model = pooledModel();
   writeFileSync(path.join(appData, "models", `${EMBEDDING_MODEL_VERSION}.onnx`), model);
   // A real screenshot of the app with animal photos in it: the detector finds one, and at 4206 px
   // wide it exercises detection on a large photo and the crop from the full-size original.
-  photo = readFileSync(fileURLToPath(new URL("../../../../assets/Gallery.png", import.meta.url)));
+  photo = readFileSync(fileURLToPath(new URL("./__fixtures__/gallery-screenshot-4206px.png", import.meta.url)));
 });
 
 afterAll(async () => {
   delete process.env.LIFER_INFERENCE_IN_PROCESS;
   delete process.env.APP_DATA_DIR;
-  const { stopInference } = await import("./inference.js");
+  const { stopInference } = await import("@lifer/core/species/inference.js");
   await stopInference();
 });
 
 describe("client-computed vectors", () => {
   it("seed the memo with exactly what the server computes, so suggestions are identical", async () => {
-    const config = await import("../config.js");
-    const embeddings = await import("./embeddings.js");
-    const { contentHash, inferenceRuntime } = await import("./inference.js");
+    const config = await import("@lifer/core/config.js");
+    const embeddings = await import("@lifer/core/species/embeddings.js");
+    const { contentHash, inferenceRuntime } = await import("@lifer/core/species/inference.js");
     const { createLocalInferenceServer } = await import("./localInferenceServer.js");
     const { EMBED_PIPELINE_VERSION } = await import("@lifer/shared");
-    const { YOLO_MODEL_SHA256 } = await import("./modelChecksums.js");
+    const { YOLO_MODEL_SHA256 } = await import("@lifer/core/species/modelChecksums.js");
 
     // The desktop side: prepare with the server's matching info (the model is already in the
     // folder with a matching sha256, so nothing downloads), then embed the photo.
