@@ -10,7 +10,7 @@ const repoUrl = `https://github.com/${organizationName}/${projectName}`;
 
 const config: Config = {
   title: "Lifer",
-  tagline: "A species-indexed photo archive and life list for wildlife photographers",
+  tagline: "Wildlife photo library & life list",
   favicon: "img/favicon.png",
 
   url: process.env.DOCS_URL ?? `https://${organizationName.toLowerCase()}.github.io`,

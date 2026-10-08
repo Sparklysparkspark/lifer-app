@@ -20,13 +20,14 @@
   <a href="https://github.com/Sparklysparkspark/lifer-app/discussions"><img src="https://img.shields.io/github/discussions/Sparklysparkspark/lifer-app" alt="Discussions"></a>
 </p>
 
-Lifer is an open-source photo and video management and archival application built for wildlife
-photographers.
+Lifer is a free, open-source wildlife photo library and life list for wildlife photographers.
 
-It turns a collection of wildlife photos into a structured archive organized around **species,
-taxonomy, locations, dates, trips, and albums**, while also maintaining your photographic life
-list and regional checklists. A species only counts as "collected" once you've actually attached
-your own photo of it. This isn't a sightings log.
+Organize your photos by species, build life lists and regional checklists, and manage your
+wildlife photography collection. Lifer runs as a desktop application on macOS, Windows, and
+Linux, or as a self-hosted server.
+
+A species only counts as "collected" once you've attached your own photo of it. This isn't a
+sightings log.
 
 Your photographs and videos remain on the drives you choose. Lifer provides the wildlife-specific
 organization and information built around them.

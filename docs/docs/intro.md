@@ -1,6 +1,7 @@
 ---
-title: Introduction
-description: What Lifer is, the ideas it's built around, and how to choose between the desktop app and a server.
+title: Wildlife Photo Library & Life List
+sidebar_label: Introduction
+description: Free, open-source photo library and life list for wildlife photographers. Organize photos by species, track checklists, and use Lifer as a desktop app or self-hosted server.
 slug: /
 ---
 
