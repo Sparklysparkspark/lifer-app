@@ -48,7 +48,7 @@
     "@types/pg": "^8.11.10",
     "@types/pg-copy-streams": "^1.2.5",
     "@types/tar": "^6.1.13",
-    "@vitest/coverage-v8": "^4.1.11",
+    "@vitest/coverage-v8": "^5.0.3",
     "data-pipeline": "*",
     "esbuild": "^0.28.2",
     "tsx": "^4.23.15",
