@@ -47,7 +47,6 @@
     "@types/node": "^22.20.5",
     "@types/pg": "^8.11.10",
     "@types/pg-copy-streams": "^1.2.5",
-    "@types/tar": "^6.1.13",
     "@vitest/coverage-v8": "^4.1.11",
     "data-pipeline": "*",
     "esbuild": "^0.28.2",
