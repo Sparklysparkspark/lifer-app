@@ -7,6 +7,7 @@ import { Logo } from "./Logo";
 import AccountMenu from "./AccountMenu";
 import { openLocalLibrary } from "../lib/desktopConnection";
 import { isTauri } from "../lib/tauri";
+import { backLabelFor } from "../lib/backLabel";
 
 const linkClass = ({ isActive }: { isActive: boolean }) =>
   `text-sm hover:underline ${isActive ? "font-medium text-ink" : "text-muted"}`;
@@ -18,6 +19,8 @@ export default function AppNav() {
   const navCounts = useNavCountsValue();
   const { pathname } = useLocation();
   const { t } = useTranslation();
+  // The page a top-bar link leaves, so the next page's back link names where it goes.
+  const from = { backLabel: backLabelFor(pathname, t) };
 
   // In the desktop app, signing out of a server goes back to the library on this computer.
   async function signOut() {
@@ -38,22 +41,23 @@ export default function AppNav() {
         )}
       </div>
       <nav className="flex flex-wrap items-center gap-x-3 gap-y-1 sm:gap-x-4">
-        <NavLink to="/import" className={linkClass}>
+        <NavLink to="/import" state={from} className={linkClass}>
           {t("nav.import")}
         </NavLink>
-        <NavLink to="/stats" className={linkClass}>
+        <NavLink to="/stats" state={from} className={linkClass}>
           {t("nav.stats")}
         </NavLink>
-        <NavLink to="/gallery" className={linkClass}>
+        <NavLink to="/gallery" state={from} className={linkClass}>
           {t("nav.gallery")}
         </NavLink>
         <NavLink
           to="/albums"
+          state={from}
           className={({ isActive }) => linkClass({ isActive: isActive || pathname.startsWith("/trips") })}
         >
           {t("nav.albumsAndTrips")}
         </NavLink>
-        <NavLink to="/settings" className={linkClass}>
+        <NavLink to="/settings" state={from} className={linkClass}>
           {t("nav.settings")}
         </NavLink>
         {/* Desktop's auto-provisioned local user has no real account to manage. */}

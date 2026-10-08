@@ -63,3 +63,12 @@ test("the offline packs page loads cleanly without a downloaded map", async ({ p
   await page.goto("/offline-packs");
   await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
 });
+
+test("a page opened from a URL goes back into the app, even after a redirect landed on it", async ({ page }) => {
+  await page.goto("/offline-packs");
+  // What a redirect leaves behind (signing in first, say): the first entry of the visit, with a key.
+  await page.evaluate(() => window.history.replaceState({ usr: null, key: "redirected", idx: 0 }, ""));
+  await page.reload();
+  await page.getByRole("button", { name: "← Settings" }).click();
+  await expect(page).toHaveURL(/\/settings/);
+});
