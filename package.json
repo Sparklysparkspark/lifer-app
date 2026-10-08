@@ -1,6 +1,6 @@
 {
   "name": "lifer",
-  "version": "0.10.2",
+  "version": "0.10.3",
   "description": "Self-hosted, species-indexed life-list app for wildlife photography.",
   "license": "AGPL-3.0-only",
   "private": true,

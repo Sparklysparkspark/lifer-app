@@ -1,6 +1,6 @@
 [package]
 name = "lifer-desktop"
-version = "0.10.2"
+version = "0.10.3"
 description = "Lifer desktop app"
 authors = ["Lifer contributors"]
 license = "AGPL-3.0-only"

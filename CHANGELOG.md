@@ -8,6 +8,13 @@ banner.
 
 ## [Unreleased]
 
+## [0.10.3] - 2026-10-08
+
+### Fixed
+
+- The Mac app for Apple Silicon is available again. 0.10.2 shipped without it because a source
+  download its build needs started returning a bot check; this release includes it.
+
 ## [0.10.2] - 2026-10-08
 
 ### Added
