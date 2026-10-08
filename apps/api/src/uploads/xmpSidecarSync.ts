@@ -3,8 +3,15 @@
 import { pool } from "@lifer/core/db.js";
 import { log } from "@lifer/core/lib/log.js";
 import { writeCaptureMetadata, type SpeciesMetadata } from "./exif.js";
+import { photoPlaceForRegion } from "../regions/photoPlace.js";
 
-export async function syncCaptureXmpSidecars(userId: string, captureId: string): Promise<void> {
+/** `replacePlace`: the capture's region was just changed in Lifer, so the files' location fields
+ *  are rewritten to match instead of only filled where empty. */
+export async function syncCaptureXmpSidecars(
+  userId: string,
+  captureId: string,
+  opts: { replacePlace?: boolean } = {},
+): Promise<void> {
   const originalsRes = await pool.query<{ ref: string }>(
     `SELECT ref FROM originals WHERE capture_id = $1 AND managed = true AND ref_type = 'path'`,
     [captureId],
@@ -26,9 +33,10 @@ export async function syncCaptureXmpSidecars(userId: string, captureId: string):
     species_id: string;
     cover_photo_id: string | null;
     tags: string[];
+    region_id: string | null;
   }>(
     `SELECT c.quality_rating, c.cull_verdict, c.taken_at, c.lat, c.lon, c.camera_model, c.lens, c.focal_length_mm, c.aperture, c.shutter, c.iso,
-            c.species_id, us.cover_photo_id, c.tags
+            c.species_id, us.cover_photo_id, c.tags, c.region_id
      FROM captures_all c
      LEFT JOIN user_species us ON us.user_id = c.user_id AND us.species_id = c.species_id
      -- Hidden photos included: their files carry Lifer's tags like any other.
@@ -77,6 +85,8 @@ export async function syncCaptureXmpSidecars(userId: string, captureId: string):
     // Free-form photo tags, as plain keywords other tools show (exif.ts keeps them apart from
     // the keywords those tools added).
     tags: capture.tags,
+    place: await photoPlaceForRegion(pool, capture.region_id),
+    replacePlace: opts.replacePlace,
   };
 
   await Promise.all(originalsRes.rows.map((o) => writeCaptureMetadata(o.ref, data).catch(() => {})));
@@ -84,9 +94,13 @@ export async function syncCaptureXmpSidecars(userId: string, captureId: string):
 
 // Best-effort variant for callers that shouldn't fail on a sidecar write, but where a failure
 // should still show up in the logs instead of letting sidecars drift silently.
-export async function syncCaptureXmpSidecarsLogged(userId: string, captureId: string): Promise<void> {
+export async function syncCaptureXmpSidecarsLogged(
+  userId: string,
+  captureId: string,
+  opts: { replacePlace?: boolean } = {},
+): Promise<void> {
   try {
-    await syncCaptureXmpSidecars(userId, captureId);
+    await syncCaptureXmpSidecars(userId, captureId, opts);
   } catch (err) {
     log.warn({ captureId, err: err instanceof Error ? err.message : err }, "Couldn't sync the XMP sidecar");
   }

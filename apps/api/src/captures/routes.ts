@@ -379,6 +379,8 @@ export async function captureRoutes(fastify: FastifyInstance): Promise<void> {
         ],
       );
       if (res.rows.length === 0) return reply.code(404).send({ error: "Capture not found" });
+      // The files' province and country follow a new region. In the background: exiftool is slow.
+      if (regionId) void syncCaptureXmpSidecarsLogged(userId, captureId, { replacePlace: true });
 
       return { ok: true };
     },

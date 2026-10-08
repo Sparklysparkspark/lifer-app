@@ -312,6 +312,10 @@ export interface XmpSidecarData {
   /** The photo's own tags ("flight shot"), written as plain keywords. undefined leaves the
    *  file's Lifer tags as they are. */
   tags?: string[];
+  /** The photo's region as names, written only into location fields the file leaves empty. */
+  place?: PhotoPlace | null;
+  /** True when the region was just changed in Lifer: the file's location follows it. */
+  replacePlace?: boolean;
 }
 
 // A standalone ".xmp" sidecar (created fresh if it doesn't exist) carrying what Lifer knows about
@@ -340,6 +344,19 @@ interface LiferTags {
   lon?: number | null;
   /** undefined leaves the file's Lifer tags as they are; [] removes them. */
   tags?: string[];
+  place?: PhotoPlace | null;
+  /** Write `place` over the file's location fields, not only into empty ones. */
+  replacePlace?: boolean;
+}
+
+/** Where a photo was taken, as names: the photo's region's province or state, and country. */
+export interface PhotoPlace {
+  state: string | null;
+  country: string | null;
+  /** ISO 3166-1 alpha-2 ("CA"), for XMP's CountryCode. */
+  countryCode: string | null;
+  /** ISO 3166-1 alpha-3 ("CAN"), for the IPTC-IIM country code inside a JPEG. */
+  countryCode3: string | null;
 }
 
 const COVER_KEYWORD = "Lifer:Cover";
@@ -407,6 +424,25 @@ async function writeLiferMetadataNow(target: string, data: LiferTags, mode: "emb
     tags["IPTC:Keywords"] = subject;
     tags["IPTC:ObjectName"] = title;
   }
+  // Province and country names, never coordinates: a region says where, not a point. Only empty
+  // fields are filled, so a location typed in Lightroom (or a camera's own) is never replaced,
+  // unless the region was just changed in Lifer, which the file then follows.
+  if (data.place) {
+    const p = data.place;
+    const filled = data.replacePlace ? NO_LOCATION : kept.location;
+    if (p.state && !filled.state) {
+      tags["XMP-photoshop:State"] = p.state;
+      if (mode === "embedded") tags["IPTC:Province-State"] = p.state;
+    }
+    if (p.country && !filled.country) {
+      tags["XMP-photoshop:Country"] = p.country;
+      if (mode === "embedded") tags["IPTC:Country-PrimaryLocationName"] = p.country;
+    }
+    if (p.countryCode && !filled.countryCode) {
+      tags["XMP-iptcCore:CountryCode"] = p.countryCode;
+      if (mode === "embedded" && p.countryCode3) tags["IPTC:Country-PrimaryLocationCode"] = p.countryCode3;
+    }
+  }
   if (data.rating !== undefined) tags["XMP-xmp:Rating"] = data.rating; // null deletes it
   if (mode === "sidecar") {
     if (data.lat != null) tags["XMP-exif:GPSLatitude"] = data.lat;
@@ -431,16 +467,30 @@ export function extractLiferTags(tags: ExifTags | Record<string, unknown>): stri
  * Lifer's own "Species|..." hierarchy, and the photo tags Lifer wrote (marked under "Lifer
  * Tags|..."), so keywords added in other tools survive. `liferTags` are those photo tags, for a
  * write that leaves them as they are. */
+interface LocationFilled {
+  state: boolean;
+  country: boolean;
+  countryCode: boolean;
+}
+const NO_LOCATION: LocationFilled = { state: false, country: false, countryCode: false };
+
 async function keywordsToKeep(
   target: string,
-): Promise<{ flat: string[]; hierarchical: string[]; liferTags: string[] }> {
-  if (!existsSync(target)) return { flat: [], hierarchical: [], liferTags: [] };
+): Promise<{ flat: string[]; hierarchical: string[]; liferTags: string[]; location: LocationFilled }> {
+  if (!existsSync(target)) return { flat: [], hierarchical: [], liferTags: [], location: NO_LOCATION };
   let raw: Record<string, unknown>;
   try {
     raw = (await exiftool.read(target)) as unknown as Record<string, unknown>;
   } catch {
-    return { flat: [], hierarchical: [], liferTags: [] };
+    return { flat: [], hierarchical: [], liferTags: [], location: NO_LOCATION };
   }
+  const filled = (...keys: string[]) =>
+    keys.some((k) => typeof raw[k] === "string" && (raw[k] as string).trim() !== "");
+  const location = {
+    state: filled("State", "Province-State"),
+    country: filled("Country", "Country-PrimaryLocationName"),
+    countryCode: filled("CountryCode", "Country-PrimaryLocationCode"),
+  };
   const list = (v: unknown): string[] => (Array.isArray(v) ? v.map(String) : typeof v === "string" ? [v] : []);
   const allHierarchical = list(raw.HierarchicalSubject);
   const markers = new Set(allHierarchical.filter((h) => h.startsWith(`${TAGS_ROOT}|`)));
@@ -451,14 +501,14 @@ async function keywordsToKeep(
   const hierarchical = allHierarchical.filter(
     (h) => !h.startsWith(`${SPECIES_ROOT}|`) && !h.startsWith(`${SPECIES_ROOT}/`) && !markers.has(h),
   );
-  if (flat.length === 0) return { flat, hierarchical, liferTags };
+  if (flat.length === 0) return { flat, hierarchical, liferTags, location };
   const speciesWords = await pool.query<{ k: string }>(
     `SELECT DISTINCT lower(k) AS k FROM species, unnest(ARRAY[common_name, scientific_name, aba_code, ebird_code]) AS k
      WHERE k IS NOT NULL AND lower(k) = ANY($1)`,
     [flat.map((k) => k.toLowerCase())],
   );
   const species = new Set(speciesWords.rows.map((r) => r.k));
-  return { flat: flat.filter((k) => !species.has(k.toLowerCase())), hierarchical, liferTags };
+  return { flat: flat.filter((k) => !species.has(k.toLowerCase())), hierarchical, liferTags, location };
 }
 
 export async function closeExiftool(): Promise<void> {

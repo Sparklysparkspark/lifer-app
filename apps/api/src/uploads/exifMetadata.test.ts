@@ -136,6 +136,56 @@ describe("writeCaptureMetadata", () => {
   });
 });
 
+describe("writeCaptureMetadata: the photo's place", () => {
+  const place = { state: "British Columbia", country: "Canada", countryCode: "CA", countryCode3: "CAN" };
+
+  it("fills a JPEG's empty location fields with its region's province and country, never GPS", async () => {
+    const file = path.join(dir, "place.jpg");
+    await sharp({ create: { width: 8, height: 8, channels: 3, background: "#888" } })
+      .jpeg()
+      .toFile(file);
+    await writeCaptureMetadata(file, { ...data, lat: null, lon: null, place });
+    const tags = (await readExifTags(file)) as unknown as Record<string, unknown>;
+    expect([tags.State, tags.Country, tags.CountryCode]).toEqual(["British Columbia", "Canada", "CA"]);
+    expect([tags["Province-State"], tags["Country-PrimaryLocationName"], tags["Country-PrimaryLocationCode"]]).toEqual([
+      "British Columbia",
+      "Canada",
+      "CAN",
+    ]);
+    expect(tags.GPSLatitude).toBeUndefined();
+  });
+
+  it("keeps a location the photographer already set", async () => {
+    const file = path.join(dir, "place-kept.jpg");
+    await sharp({ create: { width: 8, height: 8, channels: 3, background: "#888" } })
+      .jpeg()
+      .toFile(file);
+    await writeCaptureMetadata(file, { ...data, place: { ...place, state: "Yukon" } });
+    await writeCaptureMetadata(file, { ...data, place });
+    const tags = (await readExifTags(file)) as unknown as Record<string, unknown>;
+    expect([tags.State, tags.Country]).toEqual(["Yukon", "Canada"]);
+  });
+
+  it("follows a region changed in Lifer, replacing the place it wrote before", async () => {
+    const file = path.join(dir, "place-moved.jpg");
+    await sharp({ create: { width: 8, height: 8, channels: 3, background: "#888" } })
+      .jpeg()
+      .toFile(file);
+    await writeCaptureMetadata(file, { ...data, place });
+    await writeCaptureMetadata(file, { ...data, place: { ...place, state: "Alberta" }, replacePlace: true });
+    const tags = (await readExifTags(file)) as unknown as Record<string, unknown>;
+    expect([tags.State, tags["Province-State"]]).toEqual(["Alberta", "Alberta"]);
+  });
+
+  it("puts a RAW's place in its sidecar", async () => {
+    const raw = path.join(dir, "place.cr3");
+    writeFileSync(raw, "not really a raw");
+    await writeCaptureMetadata(raw, { ...data, place });
+    const sidecar = (await readExifTags(path.join(dir, "place.xmp"))) as unknown as Record<string, unknown>;
+    expect([sidecar.State, sidecar.Country, sidecar.CountryCode]).toEqual(["British Columbia", "Canada", "CA"]);
+  });
+});
+
 describe("metadataGoesInFile", () => {
   it("embeds for JPEG/TIFF/PNG/DNG and uses sidecars for RAW", () => {
     expect(metadataGoesInFile("x.JPG")).toBe(true);
