@@ -8,6 +8,31 @@ banner.
 
 ## [Unreleased]
 
+### Added
+
+- A photo's province or state and country are written into its file's location fields (State /
+  Province, Country and country code, as Lightroom and other apps show them), from the region it's
+  filed under. Only empty fields are filled, so a location you set elsewhere stays, unless you
+  change the photo's region in Lifer, which the file then follows. No GPS coordinates are made up.
+
+### Changed
+
+- Catalog updates are much faster: rows that haven't changed are no longer rewritten, and region
+  checklists are compared in bulk. An update where little changed takes about a third of the time.
+- Photos and species cards show straight away when you come back to a page, instead of waiting for
+  the server to confirm each one.
+- The update notes in Settings are formatted (headings, lists, links) instead of showing raw
+  Markdown.
+- Settings' and other pages' back links name the page they return to, such as "Bulk import".
+
+### Fixed
+
+- A server that can't write to its app-data folder no longer crashes on every upload ("the
+  connection dropped" or "Upload failed (500)"). The upload fails with a message saying so, and
+  the server's log names the folder at startup.
+- A back link on a page opened from a link (or after signing in) goes back into Lifer instead of
+  to a blank page.
+
 ## [0.10.1] - 2026-10-08
 
 ### Fixed
