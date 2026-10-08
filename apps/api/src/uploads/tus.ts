@@ -6,7 +6,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { Type } from "typebox";
 import { requireScope } from "../auth/session.js";
 import { withSchemas } from "../lib/schema.js";
-import { ownsTusUpload, setTusRequestUser, tusServer } from "../lib/tusUploads.js";
+import { ensureTusUploadDirs, ownsTusUpload, setTusRequestUser, tusServer } from "../lib/tusUploads.js";
 
 export async function tusUploadRoutes(parent: FastifyInstance): Promise<void> {
   // Own scope: the tus server reads the body itself, so nothing here may parse or buffer it,
@@ -23,6 +23,8 @@ export async function tusUploadRoutes(parent: FastifyInstance): Promise<void> {
       if (id !== undefined && !ownsTusUpload(userId, id)) {
         return reply.code(404).header("Tus-Resumable", "1.0.0").send({ error: "Upload not found" });
       }
+      // Before hijacking, so a folder it can't create answers through the app's error handler.
+      await ensureTusUploadDirs();
       setTusRequestUser(request.raw, userId);
       reply.hijack();
       try {

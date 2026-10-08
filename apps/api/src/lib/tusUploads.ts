@@ -117,6 +117,18 @@ function metadataValue(upload: Upload, ...keys: string[]): string | null {
   return null;
 }
 
+let dirsReady = false;
+
+/** Creates the upload folders, so a folder Lifer can't write to fails the request instead of the
+ *  server. Call before tusServer(): @tus/file-store creates its folder in a callback that throws,
+ *  which would be an uncaught exception, but finds it already there after this. */
+export async function ensureTusUploadDirs(): Promise<void> {
+  if (dirsReady) return;
+  await mkdir(filesDir(), { recursive: true });
+  await mkdir(recordsDir(), { recursive: true });
+  dirsReady = true;
+}
+
 let server: Server | null = null;
 
 /** The tus server, created on first use (the upload folder is only known once config loads).

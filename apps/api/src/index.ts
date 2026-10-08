@@ -8,6 +8,7 @@ import multipart from "@fastify/multipart";
 import staticFiles from "@fastify/static";
 import helmet from "@fastify/helmet";
 import {
+  APP_DATA_DIR,
   desktopModeStartupError,
   MAX_JSON_BODY_BYTES,
   MAX_UPLOAD_BYTES,
@@ -38,6 +39,7 @@ import { stopInference } from "@lifer/core/species/inference.js";
 import { closeExiftool } from "./uploads/exif.js";
 import { friendlyFsErrorMessage } from "./lib/friendlyFsError.js";
 import { registerRateLimit } from "./lib/rateLimit.js";
+import { checkWritableDir } from "./lib/writableDir.js";
 import { startEventLoopWatchdog } from "./lib/eventLoopWatchdog.js";
 import { startParentWatchdog } from "./lib/parentWatchdog.js";
 import { watchLibraryFolder } from "@lifer/core/lib/libraryFolder.js";
@@ -62,6 +64,16 @@ await recoverInterruptedStorageMigration();
 await migrateDerivativesLocation();
 await adoptFlatLibraryLayout();
 await syncLibraryRootsFromEnv();
+
+// Named in the log at startup, rather than found by the first upload or catalog update.
+const appDataError = await checkWritableDir(APP_DATA_DIR);
+if (appDataError) {
+  log.error(
+    { err: appDataError },
+    `[startup] Lifer can't write to ${APP_DATA_DIR}, so uploads, thumbnails and catalog updates will fail. ` +
+      "Give that folder to the user Lifer runs as (in Docker, PUID:PGID, 568:568 by default).",
+  );
+}
 
 startParentWatchdog();
 
