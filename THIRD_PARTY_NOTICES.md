@@ -63,8 +63,8 @@ This software uses code of [FFmpeg](https://ffmpeg.org) licensed under the
 ### ExifTool
 
 - Component: [ExifTool](https://exiftool.org) 13.59 by Phil Harvey, through
-  [exiftool-vendored](https://github.com/photostructure/exiftool-vendored.js) 37.2.0 (MIT) and
-  exiftool-vendored.pl 13.59.2 (MIT). The Windows build (exiftool-vendored.exe) includes a Perl
+  [exiftool-vendored](https://github.com/photostructure/exiftool-vendored.js) 38.3.0 (MIT) and
+  exiftool-vendored.pl 13.59.3 (MIT). The Windows build (exiftool-vendored.exe) includes a Perl
   runtime.
 - License: ExifTool is free software under the same terms as Perl itself (Artistic License or
   GPL-1.0-or-later)
@@ -151,6 +151,14 @@ app don't include onnxruntime-node's own CUDA or TensorRT provider libraries.
     (MIT), zlib, LZ4 (BSD-2-Clause), Zstandard (BSD-3-Clause), GNU gettext's libintl and GNU
     libiconv (LGPL-2.1-or-later), and winpthreads; their licenses ship as
     `postgres/commandlinetools_3rd_party_licenses.txt`.
+  - Source for the Windows build's LGPL libraries: `libintl-9.dll` is GNU gettext 0.19.8 and
+    `libiconv-2.dll` is GNU libiconv 1.19. Their unmodified upstream sources, with GNU's
+    signatures, are on Lifer's
+    [third-party-sources](https://github.com/Sparklysparkspark/lifer-app/releases/tag/third-party-sources)
+    release, and upstream at <https://ftp.gnu.org/gnu/gettext/gettext-0.19.8.tar.gz> and
+    <https://ftp.gnu.org/gnu/libiconv/libiconv-1.19.tar.gz>. The installer says so in
+    `postgres/THIRD_PARTY_SOURCES.txt`. Both are dynamically linked, so they can be replaced with
+    modified builds.
 - License: PostgreSQL License (`postgres/COPYRIGHT` or `postgres/LICENSE`), plus the licenses
   above.
 - Used in: desktop, bundled in the installer.

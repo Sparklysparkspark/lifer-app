@@ -91,6 +91,16 @@ A tag with a hyphen, like `v1.0.0-rc.1`, is a prerelease. It gets its exact vers
 
 The species data ships separately from the app, as GitHub releases the [data pipeline](./data-pipeline.md) publishes: `catalog-latest`, `packs-latest`, `photos-latest`, `map-latest` and `models`. These are always marked as **prereleases**, and must never be marked "Latest". The desktop updater and the web app's update banner both read the repository's latest release, so a data release marked latest would hide the app's real one.
 
+## Third-party sources
+
+The `third-party-sources` release holds the source of LGPL libraries the installers ship as
+binaries: today, the GNU gettext and libiconv DLLs in the Windows app's bundled PostgreSQL. Like the
+data releases, it's a prerelease and must never be marked "Latest". When a PostgreSQL update
+changes either DLL, `stage-postgres.js` stops the Windows build and says which one. Download that
+version's source and its `.sig` from <https://ftp.gnu.org/gnu/>, check the signature, upload both
+to the release, then add the DLL's sha256 and source to `WINDOWS_LGPL_DLLS` in
+`apps/desktop/scripts/stage-postgres.js` and update THIRD_PARTY_NOTICES.md.
+
 ## After releasing
 
 - Check the GitHub release page: notes, installers, `SHA256SUMS`.

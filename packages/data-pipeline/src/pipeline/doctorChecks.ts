@@ -332,8 +332,16 @@ export function checkPostgis(installed: boolean, available: boolean): CheckResul
 
 // ---------- data releases ----------
 
-/** The GitHub releases the data ships in. Installs and the pipeline find them by these tags. */
-export const DATA_RELEASE_TAGS = ["catalog-latest", "packs-latest", "photos-latest", "map-latest", "models"];
+/** The GitHub releases that aren't app releases: the data, which installs and the pipeline find by
+ *  these tags, and the source of bundled third-party libraries. */
+export const DATA_RELEASE_TAGS = [
+  "catalog-latest",
+  "packs-latest",
+  "photos-latest",
+  "map-latest",
+  "models",
+  "third-party-sources",
+];
 
 export interface ReleaseFlags {
   tagName: string;

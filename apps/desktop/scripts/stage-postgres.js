@@ -48,6 +48,23 @@ export const POSTGRES_VERSION = "18.6.0";
 // LIFER_POSTGRES_PREVIOUS_VERSION overrides it (the upgrade test uses 17.11.0).
 export const PREVIOUS_POSTGRES_VERSION = null;
 const THESEUS_RELEASES = "https://github.com/theseus-rs/postgresql-binaries/releases/download";
+// The LGPL DLLs in the Windows build, by file and sha256, with the upstream source Lifer offers
+// for each on its third-party-sources release (see THIRD_PARTY_NOTICES.md). A PostgreSQL build
+// with any other copy of these files fails staging until its source is published there and
+// listed here, so the installer never ships one without its source.
+const THIRD_PARTY_SOURCES_URL = "https://github.com/Sparklysparkspark/lifer-app/releases/tag/third-party-sources";
+const WINDOWS_LGPL_DLLS = [
+  {
+    file: "libintl-9.dll",
+    sha256: "1125ac8dc0c4f5c3ed4712e0d8ad29474099fcb55bb0e563a352ce9d03ef1d78",
+    source: "gettext-0.19.8.tar.gz",
+  },
+  {
+    file: "libiconv-2.dll",
+    sha256: "6095b3fad19fff040aeae05865c28fdeb455526fca109c3216f6ca737af60249",
+    source: "libiconv-1.19.tar.gz",
+  },
+];
 // sha256 of each archive, by release, from the .sha256 file published next to it (and checked
 // against a fresh download when it was pinned).
 const THESEUS_SHA256 = {
@@ -243,11 +260,35 @@ function copyKept(root, dest, platform, keptPrograms) {
   // libpq from lib/ (both by the name below); everything else they link is the OS's. Windows
   // programs find their DLLs next to them in bin/.
   if (platform === "win32") {
-    for (const dll of windowsDllClosure(
+    const dlls = windowsDllClosure(
       root,
       [...programs, ...modules].map((rel) => path.join(root, rel)),
-    ))
+    );
+    const sources = [];
+    for (const dll of dlls) {
+      const lgpl = WINDOWS_LGPL_DLLS.filter((d) => d.file.toLowerCase() === dll.toLowerCase());
+      if (lgpl.length > 0) {
+        const sha256 = createHash("sha256")
+          .update(readFileSync(path.join(root, "bin", dll)))
+          .digest("hex");
+        const known = lgpl.find((d) => d.sha256 === sha256);
+        if (!known)
+          throw new Error(
+            `[stage-postgres] ${dll} (sha256 ${sha256}) is LGPL but has no published source. Upload the ` +
+              `matching upstream source to ${THIRD_PARTY_SOURCES_URL}, then add it to WINDOWS_LGPL_DLLS.`,
+          );
+        sources.push(`${dll}: ${known.source}`);
+      }
       copy(path.join("bin", dll));
+    }
+    // Next to the DLLs, so the offer travels with them.
+    writeFileSync(
+      path.join(dest, "THIRD_PARTY_SOURCES.txt"),
+      "These DLLs are under the GNU LGPL 2.1 or later. Their source code, unmodified upstream GNU\n" +
+        `releases, is at ${THIRD_PARTY_SOURCES_URL}:\n\n` +
+        sources.map((line) => `  ${line}\n`).join("") +
+        "\nSee THIRD_PARTY_NOTICES.md in Lifer's repository for every bundled component.\n",
+    );
   } else {
     copy(path.join("lib", platform === "darwin" ? "libpq.5.dylib" : "libpq.so.5"));
   }
