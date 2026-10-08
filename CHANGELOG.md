@@ -8,6 +8,8 @@ banner.
 
 ## [Unreleased]
 
+## [0.10.2] - 2026-10-08
+
 ### Added
 
 - A photo's province or state and country are written into its file's location fields (State /
