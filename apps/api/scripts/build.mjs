@@ -34,9 +34,12 @@ const SAFE_SELF_RELATIVE = new Set([
 const externalPackages = {
   name: "external-packages",
   setup(b) {
-    // Bare imports other than Lifer's own workspaces stay as imports of node_modules.
+    // Bare imports other than Lifer's own workspaces stay as imports of node_modules. Entry points
+    // and absolute paths never do: on Windows those start with a drive letter (D:\...), not "/".
     b.onResolve({ filter: /^[^./]/ }, (args) =>
-      WORKSPACE_PACKAGES.test(args.path) ? undefined : { path: args.path, external: true },
+      args.kind === "entry-point" || path.isAbsolute(args.path) || WORKSPACE_PACKAGES.test(args.path)
+        ? undefined
+        : { path: args.path, external: true },
     );
   },
 };
