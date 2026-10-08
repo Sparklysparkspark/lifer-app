@@ -24,10 +24,13 @@ FFMPEG_VERSION="8.1.3"
 FFMPEG_URL="https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.xz"
 FFMPEG_SHA256="7138d28c96d9d3e3af4ee3d8cad72741f8ffb40da90c1112235dea3ecd3178a3"
 
-# x264 has no release tarballs; its "stable" branch head is the release line. GitLab's archive
-# of a fixed commit is byte-identical across downloads.
+# x264 has no release tarballs; its "stable" branch head is the release line. The archive of this
+# commit is served from Lifer's third-party-sources release (which also offers it as the GPL
+# FFmpeg's source): code.videolan.org now answers scripted downloads with a bot check. It's
+# byte-identical to `git archive --prefix=x264-<commit>/ <commit> | bzip2 -9` of the commit from
+# https://code.videolan.org/videolan/x264.git, which is how a new one is made.
 X264_COMMIT="b35605ace3ddf7c1a5d67a2eb553f034aef41d55"
-X264_URL="https://code.videolan.org/videolan/x264/-/archive/${X264_COMMIT}/x264-${X264_COMMIT}.tar.bz2"
+X264_URL="https://github.com/Sparklysparkspark/lifer-app/releases/download/third-party-sources/x264-${X264_COMMIT}.tar.bz2"
 X264_SHA256="6eeb82934e69fd51e043bd8c5b0d152839638d1ce7aa4eea65a3fedcf83ff224"
 
 # NASM assembles x264's and FFmpeg's x86 SIMD code (arm64 uses clang's own assembler), so it's

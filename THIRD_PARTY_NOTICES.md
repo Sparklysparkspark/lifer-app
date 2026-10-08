@@ -34,8 +34,9 @@ binary differs by platform:
     the complete corresponding source:
     <https://ffmpeg.org/releases/ffmpeg-8.1.3.tar.xz> (sha256
     `7138d28c96d9d3e3af4ee3d8cad72741f8ffb40da90c1112235dea3ecd3178a3`) and
-    <https://code.videolan.org/videolan/x264/-/archive/b35605ace3ddf7c1a5d67a2eb553f034aef41d55/x264-b35605ace3ddf7c1a5d67a2eb553f034aef41d55.tar.bz2>
-    (sha256 `6eeb82934e69fd51e043bd8c5b0d152839638d1ce7aa4eea65a3fedcf83ff224`).
+    <https://github.com/Sparklysparkspark/lifer-app/releases/download/third-party-sources/x264-b35605ace3ddf7c1a5d67a2eb553f034aef41d55.tar.bz2>
+    (sha256 `6eeb82934e69fd51e043bd8c5b0d152839638d1ce7aa4eea65a3fedcf83ff224`), the archive of that
+    commit from <https://code.videolan.org/videolan/x264.git>.
 - Linux desktop app and Docker (x64 and arm64): ffmpeg-static's binaries, FFmpeg 7.0.2 static
   builds by [John Van Sickle](https://johnvansickle.com/ffmpeg/), unmodified.
   - License: GPL-3.0-or-later
