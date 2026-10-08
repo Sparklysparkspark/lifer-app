@@ -16,6 +16,7 @@ import pg from "pg";
 import { APP_DATA_DIR } from "@lifer/core/config.js";
 import { GITHUB_REPO } from "../build/release-groups.js";
 import {
+  checkDataReleaseFlags,
   checkDisk,
   checkEnv,
   checkMemory,
@@ -32,6 +33,7 @@ import {
   redactDatabaseUrl,
   type CacheBudget,
   type CheckResult,
+  type ReleaseFlags,
 } from "../pipeline/doctorChecks.js";
 import { resolvePgDump } from "../pipeline/pgDump.js";
 
@@ -357,6 +359,17 @@ function toolChecks(serverMajor: number | null, publish: boolean): CheckResult[]
           fix: 'gh release create catalog-latest --title "Catalog (latest)" --notes "Species catalog seed." --prerelease --latest=false',
         },
   );
+  const releases = run("gh", [
+    "release",
+    "list",
+    "--repo",
+    target,
+    "--limit",
+    "200",
+    "--json",
+    "tagName,isPrerelease,isLatest",
+  ]);
+  results.push(checkDataReleaseFlags(releases == null ? null : (JSON.parse(releases) as ReleaseFlags[])));
   return results;
 }
 

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  checkDataReleaseFlags,
   checkDisk,
   checkEnv,
   checkMemory,
@@ -192,5 +193,35 @@ describe("checkDisk", () => {
     // 10 GB still needed (b is already over budget), 11 GB with headroom.
     expect(checkDisk("/data", 11.5 * GIB, caches).status).toBe("pass");
     expect(checkDisk("/data", 10.5 * GIB, caches).status).toBe("fail");
+  });
+});
+
+describe("checkDataReleaseFlags", () => {
+  const release = (tagName: string, isPrerelease: boolean, isLatest = false) => ({ tagName, isPrerelease, isLatest });
+
+  it("passes when every data release is a prerelease, whatever the app releases are", () => {
+    const result = checkDataReleaseFlags([
+      release("v0.10.1", false, true),
+      release("catalog-latest", true),
+      release("map-latest", true),
+    ]);
+    expect(result.status).toBe("pass");
+  });
+
+  it("fails on a data release that's a full release or marked Latest, with the command to fix each", () => {
+    const result = checkDataReleaseFlags([
+      release("v0.10.1", false),
+      release("photos-latest", false),
+      release("packs-latest", true, true),
+    ]);
+    expect(result.status).toBe("fail");
+    expect(result.detail).toBe("not a prerelease, or marked Latest: photos-latest, packs-latest");
+    expect(result.fix).toBe(
+      "gh release edit photos-latest --prerelease --latest=false; gh release edit packs-latest --prerelease --latest=false",
+    );
+  });
+
+  it("skips when gh can't list releases", () => {
+    expect(checkDataReleaseFlags(null).status).toBe("skip");
   });
 });

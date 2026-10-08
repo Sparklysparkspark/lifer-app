@@ -330,6 +330,32 @@ export function checkPostgis(installed: boolean, available: boolean): CheckResul
   };
 }
 
+// ---------- data releases ----------
+
+/** The GitHub releases the data ships in. Installs and the pipeline find them by these tags. */
+export const DATA_RELEASE_TAGS = ["catalog-latest", "packs-latest", "photos-latest", "map-latest", "models"];
+
+export interface ReleaseFlags {
+  tagName: string;
+  isPrerelease: boolean;
+  isLatest: boolean;
+}
+
+/** Every data release must be a prerelease and never "Latest": the desktop updater and the web
+ *  app's update banner read the repository's latest release, and app downloads list it first. */
+export function checkDataReleaseFlags(releases: ReleaseFlags[] | null): CheckResult {
+  const name = "Data releases are prereleases";
+  if (releases == null) return { name, status: "skip", detail: "couldn't list releases with gh" };
+  const wrong = releases.filter((r) => DATA_RELEASE_TAGS.includes(r.tagName) && (!r.isPrerelease || r.isLatest));
+  if (wrong.length === 0) return { name, status: "pass", detail: "none is a full release or marked Latest" };
+  return {
+    name,
+    status: "fail",
+    detail: `not a prerelease, or marked Latest: ${wrong.map((r) => r.tagName).join(", ")}`,
+    fix: wrong.map((r) => `gh release edit ${r.tagName} --prerelease --latest=false`).join("; "),
+  };
+}
+
 // ---------- disk ----------
 
 export interface CacheBudget {
