@@ -540,11 +540,19 @@ fn manifest_seed_url(manifest: &str) -> String {
 
 fn sha256_file(path: &Path) -> Result<String, String> {
     use sha2::{Digest, Sha256};
-    let mut file =
-        std::fs::File::open(path).map_err(|e| format!("Couldn't read {}: {e}", path.display()))?;
+    use std::io::Read;
+    let read_err = |e: std::io::Error| format!("Couldn't read {}: {e}", path.display());
+    let mut file = std::fs::File::open(path).map_err(read_err)?;
     let mut hasher = Sha256::new();
-    std::io::copy(&mut file, &mut hasher)
-        .map_err(|e| format!("Couldn't read {}: {e}", path.display()))?;
+    // sha2 0.11 hashers no longer implement io::Write, so the file is fed in chunks.
+    let mut buf = vec![0u8; 1 << 20];
+    loop {
+        let n = file.read(&mut buf).map_err(read_err)?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+    }
     Ok(hasher
         .finalize()
         .iter()
@@ -665,6 +673,29 @@ async fn download_seed(dest: &Path) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sha256_file_matches_the_standard_digest_across_chunks() {
+        use sha2::{Digest, Sha256};
+        let dir = std::env::temp_dir().join(format!("lifer-sha256-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let small = dir.join("abc");
+        std::fs::write(&small, b"abc").unwrap();
+        assert_eq!(
+            sha256_file(&small).unwrap(),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+        // Larger than the read buffer, so several chunks are hashed.
+        let large = dir.join("large");
+        let bytes: Vec<u8> = (0..(5 << 20) + 7).map(|i| (i % 251) as u8).collect();
+        std::fs::write(&large, &bytes).unwrap();
+        let expected: String = Sha256::digest(&bytes)
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        assert_eq!(sha256_file(&large).unwrap(), expected);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 
     #[test]
     fn catalog_seed_is_checked_against_its_manifest() {
