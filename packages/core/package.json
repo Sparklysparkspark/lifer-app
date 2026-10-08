@@ -1,6 +1,6 @@
 {
   "name": "@lifer/core",
-  "version": "0.10.0",
+  "version": "0.10.1",
   "description": "Code shared by the Lifer server and the data pipeline: configuration, the database pool, species enrichment and matching, region computation and GBIF helpers.",
   "license": "AGPL-3.0-only",
   "private": true,

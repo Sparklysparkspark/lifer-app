@@ -8,6 +8,8 @@ banner.
 
 ## [Unreleased]
 
+## [0.10.1] - 2026-10-08
+
 ### Fixed
 
 - Windows: the desktop app is available again. 0.10.0 shipped without a Windows installer
