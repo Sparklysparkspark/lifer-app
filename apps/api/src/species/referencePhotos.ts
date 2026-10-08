@@ -27,12 +27,15 @@ export function queueReferenceDownload(key: string, run: () => Promise<void>): P
   return task;
 }
 
-// A reference photo's file can be replaced in place (a re-fetch, a new pack) under the same URL,
-// so the browser revalidates every time and gets a 304 while the file is unchanged.
+// A reference photo's file can be replaced in place (a re-fetch, a new pack, a catalog update)
+// under the same URL, so it's rechecked after five minutes rather than the user's own photos' hour,
+// still shown at once from the browser's copy while the recheck (a 304 when unchanged) runs.
 async function sendReferenceFile(request: FastifyRequest, reply: FastifyReply, filePath: string, notFound: string) {
   const st = await statFile(filePath);
   if (!st) return reply.code(404).send({ error: notFound });
-  return sendCachedImage(request, reply, filePath, st, { cacheControl: "no-cache" });
+  return sendCachedImage(request, reply, filePath, st, {
+    cacheControl: "private, max-age=300, stale-while-revalidate=604800",
+  });
 }
 
 export async function referencePhotoRoutes(fastify: FastifyInstance): Promise<void> {

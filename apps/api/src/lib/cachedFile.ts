@@ -63,6 +63,12 @@ export function rangeStillValid(request: FastifyRequest, st: Stats, etag: string
   return !Number.isNaN(date) && Math.floor(st.mtimeMs / 1000) * 1000 === date;
 }
 
+/** How long a browser reuses a photo rendition (thumb, medium, display) without asking, then keeps
+ *  showing it while it rechecks in the background. A rendition's content doesn't change under its
+ *  URL (they're only rewritten to replace a missing file), and asking first on every view made a
+ *  grid wait on one round trip per tile. Private, so a reverse proxy never stores them. */
+export const RENDITION_CACHE_CONTROL = "private, max-age=3600, stale-while-revalidate=604800";
+
 /** Streams a cached WebP rendition with a weak ETag and 304 support. A stand-in (a sibling shown
  *  while the real file is repaired) is sent with no-store so it's never kept. */
 export function sendCachedImage(
@@ -74,7 +80,12 @@ export function sendCachedImage(
 ) {
   if (opts.standIn) {
     reply.header("Cache-Control", "no-store");
-  } else if (applyFileValidators(request, reply, st, { weak: true, cacheControl: opts.cacheControl }).notModified) {
+  } else if (
+    applyFileValidators(request, reply, st, {
+      weak: true,
+      cacheControl: opts.cacheControl ?? RENDITION_CACHE_CONTROL,
+    }).notModified
+  ) {
     return reply.code(304).send();
   }
   reply.header("Content-Type", "image/webp");
