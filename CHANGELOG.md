@@ -8,6 +8,8 @@ banner.
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-10-07
+
 ### Added
 
 - Desktop: when an update moves the app to a new PostgreSQL major version, the app upgrades your
@@ -161,6 +163,8 @@ banner.
 - A trip's destination folder can no longer end up outside the folders Lifer may use, through a
   trailing `..` or a symlink.
 - Searches and names with long runs of spaces, dashes or slashes can no longer tie up the server.
+- Dependencies updated with their published security fixes, including the upload parser
+  (`@fastify/busboy`) and the desktop app's TLS library (`rustls`).
 
 ### Fixed
 

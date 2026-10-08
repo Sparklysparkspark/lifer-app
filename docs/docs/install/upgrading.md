@@ -92,7 +92,7 @@ After changing `LIFER_VERSION`, run `docker compose pull` and `docker compose up
 
 ## Automatic updates {#auto-update}
 
-Lifer doesn't ship an auto-updater for servers. You can add your own, such as Watchtower, at your own risk, but during the beta we recommend against it: an update you didn't plan can change your database before you've made a backup, and there's no way back. If you do use one, pin a minor line like `LIFER_VERSION=0.9` and keep scheduled [database backups](./backup-restore.md#back-up-the-database).
+Lifer doesn't ship an auto-updater for servers. You can add your own, such as Watchtower, at your own risk, but during the beta we recommend against it: an update you didn't plan can change your database before you've made a backup, and there's no way back. If you do use one, pin a minor line like `LIFER_VERSION=0.10` and keep scheduled [database backups](./backup-restore.md#back-up-the-database).
 
 ## Going back to an older version {#downgrade}
 

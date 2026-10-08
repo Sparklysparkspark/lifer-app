@@ -2296,7 +2296,7 @@ dependencies = [
 
 [[package]]
 name = "lifer-desktop"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "flate2",
  "getrandom 0.4.3",

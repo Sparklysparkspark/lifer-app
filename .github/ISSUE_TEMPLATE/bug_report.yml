@@ -30,7 +30,7 @@ body:
     attributes:
       label: Lifer version
       description: Settings, About, or the image tag you run.
-      placeholder: "0.9.0"
+      placeholder: "0.10.0"
     validations:
       required: true
   - type: dropdown

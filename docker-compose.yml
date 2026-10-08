@@ -221,7 +221,7 @@ services:
 
   # Serves the API and the built web UI on one port. Put your own reverse proxy in front for TLS.
   api:
-    # "release" is the newest stable version. Pin one (LIFER_VERSION=0.9.0 in .env) to update on
+    # "release" is the newest stable version. Pin one (LIFER_VERSION=0.10.0 in .env) to update on
     # your own schedule.
     image: ghcr.io/sparklysparkspark/lifer-app:${LIFER_VERSION:-release}
     # Reaps the ExifTool and ffmpeg helper processes Lifer starts.
