@@ -11,7 +11,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.join(__dirname, "..", "..", "..");
 
 // .env lives at the repo root, not in apps/api where `npm run dev -w api` runs.
-loadDotenv({ path: path.join(REPO_ROOT, ".env") });
+loadDotenv({ path: path.join(REPO_ROOT, ".env"), quiet: true });
 
 // Appended to reference-photo URLs so a file replaced in place is refetched after a restart.
 export const MEDIA_CACHE_BUST = Date.now();
