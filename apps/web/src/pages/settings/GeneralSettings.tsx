@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import { api } from "../../api/client";
 import Button from "../../components/Button";
+import ReleaseNotes from "../../components/ReleaseNotes";
 import { buttonClasses } from "../../lib/buttonClasses";
 import FormMessage from "../../components/FormMessage";
 import InlineSpinner from "../../components/InlineSpinner";
@@ -308,11 +309,12 @@ function AppUpdatesSection() {
             <span className="text-muted">Latest</span>
             <span className="font-medium text-accent">v{update.version}</span>
           </div>
-          {/* The release's changelog section (markdown), shown as plain text. */}
+          {/* The release's changelog section. */}
           {update.body && (
-            <div className="max-h-60 overflow-y-auto whitespace-pre-wrap break-words text-sm text-muted">
-              {update.body.trim()}
-            </div>
+            <ReleaseNotes
+              markdown={update.body.trim()}
+              className="max-h-60 overflow-y-auto break-words text-sm text-muted"
+            />
           )}
           <Button onClick={installUpdate}>Update now</Button>
         </div>
