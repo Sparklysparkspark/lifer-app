@@ -143,7 +143,9 @@ function CatalogUpdateSection() {
         <div className="space-y-2">
           <p className="text-sm text-muted">
             {doneOk
-              ? `Done, ${speciesCount != null ? speciesCount.toLocaleString() : "your"} species refreshed.`
+              ? speciesCount === 0
+                ? "Done, the species catalog was already up to date."
+                : `Done, ${speciesCount != null ? speciesCount.toLocaleString() : "your"} species updated.`
               : "Your species catalog is up to date."}
           </p>
           {doneOk && vectorErrors.length > 0 && (

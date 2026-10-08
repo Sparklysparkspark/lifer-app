@@ -430,6 +430,54 @@ describe.skipIf(!url)("applyCatalogSeedFile (integration)", () => {
     }
   });
 
+  it("diffs a checklist against the seed: changed rows updated, new rows added, a pack's tier explanation kept", async () => {
+    const KEPT = "88888888-8888-4888-8888-888888888831";
+    const ADDED = "88888888-8888-4888-8888-888888888832";
+    const REGION = "88888888-8888-4888-8888-888888888841";
+    const cleanup = async () => {
+      await pool.query(`DELETE FROM regions WHERE id = $1`, [REGION]);
+      await pool.query(`DELETE FROM species WHERE id = ANY($1)`, [[KEPT, ADDED]]);
+    };
+    await cleanup();
+    await pool.query(
+      `INSERT INTO species (id, gbif_key, scientific_name, taxon_class, is_other_taxa) VALUES
+         ($1, 8831, 'Rebuilda kept', 'aves', false), ($2, 8832, 'Rebuilda added', 'aves', false)`,
+      [KEPT, ADDED],
+    );
+    await pool.query(`INSERT INTO regions (id, name) VALUES ($1, 'Rebuildland')`, [REGION]);
+    await pool.query(
+      `INSERT INTO region_species (region_id, species_id, local_tier, tier_explain) VALUES ($1, $2, 'common', '{"from":"pack"}')`,
+      [REGION, KEPT],
+    );
+    const dump = [
+      "COPY public.region_species (region_id, species_id, local_tier, is_vagrant, is_invasive, tier_explain) FROM stdin;",
+      `${REGION}	${KEPT}	rare	f	f	\\N`,
+      `${REGION}	${ADDED}	uncommon	t	f	{"from":"seed"}`,
+      "\\.",
+      "",
+    ].join("\n");
+    const file = path.join(mkdtempSync(path.join(os.tmpdir(), "lifer-rebuild-test-")), "seed.sql.gz");
+    writeFileSync(file, gzipSync(dump));
+    try {
+      const merged = await applyCatalogSeedFile(pool, file, null, noProgress);
+      expect(merged.region_speciesRemoved).toBe(0);
+      const rows = await pool.query(
+        `SELECT species_id, local_tier, is_vagrant, tier_explain FROM region_species WHERE region_id = $1 ORDER BY species_id`,
+        [REGION],
+      );
+      expect(rows.rows).toEqual([
+        { species_id: KEPT, local_tier: "rare", is_vagrant: false, tier_explain: { from: "pack" } },
+        { species_id: ADDED, local_tier: "uncommon", is_vagrant: true, tier_explain: { from: "seed" } },
+      ]);
+      // The key still holds after the update.
+      await expect(
+        pool.query(`INSERT INTO region_species (region_id, species_id) VALUES ($1, $2)`, [REGION, KEPT]),
+      ).rejects.toThrow(/duplicate key/);
+    } finally {
+      await cleanup();
+    }
+  });
+
   it("drops sea zones the seed no longer has, even when a new zone reuses a dropped one's name", async () => {
     const OLD_SAME_NAME = "99999999-9999-4999-8999-999999999901";
     const OLD_GONE = "99999999-9999-4999-8999-999999999902";

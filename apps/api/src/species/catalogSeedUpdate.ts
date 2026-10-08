@@ -233,13 +233,19 @@ async function mergeGenericTable(
     table === "species" &&
     cols.some((c) => c.name === "photo_withheld") &&
     cols.some((c) => c.name === "reference_photo");
-  const assign = (column: string) =>
+  const value = (column: string) =>
     keepLocalWithheldPhoto && LOCAL_WITHHELD_PHOTO_COLUMNS.has(column)
-      ? `${ident(column)} = CASE WHEN EXCLUDED.photo_withheld AND EXCLUDED.reference_photo IS NULL ` +
+      ? `CASE WHEN EXCLUDED.photo_withheld AND EXCLUDED.reference_photo IS NULL ` +
         `THEN ${ident(table)}.${ident(column)} ELSE EXCLUDED.${ident(column)} END`
-      : `${ident(column)} = EXCLUDED.${ident(column)}`;
+      : `EXCLUDED.${ident(column)}`;
+  // Only rows that differ are written: most of a release's rows are unchanged, and rewriting them
+  // (with their indexes) was most of an update's time.
   const onConflict =
-    updatable.length > 0 ? `DO UPDATE SET ${updatable.map((c) => assign(c.name)).join(", ")}` : "DO NOTHING";
+    updatable.length > 0
+      ? `DO UPDATE SET ${updatable.map((c) => `${ident(c.name)} = ${value(c.name)}`).join(", ")}
+         WHERE (${updatable.map((c) => `${ident(table)}.${ident(c.name)}`).join(", ")})
+           IS DISTINCT FROM (${updatable.map((c) => value(c.name)).join(", ")})`
+      : "DO NOTHING";
   const res = await client.query(
     `INSERT INTO ${ident(table)} (${cols.map((c) => ident(c.name)).join(", ")})
      SELECT ${select.join(", ")} FROM ${ident(tmpName(table))}
@@ -275,6 +281,67 @@ async function pruneChecklistsFromSeed(client: PoolClient, table: string, groupC
     );
   }
   return res.rows.length;
+}
+
+// region_species is the catalog's largest table (millions of rows), and most of a release's rows
+// are unchanged. An upsert visits and locks every row, which was most of an update's time, so it's
+// diffed instead, as three set-based statements on the seed's rows typed once: update the rows
+// whose values changed, insert the new ones, and delete the ones the seed no longer lists for a
+// region it covers. Columns the seed doesn't update (an installed pack's tier explanations) are
+// left alone, regions the seed doesn't cover keep their rows, and readers aren't blocked.
+async function diffChecklistFromSeed(
+  client: PoolClient,
+  spec: (typeof MERGE_TABLES)[number],
+  seedColumns: string[],
+): Promise<{ written: number; removed: number }> {
+  const { table, pkColumns, excludeFromUpdate } = spec;
+  const t = ident(table);
+  const group = ident(CHECKLIST_GROUP_COLUMN[table]);
+  const shared = await sharedColumns(client, table, seedColumns);
+  const keyMatch = pkColumns.map((k) => `s.${ident(k)} = t.${ident(k)}`).join(" AND ");
+  const updatable = shared.filter((c) => !pkColumns.includes(c.name) && !excludeFromUpdate.includes(c.name));
+
+  await client.query(
+    `CREATE TEMP TABLE checklist_next ON COMMIT DROP AS
+     SELECT ${shared.map((c) => `${ident(c.name)}::${c.type} AS ${ident(c.name)}`).join(", ")}
+       FROM ${ident(tmpName(table))}`,
+  );
+  await client.query(`ANALYZE checklist_next`);
+
+  let written = 0;
+  if (updatable.length > 0) {
+    const changed = await client.query(
+      `UPDATE ${t} t SET ${updatable.map((c) => `${ident(c.name)} = s.${ident(c.name)}`).join(", ")}
+         FROM checklist_next s
+        WHERE ${keyMatch}
+          AND (${updatable.map((c) => `t.${ident(c.name)}`).join(", ")})
+              IS DISTINCT FROM (${updatable.map((c) => `s.${ident(c.name)}`).join(", ")})`,
+    );
+    written += changed.rowCount ?? 0;
+  }
+  // The key decides what's new: an anti-join here can be planned as a scan per row on an empty or
+  // just-emptied table. DO NOTHING takes no row locks, unlike the upsert this replaces.
+  const added = await client.query(
+    `INSERT INTO ${t} (${shared.map((c) => ident(c.name)).join(", ")})
+     SELECT ${shared.map((c) => `s.${ident(c.name)}`).join(", ")} FROM checklist_next s
+     ON CONFLICT (${pkColumns.map(ident).join(", ")}) DO NOTHING`,
+  );
+  written += added.rowCount ?? 0;
+  const removed = await client.query<{ group_id: string; species_id: string }>(
+    `DELETE FROM ${t} t
+      WHERE t.${group} IN (SELECT DISTINCT ${group} FROM checklist_next)
+        AND NOT EXISTS (SELECT 1 FROM checklist_next s WHERE ${keyMatch})
+     RETURNING t.${group} AS group_id, t.species_id`,
+  );
+  if (table === "region_species" && removed.rows.length > 0) {
+    await client.query(
+      `DELETE FROM region_species_hotspots h
+       USING unnest($1::uuid[], $2::uuid[]) AS gone(region_id, species_id)
+       WHERE h.region_id = gone.region_id AND h.species_id = gone.species_id`,
+      [removed.rows.map((r) => r.group_id), removed.rows.map((r) => r.species_id)],
+    );
+  }
+  return { written, removed: removed.rows.length };
 }
 
 // Sea zones are catalog data only and the seed carries the whole table, so a local zone it doesn't
@@ -529,6 +596,13 @@ export async function applyCatalogSeedFile(
       if (spec.table === "sea_zones") merged.sea_zonesRemoved = await pruneSeaZonesFromSeed(client);
       if (spec.table === "species_traits")
         loaded.set(spec.table, await normalizeSeedIucnStatus(client, loaded.get(spec.table)!));
+      if (spec.table === "region_species") {
+        const replaced = await diffChecklistFromSeed(client, spec, loaded.get(spec.table)!);
+        merged[spec.table] = replaced.written;
+        merged.region_speciesRemoved = replaced.removed;
+        done++;
+        continue;
+      }
       merged[spec.table] = await mergeGenericTable(client, spec, loaded.get(spec.table)!, new Set(loaded.keys()));
       if (spec.table === "sea_zones") merged.seaZoneAdditionsMoved = await restoreSeaZoneAdditions(client);
       if (spec.table in CHECKLIST_GROUP_COLUMN) {
