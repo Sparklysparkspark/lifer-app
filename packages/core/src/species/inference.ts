@@ -91,7 +91,9 @@ function workerEntry(): { url: URL; execArgv: string[] } {
 // one-line module that registers tsx itself before loading the worker. Without it the worker's own
 // ".js" imports of ".ts" files fail and inference silently falls back to running in-process.
 function tsxThreadEntry(url: URL): URL {
-  const tsxApi = pathToFileURL(createRequire(import.meta.url).resolve("tsx/esm/api")).href;
+  // The ESM build: tsx 4.23.15's CommonJS one resolves its loader one folder too deep on Node
+  // versions without module.registerHooks (before 22.22.3).
+  const tsxApi = import.meta.resolve("tsx/esm/api");
   const boot = `import { register } from ${JSON.stringify(tsxApi)}; register(); await import(${JSON.stringify(url.href)});`;
   return new URL(`data:text/javascript,${encodeURIComponent(boot)}`);
 }
