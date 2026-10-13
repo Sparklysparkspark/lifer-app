@@ -20,6 +20,13 @@ export interface UnmatchedRaw {
   downloadUrl: string;
 }
 
+// species.habitat_notes / identification_notes (migration 140).
+export interface SpeciesNotes {
+  sections: { heading: string; bullets: string[] }[];
+  source_url: string | null;
+  revision_id: number | null;
+}
+
 // GET /api/species/:id returns snake_case SQL rows.
 export interface SpeciesDetail {
   species: {
@@ -58,6 +65,10 @@ export interface SpeciesDetail {
     description_credit: string | null;
     description_source_url: string | null;
     habitat_description: string | null;
+    // Short bullets summarised from the Wikipedia article (migration 140); shown instead of
+    // description / habitat_description when present.
+    identification_notes?: SpeciesNotes | null;
+    habitat_notes?: SpeciesNotes | null;
   };
   captures: SpeciesCapture[];
   userSpecies: {

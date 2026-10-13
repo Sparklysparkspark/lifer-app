@@ -6,6 +6,7 @@ import { formatDate } from "../../lib/format";
 import { pluralWord } from "../../lib/pluralize";
 import { iucnBadge, iucnStatValue, type IucnTone } from "../../lib/iucnDisplay";
 import type { EncountersResponse, SpeciesDetail } from "./types";
+import { SpeciesNotes } from "./SpeciesNotes";
 
 const BADGE = "inline-block rounded-full px-2 py-0.5 text-xs uppercase tracking-wide";
 
@@ -144,27 +145,7 @@ export function SpeciesAbout({ detail }: { detail: SpeciesDetail }) {
           )}
         </div>
       )}
-      {species.description && (
-        <p className="text-sm text-ink">
-          {species.description}{" "}
-          {species.description_source_url && (
-            <a
-              href={species.description_source_url}
-              target="_blank"
-              rel="noreferrer"
-              className="text-muted hover:underline"
-            >
-              (Wikipedia)
-            </a>
-          )}
-        </p>
-      )}
-      {species.habitat_description && (
-        <p className="text-sm text-ink">
-          <span className="font-medium text-muted">Habitat: </span>
-          {species.habitat_description}
-        </p>
-      )}
+      <SpeciesNotes species={species} />
 
       <SpeciesStats species={species} />
 

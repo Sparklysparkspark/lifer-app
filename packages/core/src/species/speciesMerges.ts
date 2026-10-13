@@ -51,6 +51,8 @@ const SPECIES_FILL_COLUMNS = [
   "family",
   "taxon_order",
   "habitat_description",
+  "habitat_notes",
+  "identification_notes",
   "aba_code",
   "inat_iconic_taxon",
   "wikipedia_title",

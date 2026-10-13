@@ -32,6 +32,7 @@
     "apply-photo-licenses": "tsx src/scripts/apply-photo-licenses.ts",
     "backfill-photo-withheld": "tsx src/scripts/backfill-photo-withheld.ts",
     "backfill-descriptions": "tsx src/scripts/backfill-descriptions.ts",
+    "load-species-notes": "tsx src/scripts/load-species-notes.ts",
     "test": "vitest run",
     "test:unit": "vitest run --exclude '**/*.integration.test.ts'",
     "test:integration": "vitest run integration",

@@ -8,6 +8,12 @@ banner.
 
 ## [Unreleased]
 
+### Added
+
+- Species pages show short field-guide notes (identification, habitat, feeding, breeding)
+  summarised from each species' Wikipedia article, in place of the long article text, with a
+  credit link to the article.
+
 ## [0.10.3] - 2026-10-08
 
 ### Fixed
