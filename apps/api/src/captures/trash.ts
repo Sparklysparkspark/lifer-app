@@ -7,12 +7,13 @@ import { requireAuth } from "../auth/session.js";
 import { metadataGoesInFile, sidecarPathFor } from "../uploads/exif.js";
 import { invalidateUserVectors } from "@lifer/core/species/embeddings.js";
 import { ensureDefaultCardCropLater } from "../collection/defaultCardCrop.js";
-import { repointCoversOffTrashedCaptures, restoreCoversForCapture } from "../lib/userSpecies.js";
+import { repointCoversOffTrashedCaptures, restoreCoversForCapture, syncCollectedState } from "../lib/userSpecies.js";
 import { APP_DATA_DIR, ORIGINALS_DIR } from "@lifer/core/config.js";
 import { removeEmptyDirsUpward } from "../lib/fsCleanup.js";
 import { canonicalPath, isWithinResolved } from "@lifer/core/lib/pathContainment.js";
-import { resolveOriginalPath } from "../storageVolumes/resolve.js";
+import { resolveOriginalPaths } from "../storageVolumes/resolve.js";
 import { Flag, IdParams, Ok, Uuid, notFoundOnInvalidId, replies, withSchemas } from "../lib/schema.js";
+import { TrashList } from "./responses.js";
 
 // Trash: deleting a capture hides it for TRASH_RETENTION_DAYS, then it's purged for good.
 export async function trashRoutes(fastify: FastifyInstance): Promise<void> {
@@ -29,6 +30,7 @@ export async function trashRoutes(fastify: FastifyInstance): Promise<void> {
         [deleteRaw, captureIds, userId],
       );
       const ids = res.rows.map((r) => r.id);
+      await syncCollectedState(client, userId, ids);
       // Soft delete leaves user_species.cover_photo_id alone, so without this a trashed featured
       // photo stays the species cover and every card that reads it shows a missing thumbnail.
       recropSpecies.push(...(await repointCoversOffTrashedCaptures(client, userId, ids)));
@@ -48,6 +50,8 @@ export async function trashRoutes(fastify: FastifyInstance): Promise<void> {
         [captureId, userId],
       );
       if ((res.rowCount ?? 0) === 0) return false;
+      // Before the cover, which only comes back for a species counted as collected.
+      await syncCollectedState(client, userId, [captureId]);
       recropSpecies.push(...(await restoreCoversForCapture(client, userId, captureId)));
       return true;
     });
@@ -58,7 +62,8 @@ export async function trashRoutes(fastify: FastifyInstance): Promise<void> {
   }
 
   // Permanent removal, after the retention window or when the trash is emptied. Managed files
-  // are deleted (the RAW only if deleteRaw was chosen); linked files are never touched.
+  // are deleted (a RAW beside an edited original only if deleteRaw was chosen); linked files are
+  // never touched.
   async function purgeCaptures(
     userId: string,
     items: Array<{ id: string; deleteRaw: boolean }>,
@@ -85,16 +90,19 @@ export async function trashRoutes(fastify: FastifyInstance): Promise<void> {
     }>(
       `SELECT capture_id, kind, ref, volume_id, volume_relative_path FROM originals
        WHERE capture_id = ANY($1::uuid[]) AND managed = true
-         AND (kind IN ('jpeg', 'video') OR (kind = 'raw' AND capture_id = ANY($2::uuid[])))`,
+         AND (kind IN ('jpeg', 'video') OR (kind = 'raw' AND (capture_id = ANY($2::uuid[])
+           -- A RAW with no edited original beside it is the photo itself, so it goes with it.
+           OR NOT EXISTS (SELECT 1 FROM originals o WHERE o.capture_id = originals.capture_id AND o.kind <> 'raw'))))`,
       [[...found], rawCaptureIds],
     );
     const originalFiles: Array<{ captureId: string; path: string }> = [];
     const waitingForDrive = new Set<string>();
-    for (const row of managedRes.rows) {
-      const resolved = await resolveOriginalPath(row);
+    const resolvedPaths = await resolveOriginalPaths(managedRes.rows);
+    managedRes.rows.forEach((row, i) => {
+      const resolved = resolvedPaths[i];
       if (resolved.path) originalFiles.push({ captureId: row.capture_id, path: resolved.path });
       else waitingForDrive.add(row.capture_id);
-    }
+    });
     const captureIds = [...found].filter((id) => !waitingForDrive.has(id));
     if (captureIds.length === 0) return { purged: 0 };
     const filesToDelete = originalFiles.filter((f) => !waitingForDrive.has(f.captureId)).map((f) => f.path);
@@ -307,7 +315,7 @@ export async function trashRoutes(fastify: FastifyInstance): Promise<void> {
   // hides trashed rows.
   const TRASH_RETENTION_DAYS = 7;
   // No response schema: the trash page reads these rows as they are.
-  app.get("/trash", { preValidation: requireAuth, schema: {} }, async (request) => {
+  app.get("/trash", { preValidation: requireAuth, schema: { response: replies(TrashList) } }, async (request) => {
     const userId = request.user!.id;
     const res = await pool.query<{
       id: string;

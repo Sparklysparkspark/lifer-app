@@ -166,8 +166,8 @@ describe.skipIf(!url)("covers when a photo is trashed", () => {
 
     res = await call("POST", "/api/captures/batch-delete", { captureIds: [capture.newest] });
     expect(res.json()).toEqual({ deleted: 1, notFound: 0 });
-    // Nothing left to show: no cover, but still collected, since the photos can be restored.
-    expect(await speciesCover()).toEqual({ cover_photo_id: null, state: "collected", card_crop_x: null });
+    // Nothing left to show: no cover, and not collected while its photos are in the Trash.
+    expect(await speciesCover()).toEqual({ cover_photo_id: null, state: null, card_crop_x: null });
   });
 
   it("gives a species with no photos left its cover back on restore, without taking over a later pick", async () => {

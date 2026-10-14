@@ -79,3 +79,30 @@ export async function restoreCoversForCapture(db: Queryable, userId: string, cap
   );
   return res.rows.filter((r) => r.cover_photo_id != null).map((r) => r.species_id);
 }
+
+/** Keeps "collected" in step with the photos you can see, for the species of `captureIds`: a
+ *  species whose last photo went to the Trash stops counting as collected, and one whose photo came
+ *  back from it counts again. Reads the `captures` view, which hides trashed captures; a photo
+ *  where the species is a secondary tag counts too. Run after trashing or restoring. */
+export async function syncCollectedState(db: Queryable, userId: string, captureIds: string[]): Promise<void> {
+  if (captureIds.length === 0) return;
+  await db.query(
+    `WITH affected AS (
+       SELECT species_id FROM captures_all WHERE id = ANY($2::uuid[])
+       UNION SELECT species_id FROM capture_species WHERE capture_id = ANY($2::uuid[])
+     )
+     UPDATE user_species us
+        SET state = CASE WHEN has_photo THEN 'collected' END
+       FROM (
+         SELECT a.species_id,
+                EXISTS (SELECT 1 FROM captures c WHERE c.user_id = $1 AND c.species_id = a.species_id)
+             OR EXISTS (SELECT 1 FROM capture_species cs JOIN captures c ON c.id = cs.capture_id
+                         WHERE cs.species_id = a.species_id AND c.user_id = $1) AS has_photo
+           FROM affected a
+       ) p
+      WHERE us.user_id = $1 AND us.species_id = p.species_id
+        AND (p.has_photo AND us.state IS DISTINCT FROM 'collected'
+             OR NOT p.has_photo AND us.state = 'collected')`,
+    [userId, captureIds],
+  );
+}

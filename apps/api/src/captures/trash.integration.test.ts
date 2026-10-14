@@ -14,6 +14,8 @@ const url = process.env.TEST_DATABASE_URL;
 const USER = "eeeeeeee-0000-4000-8000-000000000201";
 const SPECIES_A = "eeeeeeee-0000-4000-8000-00000000000a";
 const SPECIES_B = "eeeeeeee-0000-4000-8000-00000000000b";
+// Photographed once, for collected status following the Trash.
+const SPECIES_C = "eeeeeeee-0000-4000-8000-00000000000c";
 const TOKEN = "lifer_test_trash_session_201";
 
 describe.skipIf(!url)("captures trash and reassign", () => {
@@ -53,9 +55,10 @@ describe.skipIf(!url)("captures trash and reassign", () => {
     ]);
     await db.query(
       `INSERT INTO species (id, gbif_key, scientific_name, common_name, taxon_class) VALUES
-         ($1, 920101, 'Testus trashus', 'Trash Bird', 'aves'), ($2, 920102, 'Testus fixus', 'Fixed Bird', 'aves')
+         ($1, 920101, 'Testus trashus', 'Trash Bird', 'aves'), ($2, 920102, 'Testus fixus', 'Fixed Bird', 'aves'),
+         ($3, 920103, 'Testus solus', 'Lone Bird', 'aves')
        ON CONFLICT (id) DO NOTHING`,
-      [SPECIES_A, SPECIES_B],
+      [SPECIES_A, SPECIES_B, SPECIES_C],
     );
     mkdirSync(path.join(appDataDir, "medium"), { recursive: true });
     for (let i = 0; i < 3; i++) {
@@ -114,7 +117,7 @@ describe.skipIf(!url)("captures trash and reassign", () => {
     await db.query(`DELETE FROM albums WHERE user_id = $1`, [USER]);
     await db.query(`DELETE FROM captures_all WHERE user_id = $1`, [USER]);
     await db.query(`DELETE FROM users WHERE id = $1`, [USER]);
-    await db.query(`DELETE FROM species WHERE id = ANY($1)`, [[SPECIES_A, SPECIES_B]]);
+    await db.query(`DELETE FROM species WHERE id = ANY($1)`, [[SPECIES_A, SPECIES_B, SPECIES_C]]);
     await db.end();
     const { pool } = await import("@lifer/core/db.js");
     await pool.end();
@@ -245,5 +248,63 @@ describe.skipIf(!url)("captures trash and reassign", () => {
     expect(renamed.json()).toEqual({ ok: true, updated: 1 });
     expect(invalid(await call("DELETE", "/api/captures/tags", { tag: 3 }))).toEqual([400, "invalid_request"]);
     expect((await call("DELETE", "/api/captures/tags", { tag: "sitting" })).json()).toEqual({ ok: true, updated: 1 });
+  });
+
+  it("removes a RAW-only photo's RAW with it, and keeps a RAW beside an edited photo unless asked", async () => {
+    const dir = path.join(dataDir, "Birds", "Raw Bird");
+    mkdirSync(dir, { recursive: true });
+    const files = {
+      rawOnly: path.join(dir, "only.cr3"),
+      edited: path.join(dir, "edited.jpg"),
+      companion: path.join(dir, "edited.cr3"),
+    };
+    for (const f of Object.values(files)) writeFileSync(f, "x");
+    const ids: string[] = [];
+    for (const name of ["raw-only", "with-raw"]) {
+      const c = await db.query<{ id: string }>(
+        `INSERT INTO captures (user_id, species_id, fingerprint) VALUES ($1, $2, $3) RETURNING id`,
+        [USER, SPECIES_B, `trash-${name}`],
+      );
+      ids.push(c.rows[0].id);
+    }
+    await db.query(
+      `INSERT INTO originals (capture_id, kind, ref_type, ref, managed, user_id, content_hash, file_size) VALUES
+         ($1, 'raw', 'path', $3, true, $6, 'trash-raw-only', 1),
+         ($2, 'jpeg', 'path', $4, true, $6, 'trash-edited', 1),
+         ($2, 'raw', 'path', $5, true, $6, 'trash-companion', 1)`,
+      [ids[0], ids[1], files.rawOnly, files.edited, files.companion, USER],
+    );
+
+    // Trashed without "also delete the RAW", then emptied.
+    expect((await call("POST", "/api/captures/batch-delete", { captureIds: ids })).statusCode).toBe(200);
+    expect((await call("POST", "/api/trash/empty", {})).json()).toEqual({ purged: 2 });
+    expect(existsSync(files.rawOnly)).toBe(false);
+    expect(existsSync(files.edited)).toBe(false);
+    expect(existsSync(files.companion)).toBe(true);
+  });
+
+  it("stops counting a species as collected while its only photo is in the Trash", async () => {
+    const c = await db.query<{ id: string }>(
+      `INSERT INTO captures (user_id, species_id, fingerprint) VALUES ($1, $2, 'trash-lone') RETURNING id`,
+      [USER, SPECIES_C],
+    );
+    const captureId = c.rows[0].id;
+    const p = await db.query<{ id: string }>(
+      `INSERT INTO photos (capture_id, display_path, thumb_path) VALUES ($1, '/nowhere/d.webp', '/nowhere/t.webp') RETURNING id`,
+      [captureId],
+    );
+    await db.query(`UPDATE captures_all SET current_photo_id = $1 WHERE id = $2`, [p.rows[0].id, captureId]);
+    await db.query(
+      `INSERT INTO user_species (user_id, species_id, state, cover_photo_id, first_collected) VALUES ($1, $2, 'collected', $3, CURRENT_DATE)`,
+      [USER, SPECIES_C, p.rows[0].id],
+    );
+    const state = async () =>
+      (await db.query(`SELECT state FROM user_species WHERE user_id = $1 AND species_id = $2`, [USER, SPECIES_C]))
+        .rows[0]?.state ?? null;
+
+    expect((await call("POST", "/api/captures/batch-delete", { captureIds: [captureId] })).statusCode).toBe(200);
+    expect(await state()).toBeNull();
+    expect((await call("POST", `/api/trash/${captureId}/restore`)).statusCode).toBe(200);
+    expect(await state()).toBe("collected");
   });
 });
