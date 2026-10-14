@@ -4,10 +4,11 @@
 // still carries one file that restores those photos' albums.
 //
 // Rewritten whenever membership changes, and read back by the library reimport (recoverJpeg).
-import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync } from "node:fs";
 import { writeFileAtomicSync } from "../lib/atomicWrite.js";
 import path from "node:path";
 import { pool } from "@lifer/core/db.js";
+import { log } from "@lifer/core/lib/log.js";
 import { resolveOriginalPath } from "../storageVolumes/resolve.js";
 
 interface AlbumIndex {
@@ -18,12 +19,27 @@ function indexPath(folder: string): string {
   return path.join(folder, ".lifer", "albums.json");
 }
 
-function readAlbumIndex(folder: string): AlbumIndex {
+// A missing file is an empty index. One that doesn't parse is moved aside to albums.json.corrupt
+// rather than overwritten by the next write, since it may be the only record of those albums.
+// Any other read error throws, so a write never replaces a file it couldn't read.
+export function readAlbumIndex(folder: string): AlbumIndex {
+  const file = indexPath(folder);
+  let text: string;
   try {
-    return JSON.parse(readFileSync(indexPath(folder), "utf8")) as AlbumIndex;
-  } catch {
-    return {};
+    text = readFileSync(file, "utf8");
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return {};
+    throw err;
   }
+  try {
+    const parsed: unknown = JSON.parse(text);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return parsed as AlbumIndex;
+  } catch {
+    // Handled below with the wrong-shape case.
+  }
+  renameSync(file, `${file}.corrupt`);
+  log.warn({ file }, "albums.json was unreadable; moved it aside to albums.json.corrupt");
+  return {};
 }
 
 // Per-folder write queue, as in tripIndex.ts, so concurrent changes don't race a
