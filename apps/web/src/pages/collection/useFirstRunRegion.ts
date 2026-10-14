@@ -11,7 +11,7 @@ export function useFirstRunRegion({
   downloadedCountryNames,
 }: {
   regionId: string | null;
-  setRegionParam: (id: string | null) => void;
+  setRegionParam: (id: string | null, options?: { replace?: boolean }) => void;
   regionsLoaded: boolean;
   allRegions: RegionSummary[];
   downloadedCountryNames: Set<string> | null;
@@ -49,7 +49,8 @@ export function useFirstRunRegion({
   useEffect(() => {
     if (restored.current || !decision.restore) return;
     restored.current = true;
-    setRegionParam(decision.restore);
+    // Replaces the bare page: as its own history entry, Back would land on it and bounce forward.
+    setRegionParam(decision.restore, { replace: true });
   }, [decision.restore, setRegionParam]);
 
   useEffect(() => {
@@ -73,7 +74,7 @@ export function useFirstRunRegion({
     regionResolved && !regionId && onlyName ? (allRegions.find((r) => r.name === onlyName)?.id ?? null) : null;
   if (autoRegionId && firstRunPrompt) setFirstRunPrompt(false);
   useEffect(() => {
-    if (autoRegionId) setRegionParam(autoRegionId);
+    if (autoRegionId) setRegionParam(autoRegionId, { replace: true });
   }, [autoRegionId, setRegionParam]);
 
   return { firstRunPrompt, regionResolved, navigateToRegion };

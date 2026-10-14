@@ -9,6 +9,7 @@ import StatusTray from "./components/StatusTray";
 import LibraryFolderBanner from "./components/LibraryFolderBanner";
 import TitleBarDragRegion from "./components/TitleBarDragRegion";
 import AppNav from "./components/AppNav";
+import SwipeBack from "./components/SwipeBack";
 import { LoadingScreen } from "./components/LoadingScreen";
 import { ToastProvider } from "./components/ToastProvider";
 import { ConfirmProvider } from "./components/ConfirmProvider";
@@ -84,6 +85,8 @@ function AppLayout() {
       <CommandPaletteProvider>
         <div className="flex min-h-screen flex-col bg-canvas">
           <AppNav />
+          {/* Browsers have their own swipe back. */}
+          {window.liferSetup && <SwipeBack />}
           <Suspense fallback={<PageLoading />}>
             <Outlet />
           </Suspense>

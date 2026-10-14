@@ -20,6 +20,8 @@ import RegionBreadcrumb from "./collection/RegionBreadcrumb";
 import CollectionToolbar from "./collection/CollectionToolbar";
 import { NeedsPackPrompt, TaxonPackPrompt } from "./collection/PackPrompts";
 import { useScrollMemory } from "../hooks/useScrollMemory";
+import { ignore } from "../lib/ignore";
+import { PANEL } from "../lib/layout";
 
 // maplibre is large, so the map loads on demand instead of with the startup bundle.
 const RegionMap = lazy(() => import("../components/RegionMap"));
@@ -68,7 +70,10 @@ export default function CollectionPage() {
   const [isGroupingPending, startGroupingTransition] = useTransition();
 
   const tree = useRegionTree(regionId);
-  const setRegionParam = useCallback((id: string | null) => updateParam("region", id), [updateParam]);
+  const setRegionParam = useCallback(
+    (id: string | null, options?: { replace?: boolean }) => updateParam("region", id, options),
+    [updateParam],
+  );
   const { firstRunPrompt, regionResolved, navigateToRegion } = useFirstRunRegion({
     regionId,
     setRegionParam,
@@ -151,7 +156,7 @@ export default function CollectionPage() {
 
   const { regionsError, refreshRegions } = tree;
   const retry = useCallback(() => {
-    if (regionsError) void refreshRegions().catch(() => {});
+    if (regionsError) void refreshRegions().catch(ignore("Couldn't reload the region list"));
     load();
   }, [regionsError, refreshRegions, load]);
 
@@ -239,7 +244,7 @@ export default function CollectionPage() {
         allChildren={tree.allChildren}
         availableRegionIds={tree.availableRegionIds}
         onDrilledDown={() => {
-          void refreshRegions().catch(() => {});
+          void refreshRegions().catch(ignore("Couldn't reload the region list"));
           load();
         }}
         onChecklistChanged={handleChecklistChanged}
@@ -266,7 +271,7 @@ export default function CollectionPage() {
         onSetIncludeLand={seaZoneActions.setIncludeLand}
       />
 
-      <main className="space-y-6 p-6">
+      <main className="space-y-section p-page">
         {regionId && regionMeta && !!regionMeta.boundaryGeoJson && mapAvailable && !prefs.mapCollapsed && (
           <Suspense fallback={MAP_PLACEHOLDER}>
             <RegionMap boundaryGeoJson={regionMeta.boundaryGeoJson} regionKey={regionMeta.id} />
@@ -274,7 +279,7 @@ export default function CollectionPage() {
         )}
 
         {firstRunPrompt ? (
-          <div className="rounded-xl border border-line bg-surface p-8 text-center">
+          <div className={`${PANEL} text-center`}>
             <h2 className="text-lg font-semibold text-ink">Welcome to Lifer</h2>
             <p className="mx-auto mt-2 max-w-sm text-sm text-muted">
               Download a region's offline pack to see its checklist and start tracking what you've photographed there.
@@ -290,7 +295,7 @@ export default function CollectionPage() {
             </div>
           </div>
         ) : tree.regionKnownHub && items && items.length === 0 && data.downloadedHubCountryNames.length === 0 ? (
-          <div className="rounded-lg border border-dashed border-line bg-surface-muted p-6 text-center">
+          <div className="rounded-panel border border-dashed border-line bg-surface-muted p-panel text-center">
             <p className="text-sm font-medium text-ink">No downloaded countries here yet</p>
             <p className="mt-1 text-sm text-muted">
               Pick a country above, or download one from{" "}
