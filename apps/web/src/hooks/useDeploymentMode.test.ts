@@ -5,12 +5,13 @@ vi.mock("../api/client", () => ({
   api: { get: (...args: unknown[]) => get(...args) },
 }));
 
-const { loadServerInfo, resetServerInfoCache } = await import("./useDeploymentMode");
+const { loadServerInfo } = await import("./useDeploymentMode");
+const { resetSettingsCache } = await import("./useSettings");
 
 describe("loadServerInfo", () => {
   beforeEach(() => {
     get.mockReset();
-    resetServerInfoCache();
+    resetSettingsCache();
   });
 
   it("makes one GET /settings request no matter how many callers ask", async () => {

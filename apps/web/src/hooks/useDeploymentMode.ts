@@ -1,6 +1,7 @@
 import { useEffect, useSyncExternalStore } from "react";
 import type { LibraryRoot } from "@lifer/shared";
-import { getSettingsState, loadSettings, resetSettingsCache, subscribeSettings, type Settings } from "./useSettings";
+import { getSettingsState, loadSettings, subscribeSettings, type Settings } from "./useSettings";
+import { ignore } from "../lib/ignore";
 
 export type DeploymentMode = "desktop" | "server";
 
@@ -36,13 +37,6 @@ export function loadServerInfo(): Promise<ServerInfo> {
   return loadSettings().then((s) => toServerInfo(s)!);
 }
 
-// Test-only.
-export function resetServerInfoCache(): void {
-  resetSettingsCache();
-  derivedFrom = null;
-  derived = null;
-}
-
 /** null until GET /settings has answered once; synchronous on every mount after that. */
 export function useServerInfo(): ServerInfo | null {
   const info = useSyncExternalStore(
@@ -51,7 +45,7 @@ export function useServerInfo(): ServerInfo | null {
     () => toServerInfo(getSettingsState().settings),
   );
   useEffect(() => {
-    if (!info) loadServerInfo().catch(() => {});
+    if (!info) loadServerInfo().catch(ignore("Couldn't load server info"));
   }, [info]);
   return info;
 }

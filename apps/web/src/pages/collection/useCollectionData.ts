@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useLatest } from "../../hooks/useLatest";
 import type { CollectionItem, RegionSpeciesResponse, RegionSpeciesResult, RegionStats } from "@lifer/shared";
 import { api } from "../../api/client";
+import { onAccountReset } from "../../lib/resource";
 import { useUploadQueue } from "../../lib/uploadQueue";
 import type { SpeciesChange } from "../../components/SpeciesCard";
 import type { TaxonFilter } from "./taxonLabels";
@@ -20,12 +21,14 @@ interface CollectionCacheEntry {
   regionStats: RegionStats | null;
 }
 const collectionCache = new Map<string, CollectionCacheEntry>();
+onAccountReset(() => collectionCache.clear());
 
 function cacheKey(regionId: string | null, taxonRaw: string, seaZoneIds: string[], includeLand: boolean): string {
   return JSON.stringify([regionId, taxonRaw.split(",").filter(Boolean).sort(), [...seaZoneIds].sort(), includeLand]);
 }
 
-function storedLastRegionId(): string | null {
+/** The region last picked in the Collection (or an import), the app-wide default region. */
+export function storedLastRegionId(): string | null {
   try {
     return localStorage.getItem("lifer:lastRegionId");
   } catch {
@@ -170,8 +173,7 @@ export function useCollectionData({
           if (current()) setLoadError(true);
         });
     }
-    // seaZoneIds and includeLand only matter through the query strings and cache key.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- taxonRaw, seaZoneIds and includeLand reach the request through the query strings; the cache key follows them
   }, [
     regionId,
     taxonQuery,

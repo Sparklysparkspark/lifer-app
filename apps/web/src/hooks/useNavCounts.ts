@@ -1,31 +1,20 @@
-import { useEffect, useSyncExternalStore } from "react";
+import { useEffect } from "react";
+import { createStore, onAccountReset } from "../lib/resource";
 
 // The collection publishes its "collected / total" count here for the nav to show.
 type NavCounts = { collected: number; total: number } | null;
-let counts: NavCounts = null;
-const listeners = new Set<() => void>();
-function setCounts(next: NavCounts) {
-  if (counts?.collected === next?.collected && counts?.total === next?.total) return;
-  counts = next;
-  listeners.forEach((l) => l());
-}
-function subscribe(listener: () => void) {
-  listeners.add(listener);
-  return () => {
-    listeners.delete(listener);
-  };
-}
-const getCounts = () => counts;
+const navCounts = createStore<NavCounts>(null, (a, b) => a?.collected === b?.collected && a?.total === b?.total);
+onAccountReset(() => navCounts.set(null));
 
 /** Shows "collected / total" under the logo while the calling page is mounted. */
 export function useNavCounts(collected: number, total: number | null): void {
   useEffect(() => {
-    setCounts(total == null ? null : { collected, total });
+    navCounts.set(total == null ? null : { collected, total });
   }, [collected, total]);
-  useEffect(() => () => setCounts(null), []);
+  useEffect(() => () => navCounts.set(null), []);
 }
 
 /** The counts the collection last published, for the nav. */
 export function useNavCountsValue(): NavCounts {
-  return useSyncExternalStore(subscribe, getCounts, getCounts);
+  return navCounts.use();
 }

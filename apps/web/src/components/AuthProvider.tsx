@@ -1,9 +1,10 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { api } from "../api/client";
 import { AuthContext, type AuthUser } from "../hooks/useAuth";
-import { resetSettingsCache } from "../hooks/useSettings";
+import { resetAccountCaches } from "../lib/resource";
 import { tauriInvoke } from "../lib/tauri";
 import OfflineCacheSync from "./OfflineCacheSync";
+import { ignore } from "../lib/ignore";
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
@@ -11,7 +12,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     api
-      .get<{ user: AuthUser | null }>("/auth/me")
+      .get("/auth/me")
       .then((res) => setUser(res.user))
       // Unreachable or signed out both land on the login screen.
       .catch(() => setUser(null))
@@ -19,23 +20,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   async function login(email: string, password: string) {
-    const res = await api.post<AuthUser>("/auth/login", { email, password });
-    resetSettingsCache();
+    const res = await api.post("/auth/login", { email, password });
+    resetAccountCaches();
     setUser(res);
   }
 
   async function register(email: string, password: string) {
-    const res = await api.post<AuthUser>("/auth/register", { email, password });
-    resetSettingsCache();
+    const res = await api.post("/auth/register", { email, password });
+    resetAccountCaches();
     setUser(res);
   }
 
   async function logout() {
     // The desktop app's offline copy of this account's collection goes with the session.
-    await tauriInvoke()?.("offline_cache_clear").catch(() => {});
+    await tauriInvoke()?.("offline_cache_clear").catch(ignore("Couldn't clear the offline copy"));
     await api.post("/auth/logout");
     // The next account on this browser shouldn't see a stale copy.
-    resetSettingsCache();
+    resetAccountCaches();
     setUser(null);
   }
 

@@ -1,26 +1,8 @@
-import { useEffect, useSyncExternalStore } from "react";
-import type { LibraryRoot } from "@lifer/shared";
-import { api } from "../api/client";
+import type { SettingsResponse } from "@lifer/shared";
+import { createCachedRoute, type ResourceState } from "../lib/resource";
 
-// Mirrors GET /settings (apps/api/src/settings/routes.ts).
-export interface Settings {
-  organizeOriginalsByYear: boolean;
-  organizeOriginalsByLocation: boolean;
-  hideObscureSpecies: boolean;
-  speciesSuggestEnabled: boolean;
-  anyTaxaSearchEnabled: boolean;
-  // Per install, shared by every account on it.
-  fetchWithheldPhotos: boolean;
-  technicalDiving: boolean;
-  speciesNamingStyles: string[];
-  // The interface language (a locale code), or null for automatic. See i18n/index.ts.
-  locale?: string | null;
-  abaCodesAvailable: boolean;
-  dataDir: string;
-  deploymentMode: "desktop" | "server";
-  catalogLoading?: "running" | "failed" | null;
-  libraryRoots: LibraryRoot[];
-}
+// GET /settings (apps/api/src/settings/routes.ts).
+export type Settings = SettingsResponse;
 
 export interface SettingsState {
   settings: Settings | null;
@@ -29,69 +11,38 @@ export interface SettingsState {
 
 // One cached GET /settings for the whole app. Each setting saves through its own
 // PUT /settings/<name> endpoint, so callers keep their save call and mirror it with setLocal.
-let state: SettingsState = { settings: null, error: null };
-let pending: Promise<Settings> | null = null;
-// Bumped by resetSettingsCache, so a request still in flight across a sign-out can't repopulate it.
-let generation = 0;
-const listeners = new Set<() => void>();
-
-function emit(next: SettingsState) {
-  state = next;
-  listeners.forEach((l) => l());
-}
+const settingsResource = createCachedRoute("/settings", (res): Settings => ({
+  ...res,
+  libraryRoots: res.libraryRoots ?? [],
+}));
 
 /** Fetches once and shares the answer; a failure lets the next call retry (e.g. before sign-in). */
-export function loadSettings(): Promise<Settings> {
-  if (state.settings) return Promise.resolve(state.settings);
-  return refreshSettings();
-}
+export const loadSettings = settingsResource.load;
 
 /** Always refetches (deduping concurrent calls). */
-export function refreshSettings(): Promise<Settings> {
-  if (!pending) {
-    const gen = generation;
-    const request: Promise<Settings> = api
-      .get<Settings>("/settings")
-      .then((res) => {
-        const settings = { ...res, libraryRoots: res.libraryRoots ?? [] };
-        if (gen === generation) emit({ settings, error: null });
-        return settings;
-      })
-      .catch((err) => {
-        if (gen === generation) emit({ ...state, error: err });
-        throw err;
-      })
-      .finally(() => {
-        if (pending === request) pending = null;
-      });
-    pending = request;
-  }
-  return pending;
-}
+export const refreshSettings = settingsResource.refresh;
 
 /** Optimistically merges a change the caller just saved (or is about to save). */
 export function setLocalSettings(patch: Partial<Settings>): void {
-  if (!state.settings) return;
-  emit({ settings: { ...state.settings, ...patch }, error: state.error });
+  settingsResource.setLocal((settings) => ({ ...settings, ...patch }));
 }
 
+// Derived per state object, so useSyncExternalStore sees a stable snapshot.
+let derivedFrom: ResourceState<Settings> | null = null;
+let derived: SettingsState = { settings: null, error: null };
 export function getSettingsState(): SettingsState {
-  return state;
+  const state = settingsResource.getState();
+  if (state !== derivedFrom) {
+    derivedFrom = state;
+    derived = { settings: state.data, error: state.error };
+  }
+  return derived;
 }
 
-export function subscribeSettings(listener: () => void): () => void {
-  listeners.add(listener);
-  return () => {
-    listeners.delete(listener);
-  };
-}
+export const subscribeSettings = settingsResource.subscribe;
 
-// Test-only, and for sign-out so the next user doesn't see a stale copy.
-export function resetSettingsCache(): void {
-  generation++;
-  pending = null;
-  emit({ settings: null, error: null });
-}
+// Test-only (sign-out goes through resetAccountCaches, which includes this).
+export const resetSettingsCache = settingsResource.reset;
 
 export function useSettings(): {
   settings: Settings | null;
@@ -100,15 +51,6 @@ export function useSettings(): {
   refresh: () => Promise<Settings>;
   setLocal: (patch: Partial<Settings>) => void;
 } {
-  const { settings, error } = useSyncExternalStore(subscribeSettings, getSettingsState, getSettingsState);
-  useEffect(() => {
-    if (!getSettingsState().settings) loadSettings().catch(() => {});
-  }, []);
-  return {
-    settings,
-    loading: settings === null && error === null,
-    error,
-    refresh: refreshSettings,
-    setLocal: setLocalSettings,
-  };
+  const { data, loading, error, refresh } = settingsResource.use();
+  return { settings: data, loading, error, refresh, setLocal: setLocalSettings };
 }
