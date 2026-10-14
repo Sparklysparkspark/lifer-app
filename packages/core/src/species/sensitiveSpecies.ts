@@ -2014,10 +2014,12 @@ function dayOfYear(month: number, day: number): number {
   return doy;
 }
 
-// A GBIF row only carries an ISO week number (1-52), approximated by the week's midpoint day.
+// A GBIF row only carries an ISO week number (1-53), approximated by the week's midpoint day.
 // Precise enough, since eBird's season windows are month-granularity (e.g. "Apr 01-Jul 31").
+// Week 53's midpoint falls in early January, so it wraps.
 export function weekInSeason(week: number, season: SensitiveSeason): boolean {
-  const doy = (week - 1) * 7 + 4;
+  const midpoint = (week - 1) * 7 + 4;
+  const doy = midpoint > 365 ? midpoint - 365 : midpoint;
   const start = dayOfYear(season.startMonth, season.startDay);
   const end = dayOfYear(season.endMonth, season.endDay);
   return start <= end ? doy >= start && doy <= end : doy >= start || doy <= end;
