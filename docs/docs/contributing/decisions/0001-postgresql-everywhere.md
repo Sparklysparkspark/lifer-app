@@ -6,7 +6,7 @@ description: Lifer uses PostgreSQL on servers and an embedded PostgreSQL in the 
 
 # ADR 0001: PostgreSQL everywhere, embedded in the desktop app
 
-**Status:** Accepted. The server has used Postgres since the first API commit (`9c2ca46`, 2026-08-22); the desktop app has embedded it since `cf8b3ca` (2026-08-29).
+**Status:** Accepted. The server has used Postgres since the first API commit (`9c2ca46`, 2026-08-22); the desktop app has embedded it since `cf8b3ca` (2026-08-29), and has bundled the engine itself since 0.10.0 (`117bbca`, 2026-10-07).
 
 ## Context
 
@@ -44,9 +44,7 @@ Positive:
 
 Negative:
 
-- **First launch needs the internet** in released versions: `postgresql_embedded` downloads the engine from the theseus-rs release archives into `~/.theseus/postgresql/` ([Requirements](../../install/requirements.md)).
-- **macOS 15 or later** in released versions, because of the engine binaries that download provides ([Install the desktop app](../../install/desktop.md)).
-- Both of these are being removed. Work in progress in `apps/desktop` bundles a checksum-pinned Postgres in the app (`scripts/stage-postgres.js`; `embedded_db.rs` runs it in place and downloads nothing) and builds the macOS binaries for an older target (`scripts/build-postgres-macos.sh`, `MACOSX_DEPLOYMENT_TARGET=11.0`; `tauri.conf.json` sets `minimumSystemVersion` 14.0). Until that ships in a release, the two costs above apply. The bundled engine makes the installer larger.
+- **The installer carries the engine.** Each desktop build bundles a checksum-pinned PostgreSQL (`scripts/stage-postgres.js`; `embedded_db.rs` runs it in place and downloads nothing), which makes it larger. The prebuilt macOS binaries need macOS 15, so the macOS engine is built from pinned sources for an older target (`scripts/build-postgres-macos.sh`) and the app runs on macOS 14 and later ([Requirements](../../install/requirements.md)).
 - A full database server per desktop install: stale lock files, PID reuse after a crash, a per-install password with a migration from the older shared one, and a watchdog to stop Postgres when the app dies, all handled in `embedded_db.rs`.
 - **Major Postgres versions need a data upgrade on every desktop install.** The path for it exists: `apps/desktop/src-tauri/src/pg_upgrade.rs` runs `pg_upgrade` (a clone or copy, falling back to a dump and restore) on the first launch after the app moves to a new major, keeps the old data folder until the user deletes it, and recovers from a crash part way through. It needs the previous major's server, which the release that changes majors bundles for a few releases (about 18 MB more on macOS). The 17 to 18 jump is tested end to end on both Mac architectures (`apps/desktop/src-tauri/tests/pg-upgrade-test.sh`). See [Upgrading the bundled PostgreSQL to a new major version](../desktop-app.md#new-major).
 - No vector index: species matching ranks candidates in JavaScript over `real[]` columns (`packages/core/src/species/embeddings.ts`), since the embedded Postgres has no pgvector. Region geometry is computed in TypeScript.

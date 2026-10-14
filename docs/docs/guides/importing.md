@@ -12,9 +12,9 @@ There are four ways to get photos into Lifer:
 | [Batch import](#batch-import) | A card or folder from a shoot, with a species for each photo | **Import** in the top bar |
 | [From a species page](#species-page) | A few photos of one species you already know | **Upload** on a species page |
 | [Trips](./trips.md) | A trip's folder you want to keep where it is | **Albums & trips > Trips** |
-| [Existing library](#existing-library) | Years of photos already tagged in Lightroom, digiKam or similar | **Settings > Library > Reimport library** |
+| [Existing library](#existing-library) | Years of photos already tagged in Lightroom, digiKam or similar | **Settings > Library > Reimport** |
 
-Already culled the shoot in Lightroom, Photo Mechanic, digiKam, Vireo, SuperPicky or another culling app? Lifer reads your picks, rejects and colour labels, and leaves rejected photos out by default. See [Culling with other apps](./culling-with-other-apps.md).
+Already culled the shoot in Lightroom, Photo Mechanic, digiKam, Vireo, SuperPicky or another culling app? Lifer reads your picks, rejects and color labels, and leaves rejected photos out by default. See [Culling with other apps](./culling-with-other-apps.md).
 
 ## Supported files {#supported-files}
 
@@ -25,7 +25,7 @@ Already culled the shoot in Lightroom, Photo Mechanic, digiKam, Vireo, SuperPick
 
 ### HEIC photos {#heic}
 
-HEIC is the format iPhones and many newer cameras save in. Lifer keeps your HEIC file as it is and makes a JPEG copy of it behind the scenes, which it uses for thumbnails, previews and species matching. You can import HEIC photos directly; there's no need to convert them first.
+HEIC is the format iPhones and many newer cameras save in. Lifer keeps your HEIC file as it is and makes a JPEG copy for thumbnails, previews and species matching. You don't need to convert HEIC photos before importing.
 
 ### TIFF files {#tiff}
 
@@ -38,11 +38,13 @@ You don't need to do anything: Lifer tells them apart from the file's contents.
 
 ### Large files {#large-files}
 
-Big RAWs, long videos and huge panoramas all import normally.
+Big RAWs, long videos and huge panoramas import like any other file.
 
-- **Uploads resume by themselves.** Lifer sends each file in pieces. If your connection drops or the laptop goes to sleep partway, the upload picks up from the last piece that arrived instead of starting over. An upload you never finish is cleaned up 2 hours after its last piece arrived.
-- **Works behind any reverse proxy.** Because each piece is small, a proxy's request-size limit doesn't get in the way. If a proxy rejects a piece as too large, Lifer automatically retries with smaller pieces. See [Reverse proxy](../install/reverse-proxy.md#large-uploads).
-- **Panoramas:** photos up to 2,000,000,000 pixels (2 gigapixels) open normally. For species matching, Lifer uses a smaller copy (about 64 megapixels) of any photo over about 268 megapixels, which keeps matching quick. Your original stays full size.
+Lifer sends each file in pieces. If your connection drops or the laptop goes to sleep partway, the upload picks up from the last piece that arrived instead of starting over. An upload you never finish is cleaned up 2 hours after its last piece arrived.
+
+Because each piece is small, a reverse proxy's request-size limit doesn't get in the way. If a proxy rejects a piece as too large, Lifer retries with smaller pieces. See [Reverse proxy](../install/reverse-proxy.md#large-uploads).
+
+Photos up to 2,000,000,000 pixels (2 gigapixels) open normally. For species matching, Lifer uses a smaller copy (about 64 megapixels) of any photo over about 268 megapixels. Your original stays full size.
 
 A server admin can set a per-file size cap or change the panorama limit. See [Environment variables](../install/environment-variables.md#uploads).
 
@@ -71,7 +73,7 @@ Bulk import always saves into your main library. To save to an external drive, [
 
 ### Suggestions
 
-Turn suggestions on in **Settings > Species and import** with **Suggest species while importing photos**. Each row then shows up to five suggestion cards with the species' reference photo, name and a **% match**. Click a card to use it. Click the reference photo to see more photos of that species, to compare.
+Turn suggestions on in **Settings > Species and import** with **Suggest species while importing**. Each row then shows up to five suggestion cards with the species' reference photo, name and a **% match**. Click a card to use it. Click the reference photo to see more photos of that species, to compare.
 
 - A confident pick is shown on its own.
 - When Lifer isn't sure, it shows several cards under "No confident match. Closest guesses:".
@@ -119,9 +121,9 @@ Suggestions need the species-matching model, a one-time download in **Settings >
 
 Suggestions are worked out while you add files, so they're usually ready by the time you reach each row.
 
-- **Lifer gets ready as soon as you open the page.** When you open **Bulk import** (or change the region), Lifer loads its models and that region's species in the background, so the first photo doesn't have to wait for them.
-- **The app stays responsive.** The species-matching models run in the background, separately from the rest of Lifer, so browsing and other pages don't slow down while a batch is being matched.
-- **The desktop app can help a server.** When the desktop app is connected to a server, it can do the matching on your computer whenever that beats the server, which it often does against a small NAS. The region box then says "Matching on this computer or the server, whichever is faster". See [Connect the desktop app to a server](../install/connect-desktop-to-server.md#desktop-assisted-matching).
+- When you open **Bulk import** (or change the region), Lifer loads its models and that region's species in the background, so the first photo doesn't wait for them.
+- Matching runs separately from the rest of Lifer, so other pages don't slow down while a batch is matched.
+- When the desktop app is connected to a server, it can do the matching on your computer whenever that's faster, which it often is against a small NAS. The region box then says "Matching on this computer or the server, whichever is faster". See [Connect the desktop app to a server](../install/connect-desktop-to-server.md#desktop-assisted-matching).
 
 ## Photos that aren't wildlife
 
@@ -172,9 +174,9 @@ During a batch import, if the tags name exactly one species, it appears as a 100
 
 ## What Lifer reads and writes
 
-**Read from each file:** capture time, GPS location, camera, lens, focal length, aperture, shutter speed, ISO, and star rating. Ratings set in Lightroom or a culling tool come along. A rating of 0 or "rejected" counts as unrated. A culling app's pick or reject and colour label are read too, from the file and its `.xmp` sidecar: see [Culling with other apps](./culling-with-other-apps.md).
+**Read from each file:** capture time, GPS location, camera, lens, focal length, aperture, shutter speed, ISO, and star rating. Ratings set in Lightroom or a culling tool come along. A rating of 0 or "rejected" counts as unrated. A culling app's pick or reject and color label are read too, from the file and its `.xmp` sidecar: see [Culling with other apps](./culling-with-other-apps.md).
 
-**Written back to files Lifer stores:** so other tools see your work, Lifer writes into the photo:
+**Written back to files Lifer stores**, so other tools see your work:
 
 - Keywords: each species' common name, scientific name and codes. Your own keywords are kept.
 - A hierarchical keyword: `Species|<group>|<family>|<species>`, like `Species|Birds|Turdidae|American Robin`.
@@ -199,18 +201,18 @@ This page doesn't do drag and drop or suggestions, since you've already chosen t
 
 Have a library organized some other way? Lifer can bring it in by reading the species tags already in the files, and from file and folder names.
 
-1. Open **Settings > Library** and find **Reimport library**.
-2. Choose **Import a library organized differently**.
-3. Enter the **Folder to import**, or click **Browse…**.
-4. Choose whether to tick **Organize matched photos into species folders in my library**. Leave it off to add photos to Lifer without moving them.
-5. Click **Import library now** and confirm.
+1. Open **Settings > Library** and find the **Reimport** panel.
+2. Under **Source**, choose **Another folder**.
+3. Enter the **Folder to import**, or click **Browse**.
+4. Choose whether to turn on **Move into species folders**. Leave it off to add photos to Lifer without moving them.
+5. In **Import library**, click **Import** and confirm.
 
 Lifer reads photos (JPEG, PNG, WebP, TIFF and HEIC) and RAWs in every subfolder. Video files aren't picked up. It matches each one using its embedded tags, an `.xmp` sidecar, and species names or bird codes in the file or folder name. RAWs are paired with their edited photos by name and time.
 
 A progress bar shows photos and RAW files processed, with a cancel button. At the end, Lifer reports how many photos it recovered and how many RAWs it matched.
 
-Photos it can't match are left alone and listed under **Review unmatched (N)**, with the reason, like "No species tag found" or "Matched more than one species". Click **Ignore** on any you don't want (a folder of insects, say) and they won't show up in future scans.
+Photos it can't match are left alone and listed under **Unmatched photos**. Click **Review** to see each one with the reason, like "No species tag found" or "Matched more than one species". Click **Ignore** on any you don't want (a folder of insects, say) and they won't show up in future scans.
 
 On a server, you can only import from the library folder or an [extra library folder](../install/docker.md#extra-library-folders).
 
-To rebuild Lifer's records from its own library after a reinstall, choose **Reimport my existing library** instead. See [Settings > Reimport library](../settings.md#reimport).
+To rebuild Lifer's records from its own library after a reinstall, choose **Lifer library** under **Source** instead. See [Settings > Reimport](../settings.md#reimport).

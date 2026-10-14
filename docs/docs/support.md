@@ -5,7 +5,7 @@ description: Where to ask questions, report bugs and report security problems, a
 
 # Getting help
 
-Lifer is built by volunteers in the open. Here's where to go, depending on what you need.
+Lifer is built by volunteers in the open. Where to go depends on what you need:
 
 | You want to... | Go to |
 |---|---|
@@ -21,11 +21,11 @@ Issues are for bugs and for feature work that's been agreed on. Ideas start in D
 
 ## What to include
 
-A good report gets a fix much sooner. Include:
+Include:
 
 - **Your Lifer version.** In the desktop app, it's in **Settings > General > App updates**. On a server, open `/version` on your server's address, like `http://192.168.1.50:4000/version`.
 - **How you run Lifer:** the desktop app (and on which operating system), or Docker (and on what: a NAS, Unraid, TrueNAS, a Linux server).
-- **What you did, what you expected, and what happened instead.** Steps to make it happen again are the most useful thing of all.
+- **What you did, what you expected, and what happened instead.** Steps to make it happen again help most.
 - **Logs** from around the time it happened (below).
 - Screenshots, if it's something you can see.
 

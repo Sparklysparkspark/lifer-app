@@ -13,10 +13,7 @@ Lifer is a free, open-source photo archive and life list for wildlife photograph
 
 Your photos stay on your own drives. There is no Lifer cloud service and no account to sign up for.
 
-:::tip New here?
-1. Check the [requirements](./install/requirements.md), then [install Lifer](./install/desktop.md) on your computer, or [on a server with Docker](./install/docker.md).
-2. Follow [Getting started](./getting-started.md) for your first import.
-:::
+To start, check the [requirements](./install/requirements.md), [install the desktop app](./install/desktop.md) or [set up a server with Docker](./install/docker.md), then follow [Getting started](./getting-started.md) for your first import.
 
 ## Key ideas
 
@@ -40,11 +37,9 @@ A photo in Lifer is one shot. It can have an edited photo (a JPEG, PNG, WebP, TI
 
 ![The Lifer gallery](/img/gallery.jpg)
 
-### Your collection means you photographed it
+### Collected, seen and your life list
 
 A species counts as **collected** only once you've attached your own photo of it. This isn't a sightings log. If you've seen something but haven't photographed it yet, click **Mark as seen** on its species page or card so it stands apart from species you've never encountered. You can also [import your eBird sightings](./guides/ebird-import.md) to mark everything you've seen at once.
-
-### Life list
 
 Your life list is every species you've collected. On the Collection page, the count under the Lifer logo ("X / Y collected") shows how many species you've photographed out of the checklist you're viewing. Pick a region or a group, like Birds, and the count follows it.
 
@@ -64,11 +59,9 @@ It isn't conservation status: an endangered but easy-to-see bird can be Common, 
 
 See [Collection and checklists](./guides/collection-and-checklists.md#rarity-tiers).
 
-### Regions and checklists
+### Regions, checklists and packs
 
 A region is a country, a province or state, or a sea zone for fish. Its checklist is every species recorded there. You browse your collection by region and see what you still need. Checklists are meant to be personal: hide vagrants or archive species you aren't chasing.
-
-### Offline packs
 
 A pack holds a region's checklist, reference photos and descriptions. You download the packs you care about and they work fully offline from then on. See [Offline packs and the map](./guides/offline-packs-and-map.md).
 

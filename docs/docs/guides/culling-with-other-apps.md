@@ -5,7 +5,7 @@ description: Cull in Lightroom, Photo Mechanic, digiKam, Vireo, SuperPicky or an
 
 # Culling with other apps
 
-Many wildlife photographers sort the keepers from the rest in a dedicated culling app before doing anything else. Lifer honours those decisions when you import, so the workflow is simple: **cull with the app you like, then import into Lifer.** Photos you rejected are left out by default (a library reimport hides them instead), and the pick and colour label you gave a photo come along with it.
+If you sort keepers from the rest in a culling app, cull there first, then import into Lifer. Lifer reads your decisions at import: photos you rejected are left out by default (a library reimport hides them instead), and the pick and color label you gave a photo come along with it.
 
 Lifer only ever reads these marks. It never deletes, moves or changes one of your files because of a mark.
 
@@ -14,7 +14,7 @@ Lifer only ever reads these marks. It never deletes, moves or changes one of you
 Culling apps record their decisions in the photo's metadata: inside a JPEG, TIFF or DNG, and in an `.xmp` sidecar next to a RAW file (`IMG_0001.xmp` or `IMG_0001.CR3.xmp`). Lifer reads both, and turns what it finds into two things:
 
 - **A verdict:** picked, rejected, or none.
-- **A colour label:** red, orange, yellow, green, blue, purple, gray, black or white, or none.
+- **A color label:** red, orange, yellow, green, blue, purple, gray, black or white, or none.
 
 | Field | Written by | Lifer reads it as |
 |---|---|---|
@@ -22,28 +22,28 @@ Culling apps record their decisions in the photo's metadata: inside a JPEG, TIFF
 | `xmp:Rating` of -1 | Adobe Bridge's **Reject**, FastRawViewer (when set to), and other apps that follow the XMP standard's "-1 means rejected" | Rejected |
 | `digiKam:PickLabel` | digiKam (Rejected, Pending, Accepted) | Rejected or picked. Pending is no verdict |
 | `photomechanic:Tagged` | Photo Mechanic's tag | Picked |
-| `xmp:Label` | Lightroom, Bridge, Capture One, digiKam, SuperPicky, FastRawViewer | The colour label |
-| `digiKam:ColorLabel` | digiKam | The colour label |
+| `xmp:Label` | Lightroom, Bridge, Capture One, digiKam, SuperPicky, FastRawViewer | The color label |
+| `digiKam:ColorLabel` | digiKam | The color label |
 
-A label's text must name a colour (`Red`, `Green` and so on, in English), or be one of Adobe Bridge's default label names (`Select`, `Second`, `Approved`, `Review`, `To Do`). A custom label set, or label names in another language, isn't read as a colour.
+A label's text must name a color (`Red`, `Green` and so on, in English), or be one of Adobe Bridge's default label names (`Select`, `Second`, `Approved`, `Review`, `To Do`). A custom label set, or label names in another language, isn't read as a color.
 
-Star ratings are read as they always have been: 1 to 5 stars become the photo's rating in Lifer.
+Star ratings of 1 to 5 become the photo's rating in Lifer.
 
 ## App by app
 
-| App | Rejects | Picks | Colour labels | Notes |
+| App | Rejects | Picks | Color labels | Notes |
 |---|---|---|---|---|
 | **Lightroom Classic 13.2+** and **Lightroom desktop 7.2+** | Yes | Yes | Yes | Flags reach the files only when metadata is saved to them. See [Lightroom](#lightroom) |
 | **Lightroom Classic before 13.2** | No | No | Yes | Flags stay in the catalog. See [Lightroom](#lightroom) |
 | **Adobe Bridge** | Yes | No | Yes | **Reject** sets the rating to -1 |
-| **Photo Mechanic** | No | Yes | Only if written to `xmp:Label` | Photo Mechanic has no reject; its tag is the keeper mark. Color classes are numbered and named by you, so Lifer doesn't read them as colours |
-| **digiKam** | Yes | Yes | Yes | Pick labels and colour labels both work |
-| **Capture One** | No | No | Yes | Capture One has no pick or reject flag; turn on writing XMP sidecars to share colour tags |
+| **Photo Mechanic** | No | Yes | Only if written to `xmp:Label` | Photo Mechanic has no reject; its tag is the keeper mark. Color classes are numbered and named by you, so Lifer doesn't read them as colors |
+| **digiKam** | Yes | Yes | Yes | Pick labels and color labels both work |
+| **Capture One** | No | No | Yes | Capture One has no pick or reject flag; turn on writing XMP sidecars to share color tags |
 | **Vireo** | Yes | Yes | No | Vireo writes its reject and flag marks (`xmpDM:pick`) when **sync flags to XMP** is on, which it is by default. Its KEEP, REVIEW and REJECT triage stays inside Vireo until you turn it into flags |
-| **SuperPicky** | Yes | Yes | Yes | Picks and its "no bird" rejects are written as flags; its blue, green and red labels come along as colour labels. Its 0-star rejects aren't read as rejects, since 0 stars means unrated |
+| **SuperPicky** | Yes | Yes | Yes | Picks and its "no bird" rejects are written as flags; its blue, green and red labels come along as color labels. Its 0-star rejects aren't read as rejects, since 0 stars means unrated |
 | **FastRawViewer** | With a setting | No | Yes | Turn on **Use XMP Reject rating** so a reject is written as rating -1. Its **Move to Rejected** moves files into a `_Rejected` folder, which Lifer still finds inside a trip folder |
 | **Narrative Select** | Probably | Probably | Yes | Narrative says its tags and rejects are written to metadata Lightroom can read, which suggests the `xmpDM` flags. Not yet confirmed with a real file |
-| **Excire Foto** | Not known | Not known | Yes | Stars and colour labels are written to sidecars for RAW files; we found no reject flag |
+| **Excire Foto** | Not known | Not known | Yes | Stars and color labels are written to sidecars for RAW files; we found no reject flag |
 
 If your app isn't listed, it probably works when it writes `xmp:Rating` -1 for a reject or Lightroom-style flags. Check by importing a few photos with **Rejected photos** set to **Import them anyway**: rejected and picked photos say so in the [Gallery](./gallery-and-search.md)'s full-screen view.
 
@@ -63,7 +63,7 @@ Flags you set before updating to 13.2 aren't written until the photo's metadata 
 - remove the rejects: filter by **Rejected** and choose **Photo > Delete Rejected Photos**, or move them to a folder outside the trip folder, or
 - update Lightroom, then save the metadata as above.
 
-A colour label from any Lightroom version comes along.
+A color label from any Lightroom version comes along.
 
 ## When you import
 
@@ -83,7 +83,7 @@ The **Bulk import** page reads the marks inside each file you add, and offers th
 
 ### Other ways in
 
-Importing an existing library from **Settings > Library > Reimport library** reads the marks in each photo, its `.xmp` sidecar and its RAW, and offers the same choice under **Photos a culling app marked rejected**: **Skip them**, **Import them hidden** (the default here, since a reimport recovers photos you already imported) or **Import them anyway**. See [Reimport library](../settings.md#reimport). The [API](../api/overview.md) reads them too, and its `cullMarks` field chooses what happens.
+Importing an existing library from the **Reimport** panel in **Settings > Library** reads the marks in each photo, its `.xmp` sidecar and its RAW, and offers the same choice under **Rejected photos**: **Skip them**, **Import them hidden** (the default here, since a reimport recovers photos you already imported) or **Import them anyway**. See [Reimport library](../settings.md#reimport). The [API](../api/overview.md) reads them too, and its `cullMarks` field chooses what happens.
 
 ## RAW and JPEG pairs {#pairs}
 
@@ -91,7 +91,7 @@ A RAW and its JPEG are one photo in Lifer ([how they're paired](./importing.md#r
 
 ## Picks and labels on imported photos
 
-Lifer keeps the verdict and colour label it read with each photo, whichever option you chose. Open a photo full screen in the Gallery and its details say, for example, "Picked in your culling app · Red label".
+Lifer keeps the verdict and color label it read with each photo, whichever option you chose. Open a photo full screen in the Gallery and its details say, for example, "Picked in your culling app · Red label".
 
 Lifer's star rating is separate. When Lifer writes its species tags into the copy it keeps, it leaves the culling app's own marks alone, including a rejected photo's rating of -1 while you haven't given it stars in Lifer. (A trip's copy of a RAW doesn't bring the RAW's `.xmp` sidecar along, so for those the marks are kept in Lifer only.)
 
@@ -116,7 +116,7 @@ Unhiding puts a photo back in the Gallery, your life list and Stats, as if it ha
 **Will Lifer delete my rejects?**
 No. Lifer never deletes, moves or changes a file because of a culling mark. Skipped photos stay exactly where they are.
 
-**Does a colour label do anything?**
+**Does a color label do anything?**
 Not at import: only rejections change what's imported. Labels and picks are kept with the photo so you don't lose them.
 
 **My rejected photos were imported anyway.**

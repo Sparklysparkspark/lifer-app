@@ -32,7 +32,7 @@ sightings log.
 Your photographs and videos remain on the drives you choose. Lifer provides the wildlife-specific
 organization and information built around them.
 
-![The Lifer gallery](./docs/static/img/gallery.jpg)
+![A regional checklist in Lifer](./docs/static/img/collection.jpg)
 
 ## Your wildlife collection, organized
 
@@ -75,8 +75,6 @@ watch photographed species join your life list automatically. Each species carri
 (how hard it is to actually go find and photograph, not conservation status), a reference photo,
 and habitat info, so you know roughly what you're looking for.
 
-![A regional checklist in Lifer](./docs/static/img/collection.jpg)
-
 Checklists are meant to be personal: hide or archive species you're not pursuing so the list
 reflects your own goals, not every species that could theoretically occur somewhere in the region.
 
@@ -98,6 +96,8 @@ Browse the whole Gallery across every species, searchable by name, place, date, 
 natural-language description of the shot ("fox playing"). Group favorites into Albums, point Lifer
 at a trip's folder without copying anything in, and check Stats for a real breakdown of your own
 archive: most-photographed species, gear-and-species patterns, year-over-year comparisons.
+
+![The Lifer gallery](./docs/static/img/gallery.jpg)
 
 ![Lifer stats](./docs/static/img/stats.jpg)
 

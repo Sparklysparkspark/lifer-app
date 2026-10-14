@@ -7,7 +7,7 @@ description: Browse every photo, filter and sort, search by species, place, date
 
 The **Gallery** shows every photo in your library, across all species. Open it from **Gallery** in the top bar.
 
-Under the title, Lifer shows how many photos match your filters, like "12,480 photos". Large libraries open quickly: the Gallery loads 200 photos at a time and fetches more as you scroll.
+Under the title, Lifer shows how many photos match your filters, like "12,480 photos". The Gallery loads 200 photos at a time and fetches more as you scroll.
 
 By default, the Gallery shows photos only (no videos) and leaves out photos that have a RAW file. To see those too, change **Media type** and **RAW files** in [Filters](#filters). Lifer remembers these choices on this device.
 
@@ -56,7 +56,7 @@ The Gallery can be narrowed to a single trip or album. A chip like **In trip Cos
 
 You get there from [quick search](#quick-search): on a trip or album page, choose **Search all photos in this trip for "…"** (or album).
 
-Other pages link into the Gallery with a filter already set, too. A tag's photo count in **Manage tags** shows photos with that tag, and **Archive health** on the [Stats](./stats.md) page shows photos missing a date so you can fix them.
+Other pages link into the Gallery with a filter already set, too. A tag's photo count on the **Tags** page shows photos with that tag, and **Archive health** on the [Stats](./stats.md) page shows photos missing a date so you can fix them.
 
 ## Working with photos
 
@@ -102,7 +102,7 @@ To zoom, pinch on a trackpad or hold <kbd>Ctrl</kbd> and scroll (up to 4x). Doub
 
 ## Tags
 
-Tags are your own labels, like "courtship" or "backyard". Add them from a photo's **⋯** menu, in the viewer, or to many photos at once in select mode. Manage them in **Settings > Library > Manage tags**, where you can rename (or merge) and delete tags.
+Tags are your own labels, like "courtship" or "backyard". Add them from a photo's **⋯** menu, in the viewer, or to many photos at once in select mode. Manage them from **Settings > Library > Tags**, where you can rename (or merge) and delete tags.
 
 Lifer also writes your tags into the photo files it keeps, as ordinary keywords, so Lightroom, digiKam and other apps show them, and a [reimport](../settings.md#reimport) brings them back. Renaming or deleting a tag updates the files too. Keywords you added in other apps are left alone. Photos kept in your own folders (linked, not copied) are never changed.
 

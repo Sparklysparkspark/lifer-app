@@ -21,7 +21,7 @@ Lifer is English-only for now. More languages are on the [roadmap](../roadmap.md
 
 `npm run check:i18n` runs in CI. It fails when code uses a key that isn't in `en.json`, when `en.json` has a key nothing uses, when a key is built at runtime (keys must be string literals somewhere in the source), or when a message isn't valid ICU.
 
-The ESLint rule that flags hard-coded strings in JSX (`i18next/no-literal-string`) is configured in `eslint.config.mjs` but switched off until the rest of the web app has been moved to `en.json`.
+The ESLint rule that flags hard-coded strings in JSX (`i18next/no-literal-string`) warns on every web file except those listed in `I18N_UNMIGRATED_FILES` in `eslint.config.mjs`, which haven't been moved to `en.json` yet. When you migrate a file, take it off that list; never add one.
 
 ## Writing interface text
 
@@ -33,17 +33,17 @@ The ESLint rule that flags hard-coded strings in JSX (`i18next/no-literal-string
 
 Terms with a specific meaning in Lifer, for whoever translates later:
 
-| Term | Meaning |
-|---|---|
-| Lifer | The app's name. Never translated. Lowercase "lifer" is a birding term: a species seen for the first time. |
-| Life list | Every species a person has seen. |
-| Checklist | A region's list of species. |
-| Encounter | A group of photos of one species taken close together in time. |
-| Offline pack | A downloadable bundle of a region's checklist and reference photos. |
-| Sidecar | An `.xmp` file next to a RAW photo that holds its metadata. |
+| Term         | Meaning                                                                                                   |
+| ------------ | --------------------------------------------------------------------------------------------------------- |
+| Lifer        | The app's name. Never translated. Lowercase "lifer" is a birding term: a species seen for the first time. |
+| Life list    | Every species a person has seen.                                                                          |
+| Checklist    | A region's list of species.                                                                               |
+| Encounter    | A group of photos of one species taken close together in time.                                            |
+| Offline pack | A downloadable bundle of a region's checklist and reference photos.                                       |
+| Sidecar      | An `.xmp` file next to a RAW photo that holds its metadata.                                               |
 
 ## What's planned
 
-- Finish moving the web app's text into `en.json`, then switch the lint rule back on.
+- Finish moving the web app's text into `en.json` (emptying `I18N_UNMIGRATED_FILES`), then make the lint rule an error.
 - Community translation through a hosted [Weblate](https://weblate.org) project, with `en.json` as the source and one file per language in `apps/web/src/locales/`. Draft machine translations, if used, would be imported marked "needs editing" so a person reviews each one.
 - Per-language species names and descriptions, downloaded as packs alongside the species catalog, falling back to English.
