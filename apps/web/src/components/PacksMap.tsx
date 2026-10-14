@@ -152,7 +152,7 @@ export default function PacksMap({
         properties: { id: c.id, name: c.name },
         geometry: c.boundaryGeoJson.geometry,
       })),
-    } as GeoJSON.FeatureCollection);
+    } as Parameters<GeoJSONSource["setData"]>[0]);
   }, [countries, loaded]);
 
   // Every country's feature-state reset and re-applied per selection change (cheap next to a

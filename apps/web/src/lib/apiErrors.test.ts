@@ -1,5 +1,3 @@
-import { readFileSync, readdirSync, statSync } from "node:fs";
-import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import i18n from "../i18n";
 import { ApiError } from "../api/client";
@@ -75,18 +73,20 @@ describe("ApiError and errorMessage", () => {
 
 describe("the API error code audit", () => {
   // Every `code: "..."` literal the API and core send has a message key, and nothing stale is mapped.
-  function codesIn(dir: string): string[] {
-    return readdirSync(dir).flatMap((name) => {
-      const full = join(dir, name);
-      if (statSync(full).isDirectory()) return codesIn(full);
-      if (!name.endsWith(".ts") || name.endsWith(".test.ts")) return [];
-      return [...readFileSync(full, "utf8").matchAll(/\bcode: ?"([a-z0-9_]+)"/g)].map((m) => m[1]);
-    });
-  }
+  const sources = import.meta.glob<string>(
+    [
+      "../../../api/src/**/*.ts",
+      "../../../../packages/core/src/**/*.ts",
+      "!../../../api/src/**/*.test.ts",
+      "!../../../../packages/core/src/**/*.test.ts",
+    ],
+    { query: "?raw", import: "default", eager: true },
+  );
 
   it("covers exactly the codes apps/api and packages/core send", () => {
-    const root = join(__dirname, "..", "..", "..", "..");
-    const codes = new Set([...codesIn(join(root, "apps/api/src")), ...codesIn(join(root, "packages/core/src"))]);
+    const codes = new Set(
+      Object.values(sources).flatMap((src) => [...src.matchAll(/\bcode: ?"([a-z0-9_]+)"/g)].map((m) => m[1])),
+    );
     expect([...codes].sort()).toEqual(Object.keys(API_ERROR_MESSAGE_KEYS).sort());
   });
 
