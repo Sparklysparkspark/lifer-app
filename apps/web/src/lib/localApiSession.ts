@@ -4,6 +4,7 @@
 // HttpOnly cookie that then signs in every request, images included (see the API's
 // auth/localCredential.ts). The secret itself is dropped right after.
 import type { TauriInvoke } from "./tauri";
+import { ignore } from "./ignore";
 
 export const LOCAL_CREDENTIAL_HEADER = "x-lifer-launch-token";
 
@@ -22,5 +23,5 @@ export async function startLocalApiSession(invoke: TauriInvoke | null, fetchImpl
     method: "POST",
     credentials: "same-origin",
     headers: { "x-lifer-client": "1", [LOCAL_CREDENTIAL_HEADER]: token },
-  }).catch(() => {});
+  }).catch(ignore("Couldn't start the desktop session"));
 }

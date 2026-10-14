@@ -1,6 +1,7 @@
 import { useTranslation } from "react-i18next";
 import { useEffect, useState } from "react";
 import { api } from "../api/client";
+import { ignore } from "../lib/ignore";
 
 interface LibraryFolderStatus {
   ok: boolean;
@@ -23,7 +24,7 @@ export default function LibraryFolderBanner() {
         .then((res) => {
           if (!cancelled) setStatus(res);
         })
-        .catch(() => {});
+        .catch(ignore("Couldn't check the library folder"));
     };
     check();
     const timer = window.setInterval(check, POLL_MS);

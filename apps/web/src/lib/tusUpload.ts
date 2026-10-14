@@ -2,7 +2,8 @@
 // proxies and dropped connections resume. The finished upload's id then goes to /uploads/*.
 import { Upload, type DetailedError, type PreviousUpload } from "tus-js-client";
 import { CLIENT_HEADER } from "../api/client";
-import { formatBytes } from "./formatBytes";
+import { formatBytes } from "./format";
+import { ignore } from "./ignore";
 
 const ENDPOINT = "/api/uploads/tus";
 export const INITIAL_CHUNK_SIZE = 8 * 1024 * 1024;
@@ -128,7 +129,7 @@ export function uploadFile(
       settle(() => reject(new DOMException("Upload cancelled", "AbortError")));
       if (upload) {
         forgetStoredUrl(upload.url);
-        void upload.abort(true).catch(() => {});
+        void upload.abort(true).catch(ignore("Couldn't abort the upload"));
       }
     };
     if (opts.signal?.aborted) return onAbort();
@@ -223,5 +224,5 @@ export function discardUpload(uploadId: string): void {
     method: "DELETE",
     credentials: "same-origin",
     headers: { ...CLIENT_HEADER, "Tus-Resumable": "1.0.0" },
-  }).catch(() => {});
+  }).catch(ignore("Couldn't discard the upload"));
 }

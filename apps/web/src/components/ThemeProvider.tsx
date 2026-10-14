@@ -1,6 +1,7 @@
 import { useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
 import { ThemeContext, type Theme, type ThemePreference } from "../hooks/useTheme";
 import { tauriInvoke } from "../lib/tauri";
+import { ignore } from "../lib/ignore";
 
 const STORAGE_KEY = "lifer-theme";
 const DARK_QUERY = "(prefers-color-scheme: dark)";
@@ -43,7 +44,9 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     document.documentElement.classList.toggle("dark", theme === "dark");
     // The desktop window background shows during macOS overscroll, so keep it matching the theme.
-    tauriInvoke()?.("set_window_theme_background", { dark: theme === "dark" })?.catch(() => {});
+    tauriInvoke()?.("set_window_theme_background", { dark: theme === "dark" })?.catch(
+      ignore("Couldn't set the window background"),
+    );
   }, [theme]);
 
   return <ThemeContext.Provider value={{ theme, preference, setPreference }}>{children}</ThemeContext.Provider>;

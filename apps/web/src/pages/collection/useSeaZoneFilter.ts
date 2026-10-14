@@ -41,7 +41,7 @@ export function useSeaZoneFilter({
   useEffect(() => {
     if (regionId && !packsKnown) return;
     if (!seaZonesRelevant && seaZoneIds.length > 0) updateParams({ seaZones: null, includeLand: null });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only a change in relevance clears them; a region change already does
   }, [seaZonesRelevant, packsKnown]);
 
   // A region with no native fish but nearby marine zones checks its zones automatically, once per
@@ -66,8 +66,16 @@ export function useSeaZoneFilter({
         // Let the next render retry instead of treating a failed check as "has fish".
         autoSelected.current.delete(regionId);
       });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [regionId, regionKnownHub, seaZonesRelevant, seaZones, seaZoneIds.length, isTaxonPackDownloaded]);
+  }, [
+    regionId,
+    regionKnownHub,
+    seaZonesRelevant,
+    seaZones,
+    seaZoneIds.length,
+    isTaxonPackDownloaded,
+    currentRegionId,
+    updateParams,
+  ]);
 
   function toggleSeaZone(zoneId: string, checked: boolean) {
     const next = checked ? [...seaZoneIds, zoneId] : seaZoneIds.filter((id) => id !== zoneId);

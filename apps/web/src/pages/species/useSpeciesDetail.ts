@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../../api/client";
 import { useUploadQueue } from "../../lib/uploadQueue";
 import type { EncountersResponse, SpeciesCapture, SpeciesDetail, UnmatchedRaw } from "./types";
+import { ignore } from "../../lib/ignore";
 
 const UNAVAILABLE_POLL_START_MS = 8000;
 const UNAVAILABLE_POLL_MAX_MS = 60000;
@@ -99,7 +100,7 @@ export function useSpeciesDetail(id: string | undefined, regionId: string | null
       .then((res) => {
         if (!controller.signal.aborted) setLoadedEncounters({ id, encounters: res });
       })
-      .catch(() => {});
+      .catch(ignore("Couldn't load encounters"));
     return () => controller.abort();
   }, [id]);
 
