@@ -1,80 +1,19 @@
 // Applies a downloaded pack archive in one transaction. A species' photo and description are
 // written only once, whichever pack (or live lookup) gets there first; a sea zone shared by
 // several countries is downloaded once (see download.ts's dependency queue).
+import { HUMAN_SCIENTIFIC_NAME } from "@lifer/core/species/neverListed.js";
 import { existsSync, mkdirSync, readFileSync, rmSync, mkdtempSync } from "node:fs";
 import { copyFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import * as tar from "tar";
 import type { PoolClient } from "pg";
+import { descendantIdsSql } from "@lifer/core/regions/regionTree.js";
 import { isSafePackEntry, resolveWithinDir } from "./packPaths.js";
 import { PHOTO_DIRS } from "./photoStore.js";
+import { PackManifestSchema, parseRemoteJson, type ManifestSpecies, type PackManifest } from "./schemas.js";
 
-interface ManifestSpecies {
-  scientificName: string;
-  habitatDescription: string | null;
-  referenceCredit: string | null;
-  referenceLicense: string | null;
-  displayFile: string | null;
-  thumbFile: string | null;
-  // Mirrors build-region-pack.ts's ManifestSpecies, so a pack works offline without live fetches.
-  gallery?: Array<{
-    photoUrl: string;
-    credit: string;
-    license: string;
-    sortOrder: number;
-    focalX: number | null;
-    focalY: number | null;
-    displayFile: string | null;
-    thumbFile: string | null;
-    embedding?: number[];
-    embeddingModelVersion?: string;
-  }>;
-  embedding?: number[];
-  embeddingModelVersion?: string;
-  // Checklist membership. A sea-zone pack only has recordCount.
-  localFrequency?: number | null;
-  seasonality?: number[] | null;
-  localTier?: string | null;
-  isVagrant?: boolean;
-  recordCount?: number;
-  // Why the tier is what it is, or why there's none (packages/shared tierExplain.ts).
-  tierReason?: string | null;
-  tierExplain?: unknown;
-  weeklyFrequency?: number[] | null;
-  // Province level only.
-  hotspots?: Array<{
-    centroidLat: number;
-    centroidLon: number;
-    pointCount: number;
-    bboxDiagonalKm: number;
-    lastSeenYear: number | null;
-    distinctYears: number | null;
-  }>;
-}
-
-interface ManifestChildRegion {
-  name: string;
-  ebirdRegionCode: string | null;
-  boundaryGeoJson: unknown;
-  externalCodes: string[];
-  species: ManifestSpecies[];
-  isOverseasTerritory: boolean;
-}
-
-export interface PackManifest {
-  type: "region" | "seaZone";
-  region?: string;
-  seaZone?: string;
-  // The one taxon class the pack covers, or null for every taxon. When absent the pack only adds
-  // to a checklist (see pruneChecklist).
-  taxon?: string | null;
-  species: ManifestSpecies[];
-  // Provinces bundled into a country pack, applied like the country (the local row is created
-  // if missing).
-  children?: ManifestChildRegion[];
-  seaZoneDependencies?: Array<{ name: string; packFile: string }>;
-}
+export type { PackManifest } from "./schemas.js";
 
 // Rows per bulk statement, well under Postgres's ~65535 bind-parameter limit at 9 columns.
 const BULK_BATCH_SIZE = 500;
@@ -130,31 +69,56 @@ async function pruneChecklist(
   return res.rows.length;
 }
 
-// Applies one region's or sea zone's species list: enrichment (photo, habitat text) and checklist
-// membership. `db` is the pack's transaction client, so a crash mid-apply leaves nothing
-// half-written.
-async function applyChecklist(
-  db: PoolClient,
-  species: ManifestSpecies[],
-  target: { regionId: string } | { seaZoneId: string },
-  extractDir: string,
-  displayDir: string,
-  thumbDir: string,
-  galleryDisplayDir: string,
-  galleryThumbDir: string,
-  // The pack's taxon scope, for pruning; undefined leaves the checklist's other rows alone.
-  taxon: string | null | undefined,
-): Promise<{
-  applied: number;
-  skipped: number;
-  skippedNames: string[];
-  touched: Array<{ speciesId: string; providedEnrichment: boolean }>;
-}> {
-  let skipped = 0;
-  const skippedNames: string[] = [];
-  const touched: Array<{ speciesId: string; providedEnrichment: boolean }> = [];
+type ChecklistTarget = { regionId: string } | { seaZoneId: string };
+type Touched = { speciesId: string; providedEnrichment: boolean };
 
-  // Bulk reads up front, every decision in memory, then bulk writes, so large packs stay fast.
+/** The extracted archive and the folders its photos are copied into. */
+interface PackDirs {
+  extractDir: string;
+  display: string;
+  thumb: string;
+  galleryDisplay: string;
+  galleryThumb: string;
+}
+
+interface ChecklistPlan {
+  skippedNames: string[];
+  touched: Touched[];
+  // Copies run together after planning (destinations derive from row ids), before any row points
+  // at them.
+  copyTasks: Array<{ src: string; dest: string }>;
+  enrichmentUpdates: Array<{
+    id: string;
+    habitat: string | null;
+    credit: string | null;
+    license: string | null;
+    display: string | null;
+    thumb: string | null;
+  }>;
+  galleryUpserts: Array<{
+    speciesId: string;
+    photoUrl: string;
+    credit: string;
+    license: string;
+    sortOrder: number;
+    focalX: number | null;
+    focalY: number | null;
+    display: string | null;
+    thumb: string | null;
+  }>;
+  /** Final row id per gallery photo ("speciesId:photoUrl"): prefetched, then filled in by the upsert. */
+  galleryPhotoIdByKey: Map<string, string>;
+  galleryEmbeddingCandidates: Array<{ speciesId: string; photoUrl: string; embedding: number[]; modelVersion: string }>;
+  speciesEmbeddings: Array<{ speciesId: string; embedding: number[]; modelVersion: string }>;
+  // Every matched species is marked "gallery already tried": the pack build ran the same gallery
+  // lookup, so viewing it shouldn't trigger a live fetch.
+  galleryBackfilledIds: string[];
+  checklistRows: Array<{ speciesId: string; sp: ManifestSpecies }>;
+}
+
+// Bulk reads up front and every decision in memory, so the writes after can be bulk too and
+// large packs stay fast.
+async function planChecklist(db: PoolClient, species: ManifestSpecies[], dirs: PackDirs): Promise<ChecklistPlan> {
   const existingRes = await db.query<{
     id: string;
     scientific_name: string;
@@ -169,78 +133,52 @@ async function applyChecklist(
   const speciesByName = new Map(existingRes.rows.map((r) => [r.scientific_name, r]));
 
   const speciesIds = existingRes.rows.map((r) => r.id);
-  const existingGalleryRes = speciesIds.length
-    ? await db.query<{
-        id: string;
-        species_id: string;
-        photo_url: string;
-        display_path: string | null;
-        thumb_path: string | null;
-      }>(
-        `SELECT id, species_id, photo_url, display_path, thumb_path FROM species_reference_photos WHERE species_id = ANY($1)`,
-        [speciesIds],
-      )
-    : {
-        rows: [] as Array<{
-          id: string;
-          species_id: string;
-          photo_url: string;
-          display_path: string | null;
-          thumb_path: string | null;
-        }>,
-      };
-  const existingGalleryByKey = new Map(existingGalleryRes.rows.map((r) => [`${r.species_id}:${r.photo_url}`, r]));
+  type GalleryRow = {
+    id: string;
+    species_id: string;
+    photo_url: string;
+    display_path: string | null;
+    thumb_path: string | null;
+  };
+  const existingGalleryRows = speciesIds.length
+    ? (
+        await db.query<GalleryRow>(
+          `SELECT id, species_id, photo_url, display_path, thumb_path FROM species_reference_photos WHERE species_id = ANY($1)`,
+          [speciesIds],
+        )
+      ).rows
+    : [];
+  const existingGalleryByKey = new Map(existingGalleryRows.map((r) => [`${r.species_id}:${r.photo_url}`, r]));
   // Blocklisted photos (maps and other non-photos) are never installed, even if a pack has them.
   const blockedPhotos = new Set(
     (await db.query<{ photo_url: string }>(`SELECT photo_url FROM reference_photo_blocklist`)).rows.map(
       (r) => r.photo_url,
     ),
   );
-  // Final row id per gallery photo: prefetched, or filled in from the upsert's RETURNING.
-  const galleryPhotoIdByKey = new Map([...existingGalleryByKey.entries()].map(([k, r]) => [k, r.id] as const));
 
-  const enrichmentUpdates: Array<{
-    id: string;
-    habitat: string | null;
-    credit: string | null;
-    license: string | null;
-    display: string | null;
-    thumb: string | null;
-  }> = [];
-  const galleryUpserts: Array<{
-    speciesId: string;
-    photoUrl: string;
-    credit: string;
-    license: string;
-    sortOrder: number;
-    focalX: number | null;
-    focalY: number | null;
-    display: string | null;
-    thumb: string | null;
-  }> = [];
-  const galleryEmbeddingCandidates: Array<{
-    speciesId: string;
-    photoUrl: string;
-    embedding: number[];
-    modelVersion: string;
-  }> = [];
-  const speciesEmbeddings: Array<{ speciesId: string; embedding: number[]; modelVersion: string }> = [];
-  // Every matched species is marked "gallery already tried": the pack build ran the same gallery
-  // lookup, so viewing it shouldn't trigger a live fetch.
-  const galleryBackfilledIds: string[] = [];
-  const checklistRows: Array<{ speciesId: string; sp: ManifestSpecies }> = [];
-  // Copies are queued and run together after the loop (destinations derive from row ids).
-  const copyTasks: Array<{ src: string; dest: string }> = [];
+  const plan: ChecklistPlan = {
+    skippedNames: [],
+    touched: [],
+    copyTasks: [],
+    enrichmentUpdates: [],
+    galleryUpserts: [],
+    galleryPhotoIdByKey: new Map([...existingGalleryByKey.entries()].map(([k, r]) => [k, r.id] as const)),
+    galleryEmbeddingCandidates: [],
+    speciesEmbeddings: [],
+    galleryBackfilledIds: [],
+    checklistRows: [],
+  };
 
   for (const sp of species) {
+    // Packs built before people were left out still list them.
+    if (sp.scientificName === HUMAN_SCIENTIFIC_NAME) continue;
     const row = speciesByName.get(sp.scientificName);
     // A species this install's catalog doesn't have: nothing to apply.
     if (!row) {
-      skipped++;
-      skippedNames.push(sp.scientificName);
+      plan.skippedNames.push(sp.scientificName);
       continue;
     }
-    galleryBackfilledIds.push(row.id);
+    plan.galleryBackfilledIds.push(row.id);
 
     // Enrichment fills in only for a species not yet enriched, or whose display or thumb file
     // is missing or unrecorded (a catalog seed sets enriched_at without any image files).
@@ -250,25 +188,25 @@ async function applyChecklist(
       (!!sp.thumbFile && (row.reference_thumb_path == null || !existsSync(row.reference_thumb_path)));
     const providedEnrichment = !row.enriched_at || referenceFileMissing;
     if (providedEnrichment) {
-      const displaySource = sp.displayFile ? resolveWithinDir(extractDir, sp.displayFile) : null;
-      const thumbSource = sp.thumbFile ? resolveWithinDir(extractDir, sp.thumbFile) : null;
+      const displaySource = sp.displayFile ? resolveWithinDir(dirs.extractDir, sp.displayFile) : null;
+      const thumbSource = sp.thumbFile ? resolveWithinDir(dirs.extractDir, sp.thumbFile) : null;
 
       let displayPath: string | null = null;
       let thumbPath: string | null = null;
       if (displaySource && existsSync(displaySource)) {
-        displayPath = path.join(displayDir, `${row.id}.webp`);
-        copyTasks.push({ src: displaySource, dest: displayPath });
+        displayPath = path.join(dirs.display, `${row.id}.webp`);
+        plan.copyTasks.push({ src: displaySource, dest: displayPath });
       }
       if (thumbSource && existsSync(thumbSource)) {
-        thumbPath = path.join(thumbDir, `${row.id}.webp`);
-        copyTasks.push({ src: thumbSource, dest: thumbPath });
+        thumbPath = path.join(dirs.thumb, `${row.id}.webp`);
+        plan.copyTasks.push({ src: thumbSource, dest: thumbPath });
       }
 
-      enrichmentUpdates.push({
+      plan.enrichmentUpdates.push({
         id: row.id,
-        habitat: sp.habitatDescription,
-        credit: sp.referenceCredit,
-        license: sp.referenceLicense,
+        habitat: sp.habitatDescription ?? null,
+        credit: sp.referenceCredit ?? null,
+        license: sp.referenceLicense ?? null,
         display: displayPath,
         thumb: thumbPath,
       });
@@ -276,68 +214,71 @@ async function applyChecklist(
 
     // Gallery photos and the reference embedding are checked on their own terms, independent of
     // the enrichment gate above.
-    if (sp.gallery && sp.gallery.length > 0) {
-      for (const g of sp.gallery) {
-        // sortOrder names the photo's file, so anything but an integer could escape the folder.
-        if (blockedPhotos.has(g.photoUrl) || !Number.isSafeInteger(g.sortOrder)) continue;
-        const existingGalleryRow = existingGalleryByKey.get(`${row.id}:${g.photoUrl}`);
-        const galleryFileMissing =
-          !existingGalleryRow ||
-          (existingGalleryRow.display_path != null && !existsSync(existingGalleryRow.display_path)) ||
-          (existingGalleryRow.thumb_path != null && !existsSync(existingGalleryRow.thumb_path));
+    for (const g of sp.gallery ?? []) {
+      // sortOrder names the photo's file, so anything but an integer could escape the folder.
+      if (blockedPhotos.has(g.photoUrl) || !Number.isSafeInteger(g.sortOrder)) continue;
+      const sortOrder = g.sortOrder as number;
+      const existingGalleryRow = existingGalleryByKey.get(`${row.id}:${g.photoUrl}`);
+      const galleryFileMissing =
+        !existingGalleryRow ||
+        (existingGalleryRow.display_path != null && !existsSync(existingGalleryRow.display_path)) ||
+        (existingGalleryRow.thumb_path != null && !existsSync(existingGalleryRow.thumb_path));
 
-        if (galleryFileMissing) {
-          const gDisplaySource = g.displayFile ? resolveWithinDir(extractDir, g.displayFile) : null;
-          const gThumbSource = g.thumbFile ? resolveWithinDir(extractDir, g.thumbFile) : null;
-          let gDisplayPath: string | null = existingGalleryRow?.display_path ?? null;
-          let gThumbPath: string | null = existingGalleryRow?.thumb_path ?? null;
-          if (gDisplaySource && existsSync(gDisplaySource)) {
-            gDisplayPath = path.join(galleryDisplayDir, `${row.id}-${g.sortOrder}.webp`);
-            copyTasks.push({ src: gDisplaySource, dest: gDisplayPath });
-          }
-          if (gThumbSource && existsSync(gThumbSource)) {
-            gThumbPath = path.join(galleryThumbDir, `${row.id}-${g.sortOrder}.webp`);
-            copyTasks.push({ src: gThumbSource, dest: gThumbPath });
-          }
-          galleryUpserts.push({
-            speciesId: row.id,
-            photoUrl: g.photoUrl,
-            credit: g.credit,
-            license: g.license,
-            sortOrder: g.sortOrder,
-            focalX: g.focalX,
-            focalY: g.focalY,
-            display: gDisplayPath,
-            thumb: gThumbPath,
-          });
+      if (galleryFileMissing) {
+        const gDisplaySource = g.displayFile ? resolveWithinDir(dirs.extractDir, g.displayFile) : null;
+        const gThumbSource = g.thumbFile ? resolveWithinDir(dirs.extractDir, g.thumbFile) : null;
+        let gDisplayPath: string | null = existingGalleryRow?.display_path ?? null;
+        let gThumbPath: string | null = existingGalleryRow?.thumb_path ?? null;
+        if (gDisplaySource && existsSync(gDisplaySource)) {
+          gDisplayPath = path.join(dirs.galleryDisplay, `${row.id}-${sortOrder}.webp`);
+          plan.copyTasks.push({ src: gDisplaySource, dest: gDisplayPath });
         }
+        if (gThumbSource && existsSync(gThumbSource)) {
+          gThumbPath = path.join(dirs.galleryThumb, `${row.id}-${sortOrder}.webp`);
+          plan.copyTasks.push({ src: gThumbSource, dest: gThumbPath });
+        }
+        plan.galleryUpserts.push({
+          speciesId: row.id,
+          photoUrl: g.photoUrl,
+          credit: g.credit,
+          license: g.license,
+          sortOrder,
+          focalX: g.focalX,
+          focalY: g.focalY,
+          display: gDisplayPath,
+          thumb: gThumbPath,
+        });
+      }
 
-        // Kept even without the photo's file (a "small" pack) or when the row already exists.
-        if (g.embedding && g.embeddingModelVersion) {
-          galleryEmbeddingCandidates.push({
-            speciesId: row.id,
-            photoUrl: g.photoUrl,
-            embedding: g.embedding,
-            modelVersion: g.embeddingModelVersion,
-          });
-        }
+      // Kept even without the photo's file (a "small" pack) or when the row already exists.
+      if (g.embedding && g.embeddingModelVersion) {
+        plan.galleryEmbeddingCandidates.push({
+          speciesId: row.id,
+          photoUrl: g.photoUrl,
+          embedding: g.embedding,
+          modelVersion: g.embeddingModelVersion,
+        });
       }
     }
 
     // Only fills a missing vector. Ranking joins on the current model version, so a row from
     // another version just sits unused.
     if (sp.embedding && sp.embeddingModelVersion) {
-      speciesEmbeddings.push({ speciesId: row.id, embedding: sp.embedding, modelVersion: sp.embeddingModelVersion });
+      plan.speciesEmbeddings.push({
+        speciesId: row.id,
+        embedding: sp.embedding,
+        modelVersion: sp.embeddingModelVersion,
+      });
     }
 
-    checklistRows.push({ speciesId: row.id, sp });
-    touched.push({ speciesId: row.id, providedEnrichment });
+    plan.checklistRows.push({ speciesId: row.id, sp });
+    plan.touched.push({ speciesId: row.id, providedEnrichment });
   }
+  return plan;
+}
 
-  // Files land before any row points at them.
-  await copyFilesConcurrently(copyTasks);
-
-  for (const batch of chunkRows(enrichmentUpdates, BULK_BATCH_SIZE)) {
+async function writeEnrichment(db: PoolClient, updates: ChecklistPlan["enrichmentUpdates"]): Promise<number> {
+  for (const batch of chunkRows(updates, BULK_BATCH_SIZE)) {
     const values: unknown[] = [];
     const rows = batch.map((u, i) => {
       const base = i * 6;
@@ -361,16 +302,27 @@ async function applyChecklist(
       values,
     );
   }
+  return updates.length;
+}
 
+async function markGalleryBackfilled(db: PoolClient, speciesIds: string[]): Promise<number> {
   // COALESCE keeps a value an earlier enrich already set.
-  for (const batch of chunkRows(galleryBackfilledIds, BULK_BATCH_SIZE)) {
+  for (const batch of chunkRows(speciesIds, BULK_BATCH_SIZE)) {
     await db.query(
       `UPDATE species SET gallery_backfilled_at = COALESCE(gallery_backfilled_at, now()) WHERE id = ANY($1::uuid[])`,
       [batch],
     );
   }
+  return speciesIds.length;
+}
 
-  for (const batch of chunkRows(galleryUpserts, BULK_BATCH_SIZE)) {
+/** Upserts gallery rows and records each one's id in `photoIdByKey`. */
+async function upsertGalleryPhotos(
+  db: PoolClient,
+  upserts: ChecklistPlan["galleryUpserts"],
+  photoIdByKey: Map<string, string>,
+): Promise<number> {
+  for (const batch of chunkRows(upserts, BULK_BATCH_SIZE)) {
     const values: unknown[] = [];
     const rows = batch.map((g, i) => {
       const base = i * 9;
@@ -386,11 +338,17 @@ async function applyChecklist(
        RETURNING id, species_id, photo_url`,
       values,
     );
-    for (const r of res.rows) galleryPhotoIdByKey.set(`${r.species_id}:${r.photo_url}`, r.id);
+    for (const r of res.rows) photoIdByKey.set(`${r.species_id}:${r.photo_url}`, r.id);
   }
+  return upserts.length;
+}
 
-  const galleryEmbeddingRows = galleryEmbeddingCandidates
-    .map((e) => ({ ...e, referencePhotoId: galleryPhotoIdByKey.get(`${e.speciesId}:${e.photoUrl}`) ?? null }))
+async function insertEmbeddings(
+  db: PoolClient,
+  plan: Pick<ChecklistPlan, "galleryEmbeddingCandidates" | "speciesEmbeddings" | "galleryPhotoIdByKey">,
+): Promise<number> {
+  const galleryEmbeddingRows = plan.galleryEmbeddingCandidates
+    .map((e) => ({ ...e, referencePhotoId: plan.galleryPhotoIdByKey.get(`${e.speciesId}:${e.photoUrl}`) ?? null }))
     .filter((e): e is typeof e & { referencePhotoId: string } => e.referencePhotoId != null);
   for (const batch of chunkRows(galleryEmbeddingRows, BULK_BATCH_SIZE)) {
     const values: unknown[] = [];
@@ -407,7 +365,7 @@ async function applyChecklist(
     );
   }
 
-  for (const batch of chunkRows(speciesEmbeddings, BULK_BATCH_SIZE)) {
+  for (const batch of chunkRows(plan.speciesEmbeddings, BULK_BATCH_SIZE)) {
     const values: unknown[] = [];
     const rows = batch.map((e, i) => {
       const base = i * 3;
@@ -421,104 +379,218 @@ async function applyChecklist(
       values,
     );
   }
+  return galleryEmbeddingRows.length + plan.speciesEmbeddings.length;
+}
 
-  if ("regionId" in target) {
-    for (const batch of chunkRows(checklistRows, BULK_BATCH_SIZE)) {
+async function writeRegionChecklist(
+  db: PoolClient,
+  regionId: string,
+  checklistRows: ChecklistPlan["checklistRows"],
+): Promise<number> {
+  for (const batch of chunkRows(checklistRows, BULK_BATCH_SIZE)) {
+    const values: unknown[] = [];
+    const rows = batch.map(({ speciesId, sp }, i) => {
+      const base = i * 9;
+      values.push(
+        regionId,
+        speciesId,
+        sp.localFrequency ?? null,
+        sp.seasonality ?? null,
+        sp.localTier ?? null,
+        sp.isVagrant ?? false,
+        sp.weeklyFrequency ?? null,
+        sp.tierReason ?? null,
+        sp.tierExplain != null ? JSON.stringify(sp.tierExplain) : null,
+      );
+      return `($${base + 1}::uuid, $${base + 2}::uuid, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7}, $${base + 8}, $${base + 9}::jsonb)`;
+    });
+    await db.query(
+      `INSERT INTO region_species (region_id, species_id, local_frequency, seasonality, local_tier, is_vagrant, weekly_frequency, tier_reason, tier_explain)
+       VALUES ${rows.join(", ")}
+       ON CONFLICT (region_id, species_id) DO UPDATE SET
+         local_frequency = EXCLUDED.local_frequency,
+         seasonality = EXCLUDED.seasonality,
+         local_tier = EXCLUDED.local_tier,
+         is_vagrant = EXCLUDED.is_vagrant,
+         weekly_frequency = EXCLUDED.weekly_frequency,
+         tier_reason = EXCLUDED.tier_reason,
+         tier_explain = EXCLUDED.tier_explain`,
+      values,
+    );
+  }
+
+  // Gap-finder hotspot clusters (province level only): delete then reinsert, batched across
+  // every species in the region at once.
+  const speciesWithHotspots = checklistRows.filter(({ sp }) => sp.hotspots && sp.hotspots.length > 0);
+  if (speciesWithHotspots.length > 0) {
+    for (const idBatch of chunkRows(
+      speciesWithHotspots.map((r) => r.speciesId),
+      BULK_BATCH_SIZE,
+    )) {
+      await db.query(`DELETE FROM region_species_hotspots WHERE region_id = $1 AND species_id = ANY($2)`, [
+        regionId,
+        idBatch,
+      ]);
+    }
+    const hotspotRows = speciesWithHotspots.flatMap(({ speciesId, sp }) => sp.hotspots!.map((h) => ({ speciesId, h })));
+    for (const hotspotBatch of chunkRows(hotspotRows, BULK_BATCH_SIZE)) {
       const values: unknown[] = [];
-      const rows = batch.map(({ speciesId, sp }, i) => {
-        const base = i * 9;
+      const rowPlaceholders = hotspotBatch.map(({ speciesId, h }, idx) => {
+        const base = idx * 8;
         values.push(
-          target.regionId,
+          regionId,
           speciesId,
-          sp.localFrequency ?? null,
-          sp.seasonality ?? null,
-          sp.localTier ?? null,
-          sp.isVagrant ?? false,
-          sp.weeklyFrequency ?? null,
-          sp.tierReason ?? null,
-          sp.tierExplain != null ? JSON.stringify(sp.tierExplain) : null,
+          h.centroidLat,
+          h.centroidLon,
+          h.pointCount,
+          h.bboxDiagonalKm,
+          h.lastSeenYear,
+          h.distinctYears,
         );
-        return `($${base + 1}::uuid, $${base + 2}::uuid, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7}, $${base + 8}, $${base + 9}::jsonb)`;
+        return `($${base + 1}::uuid, $${base + 2}::uuid, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7}, $${base + 8})`;
       });
       await db.query(
-        `INSERT INTO region_species (region_id, species_id, local_frequency, seasonality, local_tier, is_vagrant, weekly_frequency, tier_reason, tier_explain)
-         VALUES ${rows.join(", ")}
-         ON CONFLICT (region_id, species_id) DO UPDATE SET
-           local_frequency = EXCLUDED.local_frequency,
-           seasonality = EXCLUDED.seasonality,
-           local_tier = EXCLUDED.local_tier,
-           is_vagrant = EXCLUDED.is_vagrant,
-           weekly_frequency = EXCLUDED.weekly_frequency,
-           tier_reason = EXCLUDED.tier_reason,
-           tier_explain = EXCLUDED.tier_explain`,
-        values,
-      );
-    }
-
-    // Gap-finder hotspot clusters (province level only): delete then reinsert, batched across
-    // every species in the region at once.
-    const speciesWithHotspots = checklistRows.filter(({ sp }) => sp.hotspots && sp.hotspots.length > 0);
-    if (speciesWithHotspots.length > 0) {
-      for (const idBatch of chunkRows(
-        speciesWithHotspots.map((r) => r.speciesId),
-        BULK_BATCH_SIZE,
-      )) {
-        await db.query(`DELETE FROM region_species_hotspots WHERE region_id = $1 AND species_id = ANY($2)`, [
-          target.regionId,
-          idBatch,
-        ]);
-      }
-      const hotspotRows = speciesWithHotspots.flatMap(({ speciesId, sp }) =>
-        sp.hotspots!.map((h) => ({ speciesId, h })),
-      );
-      for (const hotspotBatch of chunkRows(hotspotRows, BULK_BATCH_SIZE)) {
-        const values: unknown[] = [];
-        const rowPlaceholders = hotspotBatch.map(({ speciesId, h }, idx) => {
-          const base = idx * 8;
-          values.push(
-            target.regionId,
-            speciesId,
-            h.centroidLat,
-            h.centroidLon,
-            h.pointCount,
-            h.bboxDiagonalKm,
-            h.lastSeenYear,
-            h.distinctYears,
-          );
-          return `($${base + 1}::uuid, $${base + 2}::uuid, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7}, $${base + 8})`;
-        });
-        await db.query(
-          `INSERT INTO region_species_hotspots
-             (region_id, species_id, centroid_lat, centroid_lon, point_count, bbox_diagonal_km, last_seen_year, distinct_years)
-           VALUES ${rowPlaceholders.join(", ")}`,
-          values,
-        );
-      }
-    }
-  } else {
-    for (const batch of chunkRows(checklistRows, BULK_BATCH_SIZE)) {
-      const values: unknown[] = [];
-      const rows = batch.map(({ speciesId, sp }, i) => {
-        const base = i * 3;
-        values.push(target.seaZoneId, speciesId, sp.recordCount ?? 0);
-        return `($${base + 1}::uuid, $${base + 2}::uuid, $${base + 3})`;
-      });
-      await db.query(
-        `INSERT INTO sea_zone_species (sea_zone_id, species_id, record_count)
-         VALUES ${rows.join(", ")}
-         ON CONFLICT (sea_zone_id, species_id) DO UPDATE SET record_count = EXCLUDED.record_count`,
+        `INSERT INTO region_species_hotspots
+           (region_id, species_id, centroid_lat, centroid_lon, point_count, bbox_diagonal_km, last_seen_year, distinct_years)
+         VALUES ${rowPlaceholders.join(", ")}`,
         values,
       );
     }
   }
+  return checklistRows.length;
+}
+
+async function writeSeaZoneChecklist(
+  db: PoolClient,
+  seaZoneId: string,
+  checklistRows: ChecklistPlan["checklistRows"],
+): Promise<number> {
+  for (const batch of chunkRows(checklistRows, BULK_BATCH_SIZE)) {
+    const values: unknown[] = [];
+    const rows = batch.map(({ speciesId, sp }, i) => {
+      const base = i * 3;
+      values.push(seaZoneId, speciesId, sp.recordCount ?? 0);
+      return `($${base + 1}::uuid, $${base + 2}::uuid, $${base + 3})`;
+    });
+    await db.query(
+      `INSERT INTO sea_zone_species (sea_zone_id, species_id, record_count)
+       VALUES ${rows.join(", ")}
+       ON CONFLICT (sea_zone_id, species_id) DO UPDATE SET record_count = EXCLUDED.record_count`,
+      values,
+    );
+  }
+  return checklistRows.length;
+}
+
+interface ChecklistResult {
+  applied: number;
+  skipped: number;
+  skippedNames: string[];
+  touched: Touched[];
+}
+
+// Applies one region's or sea zone's species list: enrichment (photo, habitat text) and checklist
+// membership. `db` is the pack's transaction client, so a crash mid-apply leaves nothing
+// half-written. `taxon` is the pack's taxon scope, for pruning; undefined leaves the checklist's
+// other rows alone.
+async function applyChecklist(
+  db: PoolClient,
+  species: ManifestSpecies[],
+  target: ChecklistTarget,
+  dirs: PackDirs,
+  taxon: string | null | undefined,
+): Promise<ChecklistResult> {
+  const plan = await planChecklist(db, species, dirs);
+
+  // Files land before any row points at them.
+  await copyFilesConcurrently(plan.copyTasks);
+  await writeEnrichment(db, plan.enrichmentUpdates);
+  await markGalleryBackfilled(db, plan.galleryBackfilledIds);
+  await upsertGalleryPhotos(db, plan.galleryUpserts, plan.galleryPhotoIdByKey);
+  await insertEmbeddings(db, plan);
+  if ("regionId" in target) await writeRegionChecklist(db, target.regionId, plan.checklistRows);
+  else await writeSeaZoneChecklist(db, target.seaZoneId, plan.checklistRows);
 
   await pruneChecklist(
     db,
     target,
     taxon,
-    checklistRows.map((r) => r.speciesId),
+    plan.checklistRows.map((r) => r.speciesId),
   );
-  return { applied: checklistRows.length, skipped, skippedNames, touched };
+  return {
+    applied: plan.checklistRows.length,
+    skipped: plan.skippedNames.length,
+    skippedNames: plan.skippedNames,
+    touched: plan.touched,
+  };
+}
+
+type ManifestChildRegion = NonNullable<PackManifest["children"]>[number];
+
+/** One bundled region under `parentId` (the country, or a regional group of it), and the
+ *  provinces inside it when it's a group. Returns the local region id. */
+async function applyChildRegion(
+  db: PoolClient,
+  child: ManifestChildRegion,
+  parentId: string,
+  countryId: string,
+  dirs: PackDirs,
+  taxon: PackManifest["taxon"],
+  add: (result: ChecklistResult) => void,
+): Promise<string | null> {
+  const isGroup = (child.children?.length ?? 0) > 0;
+  let childRegionId = (
+    await db.query<{ id: string }>(`SELECT id FROM regions WHERE name = $1 AND parent_id = $2`, [child.name, parentId])
+  ).rows[0]?.id;
+  if (!childRegionId && !isGroup) {
+    // The same province elsewhere in the country: the pack and this install disagree on whether
+    // it's grouped (one of them predates the country's regional groups). Never a second copy:
+    // moved into the pack's group, or left in its group when the pack is ungrouped.
+    const elsewhere = await db.query<{ id: string }>(
+      `SELECT r.id FROM regions r
+       WHERE r.name = $1 AND r.id IN (${descendantIdsSql("$2")})
+         AND NOT EXISTS (SELECT 1 FROM regions k WHERE k.parent_id = r.id)
+       LIMIT 1`,
+      [child.name, countryId],
+    );
+    childRegionId = elsewhere.rows[0]?.id;
+    if (childRegionId && parentId !== countryId) {
+      await db.query(`UPDATE regions SET parent_id = $1 WHERE id = $2`, [parentId, childRegionId]);
+    }
+  }
+  if (!childRegionId) {
+    childRegionId = (
+      await db.query<{ id: string }>(
+        `INSERT INTO regions (name, parent_id, ebird_region_code, boundary_geojson, external_codes, occurrence_computed_at, is_overseas_territory)
+         VALUES ($1, $2, $3, $4, $5, now(), $6)
+         ON CONFLICT (name, parent_id) DO UPDATE SET is_overseas_territory = EXCLUDED.is_overseas_territory
+         RETURNING id`,
+        [
+          child.name,
+          parentId,
+          child.ebirdRegionCode,
+          JSON.stringify(child.boundaryGeoJson),
+          child.externalCodes,
+          child.isOverseasTerritory ?? false,
+        ],
+      )
+    ).rows[0]?.id;
+  } else {
+    await db.query(`UPDATE regions SET is_overseas_territory = $2 WHERE id = $1`, [
+      childRegionId,
+      child.isOverseasTerritory ?? false,
+    ]);
+  }
+  if (!childRegionId) return null;
+  add(await applyChecklist(db, child.species, { regionId: childRegionId }, dirs, taxon));
+  for (const province of child.children ?? []) {
+    await applyChildRegion(db, province, childRegionId, countryId, dirs, taxon, add);
+  }
+  await db.query(`UPDATE regions SET occurrence_computed_at = now(), has_children = $2 WHERE id = $1`, [
+    childRegionId,
+    isGroup,
+  ]);
+  return childRegionId;
 }
 
 export async function applyPack(
@@ -530,22 +602,21 @@ export async function applyPack(
   /** Pack species this install's catalog doesn't have, so they couldn't be added. */
   skippedNames: string[];
   manifest: PackManifest;
-  touched: Array<{ speciesId: string; providedEnrichment: boolean }>;
+  touched: Touched[];
   allChildRegionIds: string[];
   territoryChildRegionIds: string[];
 }> {
   const extractDir = mkdtempSync(path.join(os.tmpdir(), "lifer-pack-"));
   try {
     await tar.extract({ file: archivePath, cwd: extractDir, filter: isSafePackEntry });
-    const manifest = JSON.parse(readFileSync(path.join(extractDir, "manifest.json"), "utf-8")) as PackManifest;
+    const manifest = parseRemoteJson(
+      PackManifestSchema,
+      JSON.parse(readFileSync(path.join(extractDir, "manifest.json"), "utf-8")),
+      "pack's manifest",
+    );
 
-    const {
-      display: displayDir,
-      thumb: thumbDir,
-      galleryDisplay: galleryDisplayDir,
-      galleryThumb: galleryThumbDir,
-    } = PHOTO_DIRS;
     for (const dir of Object.values(PHOTO_DIRS)) mkdirSync(dir, { recursive: true });
+    const dirs: PackDirs = { extractDir, ...PHOTO_DIRS };
 
     // Regions and sea zones match by name, since ids differ between installs.
     let regionId: string | null = null;
@@ -558,88 +629,25 @@ export async function applyPack(
       seaZoneId = res.rows[0]?.id ?? null;
     }
 
-    let applied = 0;
-    let skipped = 0;
-    const skippedNames: string[] = [];
-    const touched: Array<{ speciesId: string; providedEnrichment: boolean }> = [];
-    if (regionId) {
-      const result = await applyChecklist(
-        db,
-        manifest.species,
-        { regionId },
-        extractDir,
-        displayDir,
-        thumbDir,
-        galleryDisplayDir,
-        galleryThumbDir,
-        manifest.taxon,
-      );
-      applied += result.applied;
-      skipped += result.skipped;
-      skippedNames.push(...result.skippedNames);
-      touched.push(...result.touched);
-    } else if (seaZoneId) {
-      const result = await applyChecklist(
-        db,
-        manifest.species,
-        { seaZoneId },
-        extractDir,
-        displayDir,
-        thumbDir,
-        galleryDisplayDir,
-        galleryThumbDir,
-        manifest.taxon,
-      );
-      applied += result.applied;
-      skipped += result.skipped;
-      skippedNames.push(...result.skippedNames);
-      touched.push(...result.touched);
-    }
+    const total: ChecklistResult = { applied: 0, skipped: 0, skippedNames: [], touched: [] };
+    const add = (result: ChecklistResult) => {
+      total.applied += result.applied;
+      total.skipped += result.skipped;
+      total.skippedNames.push(...result.skippedNames);
+      total.touched.push(...result.touched);
+    };
+    if (regionId) add(await applyChecklist(db, manifest.species, { regionId }, dirs, manifest.taxon));
+    else if (seaZoneId) add(await applyChecklist(db, manifest.species, { seaZoneId }, dirs, manifest.taxon));
 
-    // Bundled provinces: create the local row if missing, then apply like the country.
+    // Bundled groups and provinces: create the local row if missing, then apply like the country.
     const territoryChildRegionIds: string[] = [];
     const allChildRegionIds: string[] = [];
     if (regionId && manifest.children) {
       for (const child of manifest.children) {
-        await db.query(
-          `INSERT INTO regions (name, parent_id, ebird_region_code, boundary_geojson, external_codes, occurrence_computed_at, is_overseas_territory)
-           VALUES ($1, $2, $3, $4, $5, now(), $6)
-           ON CONFLICT (name, parent_id) DO UPDATE SET is_overseas_territory = EXCLUDED.is_overseas_territory`,
-          [
-            child.name,
-            regionId,
-            child.ebirdRegionCode,
-            JSON.stringify(child.boundaryGeoJson),
-            child.externalCodes,
-            child.isOverseasTerritory ?? false,
-          ],
-        );
-        const childRegionRes = await db.query<{ id: string }>(
-          `SELECT id FROM regions WHERE name = $1 AND parent_id = $2`,
-          [child.name, regionId],
-        );
-        const childRegionId = childRegionRes.rows[0]?.id;
+        const childRegionId = await applyChildRegion(db, child, regionId, regionId, dirs, manifest.taxon, add);
         if (!childRegionId) continue;
         allChildRegionIds.push(childRegionId);
         if (child.isOverseasTerritory) territoryChildRegionIds.push(childRegionId);
-        const result = await applyChecklist(
-          db,
-          child.species,
-          { regionId: childRegionId },
-          extractDir,
-          displayDir,
-          thumbDir,
-          galleryDisplayDir,
-          galleryThumbDir,
-          manifest.taxon,
-        );
-        applied += result.applied;
-        skipped += result.skipped;
-        skippedNames.push(...result.skippedNames);
-        touched.push(...result.touched);
-        await db.query(`UPDATE regions SET occurrence_computed_at = now(), has_children = false WHERE id = $1`, [
-          childRegionId,
-        ]);
       }
       await db.query(`UPDATE regions SET has_children = true WHERE id = $1`, [regionId]);
     }
@@ -652,11 +660,11 @@ export async function applyPack(
     }
 
     return {
-      speciesCount: applied,
-      skipped,
-      skippedNames: [...new Set(skippedNames)],
+      speciesCount: total.applied,
+      skipped: total.skipped,
+      skippedNames: [...new Set(total.skippedNames)],
       manifest,
-      touched,
+      touched: total.touched,
       allChildRegionIds,
       territoryChildRegionIds,
     };

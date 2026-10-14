@@ -11,7 +11,9 @@
 // Usage:
 //   npm run build-region-pack -w data-pipeline -- "Canada" [outputDir] [--taxon=<TaxonClass>]
 //   npm run build-region-pack -w data-pipeline -- --sea-zone "Red Sea" [outputDir] [--taxon=<TaxonClass>]
+import { HUMAN_SCIENTIFIC_NAME } from "@lifer/core/species/neverListed.js";
 import { existsSync, mkdirSync, writeFileSync, rmSync, statSync, readdirSync } from "node:fs";
+import { descendantIdsSql } from "@lifer/core/regions/regionTree.js";
 import { createHash } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -36,12 +38,18 @@ import { sanitize, regionPackFileName, seaZonePackFileName, type PackVariant } f
 const MANIFEST_BUDGET_BYTES = 350 * 1024 * 1024;
 const HOTSPOT_CAPS = [100, 50, 25, 10];
 
-function fitHotspotsToBudget(topSpecies: ManifestSpecies[], children: ManifestChildRegion[], regionName: string): void {
+/** A pack's child regions and their own children (a country's groups and grouped provinces). */
+function allChildren<T extends { children?: T[] }>(children: T[]): T[] {
+  return children.flatMap((c) => [c, ...allChildren(c.children ?? [])]);
+}
+
+function fitHotspotsToBudget(topSpecies: ManifestSpecies[], nested: ManifestChildRegion[], regionName: string): void {
+  const children = allChildren(nested);
   const bytes = (v: unknown) => Buffer.byteLength(JSON.stringify(v) ?? "");
   const hotspotBytes = () => children.reduce((n, c) => n + c.species.reduce((m, sp) => m + bytes(sp.hotspots ?? null), 0), 0);
   const otherBytes =
     bytes(topSpecies) +
-    children.reduce((n, c) => n + bytes({ ...c, species: c.species.map((sp) => ({ ...sp, hotspots: undefined })) }), 0);
+    children.reduce((n, c) => n + bytes({ ...c, children: undefined, species: c.species.map((sp) => ({ ...sp, hotspots: undefined })) }), 0);
   if (otherBytes + hotspotBytes() <= MANIFEST_BUDGET_BYTES) return;
   for (const cap of HOTSPOT_CAPS) {
     for (const c of children) {
@@ -60,12 +68,12 @@ function fitHotspotsToBudget(topSpecies: ManifestSpecies[], children: ManifestCh
 }
 
 // Says which part of a manifest pushed it past V8's string limit, instead of a bare RangeError.
-function describeManifestSize(core: { species: unknown[]; children?: Array<{ name: string; species: unknown[]; boundaryGeoJson?: unknown }> }): string {
+function describeManifestSize(core: { species: unknown[]; children?: ManifestChildRegion[] }): string {
   const mb = (v: unknown) => (Buffer.byteLength(JSON.stringify(v) ?? "") / 1e6).toFixed(1);
-  const kids = core.children ?? [];
+  const kids = allChildren(core.children ?? []);
   const perField: Record<string, number> = {};
   for (const c of kids) {
-    for (const sp of c.species as Array<Record<string, unknown>>) {
+    for (const sp of c.species as unknown as Array<Record<string, unknown>>) {
       for (const [k, v] of Object.entries(sp)) perField[k] = (perField[k] ?? 0) + Buffer.byteLength(JSON.stringify(v) ?? "");
     }
   }
@@ -80,7 +88,9 @@ function contentHash(manifestCore: unknown): string {
     json = JSON.stringify(manifestCore);
   } catch (err) {
     if (err instanceof RangeError) {
-      throw new RangeError(`Pack manifest is too large to serialize: ${describeManifestSize(manifestCore as Parameters<typeof describeManifestSize>[0])}`);
+      throw new RangeError(`Pack manifest is too large to serialize: ${describeManifestSize(manifestCore as Parameters<typeof describeManifestSize>[0])}`,
+        { cause: err },
+      );
     }
     throw err;
   }
@@ -93,6 +103,8 @@ const REPO_ROOT = path.join(__dirname, "..", "..", "..", "..");
 // Same constants/logic as regions/routes.ts's nearbyZones, duplicated because data-pipeline
 // must not depend on apps/api.
 const BBOX_PREFILTER_BUFFER_DEGREES = 10;
+// Species a pack lists: Other Taxa are per-install additions, and people are never on a checklist.
+const LISTED_SPECIES_SQL = `NOT s.is_other_taxa AND s.scientific_name <> '${HUMAN_SCIENTIFIC_NAME}'`;
 const NEARBY_MAX_DISTANCE_DEGREES = 2;
 
 // Mirrors packages/shared/src/species.ts's TaxonClass, kept local like the nearbyZones constants.
@@ -372,7 +384,7 @@ export async function buildSeaZonePack(zoneName: string, outDir: string, taxon: 
             zs.record_count
      FROM sea_zone_species zs
      JOIN species s ON s.id = zs.species_id
-     WHERE zs.sea_zone_id = $1 AND NOT s.is_other_taxa ${taxonFilter}
+     WHERE zs.sea_zone_id = $1 AND ${LISTED_SPECIES_SQL} ${taxonFilter}
      ORDER BY s.scientific_name`,
     [zone.id],
   );
@@ -422,10 +434,13 @@ interface ManifestChildRegion {
   externalCodes: string[];
   species: ManifestSpecies[];
   isOverseasTerritory: boolean;
+  /** A vernacular group's provinces (country > group > province). */
+  children?: ManifestChildRegion[];
 }
 
-// A country pack also carries its provinces' region records and checklists, since an install
-// has no other way to create them. Only computed provinces (occurrence_computed_at set) are included.
+// A country pack also carries its groups' and provinces' region records and checklists, since an
+// install has no other way to create them, each group with its provinces inside it. Only computed
+// regions (occurrence_computed_at set) are included.
 async function fetchChildRegionsWithSpecies(parentId: string, taxonFilter: string): Promise<ManifestChildRegion[]> {
   const childrenRes = await pool.query<{
     id: string;
@@ -434,9 +449,11 @@ async function fetchChildRegionsWithSpecies(parentId: string, taxonFilter: strin
     boundary_geojson: unknown;
     external_codes: string[];
     is_overseas_territory: boolean;
+    has_kids: boolean;
   }>(
-    `SELECT id, name, ebird_region_code, boundary_geojson, external_codes, is_overseas_territory
-     FROM regions WHERE parent_id = $1 AND occurrence_computed_at IS NOT NULL ORDER BY name`,
+    `SELECT id, name, ebird_region_code, boundary_geojson, external_codes, is_overseas_territory,
+            EXISTS (SELECT 1 FROM regions k WHERE k.parent_id = r.id) AS has_kids
+     FROM regions r WHERE parent_id = $1 AND occurrence_computed_at IS NOT NULL ORDER BY name`,
     [parentId],
   );
 
@@ -448,7 +465,7 @@ async function fetchChildRegionsWithSpecies(parentId: string, taxonFilter: strin
               rs.local_frequency, rs.seasonality, rs.local_tier, rs.is_vagrant, rs.weekly_frequency, rs.tier_reason, rs.tier_explain
        FROM region_species rs
        JOIN species s ON s.id = rs.species_id
-       WHERE rs.region_id = $1 AND NOT s.is_other_taxa ${taxonFilter}
+       WHERE rs.region_id = $1 AND ${LISTED_SPECIES_SQL} ${taxonFilter}
        ORDER BY s.scientific_name`,
       [child.id],
     );
@@ -489,6 +506,7 @@ async function fetchChildRegionsWithSpecies(parentId: string, taxonFilter: strin
       externalCodes: child.external_codes,
       species: manifestSpecies,
       isOverseasTerritory: child.is_overseas_territory,
+      ...(child.has_kids ? { children: await fetchChildRegionsWithSpecies(child.id, taxonFilter) } : {}),
     });
   }
   return children;
@@ -522,7 +540,7 @@ export async function buildRegionPack(
             rs.local_frequency, rs.seasonality, rs.local_tier, rs.is_vagrant, rs.weekly_frequency, rs.tier_reason, rs.tier_explain
      FROM region_species rs
      JOIN species s ON s.id = rs.species_id
-     WHERE rs.region_id = $1 AND NOT s.is_other_taxa ${taxonFilter}
+     WHERE rs.region_id = $1 AND ${LISTED_SPECIES_SQL} ${taxonFilter}
      ORDER BY s.scientific_name`,
     [region.id],
   );
@@ -534,7 +552,7 @@ export async function buildRegionPack(
     // roll-up, not a country without the taxon, so refuse instead of skipping.
     const onProvinces = await pool.query<{ n: string }>(
       `SELECT count(DISTINCT rs.species_id) AS n FROM region_species rs JOIN regions r ON r.id = rs.region_id JOIN species s ON s.id = rs.species_id
-       WHERE r.parent_id = $1 AND NOT s.is_other_taxa ${taxonFilter}`,
+       WHERE r.id IN (${descendantIdsSql("$1")}) AND ${LISTED_SPECIES_SQL} ${taxonFilter}`,
       [region.id],
     );
     const n = Number(onProvinces.rows[0].n);
@@ -591,7 +609,7 @@ export async function buildRegionPack(
   const sizeMb = (await writeArchive(stagingDir, outDir, archiveName)) / 1024 / 1024;
   console.log(
     `[build-region-pack] ${regionName}${suffix}: ${manifestSpecies.length} species (${photoCount} with photos)` +
-      (children.length > 0 ? `, ${children.length} province(s)/state(s) bundled (${children.map((c) => c.name).join(", ")})` : "") +
+      (children.length > 0 ? `, ${allChildren(children).length} province(s)/state(s) and regional group(s) bundled (${children.map((c) => c.name).join(", ")})` : "") +
       (seaZones.length > 0 ? `, depends on sea zone pack(s): ${seaZones.map((z) => z.name).join(", ")}` : ""),
   );
   console.log(`[build-region-pack] wrote ${path.join(outDir, archiveName)} (${sizeMb.toFixed(1)} MB)`);
