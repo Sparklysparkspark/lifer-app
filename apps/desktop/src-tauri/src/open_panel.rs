@@ -44,10 +44,14 @@ pub fn install(wk_webview: *mut std::ffi::c_void) {
     unsafe {
         let webview = wk_webview as *mut AnyObject;
         let delegate: *mut AnyObject = msg_send![webview, UIDelegate];
-        let Some(delegate) = delegate.as_ref() else { return };
+        let Some(delegate) = delegate.as_ref() else {
+            return;
+        };
         let class = delegate.class();
         let selector = sel!(webView:runOpenPanelWithParameters:initiatedByFrame:completionHandler:);
-        let Some(existing) = class.instance_method(selector) else { return };
+        let Some(existing) = class.instance_method(selector) else {
+            return;
+        };
         let types = objc2::ffi::method_getTypeEncoding(existing);
         if types.is_null() {
             return;
@@ -56,4 +60,3 @@ pub fn install(wk_webview: *mut std::ffi::c_void) {
         objc2::ffi::class_replaceMethod(class as *const _ as *mut _, selector, imp, types);
     }
 }
-

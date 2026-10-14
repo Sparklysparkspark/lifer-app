@@ -25,13 +25,19 @@ pub enum Backdrop {
 
 pub fn set_backdrop(ns_window: *mut std::ffi::c_void, backdrop: Backdrop) {
     unsafe {
-        let Some(window) = (ns_window as *mut AnyObject).as_ref() else { return };
+        let Some(window) = (ns_window as *mut AnyObject).as_ref() else {
+            return;
+        };
         for (i, &kind) in BUTTONS.iter().enumerate() {
             let button: *mut AnyObject = msg_send![window, standardWindowButton: kind];
-            let Some(button) = button.as_ref() else { continue };
+            let Some(button) = button.as_ref() else {
+                continue;
+            };
             let _: () = msg_send![button, setWantsLayer: Bool::YES];
             let layer: *mut AnyObject = msg_send![button, layer];
-            let Some(layer) = layer.as_ref() else { continue };
+            let Some(layer) = layer.as_ref() else {
+                continue;
+            };
             let rgb = match backdrop {
                 Backdrop::Active => Some(ACTIVE[i]),
                 Backdrop::Inactive => Some(INACTIVE),
