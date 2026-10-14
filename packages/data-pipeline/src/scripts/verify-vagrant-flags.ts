@@ -11,7 +11,7 @@
 // Resumable per species via species_traits.vagrant_checked_at.
 import { writeFileSync, appendFileSync, existsSync } from "node:fs";
 import { pool } from "@lifer/core/db.js";
-import { fetchWithRetry } from "@lifer/core/lib/fetchWithRetry.js";
+import { fetchWithRetry } from "../lib/fetchWithRetry.js";
 import { fetchAllCountries } from "@lifer/core/regions/regionBoundary.js";
 import { mapWithConcurrency } from "@lifer/core/lib/concurrency.js";
 import { vagrantReportPath } from "./vagrantReports.js";

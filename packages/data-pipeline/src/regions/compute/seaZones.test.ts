@@ -21,7 +21,7 @@ vi.mock("../buildRegionSpecies.js", async (importOriginal) => {
     fetchGlobalOccurrenceCount: vi.fn(async (gbifKey: number) => (behaviour.get(gbifKey) === "outlier" ? 10_000 : 3)),
   };
 });
-vi.mock("../../db.js", () => ({ pool: {}, withTransaction: vi.fn() }));
+vi.mock("@lifer/core/db.js", () => ({ pool: {}, withTransaction: vi.fn() }));
 
 const { dropSuspiciousRecords } = await import("./seaZones.js");
 const { GEOGRAPHIC_OUTLIER_MAX_LOCAL_RECORDS } = await import("../buildRegionSpecies.js");

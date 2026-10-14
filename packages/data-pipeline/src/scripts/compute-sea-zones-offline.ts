@@ -39,7 +39,7 @@ import {
   GEOGRAPHIC_OUTLIER_MAX_LOCAL_RECORDS,
   SEA_ZONE_BASIS_OF_RECORD,
   looksLikeInlandRecords,
-} from "@lifer/core/regions/buildRegionSpecies.js";
+} from "../regions/buildRegionSpecies.js";
 import { fetchAllCountries } from "@lifer/core/regions/regionBoundary.js";
 import { loadIhoFeatures } from "../fetch/fetch-iho-sea-areas.js";
 import { loadEezIhoFeatures } from "../fetch/fetch-eez-iho.js";

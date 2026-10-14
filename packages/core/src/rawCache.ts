@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { log } from "./lib/log.js";
@@ -24,8 +24,4 @@ export async function fetchCached(source: string, filename: string, url: string)
   const buf = Buffer.from(await res.arrayBuffer());
   writeFileSync(dest, buf);
   return dest;
-}
-
-export function readCachedJson<T>(dest: string): T {
-  return JSON.parse(readFileSync(dest, "utf-8")) as T;
 }

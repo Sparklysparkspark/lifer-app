@@ -8,7 +8,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { BUILD_DIR } from "@lifer/core/rawCache.js";
 import { isLicenseAllowed, isRestrictedLicense, normalizeLicense } from "@lifer/core/species/licensePolicy.js";
-import { fetchWithRetry } from "@lifer/core/lib/fetchWithRetry.js";
+import { fetchWithRetry } from "../lib/fetchWithRetry.js";
 
 const INAT_API = "https://api.inaturalist.org/v1";
 const OPEN_DATA_DOMAIN = "inaturalist-open-data.s3";

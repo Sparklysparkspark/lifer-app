@@ -9,7 +9,7 @@
 // Usage: npx tsx src/scripts/compute-provinces-inat.ts [--limit=N] [--apply]
 import "@lifer/core/config.js"; // loads .env from the repo root before anything below reads process.env
 import { pool } from "@lifer/core/db.js";
-import { resolveInatPlaceId, fetchInatResearchGradeTaxa } from "@lifer/core/regions/inatChecklist.js";
+import { resolveInatPlaceId, fetchInatResearchGradeTaxa } from "../regions/inatChecklist.js";
 
 interface RegionRow {
   id: string;

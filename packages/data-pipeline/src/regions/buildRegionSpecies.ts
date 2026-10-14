@@ -3,7 +3,7 @@
 // MIN_RECORDS filters out one-off vagrants and museum specimens.
 
 import { fetchWithRetry } from "../lib/fetchWithRetry.js";
-import { fetchAllCountries } from "./regionBoundary.js";
+import { fetchAllCountries } from "@lifer/core/regions/regionBoundary.js";
 import {
   pointInRing,
   minRingDistance,
@@ -11,7 +11,8 @@ import {
   ringBoundingBox,
   type Point,
   type BoundingBox,
-} from "../lib/geometry.js";
+} from "@lifer/core/lib/geometry.js";
+import { expectShape, isGbifCount, isGbifFacets, isGbifPage } from "../lib/jsonGuards.js";
 
 const GBIF_OCCURRENCE_API = "https://api.gbif.org/v1/occurrence/search";
 // Aves' class key, the default taxon. Other taxa pass their own keys: `taxonKey` matches a taxon
@@ -161,7 +162,7 @@ async function fetchSpeciesCountsForRegionParam(
     if (!res.ok) {
       throw new Error(`[gbif-occ] fetch failed: ${res.status} ${res.statusText} (${url})`);
     }
-    const data = (await res.json()) as FacetResponse;
+    const data: FacetResponse = expectShape(await res.json(), isGbifFacets, "GBIF facet");
     const facet = data.facets.find((f) => f.field === "SPECIES_KEY");
     if (!facet || facet.counts.length === 0) break;
 
@@ -225,9 +226,7 @@ export async function fetchYearCountsForSpecies(
   if (!res.ok) {
     throw new Error(`[gbif-occ] fetch failed: ${res.status} ${res.statusText} (${url})`);
   }
-  const data = (await res.json()) as {
-    facets: Array<{ field: string; counts: Array<{ name: string; count: number }> }>;
-  };
+  const data = expectShape(await res.json(), isGbifFacets, "GBIF facet");
   const facet = data.facets.find((f) => f.field === "YEAR");
   return (facet?.counts ?? []).map((c) => ({ year: Number(c.name), count: c.count }));
 }
@@ -270,7 +269,7 @@ async function fetchRecordSampleForParam(
   if (!res.ok) {
     throw new Error(`[gbif-occ] fetch failed: ${res.status} ${res.statusText} (${url})`);
   }
-  const data = (await res.json()) as {
+  const data = expectShape(await res.json(), isGbifPage, "GBIF occurrence") as {
     results: Array<{ locality?: string; typeStatus?: string; decimalLongitude?: number; decimalLatitude?: number }>;
   };
   return data.results.map((r) => ({
@@ -328,7 +327,7 @@ export async function fetchGlobalOccurrenceCount(gbifKey: number): Promise<numbe
   if (!res.ok) {
     throw new Error(`[gbif-occ] fetch failed: ${res.status} ${res.statusText} (${url})`);
   }
-  const data = (await res.json()) as { count: number };
+  const data = expectShape(await res.json(), isGbifCount, "GBIF count");
   return data.count;
 }
 
@@ -391,7 +390,7 @@ export async function fetchOccurrenceCountForSpecies(gbifKey: number, externalCo
   if (!res.ok) {
     throw new Error(`[gbif-occ] fetch failed: ${res.status} ${res.statusText} (${url})`);
   }
-  const data = (await res.json()) as { count: number };
+  const data = expectShape(await res.json(), isGbifCount, "GBIF count");
   return data.count;
 }
 
@@ -422,7 +421,7 @@ export async function fetchMonthlySeasonality(
       if (!res.ok) {
         throw new Error(`[gbif-occ] seasonality fetch failed: ${res.status} ${res.statusText} (${url})`);
       }
-      const data = (await res.json()) as FacetResponse;
+      const data: FacetResponse = expectShape(await res.json(), isGbifFacets, "GBIF facet");
       const facet = data.facets.find((f) => f.field === "SPECIES_KEY");
       if (!facet || facet.counts.length === 0) break;
 
@@ -467,7 +466,7 @@ export async function fetchYearlyRecordCounts(
       if (!res.ok) {
         throw new Error(`[gbif-occ] yearly-count fetch failed: ${res.status} ${res.statusText} (${url})`);
       }
-      const data = (await res.json()) as FacetResponse;
+      const data: FacetResponse = expectShape(await res.json(), isGbifFacets, "GBIF facet");
       const facet = data.facets.find((f) => f.field === "SPECIES_KEY");
       if (!facet || facet.counts.length === 0) break;
 

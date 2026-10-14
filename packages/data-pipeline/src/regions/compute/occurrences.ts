@@ -1,6 +1,8 @@
 // Builds a region's checklist from GBIF (plus iNaturalist for membership). Used only by the
-// pack-building scripts; the app itself reads checklists from downloaded packs.
-import { pool, withTransaction } from "../../db.js";
+// pack-building scripts; the app itself reads checklists from downloaded packs. It writes
+// membership, frequency, seasonality and vagrant flags only: local tiers belong to the refresh
+// tiers stage (compute-local-tiers.ts).
+import { pool, withTransaction } from "@lifer/core/db.js";
 import {
   fetchSpeciesCountsForRegion,
   fetchMonthlySeasonality,
@@ -21,26 +23,14 @@ import {
   medianOf,
   type RegionSpeciesCount,
 } from "../buildRegionSpecies.js";
-import { fetchAllCountries } from "../regionBoundary.js";
+import { fetchAllCountries } from "@lifer/core/regions/regionBoundary.js";
 import { AVES_CLASS_KEY, MAMMALIA_CLASS_KEY } from "../../gbif/backbone.js";
 import { fetchFishTaxonKeys } from "../../gbif/fishOrders.js";
 import { matchedSpeciesIdsForRegion, resolveRemovalRescues } from "../inatChecklist.js";
-import { NO_RARITY_TIER_TAXON_CLASSES, type TaxonClass } from "@lifer/shared";
-import { exteriorRingsFromGeometry, type BoundingBox } from "../../lib/geometry.js";
-import {
-  tierForScore,
-  BIRD_ABSOLUTE_TIER_THRESHOLDS,
-  MAMMAL_ABSOLUTE_TIER_THRESHOLDS,
-  FISH_ABSOLUTE_TIER_THRESHOLDS,
-  percentileRankScores,
-  boostElusivenessForNocturnal,
-  boostElusivenessForDensity,
-  boostElusivenessForHabitatDensity,
-  boostTowardHarderToDetect,
-} from "../../species/computeRarityPhase1.js";
+import { exteriorRingsFromGeometry, type BoundingBox } from "@lifer/core/lib/geometry.js";
 import { MARINE_MAMMAL_ORDER_KEYS, ensureSeaZoneComputed } from "./seaZones.js";
-import { nearbyZones } from "../nearbyZones.js";
-import { log } from "../../lib/log.js";
+import { nearbyZones } from "@lifer/core/regions/nearbyZones.js";
+import { log } from "@lifer/core/lib/log.js";
 
 // Fish have looser thresholds than birds and mammals, so the two are fetched separately.
 const BIRD_MAMMAL_TAXON_KEYS = [AVES_CLASS_KEY, MAMMALIA_CLASS_KEY];
@@ -70,7 +60,7 @@ async function resolveCountryIso3(regionId: string, depth = 0): Promise<string |
   return resolveCountryIso3(ancestorRow.parent_id, depth + 1);
 }
 
-// Species flagged as introduced in this country (compute-elusiveness.ts).
+// Species flagged as introduced in this country (apply-introduced-flags.ts, from iNaturalist).
 async function loadNonNativeGbifKeys(iso3: string): Promise<Set<number>> {
   const res = await pool.query<{ gbif_key: string }>(
     `SELECT s.gbif_key FROM species_nonnative_countries snc JOIN species s ON s.id = snc.species_id WHERE snc.country_iso3 = $1`,
@@ -240,37 +230,13 @@ export async function computeRegionOccurrences(region: {
     passedGbifKeys.add(candidate.gbifKey);
   }
 
-  // Local tier ranks species only against this region's checklist, so how findable a species is
-  // here doesn't depend on effort elsewhere. The global tier stays as it is.
-  const traitsRes = await pool.query<{
-    gbif_key: string;
-    nocturnal: boolean | null;
-    range_size_km2: string | null;
-    population_estimate: string | null;
-    habitat_density: number | null;
-    domestic: boolean;
-  }>(
-    `SELECT s.gbif_key, t.nocturnal, t.range_size_km2, t.population_estimate, t.habitat_density, t.domestic
-     FROM species s JOIN species_traits t ON t.species_id = s.id WHERE s.gbif_key = ANY($1)`,
+  // Domestic species never count as vagrants: their records measure farm photos.
+  const domesticRes = await pool.query<{ gbif_key: string }>(
+    `SELECT s.gbif_key FROM species s JOIN species_traits t ON t.species_id = s.id
+     WHERE s.gbif_key = ANY($1) AND t.domestic`,
     [filtered.map((c) => c.gbifKey)],
   );
-  const nocturnalByGbifKey = new Map(traitsRes.rows.map((r) => [Number(r.gbif_key), r.nocturnal]));
-  const habitatDensityByGbifKey = new Map(traitsRes.rows.map((r) => [Number(r.gbif_key), r.habitat_density]));
-  // Domestic species stay out of the ranking (their counts measure farm photos) and are "common".
-  const domesticGbifKeys = new Set(traitsRes.rows.filter((r) => r.domestic).map((r) => Number(r.gbif_key)));
-
-  // Population over range as a density signal, ranked within this checklist.
-  const densityIndexes = traitsRes.rows
-    .map((r, idx) => {
-      const population = r.population_estimate != null ? Number(r.population_estimate) : null;
-      const range = r.range_size_km2 != null ? Number(r.range_size_km2) : null;
-      const density = population != null && range != null && range > 0 ? population / range : null;
-      return { idx, value: density };
-    })
-    .filter((e): e is { idx: number; value: number } => e.value != null);
-  const densityScoreByGbifKey = new Map(
-    [...percentileRankScores(densityIndexes)].map(([idx, score]) => [Number(traitsRes.rows[idx].gbif_key), score]),
-  );
+  const domesticGbifKeys = new Set(domesticRes.rows.map((r) => Number(r.gbif_key)));
 
   // A single vagrant chased by many birders looks common by count alone, so every listed species
   // gets the recurrence check to flag vagrants.
@@ -280,7 +246,6 @@ export async function computeRegionOccurrences(region: {
   const FISH_VAGRANT_MIN_RECORDS = 3;
   const fishGbifKeys = new Set(fishCounts.map((c) => c.gbifKey));
   const fishRecordCountByGbifKey = new Map(fishCounts.map((c) => [c.gbifKey, c.recordCount]));
-  const yearConcentrationByGbifKey = new Map<number, number>();
   const isVagrantByGbifKey = new Map<number, boolean>();
   // One facet call per year for every species at once, rather than one call per species.
   const yearlyCountsByGbifKey = await fetchYearlyRecordCounts(code, BIRD_MAMMAL_TAXON_KEYS);
@@ -295,79 +260,11 @@ export async function computeRegionOccurrences(region: {
     }
     const yearCounts = yearlyCountsByGbifKey.get(c.gbifKey) ?? [];
     const total = yearCounts.reduce((sum, y) => sum + y.count, 0);
-    const isVagrant = isNonNative || (total > 0 && !passesRecurrenceCheck(yearCounts, recurrenceFloorFor(c.gbifKey)));
-    isVagrantByGbifKey.set(c.gbifKey, isVagrant);
-    // Share of records in the busiest year (0 to 1), so a near miss is boosted less than a
-    // single event.
-    const maxShare = total > 0 ? Math.max(...yearCounts.map((y) => y.count)) / total : 0;
-    if (isVagrant) yearConcentrationByGbifKey.set(c.gbifKey, maxShare);
+    isVagrantByGbifKey.set(
+      c.gbifKey,
+      isNonNative || (total > 0 && !passesRecurrenceCheck(yearCounts, recurrenceFloorFor(c.gbifKey))),
+    );
   }
-
-  // Record-count rank (0 easiest, 1 rarest here), boosted for nocturnal, low-density and dense
-  // habitat species (compute-rarity-phase1.ts).
-  const baseScoreByIdx = percentileRankScores(wildFiltered.map((c, idx) => ({ idx, value: c.recordCount })));
-  const VAGRANT_BURST_BOOST_WEIGHT = 0.6;
-  const boostedScores = wildFiltered.map((c, idx) => {
-    const nocturnalBoosted = boostElusivenessForNocturnal(
-      baseScoreByIdx.get(idx) ?? 0.5,
-      nocturnalByGbifKey.get(c.gbifKey) ?? null,
-    );
-    const densityBoosted = boostElusivenessForDensity(nocturnalBoosted, densityScoreByGbifKey.get(c.gbifKey) ?? null);
-    const habitatBoosted = boostElusivenessForHabitatDensity(
-      densityBoosted,
-      habitatDensityByGbifKey.get(c.gbifKey) ?? null,
-    );
-    const yearConcentration = yearConcentrationByGbifKey.get(c.gbifKey) ?? null;
-    const vagrantBoosted =
-      yearConcentration != null
-        ? boostTowardHarderToDetect(habitatBoosted, yearConcentration * VAGRANT_BURST_BOOST_WEIGHT)
-        : habitatBoosted;
-    return { gbifKey: c.gbifKey, score: vagrantBoosted };
-  });
-  // Scored against the same taxon-calibrated absolute thresholds as the global tier, rather than
-  // by rank within the region.
-  const taxonClassRes = await pool.query<{ gbif_key: string; taxon_class: string | null }>(
-    `SELECT gbif_key, taxon_class FROM species WHERE gbif_key = ANY($1)`,
-    [wildFiltered.map((c) => c.gbifKey)],
-  );
-  const taxonClassByGbifKey = new Map(taxonClassRes.rows.map((r) => [Number(r.gbif_key), r.taxon_class]));
-  const localTierByGbifKey = new Map<number, string>();
-  boostedScores.forEach(({ gbifKey, score }) => {
-    const taxonClass = taxonClassByGbifKey.get(gbifKey);
-    // Classes without reliable data density (NO_RARITY_TIER_TAXON_CLASSES) stay untiered.
-    if (taxonClass && NO_RARITY_TIER_TAXON_CLASSES.has(taxonClass as TaxonClass)) return;
-    const thresholds = fishGbifKeys.has(gbifKey)
-      ? FISH_ABSOLUTE_TIER_THRESHOLDS
-      : taxonClass === "mammalia"
-        ? MAMMAL_ABSOLUTE_TIER_THRESHOLDS
-        : BIRD_ABSOLUTE_TIER_THRESHOLDS;
-    localTierByGbifKey.set(gbifKey, tierForScore(score, thresholds));
-  });
-
-  // Local tier may read at most one step easier than global (a heavily monitored rare species
-  // shouldn't read common)...
-  const LOCAL_TIER_GLOBAL_FLOOR_STEPS = 1;
-  // ...and at most two steps harder (thin data shouldn't make a common species legendary).
-  const LOCAL_TIER_GLOBAL_CEILING_STEPS = 2;
-  const TIER_ORDER = ["legendary", "rare", "uncommon", "occasional", "common"];
-  const globalTierRes = await pool.query<{ gbif_key: string; tier: string }>(
-    `SELECT s.gbif_key, r.tier FROM species s JOIN species_rarity r ON r.species_id = s.id WHERE s.gbif_key = ANY($1)`,
-    [wildFiltered.map((c) => c.gbifKey)],
-  );
-  const globalTierByGbifKey = new Map(globalTierRes.rows.map((r) => [Number(r.gbif_key), r.tier]));
-  for (const [gbifKey, localTier] of localTierByGbifKey) {
-    const globalTier = globalTierByGbifKey.get(gbifKey);
-    if (!globalTier || globalTier === "unrated") continue;
-    const globalRank = TIER_ORDER.indexOf(globalTier);
-    const localRank = TIER_ORDER.indexOf(localTier);
-    const clampedRank = Math.min(
-      Math.max(localRank, globalRank - LOCAL_TIER_GLOBAL_CEILING_STEPS),
-      globalRank + LOCAL_TIER_GLOBAL_FLOOR_STEPS,
-    );
-    if (clampedRank !== localRank) localTierByGbifKey.set(gbifKey, TIER_ORDER[clampedRank]);
-  }
-
-  for (const gbifKey of domesticGbifKeys) localTierByGbifKey.set(gbifKey, "common");
 
   // iNaturalist research-grade records decide membership; GBIF supplies the data above. Without
   // iNat data (null) GBIF decides, so a lookup failure never empties a checklist.
@@ -402,7 +299,8 @@ export async function computeRegionOccurrences(region: {
           regionId,
           idList,
         ]);
-        // Listed species that already have a tier are left alone; new or untiered ones are written.
+        // Listed species the tiers stage has already rated are left alone; new or untiered ones are
+        // written. Local tiers come only from compute-local-tiers.ts, never from this path.
         const needsTierIds = idList.filter((id) => !alreadyTieredIds.has(id));
         if (needsTierIds.length > 0) {
           const gbifKeyRes = await client.query<{ id: string; gbif_key: string | null }>(
@@ -413,20 +311,17 @@ export async function computeRegionOccurrences(region: {
           for (const row of gbifKeyRes.rows) {
             const gbifKey = row.gbif_key != null ? Number(row.gbif_key) : null;
             const match = gbifKey != null ? byGbifKey.get(gbifKey) : undefined;
-            // Confirmed by iNat but not scored from GBIF: left unrated.
-            const localTier = match ? (localTierByGbifKey.get(match.gbifKey) ?? null) : null;
             await client.query(
-              `INSERT INTO region_species (region_id, species_id, local_frequency, seasonality, local_tier, is_vagrant)
-             VALUES ($1,$2,$3,$4,$5,$6)
+              `INSERT INTO region_species (region_id, species_id, local_frequency, seasonality, is_vagrant)
+             VALUES ($1,$2,$3,$4,$5)
              ON CONFLICT (region_id, species_id) DO UPDATE SET
-               local_frequency = EXCLUDED.local_frequency, seasonality = EXCLUDED.seasonality, local_tier = EXCLUDED.local_tier,
+               local_frequency = EXCLUDED.local_frequency, seasonality = EXCLUDED.seasonality,
                is_vagrant = EXCLUDED.is_vagrant`,
               [
                 regionId,
                 row.id,
                 match?.recordCount ?? 0,
                 match ? (seasonality.get(match.gbifKey) ?? null) : null,
-                localTier,
                 match ? (isVagrantByGbifKey.get(match.gbifKey) ?? false) : false,
               ],
             );
@@ -439,17 +334,16 @@ export async function computeRegionOccurrences(region: {
           const speciesId = speciesIdRes.rows[0]?.id;
           if (!speciesId) continue;
           await client.query(
-            `INSERT INTO region_species (region_id, species_id, local_frequency, seasonality, local_tier, is_vagrant)
-           VALUES ($1,$2,$3,$4,$5,$6)
+            `INSERT INTO region_species (region_id, species_id, local_frequency, seasonality, is_vagrant)
+           VALUES ($1,$2,$3,$4,$5)
            ON CONFLICT (region_id, species_id) DO UPDATE SET
-             local_frequency = EXCLUDED.local_frequency, seasonality = EXCLUDED.seasonality, local_tier = EXCLUDED.local_tier,
+             local_frequency = EXCLUDED.local_frequency, seasonality = EXCLUDED.seasonality,
              is_vagrant = EXCLUDED.is_vagrant`,
             [
               regionId,
               speciesId,
               c.recordCount,
               seasonality.get(c.gbifKey) ?? null,
-              localTierByGbifKey.get(c.gbifKey) ?? null,
               isVagrantByGbifKey.get(c.gbifKey) ?? false,
             ],
           );

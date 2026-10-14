@@ -48,14 +48,14 @@ One API process serves everything. The same code runs in the Docker image and in
 
 ## The parts
 
-| Path | What it is |
-|---|---|
-| `apps/api` | The server. Fastify 5 on Node 22, run with `tsx` in development and compiled to `dist/` by `apps/api/scripts/build.mjs` (esbuild) for Docker and the desktop app. Entry point `src/index.ts`, configuration from environment variables in `src/config.ts`. |
-| `apps/web` | The user interface. React 19, Vite and Tailwind, with react-router for pages. Built to static files that the API serves. |
-| `apps/desktop` | The desktop app. A Tauri 2 (Rust) window that starts the API as a sidecar process, with its own embedded Postgres. |
-| `packages/core` | Code the server and the data pipeline share (`@lifer/core`): configuration, the database pool, species enrichment and matching, region and sea-zone computation, GBIF helpers and the photo license policy. It depends on neither of them. |
-| `packages/shared` | TypeScript types and small helpers used by both the API and the web app (`@lifer/shared`). |
-| `packages/data-pipeline` | Database migrations, the maintainer scripts, and the tools that build the species catalog, region packs and photo store from source data. |
+| Path                     | What it is                                                                                                                                                                                                                                                                                                                               |
+| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `apps/api`               | The server. Fastify 5 on Node 22, run with `tsx` in development and compiled to `dist/` by `apps/api/scripts/build.mjs` (esbuild) for Docker and the desktop app. Entry point `src/index.ts`. Configuration comes from environment variables in `packages/core/src/config.ts` (shared with the data pipeline), with its tests beside it. |
+| `apps/web`               | The user interface. React 19, Vite and Tailwind, with react-router for pages. Built to static files that the API serves.                                                                                                                                                                                                                 |
+| `apps/desktop`           | The desktop app. A Tauri 2 (Rust) window that starts the API as a sidecar process, with its own embedded Postgres.                                                                                                                                                                                                                       |
+| `packages/core`          | Code the server and the data pipeline share (`@lifer/core`): configuration, the database pool, species enrichment and matching, region and sea-zone computation, GBIF helpers and the photo license policy. It depends on neither of them.                                                                                               |
+| `packages/shared`        | TypeScript types and small helpers used by both the API and the web app (`@lifer/shared`).                                                                                                                                                                                                                                               |
+| `packages/data-pipeline` | Database migrations, the maintainer scripts, and the tools that build the species catalog, region packs and photo store from source data.                                                                                                                                                                                                |
 
 The dependencies only point one way: `apps/api` and `packages/data-pipeline` use `@lifer/core`, and `@lifer/core` uses neither. Import core modules by path, for example `import { pool } from "@lifer/core/db.js"`.
 
@@ -79,14 +79,18 @@ The Rust side (`apps/desktop/src-tauri/src/`) does four things:
 
 - **Embedded Postgres** (`embedded_db.rs`): plain Postgres through the `postgresql_embedded` crate. The engine is downloaded on first launch, the data lives in the app data folder, and each install gets its own password. It restores the species catalog seed bundled with the app before the API first starts.
 - **The API sidecar** (`api.rs`): runs migrations, then starts the API with a bundled Node runtime on `127.0.0.1:4310`, with `SINGLE_USER_MODE=1` (no login form), a random secret `LIFER_LAUNCH_TOKEN` that signs in the app's own window and nothing else (see [Security model](../security-model.md#desktop-app)), and a non-secret `LIFER_LAUNCH_ID` that `/health` echoes so the shell knows it's talking to its own API. A crashed API is restarted a couple of times before the app gives up and shows the error.
-- **Server mode** (`store.rs`, `lib.rs`): instead of the local API, the window can point at a Lifer server. The saved choice lives in `desktop-config.json`.
+- **Server mode** (`store.rs`, `commands.rs`, `server_watch.rs`): instead of the local API, the window can point at a Lifer server. The saved choice lives in `desktop-config.json`.
 - **Matching on this computer** (`local_inference.rs`): when connected to a server, it can run an inference-only API locally so species matching uses this computer's hardware. See [Connect the desktop app to a server](../install/connect-desktop-to-server.md#desktop-assisted-matching).
 
 How the app is built and packaged is on the [Desktop app](./desktop-app.md) page.
 
 ## Species matching
 
-Image models run in a worker thread (`packages/core/src/species/inferenceWorker.ts`), so a batch of photos never blocks API requests. `inference.ts` is the main-thread side: a queue with priorities and timeouts. The models run on `onnxruntime-node`:
+Image models run in a worker thread (`packages/core/src/species/inferenceWorker.ts`), so a batch of photos never blocks API requests. `inference.ts` is the main-thread side: a queue with priorities and timeouts. A model run that hangs gets the worker restarted; its job fails and the rest carry on.
+
+When a downloaded GPU runtime is active, the same worker code runs in a child process instead of a thread. The GPU libraries are found through `LD_LIBRARY_PATH`, which the dynamic loader only reads when a process starts, so a new process is the only way to give the models that library path. If that process never comes up, matching moves to a worker thread with the bundled runtime (GPU sessions there fall back to the CPU). If it crashes three times within ten minutes, matching also moves to a worker thread until the acceleration plan changes or the API restarts; crashes further apart never add up to that.
+
+The models run on `onnxruntime-node`:
 
 - **BioCLIP 2** (`bioclip-2-v1`): the species identification model behind suggestions.
 - **CLIP ViT-L/14** (`clip-vit-l14-v2`): the general image model for Gallery content search, duplicate detection, and suggestions before BioCLIP 2 is installed.
@@ -98,21 +102,21 @@ The two big models are downloaded on demand into `APP_DATA_DIR/models`. Their re
 
 Installs don't build species data themselves. The [data pipeline](./data-pipeline.md) builds it and publishes it as GitHub releases, and the API fetches what it needs:
 
-| Release | What it holds | When an install fetches it |
-|---|---|---|
+| Release          | What it holds                                                                                                           | When an install fetches it                                                                                                                                                                                                                              |
+| ---------------- | ----------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `catalog-latest` | The catalog seed: every species, region and reference vector, as a compressed SQL dump, plus a manifest with checksums. | On first start with an empty database (`seedCatalogIfEmpty` in `apps/api/src/species/catalogSeedUpdate.ts`), and when you accept a catalog update in Settings. The Docker image and the desktop app also bundle a copy, so a first start works offline. |
-| `packs-latest` | Region packs: each region's checklist, as byte ranges inside a few shard files, with `pack-index.json`. | When you download a pack. It's applied to the database and not kept on disk. |
-| `photos-latest` | The reference photo store: each reference photo once, in shard files with an index. | Alongside packs. The API fetches only the photos it's missing, by byte range, into `APP_DATA_DIR`. |
-| `map-latest` | The offline basemap, one PMTiles file. | When you download the offline map. The API serves it at `/maps/`, and the web app draws it with MapLibre. |
-| `models` | The model files, compressed for CPUs, and full-precision copies for GPUs. | When species matching first needs them. |
+| `packs-latest`   | Region packs: each region's checklist, as byte ranges inside a few shard files, with `pack-index.json`.                 | When you download a pack. It's applied to the database and not kept on disk.                                                                                                                                                                            |
+| `photos-latest`  | The reference photo store: each reference photo once, in shard files with an index.                                     | Alongside packs. The API fetches only the photos it's missing, by byte range, into `APP_DATA_DIR`.                                                                                                                                                      |
+| `map-latest`     | The offline basemap, one PMTiles file.                                                                                  | When you download the offline map. The API serves it at `/maps/`, and the web app draws it with MapLibre.                                                                                                                                               |
+| `models`         | The model files, compressed for CPUs, and full-precision copies for GPUs.                                               | When species matching first needs them.                                                                                                                                                                                                                 |
 
 These data releases are always marked as prereleases, so they never become the repository's "latest" release, which the update checks read.
 
 ## Where files live
 
-| Folder | What's in it |
-|---|---|
-| `DATA_DIR` (`/data` in Docker) | The user's photo library. Lifer writes photos into species folders here, plus small `.lifer` recovery files. |
+| Folder                                 | What's in it                                                                                                                                                                                                                                                                       |
+| -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `DATA_DIR` (`/data` in Docker)         | The user's photo library. Lifer writes photos into species folders here, plus small `.lifer` recovery files.                                                                                                                                                                       |
 | `APP_DATA_DIR` (`/app-data` in Docker) | Lifer's own files: photo previews (`display/`, `thumb/`, `medium/`, `video-preview/`), reference photos (`reference-*`), `models/`, `maps/`, `catalog-downloads/`, the `uploads/` work folder, and the GPU runtime. On the desktop, also `postgres-data/` and `postgres-password`. |
 
 Everything in `APP_DATA_DIR` can be downloaded or rebuilt, except the desktop app's `postgres-data/` and `postgres-password`, which are the database. The library and the database are the user's data. [State and sync](./state-and-sync.md#whose-data-is-it) has the full list.

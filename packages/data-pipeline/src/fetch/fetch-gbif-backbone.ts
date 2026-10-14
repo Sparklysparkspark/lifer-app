@@ -1,11 +1,11 @@
 // Writes data/build/gbif-backbone-aves.json, the input fetch-wikidata.ts and
 // fetch-reference-photos.ts read when run on their own. The fetch itself lives in
-// @lifer/core/gbif/backbone.ts, shared with the server.
+// src/gbif/backbone.ts, shared with the seed builders.
 //
 // Usage: npx tsx src/fetch/fetch-gbif-backbone.ts
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { fetchGbifBackboneAves } from "@lifer/core/gbif/backbone.js";
+import { fetchGbifBackboneAves } from "../gbif/backbone.js";
 import { BUILD_DIR } from "@lifer/core/rawCache.js";
 
 const rows = await fetchGbifBackboneAves();

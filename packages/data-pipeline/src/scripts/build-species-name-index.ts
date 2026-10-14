@@ -11,7 +11,7 @@
 import { readdirSync, createReadStream } from "node:fs";
 import readline from "node:readline";
 import { pool } from "@lifer/core/db.js";
-import { fetchWithRetry } from "@lifer/core/lib/fetchWithRetry.js";
+import { fetchWithRetry } from "../lib/fetchWithRetry.js";
 import { mapWithConcurrency } from "@lifer/core/lib/concurrency.js";
 
 const GBIF_MATCH_API = "https://api.gbif.org/v1/species/match";

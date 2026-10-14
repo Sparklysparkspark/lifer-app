@@ -4,7 +4,8 @@
 // since synonyms and doubtful names would otherwise duplicate real species.
 
 import { fetchWithRetry } from "../lib/fetchWithRetry.js";
-import { log } from "../lib/log.js";
+import { log } from "@lifer/core/lib/log.js";
+import { expectShape, isGbifMatch, isGbifTaxaPage } from "../lib/jsonGuards.js";
 
 const GBIF_API = "https://api.gbif.org/v1/species/search";
 
@@ -58,7 +59,7 @@ export async function fetchGbifBackboneForKeys(higherTaxonKeys: number[]): Promi
       if (!res.ok) {
         throw new Error(`[gbif] fetch failed: ${res.status} ${res.statusText} (${url})`);
       }
-      const data = (await res.json()) as GbifSearchResult;
+      const data = expectShape(await res.json(), isGbifTaxaPage, "GBIF species search") as GbifSearchResult;
 
       for (const r of data.results) {
         if (r.rank !== "SPECIES" || r.taxonomicStatus !== "ACCEPTED") continue;
@@ -116,7 +117,7 @@ export async function fetchGbifSpeciesByNames(names: string[]): Promise<GbifSpec
     if (!res.ok) {
       throw new Error(`[gbif] match failed for "${name}": ${res.status} ${res.statusText}`);
     }
-    const data = (await res.json()) as GbifMatchResult;
+    const data = expectShape(await res.json(), isGbifMatch, "GBIF match") as GbifMatchResult;
     if (data.matchType === "NONE" || !data.usageKey) {
       log.warn(`[gbif] no match for "${name}" (matchType=${data.matchType})`);
       continue;

@@ -7,56 +7,84 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { pool } from "../db.js";
-import { bboxDiagonalDegrees, exteriorRingsFromGeometry, pointInAnyRing, ringBoundingBox } from "../lib/geometry.js";
+import { pool } from "@lifer/core/db.js";
+import { httpFetch } from "@lifer/core/lib/http.js";
+import { log } from "@lifer/core/lib/log.js";
+import {
+  bboxDiagonalDegrees,
+  exteriorRingsFromGeometry,
+  pointInAnyRing,
+  ringBoundingBox,
+} from "@lifer/core/lib/geometry.js";
+import {
+  expectShape,
+  isInatNearbyPlaces,
+  isInatPlacesPage,
+  isInatSpeciesCountsPage,
+  isInatTaxaPage,
+} from "../lib/jsonGuards.js";
 
-// packages/data-pipeline/src/scripts -> the repo root.
-const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "..");
+// src/regions -> packages/data-pipeline/data.
+const PIPELINE_DATA_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "data");
 
 const INAT_PLACES_API = "https://api.inaturalist.org/v1/places";
 const INAT_OBSERVATIONS_API = "https://api.inaturalist.org/v1/observations";
 const INAT_TAXA_API = "https://api.inaturalist.org/v1/taxa";
-const INAT_USER_AGENT = "lifer-app/0.1 (personal project; region checklist verification)";
-
-// Races the fetch against an independent timer, because AbortSignal.timeout() alone can fail to
-// fire on a connection that goes silent.
-export async function fetchWithHardTimeout(url: string, init: RequestInit, timeoutMs = 30_000): Promise<Response> {
-  const controller = new AbortController();
-  let timer: ReturnType<typeof setTimeout>;
-  const timeout = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => {
-      controller.abort();
-      reject(new Error(`fetch timed out after ${timeoutMs}ms: ${url}`));
-    }, timeoutMs);
-  });
-  try {
-    return await Promise.race([fetch(url, { ...init, signal: controller.signal }), timeout]);
-  } finally {
-    clearTimeout(timer!);
-  }
-}
 // Cached place lists younger than this are used as is. LIFER_INAT_OFFLINE=1 never calls iNat:
 // a species it can't check from the cache is kept rather than removed.
 const INAT_CACHE_MAX_AGE_MS = Number(process.env.LIFER_INAT_CACHE_MAX_AGE_DAYS ?? 90) * 24 * 60 * 60 * 1000;
-const INAT_OFFLINE = process.env.LIFER_INAT_OFFLINE === "1";
+const INAT_OFFLINE_ENV = process.env.LIFER_INAT_OFFLINE === "1";
+
+// After this many requests in a row still refused once every retry is spent, iNaturalist has
+// throttled this machine for a long while (its daily allowance is spent), so the rest of the run
+// works from the cache as LIFER_INAT_OFFLINE would. Carrying on only adds hours of failed
+// lookups and keeps the block in place.
+const REFUSALS_BEFORE_OFFLINE = 3;
+let consecutiveRefusals = 0;
+let inatGaveUp = false;
+
+/** Whether iNaturalist is off for this run: asked to be, or it kept refusing. */
+export function inatOffline(): boolean {
+  return INAT_OFFLINE_ENV || inatGaveUp;
+}
+
+/** For tests: forget a previous give-up. */
+export function resetInatOffline(): void {
+  consecutiveRefusals = 0;
+  inatGaveUp = false;
+}
 
 const inatPlaceIdCache = new Map<string, Promise<number | null>>();
 const inatResearchGradeTaxaCache = new Map<number, Promise<InatTaxon[] | null>>();
 const inatCurrentTaxonIdCache = new Map<string, Promise<number | null>>();
 
-// Shared ~1 request/sec pacing for all iNat calls here. Unpaced bursts get throttled hard, and
-// retrying only adds load, so staying under the limit up front is faster overall.
-const INAT_TAXA_REQUEST_INTERVAL_MS = 1000;
-let lastInatTaxaRequestAt = 0;
-async function paceInatTaxaRequest(): Promise<void> {
-  const wait = lastInatTaxaRequestAt + INAT_TAXA_REQUEST_INTERVAL_MS - Date.now();
-  if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
-  lastInatTaxaRequestAt = Date.now();
+// Every call goes through the shared client, which paces iNaturalist hosts for the whole process
+// (about one request a second): unpaced bursts get throttled hard, and retrying only adds load.
+// A rate limit or server error isn't an answer, so both are retried with backoff.
+async function inatGet(url: string, backoffBaseMs: number): Promise<Response> {
+  if (inatOffline()) throw new Error("iNaturalist is off for this run");
+  const res = await httpFetch(url, { maxRetries: 4, retryServerErrors: true, backoffBaseMs });
+  if (res.status === 429) {
+    consecutiveRefusals++;
+    if (consecutiveRefusals >= REFUSALS_BEFORE_OFFLINE && !inatGaveUp) {
+      inatGaveUp = true;
+      log.warn(
+        { refusals: consecutiveRefusals },
+        "iNaturalist keeps refusing requests; the rest of this run uses cached iNaturalist data only",
+      );
+    }
+  } else {
+    consecutiveRefusals = 0;
+  }
+  return res;
 }
+// Place lookups back off longer: they're few, and a wrong "no such place" is costly.
+const PLACE_BACKOFF_MS = 15_000;
+const PAGE_BACKOFF_MS = 2000;
 
 // Disk cache of each name's current iNat taxon id, including definite "none" answers, so
 // re-runs never repeat a lookup that already came back with an answer.
-const INAT_CURRENT_TAXON_CACHE_PATH = path.join(REPO_ROOT, "packages/data-pipeline/data/inat-current-taxon-cache.json");
+const INAT_CURRENT_TAXON_CACHE_PATH = path.join(PIPELINE_DATA_DIR, "inat-current-taxon-cache.json");
 let inatCurrentTaxonDiskCache: Record<string, number | null> | null = null;
 
 function loadInatCurrentTaxonDiskCache(): Record<string, number | null> {
@@ -107,18 +135,12 @@ async function inatPlaceByLocation(regionId: string, countryInatPlaceId: number)
   const bbox = ringBoundingBox(rings.flat());
   const regionArea = Math.max(1e-6, (bbox.maxLon - bbox.minLon) * (bbox.maxLat - bbox.minLat));
   if (bboxDiagonalDegrees(bbox) > 60) return null; // an ocean-spanning outline, not a province
-  let res: Response | null = null;
-  for (let attempt = 0; attempt < 4; attempt++) {
-    await paceInatTaxaRequest();
-    res = await fetchWithHardTimeout(
-      `${INAT_PLACES_API}/nearby?nelat=${bbox.maxLat}&nelng=${bbox.maxLon}&swlat=${bbox.minLat}&swlng=${bbox.minLon}&per_page=100`,
-      { headers: { "User-Agent": INAT_USER_AGENT } },
-    );
-    if (res.ok || (res.status !== 429 && res.status < 500)) break;
-    await new Promise((resolve) => setTimeout(resolve, 15_000 * (attempt + 1)));
-  }
-  if (!res || !res.ok) return null;
-  const data = (await res.json()) as {
+  const res = await inatGet(
+    `${INAT_PLACES_API}/nearby?nelat=${bbox.maxLat}&nelng=${bbox.maxLon}&swlat=${bbox.minLat}&swlng=${bbox.minLon}&per_page=100`,
+    PLACE_BACKOFF_MS,
+  );
+  if (!res.ok) return null;
+  const data = expectShape(await res.json(), isInatNearbyPlaces, "iNaturalist nearby places") as {
     results: { standard: Array<InatPlaceCandidate & { location?: string; bbox_area?: number }> };
   };
   const inside = data.results.standard.filter((p) => {
@@ -197,21 +219,14 @@ export async function resolveInatPlaceId(
         if (existing.rows[0]?.inat_place_id != null) return existing.rows[0].inat_place_id;
         for (const query of inatPlaceQueryNames(regionName)) {
           try {
-            // A rate limit or server error isn't "no such place": wait and ask again.
-            let res: Response | null = null;
-            for (let attempt = 0; attempt < 4; attempt++) {
-              await paceInatTaxaRequest();
-              res = await fetchWithHardTimeout(
-                `${INAT_PLACES_API}/autocomplete?q=${encodeURIComponent(query)}&per_page=20`,
-                {
-                  headers: { "User-Agent": INAT_USER_AGENT },
-                },
-              );
-              if (res.ok || (res.status !== 429 && res.status < 500)) break;
-              await new Promise((resolve) => setTimeout(resolve, 15_000 * (attempt + 1)));
-            }
-            if (!res || !res.ok) continue;
-            const data = (await res.json()) as { results: InatPlaceCandidate[] };
+            const res = await inatGet(
+              `${INAT_PLACES_API}/autocomplete?q=${encodeURIComponent(query)}&per_page=20`,
+              PLACE_BACKOFF_MS,
+            );
+            if (!res.ok) continue;
+            const data = expectShape(await res.json(), isInatPlacesPage, "iNaturalist places") as {
+              results: InatPlaceCandidate[];
+            };
             const wantLevel = isCountry ? 0 : 10;
             const candidates = data.results.filter(
               (p) =>
@@ -251,7 +266,7 @@ export async function resolveInatPlaceId(
 
 // Research Grade species_counts per place (500/page, iNat's max), disk-cached with counts. Lists
 // older than LIFER_INAT_CACHE_MAX_AGE_DAYS are refetched in full, since counts drive tiers.
-const INAT_SPECIES_COUNTS_CACHE_DIR = path.join(REPO_ROOT, "packages/data-pipeline/data/inat-species-counts-cache");
+const INAT_SPECIES_COUNTS_CACHE_DIR = path.join(PIPELINE_DATA_DIR, "inat-species-counts-cache");
 
 interface InatTaxon {
   id: number;
@@ -268,29 +283,22 @@ interface SpeciesCountsCacheFile {
   withCounts?: boolean;
 }
 
-// Per-page retries, so a transient failure doesn't truncate a place's list.
-const PAGE_FETCH_RETRIES = 4;
-
 // iNat iconic taxa covering every Lifer taxon class. Without this filter plants, fungi and
 // insects swamp the results and can hit the page cap before the species we track.
 const RELEVANT_ICONIC_TAXA = ["Aves", "Mammalia", "Reptilia", "Amphibia", "Actinopterygii", "Mollusca", "Animalia"];
 const ICONIC_TAXA_PARAM = RELEVANT_ICONIC_TAXA.map((t) => `&iconic_taxa[]=${t}`).join("");
 
+// Retried per page (inatGet), so a transient failure doesn't truncate a place's list.
 async function fetchOnePage(placeId: number, page: number, extraParams: string): Promise<Response | null> {
-  for (let attempt = 0; attempt < PAGE_FETCH_RETRIES; attempt++) {
-    if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, 1000 * 2 ** attempt)); // 2s, 4s, 8s
-    await paceInatTaxaRequest();
-    try {
-      const res = await fetchWithHardTimeout(
-        `${INAT_OBSERVATIONS_API}/species_counts?place_id=${placeId}&quality_grade=research&verifiable=true&per_page=500&page=${page}${ICONIC_TAXA_PARAM}${extraParams}`,
-        { headers: { "User-Agent": INAT_USER_AGENT } },
-      );
-      if (res.ok) return res;
-    } catch {
-      // timed out or network failure: retry
-    }
+  try {
+    const res = await inatGet(
+      `${INAT_OBSERVATIONS_API}/species_counts?place_id=${placeId}&quality_grade=research&verifiable=true&per_page=500&page=${page}${ICONIC_TAXA_PARAM}${extraParams}`,
+      PAGE_BACKOFF_MS,
+    );
+    return res.ok ? res : null;
+  } catch {
+    return null; // timed out or network failure on every attempt
   }
-  return null;
 }
 
 async function fetchSpeciesCountsPages(placeId: number, extraParams: string): Promise<InatTaxon[] | null> {
@@ -301,7 +309,7 @@ async function fetchSpeciesCountsPages(placeId: number, extraParams: string): Pr
     // A page that fails all retries fails the whole fetch, so a partial list is never cached
     // as if it were complete.
     if (!res) return null;
-    const data = (await res.json()) as {
+    const data = expectShape(await res.json(), isInatSpeciesCountsPage, "iNaturalist species counts") as {
       total_results: number;
       results: Array<{ count: number; taxon: { id: number; name: string; iconic_taxon_name?: string | null } }>;
     };
@@ -328,7 +336,7 @@ async function fetchInatResearchGradeTaxaCached(placeId: number): Promise<InatTa
           : null;
         if (rawCached && !Array.isArray(rawCached) && rawCached.fetchedAt && rawCached.taxa) {
           const cached = rawCached as SpeciesCountsCacheFile;
-          if (INAT_OFFLINE || Date.now() - Date.parse(cached.fetchedAt) < INAT_CACHE_MAX_AGE_MS) return cached.taxa;
+          if (inatOffline() || Date.now() - Date.parse(cached.fetchedAt) < INAT_CACHE_MAX_AGE_MS) return cached.taxa;
           // Too old: refetch in full, since counts change too.
           try {
             const fresh = await fetchSpeciesCountsPages(placeId, "");
@@ -369,10 +377,10 @@ export async function refreshPlaceCounts(placeId: number): Promise<boolean> {
     const cached = JSON.parse(readFileSync(cachePath, "utf8")) as Partial<SpeciesCountsCacheFile>;
     // Counts change, so a list older than the maximum age is fetched again.
     const fresh =
-      INAT_OFFLINE || (cached.fetchedAt != null && Date.now() - Date.parse(cached.fetchedAt) < INAT_CACHE_MAX_AGE_MS);
+      inatOffline() || (cached.fetchedAt != null && Date.now() - Date.parse(cached.fetchedAt) < INAT_CACHE_MAX_AGE_MS);
     if (cached.withCounts && fresh) return true;
   }
-  if (INAT_OFFLINE) return false;
+  if (inatOffline()) return false;
   const taxa = await fetchSpeciesCountsPages(placeId, "");
   if (taxa == null) return false;
   writeFileSync(
@@ -397,7 +405,7 @@ export function cachedPlaceCounts(
 
 // iNaturalist's curated list of taxa introduced in a place. Status varies by place, so each
 // place is asked on its own.
-const INAT_INTRODUCED_CACHE_DIR = path.join(REPO_ROOT, "packages/data-pipeline/data/inat-introduced-cache");
+const INAT_INTRODUCED_CACHE_DIR = path.join(PIPELINE_DATA_DIR, "inat-introduced-cache");
 
 /** Fetches a place's introduced taxa unless its cached list is younger than the maximum age.
  *  Returns false when the fetch failed (the old cache, if any, stays). */
@@ -406,10 +414,10 @@ export async function refreshPlaceIntroduced(placeId: number): Promise<boolean> 
   const cachePath = path.join(INAT_INTRODUCED_CACHE_DIR, `${placeId}.json`);
   if (existsSync(cachePath)) {
     const cached = JSON.parse(readFileSync(cachePath, "utf8")) as Partial<SpeciesCountsCacheFile>;
-    if (INAT_OFFLINE || (cached.fetchedAt && Date.now() - Date.parse(cached.fetchedAt) < INAT_CACHE_MAX_AGE_MS))
+    if (inatOffline() || (cached.fetchedAt && Date.now() - Date.parse(cached.fetchedAt) < INAT_CACHE_MAX_AGE_MS))
       return true;
   }
-  if (INAT_OFFLINE) return false;
+  if (inatOffline()) return false;
   const taxa = await fetchSpeciesCountsPages(placeId, "&introduced=true");
   if (taxa == null) return false;
   writeFileSync(
@@ -455,16 +463,13 @@ export async function resolveCurrentInatTaxonId(scientificName: string): Promise
       (async () => {
         // Only a successful response is cached. A transient failure must never be recorded as
         // "not found", or the species could be wrongly removed.
-        for (let attempt = 0; attempt < PAGE_FETCH_RETRIES; attempt++) {
-          if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, 1000 * 2 ** attempt));
-          await paceInatTaxaRequest();
-          try {
-            const res = await fetchWithHardTimeout(
-              `${INAT_TAXA_API}?q=${encodeURIComponent(scientificName)}&per_page=10&is_active=any&rank=species`,
-              { headers: { "User-Agent": INAT_USER_AGENT } },
-            );
-            if (!res.ok) continue;
-            const data = (await res.json()) as {
+        try {
+          const res = await inatGet(
+            `${INAT_TAXA_API}?q=${encodeURIComponent(scientificName)}&per_page=10&is_active=any&rank=species`,
+            PAGE_BACKOFF_MS,
+          );
+          if (res.ok) {
+            const data = expectShape(await res.json(), isInatTaxaPage, "iNaturalist taxa") as {
               results: Array<{
                 id: number;
                 name: string;
@@ -479,9 +484,9 @@ export async function resolveCurrentInatTaxonId(scientificName: string): Promise
             const result = exactMatches.find((r) => r.is_active)?.id ?? null;
             saveInatCurrentTaxonDiskCache(scientificName, result);
             return result;
-          } catch {
-            continue;
           }
+        } catch {
+          // Every attempt failed or the answer was malformed: unknown, not "none".
         }
         return null;
       })(),
@@ -495,12 +500,13 @@ interface RegionAncestryRow {
   id: string;
   name: string;
   parent_id: string | null;
+  home_country_id: string | null;
   grandparent_name: string | null;
 }
 
 async function fetchRegionAncestryRow(id: string): Promise<RegionAncestryRow | null> {
   const res = await pool.query<RegionAncestryRow>(
-    `SELECT r.id, r.name, r.parent_id, gp.name AS grandparent_name
+    `SELECT r.id, r.name, r.parent_id, r.home_country_id, gp.name AS grandparent_name
      FROM regions r
      LEFT JOIN regions p ON p.id = r.parent_id
      LEFT JOIN regions gp ON gp.id = p.parent_id
@@ -515,6 +521,11 @@ async function findCountryForRegion(regionId: string): Promise<{ id: string; nam
   for (let hops = 0; hops < 10 && currentId; hops++) {
     const row = await fetchRegionAncestryRow(currentId);
     if (!row) return null;
+    // A province shown under its continent belongs to its country all the same.
+    if (row.home_country_id) {
+      currentId = row.home_country_id;
+      continue;
+    }
     if (row.grandparent_name === "World") return { id: row.id, name: row.name };
     currentId = row.parent_id;
   }
@@ -601,7 +612,7 @@ export async function resolveRemovalRescues(
   const onDisk = loadInatCurrentTaxonDiskCache();
   for (const candidate of candidates) {
     // Offline and never looked up: it can't be confirmed absent, so it stays.
-    if (INAT_OFFLINE && !Object.prototype.hasOwnProperty.call(onDisk, candidate.scientific_name)) {
+    if (inatOffline() && !Object.prototype.hasOwnProperty.call(onDisk, candidate.scientific_name)) {
       rescued.add(candidate.id);
       continue;
     }

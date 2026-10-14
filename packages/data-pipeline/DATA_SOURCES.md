@@ -39,7 +39,7 @@ model files that aren't mirrored on the `models` release.
 
 | Source | Used for | Where | License | Credit |
 |---|---|---|---|---|
-| [GBIF](https://www.gbif.org/) occurrence downloads | Province and country checklists, occurrence counts behind rarity tiers | `packages/data-pipeline/src/scripts/compute-provinces-bulk.ts`, `src/build/compute-elusiveness.ts`, `src/scripts/fetch-occurrence-stats.ts` | Records are CC0, CC BY or CC BY-NC, set by each publishing dataset | GBIF asks that each download be cited by its DOI: "GBIF.org (date) GBIF Occurrence Download https://doi.org/..." The pipeline doesn't record those DOIs yet. |
+| [GBIF](https://www.gbif.org/) occurrence downloads | Province and country checklists, occurrence counts behind rarity tiers | `packages/data-pipeline/src/scripts/compute-provinces-bulk.ts`, `src/scripts/compute-endemic-countries.ts`, `src/scripts/fetch-occurrence-stats.ts` | Records are CC0, CC BY or CC BY-NC, set by each publishing dataset | GBIF asks that each download be cited by its DOI: "GBIF.org (date) GBIF Occurrence Download https://doi.org/..." The pipeline doesn't record those DOIs yet. |
 | [eBird](https://ebird.org/) API (species lists) | Bird lists per region, checking vagrant flags | `compute-provinces-bulk.ts`, `report-vagrant-ebird.ts` (needs `EBIRD_API_KEY`) | eBird API Terms of Use | eBird, Cornell Lab of Ornithology |
 | iNaturalist research-grade observations | Lists for provinces GBIF doesn't cover, photo counts | `compute-provinces-inat.ts`, `refresh-inat-counts.ts` | iNaturalist Terms of Use | iNaturalist |
 | [IUCN Red List](https://www.iucnredlist.org/), through GBIF and Wikidata | Conservation status | `src/pipeline/iucnRedList.ts`, `src/scripts/backfill-iucn-status.ts`, `src/fetch/fetch-wikidata.ts` | CC BY 4.0 (GBIF copy); [IUCN Red List Terms of Use](https://www.iucnredlist.org/terms/terms-of-use) (categories unrestricted) | IUCN, The IUCN Red List of Threatened Species |
@@ -48,8 +48,8 @@ model files that aren't mirrored on the `models` release.
 
 ## Traits
 
-These are static datasets from one paper each. They're downloaded once into `data/raw/<source>/`
-and reused (`src/raw-cache.ts`). To pick up a new version, update the URL in the fetch script and
+These are static datasets from one paper each. They're downloaded once into `data/raw/<source>/` at the repository
+root and reused (`packages/core/src/rawCache.ts`). To pick up a new version, update the URL in the fetch script and
 delete that folder.
 
 | Source | Used for | Where | License | Credit |
@@ -64,7 +64,7 @@ delete that folder.
 
 | Source | Used for | Where | License | Credit |
 |---|---|---|---|---|
-| [Natural Earth](https://www.naturalearthdata.com/) | Country and province boundaries | `src/fetch/fetch-region-boundary.ts` | Public domain | None required. "Made with Natural Earth" is appreciated. |
+| [Natural Earth](https://www.naturalearthdata.com/) | Country and province boundaries | `packages/core/src/regions/regionBoundary.ts` | Public domain | None required. "Made with Natural Earth" is appreciated. |
 | [IHO Sea Areas, version 3](https://www.marineregions.org/) (Marine Regions, [doi:10.14284/323](https://doi.org/10.14284/323)) | Sea zone outlines for fish and marine packs, and which regions border them | `src/fetch/fetch-iho-sea-areas.ts`, `src/build/build-sea-zones.ts`; shipped in the catalog seed's `sea_zones` table (and the zone ids in `regions.nearby_sea_zone_ids`) | CC BY 4.0. Changed: each area cut to its largest polygon's outline and simplified to 80 points; the oceans left out (see the next row). | Flanders Marine Institute (2018). IHO Sea Areas, version 3. Available online at https://www.marineregions.org/ https://doi.org/10.14284/323. Marine Regions asks that users be pointed to marineregions.org for current versions. |
 | [The intersect of the Exclusive Economic Zones and IHO sea areas, version 5](https://www.marineregions.org/) (Marine Regions, [doi:10.14284/699](https://doi.org/10.14284/699)) | Sea zones for coasts on open ocean: each country's or territory's part of an ocean | `src/fetch/fetch-eez-iho.ts`, `src/build/build-sea-zones.ts`; shipped like the IHO zones | CC BY 4.0. Changed: only the oceans' national parts, without high seas and joint regime areas; each cut to its largest polygon's outline and simplified to 80 points. | Flanders Marine Institute (2024). The intersect of the Exclusive Economic Zones and IHO sea areas, version 5. Available online at https://www.marineregions.org/ https://doi.org/10.14284/699 |
 | [Protomaps](https://protomaps.com/) basemap, built from [OpenStreetMap](https://www.openstreetmap.org/copyright) | The offline world map (`world-z8.pmtiles` on `map-latest`) | `apps/web/src/lib/pmtiles.ts`, `MAP_DOWNLOAD_URL` in `packages/core/src/config.ts` | Map data ODbL 1.0; Protomaps styles BSD-3-Clause | "© OpenStreetMap contributors", and Protomaps |
@@ -112,6 +112,7 @@ Wikipedia is credited "Wikipedia contributors (CC BY-SA)"; the on-view iNaturali
 |---|---|---|---|---|
 | [BioCLIP 2](https://huggingface.co/imageomics/bioclip-2) (Imageomics) | Species identification. Exported to ONNX as `bioclip-2-v1` on the `models` release. | `python/export_id_model.py`, `python/compute_id_model_vectors.py`, `ID_MODEL_URL` in `packages/core/src/config.ts` | MIT | Gu, J. et al. (2025) BioCLIP 2: Emergent Properties from Scaling Hierarchical Contrastive Learning, [doi:10.57967/hf/5765](https://doi.org/10.57967/hf/5765) |
 | [CLIP ViT-L/14](https://github.com/openai/CLIP) (OpenAI), ONNX conversion by [Xenova](https://huggingface.co/Xenova/clip-vit-large-patch14) | Gallery search, duplicate detection, fallback suggestions. The int8 copy is `clip-vit-l14-v2` on the `models` release; the full-precision and text models come from Hugging Face. | `python/export_clip_model.py`, `EMBEDDING_MODEL_URL` in `packages/core/src/config.ts`, `packages/core/src/species/textEmbedding.ts` | MIT | Radford, A. et al. (2021) Learning Transferable Visual Models From Natural Language Supervision |
+| [UperNet ConvNeXt-tiny](https://huggingface.co/openmmlab/upernet-convnext-tiny) (OpenMMLab), trained on [ADE20K](https://ade20k.csail.mit.edu/) (MIT CSAIL) | Scenes and colours for Gallery search. Exported to ONNX as `upernet-convnext-tiny-ade-v1` on the `models` release. | `python/export_scene_model.py`, `SCENE_MODEL_URL` in `packages/core/src/config.ts` | MIT | Xiao, T. et al. (2018) Unified Perceptual Parsing for Scene Understanding; Liu, Z. et al. (2022) A ConvNet for the 2020s; Zhou, B. et al. (2017) Scene Parsing through ADE20K Dataset |
 | [YOLOv8n](https://github.com/ultralytics/ultralytics) (Ultralytics) | Finding the animal in a photo before identification | Committed as `packages/core/src/species/models/yolov8n.onnx`; used by `packages/core/src/species/inference.ts` | AGPL-3.0 | Jocher, G., Chaurasia, A. and Qiu, J. (2023) Ultralytics YOLOv8 |
 
 ## Refresh cadence

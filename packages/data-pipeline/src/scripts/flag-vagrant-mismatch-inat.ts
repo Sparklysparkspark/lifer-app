@@ -7,7 +7,7 @@
 import { writeFileSync, appendFileSync } from "node:fs";
 import "@lifer/core/config.js"; // loads .env from the repo root before anything below reads process.env
 import { pool } from "@lifer/core/db.js";
-import { resolveInatPlaceId, fetchInatResearchGradeTaxonIds } from "@lifer/core/regions/inatChecklist.js";
+import { resolveInatPlaceId, fetchInatResearchGradeTaxonIds } from "../regions/inatChecklist.js";
 import { vagrantReportPath } from "./vagrantReports.js";
 
 const FLAGGED_REPORT = vagrantReportPath("vagrant-mismatch-inat.jsonl");

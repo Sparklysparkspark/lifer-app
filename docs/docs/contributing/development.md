@@ -17,16 +17,16 @@ This page is for working on Lifer itself. To just use Lifer, see [Install](../in
 
 Lifer is an npm workspaces monorepo:
 
-| Path | What it is |
-|---|---|
-| `apps/api` | Fastify and PostgreSQL backend. `npm run dev -w api` runs it with `tsx`; `npm run build -w api` compiles it to `dist/` for Docker and the desktop app. |
-| `apps/web` | React and Vite frontend. |
-| `apps/desktop` | Tauri (Rust) shell. Runs the API locally with an embedded Postgres, or points at a remote server. |
-| `packages/core` | Code the API and the data pipeline share: configuration, the database pool, enrichment, region computation. |
-| `packages/shared` | Types shared between the API and the web app. |
-| `packages/data-pipeline` | Database migrations, the species catalog and region pack builders, and every maintainer script. |
-| `docker` | The Docker entrypoint and helper scripts, and the development compose file. |
-| `docs` | This documentation site (Docusaurus). Not part of the npm workspaces. |
+| Path                     | What it is                                                                                                                                             |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `apps/api`               | Fastify and PostgreSQL backend. `npm run dev -w api` runs it with `tsx`; `npm run build -w api` compiles it to `dist/` for Docker and the desktop app. |
+| `apps/web`               | React and Vite frontend.                                                                                                                               |
+| `apps/desktop`           | Tauri (Rust) shell. Runs the API locally with an embedded Postgres, or points at a remote server.                                                      |
+| `packages/core`          | Code the API and the data pipeline share: configuration, the database pool, enrichment, region computation.                                            |
+| `packages/shared`        | Types shared between the API and the web app.                                                                                                          |
+| `packages/data-pipeline` | Database migrations, the species catalog and region pack builders, and every maintainer script.                                                        |
+| `docker`                 | The Docker entrypoint and helper scripts, and the development compose file.                                                                            |
+| `docs`                   | This documentation site (Docusaurus). Not part of the npm workspaces.                                                                                  |
 
 See [Architecture](./architecture.md) for how the pieces fit together.
 
@@ -67,6 +67,7 @@ npm test                  # unit tests in every workspace
 npm run build             # every workspace with a build step
 npm run check:em-dashes   # no em dashes anywhere, a house rule
 npm run check:migrations  # migration file names and numbers
+npm run check:api-types   # the web app's generated API types match the routes (gen:api-types rewrites them)
 ```
 
 See [Testing](./testing.md) for integration tests, and [Code standards](./code-standards.md) for the conventions reviewers look for.

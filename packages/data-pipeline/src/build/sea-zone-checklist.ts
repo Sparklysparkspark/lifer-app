@@ -1,5 +1,5 @@
 // A sea zone's checklist from point records, the offline counterpart of ensureSeaZoneComputed
-// (packages/core/src/regions/compute/seaZones.ts): the same record threshold, inland check and
+// (src/regions/compute/seaZones.ts): the same record threshold, inland check and
 // geographic-outlier check, applied to tallies built from the GBIF country downloads instead of
 // live polygon searches. Two rules only this path has, from WoRMS habitats: freshwater-only
 // species are left off, and a marine species flagged as an outlier stays when a neighbouring zone
@@ -9,7 +9,7 @@ import {
   FISH_MIN_RECORDS,
   GEOGRAPHIC_OUTLIER_MAX_LOCAL_RECORDS,
   looksLikeGeographicOutlier,
-} from "@lifer/core/regions/buildRegionSpecies.js";
+} from "../regions/buildRegionSpecies.js";
 
 // The live path judges a species from GBIF's first 20 records in the zone (limit=20 in
 // fetchRecordSampleForParam), so the same number of points is kept per zone and species.

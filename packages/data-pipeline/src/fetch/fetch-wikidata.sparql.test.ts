@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { sparqlString } from "./fetch-wikidata.js";
+import { sparqlString } from "./sparql.js";
 
 describe("sparqlString", () => {
   it("escapes backslashes before quotes, so neither can end the string early", () => {

@@ -9,7 +9,8 @@
 //     (chimaeras), Coelacanthi (coelacanths), Dipneusti (lungfish), each a class-rank sibling.
 // Excluded: the tetrapod classes and Ascidiacea/Thaliacea/Leptocardii (tunicates, lancelets).
 import { fetchWithRetry } from "../lib/fetchWithRetry.js";
-import { log } from "../lib/log.js";
+import { log } from "@lifer/core/lib/log.js";
+import { expectShape, isGbifTaxaPage } from "../lib/jsonGuards.js";
 
 const CHORDATA_KEY = 44;
 const GBIF_BACKBONE_DATASET_KEY = "d7dddbf4-2cf0-4f39-9b2a-bb099caae36c";
@@ -38,7 +39,11 @@ async function fetchRayFinnedOrderKeys(): Promise<number[]> {
     const url = `https://api.gbif.org/v1/species/${CHORDATA_KEY}/children?datasetKey=${GBIF_BACKBONE_DATASET_KEY}&limit=200&offset=${offset}`;
     const res = await fetchWithRetry(url, {});
     if (!res.ok) throw new Error(`[fish-orders] fetch failed: ${res.status} ${res.statusText}`);
-    const data = (await res.json()) as { results: GbifChild[]; endOfRecords: boolean };
+    const data: { results: GbifChild[]; endOfRecords?: boolean } = expectShape(
+      await res.json(),
+      isGbifTaxaPage,
+      "GBIF children",
+    );
 
     for (const child of data.results) {
       if (child.rank === "ORDER" && !NON_FISH_ORDERS.has(child.scientificName)) {

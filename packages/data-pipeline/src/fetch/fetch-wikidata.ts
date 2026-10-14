@@ -6,8 +6,9 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { BUILD_DIR } from "@lifer/core/rawCache.js";
-import { fetchWithRetry } from "@lifer/core/lib/fetchWithRetry.js";
+import { fetchWithRetry } from "../lib/fetchWithRetry.js";
 import { normalizeIucnStatus, type IucnCode } from "@lifer/shared";
+import { sparqlString } from "./sparql.js";
 
 const SPARQL_ENDPOINT = "https://query.wikidata.org/sparql";
 const BATCH_SIZE = 100;
@@ -32,11 +33,6 @@ interface SparqlBinding {
 // often splits the names into separate items linked by P1420 "taxon synonym", with the IUCN
 // status (P141) only on one of them. Following P1420 in either direction recovers it without
 // changing which name we store.
-/** `value` escaped for a double-quoted SPARQL string: backslashes first, then quotes and newlines. */
-export function sparqlString(value: string): string {
-  return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, "\\n").replace(/\r/g, "\\r");
-}
-
 function buildQuery(names: string[]): string {
   return `
     SELECT ?name ?iucnLabel ?image ?wikipediaTitle WHERE {
@@ -64,7 +60,7 @@ function buildQuery(names: string[]): string {
 async function runQuery(names: string[]): Promise<WikidataRow[]> {
   const query = buildQuery(names);
   const url = `${SPARQL_ENDPOINT}?query=${encodeURIComponent(query)}&format=json`;
-  const res = await fetchWithRetry(url, { headers: { "User-Agent": "lifer-data-pipeline/0.1 (personal project)" } });
+  const res = await fetchWithRetry(url);
   if (!res.ok) {
     throw new Error(`[wikidata] fetch failed: ${res.status} ${res.statusText}`);
   }

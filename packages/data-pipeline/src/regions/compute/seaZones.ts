@@ -1,4 +1,4 @@
-import { pool, withTransaction } from "../../db.js";
+import { pool, withTransaction } from "@lifer/core/db.js";
 import {
   fetchSpeciesCountsForZone,
   fetchRecordSampleForZone,
@@ -13,7 +13,7 @@ import {
   type RegionSpeciesCount,
 } from "../buildRegionSpecies.js";
 import { fetchFishTaxonKeys } from "../../gbif/fishOrders.js";
-import { mapWithConcurrency } from "../../lib/concurrency.js";
+import { mapWithConcurrency } from "@lifer/core/lib/concurrency.js";
 
 // GBIF order keys for Cetacea (733) and Sirenia (802). These belong on sea-zone checklists and are
 // always left off a land region's list (GBIF's country filter includes territorial waters), with

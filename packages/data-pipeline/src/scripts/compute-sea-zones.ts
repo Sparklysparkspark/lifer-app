@@ -8,7 +8,7 @@
 //   --zones=          only these zones
 //   --recompute       compute these zones again even if they have a checklist
 import { pool } from "@lifer/core/db.js";
-import { ensureSeaZoneComputed } from "@lifer/core/regions/compute/seaZones.js";
+import { ensureSeaZoneComputed } from "../regions/compute/seaZones.js";
 
 async function main() {
   const args = process.argv.slice(2);
