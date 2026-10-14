@@ -104,7 +104,7 @@ function isUninhabitedDisputedArtifact(properties: { TYPE?: string; POP_EST?: nu
 // destination. Dropping them loses no occurrence data: GBIF records carry the reporter's
 // country code, not a Natural Earth polygon lookup, so their sightings already sit under a
 // real country. Each entry's real country (not nearest by centroid, which picks wrong):
-//   - Cyprus U.N. Buffer Zone, N. Cyprus, Dhekelia: Cyprus.
+//   - Cyprus U.N. Buffer Zone, N. Cyprus, Akrotiri, Dhekelia: Cyprus.
 //   - Bir Tawil: Egypt.
 //   - Siachen Glacier: India (current administration).
 //   - Southern Patagonian Ice Field: Chile.
@@ -114,6 +114,7 @@ function isUninhabitedDisputedArtifact(properties: { TYPE?: string; POP_EST?: nu
 const FOLD_INTO_REAL_COUNTRY = new Set([
   "Cyprus U.N. Buffer Zone",
   "N. Cyprus",
+  "Akrotiri",
   "Dhekelia",
   "Bir Tawil",
   "Siachen Glacier",
