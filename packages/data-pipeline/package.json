@@ -24,7 +24,6 @@
     "build-seed-cephalopods": "tsx src/build/build-seed-cephalopods.ts",
     "build-seed-nudibranchs": "tsx src/build/build-seed-nudibranchs.ts",
     "load-seed": "tsx src/build/load-seed.ts",
-    "compute-elusiveness": "tsx src/build/compute-elusiveness.ts",
     "build-region-pack": "tsx src/build/build-region-pack.ts",
     "replace-sea-zones": "tsx src/scripts/replace-sea-zones.ts",
     "build-pack-index": "tsx src/build/build-pack-index.ts",

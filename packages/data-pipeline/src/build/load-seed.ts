@@ -10,30 +10,17 @@ import { BUILD_DIR } from "@lifer/core/rawCache.js";
 import { normalizeIucnStatus } from "@lifer/shared";
 import { SPECIES_SYNONYM_GBIF_KEYS } from "../species-synonyms.js";
 
-export interface SeedRarityInput {
-  rangeScore: number;
-  abundanceScore: number;
-  elusivenessScore: number | null;
-  composite: number;
-  tier: string;
-}
-
 // Extracted so it's testable on its own (see load-seed.integration.test.ts).
-export async function upsertSpeciesRarity(client: PoolClient, speciesId: string, rarity: SeedRarityInput): Promise<void> {
-  // The seed never computes elusiveness (that's compute-elusiveness.ts, applied via
-  // apply-rarity-phase4.ts), so its composite/tier are a Phase-1 placeholder. A plain overwrite
-  // would wipe refined scores on every rerun, so the seed's rarity is only taken when it carries
-  // elusiveness data; otherwise existing rows are kept and new species get the placeholder.
+export async function insertSeedRarity(client: PoolClient, speciesId: string): Promise<void> {
+  // A seed never rates a species: tiers are absolute photography difficulty and come only from the
+  // refresh tiers stage (compute-local-tiers.ts, compute-global-tiers.ts). A species new to the
+  // catalog starts unrated with that stage's own "no data yet" reason; an existing row is the
+  // tiers stage's and is left alone. The score columns are required but no longer decide anything.
   await client.query(
-    `INSERT INTO species_rarity (species_id, range_score, abundance_score, elusiveness_score, composite, tier)
-     VALUES ($1,$2,$3,$4,$5,$6)
-     ON CONFLICT (species_id) DO UPDATE SET
-       range_score = EXCLUDED.range_score, abundance_score = EXCLUDED.abundance_score,
-       elusiveness_score = COALESCE(EXCLUDED.elusiveness_score, species_rarity.elusiveness_score),
-       composite = CASE WHEN EXCLUDED.elusiveness_score IS NOT NULL THEN EXCLUDED.composite ELSE species_rarity.composite END,
-       tier = CASE WHEN EXCLUDED.elusiveness_score IS NOT NULL THEN EXCLUDED.tier ELSE species_rarity.tier END,
-       computed_at = now()`,
-    [speciesId, rarity.rangeScore, rarity.abundanceScore, rarity.elusivenessScore, rarity.composite, rarity.tier],
+    `INSERT INTO species_rarity (species_id, range_score, abundance_score, composite, tier, tier_reason)
+     VALUES ($1, 0, 0, 0, 'unrated', 'no_data')
+     ON CONFLICT (species_id) DO NOTHING`,
+    [speciesId],
   );
 }
 
@@ -77,18 +64,11 @@ interface SeedSpecies {
     // detectability due to habitat cover, distinct from raw record volume.
     primaryHabitat: string | null;
     habitatDensity: number | null;
-    // MDD domestic flag (mammals only, see build-seed-mammals.ts/fetch-mdd.ts). Rarity for these is
-    // forced to "common", since their record volume measures photography habits, not rarity.
+    // MDD domestic flag (mammals only, see build-seed-mammals.ts/fetch-mdd.ts). The tiers stage leaves
+    // these unrated, since their record volume measures photography habits, not rarity.
     domestic: boolean;
     sourceAttribution: string;
   };
-  rarity: {
-    rangeScore: number;
-    abundanceScore: number;
-    elusivenessScore: number | null;
-    composite: number;
-    tier: string;
-  } | null;
 }
 
 interface SeedRegion {
@@ -228,9 +208,7 @@ async function main() {
         ],
       );
 
-      if (s.rarity) {
-        await upsertSpeciesRarity(client, id, s.rarity);
-      }
+      await insertSeedRarity(client, id);
 
       // Same reasoning as the COALESCE above: the fast pipeline sends an empty gallery, so only touch
       // this table when there's something to write, or a rerun would wipe lazily fetched galleries.
@@ -314,7 +292,7 @@ async function main() {
   }
 }
 
-// Only as a script: the integration test imports upsertSpeciesRarity from here.
+// Only as a script: the integration test imports insertSeedRarity from here.
 if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
   main().catch((err) => {
     console.error(err);

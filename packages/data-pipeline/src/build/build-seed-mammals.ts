@@ -1,13 +1,12 @@
 // Phase 8: mammals, following build-seed.ts's shape with MDD in place of GBIF vernacular names
 // (curated per-species common names) and COMBINE in place of AVONET as the trait source. Regions
-// are shared across taxa and seeded by build-seed.ts; this only adds species, traits and rarity.
+// are shared across taxa and seeded by build-seed.ts; this only adds species and traits.
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { fetchGbifBackboneForKeys, MAMMALIA_CLASS_KEY, type GbifSpeciesRow } from "@lifer/core/gbif/backbone.js";
+import { fetchGbifBackboneForKeys, MAMMALIA_CLASS_KEY, type GbifSpeciesRow } from "../gbif/backbone.js";
 import { fetchMdd } from "../fetch/fetch-mdd.js";
 import { fetchCombine } from "../fetch/fetch-combine.js";
 import { fetchWikidataForSpecies } from "../fetch/fetch-wikidata.js";
-import { computeRarityPhase1 } from "@lifer/core/species/computeRarityPhase1.js";
 import { BUILD_DIR } from "@lifer/core/rawCache.js";
 
 function canonical(g: GbifSpeciesRow): string {
@@ -32,43 +31,32 @@ async function main() {
   const outDir = path.join(BUILD_DIR, dateStamp());
   mkdirSync(outDir, { recursive: true });
 
-  console.log("[build-seed-mammals] step 1/5: GBIF backbone (Mammalia)");
+  console.log("[build-seed-mammals] step 1/4: GBIF backbone (Mammalia)");
   const gbif = await fetchGbifBackboneForKeys([MAMMALIA_CLASS_KEY]);
 
-  console.log("[build-seed-mammals] step 2/5: MDD (taxonomy, common names)");
+  console.log("[build-seed-mammals] step 2/4: MDD (taxonomy, common names)");
   const mdd = await fetchMdd();
   const mddByName = new Map(mdd.map((r) => [r.scientificName, r]));
   // Fallback join key where GBIF's backbone carries an older name than MDD's sciName (e.g. Bison
   // bison/Bos bison), covering every MDD row whose MSW3 name differs.
   const mddByMsw3Name = new Map(mdd.filter((r) => r.msw3Name).map((r) => [r.msw3Name!, r]));
 
-  console.log("[build-seed-mammals] step 3/5: COMBINE (density, home range, nocturnality)");
+  console.log("[build-seed-mammals] step 3/4: COMBINE (density, home range, nocturnality)");
   const combine = await fetchCombine();
   const combineByName = new Map(combine.map((r) => [r.scientificName, r]));
 
-  console.log("[build-seed-mammals] step 4/5: Wikidata (IUCN status, Commons image, Wikipedia sitelink)");
+  console.log("[build-seed-mammals] step 4/4: Wikidata (IUCN status, Commons image, Wikipedia sitelink)");
   const names = gbif.map(canonical);
   const wikidata = await fetchWikidataForSpecies(names);
   const wikidataByName = new Map(wikidata.map((r) => [r.scientificName, r]));
-
-  console.log("[build-seed-mammals] step 5/5: rarity (Phase-1 shortcut: range + IUCN)");
-  // No range-polygon source for mammals yet, so rangeSizeKm2 is null and rarity leans on IUCN status.
-  const rarityInputs = gbif.map((g) => ({
-    scientificName: canonical(g),
-    rangeSizeKm2: null,
-    iucnStatus: wikidataByName.get(canonical(g))?.iucnStatus ?? null,
-  }));
-  const rarity = computeRarityPhase1(rarityInputs);
-  const rarityByName = new Map(rarity.map((r) => [r.scientificName, r]));
 
   const species = gbif.map((g) => {
     const name = canonical(g);
     const mddRow = mddByName.get(name) ?? mddByMsw3Name.get(name);
     const combineRow = combineByName.get(name);
     const wiki = wikidataByName.get(name);
-    const rarityRow = rarityByName.get(name);
     // MDD domestic flag (see fetch-mdd.ts). Their record counts measure how often people photograph
-    // farm animals, so apply-rarity-phase4.ts forces them to "common" instead of ranking them.
+    // farm animals, so the tiers stage leaves them unrated (reason "domestic").
     const domestic = mddRow?.domestic ?? false;
 
     return {
@@ -109,17 +97,6 @@ async function main() {
         domestic,
         sourceAttribution: "Mammal Diversity Database v2.0 (MDD); COMBINE (Soria et al. 2021); Wikidata",
       },
-      rarity: domestic
-        ? { rangeScore: 0, abundanceScore: 0, elusivenessScore: null, composite: 0, tier: "common" as const }
-        : rarityRow
-        ? {
-            rangeScore: rarityRow.rangeScore,
-            abundanceScore: rarityRow.abundanceScore,
-            elusivenessScore: null,
-            composite: rarityRow.composite,
-            tier: rarityRow.tier,
-          }
-        : null,
     };
   });
 
@@ -138,7 +115,7 @@ async function main() {
       combine: { rows: combine.length, doi: "10.6084/m9.figshare.13028255.v4", license: "CC-BY-4.0" },
       wikidata: { rows: wikidata.length, endpoint: "https://query.wikidata.org/sparql" },
     },
-    note: "No range-polygon source yet (rangeSizeKm2 null): rarity leans on IUCN status alone until one is added. Reference photos/descriptions are lazy, same as birds.",
+    note: "No range-polygon source yet (rangeSizeKm2 null). Reference photos/descriptions are lazy, same as birds.",
   };
   writeFileSync(path.join(outDir, "manifest.json"), JSON.stringify(manifest, null, 2));
 

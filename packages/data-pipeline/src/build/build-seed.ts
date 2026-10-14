@@ -5,18 +5,17 @@
 // occurrence computation: those are slow live API calls, done lazily on first view instead
 // (packages/core/src/species/lazyEnrich.ts and apps/api/src/regions/routes.ts). This only does what's
 // fast and local: GBIF backbone and common names, AVONET/EltonTraits traits, Wikidata (IUCN
-// status, image, Wikipedia sitelink), rarity, and the region hierarchy (see build-regions.ts).
+// status, image, Wikipedia sitelink) and the region hierarchy (see build-regions.ts).
 
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { fetchGbifBackboneAves, type GbifSpeciesRow } from "@lifer/core/gbif/backbone.js";
+import { fetchGbifBackboneAves, type GbifSpeciesRow } from "../gbif/backbone.js";
 import { fetchCommonName } from "../fetch/fetch-gbif-vernacular.js";
 import { fetchAvonet } from "../fetch/fetch-avonet.js";
 import { fetchEltonTraits } from "../fetch/fetch-elton-traits.js";
 import { fetchWikidataForSpecies } from "../fetch/fetch-wikidata.js";
 import { fetchBirdAbundance } from "../fetch/fetch-bird-abundance.js";
 import { buildRegions } from "./build-regions.js";
-import { computeRarityPhase1 } from "@lifer/core/species/computeRarityPhase1.js";
 import { BUILD_DIR } from "@lifer/core/rawCache.js";
 import { mapWithConcurrency } from "@lifer/core/lib/concurrency.js";
 
@@ -69,22 +68,13 @@ async function main() {
   const abundance = await fetchBirdAbundance();
   const abundanceByName = new Map(abundance.map((r) => [r.scientificName, r]));
 
-  console.log("[build-seed] step 7/7: rarity (Phase-1 shortcut: range + IUCN) + region hierarchy");
-  const rarityInputs = gbif.map((g) => ({
-    scientificName: canonical(g),
-    rangeSizeKm2: avonetByName.get(canonical(g))?.rangeSizeKm2 ?? null,
-    iucnStatus: wikidataByName.get(canonical(g))?.iucnStatus ?? null,
-  }));
-  const rarity = computeRarityPhase1(rarityInputs);
-  const rarityByName = new Map(rarity.map((r) => [r.scientificName, r]));
-
+  console.log("[build-seed] step 7/7: region hierarchy");
   const regions = await buildRegions();
 
   const species = gbif.map((g) => {
     const trait = avonetByName.get(canonical(g));
     const eltonTrait = eltonByName.get(canonical(g));
     const wiki = wikidataByName.get(canonical(g));
-    const rarityRow = rarityByName.get(canonical(g));
 
     return {
       gbifKey: g.gbifKey,
@@ -133,15 +123,6 @@ async function main() {
         sourceAttribution:
           "AVONET (Tobias et al. 2022); EltonTraits 1.0 (Wilman et al. 2014); Wikidata; Callaghan et al. 2021 (PNAS)",
       },
-      rarity: rarityRow
-        ? {
-            rangeScore: rarityRow.rangeScore,
-            abundanceScore: rarityRow.abundanceScore,
-            elusivenessScore: null,
-            composite: rarityRow.composite,
-            tier: rarityRow.tier,
-          }
-        : null,
     };
   });
 

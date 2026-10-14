@@ -12,7 +12,7 @@ buildGenericTaxonSeed({
   taxonClass: "jellies_and_anemones",
   taxonKeys: [ACTINIARIA_KEY, SCYPHOZOA_KEY, CUBOZOA_KEY, HYDROZOA_KEY],
   sourceAttribution: "GBIF Backbone Taxonomy; Wikidata (no dedicated trait source yet)",
-  note: "Actiniaria (sea anemones) + Scyphozoa/Cubozoa (true/box jellyfish) + Hydrozoa (hydroids): split out from the combined 'cnidaria' bucket, complementing the separate 'corals' bucket (Scleractinia). No trait source wired up: rarity leans on IUCN status alone.",
+  note: "Actiniaria (sea anemones) + Scyphozoa/Cubozoa (true/box jellyfish) + Hydrozoa (hydroids): split out from the combined 'cnidaria' bucket, complementing the separate 'corals' bucket (Scleractinia). No trait source wired up.",
   buildIdEnvVar: "LIFER_BUILD_ID",
   defaultBuildId: "jellies-anemones-dev",
   logPrefix: "build-seed-jellies-anemones",

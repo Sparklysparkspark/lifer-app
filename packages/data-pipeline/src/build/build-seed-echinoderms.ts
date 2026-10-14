@@ -8,7 +8,7 @@ buildGenericTaxonSeed({
   taxonClass: "echinodermata",
   taxonKeys: [ASTEROIDEA_KEY, ECHINOIDEA_KEY],
   sourceAttribution: "GBIF Backbone Taxonomy; Wikidata (no dedicated trait source yet)",
-  note: "Asteroidea (sea stars) + Echinoidea (sea urchins/sand dollars). No trait source wired up: rarity leans on IUCN status alone.",
+  note: "Asteroidea (sea stars) + Echinoidea (sea urchins/sand dollars). No trait source wired up.",
   buildIdEnvVar: "LIFER_BUILD_ID",
   defaultBuildId: "echinoderms-dev",
   logPrefix: "build-seed-echinoderms",

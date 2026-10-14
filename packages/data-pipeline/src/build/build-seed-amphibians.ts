@@ -7,7 +7,7 @@ buildGenericTaxonSeed({
   taxonClass: "amphibia",
   taxonKeys: [AMPHIBIA_CLASS_KEY],
   sourceAttribution: "GBIF Backbone Taxonomy; Wikidata (no dedicated trait source yet)",
-  note: "Amphibia (frogs/toads/salamanders/newts/caecilians). No trait source wired up: rarity leans on IUCN status alone. Reference photos/descriptions are lazy, same as birds.",
+  note: "Amphibia (frogs/toads/salamanders/newts/caecilians). No trait source wired up. Reference photos/descriptions are lazy, same as birds.",
   buildIdEnvVar: "LIFER_BUILD_ID",
   defaultBuildId: "amphibians-dev",
   logPrefix: "build-seed-amphibians",

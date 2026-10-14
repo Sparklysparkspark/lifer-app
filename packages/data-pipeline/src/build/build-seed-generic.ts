@@ -1,12 +1,11 @@
 // Shared builder for taxa with no dedicated trait source: GBIF backbone + common names +
-// Wikidata (IUCN/photos/wiki links) + Phase-1 rarity (range+IUCN). Used by herps, cnidarians,
+// Wikidata (IUCN/photos/wiki links). Used by herps, cnidarians,
 // echinoderms and mollusks, so a future trait source only needs wiring in one place.
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { fetchGbifBackboneForKeys, type GbifSpeciesRow } from "@lifer/core/gbif/backbone.js";
+import { fetchGbifBackboneForKeys, type GbifSpeciesRow } from "../gbif/backbone.js";
 import { fetchCommonName } from "../fetch/fetch-gbif-vernacular.js";
 import { fetchWikidataForSpecies } from "../fetch/fetch-wikidata.js";
-import { computeRarityPhase1 } from "@lifer/core/species/computeRarityPhase1.js";
 import { mapWithConcurrency } from "@lifer/core/lib/concurrency.js";
 import { BUILD_DIR } from "@lifer/core/rawCache.js";
 
@@ -60,18 +59,10 @@ export async function buildGenericTaxonSeed(config: GenericTaxonConfig): Promise
   });
   const commonNameByGbifKey = new Map(gbif.map((g, i) => [g.gbifKey, commonNames[i]]));
 
-  console.log(`[${config.logPrefix}] step 3/4: Wikidata (IUCN status, Commons image, Wikipedia sitelink) + rarity`);
+  console.log(`[${config.logPrefix}] step 3/4: Wikidata (IUCN status, Commons image, Wikipedia sitelink)`);
   const names = gbif.map(canonical);
   const wikidata = await fetchWikidataForSpecies(names);
   const wikidataByName = new Map(wikidata.map((r) => [r.scientificName, r]));
-
-  const rarityInputs = gbif.map((g) => ({
-    scientificName: canonical(g),
-    rangeSizeKm2: null,
-    iucnStatus: wikidataByName.get(canonical(g))?.iucnStatus ?? null,
-  }));
-  const rarity = computeRarityPhase1(rarityInputs);
-  const rarityByName = new Map(rarity.map((r) => [r.scientificName, r]));
 
   let visible = gbif;
   if (config.requireVisibilitySignal) {
@@ -96,7 +87,6 @@ export async function buildGenericTaxonSeed(config: GenericTaxonConfig): Promise
   const species = visible.map((g) => {
     const name = canonical(g);
     const wiki = wikidataByName.get(name);
-    const rarityRow = rarityByName.get(name);
 
     return {
       gbifKey: g.gbifKey,
@@ -136,15 +126,6 @@ export async function buildGenericTaxonSeed(config: GenericTaxonConfig): Promise
         domestic: false,
         sourceAttribution: config.sourceAttribution,
       },
-      rarity: rarityRow
-        ? {
-            rangeScore: rarityRow.rangeScore,
-            abundanceScore: rarityRow.abundanceScore,
-            elusivenessScore: null,
-            composite: rarityRow.composite,
-            tier: rarityRow.tier,
-          }
-        : null,
     };
   });
 

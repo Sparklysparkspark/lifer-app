@@ -1,15 +1,14 @@
 // Phase 8: fish, meaning ray-finned fish plus jawless fish, cartilaginous fish, coelacanths and
 // lungfish (see fetch-fish-orders.ts for the GBIF keys). No trait source is wired up (FishBase is
-// skipped), so mass/length/depth stay null and rarity leans on IUCN status. Common names come
+// skipped), so mass/length/depth stay null. Common names come
 // from GBIF's vernacularNames endpoint, as for birds.
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { fetchGbifBackboneForKeys, type GbifSpeciesRow } from "@lifer/core/gbif/backbone.js";
-import { fetchFishTaxonKeys } from "@lifer/core/gbif/fishOrders.js";
+import { fetchGbifBackboneForKeys, type GbifSpeciesRow } from "../gbif/backbone.js";
+import { fetchFishTaxonKeys } from "../gbif/fishOrders.js";
 import { fetchCommonName } from "../fetch/fetch-gbif-vernacular.js";
 import { fetchWikidataForSpecies } from "../fetch/fetch-wikidata.js";
 import { fetchFishDepth } from "../fetch/fetch-fish-depth.js";
-import { computeRarityPhase1 } from "@lifer/core/species/computeRarityPhase1.js";
 import { mapWithConcurrency } from "@lifer/core/lib/concurrency.js";
 import { BUILD_DIR } from "@lifer/core/rawCache.js";
 
@@ -48,23 +47,14 @@ async function main() {
   const depth = await fetchFishDepth();
   const depthByName = new Map(depth.map((r) => [r.scientificName, r]));
 
-  console.log("[build-seed-fish] step 5/5: Wikidata (IUCN status, Commons image, Wikipedia sitelink) + rarity");
+  console.log("[build-seed-fish] step 5/5: Wikidata (IUCN status, Commons image, Wikipedia sitelink)");
   const names = gbif.map(canonical);
   const wikidata = await fetchWikidataForSpecies(names);
   const wikidataByName = new Map(wikidata.map((r) => [r.scientificName, r]));
 
-  const rarityInputs = gbif.map((g) => ({
-    scientificName: canonical(g),
-    rangeSizeKm2: null,
-    iucnStatus: wikidataByName.get(canonical(g))?.iucnStatus ?? null,
-  }));
-  const rarity = computeRarityPhase1(rarityInputs);
-  const rarityByName = new Map(rarity.map((r) => [r.scientificName, r]));
-
   const species = gbif.map((g) => {
     const name = canonical(g);
     const wiki = wikidataByName.get(name);
-    const rarityRow = rarityByName.get(name);
     const depthRow = depthByName.get(name);
 
     return {
@@ -108,15 +98,6 @@ async function main() {
         sourceAttribution:
           "GBIF Backbone Taxonomy; Wikidata; global marine fish depth-range dataset (2023, doi:10.6084/m9.figshare.20403111) for marine species",
       },
-      rarity: rarityRow
-        ? {
-            rangeScore: rarityRow.rangeScore,
-            abundanceScore: rarityRow.abundanceScore,
-            elusivenessScore: null,
-            composite: rarityRow.composite,
-            tier: rarityRow.tier,
-          }
-        : null,
     };
   });
 
@@ -135,8 +116,8 @@ async function main() {
     },
     note:
       "Ray-finned fish plus hagfish/lampreys/sharks-and-rays/coelacanths/lungfish (see fetch-fish-orders.ts for the exact GBIF taxon keys). " +
-      "Depth range covers marine species only (freshwater/brackish species stay null). No mass/length trait source wired up: " +
-      "rarity leans on IUCN status alone. Reference photos/descriptions are lazy, same as birds.",
+      "Depth range covers marine species only (freshwater/brackish species stay null). No mass/length trait source wired up. " +
+      "Reference photos/descriptions are lazy, same as birds.",
   };
   writeFileSync(path.join(outDir, "manifest.json"), JSON.stringify(manifest, null, 2));
 

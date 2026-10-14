@@ -7,7 +7,7 @@ buildGenericTaxonSeed({
   taxonClass: "cephalopoda",
   taxonKeys: [CEPHALOPODA_KEY],
   sourceAttribution: "GBIF Backbone Taxonomy; Wikidata (no dedicated trait source yet)",
-  note: "Cephalopoda (octopuses, squid, cuttlefish, nautiluses). No trait source wired up: rarity leans on IUCN status alone.",
+  note: "Cephalopoda (octopuses, squid, cuttlefish, nautiluses). No trait source wired up.",
   buildIdEnvVar: "LIFER_BUILD_ID",
   defaultBuildId: "cephalopoda-dev",
   logPrefix: "build-seed-cephalopods",

@@ -8,7 +8,7 @@ buildGenericTaxonSeed({
   taxonClass: "crustacea",
   taxonKeys: [DECAPODA_KEY],
   sourceAttribution: "GBIF Backbone Taxonomy; Wikidata (no dedicated trait source yet)",
-  note: "Decapoda (crabs/lobsters/shrimp/crayfish) only: deliberately scoped down from the whole Malacostraca class or Crustacea subphylum (mostly copepods/amphipods/isopods with no real photographability). No trait source wired up: rarity leans on IUCN status alone.",
+  note: "Decapoda (crabs/lobsters/shrimp/crayfish) only: deliberately scoped down from the whole Malacostraca class or Crustacea subphylum (mostly copepods/amphipods/isopods with no real photographability). No trait source wired up.",
   buildIdEnvVar: "LIFER_BUILD_ID",
   defaultBuildId: "crustacea-dev",
   logPrefix: "build-seed-crustaceans",

@@ -8,7 +8,7 @@ buildGenericTaxonSeed({
   taxonClass: "nudibranchs",
   taxonKeys: [NUDIBRANCHIA_KEY],
   sourceAttribution: "GBIF Backbone Taxonomy; Wikidata (no dedicated trait source yet)",
-  note: "Nudibranchia (sea slugs): split out from the combined 'mollusca' bucket for independent pack downloads. No trait source wired up: rarity leans on IUCN status alone.",
+  note: "Nudibranchia (sea slugs): split out from the combined 'mollusca' bucket for independent pack downloads. No trait source wired up.",
   buildIdEnvVar: "LIFER_BUILD_ID",
   defaultBuildId: "nudibranchs-dev",
   logPrefix: "build-seed-nudibranchs",

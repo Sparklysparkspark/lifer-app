@@ -10,7 +10,7 @@ buildGenericTaxonSeed({
   taxonClass: "sponges_tunicates_other",
   taxonKeys: [PORIFERA_KEY, ASCIDIACEA_KEY],
   sourceAttribution: "GBIF Backbone Taxonomy; Wikidata (no dedicated trait source yet)",
-  note: "Porifera (sponges) + Ascidiacea (tunicates/sea squirts). Other invertebrate phyla (flatworms, bryozoans, etc.) not included yet: disclosed gap, no clear scoping bar found for them yet. No trait source wired up: rarity leans on IUCN status alone.",
+  note: "Porifera (sponges) + Ascidiacea (tunicates/sea squirts). Other invertebrate phyla (flatworms, bryozoans, etc.) not included yet: disclosed gap, no clear scoping bar found for them yet. No trait source wired up.",
   buildIdEnvVar: "LIFER_BUILD_ID",
   defaultBuildId: "sponges-tunicates-dev",
   logPrefix: "build-seed-sponges-tunicates",

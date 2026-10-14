@@ -9,7 +9,7 @@ buildGenericTaxonSeed({
   taxonClass: "corals",
   taxonKeys: [SCLERACTINIA_KEY],
   sourceAttribution: "GBIF Backbone Taxonomy; Wikidata (no dedicated trait source yet)",
-  note: "Scleractinia (stony/reef-building corals) only: split out from the combined 'cnidaria' bucket. Soft corals (Alcyonacea) not included yet (GBIF key didn't resolve by hand, disclosed gap rather than guessed). No trait source wired up: rarity leans on IUCN status alone.",
+  note: "Scleractinia (stony/reef-building corals) only: split out from the combined 'cnidaria' bucket. Soft corals (Alcyonacea) not included yet (GBIF key didn't resolve by hand, disclosed gap rather than guessed). No trait source wired up.",
   buildIdEnvVar: "LIFER_BUILD_ID",
   defaultBuildId: "corals-dev",
   logPrefix: "build-seed-corals",

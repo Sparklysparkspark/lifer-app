@@ -15,7 +15,7 @@ buildGenericTaxonSeed({
   taxonClass: "squamata",
   taxonKeys: [SQUAMATA_KEY, CROCODYLIA_KEY, SPHENODONTIA_KEY],
   sourceAttribution: "GBIF Backbone Taxonomy; Wikidata (no dedicated trait source yet)",
-  note: "Squamata (lizards & snakes) + Crocodylia (crocodiles/alligators/caimans/gharials) + Sphenodontia (tuatara, 2 living species), split out from the combined 'reptilia' bucket for independent pack downloads, minus turtles (their own bucket). taxon_class stays 'squamata' for backward compatibility; displayed as 'Reptiles'. No trait source wired up; rarity leans on IUCN status alone.",
+  note: "Squamata (lizards & snakes) + Crocodylia (crocodiles/alligators/caimans/gharials) + Sphenodontia (tuatara, 2 living species), split out from the combined 'reptilia' bucket for independent pack downloads, minus turtles (their own bucket). taxon_class stays 'squamata' for backward compatibility; displayed as 'Reptiles'. No trait source wired up.",
   buildIdEnvVar: "LIFER_BUILD_ID",
   defaultBuildId: "squamata-dev",
   logPrefix: "build-seed-squamata",

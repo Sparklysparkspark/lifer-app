@@ -1,10 +1,10 @@
 // Test-scoped version of build-seed.ts for a handful of common BC species, so the whole pipeline
-// (GBIF, AVONET, EltonTraits, Wikidata, iNaturalist, region occurrence counts, rarity) can run
+// (GBIF, AVONET, EltonTraits, Wikidata, iNaturalist, region occurrence counts) can run
 // end to end in minutes instead of hours.
 
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { fetchGbifSpeciesByNames } from "@lifer/core/gbif/backbone.js";
+import { fetchGbifSpeciesByNames } from "../gbif/backbone.js";
 import { fetchCommonName } from "../fetch/fetch-gbif-vernacular.js";
 import { fetchAvonet } from "../fetch/fetch-avonet.js";
 import { fetchEltonTraits } from "../fetch/fetch-elton-traits.js";
@@ -13,9 +13,8 @@ import { fetchReferencePhotos } from "../fetch/fetch-reference-photos.js";
 import { fetchCommonsPhoto } from "../fetch/fetch-commons-photo.js";
 import { fetchWikipediaSummary } from "../fetch/fetch-wikipedia-summary.js";
 import { fetchWikipediaMediaPhotos } from "../fetch/fetch-wikipedia-media.js";
-import { fetchOccurrenceCountForSpecies } from "@lifer/core/regions/buildRegionSpecies.js";
+import { fetchOccurrenceCountForSpecies } from "../regions/buildRegionSpecies.js";
 import { buildRegions } from "./build-regions.js";
-import { computeRarityPhase1 } from "@lifer/core/species/computeRarityPhase1.js";
 import { BUILD_DIR } from "@lifer/core/rawCache.js";
 
 const MIN_OCCURRENCE_RECORDS = 3;
@@ -105,15 +104,6 @@ async function main() {
     }
   }
 
-  console.log("[build-seed-test] rarity (Phase-1 shortcut: range + IUCN)");
-  const rarityInputs = gbif.map((g) => ({
-    scientificName: canonical(g),
-    rangeSizeKm2: avonetByName.get(canonical(g))?.rangeSizeKm2 ?? null,
-    iucnStatus: wikidataByName.get(canonical(g))?.iucnStatus ?? null,
-  }));
-  const rarity = computeRarityPhase1(rarityInputs);
-  const rarityByName = new Map(rarity.map((r) => [r.scientificName, r]));
-
   console.log("[build-seed-test] region occurrence counts (direct per-species query, no seasonality: test-scoped)");
   const regions = await buildRegions();
   const regionSpecies: Record<string, Array<{ gbifKey: number; recordCount: number; seasonality: number[] | null }>> = {};
@@ -136,7 +126,6 @@ async function main() {
     const photo = photosByName.get(canonical(g));
     const commonsPhoto = commonsByName.get(canonical(g));
     const wikipedia = wikipediaByName.get(canonical(g));
-    const rarityRow = rarityByName.get(canonical(g));
 
     // iNaturalist first, Wikimedia Commons as the fallback when iNaturalist had nothing usable.
     const referencePhoto = photo?.photoUrl ?? commonsPhoto?.photoUrl ?? null;
@@ -181,15 +170,6 @@ async function main() {
         domestic: false,
         sourceAttribution: "AVONET (Tobias et al. 2022); EltonTraits 1.0 (Wilman et al. 2014); Wikidata",
       },
-      rarity: rarityRow
-        ? {
-            rangeScore: rarityRow.rangeScore,
-            abundanceScore: rarityRow.abundanceScore,
-            elusivenessScore: null,
-            composite: rarityRow.composite,
-            tier: rarityRow.tier,
-          }
-        : null,
     };
   });
 

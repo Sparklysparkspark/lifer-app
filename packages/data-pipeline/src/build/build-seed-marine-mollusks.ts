@@ -6,10 +6,9 @@
 // listed explicitly (COLLECTOR_SHELL_FAMILY_KEYS) under the same taxon_class.
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { fetchGbifBackboneForKeys, type GbifSpeciesRow } from "@lifer/core/gbif/backbone.js";
+import { fetchGbifBackboneForKeys, type GbifSpeciesRow } from "../gbif/backbone.js";
 import { fetchCommonName } from "../fetch/fetch-gbif-vernacular.js";
 import { fetchWikidataForSpecies } from "../fetch/fetch-wikidata.js";
-import { computeRarityPhase1 } from "@lifer/core/species/computeRarityPhase1.js";
 import { mapWithConcurrency } from "@lifer/core/lib/concurrency.js";
 import { BUILD_DIR } from "@lifer/core/rawCache.js";
 
@@ -83,14 +82,6 @@ async function main() {
   const wikidata = await fetchWikidataForSpecies(names);
   const wikidataByName = new Map(wikidata.map((r) => [r.scientificName, r]));
 
-  const rarityInputs = gbif.map((g) => ({
-    scientificName: canonical(g),
-    rangeSizeKm2: null,
-    iucnStatus: wikidataByName.get(canonical(g))?.iucnStatus ?? null,
-  }));
-  const rarity = computeRarityPhase1(rarityInputs);
-  const rarityByName = new Map(rarity.map((r) => [r.scientificName, r]));
-
   // No visibility floor (unlike build-seed-generic.ts's requireVisibilitySignal): most real shell
   // species never get a common name or Wikipedia article. A region's checklist still requires
   // real occurrence evidence there (see compute-provinces-bulk.ts).
@@ -98,7 +89,6 @@ async function main() {
   const species = gbif.map((g) => {
     const name = canonical(g);
     const wiki = wikidataByName.get(name);
-    const rarityRow = rarityByName.get(name);
     return {
       gbifKey: g.gbifKey,
       ebirdCode: null,
@@ -137,15 +127,6 @@ async function main() {
         domestic: false,
         sourceAttribution: "GBIF Backbone Taxonomy; GBIF vernacularNames; Wikidata",
       },
-      rarity: rarityRow
-        ? {
-            rangeScore: rarityRow.rangeScore,
-            abundanceScore: rarityRow.abundanceScore,
-            elusivenessScore: null,
-            composite: rarityRow.composite,
-            tier: rarityRow.tier,
-          }
-        : null,
     };
   });
 

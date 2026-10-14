@@ -7,7 +7,7 @@ buildGenericTaxonSeed({
   taxonClass: "testudines",
   taxonKeys: [TESTUDINES_KEY],
   sourceAttribution: "GBIF Backbone Taxonomy; Wikidata (no dedicated trait source yet)",
-  note: "Testudines (turtles & tortoises): split out from the combined 'reptilia' bucket for independent pack downloads. No trait source wired up: rarity leans on IUCN status alone.",
+  note: "Testudines (turtles & tortoises): split out from the combined 'reptilia' bucket for independent pack downloads. No trait source wired up.",
   buildIdEnvVar: "LIFER_BUILD_ID",
   defaultBuildId: "testudines-dev",
   logPrefix: "build-seed-testudines",
