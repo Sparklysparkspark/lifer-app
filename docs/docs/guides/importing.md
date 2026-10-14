@@ -107,7 +107,7 @@ To give many photos the same species, tick their checkboxes and use **Assign N s
 
 Click the species name on a row ("Click to change, or see other suggestions again") to search again or see the suggestions.
 
-After import, open the photo's **⋯** menu on its species page or in the Gallery and choose **Correct the ID…**. To fix several at once, use **Select** mode and **Correct ID to:**.
+After import, open the photo's **⋯** menu on its species page or in the Gallery and choose **Correct the ID**. To fix several at once, use **Select** mode and **Correct ID to:**.
 
 ### Photos with more than one species
 

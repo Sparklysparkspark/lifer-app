@@ -195,8 +195,10 @@ Turn this off in [Settings > Species and import](../settings.md#obscure-species)
 
 Click any card to open its page. It shows:
 
+![A species page](/img/species-detail.jpg)
+
 - Your featured photo, or the reference photo, with arrows to step through reference photos.
-- Tier and badges, a description (from Wikipedia) and habitat, and facts that depend on the group, like mass and wingspan for birds, home range for mammals, depth range for fish, and IUCN status.
+- Tier and badges, a short field-guide paragraph about the species (summarised from Wikipedia) and habitat, and facts that depend on the group, like mass and wingspan for birds, home range for mammals, depth range for fish, and IUCN status.
 - A summary of your photos: how many photos, videos, encounters, locations, cameras and lenses, and when you first photographed it.
 - **Observations by month** and **by week** charts for the region, and **Where to find it**, a map of hotspots (needs the [offline map](./offline-packs-and-map.md#offline-map)). For widespread species it says so instead, with a link to recent sightings on iNaturalist.
 - Links to the species on iNaturalist and eBird (birds only).
@@ -204,7 +206,11 @@ Click any card to open its page. It shows:
 
 Header links let you **Mark as seen**, **Add to targets**, **Archive**, **Add to another checklist** (see [Adding a species to a checklist](#add-to-checklist)), and **Adjust card preview** (the crop used on the species card, once you have a featured photo).
 
-Each photo's **⋯** menu has **Rate**, **Set as featured photo** (the species' cover), **Add to album…**, **Download original**, **Download RAW**, **Also features another species…**, **Correct the ID…**, **Set location…**, **Edit tags…** and **Delete photo**. On the desktop app it also has **Reveal in Finder** for photos kept in your own folders, and **Copy original's path**.
+![The About section and your photos on a species page](/img/species-about.jpg)
+
+Each photo's **⋯** menu has **Rate**, **Set as featured photo** (the species' cover), **Add to album**, **Download original**, **Download RAW**, **Also features another species**, **Correct the ID**, **Set location** (or **Location:** and the place, once it has one), **Edit tags** and **Delete photo**. Each of these that changes the photo opens its own dialog. On the desktop app it also has **Reveal in Finder** for photos kept in your own folders, and **Copy original's path**.
+
+![A photo's menu on a species page](/img/photo-menu.jpg)
 
 To change many photos at once, click **Select**, then click photos (<kbd>Shift</kbd>-click selects a range). The toolbar has **Correct ID to:**, **Add tag:** and **Delete selected**.
 

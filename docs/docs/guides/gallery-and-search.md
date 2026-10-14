@@ -64,9 +64,9 @@ Hover a photo and click its **⋯**, or right-click it, for:
 
 - **View species**
 - **Set as featured** (or **Remove from featured**): makes it the species' cover photo.
-- **Add to album…**
-- **Edit tags…**
-- **Correct the ID…**
+- **Add to album**
+- **Edit tags**
+- **Correct the ID**
 - **Download original** and **Download RAW**, when there's one.
 - **Reveal in Finder**, on the desktop app, for photos kept in your own folders.
 - **Delete photo** (or **Delete video**). It goes to the [Trash](./trash.md).
@@ -90,15 +90,18 @@ Press <kbd>Esc</kbd> or click **Cancel** to leave select mode.
 
 Click a photo to open it full screen.
 
+![The photo viewer](/img/photo-viewer.jpg)
+
 | Key | What it does |
 |---|---|
 | <kbd>←</kbd> <kbd>→</kbd> | Previous or next photo, wrapping around at the ends. In a video, skip 10 seconds. |
 | <kbd>1</kbd> to <kbd>5</kbd> | Set the star rating. Press the same number again to clear it. |
-| <kbd>F</kbd> | Full screen |
+| <kbd>F</kbd> | Full screen (hidden when Lifer is already full screen) |
+| <kbd>Cmd</kbd>+<kbd>0</kbd> | Fit the photo to the window again after zooming (<kbd>Ctrl</kbd>+<kbd>0</kbd> on Windows and Linux) |
 | <kbd>Space</kbd> | Play or pause a video |
 | <kbd>Esc</kbd> | Leave full screen, then close |
 
-To zoom, pinch on a trackpad or hold <kbd>Ctrl</kbd> and scroll (up to 4x). Double-click to zoom to 2x, and again to zoom back out. Once zoomed, drag or scroll to move around. The caption shows the species, date, camera settings and file names, and lets you edit tags.
+To zoom, pinch on a trackpad or hold <kbd>Ctrl</kbd> and scroll (up to 4x). Zooming centres on the pointer. Double-click to zoom to 2x, and again to zoom back out. Once zoomed, drag or scroll to move around; the photo stops at its edges, and the controls hide until you zoom back out. The caption shows the species, date, camera settings and file names, and lets you edit tags.
 
 ## Tags
 

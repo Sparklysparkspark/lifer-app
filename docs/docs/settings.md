@@ -8,6 +8,8 @@ slug: /settings
 
 Click **Settings** in the top bar. Each tab has its own address, like `/settings/storage` or `/settings/offline-data`, so you can bookmark a tab or link to it. You can also press <kbd>Cmd</kbd>+<kbd>K</kbd> (<kbd>Ctrl</kbd>+<kbd>K</kbd> on Windows and Linux) and type a tab's name, like "Storage", to jump to it.
 
+![The Species and import tab in Settings](/img/settings.jpg)
+
 Some tabs only show up in certain setups:
 
 | Tab | Desktop app (own library) | Desktop app (connected to a server) | Server in a browser |

@@ -73,7 +73,9 @@ Your archive and your life list are connected. Browse checklists by region (coun
 province/state, or a nearby marine zone for fish), see exactly which species you still need, and
 watch photographed species join your life list automatically. Each species carries a rarity tier
 (how hard it is to actually go find and photograph, not conservation status), a reference photo,
-and habitat info, so you know roughly what you're looking for.
+and a short field-guide description, so you know roughly what you're looking for.
+
+![A species page in Lifer](./docs/static/img/species-about.jpg)
 
 Checklists are meant to be personal: hide or archive species you're not pursuing so the list
 reflects your own goals, not every species that could theoretically occur somewhere in the region.

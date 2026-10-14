@@ -20,8 +20,8 @@ You can also create an album on the spot: every **Add to album** menu has a **Ne
 
 ## Add photos
 
-- **From the Gallery:** a photo's **⋯** menu > **Add to album…**, or [select several](./gallery-and-search.md#select) and use **Add to album**. <kbd>Cmd</kbd>+<kbd>A</kbd> in select mode picks every photo matching your search and filters, so you can fill an album from a search in one go.
-- **From a species page:** a photo's **⋯** menu > **Add to album…**.
+- **From the Gallery:** a photo's **⋯** menu > **Add to album**, or [select several](./gallery-and-search.md#select) and use **Add to album**. <kbd>Cmd</kbd>+<kbd>A</kbd> in select mode picks every photo matching your search and filters, so you can fill an album from a search in one go.
+- **From a species page:** a photo's **⋯** menu > **Add to album**.
 - **From the album:** click **Edit album**, then **Add photos** to pick from your library (the Gallery opens in select mode; click **Add N to album** when done), or **Import album** to import new photos straight into it.
 
 ## Edit an album
