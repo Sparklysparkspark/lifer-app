@@ -13,15 +13,13 @@
 //
 // Usage: npx tsx src/scripts/flag-nonnative-obscure-taxa.ts [--countries=Canada,Portugal] [--apply]
 import "@lifer/core/config.js";
+import { PROVINCES_WITH_COUNTRY_SQL, provinceIdsSql } from "@lifer/core/regions/regionTree.js";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { pool } from "@lifer/core/db.js";
-import {
-  resolveInatPlaceId,
-  resolveCurrentInatTaxonId,
-  fetchWithHardTimeout,
-} from "@lifer/core/regions/inatChecklist.js";
+import { resolveInatPlaceId, resolveCurrentInatTaxonId } from "../regions/inatChecklist.js";
+import { httpFetch } from "@lifer/core/lib/http.js";
 import { mapWithConcurrency } from "@lifer/core/lib/concurrency.js";
 
 const CONCURRENCY = 8;
@@ -45,16 +43,6 @@ const NEW_OBSCURE_TAXON_CLASSES = [
 
 const INAT_TAXA_API = "https://api.inaturalist.org/v1/taxa";
 const INAT_PLACES_API = "https://api.inaturalist.org/v1/places";
-const INAT_USER_AGENT = "lifer-app/0.1 (personal project; region checklist verification)";
-
-// ~1 request/sec pacing for this script's own iNat calls.
-const INAT_REQUEST_INTERVAL_MS = 1000;
-let lastRequestAt = 0;
-async function paceRequest(): Promise<void> {
-  const wait = lastRequestAt + INAT_REQUEST_INTERVAL_MS - Date.now();
-  if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
-  lastRequestAt = Date.now();
-}
 
 type EstablishmentMeans = "native" | "endemic" | "introduced" | "naturalized" | "invasive" | "managed" | "captive";
 
@@ -88,22 +76,16 @@ interface ListedTaxon {
   place?: { id: number } | null;
 }
 
-const LISTED_TAXA_FETCH_RETRIES = 4;
-
 // Every place this taxon has a curated verdict for, keyed by place id. Only a successful fetch
 // is cached, so a transient failure is never stored as "no verdict anywhere".
 async function fetchListedTaxaByPlace(taxonId: number): Promise<Record<number, EstablishmentMeans>> {
   const disk = loadListedTaxaDiskCache();
   if (disk[taxonId]) return disk[taxonId];
 
-  for (let attempt = 0; attempt < LISTED_TAXA_FETCH_RETRIES; attempt++) {
-    if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, 1000 * 2 ** attempt)); // 2s, 4s, 8s
-    await paceRequest();
-    try {
-      const res = await fetchWithHardTimeout(`${INAT_TAXA_API}/${taxonId}`, {
-        headers: { "User-Agent": INAT_USER_AGENT },
-      });
-      if (!res.ok) continue; // transient (rate limit, 5xx): retry rather than cache a blank
+  // The shared client paces every iNaturalist call in the process and retries 429s and 5xx.
+  try {
+    const res = await httpFetch(`${INAT_TAXA_API}/${taxonId}`, { retryServerErrors: true, backoffBaseMs: 2000 });
+    if (res.ok) {
       const data = (await res.json()) as { results: Array<{ listed_taxa?: ListedTaxon[] }> };
       const listedTaxa = data.results[0]?.listed_taxa ?? [];
       const byPlaceId: Record<number, EstablishmentMeans> = {};
@@ -114,11 +96,11 @@ async function fetchListedTaxaByPlace(taxonId: number): Promise<Record<number, E
       }
       saveListedTaxaDiskCache(taxonId, byPlaceId); // successful fetch: an empty result here is a real "no curated data"
       return byPlaceId;
-    } catch {
-      // timed out or network failure: retry
     }
+  } catch {
+    // timed out or network failure on every attempt
   }
-  return {}; // exhausted all retries: not cached, so the next run tries again
+  return {}; // not cached, so the next run tries again
 }
 
 // Disk cache of each country place's ancestor chain, which never changes.
@@ -152,12 +134,9 @@ async function resolveCountryAncestry(countryPlaceId: number): Promise<number[]>
   const disk = loadPlaceAncestryDiskCache();
   if (disk[countryPlaceId]) return disk[countryPlaceId];
 
-  await paceRequest();
   let ancestorPlaceIds = [countryPlaceId];
   try {
-    const res = await fetchWithHardTimeout(`${INAT_PLACES_API}/${countryPlaceId}`, {
-      headers: { "User-Agent": INAT_USER_AGENT },
-    });
+    const res = await httpFetch(`${INAT_PLACES_API}/${countryPlaceId}`, { maxRetries: 0 });
     if (res.ok) {
       const data = (await res.json()) as { results: Array<{ ancestor_place_ids?: number[] | null }> };
       const fetched = data.results[0]?.ancestor_place_ids;
@@ -191,7 +170,7 @@ async function main() {
     `SELECT c.id, c.name
      FROM regions c
      WHERE c.external_codes[1] ~ '^[A-Z]{3}$'
-       AND EXISTS (SELECT 1 FROM regions p WHERE p.parent_id = c.id AND p.boundary_geojson IS NOT NULL)
+       AND EXISTS (SELECT 1 FROM regions p WHERE p.id IN (${provinceIdsSql("c.id")}) AND p.boundary_geojson IS NOT NULL)
      ORDER BY c.name`,
   );
   const countries = nameFilter ? countriesRes.rows.filter((c) => nameFilter.has(c.name)) : countriesRes.rows;
@@ -205,8 +184,8 @@ async function main() {
             array_agg(DISTINCT country.name) AS country_names
      FROM region_species rs
      JOIN species s ON s.id = rs.species_id
-     JOIN regions r ON r.id = rs.region_id
-     JOIN regions country ON country.id = r.parent_id
+     JOIN (${PROVINCES_WITH_COUNTRY_SQL}) p ON p.id = rs.region_id
+     JOIN regions country ON country.id = p.country_id
      WHERE country.id = ANY($1)
        AND s.taxon_class = ANY($2)
        AND COALESCE(rs.is_vagrant, false) = false
@@ -266,7 +245,7 @@ async function main() {
           await pool.query(
             `DELETE FROM region_species
              WHERE species_id = $1
-               AND region_id IN (SELECT id FROM regions WHERE parent_id = $2)`,
+               AND region_id IN (${provinceIdsSql("$2")})`,
             [candidate.species_id, countryId],
           );
         }
@@ -277,7 +256,7 @@ async function main() {
           await pool.query(
             `UPDATE region_species SET is_invasive = true
              WHERE species_id = $1
-               AND region_id IN (SELECT id FROM regions WHERE parent_id = $2)`,
+               AND region_id IN (${provinceIdsSql("$2")})`,
             [candidate.species_id, countryId],
           );
         }

@@ -7,29 +7,33 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { pool } from "@lifer/core/db.js";
-import { resolveInatPlaceId } from "@lifer/core/regions/inatChecklist.js";
+import { resolveInatPlaceId } from "../regions/inatChecklist.js";
+import { COUNTRIES_SQL, PROVINCES_WITH_COUNTRY_SQL } from "@lifer/core/regions/regionTree.js";
 
 export async function resolveMissingInatPlaces(
   log: (m: string) => void = console.log,
 ): Promise<{ resolved: number; failed: string[] }> {
-  // Countries sit two levels under World; provinces directly under a country.
+  // Countries, then their groups and provinces (country > group > province), each with its country.
   const rows = await pool.query<{
     id: string;
     name: string;
     is_country: boolean;
-    parent_id: string;
+    country_id: string;
     country_place: number | null;
     country: string;
   }>(
-    `WITH country AS (
-       SELECT c.id FROM regions c JOIN regions cont ON cont.id = c.parent_id JOIN regions w ON w.id = cont.parent_id AND w.parent_id IS NULL
+    `WITH country AS (${COUNTRIES_SQL}),
+     member AS (
+       SELECT id, id AS country_id, true AS is_country FROM country
+       UNION ALL SELECT p.id, p.country_id, false FROM (${PROVINCES_WITH_COUNTRY_SQL}) p
+       UNION ALL SELECT g.id, g.parent_id, false FROM regions g JOIN country c ON c.id = g.parent_id
+         WHERE EXISTS (SELECT 1 FROM regions k WHERE k.parent_id = g.id)
      )
-     SELECT r.id, r.name, (r.id IN (SELECT id FROM country)) AS is_country, r.parent_id, p.inat_place_id AS country_place, p.name AS country
-     FROM regions r JOIN regions p ON p.id = r.parent_id
+     SELECT r.id, r.name, m.is_country, m.country_id, c.inat_place_id AS country_place, c.name AS country
+     FROM member m JOIN regions r ON r.id = m.id JOIN regions c ON c.id = m.country_id
      WHERE r.inat_place_id IS NULL
-       AND (r.id IN (SELECT id FROM country) OR r.parent_id IN (SELECT id FROM country))
        AND EXISTS (SELECT 1 FROM region_species rs WHERE rs.region_id = r.id)
-     ORDER BY 3 DESC, p.name, r.name`,
+     ORDER BY 3 DESC, c.name, r.name`,
   );
   let resolved = 0;
   const failed: string[] = [];
@@ -37,7 +41,7 @@ export async function resolveMissingInatPlaces(
   const countryPlaces = new Map<string, number>();
   for (const r of rows.rows) {
     const isCountry = r.is_country === true;
-    const countryPlace = isCountry ? null : (r.country_place ?? countryPlaces.get(r.parent_id) ?? null);
+    const countryPlace = isCountry ? null : (r.country_place ?? countryPlaces.get(r.country_id) ?? null);
     if (!isCountry && countryPlace == null) continue;
     const id = await resolveInatPlaceId(r.id, r.name, isCountry, countryPlace);
     if (id && isCountry) countryPlaces.set(r.id, id);

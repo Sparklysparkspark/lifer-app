@@ -1,12 +1,13 @@
-// A country's checklist, built one way: the union of its provinces' checklists, plus species on
-// the country's own iNaturalist research-grade list that no province has, then the country's
-// manual overrides. The single place country rows are written.
+// A country's checklist, built one way: the union of its provinces' checklists (grouped ones too),
+// plus species on the country's own iNaturalist research-grade list that no province has, then
+// the country's manual overrides. The single place country and group rows are written.
 //
 // Also keeps the country's own well-evidenced species that no province has (records outside every
 // province boundary). Only adds at country level: each province's list has already been through
 // the removal checks, so a species a province keeps belongs to the country too. Overseas
 // territories stay out of the union, as the app leaves them out of a country by default. A
 // country with no computed provinces keeps its own list untouched.
+// Each vernacular group's list is the union of its provinces' lists, built just before.
 // Tiers aren't set here: the tiers stage (compute-local-tiers.ts) rates every row afterwards.
 //
 // Usage (from packages/data-pipeline):
@@ -15,7 +16,8 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { pool } from "@lifer/core/db.js";
-import { matchedSpeciesIdsForRegion } from "@lifer/core/regions/inatChecklist.js";
+import { matchedSpeciesIdsForRegion } from "../regions/inatChecklist.js";
+import { COUNTRIES_SQL, groupIdsSql, provinceIdsSql } from "@lifer/core/regions/regionTree.js";
 
 export interface CountryChecklistResult {
   country: string;
@@ -32,7 +34,7 @@ export async function buildCountryChecklist(
   apply: boolean,
 ): Promise<CountryChecklistResult | null> {
   const provinces = await pool.query<{ id: string }>(
-    `SELECT id FROM regions WHERE parent_id = $1 AND NOT is_overseas_territory AND occurrence_computed_at IS NOT NULL`,
+    `SELECT id FROM regions WHERE id IN (${provinceIdsSql("$1")}) AND NOT is_overseas_territory AND occurrence_computed_at IS NOT NULL`,
     [country.id],
   );
   if (provinces.rows.length === 0) return null;
@@ -139,6 +141,60 @@ export async function buildCountryChecklist(
   }
 }
 
+/** Each of the country's vernacular groups gets its provinces' lists together, the same union a
+ *  country's list starts from (and its own manual overrides), so a group reads like a small
+ *  country. Returns how many groups were rebuilt. */
+export async function buildGroupChecklists(countryId: string, apply: boolean): Promise<number> {
+  const groups = await pool.query<{ id: string; province_ids: string[] }>(
+    `SELECT g.id, array_agg(p.id) AS province_ids
+     FROM regions g JOIN regions p ON p.parent_id = g.id
+     WHERE g.id IN (${groupIdsSql("$1")}) AND p.occurrence_computed_at IS NOT NULL
+     GROUP BY g.id`,
+    [countryId],
+  );
+  if (!apply) return groups.rows.length;
+  for (const g of groups.rows) {
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query(
+        `DELETE FROM region_species rs USING species s WHERE rs.region_id = $1 AND s.id = rs.species_id AND NOT s.is_other_taxa`,
+        [g.id],
+      );
+      await client.query(
+        `INSERT INTO region_species (region_id, species_id, local_frequency, is_vagrant, is_invasive, weekly_frequency, evidence_source)
+         SELECT $1, rs.species_id, sum(rs.local_frequency), bool_and(rs.is_vagrant), bool_or(rs.is_invasive),
+                CASE WHEN count(rs.weekly_frequency) = 0 THEN NULL
+                     ELSE (SELECT array_agg(w ORDER BY i) FROM (
+                            SELECT i, sum(x)::int AS w
+                            FROM region_species r2, unnest(r2.weekly_frequency) WITH ORDINALITY AS u(x, i)
+                            WHERE r2.species_id = rs.species_id AND r2.region_id = ANY($2)
+                            GROUP BY i) weeks) END,
+                'provinces'
+         FROM region_species rs JOIN species s ON s.id = rs.species_id
+         WHERE rs.region_id = ANY($2) AND NOT s.is_other_taxa
+         GROUP BY rs.species_id`,
+        [g.id, g.province_ids],
+      );
+      await client.query(
+        `UPDATE region_species rs SET is_vagrant = COALESCE(o.is_vagrant, rs.is_vagrant), is_invasive = COALESCE(o.is_invasive, rs.is_invasive)
+         FROM region_species_manual_overrides o WHERE o.region_id = $1 AND rs.region_id = $1 AND o.species_id = rs.species_id`,
+        [g.id],
+      );
+      await client.query(`UPDATE regions SET occurrence_computed_at = now(), has_children = true WHERE id = $1`, [
+        g.id,
+      ]);
+      await client.query("COMMIT");
+    } catch (err) {
+      await client.query("ROLLBACK").catch(() => {});
+      throw err;
+    } finally {
+      client.release();
+    }
+  }
+  return groups.rows.length;
+}
+
 async function main() {
   const args = process.argv.slice(2);
   const apply = args.includes("--apply");
@@ -150,15 +206,16 @@ async function main() {
       .map((s) => s.trim())
       .filter(Boolean) ?? null;
   const countries = await pool.query<{ id: string; name: string }>(
-    `SELECT c.id, c.name FROM regions c JOIN regions cont ON cont.id = c.parent_id JOIN regions w ON w.id = cont.parent_id AND w.parent_id IS NULL
-     WHERE ($1::text[] IS NULL OR c.name = ANY($1)) ORDER BY c.name`,
+    `SELECT c.id, c.name FROM (${COUNTRIES_SQL}) c WHERE ($1::text[] IS NULL OR c.name = ANY($1)) ORDER BY c.name`,
     [names],
   );
   for (const c of countries.rows) {
+    const groups = await buildGroupChecklists(c.id, apply);
     const r = await buildCountryChecklist(c, apply);
     if (!r) continue;
     console.log(
-      `[country-checklists] ${r.country}: ${r.before} -> ${r.after} (${r.fromProvinces} from ${r.provinces} provinces, ${r.keptOwn} of its own outside them, ${r.addedFromInat} more from its iNaturalist list)`,
+      `[country-checklists] ${r.country}: ${r.before} -> ${r.after} (${r.fromProvinces} from ${r.provinces} provinces, ${r.keptOwn} of its own outside them, ${r.addedFromInat} more from its iNaturalist list)` +
+        (groups > 0 ? `; ${groups} regional groups rebuilt from their provinces` : ""),
     );
   }
   console.log(apply ? "[country-checklists] applied" : "[country-checklists] preview only (pass --apply)");

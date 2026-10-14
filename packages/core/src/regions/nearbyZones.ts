@@ -15,25 +15,21 @@ import {
 
 // Exterior rings of the region's country, for nearbyZones' coastline check. Null skips that check.
 export async function resolveCountryRings(regionId: string): Promise<Point[][] | null> {
-  const res = await pool.query<{
-    geometry: { type: string; coordinates: unknown } | null;
-    parent_id: string | null;
-    parent_external_codes: string[] | null;
-  }>(
-    `SELECT r.boundary_geojson->'geometry' AS geometry, r.parent_id, p.external_codes AS parent_external_codes
-     FROM regions r LEFT JOIN regions p ON p.id = r.parent_id
-     WHERE r.id = $1`,
+  // The country is the nearest region up the tree whose parent has no codes (a continent),
+  // through any regional group; a province shown under its continent uses its home country.
+  const res = await pool.query<{ geometry: { type: string; coordinates: unknown } | null }>(
+    `WITH RECURSIVE up AS (
+       SELECT id, boundary_geojson, COALESCE(home_country_id, parent_id) AS up_id, 0 AS depth FROM regions WHERE id = $1
+       UNION ALL
+       SELECT r.id, r.boundary_geojson, COALESCE(r.home_country_id, r.parent_id), up.depth + 1
+         FROM regions r JOIN up ON r.id = up.up_id WHERE up.depth < 10
+     )
+     SELECT up.boundary_geojson->'geometry' AS geometry FROM up LEFT JOIN regions p ON p.id = up.up_id
+     WHERE COALESCE(array_length(p.external_codes, 1), 0) = 0
+     ORDER BY up.depth LIMIT 1`,
     [regionId],
   );
-  const row = res.rows[0];
-  if (!row) return null;
-  // A parent without codes is a continent, so this region is the country.
-  if (!row.parent_external_codes?.length) return row.geometry ? exteriorRingsFromGeometry(row.geometry) : null;
-  const parentRes = await pool.query<{ geometry: { type: string; coordinates: unknown } | null }>(
-    `SELECT boundary_geojson->'geometry' AS geometry FROM regions WHERE id = $1`,
-    [row.parent_id],
-  );
-  const geometry = parentRes.rows[0]?.geometry;
+  const geometry = res.rows[0]?.geometry;
   return geometry ? exteriorRingsFromGeometry(geometry) : null;
 }
 

@@ -15,6 +15,7 @@
 //   (--accept-drift=<pack id>,... or --accept-all-drift after reviewing the list).
 // Warnings (reported, publishing continues): species on lists with no photo yet.
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { descendantIdsSql } from "@lifer/core/regions/regionTree.js";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { pool } from "../db.js";
@@ -51,7 +52,7 @@ async function checkAnchors(report: GateReport) {
        )
        SELECT EXISTS (
                 SELECT 1 FROM region_species rs WHERE rs.species_id IN (SELECT id FROM target)
-                  AND rs.region_id IN (SELECT id FROM region UNION SELECT r.id FROM regions r WHERE r.parent_id IN (SELECT id FROM region))
+                  AND rs.region_id IN (SELECT id FROM region UNION ${descendantIdsSql("(SELECT id FROM region)")})
               ) AS on_list,
               (SELECT rs.local_tier FROM region_species rs WHERE rs.species_id IN (SELECT id FROM target) AND rs.region_id IN (SELECT id FROM region) LIMIT 1) AS tier`,
       [a.region, a.name],
@@ -84,6 +85,22 @@ async function checkFakeRare(report: GateReport) {
     });
 }
 
+// The tiers stage records a reason with every local tier it writes, so a tier without one came
+// from some other writer and was never checked against the model.
+async function checkUntracedTiers(report: GateReport) {
+  const res = await pool.query<{ n: string; sample: string[] }>(
+    `SELECT count(*) AS n, (array_agg(DISTINCT r.name))[1:5] AS sample
+     FROM region_species rs JOIN regions r ON r.id = rs.region_id
+     WHERE rs.local_tier IS NOT NULL AND rs.tier_reason IS NULL`,
+  );
+  const n = Number(res.rows[0].n);
+  if (n > 0)
+    report.failures.push({
+      check: "untraced_tier",
+      detail: `${n} checklist rows have a local tier the tiers stage didn't write (in ${res.rows[0].sample.join(", ")})`,
+    });
+}
+
 async function checkCatalogGaps(report: GateReport) {
   const { add } = await findMissingSpecies({ offline: true });
   const serious = add.filter(
@@ -105,11 +122,18 @@ async function checkCatalogGaps(report: GateReport) {
 async function checkCoverage(report: GateReport, index: PackIndex) {
   const ids = new Set(index.packs.map((p) => p.id));
   const res = await pool.query<{ name: string; taxa: string[] }>(
-    `SELECT c.name, array_agg(DISTINCT s.taxon_class) AS taxa
-     FROM regions c JOIN regions cont ON cont.id = c.parent_id JOIN regions w ON w.id = cont.parent_id AND w.parent_id IS NULL
-     JOIN regions r ON r.id = c.id OR r.parent_id = c.id
-     JOIN region_species rs ON rs.region_id = r.id JOIN species s ON s.id = rs.species_id
-     WHERE NOT s.is_other_taxa GROUP BY c.name`,
+    `WITH c AS (
+       SELECT c.id, c.name FROM regions c JOIN regions cont ON cont.id = c.parent_id JOIN regions w ON w.id = cont.parent_id AND w.parent_id IS NULL
+     ),
+     -- A country's own list, its groups' and its provinces' (country > group > province).
+     member AS (
+       SELECT c.name, c.id AS region_id FROM c
+       UNION ALL SELECT c.name, d.id FROM c JOIN regions d ON d.parent_id = c.id
+       UNION ALL SELECT c.name, p.id FROM c JOIN regions g ON g.parent_id = c.id JOIN regions p ON p.parent_id = g.id
+     )
+     SELECT m.name, array_agg(DISTINCT s.taxon_class) AS taxa
+     FROM member m JOIN region_species rs ON rs.region_id = m.region_id JOIN species s ON s.id = rs.species_id
+     WHERE NOT s.is_other_taxa GROUP BY m.name`,
   );
   // Stryker disable next-line StringLiteral: equivalent, any variant but "small" names the full pack
   const packId = (country: string, taxon: string) => packIdFromFileName(regionPackFileName(country, taxon, "full"));
@@ -182,6 +206,7 @@ export async function runGate(opts: {
   const report: GateReport = { at: new Date().toISOString(), ok: false, failures: [], warnings: [], drift: [] };
   await checkAnchors(report);
   await checkFakeRare(report);
+  await checkUntracedTiers(report);
   await checkCatalogGaps(report);
   await checkPhotos(report);
   if (opts.index) {

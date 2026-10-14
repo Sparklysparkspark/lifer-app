@@ -9,6 +9,7 @@
 // Usage (from packages/data-pipeline): npx tsx src/scripts/compute-global-tiers.ts [--apply]
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { COUNTRIES_SQL } from "@lifer/core/regions/regionTree.js";
 import { pool } from "@lifer/core/db.js";
 import { TIER_ORDER, type TierExplain, type TierValue } from "@lifer/shared";
 import { tierGroupForTaxonClass } from "../build/local-tier-model.js";
@@ -33,9 +34,7 @@ export async function computeGlobalTiers(): Promise<GlobalTier[]> {
     best_country: string | null;
     best_explain: TierExplain | null;
   }>(
-    `WITH countries AS (
-       SELECT c.id, c.name FROM regions c JOIN regions cont ON cont.id = c.parent_id JOIN regions w ON w.id = cont.parent_id AND w.parent_id IS NULL
-     ),
+    `WITH countries AS (${COUNTRIES_SQL}),
      native AS (
        SELECT DISTINCT ON (rs.species_id) rs.species_id, rs.local_tier, c.name, rs.tier_explain
        FROM region_species rs JOIN countries c ON c.id = rs.region_id

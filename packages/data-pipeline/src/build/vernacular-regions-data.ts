@@ -1,6 +1,7 @@
 // Which countries' admin-1 provinces are too granular for browsing, and the real, commonly used
 // groupings locals and travellers use instead (never invented). Province names must match
-// `regions.name` exactly, diacritics and all, since apply-vernacular-regions.ts matches by string.
+// `regions.name` exactly, diacritics and all: the refresh's regions stage (regions/vernacular.ts)
+// matches by string and reports any name that matches no province.
 //
 // - "no_grouping": the country's own provinces/states are already the familiar browsing unit
 //   (Canada, India, Nigeria, etc.): left untouched.
@@ -10,7 +11,8 @@
 //   and inventing a bucket for the rest would be worse).
 // - disconnects: provinces that are ecologically/geographically isolated destinations in their
 //   own right (the Galápagos pattern): reparented to the country's parent (its continent), never
-//   folded into a mainland group, regardless of the country's overall verdict.
+//   folded into a mainland group, regardless of the country's overall verdict. They stay their
+//   country's for data (home_country_id): built, listed and rated with it.
 export interface CountryGrouping {
   verdict: "grouping" | "no_grouping";
   groups?: Record<string, string[]>;
@@ -26,13 +28,13 @@ export const VERNACULAR_GROUPINGS: Record<string, CountryGrouping> = {
       "Scotland": ["Aberdeen","Aberdeenshire","Angus","Argyll and Bute","Clackmannanshire","Dumfries and Galloway","Dundee","East Ayrshire","East Dunbartonshire","East Lothian","East Renfrewshire","Edinburgh","Eilean Siar","Falkirk","Fife","Glasgow","Highland","Inverclyde","Midlothian","Moray","North Ayshire","North Lanarkshire","Orkney","Perthshire and Kinross","Renfrewshire","Scottish Borders","Shetland Islands","South Ayrshire","South Lanarkshire","Stirling","West Dunbartonshire","West Lothian"],
       "Wales": ["Anglesey","Blaenau Gwent","Bridgend","Caerphilly","Cardiff","Carmarthenshire","Ceredigion","Conwy","Denbighshire","Flintshire","Gwynedd","Merthyr Tydfil","Monmouthshire","Neath Port Talbot","Newport","Pembrokeshire","Powys","Rhondda, Cynon, Taff","Swansea","Torfaen","Vale of Glamorgan","Wrexham"],
       "England - North East": ["Darlington","Durham","Gateshead","Hartlepool","Middlesbrough","Newcastle upon Tyne","North Tyneside","Northumberland","Redcar and Cleveland","South Tyneside","Stockton-on-Tees","Sunderland"],
-      "England - North West": ["Blackburn with Darwen","Blackpool","Bolton","Bury","Cheshire East","Cheshire West and Chester","Cumbria","Halton","Knowsley","Lancashire","Liverpool","Merseyside","Oldham","Rochdale","Salford","Sefton","Stockport","Tameside","Trafford","Warrington","Wigan"],
+      "England - North West": ["Blackburn with Darwen","Blackpool","Bolton","Bury","Cheshire East","Cheshire West and Chester","Cumbria","Halton","Knowsley","Lancashire","Liverpool","Manchester","Merseyside","Oldham","Rochdale","Salford","Sefton","Stockport","Tameside","Trafford","Warrington","Wigan"],
       "England - Yorkshire and the Humber": ["Barnsley","Bradford","Calderdale","Doncaster","East Riding of Yorkshire","Kingston upon Hull","Kirklees","Leeds","North East Lincolnshire","North Lincolnshire","North Yorkshire","Rotherham","Sheffield","Wakefield","York"],
       "England - East Midlands": ["Derby","Derbyshire","Leicester","Leicestershire","Lincolnshire","Northamptonshire","Nottingham","Nottinghamshire","Rutland"],
       "England - West Midlands": ["Birmingham","Coventry","Dudley","Herefordshire","Sandwell","Shropshire","Solihull","Staffordshire","Stoke-on-Trent","Telford and Wrekin","Walsall","Warwickshire","Wolverhampton","Worcestershire"],
       "England - East of England": ["Bedford","Cambridgeshire","Central Bedfordshire","Essex","Hertfordshire","Luton","Norfolk","Peterborough","Southend-on-Sea","Suffolk","Thurrock"],
       "England - London": ["Barking and Dagenham","Barnet","Bexley","Brent","Bromley","Camden","City","Croydon","Ealing","Enfield","Greenwich","Hackney","Hammersmith and Fulham","Haringey","Harrow","Havering","Hillingdon","Hounslow","Islington","Kensington and Chelsea","Kingston upon Thames","Lambeth","Lewisham","Merton","Newham","Redbridge","Richmond upon Thames","Southwark","Sutton","Tower Hamlets","Waltham Forest","Wandsworth","Westminster"],
-      "England - South East": ["Bracknell Forest","Brighton and Hove","Buckinghamshire","East Sussex","Hampshire","Isle of Wight","Kent","Medway","Milton Keynes","Oxfordshire","Portsmouth","Reading","Royal Borough of Windsor and Maidenhead","Slough","Surrey","West Berkshire","West Sussex","Wokingham"],
+      "England - South East": ["Bracknell Forest","Brighton and Hove","Buckinghamshire","East Sussex","Hampshire","Isle of Wight","Kent","Medway","Milton Keynes","Oxfordshire","Portsmouth","Reading","Royal Borough of Windsor and Maidenhead","Slough","Southampton","Surrey","West Berkshire","West Sussex","Wokingham"],
       "England - South West": ["Bath and North East Somerset","Bournemouth","Bristol","Cornwall","Devon","Dorset","Gloucestershire","Isles of Scilly","North Somerset","Plymouth","Poole","Somerset","South Gloucestershire","Swindon","Torbay","Wiltshire"],
     },
   },
@@ -209,7 +211,7 @@ export const VERNACULAR_GROUPINGS: Record<string, CountryGrouping> = {
     verdict: "grouping",
     groups: {
       "Malta": ["Attard","Balzan","Birgu","Birkirkara","Birżebbuġa","Cospicua","Dingli","Fgura","Floriana","Gudja","Għargħur","Gżira","Iklin","Isla","Kalkara","Kirkop","Lija","Luqa","Marsa","Marsaskala","Marsaxlokk","Mdina","Mellieħa","Mosta","Mqabba","Msida","Mtarfa","Mġarr","Naxxar","Paola","Pietà","Qormi","Qrendi","Rabat","Safi","San Giljan","San Pawl il-Bahar","San Ġwann","Santa Luċija","Santa Venera","Siġġiewi","Sliema","Swieqi","Ta' Xbiex","Tarxien","Valletta","Xgħajra","Ħamrun","Żabbar","Żejtun","Żurrieq"],
-      "Gozo and Comino": ["Fontana","Gozo","Għajnsielem","Għarb","Għasri","Kerċem","Munxar","Nadur","Qala","San Lawrenz","Sannat","Xagħra","Xewkija","Żebbuġ"],
+      "Gozo and Comino": ["Fontana, Gozo","Victoria","Għajnsielem","Għarb","Għasri","Kerċem","Munxar","Nadur","Qala","San Lawrenz","Sannat","Xagħra","Xewkija","Żebbuġ"],
     },
   },
   "Vietnam": {
@@ -744,7 +746,7 @@ export const VERNACULAR_GROUPINGS: Record<string, CountryGrouping> = {
     verdict: "grouping",
     groups: {
       "Darfur": ["Central Darfur","Eastern Darfur","North Darfur","Southern Darfur","Western Darfur"],
-      "Kordofan": ["North Kordufan","South Kordofan"],
+      "Kordofan": ["North Kordufan","South Kordufan"],
     },
   },
   "Poland": { verdict: "no_grouping" },

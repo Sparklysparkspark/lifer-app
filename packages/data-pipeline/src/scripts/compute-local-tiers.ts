@@ -7,23 +7,25 @@
 //    province partitions the province build already wrote (province-aggregate-cache/
 //    {iso2}-{Country}__{provinceId}.tsv) and stores, per checklist row, the species' recent live
 //    records and the years they fall in, and per region the recent live records of each species
-//    group (region_group_effort). Countries get the sum of their provinces.
-// 2. tiers: every row of the country and its provinces through the model. Countries first, so a
-//    province with too few records of a group can use the country's tier (tier_reason
-//    'inherited') instead of guessing. Each row stores its tier, the reason and the explanation
+//    group (region_group_effort). Vernacular groups and countries get the sum of their provinces.
+// 2. tiers: every row of the country, its groups and its provinces through the model. A country's
+//    or group's tier is its easiest province's, so a province with too few records of a group
+//    can use its group's tier, else the country's (tier_reason 'inherited'), instead of guessing. Each row stores its tier, the reason and the explanation
 //    the app shows when the tier is tapped.
 //
 // Usage (from packages/data-pipeline):
 //   npx tsx src/scripts/compute-local-tiers.ts --countries="Costa Rica" --calibrate     (preview + anchor table)
 //   npx tsx src/scripts/compute-local-tiers.ts --countries="Costa Rica,Canada" --apply
 //   npx tsx src/scripts/compute-local-tiers.ts --apply                                   (every country)
-// Options: --inputs forces re-reading the partitions; --strict exits non-zero when an anchor misses.
+// Options: --inputs forces re-reading the partitions; --strict exits non-zero when an anchor misses;
+// --allow-skip lets a country with tiered rows but no partitions on disk keep its old tiers (it
+// fails the run otherwise, since those tiers would ship unchecked).
 import { createReadStream, existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import readline from "node:readline";
 import { fileURLToPath } from "node:url";
 import { pool } from "@lifer/core/db.js";
-import { cachedPlaceCounts } from "@lifer/core/regions/inatChecklist.js";
+import { cachedPlaceCounts } from "../regions/inatChecklist.js";
 import { cachedEbirdCodes } from "./add-new-species-to-checklists.js";
 import { bboxDiagonalDegrees, exteriorRingsFromGeometry, ringBoundingBox } from "@lifer/core/lib/geometry.js";
 import {
@@ -36,6 +38,7 @@ import {
 } from "../build/local-tier-model.js";
 import { TIER_ORDER, type TierExplain, type TierGroup } from "@lifer/shared";
 import { requirePostgis } from "../pipeline/requirePostgis.js";
+import { groupIdsSql, provinceIdsSql } from "@lifer/core/regions/regionTree.js";
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "..");
 const PARTITION_DIR = path.join(REPO_ROOT, "packages/data-pipeline/data/province-aggregate-cache");
@@ -47,14 +50,22 @@ const KM_PER_DEGREE = 111;
 interface Country {
   id: string;
   name: string;
+  /** Every province, grouped or not (regionTree.ts). */
   provinces: Array<{ id: string; name: string }>;
+  /** Vernacular groups, rated from their provinces the way the country is. */
+  groups: Array<{ id: string; name: string; provinceIds: string[] }>;
 }
 
+/** The country, its groups and its provinces. */
+const regionIdsOf = (c: Country) => [c.id, ...c.groups.map((g) => g.id), ...c.provinces.map((p) => p.id)];
+
 export async function loadCountries(names: string[] | null): Promise<Country[]> {
+  // A province shown under its continent is rated with its country, not as one.
   const res = await pool.query<{ id: string; name: string }>(
     `SELECT c.id, c.name FROM regions c
      JOIN regions cont ON cont.id = c.parent_id
      WHERE COALESCE(array_length(cont.external_codes, 1), 0) = 0 AND cont.parent_id IS NOT NULL
+       AND c.home_country_id IS NULL
        AND ($1::text[] IS NULL OR c.name = ANY($1))
      ORDER BY c.name`,
     [names],
@@ -62,10 +73,20 @@ export async function loadCountries(names: string[] | null): Promise<Country[]> 
   const out: Country[] = [];
   for (const c of res.rows) {
     const provinces = await pool.query<{ id: string; name: string }>(
-      `SELECT id, name FROM regions WHERE parent_id = $1 ORDER BY name`,
+      `SELECT id, name FROM regions WHERE id IN (${provinceIdsSql("$1")}) ORDER BY name`,
       [c.id],
     );
-    out.push({ ...c, provinces: provinces.rows });
+    const groups = await pool.query<{ id: string; name: string; province_ids: string[] }>(
+      `SELECT g.id, g.name, array_agg(p.id ORDER BY p.name) AS province_ids
+       FROM regions g JOIN regions p ON p.parent_id = g.id
+       WHERE g.id IN (${groupIdsSql("$1")}) GROUP BY g.id, g.name ORDER BY g.name`,
+      [c.id],
+    );
+    out.push({
+      ...c,
+      provinces: provinces.rows,
+      groups: groups.rows.map((g) => ({ id: g.id, name: g.name, provinceIds: g.province_ids })),
+    });
   }
   return out;
 }
@@ -181,12 +202,30 @@ async function writeInputs(regionId: string, inputs: RegionInputs) {
   }
 }
 
-/** Reads the country's province partitions and stores tier inputs for each province and the
- *  country. Returns false when no partitions exist (the province build hasn't run for it). */
+function addInputs(total: RegionInputs, inputs: RegionInputs) {
+  for (const [id, s] of inputs.species) {
+    const t = total.species.get(id) ?? { records: 0, years: new Set<number>() };
+    t.records += s.records;
+    for (const y of s.years) t.years.add(y);
+    total.species.set(id, t);
+  }
+  for (const [g, e] of inputs.effort) {
+    const t = total.effort.get(g) ?? { live: 0, all: 0 };
+    t.live += e.live;
+    t.all += e.all;
+    total.effort.set(g, t);
+  }
+}
+
+/** Reads the country's province partitions and stores tier inputs for each province, and their
+ *  sums for each group and the country. Returns false when no partitions exist (the province
+ *  build hasn't run for it). */
 export async function refreshTierInputs(country: Country): Promise<boolean> {
   const names = await loadCatalogNames();
   const currentYear = new Date().getFullYear();
   const total: RegionInputs = { species: new Map(), effort: new Map() };
+  const groupOf = new Map(country.groups.flatMap((g) => g.provinceIds.map((id) => [id, g.id] as const)));
+  const groupTotals = new Map<string, RegionInputs>();
   let found = 0;
   for (const p of country.provinces) {
     const file = partitionFor(p.id);
@@ -194,20 +233,15 @@ export async function refreshTierInputs(country: Country): Promise<boolean> {
     found++;
     const inputs = await readPartition(file, names, currentYear);
     await writeInputs(p.id, inputs);
-    for (const [id, s] of inputs.species) {
-      const t = total.species.get(id) ?? { records: 0, years: new Set<number>() };
-      t.records += s.records;
-      for (const y of s.years) t.years.add(y);
-      total.species.set(id, t);
-    }
-    for (const [g, e] of inputs.effort) {
-      const t = total.effort.get(g) ?? { live: 0, all: 0 };
-      t.live += e.live;
-      t.all += e.all;
-      total.effort.set(g, t);
+    addInputs(total, inputs);
+    const group = groupOf.get(p.id);
+    if (group) {
+      if (!groupTotals.has(group)) groupTotals.set(group, { species: new Map(), effort: new Map() });
+      addInputs(groupTotals.get(group)!, inputs);
     }
   }
   if (found === 0) return false;
+  for (const [groupId, inputs] of groupTotals) await writeInputs(groupId, inputs);
   await writeInputs(country.id, total);
   return true;
 }
@@ -269,6 +303,29 @@ export async function refreshInatInputs(regionIds: string[]): Promise<number> {
     updated++;
   }
   return updated;
+}
+
+/** A regional group's photo counts are its provinces' together, like its records: its own
+ *  iNaturalist place, where it has one, may not match the provinces it was drawn from. */
+export async function sumGroupInatInputs(country: Country): Promise<void> {
+  for (const g of country.groups) {
+    await pool.query(`UPDATE region_species SET inat_rg_count = NULL WHERE region_id = $1`, [g.id]);
+    await pool.query(`UPDATE region_group_effort SET inat_rg_records = NULL WHERE region_id = $1`, [g.id]);
+    await pool.query(
+      `UPDATE region_species rs SET inat_rg_count = v.n
+       FROM (SELECT species_id, sum(inat_rg_count)::int AS n FROM region_species
+             WHERE region_id = ANY($2) GROUP BY species_id HAVING count(inat_rg_count) > 0) v
+       WHERE rs.region_id = $1 AND rs.species_id = v.species_id`,
+      [g.id, g.provinceIds],
+    );
+    await pool.query(
+      `INSERT INTO region_group_effort (region_id, species_group, live_recent_records, all_records, inat_rg_records)
+       SELECT $1, species_group, 0, 0, sum(inat_rg_records) FROM region_group_effort
+       WHERE region_id = ANY($2) AND inat_rg_records IS NOT NULL GROUP BY species_group
+       ON CONFLICT (region_id, species_group) DO UPDATE SET inat_rg_records = EXCLUDED.inat_rg_records`,
+      [g.id, g.provinceIds],
+    );
+  }
 }
 
 /** A well-known species that nobody has photographed in a place where its group is photographed
@@ -378,7 +435,8 @@ export const EASIEST_MIN_EFFORT_SHARE = 0.1;
 export const EASIEST_PROVEN_RECORDS = 1000;
 
 export async function computeCountryTiers(country: Country): Promise<ComputedTier[]> {
-  const regionIds = [country.id, ...country.provinces.map((p) => p.id)];
+  const regionIds = regionIdsOf(country);
+  const groupOf = new Map(country.groups.flatMap((g) => g.provinceIds.map((id) => [id, g.id] as const)));
   const [rowsRes, effortRes, hotspotRes, geoRes] = await Promise.all([
     pool.query<TierRow>(
       `SELECT rs.region_id, rs.species_id, s.scientific_name, s.common_name, s.taxon_class, rs.live_recent_records,
@@ -423,7 +481,7 @@ export async function computeCountryTiers(country: Country): Promise<ComputedTie
     if (e.inat_rg_records != null) inatEffort.set(`${e.region_id}:${e.species_group}`, Number(e.inat_rg_records));
   }
   const diagonal = new Map(geoRes.rows.map((r) => [r.id, regionDiagonalKm(r.boundary_geojson)]));
-  // Clusters per region and species; the country's are all of its provinces' together.
+  // Clusters per region and species; a group's and the country's are their provinces' together.
   const clusters = new Map<string, HotspotCluster[]>();
   for (const h of hotspotRes.rows) {
     const cl = {
@@ -432,7 +490,10 @@ export async function computeCountryTiers(country: Country): Promise<ComputedTie
       pointCount: Number(h.point_count),
       bboxDiagonalKm: Number(h.bbox_diagonal_km),
     };
-    for (const key of [`${h.region_id}:${h.species_id}`, `${country.id}:${h.species_id}`]) {
+    const group = groupOf.get(h.region_id);
+    const keys = [`${h.region_id}:${h.species_id}`, `${country.id}:${h.species_id}`];
+    if (group) keys.push(`${group}:${h.species_id}`);
+    for (const key of keys) {
       const list = clusters.get(key) ?? [];
       list.push(cl);
       clusters.set(key, list);
@@ -519,76 +580,101 @@ export async function computeCountryTiers(country: Country): Promise<ComputedTie
     };
   };
 
-  // Provinces first, on their own data. A country's tier is its easiest province's tier, the
+  // Provinces and vernacular groups first, each on its own data (a group's is the sum of its
+  // provinces'). A country's tier is its easiest well-surveyed area's tier, province or group, the
   // same way the worldwide tier is the easiest native country; rating across the whole country
-  // would make every regional species Legendary.
-  // Only provinces surveyed well enough for the group count (group effort at least
+  // would make every regional species Legendary. A group's tier is the easiest of itself and its
+  // provinces.
+  // Only areas surveyed well enough for the species group count (effort at least
   // EASIEST_MIN_EFFORT_SHARE of the best-surveyed province), since in a lightly surveyed place
-  // any photographed species looks like a big share.
+  // any photographed species looks like a big share. The bar comes from provinces alone, so a
+  // group's summed effort doesn't raise it.
   const provinceNames = new Map(country.provinces.map((p) => [p.id, p.name]));
+  const areaNames = new Map([...provinceNames, ...country.groups.map((g) => [g.id, g.name] as const)]);
   const groupEffort = (regionId: string, group: TierGroup) =>
     inatEffort.get(`${regionId}:${group}`) ?? effort.get(`${regionId}:${group}`) ?? 0;
-  const bestEffort = new Map<TierGroup, number>();
-  for (const p of country.provinces) {
-    for (const g of ["birds", "mammals", "herps", "fish"] as TierGroup[]) {
-      bestEffort.set(g, Math.max(bestEffort.get(g) ?? 0, groupEffort(p.id, g)));
+  const provinceTiers = rowsRes.rows
+    .filter((r) => provinceNames.has(r.region_id))
+    .map((r) => ({ row: r, t: compute(r) }));
+  const groupOwnTiers = rowsRes.rows
+    .filter((r) => areaNames.has(r.region_id) && !provinceNames.has(r.region_id))
+    .map((r) => ({ row: r, t: compute(r) }));
+  const areaTiers = [...provinceTiers, ...groupOwnTiers];
+
+  const rollUp = (placeId: string, areaIds: Set<string>): Map<string, ComputedTier> => {
+    const bestEffort = new Map<TierGroup, number>();
+    for (const id of areaIds) {
+      if (!provinceNames.has(id)) continue;
+      for (const g of ["birds", "mammals", "herps", "fish"] as TierGroup[]) {
+        bestEffort.set(g, Math.max(bestEffort.get(g) ?? 0, groupEffort(id, g)));
+      }
     }
-  }
-  const provinceTiers = rowsRes.rows.filter((r) => r.region_id !== country.id).map((r) => ({ row: r, t: compute(r) }));
-  // A province also counts when the species itself has EASIEST_PROVEN_RECORDS there: that many
-  // sightings proves it's easy to find. A species found only in lightly surveyed provinces takes
-  // the easiest of those instead.
-  const easiest = new Map<string, { t: ComputedTier; province: string; surveyed: boolean }>();
-  for (const { row, t } of provinceTiers) {
-    if (!t.tier || row.is_vagrant || t.reason !== "rated") continue;
-    const group = tierGroupForTaxonClass(row.taxon_class);
-    // Only photo-rated tiers need it: eBird's full checklists record common species too, so their
-    // rates hold however few birders visit.
-    const surveyed =
-      !group ||
-      t.explain?.source !== "inat" ||
-      groupEffort(row.region_id, group) >= EASIEST_MIN_EFFORT_SHARE * (bestEffort.get(group) ?? 0) ||
-      (t.explain?.records ?? 0) >= EASIEST_PROVEN_RECORDS;
-    const best = easiest.get(row.species_id);
-    const better =
-      !best ||
-      (surveyed && !best.surveyed) ||
-      (surveyed === best.surveyed && TIER_ORDER.indexOf(t.tier) < TIER_ORDER.indexOf(best.t.tier!));
-    if (better) easiest.set(row.species_id, { t, province: provinceNames.get(row.region_id) ?? "", surveyed });
-  }
-  // Where no province can rate it and one says it's too little photographed to tell, the country
-  // says so too, rather than rating it across the whole country.
-  const fewPhotos = new Map<string, ComputedTier>();
-  for (const { row, t } of provinceTiers)
-    if (t.reason === "few_photos" && !fewPhotos.has(row.species_id)) fewPhotos.set(row.species_id, t);
-  const countryRows = rowsRes.rows.filter((r) => r.region_id === country.id);
-  const countryTiers = new Map(
-    countryRows.map((r): [string, ComputedTier] => {
-      const best = easiest.get(r.species_id);
-      const unknown = fewPhotos.get(r.species_id);
-      if (!best && unknown) return [r.species_id, { ...unknown, regionId: country.id }];
-      if (!best) return [r.species_id, compute(r)];
-      const explain: TierExplain | null = best.t.explain
-        ? { ...best.t.explain, base: best.t.tier, steps: [], guard: false, easiestIn: best.province }
-        : null;
-      return [r.species_id, { ...best.t, regionId: country.id, reason: "rated", explain }];
+    const inPlace = areaTiers.filter(({ row }) => areaIds.has(row.region_id));
+    // A province also counts when the species itself has EASIEST_PROVEN_RECORDS there: that many
+    // sightings proves it's easy to find. A species found only in lightly surveyed provinces takes
+    // the easiest of those instead.
+    const easiest = new Map<string, { t: ComputedTier; province: string; surveyed: boolean }>();
+    for (const { row, t } of inPlace) {
+      if (!t.tier || row.is_vagrant || t.reason !== "rated") continue;
+      const group = tierGroupForTaxonClass(row.taxon_class);
+      // Only photo-rated tiers need it: eBird's full checklists record common species too, so their
+      // rates hold however few birders visit.
+      const surveyed =
+        !group ||
+        t.explain?.source !== "inat" ||
+        groupEffort(row.region_id, group) >= EASIEST_MIN_EFFORT_SHARE * (bestEffort.get(group) ?? 0) ||
+        (t.explain?.records ?? 0) >= EASIEST_PROVEN_RECORDS;
+      const best = easiest.get(row.species_id);
+      const better =
+        !best ||
+        (surveyed && !best.surveyed) ||
+        (surveyed === best.surveyed && TIER_ORDER.indexOf(t.tier) < TIER_ORDER.indexOf(best.t.tier!));
+      if (better) easiest.set(row.species_id, { t, province: areaNames.get(row.region_id) ?? "", surveyed });
+    }
+    // Where no province can rate it and one says it's too little photographed to tell, the place
+    // says so too, rather than rating it across the whole place.
+    const fewPhotos = new Map<string, ComputedTier>();
+    for (const { row, t } of inPlace)
+      if (t.reason === "few_photos" && !fewPhotos.has(row.species_id)) fewPhotos.set(row.species_id, t);
+    const placeRows = rowsRes.rows.filter((r) => r.region_id === placeId);
+    return new Map(
+      placeRows.map((r): [string, ComputedTier] => {
+        const best = easiest.get(r.species_id);
+        const unknown = fewPhotos.get(r.species_id);
+        if (!best && unknown) return [r.species_id, { ...unknown, regionId: placeId }];
+        if (!best) return [r.species_id, compute(r)];
+        const explain: TierExplain | null = best.t.explain
+          ? { ...best.t.explain, base: best.t.tier, steps: [], guard: false, easiestIn: best.province }
+          : null;
+        return [r.species_id, { ...best.t, regionId: placeId, reason: "rated", explain }];
+      }),
+    );
+  };
+
+  const countryTiers = rollUp(country.id, new Set(areaNames.keys()));
+  // Too few records of the group in this place: the country's tier is a better answer than a
+  // guess or nothing (a regional group, then each province).
+  const orCountry = (t: ComputedTier, from: ComputedTier | undefined): ComputedTier =>
+    (t.reason === "thin_data" || t.reason === "no_data") && from?.tier
+      ? { ...t, tier: from.tier, reason: "inherited", explain: from.explain }
+      : t;
+  const groupTiers = new Map(
+    country.groups.map((g) => {
+      const tiers = rollUp(g.id, new Set([g.id, ...g.provinceIds]));
+      for (const [speciesId, t] of tiers) tiers.set(speciesId, orCountry(t, countryTiers.get(speciesId)));
+      return [g.id, tiers];
     }),
   );
-  const out: ComputedTier[] = [...countryTiers.values()];
+  const out: ComputedTier[] = [...countryTiers.values(), ...[...groupTiers.values()].flatMap((m) => [...m.values()])];
   for (const { row: r, t } of provinceTiers) {
-    // Too few records of the group in this province: the country's tier for the species is a
-    // better answer than a guess or nothing.
-    const fromCountry = countryTiers.get(r.species_id);
-    if ((t.reason === "thin_data" || t.reason === "no_data") && fromCountry?.tier) {
-      out.push({ ...t, tier: fromCountry.tier, reason: "inherited", explain: fromCountry.explain });
-    } else {
-      out.push(t);
-    }
+    const group = groupOf.get(r.region_id);
+    const fromGroup = group ? groupTiers.get(group)?.get(r.species_id) : undefined;
+    out.push(orCountry(t, fromGroup?.tier ? fromGroup : countryTiers.get(r.species_id)));
   }
   return out;
 }
 
-async function writeTiers(tiers: ComputedTier[]) {
+export async function writeTiers(tiers: ComputedTier[]) {
   const BATCH = 5000;
   for (let i = 0; i < tiers.length; i += BATCH) {
     const b = tiers.slice(i, i + BATCH);
@@ -754,7 +840,7 @@ export async function removeNeverPhotographedHere(
   const here = place != null ? lists.get(place) : undefined;
   if (!here) return []; // no photo counts for the country yet: nothing to judge by
   const hereByName = new Map([...(cachedPlaceCounts(place!) ?? new Map())].map(([, t]) => [t.name, t.count]));
-  const regionIds = [country.id, ...country.provinces.map((p) => p.id)];
+  const regionIds = regionIdsOf(country);
   const rows = await pool.query<{
     region_id: string;
     species_id: string;
@@ -832,7 +918,7 @@ export async function removeBirdsEbirdNeverHad(
 ): Promise<Array<{ region: string; species: string }>> {
   const regions = await pool.query<{ id: string; name: string; ebird_region_code: string | null }>(
     `SELECT id, name, ebird_region_code FROM regions WHERE id = ANY($1)`,
-    [[country.id, ...country.provinces.map((p) => p.id)]],
+    [regionIdsOf(country)],
   );
   const lists = new Map<string, Set<string>>();
   const countryList = new Set<string>();
@@ -859,6 +945,43 @@ export async function removeBirdsEbirdNeverHad(
   return found.map((r) => ({ region: names.get(r.region_id) ?? "", species: r.species }));
 }
 
+/** A species flagged extinct that a province still records alive is not extinct when either:
+ *  - the records go on year after year (EXTINCT_ALIVE_MIN_RECORDS over EXTINCT_ALIVE_MIN_YEARS).
+ *    The flag came from a narrower taxon than the catalog's, usually the extinct half of a split
+ *    whose living half GBIF still files under the old name (IUCN's Brush-tailed Bettong is the
+ *    extinct south-eastern form; every Woylie record carries the name). Claimed sightings of a
+ *    truly extinct species never add up to this; or
+ *  - the Red List rates the species as living (the flag is simply wrong), and it has any recent
+ *    field record there. */
+export const EXTINCT_ALIVE_MIN_RECORDS = 50;
+export const EXTINCT_ALIVE_MIN_YEARS = 5;
+const LIVING_IUCN_STATUSES = ["CR", "EN", "VU", "NT", "LC", "LR/cd"];
+
+const RECORDED_ALIVE_SQL = (provinceIds: string) =>
+  `EXISTS (SELECT 1 FROM region_species a WHERE a.species_id = s.id AND a.region_id = ANY(${provinceIds})
+             AND ((a.live_recent_records >= ${EXTINCT_ALIVE_MIN_RECORDS} AND a.recent_distinct_years >= ${EXTINCT_ALIVE_MIN_YEARS})
+                  OR (a.live_recent_records > 0 AND t.iucn_status IN (${LIVING_IUCN_STATUSES.map((c) => `'${c}'`).join(", ")}))))`;
+
+/** Clears the extinct flag of species the country's provinces record alive (see
+ *  EXTINCT_ALIVE_MIN_RECORDS), so the app shows them again and removeExtinct keeps them. */
+export async function reviveRecordedAlive(
+  country: Country,
+  apply: boolean,
+): Promise<Array<{ region: string; species: string }>> {
+  const res = await pool.query<{ species_id: string; species: string }>(
+    `SELECT s.id AS species_id, COALESCE(s.common_name, s.scientific_name) AS species
+     FROM species s JOIN species_traits t ON t.species_id = s.id
+     WHERE t.fully_extinct AND ${RECORDED_ALIVE_SQL("$1")}`,
+    [country.provinces.map((p) => p.id)],
+  );
+  if (apply && res.rows.length > 0) {
+    await pool.query(`UPDATE species_traits SET fully_extinct = false WHERE species_id = ANY($1::uuid[])`, [
+      res.rows.map((r) => r.species_id),
+    ]);
+  }
+  return res.rows.map((r) => ({ region: country.name, species: r.species }));
+}
+
 /** Removes extinct species from the checklists. The app hides them, but on a list they would
  *  still count toward tiers, totals and packs. */
 export async function removeExtinct(
@@ -869,8 +992,8 @@ export async function removeExtinct(
     `SELECT rs.region_id, rs.species_id, r.name AS region, COALESCE(s.common_name, s.scientific_name) AS species
      FROM region_species rs JOIN species s ON s.id = rs.species_id JOIN species_traits t ON t.species_id = s.id
      JOIN regions r ON r.id = rs.region_id
-     WHERE rs.region_id = ANY($1) AND t.fully_extinct`,
-    [[country.id, ...country.provinces.map((p) => p.id)]],
+     WHERE rs.region_id = ANY($1) AND t.fully_extinct AND NOT ${RECORDED_ALIVE_SQL("$2")}`,
+    [regionIdsOf(country), country.provinces.map((p) => p.id)],
   );
   if (apply) await deleteRows(res.rows);
   return res.rows.map(({ region, species }) => ({ region, species }));
@@ -882,6 +1005,7 @@ async function main() {
   const apply = args.includes("--apply");
   const forceInputs = args.includes("--inputs");
   const strict = args.includes("--strict");
+  const allowSkip = args.includes("--allow-skip");
   const calibrateArg = args.find((a) => a.startsWith("--calibrate"));
   const countriesArg = args.find((a) => a.startsWith("--countries="))?.slice("--countries=".length);
   const names = countriesArg
@@ -891,29 +1015,50 @@ async function main() {
         .filter(Boolean)
     : null;
   const anchors: Anchor[] = calibrateArg
-    ? JSON.parse(readFileSync(calibrateArg.includes("=") ? calibrateArg.split("=")[1] : ANCHORS_PATH, "utf8"))
+    ? JSON.parse(
+        readFileSync(
+          calibrateArg.startsWith("--calibrate=") ? calibrateArg.slice("--calibrate=".length) : ANCHORS_PATH,
+          "utf8",
+        ),
+      )
     : [];
 
   const countries = await loadCountries(names);
   console.log(`[tiers] ${countries.length} countries`);
   let misses = 0;
+  const skipped: string[] = [];
   for (const country of countries) {
     const hasEffort = (await pool.query(`SELECT 1 FROM region_group_effort WHERE region_id = $1 LIMIT 1`, [country.id]))
       .rowCount;
     if (forceInputs || !hasEffort) {
       const ok = await refreshTierInputs(country);
       if (!ok) {
-        console.log(`[tiers] ${country.name}: no province partitions on disk yet, skipped`);
+        const tiered = await pool.query(
+          `SELECT 1 FROM region_species WHERE region_id = ANY($1) AND local_tier IS NOT NULL LIMIT 1`,
+          [regionIdsOf(country)],
+        );
+        console.log(
+          `[tiers] ${country.name}: no province partitions on disk, skipped` +
+            (tiered.rowCount ? " (its rows keep the tiers they had)" : ""),
+        );
+        if (tiered.rowCount) skipped.push(country.name);
         continue;
       }
     }
     // Photo counts are read from the cached iNaturalist lists every run: cheap, and they're
     // what the tiers are rated on first.
     await refreshInatInputs([country.id, ...country.provinces.map((p) => p.id)]);
+    await sumGroupInatInputs(country);
     const unconfirmed = await removeUnconfirmed([country.id], apply);
     if (unconfirmed.length > 0) {
       console.log(
         `[tiers] ${country.name}: ${apply ? "removed" : "would remove"} ${unconfirmed.length} well-known species nobody has photographed there (e.g. ${[...new Set(unconfirmed.map((u) => u.species))].slice(0, 6).join(", ")})`,
+      );
+    }
+    const revived = await reviveRecordedAlive(country, apply);
+    if (revived.length > 0) {
+      console.log(
+        `[tiers] ${country.name}: ${apply ? "cleared" : "would clear"} the extinct flag of ${revived.length} species recorded alive there (${revived.map((r) => r.species).join(", ")})`,
       );
     }
     for (const [label, rows] of [
@@ -943,6 +1088,7 @@ async function main() {
     if (anchors.length > 0) {
       const regionNames = new Map([
         [country.id, country.name],
+        ...country.groups.map((g) => [g.id, g.name] as [string, string]),
         ...country.provinces.map((p) => [p.id, p.name] as [string, string]),
       ]);
       misses += printCalibration(tiers, regionNames, anchors);
@@ -951,6 +1097,13 @@ async function main() {
   }
   console.log(apply ? "[tiers] applied" : "[tiers] preview only, nothing written (pass --apply)");
   await pool.end();
+  if (skipped.length > 0) {
+    console.error(
+      `[tiers] ${skipped.length} countries have tiered rows but no partitions to rate them from: ${skipped.join(", ")}. ` +
+        `Rebuild their provinces (compute-provinces-bulk.ts --countries=...), or pass --allow-skip to keep their old tiers.`,
+    );
+    if (!allowSkip) process.exit(1);
+  }
   if (strict && misses > 0) process.exit(1);
 }
 

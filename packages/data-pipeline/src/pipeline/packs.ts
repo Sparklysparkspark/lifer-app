@@ -15,6 +15,7 @@
 // The merged index is refused if any dependency still doesn't resolve.
 // Everything runs in this one process.
 import { execFileSync } from "node:child_process";
+import { descendantIdsSql } from "@lifer/core/regions/regionTree.js";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -25,9 +26,11 @@ import { buildRegionPack, buildSeaZonePack } from "../build/build-region-pack.js
 import type { PackVariant } from "@lifer/core/packs/packId.js";
 import { GITHUB_REPO, INDEX_RELEASE_TAG } from "../build/release-groups.js";
 import { PACK_SHARD_PREFIX, publishPackStore, writePackStore } from "./packStore.js";
+import type { IndexPack, PackIndex } from "./packIndex.js";
 import type { TaxonClass } from "@lifer/shared";
 import { assertPhotosPublishable } from "./photoLicensePolicy.js";
 import { mapWithConcurrency } from "@lifer/core/lib/concurrency.js";
+import { httpFetch } from "@lifer/core/lib/http.js";
 
 const DATA_PIPELINE_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const VARIANTS: PackVariant[] = ["full"];
@@ -51,50 +54,24 @@ export const PACK_TAXA: TaxonClass[] = [
   "sponges_tunicates_other",
 ] as TaxonClass[];
 
-export interface IndexPack {
-  id: string;
-  type: "region" | "seaZone";
-  region?: string;
-  seaZone?: string;
-  taxon?: string | null;
-  variant?: "full" | "small";
-  sizeBytes: number;
-  speciesCount: number;
-  contentVersion: string;
-  scientificNames: string[];
-  /** The pack store shard holding it, with `range` [offset, length] and the archive's `sha256`
-   *  (pipeline/packStore.ts). */
-  url: string;
-  range?: [number, number];
-  sha256?: string;
-  format?: number;
-  seaZoneDependencies?: string[];
-}
-export interface PackIndex {
-  generatedAt: string;
-  packs: IndexPack[];
-}
+export type { IndexPack, PackIndex } from "./packIndex.js";
 
 // Retried, so one dropped connection doesn't fail the whole stage.
 export async function fetchPublishedIndex(): Promise<PackIndex> {
-  let lastError: unknown;
-  for (let attempt = 0; attempt < 5; attempt++) {
-    try {
-      const res = await fetch(
-        `https://github.com/${GITHUB_REPO}/releases/download/${INDEX_RELEASE_TAG}/pack-index.json`,
-        {
-          signal: AbortSignal.timeout(120_000),
-        },
-      );
-      if (res.status === 404) return { generatedAt: new Date(0).toISOString(), packs: [] };
-      if (res.ok) return (await res.json()) as PackIndex;
-      lastError = new Error(`HTTP ${res.status}`);
-    } catch (err) {
-      lastError = err;
-    }
-    await new Promise((r) => setTimeout(r, 5000 * (attempt + 1)));
+  let res: Response;
+  try {
+    res = await httpFetch(`https://github.com/${GITHUB_REPO}/releases/download/${INDEX_RELEASE_TAG}/pack-index.json`, {
+      timeoutMs: 120_000,
+      maxRetries: 4,
+      retryServerErrors: true,
+      backoffBaseMs: 5000,
+    });
+  } catch (err) {
+    throw new Error(`Couldn't fetch the published pack index: ${(err as Error)?.message ?? err}`, { cause: err });
   }
-  throw new Error(`Couldn't fetch the published pack index: ${(lastError as Error)?.message ?? lastError}`);
+  if (res.status === 404) return { generatedAt: new Date(0).toISOString(), packs: [] };
+  if (!res.ok) throw new Error(`Couldn't fetch the published pack index: HTTP ${res.status}`);
+  return (await res.json()) as PackIndex;
 }
 
 function manifestContentVersion(archivePath: string): string {
@@ -108,14 +85,15 @@ function manifestContentVersion(archivePath: string): string {
   }
 }
 
-/** Countries (World > continent > country) with any species on their own list or a province's. */
+/** Countries (World > continent > country) with any species on their own list or a province's. A
+ *  province shown under its continent gets packs of its own, as it's browsed there. */
 async function packCountries(names: string[] | null): Promise<Array<{ id: string; name: string }>> {
   const res = await pool.query<{ id: string; name: string }>(
     `SELECT c.id, c.name FROM regions c
      JOIN regions cont ON cont.id = c.parent_id
      JOIN regions w ON w.id = cont.parent_id AND w.parent_id IS NULL
      WHERE ($1::text[] IS NULL OR c.name = ANY($1))
-       AND EXISTS (SELECT 1 FROM region_species rs JOIN regions r ON r.id = rs.region_id WHERE r.id = c.id OR r.parent_id = c.id)
+       AND EXISTS (SELECT 1 FROM region_species rs WHERE rs.region_id = c.id OR rs.region_id IN (${descendantIdsSql("c.id")}))
      ORDER BY c.name`,
     [names],
   );
@@ -124,8 +102,8 @@ async function packCountries(names: string[] | null): Promise<Array<{ id: string
 
 async function taxaForCountry(countryId: string): Promise<Set<string>> {
   const res = await pool.query<{ taxon_class: string }>(
-    `SELECT DISTINCT s.taxon_class FROM region_species rs JOIN regions r ON r.id = rs.region_id JOIN species s ON s.id = rs.species_id
-     WHERE (r.id = $1 OR r.parent_id = $1) AND NOT s.is_other_taxa`,
+    `SELECT DISTINCT s.taxon_class FROM region_species rs JOIN species s ON s.id = rs.species_id
+     WHERE (rs.region_id = $1 OR rs.region_id IN (${descendantIdsSql("$1")})) AND NOT s.is_other_taxa`,
     [countryId],
   );
   return new Set(res.rows.map((r) => r.taxon_class));

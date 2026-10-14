@@ -13,6 +13,7 @@ const db = vi.hoisted(() => ({
   // Anchor lookups by "region|name".
   anchors: new Map<string, { on_list: boolean; tier: string | null }>(),
   fakeRare: { n: "0", sample: [] as string[] },
+  untraced: { n: "0", sample: [] as string[] },
   noPhoto: { n: "0" },
   coverage: [] as Array<{ name: string; taxa: string[] }>,
   otherTaxa: [] as string[],
@@ -39,6 +40,7 @@ vi.mock("../db.js", () => ({
         return { rows: [db.anchors.get(`${region}|${name}`) ?? { on_list: false, tier: null }] };
       }
       if (sql.includes("'rare', 'legendary'")) return { rows: [db.fakeRare] };
+      if (sql.includes("tier_reason IS NULL")) return { rows: [db.untraced] };
       if (sql.includes("reference_photo IS NULL")) return { rows: [db.noPhoto] };
       if (sql.includes("array_agg(DISTINCT s.taxon_class)")) return { rows: db.coverage };
       const names = (params[0] ?? []) as string[];
@@ -110,6 +112,7 @@ beforeEach(() => {
   OUT = path.join(tmp, "report.json");
   db.anchors.clear();
   db.fakeRare = { n: "0", sample: [] };
+  db.untraced = { n: "0", sample: [] };
   db.noPhoto = { n: "0" };
   db.coverage = [];
   db.otherTaxa = [];
@@ -179,6 +182,17 @@ describe("runGate", () => {
         check: "rare_without_records",
         detail:
           "2 rare/legendary rows have no records of any age and no photos behind them (e.g. Kenya: A a; Peru: B b)",
+      },
+    ]);
+  });
+
+  it("fails on local tiers the tiers stage didn't write, naming the regions", async () => {
+    db.untraced = { n: "12", sample: ["Aswan", "Luxor"] };
+    const report = await runGate({ index: null, out: OUT });
+    expect(report.failures).toEqual([
+      {
+        check: "untraced_tier",
+        detail: "12 checklist rows have a local tier the tiers stage didn't write (in Aswan, Luxor)",
       },
     ]);
   });
@@ -323,6 +337,7 @@ describe("runGate", () => {
   it("collects failures from every check instead of stopping at the first", async () => {
     files.anchors = [{ region: "Kenya", name: "A a" }];
     db.fakeRare = { n: "1", sample: ["Kenya: B b"] };
+    db.untraced = { n: "1", sample: ["Aswan"] };
     missing.add = [{ scientificName: "Bird", taxonClass: "aves", inatObservations: 0 }];
     db.coverage = [{ name: "Kenya", taxa: ["mammalia"] }];
     db.otherTaxa = ["Mine"];
@@ -331,6 +346,7 @@ describe("runGate", () => {
     expect(checks(report)).toEqual([
       "anchor_missing",
       "rare_without_records",
+      "untraced_tier",
       "catalog_gaps",
       "pack_missing",
       "other_taxa_in_pack",

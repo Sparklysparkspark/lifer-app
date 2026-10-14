@@ -18,9 +18,10 @@
 //   npx tsx src/scripts/apply-introduced-flags.ts --apply
 //   LIFER_INAT_OFFLINE=1 ... --apply                          (cached lists only)
 import path from "node:path";
+import { COUNTRIES_SQL } from "@lifer/core/regions/regionTree.js";
 import { fileURLToPath } from "node:url";
 import { pool } from "@lifer/core/db.js";
-import { cachedPlaceCounts, cachedPlaceIntroduced, refreshPlaceIntroduced } from "@lifer/core/regions/inatChecklist.js";
+import { cachedPlaceCounts, cachedPlaceIntroduced, refreshPlaceIntroduced } from "../regions/inatChecklist.js";
 
 const ESTABLISHED_RECORDS = 20;
 const ESTABLISHED_YEARS = 3;
@@ -41,13 +42,13 @@ interface Region {
 
 export async function applyIntroducedFlags(opts: { apply: boolean; log?: (m: string) => void }) {
   const log = opts.log ?? ((m) => console.log(`[introduced] ${m}`));
-  // Countries (World > continent > country) and everything under them, each with its country.
+  // Countries (World > continent > country) and everything under them, each with its country. A
+  // province shown under its continent goes with its country.
   const regions = (
     await pool.query<Region>(
-      `WITH RECURSIVE countries AS (
-         SELECT c.id FROM regions c JOIN regions cont ON cont.id = c.parent_id JOIN regions w ON w.id = cont.parent_id AND w.parent_id IS NULL
-       ), tree AS (
+      `WITH RECURSIVE countries AS (${COUNTRIES_SQL}), tree AS (
          SELECT id, id AS country_id FROM countries
+         UNION ALL SELECT id, home_country_id FROM regions WHERE home_country_id IS NOT NULL
          UNION ALL SELECT r.id, t.country_id FROM regions r JOIN tree t ON r.parent_id = t.id
        )
        SELECT r.id, r.inat_place_id, t.country_id,
@@ -60,11 +61,9 @@ export async function applyIntroducedFlags(opts: { apply: boolean; log?: (m: str
   const places = [...new Set(regions.map((r) => r.inat_place_id).filter((p): p is number => p != null))];
   let failed = 0;
   for (const [i, place] of places.entries()) {
-    if (!(await refreshPlaceIntroduced(place))) {
-      // Almost always iNaturalist throttling: carrying on straight away only keeps it throttled.
-      failed++;
-      await new Promise((resolve) => setTimeout(resolve, 60_000));
-    }
+    // A throttled place fails; the shared HTTP client then holds iNaturalist for every call, so
+    // the next place waits out the throttling rather than prolonging it.
+    if (!(await refreshPlaceIntroduced(place))) failed++;
     if ((i + 1) % 250 === 0) log(`${i + 1}/${places.length} places (${failed} failed)`);
   }
   if (failed > 0) log(`${failed} place(s) couldn't be fetched; their regions use their country's list`);

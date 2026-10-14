@@ -18,6 +18,7 @@
 //
 // Usage (from packages/data-pipeline): npx tsx src/scripts/remove-escapes.ts [--apply]
 import path from "node:path";
+import { PROVINCES_WITH_COUNTRY_SQL, provinceIdsSql } from "@lifer/core/regions/regionTree.js";
 import { fileURLToPath } from "node:url";
 import type { PoolClient } from "pg";
 import { pool } from "@lifer/core/db.js";
@@ -179,8 +180,7 @@ export async function removeEscapes(
       `CREATE TEMP TABLE esc_province ON COMMIT DROP AS
        SELECT r.id, r.name, c.id AS country_id, c.name AS country,
               ST_Simplify(ST_Force2D(ST_GeomFromGeoJSON((r.boundary_geojson->'geometry')::text)), 0.05, true)::geography AS pt
-       FROM regions r JOIN regions c ON c.id = r.parent_id JOIN regions cont ON cont.id = c.parent_id
-       JOIN regions w ON w.id = cont.parent_id AND w.parent_id IS NULL
+       FROM (${PROVINCES_WITH_COUNTRY_SQL}) p JOIN regions r ON r.id = p.id JOIN regions c ON c.id = p.country_id
        WHERE r.boundary_geojson ? 'geometry'`,
     );
     await client.query(`CREATE INDEX ON esc_province USING gist (pt)`);
@@ -248,6 +248,7 @@ export async function removeEscapes(
          JOIN species s ON s.id = rs.species_id
          JOIN regions c ON c.id = rs.region_id
          JOIN regions cont ON cont.id = c.parent_id JOIN regions w ON w.id = cont.parent_id AND w.parent_id IS NULL
+           AND c.home_country_id IS NULL
          JOIN region_group_effort g ON g.region_id = c.id AND g.inat_rg_records >= $4
            AND g.species_group = CASE WHEN s.taxon_class = 'mammalia' THEN 'mammals' ELSE 'herps' END
          WHERE s.taxon_class = ANY($1) AND NOT s.is_other_taxa
@@ -256,7 +257,7 @@ export async function removeEscapes(
            AND greatest(COALESCE(rs.local_frequency, 0), COALESCE(rs.inat_rg_count, 0)) < $5
            AND EXISTS (SELECT 1 FROM esc_established e WHERE e.species_id = rs.species_id)
            AND NOT EXISTS (SELECT 1 FROM region_species ps JOIN regions pr ON pr.id = ps.region_id
-                           WHERE pr.parent_id = c.id AND ps.species_id = rs.species_id)
+                           WHERE pr.id IN (${provinceIdsSql("c.id")}) AND ps.species_id = rs.species_id)
        )
        SELECT k.species_id, k.country_id AS region_id
        FROM candidates k

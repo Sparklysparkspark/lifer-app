@@ -13,10 +13,11 @@
 //
 // Usage (from packages/data-pipeline): npx tsx src/scripts/add-new-species-to-checklists.ts [--apply]
 import { existsSync, readFileSync } from "node:fs";
+import { PROVINCES_WITH_COUNTRY_SQL } from "@lifer/core/regions/regionTree.js";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { pool } from "@lifer/core/db.js";
-import { cachedPlaceCounts } from "@lifer/core/regions/inatChecklist.js";
+import { cachedPlaceCounts } from "../regions/inatChecklist.js";
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "..");
 const EBIRD_CACHE_DIR = path.join(REPO_ROOT, "packages/data-pipeline/data/ebird-spplist-cache");
@@ -48,7 +49,7 @@ export async function addNewSpeciesToChecklists(apply: boolean): Promise<{ provi
     newSpecies.rows.filter((s) => s.inat_taxon_id == null && s.ebird_code).map((s) => [s.ebird_code!, s.id]),
   );
 
-  // Provinces: regions directly under a country (World > continent > country > province).
+  // Provinces, grouped or not (World > continent > country > [group >] province).
   const provinces = await pool.query<{
     id: string;
     inat_place_id: number | null;
@@ -56,8 +57,7 @@ export async function addNewSpeciesToChecklists(apply: boolean): Promise<{ provi
     iso3: string[];
   }>(
     `SELECT r.id, r.inat_place_id, r.ebird_region_code, c.external_codes AS iso3
-     FROM regions r JOIN regions c ON c.id = r.parent_id JOIN regions cont ON cont.id = c.parent_id
-     JOIN regions w ON w.id = cont.parent_id AND w.parent_id IS NULL`,
+     FROM (${PROVINCES_WITH_COUNTRY_SQL}) p JOIN regions r ON r.id = p.id JOIN regions c ON c.id = p.country_id`,
   );
   let touched = 0;
   let rows = 0;

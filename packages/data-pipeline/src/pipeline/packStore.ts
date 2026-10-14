@@ -15,7 +15,7 @@ import { createHash } from "node:crypto";
 import { closeSync, existsSync, openSync, readFileSync, statSync, writeSync } from "node:fs";
 import path from "node:path";
 import { GITHUB_REPO, INDEX_RELEASE_TAG } from "../build/release-groups.js";
-import type { IndexPack, PackIndex } from "./packs.js";
+import type { IndexPack, PackIndex } from "./packIndex.js";
 
 // Kept well under GitHub's 2 GB per-asset limit.
 const MAX_SHARD_BYTES = 1_500_000_000;
