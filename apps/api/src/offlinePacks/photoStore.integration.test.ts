@@ -98,7 +98,8 @@ describe.skipIf(!url)("photo store", () => {
 
     const { fetchPhotoStoreIndex, missingPhotos, downloadPhotos } = await import("./photoStore.js");
     const indexUrl = `${base}lifer-photo-store.json.gz`;
-    const index = await fetchPhotoStoreIndex(indexUrl, { fresh: true });
+    // A local server, not the configured pack origin.
+    const index = await fetchPhotoStoreIndex(indexUrl, { fresh: true, assertUrl: () => {} });
     const small = await missingPhotos(db, index, [SPECIES], false);
     expect(small).toHaveLength(2); // display and thumb, no gallery
     const needs = await missingPhotos(db, index, [SPECIES], true);

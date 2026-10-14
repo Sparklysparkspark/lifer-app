@@ -1,7 +1,19 @@
-// Guards for reading files out of an extracted (untrusted) pack archive.
+// Guards for fetching packs and reading files out of an extracted (untrusted) pack archive.
 import { realpathSync, type Stats } from "node:fs";
 import path from "node:path";
+import { PACK_INDEX_URL } from "@lifer/core/config.js";
 import { isWithin } from "@lifer/core/lib/pathContainment.js";
+
+// Pack, shard and photo store urls come from the fetched index JSON, so a tampered index could aim
+// this server's fetch at an internal service. They must share the index's origin.
+export function assertTrustedPackUrl(url: string): void {
+  if (!PACK_INDEX_URL) throw new Error("No pack index is configured for this instance yet");
+  const packOrigin = new URL(url).origin;
+  const indexOrigin = new URL(PACK_INDEX_URL).origin;
+  if (packOrigin !== indexOrigin) {
+    throw new Error(`Refusing to fetch a pack from an untrusted origin: ${packOrigin}`);
+  }
+}
 
 // Only plain files and folders are extracted. A symlink or hardlink entry could otherwise point
 // outside the extract dir, and the later copy would follow it.

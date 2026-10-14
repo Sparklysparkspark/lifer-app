@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { planRanges, type PhotoRef } from "./photoStore.js";
+import { describe, expect, it, vi } from "vitest";
+import { fetchPhotoStoreIndex, planRanges, type PhotoRef } from "./photoStore.js";
 
 const item = (shard: number, offset: number, length: number) => ({ ref: [shard, offset, length, "x"] as PhotoRef });
 
@@ -18,5 +18,14 @@ describe("planRanges", () => {
     expect(shards.map((r) => r.shard)).toEqual([0, 1]);
     const big = planRanges([item(0, 0, 20_000_000), item(0, 20_000_000, 20_000_000)]);
     expect(big).toHaveLength(2);
+  });
+});
+
+describe("fetchPhotoStoreIndex", () => {
+  it("refuses an index url off the pack index's origin before fetching it", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    await expect(fetchPhotoStoreIndex("http://169.254.169.254/latest/meta-data")).rejects.toThrow(/untrusted origin/);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    fetchSpy.mockRestore();
   });
 });

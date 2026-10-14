@@ -3,34 +3,49 @@
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { gunzipSync } from "node:zlib";
+import { promisify } from "node:util";
+import { gunzip } from "node:zlib";
 import type { Pool, PoolClient } from "pg";
 import { APP_DATA_DIR } from "@lifer/core/config.js";
+import { assertTrustedPackUrl } from "./packPaths.js";
+import { PhotoStoreIndexSchema, parseRemoteJson, type PhotoRef, type PhotoStoreIndex } from "./schemas.js";
+
+export type { PhotoRef, PhotoStoreIndex } from "./schemas.js";
 
 type Queryable = Pick<Pool | PoolClient, "query">;
 
-export type PhotoRef = [shard: number, offset: number, length: number, sha1: string];
-interface PhotoPair {
-  d?: PhotoRef;
-  t?: PhotoRef;
-}
-export interface PhotoStoreIndex {
-  v: 1;
-  builtAt: string;
-  shards: Array<{ name: string; bytes: number; sha256: string }>;
-  species: Record<string, PhotoPair & { g?: Record<string, PhotoPair> }>;
-}
+const gunzipAsync = promisify(gunzip);
 
 const INDEX_TTL_MS = 15 * 60_000;
 let cached: { url: string; at: number; index: PhotoStoreIndex } | null = null;
+let inFlight: { url: string; promise: Promise<PhotoStoreIndex> } | null = null;
 
-export async function fetchPhotoStoreIndex(indexUrl: string, opts: { fresh?: boolean } = {}): Promise<PhotoStoreIndex> {
+/** The photo store's index, cached for a while and shared by concurrent callers. It's tens of MB
+ *  unpacked, so it's unzipped off the event loop. `assertUrl` defaults to the pack origin check. */
+export async function fetchPhotoStoreIndex(
+  indexUrl: string,
+  opts: { fresh?: boolean; assertUrl?: (url: string) => void } = {},
+): Promise<PhotoStoreIndex> {
   if (!opts.fresh && cached && cached.url === indexUrl && Date.now() - cached.at < INDEX_TTL_MS) return cached.index;
-  const res = await fetch(indexUrl, { signal: AbortSignal.timeout(120_000) });
-  if (!res.ok) throw new Error(`Couldn't fetch the pack photo index (${res.status})`);
-  const index = JSON.parse(gunzipSync(Buffer.from(await res.arrayBuffer())).toString("utf8")) as PhotoStoreIndex;
-  cached = { url: indexUrl, at: Date.now(), index };
-  return index;
+  (opts.assertUrl ?? assertTrustedPackUrl)(indexUrl);
+  if (inFlight?.url === indexUrl) return inFlight.promise;
+  const promise = (async () => {
+    const res = await fetch(indexUrl, { signal: AbortSignal.timeout(120_000) });
+    if (!res.ok) throw new Error(`Couldn't fetch the pack photo index (${res.status})`);
+    const text = (await gunzipAsync(Buffer.from(await res.arrayBuffer()))).toString("utf8");
+    const index = parseRemoteJson(PhotoStoreIndexSchema, JSON.parse(text), "pack photo index");
+    cached = { url: indexUrl, at: Date.now(), index };
+    return index;
+  })().finally(() => {
+    if (inFlight?.promise === promise) inFlight = null;
+  });
+  inFlight = { url: indexUrl, promise };
+  return promise;
+}
+
+/** The last photo store index fetched from `indexUrl`, however old, without fetching. */
+export function lastPhotoStoreIndex(indexUrl: string): PhotoStoreIndex | null {
+  return cached?.url === indexUrl ? cached.index : null;
 }
 
 /** Shard files sit beside the index. */
