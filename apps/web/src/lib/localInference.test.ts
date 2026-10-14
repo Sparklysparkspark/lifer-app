@@ -78,6 +78,25 @@ describe("computeClientVectors", () => {
   });
 });
 
+describe("preparing", () => {
+  it("stops waiting on a model download that never finishes", async () => {
+    vi.useFakeTimers();
+    try {
+      get.mockResolvedValue({ targets: ["clip"] });
+      const invoke = vi.fn().mockResolvedValue({ ready: false, error: null });
+      const m = await fresh(invoke);
+      m.prepareLocalInference();
+      await vi.advanceTimersByTimeAsync(31 * 60_000);
+      const polls = invoke.mock.calls.length;
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(invoke.mock.calls.length).toBe(polls);
+      expect(await m.computeClientVectors(photo)).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
 describe("shouldMatchLocally", () => {
   it("measures this computer first, then the server, then keeps to the faster and re-checks the other", async () => {
     vi.resetModules();

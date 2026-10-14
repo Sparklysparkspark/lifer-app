@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, renameSync, rmSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync, statSync } from "node:fs";
 import { readdir, stat } from "node:fs/promises";
 import path from "node:path";
 import type { FastifyInstance } from "fastify";
@@ -10,11 +10,13 @@ import { offloadAcceleration } from "../species/accelerationSetup.js";
 import { modelDownload, startModelDownloadJob } from "../species/modelDownloadJob.js";
 import { activeSuggestionModel, isModelDownloaded, offloadModel, MODEL_DIR } from "@lifer/core/species/embeddings.js";
 import { idModel } from "@lifer/core/species/idModel.js";
+import { sceneModel } from "@lifer/core/species/sceneModel.js";
 import { galleryEmbeddingsJob, vectorUpdateProgress } from "../species/galleryEmbeddingsAsset.js";
 import { isTextModelDownloaded } from "@lifer/core/species/textEmbedding.js";
 import { createJob } from "../lib/job.js";
-import { downloadToFile } from "../lib/download.js";
+import { downloadResumable } from "@lifer/core/lib/resumableDownload.js";
 import { Ok, replies, withSchemas } from "../lib/schema.js";
+import { EmbeddingModelStatus, MapStatus } from "./responses.js";
 
 const Started = Type.Object({ started: Type.Boolean() });
 const Cancelled = Type.Object({ cancelled: Type.Boolean() });
@@ -45,15 +47,19 @@ export async function assetRoutes(fastify: FastifyInstance): Promise<void> {
   const mapJob = createJob<{ bytes: number }>("offline-map");
   const MAP_FILE_PATH = path.join(MAPS_DIR, "world-z8.pmtiles");
 
-  app.get("/settings/map/status", { preValidation: requireAuth, schema: {} }, async () => ({
-    available: MAP_DOWNLOAD_URL != null,
-    downloaded: existsSync(MAP_FILE_PATH),
-    // The on-disk size: the job's downloadedBytes resets on every restart.
-    sizeBytes: existsSync(MAP_FILE_PATH) ? statSync(MAP_FILE_PATH).size : null,
-    ...mapJob.status,
-    // Alias for `running`, still read by the web app's onboarding page.
-    downloading: mapJob.status.running,
-  }));
+  app.get(
+    "/settings/map/status",
+    { preValidation: requireAuth, schema: { response: replies(MapStatus) } },
+    async () => ({
+      available: MAP_DOWNLOAD_URL != null,
+      downloaded: existsSync(MAP_FILE_PATH),
+      // The on-disk size: the job's downloadedBytes resets on every restart.
+      sizeBytes: existsSync(MAP_FILE_PATH) ? statSync(MAP_FILE_PATH).size : null,
+      ...mapJob.status,
+      // Alias for `running`, still read by the web app's onboarding page.
+      downloading: mapJob.status.running,
+    }),
+  );
 
   app.post(
     "/settings/map/download",
@@ -63,14 +69,16 @@ export async function assetRoutes(fastify: FastifyInstance): Promise<void> {
       if (!url) return reply.code(400).send({ error: "No offline map is configured for this instance" });
       const started = mapJob.start(
         async (ctx) => {
-          const tmpPath = `${MAP_FILE_PATH}.download`;
           mkdirSync(MAPS_DIR, { recursive: true });
-          const { bytes } = await downloadToFile(url, tmpPath, {
+          // Lands atomically. Never resumed: the rolling map has no checksum to catch a partial
+          // file left by an older version.
+          rmSync(`${MAP_FILE_PATH}.part`, { force: true });
+          const { bytes } = await downloadResumable(url, MAP_FILE_PATH, {
             signal: ctx.signal,
+            label: "the offline map",
             onProgress: (downloadedBytes, totalBytes) => ctx.update({ downloadedBytes, totalBytes }),
           });
           ctx.throwIfCancelled();
-          renameSync(tmpPath, MAP_FILE_PATH);
           return { bytes };
         },
         { phase: "downloading", downloadedBytes: 0 },
@@ -127,20 +135,26 @@ export async function assetRoutes(fastify: FastifyInstance): Promise<void> {
   }
 
   // JobStatus plus what's installed and how big it is.
-  app.get("/settings/embedding-model/status", { preValidation: requireAuth, schema: {} }, async () => ({
-    ...modelDownload.status,
-    // While this download waits for the reference vectors, or another job installs them, show
-    // that job's progress instead of a bare "waiting".
-    ...vectorProgressShown(),
-    activeModel: await activeSuggestionModel(pool),
-    // All three models: without the identification model, suggestions fall back to the older,
-    // less accurate CLIP-only matching, so the download prompt should still show.
-    downloaded: isModelDownloaded() && isTextModelDownloaded() && idModel.isDownloaded(),
-    idModelDownloaded: idModel.isDownloaded(),
-    // Suggestions work on the CLIP models alone, just less accurately.
-    usable: isModelDownloaded() && isTextModelDownloaded(),
-    sizeBytes: (await modelDirSizeBytes()) || null,
-  }));
+  app.get(
+    "/settings/embedding-model/status",
+    { preValidation: requireAuth, schema: { response: replies(EmbeddingModelStatus) } },
+    async () => ({
+      ...modelDownload.status,
+      // While this download waits for the reference vectors, or another job installs them, show
+      // that job's progress instead of a bare "waiting".
+      ...vectorProgressShown(),
+      activeModel: await activeSuggestionModel(pool),
+      // Every model: without the identification model, suggestions fall back to the older, less
+      // accurate CLIP-only matching, and without the scene model Gallery search misses scene and
+      // colour words, so the download prompt should still show.
+      downloaded: isModelDownloaded() && isTextModelDownloaded() && idModel.isDownloaded() && sceneModel.isDownloaded(),
+      idModelDownloaded: idModel.isDownloaded(),
+      sceneModelDownloaded: sceneModel.isDownloaded(),
+      // Suggestions work on the CLIP models alone, just less accurately.
+      usable: isModelDownloaded() && isTextModelDownloaded(),
+      sizeBytes: (await modelDirSizeBytes()) || null,
+    }),
+  );
 
   app.post(
     "/settings/embedding-model/download",

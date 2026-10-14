@@ -12,6 +12,8 @@ interface MatchingInfo {
 
 const EMBED_TIMEOUT_MS = 30_000;
 const POLL_MS = 2_000;
+// Gives up waiting on a model download that never finishes; the retry below starts over.
+const PREPARE_DEADLINE_MS = 30 * 60_000;
 // Try again after this long if it wasn't available (the server may have just got its models).
 const RETRY_MS = 5 * 60_000;
 
@@ -53,7 +55,9 @@ async function start(): Promise<void> {
     if (!info.targets?.length) return setPhase("unavailable");
     let status = (await invoke("local_inference_prepare", { info })) as Status;
     // A first run downloads the models (hundreds of MB); imports go to the server meanwhile.
+    const deadline = Date.now() + PREPARE_DEADLINE_MS;
     while (!status.ready && !status.error) {
+      if (Date.now() > deadline) return setPhase("unavailable");
       await new Promise((r) => setTimeout(r, POLL_MS));
       status = (await invoke("local_inference_status")) as Status;
     }

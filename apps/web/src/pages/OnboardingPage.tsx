@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import type { RegionSummary, TaxonClass } from "@lifer/shared";
-import { taxonDisplayLabel, TAXON_GROUPS, GROUPED_TAXON_CLASSES } from "@lifer/shared";
+import { idleJobStatus, taxonDisplayLabel, TAXON_GROUPS, GROUPED_TAXON_CLASSES } from "@lifer/shared";
 import { api } from "../api/client";
 import { Logo } from "../components/Logo";
 import RegionPicker from "../components/RegionPicker";
@@ -10,21 +10,16 @@ import { Spinner } from "../components/LoadingScreen";
 import Pill from "../components/Pill";
 import FormMessage from "../components/FormMessage";
 import JobProgress, { type JobProgressStatus } from "../components/JobProgress";
-import type { PackEntry } from "../components/DownloadedPacksList";
 import { PACK_DOWNLOAD_PHASES, packProgressDetail, usePackDownloadJob } from "../hooks/usePackDownloadStatus";
+import { useJobPoll } from "../hooks/useJobPoll";
 import { useRegions } from "../hooks/useRegions";
 import { useSettings } from "../hooks/useSettings";
 import i18n from "../i18n";
 import { errorMessage } from "../lib/errorMessage";
-
-interface MapStatus {
-  available: boolean;
-  downloaded: boolean;
-  downloading: boolean;
-  downloadedBytes: number;
-  totalBytes: number | null;
-  error: string | null;
-}
+import { usePackIndex } from "../lib/packIndex";
+import { availableTaxaByRegion, continentIdForCountry, groupRegions, searchCountries } from "../lib/regionGrouping";
+import type { MapStatus } from "./settings/phases";
+import { ignore } from "../lib/ignore";
 
 // Labels are getters, so they're translated when shown rather than when this module loads.
 const MAP_PHASES = {
@@ -56,49 +51,22 @@ export default function OnboardingPage() {
 
   // --- Step A: optional offline map ---
   const [wantMap, setWantMap] = useState(true);
-  const [mapStatus, setMapStatus] = useState<MapStatus | null>(null);
-  const [startingMap, setStartingMap] = useState(false);
-
-  useEffect(() => {
-    if (step !== "map") return;
-    api
-      .get<MapStatus>("/settings/map/status")
-      .then(setMapStatus)
-      .catch(() => setMapStatus(null));
-  }, [step]);
-
-  useEffect(() => {
-    if (!mapStatus?.downloading) return;
-    const timer = setTimeout(() => {
-      api
-        .get<MapStatus>("/settings/map/status")
-        .then(setMapStatus)
-        .catch(() => {});
-    }, 1000);
-    return () => clearTimeout(timer);
-  }, [mapStatus]);
+  // Polls while the download runs and keeps going through a failed request mid-run.
+  const mapJob = useJobPoll<MapStatus>(step === "map" ? "/settings/map/status" : null);
+  const mapStatus = mapJob.status;
+  const startingMap = mapJob.starting;
 
   async function continueFromMapStep() {
     if (!wantMap || !mapStatus?.available || mapStatus.downloaded) {
       setStep("matching");
       return;
     }
-    setStartingMap(true);
-    try {
-      await api.post("/settings/map/download");
-      const res = await api.get<MapStatus>("/settings/map/status");
-      setMapStatus(res);
-    } catch {
-      // Best effort: Settings offers the same download later.
-      setStep("matching");
-    } finally {
-      setStartingMap(false);
-    }
+    // Best effort: Settings offers the same download later.
+    if (!(await mapJob.start("/settings/map/download"))) setStep("matching");
   }
 
   // Once the map has finished downloading, move on by itself.
-  if (step === "map" && mapStatus && !mapStatus.downloading && startingMap === false && mapStatus.downloaded)
-    setStep("matching");
+  if (step === "map" && mapStatus && !mapStatus.running && !startingMap && mapStatus.downloaded) setStep("matching");
 
   // --- Step A2: species matching (optional) ---
   // Offered here since the model download otherwise hides in Settings. It runs server-side, so setup moves on.
@@ -109,7 +77,7 @@ export default function OnboardingPage() {
   useEffect(() => {
     if (step !== "matching") return;
     api
-      .get<{ downloaded: boolean; running: boolean }>("/settings/embedding-model/status")
+      .get("/settings/embedding-model/status")
       .then((res) => {
         if (res.downloaded || res.running) setStep("pack");
         else setModelStatus(res);
@@ -142,24 +110,12 @@ export default function OnboardingPage() {
   const [startedHere, setStartedHere] = useState(false);
 
   // Taxon picker for the chosen regions, the same one Offline Packs uses. Empty means all taxa.
-  const [packs, setPacks] = useState<PackEntry[] | null>(null);
-  const [packsError, setPacksError] = useState(false);
+  const packIndex = usePackIndex(step === "pack");
+  const packsError = !packIndex.packs && !!packIndex.error;
   const [selectedTaxa, setSelectedTaxa] = useState<Set<TaxonClass>>(new Set());
   const [openTaxonGroups, setOpenTaxonGroups] = useState<Set<string>>(new Set());
   const namingStyles = settings?.speciesNamingStyles ?? [];
   const catalogLoading = settings?.catalogLoading ?? null;
-
-  // Steps only move forward, so this runs once and there's no earlier error to clear.
-  useEffect(() => {
-    if (step !== "pack") return;
-    api
-      .get<{ packs: PackEntry[] }>("/offline-packs/index")
-      .then((res) => setPacks(res.packs))
-      .catch(() => {
-        setPacks([]);
-        setPacksError(true);
-      });
-  }, [step]);
 
   // A new server loads its catalog in the background after starting (minutes on a NAS), so this
   // step can open before any country exists. Keep checking until they show up.
@@ -168,44 +124,37 @@ export default function OnboardingPage() {
     if (step !== "pack" || hasCountries || catalogLoading === "failed") return;
     if (regions === null && !regionsError) return;
     const timer = setTimeout(() => {
-      refreshRegions().catch(() => {});
-      refreshSettings().catch(() => {});
+      refreshRegions().catch(ignore("Couldn't reload the region list"));
+      refreshSettings().catch(ignore("Couldn't reload settings"));
     }, 3000);
     return () => clearTimeout(timer);
   }, [step, regions, regionsError, hasCountries, catalogLoading, refreshRegions, refreshSettings]);
 
-  const world = useMemo(() => (regions ?? []).find((r) => r.parentId === null && r.name === "World"), [regions]);
-  const continents = useMemo(() => (regions ?? []).filter((r) => r.parentId === world?.id), [regions, world]);
-  const countriesByContinent = useMemo(() => {
+  // Grouped the same way as Offline packs. Territories are listed after their continent's
+  // countries, since there's no per-country territories panel here.
+  const { continents, countriesByContinent, territoriesByContinent } = useMemo(
+    () => groupRegions(regions ?? []),
+    [regions],
+  );
+  const pickableByContinent = useMemo(() => {
     const map = new Map<string, RegionSummary[]>();
-    for (const r of regions ?? []) {
-      if (!r.parentId || !continents.some((c) => c.id === r.parentId)) continue;
-      if (!map.has(r.parentId)) map.set(r.parentId, []);
-      map.get(r.parentId)!.push(r);
+    for (const c of continents) {
+      const list = [...(countriesByContinent.get(c.id) ?? []), ...(territoriesByContinent.get(c.id) ?? [])];
+      if (list.length > 0) map.set(c.id, list);
     }
     return map;
-  }, [regions, continents]);
+  }, [continents, countriesByContinent, territoriesByContinent]);
   const countryById = useMemo(() => new Map((regions ?? []).map((r) => [r.id, r])), [regions]);
   // From the pack catalog, which lists every published region and taxon whether downloaded or not.
-  const availableTaxaByRegion = useMemo(() => {
-    const byRegionName = new Map<string, Set<TaxonClass>>();
-    for (const p of packs ?? []) {
-      if (p.type !== "region" || !p.region || !p.taxon) continue;
-      if (!byRegionName.has(p.region)) byRegionName.set(p.region, new Set());
-      byRegionName.get(p.region)!.add(p.taxon);
-    }
-    const byRegionId: Record<string, TaxonClass[]> = {};
-    for (const r of regions ?? []) {
-      const taxa = byRegionName.get(r.name);
-      if (taxa) byRegionId[r.id] = [...taxa];
-    }
-    return byRegionId;
-  }, [packs, regions]);
+  const taxaByRegion = useMemo(
+    () => availableTaxaByRegion(packIndex.packs ?? [], regions ?? []),
+    [packIndex.packs, regions],
+  );
   const availableTaxaForSelection = useMemo(() => {
     const set = new Set<TaxonClass>();
-    for (const id of selectedCountryIds) for (const taxon of availableTaxaByRegion[id] ?? []) set.add(taxon);
+    for (const id of selectedCountryIds) for (const taxon of taxaByRegion[id] ?? []) set.add(taxon);
     return [...set];
-  }, [selectedCountryIds, availableTaxaByRegion]);
+  }, [selectedCountryIds, taxaByRegion]);
   function toggleTaxon(taxon: TaxonClass) {
     setSelectedTaxa((prev) => {
       const next = new Set(prev);
@@ -214,14 +163,10 @@ export default function OnboardingPage() {
       return next;
     });
   }
-  const searchResults = useMemo(() => {
-    if (searchTerm.trim().length < 2) return [];
-    const term = searchTerm.trim().toLowerCase();
-    const continentIds = new Set(continents.map((c) => c.id));
-    return (regions ?? [])
-      .filter((r) => r.parentId && continentIds.has(r.parentId) && r.name.toLowerCase().includes(term))
-      .slice(0, 8);
-  }, [searchTerm, regions, continents]);
+  const searchResults = useMemo(
+    () => searchCountries(regions ?? [], continents, searchTerm),
+    [searchTerm, regions, continents],
+  );
 
   const packsApplied = status?.processed ?? 0;
   const alreadySucceeded =
@@ -236,23 +181,16 @@ export default function OnboardingPage() {
     });
   }
 
-  // The map download reports its own status shape; JobProgress takes a hand-built one.
-  const mapJob: JobProgressStatus = {
-    running: startingMap || !!mapStatus?.downloading,
-    phase: mapStatus?.downloading ? "downloading" : null,
-    downloadedBytes: mapStatus?.downloadedBytes || null,
-    totalBytes: mapStatus?.totalBytes ?? null,
-    processed: null,
-    total: null,
-    currentItem: null,
+  // The map's error is shown on its own line below, not inside the progress bar.
+  const mapProgress: JobProgressStatus = {
+    ...(mapStatus ?? idleJobStatus()),
+    running: startingMap || !!mapStatus?.running,
     error: null,
-    cancelRequested: false,
-    cancelled: false,
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-canvas p-6">
-      <div className="w-full max-w-lg space-y-6 rounded-xl border border-line bg-surface p-8 shadow-sm">
+    <div className="flex min-h-screen items-center justify-center bg-canvas p-page">
+      <div className="w-full max-w-lg space-y-section rounded-panel border border-line bg-surface p-panel">
         <Logo variant="wordmark" className="h-8 w-auto" />
 
         {step === "map" && (
@@ -261,21 +199,21 @@ export default function OnboardingPage() {
               <h2 className="text-lg font-semibold text-ink">{t("onboarding.map.title")}</h2>
               <p className="mt-1 text-sm text-muted">{t("onboarding.map.description")}</p>
             </div>
-            {startingMap || mapStatus?.downloading ? (
-              <JobProgress status={mapJob} phases={MAP_PHASES} fallbackLabel={t("onboarding.map.starting")} />
+            {mapProgress.running ? (
+              <JobProgress status={mapProgress} phases={MAP_PHASES} fallbackLabel={t("onboarding.map.starting")} />
             ) : (
               <label className="flex items-center gap-2 text-sm text-ink">
                 <input type="checkbox" checked={wantMap} onChange={(e) => setWantMap(e.target.checked)} />
                 {t("onboarding.map.checkbox")}
               </label>
             )}
-            {mapStatus?.error && !mapStatus.downloading && (
+            {mapStatus?.error && !mapStatus.running && (
               <FormMessage error={t("onboarding.map.failed", { error: mapStatus.error })} />
             )}
             <button
               type="button"
               onClick={continueFromMapStep}
-              disabled={startingMap || !!mapStatus?.downloading}
+              disabled={mapProgress.running}
               className="w-full rounded-md bg-accent py-2 text-sm font-medium text-accent-fg disabled:opacity-50"
             >
               {t("onboarding.continue")}
@@ -334,7 +272,7 @@ export default function OnboardingPage() {
                 </button>
               </>
             ) : status?.running ? (
-              <div className="rounded-xl border border-line bg-surface p-4">
+              <div className="rounded-panel border border-line bg-surface p-4">
                 <JobProgress
                   status={status}
                   phases={PACK_PHASES}
@@ -345,7 +283,7 @@ export default function OnboardingPage() {
                 />
               </div>
             ) : !hasCountries ? (
-              <div className="rounded-xl border border-line bg-surface p-4 text-sm text-ink">
+              <div className="rounded-panel border border-line bg-surface p-4 text-sm text-ink">
                 {settingsError && !settings ? (
                   <p>{t("onboarding.pack.catalogUnreachable")}</p>
                 ) : catalogLoading === "failed" ? (
@@ -365,7 +303,7 @@ export default function OnboardingPage() {
                     onSelectResult: (r) => {
                       setSelectedCountryIds((prev) => new Set(prev).add(r.id));
                       setSearchTerm("");
-                      const continentId = (r as RegionSummary).parentId;
+                      const continentId = continentIdForCountry(r as RegionSummary);
                       if (continentId) setOpenContinentIds((prev) => new Set(prev).add(continentId));
                     },
                     placeholder: t("onboarding.pack.searchPlaceholder"),
@@ -373,7 +311,7 @@ export default function OnboardingPage() {
                 />
                 <RegionPicker
                   mode="multi"
-                  items={continents}
+                  items={continents.filter((c) => pickableByContinent.has(c.id))}
                   selectedIds={openContinentIds}
                   onToggleItem={(id) =>
                     setOpenContinentIds((prev) => {
@@ -388,10 +326,10 @@ export default function OnboardingPage() {
                   .filter((c) => openContinentIds.has(c.id))
                   .map((continent) => (
                     <div key={continent.id} className="space-y-1">
-                      <p className="text-xs font-semibold uppercase tracking-wide text-muted">{continent.name}</p>
+                      <p className="text-sm font-semibold text-ink">{continent.name}</p>
                       <RegionPicker
                         mode="multi"
-                        items={countriesByContinent.get(continent.id) ?? []}
+                        items={pickableByContinent.get(continent.id) ?? []}
                         selectedIds={selectedCountryIds}
                         onToggleItem={(id) =>
                           setSelectedCountryIds((prev) => {
@@ -405,7 +343,7 @@ export default function OnboardingPage() {
                     </div>
                   ))}
                 {selectedCountryIds.size > 0 && (
-                  <div className="rounded-xl border border-line bg-surface p-4">
+                  <div className="rounded-panel border border-line bg-surface p-4">
                     <div className="flex items-center justify-between">
                       <p className="text-sm font-semibold text-ink">
                         {t("onboarding.pack.regionsSelected", { count: selectedCountryIds.size })}
