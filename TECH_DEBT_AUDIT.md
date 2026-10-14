@@ -2,6 +2,36 @@
 
 Generated: 2026-10-08, against `71dbfa9` (release 0.10.2). First run.
 
+## Status after fixes (2026-10-08)
+
+All findings F01-F84 are RESOLVED (uncommitted working tree), plus S3 mode removal, the move of
+pipeline-only modules out of `packages/core`, OpenAPI-generated web API types, and removal of the
+last percentile/quota tier code (seed builders, `computeRegionOccurrences`). Verified on a fresh
+database: typecheck, lint, Prettier, em-dash/i18n/migration/API-type checks, 1,445 unit and 400
+integration tests (baseline 1,304 and 380), 18/18 Playwright end-to-end, `cargo fmt`/clippy/24 Rust
+tests, no import cycles, and every GET route requested against a copy of the maintainer database
+with no server errors.
+
+Partial or deliberately left:
+
+- F31/F54: 31 web call sites still untyped; session-only routes without response schemas are
+  listed in the generated `apps/web/src/api/openapi.gen.json` (no `200` schema).
+- F33: the offline-cache integration test runs in CI but stays in `src/` (moving it would expose
+  about 12 private items).
+- F44: logging eBird region labels that never match is not done.
+- F53: imports still don't go through `enqueueUploads` (judged too risky on that path).
+- Desktop typed errors (`Result<_, String>` in `pg_upgrade`/`embedded_db`) and serving
+  `boundary_geojson` separately were skipped.
+- `original_ref`/`raw_ref` (the owner's own file paths) stay in species and gallery responses:
+  one account per server, and Reveal in Finder / Copy path need them.
+
+Data: endemic stage applied (292 species), grayscale vector recompute not needed (0 of 143,272
+reference/gallery photos are 1-channel). The 2,886 local tiers no tiers stage had written (copies
+of Egypt's governorates nested under the retired vernacular groupings, and Antarctica) were
+cleared to match the current logic, and the gate now fails on any such row (`untraced_tier`).
+Akrotiri, a British base area on Cyprus, is folded into Cyprus like Dhekelia (migration 137).
+Desktop update rights now cover plain-http servers on the local network and Tailscale.
+
 ## Executive summary
 
 - **1 Critical, 16 High, 49 Medium, 18 Low** across 84 findings (F81-F84 added after maintainer answers). Baseline hygiene is unusually good: `tsc` clean in every workspace, ESLint clean, `npm audit` 0 vulnerabilities, default `clippy` clean, 5 `any` in 140k lines, every GitHub Action SHA-pinned, Docker non-root. The debt is not in the types; it's in duplicated logic that has drifted, and in tests that exist but never run.
@@ -92,7 +122,7 @@ Severity is calibrated to this project: Lifer servers have exactly one account b
 | F61 | Swallowed error | packages/data-pipeline/src/scripts/compute-provinces-bulk.ts:455 | Medium | S | eBird network errors and non-OK responses (:449) return null and are cached for the run as "no rescue": province membership depends on network luck. | Only 404 means "no list"; network/5xx fails the country for the retry pass. |
 | F62 | Swallowed error | packages/data-pipeline/src/scripts/refresh-inat-counts.ts:36 | Medium | S | Exits 0 with failed places; apply-introduced-flags.ts:76 silently falls back. The refresh proceeds to tiers with missing counts. | Non-zero exit above a threshold, or surface failures to the gate. |
 | F63 | Publish hygiene | packages/data-pipeline/src/scripts/refresh.ts:446 | Medium | S | Uploads every `*.sql.gz`/`*.bin.gz` in `catalog-seed/`, including stale files the manifest doesn't list; DATABASE_URL falls back to hard-coded `lifer:lifer` (:443). | Upload only manifest-listed files; fail when DATABASE_URL is unset. |
-| F64 | Dead code | packages/data-pipeline/src/build/vernacular-regions-data.ts:1 | Medium | S | 982 lines nothing imports (its consumer was removed). Also `gbif-bulk-ab-test.ts` (one-off experiment citing a deleted file, still in SCRIPTS.md:179) and `compute-all-regions.ts` whose CLI is superseded (only `drillDownAllCountries` is used). | Delete; move `drillDownAllCountries` into a lib module. |
+| F64 | Dead code | packages/data-pipeline/src/build/vernacular-regions-data.ts:1 | Medium | S | WITHDRAWN for this file: it defines the vernacular groupings (country > group > province), the intended browse structure, now applied by the vernacular sync step. Original claim: 982 lines nothing imports (its consumer was removed). Also `gbif-bulk-ab-test.ts` (one-off experiment citing a deleted file, still in SCRIPTS.md:179) and `compute-all-regions.ts` whose CLI is superseded (only `drillDownAllCountries` is used). | Delete; move `drillDownAllCountries` into a lib module. |
 | F65 | Security | apps/api/src/shares/routes.ts:269 | Low | S | Same pattern as F06 on share links: 50 wrong passwords from any IPs lock every visitor out of that link for 15 min. | Growing delay instead of hard 429. |
 | F66 | Security | apps/api/src/auth/routes.ts:17 | Low | S | `NonEmpty` has no `maxLength`; unauthenticated login/register/unlock can send multi-MB passwords into argon2. Global limiter keys raw `request.ip` (lib/rateLimit.ts:8), not the IPv6 /64 grouping login uses. | `maxLength: 1024`; `keyGenerator: (r) => ipRateLimitKey(r.ip)`. |
 | F67 | Security | apps/api/src/offlinePacks/index.ts:117 | Low | S | `index.photoStore.indexUrl` fetched without `assertTrustedPackUrl`, unlike pack and shard URLs (download.ts:154, :267). Needs a tampered index from an admin-set URL. | Assert inside `fetchPhotoStoreIndex`. |
@@ -273,7 +303,7 @@ Low effort, Medium+ severity:
 - [ ] F56, F57: migration timeout + kill; fsync parent dir after renames
 - [ ] F58: no updater/process grants for http servers
 - [ ] F61, F62, F63: pipeline stops treating failures as success; upload only manifest files
-- [ ] F64: delete `vernacular-regions-data.ts`, `gbif-bulk-ab-test.ts`
+- [x] F64: delete `gbif-bulk-ab-test.ts`, `compute-all-regions.ts` (`vernacular-regions-data.ts` stays, see F64)
 
 ## Things that look bad but are actually fine
 
@@ -301,13 +331,9 @@ Answers to the first run's open questions, folded into the findings above.
 4. **BioCLIP GPU file (F12):** fp32 is correct; fix the exporter.
 5. **Response caches:** meant for pipeline builds. The API also reads the iNat cache on installs (F84).
 6. **0.9.x Docker migration (F60):** the only user has migrated; delete it.
-7. **`packages/core` scope:** the modules in question (`regions/inatChecklist`, `buildRegionSpecies`, `gbif/*`, `computeRarityPhase1`, `rawCache`, `descriptionText`, `licensePolicy`) are imported by `packages/data-pipeline` only, never by `apps/api`. Low priority; move them only when touching them anyway.
+7. **`packages/core` scope:** checked against the built server (`apps/api/dist/index.js.map`): the 9 pipeline-only core files (~2,300 lines: `gbif/*`, `regions/buildRegionSpecies`, `regions/inatChecklist`, `regions/compute/occurrences`, `regions/compute/seaZones`, `lib/fetchWithRetry`, `species/computeRarityPhase1`, `uploads/testImages`) are already tree-shaken out, so nothing extra ships. `rawCache`, `descriptionText` and `licensePolicy` are used by the server and stay. Moving the 9 into `packages/data-pipeline` is clarity only; do it when touching them.
 8. **API keys on desktop:** intended. Keys are for home-made integrations against a server; the desktop has none.
-9. **S3 mode:** a documented API-only feature (`LIFER_S3_*`, environment-variables.md:119): an integration can register a photo whose original lives in an S3 or MinIO bucket instead of on disk. The web app never uses it. F68 deletes only the dead classes, not the feature.
+9. **S3 mode:** a documented API-only feature (`LIFER_S3_*`, environment-variables.md:119): an integration can register a photo whose original lives in an S3 or MinIO bucket instead of on disk. The web app never uses it. F68 deletes only the dead classes, not the feature. Superseded: S3 mode has since been removed (its `@aws-sdk/*` deps, ~11 MB per install, and the `mode=s3` path bypassed the species folder tree; mounting NAS/MinIO storage as a library root covers the need).
 10. **`originals.user_id` (F17):** always set it and backfill.
 11. **GPU crash counter (F82):** unintended; now a finding.
 12. **Web test deps (F14):** approved.
-
-## Open questions for the maintainer
-
-1. **S3 mode:** keep it as an API feature (then it needs tests, F23, and a video path), or remove it? It has no known users and adds `@aws-sdk/*` to the server bundle.

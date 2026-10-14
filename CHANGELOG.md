@@ -10,9 +10,89 @@ banner.
 
 ### Added
 
-- Species pages show short field-guide notes (identification, habitat, feeding, breeding)
-  summarised from each species' Wikipedia article, in place of the long article text, with a
-  credit link to the article.
+- Desktop: Settings > Storage > Remove all Lifer data deletes everything Lifer keeps on the
+  computer (database, thumbnails, downloads, settings, logs, caches) before uninstalling, and
+  quits. Photo libraries are never deleted.
+- Countries with familiar regions browse by them: Thailand by Northern, Central and Southern
+  Thailand, the UK by Scotland, Wales and the English regions, Egypt by Sinai, Upper Egypt and
+  more, each with its provinces inside. A region's checklist and rarity tiers come from its
+  provinces. Island destinations such as the Galapagos, Crete and the Azores are listed alongside
+  countries, with packs of their own.
+- Trips and album details (description, cover, albums without photos) are recorded in the
+  library's `.lifer` folders too, so pointing a fresh install at the library and reimporting brings
+  them back. Deleting a trip removes its record.
+- Photo search finds scenes and colours, like water, sky, a fence or purple leaves, even when they
+  fill only part of the photo. The species-matching download adds a small scene model (~61 MB) for
+  it, and photos already in the library are scanned in the background.
+
+### Changed
+
+- Desktop: the species-matching models and GPU runtime are kept in the system cache folder
+  (~/Library/Caches on macOS), where storage tools can reclaim them; Lifer downloads them again if
+  they're cleared. Existing downloads move there on first launch.
+- Reorganize says why a file couldn't be moved, and changing a photo's species rewrites its file
+  metadata once instead of twice.
+- Trip imports and library reimports stay responsive on slow network drives, the Stats page loads
+  faster on large libraries, and the Offline packs list no longer waits for the photo index to
+  download.
+- Species details fetched from iNaturalist are refreshed after 90 days, so taxonomy changes there
+  reach your library. Every iNaturalist request from Lifer now shares one polite pace, and all of
+  them back off together when iNaturalist asks.
+- Lifer identifies itself the same way, with its version and a contact link, in every request to
+  iNaturalist, GBIF and Wikipedia.
+- Species matching only stops using the GPU after repeated crashes within a few minutes, not after
+  crashes spread over weeks.
+- Desktop: a server reached over plain http from the internet can no longer install app updates
+  or restart the app from its pages. Servers on your local network (like `http://192.168.1.10:4000`
+  or `http://nas.local:4000`), on Tailscale, or reached over HTTPS still can.
+- Docker: the compose file no longer includes the one-time move from Lifer 0.9's Postgres 16
+  database, so new installs no longer download the old PostGIS image.
+- API: the API description (`/api/openapi.json`) lists the fields every route answers with, and
+  `GET /api/species/:id` no longer includes the server's internal image file locations.
+
+### Removed
+
+- Photos stored in an S3 or MinIO bucket (`POST /api/uploads` with `mode=s3`) are no longer
+  supported. If a library still has any, Lifer stops at startup and explains how to move them onto
+  disk or a mounted library root.
+
+### Fixed
+
+- Endemic badges are right for far more species. About 1,450 more Australian species are now
+  marked endemic to Australia, and widespread animals no longer show as endemic to one
+  well-surveyed country (Leopard to Liberia, Cheetah to Benin, Serval to South Africa).
+  Populations a species was introduced to no longer stop it counting as endemic at home (Green
+  Junglefowl, Swamp Wallaby).
+- A species' RAW files and videos always go in the same folder as its photos, including species
+  imported from iNaturalist with a non-default folder naming style. Run Reorganize once to move any
+  that were filed elsewhere.
+- Two imports racing for the same unlinked RAW can no longer both claim it.
+- Undoing an import no longer marks photos "ready to import" when their removal failed; you'll see
+  a message and can try undo again.
+- Someone guessing your password from many addresses can no longer lock you out: a browser you've
+  signed in from before keeps working. The same goes for password-protected share links, and
+  unlocked share links now survive a server restart.
+- Sending photos to iNaturalist after a failed upload finishes the same observation instead of
+  creating a duplicate, and one observation can no longer mix species.
+- A damaged album recovery file is kept as `albums.json.corrupt` instead of being overwritten.
+- The onboarding map download keeps tracking progress through a brief network hiccup instead of
+  getting stuck on "downloading", and its region picker groups countries the same way as Offline
+  packs.
+- Opening a different trip or album can no longer briefly show the previous one's photos.
+- Offline pack lists across the app agree on what's downloaded and update as soon as a download
+  finishes.
+- A failed download from the full-screen viewer shows an error instead of doing nothing.
+- Signing out clears cached collection data.
+- Visiting Offline packs no longer checks GitHub for app updates every time.
+- Seasonality bars show months with no records correctly.
+- Akrotiri, a British base area on Cyprus, no longer appears as a country of its own; its species
+  are on Cyprus's checklist, as Dhekelia's already were.
+- Location blurring for sensitive species also covers the first days of January for seasons that
+  start on January 1.
+- The offline map download is saved into place only once it's complete.
+- Desktop: a database update that hangs at startup stops with an error after 10 minutes instead of
+  waiting forever, and quitting during it no longer leaves it running. Settings, the offline cache
+  and the database upgrade marker survive a power cut.
 
 ## [0.10.3] - 2026-10-08
 
