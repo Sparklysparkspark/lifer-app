@@ -47,11 +47,11 @@ The **Downloaded** list on the Offline Packs page (also in **Settings > Offline 
 - **Update** one pack, or **Update all**.
 - **Get full version** of a Small pack.
 - **Provinces** (or states, and so on): tick or untick the provinces to keep. Unticking one removes it from that pack's checklists. Ticking it again brings it back.
-- **Offload** a pack, or **Offload selected**, to free space.
+- **Remove** a pack, or **Remove selected**, to free space.
 
-## Offloading a pack
+## Removing a pack {#offloading-a-pack}
 
-Offloading removes the pack's reference photos and checklist data. Lifer first shows how much space you'll get back and how many regions' checklists will need downloading again. **Your own photos are never touched**. Species you photographed, or that another downloaded pack still covers, keep their reference photos.
+Removing a pack deletes its reference photos and checklist data. Lifer first shows how much space you'll get back and how many regions' checklists will need downloading again. **Your own photos are never touched**. Species you photographed, or that another downloaded pack still covers, keep their reference photos.
 
 ## After a reinstall
 
@@ -59,17 +59,17 @@ If you [reimport your library](../settings.md#reimport) and some recovered speci
 
 ## Species catalog updates
 
-Separately from packs, Lifer's species catalog (rarity tiers, occurrence statistics and endemic labels for every species) gets occasional updates. Check in [Settings > Offline data > Species catalog updates](../settings.md#species-catalog).
+Separately from packs, Lifer's species catalog (rarity tiers, occurrence statistics and endemic labels for every species) gets occasional updates. Check in [Settings > Offline data > Species catalog](../settings.md#species-catalog).
 
 ## The offline map {#offline-map}
 
 Maps in Lifer, like **Where to find it** on species pages and the map on this page, come from an offline world map you download once (about 550 MB). Without it, maps don't show, even when you're online. Everything else works the same.
 
 1. Open **Settings > Offline data**.
-2. In **Offline map**, click **Download offline map (~550 MB)**.
+2. In **Offline map**, click **Download** (about 550 MB).
 
 Until it's downloaded, the Offline Packs page says "The offline world map isn't downloaded yet". You can still choose countries with the search box.
 
-On a server, the Offline map card only appears once the administrator turns it on with [`MAP_DOWNLOAD_URL`](../install/environment-variables.md#download-sources).
+On a server, the **Offline map** row only appears once the administrator turns it on with [`MAP_DOWNLOAD_URL`](../install/environment-variables.md#download-sources).
 
-To free the space, click **Offload** on the same card. You can download it again any time.
+To free the space, click **Remove** in the same row. You can download it again any time.

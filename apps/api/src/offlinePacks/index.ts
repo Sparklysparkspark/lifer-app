@@ -3,42 +3,15 @@ import type { FastifyInstance } from "fastify";
 import { Type } from "typebox";
 import { pool } from "@lifer/core/db.js";
 import { requireAuth } from "../auth/session.js";
-import { withSchemas } from "../lib/schema.js";
+import { replies, withSchemas } from "../lib/schema.js";
+import { PackList, PackRecommendation, PackUpdatesSummary } from "./responses.js";
 import { PACK_INDEX_URL } from "@lifer/core/config.js";
-import { fetchPhotoStoreIndex } from "./photoStore.js";
+import { fetchPhotoStoreIndex, lastPhotoStoreIndex } from "./photoStore.js";
+import { PackIndexSchema, parseRemoteJson, type PackIndex, type PackIndexEntry } from "./schemas.js";
 import { log } from "@lifer/core/lib/log.js";
 
-export interface PackIndexEntry {
-  id: string;
-  type: "region" | "seaZone";
-  region?: string;
-  seaZone?: string;
-  taxon?: string | null;
-  // "small" has the same checklist and embeddings as "full" but one reference photo per
-  // species. Absent means "full".
-  variant?: "full" | "small";
-  sizeBytes: number;
-  speciesCount: number;
-  // Hash of the pack's manifest, so a downloaded pack is recognized as stale when it changes.
-  contentVersion: string;
-  // Every species in the pack and its bundled provinces, deduplicated. Used by /recommend.
-  scientificNames: string[];
-  // The pack store shard it's in, the bytes of it that are this pack, and their SHA-256
-  // (data-pipeline's pipeline/packStore.ts).
-  url: string;
-  range?: [number, number];
-  sha256?: string;
-  // Pack ids (not zone names: a zone has one pack per taxon) of the sea zones a region pack
-  // depends on, so the client can group them under their country.
-  seaZoneDependencies?: string[];
-}
-
-export interface PackIndex {
-  generatedAt: string;
-  /** Where pack photos are fetched from (offlinePacks/photoStore.ts). */
-  photoStore?: { indexUrl: string };
-  packs: PackIndexEntry[];
-}
+export type { PackIndex, PackIndexEntry } from "./schemas.js";
+export { assertTrustedPackUrl } from "./packPaths.js";
 
 /** A ".small" pack id is the same pack installed without gallery photos. */
 export const SMALL_SUFFIX = ".small";
@@ -59,24 +32,13 @@ export async function fetchPackIndex(opts: { fresh?: boolean } = {}): Promise<Pa
   packIndexInFlight = (async () => {
     const res = await fetch(PACK_INDEX_URL!, { signal: AbortSignal.timeout(30_000) });
     if (!res.ok) throw new Error(`Couldn't fetch the pack index (${res.status})`);
-    const index = (await res.json()) as PackIndex;
+    const index = parseRemoteJson(PackIndexSchema, await res.json(), "pack index");
     packIndexCache = { at: Date.now(), index };
     return index;
   })().finally(() => {
     packIndexInFlight = null;
   });
   return packIndexInFlight;
-}
-
-// Each pack's url comes from the fetched index JSON, so a tampered index could aim this server's
-// fetch at an internal service. Packs must share the index's origin.
-export function assertTrustedPackUrl(url: string): void {
-  if (!PACK_INDEX_URL) throw new Error("No pack index is configured for this instance yet");
-  const packOrigin = new URL(url).origin;
-  const indexOrigin = new URL(PACK_INDEX_URL).origin;
-  if (packOrigin !== indexOrigin) {
-    throw new Error(`Refusing to fetch a pack from an untrusted origin: ${packOrigin}`);
-  }
 }
 
 // What each pack adds or holds on this install: its checklist plus photos not yet on disk
@@ -108,13 +70,33 @@ export function invalidatePackSizes(): void {
   localState = null;
 }
 
+// How long a pack list waits for a cold photo store index (a large download) before answering
+// with sizes pending; the fetch carries on in the background for the next request.
+const COLD_PHOTO_INDEX_WAIT_MS = 3_000;
+
+/** Photo bytes per pack, or null while the photo store index is still downloading. */
 async function photoSizes(
   index: PackIndex,
   packs: PackIndexEntry[],
-): Promise<Map<string, { missing: number; missingMain: number; present: number }>> {
+): Promise<Map<string, { missing: number; missingMain: number; present: number }> | null> {
   const out = new Map<string, { missing: number; missingMain: number; present: number }>();
   if (!index.photoStore) return out;
-  const store = await fetchPhotoStoreIndex(index.photoStore.indexUrl);
+  const indexUrl = index.photoStore.indexUrl;
+  const fetching = fetchPhotoStoreIndex(indexUrl);
+  // Handled below when awaited; this keeps a failure after the wait from going unhandled.
+  fetching.catch(() => {});
+  let timer: NodeJS.Timeout | undefined;
+  const store =
+    (await Promise.race([
+      fetching,
+      new Promise<null>((resolve) => {
+        timer = setTimeout(() => resolve(null), COLD_PHOTO_INDEX_WAIT_MS);
+      }),
+    ]).finally(() => clearTimeout(timer))) ?? lastPhotoStoreIndex(indexUrl);
+  if (!store) {
+    fetching.catch((err) => log.warn({ err }, "[packs] couldn't fetch the pack photo index"));
+    return null;
+  }
   const local = await localPhotoState();
   const refBytes = (pair?: { d?: [number, number, number, string]; t?: [number, number, number, string] }) =>
     (pair?.d?.[2] ?? 0) + (pair?.t?.[2] ?? 0);
@@ -146,6 +128,8 @@ async function photoSizes(
 export async function computePackStatuses(): Promise<{
   generatedAt: string;
   packs: Array<PackIndexEntry & { downloaded: boolean; updateAvailable: boolean }>;
+  /** Photo sizes aren't in sizeBytes yet: the photo store index is still downloading. */
+  sizesPending: boolean;
 }> {
   const index = await fetchPackIndex();
   const downloadedRes = await pool.query<{
@@ -160,10 +144,11 @@ export async function computePackStatuses(): Promise<{
 
   // With a photo store, every pack is offered two ways: with its gallery photos, and as ".small"
   // without them. Both install the same checklist.
-  const sizes = await photoSizes(index, index.packs).catch((err) => {
+  const computed = await photoSizes(index, index.packs).catch((err) => {
     log.warn({ err }, "[packs] couldn't work out pack sizes from the photo store");
     return new Map<string, { missing: number; missingMain: number; present: number }>();
   });
+  const sizes = computed ?? new Map<string, { missing: number; missingMain: number; present: number }>();
   const offered = index.photoStore
     ? index.packs.flatMap((p) => [p, { ...p, id: `${p.id}${SMALL_SUFFIX}`, variant: "small" as const }])
     : index.packs;
@@ -201,39 +186,48 @@ export async function computePackStatuses(): Promise<{
       updateAvailable: false,
     }));
 
-  return { generatedAt: index.generatedAt, packs: [...packs, ...missingFromIndex] };
+  return { generatedAt: index.generatedAt, packs: [...packs, ...missingFromIndex], sizesPending: computed === null };
 }
 
 export async function packIndexRoutes(fastify: FastifyInstance): Promise<void> {
   const app = withSchemas(fastify);
 
-  app.get("/offline-packs/index", { preValidation: requireAuth, schema: {} }, async (_request, reply) => {
-    try {
-      const statuses = await computePackStatuses();
-      return {
-        generatedAt: statuses.generatedAt,
-        // scientificNames is left out: the cards don't need it and it's large for big packs.
-        packs: statuses.packs.map(({ scientificNames: _scientificNames, ...p }) => p),
-      };
-    } catch (err) {
-      return reply.code(503).send({ error: (err as Error).message, code: "pack_index_unavailable" });
-    }
-  });
+  app.get(
+    "/offline-packs/index",
+    { preValidation: requireAuth, schema: { response: replies(PackList) } },
+    async (_request, reply) => {
+      try {
+        const statuses = await computePackStatuses();
+        return {
+          generatedAt: statuses.generatedAt,
+          ...(statuses.sizesPending && { sizesPending: true }),
+          // scientificNames is left out: the cards don't need it and it's large for big packs.
+          packs: statuses.packs.map(({ scientificNames: _scientificNames, ...p }) => p),
+        };
+      } catch (err) {
+        return reply.code(503).send({ error: (err as Error).message, code: "pack_index_unavailable" });
+      }
+    },
+  );
 
   // Small payload so it's cheap to check at app launch without the full index.
-  app.get("/offline-packs/updates-summary", { preValidation: requireAuth, schema: {} }, async (_request, reply) => {
-    try {
-      const statuses = await computePackStatuses();
-      const stale = statuses.packs.filter((p) => p.updateAvailable);
-      return {
-        updateCount: stale.length,
-        totalBytes: stale.reduce((sum, p) => sum + p.sizeBytes, 0),
-        packIds: stale.map((p) => p.id),
-      };
-    } catch (err) {
-      return reply.code(503).send({ error: (err as Error).message, code: "pack_index_unavailable" });
-    }
-  });
+  app.get(
+    "/offline-packs/updates-summary",
+    { preValidation: requireAuth, schema: { response: replies(PackUpdatesSummary) } },
+    async (_request, reply) => {
+      try {
+        const statuses = await computePackStatuses();
+        const stale = statuses.packs.filter((p) => p.updateAvailable);
+        return {
+          updateCount: stale.length,
+          totalBytes: stale.reduce((sum, p) => sum + p.sizeBytes, 0),
+          packIds: stale.map((p) => p.id),
+        };
+      } catch (err) {
+        return reply.code(503).send({ error: (err as Error).message, code: "pack_index_unavailable" });
+      }
+    },
+  );
 
   // Greedy set cover: the fewest not-yet-downloaded packs that cover the given species.
   app.post(
@@ -245,6 +239,7 @@ export async function packIndexRoutes(fastify: FastifyInstance): Promise<void> {
           { scientificNames: Type.Array(Type.String({ minLength: 1 }), { minItems: 1 }) },
           { additionalProperties: false },
         ),
+        response: replies(PackRecommendation),
       },
     },
     async (request, reply) => {

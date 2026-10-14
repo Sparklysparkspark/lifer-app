@@ -1,26 +1,19 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { PackStatusEntry } from "../../lib/packIndex";
 import { useLatest } from "../../hooks/useLatest";
 import { Link } from "react-router-dom";
 import { api } from "../../api/client";
 import { formatBytes } from "../../lib/format";
+import { usePackIndex } from "../../lib/packIndex";
 import AddOtherTaxaModal from "../../components/AddOtherTaxaModal";
 import JobProgress from "../../components/JobProgress";
 import { buttonClasses } from "../../lib/buttonClasses";
 import { PACK_DOWNLOAD_PHASES, packProgressDetail, usePackDownloadJob } from "../../hooks/usePackDownloadStatus";
 import { isOtherTaxaFilter, taxonFilterLabel, type TaxonFilter } from "./taxonLabels";
-
-interface OfflinePackEntry {
-  id: string;
-  type: "region" | "seaZone";
-  region?: string;
-  seaZone?: string;
-  taxon?: string | null;
-  sizeBytes: number;
-  speciesCount: number;
-  downloaded: boolean;
-}
+import { PANEL } from "../../lib/layout";
 
 const CANCEL_URL = "/offline-packs/download/cancel";
+const NO_ZONES: Array<{ id: string; name: string }> = [];
 
 // Starts a pack download and follows the shared job. onDone fires when a download started from
 // here finishes cleanly; the error or cancelled state stays on screen otherwise.
@@ -85,37 +78,17 @@ export function NeedsPackPrompt({
   onDownloaded: () => void;
   banner?: boolean;
 }) {
-  // Tagged with the region it was looked up for, so another region reads as "checking" until its
-  // own answer arrives.
-  const [found, setFound] = useState<{ region: string; pack: OfflinePackEntry | null } | null>(null);
-  const pack = found?.region === region.name ? found.pack : undefined;
+  // undefined while the index loads ("checking"), null when no pack covers the region.
+  const { packs, error: packsError } = usePackIndex();
+  const pack = packs
+    ? (packs.find((p) => p.type === "region" && p.region === region.name) ?? null)
+    : packsError
+      ? null
+      : undefined;
   const { job, download, running, startedHere } = usePackDownloadAndWait(onDownloaded);
 
-  useEffect(() => {
-    let cancelled = false;
-    const name = region.name;
-    api
-      .get<{ packs: OfflinePackEntry[] }>("/offline-packs/index")
-      .then((res) => {
-        if (!cancelled)
-          setFound({ region: name, pack: res.packs.find((p) => p.type === "region" && p.region === name) ?? null });
-      })
-      .catch(() => {
-        if (!cancelled) setFound({ region: name, pack: null });
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [region.name]);
-
   return (
-    <div
-      className={
-        banner
-          ? "mb-4 rounded-xl border border-line bg-surface p-5 text-center"
-          : "rounded-xl border border-line bg-surface p-8 text-center"
-      }
-    >
+    <div className={banner ? `mb-4 ${PANEL} text-center` : `${PANEL} text-center`}>
       <h2 className={banner ? "text-base font-semibold text-ink" : "text-lg font-semibold text-ink"}>
         {region.name}'s checklist isn't downloaded yet
       </h2>
@@ -162,7 +135,7 @@ export function NeedsPackPrompt({
 interface SeaZonePack {
   zoneId: string;
   zoneName: string;
-  pack: OfflinePackEntry;
+  pack: PackStatusEntry;
 }
 
 // Shown instead of an empty grid when the region has some pack, just not the filtered taxon's.
@@ -181,62 +154,62 @@ export function TaxonPackPrompt({
   photographed?: number;
 }) {
   const otherTaxa = isOtherTaxaFilter(taxon);
-  // Tagged with what it was looked up for, so a different region or taxon reads as "checking"
-  // until its own answer arrives. Fish can also come from a nearby sea zone's own pack.
-  const lookupKey = JSON.stringify([regionId, regionName, taxon]);
-  const [found, setFound] = useState<{
-    key: string;
-    pack: OfflinePackEntry | null;
-    seaZonePacks: SeaZonePack[];
-  } | null>(null);
-  const current = found?.key === lookupKey ? found : null;
-  const pack = current ? current.pack : undefined;
-  const seaZonePacks = current ? current.seaZonePacks : null;
+  // Fish can also come from a nearby sea zone's own pack. The zones are tagged with the region they
+  // were looked up for, so another region reads as "checking" until its own answer arrives.
+  const { packs, error: packsError } = usePackIndex();
+  const wantsZones = taxon === "actinopterygii" && !otherTaxa;
+  const [zonesFor, setZonesFor] = useState<{ regionId: string; zones: Array<{ id: string; name: string }> } | null>(
+    null,
+  );
+  const zones = wantsZones ? (zonesFor?.regionId === regionId ? zonesFor.zones : null) : NO_ZONES;
+  // Zone packs downloaded from here drop out at once, before the index refresh lands.
+  const [downloadedZonePackIds, setDownloadedZonePackIds] = useState<string[]>([]);
   const [downloadingZoneId, setDownloadingZoneId] = useState<string | null>(null);
   const [otherTaxaModalOpen, setOtherTaxaModalOpen] = useState(false);
   const { job, download, running, startedHere } = usePackDownloadAndWait((ids) => {
-    setFound((prev) => prev && { ...prev, seaZonePacks: prev.seaZonePacks.filter((z) => !ids.includes(z.pack.id)) });
+    setDownloadedZonePackIds((prev) => [...prev, ...ids]);
     setDownloadingZoneId(null);
     onDownloaded();
   });
 
   useEffect(() => {
     // Other Taxa species are added one at a time, never from a pack (and that view returns early).
-    if (otherTaxa) return;
+    if (!wantsZones) return;
     let cancelled = false;
-    const key = JSON.stringify([regionId, regionName, taxon]);
-    Promise.all([
-      api.get<{ packs: OfflinePackEntry[] }>("/offline-packs/index"),
-      taxon === "actinopterygii"
-        ? api.get<{ zones: Array<{ id: string; name: string }> }>(`/regions/${regionId}/sea-zones`)
-        : Promise.resolve({ zones: [] }),
-    ])
-      .then(([{ packs }, { zones }]) => {
-        if (cancelled) return;
-        const candidates = packs.filter((p) => p.type === "region" && p.region === regionName);
-        setFound({
-          key,
-          pack: candidates.find((p) => p.taxon === taxon) ?? candidates.find((p) => !p.taxon) ?? null,
-          seaZonePacks: zones
-            .map((zone) => ({
-              zoneId: zone.id,
-              zoneName: zone.name,
-              pack: packs.find((p) => p.type === "seaZone" && p.seaZone === zone.name),
-            }))
-            .filter((z): z is SeaZonePack => !!z.pack && !z.pack.downloaded),
-        });
+    api
+      .get<{ zones: Array<{ id: string; name: string }> }>(`/regions/${regionId}/sea-zones`)
+      .then((res) => {
+        if (!cancelled) setZonesFor({ regionId, zones: res.zones });
       })
       .catch(() => {
-        if (!cancelled) setFound({ key, pack: null, seaZonePacks: [] });
+        if (!cancelled) setZonesFor({ regionId, zones: [] });
       });
     return () => {
       cancelled = true;
     };
-  }, [regionId, regionName, taxon, otherTaxa]);
+  }, [regionId, wantsZones]);
+
+  const lookup = useMemo(() => {
+    if (packsError && !packs) return { pack: null, seaZonePacks: [] as SeaZonePack[] };
+    if (!packs || zones === null) return null;
+    const candidates = packs.filter((p) => p.type === "region" && p.region === regionName);
+    return {
+      pack: candidates.find((p) => p.taxon === taxon) ?? candidates.find((p) => !p.taxon) ?? null,
+      seaZonePacks: zones
+        .map((zone) => ({
+          zoneId: zone.id,
+          zoneName: zone.name,
+          pack: packs.find((p) => p.type === "seaZone" && p.seaZone === zone.name),
+        }))
+        .filter((z): z is SeaZonePack => !!z.pack && !z.pack.downloaded && !downloadedZonePackIds.includes(z.pack.id)),
+    };
+  }, [packs, packsError, zones, regionName, taxon, downloadedZonePackIds]);
+  const pack = lookup ? lookup.pack : undefined;
+  const seaZonePacks = lookup ? lookup.seaZonePacks : null;
 
   if (otherTaxa) {
     return (
-      <div className="rounded-xl border border-line bg-surface p-8 text-center">
+      <div className={`${PANEL} text-center`}>
         <h2 className="text-lg font-semibold text-ink">No Other Taxa added for {regionName} yet</h2>
         <p className="mx-auto mt-2 max-w-sm text-sm text-muted">
           There's no pack to download for this one, Other Taxa covers whatever Lifer doesn't already have a dataset for
@@ -259,13 +232,7 @@ export function TaxonPackPrompt({
   const banner = photographed != null && photographed > 0;
 
   return (
-    <div
-      className={
-        banner
-          ? "mb-4 rounded-xl border border-line bg-surface p-5 text-center"
-          : "rounded-xl border border-line bg-surface p-8 text-center"
-      }
-    >
+    <div className={banner ? `mb-4 ${PANEL} text-center` : `${PANEL} text-center`}>
       <h2 className={banner ? "text-base font-semibold text-ink" : "text-lg font-semibold text-ink"}>
         {banner
           ? `You've photographed ${photographed} ${taxonName} species in ${regionName}`

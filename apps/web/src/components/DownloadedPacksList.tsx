@@ -1,7 +1,7 @@
 import { useState } from "react";
-import type { TaxonClass } from "@lifer/shared";
+import type { PackStatusEntry } from "../lib/packIndex";
 import { TAXON_CLASS_LABEL } from "@lifer/shared";
-import { api, ApiError } from "../api/client";
+import { api, ApiError, type ApiResponse } from "../api/client";
 import { usePackDownloadJob, packProgressDetail, PACK_DOWNLOAD_PHASES } from "../hooks/usePackDownloadStatus";
 import { formatBytes } from "../lib/format";
 import { errorMessage } from "../lib/errorMessage";
@@ -14,54 +14,31 @@ import Modal from "./Modal";
 import Button from "./Button";
 import FormMessage from "./FormMessage";
 import InlineSpinner from "./InlineSpinner";
+import { PANEL } from "../lib/layout";
 
-export interface PackEntry {
-  id: string;
-  type: "region" | "seaZone";
-  region?: string;
-  seaZone?: string;
-  taxon?: TaxonClass | null;
-  // "small" ships the same checklist/embeddings but skips the reference-photo gallery. Absent
-  // means "full" (every pack built before this variant existed).
-  variant?: "full" | "small";
-  sizeBytes: number;
-  speciesCount: number;
-  downloaded: boolean;
-  updateAvailable: boolean;
-  seaZoneDependencies?: string[];
-  photoBytes?: number;
-  checklistBytes?: number;
-}
-
-export interface DeletePreview {
-  checklistRegionsAffectedCount: number;
-  speciesToRemoveCount: number;
-  speciesKeptCount: number;
-  bytesToFree: number;
-  isEstimate: boolean;
-}
+export type DeletePreview = ApiResponse<"/offline-packs/offload-preview", "post">;
 
 // A country's packs grouped with the sea-zone packs it depends on. Keyed by pack id, since a zone
 // can have a pack per taxon.
-function groupPacks(packs: PackEntry[]): [string, { main: PackEntry[]; seaZones: PackEntry[] }][] {
+function groupPacks(packs: PackStatusEntry[]): [string, { main: PackStatusEntry[]; seaZones: PackStatusEntry[] }][] {
   const seaZoneOwner = new Map<string, string>();
   for (const p of packs) {
     if (p.type === "region" && p.seaZoneDependencies) {
       for (const depId of p.seaZoneDependencies) seaZoneOwner.set(depId, p.region ?? "");
     }
   }
-  const groups = new Map<string, { main: PackEntry[]; seaZones: PackEntry[] }>();
+  const groups = new Map<string, { main: PackStatusEntry[]; seaZones: PackStatusEntry[] }>();
   for (const p of packs) {
     const groupName = p.type === "seaZone" ? (seaZoneOwner.get(p.id) ?? p.seaZone ?? "") : (p.region ?? "");
-    if (!groups.has(groupName)) groups.set(groupName, { main: [], seaZones: [] });
-    if (p.type === "seaZone") groups.get(groupName)!.seaZones.push(p);
-    else groups.get(groupName)!.main.push(p);
+    let group = groups.get(groupName);
+    if (!group) groups.set(groupName, (group = { main: [], seaZones: [] }));
+    (p.type === "seaZone" ? group.seaZones : group.main).push(p);
   }
   return [...groups.entries()].sort(([a], [b]) => a.localeCompare(b));
 }
 
 // The full/small counterpart of the same region (or zone) and taxon, matched on identity.
-function siblingVariantPack(p: PackEntry, allPacks: PackEntry[]): PackEntry | undefined {
+function siblingVariantPack(p: PackStatusEntry, allPacks: PackStatusEntry[]): PackStatusEntry | undefined {
   const wantVariant = (p.variant ?? "full") === "small" ? "full" : "small";
   return allPacks.find(
     (o) =>
@@ -75,12 +52,12 @@ function siblingVariantPack(p: PackEntry, allPacks: PackEntry[]): PackEntry | un
 
 // Sea-zone packs no other remaining country pack depends on once `targets` are offloaded; only
 // these are folded into the offload.
-function orphanedSeaZoneDependents(allPacks: PackEntry[], targets: PackEntry[]): PackEntry[] {
+function orphanedSeaZoneDependents(allPacks: PackStatusEntry[], targets: PackStatusEntry[]): PackStatusEntry[] {
   const targetIds = new Set(targets.map((t) => t.id));
   const survivingDependencyIds = new Set(
     allPacks.filter((p) => p.type === "region" && !targetIds.has(p.id)).flatMap((p) => p.seaZoneDependencies ?? []),
   );
-  const orphaned: PackEntry[] = [];
+  const orphaned: PackStatusEntry[] = [];
   for (const t of targets) {
     if (t.type !== "region" || !t.seaZoneDependencies) continue;
     for (const depId of t.seaZoneDependencies) {
@@ -101,12 +78,12 @@ export default function DownloadedPacksList({
   renderPackPanel,
   showJobProgress = true,
 }: {
-  packs: PackEntry[];
+  packs: PackStatusEntry[];
   onRefresh: () => void;
   /** An extra per-pack action (e.g. the province manager). */
-  renderPackExtra?: (pack: PackEntry) => React.ReactNode;
+  renderPackExtra?: (pack: PackStatusEntry) => React.ReactNode;
   /** A block below a pack's row, outside its flex layout. */
-  renderPackPanel?: (pack: PackEntry) => React.ReactNode;
+  renderPackPanel?: (pack: PackStatusEntry) => React.ReactNode;
   /** false when the page already shows its own pack-download progress (Offline Packs). */
   showJobProgress?: boolean;
 }) {
@@ -118,7 +95,7 @@ export default function DownloadedPacksList({
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
   const [groupTab, setGroupTab] = useState<Map<string, "main" | "seaZones">>(new Map());
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [offloadTargets, setOffloadTargets] = useState<PackEntry[] | null>(null);
+  const [offloadTargets, setOffloadTargets] = useState<PackStatusEntry[] | null>(null);
   const [deletePreview, setDeletePreview] = useState<DeletePreview | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -165,7 +142,7 @@ export default function DownloadedPacksList({
 
   // Downloads the full counterpart of a small pack, then offloads the small one: the full pack
   // covers everything it did, so keeping both would only be confusing bookkeeping.
-  async function upgradeToFull(smallPack: PackEntry, fullPack: PackEntry) {
+  async function upgradeToFull(smallPack: PackStatusEntry, fullPack: PackStatusEntry) {
     setError(null);
     setUpgradingIds((prev) => new Set([...prev, smallPack.id]));
     try {
@@ -191,12 +168,12 @@ export default function DownloadedPacksList({
     }
   }
 
-  async function openOffloadConfirm(targets: PackEntry[]) {
+  async function openOffloadConfirm(targets: PackStatusEntry[]) {
     setOffloadTargets(targets);
     setDeletePreview(null);
     setDeleteError(null);
     try {
-      const preview = await api.post<DeletePreview>("/offline-packs/offload-preview", {
+      const preview = await api.post("/offline-packs/offload-preview", {
         packIds: targets.map((p) => p.id),
       });
       setDeletePreview(preview);
@@ -223,7 +200,7 @@ export default function DownloadedPacksList({
 
   if (downloadedPacks.length === 0) return null;
 
-  function renderPackRow(p: PackEntry) {
+  function renderPackRow(p: PackStatusEntry) {
     const fullSibling = p.variant === "small" ? siblingVariantPack(p, packs) : undefined;
     const upgrading = upgradingIds.has(p.id);
     return (
@@ -302,7 +279,7 @@ export default function DownloadedPacksList({
   }
 
   return (
-    <div className="rounded-xl border border-line bg-surface p-4">
+    <div className={PANEL}>
       <div className="flex items-center justify-between">
         <p className="text-sm font-semibold text-ink">{t("offlinePacks.downloaded.title")}</p>
         <div className="flex gap-2">
