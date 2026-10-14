@@ -111,19 +111,13 @@ fn read_marker(layout: &Layout) -> Option<Marker> {
     }
 }
 
-// Written to a temp file and renamed, so a crash never leaves half a marker.
+// Written atomically and durably, so after power loss the marker's phase never runs ahead of
+// the folder renames it describes.
 fn write_marker(layout: &Layout, marker: &Marker) -> Result<(), String> {
     let path = layout.marker();
-    let tmp = path.with_extension("json.tmp");
-    let err = |e: std::io::Error| format!("Couldn't save {}: {e}", path.display());
     let json = serde_json::to_vec_pretty(marker).map_err(|e| e.to_string())?;
-    {
-        use std::io::Write;
-        let mut file = std::fs::File::create(&tmp).map_err(err)?;
-        file.write_all(&json).map_err(err)?;
-        file.sync_all().map_err(err)?;
-    }
-    std::fs::rename(&tmp, &path).map_err(err)
+    crate::fsutil::write_atomic(&path, &json)
+        .map_err(|e| format!("Couldn't save {}: {e}", path.display()))
 }
 
 fn remove_marker(layout: &Layout) {
@@ -160,11 +154,11 @@ static STATUS_WINDOW: Mutex<Option<tauri::WebviewWindow>> = Mutex::new(None);
 /// The window whose startup page (src/index.html) shows upgrade progress, and whose app shows
 /// the dialog about the old copy afterwards.
 pub fn set_status_window(window: &tauri::WebviewWindow) {
-    *STATUS_WINDOW.lock().unwrap() = Some(window.clone());
+    *crate::api::lock(&STATUS_WINDOW) = Some(window.clone());
 }
 
 fn status_window() -> Option<tauri::WebviewWindow> {
-    STATUS_WINDOW.lock().unwrap().clone()
+    crate::api::lock(&STATUS_WINDOW).clone()
 }
 
 // Shown on index.html while the app starts; a no-op on any other page.
@@ -633,7 +627,7 @@ fn swap(layout: &Layout, marker: &mut Marker) -> Result<(), String> {
     let data = layout.data();
     let new_data = layout.new_data();
     let rename = |from: &Path, to: &Path| {
-        std::fs::rename(from, to).map_err(|e| {
+        crate::fsutil::rename_durable(from, to).map_err(|e| {
             format!(
                 "couldn't rename {} to {}: {e}",
                 from.display(),

@@ -5,7 +5,7 @@ use postgresql_embedded::PostgreSQL;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter};
 use tauri_plugin_dialog::DialogExt;
@@ -18,6 +18,17 @@ pub const LOCAL_PORT: u16 = 4310;
 // crash dialog is shown.
 const MAX_RESTARTS: usize = 2;
 const RESTART_WINDOW: Duration = Duration::from_secs(5 * 60);
+// Generous, since a big library's migration can take a while, but a hung one must not block
+// startup forever.
+const MIGRATION_TIMEOUT: Duration = Duration::from_secs(10 * 60);
+
+// A panic while a lock was held mustn't take every later stop or restart down with it: the
+// guarded values stay usable.
+pub(crate) fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    mutex
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
 
 pub struct RunningChild {
     child: CommandChild,
@@ -35,6 +46,8 @@ struct SpawnSpec {
 #[derive(Default)]
 pub struct ApiState {
     child: Mutex<Option<RunningChild>>,
+    // The one-off migration run, so quitting during it doesn't orphan it.
+    migration_child: Mutex<Option<CommandChild>>,
     spawn_spec: Mutex<Option<SpawnSpec>>,
     restarts: Mutex<Vec<Instant>>,
     // Last 4KB of stderr, for the crash dialog.
@@ -179,7 +192,7 @@ pub async fn start_api(app: &AppHandle, data_dir: Option<String>) -> Result<(), 
     // An explicit DATABASE_URL wins (dev). Otherwise use embedded Postgres, reusing one already
     // started in this process.
     let already_running_url = {
-        let guard = state.postgres.lock().unwrap();
+        let guard = lock(&state.postgres);
         guard.as_ref().map(embedded_db::connection_url)
     };
     let database_url = if let Ok(url) = std::env::var("DATABASE_URL") {
@@ -202,15 +215,12 @@ pub async fn start_api(app: &AppHandle, data_dir: Option<String>) -> Result<(), 
                 .kind(tauri_plugin_dialog::MessageDialogKind::Warning)
                 .show(|_| {});
         }
-        *state.postgres.lock().unwrap() = Some(postgresql);
+        *lock(&state.postgres) = Some(postgresql);
         url
     };
     envs.insert("DATABASE_URL".into(), database_url);
     // Lets the sidecar's parent watchdog stop the embedded Postgres if this app is killed.
-    if let Some((pg_ctl, pg_data)) = state
-        .postgres
-        .lock()
-        .unwrap()
+    if let Some((pg_ctl, pg_data)) = lock(&state.postgres)
         .as_ref()
         .map(embedded_db::pg_ctl_and_data_dir)
     {
@@ -230,6 +240,13 @@ pub async fn start_api(app: &AppHandle, data_dir: Option<String>) -> Result<(), 
         "APP_DATA_DIR".into(),
         app_data_dir.join("app-data").to_string_lossy().into_owned(),
     );
+    // Models and the GPU runtime, in the OS cache folder (model_cache.rs).
+    envs.insert(
+        "LIFER_CACHE_DIR".into(),
+        crate::model_cache::prepare(app)?
+            .to_string_lossy()
+            .into_owned(),
+    );
 
     // The compiled server (apps/api/scripts/build.mjs).
     let entry = api_dir.join("dist").join("index.js");
@@ -239,8 +256,8 @@ pub async fn start_api(app: &AppHandle, data_dir: Option<String>) -> Result<(), 
         envs,
         args: vec![entry.to_string_lossy().into_owned()],
     };
-    *state.spawn_spec.lock().unwrap() = Some(spec.clone());
-    state.restarts.lock().unwrap().clear();
+    *lock(&state.spawn_spec) = Some(spec.clone());
+    lock(&state.restarts).clear();
     spawn_child(app, &spec)
 }
 
@@ -257,7 +274,7 @@ fn spawn_child(app: &AppHandle, spec: &SpawnSpec) -> Result<(), String> {
         .map_err(|e| format!("Couldn't start the API: {e}"))?;
 
     let stopping = Arc::new(AtomicBool::new(false));
-    *app.state::<ApiState>().child.lock().unwrap() = Some(RunningChild {
+    *lock(&app.state::<ApiState>().child) = Some(RunningChild {
         child,
         stopping: stopping.clone(),
     });
@@ -273,7 +290,7 @@ fn spawn_child(app: &AppHandle, spec: &SpawnSpec) -> Result<(), String> {
                     let text = String::from_utf8_lossy(&line).into_owned();
                     eprint!("[api] {text}");
                     let state = app_handle.state::<ApiState>();
-                    let mut buf = state.recent_stderr.lock().unwrap();
+                    let mut buf = lock(&state.recent_stderr);
                     buf.push_str(&text);
                     if buf.len() > 4000 {
                         // Cut on a char boundary; split_off panics mid-codepoint.
@@ -302,7 +319,7 @@ async fn handle_unexpected_exit(app: &AppHandle, stopping: &AtomicBool, code: i3
     use tauri::Manager;
     let state = app.state::<ApiState>();
     let can_restart = {
-        let mut restarts = state.restarts.lock().unwrap();
+        let mut restarts = lock(&state.restarts);
         restarts.retain(|t| t.elapsed() < RESTART_WINDOW);
         let ok = restarts.len() < MAX_RESTARTS;
         if ok {
@@ -310,7 +327,7 @@ async fn handle_unexpected_exit(app: &AppHandle, stopping: &AtomicBool, code: i3
         }
         ok
     };
-    let spec = state.spawn_spec.lock().unwrap().clone();
+    let spec = lock(&state.spawn_spec).clone();
     let mut failure = format!("The backend process exited with code {code}.");
     if let (true, Some(spec)) = (can_restart, spec) {
         eprintln!("[api] backend exited with code {code}, restarting");
@@ -324,7 +341,7 @@ async fn handle_unexpected_exit(app: &AppHandle, stopping: &AtomicBool, code: i3
             Err(e) => failure = format!("{failure} Restarting it failed: {e}"),
         }
     }
-    let stderr = state.recent_stderr.lock().unwrap().clone();
+    let stderr = lock(&state.recent_stderr).clone();
     let detail = if stderr.trim().is_empty() {
         "No error output was captured.".to_string()
     } else {
@@ -340,6 +357,7 @@ async fn run_migrations(
     resources: &Path,
     database_url: &str,
 ) -> Result<(), String> {
+    use tauri::Manager;
     let migrate_entry = resources
         .join("node_modules")
         .join("data-pipeline")
@@ -349,7 +367,7 @@ async fn run_migrations(
     let mut envs: HashMap<String, String> = std::env::vars().collect();
     envs.insert("DATABASE_URL".into(), database_url.to_string());
 
-    let (mut rx, _child) = app
+    let (mut rx, child) = app
         .shell()
         .sidecar("node")
         .map_err(|e| format!("Couldn't resolve the node sidecar for migrations: {e}"))?
@@ -357,34 +375,60 @@ async fn run_migrations(
         .args([migrate_entry.to_string_lossy().into_owned()])
         .spawn()
         .map_err(|e| format!("Couldn't run database migrations: {e}"))?;
+    let state = app.state::<ApiState>();
+    *lock(&state.migration_child) = Some(child);
 
     let mut stderr_output = String::new();
-    while let Some(event) = rx.recv().await {
-        match event {
-            CommandEvent::Stderr(line) => stderr_output.push_str(&String::from_utf8_lossy(&line)),
-            CommandEvent::Terminated(payload) => {
-                return match payload.code {
-                    Some(0) => Ok(()),
-                    code => Err(format!(
-                        "Database migrations failed (exit code {code:?}):\n{stderr_output}"
-                    )),
-                };
+    let outcome = tokio::time::timeout(MIGRATION_TIMEOUT, async {
+        while let Some(event) = rx.recv().await {
+            match event {
+                CommandEvent::Stderr(line) => {
+                    stderr_output.push_str(&String::from_utf8_lossy(&line))
+                }
+                CommandEvent::Terminated(payload) => {
+                    return match payload.code {
+                        Some(0) => Ok(()),
+                        code => Err(format!(
+                            "Database migrations failed (exit code {code:?}):\n{stderr_output}"
+                        )),
+                    };
+                }
+                _ => {}
             }
-            _ => {}
+        }
+        Err(format!(
+            "Database migrations stopped without reporting a result:\n{stderr_output}"
+        ))
+    })
+    .await;
+    let child = lock(&state.migration_child).take();
+    match outcome {
+        Ok(result) => result,
+        Err(_) => {
+            if let Some(child) = child {
+                let _ = child.kill();
+            }
+            Err(format!(
+                "Database migrations didn't finish within {} minutes.",
+                MIGRATION_TIMEOUT.as_secs() / 60
+            ))
         }
     }
-    Ok(())
 }
 
 pub async fn stop_api_async(app: &AppHandle) {
     use tauri::Manager;
     let state = app.state::<ApiState>();
-    let taken = state.child.lock().unwrap().take();
+    let taken = lock(&state.child).take();
     if let Some(running) = taken {
         running.stopping.store(true, Ordering::SeqCst);
         let _ = running.child.kill();
     }
-    let taken_postgres = state.postgres.lock().unwrap().take();
+    let migration = lock(&state.migration_child).take();
+    if let Some(child) = migration {
+        let _ = child.kill();
+    }
+    let taken_postgres = lock(&state.postgres).take();
     if let Some(postgresql) = taken_postgres {
         if tokio::time::timeout(Duration::from_secs(10), postgresql.stop())
             .await

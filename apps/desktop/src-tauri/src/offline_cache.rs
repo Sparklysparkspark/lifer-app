@@ -1,7 +1,7 @@
 // "Keep an offline cache after connecting" (server mode). A read-only copy of the signed-in
 // user's collection on the connected server: names, collected/seen state and small cover
 // thumbnails, never full photos. Lives in <app data>/offline-cache and is shown by the bundled
-// offline.html page when the server can't be reached (see show_offline_or_local in lib.rs).
+// offline.html page when the server can't be reached (see show_offline_or_local below).
 //
 // The server's own web page fills it (apps/web/src/lib/offlineCache.ts), because only that page
 // holds the server session; this side never sees a password, cookie or API key. The cache
@@ -10,10 +10,10 @@
 // the option off, switching servers or leaving server mode deletes it.
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 use tauri::{Manager, WebviewWindow};
 
+use crate::fsutil::{write_atomic, write_replace};
 use crate::store::DesktopConfig;
 
 pub const OFFLINE_PAGE: &str = "tauri://localhost/offline.html";
@@ -172,27 +172,6 @@ fn thumb_path(app_data: &Path, species_id: &str) -> PathBuf {
         .join(format!("{species_id}.jpg"))
 }
 
-fn write_atomic(path: &Path, contents: &[u8]) -> std::io::Result<()> {
-    let dir = path.parent().expect("cache paths have a parent");
-    fs::create_dir_all(dir)?;
-    let tmp = dir.join(format!(
-        ".{}.{}.tmp",
-        path.file_name().unwrap_or_default().to_string_lossy(),
-        std::process::id()
-    ));
-    let result = (|| {
-        let mut file = fs::File::create(&tmp)?;
-        file.write_all(contents)?;
-        file.sync_all()?;
-        drop(file);
-        fs::rename(&tmp, path)
-    })();
-    if result.is_err() {
-        let _ = fs::remove_file(&tmp);
-    }
-    result
-}
-
 fn require_owner(app_data: &Path, cfg: &DesktopConfig, user_id: &str) -> Result<String, String> {
     if !enabled(cfg) {
         return Err("The offline cache is turned off.".into());
@@ -284,7 +263,8 @@ pub fn put_thumb(
             return Err("The offline cache already holds the most thumbnails it keeps.".into());
         }
     }
-    write_atomic(&path, bytes).map_err(|e| e.to_string())
+    // A re-syncable cache written thousands of times per sync: no flush per file.
+    write_replace(&path, bytes).map_err(|e| e.to_string())
 }
 
 fn is_thumb_file(path: &Path) -> bool {
@@ -450,7 +430,7 @@ pub async fn show_offline_or_local(
     if usable(&crate::app_data_dir(app), cfg).is_some() {
         crate::navigate_or_picker(window, OFFLINE_PAGE);
     } else {
-        crate::use_local_while_offline(app, window, cfg).await;
+        crate::server_watch::use_local_while_offline(app, window, cfg).await;
     }
 }
 
@@ -460,7 +440,7 @@ pub async fn show_offline_or_local(
 #[tauri::command]
 pub async fn offline_retry(window: WebviewWindow) -> Result<bool, String> {
     let (_, cfg) = require_bundled_page(&window)?;
-    match crate::reachable_server(&cfg).await {
+    match crate::server_watch::reachable_server(&cfg).await {
         Some(url) => {
             crate::navigate_or_picker(&window, &url);
             Ok(true)
@@ -470,14 +450,14 @@ pub async fn offline_retry(window: WebviewWindow) -> Result<bool, String> {
 }
 
 // The offline page's "Work in this computer's library": the existing offline fallback, for adding
-// photos while away (they're pushed to the server later, see watch_server in lib.rs).
+// photos while away (they're pushed to the server later, see watch_server in server_watch.rs).
 #[tauri::command]
 pub async fn offline_use_local_library(window: WebviewWindow) -> Result<(), String> {
     let (_, cfg) = require_bundled_page(&window)?;
     if cfg.mode.as_deref() != Some("remote") {
         return Err("Not connected to a server.".into());
     }
-    crate::use_local_while_offline(window.app_handle(), &window, &cfg).await;
+    crate::server_watch::use_local_while_offline(window.app_handle(), &window, &cfg).await;
     Ok(())
 }
 
@@ -493,7 +473,9 @@ fn require_server_page(window: &WebviewWindow) -> Result<(PathBuf, DesktopConfig
         .url()
         .map_err(|_| "Not allowed from this page.".to_string())?;
     let (app_data, cfg) = config(window);
-    if cfg.mode.as_deref() == Some("remote") && crate::is_configured_server(cfg.clone(), &url) {
+    if cfg.mode.as_deref() == Some("remote")
+        && crate::security::is_configured_server(cfg.clone(), &url)
+    {
         Ok((app_data, cfg))
     } else {
         Err("Not allowed from this page.".into())
@@ -555,7 +537,7 @@ pub fn offline_cache_commit(
 
 #[tauri::command]
 pub fn offline_cache_clear(window: WebviewWindow) -> Result<(), String> {
-    if !crate::is_trusted_sender(&window) {
+    if !crate::security::is_trusted_sender(&window) {
         return Err("Not allowed from this page.".into());
     }
     let (app_data, _) = config(&window);
@@ -564,7 +546,7 @@ pub fn offline_cache_clear(window: WebviewWindow) -> Result<(), String> {
 
 #[tauri::command]
 pub fn offline_cache_info(window: WebviewWindow) -> Result<CacheInfo, String> {
-    if !crate::is_trusted_sender(&window) {
+    if !crate::security::is_trusted_sender(&window) {
         return Err("Not allowed from this page.".into());
     }
     let (app_data, cfg) = config(&window);
@@ -577,7 +559,7 @@ pub fn offline_cache_info(window: WebviewWindow) -> Result<CacheInfo, String> {
 // The Settings checkbox while connected. Turning it off deletes the cache (via store::write_config).
 #[tauri::command]
 pub fn set_offline_cache(window: WebviewWindow, enabled: bool) -> Result<(), String> {
-    if !crate::is_trusted_sender(&window) {
+    if !crate::security::is_trusted_sender(&window) {
         return Err("Not allowed from this page.".into());
     }
     let (app_data, mut cfg) = config(&window);
@@ -880,7 +862,7 @@ mod tests {
 
 // Against a real Lifer API with a throwaway database: connect, sync, stop the server, browse the
 // cache, restart, switch back. Plays the part of the server's web page (session cookie, GET
-// /api/collection, the cover thumbnails) and of lib.rs's watcher (the reachability check that
+// /api/collection, the cover thumbnails) and of server_watch.rs's watcher (the reachability check that
 // decides between the server and the cached view). Ignored by default; run it with
 // tests/offline-cache-integration.sh, which creates the database and sets the variables read here.
 #[cfg(test)]
