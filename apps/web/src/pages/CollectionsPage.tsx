@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import type { TripSummary, QuadSlot } from "@lifer/shared";
-import { api, ApiError } from "../api/client";
+import { api, apiPath, ApiError } from "../api/client";
 import { Spinner } from "../components/LoadingScreen";
 import PageHeader from "../components/PageHeader";
+import SegmentedControl from "../components/SegmentedControl";
 import CoverImage from "../components/CoverImage";
 import DotMenu from "../components/DotMenu";
 import RenameModal from "../components/RenameModal";
@@ -19,6 +20,9 @@ import Modal from "../components/Modal";
 import Button from "../components/Button";
 import FormMessage from "../components/FormMessage";
 import { useTranslation } from "react-i18next";
+import { backStateFor } from "../lib/backLabel";
+import { PANEL } from "../lib/layout";
+import { MENU_ITEM, MENU_ITEM_DANGER, MENU_PANEL, MENU_SEPARATOR } from "../lib/menuClasses";
 
 interface Album {
   id: string;
@@ -45,35 +49,37 @@ const TRIPS_INFO_PARAGRAPH_KEYS = [
 // so they share one page with a tab switch.
 export default function CollectionsPage() {
   const location = useLocation();
+  const tab = location.pathname.startsWith("/trips") ? "trips" : "albums";
+
+  return <div className="flex-1 bg-canvas">{tab === "trips" ? <TripsPanel /> : <AlbumsPanel />}</div>;
+}
+
+// Each panel renders this so its own actions share the header row with the tab switch.
+function CollectionsHeader({ actions }: { actions: React.ReactNode }) {
+  const location = useLocation();
   const navigate = useNavigate();
   const tab = location.pathname.startsWith("/trips") ? "trips" : "albums";
   const { t } = useTranslation();
 
   return (
-    <div className="flex-1 bg-canvas">
-      <PageHeader
-        sticky
-        title={t("collections.title")}
-        actions={
-          <div className="flex rounded-md border border-line text-sm">
-            <button
-              onClick={() => navigate("/albums", { replace: true })}
-              className={`rounded-l-md px-3 py-1.5 ${tab === "albums" ? "bg-accent text-accent-fg" : "text-muted hover:bg-surface-muted"}`}
-            >
-              {t("collections.tabs.albums")}
-            </button>
-            <button
-              onClick={() => navigate("/trips", { replace: true })}
-              className={`rounded-r-md px-3 py-1.5 ${tab === "trips" ? "bg-accent text-accent-fg" : "text-muted hover:bg-surface-muted"}`}
-            >
-              {t("collections.tabs.trips")}
-            </button>
-          </div>
-        }
-      />
-
-      {tab === "trips" ? <TripsPanel /> : <AlbumsPanel />}
-    </div>
+    <PageHeader
+      topLevel
+      sticky
+      title={t("collections.title")}
+      actions={
+        <>
+          <SegmentedControl
+            value={tab}
+            onChange={(next) => navigate(next === "albums" ? "/albums" : "/trips", { replace: true, state: location.state })}
+            options={[
+              { value: "albums", label: t("collections.tabs.albums") },
+              { value: "trips", label: t("collections.tabs.trips") },
+            ]}
+          />
+          {actions}
+        </>
+      }
+    />
   );
 }
 
@@ -91,11 +97,12 @@ function AlbumsPanel() {
   useEnterToConfirm(() => void deleteAlbum(), !!confirmingDeleteId && !deleting);
   const toast = useToast();
   const navigate = useNavigate();
+  const location = useLocation();
   const { t } = useTranslation();
 
   function fetchAlbums() {
     api
-      .get<{ albums: Album[] }>("/albums")
+      .get("/albums")
       .then((res) => setAlbums(res.albums))
       .catch(() => setLoadError(true));
   }
@@ -113,8 +120,8 @@ function AlbumsPanel() {
     setSaving(true);
     setError(null);
     try {
-      await api.post<{ id: string }>("/albums", { name: name.trim() || undefined });
-      navigate("/gallery?select=1");
+      await api.post("/albums", { name: name.trim() || undefined });
+      navigate("/gallery?select=1", { state: backStateFor(location, t) });
     } catch (err) {
       setError(err instanceof ApiError ? err.message : t("albums.create.failed"));
     } finally {
@@ -124,7 +131,7 @@ function AlbumsPanel() {
 
   async function renameAlbum(name: string) {
     if (!renamingAlbum) return;
-    await api.patch(`/albums/${renamingAlbum.id}`, { name });
+    await api.patch(apiPath("/albums/{id}", { id: renamingAlbum.id }), { name });
     setRenamingAlbum(null);
     load();
   }
@@ -133,7 +140,7 @@ function AlbumsPanel() {
     if (!confirmingDeleteId) return;
     setDeleting(true);
     try {
-      await api.delete(`/albums/${confirmingDeleteId}`);
+      await api.delete(apiPath("/albums/{id}", { id: confirmingDeleteId }));
       setConfirmingDeleteId(null);
       load();
     } catch (err) {
@@ -145,24 +152,24 @@ function AlbumsPanel() {
 
   return (
     <>
-      <div className="flex items-center justify-end gap-2 border-b border-line bg-surface px-6 py-2">
-        <button
-          onClick={() => {
-            setCreating((c) => !c);
-            setError(null);
-          }}
-          className="rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-accent-fg"
-        >
-          {creating ? t("common.cancel") : t("albums.list.newAlbum")}
-        </button>
-      </div>
-
-      <main className="space-y-6 p-6">
-        {creating && (
-          <form
-            onSubmit={createAlbum}
-            className="flex max-w-md items-end gap-2 rounded-lg border border-line bg-surface p-4"
+      <CollectionsHeader
+        actions={
+          <Button
+            size="sm"
+            variant={creating ? "secondary" : "primary"}
+            onClick={() => {
+              setCreating((c) => !c);
+              setError(null);
+            }}
           >
+            {creating ? t("common.cancel") : t("albums.list.newAlbum")}
+          </Button>
+        }
+      />
+
+      <main className="space-y-section p-page">
+        {creating && (
+          <form onSubmit={createAlbum} className={`flex max-w-md items-end gap-2 ${PANEL}`}>
             <div className="flex-1">
               <label className="mb-1 block text-sm font-medium text-ink">{t("common.name")}</label>
               <input
@@ -215,7 +222,7 @@ function AlbumsPanel() {
             action={{ label: t("albums.list.newAlbum"), onClick: () => setCreating(true) }}
           />
         ) : (
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
+          <div className="grid grid-cols-2 gap-item sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
             {albums.map((album) => (
               <Link
                 key={album.id}
@@ -237,7 +244,7 @@ function AlbumsPanel() {
                     onToggle={() => setOpenMenuId(openMenuId === album.id ? null : album.id)}
                     menuRef={openMenuRef}
                   >
-                    <div className="absolute right-0 top-full z-10 mt-1 w-36 rounded-md border border-line bg-surface py-1 shadow-lg">
+                    <div className={`absolute right-0 top-full z-10 mt-1 w-36 ${MENU_PANEL}`}>
                       <button
                         type="button"
                         onClick={(e) => {
@@ -246,10 +253,11 @@ function AlbumsPanel() {
                           setOpenMenuId(null);
                           setRenamingAlbum(album);
                         }}
-                        className="block w-full px-3 py-1.5 text-left text-xs text-ink hover:bg-surface-muted"
+                        className={MENU_ITEM}
                       >
                         {t("common.rename")}
                       </button>
+                      <div className={MENU_SEPARATOR} />
                       <button
                         type="button"
                         onClick={(e) => {
@@ -258,7 +266,7 @@ function AlbumsPanel() {
                           setOpenMenuId(null);
                           setConfirmingDeleteId(album.id);
                         }}
-                        className="block w-full px-3 py-1.5 text-left text-xs text-red-600 hover:bg-surface-muted dark:text-red-400"
+                        className={MENU_ITEM_DANGER}
                       >
                         {t("common.delete")}
                       </button>
@@ -267,12 +275,7 @@ function AlbumsPanel() {
                 </div>
                 <div className="p-3">
                   <p className="truncate font-medium leading-tight text-ink">{album.name}</p>
-                  {/* Same count pill as TripCard. */}
-                  <div className="mt-1 flex flex-wrap items-center gap-1">
-                    <span className="inline-block rounded-full bg-surface-muted px-2 py-0.5 text-[10px] uppercase tracking-wide text-muted">
-                      {t("albums.list.photoCount", { count: album.captureCount })}
-                    </span>
-                  </div>
+                  <p className="text-xs text-muted">{t("albums.list.photoCount", { count: album.captureCount })}</p>
                 </div>
               </Link>
             ))}
@@ -296,7 +299,7 @@ function AlbumsPanel() {
         title={t("albums.delete.title")}
         footer={
           <>
-            <Button variant="ghost" size="sm" onClick={() => setConfirmingDeleteId(null)}>
+            <Button variant="secondary" size="sm" onClick={() => setConfirmingDeleteId(null)}>
               {t("common.cancel")}
             </Button>
             <Button variant="danger" size="sm" onClick={deleteAlbum} loading={deleting}>
@@ -335,7 +338,7 @@ function TripsPanel() {
 
   function fetchTrips() {
     api
-      .get<{ trips: TripSummary[] }>("/trips")
+      .get("/trips")
       .then((res) => setTrips(res.trips))
       .catch(() => setLoadError(true));
   }
@@ -361,7 +364,7 @@ function TripsPanel() {
         return;
       }
       api
-        .get<{ trips: TripSummary[] }>("/trips")
+        .get("/trips")
         .then((res) => {
           if (!cancelled) setTrips(res.trips);
         })
@@ -400,7 +403,7 @@ function TripsPanel() {
     setSaving(true);
     setError(null);
     try {
-      const res = await api.post<{ id: string }>("/trips", {
+      const res = await api.post("/trips", {
         name: name.trim() || undefined,
         sourceFolder: chosenFolder,
         destinationFolder: destinationFolder ?? undefined,
@@ -419,7 +422,7 @@ function TripsPanel() {
     setSaving(true);
     setError(null);
     try {
-      const res = await api.post<{ id: string }>("/trips/build", {
+      const res = await api.post("/trips/build", {
         name: name.trim() || undefined,
         parentDir: chosenFolder,
       });
@@ -433,7 +436,7 @@ function TripsPanel() {
 
   async function renameTrip(name: string) {
     if (!renamingTrip) return;
-    await api.patch(`/trips/${renamingTrip.id}`, { name });
+    await api.patch(apiPath("/trips/{id}", { id: renamingTrip.id }), { name });
     setRenamingTrip(null);
     load();
   }
@@ -442,7 +445,7 @@ function TripsPanel() {
     if (!confirmingDeleteId) return;
     setDeleting(true);
     try {
-      await api.delete(`/trips/${confirmingDeleteId}`);
+      await api.delete(apiPath("/trips/{id}", { id: confirmingDeleteId }));
       setConfirmingDeleteId(null);
       load();
     } catch (err) {
@@ -454,39 +457,42 @@ function TripsPanel() {
 
   return (
     <>
-      <div className="flex items-center justify-end gap-2 border-b border-line bg-surface px-6 py-2">
-        <InfoTip paragraphs={TRIPS_INFO_PARAGRAPH_KEYS.map((key) => t(key))} align="right" />
-        <button
-          onClick={() => {
-            setBuilding(false);
-            setCreating((c) => !c);
-            setChosenFolder(null);
-            setDestinationFolder(null);
-            setError(null);
-          }}
-          className="rounded-md border border-line px-3 py-1.5 text-sm font-medium text-ink hover:bg-surface-muted"
-        >
-          {creating && !building ? t("common.cancel") : t("trips.list.importTrip")}
-        </button>
-        <button
-          onClick={() => {
-            setCreating(false);
-            setBuilding((b) => !b);
-            setChosenFolder(null);
-            setError(null);
-          }}
-          className="rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-accent-fg"
-        >
-          {building ? t("common.cancel") : t("trips.list.buildTrip")}
-        </button>
-      </div>
+      <CollectionsHeader
+        actions={
+          <>
+            <InfoTip paragraphs={TRIPS_INFO_PARAGRAPH_KEYS.map((key) => t(key))} align="right" />
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => {
+                setBuilding(false);
+                setCreating((c) => !c);
+                setChosenFolder(null);
+                setDestinationFolder(null);
+                setError(null);
+              }}
+            >
+              {creating && !building ? t("common.cancel") : t("trips.list.importTrip")}
+            </Button>
+            <Button
+              size="sm"
+              variant={building ? "secondary" : "primary"}
+              onClick={() => {
+                setCreating(false);
+                setBuilding((b) => !b);
+                setChosenFolder(null);
+                setError(null);
+              }}
+            >
+              {building ? t("common.cancel") : t("trips.list.buildTrip")}
+            </Button>
+          </>
+        }
+      />
 
-      <main className="space-y-6 p-6">
+      <main className="space-y-section p-page">
         {(creating || building) && (
-          <form
-            onSubmit={building ? buildTrip : createTrip}
-            className="max-w-md space-y-3 rounded-lg border border-line bg-surface p-4"
-          >
+          <form onSubmit={building ? buildTrip : createTrip} className={`max-w-md space-y-3 ${PANEL}`}>
             <div>
               <label className="mb-1 block text-sm font-medium text-ink">{t("common.name")}</label>
               <input
@@ -615,7 +621,7 @@ function TripsPanel() {
             }}
           />
         ) : (
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
+          <div className="grid grid-cols-2 gap-item sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
             {trips.map((trip) => (
               <TripCard
                 key={trip.id}
@@ -647,7 +653,7 @@ function TripsPanel() {
         title={t("trips.delete.title")}
         footer={
           <>
-            <Button variant="ghost" size="sm" onClick={() => setConfirmingDeleteId(null)}>
+            <Button variant="secondary" size="sm" onClick={() => setConfirmingDeleteId(null)}>
               {t("common.cancel")}
             </Button>
             <Button variant="danger" size="sm" onClick={deleteTrip} loading={deleting}>

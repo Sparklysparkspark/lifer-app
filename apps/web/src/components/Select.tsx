@@ -14,7 +14,7 @@ export default function Select({
 }) {
   const variantClasses =
     variant === "toolbar"
-      ? "h-7 rounded-md border border-line bg-surface px-2 py-1 text-xs font-medium text-muted"
+      ? "h-8 rounded-md border border-line bg-surface px-2 text-xs font-medium text-muted"
       : "w-full rounded-md border border-line bg-surface px-2 py-1.5 text-sm text-ink";
   const select = <select {...props} className={`${variantClasses} ${className ?? ""}`} />;
   if (!label) return select;

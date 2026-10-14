@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, ApiError } from "../api/client";
 import PageHeader from "../components/PageHeader";
+import SegmentedControl from "../components/SegmentedControl";
 import { Spinner } from "../components/LoadingScreen";
 import EmptyState from "../components/EmptyState";
 import Button from "../components/Button";
@@ -8,6 +9,7 @@ import FormMessage from "../components/FormMessage";
 import { formatDate } from "../lib/format";
 import { pluralize } from "../lib/pluralize";
 import { openExternal } from "../lib/openExternal";
+import { useSpeciesName } from "../lib/speciesName";
 
 const sendIcon = (
   <svg
@@ -72,10 +74,6 @@ interface ObservationSummary {
 
 type Tab = "import" | "pending" | "completed";
 
-function speciesLabel(commonName: string | null, scientificName: string): string {
-  return commonName ?? scientificName;
-}
-
 function formatDateRange(start: string | null, end: string | null): string {
   if (!start) return "Date unknown";
   const startDate = formatDate(start, "medium");
@@ -95,22 +93,19 @@ export default function InaturalistPage() {
         <p className="mt-1 text-sm text-muted">
           Send your sightings to iNaturalist as draft observations, then finish them there.
         </p>
-        <div className="mt-4 flex gap-2">
-          {(["import", "pending", "completed"] as const).map((t) => (
-            <button
-              key={t}
-              type="button"
-              onClick={() => setTab(t)}
-              className={`rounded-md px-3 py-1.5 text-sm capitalize ${
-                tab === t ? "bg-ink text-canvas" : "border border-line text-ink hover:bg-surface-muted"
-              }`}
-            >
-              {t}
-            </button>
-          ))}
+        <div className="mt-4">
+          <SegmentedControl
+            value={tab}
+            onChange={setTab}
+            options={[
+              { value: "import", label: "Import" },
+              { value: "pending", label: "Pending" },
+              { value: "completed", label: "Completed" },
+            ]}
+          />
         </div>
       </PageHeader>
-      <main className="mx-auto max-w-3xl space-y-4 p-6">
+      <main className="mx-auto max-w-3xl space-y-section p-page">
         {tab === "import" && <ImportTab />}
         {tab === "pending" && <PendingTab />}
         {tab === "completed" && <CompletedTab />}
@@ -120,6 +115,7 @@ export default function InaturalistPage() {
 }
 
 function ImportTab() {
+  const speciesName = useSpeciesName();
   const [clusters, setClusters] = useState<ImportCluster[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState<string | null>(null);
@@ -156,10 +152,7 @@ function ImportTab() {
     setError(null);
     setNotice(null);
     try {
-      const sent = await api.post<{ editUrl: string; needsLocation: boolean; needsDate: boolean }>(
-        "/inaturalist/observations",
-        { captureIds },
-      );
+      const sent = await api.post("/inaturalist/observations", { captureIds });
       // Lifer only sends what the photos recorded. Anything missing is added on iNaturalist,
       // whose map is far better for placing a sighting than anything offline.
       if (sent.needsLocation || sent.needsDate) {
@@ -185,7 +178,7 @@ function ImportTab() {
   const noticeMessage = notice ? <FormMessage success={notice} /> : null;
   if (clusters.length === 0)
     return (
-      <div className="space-y-4">
+      <div className="space-y-item">
         {noticeMessage}
         <EmptyState
           icon={sendIcon}
@@ -196,62 +189,64 @@ function ImportTab() {
     );
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-item">
       {noticeMessage}
-      {clusters.map((cluster) => {
-        const key = clusterKey(cluster);
-        const excludedIds = excluded[key] ?? new Set<string>();
-        return (
-          <div key={key} className="rounded-xl border border-line bg-surface p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-ink">
-                  {speciesLabel(cluster.commonName, cluster.scientificName)}
-                </p>
-                <p className="text-xs text-muted">
-                  {pluralize(cluster.captures.length, "photo")} ·{" "}
-                  {formatDateRange(cluster.earliestTakenAt, cluster.latestTakenAt)}
-                </p>
+      <div className="divide-y divide-line rounded-panel border border-line bg-surface">
+        {clusters.map((cluster) => {
+          const key = clusterKey(cluster);
+          const excludedIds = excluded[key] ?? new Set<string>();
+          return (
+            <div key={key} className="p-panel">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-medium text-ink">{speciesName(cluster)}</p>
+                  <p className="text-xs text-muted">
+                    {pluralize(cluster.captures.length, "photo")} ·{" "}
+                    {formatDateRange(cluster.earliestTakenAt, cluster.latestTakenAt)}
+                  </p>
+                </div>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => createObservation(cluster)}
+                  loading={submitting === key}
+                  disabled={excludedIds.size === cluster.captures.length}
+                >
+                  {submitting === key ? "Creating…" : "Create observation"}
+                </Button>
               </div>
-              <Button
-                size="sm"
-                onClick={() => createObservation(cluster)}
-                loading={submitting === key}
-                disabled={excludedIds.size === cluster.captures.length}
-              >
-                {submitting === key ? "Creating…" : "Create observation"}
-              </Button>
-            </div>
-            <div className="mt-3 flex flex-wrap gap-2">
-              {cluster.captures.map((capture) => (
-                <label key={capture.id} className="relative">
-                  <input
-                    type="checkbox"
-                    checked={!excludedIds.has(capture.id)}
-                    onChange={() => toggleExcluded(key, capture.id)}
-                    className="absolute right-1 top-1 h-4 w-4"
-                  />
-                  {capture.currentPhotoId ? (
-                    <img
-                      src={`/api/photos/${capture.currentPhotoId}/thumb`}
-                      alt=""
-                      loading="lazy"
-                      className={`h-20 w-20 rounded-md object-cover ${excludedIds.has(capture.id) ? "opacity-30" : ""}`}
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {cluster.captures.map((capture) => (
+                  <label key={capture.id} className="relative">
+                    <input
+                      type="checkbox"
+                      checked={!excludedIds.has(capture.id)}
+                      onChange={() => toggleExcluded(key, capture.id)}
+                      className="absolute right-1 top-1 h-4 w-4"
                     />
-                  ) : (
-                    <div className="h-20 w-20 rounded-md bg-surface-muted" />
-                  )}
-                </label>
-              ))}
+                    {capture.currentPhotoId ? (
+                      <img
+                        src={`/api/photos/${capture.currentPhotoId}/thumb`}
+                        alt=""
+                        loading="lazy"
+                        className={`h-14 w-14 rounded-md object-cover ${excludedIds.has(capture.id) ? "opacity-30" : ""}`}
+                      />
+                    ) : (
+                      <div className="h-14 w-14 rounded-md bg-surface-muted" />
+                    )}
+                  </label>
+                ))}
+              </div>
             </div>
-          </div>
-        );
-      })}
+          );
+        })}
+      </div>
     </div>
   );
 }
 
 function PendingTab() {
+  const speciesName = useSpeciesName();
   const [observations, setObservations] = useState<ObservationSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [confirming, setConfirming] = useState<string | null>(null);
@@ -259,7 +254,7 @@ function PendingTab() {
 
   function load() {
     api
-      .get<{ observations: ObservationSummary[] }>("/inaturalist/pending")
+      .get("/inaturalist/pending")
       .then((r) => setObservations(r.observations))
       .catch((err) => setError(err instanceof ApiError ? err.message : "Couldn't load pending observations"));
   }
@@ -293,9 +288,9 @@ function PendingTab() {
     );
 
   return (
-    <div className="space-y-3">
+    <div className="divide-y divide-line rounded-panel border border-line bg-surface">
       {observations.map((obs) => (
-        <div key={obs.observationId} className="rounded-xl border border-line bg-surface p-4">
+        <div key={obs.observationId} className="p-panel">
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-3">
               {obs.currentPhotoId ? (
@@ -309,7 +304,7 @@ function PendingTab() {
                 <div className="h-14 w-14 rounded-md bg-surface-muted" />
               )}
               <div>
-                <p className="text-sm font-medium text-ink">{speciesLabel(obs.commonName, obs.scientificName)}</p>
+                <p className="text-sm font-medium text-ink">{speciesName(obs)}</p>
                 <a href={obs.editUrl} target="_blank" rel="noreferrer" className="text-xs text-muted hover:underline">
                   Finish on iNaturalist
                 </a>
@@ -332,12 +327,13 @@ function PendingTab() {
 }
 
 function CompletedTab() {
+  const speciesName = useSpeciesName();
   const [observations, setObservations] = useState<ObservationSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     api
-      .get<{ observations: ObservationSummary[] }>("/inaturalist/completed")
+      .get("/inaturalist/completed")
       .then((r) => setObservations(r.observations))
       .catch((err) => setError(err instanceof ApiError ? err.message : "Couldn't load completed observations"));
   }, []);
@@ -354,14 +350,14 @@ function CompletedTab() {
     );
 
   return (
-    <div className="space-y-3">
+    <div className="divide-y divide-line rounded-panel border border-line bg-surface">
       {observations.map((obs) => (
         <a
           key={obs.observationId}
           href={obs.url}
           target="_blank"
           rel="noreferrer"
-          className="flex items-center gap-3 rounded-xl border border-line bg-surface p-4 hover:bg-surface-muted"
+          className="flex items-center gap-3 p-panel first:rounded-t-panel last:rounded-b-panel hover:bg-surface-muted"
         >
           {obs.currentPhotoId ? (
             <img
@@ -373,7 +369,7 @@ function CompletedTab() {
           ) : (
             <div className="h-14 w-14 rounded-md bg-surface-muted" />
           )}
-          <p className="text-sm font-medium text-ink">{speciesLabel(obs.commonName, obs.scientificName)}</p>
+          <p className="text-sm font-medium text-ink">{speciesName(obs)}</p>
         </a>
       ))}
     </div>

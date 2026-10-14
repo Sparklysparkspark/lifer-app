@@ -13,8 +13,9 @@ const VARIANT: Record<ButtonVariant, string> = {
   ghost: "border-transparent text-muted hover:bg-surface-muted hover:text-ink",
 };
 
+// "sm" is the toolbar size: the same 32px height as Select, Pill and the search box beside it.
 const SIZE: Record<ButtonSize, string> = {
-  sm: "px-3 py-1.5 text-sm",
+  sm: "h-8 px-3 text-xs",
   md: "px-4 py-2 text-sm",
 };
 

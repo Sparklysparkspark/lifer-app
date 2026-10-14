@@ -14,7 +14,8 @@ export default function Pill({
   size?: "sm" | "md";
   className?: string;
 }) {
-  const sizeClasses = size === "sm" ? "px-2.5 py-1 text-xs" : "px-3 py-1.5 text-xs font-medium";
+  // One height for every toolbar control (Button sm, Select, the search box).
+  const sizeClasses = size === "sm" ? "h-8 px-2.5 text-xs font-medium" : "h-8 px-3 text-xs font-medium";
   return (
     <button
       type="button"

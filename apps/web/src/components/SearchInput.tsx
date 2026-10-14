@@ -42,7 +42,7 @@ export default function SearchInput({
         onBlur={onBlur}
         onKeyDown={onKeyDown}
         aria-label={ariaLabel}
-        className={`w-full rounded-md border border-line bg-surface px-3 py-1.5 text-sm text-ink placeholder:text-muted focus:outline-none focus:ring-1 focus:ring-ink ${value ? "pr-7" : ""}`}
+        className={`h-8 w-full rounded-md border border-line bg-surface px-3 text-sm text-ink placeholder:text-muted focus:outline-none focus:ring-1 focus:ring-ink ${value ? "pr-7" : ""}`}
       />
       {value && (
         <button

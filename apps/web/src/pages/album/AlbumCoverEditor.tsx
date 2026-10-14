@@ -1,11 +1,14 @@
 import type { QuadSlot } from "@lifer/shared";
 import { cropToImageStyle } from "../../lib/crop";
+import { PANEL } from "../../lib/layout";
+import SegmentedControl from "../../components/SegmentedControl";
+
+const COVER_LAYOUTS = [
+  { value: "single", label: "Single photo" },
+  { value: "quad", label: "Quad grid" },
+] as const;
 
 const QUAD_TILE_BUTTON = "rounded-md bg-white/90 px-1.5 py-0.5 text-[10px] font-medium text-ink hover:bg-white";
-
-function layoutButtonClass(active: boolean): string {
-  return `rounded-md border px-2 py-1 text-xs ${active ? "border-ink bg-surface text-ink" : "border-line hover:bg-surface"}`;
-}
 
 // "Edit cover": single photo or quad grid, and for a quad, which photo (and crop) each tile shows.
 // Picking a tile's photo happens in the grid below, so the page owns `pickingSlot`.
@@ -25,16 +28,11 @@ export default function AlbumCoverEditor({
   onCropSlot: (slot: number) => void;
 }) {
   return (
-    <div className="mb-4">
-      <div className="space-y-3 rounded-md border border-line bg-surface-muted p-3">
+    <div className="mb-section">
+      <div className={`space-y-3 ${PANEL}`}>
         <div className="flex items-center gap-2 text-sm text-muted">
           Cover style
-          <button onClick={() => onSetCoverLayout("single")} className={layoutButtonClass(coverLayout === "single")}>
-            Single photo
-          </button>
-          <button onClick={() => onSetCoverLayout("quad")} className={layoutButtonClass(coverLayout === "quad")}>
-            Quad grid
-          </button>
+          <SegmentedControl value={coverLayout} onChange={onSetCoverLayout} options={COVER_LAYOUTS} />
         </div>
         {coverLayout === "quad" && (
           <div>
