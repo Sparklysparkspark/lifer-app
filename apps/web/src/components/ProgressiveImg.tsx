@@ -14,6 +14,10 @@ function withRetry(src: string, attempt: number): string {
   return `${src}${src.includes("?") ? "&" : "?"}retry=${attempt}`;
 }
 
+// The sharpest copy each photo has shown, kept across mounts: returning to a grid draws cached
+// photos at once instead of blank tiles waiting on the observer.
+const shownSources = new Map<string, string>();
+
 function mediumSrcFor(thumbSrc: string): string | null {
   // Only your own photos (/api/photos/:id/thumb) have a medium copy; shared-album and reference
   // photos go straight from thumbnail to display.
@@ -37,8 +41,8 @@ export default function ProgressiveImg({
 }) {
   const imgRef = useRef<HTMLImageElement>(null);
   // Without IntersectionObserver there's no way to wait, so everything counts as near.
-  const [near, setNear] = useState(() => typeof IntersectionObserver === "undefined");
-  const [loadedSrc, setLoadedSrc] = useState(thumbSrc);
+  const [near, setNear] = useState(() => typeof IntersectionObserver === "undefined" || shownSources.has(thumbSrc));
+  const [loadedSrc, setLoadedSrc] = useState(() => shownSources.get(thumbSrc) ?? thumbSrc);
   // A record pointing at a photo whose file has since moved or been deleted would otherwise show
   // the browser's broken-image icon; the placeholder reads as "nothing here" instead.
   const [failed, setFailed] = useState(false);
@@ -76,7 +80,7 @@ export default function ProgressiveImg({
     setShownKey(sourceKey);
     setFailed(false);
     setAttempt(0);
-    setLoadedSrc(thumbSrc);
+    setLoadedSrc(shownSources.get(thumbSrc) ?? thumbSrc);
   }
 
   useEffect(() => {
@@ -112,6 +116,7 @@ export default function ProgressiveImg({
       // Placeholder tone behind the image so an unloaded grid still shows tiles.
       className={`bg-surface-muted ${className ?? ""}`}
       style={style}
+      onLoad={() => shownSources.set(thumbSrc, loadedSrc)}
       onError={() => {
         // A missing medium copy falls back to the display image rather than a placeholder.
         if (loadedSrc !== fullSrc && loadedSrc !== thumbSrc) setLoadedSrc(fullSrc);

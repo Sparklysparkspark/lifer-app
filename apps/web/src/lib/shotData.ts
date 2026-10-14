@@ -21,16 +21,3 @@ export function shotDataLine(c: {
   ].filter(Boolean);
   return parts.length > 0 ? parts.join(" · ") : null;
 }
-
-// Rough glyph width for the 9px line (0.55em is a common sans average), used to guess wrapping
-// per photo so MasonryGrid reserves a second line only where needed.
-const SHOT_DATA_FONT_SIZE_PX = 9;
-const AVG_CHAR_WIDTH_RATIO = 0.55;
-
-// Extra row height beyond the first line: 0 if it should fit, one line height if it should wrap.
-export function estimateShotDataWrapExtraPx(line: string | null, columnWidthPx: number, lineHeightPx: number): number {
-  if (!line) return 0;
-  const avgCharWidthPx = SHOT_DATA_FONT_SIZE_PX * AVG_CHAR_WIDTH_RATIO;
-  const estimatedCharsPerLine = Math.max(1, Math.floor(columnWidthPx / avgCharWidthPx));
-  return line.length > estimatedCharsPerLine ? lineHeightPx : 0;
-}

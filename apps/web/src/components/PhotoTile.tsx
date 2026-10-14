@@ -1,4 +1,5 @@
-import { memo, useState, type ReactNode, type RefObject } from "react";
+import { memo, useContext, useState, type ReactNode, type RefObject } from "react";
+import { CompactGridContext } from "./compactGrid";
 import ProgressiveImg from "./ProgressiveImg";
 import DotMenu from "./DotMenu";
 
@@ -42,7 +43,7 @@ function PhotoTile({
   label?: ReactNode;
   /** Overrides the default `rounded-md` corners. */
   cornerRadiusPx?: number;
-  /** MasonryGrid's clamped ratio; crops via object-cover. Omit for natural aspect. */
+  /** The grid's ratio for this photo; crops via object-cover. Omit for natural aspect. */
   aspectRatio?: number;
   menuOpen: boolean;
   onToggleMenu: () => void;
@@ -59,6 +60,12 @@ function PhotoTile({
   contextMenuAnchor?: { x: number; y: number } | null;
 }) {
   const [videoHovering, setVideoHovering] = useState(false);
+  // Phone layout: square corners and no caption, so the grid reads as one seamless sheet.
+  const compact = useContext(CompactGridContext);
+  if (compact) {
+    cornerRadiusPx = 0;
+    label = undefined;
+  }
   const isVideo = kind === "video";
   const durationLabel =
     durationSeconds != null

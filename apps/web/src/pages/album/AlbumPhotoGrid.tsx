@@ -5,8 +5,8 @@ import MasonryGrid from "../../components/MasonryGrid";
 import PhotoTile from "../../components/PhotoTile";
 import type { useSelectMode } from "../../hooks/useSelectMode";
 import { downloadFile } from "../../lib/downloadFile";
-
-const MENU_ITEM = "block w-full px-3 py-1.5 text-left text-xs text-ink hover:bg-surface-muted";
+import { MENU_ITEM, MENU_ITEM_DANGER, MENU_PANEL, MENU_SEPARATOR } from "../../lib/menuClasses";
+import { useSpeciesName } from "../../lib/speciesName";
 
 // The album's photos, with the remove-selected bar above them in select mode. A tile click opens
 // the lightbox, or fills the quad cover tile being picked.
@@ -19,6 +19,7 @@ export default function AlbumPhotoGrid({
   coverLayout,
   pickingQuadSlot,
   menu,
+  speciesLinkState,
   onOpen,
   onPickQuadPhoto,
   onSetCover,
@@ -33,12 +34,15 @@ export default function AlbumPhotoGrid({
   coverLayout: "single" | "quad";
   pickingQuadSlot: number | null;
   menu: { openKey: string | null; setOpenKey: (key: string | null) => void; ref: RefObject<HTMLDivElement | null> };
+  /** So the species page's back link returns to this album. */
+  speciesLinkState: object;
   onOpen: (index: number) => void;
   onPickQuadPhoto: (slot: number, photoId: string) => void;
   onSetCover: (photoId: string) => void;
   onAdjustCover: (photoUrl: string) => void;
   onRemove: (captureId: string) => Promise<void>;
 }) {
+  const speciesName = useSpeciesName();
   const { selectMode, selectedIds, dragPreviewIds, dragProps } = select;
   const closeMenu = () => menu.setOpenKey(null);
 
@@ -62,8 +66,6 @@ export default function AlbumPhotoGrid({
       <MasonryGrid
         items={items.map((item, i) => ({ item, i }))}
         columnWidth={thumbSizePx}
-        gap={8}
-        extraHeightPx={showLabels ? 19 : 0}
         keyFor={({ item }) => item.photoId}
         aspectRatioFor={({ item }) => (item.width && item.height ? item.width / item.height : null)}
         renderItem={({ item, i }, aspectRatio) => {
@@ -72,7 +74,7 @@ export default function AlbumPhotoGrid({
             <PhotoTile
               key={item.photoId}
               photoId={item.photoId}
-              alt={item.commonName || item.scientificName}
+              alt={speciesName(item)}
               onOpen={() => (pickingQuadSlot != null ? onPickQuadPhoto(pickingQuadSlot, item.photoId) : onOpen(i))}
               selectMode={selectMode}
               selected={selectedIds.has(item.captureId) || (dragPreviewIds?.has(item.captureId) ?? false)}
@@ -87,17 +89,18 @@ export default function AlbumPhotoGrid({
               menuRef={menu.ref}
               menuContent={
                 menu.openKey === item.photoId && (
-                  <div className="absolute right-0 top-full z-10 mt-1 w-44 rounded-md border border-line bg-surface py-1 shadow-lg">
+                  <div className={`absolute right-0 top-full z-10 mt-1 w-44 ${MENU_PANEL}`}>
                     {item.speciesId && (
-                      <Link to={`/species/${item.speciesId}`} onClick={closeMenu} className={MENU_ITEM}>
+                      <Link
+                        to={`/species/${item.speciesId}`}
+                        state={speciesLinkState}
+                        onClick={closeMenu}
+                        className={MENU_ITEM}
+                      >
                         View species
                       </Link>
                     )}
-                    <button
-                      onClick={() => onSetCover(item.photoId)}
-                      disabled={isCover}
-                      className={`${MENU_ITEM} disabled:opacity-50`}
-                    >
+                    <button onClick={() => onSetCover(item.photoId)} disabled={isCover} className={MENU_ITEM}>
                       {isCover ? "Album cover ✓" : "Set as album cover"}
                     </button>
                     {isCover && coverLayout === "single" && (
@@ -134,23 +137,20 @@ export default function AlbumPhotoGrid({
                         Download RAW
                       </button>
                     )}
+                    <div className={MENU_SEPARATOR} />
                     <button
                       onClick={() => {
                         onRemove(item.captureId);
                         closeMenu();
                       }}
-                      className="block w-full px-3 py-1.5 text-left text-xs text-red-600 hover:bg-surface-muted dark:text-red-400"
+                      className={MENU_ITEM_DANGER}
                     >
                       Remove from album
                     </button>
                   </div>
                 )
               }
-              label={
-                showLabels && (
-                  <p className="mt-1 truncate text-[11px] text-muted">{item.commonName || item.scientificName}</p>
-                )
-              }
+              label={showLabels && <p className="mt-1 truncate text-xs text-muted">{speciesName(item)}</p>}
             />
           );
         }}
