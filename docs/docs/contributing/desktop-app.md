@@ -17,7 +17,7 @@ npm start -w desktop     # tauri dev: hot-reloads the web app against a local AP
 
 `tauri dev` runs the PostgreSQL that `prepare-resources.js` last staged in `src-tauri/resources-staging/postgres`. Without one (on a Mac, until you've built it, see below) the crate downloads a theseus-rs build into `~/.theseus/postgresql` on first start instead, which needs macOS 15.
 
-Debug builds from `tauri dev` always have the browser devtools. CI checks the Rust code with `cargo fmt --check` and `cargo clippy`, so run both in `apps/desktop/src-tauri` before you push.
+Debug builds from `tauri dev` always have the browser devtools. CI checks the Rust code with `cargo fmt --check`, `cargo clippy` and `cargo test --lib`, so run them in `apps/desktop/src-tauri` before you push (see [Testing](./testing.md#desktop-rust)).
 
 ## Building an installer
 
@@ -63,10 +63,10 @@ The app ships the PostgreSQL server its embedded database runs, in `Resources/po
 
 `scripts/stage-postgres.js` stages it, keeping only what the app needs: `postgres`, `initdb`, `pg_ctl` and `psql`; the backup and upgrade tools `pg_dump`, `pg_restore`, `pg_dumpall` and `pg_upgrade`, with the programs `pg_upgrade` runs (`pg_controldata`, `pg_resetwal`, `vacuumdb`); libpq, PL/pgSQL, the encoding conversions, the `pg_trgm`, `unaccent` and `pgcrypto` extensions the migrations create, and the data files `initdb` loads. A migration that creates another extension needs it added to the `KEEP` list there. The tools add about 1.5 MB (0.5 MB compressed) on macOS and Linux and 2 MB on Windows. Maintainer scripts use the bundled `pg_dump` too (see [Rebuilding the data](./rebuilding-data.md#software)).
 
-- **macOS:** `apps/desktop/scripts/build-postgres-macos.sh <dir> [arm64|x86_64]` builds PostgreSQL 18 from pinned, checksum-verified sources (a few minutes) for macOS 11 and later, without ICU, readline or SSL. pgcrypto links a static OpenSSL 3.5 (also built from pinned source) and is the only part that uses it. Set `LIFER_POSTGRES_DIR=<dir>` for `npm run dist`. CI requires it; a local build without it warns and bundles none, so that copy downloads PostgreSQL on first launch like older versions (macOS 15 only). The prebuilt theseus-rs macOS binaries can't be bundled instead: they need macOS 15, which the floor check above rejects.
+- **macOS:** `apps/desktop/scripts/build-postgres-macos.sh <dir> [arm64|x86_64]` builds PostgreSQL 18 from pinned, checksum-verified sources (a few minutes) for macOS 11 and later, without ICU, readline or SSL. pgcrypto links a static OpenSSL 3.5 (also built from pinned source) and is the only part that uses it. Set `LIFER_POSTGRES_DIR=<dir>` for `npm run dist`. CI requires it; a local build without it warns and bundles none, so that copy downloads PostgreSQL on first launch (macOS 15 only). The prebuilt theseus-rs macOS binaries can't be bundled instead: they need macOS 15, which the floor check above rejects.
 - **Linux and Windows:** `stage-postgres.js` downloads the same PostgreSQL release from [theseus-rs/postgresql-binaries](https://github.com/theseus-rs/postgresql-binaries) at build time and checks it against the sha256 pinned in the script. On Windows it keeps only the DLLs the kept programs import. The Linux build links the system's OpenSSL 3, libxml2, zstd, lz4, Kerberos and readline libraries, as the downloaded one always did.
 
-Existing installs keep their data folder and password. Their data was created by the same PostgreSQL release (18.6), so the bundled server opens it as is. A minor release (18.x) needs no data change: bump the version and hashes in both scripts. A new major version is upgraded on first launch, below.
+A minor release (18.x) needs no data change: bump the version and hashes in both scripts. A new major version is upgraded on first launch, below.
 
 ### The database upgrade on a new major {#pg-upgrade}
 
@@ -88,7 +88,7 @@ apps/desktop/scripts/build-postgres-macos.sh ~/pg18 arm64
 apps/desktop/src-tauri/tests/pg-upgrade-test.sh ~/pg17 ~/pg18
 ```
 
-With x86_64 builds and `x86_64-apple-darwin` as the third argument, it runs the Intel build under Rosetta. The `pg-upgrade` job in `desktop-build.yml` runs it for 17 to 18 (Apple Silicon) when started by hand.
+With x86_64 builds and `x86_64-apple-darwin` as the third argument, it runs the Intel build under Rosetta. The `pg-upgrade` job in `desktop-build.yml` runs it for 17 to 18 (Apple Silicon) before every release (`release.yml` waits for it), on pull requests that change the upgrade, `embedded_db.rs` or the PostgreSQL build scripts, and when started by hand.
 
 ### Upgrading the bundled PostgreSQL to a new major version {#new-major}
 
@@ -97,7 +97,7 @@ A checklist for moving from major N to N+1 (for example 18 to 19):
 1. **Pin the new release.** In `build-postgres-macos.sh`, add an `N+1)` case with the newest N+1.x and the sha256 postgresql.org publishes next to it, and set `BUNDLED_MAJOR` to N+1. Keep the `N)` case: it now builds the previous major. Check the `configure` flags against the new release's (a new optional library is on by default only if `configure` says so).
 2. **Linux and Windows.** In `stage-postgres.js`, set `POSTGRES_VERSION` to the theseus-rs N+1 release, set `PREVIOUS_POSTGRES_VERSION` to the N release the app shipped last, and pin both releases' sha256 in `THESEUS_SHA256` (download each archive and check it against the `.sha256` file next to it).
 3. **The app.** Set `BUNDLED_PG_MAJOR` in `src-tauri/src/pg_upgrade.rs` to N+1. `cargo test --lib` checks the three agree.
-4. **CI.** In `desktop-build.yml` and `release.yml`, build the previous major too (`build-postgres-macos.sh <dir> <arch> N`) and set `LIFER_POSTGRES_PREVIOUS_DIR` for the macOS builds, next to `LIFER_POSTGRES_DIR`. The cache key includes the script, so both rebuild once.
+4. **CI.** Pass `previous-major: N` to the `macos-natives` action (`.github/actions/macos-natives`) in `desktop-build.yml`'s build job and `release.yml`: it builds the previous major too and sets `LIFER_POSTGRES_PREVIOUS_DIR` next to `LIFER_POSTGRES_DIR`. The cache key includes the script, so both rebuild once.
 5. **Read the release notes** of N+1 for `pg_upgrade` and `initdb` changes: new defaults that must match between the clusters (as checksums did in 18), removed options, and extension changes for `pg_trgm`, `unaccent` and `pgcrypto`.
 6. **Test the jump.** Run `tests/pg-upgrade-test.sh` with N and N+1 builds, for both Mac architectures, and update the `pg-upgrade` job's majors. A Linux run is worth doing too (it uses `--copy` on ext4).
 7. **Check a real library.** Upgrade a copy of a real desktop library's `app-data` by opening it with the new app (point the app at a copy, never your only one), and check that the dialog shows the old copy's size.
@@ -108,9 +108,29 @@ A checklist for moving from major N to N+1 (for example 18 to 19):
 
 `scripts/headless-postgres.js` (`start`, `stop`, `status`, `url`) runs the app's embedded Postgres as an independent process, without the app open. It's useful for long maintenance scripts that should keep their database while the app is rebuilt or relaunched: point `DATABASE_URL` at the URL it prints. It reads the per-install password the app writes to `app-data/postgres-password` (mode 0600) on first launch, and runs the installed app's bundled server (or the one staged in `src-tauri/resources-staging`).
 
+## Downloaded models and removing all data {#cache-and-removal}
+
+The species-matching models, the GPU runtime and the record of which accelerator was chosen are
+files Lifer can always download again, so the app keeps them in the OS cache folder
+(`app_cache_dir()`, `~/Library/Caches/app.lifer.desktop` on macOS) rather than app data:
+`src-tauri/src/model_cache.rs` passes `LIFER_CACHE_DIR` to the server (and the models folder to
+local matching as `LIFER_MODEL_DIR`), and moves what earlier versions kept in `app-data/` on
+first launch. The server reads it in `packages/core/src/config.ts` (`CACHE_DIR`, `MODELS_DIR`,
+`GPU_RUNTIME_DIR`); without it, as on a Docker server, they stay in `APP_DATA_DIR`. Anything
+missing, because macOS or a user cleared the cache, is downloaded again.
+
+**Settings > Storage > Remove all Lifer data** runs `remove_all_data` (`src-tauri/src/remove_data.rs`):
+it stops the local server, its database and local matching, deletes the app data, local data,
+cache, log and (on macOS) WebKit folders plus `~/.lifer/settings.json`, and quits. It keeps every
+photo library: the default `data/` folder inside app data and any folder in the saved config, even
+when one sits inside a folder being deleted. Only the app's own pages may call it: it has its own
+permission (`allow-local-only-commands`), granted in `capabilities/default.json` and never to a
+connected server's pages, and the command checks the calling page is `tauri://` or the local API
+as well.
+
 ## Connected to a server
 
-When the app is connected to a server, the server's pages get access to the app's native features only for the origins saved in the desktop config. That access is granted at runtime in `src-tauri/src/lib.rs` (`grant_remote_capabilities`), not in `src-tauri/capabilities/`.
+When the app is connected to a server, the server's pages get access to the app's native features only for the origins saved in the desktop config. That access is granted at runtime in `src-tauri/src/security.rs` (`grant_remote_capabilities`), not in `src-tauri/capabilities/`. A server reached over plain `http://` from the internet can't use the updater or relaunch the app, since anyone on the network path could inject script into its pages. This computer and the local network count as safe (`is_local_network_host`: loopback, private and link-local addresses, Tailscale's 100.64.0.0/10, IPv6 unique-local and link-local, single-label names and `.local`, `.lan`, `.home.arpa`, `.internal`), so a home server at `http://192.168.1.10:4000` can still update the app.
 
 ## Generated folders
 

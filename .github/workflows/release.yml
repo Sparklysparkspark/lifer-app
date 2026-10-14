@@ -19,6 +19,7 @@ jobs:
   create-release:
     needs: ci
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: write
     steps:
@@ -45,8 +46,20 @@ jobs:
               --notes-file "$RUNNER_TEMP/notes.md" --generate-notes $PRERELEASE
           fi
 
+  # The embedded database's upgrade from the previous PostgreSQL major, end to end, on Apple
+  # Silicon. Every install's only database goes through it, so a release waits for it.
+  pg-upgrade:
+    needs: ci
+    uses: ./.github/workflows/desktop-build.yml
+    with:
+      arch: arm64
+      pg_upgrade_test: true
+      build: false
+
   desktop:
-    needs: create-release
+    needs: [create-release, pg-upgrade]
+    # Builds, plus up to an hour per SignPath approval on Windows.
+    timeout-minutes: 240
     permissions:
       contents: write
       # Lets SignPath's action read this run's artifacts (the unsigned Windows files).
@@ -124,46 +137,17 @@ jobs:
           echo "LIFER_RELEASE_VERSION=$VERSION" >> "$GITHUB_ENV"
           echo "LIFER_BUNDLE_DIR=apps/desktop/src-tauri/target/${LIFER_TARGET_TRIPLE:+$LIFER_TARGET_TRIPLE/}release/bundle" >> "$GITHUB_ENV"
       # ffmpeg-static's macOS binary is a nonfree build that can't be redistributed, so the macOS
-      # app ships a GPL one built from pinned sources (build-ffmpeg-macos.sh), which
-      # prepare-resources.js swaps in. The build takes minutes, so it's cached per architecture
-      # until the script (which holds the versions and checksums) changes. Linux and Windows
-      # keep ffmpeg-static's.
-      - name: Restore the macOS FFmpeg build
+      # app ships a GPL one built from pinned sources. The app also bundles the embedded
+      # database's PostgreSQL, so first launch needs no download, built for the app's own macOS
+      # floor. Both take minutes, so they're cached per architecture until their build script
+      # (which holds the versions and checksums) changes. Linux and Windows keep ffmpeg-static's
+      # and bundle the pinned, hash-checked theseus-rs PostgreSQL, which stage-postgres.js
+      # downloads itself.
+      - name: Restore or build the macOS FFmpeg and PostgreSQL
         if: startsWith(matrix.os, 'macos')
-        id: ffmpeg-cache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        uses: ./.github/actions/macos-natives
         with:
-          path: ${{ runner.temp }}/lifer-ffmpeg-${{ matrix.mac-arch }}
-          key: ffmpeg-${{ runner.os }}-${{ matrix.mac-arch }}-${{ hashFiles('apps/desktop/scripts/build-ffmpeg-macos.sh') }}
-      - name: Build FFmpeg for macOS
-        if: startsWith(matrix.os, 'macos') && steps.ffmpeg-cache.outputs.cache-hit != 'true'
-        shell: bash
-        run: bash apps/desktop/scripts/build-ffmpeg-macos.sh "$RUNNER_TEMP/lifer-ffmpeg-${{ matrix.mac-arch }}" "${{ matrix.mac-arch }}"
-      - name: Bundle the macOS FFmpeg build
-        if: startsWith(matrix.os, 'macos')
-        shell: bash
-        run: echo "LIFER_FFMPEG_DIR=$RUNNER_TEMP/lifer-ffmpeg-${{ matrix.mac-arch }}" >> "$GITHUB_ENV"
-      # The app bundles the embedded database's PostgreSQL, so first launch needs no download. The
-      # downloadable macOS builds require macOS 15, so the macOS app ships one built from pinned
-      # sources for its own floor (build-postgres-macos.sh), cached per architecture like FFmpeg.
-      # stage-postgres.js (in prepare-resources.js) bundles it, and fails a macOS build without
-      # it. Linux and Windows bundle the pinned, hash-checked theseus-rs build, which
-      # stage-postgres.js downloads itself.
-      - name: Restore the macOS PostgreSQL build
-        if: startsWith(matrix.os, 'macos')
-        id: postgres-cache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ${{ runner.temp }}/lifer-postgres-${{ matrix.mac-arch }}
-          key: postgres-${{ runner.os }}-${{ matrix.mac-arch }}-${{ hashFiles('apps/desktop/scripts/build-postgres-macos.sh') }}
-      - name: Build PostgreSQL for macOS
-        if: startsWith(matrix.os, 'macos') && steps.postgres-cache.outputs.cache-hit != 'true'
-        shell: bash
-        run: bash apps/desktop/scripts/build-postgres-macos.sh "$RUNNER_TEMP/lifer-postgres-${{ matrix.mac-arch }}" "${{ matrix.mac-arch }}"
-      - name: Bundle the macOS PostgreSQL build
-        if: startsWith(matrix.os, 'macos')
-        shell: bash
-        run: echo "LIFER_POSTGRES_DIR=$RUNNER_TEMP/lifer-postgres-${{ matrix.mac-arch }}" >> "$GITHUB_ENV"
+          mac-arch: ${{ matrix.mac-arch }}
       # Signs the macOS app with a stable self-signed "Lifer" identity (see resign-macos.js) so
       # macOS folder permissions and the updater's code requirement survive across versions.
       # Skipped (ad-hoc signing) when the secret isn't set.
@@ -360,9 +344,11 @@ jobs:
   # merge-update-manifests.js warns about missing platforms instead of failing. Publishing the
   # draft happens only here, after latest.json is attached.
   merge-update-manifest:
-    needs: [create-release, desktop]
-    if: ${{ !cancelled() && needs.create-release.result == 'success' }}
+    needs: [create-release, pg-upgrade, desktop]
+    # A failed upgrade test skips every desktop leg, so never publish without it.
+    if: ${{ !cancelled() && needs.create-release.result == 'success' && needs.pg-upgrade.result == 'success' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: write
     steps:
@@ -395,6 +381,8 @@ jobs:
   docker-image:
     needs: ci
     runs-on: ubuntu-latest
+    # The arm64 image builds under emulation.
+    timeout-minutes: 90
     permissions:
       contents: read
       packages: write

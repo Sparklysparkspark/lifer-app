@@ -3,6 +3,7 @@ name: Desktop build
 # A manual, unsigned macOS build for testing a branch. release.yml builds and signs every
 # platform for a release. Run it on main once per architecture after changing
 # build-ffmpeg-macos.sh or build-postgres-macos.sh, so release tags can reuse the caches it saves.
+# Pull requests and release.yml run only its PostgreSQL upgrade test, on Apple Silicon.
 
 on:
   workflow_dispatch:
@@ -16,12 +17,38 @@ on:
         description: "Also test the embedded database's upgrade from the previous PostgreSQL major (17 to 18)"
         type: boolean
         default: false
+  # release.yml runs the upgrade test before building a release (build: false).
+  workflow_call:
+    inputs:
+      arch:
+        type: string
+        default: arm64
+      pg_upgrade_test:
+        type: boolean
+        default: false
+      build:
+        description: Also build the unsigned app
+        type: boolean
+        default: true
+  # A pull request that changes the upgrade or the bundled PostgreSQL runs the upgrade test only.
+  pull_request:
+    paths:
+      - apps/desktop/src-tauri/src/pg_upgrade.rs
+      - apps/desktop/src-tauri/src/embedded_db.rs
+      - apps/desktop/scripts/stage-postgres.js
+      - apps/desktop/scripts/build-postgres-macos.sh
+      - apps/desktop/src-tauri/tests/pg-upgrade-test.sh
+      - apps/desktop/src-tauri/tests/pg-upgrade/**
+      - .github/workflows/desktop-build.yml
+      - .github/actions/macos-natives/**
 
 permissions:
   contents: read
 
 jobs:
   build:
+    # inputs.build is unset (null) for workflow_dispatch, so only an explicit false skips it.
+    if: github.event_name == 'workflow_dispatch' || inputs.build == true
     runs-on: macos-14
     timeout-minutes: 60
     env:
@@ -48,34 +75,11 @@ jobs:
         if: inputs.arch == 'x64'
         run: /usr/bin/arch -x86_64 /usr/bin/true 2>/dev/null || sudo softwareupdate --install-rosetta --agree-to-license
       - run: npm ci
-      # The GPL FFmpeg build the macOS app ships instead of ffmpeg-static's nonfree one (see
-      # release.yml), cached per architecture until build-ffmpeg-macos.sh changes.
-      - name: Restore the macOS FFmpeg build
-        id: ffmpeg-cache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      # The FFmpeg and PostgreSQL the macOS app ships (see release.yml), same caches.
+      - uses: ./.github/actions/macos-natives
         with:
-          path: ${{ runner.temp }}/lifer-ffmpeg-${{ env.MAC_ARCH }}
-          key: ffmpeg-${{ runner.os }}-${{ env.MAC_ARCH }}-${{ hashFiles('apps/desktop/scripts/build-ffmpeg-macos.sh') }}
-      - name: Build FFmpeg for macOS
-        if: steps.ffmpeg-cache.outputs.cache-hit != 'true'
-        shell: bash
-        run: bash apps/desktop/scripts/build-ffmpeg-macos.sh "$RUNNER_TEMP/lifer-ffmpeg-$MAC_ARCH" "$MAC_ARCH"
-      # The embedded database's PostgreSQL, built for the app's macOS floor (see release.yml),
-      # cached per architecture until build-postgres-macos.sh changes.
-      - name: Restore the macOS PostgreSQL build
-        id: postgres-cache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ${{ runner.temp }}/lifer-postgres-${{ env.MAC_ARCH }}
-          key: postgres-${{ runner.os }}-${{ env.MAC_ARCH }}-${{ hashFiles('apps/desktop/scripts/build-postgres-macos.sh') }}
-      - name: Build PostgreSQL for macOS
-        if: steps.postgres-cache.outputs.cache-hit != 'true'
-        shell: bash
-        run: bash apps/desktop/scripts/build-postgres-macos.sh "$RUNNER_TEMP/lifer-postgres-$MAC_ARCH" "$MAC_ARCH"
+          mac-arch: ${{ env.MAC_ARCH }}
       - run: npm run dist -w desktop
-        env:
-          LIFER_FFMPEG_DIR: ${{ runner.temp }}/lifer-ffmpeg-${{ env.MAC_ARCH }}
-          LIFER_POSTGRES_DIR: ${{ runner.temp }}/lifer-postgres-${{ env.MAC_ARCH }}
       - name: Check the app's native modules
         shell: bash
         run: |
@@ -93,10 +97,10 @@ jobs:
 
   # The desktop app's PostgreSQL major upgrade, end to end (apps/desktop/src-tauri/tests/
   # pg-upgrade-test.sh): a migrated 17 cluster with sentinel data, upgraded by the 18 the app
-  # bundles with each method, a crash mid-upgrade, and the API on the result. Optional; see
-  # "The database upgrade on a new major" in docs/docs/contributing/desktop-app.md.
+  # bundles with each method, a crash mid-upgrade, and the API on the result. See "The database
+  # upgrade on a new major" in docs/docs/contributing/desktop-app.md.
   pg-upgrade:
-    if: inputs.pg_upgrade_test
+    if: github.event_name == 'pull_request' || inputs.pg_upgrade_test
     runs-on: macos-14
     timeout-minutes: 60
     env:
@@ -117,7 +121,7 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: apps/desktop/src-tauri
-          key: macos-${{ inputs.arch }}-test
+          key: macos-${{ inputs.arch || 'arm64' }}-test
       - name: Install Rosetta 2
         if: inputs.arch == 'x64'
         run: /usr/bin/arch -x86_64 /usr/bin/true 2>/dev/null || sudo softwareupdate --install-rosetta --agree-to-license
@@ -129,27 +133,12 @@ jobs:
       - run: npm run fetch-node-sidecar -w desktop
       - name: Make the resource folders
         run: mkdir -p apps/desktop/src-tauri/resources-staging/{api,web,node_modules,catalog-seed,postgres,postgres-previous}
-      # The same cache the build job uses for the bundled major.
-      - name: Restore the macOS PostgreSQL build
-        id: postgres-cache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      # The same caches the build job uses for the bundled major, plus the previous one.
+      - uses: ./.github/actions/macos-natives
         with:
-          path: ${{ runner.temp }}/lifer-postgres-${{ env.MAC_ARCH }}
-          key: postgres-${{ runner.os }}-${{ env.MAC_ARCH }}-${{ hashFiles('apps/desktop/scripts/build-postgres-macos.sh') }}
-      - name: Build PostgreSQL for macOS
-        if: steps.postgres-cache.outputs.cache-hit != 'true'
-        shell: bash
-        run: bash apps/desktop/scripts/build-postgres-macos.sh "$RUNNER_TEMP/lifer-postgres-$MAC_ARCH" "$MAC_ARCH"
-      - name: Restore the previous major's PostgreSQL build
-        id: postgres-previous-cache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ${{ runner.temp }}/lifer-postgres-${{ env.PREVIOUS_MAJOR }}-${{ env.MAC_ARCH }}
-          key: postgres-${{ env.PREVIOUS_MAJOR }}-${{ runner.os }}-${{ env.MAC_ARCH }}-${{ hashFiles('apps/desktop/scripts/build-postgres-macos.sh') }}
-      - name: Build the previous major's PostgreSQL
-        if: steps.postgres-previous-cache.outputs.cache-hit != 'true'
-        shell: bash
-        run: bash apps/desktop/scripts/build-postgres-macos.sh "$RUNNER_TEMP/lifer-postgres-$PREVIOUS_MAJOR-$MAC_ARCH" "$MAC_ARCH" "$PREVIOUS_MAJOR"
+          mac-arch: ${{ env.MAC_ARCH }}
+          ffmpeg: "false"
+          previous-major: ${{ env.PREVIOUS_MAJOR }}
       - name: Test the upgrade
         shell: bash
         run: |

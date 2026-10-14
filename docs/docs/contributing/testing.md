@@ -5,7 +5,7 @@ description: How Lifer's unit, integration and end-to-end tests are organized, a
 
 # Testing
 
-Lifer uses [Vitest](https://vitest.dev/) in every workspace that has tests: `packages/core`, `apps/api`, `apps/web` and `packages/data-pipeline`.
+Lifer uses [Vitest](https://vitest.dev/) in every workspace that has tests: `packages/core`, `apps/api`, `apps/web` and `packages/data-pipeline`. The desktop app's Rust code has its own tests (see [Desktop app (Rust)](#desktop-rust)).
 
 ## Unit tests
 
@@ -59,6 +59,21 @@ A run is offline. The database gets a small fixture catalog (`e2e/support/fixtur
 The tests share one server and one database, so they run one at a time, in order. `first-run.spec.ts` creates the account and saves the signed-in session, which the other specs reuse. Every test fails on an uncaught page error, a `console.error` or an error toast (`e2e/support/test.ts`).
 
 CI runs them on every pull request. When they fail there, the run's Artifacts include the HTML report, with a trace of the retried test.
+
+## Desktop app (Rust) {#desktop-rust}
+
+The desktop shell's tests sit next to its code in `apps/desktop/src-tauri/src`, in `#[cfg(test)]` modules. Run them from `apps/desktop/src-tauri`:
+
+```bash
+cargo test --lib
+```
+
+They need no database or network. Tests marked `#[ignore]` need a real Postgres and are run by scripts that set one up and remove it afterwards:
+
+- `tests/offline-cache-integration.sh`: the offline cache against a real API on a throwaway Postgres (connect, sync, server down, back). It uses `PG_BIN`, else the PostgreSQL the desktop app downloads to `~/.theseus/postgresql`, else `PATH`.
+- `tests/pg-upgrade-test.sh <old-pg-dir> <new-pg-dir>`: the embedded database's upgrade to a new PostgreSQL major. See [Desktop app](./desktop-app.md#pg-upgrade).
+
+CI runs `cargo test --lib` and the offline cache script on every pull request. The upgrade test runs before every release and on pull requests that touch the upgrade or the bundled PostgreSQL.
 
 ## Coverage
 

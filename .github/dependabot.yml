@@ -42,10 +42,10 @@ updates:
       cargo-major:
         update-types: [major]
 
-  # Workflows pin each action by commit SHA with its version in a trailing comment; Dependabot
-  # updates both together.
+  # Workflows and the composite actions pin each action by commit SHA with its version in a
+  # trailing comment; Dependabot updates both together.
   - package-ecosystem: github-actions
-    directory: /
+    directories: ["/", "/.github/actions/*"]
     schedule:
       interval: monthly
     groups:

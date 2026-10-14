@@ -1,0 +1,83 @@
+name: macOS natives
+description: >-
+  Restores or builds the GPL FFmpeg and the PostgreSQL the macOS app ships (build-ffmpeg-macos.sh,
+  build-postgres-macos.sh), each cached per architecture until its script changes, and exports
+  LIFER_FFMPEG_DIR, LIFER_POSTGRES_DIR and (with previous-major) LIFER_POSTGRES_PREVIOUS_DIR for
+  `npm run dist`.
+
+inputs:
+  mac-arch:
+    description: "The architecture to build for: arm64 or x86_64 (build-*-macos.sh's argument)"
+    required: true
+  ffmpeg:
+    description: Also restore or build FFmpeg
+    default: "true"
+  previous-major:
+    description: Also restore or build this older PostgreSQL major, for pg_upgrade (bundled and tested)
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    # ffmpeg-static's macOS binary is a nonfree build that can't be redistributed, so the macOS
+    # app ships a GPL one built from pinned sources, which prepare-resources.js swaps in.
+    - name: Restore the macOS FFmpeg build
+      if: inputs.ffmpeg == 'true'
+      id: ffmpeg-cache
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ runner.temp }}/lifer-ffmpeg-${{ inputs.mac-arch }}
+        key: ffmpeg-${{ runner.os }}-${{ inputs.mac-arch }}-${{ hashFiles('apps/desktop/scripts/build-ffmpeg-macos.sh') }}
+    - name: Build FFmpeg for macOS
+      if: inputs.ffmpeg == 'true' && steps.ffmpeg-cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: bash apps/desktop/scripts/build-ffmpeg-macos.sh "$RUNNER_TEMP/lifer-ffmpeg-$MAC_ARCH" "$MAC_ARCH"
+      env:
+        MAC_ARCH: ${{ inputs.mac-arch }}
+    - name: Bundle the macOS FFmpeg build
+      if: inputs.ffmpeg == 'true'
+      shell: bash
+      run: echo "LIFER_FFMPEG_DIR=$RUNNER_TEMP/lifer-ffmpeg-$MAC_ARCH" >> "$GITHUB_ENV"
+      env:
+        MAC_ARCH: ${{ inputs.mac-arch }}
+    # The downloadable macOS PostgreSQL builds require macOS 15, so the app ships one built from
+    # pinned sources for its own floor. stage-postgres.js bundles it, and fails a macOS build
+    # without it.
+    - name: Restore the macOS PostgreSQL build
+      id: postgres-cache
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ runner.temp }}/lifer-postgres-${{ inputs.mac-arch }}
+        key: postgres-${{ runner.os }}-${{ inputs.mac-arch }}-${{ hashFiles('apps/desktop/scripts/build-postgres-macos.sh') }}
+    - name: Build PostgreSQL for macOS
+      if: steps.postgres-cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: bash apps/desktop/scripts/build-postgres-macos.sh "$RUNNER_TEMP/lifer-postgres-$MAC_ARCH" "$MAC_ARCH"
+      env:
+        MAC_ARCH: ${{ inputs.mac-arch }}
+    - name: Bundle the macOS PostgreSQL build
+      shell: bash
+      run: echo "LIFER_POSTGRES_DIR=$RUNNER_TEMP/lifer-postgres-$MAC_ARCH" >> "$GITHUB_ENV"
+      env:
+        MAC_ARCH: ${{ inputs.mac-arch }}
+    - name: Restore the previous major's PostgreSQL build
+      if: inputs.previous-major != ''
+      id: postgres-previous-cache
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ runner.temp }}/lifer-postgres-${{ inputs.previous-major }}-${{ inputs.mac-arch }}
+        key: postgres-${{ inputs.previous-major }}-${{ runner.os }}-${{ inputs.mac-arch }}-${{ hashFiles('apps/desktop/scripts/build-postgres-macos.sh') }}
+    - name: Build the previous major's PostgreSQL
+      if: inputs.previous-major != '' && steps.postgres-previous-cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: bash apps/desktop/scripts/build-postgres-macos.sh "$RUNNER_TEMP/lifer-postgres-$PREVIOUS_MAJOR-$MAC_ARCH" "$MAC_ARCH" "$PREVIOUS_MAJOR"
+      env:
+        MAC_ARCH: ${{ inputs.mac-arch }}
+        PREVIOUS_MAJOR: ${{ inputs.previous-major }}
+    - name: Bundle the previous major's PostgreSQL build
+      if: inputs.previous-major != ''
+      shell: bash
+      run: echo "LIFER_POSTGRES_PREVIOUS_DIR=$RUNNER_TEMP/lifer-postgres-$PREVIOUS_MAJOR-$MAC_ARCH" >> "$GITHUB_ENV"
+      env:
+        MAC_ARCH: ${{ inputs.mac-arch }}
+        PREVIOUS_MAJOR: ${{ inputs.previous-major }}

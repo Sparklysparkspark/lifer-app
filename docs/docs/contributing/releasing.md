@@ -28,7 +28,7 @@ This page is for maintainers. A release is a git tag; `.github/workflows/release
 
 When a `v*` tag is pushed, `release.yml`:
 
-1. Runs the full CI first. Nothing is published if a check fails.
+1. Runs the full CI first, and the desktop database upgrade test on Apple Silicon (`desktop-build.yml`'s `pg-upgrade` job, see [Desktop app](./desktop-app.md#pg-upgrade)). Nothing is published if either fails.
 2. Extracts the version's section from `CHANGELOG.md` into the release notes.
 3. Builds the desktop installers:
    - macOS: `Lifer-macos-arm64.zip` (Apple Silicon) and `Lifer-macos-x64.zip` (Intel), both built on an Apple Silicon runner, the Intel one cross-compiled (see [Desktop app](./desktop-app.md#intel-macs)). Each ships FFmpeg built from source by `build-ffmpeg-macos.sh` in place of ffmpeg-static's nonfree binary (see [Desktop app](./desktop-app.md#building-an-installer)), and PostgreSQL built from source by `build-postgres-macos.sh` (see [The bundled PostgreSQL](./desktop-app.md#bundled-postgres)). Both are signed with Lifer's own self-signed identity and aren't notarized by Apple (see the [code signing policy](../code-signing.md)), so users confirm the first launch once. The FFmpeg and PostgreSQL builds are each cached until their script changes, but a tag can only reuse a cache saved on the default branch, so after changing either script, run the Desktop build workflow on `main` once for each architecture to save them.

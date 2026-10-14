@@ -34,6 +34,8 @@ jobs:
       - run: npm run lint
       - run: npm run format:check
       - run: npm run typecheck
+      # The web app's API types are generated from the routes' schemas (npm run gen:api-types).
+      - run: npm run check:api-types
 
   test:
     name: Unit and integration tests
@@ -172,7 +174,7 @@ jobs:
   desktop:
     name: Desktop (Rust)
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
     defaults:
       run:
         working-directory: apps/desktop/src-tauri
@@ -202,3 +204,17 @@ jobs:
           mkdir -p binaries && touch "binaries/node-$(rustc -vV | sed -n 's/^host: //p')"
       - run: cargo fmt --check
       - run: cargo clippy --all-targets --locked -- -D warnings
+      - run: cargo test --lib --locked
+      # offline_cache.rs's ignored integration test: a real API (run from source, hence npm ci)
+      # on a throwaway cluster made with the runner's preinstalled PostgreSQL.
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+        working-directory: .
+      - name: Offline cache integration test
+        run: |
+          PG_BIN="$(ls -d /usr/lib/postgresql/*/bin | sort -V | tail -1)"
+          export PG_BIN
+          tests/offline-cache-integration.sh
