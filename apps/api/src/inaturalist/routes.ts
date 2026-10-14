@@ -4,7 +4,7 @@ import { randomBytes } from "node:crypto";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { Type } from "typebox";
 import { pool, withTransaction } from "@lifer/core/db.js";
-import { Nullable, Ok, Uuid, notFoundOnInvalidId, replies, withSchemas } from "../lib/schema.js";
+import { Nullable, Ok, Open, Uuid, notFoundOnInvalidId, replies, withSchemas } from "../lib/schema.js";
 import { cookieSecureFor, requireAuth } from "../auth/session.js";
 import { INAT_CLIENT_ID, INAT_REDIRECT_URI, SINGLE_USER_MODE } from "@lifer/core/config.js";
 import { escapeHtml } from "../lib/httpFile.js";
@@ -56,7 +56,8 @@ export function customRedirectUri(value: string | null | undefined): string | nu
 // A server has no fixed address to default to, so it uses the one this browser opened Lifer at:
 // the connect request and iNaturalist's callback both arrive there. Desktop keeps its loopback one.
 function defaultRedirectUri(request: FastifyRequest): string {
-  if (SINGLE_USER_MODE || process.env.INAT_REDIRECT_URI || !request.host) return INAT_REDIRECT_URI;
+  // A redirect URI that isn't a built-in loopback one was configured (INAT_REDIRECT_URI) and wins.
+  if (SINGLE_USER_MODE || !BUILT_IN_REDIRECT_URI.test(INAT_REDIRECT_URI) || !request.host) return INAT_REDIRECT_URI;
   return `${cookieSecureFor(request) ? "https" : "http"}://${request.host}/api/inaturalist/callback`;
 }
 
@@ -72,10 +73,15 @@ async function resolveInatConfig(request: FastifyRequest): Promise<{ clientId: s
   };
 }
 
-/** A region's name with its parent's ("British Columbia, Canada"), for iNaturalist's place text. */
+/** A region's name with its parent's ("British Columbia, Canada"), for iNaturalist's place text.
+ *  A province in a regional group, or shown under its continent, names its country instead. */
 async function regionPlaceName(regionId: string): Promise<string | null> {
   const res = await pool.query<{ name: string; parent_name: string | null }>(
-    `SELECT r.name, p.name AS parent_name FROM regions r LEFT JOIN regions p ON p.id = r.parent_id WHERE r.id = $1`,
+    `SELECT r.name, CASE WHEN COALESCE(array_length(gp.external_codes, 1), 0) > 0 THEN gp.name ELSE p.name END AS parent_name
+     FROM regions r
+     LEFT JOIN regions p ON p.id = COALESCE(r.home_country_id, r.parent_id)
+     LEFT JOIN regions gp ON gp.id = p.parent_id
+     WHERE r.id = $1`,
     [regionId],
   );
   const row = res.rows[0];
@@ -83,20 +89,46 @@ async function regionPlaceName(regionId: string): Promise<string | null> {
   return row.parent_name ? `${row.name}, ${row.parent_name}` : row.name;
 }
 
+const InatStatus = Open({ available: Type.Boolean(), connected: Type.Boolean(), username: Nullable(Type.String()) });
+const ObservationList = Open({
+  observations: Type.Array(
+    Open({
+      observationId: Type.String(),
+      scientificName: Type.String(),
+      commonName: Nullable(Type.String()),
+      currentPhotoId: Nullable(Uuid()),
+      createdAt: Type.String({ format: "date-time" }),
+      confirmedAt: Nullable(Type.String({ format: "date-time" })),
+      url: Type.String(),
+      editUrl: Type.String(),
+    }),
+  ),
+});
+const SentObservation = Open({
+  observationId: Type.String(),
+  editUrl: Type.String(),
+  needsLocation: Type.Boolean({ description: "No GPS was sent: place it on iNaturalist" }),
+  needsDate: Type.Boolean(),
+});
+
 // The tokens are stored encrypted (tokenStore.ts).
 const requireAccount = (userId: string) => loadInatAccount(userId);
 
 export async function inaturalistRoutes(fastify: FastifyInstance): Promise<void> {
   const app = withSchemas(fastify);
 
-  app.get("/inaturalist/status", { preValidation: requireAuth, schema: {} }, async (request) => {
-    const [account, { clientId }] = await Promise.all([requireAccount(request.user!.id), resolveInatConfig(request)]);
-    return {
-      available: clientId !== null,
-      connected: account !== null,
-      username: account?.inatUsername ?? null,
-    };
-  });
+  app.get(
+    "/inaturalist/status",
+    { preValidation: requireAuth, schema: { response: replies(InatStatus) } },
+    async (request) => {
+      const [account, { clientId }] = await Promise.all([requireAccount(request.user!.id), resolveInatConfig(request)]);
+      return {
+        available: clientId !== null,
+        connected: account !== null,
+        username: account?.inatUsername ?? null,
+      };
+    },
+  );
 
   app.post("/inaturalist/connect", { preValidation: requireAuth, schema: {} }, async (request, reply) => {
     const { clientId, redirectUri } = await resolveInatConfig(request);
@@ -217,7 +249,7 @@ export async function inaturalistRoutes(fastify: FastifyInstance): Promise<void>
        FROM captures c
        JOIN species s ON s.id = c.species_id
        WHERE c.user_id = $1
-         AND NOT EXISTS (SELECT 1 FROM capture_inaturalist_observations o WHERE o.capture_id = c.id)
+         AND NOT EXISTS (SELECT 1 FROM capture_inaturalist_observations o WHERE o.capture_id = c.id AND o.photo_sent)
        ORDER BY c.taken_at DESC NULLS LAST`,
       [request.user!.id],
     );
@@ -249,15 +281,18 @@ export async function inaturalistRoutes(fastify: FastifyInstance): Promise<void>
           { captureIds: Type.Array(Uuid(), { minItems: 1 }), regionId: Type.Optional(Uuid()) },
           { additionalProperties: false },
         ),
+        response: replies(SentObservation),
       },
     },
     async (request, reply) => {
       const account = await requireAccount(request.user!.id);
       if (!account) return reply.code(409).send({ error: "iNaturalist account not connected" });
-      const { captureIds, regionId } = request.body;
+      const { regionId } = request.body;
+      const captureIds = [...new Set(request.body.captureIds)];
 
       const capturesRes = await pool.query<{
         id: string;
+        species_id: string;
         taken_at: string | null;
         lat: string | null;
         lon: string | null;
@@ -265,16 +300,33 @@ export async function inaturalistRoutes(fastify: FastifyInstance): Promise<void>
         display_path: string | null;
         region_id: string | null;
         location_label: string | null;
+        inat_observation_id: string | null;
+        photo_sent: boolean | null;
       }>(
-        `SELECT c.id, c.taken_at, c.lat, c.lon, s.inat_taxon_id, p.display_path, c.region_id, c.location_label
+        `SELECT c.id, c.species_id, c.taken_at, c.lat, c.lon, s.inat_taxon_id, p.display_path, c.region_id,
+                c.location_label, o.inat_observation_id, o.photo_sent
          FROM captures c
          JOIN species s ON s.id = c.species_id
          LEFT JOIN photos p ON p.id = c.current_photo_id
+         LEFT JOIN capture_inaturalist_observations o ON o.capture_id = c.id
          WHERE c.id = ANY($1) AND c.user_id = $2`,
         [captureIds, request.user!.id],
       );
       if (capturesRes.rows.length !== captureIds.length) {
         return reply.code(404).send({ error: "One or more captures not found" });
+      }
+      if (new Set(capturesRes.rows.map((r) => r.species_id)).size > 1) {
+        return reply.code(400).send({ error: "An observation's photos must all be the same species" });
+      }
+      // A send that failed partway left its observation linked to these captures: finish that one.
+      const unfinished = new Set(
+        capturesRes.rows.flatMap((r) => (r.inat_observation_id && !r.photo_sent ? [r.inat_observation_id] : [])),
+      );
+      if (capturesRes.rows.some((r) => r.photo_sent && !unfinished.has(r.inat_observation_id!))) {
+        return reply.code(409).send({ error: "One or more of these photos is already on iNaturalist" });
+      }
+      if (unfinished.size > 1) {
+        return reply.code(409).send({ error: "These photos belong to different unfinished observations" });
       }
       const taxonId = capturesRes.rows[0].inat_taxon_id;
       if (!taxonId) return reply.code(422).send({ error: "This species isn't matched to an iNaturalist taxon yet" });
@@ -295,17 +347,24 @@ export async function inaturalistRoutes(fastify: FastifyInstance): Promise<void>
 
       try {
         const jwt = await fetchJwt(account.accessToken);
-        const observationId = await createObservation(jwt, { taxonId, observedOn, location, placeGuess });
+        const observationId =
+          [...unfinished][0] ?? (await createObservation(jwt, { taxonId, observedOn, location, placeGuess }));
+        // Linked before any photo goes up, so a retry after a failed upload reuses this observation.
         for (const capture of capturesRes.rows) {
-          if (capture.display_path) await addObservationPhoto(jwt, observationId, capture.display_path);
-        }
-        for (const capture of capturesRes.rows) {
+          if (capture.inat_observation_id) continue;
           await pool.query(
             `INSERT INTO capture_inaturalist_observations
-               (capture_id, inat_observation_id, submitted_lat, submitted_lon, submitted_positional_accuracy)
-             VALUES ($1, $2, $3, $4, $5)`,
+               (capture_id, inat_observation_id, submitted_lat, submitted_lon, submitted_positional_accuracy, photo_sent)
+             VALUES ($1, $2, $3, $4, $5, false)`,
             [capture.id, observationId, location?.lat ?? null, location?.lon ?? null, null],
           );
+        }
+        for (const capture of capturesRes.rows) {
+          if (capture.photo_sent) continue;
+          if (capture.display_path) await addObservationPhoto(jwt, observationId, capture.display_path);
+          await pool.query(`UPDATE capture_inaturalist_observations SET photo_sent = true WHERE capture_id = $1`, [
+            capture.id,
+          ]);
         }
         return {
           observationId,
@@ -320,13 +379,21 @@ export async function inaturalistRoutes(fastify: FastifyInstance): Promise<void>
     },
   );
 
-  app.get("/inaturalist/pending", { preValidation: requireAuth, schema: {} }, async (request) => {
-    return listByStatus(request.user!.id, "pending");
-  });
+  app.get(
+    "/inaturalist/pending",
+    { preValidation: requireAuth, schema: { response: replies(ObservationList) } },
+    async (request) => {
+      return listByStatus(request.user!.id, "pending");
+    },
+  );
 
-  app.get("/inaturalist/completed", { preValidation: requireAuth, schema: {} }, async (request) => {
-    return listByStatus(request.user!.id, "completed");
-  });
+  app.get(
+    "/inaturalist/completed",
+    { preValidation: requireAuth, schema: { response: replies(ObservationList) } },
+    async (request) => {
+      return listByStatus(request.user!.id, "completed");
+    },
+  );
 
   app.post(
     "/inaturalist/observations/:observationId/confirm",
@@ -417,6 +484,10 @@ async function listByStatus(userId: string, status: "pending" | "completed") {
      JOIN captures c ON c.id = o.capture_id
      JOIN species s ON s.id = c.species_id
      WHERE c.user_id = $1 AND o.status = $2
+       AND NOT EXISTS (
+         SELECT 1 FROM capture_inaturalist_observations u
+         WHERE u.inat_observation_id = o.inat_observation_id AND NOT u.photo_sent
+       )
      ORDER BY o.inat_observation_id, o.created_at DESC`,
     [userId, status],
   );
