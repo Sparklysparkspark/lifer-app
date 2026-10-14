@@ -13,9 +13,13 @@ import {
   enrichmentFromTaxonRecord,
   persistEnrichment,
   type INaturalistTaxonRecord,
+  setInatResponseCacheMaxAge,
 } from "@lifer/core/species/lazyEnrich.js";
 import { mapWithConcurrency } from "@lifer/core/lib/concurrency.js";
 import { inatGet } from "../inatApi.js";
+
+// A pipeline build reads cached iNaturalist responses however old (installs refetch after 90 days).
+setInatResponseCacheMaxAge(null);
 
 const BATCH = 30;
 // Image downloads come from iNaturalist's photo storage, not its API, so a few run at once.

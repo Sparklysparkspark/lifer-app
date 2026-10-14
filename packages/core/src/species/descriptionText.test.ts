@@ -50,6 +50,11 @@ describe("classifySentence", () => {
       "synonyms",
     ],
     ["The species is indigenous to North America and found widely across the continent.", "range"],
+    [
+      "It is known commonly as the fuzzy-horned bumblebee, tricoloured bumblebee, orange-belted bumblebee, and mixed bumblebee.",
+      "synonyms",
+    ],
+    ["It is also disjunct in the Great Lakes region.", "range"],
     ["It is occasionally found in the Azores and is a rare vagrant to Europe.", "range"],
     ["It is listed as Least Concern on the IUCN Red List.", "conservation"],
     ["Their mottled orange-brown coloring allows them to blend in with rocky bottom reefs.", "identification"],

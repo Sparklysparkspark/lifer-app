@@ -9,7 +9,10 @@
 import { pool } from "@lifer/core/db.js";
 // Wikipedia text comes from iNaturalist's wikipedia_summary, which doesn't rate-limit like
 // Wikipedia's own API.
-import { fetchWithRetry, stripHtml } from "@lifer/core/species/lazyEnrich.js";
+import { inatFetch, stripHtml, setInatResponseCacheMaxAge } from "@lifer/core/species/lazyEnrich.js";
+
+// A pipeline build reads cached iNaturalist responses however old (installs refetch after 90 days).
+setInatResponseCacheMaxAge(null);
 
 const INAT_API = "https://api.inaturalist.org/v1";
 const ENDEMIC_PATTERN =
@@ -17,7 +20,7 @@ const ENDEMIC_PATTERN =
 
 async function fetchFullExtract(name: string, rank: "species" | "genus"): Promise<string | null> {
   const url = `${INAT_API}/taxa?q=${encodeURIComponent(name)}&rank=${rank}&is_active=true&per_page=10`;
-  const res = await fetchWithRetry(url);
+  const res = await inatFetch(url);
   if (!res.ok) return null;
   const data = (await res.json()) as {
     results: Array<{ name: string; wikipedia_summary?: string | null }>;
@@ -70,7 +73,7 @@ async function main() {
     let speciesText: string | null;
     let genusText: string | null;
     try {
-      // Network errors throw past fetchWithRetry; skip the species rather than lose the run.
+      // Network errors throw past inatFetch; skip the species rather than lose the run.
       // The genus page is only a fallback for species with no article of their own.
       speciesText = await fetchFullExtract(species.scientific_name, "species");
       genusText = speciesText ? null : await fetchFullExtract(genus, "genus");

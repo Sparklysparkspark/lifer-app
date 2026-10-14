@@ -9,11 +9,19 @@
 // Usage: npx tsx src/scripts/recheck-null-photo-species.ts [--listed-only] [--countries=Canada,France]
 //          [--recheck-after-days=90]
 import { pool } from "@lifer/core/db.js";
-import { enrichSpecies, persistEnrichment, PersistentRateLimitError } from "@lifer/core/species/lazyEnrich.js";
+import {
+  enrichSpecies,
+  persistEnrichment,
+  PersistentRateLimitError,
+  setInatResponseCacheMaxAge,
+} from "@lifer/core/species/lazyEnrich.js";
 import { mapWithConcurrency } from "@lifer/core/lib/concurrency.js";
 import { applyPhotoLicensePolicy } from "../pipeline/photoLicensePolicy.js";
 import { selectSpeciesToRecheck } from "../pipeline/photoRecheck.js";
 import { RateLimitBreaker } from "../pipeline/rateLimitBreaker.js";
+
+// A pipeline build reads cached iNaturalist responses however old (installs refetch after 90 days).
+setInatResponseCacheMaxAge(null);
 
 const CONCURRENCY = 4;
 

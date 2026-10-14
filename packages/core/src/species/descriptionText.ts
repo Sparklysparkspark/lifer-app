@@ -50,7 +50,7 @@ const NAMED_FOR = /\bnamed (after|for)\b/i;
 const ETYMOLOGY =
   /\b(etymolog\w*|named in hono(u)?r|in hono(u)?r of|(specific|generic|subspecific) (name|epithet)|epithet|eponym\w*|(derives?|derived|comes?) from the (Latin|Greek|Ancient Greek)|from (the )?(Latin|Ancient Greek|Greek) (word|words|for)|meaning ")/i;
 const SYNONYMS =
-  /\b(synonym\w*|(also|variously|sometimes|commonly|locally|alternatively|formerly|previously|generally|often|colloquially) (known as|called|referred to as|named)|(other|regional|local|vernacular|alternative) (common )?names?|is known by|common names? (include|are))\b/i;
+  /\b(synonym\w*|(also|variously|sometimes|commonly|locally|alternatively|formerly|previously|generally|often|colloquially) (known as|called|referred to as|named)|(other|regional|local|vernacular|alternative) (common )?names?|is known by|(is|are) known (commonly|locally|variously) as|common names? (include|are))\b/i;
 const TAXONOMY = new RegExp(
   [
     // "is a species of snake", "is one of three species of tree squirrels", "is a species of marine ray-finned fish"
@@ -83,7 +83,7 @@ const TAXONOMY = new RegExp(
 const LATIN_GROUP =
   /\b(in the |of the )?((sub)?family|order|genus|tribe) [A-Z][a-z]+\b|\b[A-Z][a-z]+(idae|inae|formes|oidea) (sub)?family\b/;
 const RANGE_CUE =
-  /\b(lives? (mostly |mainly |primarily |chiefly )?(in|along|around|off) the|native to|indigenous to|endemic to|(found|occurs?|occurring|distributed|recorded|known|reported) (in|on|across|throughout|from|along|off|around)|distribution|range (includes|extends|covers|is)|ranges? (from|across|throughout|into|over|extends?)|ranging from|vagrant|breeds? (in|on|across|throughout)|winters? (in|on)|migrates? to)\b/i;
+  /\b(lives? (mostly |mainly |primarily |chiefly )?(in|along|around|off) the|native to|indigenous to|endemic to|(found|occurs?|occurring|distributed|recorded|known|reported) (in|on|across|throughout|from|along|off|around)|distribution|range (includes|extends|covers|is)|ranges? (from|across|throughout|into|over|extends?)|ranging from|vagrant|disjunct|breeds? (in|on|across|throughout)|winters? (in|on)|migrates? to)\b/i;
 const IDENTIFICATION =
   /(\b\d+([.,]\d+)?\s?(–|-|to)?\s?(\d+([.,]\d+)?)?\s?(mm|cm|m|km|in|ft|kg|g|lb|oz|inches|feet|metres|meters|centimetres|centimeters|millimetres|grams|kilograms|pounds|ounces)\b|\b(colou?r\w*|plumage|stripe[sd]?|spot(s|ted)?|band(s|ed)?|bars?|barred|markings?|patterns?|mottled|speckled|white|black|brown|gr[ae]y|red|reddish|yellow\w*|green\w*|blue|bluish|orange|pale|dark|rusty|bill|beak|crest|fins?|scales?|fur|coat|tail|wings?|wingspan|plumes?|feathers?|shell|carapace|distinguish\w*|differs?|differing|similar|resembl\w*|look-?alike|larger|smaller|largest|smallest|large|small|length|long|tall|height|weigh\w*|mass|size|sexes|dimorph\w*|juveniles?|adults?|males?|females?)\b)/i;
 const ECOLOGY =
@@ -270,11 +270,6 @@ export function takeWithinBudget(sentences: string[], maxChars: number): string[
     used += cost;
   }
   return out;
-}
-
-/** The sentences of `text` that `keep` accepts. */
-export function filterSentences(text: string, keep: (sentence: string, kind: SentenceKind) => boolean): string[] {
-  return splitSentences(cleanExtractText(text)).filter((s) => keep(s, classifySentence(s)));
 }
 
 const PRONOUN_START = /^(It|Its|They|Their|This|These|He|She|The species)\b/;

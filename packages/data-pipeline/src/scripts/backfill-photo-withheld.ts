@@ -10,8 +10,12 @@ import {
   fetchFirstTaxonPhoto,
   fetchINaturalistTaxon,
   PersistentRateLimitError,
+  setInatResponseCacheMaxAge,
 } from "@lifer/core/species/lazyEnrich.js";
 import { backfillPhotoWithheld } from "../pipeline/photoWithheldBackfill.js";
+
+// A pipeline build reads cached iNaturalist responses however old (installs refetch after 90 days).
+setInatResponseCacheMaxAge(null);
 
 async function main() {
   const dryRun = process.argv.includes("--dry-run");

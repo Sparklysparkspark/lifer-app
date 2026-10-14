@@ -6,10 +6,18 @@
 //
 // Usage: npx tsx src/scripts/enrich-all-species.ts [--taxa=squamata,amphibia] [--listed-only]
 import { pool } from "@lifer/core/db.js";
-import { enrichSpecies, persistEnrichment, PersistentRateLimitError } from "@lifer/core/species/lazyEnrich.js";
-import { computeRegionOccurrences } from "@lifer/core/regions/compute/occurrences.js";
+import {
+  enrichSpecies,
+  persistEnrichment,
+  PersistentRateLimitError,
+  setInatResponseCacheMaxAge,
+} from "@lifer/core/species/lazyEnrich.js";
+import { computeRegionOccurrences } from "../regions/compute/occurrences.js";
 import { mapWithConcurrency } from "@lifer/core/lib/concurrency.js";
 import { applyPhotoLicensePolicy } from "../pipeline/photoLicensePolicy.js";
+
+// A pipeline build reads cached iNaturalist responses however old (installs refetch after 90 days).
+setInatResponseCacheMaxAge(null);
 
 const CONCURRENCY = 2;
 
@@ -31,6 +39,8 @@ type RegionRow = {
   occurrence_computed_at: Date | null;
 };
 
+// Only for ordering: a country with no checklist yet gets a GBIF one (no tiers, which the
+// refresh's tiers stage owns) so its species can be enriched first.
 async function primeCountries(countries: RegionRow[], label: string): Promise<void> {
   let primed = 0;
   for (const region of countries) {
