@@ -258,11 +258,13 @@ export default function SpeciesHotspotMap({
   }
 
   return (
-    <div className="rounded-lg border border-line bg-surface">
+    // Sits inside the species panel, so no frame of its own: a plain row that opens the map.
+    <div>
       <button
         type="button"
         onClick={() => setExpanded((v) => !v)}
-        className="flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left text-sm text-ink hover:bg-surface-muted"
+        aria-expanded={expanded}
+        className="flex w-full items-baseline justify-between gap-3 text-left text-sm text-ink"
       >
         <span className="font-medium">
           Locality map{" "}
@@ -271,14 +273,12 @@ export default function SpeciesHotspotMap({
             {mostRecentYear != null ? `, last seen ${mostRecentYear}` : ""})
           </span>
         </span>
-        <span className="rounded-md border border-line px-2 py-0.5 text-xs text-muted">
-          {expanded ? "Hide" : "Show"}
-        </span>
+        <span className="text-xs text-muted hover:text-ink hover:underline">{expanded ? "Hide" : "Show"}</span>
       </button>
       {expanded && (
-        <div className="border-t border-line p-3">
+        <div className="mt-3">
           {hasSensitiveHotspot && (
-            <p className="mb-2 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs text-amber-900">
+            <p className="mb-2 text-xs text-amber-800 dark:text-amber-300">
               This is an eBird Sensitive Species (or sensitive in this region/season). Its exact location can't be
               shown, the marked area is deliberately widened to protect it from targeted disturbance, capture, or
               hunting, matching eBird's own sensitive-species list.

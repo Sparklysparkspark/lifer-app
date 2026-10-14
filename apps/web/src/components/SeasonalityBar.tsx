@@ -1,4 +1,6 @@
-const MONTH_LABELS = ["J", "F", "M", "A", "M", "J", "J", "A", "S", "O", "N", "D"];
+import { formatMonthName } from "../lib/format";
+
+const MONTHS = Array.from({ length: 12 }, (_, i) => i);
 
 // Monthly observation bars (GBIF only facets by month). Region-scoped, so null without a region.
 export default function SeasonalityBar({ seasonality }: { seasonality: number[] | null }) {
@@ -7,8 +9,7 @@ export default function SeasonalityBar({ seasonality }: { seasonality: number[] 
   const max = Math.max(...seasonality);
 
   return (
-    <div>
-      <p className="mb-1 text-[10px] uppercase tracking-wide text-muted">Observations by month</p>
+    <div role="img" aria-label="Observations by month">
       <div className="flex h-10 items-end gap-1">
         {seasonality.map((value, i) => (
           <div
@@ -20,9 +21,9 @@ export default function SeasonalityBar({ seasonality }: { seasonality: number[] 
         ))}
       </div>
       <div className="mt-0.5 flex gap-1">
-        {MONTH_LABELS.map((label, i) => (
+        {MONTHS.map((i) => (
           <span key={i} className="flex-1 text-center text-[9px] text-muted">
-            {label}
+            {formatMonthName(i, "narrow")}
           </span>
         ))}
       </div>
