@@ -20,7 +20,7 @@ export interface UnmatchedRaw {
   downloadUrl: string;
 }
 
-// species.habitat_notes / identification_notes (migration 140).
+// species.habitat_notes / identification_notes (migration 140) and summary_notes (migration 143).
 export interface SpeciesNotes {
   sections: { heading: string; bullets: string[] }[];
   source_url: string | null;
@@ -69,6 +69,9 @@ export interface SpeciesDetail {
     // description / habitat_description when present.
     identification_notes?: SpeciesNotes | null;
     habitat_notes?: SpeciesNotes | null;
+    // One short paragraph, its sentences as the bullets of one section (migration 143); shown
+    // instead of both of the above when present.
+    summary_notes?: SpeciesNotes | null;
   };
   captures: SpeciesCapture[];
   userSpecies: {
@@ -86,6 +89,8 @@ export interface SpeciesDetail {
     license: string;
     focal_x: number | string | null;
     focal_y: number | string | null;
+    /** The species' own reference photo, shown first already. */
+    is_main: boolean;
   }>;
   seasonality: number[] | null;
   weeklyFrequency: number[] | null;

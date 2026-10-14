@@ -53,6 +53,7 @@ const SPECIES_FILL_COLUMNS = [
   "habitat_description",
   "habitat_notes",
   "identification_notes",
+  "summary_notes",
   "aba_code",
   "inat_iconic_taxon",
   "wikipedia_title",

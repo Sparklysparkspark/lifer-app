@@ -10,7 +10,7 @@
 // the app stores the headings and bullet text, the article URL for the credit link, and the revision.
 import type { Pool, PoolClient } from "pg";
 
-export type NotesColumn = "habitat_notes" | "identification_notes";
+export type NotesColumn = "habitat_notes" | "identification_notes" | "summary_notes";
 
 export interface NotesInput {
   sections: { heading: string; bullets: { text: string; sources?: number[] }[] }[];
@@ -26,6 +26,8 @@ export interface StoredNotes {
 
 /** At most this many bullets a species; the offline build trims to it, this only guards the load. */
 export const MAX_BULLETS = 6;
+/** A summary's bullets are the sentences of one paragraph, which runs a little longer. */
+export const MAX_SUMMARY_SENTENCES = 8;
 const MAX_BULLET_CHARS = 300;
 
 export function articleUrlFromTitle(title: string): string {
@@ -33,8 +35,8 @@ export function articleUrlFromTitle(title: string): string {
 }
 
 /** The stored shape, or null when nothing usable is left (no headings, no non-empty bullets). */
-export function toStoredNotes(input: NotesInput): StoredNotes | null {
-  let room = MAX_BULLETS;
+export function toStoredNotes(input: NotesInput, maxBullets = MAX_BULLETS): StoredNotes | null {
+  let room = maxBullets;
   const sections: StoredNotes["sections"] = [];
   for (const section of input.sections ?? []) {
     const heading = section.heading?.trim();
@@ -74,7 +76,7 @@ export async function loadNotes(
   const rows: { id: string; notes: StoredNotes }[] = [];
   let empty = 0;
   for (const [id, input] of Object.entries(notes)) {
-    const stored = toStoredNotes(input);
+    const stored = toStoredNotes(input, column === "summary_notes" ? MAX_SUMMARY_SENTENCES : MAX_BULLETS);
     if (stored) rows.push({ id, notes: stored });
     else empty++;
   }
