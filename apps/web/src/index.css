@@ -1,39 +1,7 @@
 @import "tailwindcss";
+@import "./theme.css";
 
 @custom-variant dark (&:where(.dark, .dark *));
-
-:root {
-  --color-canvas: #f6eedc;
-  --color-surface: #ffffff;
-  --color-surface-muted: #f1ece0;
-  --color-line: #d8d6d0;
-  --color-ink: #242c34;
-  --color-muted: #5f6b6f;
-  --color-accent: #748069;
-  --color-accent-fg: #ffffff;
-}
-
-.dark {
-  --color-canvas: #242c34;
-  --color-surface: #2b333c;
-  --color-surface-muted: #323b45;
-  --color-line: #3c4650;
-  --color-ink: #f6eedc;
-  --color-muted: #d8d6d0;
-  --color-accent: #748069;
-  --color-accent-fg: #ffffff;
-}
-
-@theme inline {
-  --color-canvas: var(--color-canvas);
-  --color-surface: var(--color-surface);
-  --color-surface-muted: var(--color-surface-muted);
-  --color-line: var(--color-line);
-  --color-ink: var(--color-ink);
-  --color-muted: var(--color-muted);
-  --color-accent: var(--color-accent);
-  --color-accent-fg: var(--color-accent-fg);
-}
 
 body {
   background-color: var(--color-canvas);
@@ -41,18 +9,24 @@ body {
 }
 
 /* The frameless mac window's traffic lights float over the top-left (set by main.tsx). They sit
-   at {x:20,y:20} and end ~32px down, so the app nav starts below them. */
-[data-mac-app] header.page-header {
+   20px in and about 11px down, ending about 25px down, so the app nav starts below them. Not in full screen, which
+   hides them (data-fullscreen, also main.tsx). */
+[data-mac-app]:not([data-fullscreen]) header.page-header {
   padding-top: 56px;
 }
 
-/* A sticky page header stuck to the top sits beside the traffic lights instead of under them. */
-[data-mac-app] header.page-subheader[data-stuck] {
-  padding-left: 88px;
+/* TitleBarDragRegion keeps a bar this tall across the top for the traffic lights (they end about
+   25px down); a sticky page header sticks below it rather than under the window controls. */
+[data-mac-app]:not([data-fullscreen]) {
+  --mac-title-bar: 40px;
+}
+
+[data-mac-app]:not([data-fullscreen]) header.page-subheader.sticky {
+  top: var(--mac-title-bar);
 }
 
 /* Loading screens with a bare corner back link and no header. */
-[data-mac-app] .back-link-corner {
+[data-mac-app]:not([data-fullscreen]) .back-link-corner {
   top: 56px;
 }
 

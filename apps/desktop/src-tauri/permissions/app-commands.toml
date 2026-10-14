@@ -1,7 +1,8 @@
 "$schema" = "schemas/schema.json"
 
-# Every command registered in lib.rs's tauri::generate_handler![...]. Tauri v2's ACL denies the
-# app's own commands too unless a permission grants them; keep this list in sync with that one.
+# Every command registered in lib.rs's tauri::generate_handler![...] (most live in commands.rs).
+# Tauri v2's ACL denies the app's own commands too unless a permission grants them; keep this
+# list in sync with that one.
 # Commands that reconfigure the app also check is_trusted_sender themselves.
 [[permission]]
 identifier = "allow-app-commands"
@@ -11,6 +12,7 @@ commands.allow = [
   "choose_setup",
   "platform",
   "set_window_theme_background",
+  "set_traffic_light_backdrop",
   "current_network_info",
   "test_endpoint",
   "test_login",
@@ -34,3 +36,11 @@ commands.allow = [
   "offline_retry",
   "offline_use_local_library",
 ]
+
+# Only for the app's own pages: granted in capabilities/default.json, never in security.rs's
+# REMOTE_PERMISSIONS, so a connected server's pages can't call it. remove_data.rs checks the
+# calling page's origin as well.
+[[permission]]
+identifier = "allow-local-only-commands"
+description = "Commands only the bundled pages and the local library's own pages may call"
+commands.allow = ["remove_all_data"]
