@@ -4,7 +4,8 @@ import { existsSync } from "node:fs";
 import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import { pool } from "@lifer/core/db.js";
 import { Type } from "typebox";
-import { IdParams, Uuid, notFoundOnInvalidId, withSchemas } from "../lib/schema.js";
+import { IdParams, Uuid, notFoundOnInvalidId, replies, withSchemas } from "../lib/schema.js";
+import { SpeciesReferencePhotos } from "./responses.js";
 import { requireScope } from "../auth/session.js";
 import { downloadAndCacheImage } from "@lifer/core/species/lazyEnrich.js";
 import { MEDIA_CACHE_BUST } from "@lifer/core/config.js";
@@ -43,7 +44,7 @@ export async function referencePhotoRoutes(fastify: FastifyInstance): Promise<vo
   const listOptions = {
     preValidation: requireScope("species.read"),
     config: notFoundOnInvalidId("Species not found"),
-    schema: { params: IdParams },
+    schema: { params: IdParams, response: replies(SpeciesReferencePhotos) },
   };
 
   // Every reference photo (main and gallery) of one species, for flipping through on an import

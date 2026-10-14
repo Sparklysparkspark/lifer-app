@@ -10,7 +10,8 @@ import { claimedPhotoFormat, sniffPhotoFormat } from "@lifer/core/uploads/format
 import { prepareWorkingImage, type WorkingImage } from "../uploads/workingImage.js";
 import { receiveToFile, stageUpload, sweepStagedUploads } from "../lib/stagedUploads.js";
 import { finishedTusUpload } from "../lib/tusUploads.js";
-import { withSchemas } from "../lib/schema.js";
+import { replies, withSchemas } from "../lib/schema.js";
+import { PhotoSuggestions, VideoSuggestions } from "./responses.js";
 
 // Both routes take multipart/form-data, read part by part from the stream, so there's no body
 // schema: the handlers check the fields (`file`, `regionId`, `uploadId`) as they arrive.
@@ -18,56 +19,60 @@ export async function speciesSuggestRoutes(fastify: FastifyInstance): Promise<vo
   const app = withSchemas(fastify);
 
   // Ranks candidate species for an unassigned photo, for the picker to offer. Never assigns.
-  app.post("/captures/suggest-species", { preValidation: requireAuth, schema: {} }, async (request, reply) => {
-    // Checked server side before any costly work, not only as a UI gate.
-    const settingRes = await pool.query<{ species_suggest_enabled: boolean }>(
-      `SELECT species_suggest_enabled FROM users WHERE id = $1`,
-      [request.user!.id],
-    );
-    if (settingRes.rows[0]?.species_suggest_enabled === false) return { suggestions: [] };
+  app.post(
+    "/captures/suggest-species",
+    { preValidation: requireAuth, schema: { response: replies(PhotoSuggestions) } },
+    async (request, reply) => {
+      // Checked server side before any costly work, not only as a UI gate.
+      const settingRes = await pool.query<{ species_suggest_enabled: boolean }>(
+        `SELECT species_suggest_enabled FROM users WHERE id = $1`,
+        [request.user!.id],
+      );
+      if (settingRes.rows[0]?.species_suggest_enabled === false) return { suggestions: [] };
 
-    // Streamed to a temp file, so a HEIC or a huge panorama is matched on its working copy.
-    let tmpPath: string | null = null;
-    let claimed: { mimetype: string; filename: string } | null = null;
-    let regionId: string | null = null;
-    let working: WorkingImage | null = null;
-    try {
-      for await (const part of request.parts()) {
-        if (part.type === "file" && part.fieldname === "file" && !tmpPath) {
-          tmpPath = await uploadTempPath(part.filename);
-          await receiveToFile(part.file, tmpPath);
-          claimed = { mimetype: part.mimetype, filename: part.filename };
-        } else if (part.type === "file") {
-          part.file.resume(); // not ours: drain it so the request can finish
-        } else if (part.fieldname === "regionId") {
-          regionId = String(part.value) || null;
-        }
-      }
-      if (!tmpPath) return reply.code(400).send({ error: "No file uploaded" });
-
+      // Streamed to a temp file, so a HEIC or a huge panorama is matched on its working copy.
+      let tmpPath: string | null = null;
+      let claimed: { mimetype: string; filename: string } | null = null;
+      let regionId: string | null = null;
+      let working: WorkingImage | null = null;
       try {
-        const format = (await sniffPhotoFormat(tmpPath)) ?? claimedPhotoFormat(claimed?.mimetype, claimed?.filename);
-        if (format) working = await prepareWorkingImage(tmpPath, format);
-        const bytes = await readFile(working?.inferencePath ?? tmpPath);
-        const suggestions = await suggestSpecies(pool, request.user!.id, bytes, regionId);
-        return { suggestions };
-      } catch (err) {
-        // Usually the model isn't downloaded yet. Suggestions are optional, so return an empty list
-        // (200) rather than an error.
-        request.log.warn({ err }, "Species suggestion failed");
-        return { suggestions: [], code: "suggestion_failed" };
+        for await (const part of request.parts()) {
+          if (part.type === "file" && part.fieldname === "file" && !tmpPath) {
+            tmpPath = await uploadTempPath(part.filename);
+            await receiveToFile(part.file, tmpPath);
+            claimed = { mimetype: part.mimetype, filename: part.filename };
+          } else if (part.type === "file") {
+            part.file.resume(); // not ours: drain it so the request can finish
+          } else if (part.fieldname === "regionId") {
+            regionId = String(part.value) || null;
+          }
+        }
+        if (!tmpPath) return reply.code(400).send({ error: "No file uploaded" });
+
+        try {
+          const format = (await sniffPhotoFormat(tmpPath)) ?? claimedPhotoFormat(claimed?.mimetype, claimed?.filename);
+          if (format) working = await prepareWorkingImage(tmpPath, format);
+          const bytes = await readFile(working?.inferencePath ?? tmpPath);
+          const suggestions = await suggestSpecies(pool, request.user!.id, bytes, regionId);
+          return { suggestions };
+        } catch (err) {
+          // Usually the model isn't downloaded yet. Suggestions are optional, so return an empty list
+          // (200) rather than an error.
+          request.log.warn({ err }, "Species suggestion failed");
+          return { suggestions: [], code: "suggestion_failed" };
+        }
+      } finally {
+        await working?.release();
+        if (tmpPath) await rm(tmpPath, { force: true });
       }
-    } finally {
-      await working?.release();
-      if (tmpPath) await rm(tmpPath, { force: true });
-    }
-  });
+    },
+  );
 
   // Same for a video: several frames spread across the clip are sampled and the best match
   // decides.
   app.post(
     "/captures/suggest-species-from-video",
-    { preValidation: requireAuth, schema: {} },
+    { preValidation: requireAuth, schema: { response: replies(VideoSuggestions) } },
     async (request, reply) => {
       const settingRes = await pool.query<{ species_suggest_enabled: boolean }>(
         `SELECT species_suggest_enabled FROM users WHERE id = $1`,

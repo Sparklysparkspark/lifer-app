@@ -146,4 +146,31 @@ describe.skipIf(!url)("album routes input validation", () => {
     expect((await slot({ slot: 0, photoId, crop: { x: 5, y: 5, size: 90 } })).json()).toEqual({ ok: true });
     expect((await slot({ slot: 0, crop: null })).json()).toEqual({ ok: true });
   });
+
+  it("lists albums and their species with every field the web app reads", async () => {
+    await call("PATCH", `/api/albums/${albumId}/cover-crop`, { x: 10, y: 20, size: 50 });
+    await call("PATCH", `/api/albums/${albumId}/quad-slot`, { slot: 0, photoId, crop: { x: 5, y: 5, size: 90 } });
+    const { albums } = (await call("GET", "/api/albums")).json();
+    const listed = albums.find((a: { id: string }) => a.id === albumId);
+    expect(listed).toEqual({
+      id: albumId,
+      name: "Waders",
+      description: null,
+      coverPhotoId: photoId,
+      coverLayout: "quad",
+      coverCropX: 10,
+      coverCropY: 20,
+      coverCropSize: 50,
+      quadSlots: [{ photoId, cropX: 5, cropY: 5, cropSize: 90 }, null, null, null],
+      createdAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/),
+      captureCount: 1,
+    });
+    const detail = (await call("GET", `/api/albums/${albumId}`)).json();
+    expect(detail).toMatchObject({ id: albumId, coverPhotoId: photoId, quadSlots: listed.quadSlots });
+    expect(detail.items[0]).toMatchObject({ captureId, photoId, scientificName: "Testus albumus", tags: [] });
+    const species = (await call("GET", `/api/albums/${albumId}/species`)).json();
+    expect(species.items).toEqual([
+      expect.objectContaining({ speciesId: SPECIES, scientificName: "Testus albumus", commonName: "Album Bird" }),
+    ]);
+  });
 });

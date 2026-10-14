@@ -4,6 +4,7 @@ import { pool } from "@lifer/core/db.js";
 import { IdParams, Ok, Uuid, notFoundOnInvalidId, replies, withSchemas } from "../lib/schema.js";
 import { requireAuth } from "../auth/session.js";
 import { MEDIA_CACHE_BUST } from "@lifer/core/config.js";
+import { ArchiveList } from "./responses.js";
 
 // Archived species drop out of the "still to collect" lists and counts but stay searchable and
 // viewable. Family actions run over the whole family server side.
@@ -89,7 +90,7 @@ export async function archiveRoutes(fastify: FastifyInstance): Promise<void> {
   );
 
   // Every archived species, plus a family rollup for "unarchive this whole family".
-  app.get("/archive", { preValidation: requireAuth, schema: {} }, async (request) => {
+  app.get("/archive", { preValidation: requireAuth, schema: { response: replies(ArchiveList) } }, async (request) => {
     const userId = request.user!.id;
     const res = await pool.query<{
       species_id: string;

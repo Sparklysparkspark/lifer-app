@@ -5,6 +5,7 @@ import { pool } from "@lifer/core/db.js";
 import { IdParams, Ok, notFoundOnInvalidId, replies, withSchemas } from "../lib/schema.js";
 import { requireAuth } from "./session.js";
 import { generateApiKey, hashApiKey } from "./apiKeys.js";
+import { ApiKeyList, CreatedApiKey } from "./responses.js";
 
 // The enforceable scopes, shared with ApiKeysPage.tsx. See requireScope's call sites for where each is checked.
 export const API_KEY_SCOPES = [
@@ -27,7 +28,7 @@ export const API_KEY_SCOPES = [
 export async function apiKeyRoutes(fastify: FastifyInstance): Promise<void> {
   const app = withSchemas(fastify);
 
-  app.get("/api-keys", { preValidation: requireAuth, schema: {} }, async (request) => {
+  app.get("/api-keys", { preValidation: requireAuth, schema: { response: replies(ApiKeyList) } }, async (request) => {
     const res = await pool.query(
       `SELECT id, name, permissions, last_used_at, created_at FROM api_keys WHERE user_id = $1 ORDER BY created_at DESC`,
       [request.user!.id],
@@ -50,12 +51,13 @@ export async function apiKeyRoutes(fastify: FastifyInstance): Promise<void> {
       schema: {
         body: Type.Object(
           {
-            name: Type.String(),
+            name: Type.String({ maxLength: 200 }),
             // An unknown scope is refused rather than dropped, so a key never has less than asked for.
             permissions: Type.Array(Type.Enum(API_KEY_SCOPES), { minItems: 1 }),
           },
           { additionalProperties: false },
         ),
+        response: replies(CreatedApiKey),
       },
     },
     async (request, reply) => {

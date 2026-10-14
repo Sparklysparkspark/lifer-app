@@ -11,6 +11,7 @@ import { listMountedVolumes, mountPathFor, getVolumeId, isSameVolumeAsDataDir } 
 import { isReadableDir } from "./resolve.js";
 import { DATA_DIR } from "@lifer/core/config.js";
 import path from "node:path";
+import { AddedStorageVolume, StorageVolumeList } from "./responses.js";
 
 // A label must have something besides spaces, since it's trimmed before saving.
 const Label = Type.String({ pattern: "\\S" });
@@ -19,68 +20,72 @@ const driveNotFound = notFoundOnInvalidId("Drive not found");
 export async function storageVolumesRoutes(fastify: FastifyInstance): Promise<void> {
   const app = withSchemas(fastify);
 
-  app.get("/storage-volumes", { preValidation: requireAuth, schema: {} }, async (request) => {
-    const rows = await pool.query<{
-      id: string;
-      kind: "drive" | "root";
-      label: string;
-      platform_volume_id: string | null;
-      root_path: string | null;
-      last_known_mount_path: string;
-      last_seen_at: string;
-      is_default: boolean;
-    }>(
-      `SELECT id, kind, label, platform_volume_id, root_path, last_known_mount_path, last_seen_at, is_default
+  app.get(
+    "/storage-volumes",
+    { preValidation: requireAuth, schema: { response: replies(StorageVolumeList) } },
+    async (request) => {
+      const rows = await pool.query<{
+        id: string;
+        kind: "drive" | "root";
+        label: string;
+        platform_volume_id: string | null;
+        root_path: string | null;
+        last_known_mount_path: string;
+        last_seen_at: string;
+        is_default: boolean;
+      }>(
+        `SELECT id, kind, label, platform_volume_id, root_path, last_known_mount_path, last_seen_at, is_default
        FROM storage_volumes
        WHERE (user_id = $1 OR kind = 'root') AND removed_at IS NULL
        ORDER BY kind DESC, label`,
-      [request.user!.id],
-    );
+        [request.user!.id],
+      );
 
-    // Drive detection shells out, so only when there's a drive to check.
-    const mounted = rows.rows.some((r) => r.kind === "drive") ? await listMountedVolumes() : [];
-    const results = [];
-    for (const row of rows.rows) {
-      if (row.kind === "root") {
+      // Drive detection shells out, so only when there's a drive to check.
+      const mounted = rows.rows.some((r) => r.kind === "drive") ? await listMountedVolumes() : [];
+      const results = [];
+      for (const row of rows.rows) {
+        if (row.kind === "root") {
+          results.push({
+            id: row.id,
+            label: row.label,
+            kind: row.kind,
+            mountPath: row.root_path!,
+            rootPath: row.root_path,
+            connected: isReadableDir(row.root_path!),
+            lastSeenAt: row.last_seen_at,
+            isDefault: false,
+            managedByEnv: true,
+          });
+          continue;
+        }
+        const match = mounted.find((v) => v.platformVolumeId === row.platform_volume_id);
+        const connected = match !== undefined;
+        // Refresh the stored mount path while it's known to be connected, so a renamed mount is
+        // corrected.
+        if (connected && match!.mountPath !== row.last_known_mount_path) {
+          await pool.query(
+            `UPDATE storage_volumes SET last_known_mount_path = $1, last_seen_at = now() WHERE id = $2`,
+            [match!.mountPath, row.id],
+          );
+        } else if (connected) {
+          await pool.query(`UPDATE storage_volumes SET last_seen_at = now() WHERE id = $1`, [row.id]);
+        }
         results.push({
           id: row.id,
           label: row.label,
           kind: row.kind,
-          mountPath: row.root_path!,
-          rootPath: row.root_path,
-          connected: isReadableDir(row.root_path!),
-          lastSeenAt: row.last_seen_at,
-          isDefault: false,
-          managedByEnv: true,
+          mountPath: connected ? match!.mountPath : row.last_known_mount_path,
+          rootPath: null,
+          connected,
+          lastSeenAt: connected ? new Date().toISOString() : row.last_seen_at,
+          isDefault: row.is_default,
+          managedByEnv: false,
         });
-        continue;
       }
-      const match = mounted.find((v) => v.platformVolumeId === row.platform_volume_id);
-      const connected = match !== undefined;
-      // Refresh the stored mount path while it's known to be connected, so a renamed mount is
-      // corrected.
-      if (connected && match!.mountPath !== row.last_known_mount_path) {
-        await pool.query(`UPDATE storage_volumes SET last_known_mount_path = $1, last_seen_at = now() WHERE id = $2`, [
-          match!.mountPath,
-          row.id,
-        ]);
-      } else if (connected) {
-        await pool.query(`UPDATE storage_volumes SET last_seen_at = now() WHERE id = $1`, [row.id]);
-      }
-      results.push({
-        id: row.id,
-        label: row.label,
-        kind: row.kind,
-        mountPath: connected ? match!.mountPath : row.last_known_mount_path,
-        rootPath: null,
-        connected,
-        lastSeenAt: connected ? new Date().toISOString() : row.last_seen_at,
-        isDefault: row.is_default,
-        managedByEnv: false,
-      });
-    }
-    return { volumes: results };
-  });
+      return { volumes: results };
+    },
+  );
 
   app.post(
     "/storage-volumes",
@@ -89,6 +94,7 @@ export async function storageVolumesRoutes(fastify: FastifyInstance): Promise<vo
       schema: {
         // Absolute is checked in the handler, where path.isAbsolute knows this platform's rules.
         body: Type.Object({ path: Type.String({ minLength: 1 }), label: Label }, { additionalProperties: false }),
+        response: replies(AddedStorageVolume, 201),
       },
     },
     async (request, reply) => {
@@ -130,7 +136,7 @@ export async function storageVolumesRoutes(fastify: FastifyInstance): Promise<vo
        SET volume_id = $1, volume_relative_path = substring(o.ref from length($2::text) + 1)
        WHERE o.volume_id IS NULL
          AND left(o.ref, length($2::text) + 1) = $2::text || '/'
-         AND (o.user_id = $3 OR EXISTS (SELECT 1 FROM captures c WHERE c.id = o.capture_id AND c.user_id = $3))`,
+         AND o.user_id = $3`,
         [volumeId, mountPath, request.user!.id],
       );
 

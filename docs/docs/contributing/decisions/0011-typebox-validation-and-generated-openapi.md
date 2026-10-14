@@ -6,7 +6,7 @@ description: Every API route declares a TypeBox schema, which validates requests
 
 # ADR 0011: Request validation with TypeBox, and an OpenAPI document generated from it
 
-**Status:** Accepted, in the next release (listed under Unreleased in `CHANGELOG.md`).
+**Status:** Accepted, released in 0.10.0.
 
 ## Context
 
@@ -37,4 +37,4 @@ Negative:
 
 - Multipart uploads, tus and file downloads can't be fully described by these schemas and are documented by hand (`apps/api/src/integrations/openapi.ts`).
 - More declaration code per route.
-- Validation guarantees the shape of input, not that a route is authorised: the schema test doesn't check that routes have an auth hook ([Security model](../../security-model.md#internet-exposed-behind-a-reverse-proxy)).
+- Validation guarantees the shape of input, not that a route is authorised. That's a separate check in the same test: every route needs a sign-in hook unless it's on the public allowlist (`apps/api/src/auth/publicRoutes.ts`, see [Security model](../../security-model.md#internet-exposed-behind-a-reverse-proxy)).

@@ -7,6 +7,7 @@ import { requireScope } from "../auth/session.js";
 import { GALLERY_ITEM_COLUMNS, GALLERY_ITEM_JOINS, toGalleryItem } from "../gallery/routes.js";
 import { nextDefaultName } from "../lib/defaultName.js";
 import { syncAlbumIndexForCaptures } from "./albumIndex.js";
+import { AlbumDetail, AlbumList, AlbumSpecies, CreatedAlbum, UpdatedAlbum } from "./responses.js";
 import { toCollectionItem } from "../collection/collectionItem.js";
 import { markNameChanged } from "../species/speciesSplits.js";
 import { resolveQuadSlots } from "../lib/quadCover.js";
@@ -27,9 +28,12 @@ async function assertOwnedAlbum(albumId: string, userId: string): Promise<boolea
 export async function albumRoutes(fastify: FastifyInstance): Promise<void> {
   const app = withSchemas(fastify);
 
-  app.get("/albums", { preValidation: requireScope("album.read"), schema: {} }, async (request) => {
-    const res = await pool.query(
-      `SELECT a.id, a.name, a.description, a.cover_layout, a.cover_crop_x, a.cover_crop_y, a.cover_crop_size, a.created_at,
+  app.get(
+    "/albums",
+    { preValidation: requireScope("album.read"), schema: { response: replies(AlbumList) } },
+    async (request) => {
+      const res = await pool.query(
+        `SELECT a.id, a.name, a.description, a.cover_layout, a.cover_crop_x, a.cover_crop_y, a.cover_crop_size, a.created_at,
               a.quad_photo_ids, a.quad_crops,
               (SELECT count(*) FROM album_captures ac WHERE ac.album_id = a.id) AS capture_count,
               -- cover_p resolves NULL when cover_photo_id's own capture has been trashed (see
@@ -63,25 +67,26 @@ export async function albumRoutes(fastify: FastifyInstance): Promise<void> {
        ) fallback ON true
        WHERE a.user_id = $1
        ORDER BY a.created_at DESC`,
-      [request.user!.id],
-    );
-    return {
-      albums: res.rows.map((r) => ({
-        id: r.id,
-        name: r.name,
-        description: r.description,
-        coverPhotoId: r.resolved_cover_photo_id ?? r.fallback_cover_photo_id ?? null,
-        coverLayout: r.cover_layout,
-        // The crop was framed for the trashed photo, so it's wrong for the fallback.
-        coverCropX: !r.cover_is_manual_pick || r.cover_crop_x == null ? null : Number(r.cover_crop_x),
-        coverCropY: !r.cover_is_manual_pick || r.cover_crop_y == null ? null : Number(r.cover_crop_y),
-        coverCropSize: !r.cover_is_manual_pick || r.cover_crop_size == null ? null : Number(r.cover_crop_size),
-        quadSlots: resolveQuadSlots(r.quad_photo_ids, r.quad_crops, r.quad_candidate_photo_ids ?? []),
-        createdAt: r.created_at,
-        captureCount: Number(r.capture_count),
-      })),
-    };
-  });
+        [request.user!.id],
+      );
+      return {
+        albums: res.rows.map((r) => ({
+          id: r.id,
+          name: r.name,
+          description: r.description,
+          coverPhotoId: r.resolved_cover_photo_id ?? r.fallback_cover_photo_id ?? null,
+          coverLayout: r.cover_layout,
+          // The crop was framed for the trashed photo, so it's wrong for the fallback.
+          coverCropX: !r.cover_is_manual_pick || r.cover_crop_x == null ? null : Number(r.cover_crop_x),
+          coverCropY: !r.cover_is_manual_pick || r.cover_crop_y == null ? null : Number(r.cover_crop_y),
+          coverCropSize: !r.cover_is_manual_pick || r.cover_crop_size == null ? null : Number(r.cover_crop_size),
+          quadSlots: resolveQuadSlots(r.quad_photo_ids, r.quad_crops, r.quad_candidate_photo_ids ?? []),
+          createdAt: r.created_at,
+          captureCount: Number(r.capture_count),
+        })),
+      };
+    },
+  );
 
   app.post(
     "/albums",
@@ -93,6 +98,7 @@ export async function albumRoutes(fastify: FastifyInstance): Promise<void> {
           { name: Type.Optional(Type.String()), description: Type.Optional(Nullable(Type.String())) },
           { additionalProperties: false },
         ),
+        response: replies(CreatedAlbum),
       },
     },
     async (request) => {
@@ -124,7 +130,11 @@ export async function albumRoutes(fastify: FastifyInstance): Promise<void> {
 
   app.get(
     "/albums/:id",
-    { preValidation: requireScope("album.read"), config: albumNotFound, schema: { params: IdParams } },
+    {
+      preValidation: requireScope("album.read"),
+      config: albumNotFound,
+      schema: { params: IdParams, response: replies(AlbumDetail) },
+    },
     async (request, reply) => {
       const userId = request.user!.id;
       const albumRes = await pool.query(
@@ -202,6 +212,7 @@ export async function albumRoutes(fastify: FastifyInstance): Promise<void> {
           },
           { additionalProperties: false },
         ),
+        response: replies(UpdatedAlbum),
       },
     },
     async (request, reply) => {
@@ -444,7 +455,11 @@ export async function albumRoutes(fastify: FastifyInstance): Promise<void> {
   // Same shape as /trips/:id/species, so the web reuses the species grid.
   app.get(
     "/albums/:id/species",
-    { preValidation: requireScope("album.read"), config: albumNotFound, schema: { params: IdParams } },
+    {
+      preValidation: requireScope("album.read"),
+      config: albumNotFound,
+      schema: { params: IdParams, response: replies(AlbumSpecies) },
+    },
     async (request, reply) => {
       const userId = request.user!.id;
       if (!(await assertOwnedAlbum(request.params.id, userId))) {

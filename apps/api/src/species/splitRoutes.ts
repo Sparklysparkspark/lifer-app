@@ -6,7 +6,8 @@ import { Type } from "typebox";
 import { pool } from "@lifer/core/db.js";
 import { requireAuth, requireScope } from "../auth/session.js";
 import { reassignCaptureSpecies } from "../captures/routes.js";
-import { IdParams, Uuid, notFoundOnInvalidId, withSchemas } from "../lib/schema.js";
+import { IdParams, Uuid, notFoundOnInvalidId, replies, withSchemas } from "../lib/schema.js";
+import { SplitApplied } from "./responses.js";
 import { splitOptions } from "./speciesSplits.js";
 
 const speciesNotFound = notFoundOnInvalidId("Species not found");
@@ -33,6 +34,7 @@ export async function splitRoutes(fastify: FastifyInstance): Promise<void> {
           },
           { additionalProperties: false },
         ),
+        response: replies(SplitApplied),
       },
     },
     async (request, reply) => {

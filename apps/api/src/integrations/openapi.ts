@@ -3,6 +3,7 @@
 // and requireScope, collected in lib/schema.ts routeCatalog); this file adds the prose, and the
 // parts a schema can't express: multipart forms, file downloads and the tus protocol.
 // integrationsDocs.test.ts checks it against the routes and the API guide.
+import { APP_VERSION } from "@lifer/core/config.js";
 import { PHOTO_FORMATS } from "@lifer/core/uploads/formats.js";
 import type { CatalogRoute } from "../lib/schema.js";
 
@@ -287,7 +288,13 @@ export const OPS: Record<string, Partial<Record<Method, OpText>>> = {
   "/trips/{id}/summary": { get: { summary: "Trip summary" } },
   "/trips/{id}/species": { get: { summary: "Species seen on a trip" } },
   "/trips/{id}/photos": { get: { summary: "Photos from a trip" } },
-  "/trips/{id}/scan-preview": { get: { summary: "Preview of a trip folder scan" } },
+  "/trips/{id}/scan-preview": {
+    get: {
+      summary: "Preview of a file in a trip folder",
+      description: "The image or video itself; a RAW, TIFF or HEIC file comes as a JPEG made from it.",
+      binary: "*/*",
+    },
+  },
   "/trips/{id}/scan/status": { get: { summary: "Trip folder scan progress" } },
   "/trips/{id}/import/status": { get: { summary: "Trip import progress" } },
 
@@ -362,15 +369,24 @@ export function keyRoutes(routes: Iterable<CatalogRoute>): CatalogRoute[] {
   return [...routes].filter((r) => r.scope && r.url.startsWith("/api/"));
 }
 
-export function buildOpenApi(routes: Iterable<CatalogRoute>): object {
+/** Options for buildOpenApi. */
+export interface OpenApiOptions {
+  /** Every /api route rather than only the API-key ones, for the web app's generated types
+   *  (`npm run gen:api-types`). Routes without a described answer get a response with no content. */
+  internal?: boolean;
+}
+
+export function buildOpenApi(routes: Iterable<CatalogRoute>, { internal = false }: OpenApiOptions = {}): object {
   const paths: Record<string, Record<string, object>> = {};
-  for (const route of keyRoutes(routes)) {
+  const selected = internal ? [...routes].filter((r) => r.url.startsWith("/api/")) : keyRoutes(routes);
+  for (const route of selected) {
     const p = openApiPath(route.url);
     const method = route.method.toLowerCase() as Method;
     const text: OpText = OPS[p]?.[method] ?? { summary: `${route.method} ${p}` };
     const schema = (route.schema ?? {}) as Record<string, unknown>;
     const response = schema.response as Record<string, unknown> | undefined;
-    const okStatus = response && Object.keys(response).find((code) => /^2\d\d$/.test(code));
+    // A route can answer more than one success, like POST /uploads' 200 for a duplicate and 201.
+    const okStatuses = Object.keys(response ?? {}).filter((code) => /^2\d\d$/.test(code));
     const responses: Record<string, object> = {
       ...(text.noBody
         ? { [text.noBody.status]: { description: text.noBody.description } }
@@ -381,25 +397,29 @@ export function buildOpenApi(routes: Iterable<CatalogRoute>): object {
                 content: { [text.binary]: { schema: { type: "string", format: "binary" } } },
               },
             }
-          : {
-              [okStatus ?? "200"]: {
-                description: "OK",
-                content: {
-                  "application/json": { schema: okStatus ? plain(response[okStatus]) : { type: "object" } },
-                },
-              },
-            }),
+          : okStatuses.length
+            ? Object.fromEntries(
+                okStatuses.map((code) => [
+                  code,
+                  { description: "OK", content: { "application/json": { schema: plain(response![code]) } } },
+                ]),
+              )
+            : internal
+              ? { "200": { description: "Not described yet" } }
+              : { "200": { description: "OK", content: { "application/json": { schema: { type: "object" } } } } }),
       "400": errorResponse("The request doesn't match this operation's parameters or body"),
-      "401": errorResponse("Missing key, or the key lacks the " + route.scope + " scope"),
+      "401": errorResponse(
+        route.scope ? "Missing key, or the key lacks the " + route.scope + " scope" : "Not signed in",
+      ),
       default: errorResponse("Any other error"),
     };
     paths[p] ??= {};
     paths[p][method] = {
       summary: text.summary,
       ...(text.description && { description: text.description }),
-      tags: [route.scope!.split(".")[0]],
-      security: [{ apiKey: [] }],
-      "x-required-scope": route.scope,
+      ...(route.scope
+        ? { tags: [route.scope.split(".")[0]], security: [{ apiKey: [] }], "x-required-scope": route.scope }
+        : { tags: [p.split("/")[1]] }),
       parameters: [
         ...parametersOf(schema.params, "path"),
         ...parametersOf(schema.querystring, "query"),
@@ -425,7 +445,8 @@ export function buildOpenApi(routes: Iterable<CatalogRoute>): object {
     openapi: "3.1.0",
     info: {
       title: "Lifer API",
-      version: process.env.APP_VERSION ?? "dev",
+      // A fixed version for the generated web types, so a release doesn't make them stale.
+      version: internal ? "internal" : APP_VERSION,
       description:
         "Routes an API key can reach on a Lifer server. Create keys under Settings > Account > API keys and send them as the `x-api-key` header. Each key only works for the scopes it was given (`x-required-scope` on each operation). See the API guide at https://sparklysparkspark.github.io/lifer-app/api/overview.",
     },

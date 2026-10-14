@@ -11,7 +11,7 @@ import type {
   RouteOptions,
 } from "fastify";
 import { TypeBoxValidatorCompiler, type TypeBoxTypeProvider } from "@fastify/type-provider-typebox";
-import { Type, type TSchema } from "typebox";
+import { Type, type TProperties, type TSchema } from "typebox";
 
 type HttpPart = "body" | "querystring" | "params" | "headers";
 
@@ -47,6 +47,40 @@ export const Nullable = <T extends TSchema>(schema: T) => Type.Union([schema, Ty
 
 /** A query flag that is on when it's "1" (and off when left out). */
 export const Flag = (description?: string) => Type.Optional(Type.Literal("1", description ? { description } : {}));
+
+/** A response object whose listed fields are documented while any others pass through unchanged,
+ *  for answers too wide to list in full. A field that can be absent must be Type.Optional: a
+ *  missing required one fails the response. */
+export const Open = <T extends TProperties>(properties: T) => Type.Object(properties, { additionalProperties: true });
+
+/** A timestamp, sent as ISO 8601 text. Handlers may return the Date a query gave them. */
+export const DateTime = (options: { description?: string } = {}) =>
+  Type.Unsafe<string | Date>(Type.String({ format: "date-time", ...options }));
+
+/** A number Postgres may hand over as text (a `numeric` column), passed through as it came. */
+export const NumberLike = (options: { description?: string } = {}) =>
+  Type.Union([Type.Number(), Type.String()], options);
+
+/** Numbers or null, sent as numbers even when Postgres hands them over as text (a numeric[]
+ *  column). A nullable array written as a union would be checked item by item instead, and fail. */
+export const NullableNumbers = (options: { description?: string } = {}) =>
+  Type.Unsafe<number[] | null>({ type: ["array", "null"], items: { type: "number" }, ...options });
+
+/** The fields of a background job's status (JobStatus in @lifer/shared), with its own `result`. */
+export const jobStatusFields = <T extends TSchema>(result: T) => ({
+  running: Type.Boolean(),
+  phase: Nullable(Type.String()),
+  downloadedBytes: Nullable(Type.Number()),
+  totalBytes: Nullable(Type.Number()),
+  processed: Nullable(Type.Number()),
+  total: Nullable(Type.Number()),
+  currentItem: Nullable(Type.String()),
+  error: Nullable(Type.String()),
+  finishedAt: Nullable(Type.Number({ description: "Epoch ms of the last completion" })),
+  cancelRequested: Type.Boolean(),
+  cancelled: Type.Boolean(),
+  result: Nullable(result),
+});
 
 /** `{ ok: true }`, the answer of most write routes. */
 export const Ok = Type.Object({ ok: Type.Boolean() });

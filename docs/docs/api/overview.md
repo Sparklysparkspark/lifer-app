@@ -9,7 +9,7 @@ slug: /api/overview
 
 A self-hosted Lifer server exposes an HTTP API so you can build your own integrations, like: show a
 life-list counter in Home Assistant, post new lifers to a chat, generate a portfolio site, script
-imports, mirror your library into another tool, back up your originals, and more.
+imports, mirror your library into another tool, or back up your originals.
 
 - **Machine-readable description:** `GET /api/openapi.json` on your server (OpenAPI 3.1). Load it
   into Swagger UI, Postman, or a client generator.
@@ -182,7 +182,7 @@ original on a drive that isn't connected returns `409`.
 
 Capture time, GPS, camera details and the **star rating** are read from the file itself, so ratings
 set in Lightroom, digiKam or a culling tool come along, and so do a culling app's pick or reject
-flag and colour label. Returns `201` with `captureId` and `photoId`.
+flag and color label. Returns `201` with `captureId` and `photoId`.
 
 ### `POST /api/uploads/inspect` (photos.write): checking before importing
 
@@ -264,7 +264,8 @@ a `results` list whose items have `id`, `scientific_name` and `common_name` (not
 here), best match first.
 
 Everything else (the rest of gallery and species, stats, trips, albums, shares) is listed with its
-parameters in `/api/openapi.json`.
+parameters in `/api/openapi.json`, and most routes with the fields of their answer too. Answers can
+carry more fields than are listed there.
 
 ## Changes to this API
 

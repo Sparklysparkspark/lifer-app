@@ -19,6 +19,7 @@ import { desktopOnly } from "./requireDesktopMode.js";
 import type { Agent } from "undici";
 import { assertAllowedTarget, guardedDispatcher, RefusedAddressError, viaDispatcher } from "../lib/outboundGuard.js";
 import { trimEndChars } from "../lib/trimChars.js";
+import { AnyJobStatus } from "./responses.js";
 
 const MigrateBody = Type.Object(
   {
@@ -216,7 +217,7 @@ export async function migrateToServerRoutes(fastify: FastifyInstance): Promise<v
 
   app.get(
     "/settings/migrate-to-server/status",
-    { preValidation: [requireAuth, desktopOnly], schema: {} },
+    { preValidation: [requireAuth, desktopOnly], schema: { response: replies(AnyJobStatus) } },
     async () => migrationJob.status,
   );
 
@@ -233,7 +234,10 @@ export async function migrateToServerRoutes(fastify: FastifyInstance): Promise<v
 
   app.post(
     "/settings/migrate-to-server",
-    { preValidation: [requireAuth, desktopOnly], schema: { body: MigrateBody } },
+    {
+      preValidation: [requireAuth, desktopOnly],
+      schema: { body: MigrateBody, response: replies(Type.Object({ started: Type.Boolean() })) },
+    },
     async (request, reply) => {
       if (migrationJob.status.running) {
         return reply.code(409).send({ error: "A migration to a server is already in progress" });

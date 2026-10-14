@@ -1,4 +1,5 @@
 // Per-user card state shared by GET /collection and GET /regions/:id/species.
+import type { RarityTier } from "@lifer/shared";
 import { MEDIA_CACHE_BUST } from "@lifer/core/config.js";
 import { TECHNICAL_MAX_DEPTH_M, WELL_DOCUMENTED_MIN_OCCURRENCES } from "../species/obscurity.js";
 
@@ -14,14 +15,14 @@ export interface CollectionRow {
   reference_credit: string | null;
   /** True when a local cached copy of the reference photo exists, so the card avoids hotlinking. */
   has_reference_thumb?: boolean;
-  tier: string | null;
+  tier: RarityTier | null;
   /** Region-scoped tier, only on GET /regions/:id/species rows. */
-  local_tier?: string | null;
+  local_tier?: RarityTier | null;
   /** Why a tier is missing or how it was decided (tier_reason, migration 115), worldwide and here. */
   tier_reason?: string | null;
   local_tier_reason?: string | null;
   /** The user's own tier (user_tier_overrides): wins over the computed one on this install. */
-  override_tier?: string | null;
+  override_tier?: RarityTier | null;
   /** Region rows only: records here are concentrated in very few years, so a single
    *  much-photographed vagrant doesn't read as an established species. */
   is_vagrant?: boolean | null;
@@ -110,7 +111,7 @@ export function monthlyFromWeekly(weekly: number[] | null | undefined): number[]
 }
 
 export function toCollectionItem(row: CollectionRow, maxDepthM: number = TECHNICAL_MAX_DEPTH_M) {
-  const state = row.state ?? "unseen";
+  const state = row.state ?? ("unseen" as const);
   const hasOwnCover = state === "collected" && row.has_cover_photo;
   return {
     speciesId: row.species_id,

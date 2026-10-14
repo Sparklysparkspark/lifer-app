@@ -3,7 +3,8 @@
 import type { FastifyInstance } from "fastify";
 import { pool } from "@lifer/core/db.js";
 import { requireAuth } from "../auth/session.js";
-import { withSchemas } from "../lib/schema.js";
+import { replies, withSchemas } from "../lib/schema.js";
+import { EbirdImportSummary } from "./responses.js";
 
 function parseCsv(text: string): Record<string, string>[] {
   // Doesn't handle commas inside quoted fields, which eBird's export doesn't use.
@@ -22,24 +23,27 @@ export async function importRoutes(fastify: FastifyInstance): Promise<void> {
   const app = withSchemas(fastify);
 
   // Multipart: the CSV is read with request.file(), so there's no JSON body to describe.
-  app.post("/imports/ebird-csv", { preValidation: requireAuth, schema: {} }, async (request, reply) => {
-    const file = await request.file();
-    if (!file) return reply.code(400).send({ error: "No CSV file uploaded" });
+  app.post(
+    "/imports/ebird-csv",
+    { preValidation: requireAuth, schema: { response: replies(EbirdImportSummary) } },
+    async (request, reply) => {
+      const file = await request.file();
+      if (!file) return reply.code(400).send({ error: "No CSV file uploaded" });
 
-    const text = (await file.toBuffer()).toString("utf-8");
-    const rows = parseCsv(text);
-    if (rows.length === 0 || !("Scientific Name" in rows[0])) {
-      return reply.code(400).send({ error: 'CSV must have a "Scientific Name" column' });
-    }
+      const text = (await file.toBuffer()).toString("utf-8");
+      const rows = parseCsv(text);
+      if (rows.length === 0 || !("Scientific Name" in rows[0])) {
+        return reply.code(400).send({ error: 'CSV must have a "Scientific Name" column' });
+      }
 
-    const userId = request.user!.id;
-    // One species can appear on many checklists: dedupe before hitting the DB.
-    const scientificNames = [...new Set(rows.map((r) => r["Scientific Name"]).filter(Boolean))];
+      const userId = request.user!.id;
+      // One species can appear on many checklists: dedupe before hitting the DB.
+      const scientificNames = [...new Set(rows.map((r) => r["Scientific Name"]).filter(Boolean))];
 
-    // One statement: match every name, insert the new ones. Never downgrades collected -> seen
-    // and never touches an already-seen row (ON CONFLICT DO NOTHING).
-    const res = await pool.query<{ matched: number; inserted: number }>(
-      `WITH hit AS (
+      // One statement: match every name, insert the new ones. Never downgrades collected -> seen
+      // and never touches an already-seen row (ON CONFLICT DO NOTHING).
+      const res = await pool.query<{ matched: number; inserted: number }>(
+        `WITH hit AS (
          SELECT DISTINCT ON (s.scientific_name) s.id
          FROM species s WHERE s.scientific_name = ANY($2::text[])
        ),
@@ -50,18 +54,19 @@ export async function importRoutes(fastify: FastifyInstance): Promise<void> {
          RETURNING 1
        )
        SELECT (SELECT COUNT(*) FROM hit)::int AS matched, (SELECT COUNT(*) FROM ins)::int AS inserted`,
-      [userId, scientificNames],
-    );
-    const matched = res.rows[0]?.matched ?? 0;
-    const alreadySeenOrCollected = matched - (res.rows[0]?.inserted ?? 0);
-    const unmatched = scientificNames.length - matched;
+        [userId, scientificNames],
+      );
+      const matched = res.rows[0]?.matched ?? 0;
+      const alreadySeenOrCollected = matched - (res.rows[0]?.inserted ?? 0);
+      const unmatched = scientificNames.length - matched;
 
-    return {
-      totalRows: rows.length,
-      uniqueSpecies: scientificNames.length,
-      matched,
-      alreadySeenOrCollected,
-      unmatched,
-    };
-  });
+      return {
+        totalRows: rows.length,
+        uniqueSpecies: scientificNames.length,
+        matched,
+        alreadySeenOrCollected,
+        unmatched,
+      };
+    },
+  );
 }

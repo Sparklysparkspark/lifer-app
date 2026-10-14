@@ -8,6 +8,29 @@ import { PUBLIC_API_ROUTES } from "./auth/publicRoutes.js";
 import { AUDITED_GET_ROUTES, GET_ROUTES_THAT_WRITE } from "./readOnlyGetRoutes.js";
 
 const key = (r: CatalogRoute) => `${r.method} ${r.url}`;
+
+// API-key routes that answer with a file, a stream or the tus protocol rather than JSON.
+const NON_JSON_SCOPED_ROUTES = [
+  "GET /api/species/:id/reference-photo/display",
+  "GET /api/species/:id/reference-photo/thumb",
+  "GET /api/species/reference-gallery-photo/:photoId/display",
+  "GET /api/species/reference-gallery-photo/:photoId/thumb",
+  "GET /api/photos/:id/display",
+  "GET /api/photos/:id/medium",
+  "GET /api/photos/:id/thumb",
+  "GET /api/photos/:id/original",
+  "GET /api/photos/:id/original-raw",
+  "GET /api/photos/:id/video",
+  "GET /api/stats/export.csv",
+  "GET /api/trips/:id/scan-preview",
+  "POST /api/uploads/tus",
+  "OPTIONS /api/uploads/tus",
+  "PATCH /api/uploads/tus/:id",
+  "HEAD /api/uploads/tus/:id",
+  "DELETE /api/uploads/tus/:id",
+  "OPTIONS /api/uploads/tus/:id",
+];
+
 // SQL that changes data, as it appears in a handler's own source.
 const SQL_WRITE = /\b(INSERT\s+INTO|UPDATE\s+\w+\s+SET|DELETE\s+FROM|TRUNCATE|DROP\s+TABLE)\b/i;
 
@@ -40,6 +63,19 @@ describe("API route schemas", () => {
       return names.join() !== declared.join();
     });
     expect(wrong.map((r) => `${r.method} ${r.url}`)).toEqual([]);
+  });
+
+  // An API key's routes are what integrations call, so their answers are described in the
+  // OpenAPI document (and serialized through the schema).
+  it("describes the success answer of every API-key route", () => {
+    const has2xx = (r: CatalogRoute) =>
+      Object.keys((r.schema?.response as Record<string, unknown> | undefined) ?? {}).some((s) => s.startsWith("2"));
+    const exempt = new Set(NON_JSON_SCOPED_ROUTES);
+    const scoped = routes.filter((r) => r.scope);
+    expect(scoped.filter((r) => !has2xx(r) && !exempt.has(key(r))).map(key)).toEqual([]);
+    // Keeps the list honest: every entry is a real API-key route.
+    const byKey = new Set(scoped.map(key));
+    expect([...exempt].filter((k) => !byKey.has(k))).toEqual([]);
   });
 
   // Process check: a route without a sign-in hook is public, so it has to be on the allowlist

@@ -39,6 +39,9 @@ describe.skipIf(!url)("species route validation", () => {
     app.inject({ method, url: `/api${path}`, payload: payload as object });
 
   async function cleanup() {
+    await db.query(`DELETE FROM originals WHERE user_id = $1`, [USER]);
+    await db.query(`DELETE FROM captures_all WHERE user_id = $1`, [USER]);
+    await db.query(`DELETE FROM region_species_hotspots WHERE region_id = $1`, [REGION]);
     await db.query(`DELETE FROM user_species WHERE user_id = $1`, [USER]);
     await db.query(`DELETE FROM region_species WHERE region_id = $1`, [REGION]);
     await db.query(`DELETE FROM species WHERE id = ANY($1)`, [[SPECIES, OTHER_TAXA]]);
@@ -117,6 +120,84 @@ describe.skipIf(!url)("species route validation", () => {
 
       const encounters = await call("GET", `/species/${SPECIES}/encounters`);
       expect([encounters.statusCode, encounters.json().totalPhotos]).toEqual([200, 0]);
+    });
+
+    it("answers in full for a species with photos, hotspots and gallery photos", async () => {
+      const capture = (
+        await db.query<{ id: string }>(
+          `INSERT INTO captures_all (user_id, species_id, fingerprint, taken_at, camera_model, region_id)
+           VALUES ($1, $2, 'species-validation-1', '2024-05-01T06:00:00Z', 'EOS R5', $3) RETURNING id`,
+          [USER, SPECIES, REGION],
+        )
+      ).rows[0].id;
+      const photo = (
+        await db.query<{ id: string }>(
+          `INSERT INTO photos (capture_id, display_path, thumb_path) VALUES ($1, '/nowhere/d.webp', '/nowhere/t.webp') RETURNING id`,
+          [capture],
+        )
+      ).rows[0].id;
+      await db.query(`UPDATE captures_all SET current_photo_id = $1 WHERE id = $2`, [photo, capture]);
+      await db.query(
+        `INSERT INTO originals (capture_id, species_id, kind, ref_type, ref, managed, user_id, content_hash, file_size) VALUES
+           ($1, NULL, 'jpeg', 'path', '/nowhere/a.jpg', false, $3, 'species-validation-a', 10),
+           (NULL, $2, 'raw', 'path', '/nowhere/raws/b.cr3', false, $3, 'species-validation-b', 2048)`,
+        [capture, SPECIES, USER],
+      );
+      await db.query(`INSERT INTO region_species (region_id, species_id, local_tier) VALUES ($1, $2, 'rare')`, [
+        REGION,
+        SPECIES,
+      ]);
+      await db.query(
+        `INSERT INTO region_species_hotspots (region_id, species_id, centroid_lat, centroid_lon, point_count, bbox_diagonal_km, last_seen_year, distinct_years)
+         VALUES ($1, $2, 1.5, 2.5, 40, 12.5, 2024, 4)`,
+        [REGION, SPECIES],
+      );
+      await db.query(
+        `INSERT INTO species_reference_photos (species_id, photo_url, credit, license, sort_order) VALUES ($1, 'https://example.org/v.jpg', 'Someone', 'cc-by', 0)`,
+        [SPECIES],
+      );
+
+      const detail = (await call("GET", `/species/${SPECIES}?regionId=${REGION}`)).json();
+      expect(detail.captures).toEqual([
+        expect.objectContaining({ id: capture, photo_id: photo, camera_model: "EOS R5" }),
+      ]);
+      expect(detail.localTier).toBe("rare");
+      expect(detail.referencePhotos).toEqual([
+        expect.objectContaining({ photo_url: "https://example.org/v.jpg", credit: "Someone" }),
+      ]);
+      expect(detail.hotspots).toEqual([
+        {
+          centroidLat: 1.5,
+          centroidLon: 2.5,
+          pointCount: 40,
+          bboxDiagonalKm: 12.5,
+          isSensitive: false,
+          lastSeenYear: 2024,
+          distinctYears: 4,
+          recordShare: 1,
+          isReliable: true,
+        },
+      ]);
+      expect(detail.hotspotDistribution).toBe("clustered");
+
+      expect((await call("GET", `/species/${SPECIES}/encounters`)).json()).toMatchObject({
+        totalPhotos: 1,
+        encounterCount: 1,
+        locationCount: 1,
+        cameraCount: 1,
+      });
+      expect((await call("GET", `/species/${SPECIES}/unmatched-raws`)).json().rawFiles).toEqual([
+        expect.objectContaining({ filename: "b.cr3", fileSize: 2048, addedAt: expect.any(String) }),
+      ]);
+      expect((await call("GET", `/species/${SPECIES}/volume-usage`)).json()).toEqual({
+        volumes: [{ volumeId: null, label: null, count: 1 }],
+      });
+      expect((await call("GET", `/species/${SPECIES}/sequences`)).json()).toEqual({ sequences: [] });
+      expect((await call("GET", `/species/${SPECIES}/reference-photos`)).json().photos).toEqual([
+        { url: "https://example.org/v.jpg", credit: "Someone" },
+      ]);
+      // The reference photo tests below expect a species without a gallery.
+      await db.query(`DELETE FROM species_reference_photos WHERE species_id = $1`, [SPECIES]);
     });
   });
 
