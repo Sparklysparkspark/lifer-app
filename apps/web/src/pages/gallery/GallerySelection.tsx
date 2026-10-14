@@ -7,12 +7,10 @@ import Modal from "../../components/Modal";
 import Button from "../../components/Button";
 import { pluralize } from "../../lib/pluralize";
 import type { GalleryEdits } from "./useGalleryEdits";
+import { formatNumber } from "../../lib/format";
 
 const TRASH_NOTE = (
-  <p className="text-xs text-muted">
-    Deleted photos go to Trash for 7 days first, where you can still restore them. After 7 days they're gone for good
-    and can't be recovered.
-  </p>
+  <p className="text-sm text-muted">Deleted photos stay in Trash for 7 days, where you can restore them.</p>
 );
 
 // Select mode's bar. In the album picker it only adds to that album; otherwise it corrects the
@@ -30,8 +28,8 @@ export function GallerySelectBar({
 }) {
   const { bulk } = edits;
   return (
-    <div className="flex items-center gap-3 border-b border-line bg-surface-muted px-6 py-2 text-xs">
-      <span className="shrink-0 text-muted">{selectedIds.size.toLocaleString()} selected</span>
+    <div className="flex items-center gap-3 border-b border-line bg-surface-muted px-page py-2 text-xs">
+      <span className="shrink-0 text-muted">{formatNumber(selectedIds.size)} selected</span>
       {selectingAll && <InlineSpinner size="xs" label="Selecting every photo" />}
       {/* Always rendered as a flex spacer so the controls don't shift with the selection. */}
       <div className="flex min-w-0 flex-1 items-center gap-6">
@@ -89,7 +87,7 @@ export function GallerySelectBar({
 // "Delete this photo?" from a tile's menu, and "Delete N photos?" for the selection.
 export function GalleryDeleteDialogs({
   edits,
-  singleKind,
+  singleNoun,
   selectedCount,
   batchNoun,
   selectedHaveRaw,
@@ -97,7 +95,8 @@ export function GalleryDeleteDialogs({
   batchDeleteButtonRef,
 }: {
   edits: GalleryEdits;
-  singleKind: "image" | "video" | undefined;
+  /** "photo", "video" or "RAW" for the one being deleted. */
+  singleNoun: string;
   selectedCount: number;
   batchNoun: string;
   selectedHaveRaw: boolean;
@@ -110,7 +109,7 @@ export function GalleryDeleteDialogs({
       <Modal
         open={!!single.captureId}
         onClose={() => single.request(null)}
-        title={`Delete this ${singleKind === "video" ? "video" : "photo"}?`}
+        title={`Delete this ${singleNoun}?`}
         initialFocusRef={deleteButtonRef}
         footer={
           <>
@@ -179,8 +178,8 @@ export function HiddenSelectBar({
   onUnhide: () => void;
 }) {
   return (
-    <div className="flex items-center gap-3 border-b border-line bg-surface-muted px-6 py-2 text-xs">
-      <span className="shrink-0 text-muted">{selectedIds.size.toLocaleString()} selected</span>
+    <div className="flex items-center gap-3 border-b border-line bg-surface-muted px-page py-2 text-xs">
+      <span className="shrink-0 text-muted">{formatNumber(selectedIds.size)} selected</span>
       {selectingAll && <InlineSpinner size="xs" label="Selecting every photo" />}
       <span className="min-w-0 flex-1 text-muted">
         Hidden photos were rejected in your culling app. Unhiding adds them to your gallery and life list.

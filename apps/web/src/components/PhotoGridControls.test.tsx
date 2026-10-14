@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { MediaFilterField, PhotoSortSelect, RawFilterField } from "./PhotoGridControls";
+import { MediaFilterField, PhotoSortSelect, RawFilterFields } from "./PhotoGridControls";
 
 const noop = () => {};
 
@@ -8,9 +8,11 @@ const noop = () => {};
 // the visible heading above a pill row is a plain <p> a screen reader doesn't tie to it.
 describe("photo grid filter controls", () => {
   it("names the RAW and media pill rows as groups", () => {
-    expect(renderToStaticMarkup(<RawFilterField value="any" onChange={noop} />)).toMatch(
-      /^<div role="group" aria-label="RAW files">/,
+    const raw = renderToStaticMarkup(
+      <RawFilterFields rawFiles="show" editedRaw="any" onRawFilesChange={noop} onEditedRawChange={noop} />,
     );
+    expect(raw).toMatch(/^<div role="group" aria-label="RAW files">/);
+    expect(raw).toContain('<div role="group" aria-label="Edited photos">');
     expect(renderToStaticMarkup(<MediaFilterField value="both" onChange={noop} />)).toMatch(
       /^<div role="group" aria-label="Media type">/,
     );

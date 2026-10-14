@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  shotKindForSearch,
   anySelectedIn,
   appendNew,
   countActiveFilters,
@@ -47,6 +48,10 @@ function item(photoId: string, partial: Partial<GalleryItem> = {}): GalleryItem 
     originalManaged: null,
     originalKind: null,
     rawRef: null,
+    cullVerdict: null,
+    cullLabel: null,
+    hidden: false,
+    matchScore: null,
     ...partial,
   };
 }
@@ -58,8 +63,12 @@ const defaults: GalleryQuery = {
   onlyTopRated: false,
   onlyFeatured: false,
   missingDate: false,
+  shotKind: null,
+  tier: null,
+  tierRegionId: null,
   selectedTaxa: new Set(),
-  rawFilter: "without",
+  rawFiles: "hide",
+  editedRaw: "any",
   mediaFilter: "photos",
   dateFrom: "",
   dateTo: "",
@@ -72,7 +81,7 @@ const defaults: GalleryQuery = {
 
 describe("galleryParams", () => {
   it("sends only the default presets by default", () => {
-    expect(galleryParams(defaults).toString()).toBe("excludeHasRaw=1&excludeVideo=1");
+    expect(galleryParams(defaults).toString()).toBe("includeRaw=0&excludeVideo=1");
   });
 
   it("sends every filter, in a fixed order", () => {
@@ -84,7 +93,7 @@ describe("galleryParams", () => {
       onlyFeatured: true,
       missingDate: true,
       selectedTaxa: new Set(["aves", "insecta"]),
-      rawFilter: "with",
+      editedRaw: "with",
       mediaFilter: "videos",
       dateFrom: "2024-01-01",
       dateTo: "2024-12-31",
@@ -94,13 +103,13 @@ describe("galleryParams", () => {
       scopeAlbumId: "a1",
     });
     expect(params.toString()).toBe(
-      "q=owl+flying&hidden=1&onlyTopRated=1&onlyFeatured=1&missingDate=1&taxa=aves%2Cinsecta&onlyHasRaw=1&onlyVideo=1" +
+      "q=owl+flying&hidden=1&onlyTopRated=1&onlyFeatured=1&missingDate=1&taxa=aves%2Cinsecta&includeRaw=0&onlyHasRaw=1&onlyVideo=1" +
         "&dateFrom=2024-01-01&dateTo=2024-12-31&regionId=r1&tag=nest&tripId=t1&albumId=a1",
     );
   });
 
   it("sends no RAW or media filter for Any and Both", () => {
-    expect(galleryParams({ ...defaults, rawFilter: "any", mediaFilter: "both" }).toString()).toBe("");
+    expect(galleryParams({ ...defaults, rawFiles: "show", mediaFilter: "both" }).toString()).toBe("");
   });
 });
 
@@ -116,7 +125,7 @@ describe("countActiveFilters", () => {
   });
 
   it("counts presets moved off their defaults", () => {
-    expect(countActiveFilters({ ...defaults, rawFilter: "any", mediaFilter: "both" })).toBe(2);
+    expect(countActiveFilters({ ...defaults, rawFiles: "show", editedRaw: "without", mediaFilter: "both" })).toBe(3);
   });
 
   it("counts each filter once", () => {
@@ -168,7 +177,7 @@ describe("toggleInSet", () => {
 });
 
 describe("describeSearchReading", () => {
-  const none = { species: [], groups: [], places: [], dates: [], description: null };
+  const none = { species: [], groups: [], scenes: [], places: [], dates: [], description: null };
 
   it("is null without an interpretation or anything beyond the query", () => {
     expect(describeSearchReading(undefined)).toBeNull();
@@ -181,6 +190,7 @@ describe("describeSearchReading", () => {
       describeSearchReading({
         species: [],
         groups: ["ducks"],
+        scenes: [],
         places: ["Washington"],
         dates: ["2024"],
         description: "swimming",
@@ -191,6 +201,12 @@ describe("describeSearchReading", () => {
   it("names three species and counts the rest", () => {
     expect(describeSearchReading({ ...none, species: ["A", "B", "C", "D", "E"], groups: ["owls"] })).toBe(
       "A, B, C, +2 more, owls",
+    );
+  });
+
+  it("lists scene and colour words after the subject", () => {
+    expect(describeSearchReading({ ...none, groups: ["ducks"], scenes: ["purple", "leaves"] })).toBe(
+      "ducks · purple, leaves",
     );
   });
 
@@ -320,6 +336,12 @@ describe("selectionNoun", () => {
     expect(selectionNoun(items, new Set(["c-p", "c-unloaded"]), ["c-unloaded", "c-other"])).toBe("file");
     expect(selectionNoun(items, new Set(["c-p"]), ["c-unloaded"])).toBe("photo");
   });
+
+  it("calls a selection of RAW-only photos RAWs", () => {
+    const withRaws = [...items, item("r", { originalKind: "raw", hasRawOriginal: true })];
+    expect(selectionNoun(withRaws, new Set(["c-r"]))).toBe("RAW");
+    expect(selectionNoun(withRaws, new Set(["c-r", "c-p"]))).toBe("photo");
+  });
 });
 
 describe("selectionHasRaw", () => {
@@ -328,7 +350,24 @@ describe("selectionHasRaw", () => {
   it("checks loaded photos and select-all's list of the rest", () => {
     expect(selectionHasRaw(items, new Set(["c-p"]), undefined)).toBe(false);
     expect(selectionHasRaw(items, new Set(["c-r"]), undefined)).toBe(true);
+    // A RAW-only photo is its RAW: there's no separate one to offer deleting.
+    const rawOnly = [item("o", { originalKind: "raw", hasRawOriginal: true })];
+    expect(selectionHasRaw(rawOnly, new Set(["c-o"]), undefined)).toBe(false);
     expect(selectionHasRaw(items, new Set(["c-x"]), new Set(["c-x"]))).toBe(true);
     expect(selectionHasRaw(items, new Set(), new Set(["c-x"]))).toBe(false);
+  });
+});
+
+describe("shotKindForSearch", () => {
+  it("reads a search that only names a kind of shot", () => {
+    expect(shotKindForSearch("flight")).toBe("flight");
+    expect(shotKindForSearch("  Birds in Flight ")).toBe("flight");
+    expect(shotKindForSearch("portrait shots")).toBe("portrait");
+    expect(shotKindForSearch("behaviour")).toBe("behavior");
+  });
+
+  it("leaves anything more specific to picture search", () => {
+    expect(shotKindForSearch("heron in flight")).toBeNull();
+    expect(shotKindForSearch("fli")).toBeNull();
   });
 });

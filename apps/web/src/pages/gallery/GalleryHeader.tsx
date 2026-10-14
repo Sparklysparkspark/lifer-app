@@ -1,3 +1,4 @@
+import { useRegions } from "../../hooks/useRegions";
 import { ALL_TAXON_CLASSES, taxonDisplayLabel } from "@lifer/shared";
 import SearchInput from "../../components/SearchInput";
 import InlineSpinner from "../../components/InlineSpinner";
@@ -11,7 +12,7 @@ import {
   FilterCheckbox,
   MediaFilterField,
   PhotoSortSelect,
-  RawFilterField,
+  RawFilterFields,
   ThumbSizeSlider,
 } from "../../components/PhotoGridControls";
 import { UNCATEGORIZED_REGION_ID, toggleInSet } from "./galleryHelpers";
@@ -60,7 +61,7 @@ export function GalleryToolbar({
       <SearchInput
         value={filters.searchInput}
         onChange={filters.setSearchInput}
-        placeholder="Search your photos… (e.g. “owl flying”, “ducks in Canada 2024”)"
+        placeholder="Search, e.g. “heron in water”"
         className="w-full sm:w-96"
         aria-label="Search your photos by what's in them"
       />
@@ -93,7 +94,12 @@ export function GalleryToolbar({
 
           {facets.hasVideoInLibrary && <MediaFilterField value={query.mediaFilter} onChange={filters.setMediaFilter} />}
 
-          <RawFilterField value={query.rawFilter} onChange={filters.setRawFilter} />
+          <RawFilterFields
+            rawFiles={query.rawFiles}
+            editedRaw={query.editedRaw}
+            onRawFilesChange={filters.setRawFiles}
+            onEditedRawChange={filters.setEditedRaw}
+          />
 
           <DateRangeField
             dateFrom={dateFrom}
@@ -154,7 +160,7 @@ export function GalleryToolbar({
               <button
                 type="button"
                 onClick={() => filters.setSelectedTaxa(new Set())}
-                className="mt-1 text-[11px] text-muted hover:underline"
+                className="mt-1 text-xs text-muted hover:underline"
               >
                 Clear taxon filter
               </button>
@@ -185,19 +191,29 @@ export function GalleryToolbar({
   );
 }
 
-// Under the heading: the photo count, and the trip/album scope chips from the search palette.
+// Under the heading: the photo count, the trip/album scope chips from the search palette, and the
+// kind-of-shot and tier chips from Stats.
 export function GallerySummary({
   countText,
   filters,
 }: {
   countText: string | null;
-  filters: Pick<GalleryFilters, "scopeTrip" | "scopeAlbum" | "clearScope">;
+  filters: Pick<
+    GalleryFilters,
+    "scopeTrip" | "scopeAlbum" | "clearScope" | "query" | "shotKind" | "clearShotKind" | "clearTier"
+  >;
 }) {
   const { scopeTrip, scopeAlbum } = filters;
+  // Only Stats' kind-of-shot filter gets a chip; a typed "flight" stays in the search box.
+  const { shotKind } = filters;
+  const { tier, tierRegionId } = filters.query;
+  const { regions } = useRegions();
+  const tierRegion = tierRegionId ? regions?.find((r) => r.id === tierRegionId)?.name : null;
+  const tierLabel = tier ? `${tier.charAt(0).toUpperCase()}${tier.slice(1)}` : "";
   return (
     <>
       {countText !== null && <p className="text-xs text-muted">{countText}</p>}
-      {(scopeTrip || scopeAlbum) && (
+      {(scopeTrip || scopeAlbum || shotKind || tier) && (
         <div className="mt-1 flex flex-wrap gap-1.5">
           {scopeTrip && (
             <ScopeChip label={`In trip ${scopeTrip.name ?? ""}`.trim()} onRemove={() => filters.clearScope("trip")} />
@@ -208,11 +224,25 @@ export function GallerySummary({
               onRemove={() => filters.clearScope("album")}
             />
           )}
+          {shotKind && <ScopeChip label={SHOT_KIND_LABELS[shotKind] ?? shotKind} onRemove={filters.clearShotKind} />}
+          {tier && (
+            <ScopeChip
+              label={tierRegion ? `${tierLabel} in ${tierRegion}` : `${tierLabel} species`}
+              onRemove={filters.clearTier}
+            />
+          )}
         </div>
       )}
     </>
   );
 }
+
+const SHOT_KIND_LABELS: Record<string, string> = {
+  portrait: "Portrait shots",
+  flight: "Flight shots",
+  behavior: "Behaviour shots",
+  environmental: "Environmental shots",
+};
 
 // A removable "In trip X" / "In album X" filter, from the palette's search-within hand-off.
 function ScopeChip({ label, onRemove }: { label: string; onRemove: () => void }) {

@@ -24,7 +24,7 @@ import {
   FilterCheckbox,
   GridViewToggle,
   PhotoSortSelect,
-  RawFilterField,
+  RawFilterFields,
   ThumbSizeSlider,
 } from "../components/PhotoGridControls";
 import SelectModeToggle from "../components/SelectModeToggle";
@@ -34,7 +34,15 @@ import ConfirmDialog from "../components/ConfirmDialog";
 import Modal from "../components/Modal";
 import { formatDate } from "../lib/format";
 import { useSpeciesName } from "../lib/speciesName";
-import { countPhotoFilters, type PhotoSort, type RawFilter } from "../lib/photoListFilters";
+import { useScrollMemory } from "../hooks/useScrollMemory";
+import { useUrlParam } from "../hooks/useSearchParamsKeepingState";
+import {
+  countPhotoFilters,
+  DEFAULT_RAW_FILES,
+  type EditedRawFilter,
+  type PhotoSort,
+  type RawFilesFilter,
+} from "../lib/photoListFilters";
 import { useTripData } from "./trip/useTripData";
 import { useTripScanImport } from "./trip/useTripScanImport";
 import { useTripEdits } from "./trip/useTripEdits";
@@ -43,6 +51,7 @@ import TripHeaderDetails from "./trip/TripHeaderDetails";
 import TripJobStatus from "./trip/TripJobStatus";
 import TripScanReview from "./trip/TripScanReview";
 import TripPhotoGrid from "./trip/TripPhotoGrid";
+import { PANEL } from "../lib/layout";
 
 const EMPTY_TRIP_ICON = (
   <svg
@@ -68,16 +77,20 @@ export default function TripDetailPage() {
   // Set by TripsPage's "Build a trip" flow: the folder is new and empty, so offer uploads instead of a scan.
   const [searchParams] = useSearchParams();
   const buildMode = searchParams.get("mode") === "build";
-  const [view, setView] = useState<"gallery" | "species">("gallery");
+  // View and search live in the URL so returning from a species opened here lands on the same list.
+  const [viewParam, setViewParam] = useUrlParam("view");
+  const view = viewParam === "species" ? "species" : "gallery";
+  const setView = (next: "gallery" | "species") => setViewParam(next === "species" ? next : "");
   const [thumbSizePx, updateThumbSize] = usePhotoGridSize();
   const { multiDriveInUse } = useStorageVolumes();
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const [showLabels, setShowLabels] = useShowLabels();
   const [sortBy, setSortBy] = usePersistedState<PhotoSort>("tripSortBy", "newest");
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useUrlParam("q");
   const suggestEnabled = useSettings().settings?.speciesSuggestEnabled ?? false;
   const speciesGallery = useSpeciesGallery();
-  const [rawFilter, setRawFilter] = usePersistedState<RawFilter>("tripRawFilter", "without");
+  const [rawFiles, setRawFiles] = usePersistedState<RawFilesFilter>("tripRawFiles", DEFAULT_RAW_FILES);
+  const [editedRaw, setEditedRaw] = usePersistedState<EditedRawFilter>("tripEditedRaw", "any");
   const [onlyTopRated, setOnlyTopRated] = useState(false);
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
@@ -87,12 +100,13 @@ export default function TripDetailPage() {
   const { trip, summary, photos, speciesItems, loadError, load } = useTripData(id);
   const jobs = useTripScanImport({ id, load, suggestEnabled });
   const edits = useTripEdits({ id, load, photos, closeMenu: () => menu.setOpenKey(null) });
+  useScrollMemory(!!trip && !!photos);
 
   const visiblePhotos = useMemo(
-    () => visibleTripPhotos(photos ?? [], search, { rawFilter, onlyTopRated, dateFrom, dateTo }, sortBy),
-    [photos, search, sortBy, rawFilter, onlyTopRated, dateFrom, dateTo],
+    () => visibleTripPhotos(photos ?? [], search, { rawFiles, editedRaw, onlyTopRated, dateFrom, dateTo }, sortBy),
+    [photos, search, sortBy, rawFiles, editedRaw, onlyTopRated, dateFrom, dateTo],
   );
-  const activeFilterCount = countPhotoFilters({ rawFilter, onlyTopRated, dateFrom, dateTo });
+  const activeFilterCount = countPhotoFilters({ rawFiles, editedRaw, onlyTopRated, dateFrom, dateTo });
   const visibleSpecies = useMemo(() => visibleTripSpecies(speciesItems ?? [], search), [speciesItems, search]);
 
   const slides = useMemo<LightboxSlide[]>(
@@ -100,6 +114,7 @@ export default function TripDetailPage() {
       visiblePhotos.map((p) => ({
         url: `/api/photos/${p.photoId}/display`,
         caption: `${speciesName(p)}${p.takenAt ? ` · ${formatDate(p.takenAt)}` : ""}`,
+        speciesId: p.speciesId,
         info: {
           cameraModel: p.cameraModel,
           lens: p.lens,
@@ -150,7 +165,12 @@ export default function TripDetailPage() {
                     <FilterCheckbox checked={onlyTopRated} onChange={setOnlyTopRated}>
                       {t("trips.detail.filters.topRated")}
                     </FilterCheckbox>
-                    <RawFilterField value={rawFilter} onChange={setRawFilter} />
+                    <RawFilterFields
+                      rawFiles={rawFiles}
+                      editedRaw={editedRaw}
+                      onRawFilesChange={setRawFiles}
+                      onEditedRawChange={setEditedRaw}
+                    />
                     <DateRangeField
                       dateFrom={dateFrom}
                       dateTo={dateTo}
@@ -190,7 +210,7 @@ export default function TripDetailPage() {
       </PageHeader>
 
       {jobs.relocating && (
-        <div className="border-b border-line bg-surface px-6 py-3">
+        <div className="border-b border-line bg-surface px-page py-3">
           <FolderBrowser
             onChoose={(folder) => jobs.applyRelocate(jobs.relocating!, folder)}
             onCancel={() => jobs.setRelocating(null)}
@@ -198,7 +218,7 @@ export default function TripDetailPage() {
         </div>
       )}
 
-      <div className="flex items-center gap-3 border-b border-line bg-surface px-6 py-2 text-sm">
+      <div className="flex items-center gap-3 border-b border-line bg-surface px-page py-2 text-sm">
         <SearchInput
           value={search}
           onChange={setSearch}
@@ -208,7 +228,7 @@ export default function TripDetailPage() {
       </div>
 
       {edits.selectMode && (
-        <div className="flex items-center justify-between border-b border-line bg-surface-muted px-6 py-2 text-xs">
+        <div className="flex items-center justify-between border-b border-line bg-surface-muted px-page py-2 text-xs">
           <span className="text-muted">
             {t("trips.detail.selectedCount", { count: edits.selectedCaptureIds.size })}
           </span>
@@ -223,7 +243,7 @@ export default function TripDetailPage() {
         </div>
       )}
 
-      <main className="space-y-6 p-6">
+      <main className="space-y-section p-page">
         <TripJobStatus tripId={id} jobs={jobs} />
 
         {scannedCount > 0 && (
@@ -243,14 +263,14 @@ export default function TripDetailPage() {
               {search ? t("trips.detail.noSpeciesMatch", { search }) : t("trips.detail.noSpecies")}
             </p>
           ) : (
-            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
+            <div className="grid grid-cols-2 gap-item sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
               {visibleSpecies.map((item) => (
                 <SpeciesCard key={item.speciesId} item={item} backLabel={trip.name} showVolumeBadge={multiDriveInUse} />
               ))}
             </div>
           )
         ) : noPhotos && buildMode ? (
-          <div className="max-w-2xl space-y-3 rounded-lg border border-line bg-surface p-4">
+          <div className={`max-w-2xl space-y-3 ${PANEL}`}>
             <p className="text-sm text-ink">{t("trips.detail.build.dropPhotos")}</p>
             <PhotoImportRows tripId={id} onImported={() => void load()} />
             <div className="border-t border-line pt-3">
@@ -294,6 +314,7 @@ export default function TripDetailPage() {
           index={lightboxIndex}
           onIndexChange={setLightboxIndex}
           onClose={() => setLightboxIndex(null)}
+          backLabel={trip.name}
         />
       )}
 

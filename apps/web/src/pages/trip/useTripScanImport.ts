@@ -1,8 +1,7 @@
 import { useRef, useState } from "react";
 import type { CullMarksOption } from "@lifer/shared";
 import { isRejected } from "../../lib/cullInfo";
-import { api } from "../../api/client";
-import type { SuggestedSpecies } from "../../components/SpeciesPicker";
+import { api, apiPath } from "../../api/client";
 import { useImportReview } from "../../components/importReview/useImportReview";
 import { useJobPoll } from "../../hooks/useJobPoll";
 import { mapWithConcurrency } from "../../lib/concurrency";
@@ -44,7 +43,7 @@ export function useTripScanImport({
   const [scanRequested, setScanRequested] = useState(false);
   // Likewise an import: only one started here reports what the culling marks did to it.
   const [importRequested, setImportRequested] = useState(false);
-  const scanJob = useJobPoll<ScanStatus>(id ? `/trips/${id}/scan/status` : null, {
+  const scanJob = useJobPoll<ScanStatus>(id ? apiPath("/trips/{id}/scan/status", { id }) : null, {
     intervalMs: 1500,
     onFinish: (res) => {
       const rows: ReviewRow[] = res.newFiles.map((f) => ({
@@ -71,7 +70,7 @@ export function useTripScanImport({
   const scanStatus = scanRequested || scanJob.status?.running ? scanJob.status : null;
 
   // Refreshes the trip once at the end; in between, results only drain the loading tiles.
-  const importJob = useJobPoll<ImportStatus>(id ? `/trips/${id}/import/status` : null, {
+  const importJob = useJobPoll<ImportStatus>(id ? apiPath("/trips/{id}/import/status", { id }) : null, {
     intervalMs: 1000,
     onFinish: () => {
       void load().finally(() => setPendingImports([]));
@@ -111,18 +110,21 @@ export function useTripScanImport({
     await mapWithConcurrency(keys, INSPECT_CONCURRENCY, async (key) => {
       if (generation !== inspectGenerationRef.current) return;
       try {
-        const res = await api.post<{ suggestions: SuggestedSpecies[]; notWildlife: { looksLike: string } | null }>(
-          `/trips/${id}/inspect`,
-          {
-            relativePath: key,
-            regionId: suggestEnabled ? regionId : null,
-          },
-        );
+        const res = await api.post(apiPath("/trips/{id}/inspect", { id }), {
+          relativePath: key,
+          regionId: suggestEnabled ? regionId : null,
+        });
         if (generation !== inspectGenerationRef.current) return;
         setReviewRows((prev) =>
           prev.map((r) =>
             r.key === key
-              ? { ...r, suggestions: res.suggestions, notWildlife: res.notWildlife, isInspecting: false }
+              ? {
+                  ...r,
+                  suggestions: res.suggestions,
+                  notWildlife: res.notWildlife,
+                  invertebrate: res.invertebrate,
+                  isInspecting: false,
+                }
               : r,
           ),
         );
@@ -197,7 +199,7 @@ export function useTripScanImport({
     setRelocating(null);
     setRelocateError(null);
     try {
-      await api.patch(`/trips/${id}`, { [which]: folder });
+      await api.patch(apiPath("/trips/{id}", { id }), { [which]: folder });
       void load();
       // A rescan relinks every existing photo by content hash (see scan.ts).
       void startScan();

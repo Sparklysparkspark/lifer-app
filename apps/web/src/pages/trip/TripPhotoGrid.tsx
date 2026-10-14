@@ -1,21 +1,18 @@
-import type { RefObject } from "react";
-import { Link } from "react-router-dom";
+import type { CSSProperties, Ref, RefObject } from "react";
+import { useTranslation } from "react-i18next";
+import { Link, useLocation } from "react-router-dom";
 import MasonryGrid from "../../components/MasonryGrid";
 import PhotoTile from "../../components/PhotoTile";
+import SegmentedControl from "../../components/SegmentedControl";
 import InlineSpinner from "../../components/InlineSpinner";
 import { downloadFile } from "../../lib/downloadFile";
+import { MENU_ITEM, MENU_ITEM_DANGER, MENU_PANEL, MENU_SEPARATOR } from "../../lib/menuClasses";
 import type { TripDetail, TripPhoto } from "./types";
 import type { TripEdits } from "./useTripEdits";
-
-const MENU_ITEM = "block w-full px-3 py-1.5 text-left text-ink hover:bg-surface-muted";
+import { useSpeciesName } from "../../lib/speciesName";
+import { backStateFor } from "../../lib/backLabel";
 
 type GridItem = { kind: "placeholder"; key: string } | { kind: "photo"; photo: TripPhoto; photoIndex: number };
-
-function layoutButtonClass(active: boolean): string {
-  return `rounded-md border px-2 py-1 text-xs ${
-    active ? "border-ink bg-surface-muted text-ink" : "border-line hover:bg-surface-muted"
-  }`;
-}
 
 // The cover style choice and the trip's photos, led by a loading tile per photo still importing.
 export default function TripPhotoGrid({
@@ -37,6 +34,11 @@ export default function TripPhotoGrid({
   menu: { openKey: string | null; setOpenKey: (key: string | null) => void; ref: RefObject<HTMLDivElement | null> };
   onOpen: (photoIndex: number) => void;
 }) {
+  const speciesName = useSpeciesName();
+  const { t } = useTranslation();
+  const location = useLocation();
+  // So the species page's back link returns to this trip.
+  const speciesLinkState = backStateFor(location, t, trip.name);
   const gridItems: GridItem[] = [
     ...pendingImports.map((relativePath): GridItem => ({ kind: "placeholder", key: relativePath })),
     ...photos.map((photo, photoIndex): GridItem => ({ kind: "photo", photo, photoIndex })),
@@ -46,20 +48,18 @@ export default function TripPhotoGrid({
     <>
       <div className="mb-4 flex items-center gap-2 text-sm text-muted">
         Cover style
-        <button
-          onClick={() => edits.setCoverLayout("single")}
-          className={layoutButtonClass(trip.coverLayout === "single")}
-        >
-          Single photo
-        </button>
-        <button onClick={() => edits.setCoverLayout("quad")} className={layoutButtonClass(trip.coverLayout === "quad")}>
-          Quad grid
-        </button>
+        <SegmentedControl
+          value={trip.coverLayout}
+          onChange={edits.setCoverLayout}
+          options={[
+            { value: "single", label: "Single photo" },
+            { value: "quad", label: "Quad grid" },
+          ]}
+        />
       </div>
       <MasonryGrid
         items={gridItems}
         columnWidth={thumbSizePx}
-        extraHeightPx={showLabels ? 19 : 0}
         keyFor={(gi) => (gi.kind === "placeholder" ? `pending-${gi.key}` : gi.photo.photoId)}
         aspectRatioFor={(gi) =>
           gi.kind === "photo" && gi.photo.width && gi.photo.height ? gi.photo.width / gi.photo.height : null
@@ -68,7 +68,10 @@ export default function TripPhotoGrid({
           if (gi.kind === "placeholder") {
             // Still being processed (EXIF read, thumbnails).
             return (
-              <div className="flex aspect-square w-full items-center justify-center rounded-md bg-surface-muted">
+              <div
+                className="flex w-full items-center justify-center rounded-md bg-surface-muted"
+                style={{ aspectRatio }}
+              >
                 <InlineSpinner size="md" label="Importing" />
               </div>
             );
@@ -79,7 +82,7 @@ export default function TripPhotoGrid({
             <PhotoTile
               key={photo.photoId}
               photoId={photo.photoId}
-              alt={photo.commonName ?? photo.scientificName}
+              alt={speciesName(photo)}
               onOpen={() => onOpen(photoIndex)}
               selectMode={edits.selectMode}
               selected={edits.selectedCaptureIds.has(photo.captureId)}
@@ -94,14 +97,11 @@ export default function TripPhotoGrid({
                   isCover={isCover}
                   coverLayout={trip.coverLayout}
                   edits={edits}
+                  speciesLinkState={speciesLinkState}
                   closeMenu={() => menu.setOpenKey(null)}
                 />
               }
-              label={
-                showLabels && (
-                  <p className="mt-1 truncate text-[11px] text-muted">{photo.commonName ?? photo.scientificName}</p>
-                )
-              }
+              label={showLabels && <p className="mt-1 truncate text-xs text-muted">{speciesName(photo)}</p>}
             />
           );
         }}
@@ -111,22 +111,29 @@ export default function TripPhotoGrid({
 }
 
 function TripPhotoMenu({
+  ref,
+  style,
   photo,
   isCover,
   coverLayout,
   edits,
+  speciesLinkState,
   closeMenu,
 }: {
   photo: TripPhoto;
   isCover: boolean;
   coverLayout: "single" | "quad";
   edits: TripEdits;
+  speciesLinkState: object;
   closeMenu: () => void;
+  /** From DotMenu, which measures the panel and moves it to stay on the page. */
+  ref?: Ref<HTMLDivElement>;
+  style?: CSSProperties;
 }) {
   const displayUrl = `/api/photos/${photo.photoId}/display`;
   return (
-    <div className="absolute right-0 top-full z-10 mt-1 whitespace-nowrap rounded-md border border-line bg-surface py-1 text-xs shadow-lg">
-      <Link to={`/species/${photo.speciesId}`} onClick={closeMenu} className={MENU_ITEM}>
+    <div ref={ref} style={style} className={`absolute right-0 top-full z-10 mt-1 whitespace-nowrap ${MENU_PANEL}`}>
+      <Link to={`/species/${photo.speciesId}`} state={speciesLinkState} onClick={closeMenu} className={MENU_ITEM}>
         View species
       </Link>
       <button
@@ -170,12 +177,13 @@ function TripPhotoMenu({
           Download RAW
         </button>
       )}
+      <div className={MENU_SEPARATOR} />
       <button
         onClick={() => {
           closeMenu();
           edits.setConfirmingDeleteCaptureId(photo.captureId);
         }}
-        className="block w-full px-3 py-1.5 text-left text-rose-700 hover:bg-surface-muted dark:text-rose-400"
+        className={MENU_ITEM_DANGER}
       >
         Delete photo
       </button>

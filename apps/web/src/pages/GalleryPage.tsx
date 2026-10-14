@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { api } from "../api/client";
 import Lightbox, { type LightboxSlide } from "../components/Lightbox";
@@ -7,11 +6,15 @@ import { photoFilePaths } from "../lib/photoFilePaths";
 import { Spinner } from "../components/LoadingScreen";
 import PageHeader from "../components/PageHeader";
 import AddToAlbumModal from "../components/AddToAlbumModal";
+import CaptureEditModal from "../components/CaptureEditModal";
 import Button from "../components/Button";
 import FormMessage from "../components/FormMessage";
 import InlineSpinner from "../components/InlineSpinner";
 import { useSelectMode } from "../hooks/useSelectMode";
 import { useKeyboardShortcuts } from "../hooks/useKeyboardShortcuts";
+import { useScrollMemory } from "../hooks/useScrollMemory";
+import { useGoBack } from "../hooks/useGoBack";
+import { useSearchParamsKeepingState } from "../hooks/useSearchParamsKeepingState";
 import { isTauri } from "../lib/tauri";
 import { useDeploymentMode, useIsTauri } from "../hooks/useDeploymentMode";
 import { formatDate } from "../lib/format";
@@ -31,26 +34,23 @@ import { useToast } from "../hooks/useToast";
 import { errorMessage } from "../lib/errorMessage";
 import { cullInfo } from "../lib/cullInfo";
 import { useSpeciesName } from "../lib/speciesName";
+import { useApiResource } from "../lib/resource";
+import { ignore } from "../lib/ignore";
 
 // Every photo across all species, as one browsable, filterable, searchable masonry grid.
 export default function GalleryPage() {
   const { t } = useTranslation();
   const speciesName = useSpeciesName();
-  const navigate = useNavigate();
+  const goBack = useGoBack();
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const display = useGalleryDisplayPrefs();
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParamsKeepingState();
   // ?select=1&albumId=X turns the page into an "add photos to this album" picker.
   const startInSelectMode = searchParams.get("select") === "1";
   const targetAlbumId = searchParams.get("albumId");
-  const [targetAlbumName, setTargetAlbumName] = useState<string | null>(null);
-  useEffect(() => {
-    if (!targetAlbumId) return;
-    api
-      .get<{ name: string }>(`/albums/${targetAlbumId}`)
-      .then((res) => setTargetAlbumName(res.name))
-      .catch(() => {});
-  }, [targetAlbumId]);
+  // Without the name (still loading, or it failed) the picker shows a generic title.
+  const targetAlbumName =
+    useApiResource<{ name: string }>(targetAlbumId ? `/albums/${targetAlbumId}` : null).data?.name ?? null;
   const facets = useGalleryFacets();
   const filters = useGalleryFilters(searchParams, setSearchParams);
   const { query } = filters;
@@ -58,9 +58,9 @@ export default function GalleryPage() {
   const [tagOptions, setTagOptions] = useState<string[]>([]);
   useEffect(() => {
     api
-      .get<{ tags: string[] }>("/captures/tags")
+      .get("/captures/tags")
       .then((res) => setTagOptions(res.tags))
-      .catch(() => {});
+      .catch(ignore("Couldn't load tags"));
   }, []);
   const listing = useGalleryListing({ query, groupByRegion: display.groupByRegion, lightboxIndex });
   const {
@@ -78,9 +78,19 @@ export default function GalleryPage() {
     selectAll,
     selectAllMeta,
   } = listing;
+  // Back from a photo's species page returns to the same spot in the grid.
+  useScrollMemory(!!items && items.length > 0);
   const { openKey: openMenuKey, setOpenKey: setOpenMenuKey, ref: openMenuRef } = useDropdownMenu<string>();
   // Right-click menu position; the open tile is still tracked by openMenuKey.
   const [contextMenuAnchor, setContextMenuAnchor] = useState<ContextAnchor | null>(null);
+  // The missing-date view from Stats: fixing the last one goes back there.
+  const missingDateCount = query.missingDate ? (items?.length ?? null) : null;
+  const hadMissingDates = useRef(false);
+  useEffect(() => {
+    if (missingDateCount == null) return;
+    if (missingDateCount > 0) hadMissingDates.current = true;
+    else if (hadMissingDates.current) goBack("/stats");
+  }, [missingDateCount, goBack]);
   const select = useSelectMode(items, (item) => item.captureId, startInSelectMode);
   const { selectMode, setSelectMode, selectedIds, setSelectedIds, dragPreviewIds, dragProps } = select;
   const edits = useGalleryEdits({
@@ -90,7 +100,7 @@ export default function GalleryPage() {
     loadRef: listing.loadRef,
     select,
     targetAlbumId,
-    navigate,
+    goBack,
     closeMenu: () => setOpenMenuKey(null),
     tagOptions,
     setTagOptions,
@@ -103,7 +113,7 @@ export default function GalleryPage() {
   async function unhide(captureIds: string[]) {
     setUnhiding(true);
     try {
-      const res = await api.post<{ unhidden: number }>("/captures/unhide", { captureIds });
+      const res = await api.post("/captures/unhide", { captureIds });
       const ids = new Set(captureIds);
       listing.setItems((prev) => prev?.filter((it) => !ids.has(it.captureId)) ?? prev);
       listing.setTotal((t) => (t === null ? t : Math.max(0, t - ids.size)));
@@ -164,7 +174,7 @@ export default function GalleryPage() {
         if (cancelled) fn();
         else unlisten = fn;
       })
-      .catch(() => {});
+      .catch(ignore("Couldn't listen for the Delete menu item"));
     return () => {
       cancelled = true;
       unlisten?.();
@@ -214,6 +224,11 @@ export default function GalleryPage() {
     [setOpenMenuKey],
   );
 
+  const editingId = edits.editing?.captureId;
+  const editingItem = editingId ? items?.find((it) => it.captureId === editingId) : undefined;
+  // The photo left the list (deleted, or filtered out by a reload): its dialog closes for good
+  // rather than coming back if the photo does.
+  if (editingId && items && !editingItem) edits.setEditing(null);
   // Select all lists the videos and RAWs among photos not loaded yet.
   const selectedHaveRaw = useMemo(
     () => selectionHasRaw(items ?? [], selectedIds, selectAllMeta?.raw),
@@ -240,7 +255,7 @@ export default function GalleryPage() {
     <div className="flex-1 bg-canvas">
       {targetAlbumId ? (
         // A picker, not a browsed page: no back link or "Gallery" title.
-        <header data-tauri-drag-region className="border-b border-line bg-surface px-6 py-4">
+        <header data-tauri-drag-region className="border-b border-line bg-surface px-page py-4">
           <h1 className="text-lg font-semibold text-ink">
             {targetAlbumName !== null
               ? t("gallery.albumPicker.title", { album: targetAlbumName })
@@ -249,6 +264,7 @@ export default function GalleryPage() {
         </header>
       ) : (
         <PageHeader
+          topLevel
           title={t("gallery.title")}
           actions={
             items && (
@@ -300,15 +316,15 @@ export default function GalleryPage() {
         />
       )}
       {(edits.reassignError || edits.bulkTagError) && (
-        <div className="space-y-2 border-b border-line bg-surface px-6 py-2">
+        <div className="space-y-2 border-b border-line bg-surface px-page py-2">
           <FormMessage error={edits.reassignError} />
           <FormMessage error={edits.bulkTagError} />
         </div>
       )}
 
-      <main className="p-6">
+      <main className="space-y-section p-page">
         {loadError && (
-          <div className="mb-4 flex items-center gap-3">
+          <div className="flex items-center gap-3">
             <FormMessage error={loadError} className="flex-1" />
             <Button variant="secondary" size="sm" onClick={() => load()}>
               {t("common.retry")}
@@ -374,6 +390,17 @@ export default function GalleryPage() {
         />
       )}
 
+      {editingItem && edits.editing && (
+        <CaptureEditModal
+          edit={edits.editing.edit}
+          capture={editingItem}
+          tagOptions={edits.tagOptions}
+          onTagsChange={(tags) => void edits.tagCapture(editingItem.captureId, tags)}
+          onReassign={(speciesId) => void edits.reassignSpecies(editingItem.captureId, speciesId)}
+          onClose={() => edits.setEditing(null)}
+        />
+      )}
+
       {edits.addingToAlbumCaptureId && (
         <AddToAlbumModal
           captureIds={[edits.addingToAlbumCaptureId]}
@@ -383,7 +410,7 @@ export default function GalleryPage() {
 
       <GalleryDeleteDialogs
         edits={edits}
-        singleKind={items?.find((it) => it.captureId === edits.single.captureId)?.kind}
+        singleNoun={selectionNoun(items ?? [], new Set(edits.single.captureId ? [edits.single.captureId] : []))}
         selectedCount={selectedIds.size}
         batchNoun={batchNoun}
         selectedHaveRaw={selectedHaveRaw}

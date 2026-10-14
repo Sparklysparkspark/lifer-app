@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { api } from "../../api/client";
+import { api, apiPath } from "../../api/client";
 import { useLatest } from "../../hooks/useLatest";
 import { useToast } from "../../hooks/useToast";
 import { errorMessage } from "../../lib/errorMessage";
 import { appendNew, describeSearchReading, galleryParams } from "./galleryHelpers";
-import type { GalleryItem, GalleryPageResponse, GalleryQuery, SearchResponse } from "./types";
+import type { GalleryItem, GalleryQuery } from "./types";
 
 // The plain listing loads in pages as you scroll; catch-up loads (select all, keep place on a
 // reload) use the server's largest page.
@@ -15,7 +15,7 @@ function fetchPage(params: URLSearchParams, cursor: string, limit: number, signa
   const pageParams = new URLSearchParams(params);
   pageParams.set("limit", String(limit));
   pageParams.set("cursor", cursor);
-  return api.get<GalleryPageResponse>(`/gallery?${pageParams}`, { signal });
+  return api.get(apiPath("/gallery", {}, pageParams), { signal });
 }
 
 // The photos for the current query: the paged listing, or a search's two passes. A new query
@@ -38,8 +38,12 @@ export function useGalleryListing({
     onlyTopRated,
     onlyFeatured,
     missingDate,
+    shotKind,
+    tier,
+    tierRegionId,
     selectedTaxa,
-    rawFilter,
+    rawFiles,
+    editedRaw,
     mediaFilter,
     dateFrom,
     dateTo,
@@ -112,7 +116,7 @@ export function useGalleryListing({
       const quickParams = new URLSearchParams(params);
       quickParams.set("quick", "1");
       api
-        .get<SearchResponse>(`/gallery/search?${quickParams}`, { signal: controller.signal })
+        .get(apiPath("/gallery/search", {}, quickParams), { signal: controller.signal })
         .then((res) => {
           if (fullArrived) return;
           if (!res.pending || res.items.length > 0) setItems(res.items);
@@ -127,7 +131,7 @@ export function useGalleryListing({
         // The full pass reports failures.
         .catch(() => {});
       api
-        .get<SearchResponse>(`/gallery/search?${params}`, { signal: controller.signal })
+        .get(apiPath("/gallery/search", {}, params), { signal: controller.signal })
         .then((res) => {
           fullArrived = true;
           setItems(res.items);
@@ -143,7 +147,7 @@ export function useGalleryListing({
     const pageParams = new URLSearchParams(params);
     pageParams.set("limit", String(keepCount > PAGE_SIZE ? CATCH_UP_PAGE_SIZE : PAGE_SIZE));
     api
-      .get<GalleryPageResponse>(`/gallery?${pageParams}`, { signal: controller.signal })
+      .get(apiPath("/gallery", {}, pageParams), { signal: controller.signal })
       .then(async (res) => {
         let loaded = res.items;
         let cursor = res.nextCursor;
@@ -154,7 +158,7 @@ export function useGalleryListing({
         }
         if (controller.signal.aborted) return;
         setItems(loaded);
-        setNextCursor(cursor);
+        setNextCursor(cursor ?? null);
         setTotal(res.total ?? null);
       })
       .catch(fail);
@@ -179,7 +183,7 @@ export function useGalleryListing({
         // Superseded by a reload, or a select-all already loaded past this cursor.
         if (controller.signal.aborted || nextCursorRef.current !== cursor) return;
         setItems((prev) => appendNew(prev ?? [], page.items));
-        setNextCursor(page.nextCursor);
+        setNextCursor(page.nextCursor ?? null);
       })
       .catch(() => {
         if (!controller.signal.aborted) setLoadMoreError(true);
@@ -204,10 +208,7 @@ export function useGalleryListing({
     if (nextCursorRef.current && params && controller) {
       setSelectingAll(true);
       try {
-        const res = await api.get<{ captureIds: string[]; videoCaptureIds: string[]; rawCaptureIds: string[] }>(
-          `/gallery/ids?${params}`,
-          { signal: controller.signal },
-        );
+        const res = await api.get(apiPath("/gallery/ids", {}, params), { signal: controller.signal });
         if (controller.signal.aborted) return;
         setSelectAllMeta({ video: new Set(res.videoCaptureIds), raw: new Set(res.rawCaptureIds) });
         select(new Set(res.captureIds));
@@ -231,9 +232,12 @@ export function useGalleryListing({
     onlyTopRated,
     onlyFeatured,
     missingDate,
+    shotKind,
+    tier,
+    tierRegionId,
     searchQuery,
     selectedTaxa,
-    rawFilter,
+    rawFiles, editedRaw,
     mediaFilter,
     dateFrom,
     dateTo,
@@ -257,9 +261,12 @@ export function useGalleryListing({
       onlyTopRated,
       onlyFeatured,
       missingDate,
+      shotKind,
+      tier,
+      tierRegionId,
       searchQuery,
       selectedTaxa,
-      rawFilter,
+      rawFiles, editedRaw,
       mediaFilter,
       dateFrom,
       dateTo,

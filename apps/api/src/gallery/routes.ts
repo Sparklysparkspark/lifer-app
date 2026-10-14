@@ -1,13 +1,16 @@
 // Gallery of every photo across all species, plus photo search.
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import { captureIdsOfShotKind, isShotKind, SHOT_KINDS, type ShotKind } from "../stats/shotKinds.js";
 import { pool } from "@lifer/core/db.js";
 import { Type, type Static } from "typebox";
 import { isUuid, parseDate, parseLimit } from "../lib/validate.js";
 import { Uuid, replies, withSchemas } from "../lib/schema.js";
+import { GalleryItem, SearchInterpretation } from "./responses.js";
 import { requireScope } from "../auth/session.js";
-import { EMBEDDING_MODEL_VERSION } from "@lifer/core/config.js";
+import { EMBEDDING_MODEL_VERSION, SCENE_MODEL_VERSION } from "@lifer/core/config.js";
 import { parseSearchQuery, rankSearch, type PlaceEntry, type SearchRow, type SpeciesEntry } from "./photoSearch.js";
 import type { GroupPredicate } from "./searchTaxonSynonyms.js";
+import type { CullLabel } from "@lifer/shared";
 
 /** Sentinel `regionId` for the "Uncategorized" filter: captures with no region set. */
 export const UNCATEGORIZED_REGION_ID = "uncategorized";
@@ -61,6 +64,7 @@ export interface GalleryFilters {
   onlyFeatured: boolean;
   taxa: string[];
   includeRaw: boolean;
+  onlyRaw: boolean;
   excludeHasRaw: boolean;
   onlyHasRaw: boolean;
   onlyVideo: boolean;
@@ -72,6 +76,13 @@ export interface GalleryFilters {
   tag: string | null;
   tripId: string | null;
   albumId: string | null;
+  shotKind: ShotKind | null;
+  /** Only species of this rarity tier (species_rarity), from Stats' By tier list. */
+  tier: string | null;
+  /** With `tier`: compare each species' local tier in this region instead of its overall one. */
+  tierRegionId: string | null;
+  /** The captures of `shotKind`, filled in by galleryFiltersFor (it's worked out from vectors). */
+  shotKindCaptureIds?: string[];
 }
 
 // "1" turns a filter on; "0" (or leaving it out) leaves it off.
@@ -102,19 +113,29 @@ const GalleryFilterQuery = Type.Object({
   tripId: Type.Optional(Uuid({ description: "Only photos in this trip" })),
   albumId: Type.Optional(Uuid({ description: "Only photos in this album" })),
   missingDate: OnOff("1 for photos with no capture date only"),
+  tier: Type.Optional(
+    Type.Enum(["legendary", "rare", "uncommon", "occasional", "common", "unrated"], {
+      description: "Only species of this rarity tier",
+    }),
+  ),
+  tierRegionId: Type.Optional(Uuid({ description: "With tier: the region whose local tier counts" })),
+  shotKind: Type.Optional(
+    Type.Enum(
+      SHOT_KINDS.map((k) => k.key),
+      { description: "Only this kind of shot, as Stats' Photography DNA counts them" },
+    ),
+  ),
   onlyTopRated: OnOff("1 for 5-star photos only"),
   onlyFeatured: OnOff("1 for species cover photos only"),
   onlyVideo: OnOff("1 for videos only"),
   excludeVideo: OnOff("1 to leave videos out"),
-  onlyHasRaw: OnOff("1 for photos with a RAW original only"),
-  excludeHasRaw: OnOff("1 for photos without a RAW original only"),
+  onlyHasRaw: OnOff("1 for photos with a RAW original only (RAW-only photos included)"),
+  excludeHasRaw: OnOff("1 to leave out edited photos that have a RAW original (RAW-only photos stay)"),
   includeRaw: OnOff("0 to leave out photos whose only original is a RAW"),
+  onlyRaw: OnOff("1 for only the photos whose only original is a RAW"),
   hidden: OnOff("1 for only the photos imported hidden because a culling app rejected them"),
 });
 type GalleryFilterQuery = Static<typeof GalleryFilterQuery>;
-
-// Only the fields integrations rely on are declared; the rest pass through unchanged.
-const GalleryItem = Type.Object({ captureId: Uuid(), photoId: Uuid() }, { additionalProperties: true });
 
 // Plain YYYY-MM-DD from a native <input type="date">; anything else Postgres can't cast is refused.
 function parseDay(value: string | undefined): string | null | undefined {
@@ -138,6 +159,7 @@ export function parseGalleryFilters(q: GalleryFilterQuery): GalleryFilters | { e
     onlyFeatured: q.onlyFeatured === "1",
     taxa: q.taxa?.split(",").filter(Boolean) ?? [],
     includeRaw: q.includeRaw !== "0",
+    onlyRaw: q.onlyRaw === "1",
     excludeHasRaw: q.excludeHasRaw === "1",
     onlyHasRaw: q.onlyHasRaw === "1",
     onlyVideo: q.onlyVideo === "1",
@@ -151,7 +173,20 @@ export function parseGalleryFilters(q: GalleryFilterQuery): GalleryFilters | { e
     tag: q.tag || null,
     tripId,
     albumId,
+    shotKind: q.shotKind && isShotKind(q.shotKind) ? q.shotKind : null,
+    tier: q.tier || null,
+    tierRegionId: q.tierRegionId || null,
   };
+}
+
+/** parseGalleryFilters, plus the captures a ?shotKind= stands for. */
+export async function galleryFiltersFor(
+  q: GalleryFilterQuery,
+  userId: string,
+): Promise<GalleryFilters | { error: string }> {
+  const filters = parseGalleryFilters(q);
+  if ("error" in filters || !filters.shotKind) return filters;
+  return { ...filters, shotKindCaptureIds: await captureIdsOfShotKind(userId, filters.shotKind) };
 }
 
 /** The WHERE clauses for a filter set, adding each value through `param` ($n placeholders). */
@@ -162,6 +197,12 @@ export function galleryFilterSql(f: GalleryFilters, param: (v: unknown) => strin
     // "Featured" means this photo is its species' cover_photo_id, not a photo-level flag.
     f.onlyFeatured ? "AND p.id = us.cover_photo_id" : "",
     f.missingDate ? "AND c.taken_at IS NULL" : "",
+    f.tier && f.tierRegionId
+      ? `AND COALESCE((SELECT rs.local_tier FROM region_species rs WHERE rs.species_id = c.species_id AND rs.region_id = ${param(f.tierRegionId)}::uuid), 'unrated') = ${param(f.tier)}`
+      : f.tier
+        ? `AND EXISTS (SELECT 1 FROM species_rarity sr WHERE sr.species_id = c.species_id AND sr.tier = ${param(f.tier)})`
+        : "",
+    f.shotKind ? `AND c.id = ANY(${param(f.shotKindCaptureIds ?? [])}::uuid[])` : "",
     f.taxa.length > 0 ? `AND s.taxon_class = ANY(${param(f.taxa)})` : "",
     f.dateFrom ? `AND c.taken_at >= ${param(f.dateFrom)}::date` : "",
     f.dateTo ? `AND c.taken_at < (${param(f.dateTo)}::date + INTERVAL '1 day')` : "",
@@ -176,9 +217,13 @@ export function galleryFilterSql(f: GalleryFilters, param: (v: unknown) => strin
     f.albumId
       ? `AND EXISTS (SELECT 1 FROM album_captures fac WHERE fac.capture_id = c.id AND fac.album_id = ${param(f.albumId)}::uuid)`
       : "",
+    // `o` is the photo's main original, the edited one when there is one: a RAW there means the
+    // RAW is all the photo has.
     f.includeRaw ? "" : "AND o.kind IS DISTINCT FROM 'raw'",
+    f.onlyRaw ? "AND o.kind = 'raw'" : "",
+    // The "with RAW" pair of filters is about edited photos, so a RAW-only photo passes both.
     f.excludeHasRaw
-      ? "AND NOT EXISTS (SELECT 1 FROM originals hr WHERE hr.capture_id = c.id AND hr.kind = 'raw')"
+      ? "AND (o.kind = 'raw' OR NOT EXISTS (SELECT 1 FROM originals hr WHERE hr.capture_id = c.id AND hr.kind = 'raw'))"
       : f.onlyHasRaw
         ? "AND EXISTS (SELECT 1 FROM originals hr WHERE hr.capture_id = c.id AND hr.kind = 'raw')"
         : "",
@@ -269,7 +314,9 @@ export function galleryAfterCursorSql(keys: SortKey[], cursor: GalleryCursor, pa
 // Search rows cached per user and filter set while a cheap library stamp is unchanged, and for a
 // minute at most to catch changes that don't touch a photo row.
 const SEARCH_ROWS_TTL_MS = 60_000;
-const searchRowsCache = new Map<string, { stamp: string; at: number; rows: SearchRow[] }>();
+// A search row is a gallery row plus what ranking reads.
+type GallerySearchRow = SearchRow & GalleryRow;
+const searchRowsCache = new Map<string, { stamp: string; at: number; rows: GallerySearchRow[] }>();
 // These rows hold every photo's vector, so they're dropped once stale.
 setInterval(() => {
   const now = Date.now();
@@ -294,6 +341,7 @@ async function libraryStamp(userId: string): Promise<string> {
   const res = await pool.query<{ stamp: string }>(
     `SELECT concat_ws('|', count(*), max(c.updated_at),
               (SELECT max(ce.computed_at) FROM capture_embeddings ce JOIN captures_all c2 ON c2.id = ce.capture_id WHERE c2.user_id = $1),
+              (SELECT max(cs.computed_at) FROM capture_scenes cs JOIN captures_all c2 ON c2.id = cs.capture_id WHERE c2.user_id = $1),
               (SELECT concat_ws(',', count(*), max(ac.added_at)) FROM album_captures ac JOIN albums a ON a.id = ac.album_id WHERE a.user_id = $1),
               (SELECT concat_ws(',', count(*), max(a.updated_at)) FROM albums a WHERE a.user_id = $1),
               (SELECT count(*) FROM trips t WHERE t.user_id = $1)) AS stamp
@@ -311,11 +359,11 @@ async function searchRows(
   stamp: string,
   sql: string,
   params: unknown[],
-): Promise<{ rows: SearchRow[] }> {
+): Promise<{ rows: GallerySearchRow[] }> {
   const key = `${userId}|${sql}|${JSON.stringify(params)}`;
   const hit = searchRowsCache.get(key);
   if (hit && hit.stamp === stamp && Date.now() - hit.at < SEARCH_ROWS_TTL_MS) return { rows: hit.rows };
-  const res = await pool.query<SearchRow>(sql, params);
+  const res = await pool.query<GallerySearchRow>(sql, params);
   for (const [k, v] of searchRowsCache) if (k.startsWith(`${userId}|`) && v.stamp !== stamp) searchRowsCache.delete(k);
   if (searchRowsCache.size > 50) searchRowsCache.delete(searchRowsCache.keys().next().value!);
   searchRowsCache.set(key, { stamp, at: Date.now(), rows: res.rows });
@@ -400,6 +448,18 @@ async function latinGroupNames(): Promise<Map<string, GroupPredicate>> {
   return map;
 }
 
+// The last word of every catalog species' common name ("tiger", "fisher"). Cached like the Latin names.
+let catalogHeadCache: { at: number; heads: Set<string> } | null = null;
+async function catalogHeadNouns(): Promise<Set<string>> {
+  if (catalogHeadCache && Date.now() - catalogHeadCache.at < 10 * 60_000) return catalogHeadCache.heads;
+  const res = await pool.query<{ head: string }>(
+    `SELECT DISTINCT lower(regexp_replace(common_name, '^.* ', '')) AS head
+       FROM species WHERE common_name IS NOT NULL AND NOT is_other_taxa`,
+  );
+  catalogHeadCache = { at: Date.now(), heads: new Set(res.rows.map((r) => r.head)) };
+  return catalogHeadCache.heads;
+}
+
 // A region and everything inside it, for a place named in a query.
 async function regionSubtree(regionIds: string[]): Promise<Set<string>> {
   const res = await pool.query<{ id: string }>(
@@ -449,7 +509,7 @@ export async function galleryRoutes(fastify: FastifyInstance): Promise<void> {
         response: replies(
           Type.Object({
             items: Type.Array(GalleryItem),
-            interpretation: Type.Optional(Type.Unknown()),
+            interpretation: Type.Optional(SearchInterpretation),
             pending: Type.Optional(Type.Boolean()),
           }),
         ),
@@ -459,37 +519,39 @@ export async function galleryRoutes(fastify: FastifyInstance): Promise<void> {
       const userId = request.user!.id;
       const q = request.query.q?.trim();
       // The same filters as /gallery, so a search never widens past what's already checked.
-      const filters = parseGalleryFilters(request.query);
+      const filters = await galleryFiltersFor(request.query, userId);
       if ("error" in filters) return reply.code(400).send({ error: filters.error });
       if (!q) return { items: [] };
       const quick = request.query.quick === "1";
       const isGone = watchClientGone(request, reply);
 
-      const params: unknown[] = [userId, EMBEDDING_MODEL_VERSION];
+      const params: unknown[] = [userId, EMBEDDING_MODEL_VERSION, SCENE_MODEL_VERSION];
       const param = (v: unknown) => {
         params.push(v);
         return `$${params.length}`;
       };
       const where = galleryFilterSql(filters, param);
       const stamp = await libraryStamp(userId);
-      // LEFT JOIN: a photo without a vector is still found by name, group, place and date.
-      const [res, vocab, latinGroups] = await Promise.all([
+      // LEFT JOIN: a photo without a vector or scene is still found by name, group, place and date.
+      const [res, vocab, latinGroups, catalogHeads] = await Promise.all([
         searchRows(
           userId,
           stamp,
           `SELECT ${GALLERY_ITEM_COLUMNS},
                 c.location_label, c.trip_id::text AS trip_id, s.common_name_aliases, s.aba_code, s.ebird_code, s.taxon_order, s.family,
                 (SELECT array_agg(ac.album_id::text) FROM album_captures ac WHERE ac.capture_id = c.id) AS album_ids,
-                ce.computed_at::text AS embedding_computed_at
+                ce.computed_at::text AS embedding_computed_at, cs.labels AS scene_labels, cs.colors AS scene_colors
            FROM ${galleryCapturesSource(filters)} c
            ${GALLERY_ITEM_JOINS}
            LEFT JOIN capture_embeddings ce ON ce.capture_id = c.id AND ce.model_version = $2
+           LEFT JOIN capture_scenes cs ON cs.capture_id = c.id AND cs.model_version = $3
            WHERE c.user_id = $1
              ${where}`,
           params,
         ),
         searchVocabulary(userId, stamp),
         latinGroupNames(),
+        catalogHeadNouns(),
       ]);
 
       const speciesById = new Map<string, SpeciesEntry>();
@@ -509,11 +571,12 @@ export async function galleryRoutes(fastify: FastifyInstance): Promise<void> {
       }
       const parsed = parseSearchQuery(
         q,
-        { species: [...speciesById.values()], places: vocab.places, latinGroups },
+        { species: [...speciesById.values()], places: vocab.places, latinGroups, catalogHeads },
         { partialWordPicksSpecies: quick },
       );
       // The full pass embeds the description with CLIP; not worth doing for a cancelled request.
-      if (!quick && parsed.description && isGone()) return reply.code(499).send({ error: "Search cancelled" });
+      if (!quick && (parsed.description || parsed.scenes.length > 0) && isGone())
+        return reply.code(499).send({ error: "Search cancelled" });
       const outcome = await rankSearch(q, parsed, res.rows, regionSubtree, { quick });
       return {
         items: outcome.items.map(({ row, score }) => toGalleryItem(row, score)),
@@ -549,7 +612,7 @@ export async function galleryRoutes(fastify: FastifyInstance): Promise<void> {
     },
     async (request, reply) => {
       const userId = request.user!.id;
-      const filters = parseGalleryFilters(request.query);
+      const filters = await galleryFiltersFor(request.query, userId);
       if ("error" in filters) return reply.code(400).send({ error: filters.error });
       const sortName = request.query.sort && GALLERY_SORTS[request.query.sort] ? request.query.sort : "newest";
       const sortKeys = GALLERY_SORTS[sortName];
@@ -638,7 +701,7 @@ export async function galleryRoutes(fastify: FastifyInstance): Promise<void> {
     },
     async (request, reply) => {
       const userId = request.user!.id;
-      const filters = parseGalleryFilters(request.query);
+      const filters = await galleryFiltersFor(request.query, userId);
       if ("error" in filters) return reply.code(400).send({ error: filters.error });
       const params: unknown[] = [userId];
       const param = (v: unknown) => {
@@ -648,7 +711,10 @@ export async function galleryRoutes(fastify: FastifyInstance): Promise<void> {
       const where = galleryFilterSql(filters, param);
       const res = await pool.query<{ capture_id: string; is_video: boolean; has_raw: boolean }>(
         `SELECT c.id::text AS capture_id, p.kind = 'video' AS is_video,
-              EXISTS (SELECT 1 FROM originals ro WHERE ro.capture_id = c.id AND ro.kind = 'raw') AS has_raw
+              -- A RAW beside an edited original: the delete dialog's "also delete the RAW" choice.
+              -- A RAW-only photo is its RAW, so it goes when the photo does.
+              EXISTS (SELECT 1 FROM originals ro WHERE ro.capture_id = c.id AND ro.kind = 'raw')
+                AND EXISTS (SELECT 1 FROM originals eo WHERE eo.capture_id = c.id AND eo.kind <> 'raw') AS has_raw
          FROM ${galleryCapturesSource(filters)} c
          ${GALLERY_ITEM_JOINS}
          WHERE c.user_id = $1
@@ -735,13 +801,49 @@ export async function galleryRoutes(fastify: FastifyInstance): Promise<void> {
   );
 }
 
+/** A row of GALLERY_ITEM_COLUMNS. */
+export interface GalleryRow {
+  photo_id: string;
+  width: number | null;
+  height: number | null;
+  capture_id: string;
+  species_id: string;
+  scientific_name: string;
+  common_name: string | null;
+  taxon_class: string;
+  taken_at: Date | null;
+  camera_model: string | null;
+  lens: string | null;
+  focal_length_mm: string | null;
+  aperture: string | null;
+  shutter: string | null;
+  iso: number | null;
+  quality_rating: number | null;
+  lat: string | null;
+  lon: string | null;
+  region_id: string | null;
+  region_name: string | null;
+  photo_kind: "image" | "video" | null;
+  duration_seconds: string | null;
+  tags: string[] | null;
+  cull_verdict: "pick" | "reject" | null;
+  cull_label: CullLabel | null;
+  hidden: boolean | null;
+  is_featured: boolean | null;
+  has_raw_original: boolean;
+  original_ref: string | null;
+  original_managed: boolean | null;
+  original_kind: string | null;
+  raw_ref: string | null;
+}
+
 // Response shape for /gallery and /gallery/search; score is null for the plain listing.
-export function toGalleryItem(row: Record<string, unknown>, score: number | null) {
+export function toGalleryItem(row: GalleryRow, score: number | null) {
   return {
-    photoId: row.photo_id as string,
+    photoId: row.photo_id,
     width: row.width,
     height: row.height,
-    captureId: row.capture_id as string,
+    captureId: row.capture_id,
     speciesId: row.species_id,
     scientificName: row.scientific_name,
     commonName: row.common_name,

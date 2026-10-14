@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { useTranslation } from "react-i18next";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { LoadingScreen, Spinner } from "../components/LoadingScreen";
 import PageHeader from "../components/PageHeader";
 import PhotoImportRows from "../components/PhotoImportRows";
@@ -21,7 +22,7 @@ import {
   GridViewToggle,
   MediaFilterField,
   PhotoSortSelect,
-  RawFilterField,
+  RawFilterFields,
   ThumbSizeSlider,
 } from "../components/PhotoGridControls";
 import SelectModeToggle from "../components/SelectModeToggle";
@@ -30,12 +31,14 @@ import { useSelectMode } from "../hooks/useSelectMode";
 import Button from "../components/Button";
 import {
   countPhotoFilters,
+  DEFAULT_RAW_FILES,
   matchesMediaFilter,
   matchesPhotoFilters,
   sortPhotos,
   type MediaFilter,
   type PhotoSort,
-  type RawFilter,
+  type EditedRawFilter,
+  type RawFilesFilter,
 } from "../lib/photoListFilters";
 import type { AlbumView } from "./album/types";
 import { useAlbumDetail } from "./album/useAlbumDetail";
@@ -43,6 +46,10 @@ import { useAlbumShares } from "./album/useAlbumShares";
 import AlbumSharePanel from "./album/AlbumSharePanel";
 import AlbumCoverEditor from "./album/AlbumCoverEditor";
 import AlbumPhotoGrid from "./album/AlbumPhotoGrid";
+import { useSpeciesName } from "../lib/speciesName";
+import { backStateFor } from "../lib/backLabel";
+import { useScrollMemory } from "../hooks/useScrollMemory";
+import { useUrlParam } from "../hooks/useSearchParamsKeepingState";
 
 const SPECIES_ICON = (
   <svg
@@ -65,22 +72,29 @@ function toggleButtonClass(active: boolean): string {
 }
 
 export default function AlbumDetailPage() {
+  const speciesName = useSpeciesName();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
+  const { t } = useTranslation();
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const [thumbSizePx, setThumbSizePx] = usePhotoGridSize();
   const [showLabels, setShowLabels] = useShowLabels();
   // Sorting and filtering are client-side since the whole album loads at once. Unrated sorts as 3.
   const [sortBy, setSortBy] = usePersistedState<PhotoSort>("albumSortBy", "newest");
   const [mediaFilter, setMediaFilter] = usePersistedState<MediaFilter>("albumMediaFilter", "photos");
-  const [rawFilter, setRawFilter] = usePersistedState<RawFilter>("albumRawFilter", "without");
+  const [rawFiles, setRawFiles] = usePersistedState<RawFilesFilter>("albumRawFiles", DEFAULT_RAW_FILES);
+  const [editedRaw, setEditedRaw] = usePersistedState<EditedRawFilter>("albumEditedRaw", "any");
   const [onlyTopRated, setOnlyTopRated] = useState(false);
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [dateRangeOpen, setDateRangeOpen] = useState(false);
   const menu = useDropdownMenu<string>();
   const isServerMode = useDeploymentMode() === "server";
-  const [view, setView] = useState<AlbumView>("gallery");
+  // In the URL so returning from a species opened here lands on the same view.
+  const [viewParam, setViewParam] = useUrlParam("view");
+  const view: AlbumView = viewParam === "species" ? "species" : "gallery";
+  const setView = (next: AlbumView) => setViewParam(next === "species" ? next : "");
   const [croppingCoverPhotoUrl, setCroppingCoverPhotoUrl] = useState<string | null>(null);
   // Cover controls and the edit toolbar stay hidden until asked for, keeping the grid uncluttered.
   const [editingCover, setEditingCover] = useState(false);
@@ -97,14 +111,20 @@ export default function AlbumDetailPage() {
   // Slides and the grid both derive from this array so the shared lightbox index stays correct.
   const sortedItems = useMemo(() => {
     if (!album) return [];
-    const photoFilters = { rawFilter, onlyTopRated, dateFrom, dateTo };
+    const photoFilters = { rawFiles, editedRaw, onlyTopRated, dateFrom, dateTo };
     return sortPhotos(album.items, sortBy).filter(
       (item) =>
-        matchesMediaFilter(item.kind, mediaFilter) && matchesPhotoFilters(item, !!item.hasRawOriginal, photoFilters),
+        matchesMediaFilter(item.kind, mediaFilter) &&
+        matchesPhotoFilters(
+          item,
+          { hasRaw: !!item.hasRawOriginal, rawOnly: item.originalKind === "raw" },
+          photoFilters,
+        ),
     );
-  }, [album, sortBy, mediaFilter, rawFilter, onlyTopRated, dateFrom, dateTo]);
+  }, [album, sortBy, mediaFilter, rawFiles, editedRaw, onlyTopRated, dateFrom, dateTo]);
   const select = useSelectMode(sortedItems, (item) => item.captureId);
   const { selectMode } = select;
+  useScrollMemory(!!album);
 
   if (detail.loadError) {
     return (
@@ -121,12 +141,13 @@ export default function AlbumDetailPage() {
   const hasVideoInAlbum = album.items.some((i) => i.kind === "video");
   // Media and RAW filters count toward the badge only when off their default preset.
   const activeFilterCount =
-    countPhotoFilters({ rawFilter, onlyTopRated, dateFrom, dateTo }) + (mediaFilter !== "photos" ? 1 : 0);
+    countPhotoFilters({ rawFiles, editedRaw, onlyTopRated, dateFrom, dateTo }) + (mediaFilter !== "photos" ? 1 : 0);
 
   const slides: LightboxSlide[] = sortedItems.map((item) => ({
     url: `/api/photos/${item.photoId}/display`,
     videoUrl: item.kind === "video" ? `/api/photos/${item.photoId}/video` : null,
-    caption: item.commonName || item.scientificName,
+    caption: speciesName(item),
+    speciesId: item.speciesId,
     info: {
       cameraModel: item.cameraModel,
       lens: item.lens,
@@ -138,6 +159,8 @@ export default function AlbumDetailPage() {
       files: photoFilePaths(item.originalRef, item.rawRef),
     },
   }));
+  // The Gallery picker and species pages opened from here name the album on their back link.
+  const backState = backStateFor(location, t, album.name);
   const croppingSlot = croppingQuadSlot != null ? album.quadSlots[croppingQuadSlot] : null;
 
   return (
@@ -158,7 +181,12 @@ export default function AlbumDetailPage() {
                 <FilterPopover activeCount={activeFilterCount}>
                   <div className="space-y-2.5">
                     {hasVideoInAlbum && <MediaFilterField value={mediaFilter} onChange={setMediaFilter} />}
-                    <RawFilterField value={rawFilter} onChange={setRawFilter} />
+                    <RawFilterFields
+                      rawFiles={rawFiles}
+                      editedRaw={editedRaw}
+                      onRawFilesChange={setRawFiles}
+                      onEditedRawChange={setEditedRaw}
+                    />
                     <FilterCheckbox checked={onlyTopRated} onChange={setOnlyTopRated}>
                       Top rated
                     </FilterCheckbox>
@@ -209,6 +237,7 @@ export default function AlbumDetailPage() {
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <Link
               to={`/gallery?select=1&albumId=${album.id}`}
+              state={backState}
               className="rounded-md border border-line px-3 py-1.5 text-sm font-medium text-ink hover:bg-surface-muted"
             >
               Add photos
@@ -227,7 +256,7 @@ export default function AlbumDetailPage() {
       </PageHeader>
 
       {showImportPanel && id && (
-        <div className="border-b border-line bg-surface-muted px-6 py-4">
+        <div className="border-b border-line bg-surface-muted px-page py-4">
           <PhotoImportRows
             albumId={id}
             onImported={() => {
@@ -240,13 +269,16 @@ export default function AlbumDetailPage() {
 
       {shares.showPanel && isServerMode && <AlbumSharePanel shares={shares} />}
 
-      <main className="p-6">
+      <main className="p-page">
         {album.items.length === 0 ? (
           <EmptyState
             icon={<PhotosIcon />}
             title="Nothing in this album yet"
             description="Add photos from the Gallery, a Trip, or a species page."
-            action={{ label: "Add photos", onClick: () => navigate(`/gallery?select=1&albumId=${album.id}`) }}
+            action={{
+              label: "Add photos",
+              onClick: () => navigate(`/gallery?select=1&albumId=${album.id}`, { state: backState }),
+            }}
           />
         ) : view === "species" ? (
           detail.speciesItems == null ? (
@@ -258,7 +290,7 @@ export default function AlbumDetailPage() {
               description="Photos in this album haven't been identified to species."
             />
           ) : (
-            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
+            <div className="grid grid-cols-2 gap-item sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
               {detail.speciesItems.map((item) => (
                 <SpeciesCard key={item.speciesId} item={item} backLabel={album.name} />
               ))}
@@ -285,6 +317,7 @@ export default function AlbumDetailPage() {
               coverLayout={album.coverLayout}
               pickingQuadSlot={pickingQuadSlot}
               menu={menu}
+              speciesLinkState={backState}
               onOpen={setLightboxIndex}
               onPickQuadPhoto={(slot, photoId) => {
                 setPickingQuadSlot(null);
@@ -307,6 +340,7 @@ export default function AlbumDetailPage() {
           index={lightboxIndex}
           onIndexChange={setLightboxIndex}
           onClose={() => setLightboxIndex(null)}
+          backLabel={album.name}
         />
       )}
 

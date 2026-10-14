@@ -1,50 +1,46 @@
-import { useEffect, useState } from "react";
+import { useCallback } from "react";
 import type { CollectionItem } from "@lifer/shared";
-import { api } from "../../api/client";
-import type { TripDetail, TripPhoto, TripSummary } from "./types";
+import { api, apiPath } from "../../api/client";
+import { toCollectionItems } from "../../api/types";
+import { useApiResource, useApiRoute } from "../../lib/resource";
+import type { TripDetail, TripPhoto } from "./types";
 
-// The trip, its photos and species (all three needed before the page shows), plus the optional
-// summary line.
+interface TripData {
+  trip: TripDetail;
+  photos: TripPhoto[];
+  speciesItems: CollectionItem[];
+}
+
+// The trip, its photos and species: all three are needed before the page shows.
+async function fetchTrip(id: string, signal: AbortSignal): Promise<TripData> {
+  const [trip, photos, species] = await Promise.all([
+    api.get(apiPath("/trips/{id}", { id }), { signal }),
+    api.get(apiPath("/trips/{id}/photos", { id }), { signal }),
+    api.get(apiPath("/trips/{id}/species", { id }), { signal }),
+  ]);
+  return { trip, photos: photos.items, speciesItems: toCollectionItems(species.items) };
+}
+
+// The trip's data plus the optional summary line. A different trip id starts from nothing, so the
+// previous trip's data or error never shows under the new one.
 export function useTripData(id: string | undefined) {
-  const [trip, setTrip] = useState<TripDetail | null>(null);
-  const [summary, setSummary] = useState<TripSummary | null>(null);
-  const [photos, setPhotos] = useState<TripPhoto[] | null>(null);
-  const [speciesItems, setSpeciesItems] = useState<CollectionItem[] | null>(null);
-  // The trip whose load failed, so opening another trip starts without the old error.
-  const [failedId, setFailedId] = useState<string | null>(null);
-  const loadError = !!id && failedId === id;
-
-  function fetchTrip(): Promise<void> {
-    if (!id) return Promise.resolve();
-    const tripId = id;
-    // Supplementary, so a failure here doesn't block the trip itself.
-    api
-      .get<TripSummary>(`/trips/${id}/summary`)
-      .then(setSummary)
-      .catch(() => {});
-    return Promise.all([
-      api.get<TripDetail>(`/trips/${id}`),
-      api.get<{ items: TripPhoto[] }>(`/trips/${id}/photos`),
-      api.get<{ items: CollectionItem[] }>(`/trips/${id}/species`),
-    ])
-      .then(([tripRes, photosRes, speciesRes]) => {
-        setTrip(tripRes);
-        setPhotos(photosRes.items);
-        setSpeciesItems(speciesRes.items);
-      })
-      .catch(() => setFailedId(tripId));
-  }
+  const main = useApiResource(id ?? null, fetchTrip);
+  // Supplementary, so a failure here doesn't block the trip itself.
+  const summary = useApiRoute(id ? apiPath("/trips/{id}/summary", { id }) : null);
+  const reloadMain = main.reload;
+  const reloadSummary = summary.reload;
 
   // A reload after a change or a retry: any earlier error clears while it runs.
-  function load(): Promise<void> {
-    setFailedId(null);
-    return fetchTrip();
-  }
+  const load = useCallback(async () => {
+    await Promise.all([reloadMain(), reloadSummary()]);
+  }, [reloadMain, reloadSummary]);
 
-  useEffect(() => {
-    void fetchTrip();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id]);
-
-  return { trip, summary, photos, speciesItems, loadError, load };
+  return {
+    trip: main.data?.trip ?? null,
+    summary: summary.data,
+    photos: main.data?.photos ?? null,
+    speciesItems: main.data?.speciesItems ?? null,
+    loadError: main.error != null,
+    load,
+  };
 }

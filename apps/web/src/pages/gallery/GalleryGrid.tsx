@@ -1,19 +1,18 @@
 import { useMemo, type ReactNode, type RefObject } from "react";
 import MasonryGrid from "../../components/MasonryGrid";
 import EmptyState from "../../components/EmptyState";
+import { useGoBack } from "../../hooks/useGoBack";
 import PhotosIcon from "../../components/PhotosIcon";
-import { estimateShotDataWrapExtraPx } from "../../lib/shotData";
 import GalleryTile from "./GalleryTile";
 import { groupItemsByRegion, itemShotData } from "./galleryHelpers";
-import { CAMERA_INFO_LINE_HEIGHT_PX, type GalleryDisplayPrefs } from "./useGalleryDisplayPrefs";
+import type { GalleryDisplayPrefs } from "./useGalleryDisplayPrefs";
 import type { ContextAnchor, GalleryItem } from "./types";
 
 const EMPTY_SET: ReadonlySet<string> = new Set();
 
 type Entry = { item: GalleryItem; i: number };
 
-// The photo grid. Grouping stacks one MasonryGrid per region; a single grid can't splice headers
-// in without breaking column alignment.
+// The photo grid. Grouping stacks one MasonryGrid per region, each with its own justified rows.
 export default function GalleryGrid({
   items,
   display,
@@ -61,14 +60,6 @@ export default function GalleryGrid({
   // same way as ungrouped ones.
   const regionGroups = useMemo(() => groupItemsByRegion(items), [items]);
   const flatEntries = useMemo(() => items.map((item, i) => ({ item, i })), [items]);
-  const extraHeightPxFor = useMemo(
-    () =>
-      showCameraInfo
-        ? ({ item }: Entry, columnWidthPx: number) =>
-            estimateShotDataWrapExtraPx(shotLines.get(item.photoId) ?? null, columnWidthPx, CAMERA_INFO_LINE_HEIGHT_PX)
-        : undefined,
-    [showCameraInfo, shotLines],
-  );
   const previewIds = dragPreviewIds ?? EMPTY_SET;
 
   function renderGrid(entries: Entry[]) {
@@ -77,8 +68,6 @@ export default function GalleryGrid({
         items={entries}
         columnWidth={display.thumbSizePx}
         gap={display.gridGapPx}
-        extraHeightPx={display.extraHeightPx}
-        extraHeightPxFor={extraHeightPxFor}
         keyFor={({ item }) => item.photoId}
         aspectRatioFor={({ item }) => (item.width && item.height ? item.width / item.height : null)}
         renderItem={({ item, i }, aspectRatio) => {
@@ -119,7 +108,7 @@ export default function GalleryGrid({
 
   if (!display.groupByRegion) return renderGrid(flatEntries);
   return (
-    <div className="space-y-8">
+    <div className="space-y-section">
       {regionGroups.map((group) => (
         <section key={group.key}>
           <h2 className="mb-2 text-sm font-semibold text-ink">{group.label}</h2>
@@ -144,7 +133,16 @@ export function GalleryEmptyState({
   activeFilterCount: number;
   onClearFilters: () => void;
 }) {
-  if (missingDate) return <p className="text-muted">Every photo has a date. Nothing to fix here.</p>;
+  const goBack = useGoBack();
+  if (missingDate)
+    return (
+      <EmptyState
+        icon={<PhotosIcon />}
+        title="Every photo has a date"
+        description="Nothing left to fix."
+        action={{ label: "Back to Stats", onClick: () => goBack("/stats") }}
+      />
+    );
   if (libraryEmpty && !searchQuery) {
     return (
       <EmptyState

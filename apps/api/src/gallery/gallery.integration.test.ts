@@ -120,6 +120,43 @@ describe.skipIf(!url)("GET /gallery keyset pages", () => {
     expect(second.body.total).toBeUndefined();
   });
 
+  it("filters RAW-only photos and edited photos with a RAW separately", async () => {
+    const ids = (
+      await db.query<{ id: string; fingerprint: string }>(
+        `SELECT id, fingerprint FROM captures_all WHERE user_id = $1 AND fingerprint = ANY($2)`,
+        [USER, ["gallery-page-0", "gallery-page-1", "gallery-page-2"]],
+      )
+    ).rows.reduce<Record<string, string>>((out, r) => ({ ...out, [r.fingerprint]: r.id }), {});
+    const [edited, editedWithRaw, rawOnly] = [ids["gallery-page-0"], ids["gallery-page-1"], ids["gallery-page-2"]];
+    await db.query(
+      `INSERT INTO originals (capture_id, kind, ref_type, ref, managed, user_id, content_hash, file_size) VALUES
+         ($1, 'jpeg', 'path', '/nowhere/a.jpg', true, $4, 'g-a', 1),
+         ($2, 'jpeg', 'path', '/nowhere/b.jpg', true, $4, 'g-b', 1),
+         ($2, 'raw', 'path', '/nowhere/b.cr3', true, $4, 'g-b-raw', 1),
+         ($3, 'raw', 'path', '/nowhere/c.cr3', true, $4, 'g-c-raw', 1)`,
+      [edited, editedWithRaw, rawOnly, USER],
+    );
+    try {
+      const listed = async (query: string) =>
+        new Set((await get(`/gallery?${query}`)).body.items.map((i: { captureId: string }) => i.captureId));
+      // RAW files: only, hidden.
+      expect([...(await listed("onlyRaw=1"))]).toEqual([rawOnly]);
+      const hidden = await listed("includeRaw=0");
+      expect([hidden.has(rawOnly), hidden.has(editedWithRaw), hidden.size]).toEqual([false, true, 17]);
+      // Edited photos with or without their RAW; a RAW-only photo passes both.
+      const withRaw = await listed("onlyHasRaw=1");
+      expect([withRaw.has(editedWithRaw), withRaw.has(rawOnly), withRaw.has(edited)]).toEqual([true, true, false]);
+      const withoutRaw = await listed("excludeHasRaw=1");
+      expect([withoutRaw.has(editedWithRaw), withoutRaw.has(rawOnly), withoutRaw.has(edited)]).toEqual([
+        false,
+        true,
+        true,
+      ]);
+    } finally {
+      await db.query(`DELETE FROM originals WHERE capture_id = ANY($1)`, [[edited, editedWithRaw, rawOnly]]);
+    }
+  });
+
   it("refuses bad ids, dates, limits and cursors with a 400", async () => {
     expect((await get(`/gallery?regionId=nope`)).status).toBe(400);
     expect((await get(`/gallery?dateFrom=yesterday`)).status).toBe(400);
@@ -184,6 +221,29 @@ describe.skipIf(!url)("GET /gallery keyset pages", () => {
     const undated = await get(`/gallery/search?q=paging%20warbler&missingDate=1&quick=1`);
     expect(undated.body.items.length).toBeGreaterThan(0);
     expect(undated.body.items.every((i: { takenAt: unknown }) => i.takenAt === null)).toBe(true);
+  });
+
+  it("finds scene and colour words from the scene model", async () => {
+    const { SCENE_MODEL_VERSION } = await import("@lifer/core/config.js");
+    const ids = (
+      await db.query<{ id: string }>(`SELECT id FROM captures_all WHERE user_id = $1 ORDER BY fingerprint`, [USER])
+    ).rows.map((r) => r.id);
+    const scene = (i: number) =>
+      i === 0 ? { water: 10, grass: 50 } : i === 1 ? { lake: 30, sky: 20 } : { grass: 80, water: 1 };
+    for (const [i, id] of ids.entries()) {
+      await db.query(
+        `INSERT INTO capture_scenes (capture_id, photo_id, model_version, labels, colors)
+         SELECT id, current_photo_id, $2, $3, $4 FROM captures_all WHERE id = $1`,
+        [id, SCENE_MODEL_VERSION, scene(i), i === 2 ? { purple: 12 } : { green: 60 }],
+      );
+    }
+    (await import("./routes.js")).clearGallerySearchCaches();
+    const water = await get(`/gallery/search?q=water`);
+    expect(water.body.items.map((i: { captureId: string }) => i.captureId)).toEqual([ids[1], ids[0]]);
+    expect(water.body.interpretation.scenes).toEqual(["water"]);
+    const purple = await get(`/gallery/search?q=paging%20warbler%20purp`);
+    expect(purple.body.items.map((i: { captureId: string }) => i.captureId)).toEqual([ids[2]]);
+    expect((await get(`/gallery/search?q=snow`)).body.items).toEqual([]);
   });
 
   it("finds a trip or an album by name", async () => {

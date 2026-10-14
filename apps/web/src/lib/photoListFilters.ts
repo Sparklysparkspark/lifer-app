@@ -2,11 +2,17 @@
 // work happens here rather than on the server as it does for the Gallery.
 
 export type PhotoSort = "newest" | "oldest" | "ratingHigh" | "ratingLow";
-export type RawFilter = "any" | "with" | "without";
+/** RAW-only photos (a RAW with no edited original beside it): shown, hidden, or the only ones. */
+export type RawFilesFilter = "show" | "hide" | "only";
+/** Photo grids open on the edited photos; RAW-only ones are a filter away. */
+export const DEFAULT_RAW_FILES: RawFilesFilter = "hide";
+/** Edited photos, by whether their RAW was imported with them. RAW-only photos always pass. */
+export type EditedRawFilter = "any" | "with" | "without";
 export type MediaFilter = "both" | "photos" | "videos";
 
 export interface PhotoFilters {
-  rawFilter: RawFilter;
+  rawFiles: RawFilesFilter;
+  editedRaw: EditedRawFilter;
   onlyTopRated: boolean;
   /** YYYY-MM-DD, or "" for no bound. dateTo is inclusive. */
   dateFrom: string;
@@ -19,11 +25,28 @@ interface SortablePhoto {
   qualityRating?: number | null;
 }
 
+/** The Gallery API's query parameters for the two RAW filters (shared with the search palette). */
+export function rawFilterParams(rawFiles: RawFilesFilter, editedRaw: EditedRawFilter): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (rawFiles === "hide") out.includeRaw = "0";
+  if (rawFiles === "only") out.onlyRaw = "1";
+  if (editedRaw === "with") out.onlyHasRaw = "1";
+  if (editedRaw === "without") out.excludeHasRaw = "1";
+  return out;
+}
+
+/** What a photo's originals are: whether it has a RAW, and whether the RAW is all it has. */
+export interface PhotoRaw {
+  hasRaw: boolean;
+  rawOnly: boolean;
+}
+
 /** A photo with no date passes the date range: there's nothing to rule it out. */
-export function matchesPhotoFilters(photo: SortablePhoto, hasRaw: boolean, filters: PhotoFilters): boolean {
-  const { rawFilter, onlyTopRated, dateFrom, dateTo } = filters;
+export function matchesPhotoFilters(photo: SortablePhoto, raw: PhotoRaw, filters: PhotoFilters): boolean {
+  const { rawFiles, editedRaw, onlyTopRated, dateFrom, dateTo } = filters;
   return (
-    (rawFilter === "any" || (rawFilter === "with" ? hasRaw : !hasRaw)) &&
+    (rawFiles === "show" || (rawFiles === "hide" ? !raw.rawOnly : raw.rawOnly)) &&
+    (raw.rawOnly || editedRaw === "any" || (editedRaw === "with" ? raw.hasRaw : !raw.hasRaw)) &&
     (!onlyTopRated || photo.qualityRating === 5) &&
     (!dateFrom || !photo.takenAt || photo.takenAt >= dateFrom) &&
     (!dateTo || !photo.takenAt || photo.takenAt <= `${dateTo}T23:59:59`)
@@ -47,7 +70,12 @@ export function sortPhotos<T extends SortablePhoto>(photos: T[], sortBy: PhotoSo
   });
 }
 
-/** For the Filters badge. The RAW filter counts only off its default ("without"). */
-export function countPhotoFilters({ rawFilter, onlyTopRated, dateFrom, dateTo }: PhotoFilters): number {
-  return (onlyTopRated ? 1 : 0) + (rawFilter !== "without" ? 1 : 0) + (dateFrom || dateTo ? 1 : 0);
+/** For the Filters badge: each RAW filter counts once off its default. */
+export function countPhotoFilters({ rawFiles, editedRaw, onlyTopRated, dateFrom, dateTo }: PhotoFilters): number {
+  return (
+    (onlyTopRated ? 1 : 0) +
+    (rawFiles !== DEFAULT_RAW_FILES ? 1 : 0) +
+    (editedRaw !== "any" ? 1 : 0) +
+    (dateFrom || dateTo ? 1 : 0)
+  );
 }

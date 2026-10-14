@@ -1,14 +1,14 @@
-import { memo, type ReactNode, type RefObject } from "react";
-import { Link } from "react-router-dom";
+import { memo, type CSSProperties, type ReactNode, type Ref, type RefObject } from "react";
+import { Link, useLocation } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import PhotoTile from "../../components/PhotoTile";
 import StarRating from "../../components/StarRating";
-import SpeciesPicker from "../../components/SpeciesPicker";
-import { TagEditor } from "../../components/Lightbox";
 import { downloadFile } from "../../lib/downloadFile";
+import { MENU_ITEM, MENU_ITEM_DANGER, MENU_PANEL, MENU_SEPARATOR } from "../../lib/menuClasses";
 import type { ContextAnchor, GalleryItem } from "./types";
 import type { GalleryEdits } from "./useGalleryEdits";
-
-const MENU_ITEM = "block w-full px-3 py-1.5 text-left text-xs text-ink hover:bg-surface-muted";
+import { useSpeciesName } from "../../lib/speciesName";
+import { backStateFor } from "../../lib/backLabel";
 
 // Memoized so a selection, rating or menu change only re-renders the tiles it touches. Every
 // callback takes ids/indices so the page can pass the same function to every tile.
@@ -64,12 +64,13 @@ const GalleryTile = memo(function GalleryTile({
   onRate: (captureId: string, rating: number | null) => void;
   onSetTakenAt: (captureId: string, value: string) => void;
 }) {
+  const speciesName = useSpeciesName();
   return (
     <PhotoTile
       photoId={item.photoId}
-      alt={item.commonName ?? item.scientificName}
+      alt={speciesName(item)}
       kind={item.kind}
-      durationSeconds={item.durationSeconds}
+      durationSeconds={item.durationSeconds == null ? null : Number(item.durationSeconds)}
       onOpen={() => onOpen(index)}
       selectMode={selectMode}
       selected={selected}
@@ -87,23 +88,21 @@ const GalleryTile = memo(function GalleryTile({
       menuContent={menuContent}
       label={
         <>
-          {showLabels && (
-            <p className="mt-1 truncate text-[11px] text-muted">{item.commonName ?? item.scientificName}</p>
-          )}
+          {showLabels && <p className="mt-1 truncate text-xs text-muted">{speciesName(item)}</p>}
           {showRatings && (
             // Tighter under a name so the two read as one caption.
             <div className={showLabels ? "mt-0.5" : "mt-1"}>
               <StarRating rating={item.qualityRating} onRate={(rating) => onRate(item.captureId, rating)} />
             </div>
           )}
-          {showCameraInfo && shotLine && <p className="text-[9px] text-muted">{shotLine}</p>}
+          {showCameraInfo && shotLine && <p className="text-xs text-muted">{shotLine}</p>}
           {missingDate && (
             <input
               type="date"
               disabled={savingDate}
               onClick={(e) => e.stopPropagation()}
               onChange={(e) => e.target.value && onSetTakenAt(item.captureId, e.target.value)}
-              className="mt-1 w-full rounded border border-line bg-surface px-1.5 py-0.5 text-[11px] text-ink disabled:opacity-50"
+              className="mt-1 w-full rounded border border-line bg-surface px-1.5 py-0.5 text-xs text-ink disabled:opacity-50"
             />
           )}
         </>
@@ -117,6 +116,8 @@ export default GalleryTile;
 // Built only for the tile whose menu is open. Which sub-editor is showing lives in `edits`, so it
 // survives the menu closing and reopening.
 export function GalleryTileMenu({
+  ref,
+  style,
   item,
   edits,
   canRevealInFinder,
@@ -126,14 +127,17 @@ export function GalleryTileMenu({
   edits: GalleryEdits;
   canRevealInFinder: boolean;
   closeMenu: () => void;
+  /** From DotMenu, which measures the panel and moves it to stay on the page. */
+  ref?: Ref<HTMLDivElement>;
+  style?: CSSProperties;
 }) {
-  const wide = edits.reassigningCaptureId === item.captureId || edits.editingTagsCaptureId === item.captureId;
+  const { t } = useTranslation();
+  const location = useLocation();
   return (
-    <div
-      className={`absolute right-0 top-full z-10 mt-1 rounded-md border border-line bg-surface py-1 shadow-lg ${wide ? "w-56" : "w-44"}`}
-    >
+    <div ref={ref} style={style} className={`absolute right-0 top-full z-10 mt-1 w-44 ${MENU_PANEL}`}>
       <Link
         to={`/species/${item.speciesId}`}
+        state={backStateFor(location, t)}
         onClick={(e) => {
           e.stopPropagation();
           closeMenu();
@@ -162,48 +166,30 @@ export function GalleryTileMenu({
         }}
         className={MENU_ITEM}
       >
-        Add to album…
+        Add to album
       </button>
-      {edits.editingTagsCaptureId === item.captureId ? (
-        <div className="px-3 py-1.5" onClick={(e) => e.stopPropagation()}>
-          <TagEditor
-            tags={item.tags}
-            existingTags={edits.tagOptions}
-            onChange={(tags) => edits.tagCapture(item.captureId, tags)}
-          />
-        </div>
-      ) : (
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            edits.setEditingTagsCaptureId(item.captureId);
-          }}
-          className={MENU_ITEM}
-        >
-          Edit tags…
-        </button>
-      )}
-      {edits.reassigningCaptureId === item.captureId ? (
-        <div className="px-3 py-1.5" onClick={(e) => e.stopPropagation()}>
-          <SpeciesPicker
-            autoFocus
-            placeholder="Correct ID to…"
-            onSelect={(s) => edits.reassignSpecies(item.captureId, s.id)}
-          />
-        </div>
-      ) : (
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            edits.setReassigningCaptureId(item.captureId);
-          }}
-          className={MENU_ITEM}
-        >
-          Correct the ID…
-        </button>
-      )}
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          edits.setEditing({ captureId: item.captureId, edit: "tags" });
+          closeMenu();
+        }}
+        className={MENU_ITEM}
+      >
+        Edit tags
+      </button>
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          edits.setEditing({ captureId: item.captureId, edit: "reassign" });
+          closeMenu();
+        }}
+        className={MENU_ITEM}
+      >
+        Correct the ID
+      </button>
       {/* When the only original is the RAW, "Download RAW" below already covers it. */}
       {item.originalRef && item.originalKind !== "raw" && (
         <button
@@ -243,6 +229,7 @@ export function GalleryTileMenu({
           Reveal in Finder
         </button>
       )}
+      <div className={MENU_SEPARATOR} />
       <button
         type="button"
         onClick={(e) => {
@@ -250,7 +237,7 @@ export function GalleryTileMenu({
           edits.single.request(item.captureId);
           closeMenu();
         }}
-        className="block w-full px-3 py-1.5 text-left text-xs text-red-600 hover:bg-surface-muted dark:text-red-400"
+        className={MENU_ITEM_DANGER}
       >
         Delete {item.kind === "video" ? "video" : "photo"}
       </button>
@@ -259,9 +246,18 @@ export function GalleryTileMenu({
 }
 
 /** A hidden photo's menu (the Gallery's "Hidden" filter): it can only be brought back. */
-export function HiddenTileMenu({ onUnhide }: { onUnhide: () => void }) {
+export function HiddenTileMenu({
+  ref,
+  style,
+  onUnhide,
+}: {
+  onUnhide: () => void;
+  /** From DotMenu, which measures the panel and moves it to stay on the page. */
+  ref?: Ref<HTMLDivElement>;
+  style?: CSSProperties;
+}) {
   return (
-    <div className="absolute right-0 top-full z-10 mt-1 w-44 rounded-md border border-line bg-surface py-1 shadow-lg">
+    <div ref={ref} style={style} className={`absolute right-0 top-full z-10 mt-1 w-44 ${MENU_PANEL}`}>
       <button
         type="button"
         onClick={(e) => {

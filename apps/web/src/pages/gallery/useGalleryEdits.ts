@@ -1,6 +1,6 @@
 import { useCallback, useState, type Dispatch, type RefObject, type SetStateAction } from "react";
-import type { NavigateFunction } from "react-router-dom";
-import { api, ApiError } from "../../api/client";
+import type { useGoBack } from "../../hooks/useGoBack";
+import { api, apiPath, ApiError } from "../../api/client";
 import { useEnterToConfirm } from "../../hooks/useEnterToConfirm";
 import { useToast } from "../../hooks/useToast";
 import type { useSelectMode } from "../../hooks/useSelectMode";
@@ -18,7 +18,7 @@ export function useGalleryEdits({
   loadRef,
   select,
   targetAlbumId,
-  navigate,
+  goBack,
   closeMenu,
   tagOptions,
   setTagOptions,
@@ -29,7 +29,8 @@ export function useGalleryEdits({
   loadRef: RefObject<(opts?: { keepLoaded?: boolean }) => void>;
   select: ReturnType<typeof useSelectMode<GalleryItem>>;
   targetAlbumId: string | null;
-  navigate: NavigateFunction;
+  /** The picker is opened from its album, so finishing goes back there rather than stacking a new entry. */
+  goBack: ReturnType<typeof useGoBack>;
   closeMenu: () => void;
   /** Every tag in use, for the tag editors' suggestions; tagging adds to it. */
   tagOptions: string[];
@@ -47,8 +48,8 @@ export function useGalleryEdits({
     !!confirmingDeleteKey && !deleting,
   );
   useEnterToConfirm(() => void confirmDeleteSelected(), confirmingBatchDelete && !deleting);
-  const [reassigningCaptureId, setReassigningCaptureId] = useState<string | null>(null);
-  const [editingTagsCaptureId, setEditingTagsCaptureId] = useState<string | null>(null);
+  // A photo menu's edit open in its dialog.
+  const [editing, setEditing] = useState<{ captureId: string; edit: "tags" | "reassign" } | null>(null);
   const [bulkTags, setBulkTags] = useState<string[]>([]);
   const [batchReassigning, setBatchReassigning] = useState(false);
   const [reassignError, setReassignError] = useState<string | null>(null);
@@ -59,7 +60,9 @@ export function useGalleryEdits({
     async (captureId: string, takenAt: string) => {
       setSavingDateCaptureId(captureId);
       try {
-        await api.patch(`/captures/${captureId}/taken-at`, { takenAt: new Date(takenAt).toISOString() });
+        await api.patch(apiPath("/captures/{id}/taken-at", { id: captureId }), {
+          takenAt: new Date(takenAt).toISOString(),
+        });
         // This view is the "missing a date" list, so a fixed item leaves it.
         setItems((prev) => prev?.filter((it) => it.captureId !== captureId) ?? prev);
         setTotal((t) => (t === null ? t : Math.max(0, t - 1)));
@@ -78,7 +81,7 @@ export function useGalleryEdits({
         (prev) => prev?.map((it) => (it.captureId === captureId ? { ...it, qualityRating: rating } : it)) ?? prev,
       );
       try {
-        await api.patch(`/captures/${captureId}/rating`, { rating });
+        await api.patch(apiPath("/captures/{id}/rating", { id: captureId }), { rating });
       } catch (err) {
         toast.error(errorMessage(err, "Couldn't save that rating"));
         loadRef.current({ keepLoaded: true });
@@ -92,7 +95,7 @@ export function useGalleryEdits({
       setItems((prev) => prev?.map((it) => (it.captureId === captureId ? { ...it, tags } : it)) ?? prev);
       setTagOptions((prev) => [...new Set([...prev, ...tags])].sort());
       try {
-        await api.patch(`/captures/${captureId}/tags`, { tags });
+        await api.patch(apiPath("/captures/{id}/tags", { id: captureId }), { tags });
       } catch (err) {
         toast.error(errorMessage(err, "Couldn't save those tags"));
         loadRef.current({ keepLoaded: true });
@@ -105,7 +108,9 @@ export function useGalleryEdits({
     const featuring = !item.isFeatured;
     setItems((prev) => (prev ? withFeatured(prev, item, featuring) : prev));
     try {
-      await api.patch(`/species/${item.speciesId}/cover`, { photoId: featuring ? item.photoId : null });
+      await api.patch(apiPath("/species/{id}/cover", { id: item.speciesId }), {
+        photoId: featuring ? item.photoId : null,
+      });
     } catch (err) {
       toast.error(errorMessage(err, "Couldn't update the featured photo"));
       loadRef.current({ keepLoaded: true });
@@ -124,7 +129,7 @@ export function useGalleryEdits({
   async function confirmDelete(captureId: string) {
     setDeleting(true);
     try {
-      await api.delete(`/captures/${captureId}`);
+      await api.delete(apiPath("/captures/{id}", { id: captureId }));
       setConfirmingDeleteKey(null);
       setItems((prev) => prev?.filter((it) => it.captureId !== captureId) ?? prev);
       setTotal((t) => (t === null ? t : Math.max(0, t - 1)));
@@ -140,7 +145,7 @@ export function useGalleryEdits({
     setBulkTags([]);
     setBulkTagError(null);
     if (targetAlbumId) {
-      navigate(`/albums/${targetAlbumId}`);
+      goBack(`/albums/${targetAlbumId}`, { replace: true });
       return;
     }
     exitSelectModeBase();
@@ -155,8 +160,8 @@ export function useGalleryEdits({
     if (!targetAlbumId) return;
     setAddingToTargetAlbum(true);
     try {
-      await api.post(`/albums/${targetAlbumId}/captures`, { captureIds: [...selectedCaptureIds] });
-      navigate(`/albums/${targetAlbumId}`);
+      await api.post(apiPath("/albums/{id}/captures", { id: targetAlbumId }), { captureIds: [...selectedCaptureIds] });
+      goBack(`/albums/${targetAlbumId}`, { replace: true });
     } catch (err) {
       toast.error(errorMessage(err, "Couldn't add those photos to the album"));
     } finally {
@@ -186,11 +191,11 @@ export function useGalleryEdits({
   }
 
   async function reassignSpecies(captureId: string, newSpeciesId: string) {
-    setReassigningCaptureId(null);
+    setEditing(null);
     closeMenu();
     setReassignError(null);
     try {
-      await api.patch(`/captures/${captureId}/reassign`, { speciesId: newSpeciesId });
+      await api.patch(apiPath("/captures/{id}/reassign", { id: captureId }), { speciesId: newSpeciesId });
       load({ keepLoaded: true });
     } catch (err) {
       setReassignError(err instanceof ApiError ? err.message : "Couldn't reassign this photo");
@@ -204,7 +209,7 @@ export function useGalleryEdits({
     try {
       const results = await Promise.allSettled(
         [...selectedCaptureIds].map((captureId) =>
-          api.patch(`/captures/${captureId}/reassign`, { speciesId: newSpeciesId }),
+          api.patch(apiPath("/captures/{id}/reassign", { id: captureId }), { speciesId: newSpeciesId }),
         ),
       );
       const failed = results.filter((r) => r.status === "rejected").length;
@@ -241,10 +246,8 @@ export function useGalleryEdits({
     tagCapture,
     toggleFeatured,
     revealInFinder,
-    reassigningCaptureId,
-    setReassigningCaptureId,
-    editingTagsCaptureId,
-    setEditingTagsCaptureId,
+    editing,
+    setEditing,
     reassignSpecies,
     addingToAlbumCaptureId,
     setAddingToAlbumCaptureId,

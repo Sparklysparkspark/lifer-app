@@ -1,7 +1,9 @@
 import { shotDataLine } from "../../lib/shotData";
 import { mediaNoun } from "../../lib/mediaNoun";
+import { DEFAULT_RAW_FILES, rawFilterParams } from "../../lib/photoListFilters";
 import i18n from "../../i18n";
 import type { GalleryItem, GalleryQuery, SearchInterpretation } from "./types";
+import { formatList } from "../../lib/format";
 
 // Matches the API's UNCATEGORIZED_REGION_ID sentinel (gallery/routes.ts): captures with no region.
 export const UNCATEGORIZED_REGION_ID = "uncategorized";
@@ -15,9 +17,11 @@ export function galleryParams(q: Omit<GalleryQuery, "sortBy">): URLSearchParams 
   if (q.onlyTopRated) params.set("onlyTopRated", "1");
   if (q.onlyFeatured) params.set("onlyFeatured", "1");
   if (q.missingDate) params.set("missingDate", "1");
+  if (q.shotKind) params.set("shotKind", q.shotKind);
+  if (q.tier) params.set("tier", q.tier);
+  if (q.tier && q.tierRegionId) params.set("tierRegionId", q.tierRegionId);
   if (q.selectedTaxa.size > 0) params.set("taxa", [...q.selectedTaxa].join(","));
-  if (q.rawFilter === "without") params.set("excludeHasRaw", "1");
-  if (q.rawFilter === "with") params.set("onlyHasRaw", "1");
+  for (const [key, value] of Object.entries(rawFilterParams(q.rawFiles, q.editedRaw))) params.set(key, value);
   if (q.mediaFilter === "videos") params.set("onlyVideo", "1");
   if (q.mediaFilter === "photos") params.set("excludeVideo", "1");
   if (q.dateFrom) params.set("dateFrom", q.dateFrom);
@@ -37,11 +41,14 @@ export function countActiveFilters(q: GalleryQuery): number {
     (q.onlyTopRated ? 1 : 0) +
     (q.onlyFeatured ? 1 : 0) +
     (q.mediaFilter !== "photos" ? 1 : 0) +
-    (q.rawFilter !== "without" ? 1 : 0) +
+    (q.rawFiles !== DEFAULT_RAW_FILES ? 1 : 0) +
+    (q.editedRaw !== "any" ? 1 : 0) +
     (q.selectedTaxa.size > 0 ? 1 : 0) +
     (q.dateFrom || q.dateTo ? 1 : 0) +
     (q.regionId ? 1 : 0) +
     (q.tag ? 1 : 0) +
+    (q.shotKind ? 1 : 0) +
+    (q.tier ? 1 : 0) +
     (q.scopeTripId ? 1 : 0) +
     (q.scopeAlbumId ? 1 : 0)
   );
@@ -76,7 +83,7 @@ export function describeSearchReading(i: SearchInterpretation | undefined): stri
     ...(i.species.length > 3 ? [i18n.t("gallery.searchReading.more", { count: i.species.length - 3 })] : []),
     ...i.groups,
   ];
-  const parts = [subject.join(", "), ...i.places, ...i.dates].filter(Boolean);
+  const parts = [formatList(subject, "unit"), formatList(i.scenes, "unit"), ...i.places, ...i.dates].filter(Boolean);
   if (parts.length === 0) return null;
   if (i.description) parts.push(i18n.t("gallery.searchReading.looksLike", { description: i.description }));
   return parts.join(" · ");
@@ -143,8 +150,10 @@ export function galleryCountText({
   total: number | null;
   searchQuery: string;
   searchReading: string | null;
-}): string {
+}): string | null {
   if (missingDate) {
+    // Nothing left: the empty state says so, so no "0 photos missing a date" line above it.
+    if (loadedCount === 0 && !nextCursor) return null;
     return nextCursor
       ? i18n.t("gallery.count.missingDateAtLeast", { count: loadedCount })
       : i18n.t("gallery.count.missingDate", { count: loadedCount });
@@ -157,20 +166,26 @@ export function galleryCountText({
     : i18n.t("gallery.count.matching", { count: loadedCount, query: searchQuery });
 }
 
-/** "photo", "video" or "file" for the selection. `moreVideoIds` lists videos selected by a select
- *  all that aren't loaded yet. */
+/** "photo", "video", "RAW" or "file" for the selection. `moreVideoIds` lists videos selected by a
+ *  select all that aren't loaded yet; "RAW" only when every selected one is loaded and RAW-only. */
 export function selectionNoun(
   items: GalleryItem[],
   selected: ReadonlySet<string>,
   moreVideoIds: Iterable<string> = [],
-): "file" | "video" | "photo" {
+): "file" | "video" | "photo" | "RAW" {
   const selectedVideos = new Set<string>();
   for (const it of items) if (it.kind === "video" && selected.has(it.captureId)) selectedVideos.add(it.captureId);
   for (const id of moreVideoIds) if (selected.has(id)) selectedVideos.add(id);
-  return mediaNoun(selectedVideos.size > 0, selected.size > selectedVideos.size);
+  const rawOnly = items.filter((it) => selected.has(it.captureId) && it.originalKind === "raw").length;
+  return mediaNoun(
+    selectedVideos.size > 0,
+    selected.size > selectedVideos.size,
+    rawOnly > 0 && rawOnly === selected.size,
+  );
 }
 
-/** Whether any selected photo has a RAW, loaded or (from a select all) not. */
+/** Whether any selected photo has a RAW beside its edited original, loaded or (from a select all)
+ *  not. A RAW-only photo is its RAW, so deleting it removes the RAW anyway. */
 export function selectionHasRaw(
   items: GalleryItem[],
   selected: ReadonlySet<string>,
@@ -178,6 +193,32 @@ export function selectionHasRaw(
 ): boolean {
   return (
     selected.size > 0 &&
-    (items.some((it) => selected.has(it.captureId) && it.hasRawOriginal) || anySelectedIn(moreRawIds, selected))
+    (items.some((it) => selected.has(it.captureId) && it.hasRawOriginal && it.originalKind !== "raw") ||
+      anySelectedIn(moreRawIds, selected))
   );
+}
+
+// A search that only names a kind of shot ("flight", "portraits") uses the same classification as
+// Stats' Photography DNA instead of picture matching, so the two always show the same photos.
+const SHOT_KIND_SEARCHES: Record<string, string> = {
+  flight: "flight",
+  flying: "flight",
+  "in flight": "flight",
+  "bird in flight": "flight",
+  "birds in flight": "flight",
+  portrait: "portrait",
+  portraits: "portrait",
+  behavior: "behavior",
+  behaviour: "behavior",
+  environmental: "environmental",
+};
+
+/** The kind of shot a search names on its own (with or without "shot(s)"), or null. */
+export function shotKindForSearch(query: string): string | null {
+  const q = query
+    .trim()
+    .toLowerCase()
+    .replace(/\s+shots?$/, "")
+    .replace(/\s+/g, " ");
+  return SHOT_KIND_SEARCHES[q] ?? null;
 }

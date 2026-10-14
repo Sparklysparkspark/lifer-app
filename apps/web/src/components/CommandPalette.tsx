@@ -1,18 +1,23 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { openExternal } from "../lib/openExternal";
+import { useTranslation } from "react-i18next";
 import { useLocation, useNavigate } from "react-router-dom";
-import { api } from "../api/client";
+import { api, apiPath } from "../api/client";
 import { useDeploymentMode, useIsTauri } from "../hooks/useDeploymentMode";
+import { DEFAULT_RAW_FILES, type EditedRawFilter, type RawFilesFilter } from "../lib/photoListFilters";
 import { usePersistedState } from "../hooks/usePersistedState";
 import { useRegions } from "../hooks/useRegions";
 import { useSettings } from "../hooks/useSettings";
+import { backStateFor } from "../lib/backLabel";
 import { docsUrl } from "../lib/docs";
+import { onAccountReset } from "../lib/resource";
 import {
   derivePaletteContext,
   filterEntries,
   flattenGroups,
   GALLERY_MEDIA_PRESET_KEY,
-  GALLERY_RAW_PRESET_KEY,
+  GALLERY_EDITED_RAW_KEY,
+  GALLERY_RAW_FILES_KEY,
   galleryPresetParams,
   galleryScopePath,
   moveHighlight,
@@ -22,7 +27,6 @@ import {
   type PaletteGroup,
   type PaletteItem,
   type GalleryMediaPreset,
-  type GalleryRawPreset,
   type StaticEntry,
 } from "../lib/search/palette";
 import { SEARCH_DEBOUNCE_MS } from "../lib/searchNormalize";
@@ -31,6 +35,8 @@ import EmptyState from "./EmptyState";
 import InlineSpinner from "./InlineSpinner";
 import Modal from "./Modal";
 import SearchInput from "./SearchInput";
+import { ignore } from "../lib/ignore";
+import { useSpeciesName } from "../lib/speciesName";
 
 interface SpeciesHit {
   id: string;
@@ -54,9 +60,15 @@ const PHOTO_LIMIT = 6;
 // Shown from the last fetch straight away, then refreshed on each open so a new trip or album
 // appears; a failed fetch keeps the last good lists.
 let listsCache: Promise<{ trips: Named[]; albums: Named[] }> | null = null;
+let listsGeneration = 0;
+onAccountReset(() => {
+  listsCache = null;
+  listsGeneration++;
+});
 function loadLists(fresh = false) {
   if (!listsCache || fresh) {
     const previous = listsCache;
+    const generation = listsGeneration;
     let failed = false;
     const soft = <T,>(p: Promise<T>, fallback: T) =>
       p.catch(() => {
@@ -65,15 +77,16 @@ function loadLists(fresh = false) {
       });
     listsCache = Promise.all([
       soft(
-        api.get<{ trips: Named[] }>("/trips").then((r) => r.trips),
+        api.get("/trips").then((r) => r.trips),
         [],
       ),
       soft(
-        api.get<{ albums: Named[] }>("/albums").then((r) => r.albums),
+        api.get("/albums").then((r) => r.albums),
         [],
       ),
     ]).then(([trips, albums]) => {
-      if (!failed) return { trips, albums };
+      // A sign-out since this started means `previous` belongs to the last account.
+      if (!failed || generation !== listsGeneration) return { trips, albums };
       listsCache = previous;
       return previous ?? { trips, albums };
     });
@@ -120,8 +133,10 @@ export default function CommandPalette({
   /** Opens the iNaturalist search after the palette closes (the provider owns that modal). */
   onInatSearch?: (query: string, regionId: string | null) => void;
 }) {
+  const speciesName = useSpeciesName();
   const navigate = useNavigate();
   const location = useLocation();
+  const { t } = useTranslation();
   const context = useMemo(
     () => derivePaletteContext(location.pathname, location.search),
     [location.pathname, location.search],
@@ -131,7 +146,8 @@ export default function CommandPalette({
   const inTauri = useIsTauri();
   const [recentQueries, setRecentQueries] = usePersistedState<string[]>("paletteRecentQueries", []);
   // Read only: the Gallery owns these presets, the palette just hides what the Gallery hides.
-  const [rawPreset] = usePersistedState<GalleryRawPreset>(GALLERY_RAW_PRESET_KEY, "without");
+  const [rawFiles] = usePersistedState<RawFilesFilter>(GALLERY_RAW_FILES_KEY, DEFAULT_RAW_FILES);
+  const [editedRaw] = usePersistedState<EditedRawFilter>(GALLERY_EDITED_RAW_KEY, "any");
   const [mediaPreset] = usePersistedState<GalleryMediaPreset>(GALLERY_MEDIA_PRESET_KEY, "photos");
   const { settings } = useSettings();
   const anyTaxaSearchEnabled = settings?.anyTaxaSearchEnabled ?? false;
@@ -170,31 +186,30 @@ export default function CommandPalette({
     const track = <T,>(p: Promise<T>, apply: (v: T) => void) => {
       setPending((n) => n + 1);
       p.then((v) => !controller.signal.aborted && apply(v))
-        .catch(() => {})
+        .catch(ignore("Command palette search failed"))
         .finally(() => setPending((n) => n - 1));
     };
     const timer = setTimeout(
       () => {
         const params = new URLSearchParams({ q: trimmed });
         if (regionId) params.set("regionId", regionId);
-        track(api.get<{ results: SpeciesHit[] }>(`/species?${params}`, { signal: controller.signal }), (r) =>
+        track(api.get(apiPath("/species", {}, params), { signal: controller.signal }), (r) =>
           setSpecies(r.results.slice(0, 6)),
         );
         if (trimmed.length >= MIN_PHOTO_QUERY) {
           const photoParams = new URLSearchParams({
             q: trimmed,
             quick: "1",
-            ...galleryPresetParams(rawPreset, mediaPreset),
+            ...galleryPresetParams(rawFiles, editedRaw, mediaPreset),
           });
-          track(api.get<{ items: PhotoHit[] }>(`/gallery/search?${photoParams}`, { signal: controller.signal }), (r) =>
+          track(api.get(apiPath("/gallery/search", {}, photoParams), { signal: controller.signal }), (r) =>
             setPhotos(r.items.slice(0, PHOTO_LIMIT)),
           );
           if (scopeKind && scopeId) {
             const scopeParams = new URLSearchParams(photoParams);
             scopeParams.set(scopeKind === "trip" ? "tripId" : "albumId", scopeId);
-            track(
-              api.get<{ items: PhotoHit[] }>(`/gallery/search?${scopeParams}`, { signal: controller.signal }),
-              (r) => setScopePhotos(r.items.slice(0, PHOTO_LIMIT)),
+            track(api.get(apiPath("/gallery/search", {}, scopeParams), { signal: controller.signal }), (r) =>
+              setScopePhotos(r.items.slice(0, PHOTO_LIMIT)),
             );
           } else {
             setScopePhotos([]);
@@ -210,7 +225,7 @@ export default function CommandPalette({
       clearTimeout(timer);
       controller.abort();
     };
-  }, [trimmed, regionId, rawPreset, mediaPreset, scopeKind, scopeId]);
+  }, [trimmed, regionId, rawFiles, editedRaw, mediaPreset, scopeKind, scopeId]);
 
   const regionName = useMemo(
     () => (regionId ? (regions?.find((r) => r.id === regionId)?.name ?? null) : null),
@@ -225,14 +240,14 @@ export default function CommandPalette({
   const groups = useMemo<PaletteGroup[]>(() => {
     const speciesItems: PaletteItem[] = species.map((s) => ({
       id: `species:${s.id}`,
-      label: s.common_name ?? s.scientific_name,
+      label: speciesName(s),
       sublabel: s.common_name ? s.scientific_name : undefined,
       italicSublabel: true,
       action: { type: "navigate", to: speciesPath(s.id, regionId) },
     }));
     const photoItem = (prefix: string, p: PhotoHit, fallbackTo: string): PaletteItem => ({
       id: `${prefix}:${p.photoId}`,
-      label: p.commonName ?? p.scientificName,
+      label: speciesName(p),
       thumbUrl: `/api/photos/${p.photoId}/thumb`,
       action: { type: "navigate", to: p.speciesId ? speciesPath(p.speciesId, null) : fallbackTo },
     });
@@ -324,6 +339,7 @@ export default function CommandPalette({
       { id: "actions", title: "Go to", items: filterEntries(ACTIONS, trimmed, 4) },
     ];
   }, [
+    speciesName,
     trimmed,
     species,
     photos,
@@ -346,9 +362,10 @@ export default function CommandPalette({
   const activeItem = active >= 0 ? flat.items[active] : null;
   const optionId = (item: PaletteItem) => `${listId}-${item.id}`;
 
+  const activeOptionId = activeItem ? optionId(activeItem) : null;
   useEffect(() => {
-    if (activeItem) document.getElementById(optionId(activeItem))?.scrollIntoView({ block: "nearest" });
-  }, [activeItem?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (activeOptionId) document.getElementById(activeOptionId)?.scrollIntoView({ block: "nearest" });
+  }, [activeOptionId]);
 
   function activate(item: PaletteItem) {
     const { action } = item;
@@ -360,7 +377,8 @@ export default function CommandPalette({
     }
     if (trimmed) setRecentQueries(pushRecentQuery(recentQueries, trimmed));
     onClose();
-    if (action.type === "navigate") navigate(action.to);
+    // Like any link: the page it opens can name and return to the one the palette was opened on.
+    if (action.type === "navigate") navigate(action.to, { state: backStateFor(location, t) });
     else if (action.type === "inatSearch") onInatSearch?.(action.query, regionId);
     else openExternal(action.url);
   }
@@ -495,10 +513,7 @@ export default function CommandPalette({
             const rows = group.items.filter((i) => !i.thumbUrl);
             return (
               <div key={group.id} role="group" aria-labelledby={`${listId}-g-${group.id}`}>
-                <div
-                  id={`${listId}-g-${group.id}`}
-                  className="px-2.5 pb-1 text-[11px] font-medium uppercase tracking-wide text-muted"
-                >
+                <div id={`${listId}-g-${group.id}`} className="px-2.5 pb-1 text-xs font-medium text-muted">
                   {group.title}
                 </div>
                 {thumbs.length > 0 && (

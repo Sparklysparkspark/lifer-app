@@ -7,6 +7,7 @@ import { pluralize } from "../../lib/pluralize";
 import type { TripScanImport } from "./useTripScanImport";
 import CullMarksChoice from "../../components/importReview/CullMarksChoice";
 import { rejectedRowNote } from "../../lib/cullInfo";
+import { PANEL } from "../../lib/layout";
 
 function rowStatusText(status: string, error: string | undefined): string | undefined {
   return status === "done" ? "✓ Imported" : status === "error" ? error : status === "importing" ? "Importing…" : "";
@@ -33,7 +34,7 @@ export default function TripScanReview({
   const { selected, setSelected, toggleSelected, focusedRowKey, setFocusedRowKey, activeRow, highlightIndex } = review;
 
   return (
-    <section className="space-y-3 rounded-lg border border-line bg-surface p-4">
+    <section className={`space-y-3 ${PANEL}`}>
       <div className="flex items-center gap-3 text-sm text-muted">
         <span>
           {pluralize(reviewRows.length, "new photo")} · {readyCount} ready to import
@@ -65,7 +66,7 @@ export default function TripScanReview({
         onChange={jobs.selectCullOption}
         disabled={importing}
       />
-      <div className="rounded-lg border border-line bg-surface-muted px-3 py-2">
+      <div>
         <p className="mb-1 text-sm text-muted">
           {suggestEnabled
             ? "Region for species suggestions (also saved as each photo's location):"
@@ -80,7 +81,7 @@ export default function TripScanReview({
         Imported photos are copied to {destinationFolder}, sorted by species. The originals stay where they are.
       </p>
 
-      <div className="divide-y divide-line rounded-lg border border-line bg-surface">
+      <div className="divide-y divide-line border-t border-line">
         {reviewRows.map((row) => (
           <ImportReviewRow
             key={row.key}

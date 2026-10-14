@@ -3,7 +3,7 @@ import type { PhotoFilters } from "../../lib/photoListFilters";
 import type { TripPhoto } from "./types";
 import { visibleTripPhotos, visibleTripSpecies } from "./tripFilters";
 
-const anyPhoto: PhotoFilters = { rawFilter: "any", onlyTopRated: false, dateFrom: "", dateTo: "" };
+const anyPhoto: PhotoFilters = { rawFiles: "show", editedRaw: "any", onlyTopRated: false, dateFrom: "", dateTo: "" };
 
 function photo(partial: Partial<TripPhoto> & { photoId: string }): TripPhoto {
   return {
@@ -58,8 +58,8 @@ describe("visibleTripPhotos", () => {
 
   it("applies the filters, judging RAW by the photo's own hasRaw", () => {
     const photos = [moose, chickadee];
-    expect(ids(visibleTripPhotos(photos, "", { ...anyPhoto, rawFilter: "with" }, "newest"))).toEqual(["chickadee"]);
-    expect(ids(visibleTripPhotos(photos, "", { ...anyPhoto, rawFilter: "without" }, "newest"))).toEqual(["moose"]);
+    expect(ids(visibleTripPhotos(photos, "", { ...anyPhoto, editedRaw: "with" }, "newest"))).toEqual(["chickadee"]);
+    expect(ids(visibleTripPhotos(photos, "", { ...anyPhoto, editedRaw: "without" }, "newest"))).toEqual(["moose"]);
     expect(ids(visibleTripPhotos(photos, "", { ...anyPhoto, onlyTopRated: true }, "newest"))).toEqual(["chickadee"]);
   });
 

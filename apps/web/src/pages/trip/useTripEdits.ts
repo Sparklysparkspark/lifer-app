@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { api } from "../../api/client";
+import { api, apiPath } from "../../api/client";
 import { useToast } from "../../hooks/useToast";
 import { errorMessage } from "../../lib/errorMessage";
 import type { TripDetail, TripPhoto } from "./types";
@@ -34,7 +34,7 @@ export function useTripEdits({
     closeMenu();
     setSettingCover(captureId);
     try {
-      await api.put(`/trips/${id}/cover`, { captureId });
+      await api.put(apiPath("/trips/{id}/cover", { id }), { captureId });
       void load();
     } catch (err) {
       toast.error(errorMessage(err, "Couldn't change the featured photo"));
@@ -49,7 +49,7 @@ export function useTripEdits({
     closeMenu();
     setSettingCover(captureId);
     try {
-      await api.put(`/trips/${id}/cover`, { captureId });
+      await api.put(apiPath("/trips/{id}/cover", { id }), { captureId });
       await load();
       setCroppingCoverPhotoUrl(photoUrl);
     } catch (err) {
@@ -60,19 +60,21 @@ export function useTripEdits({
   }
 
   async function saveCoverCrop(crop: { x: number; y: number; size: number }) {
-    await api.patch(`/trips/${id}/cover-crop`, crop);
+    if (!id) return;
+    await api.patch(apiPath("/trips/{id}/cover-crop", { id }), crop);
     void load();
   }
 
   async function resetCoverCrop() {
-    await api.patch(`/trips/${id}/cover-crop`, { reset: true });
+    if (!id) return;
+    await api.patch(apiPath("/trips/{id}/cover-crop", { id }), { reset: true });
     void load();
   }
 
   async function confirmDeletePhoto(captureId: string) {
     setDeleting(true);
     try {
-      await api.delete(`/captures/${captureId}`);
+      await api.delete(apiPath("/captures/{id}", { id: captureId }));
       setConfirmingDeleteCaptureId(null);
       void load();
     } catch (err) {
@@ -96,7 +98,10 @@ export function useTripEdits({
     setSelectedCaptureIds(new Set());
   }
 
-  const selectedHaveRaw = (photos ?? []).some((p) => selectedCaptureIds.has(p.captureId) && p.hasRaw);
+  // A RAW beside an edited original; a RAW-only photo is its RAW, so deleting it removes the RAW anyway.
+  const selectedHaveRaw = (photos ?? []).some(
+    (p) => selectedCaptureIds.has(p.captureId) && p.hasRaw && p.originalKind !== "raw",
+  );
 
   function closeBatchDelete() {
     setConfirmingBatchDelete(false);
@@ -124,7 +129,7 @@ export function useTripEdits({
   async function patchTrip(patch: Partial<Pick<TripDetail, "name" | "description" | "coverLayout">>, failure: string) {
     if (!id) return;
     try {
-      await api.patch(`/trips/${id}`, patch);
+      await api.patch(apiPath("/trips/{id}", { id }), patch);
       void load();
     } catch (err) {
       toast.error(errorMessage(err, failure));

@@ -89,9 +89,10 @@ describe("filterEntries", () => {
 
 describe("galleryPresetParams", () => {
   it("mirrors the Gallery's RAW and media presets", () => {
-    expect(galleryPresetParams("without", "photos")).toEqual({ excludeHasRaw: "1", excludeVideo: "1" });
-    expect(galleryPresetParams("with", "videos")).toEqual({ onlyHasRaw: "1", onlyVideo: "1" });
-    expect(galleryPresetParams("any", "both")).toEqual({});
+    expect(galleryPresetParams("show", "without", "photos")).toEqual({ excludeHasRaw: "1", excludeVideo: "1" });
+    expect(galleryPresetParams("hide", "with", "videos")).toEqual({ includeRaw: "0", onlyHasRaw: "1", onlyVideo: "1" });
+    expect(galleryPresetParams("only", "any", "both")).toEqual({ onlyRaw: "1" });
+    expect(galleryPresetParams("show", "any", "both")).toEqual({});
   });
 });
 

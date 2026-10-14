@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { ALL_TAXON_CLASSES } from "@lifer/shared";
 import { api } from "../../api/client";
 import { useSettings } from "../../hooks/useSettings";
+import { ignore } from "../../lib/ignore";
 
 // What the whole library holds, so the filters only offer choices that can match something.
 export function useGalleryFacets() {
@@ -11,7 +12,7 @@ export function useGalleryFacets() {
     api
       .get<{ hasVideo: boolean }>("/gallery/has-video")
       .then((res) => setHasVideoInLibrary(res.hasVideo))
-      .catch(() => {});
+      .catch(ignore("Couldn't check for videos"));
   }, []);
   // Photos imported hidden (a culling app rejected them), so the "Hidden" filter only shows when
   // there are some. Re-read after an unhide.
@@ -21,7 +22,7 @@ export function useGalleryFacets() {
     api
       .get<{ count: number }>("/captures/hidden-count")
       .then((res) => setHiddenCount(res.count))
-      .catch(() => {});
+      .catch(ignore("Couldn't load gallery filters"));
   }, [hiddenCountVersion]);
   // Taxa the library actually has, so the taxon filter never offers an empty choice. An empty set
   // also means the library has no photos at all.
@@ -30,7 +31,7 @@ export function useGalleryFacets() {
     api
       .get<{ taxa: string[] }>("/gallery/taxa")
       .then((res) => setAvailableTaxa(new Set(res.taxa)))
-      .catch(() => {});
+      .catch(ignore("Couldn't load gallery filters"));
   }, []);
   // Other Taxa classes (e.g. "insecta") get their own pills beside the built-in classes.
   const otherTaxaClasses = useMemo(
@@ -45,7 +46,7 @@ export function useGalleryFacets() {
     api
       .get<{ regionIds: string[] }>("/gallery/regions-with-photos")
       .then((res) => setRegionsWithPhotos(new Set(res.regionIds)))
-      .catch(() => {});
+      .catch(ignore("Couldn't load gallery filters"));
   }, []);
 
   return {

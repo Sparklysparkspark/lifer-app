@@ -4,12 +4,18 @@ import type { ReactNode } from "react";
 import Select from "./Select";
 import SegmentedControl from "./SegmentedControl";
 import { FilterFieldLabel } from "./FilterPopover";
-import type { MediaFilter, PhotoSort, RawFilter } from "../lib/photoListFilters";
+import type { EditedRawFilter, MediaFilter, PhotoSort, RawFilesFilter } from "../lib/photoListFilters";
 
-const RAW_OPTIONS: ReadonlyArray<{ value: RawFilter; label: string }> = [
+const RAW_FILES_OPTIONS: ReadonlyArray<{ value: RawFilesFilter; label: string }> = [
+  { value: "show", label: "Show" },
+  { value: "hide", label: "Hide" },
+  { value: "only", label: "Only" },
+];
+
+const EDITED_RAW_OPTIONS: ReadonlyArray<{ value: EditedRawFilter; label: string }> = [
   { value: "any", label: "Any" },
-  { value: "with", label: "With" },
-  { value: "without", label: "Without" },
+  { value: "with", label: "With RAW" },
+  { value: "without", label: "Without RAW" },
 ];
 
 const MEDIA_OPTIONS: ReadonlyArray<{ value: MediaFilter; label: string }> = [
@@ -17,10 +23,6 @@ const MEDIA_OPTIONS: ReadonlyArray<{ value: MediaFilter; label: string }> = [
   { value: "photos", label: "Photos" },
   { value: "videos", label: "Videos" },
 ];
-
-const VIEW_BUTTON = "px-3 py-1.5";
-const VIEW_ACTIVE = "bg-accent text-accent-fg";
-const VIEW_INACTIVE = "text-muted hover:bg-surface-muted";
 
 export function PhotoSortSelect({
   value,
@@ -86,12 +88,29 @@ export function FilterCheckbox({
 }
 
 // The heading above a pill row is only a <p>, so the row names itself as a group.
-export function RawFilterField({ value, onChange }: { value: RawFilter; onChange: (value: RawFilter) => void }) {
+/** RAW-only photos: shown, hidden or alone, and edited photos by whether they have a RAW. */
+export function RawFilterFields({
+  rawFiles,
+  editedRaw,
+  onRawFilesChange,
+  onEditedRawChange,
+}: {
+  rawFiles: RawFilesFilter;
+  editedRaw: EditedRawFilter;
+  onRawFilesChange: (value: RawFilesFilter) => void;
+  onEditedRawChange: (value: EditedRawFilter) => void;
+}) {
   return (
-    <div role="group" aria-label="RAW files">
-      <FilterFieldLabel>RAW files</FilterFieldLabel>
-      <SegmentedControl value={value} onChange={onChange} options={RAW_OPTIONS} />
-    </div>
+    <>
+      <div role="group" aria-label="RAW files">
+        <FilterFieldLabel>RAW files</FilterFieldLabel>
+        <SegmentedControl value={rawFiles} onChange={onRawFilesChange} options={RAW_FILES_OPTIONS} />
+      </div>
+      <div role="group" aria-label="Edited photos">
+        <FilterFieldLabel>Edited photos</FilterFieldLabel>
+        <SegmentedControl value={editedRaw} onChange={onEditedRawChange} options={EDITED_RAW_OPTIONS} />
+      </div>
+    </>
   );
 }
 
@@ -145,7 +164,7 @@ export function DateRangeField({
             aria-label="To date"
           />
           {onClear && (dateFrom || dateTo) && (
-            <button onClick={onClear} className="shrink-0 text-[11px] text-muted hover:underline">
+            <button onClick={onClear} className="shrink-0 text-xs text-muted hover:underline">
               Clear
             </button>
           )}
@@ -171,19 +190,13 @@ export function GridViewToggle({
   onChange: (view: "gallery" | "species") => void;
 }) {
   return (
-    <div className="flex rounded-md border border-line text-sm">
-      <button
-        onClick={() => onChange("gallery")}
-        className={`rounded-l-md ${VIEW_BUTTON} ${view === "gallery" ? VIEW_ACTIVE : VIEW_INACTIVE}`}
-      >
-        Gallery
-      </button>
-      <button
-        onClick={() => onChange("species")}
-        className={`rounded-r-md ${VIEW_BUTTON} ${view === "species" ? VIEW_ACTIVE : VIEW_INACTIVE}`}
-      >
-        Species view
-      </button>
-    </div>
+    <SegmentedControl
+      value={view}
+      onChange={onChange}
+      options={[
+        { value: "gallery", label: "Gallery" },
+        { value: "species", label: "Species view" },
+      ]}
+    />
   );
 }

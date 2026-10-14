@@ -1,3 +1,4 @@
+import { rawFilterParams, type EditedRawFilter, type RawFilesFilter } from "../photoListFilters";
 import { filterByQuery } from "../searchNormalize";
 
 export type PaletteAction =
@@ -51,17 +52,19 @@ export function derivePaletteContext(pathname: string, search: string): PaletteC
   return { regionId, scope };
 }
 
-// The Gallery's persisted presets (usePersistedState keys galleryRawFilter / galleryMediaFilter),
-// so palette thumbnails never show a photo the Gallery is set to hide.
-export type GalleryRawPreset = "any" | "with" | "without";
+// The Gallery's persisted presets (usePersistedState keys), so palette thumbnails never show a
+// photo the Gallery is set to hide.
 export type GalleryMediaPreset = "both" | "photos" | "videos";
-export const GALLERY_RAW_PRESET_KEY = "galleryRawFilter";
+export const GALLERY_RAW_FILES_KEY = "galleryRawFiles";
+export const GALLERY_EDITED_RAW_KEY = "galleryEditedRaw";
 export const GALLERY_MEDIA_PRESET_KEY = "galleryMediaFilter";
 
-export function galleryPresetParams(raw: GalleryRawPreset, media: GalleryMediaPreset): Record<string, string> {
-  const out: Record<string, string> = {};
-  if (raw === "without") out.excludeHasRaw = "1";
-  else if (raw === "with") out.onlyHasRaw = "1";
+export function galleryPresetParams(
+  rawFiles: RawFilesFilter,
+  editedRaw: EditedRawFilter,
+  media: GalleryMediaPreset,
+): Record<string, string> {
+  const out = rawFilterParams(rawFiles, editedRaw);
   if (media === "photos") out.excludeVideo = "1";
   else if (media === "videos") out.onlyVideo = "1";
   return out;
