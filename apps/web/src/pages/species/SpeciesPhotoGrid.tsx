@@ -80,12 +80,7 @@ export default function SpeciesPhotoGrid({
 
   const counts = useMemo(() => captureCounts(captures), [captures]);
   const photoFilter = chosenFilter ?? (counts.edited > 0 ? "edited" : "all");
-  // The cover photo leads, since the page has no hero photo above the grid.
-  const sortedCaptures = useMemo(() => {
-    const sorted = sortCaptures(captures, photoSort);
-    const cover = sorted.findIndex((c) => c.photo_id && c.photo_id === userSpecies?.cover_photo_id);
-    return cover > 0 ? [sorted[cover], ...sorted.slice(0, cover), ...sorted.slice(cover + 1)] : sorted;
-  }, [captures, photoSort, userSpecies?.cover_photo_id]);
+  const sortedCaptures = useMemo(() => sortCaptures(captures, photoSort), [captures, photoSort]);
   // The lightbox browses every kind regardless of the grid's filter; the grid shows the filtered subset.
   const photoCaptures = useMemo(() => sortedCaptures.filter((c) => c.photo_id), [sortedCaptures]);
   const slideIndexById = useMemo(() => new Map(photoCaptures.map((c, i) => [c.id, i])), [photoCaptures]);
