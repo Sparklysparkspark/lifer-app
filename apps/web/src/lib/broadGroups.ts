@@ -280,7 +280,6 @@ function broadGroupKeys(item: BroadGroupSource): string[] {
 export function primaryBroadGroup(item: BroadGroupSource): string {
   const [first] = broadGroups(item);
   if (first) return first;
-  if (item.isOtherTaxa) return i18n.t("taxa.otherTaxa");
   const cls = item.taxonClass ?? "";
   const other = INDEXES.get(cls)?.other;
   return other ? i18n.t(other) : (taxonClassLabel(cls) ?? i18n.t("taxa.other"));

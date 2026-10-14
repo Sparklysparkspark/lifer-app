@@ -8,6 +8,8 @@ import { useStorageVolumes } from "../hooks/useStorageVolumes";
 import { useSettings } from "../hooks/useSettings";
 import { useConfirm } from "../hooks/useConfirm";
 import { useToast } from "../hooks/useToast";
+import { groupInto } from "../lib/groupInto";
+import { useSpeciesName } from "../lib/speciesName";
 
 // "All species" can be 60,000+ rows and every card mount forces a layout read (useFitText), so
 // cards are revealed in small batches on scroll to keep each commit responsive.
@@ -22,12 +24,23 @@ function currentMonthIndex(): number {
   return new Date().getMonth();
 }
 
+type SpeciesGroup = { key: string; label: string; items: CollectionItem[] };
+
 // At or below this card width the name box uses tighter spacing (see SpeciesCard `compact`).
 const COMPACT_CARD_WIDTH = 150;
 
-// In a taxonomic grouping, groups with more species than this span the full width instead of
-// sharing a row. Tier groupings never share rows: tiers read as a ranked list, top to bottom.
-const WIDE_GROUP_MIN = 8;
+// In a taxonomic grouping each group is a compact cluster of up to CLUSTER_ROW_MAX species a row
+// (fewer when the window can't fit that many cards), using as few rows as that allows and filled
+// evenly (11 species: two rows of 6), so narrow blocks sit side by side. One that would need more
+// than CLUSTER_ROWS rows takes the full width instead.
+// Tier groupings never share rows: tiers read as a ranked list, top to bottom.
+const CLUSTER_ROW_MAX = 8;
+const CLUSTER_ROWS = 3;
+
+/** Columns for a group packed as a cluster. */
+function clusterColumns(count: number, rowMax: number): number {
+  return Math.ceil(count / Math.ceil(count / rowMax));
+}
 
 // Same shrink-with-size gap as GalleryPage's grid.
 function gapPxFor(cardMinWidth: number): number {
@@ -42,7 +55,11 @@ const TARGET_GROUP_KEY = "__target__";
 
 // groupBy and sortBy are independent. Array.sort is stable, so a secondary sort keeps the
 // primary order within each bucket.
-function sortItems(items: CollectionItem[], sortBy: SortBy): CollectionItem[] {
+function sortItems(
+  items: CollectionItem[],
+  sortBy: SortBy,
+  nameOf: (item: CollectionItem) => string,
+): CollectionItem[] {
   const sorted = [...items];
   if (sortBy === "rarity") {
     sorted.sort((a, b) => (TIER_RANK[a.tier ?? "common"] ?? 5) - (TIER_RANK[b.tier ?? "common"] ?? 5));
@@ -53,7 +70,8 @@ function sortItems(items: CollectionItem[], sortBy: SortBy): CollectionItem[] {
         (TIER_RANK[a.localTier ?? a.tier ?? "common"] ?? 5) - (TIER_RANK[b.localTier ?? b.tier ?? "common"] ?? 5),
     );
   } else if (sortBy === "name") {
-    sorted.sort((a, b) => (a.commonName ?? a.scientificName).localeCompare(b.commonName ?? b.scientificName));
+    // By the name each card shows.
+    sorted.sort((a, b) => nameOf(a).localeCompare(nameOf(b)));
   } else if (sortBy === "seasonality") {
     const month = currentMonthIndex();
     sorted.sort((a, b) => (b.seasonality?.[month] ?? 0) - (a.seasonality?.[month] ?? 0));
@@ -109,6 +127,7 @@ export default function GroupedSpeciesGrid({
   /** Called whenever more cards are revealed, so the count can be remembered. */
   onVisibleCountChange?: (count: number) => void;
 }) {
+  const speciesName = useSpeciesName();
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [visibleCount, setVisibleCount] = useState(() => Math.max(INITIAL_VISIBLE, initialVisibleCount ?? 0));
   useEffect(() => {
@@ -117,6 +136,15 @@ export default function GroupedSpeciesGrid({
   // A callback ref, not useRef: toggling grouping renders a new sentinel element, and an observer on
   // the old one would never fire again.
   const [sentinel, setSentinel] = useState<HTMLDivElement | null>(null);
+  // The packed area's width, so a cluster never has more columns than fit the window.
+  const [packedBox, setPackedBox] = useState<HTMLDivElement | null>(null);
+  const [packedWidth, setPackedWidth] = useState(0);
+  useEffect(() => {
+    if (!packedBox) return;
+    const observer = new ResizeObserver(() => setPackedWidth(packedBox.clientWidth));
+    observer.observe(packedBox);
+    return () => observer.disconnect();
+  }, [packedBox]);
   const { multiDriveInUse } = useStorageVolumes();
   // Other Taxa group labels follow the species naming preference ("Insects" vs "Insecta").
   const { settings } = useSettings();
@@ -139,7 +167,7 @@ export default function GroupedSpeciesGrid({
   }
 
   const groups = useMemo(() => {
-    const sorted = sortItems(items, sortBy);
+    const sorted = sortItems(items, sortBy, speciesName);
 
     // Ungrouped "float to top" rank: only a state whose toggle is on moves ahead of the rest.
     function floatRank(item: CollectionItem): number {
@@ -164,11 +192,11 @@ export default function GroupedSpeciesGrid({
           ? (item.tier ?? "common")
           : groupBy === "localTier"
             ? (item.localTier ?? item.tier ?? "common")
-            : groupBy === "broad"
+            : // Other Taxa have no broad groups of their own; their iNat group (Insects, Fungi) is broad enough.
+              groupBy === "broad" && !item.isOtherTaxa
               ? primaryBroadGroup(item)
               : speciesGroupLabel(item.taxonClass, item.family, item.isOtherTaxa, item.inatIconicTaxon, namingStyles);
-      if (!byKey.has(key)) byKey.set(key, []);
-      byKey.get(key)!.push(item);
+      groupInto(byKey, key, item);
     }
 
     const keys = [...byKey.keys()];
@@ -199,7 +227,7 @@ export default function GroupedSpeciesGrid({
       if (targetItems.length > 0) pinned.push({ key: TARGET_GROUP_KEY, label: "Targets", items: targetItems });
     }
     return [...pinned, ...named];
-  }, [items, groupBy, sortBy, collectedFirst, seenFirst, targetFirst, namingStyles]);
+  }, [items, groupBy, sortBy, collectedFirst, seenFirst, targetFirst, namingStyles, speciesName]);
 
   // How many cards each group renders under the page-wide cap (headers still show true counts).
   // Groups fill top to bottom, so only the last visible one is partial and scrolling only adds below.
@@ -237,13 +265,24 @@ export default function GroupedSpeciesGrid({
     return () => observer.disconnect();
   }, [hasMore, visibleCount, sentinel]);
 
+  // Collapsing frees the group's space and the groups after it move up, so the page scrolls by as
+  // much as the clicked heading moved: it stays under the pointer while the rest reflows.
   function toggleCollapsed(key: string) {
+    const heading = () => document.querySelector(`[data-group-heading="${CSS.escape(key)}"]`);
+    const before = heading()?.getBoundingClientRect().top;
     setCollapsed((prev) => {
       const next = new Set(prev);
       if (next.has(key)) next.delete(key);
       else next.add(key);
       return next;
     });
+    if (before == null) return;
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => {
+        const after = heading()?.getBoundingClientRect().top;
+        if (after != null) window.scrollBy(0, after - before);
+      }),
+    );
   }
 
   // Ungrouped keeps the plain wide grid; the column packing below is for small groups.
@@ -286,84 +325,100 @@ export default function GroupedSpeciesGrid({
   const pinnedKeys = new Set([COLLECTED_GROUP_KEY, SEEN_GROUP_KEY, TARGET_GROUP_KEY]);
   const pinnedGroups = groups.filter((g) => pinnedKeys.has(g.key));
   const rest = groups.filter((g) => !pinnedKeys.has(g.key));
-  const collapsedGroups = rest.filter((g) => collapsed.has(g.key));
-  // Groups with no budget yet aren't rendered: WebKit's column balancing cost scales with the
-  // number of blocks, and the scroll sentinel reveals them later anyway.
-  const expandedGroups = rest.filter((g) => !collapsed.has(g.key) && (visibleCountByKey.get(g.key) ?? 0) > 0);
-  const expandedPinnedGroups = pinnedGroups.filter(
-    (g) => !collapsed.has(g.key) && (visibleCountByKey.get(g.key) ?? 0) > 0,
-  );
-  const collapsedPinnedGroups = pinnedGroups.filter((g) => collapsed.has(g.key));
+  const revealed = (g: SpeciesGroup) => (visibleCountByKey.get(g.key) ?? 0) > 0;
+  // Groups with no budget yet aren't rendered: WebKit's layout cost scales with the number of
+  // blocks, and the scroll sentinel reveals them later anyway. A collapsed group keeps its place as
+  // a heading, shown once the reveal has reached it so headings never run ahead of the cards.
+  let frontier = rest.length - 1;
+  if (hasMore) while (frontier >= 0 && !revealed(rest[frontier])) frontier--;
+  const shownGroups = rest.slice(0, frontier + 1).filter((g) => collapsed.has(g.key) || revealed(g));
+  const shownPinnedGroups = pinnedGroups.filter((g) => collapsed.has(g.key) || revealed(g));
+
+  const gap = gapPxFor(cardMinWidth);
+  const fitColumns = packedWidth > 0 ? Math.floor((packedWidth + gap) / (cardMinWidth + gap)) : CLUSTER_ROW_MAX;
+  const rowMax = Math.max(1, Math.min(CLUSTER_ROW_MAX, fitColumns));
 
   return (
-    <div className="space-y-4">
-      {expandedPinnedGroups.map((group) => (
-        <GroupSection
-          key={group.key}
-          group={group}
-          visibleCount={visibleCountByKey.get(group.key) ?? group.items.length}
-          regionId={regionId}
-          onToggle={() => toggleCollapsed(group.key)}
-          onChanged={onChanged}
-          wide
-          showVolumeBadge={multiDriveInUse}
-          cardMinWidth={cardMinWidth}
-          regionName={regionName}
-          countryRegionId={countryRegionId}
-          countryRegionName={countryRegionName}
-          hideLabels={hideLabels}
-          hideNames={hideNames}
-          hideScientificName={hideScientificName}
-        />
-      ))}
-
-      {/* Collapsed groups become chips so they don't take vertical space. */}
-      {(collapsedGroups.length > 0 || collapsedPinnedGroups.length > 0) && (
-        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-line bg-surface p-2">
-          <span className="text-xs uppercase tracking-wide text-muted">Collapsed:</span>
-          {[...collapsedPinnedGroups, ...collapsedGroups].map((g) => (
-            <button
-              key={g.key}
-              onClick={() => toggleCollapsed(g.key)}
-              className="rounded-full border border-line px-2.5 py-1 text-xs text-muted hover:bg-surface-muted"
-            >
-              {g.label} ({g.items.length})
-            </button>
-          ))}
-        </div>
+    <div className="space-y-section">
+      {shownPinnedGroups.map((group) =>
+        collapsed.has(group.key) ? (
+          <CollapsedGroupHeading key={group.key} group={group} onToggle={() => toggleCollapsed(group.key)} />
+        ) : (
+          <GroupSection
+            key={group.key}
+            group={group}
+            visibleCount={visibleCountByKey.get(group.key) ?? group.items.length}
+            regionId={regionId}
+            onToggle={() => toggleCollapsed(group.key)}
+            onChanged={onChanged}
+            wide
+            showVolumeBadge={multiDriveInUse}
+            cardMinWidth={cardMinWidth}
+            regionName={regionName}
+            countryRegionId={countryRegionId}
+            countryRegionName={countryRegionName}
+            hideLabels={hideLabels}
+            hideNames={hideNames}
+            hideScientificName={hideScientificName}
+          />
+        ),
       )}
 
-      {/* In a taxonomic grouping, small groups sit side by side and a big one takes the full width.
-          A grid, not CSS columns, since WebKit rebalances every column on each revealed batch. */}
-      <div className="grid items-start gap-x-6 sm:grid-cols-2 xl:grid-cols-3">
-        {expandedGroups.map((group) => (
-          <div
-            key={group.key}
-            className={
-              packSmallGroups && group.items.length <= WIDE_GROUP_MIN ? undefined : "sm:col-span-2 xl:col-span-3"
-            }
-          >
-            <GroupSection
-              group={group}
-              visibleCount={visibleCountByKey.get(group.key) ?? group.items.length}
-              regionId={regionId}
-              onToggle={() => toggleCollapsed(group.key)}
-              onChanged={onChanged}
-              archivableGroup={groupBy === "group" || groupBy === "broad"}
-              showVolumeBadge={multiDriveInUse}
-              cardMinWidth={cardMinWidth}
-              regionName={regionName}
-              countryRegionId={countryRegionId}
-              countryRegionName={countryRegionName}
-              hideLabels={hideLabels}
-              hideNames={hideNames}
-              hideScientificName={hideScientificName}
-            />
-          </div>
-        ))}
+      {/* In a taxonomic grouping, a small group is just as wide as its cards and sits beside the next
+          one until the row is full; a big group takes the full width. Wrapped boxes, not CSS columns,
+          since WebKit rebalances every column on each revealed batch. */}
+      <div ref={setPackedBox} className="flex flex-wrap items-start gap-section">
+        {shownGroups.map((group) => {
+          const packed = packSmallGroups && group.items.length <= rowMax * CLUSTER_ROWS;
+          // Just its heading, so the groups after it can use the space.
+          if (collapsed.has(group.key))
+            return (
+              <div key={group.key} className="w-max max-w-full">
+                <CollapsedGroupHeading group={group} onToggle={() => toggleCollapsed(group.key)} />
+              </div>
+            );
+          return (
+            // A packed group is as wide as its cluster of cards, or its one-line heading if that's wider.
+            <div key={group.key} className={packed ? "w-max max-w-full" : "w-full"}>
+              <GroupSection
+                group={group}
+                visibleCount={visibleCountByKey.get(group.key) ?? group.items.length}
+                regionId={regionId}
+                onToggle={() => toggleCollapsed(group.key)}
+                onChanged={onChanged}
+                archivableGroup={groupBy === "group" || groupBy === "broad"}
+                showVolumeBadge={multiDriveInUse}
+                cardMinWidth={cardMinWidth}
+                regionName={regionName}
+                countryRegionId={countryRegionId}
+                countryRegionName={countryRegionName}
+                hideLabels={hideLabels}
+                hideNames={hideNames}
+                hideScientificName={hideScientificName}
+                clusterColumns={packed ? clusterColumns(group.items.length, rowMax) : undefined}
+              />
+            </div>
+          );
+        })}
       </div>
       {hasMore && <div ref={setSentinel} className="h-10" />}
     </div>
+  );
+}
+
+/** A collapsed group, in its own place in the list: just its heading, which opens it again there. */
+function CollapsedGroupHeading({ group, onToggle }: { group: SpeciesGroup; onToggle: () => void }) {
+  return (
+    <button
+      onClick={onToggle}
+      aria-expanded="false"
+      data-group-heading={group.key}
+      className="flex w-max items-center gap-2 text-left text-sm font-medium text-ink hover:underline"
+    >
+      <span className="text-muted">▸</span>
+      {group.label}
+      <span className="text-xs font-normal text-muted">({group.items.length})</span>
+    </button>
   );
 }
 
@@ -375,6 +430,7 @@ function GroupSection({
   onChanged,
   archivableGroup,
   wide,
+  clusterColumns: clusterCols,
   showVolumeBadge,
   cardMinWidth = 160,
   regionName,
@@ -384,7 +440,7 @@ function GroupSection({
   hideNames,
   hideScientificName,
 }: {
-  group: { key: string; label: string; items: CollectionItem[] };
+  group: SpeciesGroup;
   /** Cards rendered; the header count and bulk archive use the full list. */
   visibleCount: number;
   regionId: string | undefined;
@@ -394,6 +450,8 @@ function GroupSection({
   archivableGroup?: boolean;
   /** Pinned sections use the full-width grid, like ungrouped. */
   wide?: boolean;
+  /** Set for a cluster beside other groups: its column count. Its heading stays on one line. */
+  clusterColumns?: number;
   showVolumeBadge?: boolean;
   cardMinWidth?: number;
   regionName?: string;
@@ -430,12 +488,14 @@ function GroupSection({
   // Off-screen groups skip layout and paint until scrolled near (content-visibility), so a region
   // grouped into a hundred families doesn't lay out every one of them on each change.
   return (
-    <section className="mb-6" style={{ contentVisibility: "auto", containIntrinsicSize: "auto 320px" }}>
-      <div className="mb-2 flex items-center gap-2">
+    <section style={{ contentVisibility: "auto", containIntrinsicSize: "auto 320px" }}>
+      {/* The archive action sits right after the name, not across the group's width. */}
+      <div className={`mb-2 flex items-center gap-x-3 gap-y-1 ${clusterCols ? "whitespace-nowrap" : "flex-wrap"}`}>
         <button
           onClick={onToggle}
           aria-expanded="true"
-          className="flex flex-1 items-center gap-2 text-left text-sm font-medium text-ink"
+          data-group-heading={group.key}
+          className="flex items-center gap-2 text-left text-sm font-medium text-ink"
         >
           <span className="text-muted">▾</span>
           {group.label}
@@ -455,7 +515,12 @@ function GroupSection({
       <div
         className="grid"
         style={{
-          gridTemplateColumns: `repeat(auto-fill, minmax(${wide ? cardMinWidth : Math.min(cardMinWidth, 160)}px, 1fr))`,
+          // Every card at the size the slider picked, so groups side by side always match.
+          gridTemplateColumns: wide
+            ? `repeat(auto-fill, ${cardMinWidth}px)`
+            : clusterCols
+              ? `repeat(${clusterCols}, ${cardMinWidth}px)`
+              : `repeat(auto-fill, ${cardMinWidth}px)`,
           gap: gapPxFor(cardMinWidth),
         }}
       >
