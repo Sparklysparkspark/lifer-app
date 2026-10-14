@@ -11,6 +11,7 @@ import { ORIGINALS_DIR } from "@lifer/core/config.js";
 import { writeFileAtomicSync } from "./atomicWrite.js";
 import { ensureDir } from "@lifer/core/lib/safeFs.js";
 import { log } from "@lifer/core/lib/log.js";
+import { foldInnerAdditions } from "../regions/checklistAdditions.js";
 
 export interface UserCollectionState {
   archived: string[];
@@ -312,6 +313,8 @@ async function tryRestore(userId: string): Promise<RestoreResult | typeof CATALO
       );
       restored++;
     }
+    // A backup can hold both a province and a country addition of one hand-added species.
+    await foldInnerAdditions(client, userId);
     for (const a of saved.addedToSeaZones ?? []) {
       const id = ids.get(a.species);
       const seaZoneId = seaZoneIds.get(a.seaZone);

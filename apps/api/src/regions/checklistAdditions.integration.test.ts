@@ -203,6 +203,7 @@ describe.skipIf(!url)("checklist additions", () => {
     await db.query(`DELETE FROM captures_all WHERE user_id = ANY($1)`, [[USER, OTHER_USER]]);
     await db.query(`DELETE FROM user_species WHERE user_id = ANY($1)`, [[USER, OTHER_USER]]);
     await db.query(`DELETE FROM region_species WHERE species_id = ANY($1)`, [ALL_SPECIES]);
+    await db.query(`DELETE FROM inat_region_taxon_data WHERE species_id = ANY($1)`, [ALL_SPECIES]);
     await db.query(`INSERT INTO region_species (region_id, species_id) VALUES ($1, $3), ($2, $3), ($4, $3)`, [
       countryId,
       provinceId,
@@ -283,6 +284,50 @@ describe.skipIf(!url)("checklist additions", () => {
     expect(count.json().total).toBe((await checklist(provinceId)).length);
     // Nothing was written to the catalog's own checklists.
     expect(await catalogRows()).not.toContainEqual(expect.objectContaining({ species_id: MISSING }));
+  });
+
+  it("shows a hand-added species added to a country on its provinces, unless iNaturalist has no records there", async () => {
+    // beforeEach adds HAND to the country.
+    const marker = regionMarker(countryId, COUNTRY);
+    expect(await checklist(provinceId)).toContainEqual({ speciesId: HAND, userAddedRegion: marker });
+
+    // A province iNaturalist has checked with no records leaves it out; one with records keeps it.
+    await db.query(
+      `INSERT INTO inat_region_taxon_data (species_id, region_id, weekly_frequency) VALUES ($1, $2, NULL)`,
+      [HAND, provinceId],
+    );
+    expect(await ids(provinceId)).not.toContain(HAND);
+    expect(await ids(countryId)).toContain(HAND);
+    await db.query(`UPDATE inat_region_taxon_data SET weekly_frequency = $3 WHERE species_id = $1 AND region_id = $2`, [
+      HAND,
+      provinceId,
+      new Array(52).fill(1),
+    ]);
+    expect(await checklist(provinceId)).toContainEqual({ speciesId: HAND, userAddedRegion: marker });
+  });
+
+  it("folds a hand-added species' province additions into a later country one", async () => {
+    await call("DELETE", addition(countryId, HAND));
+    await call("PUT", addition(provinceId, HAND));
+    await call("PUT", addition(countryId, HAND));
+    expect(await additionRows()).toContainEqual(handImport());
+    expect(await additionRows()).not.toContainEqual({ user_id: USER, region_id: provinceId, species_id: HAND });
+    expect(await checklist(provinceId)).toContainEqual({
+      speciesId: HAND,
+      userAddedRegion: regionMarker(countryId, COUNTRY),
+    });
+  });
+
+  it("keeps a catalog species where it was added: no passing down, no folding", async () => {
+    // Its province checklists come from iNaturalist sightings already; a hand addition is a vagrant.
+    await call("PUT", addition(countryId, MISSING));
+    expect(await ids(provinceId)).not.toContain(MISSING);
+    await call("PUT", addition(provinceId, MISSING));
+    expect(await additionRows()).toContainEqual({ user_id: USER, region_id: provinceId, species_id: MISSING });
+    expect(await checklist(provinceId)).toContainEqual({
+      speciesId: MISSING,
+      userAddedRegion: regionMarker(provinceId, PROVINCE),
+    });
   });
 
   it("keeps each user's additions to themselves", async () => {

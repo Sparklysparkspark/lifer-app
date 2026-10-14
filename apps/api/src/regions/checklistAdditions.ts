@@ -10,20 +10,39 @@ import { Type } from "typebox";
 import { pool } from "@lifer/core/db.js";
 import { requireScope } from "../auth/session.js";
 import { IdParams, Nullable, Ok, Uuid, replies, withSchemas } from "../lib/schema.js";
+import { scheduleInatDistributionSync } from "../species/inatDistribution.js";
 
 /** Species ids the user added to a region in `region_tree`, for a checklist's species_ids CTE.
  *  `userParam` is the user id's placeholder; `include` is extra SQL that must be true (the land
- *  toggle). Additions roll up: one added to a province shows on its country. */
-export const userAddedInTreeSql = (userParam: string, include = "true") =>
-  `SELECT species_id FROM region_species_user_added WHERE user_id = ${userParam} AND ${include} AND region_id IN (SELECT id FROM region_tree)`;
+ *  toggle). Additions roll up: one added to a province shows on its country. With `fromAbove`,
+ *  hand-added species also come down from the regions above the viewed one (one added to Canada
+ *  shows on British Columbia unless iNaturalist has no records there), through an `added_from_above` CTE
+ *  (addedFromAboveCteSql). */
+export const userAddedInTreeSql = (userParam: string, include = "true", fromAbove = false) =>
+  `SELECT species_id FROM region_species_user_added WHERE user_id = ${userParam} AND ${include} AND region_id IN (SELECT id FROM region_tree)` +
+  (fromAbove ? ` UNION SELECT species_id FROM added_from_above WHERE ${include}` : "");
 
-/** LEFT JOIN LATERAL as `ua`: the region in `region_tree` the user added species `s` to, with its
- *  name. `preferRegionParam` (the viewed region) wins when it's one of several. */
-export const userAddedLateralSql = (userParam: string, preferRegionParam: string | null, include = "true") =>
+/** A CTE (with its leading comma) of the additions coming down onto `regionParam` from the regions
+ *  above it (migration 144's user_added_from_above), worked out once per query. */
+export const addedFromAboveCteSql = (userParam: string, regionParam: string) =>
+  `, added_from_above AS (SELECT * FROM user_added_from_above(${userParam}, ${regionParam}))`;
+
+/** LEFT JOIN LATERAL as `ua`: the region the user added species `s` to, with its name: one in
+ *  `region_tree`, or with `fromAbove` the one above it the addition came down from. `preferRegionParam`
+ *  (the viewed region) wins when it's one of several. */
+export const userAddedLateralSql = (
+  userParam: string,
+  preferRegionParam: string | null,
+  include = "true",
+  fromAbove = false,
+) =>
   `LEFT JOIN LATERAL (
      SELECT a.region_id, ar.name AS region_name
      FROM region_species_user_added a JOIN regions ar ON ar.id = a.region_id
-     WHERE a.user_id = ${userParam} AND a.species_id = s.id AND ${include} AND a.region_id IN (SELECT id FROM region_tree)
+     WHERE a.user_id = ${userParam} AND a.species_id = s.id AND ${include}
+       AND (a.region_id IN (SELECT id FROM region_tree)${
+         fromAbove ? ` OR (a.species_id, a.region_id) IN (SELECT species_id, region_id FROM added_from_above)` : ""
+       })
      ORDER BY ${preferRegionParam ? `(a.region_id = ${preferRegionParam}) DESC, ` : ""}ar.name
      LIMIT 1
    ) ua ON true`;
@@ -146,9 +165,36 @@ export const noChecklistError = (regionName: string) => ({
   code: "no_checklist",
 });
 
-/** Puts a species on a region's checklist for one user. Returns false when it was already there
- *  (added before). Adding a species you'd hidden in that region also unhides it there, since you
- *  asked for it. */
+/** Drops a user's additions of a hand-added species on regions inside one they've also added it to:
+ *  it reaches those from the larger one (migration 144), so it reads "Added by you to Canada" rather
+ *  than listing provinces too. Catalog species stay where they're added, so theirs are kept. With
+ *  `outer`, only inside that one addition: adding to Canada folds its provinces, while adding to a
+ *  province Canada already covers keeps the province (it may be one iNaturalist leaves out). */
+export async function foldInnerAdditions(
+  db: Pool | PoolClient,
+  userId: string,
+  outer?: { regionId: string; speciesId: string },
+): Promise<void> {
+  await db.query(
+    `WITH RECURSIVE inside AS (
+       SELECT a.species_id, r.id
+         FROM region_species_user_added a
+         JOIN species s ON s.id = a.species_id AND s.is_other_taxa
+         JOIN regions r ON r.parent_id = a.region_id
+        WHERE a.user_id = $1 AND ($2::uuid IS NULL OR (a.region_id = $2 AND a.species_id = $3))
+       UNION ALL
+       SELECT inside.species_id, r.id FROM inside JOIN regions r ON r.parent_id = inside.id
+     )
+     DELETE FROM region_species_user_added a
+      USING inside
+      WHERE a.user_id = $1 AND a.species_id = inside.species_id AND a.region_id = inside.id`,
+    [userId, outer?.regionId ?? null, outer?.speciesId ?? null],
+  );
+}
+
+/** Puts a species on a region's checklist for one user, and for a hand-added species on the
+ *  regions inside it (see user_added_from_above). Returns false when it was already there (added before). Adding a species
+ *  you'd hidden in that region also unhides it there, since you asked for it. */
 export async function addToRegionChecklist(
   db: Pool | PoolClient,
   userId: string,
@@ -160,6 +206,7 @@ export async function addToRegionChecklist(
      ON CONFLICT DO NOTHING`,
     [userId, regionId, speciesId],
   );
+  await foldInnerAdditions(db, userId, { regionId, speciesId });
   await db.query(`DELETE FROM region_species_hidden WHERE user_id = $1 AND region_id = $2 AND species_id = $3`, [
     userId,
     regionId,
@@ -210,6 +257,8 @@ export async function regionChecklistAdditionRoutes(fastify: FastifyInstance): P
       if (!(await speciesExists(speciesId))) return reply.code(404).send({ error: "Species not found" });
 
       const added = await addToRegionChecklist(pool, userId, regionId, speciesId);
+      // A hand-added species gets that country's iNaturalist chart and tags (inatDistribution.ts).
+      void scheduleInatDistributionSync(userId, speciesId, regionId).catch(() => {});
       const catalog = await pool.query(`SELECT 1 FROM region_species WHERE region_id = $1 AND species_id = $2`, [
         regionId,
         speciesId,

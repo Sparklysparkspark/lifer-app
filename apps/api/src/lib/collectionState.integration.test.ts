@@ -17,6 +17,9 @@ const SP = [
   "ffffffff-0000-4000-8000-0000000000a4",
 ];
 const REGION = "ffffffff-0000-4000-8000-0000000000b1";
+// A province of REGION, and a hand-added (Other Taxa) species, for the restore fold.
+const SUBREGION = "ffffffff-0000-4000-8000-0000000000b2";
+const HAND = "ffffffff-0000-4000-8000-0000000000a5";
 const ZONE = "ffffffff-0000-4000-8000-0000000000c1";
 
 describe.skipIf(!url)("collection state record", () => {
@@ -72,7 +75,8 @@ describe.skipIf(!url)("collection state record", () => {
 
   afterAll(async () => {
     await db.query(`DELETE FROM users WHERE id = $1`, [USER]);
-    await db.query(`DELETE FROM species WHERE id = ANY($1)`, [SP]);
+    await db.query(`DELETE FROM species WHERE id = ANY($1)`, [[...SP, HAND]]);
+    await db.query(`DELETE FROM regions WHERE id = $1`, [SUBREGION]);
     await db.query(`DELETE FROM regions WHERE id = $1`, [REGION]);
     await db.query(`DELETE FROM sea_zones WHERE id = $1`, [ZONE]);
     await db.end();
@@ -159,5 +163,43 @@ describe.skipIf(!url)("collection state record", () => {
     tryRestoreCollectionStateOnce(USER);
     for (let i = 0; i < 50 && (await archived()) === 0; i++) await new Promise((r) => setTimeout(r, 50));
     expect(await archived()).toBe(1);
+  });
+
+  it("folds a hand-added species' province addition into its country one on restore", async () => {
+    const { saveCollectionState, restoreCollectionState } = await import("./collectionState.js");
+    await db.query(
+      `INSERT INTO regions (id, name, external_codes, parent_id) VALUES ($1, 'Stateland North', '{ZZ-ST-N}', $2)
+       ON CONFLICT (id) DO NOTHING`,
+      [SUBREGION, REGION],
+    );
+    await db.query(
+      `INSERT INTO species (id, gbif_key, scientific_name, common_name, taxon_class, is_other_taxa)
+       VALUES ($1, -911005, 'Statea handadded', 'State Bee', 'insecta', true) ON CONFLICT (id) DO NOTHING`,
+      [HAND],
+    );
+    // A backup from before additions folded: the province and the country both.
+    await db.query(`DELETE FROM region_species_user_added WHERE user_id = $1`, [USER]);
+    await db.query(
+      `INSERT INTO region_species_user_added (user_id, region_id, species_id) VALUES ($1, $2, $4), ($1, $3, $4)`,
+      [USER, REGION, SUBREGION, HAND],
+    );
+    await saveCollectionState(USER);
+    for (const table of [
+      "user_archived_species",
+      "region_species_hidden",
+      "user_species",
+      "user_tier_overrides",
+      "region_species_user_added",
+      "sea_zone_species_user_added",
+    ]) {
+      await db.query(`DELETE FROM ${table} WHERE user_id = $1`, [USER]);
+    }
+
+    await restoreCollectionState(USER);
+    const added = await db.query(
+      `SELECT region_id FROM region_species_user_added WHERE user_id = $1 AND species_id = $2`,
+      [USER, HAND],
+    );
+    expect(added.rows).toEqual([{ region_id: REGION }]);
   });
 });
