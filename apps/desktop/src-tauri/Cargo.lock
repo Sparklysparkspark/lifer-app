@@ -2298,8 +2298,13 @@ dependencies = [
 name = "lifer-desktop"
 version = "0.10.3"
 dependencies = [
+ "block2",
  "flate2",
  "getrandom 0.4.3",
+ "objc2",
+ "objc2-app-kit",
+ "objc2-foundation",
+ "objc2-web-kit",
  "postgresql_commands",
  "postgresql_embedded",
  "reqwest 0.12.28",
