@@ -21,6 +21,7 @@ export function isTauri(): boolean {
 export interface TauriWindow {
   isFullscreen(): Promise<boolean>;
   setFullscreen(fullscreen: boolean): Promise<void>;
+  onResized(handler: () => void): Promise<() => void>;
 }
 
 export function tauriCurrentWindow(): TauriWindow | null {

@@ -6,7 +6,8 @@ import { ThemeProvider } from "./components/ThemeProvider";
 import App from "./App";
 import LocaleBoundary from "./components/LocaleBoundary";
 import { applyLocalePreference, readCachedLocalePreference } from "./i18n";
-import { tauriInvoke } from "./lib/tauri";
+import { tauriCurrentWindow, tauriInvoke } from "./lib/tauri";
+import { ignore } from "./lib/ignore";
 import { startLocalApiSession } from "./lib/localApiSession";
 import "./index.css";
 
@@ -33,6 +34,16 @@ if (!window.liferSetup && invoke) {
 // [data-mac-app] header.page-header rule clears space for them.
 if (window.liferSetup?.platform === "darwin") {
   document.documentElement.setAttribute("data-mac-app", "");
+  // In full screen the traffic lights are gone, so is the space kept for them. Entering or leaving
+  // full screen always resizes the window.
+  const win = tauriCurrentWindow();
+  const syncFullscreen = () =>
+    win
+      ?.isFullscreen()
+      .then((fullscreen) => document.documentElement.toggleAttribute("data-fullscreen", fullscreen))
+      .catch(ignore("Couldn't read the fullscreen state"));
+  void syncFullscreen();
+  void win?.onResized(syncFullscreen).catch(ignore("Couldn't watch the window size"));
 }
 
 // Tauri routes target="_blank" links through the shell plugin's "open", which the capabilities
