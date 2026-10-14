@@ -7,7 +7,9 @@ import { FolderBrowser } from "../../components/FolderPicker";
 import { pickFolderNative } from "../../lib/pickFolderNative";
 import FormMessage from "../../components/FormMessage";
 import JobProgress from "../../components/JobProgress";
+import SegmentedControl from "../../components/SegmentedControl";
 import Select from "../../components/Select";
+import Switch from "../../components/Switch";
 import { useConfirm } from "../../hooks/useConfirm";
 import { useServerInfo } from "../../hooks/useDeploymentMode";
 import { useJobPoll } from "../../hooks/useJobPoll";
@@ -16,7 +18,8 @@ import { useToast } from "../../hooks/useToast";
 import { errorMessage } from "../../lib/errorMessage";
 import { pluralize, pluralWord } from "../../lib/pluralize";
 import { REIMPORT_PHASES } from "./phases";
-import { Card } from "./shared";
+import { SettingRow, SettingsGroup } from "./shared";
+import { formatList } from "../../lib/format";
 
 interface UnmatchedFile {
   relativePath: string;
@@ -64,12 +67,9 @@ function UnmatchedReviewPanel({ files, onIgnored }: { files: UnmatchedFile[]; on
   }
 
   return (
-    <div className="max-h-96 space-y-1 overflow-y-auto rounded-md border border-line bg-canvas p-2">
+    <div className="max-h-96 space-y-1 overflow-y-auto">
       {files.map((f, i) => (
-        <div
-          key={f.contentHash ?? f.relativePath}
-          className="flex items-center gap-3 rounded-md p-1.5 hover:bg-surface-muted"
-        >
+        <div key={f.contentHash ?? f.relativePath} className="flex items-center gap-3 py-1">
           {/* The index route can't bust the browser cache per file, so it gets the path as a key. */}
           <img
             src={
@@ -88,19 +88,21 @@ function UnmatchedReviewPanel({ files, onIgnored }: { files: UnmatchedFile[]; on
             <p className="truncate text-xs text-ink">{f.relativePath}</p>
             <p className="truncate text-[11px] text-muted">
               {f.scientificNames
-                ? `Matched more than one species: ${f.scientificNames.join(", ")}`
+                ? `Matched more than one species: ${formatList(f.scientificNames, "unit")}`
                 : "No species tag found"}
             </p>
           </div>
           {f.contentHash && (
-            <button
-              type="button"
+            <Button
+              variant="secondary"
+              size="sm"
               onClick={() => ignore(f.contentHash!)}
               disabled={ignoringHash !== null}
-              className="shrink-0 rounded-md border border-line px-2 py-1 text-[11px] text-ink hover:bg-surface-muted disabled:opacity-50"
+              loading={ignoringHash === f.contentHash}
+              className="shrink-0"
             >
-              {ignoringHash === f.contentHash ? "Ignoring…" : "Ignore"}
-            </button>
+              Ignore
+            </Button>
           )}
         </div>
       ))}
@@ -181,45 +183,37 @@ export default function LibraryReimportSection() {
   const missingReferenceData = status.result?.missingReferenceData ?? [];
   const relinked = status.jpegsRelinked + status.rawsRelinked;
 
+  const modes = [
+    { value: "existing", label: "Lifer library" },
+    { value: "foreign", label: "Another folder" },
+  ] as const;
+  const finished = !status.running && status.finishedAt !== null;
+
   return (
-    <Card
-      title="Reimport library"
-      learnMore="reimport"
-      description="Rebuild your species records straight from photos already on disk, for after a fresh install or server migration, to repair links after a drive got reconnected under a different name, or to bring in a library you've been keeping in a different app or folder layout."
-    >
-      <div className="flex rounded-md border border-line text-xs">
-        <button
-          type="button"
-          onClick={() => setMode("existing")}
-          disabled={busy}
-          aria-pressed={mode === "existing"}
-          className={`flex-1 rounded-l-md px-2.5 py-1.5 ${mode === "existing" ? "bg-accent text-accent-fg" : "text-muted hover:bg-surface-muted"}`}
-        >
-          Reimport my existing library
-        </button>
-        <button
-          type="button"
-          onClick={() => setMode("foreign")}
-          disabled={busy}
-          aria-pressed={mode === "foreign"}
-          className={`flex-1 rounded-r-md px-2.5 py-1.5 ${mode === "foreign" ? "bg-accent text-accent-fg" : "text-muted hover:bg-surface-muted"}`}
-        >
-          Import a library organized differently
-        </button>
-      </div>
+    <SettingsGroup title="Reimport">
+      <SettingRow
+        label="Source"
+        description={
+          mode === "existing"
+            ? "Rebuilds missing records after a fresh install or migration, and repairs links to a renamed drive."
+            : "Brings in photos from any folder layout, matched by the species tags in each file."
+        }
+        control={<SegmentedControl value={mode} onChange={(m) => !busy && setMode(m)} options={modes} />}
+      />
 
       {mode === "existing" ? (
-        <>
-          <p className="text-xs text-muted">
-            This only scans the one location you pick below, either your main library folder, or a single connected
-            drive or library folder, never everything at once. Pick "Main library" for a fresh install or server
-            migration; pick a specific drive if that drive's own photos have gone stale (path drifted after reconnecting
-            under a different name, for example).
-          </p>
-          {connectedVolumes.length > 0 && (
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-muted">Reimport from</label>
-              <Select variant="form" value={volumeId} onChange={(e) => setVolumeId(e.target.value)} disabled={busy}>
+        connectedVolumes.length > 0 && (
+          <SettingRow
+            label="Scan"
+            description="Only this one location is scanned. Pick a drive if its photos went stale."
+            control={
+              <Select
+                variant="form"
+                aria-label="Reimport from"
+                value={volumeId}
+                onChange={(e) => setVolumeId(e.target.value)}
+                disabled={busy}
+              >
                 <option value="">Main library</option>
                 {connectedVolumes.map((v) => (
                   <option key={v.id} value={v.id}>
@@ -227,24 +221,19 @@ export default function LibraryReimportSection() {
                   </option>
                 ))}
               </Select>
-            </div>
-          )}
-        </>
+            }
+          />
+        )
       ) : (
         <>
-          <p className="text-xs text-muted">
-            Point this at any folder of photos, however it's organized: Lightroom exports, a flat dump by date,
-            whatever. We'll match each photo to a species using tags already embedded in the file: its species name,
-            common name, or an older name it may have been tagged with before a taxonomic rename. Anything we can't
-            confidently match won't be touched. It's left in place and listed below, where you can review it or mark it
-            "Ignore" so it stops showing up on future scans (handy for e.g. a folder of insect photos this app doesn't
-            track).
-          </p>
-          <div className="space-y-1">
-            <label className="text-xs font-medium text-muted">Folder to import</label>
+          <SettingRow
+            label="Folder to import"
+            description="Photos it can't match are left in place and listed for review."
+          >
             <div className="flex gap-2">
               <input
                 type="text"
+                aria-label="Folder to import"
                 value={foreignPath}
                 onChange={(e) => setForeignPath(e.target.value)}
                 placeholder="/path/to/your/photos"
@@ -252,13 +241,13 @@ export default function LibraryReimportSection() {
                 className="w-full min-w-0 flex-1 rounded-md border border-line bg-surface px-2 py-1.5 text-sm text-ink"
               />
               <Button variant="secondary" size="sm" onClick={chooseForeignPath} disabled={busy} className="shrink-0">
-                Browse…
+                Browse
               </Button>
             </div>
             {isServer && serverInfo.libraryRoots.length === 0 && (
               <p className="text-xs text-muted">
-                On this server you can pick folders inside the library folder. To import from somewhere else, mount it
-                and declare it with LIFER_LIBRARY_ROOTS (see Settings &gt; Storage).
+                This server can only reach folders inside the library folder. Mount others and list them in
+                LIFER_LIBRARY_ROOTS (see Storage).
               </p>
             )}
             {browsingForeignPath && (
@@ -270,110 +259,105 @@ export default function LibraryReimportSection() {
                 onCancel={() => setBrowsingForeignPath(false)}
               />
             )}
-          </div>
-          <label className="flex items-center gap-2 text-xs text-ink">
-            <input
-              type="checkbox"
-              checked={organize}
-              onChange={(e) => setOrganize(e.target.checked)}
-              disabled={busy}
-              className="h-3.5 w-3.5"
-            />
-            Organize matched photos into species folders in my library (leave off to add them to Lifer without moving
-            the files from where they are now: you can migrate them into the folder scheme later from Settings &gt;
-            Library &gt; Photo library organization)
-          </label>
+          </SettingRow>
+          <SettingRow
+            label="Move into species folders"
+            description="Off adds photos to Lifer where they are. You can reorganize them later."
+            control={
+              <Switch label="Move into species folders" checked={organize} onChange={setOrganize} disabled={busy} />
+            }
+          />
         </>
       )}
 
-      <div className="space-y-1">
-        <label className="text-xs font-medium text-muted" htmlFor="reimport-cull-marks">
-          Photos a culling app marked rejected
-        </label>
-        <Select
-          id="reimport-cull-marks"
-          variant="form"
-          value={cullMarks}
-          onChange={(e) => setCullMarks(e.target.value as CullMarksOption)}
-          disabled={busy}
-        >
-          <option value="skip">Skip them</option>
-          <option value="hide">Import them hidden</option>
-          <option value="ignore">Import them anyway</option>
-        </Select>
-        <p className="text-xs text-muted">
-          Read from Lightroom, Photo Mechanic, digiKam and similar apps. Skipped photos stay on disk untouched; hidden
-          ones are found with the Gallery's Hidden filter.
-        </p>
-      </div>
+      <SettingRow
+        label="Rejected photos"
+        description="Rejects marked in Lightroom, Photo Mechanic, digiKam and similar. Hidden ones show under the Gallery's Hidden filter."
+        control={
+          <Select
+            id="reimport-cull-marks"
+            aria-label="Photos a culling app marked rejected"
+            variant="form"
+            value={cullMarks}
+            onChange={(e) => setCullMarks(e.target.value as CullMarksOption)}
+            disabled={busy}
+          >
+            <option value="skip">Skip them</option>
+            <option value="hide">Import them hidden</option>
+            <option value="ignore">Import them anyway</option>
+          </Select>
+        }
+      />
 
-      <div className="flex items-center gap-2">
-        <Button variant="secondary" size="sm" onClick={start} disabled={busy || (mode === "foreign" && !foreignPath)}>
-          {status.running ? "Importing…" : mode === "foreign" ? "Import library now" : "Reimport library now"}
-        </Button>
-      </div>
-      {status.running && (
-        <JobProgress
-          status={status}
-          phases={REIMPORT_PHASES}
-          detail={`Photos: ${status.processedJpegs} of ${status.totalJpegs} · RAW files: ${status.processedRaws} of ${status.totalRaws}`}
-          onCancel={cancel}
-          cancelling={job.cancelling}
-        />
-      )}
-      {!status.running && status.finishedAt !== null && status.cancelled && (
-        <p className="text-xs text-muted">
-          Cancelled. Files already in progress when you cancelled were still recorded below.
-        </p>
-      )}
-      {!status.running && status.finishedAt !== null && (
-        <div className="space-y-2 text-xs text-muted">
-          <p>
-            Recovered {pluralize(status.jpegsRecovered, "photo")}
-            {status.jpegsAlreadyKnown > 0 && ` (${status.jpegsAlreadyKnown} already known)`}
-            {status.rawsRecovered > 0 && ` and matched ${pluralize(status.rawsRecovered, "RAW file")}`}.
-          </p>
-          {relinked > 0 && <p>Repaired {pluralize(relinked, "file")} whose saved location had drifted.</p>}
-          {status.jpegsIgnored > 0 && <p>Skipped {pluralize(status.jpegsIgnored, "previously-ignored file")}.</p>}
-          {status.jpegsRejected > 0 && (
-            <p>Skipped {pluralize(status.jpegsRejected, "photo")} a culling app marked rejected.</p>
-          )}
-          {status.jpegsHidden > 0 && <p>Imported {pluralize(status.jpegsHidden, "rejected photo")} hidden.</p>}
-          {status.unmatched.length > 0 && (
-            <div>
-              <button
-                type="button"
-                onClick={() => setShowUnmatched((v) => !v)}
-                className="text-ink underline hover:no-underline"
-              >
-                {showUnmatched ? "Hide" : "Review"} unmatched ({status.unmatched.length})
-              </button>
-              {showUnmatched && (
-                <div className="mt-2">
-                  <UnmatchedReviewPanel files={status.unmatched} onIgnored={job.refresh} />
-                </div>
-              )}
-            </div>
-          )}
-          {status.rawsUnmatched > 0 && (
-            <p>{pluralize(status.rawsUnmatched, "RAW file")} couldn't be matched to a recovered photo.</p>
-          )}
-          {missingReferenceData.length > 0 && (
+      <SettingRow
+        label={mode === "foreign" ? "Import library" : "Reimport library"}
+        description={
+          finished && status.cancelled
+            ? "Cancelled. Files already in progress were still recorded."
+            : "Never changes your files unless you choose to move them."
+        }
+        control={
+          <Button variant="secondary" size="sm" onClick={start} disabled={busy || (mode === "foreign" && !foreignPath)}>
+            {status.running ? "Importing…" : mode === "foreign" ? "Import" : "Reimport"}
+          </Button>
+        }
+      >
+        {status.running && (
+          <JobProgress
+            status={status}
+            phases={REIMPORT_PHASES}
+            detail={`Photos: ${status.processedJpegs} of ${status.totalJpegs} · RAW files: ${status.processedRaws} of ${status.totalRaws}`}
+            onCancel={cancel}
+            cancelling={job.cancelling}
+          />
+        )}
+        {finished && (
+          <div className="space-y-1 text-xs text-muted">
             <p>
-              {missingReferenceData.length} recovered species {pluralWord(missingReferenceData.length, "is", "are")}{" "}
-              missing reference photos/descriptions,{" "}
-              <Link
-                to={`/offline-packs?missing=${encodeURIComponent(missingReferenceData.join(","))}`}
-                className="underline hover:no-underline"
-              >
-                see which packs would restore them
-              </Link>
-              .
+              Recovered {pluralize(status.jpegsRecovered, "photo")}
+              {status.jpegsAlreadyKnown > 0 && ` (${status.jpegsAlreadyKnown} already known)`}
+              {status.rawsRecovered > 0 && ` and matched ${pluralize(status.rawsRecovered, "RAW file")}`}.
             </p>
-          )}
-        </div>
+            {relinked > 0 && <p>Repaired {pluralize(relinked, "file")} whose saved location had drifted.</p>}
+            {status.jpegsIgnored > 0 && <p>Skipped {pluralize(status.jpegsIgnored, "previously-ignored file")}.</p>}
+            {status.jpegsRejected > 0 && (
+              <p>Skipped {pluralize(status.jpegsRejected, "photo")} a culling app marked rejected.</p>
+            )}
+            {status.jpegsHidden > 0 && <p>Imported {pluralize(status.jpegsHidden, "rejected photo")} hidden.</p>}
+            {status.rawsUnmatched > 0 && (
+              <p>{pluralize(status.rawsUnmatched, "RAW file")} couldn't be matched to a recovered photo.</p>
+            )}
+            {missingReferenceData.length > 0 && (
+              <p>
+                {missingReferenceData.length} recovered species {pluralWord(missingReferenceData.length, "is", "are")}{" "}
+                missing reference photos and descriptions.{" "}
+                <Link
+                  to={`/offline-packs?missing=${encodeURIComponent(missingReferenceData.join(","))}`}
+                  className="underline hover:no-underline"
+                >
+                  See which packs restore them
+                </Link>
+                .
+              </p>
+            )}
+          </div>
+        )}
+        <FormMessage error={job.actionError ?? status.error} />
+      </SettingRow>
+
+      {finished && status.unmatched.length > 0 && (
+        <SettingRow
+          label="Unmatched photos"
+          description={`${pluralize(status.unmatched.length, "photo")} couldn't be matched to one species. Ignore one to skip it on future scans.`}
+          control={
+            <Button variant="secondary" size="sm" onClick={() => setShowUnmatched((v) => !v)}>
+              {showUnmatched ? "Hide" : "Review"}
+            </Button>
+          }
+        >
+          {showUnmatched && <UnmatchedReviewPanel files={status.unmatched} onIgnored={job.refresh} />}
+        </SettingRow>
       )}
-      <FormMessage error={job.actionError ?? status.error} />
-    </Card>
+    </SettingsGroup>
   );
 }

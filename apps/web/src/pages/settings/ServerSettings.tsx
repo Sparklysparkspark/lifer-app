@@ -5,34 +5,28 @@ import FormMessage from "../../components/FormMessage";
 import InlineSpinner from "../../components/InlineSpinner";
 import JobProgress from "../../components/JobProgress";
 import PasswordInput from "../../components/PasswordInput";
+import Switch from "../../components/Switch";
 import { useConfirm } from "../../hooks/useConfirm";
 import { useMigrationStatus } from "../../hooks/useMigrationStatus";
 import { errorMessage } from "../../lib/errorMessage";
 import { isInsecurePublicUrl } from "../../lib/privateHost";
 import { chooseConnection, openLocalLibrary } from "../../lib/desktopConnection";
 import type { DesktopBridgeConfig } from "../../types/liferSetup";
-import { Card, inputClass } from "./shared";
+import { SettingRow, SettingsGroup, inputClass } from "./shared";
 import OfflineCacheSetting from "./OfflineCacheSetting";
+import { formatList } from "../../lib/format";
 
 export default function ServerSettings() {
-  return (
-    <>
-      <ServerSection />
-      <AutomaticUrlSwitchingSection />
-    </>
-  );
+  return <ServerSection />;
 }
 
 function InsecureUrlWarning({ urls }: { urls: string[] }) {
   const insecure = urls.filter(isInsecurePublicUrl);
   if (insecure.length === 0) return null;
   return (
-    <p
-      role="status"
-      className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-300"
-    >
-      {insecure.join(", ")} uses plain http on a public network, so your password and photos travel unencrypted. Use
-      https:// if your server supports it.
+    <p role="status" className="text-xs text-amber-700 dark:text-amber-300">
+      {formatList(insecure, "unit")} uses plain http on a public network, so your password and photos travel
+      unencrypted. Use https:// if your server supports it.
     </p>
   );
 }
@@ -176,125 +170,63 @@ function ServerSection() {
         ? `Showing the library on ${config.localUrl} (or ${config.externalUrls[0]} away from home).`
         : `Showing the library on ${config.serverUrl}.`;
     return (
-      <Card title="Connect a server" description={connectionDescription} learnMore="connect-a-server">
-        <FormMessage error={error} />
-        <Button variant="secondary" size="sm" onClick={switchToLocal} loading={busy}>
-          Switch to local library
-        </Button>
+      <SettingsGroup title="Connection">
+        <SettingRow
+          label="Server"
+          description={connectionDescription}
+          control={
+            <Button variant="secondary" size="sm" onClick={switchToLocal} loading={busy}>
+              Use local library
+            </Button>
+          }
+        >
+          {error && <FormMessage error={error} />}
+        </SettingRow>
         <OfflineCacheSetting />
-      </Card>
+        <AutomaticUrlSwitchingRows />
+      </SettingsGroup>
     );
   }
 
   const offlineCacheToggle = (
-    <label className="flex items-start gap-2 text-sm text-ink">
-      <input
-        type="checkbox"
-        checked={offlineMode}
-        onChange={(e) => setOfflineMode(e.target.checked)}
-        className="mt-0.5"
-      />
-      <span>
-        Keep an offline cache after connecting. Low-res cover photos and your collected/seen status stay browsable here
-        even if this computer loses its connection to the server.
-      </span>
-    </label>
+    <div className="flex items-center justify-between gap-item">
+      <div>
+        <p className="text-sm text-ink">Keep an offline cache</p>
+        <p className="text-xs text-muted">Covers and collected status stay browsable if the server is unreachable.</p>
+      </div>
+      <Switch label="Keep an offline cache" checked={offlineMode} onChange={setOfflineMode} />
+    </div>
   );
 
   return (
     <>
-      <Card
-        title="Sign in to a server"
-        learnMore="sign-in-to-a-server"
-        description="Already have a library on a Lifer server elsewhere? Point the app to view and manage it directly. Connecting a server also enables you to migrate files you have stored locally to the server, allowing you to use Lifer offline on the go in the app, and push your files once you're back online."
-      >
-        {!connected ? (
-          <form onSubmit={checkConnection} className="space-y-2">
-            <div className="flex flex-col gap-2 sm:flex-row">
-              <input
-                type="text"
-                placeholder="https://lifer.example.com"
-                value={signInUrl}
-                onChange={(e) => setSignInUrl(e.target.value)}
-                required
-                className={inputClass}
-              />
-              <Button type="submit" loading={connecting} className="whitespace-nowrap">
-                {connecting ? "Connecting…" : "Connect"}
-              </Button>
-            </div>
-            <InsecureUrlWarning urls={[signInUrl]} />
-          </form>
-        ) : (
-          <form onSubmit={signIn} className="space-y-3">
-            <p className="text-sm text-green-700 dark:text-green-400">Connected to {signInUrl}.</p>
-            <InsecureUrlWarning urls={[signInUrl]} />
-            <input
-              type="email"
-              placeholder="Email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-              className={inputClass}
-            />
-            <PasswordInput
-              placeholder="Password"
-              value={password}
-              onChange={setPassword}
-              required
-              autoComplete="current-password"
-              className={inputClass}
-            />
-            {offlineCacheToggle}
-            <div className="flex items-center gap-3">
-              <Button type="submit" loading={signingIn || busy}>
-                {signingIn || busy ? "Signing in…" : "Sign in"}
-              </Button>
-              <button
-                type="button"
-                onClick={() => {
-                  setConnected(false);
-                  setError(null);
-                }}
-                className="text-sm text-muted underline"
-              >
-                Use a different address
-              </button>
-            </div>
-          </form>
-        )}
-        <FormMessage error={error} />
-      </Card>
-
-      {connected && (
-        <Card
-          title="Migrate your library to a server"
-          learnMore="migrate"
-          description="Move your library to a Lifer server you run elsewhere. Migrate your photos up, confirm nothing failed, then switch this window over. Your local copies stay put until you separately choose to delete them."
-        >
-          {status?.running ? (
-            <JobProgress
-              status={status}
-              phases={{ uploading: { label: `Migrating to ${status.serverUrl ?? "the server"}`, progress: "count" } }}
-              fallbackLabel={`Migrating to ${status.serverUrl ?? "the server"}`}
-              detail={`${status.migrated} migrated, ${status.skipped} skipped, ${status.failed} failed so far.${status.currentItem ? ` Now: ${status.currentItem}` : ""}`}
-              onCancel={() => void migrationJob.cancel("/settings/migrate-to-server/cancel")}
-              cancelling={migrationJob.cancelling}
-            />
+      <SettingsGroup title="Server">
+        <SettingRow label="Sign in to a server" description="View and manage a library on a Lifer server you run.">
+          {!connected ? (
+            <form onSubmit={checkConnection} className="max-w-md space-y-2">
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <input
+                  type="text"
+                  aria-label="Server address"
+                  placeholder="https://lifer.example.com"
+                  value={signInUrl}
+                  onChange={(e) => setSignInUrl(e.target.value)}
+                  required
+                  className={inputClass}
+                />
+                <Button type="submit" variant="secondary" size="sm" loading={connecting} className="whitespace-nowrap">
+                  {connecting ? "Connecting…" : "Connect"}
+                </Button>
+              </div>
+              <InsecureUrlWarning urls={[signInUrl]} />
+            </form>
           ) : (
-            <form onSubmit={migrate} className="space-y-3">
-              <input
-                type="text"
-                placeholder="https://lifer.example.com"
-                value={serverUrl}
-                onChange={(e) => setServerUrl(e.target.value)}
-                required
-                className={inputClass}
-              />
-              <InsecureUrlWarning urls={[serverUrl]} />
+            <form onSubmit={signIn} className="max-w-md space-y-2">
+              <p className="text-xs text-green-700 dark:text-green-400">Connected to {signInUrl}.</p>
+              <InsecureUrlWarning urls={[signInUrl]} />
               <input
                 type="email"
-                placeholder="Email on that server"
+                placeholder="Email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
@@ -309,39 +241,120 @@ function ServerSection() {
                 className={inputClass}
               />
               {offlineCacheToggle}
-              <FormMessage error={error ?? status?.error ?? null} />
-              <Button type="submit" loading={starting}>
-                {starting ? "Starting…" : "Migrate my library"}
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button type="submit" variant="secondary" size="sm" loading={signingIn || busy}>
+                  {signingIn || busy ? "Signing in…" : "Sign in"}
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => {
+                    setConnected(false);
+                    setError(null);
+                  }}
+                >
+                  Use a different address
+                </Button>
+              </div>
             </form>
           )}
+          {error && <FormMessage error={error} />}
+        </SettingRow>
+      </SettingsGroup>
+
+      {connected && (
+        <SettingsGroup title="Migrate">
+          <SettingRow
+            label="Migrate this library"
+            description="Uploads your local photos to the server. Local copies stay until you delete them."
+          >
+            {status?.running ? (
+              <JobProgress
+                status={status}
+                phases={{ uploading: { label: `Migrating to ${status.serverUrl ?? "the server"}`, progress: "count" } }}
+                fallbackLabel={`Migrating to ${status.serverUrl ?? "the server"}`}
+                detail={`${status.migrated} migrated, ${status.skipped} skipped, ${status.failed} failed so far.${status.currentItem ? ` Now: ${status.currentItem}` : ""}`}
+                onCancel={() => void migrationJob.cancel("/settings/migrate-to-server/cancel")}
+                cancelling={migrationJob.cancelling}
+              />
+            ) : (
+              <form onSubmit={migrate} className="max-w-md space-y-2">
+                <input
+                  type="text"
+                  aria-label="Server address"
+                  placeholder="https://lifer.example.com"
+                  value={serverUrl}
+                  onChange={(e) => setServerUrl(e.target.value)}
+                  required
+                  className={inputClass}
+                />
+                <InsecureUrlWarning urls={[serverUrl]} />
+                <input
+                  type="email"
+                  placeholder="Email on that server"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                  className={inputClass}
+                />
+                <PasswordInput
+                  placeholder="Password"
+                  value={password}
+                  onChange={setPassword}
+                  required
+                  autoComplete="current-password"
+                  className={inputClass}
+                />
+                {offlineCacheToggle}
+                <FormMessage error={error ?? status?.error ?? null} />
+                <Button type="submit" variant="secondary" size="sm" loading={starting}>
+                  {starting ? "Starting…" : "Migrate"}
+                </Button>
+              </form>
+            )}
+          </SettingRow>
 
           {status && !status.running && status.finishedAt != null && (
-            <div className="space-y-3 border-t border-line pt-3">
-              <p
-                className={
-                  cleanMigration
-                    ? "text-sm text-green-700 dark:text-green-400"
-                    : "text-sm text-rose-700 dark:text-rose-400"
+            <>
+              <SettingRow
+                label="Switch to the server"
+                description={
+                  <span
+                    className={
+                      cleanMigration ? "text-green-700 dark:text-green-400" : "text-rose-700 dark:text-rose-400"
+                    }
+                  >
+                    {status.cancelled ? "Last run was cancelled: " : "Last run: "}migrated {status.migrated} of{" "}
+                    {status.total ?? "?"} ({status.skipped} skipped, {status.failed} failed).
+                  </span>
                 }
-              >
-                {status.cancelled ? "Last run was cancelled: " : "Last run: "}migrated {status.migrated} of{" "}
-                {status.total ?? "?"} ({status.skipped} skipped, {status.failed} failed).
-              </p>
-              <div className="flex flex-wrap gap-2">
-                <Button onClick={() => connectToServer(serverUrl)} loading={busy}>
-                  Switch this window to the server
-                </Button>
-                {cleanMigration && !deleted && (
-                  <Button variant="danger" size="sm" onClick={deleteLocalFiles} loading={deleting}>
-                    {deleting ? "Deleting…" : "Delete local files now that they're on the server"}
+                control={
+                  <Button variant="secondary" size="sm" onClick={() => connectToServer(serverUrl)} loading={busy}>
+                    Switch
                   </Button>
-                )}
-              </div>
-              <FormMessage error={deleteError} success={deleted ? "Local files deleted." : null} />
-            </div>
+                }
+              />
+              {(cleanMigration && !deleted) || deleteError || deleted ? (
+                <SettingRow
+                  label="Delete local files"
+                  description="Frees this computer's space now that everything is on the server. Can't be undone."
+                  control={
+                    cleanMigration &&
+                    !deleted && (
+                      <Button variant="danger" size="sm" onClick={deleteLocalFiles} loading={deleting}>
+                        {deleting ? "Deleting…" : "Delete"}
+                      </Button>
+                    )
+                  }
+                >
+                  {(deleteError || deleted) && (
+                    <FormMessage error={deleteError} success={deleted ? "Local files deleted." : null} />
+                  )}
+                </SettingRow>
+              ) : null}
+            </>
           )}
-        </Card>
+        </SettingsGroup>
       )}
     </>
   );
@@ -354,7 +367,7 @@ interface ExternalEndpoint {
 
 // Only once connected to a remote server: prefer a local address while on a named Wi-Fi network,
 // otherwise try an ordered list of external ones (see store.rs/lib.rs apply_config).
-function AutomaticUrlSwitchingSection() {
+function AutomaticUrlSwitchingRows() {
   const [config, setConfig] = useState<DesktopBridgeConfig | null>(null);
   const [enabled, setEnabled] = useState(false);
   const [localUrl, setLocalUrl] = useState("");
@@ -436,53 +449,57 @@ function AutomaticUrlSwitchingSection() {
     setSaving(false);
   }
 
-  const title = "Automatic URL switching";
-  const description = "Connect locally over designated Wi-Fi when available and use alternative connections elsewhere.";
+  const label = "Automatic address switching";
+  const description = "Use a local address on your home Wi-Fi and other addresses elsewhere.";
 
   if (!enabled) {
     return (
-      <Card title={title} description={description} learnMore="url-switching">
-        <Button onClick={() => setEnabled(true)}>Set up</Button>
-      </Card>
+      <SettingRow
+        label={label}
+        description={description}
+        control={
+          <Button variant="secondary" size="sm" onClick={() => setEnabled(true)}>
+            Set up
+          </Button>
+        }
+      />
     );
   }
 
   return (
-    <Card title={title} description={description} learnMore="url-switching">
-      <div className="space-y-3">
-        <div>
-          <p className="text-sm font-medium text-ink">Local network</p>
-          <p className="mt-0.5 text-sm text-muted">
-            The app will connect to the server through this URL when using the specified Wi-Fi network.
-          </p>
-          <div className="mt-2 flex flex-col gap-2 sm:flex-row">
-            <input
-              type="text"
-              placeholder="http://192.168.1.10:4310"
-              value={localUrl}
-              onChange={(e) => setLocalUrl(e.target.value)}
-              className={inputClass}
-            />
-            <input
-              type="text"
-              placeholder="Wi-Fi network name"
-              value={localNetworkName}
-              onChange={(e) => setLocalNetworkName(e.target.value)}
-              className={inputClass}
-            />
-          </div>
-          <Button variant="secondary" size="sm" onClick={useCurrentConnection} disabled={usingCurrent} className="mt-2">
-            {usingCurrent ? "Reading current connection…" : "Use current connection"}
+    <>
+      <SettingRow label={label} description={description} />
+      <SettingRow
+        label="Home network"
+        description="Used while on this Wi-Fi network."
+        control={
+          <Button variant="secondary" size="sm" onClick={useCurrentConnection} loading={usingCurrent}>
+            Use current connection
           </Button>
+        }
+      >
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <input
+            type="text"
+            aria-label="Local address"
+            placeholder="http://192.168.1.10:4310"
+            value={localUrl}
+            onChange={(e) => setLocalUrl(e.target.value)}
+            className={inputClass}
+          />
+          <input
+            type="text"
+            aria-label="Wi-Fi network name"
+            placeholder="Wi-Fi network name"
+            value={localNetworkName}
+            onChange={(e) => setLocalNetworkName(e.target.value)}
+            className={inputClass}
+          />
         </div>
-
-        <div>
-          <p className="text-sm font-medium text-ink">External networks</p>
-          <p className="mt-0.5 text-sm text-muted">
-            When not on the preferred Wi-Fi network, the app will connect to the server through the first of the below
-            URLs it can reach, starting from the top to bottom.
-          </p>
-          <ul className="mt-2 space-y-1.5">
+      </SettingRow>
+      <SettingRow label="Other addresses" description="Elsewhere, the first one that answers is used. Drag to reorder.">
+        {externalUrls.length > 0 && (
+          <ul className="divide-y divide-line">
             {externalUrls.map((entry, index) => (
               <li
                 key={entry.url}
@@ -495,7 +512,7 @@ function AutomaticUrlSwitchingSection() {
                   if (dragIndex.current !== null && dragIndex.current !== index) reorder(dragIndex.current, index);
                   dragIndex.current = null;
                 }}
-                className="flex items-center gap-2 rounded-md border border-line bg-surface px-2 py-1.5 text-sm"
+                className="flex items-center gap-2 py-1.5 text-sm"
               >
                 <span className="cursor-grab text-muted" aria-hidden="true">
                   ⠿
@@ -523,28 +540,39 @@ function AutomaticUrlSwitchingSection() {
               </li>
             ))}
           </ul>
-          <div className="mt-2 flex gap-2">
-            <input
-              type="text"
-              placeholder="https://lifer.example.com"
-              value={newExternalUrl}
-              onChange={(e) => setNewExternalUrl(e.target.value)}
-              className={inputClass}
-            />
-            <Button variant="secondary" size="sm" onClick={addExternalUrl} className="whitespace-nowrap">
-              Add
-            </Button>
-          </div>
-          <div className="mt-2">
-            <InsecureUrlWarning urls={[localUrl, newExternalUrl, ...externalUrls.map((e) => e.url)]} />
-          </div>
+        )}
+        <div className="flex gap-2">
+          <input
+            type="text"
+            aria-label="New address"
+            placeholder="https://lifer.example.com"
+            value={newExternalUrl}
+            onChange={(e) => setNewExternalUrl(e.target.value)}
+            className={inputClass}
+          />
+          <Button variant="secondary" size="sm" onClick={addExternalUrl} className="whitespace-nowrap">
+            Add
+          </Button>
         </div>
-
-        <FormMessage error={error} success={saved ? "Saved." : null} />
-        <Button onClick={save} loading={saving} disabled={!localUrl || externalUrls.length === 0}>
-          {saving ? "Saving…" : "Save"}
-        </Button>
-      </div>
-    </Card>
+        <InsecureUrlWarning urls={[localUrl, newExternalUrl, ...externalUrls.map((e) => e.url)]} />
+      </SettingRow>
+      <SettingRow
+        label="Save addresses"
+        description="Needs a home address and at least one other."
+        control={
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={save}
+            loading={saving}
+            disabled={!localUrl || externalUrls.length === 0}
+          >
+            {saving ? "Saving…" : "Save"}
+          </Button>
+        }
+      >
+        {(error || saved) && <FormMessage error={error} success={saved ? "Saved." : null} />}
+      </SettingRow>
+    </>
   );
 }

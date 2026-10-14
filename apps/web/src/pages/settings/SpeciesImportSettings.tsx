@@ -3,119 +3,118 @@ import { Link } from "react-router-dom";
 import { api } from "../../api/client";
 import AddOtherTaxaModal from "../../components/AddOtherTaxaModal";
 import Button from "../../components/Button";
-import EbirdImport from "../../components/EbirdImport";
+import EbirdImportRow from "./EbirdImportRow";
 import FormMessage from "../../components/FormMessage";
 import { useConfirm } from "../../hooks/useConfirm";
 import { useSettings } from "../../hooks/useSettings";
 import { errorMessage } from "../../lib/errorMessage";
-import { Card, SettingToggleCard } from "./shared";
+import { SettingRow, SettingSwitchRow, SettingsGroup } from "./shared";
 import { useServerSetting } from "./useServerSetting";
 
 export default function SpeciesImportSettings() {
   return (
     <>
-      <SpeciesSuggestSection />
-      <AnyTaxaSearchSection />
-      <SpeciesNamingSection />
-      <EbirdImport onImported={() => {}} />
-      <HideObscureSpeciesSection />
-      <TechnicalDivingSection />
+      <SettingsGroup title="Identification">
+        <SpeciesSuggestRow />
+        <InatSearchRows />
+      </SettingsGroup>
+      <SettingsGroup title="Species names">
+        <SpeciesNamingRows />
+      </SettingsGroup>
+      <SettingsGroup title="Checklists">
+        <HideObscureSpeciesRow />
+        <TechnicalDivingRow />
+        <EbirdImportRow />
+      </SettingsGroup>
     </>
   );
 }
 
 // Suggestions are computed on-device and improve as confirmed imports add the user's own photos.
-function SpeciesSuggestSection() {
+function SpeciesSuggestRow() {
   const setting = useServerSetting("speciesSuggestEnabled", "/settings/species-suggest");
   const [modelDownloaded, setModelDownloaded] = useState<boolean | null>(null);
 
   useEffect(() => {
     api
-      .get<{ downloaded: boolean; usable?: boolean }>("/settings/embedding-model/status")
+      .get("/settings/embedding-model/status")
       .then((res) => setModelDownloaded(res.usable ?? res.downloaded))
       .catch(() => setModelDownloaded(null));
   }, []);
 
-  // Offloading the model turns this off server-side, so the checkbox can't claim a suggestion
+  // Offloading the model turns this off server-side, so the switch can't claim a suggestion
   // source that doesn't exist.
   const modelMissing = modelDownloaded === false;
 
   return (
-    <SettingToggleCard
+    <SettingSwitchRow
       setting={setting}
-      learnMore="species-suggestions"
-      title={
-        <>
-          Species suggestions{" "}
-          <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700">
-            Experimental
-          </span>
-        </>
+      label="Suggest species while importing"
+      description={
+        modelMissing ? (
+          <>
+            Needs the species-matching model.{" "}
+            <Link to="/settings/offline-data" className="underline hover:text-ink">
+              Download it in Offline data
+            </Link>
+            .
+          </>
+        ) : (
+          "Matches each photo against your own photos and reference photos, on this device."
+        )
       }
-      description="While importing photos, Lifer suggests likely species for each one based on visual similarity to your own past photos and to reference photos for that region. Nothing ever leaves your device. It gets better for you specifically over time: whenever you confirm or correct a suggestion, that photo becomes one more example it learns from."
-      label="Suggest species while importing photos"
       checked={!!setting.value && !modelMissing}
       disabled={modelMissing}
-    >
-      {modelMissing && (
-        <p className="text-sm text-muted">
-          Requires the species-matching model, which isn't downloaded.{" "}
-          <Link to="/settings/offline-data" className="text-accent hover:underline">
-            Download it from Offline data
-          </Link>{" "}
-          to re-enable this.
-        </p>
-      )}
-    </SettingToggleCard>
+    />
   );
 }
 
 // Off by default: a live iNaturalist lookup that creates species rows for taxa Lifer has no dataset for.
-function AnyTaxaSearchSection() {
+function InatSearchRows() {
   const setting = useServerSetting("anyTaxaSearchEnabled", "/settings/any-taxa-search");
   const [modalOpen, setModalOpen] = useState(false);
 
   return (
-    <SettingToggleCard
-      setting={setting}
-      learnMore="any-taxa-search"
-      title="Any-taxa search"
-      description="Lifer doesn't have a real dataset for every taxon (insects, arachnids, plants, fungi, and more), so species tiers and occurrence data aren't offered for these. When enabled, jumping to a species with no local match offers a live iNaturalist search instead. Pick a result and a region to add it under Other Taxa on the Collection page, with its photo and description pulled from iNaturalist."
-      label="Enable any-taxa search"
-    >
+    <>
+      <SettingSwitchRow
+        setting={setting}
+        label="Search iNaturalist for other species"
+        description="For insects, plants, fungi and anything else Lifer's lists don't cover. Sends your search to iNaturalist."
+      />
       {setting.value && (
-        <Button variant="secondary" size="sm" onClick={() => setModalOpen(true)}>
-          Search iNaturalist for a species to add
-        </Button>
+        <SettingRow
+          label="Add a species from iNaturalist"
+          control={
+            <Button variant="secondary" size="sm" onClick={() => setModalOpen(true)}>
+              Search
+            </Button>
+          }
+        />
       )}
       {modalOpen && <AddOtherTaxaModal initialQuery="" onClose={() => setModalOpen(false)} />}
-    </SettingToggleCard>
+    </>
   );
 }
 
-function HideObscureSpeciesSection() {
+function HideObscureSpeciesRow() {
   const setting = useServerSetting("hideObscureSpecies", "/settings/hide-obscure-species");
   return (
-    <SettingToggleCard
+    <SettingSwitchRow
       setting={setting}
-      learnMore="obscure-species"
-      title="Obscure and inaccessible species"
-      description="Hides deep-water fish (beyond recreational/technical diving depth) and species with almost no historical record, mostly ones nobody will realistically encounter. Anything you've already collected or seen always stays visible regardless."
-      label="Hide obscure/inaccessible species from region checklists"
+      label="Hide obscure species"
+      description="Deep-water fish and species with almost no records. Ones you've seen always show."
     />
   );
 }
 
 // Separate from the filter above because most photographers never get near 120m.
-function TechnicalDivingSection() {
+function TechnicalDivingRow() {
   const setting = useServerSetting("technicalDiving", "/settings/technical-diving");
   return (
-    <SettingToggleCard
+    <SettingSwitchRow
       setting={setting}
-      learnMore="obscure-species"
-      title="Technical diving"
-      description="Recreational diving tops out around 50-60m, so that's the default range for the obscure-species filter above. Turn this on if you're technical-certified and want the deeper 120m range instead."
-      label="Use technical diving depth range (120m) instead of recreational (60m)"
+      label="Technical diving depths"
+      description="Counts fish down to 120m as reachable, instead of 60m."
     />
   );
 }
@@ -133,16 +132,16 @@ const NAMING_STYLE_LABEL: Record<NamingStyle, string> = {
 };
 
 const NAMING_STYLE_HINT: Record<NamingStyle, string> = {
-  common: 'e.g. "American Robin"',
-  latin: 'e.g. "Turdus migratorius"',
-  ebird_code: "6 letters, every bird worldwide",
-  aba_code: "4 letters, North America/Mexico/Central America/Caribbean birds only",
-  tree: 'e.g. "Aves / Passeriformes / Turdidae / Turdus migratorius"',
+  common: "American Robin",
+  latin: "Turdus migratorius",
+  ebird_code: "amerob, birds only",
+  aba_code: "AMRO, North and Central American birds",
+  tree: "Aves / Passeriformes / Turdidae / Turdus migratorius",
 };
 
 // An ordered list rather than checkboxes: the first part a species has becomes the primary name,
 // the rest go in parens (see composeSpeciesName).
-function SpeciesNamingSection() {
+function SpeciesNamingRows() {
   const { settings, setLocal } = useSettings();
   const confirm = useConfirm();
   const [saving, setSaving] = useState(false);
@@ -182,9 +181,7 @@ function SpeciesNamingSection() {
     setError(null);
     setUpdateResult(null);
     try {
-      const res = await api.post<{ moved: number; skipped: number; failed: number; total: number }>(
-        "/settings/reorganize-originals",
-      );
+      const res = await api.post("/settings/reorganize-originals");
       setUpdateResult(
         `Updated ${res.moved} of ${res.total} photos to match (${res.skipped} already matched, ${res.failed} failed).`,
       );
@@ -219,61 +216,69 @@ function SpeciesNamingSection() {
   const ordered = [...styles, ...available.filter((s) => !styles.includes(s))];
 
   return (
-    <Card
-      title="Species naming"
-      learnMore="species-naming"
-      description="What shows in a species' folder name and embedded photo tags: pick any combination, in any order. The first part a species actually has comes first; the rest follow in parens. eBird/ABA codes only apply to birds and are silently skipped for everything else."
-    >
-      <div className="flex flex-col gap-1.5 text-sm text-ink">
-        {ordered.map((style) => {
-          const selected = styles.includes(style);
-          const selectedIdx = styles.indexOf(style);
-          return (
-            <div key={style} className="flex items-center gap-2 rounded-md px-1.5 py-1 hover:bg-surface-muted">
-              <input type="checkbox" checked={selected} disabled={saving} onChange={() => toggle(style)} />
-              <span className="flex-1">
-                {NAMING_STYLE_LABEL[style]} <span className="text-xs text-muted">({NAMING_STYLE_HINT[style]})</span>
-              </span>
-              {selected && (
-                <div className="flex items-center gap-0.5">
-                  <button
-                    type="button"
-                    disabled={saving || selectedIdx === 0}
-                    onClick={() => move(style, -1)}
-                    className="rounded px-1 text-muted hover:bg-surface disabled:opacity-30"
-                    aria-label={`Move ${NAMING_STYLE_LABEL[style]} up`}
-                  >
-                    ↑
-                  </button>
-                  <button
-                    type="button"
-                    disabled={saving || selectedIdx === styles.length - 1}
-                    onClick={() => move(style, 1)}
-                    className="rounded px-1 text-muted hover:bg-surface disabled:opacity-30"
-                    aria-label={`Move ${NAMING_STYLE_LABEL[style]} down`}
-                  >
-                    ↓
-                  </button>
-                </div>
-              )}
-            </div>
-          );
-        })}
+    <>
+      <SettingRow
+        label="Name format"
+        description="For species folders and photo tags. The first part a species has leads; the rest follow in brackets."
+      >
+        <ul>
+          {ordered.map((style) => {
+            const selected = styles.includes(style);
+            const selectedIdx = styles.indexOf(style);
+            return (
+              <li key={style} className="flex items-center gap-2 py-1 text-sm text-ink">
+                <input
+                  type="checkbox"
+                  id={`naming-${style}`}
+                  checked={selected}
+                  disabled={saving}
+                  onChange={() => toggle(style)}
+                  className="accent-accent"
+                />
+                <label htmlFor={`naming-${style}`} className="flex-1">
+                  {NAMING_STYLE_LABEL[style]} <span className="text-xs text-muted">{NAMING_STYLE_HINT[style]}</span>
+                </label>
+                {selected && (
+                  <div className="flex items-center gap-0.5">
+                    <button
+                      type="button"
+                      disabled={saving || selectedIdx === 0}
+                      onClick={() => move(style, -1)}
+                      className="rounded px-1 text-muted hover:text-ink disabled:opacity-30"
+                      aria-label={`Move ${NAMING_STYLE_LABEL[style]} up`}
+                    >
+                      ↑
+                    </button>
+                    <button
+                      type="button"
+                      disabled={saving || selectedIdx === styles.length - 1}
+                      onClick={() => move(style, 1)}
+                      className="rounded px-1 text-muted hover:text-ink disabled:opacity-30"
+                      aria-label={`Move ${NAMING_STYLE_LABEL[style]} down`}
+                    >
+                      ↓
+                    </button>
+                  </div>
+                )}
+              </li>
+            );
+          })}
+        </ul>
         {!abaAvailable && (
-          <p className="text-xs text-muted">
-            ABA codes will show up here once you've downloaded a region pack covering North America, Mexico, Central
-            America, or the Caribbean.
-          </p>
+          <p className="text-xs text-muted">ABA codes appear once you download a North or Central American pack.</p>
         )}
-        <p className="text-xs text-muted">
-          This only changes what new photos get named. Photos already in your library keep their existing folder name
-          and embedded tags until you update them.
-        </p>
-        <Button variant="secondary" size="sm" onClick={updateExistingPhotos} loading={updating} className="self-start">
-          {updating ? "Updating…" : "Update existing photos to match"}
-        </Button>
-        <FormMessage error={error} success={updateResult} />
-      </div>
-    </Card>
+      </SettingRow>
+      <SettingRow
+        label="Rename existing photos"
+        description="New photos use the format above; this updates folders and tags already in your library."
+        control={
+          <Button variant="secondary" size="sm" onClick={updateExistingPhotos} loading={updating}>
+            {updating ? "Updating…" : "Update photos"}
+          </Button>
+        }
+      >
+        {(error || updateResult) && <FormMessage error={error} success={updateResult} />}
+      </SettingRow>
+    </>
   );
 }

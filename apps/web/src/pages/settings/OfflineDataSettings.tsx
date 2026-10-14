@@ -1,16 +1,15 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../api/client";
 import Button from "../../components/Button";
-import { buttonClasses } from "../../lib/buttonClasses";
-import DownloadedPacksList, { type PackEntry } from "../../components/DownloadedPacksList";
+import DownloadedPacksList from "../../components/DownloadedPacksList";
+import { usePackIndex } from "../../lib/packIndex";
 import FormMessage from "../../components/FormMessage";
-import InlineSpinner from "../../components/InlineSpinner";
 import JobProgress from "../../components/JobProgress";
 import { useConfirm } from "../../hooks/useConfirm";
 import { useJobPoll } from "../../hooks/useJobPoll";
 import { errorMessage } from "../../lib/errorMessage";
-import { formatBytes } from "../../lib/format";
+import { formatBytes, formatNumber } from "../../lib/format";
 import { pluralize } from "../../lib/pluralize";
 import {
   CATALOG_PHASES,
@@ -21,40 +20,48 @@ import {
   type MapStatus,
   type ModelStatus,
 } from "./phases";
-import { Card, SettingToggleCard } from "./shared";
+import { SettingRow, SettingSwitchRow, SettingsGroup } from "./shared";
 import MatchingHardware from "./MatchingHardware";
 import { useServerSetting } from "./useServerSetting";
+import { ignore } from "../../lib/ignore";
 
 export default function OfflineDataSettings() {
   return (
     <>
-      <CatalogUpdateSection />
-      <MapSection />
-      <EmbeddingModelSection />
-      <OfflinePacksSummarySection />
-      <WithheldPhotosSection />
+      <SettingsGroup title="Species data">
+        <CatalogUpdateRow />
+        <EmbeddingModelRows />
+        <MapRow />
+      </SettingsGroup>
+      <SettingsGroup title="Region packs">
+        <OfflinePacksSummaryRow />
+        <WithheldPhotosRow />
+      </SettingsGroup>
     </>
   );
 }
 
+// Whether JobProgress has a failure or cancellation to show, so an idle row gets no empty space.
+function hasOutcome(status: { error: string | null; cancelled: boolean }, actionError: string | null) {
+  return !!(actionError || status.error || status.cancelled);
+}
+
 // Species in a downloaded pack whose only iNaturalist photos can't be redistributed get them
 // fetched in the background, for this install only (apps/api/src/species/withheldPhotos.ts).
-function WithheldPhotosSection() {
+function WithheldPhotosRow() {
   const setting = useServerSetting("fetchWithheldPhotos", "/settings/fetch-withheld-photos");
   return (
-    <SettingToggleCard
+    <SettingSwitchRow
       setting={setting}
-      learnMore="withheld-photos"
-      title="Photos packs can't include"
-      description="Some photos can't be included in packs for licensing reasons. Lifer can download them from iNaturalist for your own viewing, a few at a time in the background, so the species in your packs have photos offline too."
-      label="Fetch withheld photos in the background"
+      label="Fetch photos packs can't include"
+      description="Some photos are left out of packs for licensing reasons. This downloads them from iNaturalist in the background, for your own viewing."
     />
   );
 }
 
 // Refreshes catalog metadata from the latest published seed (see catalogSeedUpdate.ts); an
 // existing install never gets it otherwise. Downloaded reference photos are left alone.
-function CatalogUpdateSection() {
+function CatalogUpdateRow() {
   const [check, setCheck] = useState<"idle" | "checking" | "up-to-date" | "available" | "error">("idle");
   const [checkError, setCheckError] = useState<string | null>(null);
   const [downloadBytes, setDownloadBytes] = useState<number | null>(null);
@@ -114,125 +121,111 @@ function CatalogUpdateSection() {
   const vectorErrors = failedVectorAssets(finished?.result?.referenceVectors);
   const doneOk = finished && !finished.error && !finished.cancelled;
 
+  const checkAgain = (
+    <Button variant="secondary" size="sm" onClick={() => void checkForUpdate()}>
+      Check again
+    </Button>
+  );
+  let statusText: string;
+  let control: ReactNode = null;
+  if (running) {
+    statusText = "Updating.";
+  } else if (check === "idle" || check === "checking") {
+    statusText = "Checking for updates.";
+    control = (
+      <Button variant="secondary" size="sm" loading>
+        Checking…
+      </Button>
+    );
+  } else if (check === "error") {
+    statusText = "Couldn't check for updates.";
+    control = checkAgain;
+  } else if (check === "up-to-date") {
+    statusText = doneOk
+      ? speciesCount === 0
+        ? "Already up to date."
+        : `Updated ${speciesCount != null ? formatNumber(speciesCount) : "your"} species.`
+      : "Up to date.";
+    control = checkAgain;
+  } else {
+    statusText = `A newer catalog is available${downloadBytes ? ` (${formatBytes(downloadBytes)})` : ""}.`;
+    if (!finished && !job.actionError) {
+      control = (
+        <Button variant="secondary" size="sm" onClick={applyUpdate} loading={job.starting}>
+          {job.starting ? "Starting…" : "Update"}
+        </Button>
+      );
+    }
+  }
+
   return (
-    <Card
-      title="Species catalog updates"
-      learnMore="species-catalog"
-      description="Refreshes rarity tiers, occurrence stats, and endemic labels from the latest published data. Never touches your own downloaded reference photos."
+    <SettingRow
+      label="Species catalog"
+      description={`Rarity tiers, occurrence stats and endemic labels. ${statusText}`}
+      control={control}
     >
-      {running ? (
+      {running && (
         <JobProgress
           status={job.status}
           phases={CATALOG_PHASES}
           onCancel={() => void job.cancel("/settings/catalog-update/cancel")}
           cancelling={job.cancelling}
         />
-      ) : check === "idle" || check === "checking" ? (
-        <p className="flex items-center gap-2 text-sm text-muted">
-          <InlineSpinner />
-          Checking…
-        </p>
-      ) : check === "error" ? (
-        <div className="space-y-2">
-          <FormMessage error={checkError} />
-          <button type="button" onClick={() => void checkForUpdate()} className="text-sm text-ink underline">
-            Check again
-          </button>
-        </div>
-      ) : check === "up-to-date" ? (
-        <div className="space-y-2">
-          <p className="text-sm text-muted">
-            {doneOk
-              ? speciesCount === 0
-                ? "Done, the species catalog was already up to date."
-                : `Done, ${speciesCount != null ? speciesCount.toLocaleString() : "your"} species updated.`
-              : "Your species catalog is up to date."}
-          </p>
-          {doneOk && vectorErrors.length > 0 && (
-            <p className="text-sm text-muted">
-              Species reference vectors couldn't be fully updated: {vectorErrors.join(" ")}
-            </p>
-          )}
-          <button type="button" onClick={() => void checkForUpdate()} className="text-sm text-ink underline">
-            Check again
-          </button>
-        </div>
-      ) : (
-        <div className="space-y-2">
-          <p className="text-sm font-medium text-ink">A newer species catalog is available.</p>
-          {!finished && !job.actionError && (
-            <Button onClick={applyUpdate} loading={job.starting}>
-              {job.starting ? "Starting…" : `Update catalog${downloadBytes ? ` (${formatBytes(downloadBytes)})` : ""}`}
-            </Button>
-          )}
-        </div>
       )}
-      {!running && (
+      {!running && check === "error" && <FormMessage error={checkError} />}
+      {!running && check === "up-to-date" && doneOk && vectorErrors.length > 0 && (
+        <p className="text-xs text-muted">
+          Species reference vectors couldn't be fully updated: {vectorErrors.join(" ")}
+        </p>
+      )}
+      {!running && (finished || job.actionError) && (
         <JobProgress
           status={finished}
           error={job.actionError}
           onRetry={check === "available" ? applyUpdate : undefined}
         />
       )}
-    </Card>
+    </SettingRow>
   );
 }
 
 // Management of what's already downloaded; discovering new regions stays on the Offline packs page.
-function OfflinePacksSummarySection() {
-  const [packs, setPacks] = useState<PackEntry[] | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
-
-  function refresh() {
-    api
-      .get<{ packs: PackEntry[] }>("/offline-packs/index")
-      .then((res) => {
-        setPacks(res.packs);
-        setLoadError(null);
-      })
-      .catch((err) => setLoadError(errorMessage(err, "Couldn't load your downloaded packs")));
-  }
-
-  useEffect(refresh, []);
+function OfflinePacksSummaryRow() {
+  const { packs, error, refresh } = usePackIndex();
+  const loadError = error ? errorMessage(error, "Couldn't load your downloaded packs") : null;
+  // Refetched on open: this is where downloads are managed, so it shouldn't show a stale list.
+  useEffect(() => {
+    refresh().catch(ignore("Couldn't refresh the pack index"));
+  }, [refresh]);
+  const refreshList = () => void refresh().catch(ignore("Couldn't refresh the pack index"));
 
   if (!packs) {
-    return loadError ? (
-      <Card title="Downloaded packs" description="" learnMore="downloaded-packs">
-        <FormMessage error={loadError} />
-      </Card>
-    ) : null;
+    return loadError ? <SettingRow label="Downloaded packs">{<FormMessage error={loadError} />}</SettingRow> : null;
   }
   const downloaded = packs.filter((p) => p.downloaded);
   const totalBytes = downloaded.reduce((sum, p) => sum + p.sizeBytes, 0);
 
   return (
-    <Card
-      title="Downloaded packs"
-      learnMore="downloaded-packs"
+    <SettingRow
+      label="Downloaded packs"
       description={
         downloaded.length === 0
           ? "No region packs downloaded yet."
-          : `${pluralize(downloaded.length, "pack")} downloaded, ${formatBytes(totalBytes)} total.`
+          : `${pluralize(downloaded.length, "pack")}, ${formatBytes(totalBytes)} in total.`
+      }
+      control={
+        <Link to="/offline-packs" className="text-sm text-ink underline">
+          {downloaded.length === 0 ? "Browse regions" : "Manage packs"}
+        </Link>
       }
     >
-      {downloaded.length === 0 ? (
-        <Link to="/offline-packs" className={buttonClasses("secondary", "sm")}>
-          Browse regions
-        </Link>
-      ) : (
-        <>
-          <DownloadedPacksList packs={packs} onRefresh={refresh} />
-          <Link to="/offline-packs" className="text-sm text-ink underline">
-            Manage in Offline packs
-          </Link>
-        </>
-      )}
-    </Card>
+      {downloaded.length > 0 && <DownloadedPacksList packs={packs} onRefresh={refreshList} />}
+    </SettingRow>
   );
 }
 
 // An opt-in (~550 MB) basemap download, required for the locality/occurrence map of a species.
-function MapSection() {
+function MapRow() {
   const job = useJobPoll<MapStatus>("/settings/map/status", { idleIntervalMs: 5000 });
   const status = job.status;
   const confirm = useConfirm();
@@ -248,9 +241,9 @@ function MapSection() {
   async function offload() {
     const sizeLabel = status?.sizeBytes ? ` (~${formatBytes(status.sizeBytes)})` : "";
     const ok = await confirm({
-      title: "Offload the offline map?",
-      message: `Offload the downloaded offline map${sizeLabel}? You can download it again anytime.`,
-      confirmLabel: "Offload",
+      title: "Remove the offline map?",
+      message: `Remove the offline map${sizeLabel}? You can download it again anytime.`,
+      confirmLabel: "Remove",
       danger: true,
     });
     if (!ok) return;
@@ -261,7 +254,7 @@ function MapSection() {
       await job.refresh();
     } catch (err) {
       console.error(err);
-      setOffloadError(errorMessage(err, "Couldn't offload the map"));
+      setOffloadError(errorMessage(err, "Couldn't remove the map"));
     } finally {
       setBusy(false);
     }
@@ -271,10 +264,26 @@ function MapSection() {
   if (!status || (!status.available && !status.downloaded)) return null;
 
   return (
-    <Card
-      title="Offline map"
-      learnMore="offline-map"
-      description="An offline basemap: this is what makes locality/occurrence data work at all, showing roughly where within a downloaded region each species is found. It doesn't render without this, even with an internet connection. Everything else in Lifer works the same either way."
+    <SettingRow
+      label="Offline map"
+      description={`Needed for species range maps, even when online. ${
+        status.downloaded
+          ? status.sizeBytes
+            ? `Uses ${formatBytes(status.sizeBytes)}.`
+            : "Downloaded."
+          : "About 550 MB."
+      }`}
+      control={
+        status.running ? null : status.downloaded ? (
+          <Button variant="secondary" size="sm" onClick={offload} loading={busy}>
+            {busy ? "Removing…" : "Remove"}
+          </Button>
+        ) : (
+          <Button variant="secondary" size="sm" onClick={download} loading={job.starting}>
+            {job.starting ? "Starting…" : "Download"}
+          </Button>
+        )
+      }
     >
       {status.running ? (
         <JobProgress
@@ -283,25 +292,19 @@ function MapSection() {
           onCancel={() => void job.cancel("/settings/map/download/cancel")}
           cancelling={job.cancelling}
         />
-      ) : status.downloaded ? (
-        <Button variant="secondary" size="sm" onClick={offload} loading={busy}>
-          {busy ? "Offloading…" : `Offload${status.sizeBytes ? ` (frees ${formatBytes(status.sizeBytes)})` : ""}`}
-        </Button>
       ) : (
-        <>
-          <Button onClick={download} loading={job.starting}>
-            {job.starting ? "Starting…" : "Download offline map (~550 MB)"}
-          </Button>
+        !status.downloaded &&
+        hasOutcome(status, job.actionError) && (
           <JobProgress status={status} error={job.actionError} errorPrefix="Download failed" />
-        </>
+        )
       )}
-      <FormMessage error={offloadError} />
-    </Card>
+      {offloadError && <FormMessage error={offloadError} />}
+    </SettingRow>
   );
 }
 
 // BioCLIP 2 names species in suggestions; CLIP powers Gallery content search. Both opt-in downloads.
-function EmbeddingModelSection() {
+function EmbeddingModelRows() {
   const job = useJobPoll<ModelStatus>("/settings/embedding-model/status", { idleIntervalMs: 5000 });
   const status = job.status;
   const confirm = useConfirm();
@@ -316,9 +319,9 @@ function EmbeddingModelSection() {
   async function offload() {
     const sizeLabel = status?.sizeBytes ? ` (~${formatBytes(status.sizeBytes)})` : "";
     const ok = await confirm({
-      title: "Offload the species-matching model?",
-      message: `Offload the species-matching model${sizeLabel}? Species suggestions while importing will turn off, and Gallery search will fall back to matching species names, ABA/eBird codes, and camera info only, so a search like "water bird" won't find photos by what's in them anymore. You can download it again anytime.`,
-      confirmLabel: "Offload",
+      title: "Remove the species-matching model?",
+      message: `Remove the species-matching model${sizeLabel}? Species suggestions while importing will turn off, and Gallery search will fall back to matching species names, ABA/eBird codes, and camera info only, so a search like "water bird" won't find photos by what's in them anymore. You can download it again anytime.`,
+      confirmLabel: "Remove",
       danger: true,
     });
     if (!ok) return;
@@ -338,55 +341,68 @@ function EmbeddingModelSection() {
   if (!status) return null;
   const vectorErrors = failedVectorAssets(status.result?.referenceVectors);
 
+  const purpose = "Powers import suggestions and searching photos by what's in them.";
+  const activeText =
+    status.activeModel === "identification"
+      ? "Suggestions use the identification model (BioCLIP 2)."
+      : status.activeModel
+        ? status.running
+          ? "Suggestions use the general model until this finishes."
+          : status.idModelDownloaded
+            ? "Suggestions use the general model until the identification model's reference vectors install. Lifer retries each start."
+            : "Suggestions use the general, less accurate model."
+        : null;
+  let description: string;
+  if (status.running) {
+    description = activeText ?? purpose;
+  } else if (status.downloaded) {
+    description = `${activeText ?? purpose}${status.sizeBytes ? ` Uses ${formatBytes(status.sizeBytes)}.` : ""}`;
+  } else if (!status.usable) {
+    description = `${purpose} About 680 MB.`;
+  } else if (status.idModelDownloaded) {
+    description = `${activeText ?? purpose} The scene model (about 61 MB) is still missing.`;
+  } else {
+    description = `${activeText ?? purpose} The identification model (about 370 MB) improves them.`;
+  }
+
   return (
-    <Card
-      title="Species-matching model"
-      learnMore="species-model"
-      description="Powers species suggestions while importing and Gallery's content search (finding photos by what's in them, like 'water bird', not just by species name). Without it, Lifer stays smaller and search falls back to species names, ABA/eBird codes, and camera info."
-    >
-      {status.activeModel && (
-        <p className="text-sm text-muted">
-          {status.activeModel === "identification"
-            ? "Suggestions use the species identification model (BioCLIP 2)."
-            : status.running
-              ? "Suggestions use the general model until the identification model and its reference vectors are installed."
-              : status.idModelDownloaded
-                ? "Suggestions use the general model: the identification model's reference vectors aren't installed yet. They're tried again each time Lifer starts."
-                : "Suggestions use the general model, which is less accurate. Download the identification model to improve them."}
-        </p>
-      )}
-      {status.running ? (
-        <JobProgress
-          status={status}
-          phases={MODEL_PHASES}
-          onCancel={() => void job.cancel("/settings/embedding-model/download/cancel")}
-          cancelling={job.cancelling}
-        />
-      ) : status.downloaded ? (
-        <>
-          <Button variant="secondary" size="sm" onClick={offload} loading={busy}>
-            {busy ? "Offloading…" : `Offload${status.sizeBytes ? ` (frees ${formatBytes(status.sizeBytes)})` : ""}`}
-          </Button>
-          {vectorErrors.length > 0 && (
-            <p className="text-sm text-muted">
+    <>
+      <SettingRow
+        label="Species-matching model"
+        description={description}
+        control={
+          status.running ? null : status.downloaded ? (
+            <Button variant="secondary" size="sm" onClick={offload} loading={busy}>
+              {busy ? "Removing…" : "Remove"}
+            </Button>
+          ) : (
+            <Button variant="secondary" size="sm" onClick={download} loading={job.starting}>
+              {job.starting ? "Starting…" : "Download"}
+            </Button>
+          )
+        }
+      >
+        {status.running ? (
+          <JobProgress
+            status={status}
+            phases={MODEL_PHASES}
+            onCancel={() => void job.cancel("/settings/embedding-model/download/cancel")}
+            cancelling={job.cancelling}
+          />
+        ) : status.downloaded ? (
+          vectorErrors.length > 0 && (
+            <p className="text-xs text-muted">
               Species reference vectors couldn't be fully downloaded: {vectorErrors.join(" ")}
             </p>
-          )}
-          <MatchingHardware />
-        </>
-      ) : (
-        <>
-          <Button onClick={download} loading={job.starting}>
-            {job.starting
-              ? "Starting…"
-              : status.usable
-                ? "Download the identification model (~310 MB)"
-                : "Download models (~620 MB)"}
-          </Button>
-          <JobProgress status={status} error={job.actionError} errorPrefix="Download failed" />
-        </>
-      )}
-      <FormMessage error={offloadError} />
-    </Card>
+          )
+        ) : (
+          hasOutcome(status, job.actionError) && (
+            <JobProgress status={status} error={job.actionError} errorPrefix="Download failed" />
+          )
+        )}
+        {offloadError && <FormMessage error={offloadError} />}
+      </SettingRow>
+      {status.downloaded && !status.running && <MatchingHardware />}
+    </>
   );
 }

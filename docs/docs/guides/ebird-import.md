@@ -12,7 +12,7 @@ If you log sightings on eBird, you can bring them into Lifer so every bird you'v
 1. On eBird, go to [Download My Data](https://ebird.org/downloadMyData) and request your data. eBird emails you a link to a `.zip` file.
 2. Unzip it. Inside is `MyEBirdData.csv`.
 3. In Lifer, open **Settings > Species and import**.
-4. In **Import eBird checklist data**, click **Choose CSV file…** and pick `MyEBirdData.csv`.
+4. In **Import from eBird**, click **Choose file** and pick `MyEBirdData.csv`.
 
 When it's done, Lifer shows a summary, for example "812 species in file · 798 matched · newly seen: 340 · already seen/collected: 458 · unmatched: 14".
 

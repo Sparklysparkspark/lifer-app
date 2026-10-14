@@ -21,10 +21,10 @@ If you see "Couldn't reach that address. Check the URL and that the server is ru
 1. Open **Settings > Server**.
 2. In **Sign in to a server**, enter the server address and click **Connect**.
 3. When it says **Connected to** your server, enter your **Email** and **Password**.
-4. Leave **Keep an offline cache after connecting** ticked if you want low-resolution covers and your collected and seen status to stay browsable when this computer loses its connection. See [Offline cache](#offline-cache).
+4. Leave **Keep an offline cache** on if you want low-resolution covers and your collected and seen status to stay browsable when this computer loses its connection. See [Offline cache](#offline-cache).
 5. Click **Sign in**. The window switches to the server's library.
 
-To go back, open **Settings > Server** and click **Switch to local library** in **Connect a server**. You can also use **Change Server / Library…** in the Lifer app menu to start over from the setup screen.
+To go back, open **Settings > Server** and click **Use local library** in the **Server** row. You can also use **Change Server / Library…** in the Lifer app menu to start over from the setup screen.
 
 ## Offline cache {#offline-cache}
 
@@ -48,9 +48,9 @@ It's usually 5 to 30 MB and can never grow past about 150 MB.
 - Windows: `%APPDATA%\app.lifer.desktop\offline-cache\`
 - Linux: `~/.local/share/app.lifer.desktop/offline-cache/`
 
-**Clearing it:** untick **Keep an offline cache** in **Settings > Server** (it also shows the last sync and size). The cache is also deleted when you sign out, switch to another server, switch to the local library, or use **Change Server / Library…**. A different account signing in on the same server starts a fresh cache. Deleting the folder by hand while Lifer is closed is safe too.
+**Clearing it:** turn off **Offline cache** in **Settings > Server** (it also shows the last sync and size). The cache is also deleted when you sign out, switch to another server, switch to the local library, or use **Change Server / Library…**. A different account signing in on the same server starts a fresh cache. Deleting the folder by hand while Lifer is closed is safe too.
 
-## Automatic URL switching {#url-switching}
+## Automatic address switching {#url-switching}
 
 At home, the fastest way to reach your server is its local address. Away from home, you need its public address. Lifer can switch between them for you.
 
@@ -59,10 +59,10 @@ At home, the fastest way to reach your server is its local address. Away from ho
 **Later:**
 
 1. While connected to the server, open **Settings > Server**.
-2. In **Automatic URL Switching**, click **Set up**.
-3. Under **Local network**, enter the server's local address and your home Wi-Fi name. **Use current connection** fills these in from the network you're on.
-4. Under **External networks**, **Add** one or more public addresses. Lifer tries them from top to bottom, and you can drag to reorder them.
-5. Click **Save**.
+2. In **Automatic address switching**, click **Set up**.
+3. Under **Home network**, enter the server's local address and your home Wi-Fi name. **Use current connection** fills these in from the network you're on.
+4. Under **Other addresses**, **Add** one or more public addresses. Lifer tries them from top to bottom, and you can drag to reorder them.
+5. In **Save addresses**, click **Save**.
 
 ## Migrate your library to a server {#migrate}
 
@@ -70,12 +70,12 @@ Moving from the desktop app to a server? Lifer can upload your whole local libra
 
 1. Make sure the server is set up and you've [created its account](./docker.md#first-account).
 2. In the desktop app (using its local library), open **Settings > Server**.
-3. In **Sign in to a server**, enter the server address and click **Connect**. The **Migrate your library to a server** card appears.
-4. Check the server address, enter the **Email on that server** and **Password**, and click **Migrate my library**.
-5. Confirm. Uploading a large library can take a while. The card shows how many photos have moved, been skipped, or failed.
-6. When it's done, check that nothing failed, then click **Switch this window to the server**.
+3. In **Sign in to a server**, enter the server address and click **Connect**. The **Migrate** panel appears.
+4. Check the server address, enter the **Email on that server** and **Password**, and click **Migrate**.
+5. Confirm. Uploading a large library can take a while. The row shows how many photos have moved, been skipped, or failed.
+6. When it's done, check that nothing failed, then click **Switch** in **Switch to the server**.
 
-Your local copies stay on this computer. After a run where nothing failed or was skipped, a **Delete local files now that they're on the server** button appears. Use it only once you've checked the server has everything. It can't be undone.
+Your local copies stay on this computer. After a run where nothing failed or was skipped, a **Delete local files** row appears. Use it only once you've checked the server has everything. It can't be undone.
 
 ## Faster species suggestions from the desktop app {#desktop-assisted-matching}
 
@@ -88,9 +88,9 @@ How it works:
 3. For each photo, the app either works out its matching data on your computer and sends it along with the photo, or leaves the work to the server, whichever has been faster. See [GPU acceleration](./hardware-acceleration.md#desktop-and-server).
 4. The server only accepts that data when it's provably what it would have computed itself: the same model files, the same image processing version, and the same photo. If anything doesn't match, it ignores the data and does the work itself, so suggestions are never worse for it.
 
-A few things to know:
+Keep in mind:
 
-- **Keep the desktop app and the server on the same Lifer release.** Different releases can process images very slightly differently, and then the app can't help. If they don't match, the server simply does all the matching. [Update the server](./docker.md#updating) and the app to the same version to get the speed-up.
+- **Keep the desktop app and the server on the same Lifer release.** Different releases can process images very slightly differently, and then the app can't help. If they don't match, the server does all the matching. [Update the server](./docker.md#updating) and the app to the same version to get the speed-up.
 - **RAW files are always matched on the server**, since only the server reads the preview image inside a RAW.
 - **If anything goes wrong on your computer**, that photo is matched on the server instead, and the app tries again for the next one.
 

@@ -4,6 +4,7 @@ import Button from "../../components/Button";
 import FormMessage from "../../components/FormMessage";
 import { errorMessage } from "../../lib/errorMessage";
 import { formatBytes } from "../../lib/format";
+import { SettingRow } from "./shared";
 
 interface HardwareStatus {
   state: "idle" | "testing" | "downloading" | "done" | "failed";
@@ -65,35 +66,36 @@ export default function MatchingHardware() {
   const onGpu = status.models.some((m) => m.backend !== "cpu");
 
   return (
-    <div className="space-y-2 rounded-md border border-line bg-surface-muted/40 p-3 text-sm">
-      {busy ? (
-        <p className="text-muted">
-          {status.message ?? "Checking this computer's hardware"}
-          {status.progress && status.progress.done > 0 && (
-            <>
-              {": "}
-              {formatBytes(status.progress.done)}
-              {status.progress.total ? ` of ${formatBytes(status.progress.total)}` : ""}
-            </>
-          )}
-          . Matching keeps working on the CPU meanwhile.
-        </p>
-      ) : status.state === "failed" ? (
-        <p className="text-muted">{status.message} Matching runs on the CPU.</p>
-      ) : onGpu && main ? (
-        <p className="text-ink">
-          Matching runs on <span className="font-medium">{status.device ?? "the GPU"}</span>: about{" "}
-          {Math.round(main.ms)} ms a photo, {Math.max(1, main.cpuMs / main.ms).toFixed(1)}x faster than the CPU.
-        </p>
-      ) : (
-        <p className="text-muted">
-          Matching runs on the CPU{status.models.length > 0 ? ": no faster GPU was found." : "."}
-        </p>
-      )}
-      <Button variant="secondary" size="sm" onClick={retest} loading={starting} disabled={busy}>
-        Re-test hardware
-      </Button>
-      <FormMessage error={error} />
-    </div>
+    <SettingRow
+      label="Hardware"
+      description={
+        busy ? (
+          <>
+            {status.message ?? "Checking this computer's hardware"}
+            {status.progress && status.progress.done > 0 && (
+              <>
+                {": "}
+                {formatBytes(status.progress.done)}
+                {status.progress.total ? ` of ${formatBytes(status.progress.total)}` : ""}
+              </>
+            )}
+            . Matching keeps working on the CPU meanwhile.
+          </>
+        ) : status.state === "failed" ? (
+          `${status.message} Matching runs on the CPU.`
+        ) : onGpu && main ? (
+          `Matching runs on ${status.device ?? "the GPU"}: about ${Math.round(main.ms)} ms a photo, ${Math.max(1, main.cpuMs / main.ms).toFixed(1)}x faster than the CPU.`
+        ) : (
+          `Matching runs on the CPU${status.models.length > 0 ? ": no faster GPU was found." : "."}`
+        )
+      }
+      control={
+        <Button variant="secondary" size="sm" onClick={retest} loading={starting} disabled={busy}>
+          Test again
+        </Button>
+      }
+    >
+      {error && <FormMessage error={error} />}
+    </SettingRow>
   );
 }

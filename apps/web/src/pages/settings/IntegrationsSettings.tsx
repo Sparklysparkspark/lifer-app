@@ -2,12 +2,11 @@ import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../api/client";
 import Button from "../../components/Button";
-import { buttonClasses } from "../../lib/buttonClasses";
 import FormMessage from "../../components/FormMessage";
 import { useDeploymentMode } from "../../hooks/useDeploymentMode";
 import { useToast } from "../../hooks/useToast";
 import { errorMessage } from "../../lib/errorMessage";
-import { Card, inputClass } from "./shared";
+import { SettingRow, SettingsGroup, inputClass } from "./shared";
 
 interface InaturalistStatus {
   available: boolean;
@@ -20,8 +19,11 @@ interface InaturalistServerConfig {
   redirectUri: string;
 }
 
+// A server's own iNaturalist app registration stays hidden until Lifer's iNaturalist app is approved.
+const SHOW_SERVER_REGISTRATION = false;
+
 // iNaturalist linking stays hidden until the API has a client ID (env var, or the server-mode
-// registration card below), since Connect would only 501 without one.
+// registration rows below), since Connect would only 501 without one.
 export default function IntegrationsSettings() {
   const mode = useDeploymentMode();
   const [status, setStatus] = useState<InaturalistStatus | null>(null);
@@ -29,7 +31,7 @@ export default function IntegrationsSettings() {
 
   const load = useCallback(() => {
     api
-      .get<InaturalistStatus>("/inaturalist/status")
+      .get("/inaturalist/status")
       .then(setStatus)
       .catch(() => setStatus(null))
       .finally(() => setStatusLoaded(true));
@@ -42,23 +44,27 @@ export default function IntegrationsSettings() {
     return () => window.removeEventListener("focus", load);
   }, [load]);
 
-  const showServerConfig = mode === "server";
+  const showServerConfig = SHOW_SERVER_REGISTRATION && mode === "server";
   const available = !!status?.available;
 
   return (
     <>
-      {available && status && <InaturalistSection status={status} onChanged={load} />}
-      {showServerConfig && <InaturalistServerConfigSection onSaved={load} />}
+      {(available || showServerConfig) && (
+        <SettingsGroup title="iNaturalist">
+          {available && status && <InaturalistRow status={status} onChanged={load} />}
+          {showServerConfig && <InaturalistServerConfigRows onSaved={load} />}
+        </SettingsGroup>
+      )}
       {statusLoaded && !available && !showServerConfig && (
-        <Card title="Integrations" description="" learnMore="integrations">
-          <p className="text-sm text-muted">Nothing to see here yet, check back on a future update.</p>
-        </Card>
+        <SettingsGroup title="Integrations">
+          <SettingRow label="Nothing here yet" description="Integrations will show up here in a future update." />
+        </SettingsGroup>
       )}
     </>
   );
 }
 
-function InaturalistSection({ status, onChanged }: { status: InaturalistStatus; onChanged: () => void }) {
+function InaturalistRow({ status, onChanged }: { status: InaturalistStatus; onChanged: () => void }) {
   const toast = useToast();
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -95,36 +101,40 @@ function InaturalistSection({ status, onChanged }: { status: InaturalistStatus; 
   }
 
   return (
-    <Card
-      title="iNaturalist"
-      learnMore="integrations"
-      description="Optionally link your iNaturalist account to send sightings there as draft observations."
-    >
-      {status.connected ? (
-        <>
-          <p className="text-sm text-ink">Connected as {status.username}</p>
-          <div className="flex gap-3">
-            <Link to="/inaturalist" className={buttonClasses("secondary", "sm")}>
+    <SettingRow
+      label="iNaturalist account"
+      description={
+        status.connected ? (
+          <>
+            Connected as {status.username}.{" "}
+            <Link to="/inaturalist" className="underline hover:text-ink">
               Open iNaturalist
             </Link>
-            <Button variant="secondary" size="sm" onClick={disconnect} disabled={busy}>
-              Disconnect
-            </Button>
-          </div>
-        </>
-      ) : (
-        <Button variant="secondary" size="sm" onClick={connect} loading={busy}>
-          Connect iNaturalist account
-        </Button>
-      )}
-      <FormMessage error={error} />
-    </Card>
+          </>
+        ) : (
+          "Link your account to send sightings to iNaturalist as draft observations."
+        )
+      }
+      control={
+        status.connected ? (
+          <Button variant="secondary" size="sm" onClick={disconnect} disabled={busy}>
+            Disconnect
+          </Button>
+        ) : (
+          <Button variant="secondary" size="sm" onClick={connect} loading={busy}>
+            Connect
+          </Button>
+        )
+      }
+    >
+      {error && <FormMessage error={error} />}
+    </SettingRow>
   );
 }
 
 // OAuth needs an exact redirect URI per registered app, so each self-hosted deployment registers
 // its own iNaturalist application and saves the client ID here (inat_server_config).
-function InaturalistServerConfigSection({ onSaved }: { onSaved: () => void }) {
+function InaturalistServerConfigRows({ onSaved }: { onSaved: () => void }) {
   const [config, setConfig] = useState<InaturalistServerConfig | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [clientId, setClientId] = useState("");
@@ -166,50 +176,67 @@ function InaturalistServerConfigSection({ onSaved }: { onSaved: () => void }) {
     }
   }
 
-  if (!config) return loadError ? <FormMessage error={loadError} /> : null;
+  if (!config)
+    return loadError ? <SettingRow label="App registration">{<FormMessage error={loadError} />}</SettingRow> : null;
 
   return (
-    <Card
-      title="iNaturalist app registration"
-      learnMore="integrations"
-      description="Register your own application at inaturalist.org/oauth/applications with the redirect URI below, then paste its client ID here."
-    >
-      <label className="block space-y-1">
-        <span className="text-xs text-muted">Redirect URI to register</span>
-        <div className="flex gap-2">
-          <input
-            type="text"
-            value={redirectUri}
-            onChange={(e) => setRedirectUri(e.target.value)}
-            placeholder="Default (saved as unset)"
-            spellCheck={false}
-            className={`${inputClass} flex-1 font-mono text-xs`}
-          />
+    <>
+      <SettingRow
+        label="Redirect URI"
+        description={
+          <>
+            Register an app at{" "}
+            <a
+              href="https://www.inaturalist.org/oauth/applications"
+              target="_blank"
+              rel="noreferrer"
+              className="underline"
+            >
+              inaturalist.org/oauth/applications
+            </a>{" "}
+            with this redirect URI.
+          </>
+        }
+        control={
           <Button variant="secondary" size="sm" onClick={() => setRedirectUri("")} disabled={redirectUri === ""}>
             Reset to default
           </Button>
-        </div>
-      </label>
-      <p className="text-sm text-ink">
-        {config.hasClientId ? "A client ID is currently set." : "No client ID set yet."}
-      </p>
-      <div className="flex gap-2">
+        }
+      >
         <input
           type="text"
+          aria-label="Redirect URI to register"
+          value={redirectUri}
+          onChange={(e) => setRedirectUri(e.target.value)}
+          placeholder="Default (saved as unset)"
+          spellCheck={false}
+          className={`${inputClass} font-mono text-xs`}
+        />
+      </SettingRow>
+      <SettingRow
+        label="Client ID"
+        description={
+          config.hasClientId
+            ? "A client ID is set. Leave the box empty to keep it."
+            : "Paste the client ID of the app you registered."
+        }
+        control={
+          <Button variant="secondary" size="sm" onClick={save} loading={saving}>
+            Save
+          </Button>
+        }
+      >
+        {/* The saved client ID is never sent back; an empty box keeps it. */}
+        <input
+          type="text"
+          aria-label="Client ID"
           value={clientId}
           onChange={(e) => setClientId(e.target.value)}
           placeholder="Client ID"
-          className={`${inputClass} flex-1`}
+          className={inputClass}
         />
-        <Button variant="secondary" size="sm" onClick={save} loading={saving}>
-          Save
-        </Button>
-      </div>
-      {/* The saved client ID is never sent back; an empty box keeps it. */}
-      {config.hasClientId && !clientId.trim() && (
-        <p className="text-xs text-muted">Leave the Client ID box empty to keep the saved one.</p>
-      )}
-      <FormMessage error={error} success={success} />
-    </Card>
+        {(error || success) && <FormMessage error={error} success={success} />}
+      </SettingRow>
+    </>
   );
 }

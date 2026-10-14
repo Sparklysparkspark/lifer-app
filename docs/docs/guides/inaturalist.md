@@ -14,8 +14,8 @@ Lifer has its own checklists for birds, mammals, fish, reptiles, turtles, amphib
 ### Turn it on
 
 1. Open **Settings > Species and import**.
-2. In **Any-taxa search**, tick **Enable any-taxa search**.
-3. Click **Search iNaturalist for a species to add**. The **Search iNaturalist** window opens.
+2. In the **Identification** panel, turn on **Search iNaturalist for other species**.
+3. In **Add a species from iNaturalist**, click **Search**. The **Search iNaturalist** window opens.
 
 With the setting on, you can also open this window from [quick search](./gallery-and-search.md#quick-search): type a species Lifer doesn't have and choose **Search iNaturalist**.
 

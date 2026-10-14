@@ -1,12 +1,10 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import { api } from "../../api/client";
 import Button from "../../components/Button";
 import ReleaseNotes from "../../components/ReleaseNotes";
-import { buttonClasses } from "../../lib/buttonClasses";
 import FormMessage from "../../components/FormMessage";
-import InlineSpinner from "../../components/InlineSpinner";
 import JobProgress from "../../components/JobProgress";
 import SegmentedControl from "../../components/SegmentedControl";
 import Select from "../../components/Select";
@@ -22,7 +20,7 @@ import { pluralize } from "../../lib/pluralize";
 import { platform } from "../../lib/platform";
 import { tauriInvoke } from "../../lib/tauri";
 import { APP_UPDATE_PHASES } from "./phases";
-import { Card } from "./shared";
+import { SettingRow, SettingsGroup } from "./shared";
 
 const RELEASES_URL = `https://github.com/${GITHUB_REPO}/releases/latest`;
 
@@ -30,16 +28,28 @@ export default function GeneralSettings() {
   const isTauri = useIsTauri();
   return (
     <>
-      <AppearanceSection />
-      {/* English is the only language for now; the picker appears once there's another (or the dev pseudo-locale). */}
-      {AVAILABLE_LOCALES.length > 1 && <LanguageSection />}
-      {isTauri && <AppUpdatesSection />}
-      <GettingStartedSection />
+      <SettingsGroup title="Appearance">
+        <ThemeRow />
+        {/* English is the only language for now; the picker appears once there's another (or the dev pseudo-locale). */}
+        {AVAILABLE_LOCALES.length > 1 && <LanguageRow />}
+      </SettingsGroup>
+      <SettingsGroup title="About">
+        {isTauri && <AppUpdateRows />}
+        <SettingRow
+          label="Getting started"
+          description="How collections, imports and offline packs fit together."
+          control={
+            <Link to="/guide" className="text-sm text-ink underline">
+              Open the guide
+            </Link>
+          }
+        />
+      </SettingsGroup>
     </>
   );
 }
 
-function AppearanceSection() {
+function ThemeRow() {
   const { preference, setPreference } = useTheme();
   const options = [
     { value: "system", label: "Follow system" },
@@ -47,58 +57,41 @@ function AppearanceSection() {
     { value: "dark", label: "Dark" },
   ] as const;
   return (
-    <Card
-      title="Appearance"
-      description="Light or dark mode, or follow whatever this device is set to."
-      learnMore="appearance"
-    >
-      <SegmentedControl value={preference} onChange={setPreference} options={options} size="md" />
-    </Card>
+    <SettingRow
+      label="Theme"
+      control={<SegmentedControl value={preference} onChange={setPreference} options={options} />}
+    />
   );
 }
 
 // Only locales with a translation file (plus the dev-only pseudo-locale) are offered, each by
 // its own name, so a reader finds their language whatever language is showing.
-function LanguageSection() {
+function LanguageRow() {
   const { t } = useTranslation();
   const { preference, saving, error, setPreference } = useLocalePreference();
   return (
-    <Card
-      title={t("settings.general.language.title")}
+    <SettingRow
+      label={t("settings.general.language.title")}
       description={t("settings.general.language.description")}
-      learnMore="language"
+      control={
+        <Select
+          variant="form"
+          aria-label={t("settings.general.language.title")}
+          value={AVAILABLE_LOCALES.includes(preference) ? preference : "auto"}
+          disabled={saving}
+          onChange={(e) => void setPreference(e.target.value)}
+        >
+          <option value="auto">{t("settings.general.language.automatic")}</option>
+          {AVAILABLE_LOCALES.map((code) => (
+            <option key={code} value={code} lang={code}>
+              {nativeLanguageName(code)}
+            </option>
+          ))}
+        </Select>
+      }
     >
-      <Select
-        variant="form"
-        aria-label={t("settings.general.language.title")}
-        value={AVAILABLE_LOCALES.includes(preference) ? preference : "auto"}
-        disabled={saving}
-        onChange={(e) => void setPreference(e.target.value)}
-        className="max-w-xs"
-      >
-        <option value="auto">{t("settings.general.language.automatic")}</option>
-        {AVAILABLE_LOCALES.map((code) => (
-          <option key={code} value={code} lang={code}>
-            {nativeLanguageName(code)}
-          </option>
-        ))}
-      </Select>
-      <FormMessage error={error} />
-    </Card>
-  );
-}
-
-function GettingStartedSection() {
-  return (
-    <Card
-      title="Getting started"
-      description="A quick tour of how Lifer's collection, import, and offline pack features fit together."
-      learnMore="general"
-    >
-      <Link to="/guide" className={buttonClasses("secondary", "sm")}>
-        Open the guide
-      </Link>
-    </Card>
+      {error && <FormMessage error={error} />}
+    </SettingRow>
   );
 }
 
@@ -118,7 +111,7 @@ type UpdateState = "idle" | "checking" | "up-to-date" | "available" | "downloadi
 
 // Desktop only. The Tauri updater/process plugins are imported dynamically so the browser build
 // never runs their invoke() calls.
-function AppUpdatesSection() {
+function AppUpdateRows() {
   const [status, setStatus] = useState<UpdateState>("idle");
   const [update, setUpdate] = useState<CheckResult | null>(null);
   const [progress, setProgress] = useState<{ downloaded: number; total: number | null } | null>(null);
@@ -270,125 +263,128 @@ function AppUpdatesSection() {
   if (!window.liferSetup) return null;
 
   const releasesLink = (
-    <a href={RELEASES_URL} target="_blank" rel="noreferrer" className="font-medium text-accent hover:underline">
+    <a href={RELEASES_URL} target="_blank" rel="noreferrer" className="underline">
       Releases page
     </a>
   );
 
+  const version = currentVersion ? `Version ${currentVersion}.` : "";
+  let description: string;
+  let control: ReactNode = null;
+  if (status === "dev") {
+    description = `${version} Development build, so update checks are off.`.trim();
+  } else if (status === "checking") {
+    description = version || "Checking for updates.";
+    control = (
+      <Button variant="secondary" size="sm" loading>
+        Checking…
+      </Button>
+    );
+  } else if (status === "up-to-date") {
+    description = `${version} You're up to date.`.trim();
+    control = (
+      <Button variant="secondary" size="sm" onClick={checkForUpdate}>
+        Check again
+      </Button>
+    );
+  } else if (status === "available" && update) {
+    description = `Version ${update.version} is available. You have ${currentVersion ?? "an older version"}.`;
+    control = (
+      <Button variant="secondary" size="sm" onClick={installUpdate}>
+        Update now
+      </Button>
+    );
+  } else if (status === "downloading" || status === "installing") {
+    description = update ? `Updating to version ${update.version}.` : "Updating.";
+  } else if (status === "error") {
+    description = version;
+    control = (
+      <Button variant="secondary" size="sm" onClick={update && !installFailed ? installUpdate : checkForUpdate}>
+        {update && !installFailed ? "Retry" : "Check again"}
+      </Button>
+    );
+  } else {
+    description = version;
+    control = (
+      <Button variant="secondary" size="sm" onClick={checkForUpdate}>
+        Check for updates
+      </Button>
+    );
+  }
+
   return (
-    <Card title="App updates" description="Check for and install a newer version of Lifer." learnMore="app-updates">
-      {currentVersion && <p className="text-sm text-muted">You're on version {currentVersion}.</p>}
-      {status === "dev" && <p className="text-sm text-muted">This is a development build, so update checks are off.</p>}
-      {status === "idle" && <Button onClick={checkForUpdate}>Check for updates</Button>}
-      {status === "checking" && (
-        <p className="flex items-center gap-2 text-sm text-muted">
-          <InlineSpinner />
-          Checking…
-        </p>
-      )}
-      {status === "up-to-date" && (
-        <div className="space-y-2">
-          <p className="text-sm text-muted">You're on the latest version.</p>
-          <button type="button" onClick={checkForUpdate} className="text-sm text-ink underline">
-            Check again
-          </button>
-        </div>
-      )}
-      {status === "available" && update && (
-        <div className="space-y-3 rounded-lg border border-line bg-surface-muted p-3">
-          <div className="flex items-center justify-between">
-            <p className="text-sm font-medium text-ink">Update available</p>
-            <span className="rounded-full bg-accent/15 px-2 py-0.5 text-xs font-medium text-accent">New</span>
+    <>
+      <SettingRow label="App updates" description={description || undefined} control={control}>
+        {status === "available" && update?.body && (
+          // The release's changelog section.
+          <ReleaseNotes
+            markdown={update.body.trim()}
+            className="max-h-60 overflow-y-auto break-words text-sm text-muted"
+          />
+        )}
+        {(status === "downloading" || status === "installing") && (
+          <JobProgress
+            status={{
+              running: true,
+              phase: status,
+              downloadedBytes: status === "downloading" && progress ? progress.downloaded : null,
+              totalBytes: progress?.total ?? null,
+              processed: null,
+              total: null,
+              currentItem: null,
+              error: null,
+              cancelRequested: false,
+              cancelled: false,
+            }}
+            phases={APP_UPDATE_PHASES}
+          />
+        )}
+        {status === "error" && <FormMessage error={error} />}
+        {installFailed && (
+          <div className="space-y-2 text-sm text-muted">
+            {platform === "mac" && translocated && (
+              <p>Lifer is running from a temporary location. Move Lifer.app into Applications, then try again.</p>
+            )}
+            {platform === "mac" && !translocated && (
+              <>
+                <p>macOS blocked Lifer from replacing itself. You can install the new version by hand:</p>
+                <Button variant="secondary" size="sm" onClick={openZipDownload}>
+                  Download Lifer {update?.version ?? ""} (.zip)
+                </Button>
+                <p>Open the .zip, then drag Lifer into Applications, replacing the old copy.</p>
+              </>
+            )}
+            {platform === "windows" && <p>Download the installer from the {releasesLink} and run it.</p>}
+            {platform === "other" && <p>Download the latest version from the {releasesLink}.</p>}
+            {platform === "mac" && <p>You can also get it from the {releasesLink}.</p>}
+            {/* A manual download isn't notarized, so it gets the first-launch warning again. */}
+            {platform === "mac" && !translocated && (
+              <p>
+                If macOS blocks the new version on first open, go to{" "}
+                <strong>System Settings, Privacy &amp; Security</strong>, click <strong>Open Anyway</strong>, then open
+                Lifer again.
+              </p>
+            )}
+            {platform === "windows" && (
+              <p>
+                If Windows says "Windows protected your PC", click <strong>More info</strong>, then{" "}
+                <strong>Run anyway</strong>.
+              </p>
+            )}
           </div>
-          <div className="flex items-center gap-3 text-sm">
-            <span className="text-muted">Installed</span>
-            <span className="font-medium text-ink">v{currentVersion ?? "?"}</span>
-            <span aria-hidden="true" className="text-muted">
-              →
-            </span>
-            <span className="text-muted">Latest</span>
-            <span className="font-medium text-accent">v{update.version}</span>
-          </div>
-          {/* The release's changelog section. */}
-          {update.body && (
-            <ReleaseNotes
-              markdown={update.body.trim()}
-              className="max-h-60 overflow-y-auto break-words text-sm text-muted"
-            />
-          )}
-          <Button onClick={installUpdate}>Update now</Button>
-        </div>
-      )}
-      {(status === "downloading" || status === "installing") && (
-        <JobProgress
-          status={{
-            running: true,
-            phase: status,
-            downloadedBytes: status === "downloading" && progress ? progress.downloaded : null,
-            totalBytes: progress?.total ?? null,
-            processed: null,
-            total: null,
-            currentItem: null,
-            error: null,
-            cancelRequested: false,
-            cancelled: false,
-          }}
-          phases={APP_UPDATE_PHASES}
+        )}
+      </SettingRow>
+      {packUpdateCount > 0 && (
+        <SettingRow
+          label="Offline packs"
+          description={`${pluralize(packUpdateCount, "offline pack")} ready to update.`}
+          control={
+            <Link to="/offline-packs" className="text-sm text-ink underline">
+              View packs
+            </Link>
+          }
         />
       )}
-      {status === "error" && (
-        <div className="space-y-2">
-          <FormMessage error={error} />
-          <button
-            type="button"
-            onClick={update && !installFailed ? installUpdate : checkForUpdate}
-            className="text-sm text-ink underline"
-          >
-            {update && !installFailed ? "Retry" : "Check again"}
-          </button>
-        </div>
-      )}
-      {installFailed && (
-        <div className="space-y-2 text-sm text-muted">
-          {platform === "mac" && translocated && (
-            <p>
-              Lifer is running from a temporary location. Move Lifer.app into your Applications folder, then try again.
-            </p>
-          )}
-          {platform === "mac" && !translocated && (
-            <>
-              <p>macOS blocked Lifer from replacing itself. You can install the new version by hand:</p>
-              <Button onClick={openZipDownload}>Download Lifer {update?.version ?? ""} (.zip)</Button>
-              <p>Open the downloaded .zip, then drag Lifer into your Applications folder, replacing the old copy.</p>
-            </>
-          )}
-          {platform === "windows" && <p>Download the installer from the {releasesLink} and run it.</p>}
-          {platform === "other" && <p>Download the latest version from the {releasesLink}.</p>}
-          {platform === "mac" && <p>You can also get it from the {releasesLink}.</p>}
-          {/* A manual download isn't notarized, so it gets the first-launch warning again. */}
-          {platform === "mac" && !translocated && (
-            <p>
-              The first time you open the new version, macOS may block it. Open{" "}
-              <strong>System Settings, Privacy &amp; Security</strong>, scroll down, click <strong>Open Anyway</strong>,
-              then open Lifer again.
-            </p>
-          )}
-          {platform === "windows" && (
-            <p>
-              Windows may warn "Windows protected your PC" on a manually downloaded installer. Click{" "}
-              <strong>More info</strong>, then <strong>Run anyway</strong>.
-            </p>
-          )}
-        </div>
-      )}
-      {packUpdateCount > 0 && (
-        <p className="mt-3 border-t border-line pt-3 text-sm text-ink">
-          Pack update available: {pluralize(packUpdateCount, "offline pack")} ready to update.{" "}
-          <Link to="/offline-packs" className="font-medium text-accent hover:underline">
-            View packs
-          </Link>
-        </p>
-      )}
-    </Card>
+    </>
   );
 }

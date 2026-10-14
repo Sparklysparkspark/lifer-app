@@ -30,7 +30,7 @@ If anything goes wrong with a GPU, Lifer uses the CPU instead. Suggestions are t
 | Docker or TrueNAS on Linux | NVIDIA | Pass the GPU into the container. See [Docker](#docker) or [TrueNAS](#truenas). |
 | Docker or TrueNAS on Linux | Intel and AMD | Pass the GPU into the container. See [Docker](#docker) or [TrueNAS](#truenas). |
 
-Intel and AMD GPUs on Linux are detected and tested automatically, but they haven't been tried on many machines yet. If you have one, we'd love to hear how it goes: [open an issue on GitHub](https://github.com/Sparklysparkspark/lifer-app/issues).
+Intel and AMD GPUs on Linux are detected and tested automatically, but they haven't been tried on many machines yet. If you have one, please report how it goes in an [issue on GitHub](https://github.com/Sparklysparkspark/lifer-app/issues).
 
 ### The desktop app connected to a server {#desktop-and-server}
 
@@ -108,7 +108,7 @@ Lifer isn't in the TrueNAS app catalog yet, so on TrueNAS you run it as a Custom
 
 **Settings > Offline data > Species-matching model** shows whether species matching runs on the CPU or a GPU, and which one.
 
-Click **Re-test hardware** to run the test again, for example after you add a GPU, pass one into the container, or update the graphics driver.
+Click **Test again** in **Settings > Offline data > Hardware** to run the test again, for example after you add a GPU, pass one into the container, or update the graphics driver.
 
 ## Turn it off {#turn-off}
 
@@ -118,8 +118,8 @@ You shouldn't need to. For troubleshooting, set the `LIFER_GPU` environment vari
 
 Whatever happens with the GPU, Lifer keeps working on the CPU, so these only cost speed.
 
-- **Matching stays on the CPU on a server with a GPU.** The GPU probably isn't passed into the container. Follow [Docker](#docker) or [TrueNAS](#truenas), then click **Re-test hardware**. For NVIDIA, `docker compose exec api nvidia-smi` should list your card.
-- **NVIDIA driver too old.** Lifer needs NVIDIA driver 525 or newer. `nvidia-smi` on the server shows the version. Update the driver, restart Lifer, and click **Re-test hardware**.
+- **Matching stays on the CPU on a server with a GPU.** The GPU probably isn't passed into the container. Follow [Docker](#docker) or [TrueNAS](#truenas), then click **Test again**. For NVIDIA, `docker compose exec api nvidia-smi` should list your card.
+- **NVIDIA driver too old.** Lifer needs NVIDIA driver 525 or newer. `nvidia-smi` on the server shows the version. Update the driver, restart Lifer, and click **Test again**.
 - **Intel or AMD GPU isn't used.** Check that `/dev/dri` is passed in and the `render` group number is right. Some older or very new GPUs may not work yet. Please [let us know](https://github.com/Sparklysparkspark/lifer-app/issues) which GPU you have.
 - **A GPU is found but not used.** Either it gave slightly different answers than the CPU, or it wasn't at least 15% faster. That's on purpose: Lifer only uses a GPU when it's both correct and clearly faster.
-- **The NVIDIA download failed.** Lifer keeps matching on the CPU. Check the server can reach the internet and has about 3 GB free for app data, then click **Re-test hardware**.
+- **The NVIDIA download failed.** Lifer keeps matching on the CPU. Check the server can reach the internet and has about 3 GB free for app data, then click **Test again**.

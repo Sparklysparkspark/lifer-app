@@ -36,7 +36,7 @@ Limits:
 
 ## Catalog updates
 
-**Settings > Offline Data > Species catalog updates** runs `runCatalogUpdate` (`catalogSeedUpdate.ts`):
+**Settings > Offline data > Species catalog** runs `runCatalogUpdate` (`catalogSeedUpdate.ts`):
 
 1. Fetch the manifest from `CATALOG_MANIFEST_URL`, download the seed into `APP_DATA_DIR/catalog-downloads/` (resumable, checked against the manifest's SHA-256), delete older downloads.
 2. Apply it in **one Postgres transaction**, holding the reference-data advisory lock (`packages/core/src/lib/referenceDataLock.ts`) so pack installs and vector installs wait:
@@ -128,7 +128,7 @@ Trip scans separately read `.lifer/index.json` to restore the species of trip ph
 
 ## Desktop app connected to a server
 
-In server mode the desktop window loads the server's own web app; there's no local copy of the server's data apart from the read-only offline cache below (`apps/desktop/src-tauri/src/lib.rs`, `store.rs`). The app chooses between the server's local and public addresses by Wi-Fi network name. If no address answers, it can fall back to the computer's own local library, which is a separate database and folder: work done there reaches the server only through the migration above, when the user chooses to push it. Nothing merges the two.
+In server mode the desktop window loads the server's own web app; there's no local copy of the server's data apart from the read-only offline cache below (`apps/desktop/src-tauri/src/server_watch.rs`, `store.rs`). The app chooses between the server's local and public addresses by Wi-Fi network name. If no address answers, it can fall back to the computer's own local library, which is a separate database and folder: work done there reaches the server only through the migration above, when the user chooses to push it. Nothing merges the two.
 
 **Offline cache** (`apps/desktop/src-tauri/src/offline_cache.rs`, `apps/web/src/lib/offlineCache.ts`): a read-only, one-way copy of the user's collection (names, collected/seen state, 192 px cover JPEGs, at most 3,000 of them) in `<app data>/offline-cache`. The server's web page fills it, since only it holds the session: it fetches `GET /api/collection` and the cover thumbnails, downscales them, and hands them to the shell over IPC; the shell never contacts the server for it. It syncs on page load (unless the last sync was under 2 minutes ago) and every 30 minutes; covers whose URL and crop are unchanged are reused. `owner.json` ties it to one server (the single address, or the local address under URL switching) and one user id; a sync for anyone else wipes it first, and `store::write_config` deletes it whenever the option is off, the mode isn't remote or the server changed. Sign-out clears it from the web app. When the watcher finds no server, the window shows the bundled `offline.html` instead of the local-library fallback if a cache exists, and goes back to the server as soon as it answers. Nothing is ever written back, and edits made on the server while offline simply appear at the next sync.
 

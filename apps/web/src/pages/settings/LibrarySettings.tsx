@@ -2,60 +2,66 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../api/client";
 import Button from "../../components/Button";
-import { buttonClasses } from "../../lib/buttonClasses";
+import Switch from "../../components/Switch";
 import FormMessage from "../../components/FormMessage";
 import { useServerInfo } from "../../hooks/useDeploymentMode";
 import { useConfirm } from "../../hooks/useConfirm";
 import { useSettings } from "../../hooks/useSettings";
 import { errorMessage } from "../../lib/errorMessage";
 import LibraryReimportSection from "./LibraryReimportSection";
-import { Card } from "./shared";
+import { SettingRow, SettingsGroup } from "./shared";
 
 export default function LibrarySettings() {
   return (
     <>
-      <LibraryLinksSection />
-      <OrganizePhotosSection />
+      <SettingsGroup title="Library">
+        <LibraryLinksRows />
+        <OrganizePhotosRows />
+      </SettingsGroup>
       <LibraryReimportSection />
     </>
   );
 }
 
-function LibraryLinksSection() {
+const LIBRARY_PAGES = [
+  { to: "/offline-packs", label: "Offline packs" },
+  { to: "/archived", label: "Archived species" },
+  { to: "/hidden-species", label: "Hidden species" },
+  { to: "/trash", label: "Trash" },
+  { to: "/tags", label: "Tags" },
+];
+
+function LibraryLinksRows() {
   const dataDir = useServerInfo()?.dataDir;
-  const linkClass = buttonClasses("secondary", "sm");
   return (
-    <Card title="Library" description="Manage your offline reference data and archived species." learnMore="library">
+    <>
       {dataDir && (
-        <p className="mb-3 truncate font-mono text-xs text-muted" title={dataDir}>
-          {dataDir}
-        </p>
+        <SettingRow
+          label="Location"
+          description={
+            <span className="block truncate font-mono" title={dataDir}>
+              {dataDir}
+            </span>
+          }
+        />
       )}
-      <div className="flex flex-wrap gap-3">
-        <Link to="/offline-packs" className={linkClass}>
-          Offline packs
-        </Link>
-        <Link to="/archived" className={linkClass}>
-          Archived species
-        </Link>
-        <Link to="/hidden-species" className={linkClass}>
-          Hidden species
-        </Link>
-        <Link to="/trash" className={linkClass}>
-          Trash
-        </Link>
-        <Link to="/tags" className={linkClass}>
-          Manage tags
-        </Link>
-      </div>
-    </Card>
+      <SettingRow label="Manage">
+        <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
+          {LIBRARY_PAGES.map((p) => (
+            <Link key={p.to} to={p.to} className="text-ink underline">
+              {p.label}
+            </Link>
+          ))}
+        </div>
+      </SettingRow>
+    </>
   );
 }
 
-const pathChip = "rounded bg-surface-muted px-1 py-0.5 text-xs text-muted";
+const pathChip = "font-mono";
 
 // Toggling only affects future uploads; existing files move only via the explicit "Reorganize now".
-function OrganizePhotosSection() {
+function OrganizePhotosRows() {
   const { settings, setLocal } = useSettings();
   const confirm = useConfirm();
   const [saving, setSaving] = useState(false);
@@ -93,9 +99,7 @@ function OrganizePhotosSection() {
     setError(null);
     setResult(null);
     try {
-      const res = await api.post<{ moved: number; skipped: number; failed: number; total: number }>(
-        "/settings/reorganize-originals",
-      );
+      const res = await api.post("/settings/reorganize-originals");
       setResult(`Moved ${res.moved} of ${res.total} files (${res.skipped} already in place, ${res.failed} failed).`);
     } catch (err) {
       setError(errorMessage(err, "Couldn't reorganize your photos"));
@@ -105,55 +109,54 @@ function OrganizePhotosSection() {
   }
 
   return (
-    <Card
-      title="Photo library organization"
-      learnMore="photo-library-organization"
-      description="Where full-resolution originals get filed on disk, useful if you ever want to browse or import your library outside Lifer (e.g. into Immich)."
-    >
-      <label className="flex items-start gap-2 text-sm text-ink">
-        <input
-          type="checkbox"
-          checked={settings.organizeOriginalsByYear}
-          disabled={saving}
-          onChange={(e) =>
-            void save("/settings/organize-originals", { organizeOriginalsByYear: e.target.checked }, e.target.checked)
-          }
-          className="mt-0.5"
-        />
-        <span>
-          Organize into <span className={pathChip}>Wildlife &lt;year taken&gt;/Birds|Mammals|Fish/Species name</span>{" "}
-          folders instead of just <span className={pathChip}>Species name</span>, using each photo's own year, not the
-          year you uploaded it
-        </span>
-      </label>
-      <label className="flex items-start gap-2 text-sm text-ink">
-        <input
-          type="checkbox"
-          checked={settings.organizeOriginalsByLocation}
-          disabled={saving}
-          onChange={(e) =>
-            void save(
-              "/settings/organize-originals-by-location",
-              { organizeOriginalsByLocation: e.target.checked },
-              e.target.checked,
-            )
-          }
-          className="mt-0.5"
-        />
-        <span>
-          Add an outermost folder named after the location you type in at import time. Stacks with the year folders
-          above (location comes first): with year folders on, that's{" "}
-          <span className={pathChip}>Prince George/Wildlife &lt;year taken&gt;/Birds/Species name</span>, or just{" "}
-          <span className={pathChip}>Prince George/Birds/Species name</span> with year folders off. Only applies to
-          photos you actually gave a location to; everything else stays where it already would.
-        </span>
-      </label>
-      <div>
-        <Button variant="secondary" size="sm" onClick={reorganizeNow} loading={reorganizing}>
-          {reorganizing ? "Reorganizing…" : "Reorganize existing photos now"}
-        </Button>
-      </div>
-      <FormMessage error={error} success={result} />
-    </Card>
+    <>
+      <SettingRow
+        label="Folders by year"
+        description={
+          <>
+            Files originals under <span className={pathChip}>Wildlife &lt;year taken&gt;/Birds/Species name</span>{" "}
+            instead of just <span className={pathChip}>Species name</span>.
+          </>
+        }
+        control={
+          <Switch
+            label="Folders by year"
+            checked={settings.organizeOriginalsByYear}
+            disabled={saving}
+            onChange={(next) => void save("/settings/organize-originals", { organizeOriginalsByYear: next }, next)}
+          />
+        }
+      />
+      <SettingRow
+        label="Folders by location"
+        description={
+          <>
+            Adds an outer folder named after the location you enter at import, like{" "}
+            <span className={pathChip}>Prince George/Birds/Species name</span>.
+          </>
+        }
+        control={
+          <Switch
+            label="Folders by location"
+            checked={settings.organizeOriginalsByLocation}
+            disabled={saving}
+            onChange={(next) =>
+              void save("/settings/organize-originals-by-location", { organizeOriginalsByLocation: next }, next)
+            }
+          />
+        }
+      />
+      <SettingRow
+        label="Reorganize existing photos"
+        description="The folder settings apply to new photos; this moves files already on disk to match."
+        control={
+          <Button variant="secondary" size="sm" onClick={reorganizeNow} loading={reorganizing}>
+            {reorganizing ? "Reorganizing…" : "Reorganize"}
+          </Button>
+        }
+      >
+        {(error || result) && <FormMessage error={error} success={result} />}
+      </SettingRow>
+    </>
   );
 }

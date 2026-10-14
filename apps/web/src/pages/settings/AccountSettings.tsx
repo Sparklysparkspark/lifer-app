@@ -2,12 +2,11 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../api/client";
 import Button from "../../components/Button";
-import { buttonClasses } from "../../lib/buttonClasses";
 import FormMessage from "../../components/FormMessage";
 import InlineSpinner from "../../components/InlineSpinner";
 import PasswordInput from "../../components/PasswordInput";
 import { errorMessage } from "../../lib/errorMessage";
-import { Card, inputClass } from "./shared";
+import { SettingRow, SettingsGroup, inputClass } from "./shared";
 
 interface AccountInfo {
   email: string;
@@ -21,7 +20,7 @@ export default function AccountSettings() {
 
   function fetchAccount() {
     api
-      .get<AccountInfo>("/auth/settings")
+      .get("/auth/settings")
       .then(setAccount)
       .catch((err) => setLoadError(errorMessage(err, "Couldn't load your account details")));
   }
@@ -46,28 +45,26 @@ export default function AccountSettings() {
 
   return (
     <>
-      <EmailSection currentEmail={account.email} onChanged={(email) => setAccount({ ...account, email })} />
-      <PasswordSection />
-      <ApiKeysSection />
+      <SettingsGroup title="Sign-in">
+        <EmailRow currentEmail={account.email} onChanged={(email) => setAccount({ ...account, email })} />
+        <PasswordRow />
+      </SettingsGroup>
+      <SettingsGroup title="Scripts and integrations">
+        <SettingRow
+          label="API keys"
+          description="Tokens for your own scripts, each limited to what it needs."
+          control={
+            <Link to="/settings/api-keys" className="text-sm text-ink underline">
+              Manage API keys
+            </Link>
+          }
+        />
+      </SettingsGroup>
     </>
   );
 }
 
-function ApiKeysSection() {
-  return (
-    <Card
-      title="API keys"
-      description="Personal access tokens for your own scripts and integrations to use, scoped to exactly what they need."
-      learnMore="api-keys"
-    >
-      <Link to="/settings/api-keys" className={buttonClasses("secondary", "sm", "w-fit")}>
-        Manage API keys
-      </Link>
-    </Card>
-  );
-}
-
-function EmailSection({ currentEmail, onChanged }: { currentEmail: string; onChanged: (email: string) => void }) {
+function EmailRow({ currentEmail, onChanged }: { currentEmail: string; onChanged: (email: string) => void }) {
   const [newEmail, setNewEmail] = useState("");
   const [currentPassword, setCurrentPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -80,7 +77,7 @@ function EmailSection({ currentEmail, onChanged }: { currentEmail: string; onCha
     setSuccess(null);
     setSubmitting(true);
     try {
-      const res = await api.put<{ email: string }>("/auth/email", { currentPassword, newEmail });
+      const res = await api.put("/auth/email", { currentPassword, newEmail });
       onChanged(res.email);
       setNewEmail("");
       setCurrentPassword("");
@@ -93,8 +90,8 @@ function EmailSection({ currentEmail, onChanged }: { currentEmail: string; onCha
   }
 
   return (
-    <Card title="Email" description={`Currently signed in as ${currentEmail}.`} learnMore="email">
-      <form onSubmit={handleSubmit} className="space-y-3">
+    <SettingRow label="Email" description={`Signed in as ${currentEmail}.`}>
+      <form onSubmit={handleSubmit} className="max-w-sm space-y-2">
         <input
           type="email"
           placeholder="New email"
@@ -112,15 +109,15 @@ function EmailSection({ currentEmail, onChanged }: { currentEmail: string; onCha
           className={inputClass}
         />
         <FormMessage error={error} success={success} />
-        <Button type="submit" loading={submitting}>
+        <Button type="submit" variant="secondary" size="sm" loading={submitting}>
           Update email
         </Button>
       </form>
-    </Card>
+    </SettingRow>
   );
 }
 
-function PasswordSection() {
+function PasswordRow() {
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -151,8 +148,8 @@ function PasswordSection() {
   }
 
   return (
-    <Card title="Password" description="Change your account password." learnMore="password">
-      <form onSubmit={handleSubmit} className="space-y-3">
+    <SettingRow label="Password">
+      <form onSubmit={handleSubmit} className="max-w-sm space-y-2">
         <PasswordInput
           placeholder="Current password"
           value={currentPassword}
@@ -180,10 +177,10 @@ function PasswordSection() {
           className={inputClass}
         />
         <FormMessage error={error} success={success} />
-        <Button type="submit" loading={submitting}>
+        <Button type="submit" variant="secondary" size="sm" loading={submitting}>
           Update password
         </Button>
       </form>
-    </Card>
+    </SettingRow>
   );
 }
