@@ -75,7 +75,7 @@ describe("video species suggestions", () => {
     const gone = new ApiError(410, "gone");
     post.mockRejectedValueOnce(gone).mockResolvedValueOnce({ suggestions: [], uploadId: "u2" });
     const upload = vi.fn(async (fresh: boolean) => (fresh ? "u2" : "u1"));
-    const res = await suggestSpeciesFromVideo<{ uploadId: string }>(upload, "region-1");
+    const res = await suggestSpeciesFromVideo(upload, "region-1");
     expect(res.uploadId).toBe("u2");
     expect(upload.mock.calls).toEqual([[false], [true]]);
     const forms = post.mock.calls.map(([path, form]) => [

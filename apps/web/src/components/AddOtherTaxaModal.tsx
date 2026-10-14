@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
+import { useLocation, useNavigate } from "react-router-dom";
 import type { JobStatus } from "@lifer/shared";
 import { api } from "../api/client";
 import { useEnterToConfirm } from "../hooks/useEnterToConfirm";
@@ -7,12 +8,16 @@ import { useJobPoll } from "../hooks/useJobPoll";
 import { useRegions } from "../hooks/useRegions";
 import { regionHasChecklist } from "../lib/checklistAdditions";
 import { errorMessage } from "../lib/errorMessage";
+import { backStateFor } from "../lib/backLabel";
 import Button from "./Button";
 import FormMessage from "./FormMessage";
 import JobProgress from "./JobProgress";
 import Modal from "./Modal";
 import RegionBrowser from "./RegionBrowser";
 import SearchInput from "./SearchInput";
+import { formatList } from "../lib/format";
+import { useSpeciesName } from "../lib/speciesName";
+import type { SpeciesResult } from "./SpeciesPicker";
 
 interface InatSearchResult {
   inatTaxonId: number;
@@ -37,11 +42,15 @@ export default function AddOtherTaxaModal({
   initialQuery,
   initialRegionId,
   onClose,
+  onAdded,
 }: {
   initialQuery: string;
   initialRegionId?: string | null;
   onClose: () => void;
+  /** Hands the added species back (the import screen assigns it) instead of opening its page. */
+  onAdded?: (species: SpeciesResult) => void;
 }) {
+  const speciesName = useSpeciesName();
   const [mode, setMode] = useState<"search" | "bulk">("search");
   const [query, setQuery] = useState(initialQuery);
   // Tagged with the query they answer: any other query is still searching, and the last list stays
@@ -66,6 +75,8 @@ export default function AddOtherTaxaModal({
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const navigate = useNavigate();
+  const location = useLocation();
+  const { t } = useTranslation();
 
   const [bulkText, setBulkText] = useState("");
   const bulkJob = useJobPoll<BulkJobStatus>("/species/other-taxa/bulk/status");
@@ -119,7 +130,9 @@ export default function AddOtherTaxaModal({
         regionId,
       });
       onClose();
-      navigate(`/species/${res.speciesId}`);
+      if (onAdded)
+        onAdded({ id: res.speciesId, scientific_name: selected.scientificName, common_name: selected.commonName });
+      else navigate(`/species/${res.speciesId}`, { state: backStateFor(location, t) });
     } catch (err) {
       setError(errorMessage(err, "Couldn't add that species"));
     } finally {
@@ -130,8 +143,8 @@ export default function AddOtherTaxaModal({
   return (
     <Modal open onClose={onClose} title="Search iNaturalist" size="lg">
       <p className="mb-3 text-xs text-muted">
-        For taxa Lifer doesn't have a dataset for (insects, arachnids, plants, fungi, and more). No species tiers or
-        occurrence data, just a photo and description pulled from iNaturalist.
+        For species Lifer has no data for, like insects, plants and fungi. They get a photo and description from
+        iNaturalist, but no tier or occurrence data.
       </p>
 
       <div className="mb-3 flex gap-1 rounded-md border border-line p-0.5 text-sm">
@@ -154,9 +167,7 @@ export default function AddOtherTaxaModal({
       {mode === "bulk" ? (
         <>
           <p className="mb-2 text-xs text-muted">
-            Paste one entry per line. Scientific names work best, common names or raw iNaturalist taxon IDs also work
-            (handy for building your own target list, like every bee species in a region, or sharing one with someone
-            else on the same instance).
+            One species per line. Scientific names work best; common names and iNaturalist taxon IDs also work.
           </p>
           <textarea
             value={bulkText}
@@ -171,7 +182,7 @@ export default function AddOtherTaxaModal({
           {regionHint}
           <FormMessage error={bulkJob.actionError} className="mt-2" />
           {bulkStatus && (
-            <div className="mt-3 space-y-2 rounded-md border border-line px-3 py-2 text-xs text-muted">
+            <div className="mt-3 space-y-2 border-t border-line pt-3 text-xs text-muted">
               {bulkStatus.running && (
                 <JobProgress
                   status={bulkStatus}
@@ -187,7 +198,7 @@ export default function AddOtherTaxaModal({
               </p>
               {!bulkStatus.running && bulkStatus.notFound.length > 0 && (
                 <p className="mt-1">
-                  Not found on iNaturalist: <span className="italic">{bulkStatus.notFound.join(", ")}</span>
+                  Not found on iNaturalist: <span className="italic">{formatList(bulkStatus.notFound, "unit")}</span>
                 </p>
               )}
               <FormMessage error={bulkStatus.error} className="mt-1" />
@@ -230,7 +241,7 @@ export default function AddOtherTaxaModal({
                     <span className="h-8 w-8 rounded bg-surface-muted" />
                   )}
                   <span>
-                    <span className="font-medium text-ink">{r.commonName ?? r.scientificName}</span>{" "}
+                    <span className="font-medium text-ink">{speciesName(r)}</span>{" "}
                     <span className="italic text-muted">{r.scientificName}</span>
                     {r.iconicTaxon && <span className="ml-1.5 text-xs text-muted">· {r.iconicTaxon}</span>}
                   </span>
@@ -244,23 +255,19 @@ export default function AddOtherTaxaModal({
         </>
       ) : (
         <>
-          <div className="mb-3 flex items-center gap-2 rounded-md border border-line px-2 py-1.5 text-sm">
+          <div className="mb-3 flex items-center gap-2 border-b border-line pb-3 text-sm">
             {selected.thumbnailUrl ? (
               <img src={selected.thumbnailUrl} alt="" className="h-8 w-8 rounded object-cover" />
             ) : (
               <span className="h-8 w-8 rounded bg-surface-muted" />
             )}
             <span>
-              <span className="font-medium text-ink">{selected.commonName ?? selected.scientificName}</span>{" "}
+              <span className="font-medium text-ink">{speciesName(selected)}</span>{" "}
               <span className="italic text-muted">{selected.scientificName}</span>
             </span>
-            <button
-              type="button"
-              onClick={() => setSelected(null)}
-              className="ml-auto text-xs text-muted hover:underline"
-            >
+            <Button variant="ghost" size="sm" onClick={() => setSelected(null)} className="ml-auto">
               Change
-            </button>
+            </Button>
           </div>
           <p className="mb-2 text-xs text-muted">Which region should this appear under?</p>
           <RegionBrowser regionId={regionId} onChange={setRegionId} allowAnyRegion />
