@@ -37,7 +37,7 @@ export default function UploadDropzone({
   }
 
   return (
-    // The whole dashed box opens the file picker, not just the "Choose photos…" text.
+    // The whole dashed box opens the file picker, not just the "Choose photos" text.
     <div
       onClick={() => fileInputRef.current?.click()}
       className="cursor-pointer rounded-lg border-2 border-dashed border-line p-6 text-center transition-colors hover:bg-surface-muted"

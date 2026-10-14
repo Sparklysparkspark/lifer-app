@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useSpeciesName } from "../lib/speciesName";
 import { enqueueRawUploads } from "../lib/uploadQueue";
+import Button from "./Button";
 import FormMessage from "./FormMessage";
 import { RAW_EXTENSIONS, extname } from "../lib/rawExtensions";
 
@@ -12,7 +13,7 @@ interface RawUploadOutcome {
   speciesCommonName?: string | null;
   speciesScientificName?: string;
   error?: string;
-  /** Filed under this species with no matching JPEG (only from "Choose RAW files…"). */
+  /** Filed under this species with no matching JPEG (only from "Choose RAW files"). */
   filed?: boolean;
   /** Identical content already on file for this species, not re-added. */
   duplicate?: boolean;
@@ -31,7 +32,7 @@ export default function RawUpload({
   speciesId: string;
   /** Registered drive to save into, or "" for the main library (see VolumeDestinationPicker). */
   volumeId: string;
-  /** Hides "Choose RAW files…", which files unmatched RAWs under `speciesId`. For contexts with
+  /** Hides "Choose RAW files", which files unmatched RAWs under `speciesId`. For contexts with
    *  no single species, like a trip. */
   matchOnly?: boolean;
   onFiled?: () => void;
@@ -111,7 +112,7 @@ export default function RawUpload({
   const successCount = results?.filter((r) => r.linked || r.filed).length ?? 0;
 
   return (
-    <div className="rounded-lg border border-line bg-surface p-4">
+    <div>
       <h2 className="text-sm font-medium text-ink">{t("upload.raw.title")}</h2>
       <p className="mt-1 text-xs text-muted">
         {matchOnly ? t("upload.raw.descriptionMatchOnly") : t("upload.raw.descriptionSpecies")}
@@ -141,15 +142,15 @@ export default function RawUpload({
           if (e.target.files) handleFiles(e.target.files, false);
         }}
       />
-      <div className="mt-2 flex gap-4">
+      <div className="mt-2 flex gap-2">
         {!matchOnly && (
-          <label htmlFor="raw-upload-files-input" className="cursor-pointer text-sm text-muted hover:underline">
+          <Button variant="secondary" size="sm" onClick={() => filesInputRef.current?.click()}>
             {t("upload.raw.chooseFiles")}
-          </label>
+          </Button>
         )}
-        <label htmlFor="raw-upload-folder-input" className="cursor-pointer text-sm text-muted hover:underline">
+        <Button variant="secondary" size="sm" onClick={() => folderInputRef.current?.click()}>
           {t("upload.raw.chooseFolder")}
-        </label>
+        </Button>
       </div>
       <FormMessage error={error} className="mt-2" />
       {results && (

@@ -47,8 +47,8 @@ export default function SuggestionCard({
       </button>
       <button type="button" onClick={onSelect} className="block w-full p-1.5 text-left">
         <p className="truncate text-xs font-medium leading-tight text-ink">{displayName}</p>
-        <p className="truncate text-[10px] italic text-muted">{suggestion.scientific_name}</p>
-        <p className="text-[10px] font-medium text-muted">
+        <p className="truncate text-xs italic text-muted">{suggestion.scientific_name}</p>
+        <p className="text-xs font-medium text-muted">
           {t("species.suggestion.match", { percent: formatPercent(matchPercent / 100) })}
         </p>
       </button>

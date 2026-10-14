@@ -8,6 +8,7 @@ import { Logo } from "../components/Logo";
 import PasswordInput from "../components/PasswordInput";
 import { errorMessage } from "../lib/errorMessage";
 import { openLocalLibrary } from "../lib/desktopConnection";
+import { ignore } from "../lib/ignore";
 
 // Single-user app: a one-time "create your account" screen until the account exists, then a
 // plain login form for good.
@@ -34,7 +35,7 @@ export default function LoginPage() {
         if (config?.mode === "remote")
           setConnectedServer(config.serverUrl ?? config.localUrl ?? window.location.origin);
       })
-      .catch(() => {});
+      .catch(ignore("Couldn't read the desktop connection"));
   }, []);
 
   useEffect(() => {
@@ -88,7 +89,7 @@ export default function LoginPage() {
     <div className="min-h-screen flex items-center justify-center bg-canvas">
       <form
         onSubmit={handleSubmit}
-        className="w-full max-w-sm space-y-4 rounded-xl border border-line bg-surface p-8 shadow-sm"
+        className="w-full max-w-sm space-y-4 rounded-panel border border-line bg-surface p-panel"
       >
         <Logo variant="wordmark" className="h-8 w-auto" />
         <p className="text-sm text-muted">

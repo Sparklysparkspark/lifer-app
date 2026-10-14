@@ -4,14 +4,15 @@ import Button from "../../components/Button";
 import FormMessage from "../../components/FormMessage";
 import { formatDate } from "../../lib/format";
 import { SHARE_EXPIRY_OPTIONS, type AlbumShares, type ShareExpiry } from "./useAlbumShares";
+import { PANEL } from "../../lib/layout";
 
 // The "Share…" panel: a form for a new link, then the album's existing links.
 export default function AlbumSharePanel({ shares }: { shares: AlbumShares }) {
   const { form, now } = shares;
   return (
-    <div className="border-b border-line bg-surface-muted px-6 py-4">
+    <div className="border-b border-line bg-surface-muted px-page py-4">
       <div className="max-w-lg space-y-3">
-        <form onSubmit={shares.createShare} className="space-y-2 rounded-lg border border-line bg-surface p-3">
+        <form onSubmit={shares.createShare} className={`space-y-2 ${PANEL}`}>
           <div>
             <label className="mb-1 block text-xs font-medium text-ink">Password (optional)</label>
             <PasswordInput
@@ -61,14 +62,14 @@ export default function AlbumSharePanel({ shares }: { shares: AlbumShares }) {
         </form>
 
         {shares.shares && shares.shares.length > 0 && (
-          <ul className="space-y-2">
+          <ul className="divide-y divide-line border-t border-line">
             {shares.shares.map((share) => {
               const url = share.token ? `${window.location.origin}/share/${share.token}` : null;
               const expired = !!share.expiresAt && new Date(share.expiresAt).getTime() < now;
               return (
                 <li
                   key={share.id}
-                  className={`flex items-center justify-between gap-2 rounded-md border border-line bg-surface p-2 text-sm ${
+                  className={`flex items-center justify-between gap-2 py-2 text-sm ${
                     share.revoked || expired ? "opacity-50" : ""
                   }`}
                 >

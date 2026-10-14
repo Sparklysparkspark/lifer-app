@@ -39,11 +39,11 @@ export default function RenameModal({ title, initialName, onCancel, onSave }: Re
           autoFocus
           required
           aria-label={title}
-          className="mt-1 w-full rounded-md border border-line px-3 py-2 text-sm"
+          className="mt-1 w-full rounded-md border border-line bg-surface px-3 py-2 text-sm text-ink"
         />
         <FormMessage error={error} className="mt-2" />
         <div className="mt-4 flex justify-end gap-2">
-          <Button variant="ghost" size="sm" onClick={onCancel}>
+          <Button variant="secondary" size="sm" onClick={onCancel}>
             Cancel
           </Button>
           <Button type="submit" size="sm" disabled={!name.trim()} loading={saving}>

@@ -1,13 +1,14 @@
 import { useTranslation } from "react-i18next";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { useDropdownMenu } from "../hooks/useDropdownMenu";
 import { docsUrl } from "../lib/docs";
-
-const itemClass = "block w-full px-3 py-2 text-left text-sm text-ink hover:bg-surface-muted";
+import { backStateFor } from "../lib/backLabel";
+import { MENU_ITEM, MENU_PANEL, MENU_SEPARATOR } from "../lib/menuClasses";
 
 export default function AccountMenu({ email, onLogout }: { email: string; onLogout: () => void }) {
   const { openKey, setOpenKey, ref, close } = useDropdownMenu<true>();
   const { t } = useTranslation();
+  const location = useLocation();
   const open = openKey === true;
   const initial = email.trim().charAt(0).toUpperCase() || "?";
 
@@ -23,31 +24,24 @@ export default function AccountMenu({ email, onLogout }: { email: string; onLogo
         {initial}
       </button>
       {open && (
-        <div className="absolute right-0 top-full z-20 mt-2 w-56 rounded-md border border-line bg-surface py-1 shadow-md">
-          <p className="truncate px-3 py-2 text-sm text-muted">{email}</p>
-          <Link to="/settings/account" onClick={close} className={itemClass}>
+        <div className={`absolute right-0 top-full z-20 mt-2 w-56 ${MENU_PANEL}`}>
+          <p className="truncate px-3 py-1.5 text-muted">{email}</p>
+          <div className={MENU_SEPARATOR} />
+          <Link to="/settings/account" state={backStateFor(location, t)} onClick={close} className={MENU_ITEM}>
             {t("nav.account.settings")}
           </Link>
           {/* target=_blank links open in the system browser inside the desktop app (see main.tsx). */}
-          <a
-            href={docsUrl()}
-            target="_blank"
-            rel="noreferrer"
-            onClick={close}
-            className={`${itemClass} flex items-center justify-between`}
-          >
+          <a href={docsUrl()} target="_blank" rel="noreferrer" onClick={close} className={MENU_ITEM}>
             {t("nav.account.help")}
-            <span aria-hidden="true" className="text-muted">
-              ↗
-            </span>
           </a>
+          <div className={MENU_SEPARATOR} />
           <button
             type="button"
             onClick={() => {
               close();
               onLogout();
             }}
-            className={itemClass}
+            className={MENU_ITEM}
           >
             {t("nav.account.logOut")}
           </button>

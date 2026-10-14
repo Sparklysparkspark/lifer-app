@@ -7,6 +7,7 @@ import DotMenu from "./DotMenu";
 import InlineSpinner from "./InlineSpinner";
 import { formatDate } from "../lib/format";
 import { pluralize } from "../lib/pluralize";
+import { MENU_ITEM, MENU_ITEM_DANGER, MENU_PANEL, MENU_SEPARATOR } from "../lib/menuClasses";
 
 function formatDateRange(earliest: string | null, latest: string | null): string | null {
   const start = formatDate(earliest, "monthYear");
@@ -37,7 +38,7 @@ export default function TripCard({ trip, menuOpen, onToggleMenu, menuRef, onRena
       <div className="relative aspect-square overflow-hidden bg-surface-muted">
         {onToggleMenu && (
           <DotMenu open={!!menuOpen} onToggle={onToggleMenu} menuRef={menuRef}>
-            <div className="absolute right-0 top-full z-10 mt-1 w-36 rounded-md border border-line bg-surface py-1 shadow-lg">
+            <div className={`absolute right-0 top-full z-10 mt-1 w-36 ${MENU_PANEL}`}>
               <button
                 type="button"
                 onClick={(e) => {
@@ -46,10 +47,11 @@ export default function TripCard({ trip, menuOpen, onToggleMenu, menuRef, onRena
                   onToggleMenu();
                   onRename?.();
                 }}
-                className="block w-full px-3 py-1.5 text-left text-xs text-ink hover:bg-surface-muted"
+                className={MENU_ITEM}
               >
                 Rename
               </button>
+              <div className={MENU_SEPARATOR} />
               <button
                 type="button"
                 onClick={(e) => {
@@ -58,7 +60,7 @@ export default function TripCard({ trip, menuOpen, onToggleMenu, menuRef, onRena
                   onToggleMenu();
                   onDelete?.();
                 }}
-                className="block w-full px-3 py-1.5 text-left text-xs text-rose-700 hover:bg-surface-muted dark:text-rose-400"
+                className={MENU_ITEM_DANGER}
               >
                 Delete
               </button>
@@ -93,14 +95,9 @@ export default function TripCard({ trip, menuOpen, onToggleMenu, menuRef, onRena
           {trip.name}
         </p>
         {dateRange && <p className="truncate text-xs text-muted">{dateRange}</p>}
-        <div className="mt-1 flex flex-wrap items-center gap-1">
-          <span className="inline-block rounded-full bg-surface-muted px-2 py-0.5 text-[10px] uppercase tracking-wide text-muted">
-            {trip.speciesCount} species
-          </span>
-          <span className="inline-block rounded-full bg-surface-muted px-2 py-0.5 text-[10px] uppercase tracking-wide text-muted">
-            {pluralize(trip.captureCount, "photo")}
-          </span>
-        </div>
+        <p className="text-xs text-muted">
+          {trip.speciesCount} species · {pluralize(trip.captureCount, "photo")}
+        </p>
       </div>
     </Link>
   );

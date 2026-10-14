@@ -1,0 +1,53 @@
+/* Lifer's design tokens: the one place to tweak colours, spacing and corners. Tailwind turns each
+   token into utilities (--spacing-page gives p-page, gap-page...; --radius-panel gives
+   rounded-panel), so pages use these names instead of raw sizes. */
+
+:root {
+  /* Warm cream, with cards in a paler cream rather than white. */
+  --color-canvas: #f6eedc;
+  --color-surface: #fbf7ee;
+  --color-surface-muted: #f1e8d4;
+  --color-line: #e6dcc6;
+  --color-ink: #242c34;
+  --color-muted: #5f6b6f;
+  --color-accent: #748069;
+  --color-accent-fg: #ffffff;
+}
+
+.dark {
+  /* Near black with the same faint warmth; surfaces a step lighter. */
+  --color-canvas: #141516;
+  --color-surface: #1c1e1f;
+  --color-surface-muted: #25282a;
+  --color-line: #34383b;
+  --color-ink: #eceae5;
+  --color-muted: #a9aca9;
+  --color-accent: #748069;
+  --color-accent-fg: #ffffff;
+}
+
+@theme inline {
+  --color-canvas: var(--color-canvas);
+  --color-surface: var(--color-surface);
+  --color-surface-muted: var(--color-surface-muted);
+  --color-line: var(--color-line);
+  --color-ink: var(--color-ink);
+  --color-muted: var(--color-muted);
+  --color-accent: var(--color-accent);
+  --color-accent-fg: var(--color-accent-fg);
+}
+
+@theme {
+  /* A page's padding (p-page). */
+  --spacing-page: 1.5rem;
+  /* Between a page's sections (space-y-section, gap-section). */
+  --spacing-section: 1.5rem;
+  /* Between related items: cards in a grid, a photo and its panel (gap-item). */
+  --spacing-item: 1rem;
+  /* Inside a panel (p-panel). */
+  --spacing-panel: 1.25rem;
+
+  /* Panels and cards (rounded-panel); buttons, inputs and other controls (rounded-control). */
+  --radius-panel: 0.75rem;
+  --radius-control: 0.375rem;
+}

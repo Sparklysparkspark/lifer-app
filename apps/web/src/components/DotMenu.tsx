@@ -21,6 +21,7 @@ export default function DotMenu({
   children,
   className,
   anchorPoint,
+  plain = false,
 }: {
   open: boolean;
   onToggle: () => void;
@@ -33,6 +34,8 @@ export default function DotMenu({
   /** Right-click mode: no trigger; the panel is portaled to body at this viewport point and
    *  clamped to the window edges. */
   anchorPoint?: { x: number; y: number } | null;
+  /** On a card rather than over a photo: always shown, quiet grey instead of a dark pill. */
+  plain?: boolean;
 }) {
   const { t } = useTranslation();
   // The panel mounts in the same commit `open` turns on, so it's attached before the layout
@@ -68,9 +71,15 @@ export default function DotMenu({
     const reposition = () => {
       const rect = el.getBoundingClientRect();
       const margin = 8;
+      // The page's height without the panel: on a short page a panel hanging past the content
+      // would otherwise make the page longer and add a scroll.
+      const display = el.style.display;
+      el.style.display = "none";
+      const pageBottom = document.documentElement.scrollHeight - window.scrollY;
+      el.style.display = display;
       // One clamp per axis, so a panel taller than the window settles at the margin instead of
       // oscillating between "fix bottom" and "fix top".
-      const maxTop = Math.max(margin, window.innerHeight - rect.height - margin);
+      const maxTop = Math.max(margin, Math.min(window.innerHeight, pageBottom) - rect.height - margin);
       const maxLeft = Math.max(margin, window.innerWidth - rect.width - margin);
       const top = Math.min(Math.max(rect.top, margin), maxTop);
       const left = Math.min(Math.max(rect.left, margin), maxLeft);
@@ -125,9 +134,13 @@ export default function DotMenu({
           onToggle();
         }}
         aria-label={t("ui.moreOptions")}
-        className={`rounded-full bg-black/40 px-1.5 py-0.5 text-xs text-white hover:bg-black/60 ${
-          open ? "opacity-100" : "opacity-0 group-hover:opacity-100"
-        }`}
+        className={
+          plain
+            ? "rounded-md px-2 py-0.5 text-lg leading-none text-muted hover:bg-surface-muted hover:text-ink"
+            : `rounded-full bg-black/40 px-1.5 py-0.5 text-xs text-white hover:bg-black/60 ${
+                open ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+              }`
+        }
       >
         ⋯
       </button>

@@ -1,7 +1,8 @@
+import { formatNumber } from "../../lib/format";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import type { RegionSpeciesResult, RegionStats, RegionSummary } from "@lifer/shared";
-import { api } from "../../api/client";
+import { api, apiPath } from "../../api/client";
 import ProgressBar from "../../components/ProgressBar";
 import { useToast } from "../../hooks/useToast";
 import { errorMessage } from "../../lib/errorMessage";
@@ -70,7 +71,7 @@ export default function RegionBreadcrumb({
     if (!regionId) return;
     setDrillingDown(true);
     try {
-      await api.post(`/regions/${regionId}/drill-down`, {});
+      await api.post(apiPath("/regions/{id}/drill-down", { id: regionId }), {});
       onDrilledDown();
     } catch (err) {
       toast.error(errorMessage(err, "Couldn't load provinces and states. Try again."));
@@ -80,9 +81,9 @@ export default function RegionBreadcrumb({
   }
 
   if (!regionId) {
-    if (!worldRegion) return <div className="border-b border-line bg-surface px-6 py-2" />;
+    if (!worldRegion) return <div className="border-b border-line bg-surface px-page py-2" />;
     return (
-      <div className="border-b border-line bg-surface px-6 py-2">
+      <div className="border-b border-line bg-surface px-page py-2">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted">
           <button onClick={() => navigateToRegion(worldRegion.id)} className="hover:underline">
             Browse by region →
@@ -101,7 +102,7 @@ export default function RegionBreadcrumb({
   const canDrillDown = !!regionMeta?.canDrillDown && !regionMeta.hasChildren;
 
   return (
-    <div className="border-b border-line bg-surface px-6 py-2">
+    <div className="border-b border-line bg-surface px-page py-2">
       <div className="space-y-2">
         <nav className="flex flex-wrap items-center gap-1 text-sm text-muted">
           <button onClick={() => navigateToRegion(null)} className="hover:underline">
@@ -132,6 +133,7 @@ export default function RegionBreadcrumb({
               determinate
               value={regionStats.total ? regionStats.collected / regionStats.total : 0}
               label="Collected in this region"
+              title={foundText(regionStats.collected, regionStats.total)}
               className="w-40"
             />
             <p className="text-xs text-muted">
@@ -164,6 +166,7 @@ export default function RegionBreadcrumb({
               determinate
               value={hubStats.total ? hubStats.collected / hubStats.total : 0}
               label="Collected in downloaded countries"
+              title={foundText(hubStats.collected, hubStats.total)}
               className="w-40"
             />
             <p className="text-xs text-muted">
@@ -176,7 +179,7 @@ export default function RegionBreadcrumb({
         )}
         {(children.length > 0 || canDrillDown) && (
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-xs uppercase tracking-wide text-muted">Drill in:</span>
+            <span className="text-xs text-muted">Drill in:</span>
             {children.map((child) => (
               <button
                 key={child.id}
@@ -216,4 +219,11 @@ export default function RegionBreadcrumb({
       )}
     </div>
   );
+}
+
+/** "4.2% found (61 of 1,450)": a decimal while the share is small, where a whole percent hides progress. */
+function foundText(collected: number, total: number): string {
+  const percent = total ? (collected / total) * 100 : 0;
+  const shown = percent > 0 && percent < 10 ? percent.toFixed(1) : String(Math.round(percent));
+  return `${shown}% found (${formatNumber(collected)} of ${formatNumber(total)})`;
 }

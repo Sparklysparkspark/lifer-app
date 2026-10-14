@@ -121,8 +121,7 @@ function ModalPanel({
       unlockScroll();
       if (previouslyFocused?.isConnected) previouslyFocused.focus({ preventScroll: true });
     };
-    // Mount-only: re-running would steal focus back on every parent render.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only: re-running would steal focus back on every parent render
   }, []);
 
   return (

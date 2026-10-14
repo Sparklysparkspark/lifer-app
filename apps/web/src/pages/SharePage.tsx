@@ -11,6 +11,7 @@ import { useShowLabels } from "../hooks/useShowLabels";
 import Button from "../components/Button";
 import FormMessage from "../components/FormMessage";
 import { downloadFile } from "../lib/downloadFile";
+import { useSpeciesName } from "../lib/speciesName";
 
 interface ShareContent {
   title: string;
@@ -20,6 +21,7 @@ interface ShareContent {
 
 // Public viewer for a shared album: no nav, no auth, nothing from the owner's private library.
 export default function SharePage() {
+  const speciesName = useSpeciesName();
   const { token } = useParams<{ token: string }>();
   const [content, setContent] = useState<ShareContent | null>(null);
   const [needsPassword, setNeedsPassword] = useState(false);
@@ -73,7 +75,10 @@ export default function SharePage() {
   if (needsPassword) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-canvas px-4">
-        <form onSubmit={unlock} className="w-full max-w-sm space-y-3 rounded-lg border border-line bg-surface p-6">
+        <form
+          onSubmit={unlock}
+          className="w-full max-w-sm space-y-3 rounded-panel border border-line bg-surface p-panel"
+        >
           <h1 className="text-center text-lg font-semibold text-ink">This album is password-protected</h1>
           <PasswordInput
             value={password}
@@ -98,7 +103,7 @@ export default function SharePage() {
     content.allowDownload
       ? {
           url: `/api/share/${token}/photos/${item.photoId}/display?download=1`,
-          filename: `${item.commonName || item.scientificName || item.photoId}.webp`,
+          filename: `${speciesName(item) || item.photoId}.webp`,
         }
       : null;
 
@@ -111,7 +116,7 @@ export default function SharePage() {
 
   const slides: LightboxSlide[] = content.items.map((item) => ({
     url: `/api/share/${token}/photos/${item.photoId}/display`,
-    caption: item.commonName || item.scientificName,
+    caption: speciesName(item),
     download: downloadFor(item),
     info: {
       cameraModel: item.cameraModel,
@@ -135,16 +140,14 @@ export default function SharePage() {
         )}
       </header>
 
-      <main className="p-6">
-        <FormMessage error={downloadError} className="mb-4" />
+      <main className="space-y-section p-page">
+        <FormMessage error={downloadError} />
         {content.items.length === 0 ? (
           <p className="text-muted">This album is empty.</p>
         ) : (
           <MasonryGrid
             items={content.items.map((item, i) => ({ item, i }))}
             columnWidth={260}
-            gap={8}
-            extraHeightPx={showLabels ? 19 : 0}
             keyFor={({ item }) => item.photoId}
             aspectRatioFor={({ item }) => (item.width && item.height ? item.width / item.height : null)}
             renderItem={({ item, i }, aspectRatio) => (
@@ -154,13 +157,11 @@ export default function SharePage() {
                     <ProgressiveImg
                       thumbSrc={`/api/share/${token}/photos/${item.photoId}/thumb`}
                       fullSrc={`/api/share/${token}/photos/${item.photoId}/display`}
-                      alt={item.commonName || item.scientificName}
+                      alt={speciesName(item)}
                       className="block h-full w-full cursor-pointer object-cover"
                     />
                   </div>
-                  {showLabels && (
-                    <p className="mt-1 truncate text-[11px] text-muted">{item.commonName || item.scientificName}</p>
-                  )}
+                  {showLabels && <p className="mt-1 truncate text-[11px] text-muted">{speciesName(item)}</p>}
                 </button>
                 {content.allowDownload && (
                   <button

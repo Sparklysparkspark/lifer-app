@@ -85,10 +85,7 @@ export function DeleteCapturesDialog({
         </>
       }
     >
-      <p className="text-xs text-muted">
-        Deleted photos go to Trash for 7 days first, where you can still restore them. After 7 days they're gone for
-        good and can't be recovered.
-      </p>
+      <p className="text-sm text-muted">Deleted photos stay in Trash for 7 days, where you can restore them.</p>
       {selectedHaveRaw && (
         <label className="mt-3 flex items-center gap-2 text-xs text-ink">
           <input

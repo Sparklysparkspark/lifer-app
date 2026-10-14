@@ -168,11 +168,11 @@ export default function CardCropEditor({
       </div>
       <FormMessage error={error} className="mt-3" />
       <div className="mt-4 flex justify-between">
-        <button onClick={resetCrop} disabled={saving} className="text-sm text-muted hover:underline">
+        <Button variant="ghost" size="sm" onClick={resetCrop} disabled={saving}>
           {t("ui.cropEditor.reset")}
-        </button>
+        </Button>
         <div className="flex gap-2">
-          <Button variant="ghost" size="sm" onClick={onClose}>
+          <Button variant="secondary" size="sm" onClick={onClose}>
             {t("common.cancel")}
           </Button>
           <Button size="sm" onClick={save} loading={saving} disabled={!box}>

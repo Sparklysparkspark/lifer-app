@@ -34,9 +34,9 @@ export default function FilterPopover({ activeCount, children }: { activeCount: 
 }
 
 export function FilterGroupLabel({ children }: { children: React.ReactNode }) {
-  return <p className="text-[11px] font-medium uppercase tracking-wide text-muted">{children}</p>;
+  return <p className="text-xs font-medium uppercase tracking-wide text-muted">{children}</p>;
 }
 
 export function FilterFieldLabel({ children }: { children: React.ReactNode }) {
-  return <p className="mb-1 text-[11px] text-muted">{children}</p>;
+  return <p className="mb-1 text-xs text-muted">{children}</p>;
 }

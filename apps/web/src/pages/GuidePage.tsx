@@ -1,69 +1,9 @@
 import { Link } from "react-router-dom";
 import PageHeader from "../components/PageHeader";
 
-type StepIconName = "map" | "camera" | "tray" | "match" | "folder" | "grid";
-
 interface Step {
-  icon: StepIconName;
   title: string;
   body: React.ReactNode;
-}
-
-// Small monochrome line icons matching the app's mark; they take the surrounding text color.
-function StepIcon({ name, className }: { name: StepIconName; className?: string }) {
-  const common = {
-    fill: "none",
-    stroke: "currentColor",
-    strokeWidth: 1.75,
-    strokeLinecap: "round" as const,
-    strokeLinejoin: "round" as const,
-  };
-  switch (name) {
-    case "map":
-      return (
-        <svg viewBox="0 0 24 24" className={className} {...common}>
-          <path d="M12 21c4-4.5 7-8.2 7-11.5A7 7 0 0 0 5 9.5C5 12.8 8 16.5 12 21Z" />
-          <circle cx="12" cy="9.5" r="2.25" />
-        </svg>
-      );
-    case "camera":
-      return (
-        <svg viewBox="0 0 24 24" className={className} {...common}>
-          <path d="M4 8.5a1.5 1.5 0 0 1 1.5-1.5H8l1.2-2h5.6l1.2 2h2.5A1.5 1.5 0 0 1 20 8.5v9A1.5 1.5 0 0 1 18.5 19h-13A1.5 1.5 0 0 1 4 17.5Z" />
-          <circle cx="12" cy="12.5" r="3.25" />
-        </svg>
-      );
-    case "tray":
-      return (
-        <svg viewBox="0 0 24 24" className={className} {...common}>
-          <path d="M4 13h4l1.8 2.2h4.4L16 13h4" />
-          <path d="M5 13 4 19.5A1.5 1.5 0 0 0 5.5 21h13a1.5 1.5 0 0 0 1.5-1.5L19 13" />
-          <path d="M12 3v7.5M9 8l3 3 3-3" />
-        </svg>
-      );
-    case "match":
-      return (
-        <svg viewBox="0 0 24 24" className={className} {...common}>
-          <rect x="3.5" y="5.5" width="10" height="10" rx="1.5" />
-          <rect x="10.5" y="8.5" width="10" height="10" rx="1.5" />
-        </svg>
-      );
-    case "folder":
-      return (
-        <svg viewBox="0 0 24 24" className={className} {...common}>
-          <path d="M4 6.5A1.5 1.5 0 0 1 5.5 5h4l1.8 2.2h7.2A1.5 1.5 0 0 1 20 8.7v9.8A1.5 1.5 0 0 1 18.5 20h-13A1.5 1.5 0 0 1 4 18.5Z" />
-        </svg>
-      );
-    case "grid":
-      return (
-        <svg viewBox="0 0 24 24" className={className} {...common}>
-          <rect x="4" y="4" width="6.5" height="6.5" rx="1" />
-          <rect x="13.5" y="4" width="6.5" height="6.5" rx="1" />
-          <rect x="4" y="13.5" width="6.5" height="6.5" rx="1" />
-          <rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1" />
-        </svg>
-      );
-  }
 }
 
 function PageLink({ to, children }: { to: string; children: React.ReactNode }) {
@@ -76,7 +16,6 @@ function PageLink({ to, children }: { to: string; children: React.ReactNode }) {
 
 const STEPS: Step[] = [
   {
-    icon: "map",
     title: "Download your regions",
     body: (
       <>
@@ -87,7 +26,6 @@ const STEPS: Step[] = [
     ),
   },
   {
-    icon: "camera",
     title: "Upload a species",
     body: (
       <>
@@ -101,7 +39,6 @@ const STEPS: Step[] = [
     ),
   },
   {
-    icon: "tray",
     title: "Bulk import",
     body: (
       <>
@@ -112,19 +49,17 @@ const STEPS: Step[] = [
     ),
   },
   {
-    icon: "match",
     title: "Match RAW files",
     body: (
       <>
-        On a species page's upload panel, use <strong>"Choose RAW files…"</strong> or point{" "}
-        <strong>"Choose a folder…"</strong> at your whole SD card. Lifer automatically matches RAW files to uploaded
+        On a species page's upload panel, use <strong>"Choose RAW files"</strong> or point{" "}
+        <strong>"Choose a folder"</strong> at your whole SD card. Lifer automatically matches RAW files to uploaded
         JPEGs using filename and capture time. A RAW that doesn't match anything already uploaded is simply left alone
         on your card rather than guessed at. You can also add RAWs you haven't edited yet but want to save.
       </>
     ),
   },
   {
-    icon: "folder",
     title: "Import a trip",
     body: (
       <>
@@ -140,7 +75,6 @@ const STEPS: Step[] = [
     ),
   },
   {
-    icon: "grid",
     title: "Browse & organize",
     body: (
       <>
@@ -158,26 +92,25 @@ export default function GuidePage() {
   return (
     <div className="flex-1 bg-canvas">
       <PageHeader sticky title="Getting started" backFallbackTo="/settings" backLabel="Settings" />
-      <main className="mx-auto max-w-3xl space-y-8 p-6">
-        <section className="space-y-4">
+      <main className="mx-auto max-w-3xl space-y-section p-page">
+        <section className="space-y-item">
           <h2 className="text-lg font-semibold text-ink">Recommended usage flow</h2>
-          {STEPS.map((step, index) => (
-            <section key={step.title} className="rounded-lg border border-line bg-surface p-4">
-              <div className="flex items-center gap-2.5">
-                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-accent text-xs font-bold text-accent-fg">
-                  {index + 1}
-                </span>
-                <StepIcon name={step.icon} className="h-4 w-4 shrink-0 text-accent" />
-                <h3 className="text-sm font-medium text-ink">{step.title}</h3>
-              </div>
-              <p className="mt-2 text-sm text-muted">{step.body}</p>
-            </section>
-          ))}
+          <ol className="divide-y divide-line rounded-panel border border-line bg-surface">
+            {STEPS.map((step, index) => (
+              <li key={step.title} className="p-panel">
+                <h3 className="text-sm font-semibold text-ink">
+                  <span className="mr-2 text-accent">{index + 1}.</span>
+                  {step.title}
+                </h3>
+                <p className="mt-1 text-sm text-muted">{step.body}</p>
+              </li>
+            ))}
+          </ol>
         </section>
 
         <section className="space-y-2">
           <h2 className="text-lg font-semibold text-ink">Your library structure</h2>
-          <div className="rounded-lg border border-line bg-surface p-4 text-sm text-muted">
+          <div className="rounded-panel border border-line bg-surface p-panel text-sm text-muted">
             <p>
               Every original photo you upload goes straight into your library's <strong>Storage location</strong>,
               grouped by taxon (Birds/Mammals/Fish/Other) then species, so your library stays usable outside Lifer too:
@@ -186,42 +119,21 @@ export default function GuidePage() {
               {"Birds/<species name>/Adjusted/<your edited JPEG>\nBirds/<species name>/RAW/<matching RAW file>"}
             </pre>
             <p className="mt-2">
-              Libraries started with an older version keep these folders inside a <strong>Lifer Photos</strong> folder.
-              That still works. To drop the extra level, quit Lifer (or stop the server), move everything in Lifer
-              Photos up into the storage location, and start Lifer again: it updates its records to match.
-            </p>
-            <p className="mt-2">
               Turning on <PageLink to="/settings/library">"Organize by year"</PageLink> nests that same structure one
               level deeper, under <code className="text-xs">Wildlife &lt;year taken&gt;/</code>, using each photo's own
               capture year, not the year you uploaded it.
             </p>
+            <p className="mt-2">
+              A library spread across several drives can register each one in{" "}
+              <PageLink to="/settings/storage">Settings → Storage</PageLink>, and Lifer remembers which drive each photo
+              is on. Most people never need this.
+            </p>
           </div>
         </section>
 
-        <div className="rounded-lg border border-dashed border-line bg-surface p-4 text-sm text-muted">
-          <p>
-            <strong className="text-ink">Using multiple drives</strong> is optional, most people use one storage
-            location and never touch this. It's for a library that's already outgrown a single disk and is spread across
-            a few external hard drives instead of one spot.
-          </p>
-          <p className="mt-2">
-            Register a drive from <PageLink to="/settings/storage">Settings → Storage</PageLink>. From then on, when you
-            upload a photo Lifer will offer that drive as a destination (alongside your main storage location), and
-            remembers which drive each photo actually lives on. Unplug that drive later, and its photos still show a
-            thumbnail with a note on which drive to go reconnect, instead of just breaking. When you're ready to
-            consolidate onto one drive or a NAS,{" "}
-            <PageLink to="/settings/library">Settings → Library → Reimport library</PageLink> can move everything over
-            in one step.
-          </p>
-          <p className="mt-2">
-            On a server install, the admin declares extra folders with LIFER_LIBRARY_ROOTS instead, and{" "}
-            <PageLink to="/settings/storage">Settings → Storage</PageLink> lists them.
-          </p>
-        </div>
-
         <section className="space-y-2">
           <h2 className="text-lg font-semibold text-ink">F.A.Q.</h2>
-          <div className="divide-y divide-line rounded-lg border border-line bg-surface">
+          <div className="divide-y divide-line rounded-panel border border-line bg-surface">
             <FaqItem question="What's the difference between uploading on a species page, Import, and Trips?">
               All three end up with the same organized folder structure, they're just different starting points. A
               species page's upload is for a photo (or a few) of one specific species. Import is for a big batch where

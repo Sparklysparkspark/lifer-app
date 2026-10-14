@@ -36,12 +36,12 @@ function CommandBlock({ command }: { command: string }) {
 export default function ForgotPasswordPage() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-canvas">
-      <div className="w-full max-w-sm space-y-4 rounded-xl border border-line bg-surface p-8 shadow-sm">
+      <div className="w-full max-w-sm space-y-4 rounded-panel border border-line bg-surface p-panel">
         <h1 className="text-xl font-semibold text-ink">Forgot your password?</h1>
         <p className="text-sm text-muted">Run this in a shell on the server, then sign in with the new password.</p>
         {COMMANDS.map(({ label, intro, command }) => (
           <div key={label} className="space-y-2">
-            <h2 className="text-sm font-medium text-ink">{label}</h2>
+            <h2 className="text-sm font-semibold text-ink">{label}</h2>
             {intro && <p className="text-sm text-muted">{intro}</p>}
             <CommandBlock command={command} />
           </div>

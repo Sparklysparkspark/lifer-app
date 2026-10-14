@@ -56,7 +56,7 @@ export default function EditableTextField({
           className={shared}
         />
       )}
-      {hint && <p className="mt-0.5 text-[11px] text-muted">{hint}</p>}
+      {hint && <p className="mt-0.5 text-xs text-muted">{hint}</p>}
     </div>
   );
 }
