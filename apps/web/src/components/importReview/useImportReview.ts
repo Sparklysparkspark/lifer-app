@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
+import { useLatest } from "../../hooks/useLatest";
 import type { SpeciesResult, SuggestedSpecies } from "../SpeciesPicker";
 import type { PossibleDuplicate } from "../../lib/uploadQueue";
 import type { CullMarks } from "@lifer/shared";
+import { useSpeciesName } from "../../lib/speciesName";
 
 // What every species-review row has, wherever its photo came from: a file dropped on the import
 // screen (PhotoImportRows) or one found by a trip scan (TripDetailPage).
@@ -14,6 +16,10 @@ export interface ReviewRowBase {
   possibleDuplicate?: PossibleDuplicate | null;
   /** The photo shows no wildlife (species/wildlifeCheck.ts): left out unless "Import anyway". */
   notWildlife?: { looksLike: string } | null;
+  /** A RAW of a photo already imported: it's filed with that photo, so its species is set. */
+  rawMatch?: { captureId: string; speciesName: string } | null;
+  /** An insect, spider or the like (wildlifeCheck.ts), which the checklists rarely cover. */
+  invertebrate?: { looksLike: string } | null;
   /** Suggestions are being worked out: a spinner instead of "no suggestions". */
   isInspecting?: boolean;
   /** Suggestions couldn't be computed at all, so the row doesn't read as "no species matched". */
@@ -36,6 +42,7 @@ export function useImportReview<R extends ReviewRowBase>(
   setRows: Dispatch<SetStateAction<R[]>>,
   opts: { onAllAssignedEnter?: () => void; enterStartsImport: boolean },
 ) {
+  const speciesName = useSpeciesName();
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [focusedRowKey, setFocusedRowKey] = useState<string | null>(null);
 
@@ -50,7 +57,7 @@ export function useImportReview<R extends ReviewRowBase>(
           ? {
               ...r,
               speciesId: result.id,
-              speciesLabel: result.common_name ?? result.scientific_name,
+              speciesLabel: speciesName(result),
               notWildlife: null,
             }
           : r,
@@ -87,9 +94,20 @@ export function useImportReview<R extends ReviewRowBase>(
     if (focusedRowKey === key) setFocusedRowKey(null);
   }
 
-  /** "Import anyway" on a duplicate or not-wildlife warning. */
+  /** "Import anyway" on a duplicate or not-wildlife warning. A duplicate's earlier photo is the best
+   *  match there is, so its species is filled in (unless one was already picked). */
   function dismissWarning(key: string, warning: "possibleDuplicate" | "notWildlife") {
-    setRows((prev) => prev.map((r) => (r.key === key ? { ...r, [warning]: null } : r)));
+    setRows((prev) =>
+      prev.map((r) => {
+        if (r.key !== key) return r;
+        const dup = warning === "possibleDuplicate" ? r.possibleDuplicate : null;
+        return {
+          ...r,
+          [warning]: null,
+          ...(dup && !r.speciesId ? { speciesId: dup.speciesId, speciesLabel: speciesName(dup) } : {}),
+        };
+      }),
+    );
   }
 
   // Keyboard actions target the first unassigned row; not-wildlife rows are skipped.
@@ -131,13 +149,16 @@ export function useImportReview<R extends ReviewRowBase>(
   }
 
   const { onAllAssignedEnter, enterStartsImport } = opts;
+  // The key handler outlives renders; these keep it calling the current versions.
+  const assignRef = useLatest(assignAndAdvance);
+  const goBackRef = useLatest(goBackToPreviousRow);
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       const target = e.target as HTMLElement | null;
       if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) return;
       if (e.key === "ArrowUp") {
         e.preventDefault();
-        goBackToPreviousRow();
+        goBackRef.current();
         return;
       }
       if (!activeRow) {
@@ -160,13 +181,12 @@ export function useImportReview<R extends ReviewRowBase>(
       } else if (e.key === "Enter") {
         e.preventDefault();
         const pick = shown[highlightIndex];
-        if (pick) assignAndAdvance(activeRow.key, pick);
+        if (pick) assignRef.current(activeRow.key, pick);
       }
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeRow, highlightIndex, enterStartsImport, onAllAssignedEnter, rows]);
+  }, [activeRow, highlightIndex, enterStartsImport, onAllAssignedEnter, rows, assignRef, goBackRef]);
 
   return {
     selected,

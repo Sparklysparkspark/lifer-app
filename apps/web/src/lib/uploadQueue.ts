@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from "react";
-import { api, ApiError } from "../api/client";
+import { api, ApiError, type ApiResponse } from "../api/client";
 import { discardUpload, uploadFile } from "./tusUpload";
 import { isVideoFile } from "./photoFormats";
 
@@ -19,7 +19,12 @@ export interface UploadJob {
 
 export interface PossibleDuplicate {
   captureId: string;
+  /** The earlier photo, shown beside the new one. */
+  photoId: string | null;
+  speciesId: string;
   speciesName: string;
+  scientificName: string;
+  commonName: string | null;
   takenAt: string | null;
   /** false: a visually similar (edited or re-exported) copy rather than an identical file. */
   exact: boolean;
@@ -30,7 +35,7 @@ async function checkDuplicate(uploadId: string): Promise<PossibleDuplicate | nul
   const form = new FormData();
   form.append("uploadId", uploadId);
   try {
-    const res = await api.post<{ possibleDuplicate: PossibleDuplicate | null }>("/uploads/inspect", form);
+    const res = await api.post("/uploads/inspect", form);
     return res.possibleDuplicate;
   } catch {
     // A failed check never blocks the upload; at worst a duplicate goes unflagged.
@@ -75,15 +80,15 @@ export async function postUploadedFile<T>(
 
 /** Species suggestions for a video, read from its resumable upload so the import can use the
  *  same uploadId. `upload(true)` must send the file again (after a 410); tried once. */
-export async function suggestSpeciesFromVideo<T>(
+export async function suggestSpeciesFromVideo(
   upload: (fresh: boolean) => Promise<string>,
   regionId: string | null,
-): Promise<T> {
+): Promise<ApiResponse<"/captures/suggest-species-from-video", "post">> {
   const suggest = (uploadId: string) => {
     const form = new FormData();
     form.append("uploadId", uploadId);
     if (regionId) form.append("regionId", regionId);
-    return api.post<T>("/captures/suggest-species-from-video", form);
+    return api.post("/captures/suggest-species-from-video", form);
   };
   try {
     return await suggest(await upload(false));

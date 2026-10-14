@@ -2,7 +2,10 @@ import type { ReactNode } from "react";
 import SpeciesPicker, { type SpeciesResult } from "../SpeciesPicker";
 import SuggestionCard from "../SuggestionCard";
 import InlineSpinner from "../InlineSpinner";
+import InvertebrateHint from "./InvertebrateHint";
 import { visibleSuggestions, type ReviewRowBase } from "./useImportReview";
+import { useSpeciesName } from "../../lib/speciesName";
+import { formatDate } from "../../lib/format";
 
 // One photo in a species review (import screen and trip review): preview, picked species, warnings
 // and suggestion cards. The preview and status come from the caller.
@@ -45,6 +48,7 @@ export default function ImportReviewRow({
   onDismissWarning: (warning: "possibleDuplicate" | "notWildlife") => void;
   onViewSpeciesGallery: (speciesId: string, label: string) => void;
 }) {
+  const speciesName = useSpeciesName();
   const topIsCertain = row.suggestions.length > 0 && Math.round(row.suggestions[0].score * 100) >= 100;
   const shownSuggestions = visibleSuggestions(row.suggestions);
 
@@ -69,6 +73,7 @@ export default function ImportReviewRow({
                 {row.speciesId ? row.speciesLabel : "Type a species…"}
               </button>
               {row.isInspecting && !row.speciesId && <InlineSpinner size="xs" label="Finding species suggestions" />}
+              {row.rawMatch && <span className="text-xs text-muted">· RAW for your photo already in the library</span>}
               {!row.isInspecting && !row.speciesId && row.suggestError && (
                 <span className="text-xs text-muted">{row.suggestError}. Pick a species by hand.</span>
               )}
@@ -84,10 +89,21 @@ export default function ImportReviewRow({
       </div>
       {row.possibleDuplicate && (
         <div className="mt-2 ml-7 flex items-center gap-2 rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5 text-xs text-amber-800">
+          {/* The earlier photo, so the two can be compared before deciding. */}
+          {row.possibleDuplicate.photoId && (
+            <img
+              src={`/api/photos/${row.possibleDuplicate.photoId}/thumb`}
+              alt={`Your earlier photo of ${speciesName(row.possibleDuplicate)}`}
+              className="h-12 w-12 shrink-0 rounded object-cover"
+            />
+          )}
           <span>
             {row.possibleDuplicate.exact
-              ? "Looks like you've already imported this photo before. Do you want to import it anyway?"
-              : "Looks like you've already imported a very similar photo (maybe edited or re-exported). Do you want to import it anyway?"}
+              ? "Looks like you've already imported this photo"
+              : "Looks like you've already imported a very similar photo (maybe edited or re-exported)"}
+            : {speciesName(row.possibleDuplicate)}
+            {row.possibleDuplicate.takenAt && `, ${formatDate(row.possibleDuplicate.takenAt)}`}. Importing it anyway
+            files it under that species.
           </span>
           <div className="ml-auto flex items-center gap-2">
             <button onClick={onRemove} className="font-medium underline">
@@ -115,6 +131,9 @@ export default function ImportReviewRow({
           </div>
         </div>
       )}
+      {row.invertebrate && !row.possibleDuplicate && !row.notWildlife && !row.speciesId && (
+        <InvertebrateHint looksLike={row.invertebrate.looksLike} regionId={regionId} onPick={onPick} />
+      )}
       {!row.possibleDuplicate && !row.notWildlife && (!row.speciesId || focused) && shownSuggestions.length > 0 && (
         <div className="mt-2 pl-7">
           {/* Uses the margin-based `confident` flag; blended scores have no fixed cutoff. */}
@@ -130,7 +149,7 @@ export default function ImportReviewRow({
                 matchPercent={topIsCertain ? 100 : (s.matchPercent ?? Math.round(s.score * 100))}
                 highlighted={isActive && si === highlightIndex}
                 onSelect={() => onPick(s)}
-                onViewPhoto={() => onViewSpeciesGallery(s.id, s.common_name ?? s.scientific_name)}
+                onViewPhoto={() => onViewSpeciesGallery(s.id, speciesName(s))}
               />
             ))}
           </div>
