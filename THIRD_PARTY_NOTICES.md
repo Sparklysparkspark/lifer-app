@@ -187,6 +187,7 @@ part of the Lifer image.
 | [YOLOv8n](https://github.com/ultralytics/ultralytics), Ultralytics | AGPL-3.0 | Included in the repository and both builds (`packages/core/src/species/models/yolov8n.onnx`) | Jocher, G., Chaurasia, A. and Qiu, J. (2023) Ultralytics YOLOv8 |
 | [BioCLIP 2](https://huggingface.co/imageomics/bioclip-2), Imageomics Institute | MIT | Converted to ONNX and downloaded at runtime from this repository's `models` release | Gu, J. et al. (2025) BioCLIP 2, doi:10.57967/hf/5765 |
 | [CLIP ViT-L/14](https://github.com/openai/CLIP), OpenAI, ONNX conversion by [Xenova](https://huggingface.co/Xenova/clip-vit-large-patch14) | MIT | Downloaded at runtime from this repository's `models` release and from Hugging Face | Radford, A. et al. (2021) Learning Transferable Visual Models From Natural Language Supervision |
+| [UperNet ConvNeXt-tiny](https://huggingface.co/openmmlab/upernet-convnext-tiny), OpenMMLab, trained on [ADE20K](https://ade20k.csail.mit.edu/) by MIT CSAIL | MIT | Converted to ONNX and downloaded at runtime from this repository's `models` release | Xiao, T. et al. (2018) Unified Perceptual Parsing for Scene Understanding; Liu, Z. et al. (2022) A ConvNet for the 2020s; Zhou, B. et al. (2017) Scene Parsing through ADE20K Dataset |
 
 ## Data
 

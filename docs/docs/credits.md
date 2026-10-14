@@ -36,7 +36,7 @@ The maintainer's reference, with where each source is used in the code, is [DATA
 
 ## Descriptions and photos
 
-- **[Wikipedia](https://www.wikipedia.org/)**: species descriptions, habitat and range. CC BY-SA 4.0. Each species page links its description to the Wikipedia article it came from.
+- **[Wikipedia](https://www.wikipedia.org/)**: species descriptions, habitat and range, and the field-guide notes on each species page, which are condensed from the species' article. CC BY-SA 4.0.
 - **[Wikidata](https://www.wikidata.org/)**: links between species, photos and articles. CC0.
 - **Reference photos** come from **[iNaturalist](https://www.inaturalist.org/)** and **[Wikimedia Commons](https://commons.wikimedia.org/)**. Every photo belongs to its photographer, under the license they chose. The photographer's credit is shown with each photo in Lifer. Offline packs only include photos whose license allows sharing them: CC0, public domain, and every Creative Commons license (including the no-derivatives ones: Lifer only resizes photos). The NC ones may only be shared non-commercially, as Lifer does. For species whose photos can't be shared that way, your own Lifer downloads one from iNaturalist for your personal viewing, as opening it on iNaturalist would, with its credit and license; it's never redistributed. See [Photos packs can't include](./settings.md#withheld-photos).
 
@@ -52,6 +52,7 @@ The maintainer's reference, with where each source is used in the code, is [DATA
 
 - **[BioCLIP 2](https://huggingface.co/imageomics/bioclip-2)**, by the Imageomics Institute: species identification. MIT license. Gu, J. et al. (2025), BioCLIP 2: Emergent Properties from Scaling Hierarchical Contrastive Learning, [doi:10.57967/hf/5765](https://doi.org/10.57967/hf/5765).
 - **[CLIP ViT-L/14](https://github.com/openai/CLIP)**, by OpenAI, in the ONNX conversion by [Xenova](https://huggingface.co/Xenova/clip-vit-large-patch14): Gallery search and duplicate detection. MIT license. Radford, A. et al. (2021), Learning Transferable Visual Models From Natural Language Supervision.
+- **[UperNet ConvNeXt-tiny](https://huggingface.co/openmmlab/upernet-convnext-tiny)**, by OpenMMLab, trained on [ADE20K](https://ade20k.csail.mit.edu/) by MIT CSAIL: finding scenes like water, sky or a fence for Gallery search. MIT license. Xiao, T. et al. (2018), Unified Perceptual Parsing for Scene Understanding; Liu, Z. et al. (2022), A ConvNet for the 2020s; Zhou, B. et al. (2017), Scene Parsing through ADE20K Dataset.
 - **[YOLOv8n](https://github.com/ultralytics/ultralytics)**, by Ultralytics: finding the animal in a photo. AGPL-3.0, the same license as Lifer.
 
 ## Thank you

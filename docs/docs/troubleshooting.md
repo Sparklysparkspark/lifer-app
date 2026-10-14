@@ -22,7 +22,7 @@ If Lifer isn't in the list, try the action again so macOS asks. Or move your lib
 
 **You see:** "Download failed" in **Settings > Offline data > Species-matching model**, or during setup.
 
-The models (about 620 MB together) come from Hugging Face and the Lifer GitHub releases.
+The models (about 680 MB together) come from Hugging Face and the Lifer GitHub releases.
 
 1. Check your internet connection, then click the download button again.
 2. Make sure there's at least 1 GB of free space on the disk that holds Lifer's app data. On a server, that's the `lifer-app-data` Docker volume.
@@ -33,9 +33,9 @@ If "Species reference vectors couldn't be fully downloaded" appears, the model i
 
 ## Species suggestions unavailable {#suggestions-unavailable}
 
-**You see:** no suggestion cards on the Import page, or **Suggest species while importing photos** is greyed out.
+**You see:** no suggestion cards on the Import page, or **Suggest species while importing** is grayed out.
 
-- **The model isn't downloaded.** Download it from **Settings > Offline data > Species-matching model**. Then tick **Suggest species while importing photos** in **Settings > Species and import**.
+- **The model isn't downloaded.** Download it from **Settings > Offline data > Species-matching model**. Then turn on **Suggest species while importing** in **Settings > Species and import**.
 - **No region is chosen.** On the **Bulk import** page, pick a **Region for species suggestions**. Suggestions come from the species in that region.
 - **The region's pack isn't downloaded.** Download it from [Offline packs](./guides/offline-packs-and-map.md).
 - **"Species matching took too long on this photo"** means one photo timed out. Lifer restarts species matching on its own, so carry on.
@@ -43,7 +43,7 @@ If "Species reference vectors couldn't be fully downloaded" appears, the model i
 
 Suggestions only appear on the **Bulk import** page and in trips and albums, not on a species page's Upload, since the species is already known there.
 
-The status line in **Species-matching model** tells you which model suggestions use. "The general model, which is less accurate" means only part of the download finished. Click **Download the identification model (~310 MB)** to finish it.
+The status line in **Species-matching model** tells you which model suggestions use. "The general model, which is less accurate" means only part of the download finished. Click **Download the identification model (~370 MB)** to finish it.
 
 If matching is slow on a server with a graphics card, see [GPU acceleration](./install/hardware-acceleration.md#troubleshooting).
 
@@ -57,7 +57,7 @@ If the drive is plugged in but Lifer still says it isn't:
 
 - On a Mac, check [folder permissions](#macos-permissions) for **Removable Volumes**.
 - Check **Settings > Storage > External drives** to see whether it shows **Connected**.
-- On a server, check that the folder is still mounted and listed in `LIFER_LIBRARY_ROOTS`. **Settings > Storage > Library folders** shows **Not found** if it isn't.
+- On a server, check that the folder is still mounted and listed in `LIFER_LIBRARY_ROOTS`. **Settings > Storage > Extra library folders** shows **Not found** if it isn't.
 
 "The file couldn't be found at its saved location" means the file was moved or deleted outside Lifer. Put it back, or run [Reimport library](./settings.md#reimport) to relink moved files.
 
@@ -100,7 +100,7 @@ Every device that was signed in is signed out. To see which email your account u
 
 ## Countries or checklists are empty on a new server
 
-The species catalog is built into the Docker image and loads on first start. If countries still don't appear, check the log for "Catalog auto-seed failed". Once the server has internet access, open **Settings > Offline data > Species catalog updates** and click **Update catalog** if it offers one, or restart the server.
+The species catalog is built into the Docker image and loads on first start. If countries still don't appear, check the log for "Catalog auto-seed failed". Once the server has internet access, open **Settings > Offline data > Species catalog** and click **Update** if it offers one, or restart the server.
 
 ## Where the logs are {#logs}
 

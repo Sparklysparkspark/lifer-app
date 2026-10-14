@@ -5,3 +5,4 @@ psycopg2-binary>=2.9
 onnx>=1.19
 onnxruntime>=1.23
 onnxscript>=0.5
+transformers>=5.19

@@ -1,6 +1,6 @@
 // sha256 of each model file Lifer downloads or bundles, so a truncated or tampered download is
 // caught before it's ever loaded. Each hash belongs to one exact URL: an install pointed at a
-// different file (EMBEDDING_MODEL_URL / ID_MODEL_URL overrides) has nothing to check against.
+// different file (EMBEDDING_MODEL_URL / ID_MODEL_URL / SCENE_MODEL_URL overrides) has nothing to check against.
 // Also served to desktop clients that run inference locally, which download the same files.
 import { rmSync, statSync } from "node:fs";
 import { sha256OfFile } from "../lib/resumableDownload.js";
@@ -38,11 +38,25 @@ export const ID_MODEL_GPU_CHECKSUM: ModelChecksum = {
   sha256: "02175d4a4fb023077502144c171fef07c8c1c963a265abc0617a24adcca979e4",
 };
 
+// The scene model and its full-precision copy (packages/data-pipeline/python/export_scene_model.py).
+export const SCENE_MODEL_CHECKSUM: ModelChecksum = {
+  url: "https://github.com/Sparklysparkspark/lifer-app/releases/download/models/upernet-convnext-tiny-ade-v1.onnx",
+  sha256: "24a7de61d8dafa02326a4cff5118bc86cda57eff77a60d3988d159a198639738",
+};
+export const SCENE_MODEL_FP32_CHECKSUM: ModelChecksum = {
+  url: "https://github.com/Sparklysparkspark/lifer-app/releases/download/models/upernet-convnext-tiny-ade-v1-fp32.onnx",
+  sha256: "c52404703edf65a6a3ede8f99357ca8448a280e1340b478f66bd6e5626dc2064",
+};
+
 const BY_URL = new Map(
-  [CLIP_MODEL_CHECKSUM, CLIP_MODEL_GPU_CHECKSUM, ID_MODEL_CHECKSUM, ID_MODEL_GPU_CHECKSUM].map((c) => [
-    c.url,
-    c.sha256,
-  ]),
+  [
+    CLIP_MODEL_CHECKSUM,
+    CLIP_MODEL_GPU_CHECKSUM,
+    ID_MODEL_CHECKSUM,
+    ID_MODEL_GPU_CHECKSUM,
+    SCENE_MODEL_CHECKSUM,
+    SCENE_MODEL_FP32_CHECKSUM,
+  ].map((c) => [c.url, c.sha256]),
 );
 
 /** The expected sha256 for a download URL, or null when there's nothing to check it against. */

@@ -2,7 +2,8 @@
 // text encoder) and its preprocessing, run on a worker thread because onnxruntime blocks the
 // calling thread. inference.ts is the main-thread side (queue, priorities, timeouts).
 //
-// Imports nothing from the rest of the app so the desktop inference sidecar can reuse it as is.
+// Imports only config-free modules (logging, image limits) so the desktop inference sidecar can
+// reuse it as is.
 import { existsSync, readdirSync } from "node:fs";
 import { open, readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
@@ -13,6 +14,8 @@ import sharp, { type FormatEnum } from "sharp";
 import type { InferenceSession, Tensor } from "onnxruntime-node";
 import type { PreTrainedTokenizer, CLIPTextModelWithProjection } from "@huggingface/transformers";
 import { log } from "../lib/log.js";
+import { maxImagePixels } from "../lib/imageLimits.js";
+import { summarizeScene, type SceneShares } from "./sceneSummary.js";
 
 // ---------------------------------------------------------------------------------------------
 // Protocol shared with inference.ts
@@ -24,17 +27,8 @@ export type ImageInput = { bytes: Uint8Array } | { path: string };
 /** An encoded photo: its bytes, or a file path sharp opens itself (never read whole into memory). */
 type ImageData = Uint8Array | string;
 
-// The same pixel limit uploads use (lib/imageLimits.ts), repeated because this file imports
-// nothing from the app.
-function imagePixelLimit(): number | false {
-  const raw = process.env.LIFER_MAX_IMAGE_PIXELS?.trim().toLowerCase();
-  if (raw === "0" || raw === "false") return false;
-  const n = Number(raw);
-  return raw && Number.isFinite(n) && n > 0 ? Math.floor(n) : 2_000_000_000;
-}
-
 function openImage(image: ImageData) {
-  return sharp(image, { limitInputPixels: imagePixelLimit() });
+  return sharp(image, { limitInputPixels: maxImagePixels() });
 }
 
 // sharp can't decode HEIC, so a HEIC path is decoded to JPEG here (already rotated by libheif).
@@ -122,6 +116,8 @@ export type InferenceRequest =
       text: TextModelSpec | null;
     }
   | { op: "release"; modelPath: string | null }
+  /** Scene classes and colours of the whole photo (sceneModel.ts). Always on the CPU. */
+  | { op: "scene"; image: ImageInput; modelPath: string; missingMessage: string }
   /** Times a model on a backend and returns its output for a fixed input (accelerationSelect.ts). */
   | { op: "probe"; modelPath: string; providers: ProviderSpec[]; dims: number[]; runs: number };
 
@@ -141,7 +137,14 @@ export interface AnalyzeResult {
   subjectUnsure: boolean | null;
 }
 
-export type InferenceResult = AnalyzeResult | Float32Array[] | ProbeResult | null;
+export interface SceneResult {
+  /** Percent of the frame per ADE20K class (SCENE_LABELS), 1% and up. */
+  labels: SceneShares;
+  /** Percent of the frame per colour name (SCENE_COLORS), 1% and up. */
+  colors: SceneShares;
+}
+
+export type InferenceResult = AnalyzeResult | Float32Array[] | ProbeResult | SceneResult | null;
 
 export interface RunHooks {
   /** Called right before and after every model run, so the caller can time just the run. */
@@ -278,18 +281,21 @@ const CLIP_INPUT_SIZE = 224;
 const CLIP_MEAN = [0.48145466, 0.4578275, 0.40821073];
 const CLIP_STD = [0.26862954, 0.26130258, 0.27577711];
 
-/** 224x224 HWC uint8 RGB into normalized NCHW float32. */
-function clipTensor(data: Uint8Array): Float32Array {
-  const floats = new Float32Array(3 * CLIP_INPUT_SIZE * CLIP_INPUT_SIZE);
-  const pixelCount = CLIP_INPUT_SIZE * CLIP_INPUT_SIZE;
+/** HWC uint8 RGB into normalized NCHW float32. */
+function normalizedTensor(data: Uint8Array, mean: number[], std: number[]): Float32Array {
+  const pixelCount = data.length / 3;
+  const floats = new Float32Array(3 * pixelCount);
   for (let i = 0; i < pixelCount; i++) {
     for (let c = 0; c < 3; c++) {
       const value = data[i * 3 + c] / 255;
-      floats[c * pixelCount + i] = (value - CLIP_MEAN[c]) / CLIP_STD[c];
+      floats[c * pixelCount + i] = (value - mean[c]) / std[c];
     }
   }
   return floats;
 }
+
+/** 224x224 HWC uint8 RGB into CLIP-normalized NCHW float32. */
+const clipTensor = (data: Uint8Array) => normalizedTensor(data, CLIP_MEAN, CLIP_STD);
 
 // A grayscale file decodes to one channel; the tensor loops expect three.
 function toRgb(data: Buffer, channels: number): Buffer {
@@ -725,6 +731,34 @@ async function analyze(req: Extract<InferenceRequest, { op: "analyze" }>, hooks:
 }
 
 // ---------------------------------------------------------------------------------------------
+// Scene segmentation (UperNet ConvNeXt-tiny, ADE20K): a class per pixel
+// ---------------------------------------------------------------------------------------------
+
+const SCENE_INPUT_SIZE = 512;
+const IMAGENET_MEAN = [0.485, 0.456, 0.406];
+const IMAGENET_STD = [0.229, 0.224, 0.225];
+
+async function scene(req: Extract<InferenceRequest, { op: "scene" }>, hooks: RunHooks): Promise<SceneResult> {
+  const bytes = "bytes" in req.image ? req.image.bytes : await decodableInput(req.image.path);
+  // Squashed rather than cropped, so the edges of the frame count too.
+  const { data, info } = await openImage(bytes)
+    .rotate()
+    .resize(SCENE_INPUT_SIZE, SCENE_INPUT_SIZE, { fit: "fill" })
+    .removeAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  const rgb = toRgb(data, info.channels);
+  const session = await getSession(req.modelPath, req.missingMessage);
+  try {
+    const dims = [1, 3, SCENE_INPUT_SIZE, SCENE_INPUT_SIZE];
+    const out = await run(session, normalizedTensor(rgb, IMAGENET_MEAN, IMAGENET_STD), dims, hooks, "scene");
+    return summarizeScene(out.data as Uint8Array, rgb);
+  } finally {
+    armIdleUnload(req.modelPath);
+  }
+}
+
+// ---------------------------------------------------------------------------------------------
 // CLIP text encoder (@huggingface/transformers ships the tokenizer and the paired text model)
 // ---------------------------------------------------------------------------------------------
 
@@ -866,6 +900,8 @@ export async function handleRequest(req: InferenceRequest, hooks: RunHooks): Pro
       return embedTexts(req, hooks);
     case "probe":
       return probe(req, hooks);
+    case "scene":
+      return scene(req, hooks);
     case "warm": {
       // Each best effort: a model that isn't downloaded simply isn't warmed.
       for (const m of [...req.models, ...(req.detector ? [req.detector] : [])]) {
@@ -891,7 +927,7 @@ export async function handleRequest(req: InferenceRequest, hooks: RunHooks): Pro
 
 /** Buffers to hand over instead of copy when posting a result back. */
 export function transferablesOf(result: InferenceResult): ArrayBuffer[] {
-  if (!result) return [];
+  if (!result || "labels" in result) return [];
   const vectors = Array.isArray(result) ? result : "probe" in result ? [result.vector] : result.vectors;
   const out: ArrayBuffer[] = [];
   for (const v of vectors) if (v instanceof Float32Array && v.buffer instanceof ArrayBuffer) out.push(v.buffer);

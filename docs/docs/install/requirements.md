@@ -41,7 +41,7 @@ Besides your photos, Lifer keeps its own files: previews of your photos, downloa
 
 | What | Size |
 |---|---|
-| Species-matching models | about 620 MB |
+| Species-matching models | about 680 MB |
 | Offline map | about 550 MB, if you download it |
 | Region packs | varies by region and whether you choose Full or Small. Sizes are shown before you download. |
 | Previews of your photos | grows with your library: roughly half a MB per photo |

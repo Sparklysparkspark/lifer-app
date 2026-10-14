@@ -23,7 +23,7 @@ You land on the Collection page with a **Welcome to Lifer** card. Continue with 
 1. [Create the account](./install/docker.md#first-account) in your browser.
 2. Lifer walks you through setup:
    - **Offline map:** leave **Download the offline map (recommended)** ticked to get the maps showing where each species is found (about 550 MB), then click **Continue**. You can skip it and add it later.
-   - **Species matching:** click **Enable species matching** to download the models that suggest species while you import (about 620 MB, downloads in the background), or **Not now**.
+   - **Species matching:** click **Enable species matching** to download the models that suggest species while you import (about 680 MB, downloads in the background), or **Not now**.
    - **Download a region:** pick at least one country, optionally choose taxon groups, and click **Download N regions**. When it's done, click **Continue to Lifer**. This is the same as step 2 below.
    - **You're all set:** **Open the getting started guide** opens a short in-app tour, or click **Skip**.
 
@@ -48,8 +48,8 @@ More in [Offline packs and the map](./guides/offline-packs-and-map.md).
 Lifer can suggest the species in each photo as you import. It runs entirely on your computer or server, and your photos never leave it.
 
 1. Open **Settings > Offline data**.
-2. In **Species-matching model**, click **Download models (~620 MB)**.
-3. Check that **Settings > Species and import > Suggest species while importing photos** is ticked. It's on by default, and greyed out until the model is downloaded.
+2. In **Species-matching model**, click **Download** (about 680 MB).
+3. Check that **Settings > Species and import > Suggest species while importing** is on. It's on by default, and grayed out until the model is downloaded.
 
 The same download also lets you search the Gallery by describing a photo, like "owl flying".
 

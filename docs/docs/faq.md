@@ -81,7 +81,7 @@ Photos in JPEG, PNG, WebP, TIFF and HEIC, RAW files from all the major camera br
 
 ## How much disk space does Lifer need?
 
-Besides your photos: packs vary by country and whether you choose Full or Small (sizes are shown before downloading), the species-matching models are about 620 MB, and the offline map about 550 MB. A server with an NVIDIA GPU also downloads about 2.7 GB for [GPU acceleration](./install/hardware-acceleration.md#nvidia-downloads).
+Besides your photos: packs vary by country and whether you choose Full or Small (sizes are shown before downloading), the species-matching models are about 680 MB, and the offline map about 550 MB. A server with an NVIDIA GPU also downloads about 2.7 GB for [GPU acceleration](./install/hardware-acceleration.md#nvidia-downloads).
 
 ## Does Lifer use my graphics card?
 

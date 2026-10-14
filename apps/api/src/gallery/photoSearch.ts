@@ -140,6 +140,164 @@ export function completePictureWord(word: string): string | null {
   return PICTURE_WORDS.find((w) => w.startsWith(word)) ?? null;
 }
 
+// Scene words, read from the scene model's per-photo label shares (ADE20K classes) rather than
+// CLIP, which misses what fills only part of a photo (a pond behind a moose). Man-made labels
+// (person, building, car, road, wall) are left out: they misfire on blurry backgrounds.
+const SCENE_WORDS: Array<[string[], string[]]> = [
+  [
+    ["water", "pond", "lake", "river", "stream", "creek", "marsh", "wetland"],
+    ["water", "river", "lake", "sea", "waterfall"],
+  ],
+  [
+    ["sea", "ocean"],
+    ["sea", "water"],
+  ],
+  [["waterfall"], ["waterfall"]],
+  [["sky"], ["sky"]],
+  [
+    ["grass", "meadow", "field", "lawn"],
+    ["grass", "field"],
+  ],
+  [["tree", "forest", "woods"], ["tree"]],
+  [
+    ["leaves", "leaf", "foliage"],
+    ["tree", "plant"],
+  ],
+  [["plant", "bush", "shrub", "vegetation"], ["plant"]],
+  [["flower", "blossom"], ["flower"]],
+  [["sand", "beach", "dune"], ["sand"]],
+  [["snow"], ["snow"]],
+  [
+    ["rock", "stone", "boulder"],
+    ["rock", "stone"],
+  ],
+  [
+    ["mountain", "hill"],
+    ["mountain", "hill"],
+  ],
+  [
+    ["mud", "dirt", "ground"],
+    ["earth", "dirt track"],
+  ],
+  [
+    ["fence", "railing"],
+    ["fence", "railing"],
+  ],
+  [["bridge"], ["bridge"]],
+  [
+    ["boat", "ship"],
+    ["boat", "ship"],
+  ],
+  [["dock", "pier"], ["pier"]],
+];
+const COLOR_WORDS: Record<string, string> = {
+  red: "red",
+  orange: "orange",
+  yellow: "yellow",
+  golden: "yellow",
+  green: "green",
+  blue: "blue",
+  purple: "purple",
+  purplish: "purple",
+  violet: "purple",
+  pink: "pink",
+  brown: "brown",
+  white: "white",
+  black: "black",
+  gray: "gray",
+  grey: "gray",
+};
+// Percent of the photo a scene word's labels, or a colour, must cover.
+const SCENE_MIN_PERCENT = 5;
+const COLOR_MIN_PERCENT = 5;
+const SCENE_LABELS = new Map(SCENE_WORDS.flatMap(([words, labels]) => words.map((w) => [w, labels] as const)));
+const SCENE_TERMS = [...SCENE_LABELS.keys(), ...Object.keys(COLOR_WORDS)];
+
+export type SceneFilter = ({ label: string; labels: string[] } | { label: string; color: string }) & {
+  min: number;
+  /** A word still being typed matches anything it could still become ("gre": green, grey or
+   *  Great Blue Heron), so typing on only narrows the results. */
+  alternatives?: SceneFilter[];
+  orSpecies?: string[];
+};
+
+/** The scene or colour filter a word asks for ("ponds" -> water labels), or null. */
+export function sceneFilter(word: string): SceneFilter | null {
+  for (const w of [word, normalizeWordForm(word)]) {
+    const labels = SCENE_LABELS.get(w);
+    if (labels) return { label: word, labels, min: SCENE_MIN_PERCENT };
+    if (COLOR_WORDS[w]) return { label: word, color: COLOR_WORDS[w], min: COLOR_MIN_PERCENT };
+  }
+  return null;
+}
+
+// Catalog name nouns that are also everyday words about a photo.
+const PHOTO_WORDS_NOT_ANIMALS = new Set([
+  "egg",
+  "eggs",
+  "tail",
+  "head",
+  "eye",
+  "eyes",
+  "feather",
+  "feathers",
+  "cone",
+  "sunrise",
+  "sunset",
+]);
+
+/** Whether a word names a catalog animal (or, still being typed, can only become one's name). */
+function namesUnseenAnimal(word: string, partial: boolean, heads: Set<string>): boolean {
+  if (PHOTO_WORDS_NOT_ANIMALS.has(word) || PICTURE_WORDS.includes(word) || sceneFilter(word)) return false;
+  if (heads.has(word) || heads.has(normalizeWordForm(word))) return true;
+  if (!partial || word.length < 3) return false;
+  for (const h of heads) if (h.startsWith(word)) return true;
+  return false;
+}
+
+/** The scene or colour word a partial word is heading for, or null ("purp" -> "purple"). */
+export function completeSceneWord(word: string): string | null {
+  return completeSceneWords(word)[0] ?? null;
+}
+
+/** Every scene or colour word a partial word could become, one per distinct filter ("gra" ->
+ *  grass, gray; "grey" is the same filter as "gray"). */
+function completeSceneWords(word: string): string[] {
+  if (word.length < 3 || sceneFilter(word)) return [];
+  const seen = new Set<string>();
+  return SCENE_TERMS.filter((w) => {
+    if (!w.startsWith(word)) return false;
+    const f = sceneFilter(w)!;
+    const key = "color" in f ? `c:${f.color}` : `l:${f.labels.join()}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+/** How much of a photo one filter covers, or null when it falls short. */
+function filterShare(row: SearchRow, s: SceneFilter): number | null {
+  const share =
+    "color" in s
+      ? (row.scene_colors?.[s.color] ?? 0)
+      : s.labels.reduce((sum, l) => sum + (row.scene_labels?.[l] ?? 0), 0);
+  return share >= s.min ? share : null;
+}
+
+/** How much of a photo its scene filters cover together, or null when one falls short. */
+function sceneCoverage(row: SearchRow, scenes: SceneFilter[]): number | null {
+  let total = 0;
+  for (const s of scenes) {
+    const shares = [s, ...(s.alternatives ?? [])].map((f) => filterShare(row, f)).filter((x) => x !== null);
+    if (shares.length === 0) {
+      if (s.orSpecies?.includes(row.species_id)) continue;
+      return null;
+    }
+    total += Math.max(...shares);
+  }
+  return total;
+}
+
 export function wordsOf(s: string): string[] {
   return s
     .toLowerCase()
@@ -231,6 +389,8 @@ export interface ParsedQuery {
   /** Species picked by name, or null when the query names no species. */
   speciesIds: Set<string> | null;
   groups: Array<{ label: string; predicate: GroupPredicate }>;
+  /** Scene and colour words: each must cover enough of the photo. */
+  scenes: SceneFilter[];
   /** Species whose names only share a describing word with the query ("snow" and Snow Goose):
    *  mixed into picture results rather than used as a filter. */
   hintSpeciesIds: Set<string>;
@@ -240,7 +400,7 @@ export interface ParsedQuery {
   /** The part of the query about the picture itself, or null. */
   description: string | null;
   focalLengthMm: number | null;
-  labels: { species: string[]; groups: string[]; places: string[]; dates: string[] };
+  labels: { species: string[]; groups: string[]; scenes: string[]; places: string[]; dates: string[] };
 }
 
 const FOCAL_LENGTH_PATTERN = /\b(\d{2,4})\s*mm\b/i;
@@ -248,10 +408,17 @@ const FOCAL_LENGTH_PATTERN = /\b(\d{2,4})\s*mm\b/i;
 /** Reads a query into filters and a picture description. Pure, so it's tested directly. */
 export function parseSearchQuery(
   q: string,
-  vocab: { species: SpeciesEntry[]; places: PlaceEntry[]; latinGroups: Map<string, GroupPredicate>; now?: Date },
-  // A partial last word ("moo") picks the species it starts, so results appear while typing.
-  // The full search passes false: by then the word may be complete ("grass", not "grasshopper"),
-  // so those species are only mixed into the picture results.
+  vocab: {
+    species: SpeciesEntry[];
+    places: PlaceEntry[];
+    latinGroups: Map<string, GroupPredicate>;
+    /** The main noun of every catalog species' name ("tiger", "fisher"), so naming an animal
+     *  with no photos finds nothing instead of a weak picture match. */
+    catalogHeads?: Set<string>;
+    now?: Date;
+  },
+  // A partial last word ("moo") picks the species and group it starts. The full search passes
+  // false, which asks four letters of a group ("car" shouldn't mean every carnivore).
   opts: { partialWordPicksSpecies?: boolean } = {},
 ): ParsedQuery {
   const partialWordPicksSpecies = opts.partialWordPicksSpecies ?? true;
@@ -259,13 +426,14 @@ export function parseSearchQuery(
   const result: ParsedQuery = {
     speciesIds: null,
     groups: [],
+    scenes: [],
     hintSpeciesIds: new Set(),
     places: [],
     years: [],
     months: [],
     description: null,
     focalLengthMm: null,
-    labels: { species: [], groups: [], places: [], dates: [] },
+    labels: { species: [], groups: [], scenes: [], places: [], dates: [] },
   };
   let text = q.trim();
   const focal = text.match(FOCAL_LENGTH_PATTERN);
@@ -305,18 +473,20 @@ export function parseSearchQuery(
   // Words that were a place or a date (and the "in"/"from" before them): the only words left out
   // of the picture description.
   const context = new Array(words.length).fill(false);
-  // A last word still being typed that's heading for a picture word ("fly" for "flying") is
-  // described as that word.
+  // A last word still being typed that's heading for a picture or scene word ("fly" for "flying",
+  // "purp" for "purple") is read as that word.
   const lastIndex = words.length - 1;
-  // Not when the word is already complete as something else: a group ("fish", not "fishing") or a
-  // whole word of a species name.
+  // Not when the word is already complete as something else: a group ("fish", not "fishing"), a
+  // scene word or a whole word of a species name.
   const lastWord = words[lastIndex];
   const lastIsKnownWord =
     lastIndex >= 0 &&
     (GROUP_TERMS.has(lastWord) ||
       GROUP_TERMS.has(normalizeWordForm(lastWord)) ||
+      sceneFilter(lastWord) ||
       vocab.species.some((s) => wordsOf(s.commonName ?? "").includes(lastWord)));
-  const completion = lastIndex >= 0 && !lastIsKnownWord ? completePictureWord(lastWord) : null;
+  const completion =
+    lastIndex >= 0 && !lastIsKnownWord ? (completePictureWord(lastWord) ?? completeSceneWord(lastWord)) : null;
 
   // 1. Full names, longest first. Aliases count only when at least two words: single-word
   //    aliases are often junk.
@@ -451,7 +621,8 @@ export function parseSearchQuery(
   for (let n = MAX_GROUP_TERM_WORDS; n >= 1; n--) {
     for (let i = 0; i + n <= words.length; i++) {
       const phrase = phraseAt(i, n);
-      if (!phrase) continue;
+      // A single scene word ("flowers", "plants") means the scene, not the taxon.
+      if (!phrase || (n === 1 && sceneFilter(phrase))) continue;
       const group = GROUP_TERMS.get(phrase) ?? (n === 1 ? GROUP_TERMS.get(normalizeWordForm(phrase)) : undefined);
       const latin = n === 1 ? vocab.latinGroups.get(phrase) : undefined;
       if (group) {
@@ -465,7 +636,28 @@ export function parseSearchQuery(
     }
   }
 
-  // 5. Species-name words: the main noun picks species; a describing word only hints.
+  // 5. Scene and colour words filter on the scene model, unless a species is named by the word.
+  for (const { w, i } of open()) {
+    const word = i === lastIndex && completion && sceneFilter(completion) ? completion : w;
+    const scene = sceneFilter(word);
+    if (!scene || species.some((s) => s.primaryHead && wordMatches(s.primaryHead, word))) continue;
+    let label = word;
+    if (word !== w) {
+      const others = completeSceneWords(w).filter((c) => c !== word);
+      if (others.length > 0) scene.alternatives = others.map((c) => sceneFilter(c)!);
+      const started = species.filter(
+        (s) => s.primaryWords.some((pw) => pw.startsWith(w)) || s.sciWords.some((sw) => sw.startsWith(w)),
+      );
+      if (started.length > 0) scene.orSpecies = started.map((s) => s.id);
+      label = [word, ...others].join(" or ");
+    }
+    result.scenes.push(scene);
+    result.labels.scenes.push(label);
+    used[i] = context[i] = true;
+    if (i > 0 && !used[i - 1] && PLACE_PREPOSITIONS.has(words[i - 1])) used[i - 1] = context[i - 1] = true;
+  }
+
+  // 6. Species-name words: the main noun picks species; a describing word only hints.
   for (const { w, i } of open()) {
     const head = species.filter((s) => s.primaryHead && wordMatches(s.primaryHead, w));
     const sci = species.filter((s) => s.sciWords.some((sw) => sw === w));
@@ -484,7 +676,8 @@ export function parseSearchQuery(
     // A partial last word (three letters or more) picks species or a group it starts. A complete
     // describing word is left to mean the picture.
     let typedGroup: { label: string; predicate: GroupPredicate } | undefined;
-    const isWholeNameWord = species.some((s) => s.primaryWords.includes(w));
+    // A whole name word or picture word is complete, not the start of another ("water", not "waterfowl").
+    const isWholeNameWord = species.some((s) => s.primaryWords.includes(w)) || PICTURE_WORDS.includes(w);
     // Heading for a picture word: the species it starts are only mixed in.
     if (picked.length === 0 && i === lastIndex && completion) {
       for (const s of species.filter((s) => s.primaryWords.some((pw) => pw.startsWith(w))))
@@ -496,22 +689,25 @@ export function parseSearchQuery(
         (s) => s.primaryWords.some((pw) => pw.startsWith(w)) || s.sciWords.some((sw) => sw.startsWith(w)),
       );
       const term = [...GROUP_TERMS.keys()].find((k) => !k.includes(" ") && k.startsWith(w));
-      if (partialWordPicksSpecies) {
-        picked = started;
-        typedGroup = term ? { ...GROUP_TERMS.get(term)!, label: term } : undefined;
-      } else {
-        // A group from a partial word needs four letters: "car" shouldn't bring in every carnivore.
-        const group = term && w.length >= 4 ? GROUP_TERMS.get(term)!.predicate : null;
-        const inGroup = group ? species.filter((s) => speciesInGroup(s, group)) : [];
-        for (const s of [...started, ...inGroup]) result.hintSpeciesIds.add(s.id);
-        if (started.length + inGroup.length > 0) continue;
-      }
+      picked = started;
+      // In the full search a group from a partial word needs four letters: "car" shouldn't bring
+      // in every carnivore.
+      if (term && (partialWordPicksSpecies || w.length >= 4)) typedGroup = { ...GROUP_TERMS.get(term)!, label: term };
     }
     if (picked.length === 0 && !typedGroup && w.length >= 5)
       picked = species.filter((s) => s.primaryHead && wordMatches(s.primaryHead, w, true));
     if (picked.length > 0 || typedGroup) {
       if (picked.length > 0) subjects.push({ start: i, end: i + 1, species: picked.map((s) => s.id), labels: [w] });
       if (typedGroup) subjects.push({ start: i, end: i + 1, group: typedGroup, labels: [typedGroup.label] });
+      used[i] = true;
+      continue;
+    }
+    if (
+      vocab.catalogHeads &&
+      !STOPWORDS.has(w) &&
+      namesUnseenAnimal(w, i === lastIndex && !completion, vocab.catalogHeads)
+    ) {
+      subjects.push({ start: i, end: i + 1, species: [], labels: [w] });
       used[i] = true;
       continue;
     }
@@ -544,7 +740,11 @@ export function parseSearchQuery(
       result.labels.groups.push(...sub.labels);
     } else result.labels.species.push(...sub.labels);
   }
-  if (pickedSpecies.size > 0) result.speciesIds = pickedSpecies;
+  // An animal named with no photos of it keeps an empty subject: nothing matches.
+  if (pickedSpecies.size > 0 || kept.some((sub) => sub.species?.length === 0)) result.speciesIds = pickedSpecies;
+  // A last word of one or two letters is still being typed: too short to mean anything yet.
+  if (lastIndex >= 0 && !used[lastIndex] && !context[lastIndex] && words[lastIndex].length < 3)
+    used[lastIndex] = context[lastIndex] = true;
   // A description exists only when some words are left over. It keeps the subject words too,
   // dropping only places, dates and their prepositions.
   if (words.some((w, i) => !used[i] && !STOPWORDS.has(w))) {
@@ -662,6 +862,9 @@ export interface SearchRow {
   taxon_class: string | null;
   taxon_order: string | null;
   family: string | null;
+  /** Scene model shares (percent of the photo), null until the scene model has read the photo. */
+  scene_labels?: Record<string, number> | null;
+  scene_colors?: Record<string, number> | null;
   [key: string]: unknown;
 }
 
@@ -692,6 +895,28 @@ function tagMatches(tags: string[] | null, query: string): boolean {
       (tw.join(" ").length >= 3 && joined.includes(` ${tw.join(" ")} `))
     );
   });
+}
+
+/** Each row's CLIP match to a description above its own noise level, or null without the model. */
+async function pictureScores<R extends SearchRow>(
+  text: string,
+  rows: R[],
+): Promise<Array<{ row: R; score: number | null }> | null> {
+  // Species matching isn't downloaded: names, groups, places and dates still work.
+  const vecs = await Promise.all([queryVector(text), noiseVector()]).catch(() => null);
+  if (!vecs) return null;
+  const [queryVec, noiseVec] = vecs;
+  const vectors = await photoVectors(rows);
+  return rows.map((row) => {
+    const v = vectors.get(row.capture_id);
+    return { row, score: v ? dot(v, queryVec) - dot(v, noiseVec) : null };
+  });
+}
+
+/** The score a clear match needs: a minimum, and within reach of the best. */
+function matchCutoff(scored: Array<{ score: number | null }>): number {
+  const top = Math.max(0, ...scored.map((s) => s.score ?? 0));
+  return Math.max(CONTENT_MATCH_MIN, top * CONTENT_MARGIN_RELATIVE);
 }
 
 /** Runs a parsed query over the rows the route already filtered (rating, taxa, dates...). */
@@ -752,6 +977,36 @@ export async function rankSearch<R extends SearchRow>(
     );
   }
 
+  // Scene words keep photos covered enough by each, most covered first. Photos the scene model
+  // hasn't read yet are judged by CLIP instead, so search works before the backfill finishes.
+  const coverage = new Map<string, number>();
+  const hasScene = parsed.scenes.length > 0;
+  let awaitsPicture = false;
+  if (hasScene) {
+    const unread = candidates.filter((r) => !r.scene_labels);
+    for (const r of candidates) {
+      const c = r.scene_labels ? sceneCoverage(r, parsed.scenes) : null;
+      if (c !== null) coverage.set(r.capture_id, c);
+    }
+    const judged = new Set<string>();
+    if (unread.length > 0 && opts.quick) awaitsPicture = true;
+    else if (unread.length > 0) {
+      const scored = await pictureScores(parsed.labels.scenes.join(" "), unread);
+      const cutoff = matchCutoff(scored ?? []);
+      for (const s of scored ?? []) if ((s.score ?? -1) >= cutoff) judged.add(s.row.capture_id);
+    }
+    candidates = candidates.filter(
+      (r) =>
+        coverage.has(r.capture_id) ||
+        judged.has(r.capture_id) ||
+        tagged.has(r.capture_id) ||
+        parsed.scenes.every((s) => s.orSpecies?.includes(r.species_id)),
+    );
+  }
+  const filtered = hasSubject || hasScene;
+  const byFit = (a: SearchRow, b: SearchRow) =>
+    (coverage.get(b.capture_id) ?? 0) - (coverage.get(a.capture_id) ?? 0) || byRatingThenDate(a, b);
+
   const withTagsFirst = (scored: Array<{ row: R; score: number | null }>) =>
     // No cap: the gallery shows every photo, and picture-only searches are already cut by margin.
     [...scored.filter((s) => tagged.has(s.row.capture_id)), ...scored.filter((s) => !tagged.has(s.row.capture_id))];
@@ -759,7 +1014,7 @@ export async function rankSearch<R extends SearchRow>(
   // Nothing about the picture: the filters are the answer.
   if (!parsed.description) {
     if (
-      !hasSubject &&
+      !filtered &&
       parsed.places.length === 0 &&
       parsed.years.length === 0 &&
       parsed.months.length === 0 &&
@@ -775,48 +1030,36 @@ export async function rankSearch<R extends SearchRow>(
         ? (a, b) =>
             Math.abs(Number(a.focal_length_mm) - parsed.focalLengthMm!) -
             Math.abs(Number(b.focal_length_mm) - parsed.focalLengthMm!)
-        : byRatingThenDate,
+        : byFit,
     );
-    return { items: withTagsFirst(sorted.map((row) => ({ row, score: null }))), interpretation };
+    const items = withTagsFirst(sorted.map((row) => ({ row, score: null })));
+    return awaitsPicture ? { items, interpretation, pending: true } : { items, interpretation };
   }
 
-  // The quick pass skips picture matching: it shows a subject's photos right away, or nothing
-  // for a description-only query so the page keeps what it had.
+  // The quick pass skips picture matching: it shows a subject's or scene's photos right away, or
+  // nothing for a description-only query so the page keeps what it had.
   if (opts.quick) {
-    const quickItems = hasSubject ? [...candidates].sort(byRatingThenDate).map((row) => ({ row, score: null })) : [];
+    const quickItems = filtered ? [...candidates].sort(byFit).map((row) => ({ row, score: null })) : [];
     return { items: withTagsFirst(quickItems), interpretation, pending: true };
   }
 
-  let queryVec: Float32Array | null = null;
-  let noiseVec: Float32Array | null = null;
-  try {
-    [queryVec, noiseVec] = await Promise.all([queryVector(parsed.description), noiseVector()]);
-  } catch {
-    // Species matching isn't downloaded: names, groups, places and dates still work.
-  }
-  if (!queryVec || !noiseVec) {
-    const fallback = hasSubject
-      ? [...candidates].sort(byRatingThenDate)
+  const scored = await pictureScores(parsed.description, candidates);
+  if (!scored) {
+    const fallback = filtered
+      ? [...candidates].sort(byFit)
       : candidates.filter((r) => tagged.has(r.capture_id) || parsed.hintSpeciesIds.has(r.species_id));
     return { items: withTagsFirst(fallback.map((row) => ({ row, score: null }))), interpretation };
   }
 
-  const vectors = await photoVectors(candidates);
-  const scored = candidates.map((row) => {
-    const v = vectors.get(row.capture_id);
-    return { row, score: v ? dot(v, queryVec!) - dot(v, noiseVec!) : null };
-  });
-
-  // Subject plus description: every photo of the subject, best fit first. Never hides one.
-  if (hasSubject) {
-    scored.sort((a, b) => (b.score ?? -1) - (a.score ?? -1) || byRatingThenDate(a.row, b.row));
+  // Subject or scene plus description: every photo of it, best fit first. Never hides one.
+  if (filtered) {
+    scored.sort((a, b) => (b.score ?? -1) - (a.score ?? -1) || byFit(a.row, b.row));
     return { items: withTagsFirst(scored), interpretation };
   }
 
   // Only a description: keep clear matches, plus photos of species whose names share its words
-  // (Snow Goose for "snow") and photos tagged with it.
-  const top = Math.max(0, ...scored.map((s) => s.score ?? 0));
-  const cutoff = Math.max(CONTENT_MATCH_MIN, top * CONTENT_MARGIN_RELATIVE);
+  // (Northern Flying Squirrel for "flying") and photos tagged with it.
+  const cutoff = matchCutoff(scored);
   // A describing word in species names could mean either. If most photos of those species also
   // match it by picture, treat it as naming them and show just them.
   const hinted = scored.filter((s) => parsed.hintSpeciesIds.has(s.row.species_id));

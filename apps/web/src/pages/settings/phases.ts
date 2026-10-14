@@ -31,6 +31,7 @@ export type ModelStatus = JobStatus<{ referenceVectors: ReferenceVectorsResult |
   downloaded: boolean;
   usable?: boolean;
   idModelDownloaded?: boolean;
+  sceneModelDownloaded?: boolean;
   activeModel?: "identification" | "general" | null;
   sizeBytes: number | null;
 };
@@ -84,6 +85,7 @@ export const MODEL_PHASES: PhaseLabels = {
   applying_id_species_image_embeddings: { label: "Downloading species identification vectors", progress: "count" },
   downloading_id_gallery_embeddings: { label: "Downloading species identification vectors", progress: "bytes" },
   applying_id_gallery_embeddings: { label: "Downloading species identification vectors", progress: "count" },
+  downloading_scene_model: { label: "Downloading scene model", progress: "bytes" },
 };
 
 export const MAP_PHASES: PhaseLabels = { downloading: { label: "Downloading", progress: "bytes" } };
