@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
-import { api } from "../api/client";
+import { api, apiPath } from "../api/client";
 import { errorMessage } from "../lib/errorMessage";
 import Modal from "./Modal";
 import Button from "./Button";
 import FormMessage from "./FormMessage";
+import { useSpeciesName } from "../lib/speciesName";
 
 interface SplitOptions {
   captureIds: string[];
@@ -25,6 +26,7 @@ export default function NameChangedModal({
   onClose: () => void;
   onChanged: () => void;
 }) {
+  const nameOf = useSpeciesName();
   const [options, setOptions] = useState<SplitOptions | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState<string | null>(null);
@@ -44,7 +46,7 @@ export default function NameChangedModal({
     setSaving(key);
     setError(null);
     try {
-      await api.post(`/species/${speciesId}/split`, body);
+      await api.post(apiPath("/species/{id}/split", { id: speciesId }), body);
       onChanged();
       onClose();
     } catch (err) {
@@ -75,7 +77,7 @@ export default function NameChangedModal({
                   <div className="h-12 w-12 shrink-0 rounded-md bg-surface-muted" />
                 )}
                 <div className="min-w-0 flex-1">
-                  <p className="truncate font-medium text-ink">{s.commonName ?? s.scientificName}</p>
+                  <p className="truncate font-medium text-ink">{nameOf(s)}</p>
                   <p className="truncate text-xs italic text-muted">{s.scientificName}</p>
                 </div>
                 <Button

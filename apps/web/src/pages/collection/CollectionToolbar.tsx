@@ -6,6 +6,7 @@ import SearchInput from "../../components/SearchInput";
 import { taxonFilterLabel } from "./taxonLabels";
 import type { CollectionUrlState } from "./useCollectionUrlState";
 import type { CollectionDisplayPrefs } from "./useCollectionDisplayPrefs";
+import { formatNumber } from "../../lib/format";
 
 function Checkbox({
   checked,
@@ -141,7 +142,7 @@ export default function CollectionToolbar({
       {/* The region's own counts never change with filters, so show what a filter took out. */}
       {totalLoaded != null && shownCount != null && shownCount !== totalLoaded && (
         <span className="text-xs text-muted">
-          Showing {shownCount.toLocaleString()} of {totalLoaded.toLocaleString()}
+          Showing {formatNumber(shownCount)} of {formatNumber(totalLoaded)}
         </span>
       )}
       <FilterPopover activeCount={activeFilterCount}>
@@ -165,7 +166,7 @@ export default function CollectionToolbar({
             ))}
           </div>
           {taxonFilters.size > 0 && (
-            <button onClick={() => updateParam("taxon", null)} className="pt-1 text-[11px] text-muted hover:underline">
+            <button onClick={() => updateParam("taxon", null)} className="pt-1 text-xs text-muted hover:underline">
               Clear taxon filter
             </button>
           )}

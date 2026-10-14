@@ -7,6 +7,7 @@ import SpeciesPicker, { type SpeciesResult } from "../../components/SpeciesPicke
 import { useToast } from "../../hooks/useToast";
 import { addToChecklist, addedMessage, type ChecklistTarget } from "../../lib/checklistAdditions";
 import { errorMessage } from "../../lib/errorMessage";
+import { useSpeciesName } from "../../lib/speciesName";
 
 // Puts a species the checklist is missing on it: picked by search from every species Lifer has,
 // including ones you imported by hand. `targets` is what the view shows: the region, plus any sea
@@ -22,6 +23,7 @@ export default function AddSpeciesToChecklistModal({
   onAdded: () => void;
 }) {
   const toast = useToast();
+  const speciesName = useSpeciesName();
   const [targetId, setTargetId] = useState(targets[0]?.id ?? "");
   const [adding, setAdding] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -30,7 +32,7 @@ export default function AddSpeciesToChecklistModal({
 
   async function add(species: SpeciesResult) {
     if (!target) return;
-    const name = species.common_name ?? species.scientific_name;
+    const name = speciesName(species);
     setAdding(name);
     setError(null);
     try {
@@ -49,7 +51,7 @@ export default function AddSpeciesToChecklistModal({
     <Modal
       open
       onClose={onClose}
-      title={`Add a species to ${regionName}`}
+      title={`Add species to ${regionName}`}
       size="md"
       footer={
         <Button variant="secondary" size="sm" onClick={onClose}>
@@ -58,8 +60,8 @@ export default function AddSpeciesToChecklistModal({
       }
     >
       <p className="mb-3 text-sm text-muted">
-        Search for a species this checklist is missing, like one you imported by hand for another region. It shows here
-        marked "Added by you", and its card's menu can take it off again.
+        Pick a species this checklist is missing. It shows up marked "Added by you", and you can remove it from its
+        card's menu.
       </p>
       {targets.length > 1 && (
         <div className="mb-3 space-y-1.5">

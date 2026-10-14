@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { IUCN_CODES } from "@lifer/shared";
-import { iucnBadge, iucnStatValue, iucnTone } from "./iucnDisplay";
+import { iucnBadge, iucnTone } from "./iucnDisplay";
 
 describe("iucnBadge", () => {
   it("names an assessed status and tones it by threat", () => {
@@ -39,13 +39,5 @@ describe("iucnBadge", () => {
   it("covers every stored code", () => {
     for (const code of IUCN_CODES) expect(iucnBadge(code)?.code).toBe(code);
     expect(IUCN_CODES.filter((c) => iucnTone(c) === "threatened")).toEqual(["EX", "EW", "CR", "EN", "VU"]);
-  });
-});
-
-describe("iucnStatValue", () => {
-  it("is the category name, Not evaluated for NE, null for nothing", () => {
-    expect(iucnStatValue("EN")).toBe("Endangered");
-    expect(iucnStatValue("NE")).toBe("Not evaluated");
-    expect(iucnStatValue(null)).toBeNull();
   });
 });

@@ -9,19 +9,25 @@
 import { useCallback } from "react";
 import { useTranslation } from "react-i18next";
 
-export interface NamedSpecies {
-  commonName?: string | null;
-  scientificName: string;
+// API responses use either casing, so both shapes are accepted.
+export type NamedSpecies =
+  { commonName?: string | null; scientificName: string } | { common_name?: string | null; scientific_name: string };
+
+function namesOf(species: NamedSpecies): { commonName: string | null; scientificName: string } {
+  return "scientificName" in species
+    ? { commonName: species.commonName ?? null, scientificName: species.scientificName }
+    : { commonName: species.common_name ?? null, scientificName: species.scientific_name };
 }
 
 /** A localised common name for `locale`, or null. No name packs exist yet, so always null. */
-function localisedCommonName(_species: NamedSpecies, _locale: string): string | null {
+function localisedCommonName(_scientificName: string, _locale: string): string | null {
   return null;
 }
 
 /** The name to show for a species in `locale`: localised, then English common, then scientific. */
 export function speciesDisplayName(species: NamedSpecies, locale = "en"): string {
-  return localisedCommonName(species, locale) || species.commonName || species.scientificName;
+  const { commonName, scientificName } = namesOf(species);
+  return localisedCommonName(scientificName, locale) || commonName || scientificName;
 }
 
 /** speciesDisplayName for the active interface language, re-rendering when it changes. */

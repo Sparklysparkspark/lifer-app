@@ -1,4 +1,4 @@
-// Every date, number, percentage, byte size, relative time and list in the interface is formatted
+// Every date, number, percentage, byte size and list in the interface is formatted
 // here, through Intl, in the locale the i18n module picks (i18n/index.ts calls setFormatLocale on
 // every language change: the interface language, or the system's regional variant of it, like en-GB).
 // Until then, and in unit tests, the runtime's default locale is used.
@@ -11,11 +11,6 @@ export function setFormatLocale(locale: string | undefined): void {
   currentLocale = locale;
   dateFormatters.clear();
   numberFormatters.clear();
-}
-
-/** The locale formatting currently follows (undefined: the runtime's default). */
-export function getFormatLocale(): string | undefined {
-  return currentLocale;
 }
 
 // --- Dates ---
@@ -76,34 +71,6 @@ export function formatMonthName(
   return new Intl.DateTimeFormat(locale ?? currentLocale, { month: width, timeZone: "UTC" }).format(
     new Date(Date.UTC(2000, monthIndex, 1)),
   );
-}
-
-// --- Relative time ---
-
-const RELATIVE_UNITS: [Intl.RelativeTimeFormatUnit, number][] = [
-  ["year", 365 * 24 * 3600],
-  ["month", 30 * 24 * 3600],
-  ["week", 7 * 24 * 3600],
-  ["day", 24 * 3600],
-  ["hour", 3600],
-  ["minute", 60],
-  ["second", 1],
-];
-
-/** "3 days ago", "in 2 hours", "yesterday", in the active locale. "" for an unparseable date. */
-export function formatRelativeTime(
-  value: Date | string | number | null | undefined,
-  now: Date | number = Date.now(),
-  locale?: string,
-): string {
-  const date = toDate(value);
-  if (!date) return "";
-  const seconds = Math.round((date.getTime() - (typeof now === "number" ? now : now.getTime())) / 1000);
-  const rtf = new Intl.RelativeTimeFormat(locale ?? currentLocale, { numeric: "auto" });
-  for (const [unit, size] of RELATIVE_UNITS) {
-    if (Math.abs(seconds) >= size || unit === "second") return rtf.format(Math.round(seconds / size), unit);
-  }
-  return "";
 }
 
 // --- Numbers ---

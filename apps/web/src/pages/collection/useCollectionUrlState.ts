@@ -1,8 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
 import type { GroupBy, SortBy } from "../../components/GroupedSpeciesGrid";
+import { parseEnum } from "../../lib/parseEnum";
 
-export type StateFilter = "all" | "collected" | "seen" | "target" | "unseen";
+const SORT_BY_VALUES: readonly SortBy[] = ["taxonomic", "name", "rarity", "localRarity", "seasonality"];
+const GROUP_BY_VALUES: readonly GroupBy[] = ["none", "broad", "group", "tier", "localTier"];
+const STATE_FILTERS = ["all", "collected", "seen", "target", "unseen"] as const;
+export type StateFilter = (typeof STATE_FILTERS)[number];
 export type ParamUpdates = Record<string, string | null>;
 export type UpdateParams = (updates: ParamUpdates, options?: { replace?: boolean }) => void;
 
@@ -63,13 +67,13 @@ export function useCollectionUrlState() {
     singleTaxonFilter: taxonFilters.size === 1 ? [...taxonFilters][0] : undefined,
     seaZoneIds,
     includeLand: searchParams.get("includeLand") !== "0",
-    sortBy: (searchParams.get("sort") as SortBy) || "taxonomic",
-    groupBy: (searchParams.get("group") as GroupBy) || "none",
+    sortBy: parseEnum(searchParams.get("sort"), SORT_BY_VALUES, "taxonomic"),
+    groupBy: parseEnum(searchParams.get("group"), GROUP_BY_VALUES, "none"),
     // No param means collectedFirst on, the others off; toggling writes an explicit value.
     collectedFirst: searchParams.get("collectedFirst") !== "0",
     seenFirst: searchParams.get("seenFirst") === "1",
     targetFirst: searchParams.get("targetFirst") === "1",
-    stateFilter: (searchParams.get("show") as StateFilter) || "all",
+    stateFilter: parseEnum(searchParams.get("show"), STATE_FILTERS, "all"),
     ghostOnly: searchParams.get("ghostOnly") === "1",
     lostOnly: searchParams.get("lostOnly") === "1",
     likelyThisMonthOnly: searchParams.get("likelyThisMonth") === "1",

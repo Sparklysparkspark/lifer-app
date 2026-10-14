@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { api } from "../api/client";
+import { api, apiPath } from "../api/client";
 import PageHeader from "../components/PageHeader";
 import InfoTip from "../components/InfoTip";
 import { Spinner } from "../components/LoadingScreen";
@@ -8,8 +8,11 @@ import PhotoPlaceholder from "../components/PhotoPlaceholder";
 import SearchInput from "../components/SearchInput";
 import RegionPicker from "../components/RegionPicker";
 import EmptyState from "../components/EmptyState";
+import Button from "../components/Button";
 import { useConfirm } from "../hooks/useConfirm";
 import { useToast } from "../hooks/useToast";
+import { formatList } from "../lib/format";
+import { useSpeciesName } from "../lib/speciesName";
 
 const HIDDEN_INFO_PARAGRAPHS = [
   "Hiding a species from a region only removes it from that region's own checklist. Its global record, photos, and history are untouched, and any other region it's also found on still shows it normally.",
@@ -37,6 +40,7 @@ interface HiddenResponse {
 // Species hidden with a card's "Hide from this region". Navigation is the same breadcrumb and
 // one-level "Drill in" pills as RegionBrowser; the grid below always matches the current scope.
 export default function HiddenSpeciesPage() {
+  const speciesName = useSpeciesName();
   const [data, setData] = useState<HiddenResponse | null>(null);
   const [loadError, setLoadError] = useState(false);
   const [busyIds, setBusyIds] = useState<Set<string>>(new Set());
@@ -59,7 +63,7 @@ export default function HiddenSpeciesPage() {
   // A refetch after an unhide keeps the current grid up instead of flashing a spinner.
   function fetchHidden() {
     api
-      .get<HiddenResponse>("/regions/hidden-species")
+      .get("/regions/hidden-species")
       .then((res) => {
         setData(res);
         // With species hidden under only one country, "All countries" would be a wasted click.
@@ -184,11 +188,17 @@ export default function HiddenSpeciesPage() {
       // them hidden or silently unhiding them (hiding cascades; unhiding deliberately asks).
       let cascadeRegionIds: string[] = [];
       if (item.isCountry) {
-        const res = await api.get<{ children: Array<{ regionId: string; regionName: string }> }>(
-          `/regions/${item.regionId}/species/${item.speciesId}/hidden-children`,
+        const res = await api.get(
+          apiPath("/regions/{regionId}/species/{speciesId}/hidden-children", {
+            regionId: item.regionId,
+            speciesId: item.speciesId,
+          }),
         );
         if (res.children.length > 0) {
-          const names = res.children.map((c) => c.regionName).join(", ");
+          const names = formatList(
+            res.children.map((c) => c.regionName),
+            "unit",
+          );
           const alsoChildren = await confirm({
             title: `Also unhide from ${names}?`,
             message: `It's also hidden in ${res.children.length === 1 ? "this province" : "these provinces"}.`,
@@ -223,7 +233,13 @@ export default function HiddenSpeciesPage() {
     if (!ok) return;
     setBulkBusy(true);
     try {
-      await Promise.all(scopedItems.map((i) => api.delete(`/regions/${i.regionId}/species/${i.speciesId}/hide`)));
+      await Promise.all(
+        scopedItems.map((i) =>
+          api.delete(
+            apiPath("/regions/{regionId}/species/{speciesId}/hide", { regionId: i.regionId, speciesId: i.speciesId }),
+          ),
+        ),
+      );
     } catch {
       toast.error("Couldn't unhide that group. Try again.");
     } finally {
@@ -262,7 +278,7 @@ export default function HiddenSpeciesPage() {
       ) : !data ? (
         <Spinner />
       ) : (
-        <main className="space-y-6 p-6">
+        <main className="space-y-section p-page">
           {countryGroups.length > 0 && (
             <div className="space-y-2">
               <nav className="flex flex-wrap items-center gap-1 text-sm text-muted">
@@ -298,7 +314,7 @@ export default function HiddenSpeciesPage() {
               </nav>
               {!selectedRegionId && (
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-xs uppercase tracking-wide text-muted">Drill in:</span>
+                  <span className="text-xs text-muted">Drill in:</span>
                   <RegionPicker
                     mode="single"
                     items={
@@ -349,7 +365,7 @@ export default function HiddenSpeciesPage() {
                   {bulkBusy ? "Unhiding…" : "Unhide all shown"}
                 </button>
               </div>
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
+              <div className="grid grid-cols-2 gap-item sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
                 {displayedItems.map((item) => (
                   <div key={item.speciesId} className="rounded-lg border border-line bg-surface p-2">
                     <Link to={`/species/${item.speciesId}`} state={{ backLabel: "Hidden species" }} className="block">
@@ -357,14 +373,14 @@ export default function HiddenSpeciesPage() {
                         {item.referenceThumbUrl ? (
                           <img
                             src={item.referenceThumbUrl}
-                            alt={item.commonName ?? item.scientificName}
+                            alt={speciesName(item)}
                             loading="lazy"
                             className="h-full w-full object-cover"
                           />
                         ) : item.referencePhoto ? (
                           <img
                             src={item.referencePhoto}
-                            alt={item.commonName ?? item.scientificName}
+                            alt={speciesName(item)}
                             loading="lazy"
                             className="h-full w-full object-cover"
                           />
@@ -372,18 +388,18 @@ export default function HiddenSpeciesPage() {
                           <PhotoPlaceholder className="h-full w-full" />
                         )}
                       </div>
-                      <p className="mt-1 truncate text-xs font-medium text-ink">
-                        {item.commonName ?? item.scientificName}
-                      </p>
-                      <p className="truncate text-[10px] italic text-muted">{item.scientificName}</p>
+                      <p className="mt-1 truncate text-xs font-medium text-ink">{speciesName(item)}</p>
+                      <p className="truncate text-xs italic text-muted">{item.scientificName}</p>
                     </Link>
-                    <button
+                    <Button
+                      variant="secondary"
+                      size="sm"
                       onClick={() => unhideOne(item)}
-                      disabled={busyIds.has(item.speciesId)}
-                      className="mt-1 w-full rounded border border-line py-0.5 text-[10px] uppercase tracking-wide text-muted hover:bg-surface-muted disabled:opacity-50"
+                      loading={busyIds.has(item.speciesId)}
+                      className="mt-1 w-full"
                     >
-                      {busyIds.has(item.speciesId) ? "…" : "Unhide"}
-                    </button>
+                      Unhide
+                    </Button>
                   </div>
                 ))}
               </div>

@@ -59,10 +59,3 @@ export function iucnBadge(status: string | null | undefined, note?: string | nul
     title: note ? `${base}\n${note}` : base,
   };
 }
-
-/** The stats box value: the category's name, "Not evaluated" for NE, null for nothing. */
-export function iucnStatValue(status: string | null | undefined): string | null {
-  const code = normalizeIucnStatus(status);
-  if (!code) return null;
-  return code === "NE" ? i18n.t("iucn.stat.notEvaluated") : iucnCategoryName(code);
-}

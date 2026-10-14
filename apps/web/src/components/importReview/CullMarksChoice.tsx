@@ -1,6 +1,7 @@
 import type { CullMarksOption } from "@lifer/shared";
 import Select from "../Select";
 import { pluralize } from "../../lib/pluralize";
+import { formatNumber } from "../../lib/format";
 
 const OPTIONS: Array<{ value: CullMarksOption; label: string }> = [
   { value: "skip", label: "Skip them" },
@@ -27,7 +28,7 @@ export default function CullMarksChoice({
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-line bg-surface-muted px-3 py-2 text-sm text-muted">
       <span data-testid="cull-summary">
-        {pluralize(total, "photo")}, {rejected.toLocaleString()} marked rejected by your culling app.
+        {pluralize(total, "photo")}, {formatNumber(rejected)} marked rejected by your culling app.
       </span>
       <Select
         label="Rejected photos"
