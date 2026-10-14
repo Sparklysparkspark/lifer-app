@@ -17,9 +17,12 @@ import { createJob } from "../lib/job.js";
 import { addToRegionChecklist, findChecklistRegion, noChecklistError } from "../regions/checklistAdditions.js";
 import { scheduleCollectionStateSave } from "../lib/collectionState.js";
 import { iucnCodeFromInatLevel, normalizeIucnStatus } from "@lifer/shared";
+import { httpFetch } from "@lifer/core/lib/http.js";
+import { syncInatDistribution } from "./inatDistribution.js";
 
 const INAT_TAXA_API = "https://api.inaturalist.org/v1/taxa";
-const OTHER_TAXA_USER_AGENT = "lifer-app/0.1 (personal project; any-taxa search)";
+// Live lookups for a person waiting on them: the shared client's pacing and User-Agent, no retries.
+const LOOKUP = { timeoutMs: 15_000, maxRetries: 0 };
 // iNaturalist's vernacular names are inconsistently cased; the rest of the catalog is title case.
 function titleCaseCommonName(name: string): string {
   return name.replace(/(^|[\s-])([a-z])/g, (_, sep: string, ch: string) => sep + ch.toUpperCase());
@@ -49,10 +52,7 @@ async function resolveOrCreateOtherTaxaSpecies(
   if (existing.rows[0]) return { speciesId: existing.rows[0].id, scientificName: existing.rows[0].scientific_name };
   if (!Number.isSafeInteger(inatTaxonId) || inatTaxonId <= 0) throw new Error("Not an iNaturalist taxon id");
 
-  const taxonRes = await fetch(`${INAT_TAXA_API}/${inatTaxonId}`, {
-    headers: { "User-Agent": OTHER_TAXA_USER_AGENT },
-    signal: AbortSignal.timeout(15_000),
-  });
+  const taxonRes = await httpFetch(`${INAT_TAXA_API}/${inatTaxonId}`, LOOKUP);
   if (!taxonRes.ok) throw new Error("Couldn't look up that species on iNaturalist");
   const taxonData = (await taxonRes.json()) as {
     results: Array<{
@@ -92,11 +92,9 @@ async function resolveOrCreateOtherTaxaSpecies(
   let family: string | null = null;
   let order: string | null = null;
   try {
-    const gbifRes = await fetch(
+    const gbifRes = await httpFetch(
       `https://api.gbif.org/v1/species/match?name=${encodeURIComponent(taxon.name)}&strict=false`,
-      {
-        signal: AbortSignal.timeout(15_000),
-      },
+      LOOKUP,
     );
     const gbifData = (await gbifRes.json()) as { usageKey?: number; family?: string; order?: string };
     if (gbifData.usageKey) gbifKey = gbifData.usageKey;
@@ -173,10 +171,10 @@ export async function otherTaxaRoutes(fastify: FastifyInstance): Promise<void> {
     if (!(await requireAnyTaxaSearchEnabled(request, reply))) return;
     const q = (request.query.q ?? "").trim();
     if (q.length < 2) return { results: [] };
-    const res = await fetch(`${INAT_TAXA_API}?q=${encodeURIComponent(q)}&rank=species&is_active=true&per_page=15`, {
-      headers: { "User-Agent": OTHER_TAXA_USER_AGENT },
-      signal: AbortSignal.timeout(15_000),
-    }).catch(() => null);
+    const res = await httpFetch(
+      `${INAT_TAXA_API}?q=${encodeURIComponent(q)}&rank=species&is_active=true&per_page=15`,
+      LOOKUP,
+    ).catch(() => null);
     if (!res) return reply.code(502).send({ error: "iNaturalist search failed" });
     if (!res.ok) return reply.code(502).send({ error: "iNaturalist search failed" });
     const data = (await res.json()) as {
@@ -218,6 +216,8 @@ export async function otherTaxaRoutes(fastify: FastifyInstance): Promise<void> {
       }
 
       await addToRegionChecklist(pool, request.user!.id, regionId, speciesId);
+      // Its chart and tags for the country, fetched now so the species page works offline.
+      void syncInatDistribution(speciesId, regionId);
       return { speciesId };
     },
   );
@@ -338,12 +338,9 @@ export async function otherTaxaRoutes(fastify: FastifyInstance): Promise<void> {
               if (/^\d+$/.test(line)) {
                 taxonId = Number(line);
               } else {
-                const searchRes = await fetch(
+                const searchRes = await httpFetch(
                   `${INAT_TAXA_API}?q=${encodeURIComponent(line)}&rank=species&is_active=true&per_page=1`,
-                  {
-                    headers: { "User-Agent": OTHER_TAXA_USER_AGENT },
-                    signal: AbortSignal.any([ctx.signal, AbortSignal.timeout(15_000)]),
-                  },
+                  { ...LOOKUP, signal: ctx.signal },
                 );
                 if (searchRes.ok) {
                   const searchData = (await searchRes.json()) as { results: Array<{ id: number }> };
@@ -356,14 +353,14 @@ export async function otherTaxaRoutes(fastify: FastifyInstance): Promise<void> {
                 const { speciesId } = await resolveOrCreateOtherTaxaSpecies(taxonId);
                 if (await addToRegionChecklist(pool, userId, regionId, speciesId)) job.added++;
                 else job.alreadyPresent++;
+                void syncInatDistribution(speciesId, regionId);
               }
             } catch {
               ctx.throwIfCancelled();
               job.notFound.push(line);
             }
+            // Each line makes several iNaturalist calls, all paced by the shared HTTP client.
             ctx.update({ processed: ++processed });
-            // Paced: each line makes several iNaturalist calls, and an unpaced burst draws 429s.
-            await new Promise((resolve) => setTimeout(resolve, 300));
           }
           // The library's record is saved after each change by the route that made it
           // (lib/collectionState.ts), but this job's additions land after its response went out.
