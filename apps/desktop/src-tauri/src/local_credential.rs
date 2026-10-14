@@ -1,6 +1,6 @@
 // Per-launch values for the local API sidecar (api.rs passes both to it):
 //   - launch_token: the desktop credential (LIFER_LAUNCH_TOKEN). Secret. Only the API process and
-//     this app know it; the local library's window gets it through local_api_credential (lib.rs)
+//     this app know it; the local library's window gets it through local_api_credential (commands.rs)
 //     and trades it for an HttpOnly cookie (apps/api/src/auth/localCredential.ts).
 //   - launch_id: not secret (LIFER_LAUNCH_ID). The API's GET /health echoes it, so the app can
 //     tell its own API apart from a previous launch's still on the port.

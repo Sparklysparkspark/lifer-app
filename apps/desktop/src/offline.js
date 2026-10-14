@@ -1,6 +1,6 @@
 // The cached collection, read-only, while the connected server can't be reached. The data comes
-// from offline_cache.rs; nothing here talks to the network. lib.rs's watcher switches the window
-// back to the server as soon as it answers.
+// from offline_cache.rs; nothing here talks to the network. server_watch.rs's watcher switches
+// the window back to the server as soon as it answers.
 (function () {
   const { invoke } = window.__TAURI__.core;
   const PAGE_SIZE = 240;

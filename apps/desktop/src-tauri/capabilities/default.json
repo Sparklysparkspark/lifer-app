@@ -9,12 +9,15 @@
     "core:window:allow-set-fullscreen",
     "core:window:allow-is-fullscreen",
     "allow-app-commands",
+    "allow-local-only-commands",
     "opener:default",
     "dialog:default",
     "fs:allow-write-file",
     "fs:allow-write-text-file",
-    "updater:default",
-    "process:default"
+    "updater:allow-check",
+    "updater:allow-download",
+    "updater:allow-install",
+    "process:allow-restart"
   ],
   "remote": {
     "urls": ["http://127.0.0.1:4310", "http://localhost:4310"]
