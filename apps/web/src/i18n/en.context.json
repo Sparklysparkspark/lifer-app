@@ -66,8 +66,14 @@
   "import": {
     "bulk": {
       "raw": {
-        "linkedCount": "{linked} of {total} RAW files were matched to photos already in the library."
+        "linkedCount": "How many picked RAW files were matched to photos already in the library.",
+        "pendingCount": "How many picked RAW files are still uploading. Shown after the matched and not-imported counts, joined by middle dots.",
+        "unmatchedCount": "How many picked RAW files matched no photo in the library, so weren't imported. Shown after the matched count, joined by a middle dot."
       }
+    },
+    "invertebrate": {
+      "message": "Shown on an imported photo that looks like an insect or spider. {looksLike} is an English phrase such as \"a bee\" or \"a spider\".",
+      "searchOptIn": "Tooltip on the button when iNaturalist search is still off: pressing it turns that setting on."
     }
   },
   "iucn": {
@@ -78,9 +84,6 @@
     "category": {
       "extinct": "IUCN Red List category name. Use the official IUCN Red List term in your language if one exists.",
       "lowerRiskConservationDependent": "Old (1994) IUCN Red List category, still on a few assessments. Use the official IUCN term if one exists."
-    },
-    "stat": {
-      "notEvaluated": "Value in the species stats box when IUCN has not assessed the species."
     }
   },
   "settings": {

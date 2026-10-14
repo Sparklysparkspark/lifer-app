@@ -12,7 +12,8 @@ test("imports a photo, which shows in the Gallery and collects its species", asy
 
   await page.goto("/import");
   const chooser = page.waitForEvent("filechooser");
-  await page.getByRole("button", { name: "choose files" }).click();
+  // The photos section's picker; the RAW section below has its own.
+  await page.getByRole("region", { name: "Photos and videos" }).getByRole("button", { name: "Choose files" }).click();
   await (await chooser).setFiles(photoPath);
 
   // The row's species picker: search the catalog and pick the fixture species.

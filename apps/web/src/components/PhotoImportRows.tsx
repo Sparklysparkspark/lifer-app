@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { api, ApiError } from "../api/client";
+import { api, apiPath, ApiError } from "../api/client";
 import { errorMessage } from "../lib/errorMessage";
 import { mapWithConcurrency } from "../lib/concurrency";
 import {
@@ -8,7 +8,6 @@ import {
   reportJobProgress,
   settleExternalJob,
   suggestSpeciesFromVideo,
-  type PossibleDuplicate,
 } from "../lib/uploadQueue";
 import { discardUpload, uploadFile } from "../lib/tusUpload";
 import SpeciesPicker, { type SuggestedSpecies } from "./SpeciesPicker";
@@ -29,11 +28,16 @@ import {
 import { useSettings } from "../hooks/useSettings";
 import { pluralize, pluralWord } from "../lib/pluralize";
 import Button from "./Button";
+import FilePickArea from "./FilePickArea";
 import ProgressBar from "./ProgressBar";
+import { useSpeciesName } from "../lib/speciesName";
 import { useLatest } from "../hooks/useLatest";
-import type { CullMarks, CullMarksOption } from "@lifer/shared";
+import { useToast } from "../hooks/useToast";
+import { commitImport, resetUndoneRows, undoImports, type CommittedImport } from "../lib/importCommit";
+import type { CullMarksOption } from "@lifer/shared";
 import CullMarksChoice from "./importReview/CullMarksChoice";
 import { isRejected, rejectedRowNote } from "../lib/cullInfo";
+import { ignore } from "../lib/ignore";
 
 // Shared with CollectionPage, so the last region picked in either place is the default in both.
 const LAST_REGION_KEY = "lifer:lastRegionId";
@@ -84,9 +88,11 @@ export default function PhotoImportRows({
    *  continue in the background if the page is left. */
   onImportStarted?: (everyRowIncluded: boolean) => void;
 }) {
+  const speciesName = useSpeciesName();
   const [rows, setRows] = useState<ImportRow[]>([]);
   const [importing, setImporting] = useState(false);
-  const [lastBatch, setLastBatch] = useState<Array<{ key: string; captureId: string }>>([]);
+  const [lastBatch, setLastBatch] = useState<CommittedImport[]>([]);
+  const toast = useToast();
   // Row previews are local blob URLs, so the lightbox needs no fetch.
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   // Every reference photo of a candidate species, for comparing against the new photo.
@@ -194,7 +200,7 @@ export default function PhotoImportRows({
   useEffect(() => {
     if (!suggestEnabled || !regionId) return;
     const timer = setTimeout(() => {
-      api.post("/species/matching/warm", { regionId }).catch(() => {});
+      api.post("/species/matching/warm", { regionId }).catch(ignore("Couldn't warm up species matching"));
     }, 400);
     return () => clearTimeout(timer);
   }, [suggestEnabled, regionId]);
@@ -251,15 +257,7 @@ export default function PhotoImportRows({
         if (forRegionId) form.append("regionId", forRegionId);
         const clientVectors = await vectorsPromise;
         if (clientVectors) form.append("clientVectors", clientVectors);
-        return api.post<{
-          possibleDuplicate: PossibleDuplicate | null;
-          suggestions: SuggestedSpecies[];
-          burst?: { uploadIds: string[]; suggestions: SuggestedSpecies[] } | null;
-          matchingMs?: number | null;
-          previewDataUrl: string | null;
-          notWildlife?: { looksLike: string } | null;
-          cull?: CullMarks;
-        }>("/uploads/inspect", form);
+        return api.post("/uploads/inspect", form);
       };
       let res;
       try {
@@ -291,6 +289,12 @@ export default function PhotoImportRows({
                   suggestions: res.suggestions,
                   rawPreviewUrl: res.previewDataUrl,
                   notWildlife: res.notWildlife ?? null,
+                  invertebrate: res.invertebrate ?? null,
+                  rawMatch: res.rawMatch ?? null,
+                  // A RAW of a photo you already have takes that photo's species (unless one was picked).
+                  ...(res.rawMatch && !r.speciesId
+                    ? { speciesId: res.rawMatch.speciesId, speciesLabel: speciesName(res.rawMatch) }
+                    : {}),
                   cull: res.cull ?? null,
                   isInspecting: false,
                 }
@@ -311,11 +315,7 @@ export default function PhotoImportRows({
         if (fresh) uploadsRef.current.delete(key);
         return ensureUploaded(key, file);
       };
-      const res = await suggestSpeciesFromVideo<{
-        suggestions: SuggestedSpecies[];
-        error?: string;
-        stagedId?: string | null;
-      }>(upload, forRegionId);
+      const res = await suggestSpeciesFromVideo(upload, forRegionId);
       if (!isLatest()) return;
       setRows((prev) =>
         prev.map((r) =>
@@ -388,56 +388,37 @@ export default function PhotoImportRows({
       rows.every((r) => r.status === "done" || r.notWildlife || skipsRow(r) || toImport.some((t) => t.key === r.key)),
     );
 
-    const committed: Array<{ key: string; captureId: string }> = [];
+    const committed: CommittedImport[] = [];
     await mapWithConcurrency(toImport, UPLOAD_CONCURRENCY, async (row) => {
       // Shows in the global upload banner; the upload keeps going if this screen unmounts.
       const jobId = registerExternalJob(row.speciesId!, row.file.name);
       rowJobsRef.current.set(row.key, jobId);
       const onProgress = (sent: number, total: number) => setRowProgress(row.key, sent, total);
       try {
-        // /uploads/video is store-mode only, so no mode field for videos.
-        const form = new FormData();
-        if (!row.isVideo) {
-          form.append("mode", "store");
-          form.append("cullMarks", cullOption);
-        }
-        form.append("speciesId", row.speciesId!);
-        if (tripId) form.append("tripId", tripId);
-        if (albumId) form.append("albumId", albumId);
-        // Stored on the capture so Stats can count countries without relying on GPS EXIF.
-        if (regionId) form.append("regionId", regionId);
-        if (locationLabel.trim()) form.append("locationLabel", locationLabel.trim());
-        const addFields = (f: FormData) => {
-          for (const [k, v] of form.entries()) f.append(k, v);
-        };
-        if (row.isVideo) {
-          // The upload from the species check is reused (awaited if still going), so gigabytes
-          // aren't sent twice; a 410 resends it.
-          const uploadId = await ensureUploaded(row.key, row.file);
-          const res = await postUploadedFile<{ captureId: string }>("/uploads/video", row.file, {
-            stagedId: row.stagedId,
-            uploadId,
-            onProgress,
-            addFields,
-          });
-          uploadsRef.current.delete(row.key);
-          committed.push({ key: row.key, captureId: res.captureId });
-          setRows((prev) =>
-            prev.map((r) => (r.key === row.key ? { ...r, status: "done", captureId: res.captureId } : r)),
-          );
-          settleExternalJob(jobId);
-          return;
-        }
-        // A RAW matching an imported JPEG is filed as its sibling (linkedExisting), still "done".
-        // The upload from the check is reused (awaited if it's still going); a 410 resends it.
-        const uploadId = await ensureUploaded(row.key, row.file);
-        const res = await postUploadedFile<{ captureId?: string; linkedExisting?: boolean; skipped?: "rejected" }>(
-          "/uploads",
-          row.file,
-          { uploadId, onProgress, addFields },
+        const outcome = await commitImport(
+          {
+            speciesId: row.speciesId!,
+            isVideo: !!row.isVideo,
+            cullOption,
+            tripId,
+            albumId,
+            regionId,
+            locationLabel,
+          },
+          {
+            ensureUploaded: () => ensureUploaded(row.key, row.file),
+            // A 410 on the reused upload sends the file again.
+            post: (endpoint, uploadId, addFields) =>
+              postUploadedFile(endpoint, row.file, {
+                stagedId: row.isVideo ? row.stagedId : undefined,
+                uploadId,
+                onProgress,
+                addFields,
+              }),
+          },
         );
         uploadsRef.current.delete(row.key);
-        if (!res.captureId) {
+        if (outcome.kind === "rejected") {
           // The server read a reject this screen hadn't seen yet (the check failed or was still
           // running), and the import skips those.
           setRows((prev) =>
@@ -450,7 +431,7 @@ export default function PhotoImportRows({
           settleExternalJob(jobId);
           return;
         }
-        const captureId = res.captureId;
+        const captureId = outcome.captureId;
         committed.push({ key: row.key, captureId });
         setRows((prev) => prev.map((r) => (r.key === row.key ? { ...r, status: "done", captureId } : r)));
         settleExternalJob(jobId);
@@ -471,15 +452,20 @@ export default function PhotoImportRows({
     if (committed.length > 0) onImported?.();
   }
 
+  // A capture that couldn't be deleted is still on the server, so its row stays imported (and
+  // undoable) rather than going back to "ready", where importing it again would duplicate it.
   async function undoLastBatch() {
     if (lastBatch.length === 0) return;
-    await mapWithConcurrency(lastBatch, UPLOAD_CONCURRENCY, async ({ captureId }) => {
-      await api.delete(`/captures/${captureId}`).catch(() => {});
-    });
-    setRows((prev) =>
-      prev.map((r) => (lastBatch.some((b) => b.key === r.key) ? { ...r, status: "ready", captureId: undefined } : r)),
+    const { undone, failed } = await undoImports(
+      lastBatch,
+      (captureId) => api.delete(apiPath("/captures/{id}", { id: captureId })),
+      UPLOAD_CONCURRENCY,
     );
-    setLastBatch([]);
+    setRows((prev) => resetUndoneRows(prev, undone));
+    setLastBatch(failed);
+    if (failed.length > 0) {
+      toast.error(`Undo partly failed: ${pluralize(failed.length, "file")} couldn't be removed. Try undo again.`);
+    }
   }
   const doneCount = rows.filter((r) => r.status === "done").length;
   const notWildlifeCount = rows.filter((r) => r.notWildlife && !r.speciesId).length;
@@ -489,27 +475,28 @@ export default function PhotoImportRows({
   const readyNoun = readyHasVideo && readyHasPhoto ? "file" : readyHasVideo ? "video" : "photo";
 
   return (
-    <div className="space-y-4">
-      <label className="flex items-center gap-2 text-sm text-ink">
-        <span className="text-muted">Location (optional):</span>
+    <div className="space-y-item">
+      <label className="block text-sm">
+        <span className="text-ink">Location</span>
+        <span className="ml-1.5 text-xs text-muted">Optional</span>
         <input
           type="text"
           value={locationLabel}
           onChange={(e) => setLocationLabel(e.target.value)}
           placeholder="e.g. Prince George"
-          className="w-56 rounded-md border border-line bg-surface px-2 py-1 text-sm"
+          className="mt-1 block w-56 rounded-md border border-line bg-surface px-2 py-1 text-sm"
         />
       </label>
 
       {suggestEnabled && (
-        <div className="rounded-lg border border-line bg-surface-muted px-3 py-2">
-          <div className="mb-1 flex items-center gap-2">
-            <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700">
-              Experimental
-            </span>
-            <span className="text-sm text-muted">Region for species suggestions:</span>
+        <div>
+          <p className="text-sm">
+            <span className="text-ink">Region</span>
+            <span className="ml-1.5 text-xs text-muted">For species suggestions</span>
+          </p>
+          <div className="mt-1">
+            <RegionBrowser regionId={regionId} onChange={selectRegion} />
           </div>
-          <RegionBrowser regionId={regionId} onChange={selectRegion} />
           {!regionId && <p className="mt-1 text-xs text-muted">Pick a region to see species suggestions below.</p>}
           {localMatching && (
             <p className="mt-1 text-xs text-muted">Matching on this computer or the server, whichever is faster</p>
@@ -517,57 +504,12 @@ export default function PhotoImportRows({
         </div>
       )}
 
-      <div
-        onDragOver={(e) => e.preventDefault()}
-        onDrop={(e) => {
-          e.preventDefault();
-          if (e.dataTransfer.files.length) addFiles(e.dataTransfer.files);
-        }}
-        onClick={() => document.getElementById(`photo-import-files-${tripId ?? albumId ?? "general"}`)?.click()}
-        className="cursor-pointer rounded-lg border-2 border-dashed border-line p-8 text-center"
-      >
-        <input
-          id={`photo-import-folder-${tripId ?? albumId ?? "general"}`}
-          type="file"
-          multiple
-          // @ts-expect-error non-standard but widely supported attribute for whole-folder picks
-          webkitdirectory=""
-          directory=""
-          className="hidden"
-          onChange={(e) => e.target.files && addFiles(e.target.files)}
-        />
-        <input
-          id={`photo-import-files-${tripId ?? albumId ?? "general"}`}
-          type="file"
-          multiple
-          accept={`${PHOTO_ACCEPT},${VIDEO_ACCEPT},${[...VENDOR_RAW_EXTENSIONS].join(",")}`}
-          className="hidden"
-          onChange={(e) => e.target.files && addFiles(e.target.files)}
-        />
-        <p className="text-sm text-muted">
-          Drag photos, RAWs, or videos in, or{" "}
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              document.getElementById(`photo-import-folder-${tripId ?? albumId ?? "general"}`)?.click();
-            }}
-            className="text-ink underline"
-          >
-            choose a folder
-          </button>{" "}
-          /{" "}
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              document.getElementById(`photo-import-files-${tripId ?? albumId ?? "general"}`)?.click();
-            }}
-            className="text-ink underline"
-          >
-            choose files
-          </button>
-        </p>
-        <p className="mt-1 text-xs text-muted">Assign a species to each item below, then import.</p>
-      </div>
+      <FilePickArea
+        prompt="Drag photos, RAWs or videos here, or choose them."
+        hint="Assign a species to each one below, then import."
+        accept={`${PHOTO_ACCEPT},${VIDEO_ACCEPT},${[...VENDOR_RAW_EXTENSIONS].join(",")}`}
+        onFiles={(files) => addFiles(files)}
+      />
 
       {rows.length > 0 && (
         <>
@@ -614,7 +556,7 @@ export default function PhotoImportRows({
             </div>
           </div>
 
-          <div className="divide-y divide-line rounded-lg border border-line bg-surface">
+          <div className="divide-y divide-line rounded-panel border border-line bg-surface">
             {rows.map((row, i) => (
               <ImportReviewRow
                 key={row.key}
@@ -625,7 +567,7 @@ export default function PhotoImportRows({
                     // Until inspect returns the server's preview, or for good if the file has none.
                     <div
                       onClick={() => setLightboxIndex(i)}
-                      className="flex h-14 w-14 cursor-pointer items-center justify-center rounded-md bg-surface-muted text-[10px] font-medium uppercase text-muted"
+                      className="flex h-14 w-14 cursor-pointer items-center justify-center rounded-md bg-surface-muted text-xs font-medium uppercase text-muted"
                     >
                       {row.isRaw ? "RAW" : (photoFormatOf(row.file) ?? "photo")}
                     </div>

@@ -6,7 +6,7 @@
       "submit": "Create"
     },
     "delete": {
-      "body": "This removes the album, but the photos in it aren't deleted. They stay right where they are.",
+      "body": "The photos in it stay in your library.",
       "failed": "Couldn't delete this album",
       "title": "Delete this album?"
     },
@@ -147,12 +147,22 @@
   },
   "import": {
     "bulk": {
+      "photos": {
+        "title": "Photos and videos"
+      },
       "raw": {
-        "description": "Point this at a whole export folder or SD card instead of assigning species one by one. Each RAW is matched against photos already in your library by camera timestamp and filed straight into the right species' RAW folder, no species picker needed. Anything that doesn't match a photo you've already kept is left untouched on your drive rather than guessed at.",
-        "linkedCount": "{linked} of {total} linked",
-        "title": "Bulk import RAW files"
+        "description": "Each RAW is matched to its photo by capture time. RAWs with no match aren't imported.",
+        "linkedCount": "{count} matched",
+        "pendingCount": "{count} uploading",
+        "unmatchedCount": "{count} not imported",
+        "title": "Add RAWs to existing photos"
       },
       "title": "Bulk import"
+    },
+    "invertebrate": {
+      "message": "This looks like {looksLike}. Lifer's built-in species lists don't cover insects and spiders, so find it on iNaturalist.",
+      "search": "Search iNaturalist",
+      "searchOptIn": "Turns on iNaturalist search, which sends what you type to iNaturalist"
     }
   },
   "iucn": {
@@ -173,9 +183,6 @@
       "nearThreatened": "Near Threatened",
       "notEvaluated": "Not Evaluated",
       "vulnerable": "Vulnerable"
-    },
-    "stat": {
-      "notEvaluated": "Not evaluated"
     }
   },
   "nav": {
@@ -185,6 +192,7 @@
       "menu": "Account menu",
       "settings": "Account settings"
     },
+    "album": "Album",
     "albumsAndTrips": "Albums & trips",
     "back": "Back",
     "collectedCount": "{collected} / {total} collected",
@@ -192,7 +200,8 @@
     "gallery": "Gallery",
     "import": "Import",
     "settings": "Settings",
-    "stats": "Stats"
+    "stats": "Stats",
+    "trip": "Trip"
   },
   "offlinePacks": {
     "allTaxa": "All taxa",
@@ -233,20 +242,20 @@
       "notDownloaded": "The offline world map isn't downloaded yet. See Settings to enable it, or use the search box below instead."
     },
     "offload": {
-      "button": "Offload",
+      "button": "Remove",
       "checking": "Checking what this would affect…",
-      "checklistsAffected": "{count, plural, one {# region's checklist (including this one)} other {# regions' checklists (including this one)}} would go back to being unavailable until re-downloaded.",
-      "estimate": "This pack takes up about {size}. Offloading it will free that space.",
+      "checklistsAffected": "{count, plural, one {# checklist becomes unavailable until you download it again.} other {# checklists become unavailable until you download them again.}}",
+      "estimate": "Frees about {size}.",
       "failed": "Couldn't remove these packs",
-      "offloading": "Offloading…",
-      "ownPhotosSafe": "This only affects downloaded reference photos and checklist data. Your own captures and Gallery photos are never touched.",
-      "photosRemoved": "{count, plural, one {# species' reference photos would be removed, freeing {size}.} other {# species' reference photos would be removed, freeing {size}.}}",
-      "previewFailed": "Couldn't check what offloading this would affect",
-      "selected": "Offload selected ({count, number})",
-      "speciesKept": "{count, plural, one {# species would keep their photos: you've photographed them yourself, or another downloaded pack still covers them.} other {# species would keep their photos: you've photographed them yourself, or another downloaded pack still covers them.}}",
-      "titleMany": "{count, plural, one {Offload # selected pack?} other {Offload # selected packs?}}",
-      "titleOne": "Offload {name}?",
-      "titleOneWithTaxon": "Offload {name} ({taxon})?"
+      "offloading": "Removing…",
+      "ownPhotosSafe": "Your own photos aren't affected.",
+      "photosRemoved": "{count, plural, one {Removes reference photos for # species and frees {size}.} other {Removes reference photos for # species and frees {size}.}}",
+      "previewFailed": "Couldn't check what removing this would affect",
+      "selected": "Remove selected ({count, number})",
+      "speciesKept": "{count, plural, one {# species keeps its photos because you've photographed it or another pack covers it.} other {# species keep their photos because you've photographed them or another pack covers them.}}",
+      "titleMany": "{count, plural, one {Remove # selected pack?} other {Remove # selected packs?}}",
+      "titleOne": "Remove {name}?",
+      "titleOneWithTaxon": "Remove {name} ({taxon})?"
     },
     "phases": {
       "applying": "Applying",
@@ -346,7 +355,6 @@
       "featuredFailed": "Couldn't set the featured photo",
       "locationFailed": "Couldn't save the location",
       "pathCopied": "Path copied",
-      "placeNameFailed": "Couldn't save the place name",
       "ratingFailed": "Couldn't save the rating",
       "reassignFailed": "Couldn't reassign this photo",
       "reassignSomeFailed": "{failed} of {total, plural, one {# photo} other {# photos}} couldn't be reassigned",
@@ -522,8 +530,7 @@
       "wrens": "Wrens",
       "yellowthroats": "Yellowthroats"
     },
-    "other": "Other",
-    "otherTaxa": "Other Taxa"
+    "other": "Other"
   },
   "trips": {
     "create": {
@@ -542,7 +549,7 @@
       "untitled": "Untitled Trip"
     },
     "delete": {
-      "body": "This removes the trip, but the photos in it aren't deleted. They just won't be grouped under it anymore.",
+      "body": "The photos in it stay in your library. They just won't be grouped under this trip.",
       "failed": "Couldn't delete this trip",
       "title": "Delete this trip?"
     },
@@ -575,7 +582,7 @@
       "scanning": "Looking for photos…",
       "searchPlaceholder": "Search this trip's species…",
       "selectedCount": "{count, number} selected",
-      "trashMessage": "Deleted photos go to Trash for 7 days first, where you can still restore them. After 7 days they're gone for good and can't be recovered."
+      "trashMessage": "Deleted photos stay in Trash for 7 days, where you can restore them."
     },
     "empty": {
       "description": "Create one to start referencing wildlife photos from an external folder.",
@@ -624,7 +631,7 @@
       "progressLabel": "Upload progress",
       "uploading": "Uploading… {done}/{total}{failed, plural, =0 {} other { (# failed)}}{skipped, plural, =0 {} other { (# skipped)}}"
     },
-    "choosePhotosOrVideos": "Choose photos or videos…",
+    "choosePhotosOrVideos": "Choose photos or videos",
     "duplicate": {
       "importAnyway": "Import anyway",
       "message": "\"{fileName}\" looks like a photo you already have of {species}.",
@@ -634,14 +641,18 @@
       "title": "Possible duplicate"
     },
     "failed": "Upload failed",
+    "pick": {
+      "chooseFiles": "Choose files",
+      "chooseFolder": "Choose a folder"
+    },
     "raw": {
       "addedCount": "{added} of {total} added",
       "addedToFolder": "added to {name}'s RAW folder",
-      "chooseFiles": "Choose RAW files…",
-      "chooseFolder": "Choose a folder…",
+      "chooseFiles": "Choose RAW files",
+      "chooseFolder": "Choose a folder",
       "collision": "matched more than one photo with the same camera fingerprint, skipped",
-      "descriptionMatchOnly": "Point this at a folder of RAWs. Each is matched by camera timestamp/serial against photos you've already added and filed into the right species' RAW folder. Anything that doesn't match a photo you've kept is left untouched on your own drive.",
-      "descriptionSpecies": "Point this at RAW files. Each is matched by camera timestamp/serial against your uploads and filed straight into the right species' RAW folder. A RAW with no match still gets filed here, under this species, since that's already known. Point it at a whole export folder instead, though, and only the RAWs that match a JPEG you've kept get imported. A folder could span species this page has no way to know about, so anything else in it is left untouched on your own drive.",
+      "descriptionMatchOnly": "Each RAW is matched to a photo you've already added, by camera timestamp and serial, and filed in that species' RAW folder. RAWs with no match stay where they are.",
+      "descriptionSpecies": "Each RAW is matched to a photo you've already added, by camera timestamp and serial, and filed in that species' RAW folder. Picked files with no match are filed under this species; unmatched files in a folder stay where they are.",
       "duplicate": "already added, skipped",
       "filedUnder": "filed under {name}",
       "noneFound": "No supported RAW files found in that selection",
