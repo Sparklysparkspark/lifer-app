@@ -5,7 +5,7 @@ description: Download and install Lifer on macOS, Windows or Linux, and keep it 
 
 # Install the desktop app
 
-The desktop app is the simplest way to run Lifer. It's self-contained: it manages its own database in the background, so there's nothing else to install and no login.
+The desktop app is the simplest way to run Lifer. It manages its own database in the background, so there's nothing else to install and no login.
 
 ## Download
 
@@ -76,9 +76,7 @@ Lifer opens a **Set up Lifer** window with two choices:
 
 After you pick a folder, Lifer shows "Setting up your library… this can take a minute the first time." The first launch doesn't need an internet connection: the database engine (PostgreSQL) and the species catalog both come with the app. Then continue with [Getting started](../getting-started.md).
 
-:::tip Choosing a library folder
-The folder you pick **is** your library. Lifer creates `Birds`, `Mammals`, `Fish` and other folders directly inside it. Pick an empty folder, or one Lifer used before. You can move it later from [Settings > Storage](../settings.md#storage-location).
-:::
+The folder you pick **is** your library: Lifer creates `Birds`, `Mammals`, `Fish` and other folders directly inside it. Pick an empty folder, or one Lifer used before. You can move it later from [Settings > Storage](../settings.md#storage-location).
 
 To change this choice later, use the **Change Server / Library…** item in the Lifer app menu.
 
@@ -86,13 +84,15 @@ To change this choice later, use the **Change Server / Library…** item in the 
 
 | What | Where |
 |---|---|
-| Your photos | The library folder you chose, plus any [external drives](../settings.md#external-drives) you registered |
-| Lifer's database, thumbnails and downloads (models, offline map, catalog) | macOS: `~/Library/Application Support/app.lifer.desktop/`<br />Windows: `%APPDATA%\app.lifer.desktop\`<br />Linux: `~/.local/share/app.lifer.desktop/` |
+| Your photos | The library folder you chose, plus any [external drives](../settings.md#external-drives) you registered. If you never chose one, it's `data/` inside the app data folder below. |
+| Lifer's database, thumbnails and downloads (offline map, catalog, offline packs) | macOS: `~/Library/Application Support/app.lifer.desktop/`<br />Windows: `%APPDATA%\app.lifer.desktop\`<br />Linux: `~/.local/share/app.lifer.desktop/` |
+| The species-matching models and GPU runtime | macOS: `~/Library/Caches/app.lifer.desktop/`<br />Windows: `%LOCALAPPDATA%\app.lifer.desktop\`<br />Linux: `~/.cache/app.lifer.desktop/`<br />A cache: if it's cleared (by macOS's storage settings, say), Lifer downloads them again. |
 | The database itself | `app-data/postgres-data/` inside that folder |
-| The database engine (PostgreSQL) | Inside the app itself. Lifer 0.9.0 and earlier downloaded it to `~/.theseus/postgresql/` in your home folder (Windows: `%USERPROFILE%\.theseus\postgresql\`), which newer versions no longer use. |
+| The database engine (PostgreSQL) | Inside the app itself. |
 | The chosen library folder and a few local settings | `~/.lifer/settings.json` in your home folder |
 | The server you connected to, if any | `desktop-config.json` in the app data folder |
 | Collected and seen status, for recovery | `.lifer/collection-state.json` inside your library folder |
+| Albums and trips, for recovery | Album membership in `.lifer/albums.json` beside the photos and album details in `.lifer/album-details.json` in your library folder; each trip in `.lifer/trip.json` in the folder its photos are in |
 
 Your library folder is the part that matters most. See [Backup and restore](./backup-restore.md) for what to back up.
 
@@ -112,4 +112,13 @@ Updating never touches your photos or database.
 
 ## Uninstalling
 
-Delete the app like any other. Your photo library folder stays where it is. To remove Lifer's own data too, delete the app data folder listed above and `~/.lifer`. If you used Lifer 0.9.0 or earlier, also delete `~/.theseus/postgresql`, the database engine it downloaded.
+Deleting the app removes only the app itself: like most apps, Lifer's data stays behind in case you reinstall. To remove that too, do this first:
+
+1. Open **Settings > Storage**.
+2. In **Remove all Lifer data**, click **Remove**, read what it deletes, type `remove`, and click **Remove everything and quit**.
+
+It deletes Lifer's database, thumbnails, downloads, settings, logs and caches, then quits. Your photos are never deleted, including a library in the default `data/` folder inside the app data folder. The library folder also keeps what a fresh install needs to bring your collection back when you reimport it: collected, seen, target and hidden species, albums and trips with their details, and the tags and ratings written into the photos. Only Lifer's settings are lost; a [backup](./backup-restore.md) keeps those too.
+
+Then delete the app like any other.
+
+To do it by hand instead, delete the app data and cache folders listed above (moving your photos out first if they're in the default `data/` folder) and `~/.lifer/settings.json`.
