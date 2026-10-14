@@ -1,12 +1,12 @@
 import { Pool, type PoolClient } from "pg";
-import { DATABASE_URL } from "./config.js";
+import { DATABASE_URL, PG_POOL_MAX } from "./config.js";
 import { lockReferenceData } from "./lib/referenceDataLock.js";
 import { log } from "./lib/log.js";
 
 // Connections stay open so a click after a pause doesn't pay for a new one. Overflow queues up to 30s.
 export const pool = new Pool({
   connectionString: DATABASE_URL,
-  max: Number(process.env.PG_POOL_MAX ?? 20),
+  max: PG_POOL_MAX,
   connectionTimeoutMillis: 30000,
   idleTimeoutMillis: 0,
 });
@@ -17,9 +17,13 @@ pool.on("error", (err) => {
   log.error(`[db] idle client error: ${err.message}`);
 });
 
-// Open a few connections at startup so the first page doesn't wait on them.
-// Best-effort: a failure only means the first real query opens its own connection.
-void Promise.all(Array.from({ length: 4 }, () => pool.query("SELECT 1"))).catch(() => {});
+/** Opens a few connections at server startup so the first page doesn't wait on them. Best
+ *  effort: a failure only means the first real query opens its own connection. */
+export function warmPool(connections = 4): void {
+  void Promise.all(Array.from({ length: Math.min(connections, PG_POOL_MAX) }, () => pool.query("SELECT 1"))).catch(
+    () => {},
+  );
+}
 
 export interface TransactionOptions {
   /** Take the reference-data advisory lock right after BEGIN (see lib/referenceDataLock.ts). */

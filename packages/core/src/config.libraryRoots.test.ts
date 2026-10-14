@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from "node:
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { parseLibraryRoots } from "@lifer/core/config.js";
+import { parseLibraryRoots } from "./config.js";
 
 describe("parseLibraryRoots", () => {
   vi.spyOn(console, "warn").mockImplementation(() => {});

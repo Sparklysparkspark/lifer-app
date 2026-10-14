@@ -1,6 +1,6 @@
 import Fastify from "fastify";
 import { describe, expect, it } from "vitest";
-import { parseTrustProxy } from "@lifer/core/config.js";
+import { parseTrustProxy } from "./config.js";
 
 const forwarded = { "x-forwarded-for": "203.0.113.9", "x-forwarded-proto": "https" };
 

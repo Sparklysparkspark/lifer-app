@@ -17,7 +17,19 @@ loadDotenv({ path: path.join(REPO_ROOT, ".env"), quiet: true });
 export const MEDIA_CACHE_BUST = Date.now();
 
 export const PORT = Number(process.env.PORT ?? 4000);
+/** The release this build is (set by the Docker image and the desktop app), or "dev". */
+export const APP_VERSION = process.env.APP_VERSION ?? "dev";
 export const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://lifer:lifer@localhost:5432/lifer";
+// Most connections the pool opens at once. A value that isn't a positive whole number falls back
+// to the default rather than leaving the pool unbounded or unusable.
+export function parsePoolMax(raw: string | undefined): number {
+  const n = Number(raw);
+  if (raw == null || raw.trim() === "") return 20;
+  if (Number.isInteger(n) && n > 0) return n;
+  log.warn(`[config] PG_POOL_MAX must be a positive whole number; using 20 instead of "${raw}"`);
+  return 20;
+}
+export const PG_POOL_MAX = parsePoolMax(process.env.PG_POOL_MAX);
 // The photo library folder: the DATA_DIR env var (Docker's LIFER_STORAGE_DIR mount), then the
 // folder chosen in desktop Settings (localSettings.ts), then a repo-relative default.
 export const DATA_DIR = process.env.DATA_DIR ?? readLocalSettings().dataDir ?? path.join(REPO_ROOT, "data", "lifer");
@@ -34,6 +46,14 @@ export const ORIGINALS_DIR =
     : DATA_DIR;
 // Offline basemap tiles (a PMTiles archive). Not user data, so served without auth.
 export const MAPS_DIR = path.join(APP_DATA_DIR, "maps");
+// Files Lifer can always download again: the matching models, the GPU runtime, and the record of
+// which accelerator was chosen for them. The desktop app points LIFER_CACHE_DIR at the OS cache
+// folder (~/Library/Caches on macOS), where storage tools may clear them; a missing model is then
+// just downloaded again. Servers keep them in APP_DATA_DIR.
+export const CACHE_DIR = process.env.LIFER_CACHE_DIR?.trim() || APP_DATA_DIR;
+export const MODELS_DIR = path.join(CACHE_DIR, "models");
+export const GPU_RUNTIME_DIR = path.join(CACHE_DIR, "gpu-runtime");
+export const ACCELERATION_CACHE_FILE = path.join(CACHE_DIR, "acceleration.json");
 // The opt-in offline map download: the rolling "map-latest" release, so a map update needs no
 // app release.
 export const MAP_DOWNLOAD_URL =
@@ -183,6 +203,18 @@ export const ID_MODEL_GPU_URL =
   process.env.ID_MODEL_GPU_URL ??
   "https://github.com/Sparklysparkspark/lifer-app/releases/download/models/bioclip-2-v1-fp32.onnx";
 export const ID_MODEL_GPU_BYTES = 1_216_631_032;
+
+// The scene segmentation model (UperNet ConvNeXt-tiny trained on ADE20K, int8 ONNX; see
+// packages/data-pipeline/python/export_scene_model.py): which scene classes and colours fill each
+// photo, for Gallery search. CPU only. A new checkpoint needs a new SCENE_MODEL_VERSION too.
+export const SCENE_MODEL_VERSION = "upernet-convnext-tiny-ade-v1";
+export const SCENE_MODEL_URL =
+  process.env.SCENE_MODEL_URL ??
+  "https://github.com/Sparklysparkspark/lifer-app/releases/download/models/upernet-convnext-tiny-ade-v1.onnx";
+// Its full-precision copy, for Intel Macs (sceneModel.ts).
+export const SCENE_MODEL_FP32_URL =
+  process.env.SCENE_MODEL_FP32_URL ??
+  "https://github.com/Sparklysparkspark/lifer-app/releases/download/models/upernet-convnext-tiny-ade-v1-fp32.onnx";
 
 // iNaturalist OAuth with PKCE (a secret in an open-source app isn't secret). These are the
 // desktop defaults; a server registers its own iNaturalist app and sets both in Settings.
