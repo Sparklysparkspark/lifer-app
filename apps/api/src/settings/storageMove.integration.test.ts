@@ -1,7 +1,7 @@
 // Runs only with TEST_DATABASE_URL pointing at a migrated, disposable database:
 //   TEST_DATABASE_URL=postgres://lifer:lifer@127.0.0.1:55470/lifer npx vitest run storageMove
 // The relink after a library move, against real rows: every stored path under the old folder is
-// rewritten, and nothing else (a sibling folder with the same prefix, linked or S3 originals).
+// rewritten, and nothing else (a sibling folder with the same prefix, linked originals).
 import os from "node:os";
 import path from "node:path";
 import pg from "pg";
@@ -75,7 +75,7 @@ describe.skipIf(!url)("storage move relink", () => {
       `INSERT INTO originals (capture_id, user_id, kind, ref_type, ref, managed, content_hash, file_size) VALUES
          ($1, $3, 'jpeg', 'path', $4, true, 'h1', 1),
          ($1, $3, 'raw', 'path', $5, false, 'h2', 1),
-         ($2, $3, 'jpeg', 's3', $6, true, 'h3', 1),
+         ($2, $3, 'jpeg', 'path', $6, false, 'h3', 1),
          ($2, $3, 'raw', 'path', $7, true, 'h4', 1)`,
       [
         c1,
@@ -83,7 +83,7 @@ describe.skipIf(!url)("storage move relink", () => {
         USER,
         `${oldDir}/Birds/Osprey/a.jpg`,
         `${oldDir}/linked/b.cr3`,
-        `${oldDir}/s3-key.jpg`,
+        `${oldDir}/linked/d.jpg`,
         `${sibling}/Birds/c.cr3`,
       ],
     );
@@ -128,7 +128,7 @@ describe.skipIf(!url)("storage move relink", () => {
     expect(ref.rows[0]).toEqual({ display_path: `${newDir}/reference/a.webp`, thumb_path: null });
   });
 
-  it("rewrites only managed path originals, never linked files or S3 keys", async () => {
+  it("rewrites only managed path originals, never linked files", async () => {
     const { rows } = await db.query<{ kind: string; ref: string }>(
       `SELECT o.kind, o.ref FROM originals o JOIN captures_all c ON c.id = o.capture_id WHERE c.user_id = $1 ORDER BY o.content_hash`,
       [USER],
@@ -136,7 +136,7 @@ describe.skipIf(!url)("storage move relink", () => {
     expect(rows.map((r) => r.ref)).toEqual([
       `${newDir}/Birds/Osprey/a.jpg`,
       `${oldDir}/linked/b.cr3`,
-      `${oldDir}/s3-key.jpg`,
+      `${oldDir}/linked/d.jpg`,
       `${sibling}/Birds/c.cr3`,
     ]);
   });

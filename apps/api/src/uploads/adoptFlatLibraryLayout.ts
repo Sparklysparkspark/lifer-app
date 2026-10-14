@@ -12,7 +12,7 @@ export async function adoptFlatLibraryLayout(): Promise<void> {
   const moved = (oldPath: string) => DATA_DIR + oldPath.slice(oldPrefix.length);
 
   const stale = await pool.query<{ id: string; ref: string }>(
-    `SELECT id, ref FROM originals WHERE managed = true AND ref_type = 'path' AND ref LIKE $1 || '/%'`,
+    `SELECT id, ref FROM originals WHERE managed = true AND ref LIKE $1 || '/%'`,
     [oldPrefix],
   );
   const originalIds = stale.rows.filter((r) => !existsSync(r.ref) && existsSync(moved(r.ref))).map((r) => r.id);

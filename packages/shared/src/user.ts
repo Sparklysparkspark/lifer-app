@@ -55,7 +55,7 @@ export interface Original {
   id: string;
   captureId: string;
   kind: "raw" | "jpeg";
-  refType: "path" | "immich" | "s3";
+  refType: "path";
   ref: string;
   managed: boolean;
   contentHash: string;

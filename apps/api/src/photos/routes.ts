@@ -10,7 +10,6 @@ import { pool } from "@lifer/core/db.js";
 import { Type } from "typebox";
 import { IdParams, notFoundOnInvalidId, withSchemas } from "../lib/schema.js";
 import { requireScope } from "../auth/session.js";
-import { signedS3Url } from "../photoSources/s3.js";
 import { resolveOriginalPath } from "../storageVolumes/resolve.js";
 import { APP_DATA_DIR } from "@lifer/core/config.js";
 import { generateDerivatives } from "@lifer/core/uploads/image.js";
@@ -124,7 +123,6 @@ async function resolvePhotoPath(photoId: string, userId: string, kind: "display"
 
 interface ResolvedOriginalRef {
   ref: string | null;
-  refType: string;
   connected: boolean;
   volumeLabel?: string;
 }
@@ -137,11 +135,10 @@ async function resolveOriginal(
   // photos.id -> captures.id -> originals.capture_id: a capture has at most one original per kind.
   const res = await pool.query<{
     ref: string;
-    ref_type: string;
     volume_id: string | null;
     volume_relative_path: string | null;
   }>(
-    `SELECT o.ref, o.ref_type, o.volume_id, o.volume_relative_path
+    `SELECT o.ref, o.volume_id, o.volume_relative_path
      FROM photos p
      JOIN captures_all c ON c.id = p.capture_id
      JOIN originals o ON o.capture_id = c.id
@@ -150,8 +147,6 @@ async function resolveOriginal(
   );
   const row = res.rows[0];
   if (!row) return null;
-  if (row.ref_type === "s3") return { ref: row.ref, refType: row.ref_type, connected: true };
-
   const resolved = await resolveOriginalPath({
     ref: row.ref,
     volume_id: row.volume_id,
@@ -159,7 +154,6 @@ async function resolveOriginal(
   });
   return {
     ref: resolved.path,
-    refType: row.ref_type,
     connected: resolved.connected,
     volumeLabel: resolved.volumeLabel,
   };
@@ -191,8 +185,7 @@ async function healDerivatives(photoId: string, userId: string): Promise<boolean
     );
     if (kindRes.rows[0]?.kind === "video") return false;
     const original = await resolveOriginal(photoId, userId, "jpeg");
-    if (!original || original.refType !== "path" || !original.connected || !original.ref || !existsSync(original.ref))
-      return false;
+    if (!original || !original.connected || !original.ref || !existsSync(original.ref)) return false;
     try {
       // By path, so a huge original is decoded top to bottom rather than read into memory.
       const out = await generateDerivatives(original.ref, photoId);
@@ -352,13 +345,6 @@ export async function photoRoutes(fastify: FastifyInstance): Promise<void> {
       const original = await resolveOriginal(request.params.id, request.user!.id, "jpeg");
       if (!original) return reply.code(404).send({ error: "Original not found" });
 
-      if (original.refType === "s3") {
-        // Only ResponseContentDisposition on the presigned URL makes S3 serve a download; a
-        // header on this redirect response never reaches the client.
-        const downloadFilename = request.query.download === "1" ? path.basename(original.ref!) : undefined;
-        return reply.redirect(await signedS3Url(original.ref!, downloadFilename));
-      }
-
       if (!original.connected) {
         // 409, not 404: the file isn't missing, its drive isn't connected. volumeLabel names the drive.
         return reply
@@ -396,11 +382,6 @@ export async function photoRoutes(fastify: FastifyInstance): Promise<void> {
     async (request, reply) => {
       const original = await resolveOriginal(request.params.id, request.user!.id, "raw");
       if (!original) return reply.code(404).send({ error: "No RAW original for this photo" });
-
-      if (original.refType === "s3") {
-        const downloadFilename = request.query.download === "1" ? path.basename(original.ref!) : undefined;
-        return reply.redirect(await signedS3Url(original.ref!, downloadFilename));
-      }
 
       if (!original.connected) {
         return reply

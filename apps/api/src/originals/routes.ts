@@ -3,7 +3,7 @@ import path from "node:path";
 import type { FastifyInstance } from "fastify";
 import { Type } from "typebox";
 import { pool } from "@lifer/core/db.js";
-import { IdParams, notFoundOnInvalidId, withSchemas } from "../lib/schema.js";
+import { IdParams, Nullable, Ok, Open, notFoundOnInvalidId, replies, withSchemas } from "../lib/schema.js";
 import { requireAuth } from "../auth/session.js";
 import { revealFile } from "./browse.js";
 import { resolveOriginalPath } from "../storageVolumes/resolve.js";
@@ -12,17 +12,15 @@ import { desktopOnly } from "../settings/requireDesktopMode.js";
 
 interface OriginalRow {
   ref: string;
-  ref_type: string;
   volume_id: string | null;
   volume_relative_path: string | null;
 }
 
-// Owned via the capture when there is one, else via originals.user_id (species-scoped RAWs
-// have no capture).
-const OWNED_ORIGINAL_SELECT = `SELECT o.ref, o.ref_type, o.volume_id, o.volume_relative_path
+// Every original records its owner, so species-scoped RAWs (no capture) and the files of a
+// trashed or hidden capture are found the same way.
+const OWNED_ORIGINAL_SELECT = `SELECT o.ref, o.volume_id, o.volume_relative_path
   FROM originals o
-  LEFT JOIN captures c ON c.id = o.capture_id
-  WHERE COALESCE(c.user_id, o.user_id) = $2`;
+  WHERE o.user_id = $2`;
 
 export async function originalsRoutes(fastify: FastifyInstance): Promise<void> {
   const app = withSchemas(fastify);
@@ -38,7 +36,7 @@ export async function originalsRoutes(fastify: FastifyInstance): Promise<void> {
         request.user!.id,
       ]);
       const original = res.rows[0];
-      if (!original || original.ref_type !== "path") return reply.code(404).send({ error: "Not found" });
+      if (!original) return reply.code(404).send({ error: "Not found" });
       const resolved = await resolveOriginalPath(original);
       if (!resolved.connected) {
         return reply
@@ -59,6 +57,10 @@ export async function originalsRoutes(fastify: FastifyInstance): Promise<void> {
       preValidation: [requireAuth, desktopOnly],
       schema: {
         body: Type.Object({ path: Type.String({ minLength: 1 }) }, { additionalProperties: false }),
+        response: {
+          ...replies(Ok),
+          409: Open({ error: Type.String(), volumeLabel: Type.Optional(Nullable(Type.String())) }),
+        },
       },
     },
     async (request, reply) => {

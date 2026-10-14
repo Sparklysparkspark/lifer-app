@@ -10,8 +10,9 @@ import { DATA_DIR, SINGLE_USER_MODE } from "@lifer/core/config.js";
 import { readLocalSettings, writeLocalSettings } from "@lifer/core/localSettings.js";
 import { createJob, type JobContext } from "../lib/job.js";
 import { log } from "@lifer/core/lib/log.js";
-import { Flag, withSchemas } from "../lib/schema.js";
+import { Flag, replies, withSchemas } from "../lib/schema.js";
 import { desktopOnly } from "./requireDesktopMode.js";
+import { AnyJobStatus, StorageLocation, StorageMoveOutcome } from "./responses.js";
 
 interface StorageMoveResult {
   dataDir: string;
@@ -42,8 +43,8 @@ export async function moveDirectoryContents(oldDir: string, newDir: string, onCo
   }
 }
 
-// Rewrites every absolute path stored under the old library root. Link-mode and S3 originals
-// were never under DATA_DIR, so they're left alone.
+// Rewrites every absolute path stored under the old library root. Linked (unmanaged) originals
+// are the user's own files elsewhere, so they're left alone.
 async function relinkAbsolutePaths(client: PoolClient, oldDir: string, newDir: string): Promise<void> {
   const columnsByTable: Array<[string, string[]]> = [
     ["photos", ["display_path", "thumb_path"]],
@@ -97,9 +98,13 @@ export async function storageMoveRoutes(fastify: FastifyInstance): Promise<void>
   const app = withSchemas(fastify);
   // Readable on every install; only desktop can change it (a server's library folder is its
   // LIFER_STORAGE_DIR bind mount).
-  app.get("/settings/storage", { preValidation: requireAuth, schema: {} }, async () => {
-    return { dataDir: DATA_DIR, changeable: SINGLE_USER_MODE };
-  });
+  app.get(
+    "/settings/storage",
+    { preValidation: requireAuth, schema: { response: replies(StorageLocation) } },
+    async () => {
+      return { dataDir: DATA_DIR, changeable: SINGLE_USER_MODE };
+    },
+  );
 
   // A background job so a cross-drive copy can run as long as it needs. PUT still waits for the
   // result by default; ?background=1 returns at once and GET /settings/storage/status reports it.
@@ -146,6 +151,7 @@ export async function storageMoveRoutes(fastify: FastifyInstance): Promise<void>
         // Absolute is checked in the handler, where path.isAbsolute knows this platform's rules.
         body: Type.Object({ dataDir: Type.String({ minLength: 1 }) }, { additionalProperties: false }),
         querystring: Type.Object({ background: Flag("1 to start the move and return at once, for polling") }),
+        response: replies(StorageMoveOutcome),
       },
     },
     async (request, reply) => {
@@ -193,7 +199,7 @@ export async function storageMoveRoutes(fastify: FastifyInstance): Promise<void>
 
   app.get(
     "/settings/storage/status",
-    { preValidation: [requireAuth, desktopOnly], schema: {} },
+    { preValidation: [requireAuth, desktopOnly], schema: { response: replies(AnyJobStatus) } },
     async () => storageMoveJob.status,
   );
 }
