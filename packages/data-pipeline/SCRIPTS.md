@@ -26,15 +26,20 @@ npm run refresh -w data-pipeline -- --refresh-occurrences         # re-download 
 npm run refresh -w data-pipeline -- --full                        # redo every country
 npm run refresh -w data-pipeline -- --resume                      # continue an interrupted run
 npm run refresh -w data-pipeline -- --publish --accept-drift=<pack id>,...
+npm run refresh -w data-pipeline -- --resume --allow-tier-skip   # keep old tiers of countries with no province files
 ```
 
-Stages, in order (`src/scripts/refresh.ts` has the details): **occurrences** (GBIF country
+Stages, always run in this order whatever order `--stages` lists them in (`src/scripts/refresh.ts`
+has the details): **occurrences** (GBIF country
 downloads, and the list of every species name in them), then **catalog** (current names from
 Catalogue of Life, iNaturalist and eBird; species the catalog lacks; duplicate merges; species
 iNaturalist has split), **enrich** (photos and descriptions for new species, descriptions
-straight from Wikipedia and a refetch of edited articles, Wikipedia pageviews), **regions** (iNaturalist places, province checklists, new catalog species onto lists
-built before them, iNaturalist photo counts, escaped pets off the lists, country checklists,
-introduced flags, sea zone checklists), **tiers** (absolute local tiers, then worldwide tiers), **vectors** (CLIP and
+straight from Wikipedia and a refetch of edited articles, Wikipedia pageviews), **regions** (iNaturalist places, province checklists, provinces nested
+under their regional groups, new catalog species onto lists built before them, iNaturalist photo
+counts, escaped pets off the lists, group and country checklists,
+introduced flags, sea zone checklists), **endemic** (which country each endemic species lives in,
+rereading only countries whose download changed), **tiers** (absolute local tiers, then worldwide
+tiers), **vectors** (CLIP and
 identification model embeddings, occurrence stats), **packs** (the photo store, then every pack's
 checklist, only changed ones kept), **gate** and **publish** (photo store shards and index, then
 packs and their index, then the catalog seed).
@@ -59,7 +64,9 @@ because the build scripts report success whether or not the data is right. Its c
 read its report (`data/build/gate-<date>.json`) are in
 [Rebuilding the data](https://sparklysparkspark.github.io/lifer-app/contributing/rebuilding-data#the-gate).
 Add species to `data/reference/checklist-anchors.json` when you spot a gap, and publish past a
-reviewed species-count change with `--accept-drift=<pack id>,...`.
+reviewed species-count change with `--accept-drift=<pack id>,...`. Publishing needs the gate to
+have passed in the same run, so `--stages=packs,publish` alone refuses; use
+`--stages=packs,gate,publish`.
 
 ### Still check a real pack
 
@@ -96,7 +103,7 @@ database you mean:
    every download). The regions stage of the refresh runs it too. Records GBIF gave no country
    (the high seas) aren't in the downloads, and the type-specimen check needs a field they lack;
    the script's header lists the other differences from `compute-sea-zones.ts`.
-3. `npm run refresh -w data-pipeline -- --stages=packs,gate,publish`: new sea zone packs, every
+4. `npm run refresh -w data-pipeline -- --stages=packs,gate,publish`: new sea zone packs, every
    country pack again (their sea zone dependencies changed), the old zones' packs dropped from
    the index, and a catalog seed carrying the new zones and links. Installs drop the old zones
    when they apply that seed (`catalogSeedUpdate.ts`). The occurrences, catalog, regions and
@@ -118,6 +125,11 @@ database you mean:
 - `merge-duplicate-species.ts`: folds the reviewed pairs in
   `data/reference/species-merges.tsv` into one species each, the same way installs apply them.
   `--apply`, `--list=`.
+- `apply-species-corrections.ts`: hand-checked fixes in `data/reference/species-corrections.json`
+  (common name, Red List status, extinct flag, each with a reason) for species an upstream source
+  describes wrongly, usually a lump whose name iNaturalist and IUCN use for one narrow part (the
+  Galápagos tortoise). `refresh` applies the file at the end of its catalog and enrich stages, so a
+  refresh never undoes one; run this after editing the file between refreshes.
 - `fetch-wiki-pageviews.ts`: a year of English Wikipedia pageviews per tiered species, the
   interest correction for photo-rated tiers. Skips species fetched in the last 90 days.
 - `catalog-quality-report.ts <out.json>`: tier spread and must-have species for a few regions, to
@@ -145,23 +157,31 @@ database you mean:
   command resumes with the next one without re-submitting downloads. `--countries=`, `--apply`,
   `--reset-checkpoint`, `--checkpoint=`. A full sweep runs for hours.
 - `compute-provinces-bulk.ts`: province checklists from one GBIF SQL Download per country, with
-  coordinates matched to province outlines. `--countries=`, `--apply`, `--cache-only`,
-  `--refresh-gbif-cache`, `--refresh-aggregate-cache`.
+  coordinates matched to province outlines, and the per-province partitions
+  `compute-local-tiers.ts` rates tiers from (it writes no tiers itself). Exits non-zero when any
+  country failed, eBird outages included, so `refresh-all-provinces.ts` retries it.
+  `--countries=`, `--provinces=`, `--apply`, `--cache-only`, `--refresh-gbif-cache`,
+  `--refresh-aggregate-cache`.
+- `sync-vernacular-regions.ts`: keeps countries that have familiar regional groupings
+  (`src/build/vernacular-regions-data.ts`) as country > group > province, nesting provinces the
+  province build created flat, and moves isolated provinces (Galapagos) under their continent
+  while they stay their country's for data. Idempotent; reports listed names that match no
+  province. The refresh's regions stage runs it. `--apply` (previews without it)
 - `compute-provinces-inat.ts`: lists for provinces with none, from iNaturalist Research Grade
   records only.
-- `compute-all-regions.ts`: per-country live GBIF calls, for a single region. Exports
-  `drillDownAllCountries`.
 - `resolve-inat-places.ts`: iNaturalist place ids for regions that have none. Rerunnable.
 - `add-new-species-to-checklists.ts`: puts species the catalog gained after a province was built
   onto that province's list, from the cached iNaturalist and eBird lists only. Rerunnable.
   `--apply`
 - `refresh-inat-counts.ts`: every place's iNaturalist research-grade list with photo counts, for
-  places cached without them. About 1 request a second; run it on its own.
+  places cached without them. About 1 request a second; run it on its own. Exits non-zero when
+  more than `--max-failed=` places (10) couldn't be fetched; a rerun fetches only those.
 - `remove-escapes.ts`: takes escaped pets and one-off releases off province and country lists.
   Land mammals except bats, reptiles and amphibians only; a thin listing goes only when no chain
   of nearby listings links it to an established population. `--apply`
 - `build-country-checklists.ts`: each country's list from its provinces, its own well-evidenced
-  species, and its iNaturalist list. `--countries=`, `--apply`
+  species, and its iNaturalist list, and each regional group's from its provinces.
+  `--countries=`, `--apply`
 - `apply-introduced-flags.ts`: which listings are introduced species, from iNaturalist's
   establishment status for each province and country (cached, about 1 request a second).
   Established ones get the Introduced flag, strays the Vagrant flag, and natives only flagged by
@@ -176,21 +196,32 @@ database you mean:
   `--concurrency=`
 - `compute-sea-zones.ts`: one sea zone's checklist from live GBIF polygon searches, for a targeted
   recompute; ~13s a request, so not for every zone. `--apply`, `--zones=`, `--recompute`
-- `gbif-bulk-ab-test.ts`: compares the bulk-download approach with live-call results.
-  `--dir=`, `--country=`, `--iso2=`
 
 ### Rarity tiers (`packages/data-pipeline/src/scripts/`)
 - `compute-local-tiers.ts`: absolute tiers for every checklist row from the province data on disk
   and the cached iNaturalist counts (`packages/data-pipeline/src/build/local-tier-model.ts`), plus
   the removal checks that need those inputs (unconfirmed, extinct, never-photographed species, and
-  birds eBird never had). Offline, minutes for every country. `--countries=`, `--inputs`,
-  `--calibrate[=anchors.json]`, `--strict`, `--apply`.
+  birds eBird never had). A country's and a regional group's tier for a species is its easiest
+  province's; a province with too little data takes its group's, else its country's. Offline,
+  minutes for every country. A country whose rows carry tiers
+  but whose partitions are gone from disk fails the run, since its old tiers would ship unchecked;
+  rebuild its provinces, or pass `--allow-skip` (the refresh's `--allow-tier-skip`) to keep them.
+  `--countries=`, `--inputs`, `--calibrate[=anchors.json]`, `--strict`, `--allow-skip`, `--apply`.
+- `compute-endemic-countries.ts`: `species_traits.endemic_country_iso3`, the one country each
+  endemic species lives in (endemic badges, trip endemic counts, species pages), from the GBIF
+  country downloads, or a live GBIF call for a country with none, leaving out countries where its
+  records look like escapees (`src/rarity/endemicCountries.ts`). Each country's counts are kept in
+  `data/build/endemic-country-counts`, so a rerun rereads only countries whose download changed and
+  writes only species whose answer changed. The refresh's endemic stage runs it. Report only
+  without `--apply`; `--full` rereads every country; `--live-max-age-days=` (180).
 - `compute-global-tiers.ts`: each species' worldwide tier, its easiest native country's tier.
   `--apply`.
 
 ### Enrichment and vectors
 - **`enrich-all-species.ts`**: photos and descriptions from iNaturalist and Wikipedia.
-  `--taxa=`, `--listed-only`. Skips enriched species, safe to rerun.
+  `--taxa=`, `--listed-only`. Skips enriched species, safe to rerun. Without `--taxa=` it first
+  builds a GBIF checklist for each North American country that has none, to order the work
+  (membership, frequency and vagrant flags only, never tiers); the refresh always passes `--taxa=`.
 - `enrich-listed-batch.ts`: the same for listed species without a photo, 30 to an
   iNaturalist request.
 - `recheck-null-photo-species.ts`: retries enriched species that came up with no photo, taking only
@@ -225,7 +256,10 @@ database you mean:
   `--recheck-after-days` (90 by default; 0 takes every species). `--only-missing` (species
   with no count yet; the refresh passes this), `--limit=`, `--batch-size=`, `--interval-ms=`
   (1000). Stops early if GBIF keeps answering 429; the next run carries on.
-- `backfill-reference-embeddings.ts`: CLIP vectors for reference and gallery photos.
+- `backfill-reference-embeddings.ts`: CLIP vectors for reference and gallery photos that have
+  none, with the app's own inference code on the full-precision model (both CLIP files are
+  downloaded the first time, checksum-verified). `--region=<name>`, `--dry-run`, and
+  `--grayscale-only`, which recomputes just the vectors of photos whose file is grayscale.
 - `backfill-text-embeddings.ts`: `species_text_embeddings`, the zero-shot text blend
   used when a species has no photo vector yet.
 - `python/compute_id_model_vectors.py`: the identification model's (BioCLIP 2) text,
@@ -233,12 +267,15 @@ database you mean:
   GPU; installs match against them with the int8 ONNX export. `--only=text|reference|gallery`,
   `--region=<name>`.
 - `python/export_id_model.py <dir>`: the identification model files installs download: int8 for
-  the CPU (`bioclip-2-v1.onnx`) and a copy for GPUs. Only when the model or its version changes.
-  The script writes a float16 GPU copy (`bioclip-2-v1-fp16.onnx`), but `ID_MODEL_GPU_URL` in
-  `packages/core/src/config.ts` downloads `bioclip-2-v1-fp32.onnx`, which the script deletes after
-  quantizing: check the name and its checksum in `packages/core/src/species/modelChecksums.ts`
-  before uploading. Publish with `gh release upload models <file> --clobber` (create the release once with
+  the CPU (`bioclip-2-v1.onnx`) and full precision for GPUs (`bioclip-2-v1-fp32.onnx`). Only when
+  the model or its version changes. Update both checksums in
+  `packages/core/src/species/modelChecksums.ts` before uploading. Publish with `gh release upload models <file> --clobber` (create the release once with
   `gh release create models --title "Models" --notes "Model files installs download." --prerelease`).
+- `python/export_scene_model.py <dir>`: the scene model files installs download for Gallery search:
+  int8 for the CPU (`upernet-convnext-tiny-ade-v1.onnx`) and full precision for Intel Macs
+  (`upernet-convnext-tiny-ade-v1-fp32.onnx`). Only when the model or its version changes. Update both
+  checksums in `packages/core/src/species/modelChecksums.ts` before uploading. Publish with
+  `gh release upload models <file> --clobber`.
 - `python/export_clip_model.py <dir> [fp32.onnx]`: the CLIP model's per-channel int8 CPU file
   (`<dir>/clip-vit-l14-v2.onnx`) from Xenova's full-precision export, which it downloads to
   `<dir>/clip-vit-l14-v2-fp32.onnx` (1.2GB, checked by sha256) unless given. GPUs run the fp32
@@ -248,8 +285,8 @@ database you mean:
   Stages into `clip_vector_regen`; `--apply` swaps them into `species_reference_embeddings` /
   `species_reference_gallery_embeddings` in one transaction, refusing while any photo is missing
   one. `--limit=N`, `--dry-run`, `--model=<fp32.onnx>` (or `CLIP_V2_FP32_MODEL`; default
-  `data/build/models/clip-vit-l14-v2-fp32.onnx`). Switch `EMBEDDING_MODEL_VERSION` (packages/core
-  config.ts and data-pipeline embeddings.ts) and the catalog seed's default in the same change as
+  `data/build/models/clip-vit-l14-v2-fp32.onnx`). Switch `EMBEDDING_MODEL_VERSION`
+  (`packages/core/src/config.ts`) and the catalog seed's default in the same change as
   the `--apply`, or the vectors stage recomputes every vector with the old model.
 
 ### Data checks (`packages/data-pipeline/src/scripts/`)
@@ -293,15 +330,9 @@ The four vagrant scripts write their JSONL logs to `data/reports/vagrant/` at th
   installed Lifer.app), else `docker exec <container> pg_dump` when `DATABASE_URL` is a port a
   local Docker container publishes, else `PATH`'s (`src/pipeline/pgDump.ts`). Run alone, follow
   it with `gh release upload catalog-latest <seed>.sql.gz <dir>/*.bin.gz --clobber`, then the
-  manifest last. **Danger**: it NULLs every local file-path column before dumping and restores
-  them in a `finally` block, so if the process dies without reaching it, the source database
-  keeps those columns NULL. The files are still on disk, named by id
-  (`reference-display/<species.id>.webp`,
-  `reference-display/<species_reference_photos.species_id>-gallery-<sort_order>.webp`): restore
-  each path column whose file exists, and check
-  `SELECT count(*) FILTER (WHERE reference_display_path IS NOT NULL) ...` before and after. Let it
-  finish cleanly (check its exit code) before trusting the path columns, and don't run it while
-  anything else reads them.
+  manifest last. It dumps copies of the catalog tables made in a scratch `seed_export` schema
+  without local file paths or Other Taxa rows, so the source database is never modified; a build
+  that dies partway leaves only that schema, which the next build drops.
 
 ### Recurring ops
 - `backup.ts` (data-pipeline): the one cron-worthy script outside the refresh. Needs `DATA_DIR`,
@@ -314,6 +345,14 @@ The four vagrant scripts write their JSONL logs to `data/reports/vagrant/` at th
 (`start`/`stop`/`status`/`url`) runs the app's embedded Postgres as an independent process, so a
 long-running script can point `DATABASE_URL` at it while the app is rebuilt or relaunched.
 
+### npm aliases
+Besides the build-seed aliases below, `npm run <alias> -w data-pipeline` runs: `refresh`,
+`doctor`, `migrate`, `load-seed`, `build-region-pack`, `build-pack-index`, `replace-sea-zones`,
+`backup`, `enrich-all-species`, `backfill-descriptions`, `apply-photo-licenses` (the photo license
+policy once, after editing photos by hand; then rerun the vectors stage) and
+`backfill-photo-withheld` (`species.photo_withheld` for listed species with no publishable photo;
+`--dry-run`, `--no-network`).
+
 ### Taxon seeds (`packages/data-pipeline/src/build/`)
 `build-seed-*.ts` build one taxon group's species from GBIF and the trait sources in
 [DATA_SOURCES.md](./DATA_SOURCES.md). Each has an npm alias: `build-seed` (birds),
@@ -323,7 +362,9 @@ long-running script can point `DATABASE_URL` at it while the app is rebuilt or r
 `npm run build-seed-<group> -w data-pipeline`, then `npm run load-seed -w data-pipeline`.
 `build-seed-generic.ts` is the shared builder (GBIF, common names, Wikidata) for groups with no
 trait source of their own. They're only rerun
-when onboarding a new taxon group; the refresh keeps existing groups current.
+when onboarding a new taxon group; the refresh keeps existing groups current. A seed assigns no
+tiers: `load-seed` starts a new species as unrated (reason `no_data`) and never touches an
+existing tier, and the refresh's tiers stage rates it.
 
 ### Everything else
 `packages/data-pipeline/src/fetch/*.ts` are library modules, one per source, used by the seed

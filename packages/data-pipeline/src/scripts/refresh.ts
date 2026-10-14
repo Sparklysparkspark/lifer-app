@@ -8,8 +8,12 @@
 //   npm run refresh -w data-pipeline -- --stages=tiers,packs,gate     just some stages
 //   npm run refresh -w data-pipeline -- --refresh-occurrences         re-download GBIF data first
 //   npm run refresh -w data-pipeline -- --full                        redo every country, not just what changed
+//   npm run refresh -w data-pipeline -- --rescan --countries=...      reread those countries' raw downloads
+//                                                                     (after synonym changes: the cached
+//                                                                     province files keep names as scanned)
 //   npm run refresh -w data-pipeline -- --resume                      continue the last run where it stopped
 //   npm run refresh -w data-pipeline -- --accept-drift=<pack id>,...  publish past reviewed size changes
+//   npm run refresh -w data-pipeline -- --allow-tier-skip             keep old tiers of countries with no province files
 //
 // Stages, in order:
 //   occurrences  GBIF country downloads (only with --refresh-occurrences, or when one is missing),
@@ -21,10 +25,13 @@
 //   enrich       Photos and descriptions for species that have none yet, and a retry for those
 //                that came up empty. Then descriptions straight from Wikipedia for every species
 //                without Wikipedia-sourced text, and a refetch of articles edited since.
-//   regions      iNaturalist places for regions that have none, then province checklists, then each
-//                country's list from its provinces and its own iNaturalist list, then every sea
+//   regions      iNaturalist places for regions that have none, then province checklists, then the
+//                vernacular groups (regions/vernacular.ts), then each country's and group's list
+//                from its provinces (and the country's own iNaturalist list), then every sea
 //                zone's list from the same downloads. From cached data (iNaturalist lists are
 //                reused while younger than LIFER_INAT_CACHE_MAX_AGE_DAYS, 90).
+//   endemic      Which country each endemic species lives in, from the same downloads (only
+//                countries whose download changed are reread).
 //   tiers        Absolute rarity tiers for every checklist row, then the worldwide tier (a species'
 //                easiest country), offline, in minutes.
 //   vectors      Image and text embeddings (CLIP and the BioCLIP identification model) for species
@@ -42,6 +49,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { DATABASE_URL } from "@lifer/core/config.js";
 import { pool } from "../db.js";
 import { findEbirdFormDuplicates, findMissingSpecies, insertMissingSpecies } from "./add-missing-species.js";
 import { buildPacks, publishPacks, cleanupPacksDir, type PacksResult } from "../pipeline/packs.js";
@@ -49,6 +57,9 @@ import { buildPhotoStore, publishPhotoStore, type PhotoStoreBuild } from "../pip
 import { runGate, summarizeGate } from "../pipeline/gate.js";
 import { findSpeciesSplits } from "./find-species-splits.js";
 import { CATALOG_GBIF_CLASSES } from "../catalogClasses.js";
+import { syncVernacularRegions } from "../regions/vernacular.js";
+import { describeVernacularSync } from "./sync-vernacular-regions.js";
+import { applySpeciesCorrections, loadSpeciesCorrections } from "../pipeline/speciesCorrections.js";
 
 const PIPELINE_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const REPO_ROOT = path.join(PIPELINE_DIR, "..", "..");
@@ -57,7 +68,18 @@ const BUILD_DIR = path.join(DATA_DIR, "build");
 const GBIF_CACHE_DIR = path.join(DATA_DIR, "gbif-country-cache");
 const ZIP_NAMES = path.join(BUILD_DIR, "zip-names.tsv");
 const CURRENT_RUN = path.join(BUILD_DIR, "refresh-current-run.json");
-const STAGES = ["occurrences", "catalog", "enrich", "regions", "tiers", "vectors", "packs", "gate", "publish"] as const;
+const STAGES = [
+  "occurrences",
+  "catalog",
+  "enrich",
+  "regions",
+  "endemic",
+  "tiers",
+  "vectors",
+  "packs",
+  "gate",
+  "publish",
+] as const;
 type Stage = (typeof STAGES)[number];
 
 interface Options {
@@ -66,11 +88,14 @@ interface Options {
   publish: boolean;
   full: boolean;
   refreshOccurrences: boolean;
+  /** Reread the raw downloads instead of the cached province files (refresh-aggregate-cache). */
+  rescan: boolean;
   resume: boolean;
   acceptDrift: string[] | "all";
+  allowTierSkip: boolean;
 }
 
-function parseArgs(argv: string[]): Options {
+export function parseArgs(argv: string[]): Options {
   const value = (name: string) => argv.find((a) => a.startsWith(`--${name}=`))?.slice(name.length + 3);
   const list = (name: string) =>
     value(name)
@@ -78,9 +103,11 @@ function parseArgs(argv: string[]): Options {
       .map((s) => s.trim())
       .filter(Boolean) ?? null;
   const publish = argv.includes("--publish");
-  const stages = (list("stages") as Stage[] | null) ?? STAGES.filter((s) => s !== "publish" || publish);
-  for (const s of stages)
-    if (!STAGES.includes(s)) throw new Error(`Unknown stage "${s}"; stages are ${STAGES.join(", ")}`);
+  const requested = list("stages");
+  for (const s of requested ?? [])
+    if (!STAGES.includes(s as Stage)) throw new Error(`Unknown stage "${s}"; stages are ${STAGES.join(", ")}`);
+  // Always in pipeline order, whatever order they were typed in: the gate must see the packs.
+  const stages = STAGES.filter((s) => (requested ? requested.includes(s) : s !== "publish" || publish));
   const drift = value("accept-drift");
   return {
     stages,
@@ -88,8 +115,10 @@ function parseArgs(argv: string[]): Options {
     publish,
     full: argv.includes("--full"),
     refreshOccurrences: argv.includes("--refresh-occurrences"),
+    rescan: argv.includes("--rescan"),
     resume: argv.includes("--resume"),
     acceptDrift: argv.includes("--accept-all-drift") ? "all" : drift ? drift.split(",") : [],
+    allowTierSkip: argv.includes("--allow-tier-skip"),
   };
 }
 
@@ -250,6 +279,7 @@ async function catalog(runId: string) {
     "--apply",
     `--report=${path.join(BUILD_DIR, "iucn-status-report.tsv")}`,
   ]);
+  await correctSpecies("catalog");
   return { added, linked: links.length, splits: splits.splits };
 }
 
@@ -273,6 +303,15 @@ async function enrich() {
   // Public interest, which corrects photo-based tiers for species few people photograph.
   log("enrich", "Wikipedia pageviews");
   runScript(PIPELINE_DIR, "src/scripts/fetch-wiki-pageviews.ts", []);
+  await correctSpecies("enrich");
+}
+
+// Last in each stage that writes names or Red List status, so a hand-checked correction always wins.
+async function correctSpecies(stage: string) {
+  const corrections = loadSpeciesCorrections();
+  const missing = await applySpeciesCorrections(pool, corrections);
+  log(stage, `species corrections: ${corrections.length - missing.length} applied`);
+  if (missing.length > 0) log(stage, `species corrections matching no catalog species: ${missing.join(", ")}`);
 }
 
 // Embeddings for species that have none (both matching models) and the occurrence stats the
@@ -307,7 +346,12 @@ async function regions(opts: Options) {
   // otherwise the run continues where the last one left off.
   // Not when resuming: that keeps the provinces already rebuilt.
   if (!opts.resume && (opts.full || opts.countries || opts.refreshOccurrences)) args.push("--reset-checkpoint");
+  if (opts.rescan) args.push("--rescan");
   runScript(PIPELINE_DIR, "src/scripts/refresh-all-provinces.ts", args);
+  // Provinces into their vernacular groups (country > group > province), including any the
+  // province build just created, before group and country lists are built from them.
+  const vernacular = await syncVernacularRegions(pool, true);
+  for (const line of describeVernacularSync(vernacular, true)) log("regions", line);
   // Species the catalog stage added after a province was built, from the cached lists.
   runScript(PIPELINE_DIR, "src/scripts/add-new-species-to-checklists.ts", ["--apply"]);
   // iNaturalist photo counts per place: what tiers are rated on, and what tells an escaped pet
@@ -331,7 +375,15 @@ async function regions(opts: Options) {
   // species off and keep a marine species at the edge of its range.
   runScript(PIPELINE_DIR, "src/scripts/fetch-worms-environment.ts", []);
   runScript(PIPELINE_DIR, "src/scripts/compute-sea-zones-offline.ts", ["--apply"]);
-  return { countries: opts.countries ?? "all" };
+  return {
+    countries: opts.countries ?? "all",
+    groupsCreated: vernacular.groupsCreated,
+    nested: vernacular.provincesNested,
+  };
+}
+
+async function endemic(opts: Options) {
+  runScript(PIPELINE_DIR, "src/scripts/compute-endemic-countries.ts", ["--apply", ...(opts.full ? ["--full"] : [])]);
 }
 
 async function tiers(opts: Options) {
@@ -340,10 +392,39 @@ async function tiers(opts: Options) {
     "--apply",
     "--inputs",
     "--calibrate",
+    ...(opts.allowTierSkip ? ["--allow-skip"] : []),
     ...(opts.countries ? [`--countries=${opts.countries.join(",")}`] : []),
   ]);
   // Worldwide tiers come from the local ones, so always every species.
   runScript(PIPELINE_DIR, "src/scripts/compute-global-tiers.ts", ["--apply"]);
+}
+
+/** Publishing needs a gate that passed in this same run, not just built packs. */
+async function assertGatePassed(runId: string): Promise<void> {
+  const gate = await pool.query<{ notes: { ok?: boolean } | null }>(
+    `SELECT notes FROM pipeline_runs WHERE run_id = $1 AND stage = 'gate' AND item = '' AND status = 'done'`,
+    [runId],
+  );
+  if (gate.rows[0]?.notes?.ok !== true)
+    throw new Error("publish needs the gate stage to pass in the same run (add gate to --stages)");
+}
+
+/** The files a catalog manifest lists: the seed and each vector asset. Anything else in the folder
+ *  (an older model's vectors, say) stays unpublished. */
+export function catalogManifestFiles(manifest: Record<string, unknown>): string[] {
+  const files: string[] = [];
+  for (const value of Object.values(manifest)) {
+    const url = value && typeof value === "object" ? (value as { url?: unknown }).url : undefined;
+    if (typeof url === "string") files.push(url);
+  }
+  return files;
+}
+
+/** A resumed run does what the run it continues was asked to (its countries, --publish). Flags
+ *  given now (say --allow-tier-skip after the tiers stage stopped) are added, and come first so a
+ *  value given now (--countries=, --stages=) wins over the earlier run's. */
+export function resumeArgv(given: string[], previous: string[]): string[] {
+  return [...new Set([...given, ...previous.filter((a) => a !== "--resume")])];
 }
 
 // ---------- main ----------
@@ -355,8 +436,7 @@ async function main() {
     ? (JSON.parse(readFileSync(CURRENT_RUN, "utf8")) as { runId: string; argv?: string[] })
     : null;
   const resuming = given.includes("--resume") && previous != null;
-  // A resumed run does what the run it continues was asked to (its countries, --publish).
-  const argv = resuming && previous.argv ? [...previous.argv.filter((a) => a !== "--resume"), "--resume"] : given;
+  const argv = resuming && previous.argv ? resumeArgv(given, previous.argv) : given;
   const opts = parseArgs(argv);
   const runId = resuming ? previous.runId : randomUUID();
   if (!resuming)
@@ -374,6 +454,7 @@ async function main() {
       if (stage === "enrich") await stageLogged(runId, stage, enrich, opts.resume);
       if (stage === "vectors") await stageLogged(runId, stage, vectors, opts.resume);
       if (stage === "regions") await stageLogged(runId, stage, () => regions(opts), opts.resume);
+      if (stage === "endemic") await stageLogged(runId, stage, () => endemic(opts), opts.resume);
       if (stage === "tiers") await stageLogged(runId, stage, () => tiers(opts), opts.resume);
       if (stage === "packs") {
         await stageLogged(
@@ -417,6 +498,7 @@ async function main() {
       }
       if (stage === "publish") {
         if (!packs) throw new Error("publish needs the packs stage in the same run");
+        await assertGatePassed(runId);
         const built = packs as PacksResult;
         await stageLogged(
           runId,
@@ -439,19 +521,16 @@ async function main() {
               PIPELINE_DIR,
               "src/scripts/build-catalog-seed.ts",
               [path.join(seedDir, "lifer-catalog-seed.sql.gz")],
-              {
-                DATABASE_URL: process.env.DATABASE_URL ?? "postgres://lifer:lifer@localhost:5432/lifer",
-              },
+              { DATABASE_URL },
             );
-            const assets = readdirSync(seedDir)
-              .filter((f) => f.endsWith(".sql.gz") || f.endsWith(".bin.gz"))
-              .map((f) => path.join(seedDir, f));
+            const manifestPath = path.join(seedDir, "catalog-manifest.json");
+            const assets = catalogManifestFiles(JSON.parse(readFileSync(manifestPath, "utf8"))).map((f) =>
+              path.join(seedDir, f),
+            );
             execFileSync("gh", ["release", "upload", "catalog-latest", ...assets, "--clobber"], { stdio: "inherit" });
-            execFileSync(
-              "gh",
-              ["release", "upload", "catalog-latest", path.join(seedDir, "catalog-manifest.json"), "--clobber"],
-              { stdio: "inherit" },
-            );
+            execFileSync("gh", ["release", "upload", "catalog-latest", manifestPath, "--clobber"], {
+              stdio: "inherit",
+            });
             log("publish", built.changed.length > 0 ? "packs and catalog seed published" : "catalog seed published");
           },
           false,

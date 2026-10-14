@@ -31,7 +31,7 @@ npm run refresh -w data-pipeline -- --publish   # the same, then publish if the 
 
 Other useful flags: `--countries="Costa Rica,Peru"` for some countries only, `--stages=tiers,packs,gate` for some stages, `--refresh-occurrences` to download GBIF country files again (only the priority countries in `compute-provinces-bulk.ts`, unless you give `--countries`), `--full` to redo every country, and `--resume` to continue a run that stopped.
 
-The stages run in this order:
+The stages always run in this order, whatever order `--stages` lists them in:
 
 | Stage | What it does |
 |---|---|
@@ -39,11 +39,12 @@ The stages run in this order:
 | `catalog` | Links species to the names GBIF (Catalogue of Life), iNaturalist and eBird use now, adds species their lists have that the catalog lacks, merges duplicates, records splits, and sets each species' IUCN Red List status (`backfill-iucn-status.ts`). |
 | `enrich` | Photos and descriptions for species that have none yet. |
 | `regions` | iNaturalist places, province checklists, then country checklists, with escaped pets removed and introduced species flagged, then every sea zone's fish and marine mammals from the same GBIF downloads. |
+| `endemic` | Which country each endemic species lives in, from the same GBIF downloads. Only countries whose download changed are read again. |
 | `tiers` | Rarity tiers for every checklist row, then each species' worldwide tier. |
 | `vectors` | CLIP and BioCLIP 2 vectors for species photos and names that have none, and occurrence stats. |
 | `packs` | The reference photo store, then every region's pack, keeping only those whose content changed. |
 | `gate` | Checks the result before anything is published (below). |
-| `publish` | With `--publish`: the photo store, then the packs and their index, then the catalog seed. |
+| `publish` | With `--publish`: the photo store, then the packs and their index, then the catalog seed. Needs the gate to have passed in the same run. |
 
 Each stage's start and end is recorded in the `pipeline_runs` table, which is how `--resume` knows where to continue. [Rebuilding the data](./rebuilding-data.md#the-refresh-stage-by-stage) has what each stage writes and how long it takes.
 
@@ -74,7 +75,7 @@ Packs are split by group (birds, mammals, fish, and so on). To add one:
    ```
 
 4. Add the group to `PACK_TAXA` in `src/pipeline/packs.ts`, and to `ALL_TAXA` in `src/scripts/refresh.ts` so the enrich stage covers it.
-5. Run a refresh. Every country with species in the new group gets a pack for it.
+5. Run a refresh. Every country with species in the new group gets a pack for it. The new species read "Not enough data" until the refresh's `tiers` stage rates them: a seed never assigns tiers.
 
 If the group uses a new outside source, add it to `DATA_SOURCES.md` and to [Data sources and credits](../credits.md).
 

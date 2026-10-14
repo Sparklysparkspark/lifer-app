@@ -17,7 +17,7 @@ Budget for it: a machine with about 200 GB free, a GBIF account, and several day
 | `packs-latest` | `pack-index.json` and pack shards (`lifer-packs-<build>-<n>.bin`) | the `packs` and `publish` stages (`src/pipeline/packs.ts`, `packStore.ts`) | `PACK_INDEX_URL` |
 | `photos-latest` | `lifer-photo-store.json.gz` and photo shards (`lifer-photos-<build>-<n>.bin`) | the same stages (`src/pipeline/photoStore.ts`) | the `photoStore.indexUrl` inside `pack-index.json` |
 | `map-latest` | `world-z8.pmtiles` | by hand, not in this repository (see [The offline map](#the-offline-map)) | `MAP_DOWNLOAD_URL` |
-| `models` | `clip-vit-l14-v2.onnx`, `bioclip-2-v1.onnx`, `bioclip-2-v1-fp32.onnx` | by hand, `packages/data-pipeline/python/export_*.py` (see [The model files](#the-model-files)) | `EMBEDDING_MODEL_URL`, `ID_MODEL_URL`, `ID_MODEL_GPU_URL` |
+| `models` | `clip-vit-l14-v2.onnx`, `bioclip-2-v1.onnx`, `bioclip-2-v1-fp32.onnx`, `upernet-convnext-tiny-ade-v1.onnx`, `upernet-convnext-tiny-ade-v1-fp32.onnx` | by hand, `packages/data-pipeline/python/export_*.py` (see [The model files](#the-model-files)) | `EMBEDDING_MODEL_URL`, `ID_MODEL_URL`, `ID_MODEL_GPU_URL`, `SCENE_MODEL_URL`, `SCENE_MODEL_FP32_URL` |
 
 For scale, the published releases in October 2026: the catalog seed 208 MB plus about 820 MB of vector files, packs 2.5 GB, the photo store 8.6 GB, the map 525 MB, the models 1.7 GB.
 
@@ -81,7 +81,7 @@ Put them in `.env` at the repo root (every pipeline script reads it) or export t
 | `DATA_DIR` | Optional | The app's library folder; also the photo folder when `APP_DATA_DIR` isn't set. |
 | `LIFER_INAT_CACHE_MAX_AGE_DAYS` | Optional | How long cached iNaturalist lists are reused. Default 90. |
 | `LIFER_INAT_OFFLINE` | Optional | `1` answers every iNaturalist question the caches can from the caches. |
-| `INAT_MIN_HOST_INTERVAL_MS` | Optional | The pause between requests to one photo host during enrichment. Default 1000. Don't lower it for iNaturalist. |
+| `INAT_MIN_HOST_INTERVAL_MS` | Optional | The pause between requests to iNaturalist, shared by every caller in the process. Default 1000. Don't lower it for iNaturalist. |
 | `PHOTO_STORE_FROM_SCRATCH` | Optional | `1` writes every photo store shard anew instead of reusing published ones (see [The photo store](#the-photo-store)). |
 | `PACK_CONCURRENCY` | Optional | Packs built at once. Default 6. |
 | `ALLOW_MISSING_PHOTOS` | Optional | `1` lets `build-region-pack.ts` build past a missing photo file. Not for a run you publish. |
@@ -225,7 +225,7 @@ npm run build-seed-mammals -w data-pipeline && npm run load-seed -w data-pipelin
 npm run replace-sea-zones -w data-pipeline -- --apply                                  # sea zones, linked to regions
 ```
 
-Provinces are created by the regions stage as it reaches each country. `npm run build-seed-test -w data-pipeline` builds a handful of species, for trying the whole pipeline end to end in minutes. This path wasn't run end to end for this page, and it rebuilds only what the code knows: anything the maintainer fixed by hand in the database over time is missing. Use it when you can't or don't want to start from a published seed.
+Provinces are created by the regions stage as it reaches each country. Seeded species carry no rarity tier ("Not enough data") until the refresh's `tiers` stage rates them. `npm run build-seed-test -w data-pipeline` builds a handful of species, for trying the whole pipeline end to end in minutes. This path wasn't run end to end for this page, and it rebuilds only what the code knows: anything the maintainer fixed by hand in the database over time is missing. Use it when you can't or don't want to start from a published seed.
 
 ## The first run
 
@@ -263,7 +263,8 @@ Durations are from the maintainer's run in October 2026, with every cache alread
 | `catalog` | Links species to the names GBIF (Catalogue of Life), iNaturalist and eBird use now; adds species their lists have that the catalog lacks; merges reviewed duplicates (`packages/data-pipeline/data/reference/species-merges.tsv`); records iNaturalist splits; sets IUCN Red List status from the archive GBIF hosts (codes, Not Evaluated for species IUCN never assessed, and a note for splits IUCN still assesses as part of their parent). | `species`, `species_synonyms`, `species_merges`, `species_splits`, the `iucn_*` columns of `species_traits`; `reconcile-report-<date>.json` and `iucn-status-report.tsv` in `packages/data-pipeline/data/build`; files for you to review in `packages/data-pipeline/data/review` | About 113 minutes, plus about 15 for the first IUCN run (GBIF calls, cached after) and under a minute after that |
 | `enrich` | Photos and descriptions for listed species that have none, a retry for those that came up with no photo, descriptions straight from Wikipedia for every species without Wikipedia-sourced text plus a refetch of articles edited since, and a year of Wikipedia pageviews. | `species` photo and description columns, `species_reference_photos`, photo files under `APP_DATA_DIR` | Minutes to hours on an update; two to three days after a seed bootstrap |
 | `regions` | iNaturalist places, province checklists from the GBIF files, new species onto older lists, iNaturalist photo counts, escaped pets off the lists, country checklists, introduced and vagrant flags, WoRMS habitats for fish and marine mammals, every sea zone's list. Downloads any missing GBIF country file. | `region_species`, `sea_zone_species`, `regions`; `province-aggregate-cache`; iNaturalist and eBird caches | About 75 minutes from cached files; days with downloads (pass 1) |
-| `tiers` | Rarity tiers for every checklist row, then each species' worldwide tier. Needs PostGIS. | tiers and their inputs in `region_species`, worldwide tiers in `species_rarity` | About 65 minutes |
+| `endemic` | The one country each endemic species lives in, from the GBIF country files (a live GBIF call for a country with none), leaving out countries where its records look like escapees. Each country's counts are kept, so only countries whose file changed are read again, and only species whose answer changed are written. | `species_traits.endemic_country_iso3`; `endemic-country-counts` in `packages/data-pipeline/data/build` | Not timed for this page; the first run reads every country file |
+| `tiers` | Rarity tiers for every checklist row, then each species' worldwide tier. Needs PostGIS. Fails when a country's rows have tiers but its province files are gone from `province-aggregate-cache`, since those tiers would ship unchecked: rebuild that country's provinces, or rerun with `--resume --allow-tier-skip` to keep them. | tiers and their inputs in `region_species`, worldwide tiers in `species_rarity` | About 65 minutes |
 | `vectors` | CLIP vectors for photos and names that have none, the identification model's vectors (Python), and GBIF occurrence stats (record count and last year) for species that have none. Occurrence stats are fetched for about 200 species per request; each species GBIF answered for, including those with no records, is checked again only after 90 days. | the embedding tables, `species_traits` | Over an hour on an update; many hours after a seed bootstrap, when every photo needs one |
 | `packs` | The photo store (each photo once), then every pack's checklist, keeping only those that changed. | `photo-store` and `packs-out` in `packages/data-pipeline/data/build` | Not timed for this page; roughly an hour for a full build |
 | `gate` | Checks the result (below). | `packages/data-pipeline/data/build/gate-<date>.json` | Minutes |
@@ -283,7 +284,7 @@ It continues the last run with that run's own arguments (its countries, `--publi
 
 ## The gate
 
-The build scripts report success whether or not the data is right, so the `gate` stage checks it and, with `--publish`, refuses to publish on any failure. It prints a summary:
+The build scripts report success whether or not the data is right, so the `gate` stage checks it and, with `--publish`, refuses to publish on any failure. The `publish` stage also refuses unless a gate passed in the same run. It prints a summary:
 
 ```text
 Gate FAILED: 2 failure(s), 1 warning(s), 1 pack(s) with a big species-count change.
@@ -325,16 +326,16 @@ PHOTO_STORE_FROM_SCRATCH=1 npm run refresh -w data-pipeline -- --stages=packs,ga
 
 ### The model files
 
-The model files are exports of public models (BioCLIP 2 and CLIP ViT-L/14), not built from Lifer's data, so the simplest path is to keep installs on the upstream `models` release, or copy its three files to your own and check them against the sha256 hashes in `packages/core/src/species/modelChecksums.ts`. To build them yourself:
+The model files are exports of public models (BioCLIP 2, CLIP ViT-L/14 and UperNet ConvNeXt-tiny), not built from Lifer's data, so the simplest path is to keep installs on the upstream `models` release, or copy its five files to your own and check them against the sha256 hashes in `packages/core/src/species/modelChecksums.ts`. To build them yourself:
 
 ```bash
 packages/data-pipeline/.venv/bin/python packages/data-pipeline/python/export_clip_model.py <dir>
 packages/data-pipeline/.venv/bin/python packages/data-pipeline/python/export_id_model.py <dir>
+packages/data-pipeline/.venv/bin/python packages/data-pipeline/python/export_scene_model.py <dir>
 gh release create models --title "Models" --notes "Model files installs download." --prerelease --latest=false
-gh release upload models <dir>/clip-vit-l14-v2.onnx <dir>/bioclip-2-v1.onnx --clobber
+gh release upload models <dir>/clip-vit-l14-v2.onnx <dir>/bioclip-2-v1.onnx <dir>/bioclip-2-v1-fp32.onnx \
+  <dir>/upernet-convnext-tiny-ade-v1.onnx <dir>/upernet-convnext-tiny-ade-v1-fp32.onnx --clobber
 ```
-
-`export_id_model.py` currently writes a float16 GPU file (`bioclip-2-v1-fp16.onnx`), while installs download `bioclip-2-v1-fp32.onnx`; until that's reconciled, copy the fp32 file from the upstream release.
 
 ### The offline map
 
@@ -366,7 +367,5 @@ gh release upload map-latest world-z8.pmtiles --clobber
 **`gh release upload` fails with "release not found".** Create `catalog-latest` on your fork first (see [Point your fork at itself](#point-your-fork-at-itself)).
 
 **The catalog seed is over 400 MB.** `build-catalog-seed.ts` refuses a seed that big, since the Windows installer bundles it. Something large was added to the dumped tables.
-
-**`build-catalog-seed.ts` died partway.** It blanks the photo path columns and Other Taxa rows before dumping and restores them after. If it's killed in between, see the danger note under `build-catalog-seed.ts` in [SCRIPTS.md](https://github.com/Sparklysparkspark/lifer-app/blob/main/packages/data-pipeline/SCRIPTS.md).
 
 **A GBIF download never finishes.** Downloads submitted by a stopped run keep running on GBIF's side and hold one of your 3 slots; the pipeline waits for a free one. See your downloads at [gbif.org/user/download](https://www.gbif.org/user/download) and cancel stuck ones there.

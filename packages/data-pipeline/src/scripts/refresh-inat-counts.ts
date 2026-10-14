@@ -5,11 +5,14 @@
 // counts are skipped, so rerunning after an interruption only does what's left. Run it on its own:
 // alongside another job calling iNaturalist it gets throttled.
 //
-// Usage (from packages/data-pipeline): npx tsx src/scripts/refresh-inat-counts.ts
+// Usage (from packages/data-pipeline): npx tsx src/scripts/refresh-inat-counts.ts [--max-failed=N]
+// Exits non-zero when more than N places (10 by default) couldn't be fetched, so the refresh stops
+// before rating tiers on missing counts; a rerun fetches only those.
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { parseArgs } from "node:util";
 import { pool } from "@lifer/core/db.js";
-import { refreshPlaceCounts } from "@lifer/core/regions/inatChecklist.js";
+import { refreshPlaceCounts } from "../regions/inatChecklist.js";
 
 export async function refreshAllPlaceCounts(
   log: (m: string) => void = console.log,
@@ -20,22 +23,27 @@ export async function refreshAllPlaceCounts(
   let done = 0;
   let failed = 0;
   for (const [i, p] of places.rows.entries()) {
+    // A throttled place fails; the shared HTTP client then holds iNaturalist for every call, so
+    // the next place waits out the throttling rather than prolonging it.
     if (await refreshPlaceCounts(p.inat_place_id)) done++;
-    else {
-      // Almost always iNaturalist throttling: carrying on straight away only keeps it throttled.
-      failed++;
-      await new Promise((resolve) => setTimeout(resolve, 60_000));
-    }
+    else failed++;
     if ((i + 1) % 50 === 0) log(`[inat-counts] ${i + 1}/${places.rows.length} places (${failed} failed)`);
   }
   return { done, failed };
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
+  const { values } = parseArgs({ options: { "max-failed": { type: "string", default: "10" } } });
+  const maxFailed = Number(values["max-failed"]);
   refreshAllPlaceCounts()
     .then(async (r) => {
       console.log(`[inat-counts] ${r.done} places with counts, ${r.failed} failed (rerun to retry)`);
       await pool.end();
+      // Offline, an uncached place is expected to have none.
+      if (r.failed > maxFailed && process.env.LIFER_INAT_OFFLINE !== "1") {
+        console.error(`[inat-counts] more than ${maxFailed} places failed; rerun before rating tiers`);
+        process.exitCode = 1;
+      }
     })
     .catch((err) => {
       console.error(err);

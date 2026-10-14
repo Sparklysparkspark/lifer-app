@@ -23,11 +23,13 @@ import { pool } from "@lifer/core/db.js";
 const DEFAULT_CONCURRENCY = 1;
 
 // One child process per country. Checkpoint updates are synchronous, so workers can't lose one.
-function runCompute(name: string, apply: boolean, refreshCache: boolean): Promise<void> {
+function runCompute(name: string, apply: boolean, refreshCache: boolean, rescan: boolean): Promise<void> {
   return new Promise((resolve, reject) => {
     const computeArgs = ["tsx", "src/scripts/compute-provinces-bulk.ts", `--countries=${name}`];
     if (apply) computeArgs.push("--apply");
     if (refreshCache) computeArgs.push("--refresh-gbif-cache");
+    // Partitions store catalog names as of the scan, so a synonym change needs the raw files read again.
+    if (rescan) computeArgs.push("--refresh-aggregate-cache");
     // Large countries need far more than V8's default heap. 16GB is only safe at concurrency=1.
     const child = spawn("npx", computeArgs, {
       cwd: PIPELINE_DIR,
@@ -103,6 +105,7 @@ async function main() {
   if (!apply) console.log(`[refresh-all-provinces] DRY RUN: pass --apply to actually write region_species`);
   const resetCheckpoint = args.includes("--reset-checkpoint");
   const refreshCache = args.includes("--refresh-gbif-cache");
+  const rescan = args.includes("--rescan");
   const checkpointPath = path.resolve(
     args.find((a) => a.startsWith("--checkpoint="))?.split("=")[1] ?? DEFAULT_CHECKPOINT_PATH,
   );
@@ -112,11 +115,13 @@ async function main() {
     Number(args.find((a) => a.startsWith("--concurrency="))?.split("=")[1] ?? DEFAULT_CONCURRENCY),
   );
 
-  // Every country-level region already in the catalog (World > continent > country).
+  // Every country-level region already in the catalog (World > continent > country). A province
+  // shown under its continent is built with its country.
   const allCountriesRes = await pool.query<{ name: string }>(
     `SELECT r.name FROM regions r
      JOIN regions cont ON cont.id = r.parent_id
      JOIN regions w ON w.id = cont.parent_id AND w.name = 'World'
+     WHERE r.home_country_id IS NULL
      ORDER BY r.name`,
   );
   const allCountries = allCountriesRes.rows.map((r) => r.name);
@@ -150,7 +155,7 @@ async function main() {
         const name = names[i];
         console.log(`[refresh-all-provinces] (${i + 1}/${names.length}) ${name}`);
         try {
-          await runCompute(name, apply, refreshCache);
+          await runCompute(name, apply, refreshCache, rescan);
           succeeded++;
           // Dry runs aren't checkpointed, so a later --apply run still does the work.
           if (apply) {

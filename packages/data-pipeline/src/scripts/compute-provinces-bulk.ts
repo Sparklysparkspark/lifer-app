@@ -24,7 +24,6 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import readline from "node:readline";
 import { pool } from "@lifer/core/db.js";
-import { NO_RARITY_TIER_TAXON_CLASSES, type TaxonClass } from "@lifer/shared";
 import { fetchAllCountries } from "@lifer/core/regions/regionBoundary.js";
 import {
   exteriorRingsFromGeometry,
@@ -43,21 +42,16 @@ import {
   RECURRENCE_MIN_RECORDS_FRACTION_OF_MEDIAN,
   passesRecurrenceCheck,
   medianOf,
-} from "@lifer/core/regions/buildRegionSpecies.js";
-import {
-  percentileRankScores,
-  tierForScore,
-  BIRD_ABSOLUTE_TIER_THRESHOLDS,
-  MAMMAL_ABSOLUTE_TIER_THRESHOLDS,
-  FISH_ABSOLUTE_TIER_THRESHOLDS,
-} from "@lifer/core/species/computeRarityPhase1.js";
-import { drillDownAllCountries } from "./compute-all-regions.js";
+} from "../regions/buildRegionSpecies.js";
+import { drillDownAllCountries } from "../regions/drillDown.js";
+import { countryCodeFilter, gbifDownloadFor } from "../regions/gbifCountryCodes.js";
+import { provinceIdsSql } from "@lifer/core/regions/regionTree.js";
 import {
   resolveInatPlaceId,
   fetchInatResearchGradeTaxonIds,
   matchedSpeciesIdsForRegion,
   resolveRemovalRescues,
-} from "@lifer/core/regions/inatChecklist.js";
+} from "../regions/inatChecklist.js";
 import {
   EBIRD_SENSITIVE_SPECIES,
   weekInSeason,
@@ -140,8 +134,7 @@ const MARINE_INVERT_GBIF_CLASSES = new Set([
 ]);
 const EXTRA_ADMIT_GBIF_CLASSES = new Set([...REPTILE_AMPHIBIAN_GBIF_CLASSES, ...MARINE_INVERT_GBIF_CLASSES]);
 
-// Internal taxon_class values covered by the extra-admit classes above. They are scored with
-// FISH_ABSOLUTE_TIER_THRESHOLDS as an interim assumption of fish-like data density.
+// Internal taxon_class values covered by the extra-admit classes above.
 const NEW_OBSCURE_TAXON_CLASSES = new Set([
   "squamata",
   "testudines",
@@ -317,24 +310,12 @@ async function waitForFreeDownloadSlot(): Promise<void> {
   }
 }
 
-// GBIF records overseas territories under their own countrycode, but we model them as provinces
-// of the parent country, so their codes are added to that country's download.
-const OVERSEAS_TERRITORY_GBIF_CODES: Record<string, string[]> = {
-  FR: ["GP", "GF", "MQ", "RE", "YT"],
-  NL: ["BQ"],
-};
-
-async function submitDownload(iso2: string): Promise<string> {
-  const countryCodes = [iso2, ...(OVERSEAS_TERRITORY_GBIF_CODES[iso2] ?? [])];
-  const countryCodeFilter =
-    countryCodes.length === 1
-      ? `countrycode = '${countryCodes[0]}'`
-      : `countrycode IN (${countryCodes.map((c) => `'${c}'`).join(", ")})`;
+async function submitDownload(codes: string[]): Promise<string> {
   // eventdategte needs an explicit CAST: GBIF's SQL engine treats it as epoch millis.
   const sql =
     `SELECT species, decimallatitude, decimallongitude, "class", "year", basisofrecord, ` +
     `weekofyear(CAST(eventdategte AS TIMESTAMP)) AS week, count(*) AS record_count ` +
-    `FROM occurrence WHERE ${countryCodeFilter} AND decimallatitude IS NOT NULL AND decimallongitude IS NOT NULL ` +
+    `FROM occurrence WHERE ${countryCodeFilter(codes)} AND decimallatitude IS NOT NULL AND decimallongitude IS NOT NULL ` +
     `AND taxonrank = 'SPECIES' AND occurrencestatus = 'PRESENT' ` +
     `GROUP BY species, decimallatitude, decimallongitude, "class", "year", basisofrecord, weekofyear(CAST(eventdategte AS TIMESTAMP))`;
   for (;;) {
@@ -415,7 +396,9 @@ async function loadProvinces(countryId: string): Promise<ProvinceRegion[]> {
     boundary_geojson: { type: string; coordinates: unknown };
     ebird_region_code: string | null;
   }>(
-    `SELECT id, name, boundary_geojson, ebird_region_code FROM regions WHERE parent_id = $1 AND boundary_geojson IS NOT NULL`,
+    // Every province, grouped or not, never a group: a group's list is its provinces' together.
+    `SELECT id, name, boundary_geojson, ebird_region_code FROM regions
+     WHERE id IN (${provinceIdsSql("$1")}) AND boundary_geojson IS NOT NULL`,
     [countryId],
   );
   return res.rows.map((r) => {
@@ -444,19 +427,22 @@ async function fetchEbirdRegionSpeciesCodes(regionCode: string): Promise<Set<str
         if (existsSync(cachePath)) {
           return new Set(JSON.parse(readFileSync(cachePath, "utf8")) as string[]);
         }
-        try {
-          const res = await fetch(`https://api.ebird.org/v2/product/spplist/${regionCode}`, {
-            headers: { "X-eBirdApiToken": EBIRD_API_KEY },
-          });
-          if (!res.ok) return null; // e.g. eBird doesn't recognize this exact region code
-          const codes = (await res.json()) as string[];
-          writeFileSync(cachePath, JSON.stringify(codes));
-          return new Set(codes);
-        } catch {
-          return null; // best-effort: a network error just means no rescue this run
-        }
+        // Only "eBird has no such region" means no list. A network error, rate limit or outage
+        // fails the country for the retry pass instead: membership mustn't depend on luck.
+        const res = await fetch(`https://api.ebird.org/v2/product/spplist/${regionCode}`, {
+          headers: { "X-eBirdApiToken": EBIRD_API_KEY },
+        });
+        if (res.status === 400 || res.status === 404) return null;
+        if (!res.ok) throw new Error(`eBird species list for ${regionCode}: HTTP ${res.status}`);
+        const codes: unknown = await res.json();
+        if (!Array.isArray(codes) || !codes.every((c) => typeof c === "string"))
+          throw new Error(`eBird species list for ${regionCode}: unexpected response`);
+        writeFileSync(cachePath, JSON.stringify(codes));
+        return new Set(codes);
       })(),
     );
+    // A failure isn't remembered, so the retry pass asks again.
+    ebirdSpeciesCodesCache.get(regionCode)!.catch(() => ebirdSpeciesCodesCache.delete(regionCode));
   }
   return ebirdSpeciesCodesCache.get(regionCode)!;
 }
@@ -599,14 +585,29 @@ function clusterHotspots(
   ];
 }
 
-// Makes sure GBIF_COUNTRY_CACHE_DIR/{iso2}.zip exists, downloading it if missing. Split out so
+// Makes sure the country's zip (gbifDownloadFor) is in GBIF_COUNTRY_CACHE_DIR, downloading it if missing. Split out so
 // refresh-all-provinces.ts's download queue (--cache-only) can fetch ahead of processing.
-async function ensureGbifZipCached(countryName: string, iso2: string, refreshCache: boolean): Promise<void> {
-  const cachedZipPath = path.join(GBIF_COUNTRY_CACHE_DIR, `${iso2}.zip`);
-  if (!refreshCache && existsSync(cachedZipPath)) return;
+function cachedZipPathFor(countryName: string, iso2: string): string {
+  return path.join(GBIF_COUNTRY_CACHE_DIR, `${gbifDownloadFor(countryName, iso2).zipName}.zip`);
+}
 
-  console.log(`[compute-provinces-bulk] ${countryName}: submitting GBIF download for country=${iso2}...`);
-  const downloadKey = await submitDownload(iso2);
+// A forced refresh still keeps a file this recent: rerunning or resuming a refresh shouldn't fetch
+// GBIF's data again days later.
+const RECENT_DOWNLOAD_MS = 7 * 24 * 60 * 60_000;
+
+async function ensureGbifZipCached(countryName: string, iso2: string, refreshCache: boolean): Promise<void> {
+  const cachedZipPath = cachedZipPathFor(countryName, iso2);
+  if (existsSync(cachedZipPath)) {
+    if (!refreshCache) return;
+    if (Date.now() - statSync(cachedZipPath).mtimeMs < RECENT_DOWNLOAD_MS) {
+      console.log(`[compute-provinces-bulk] ${countryName}: GBIF data downloaded in the last 7 days, keeping it`);
+      return;
+    }
+  }
+
+  const { codes } = gbifDownloadFor(countryName, iso2);
+  console.log(`[compute-provinces-bulk] ${countryName}: submitting GBIF download for country=${codes.join(",")}...`);
+  const downloadKey = await submitDownload(codes);
   console.log(`[compute-provinces-bulk] ${countryName}: download key ${downloadKey}, polling...`);
   const expectedSize = await pollUntilReady(downloadKey);
   console.log(`[compute-provinces-bulk] ${countryName}: download ready, fetching zip...`);
@@ -628,7 +629,7 @@ async function ensureGbifZipCached(countryName: string, iso2: string, refreshCac
 const DOWNLOAD_QUEUE_WAIT_MS = 60 * 60_000;
 
 async function waitForOrEnsureGbifZipCached(countryName: string, iso2: string, refreshCache: boolean): Promise<void> {
-  const cachedZipPath = path.join(GBIF_COUNTRY_CACHE_DIR, `${iso2}.zip`);
+  const cachedZipPath = cachedZipPathFor(countryName, iso2);
   if (refreshCache || existsSync(cachedZipPath)) {
     await ensureGbifZipCached(countryName, iso2, refreshCache);
     return;
@@ -661,7 +662,7 @@ interface SpeciesProvinceEntry {
   weekCounts: Map<number, number>;
 }
 
-// Species flagged as escapee/introduced in this country (compute-elusiveness.ts). Keyed by
+// Species flagged as escapee/introduced in this country (apply-introduced-flags.ts). Keyed by
 // scientific_name, the join key already available in `included` below.
 async function loadNonNativeSpeciesNames(iso3: string): Promise<Set<string>> {
   const res = await pool.query<{ scientific_name: string }>(
@@ -706,7 +707,7 @@ async function computeCountryProvinces(
 ): Promise<void> {
   const provincesArg = process.argv.find((a) => a.startsWith("--provinces="));
   // --provinces limits the run to named provinces.
-  const provinceNameFilter = provincesArg ? new Set(provincesArg.split("=")[1].split(",")) : null;
+  const provinceNameFilter = provincesArg ? new Set(provincesArg.slice("--provinces=".length).split(",")) : null;
   const allProvinces = await loadProvinces(countryId);
   const provinces = provinceNameFilter ? allProvinces.filter((p) => provinceNameFilter.has(p.name)) : allProvinces;
   if (provinces.length === 0) {
@@ -726,7 +727,7 @@ async function computeCountryProvinces(
   console.log(
     `[compute-provinces-bulk] ${countryName}: tracking ${provinces.length} province(s), using cached GBIF data...`,
   );
-  const cachedZipPath = path.join(GBIF_COUNTRY_CACHE_DIR, `${iso2}.zip`);
+  const cachedZipPath = cachedZipPathFor(countryName, iso2);
   // Keyed by iso2 plus country name: some countries share an iso2 (a territory and its parent)
   // but have different province sets, so they'd poison each other's cache otherwise.
   const aggregateCacheKey = `${iso2}-${countryName.replace(/[^a-zA-Z0-9]+/g, "_")}`;
@@ -984,10 +985,8 @@ async function computeCountryProvinces(
       );
       if (!apply) continue;
 
-      // Local tier mirrors the global tier logic (apply-rarity-phase4.ts) on this province's data:
-      // an absolute composite threshold, not a percentile quota.
-      //
-      // Hotspots are clustered once and reused for rangeScore and the hotspot write below.
+      // Hotspot clusters for the gap finder. Local tiers are rated afterwards by
+      // compute-local-tiers.ts from this province's partition, so none are written here.
       const clustersBySpecies = new Map<string, Hotspot[]>();
       for (const c of included) {
         const entry = bySpecies.get(c.species)!;
@@ -1015,124 +1014,6 @@ async function computeCountryProvinces(
             isSensitivePoint,
           ),
         );
-      }
-
-      // rangeScore: how concentrated a species' points are relative to the province's bounding
-      // box (small range, high score). abundanceScore: record-count rank (fewer records, higher
-      // score). Both are percentile sub-scores; the composite is compared against the same
-      // absolute thresholds used globally.
-      //
-      // Range drops only outlier clusters that are both small and far from the rest. Dropping
-      // merely small clusters would shrink the range of widespread species seen in many towns.
-      const OUTLIER_MAX_SHARE = 0.1;
-      const OUTLIER_DISTANCE_STD_DEVS = 2.5;
-      function coreRangeDiagonalKm(clusters: Hotspot[]): number {
-        if (clusters.length <= 1) return clusters[0]?.bboxDiagonalKm ?? 0;
-        const total = clusters.reduce((sum, cl) => sum + cl.pointCount, 0);
-        const centroidLat = clusters.reduce((sum, cl) => sum + cl.centroidLat * cl.pointCount, 0) / total;
-        const centroidLon = clusters.reduce((sum, cl) => sum + cl.centroidLon * cl.pointCount, 0) / total;
-        // Equirectangular approximation, with longitude scaled by cos(latitude).
-        const lonScale = Math.cos((centroidLat * Math.PI) / 180);
-        const distanceKm = (cl: Hotspot) =>
-          Math.sqrt((cl.centroidLat - centroidLat) ** 2 + ((cl.centroidLon - centroidLon) * lonScale) ** 2) *
-          KM_PER_DEGREE;
-        const meanDistanceKm = clusters.reduce((sum, cl) => sum + distanceKm(cl) * cl.pointCount, 0) / total;
-        const stdDevKm = Math.sqrt(
-          clusters.reduce((sum, cl) => sum + (distanceKm(cl) - meanDistanceKm) ** 2 * cl.pointCount, 0) / total,
-        );
-
-        const core = clusters.filter((cl) => {
-          const isSmall = cl.pointCount / total <= OUTLIER_MAX_SHARE;
-          const isFar = stdDevKm > 0 && distanceKm(cl) > meanDistanceKm + OUTLIER_DISTANCE_STD_DEVS * stdDevKm;
-          return !(isSmall && isFar);
-        });
-        // Defensive fallback if every cluster was flagged an outlier.
-        const effective = core.length > 0 ? core : clusters;
-        if (effective.length === 1) return effective[0].bboxDiagonalKm;
-        const centroidSpanKm =
-          bboxDiagonalDegrees(ringBoundingBox(effective.map((cl) => [cl.centroidLon, cl.centroidLat] as Point))) *
-          KM_PER_DEGREE;
-        const maxClusterRadiusKm = maxOf(effective.map((cl) => cl.bboxDiagonalKm / 2));
-        return centroidSpanKm + maxClusterRadiusKm * 2;
-      }
-
-      // Interim even split between the only two axes available here (no elusiveness data),
-      // pending calibration against anchor species.
-      const PROVINCE_RANGE_ABUNDANCE_WEIGHTS = { range: 0.5, abundance: 0.5 };
-      const regionDiagonalKm = bboxDiagonalDegrees(province.bbox) * KM_PER_DEGREE;
-      // Species with no hotspot clusters are left out of the ranking (a ratio of 0 would read as
-      // perfectly concentrated) and get the neutral `?? 0.5` fallback below.
-      const spreadRatioEntries = included.flatMap((c, idx) => {
-        const clusters = clustersBySpecies.get(c.species) ?? [];
-        if (clusters.length === 0) return [];
-        return [{ idx, value: regionDiagonalKm > 0 ? coreRangeDiagonalKm(clusters) / regionDiagonalKm : 0 }];
-      });
-      const spreadScoreByIdx = percentileRankScores(spreadRatioEntries);
-      const baseScoreByIdx = percentileRankScores(included.map((c, idx) => ({ idx, value: c.recordCount })));
-
-      // Record volume varies hugely between provinces, and in thin-data ones percentile rank is
-      // mostly noise. Composites there are pulled toward the taxon's neutral threshold; a class
-      // with >=1M records in the province is trusted fully.
-      const CONFIDENCE_LOW_RECORDS = 10_000;
-      const CONFIDENCE_HIGH_RECORDS = 1_000_000;
-      function confidenceFromTotalRecords(totalRecords: number): number {
-        if (totalRecords <= CONFIDENCE_LOW_RECORDS) return 0;
-        if (totalRecords >= CONFIDENCE_HIGH_RECORDS) return 1;
-        return (
-          (Math.log10(totalRecords) - Math.log10(CONFIDENCE_LOW_RECORDS)) /
-          (Math.log10(CONFIDENCE_HIGH_RECORDS) - Math.log10(CONFIDENCE_LOW_RECORDS))
-        );
-      }
-      const totalRecordsByClass = new Map<string, number>();
-      for (const c of included) {
-        const cls = bySpecies.get(c.species)!.class;
-        totalRecordsByClass.set(cls, (totalRecordsByClass.get(cls) ?? 0) + c.recordCount);
-      }
-
-      const localTierBySpecies = new Map<string, string>();
-      included.forEach((c, idx) => {
-        const cls = bySpecies.get(c.species)!.class;
-        // Taxon groups without reliable data density stay untiered everywhere, for consistency.
-        if (NO_RARITY_TIER_TAXON_CLASSES.has(cls as TaxonClass)) return;
-        const rangeScore = spreadScoreByIdx.get(idx) ?? 0.5;
-        const abundanceScore = baseScoreByIdx.get(idx) ?? 0.5;
-        const rawComposite =
-          PROVINCE_RANGE_ABUNDANCE_WEIGHTS.range * rangeScore +
-          PROVINCE_RANGE_ABUNDANCE_WEIGHTS.abundance * abundanceScore;
-        const thresholds =
-          FISH_CLASSES.has(cls) || NEW_OBSCURE_TAXON_CLASSES.has(cls)
-            ? FISH_ABSOLUTE_TIER_THRESHOLDS
-            : cls === "Mammalia"
-              ? MAMMAL_ABSOLUTE_TIER_THRESHOLDS
-              : BIRD_ABSOLUTE_TIER_THRESHOLDS;
-        const confidence = confidenceFromTotalRecords(totalRecordsByClass.get(cls) ?? 0);
-        const neutralAnchor = thresholds.find((t) => t.tier === "occasional")!.minScore;
-        const composite = confidence * rawComposite + (1 - confidence) * neutralAnchor;
-        localTierBySpecies.set(c.species, tierForScore(composite, thresholds));
-      });
-      // Clamp the local tier to within a few steps of the global tier, same rule as
-      // regions/routes.ts, so thin-data noise can't swing a species too far either way.
-      const LOCAL_TIER_GLOBAL_FLOOR_STEPS = 1;
-      const LOCAL_TIER_GLOBAL_CEILING_STEPS = 2;
-      const TIER_ORDER = ["legendary", "rare", "uncommon", "occasional", "common"];
-      const globalTierRes = await pool.query<{ scientific_name: string; tier: string }>(
-        `SELECT s.scientific_name, r.tier FROM species s JOIN species_rarity r ON r.species_id = s.id WHERE s.scientific_name = ANY($1)
-         UNION ALL
-         SELECT ss.synonym_name, r.tier FROM species_synonyms ss JOIN species_rarity r ON r.species_id = ss.species_id
-          WHERE ss.synonym_name = ANY($1)`,
-        [included.map((c) => c.species)],
-      );
-      const globalTierBySpecies = new Map(globalTierRes.rows.map((r) => [r.scientific_name, r.tier]));
-      for (const [species, localTier] of localTierBySpecies) {
-        const globalTier = globalTierBySpecies.get(species);
-        if (!globalTier || globalTier === "unrated") continue;
-        const globalRank = TIER_ORDER.indexOf(globalTier);
-        const localRank = TIER_ORDER.indexOf(localTier);
-        const clampedRank = Math.min(
-          Math.max(localRank, globalRank - LOCAL_TIER_GLOBAL_CEILING_STEPS),
-          globalRank + LOCAL_TIER_GLOBAL_FLOOR_STEPS,
-        );
-        if (clampedRank !== localRank) localTierBySpecies.set(species, TIER_ORDER[clampedRank]);
       }
 
       // Timeout so an exhausted pool fails loudly instead of hanging silently.
@@ -1169,9 +1050,13 @@ async function computeCountryProvinces(
         // Keyed by species id: two names can resolve to one species, and the later one wins.
         const speciesRows = new Map<string, unknown[]>();
         const hotspotRows: unknown[][] = [];
+        const unmatched = new Map<string, number>();
         for (const c of included) {
           const speciesId = idByName.get(c.species);
-          if (!speciesId) continue;
+          if (!speciesId) {
+            unmatched.set(c.species, (unmatched.get(c.species) ?? 0) + c.recordCount);
+            continue;
+          }
 
           // Manual overrides win. is_invasive only ever comes from an override.
           const override = manualOverridesByProvince.get(province.id)?.get(speciesId);
@@ -1188,7 +1073,6 @@ async function computeCountryProvinces(
             c.recordCount,
             isVagrant,
             isInvasive,
-            localTierBySpecies.get(c.species) ?? null,
             hasWeeklyData ? `{${weeklyFrequency.join(",")}}` : null,
           ]);
           for (const hotspot of clustersBySpecies.get(c.species) ?? []) {
@@ -1225,15 +1109,15 @@ async function computeCountryProvinces(
         };
         await insertBatches(
           [...speciesRows.values()],
-          7,
+          6,
           (
             values,
-          ) => `INSERT INTO region_species (region_id, species_id, local_frequency, is_vagrant, is_invasive, local_tier, weekly_frequency)
+          ) => `INSERT INTO region_species (region_id, species_id, local_frequency, is_vagrant, is_invasive, weekly_frequency)
              VALUES ${values}
              ON CONFLICT (region_id, species_id) DO UPDATE SET
                local_frequency = EXCLUDED.local_frequency, is_vagrant = EXCLUDED.is_vagrant, is_invasive = EXCLUDED.is_invasive,
-               local_tier = EXCLUDED.local_tier, weekly_frequency = EXCLUDED.weekly_frequency`,
-          ["::uuid", "::uuid", "::numeric", "::boolean", "::boolean", "::text", "::int[]"],
+               weekly_frequency = EXCLUDED.weekly_frequency`,
+          ["::uuid", "::uuid", "::numeric", "::boolean", "::boolean", "::int[]"],
         );
         written = speciesRows.size;
         await insertBatches(
@@ -1254,10 +1138,26 @@ async function computeCountryProvinces(
           ],
         );
         hotspotsWritten = hotspotRows.length;
+        // Names that would be listed here but match no catalog species or synonym (usually a
+        // taxonomy rename), so they can be mapped instead of silently missing from checklists.
+        // Names that match again leave the list.
+        await client.query(
+          `DELETE FROM region_unmatched_taxa
+           WHERE region_id = $1 AND source = 'gbif' AND resolved_species_id IS NULL AND NOT (external_id = ANY($2))`,
+          [province.id, [...unmatched.keys()]],
+        );
+        await client.query(
+          `INSERT INTO region_unmatched_taxa (region_id, source, external_id, name, record_count)
+           SELECT $1, 'gbif', n, n, c FROM unnest($2::text[], $3::int[]) AS u(n, c)
+           ON CONFLICT (region_id, source, external_id)
+           DO UPDATE SET record_count = EXCLUDED.record_count, last_seen_at = now()`,
+          [province.id, [...unmatched.keys()], [...unmatched.values()]],
+        );
         await client.query(`UPDATE regions SET occurrence_computed_at = now() WHERE id = $1`, [province.id]);
         await client.query("COMMIT");
         console.log(
-          `[compute-provinces-bulk]   ${province.name}: wrote ${written} species, ${hotspotsWritten} hotspot clusters`,
+          `[compute-provinces-bulk]   ${province.name}: wrote ${written} species, ${hotspotsWritten} hotspot clusters` +
+            (unmatched.size > 0 ? `, ${unmatched.size} names matched no catalog species` : ""),
         );
       } catch (err) {
         await client.query("ROLLBACK");
@@ -1356,7 +1256,7 @@ async function reconcileProvinceMembershipWithInat(
 
 async function main() {
   const countriesArg = process.argv.find((a) => a.startsWith("--countries="));
-  const countryNames = countriesArg ? countriesArg.split("=")[1].split(",") : PRIORITY_COUNTRIES;
+  const countryNames = countriesArg ? countriesArg.slice("--countries=".length).split(",") : PRIORITY_COUNTRIES;
   const apply = process.argv.includes("--apply");
   const refreshCache = process.argv.includes("--refresh-gbif-cache");
   const refreshAggregateCache = process.argv.includes("--refresh-aggregate-cache");
@@ -1374,7 +1274,7 @@ async function main() {
       `SELECT r.id, r.name FROM regions r
        JOIN regions cont ON cont.id = r.parent_id
        JOIN regions w ON w.id = cont.parent_id AND w.name = 'World'
-       WHERE r.name = ANY($1)`,
+       WHERE r.name = ANY($1) AND r.home_country_id IS NULL`,
       [countryNames],
     );
     const countryIdByName = new Map(countryRowsRes.rows.map((r) => [r.name, r.id]));
@@ -1412,7 +1312,7 @@ async function main() {
     `SELECT r.id, r.name FROM regions r
      JOIN regions cont ON cont.id = r.parent_id
      JOIN regions w ON w.id = cont.parent_id AND w.name = 'World'
-     WHERE r.name = ANY($1)`,
+     WHERE r.name = ANY($1) AND r.home_country_id IS NULL`,
     [countryNames],
   );
   const countryIdByName = new Map(countryRowsRes.rows.map((r) => [r.name, r.id]));
@@ -1439,6 +1339,8 @@ async function main() {
 
   if (failed.length > 0) {
     console.log(`[compute-provinces-bulk] done, with ${failed.length} failure(s): ${failed.join(", ")}`);
+    // refresh-all-provinces.ts retries a country whose run exits non-zero.
+    process.exitCode = 1;
   } else {
     console.log(`[compute-provinces-bulk] done.`);
   }
