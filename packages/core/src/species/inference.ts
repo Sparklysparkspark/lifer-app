@@ -1,5 +1,6 @@
-// Main-thread side of local inference: a priority queue in front of one worker thread
-// (inferenceWorker.ts) that owns every model session, so the API thread stays responsive.
+// Main-thread side of local inference: a priority queue in front of one worker thread, or one child
+// process with a GPU runtime (inferenceWorker.ts), that owns every model session, so the API
+// thread stays responsive.
 //
 // Priorities: "interactive" (someone is waiting) > "commit" (a photo just imported) >
 // "background" (backfills, warm-up).
@@ -23,6 +24,7 @@ import {
   type ProbeResult,
   type ProviderSpec,
   type RunHooks,
+  type SceneResult,
   type SubjectPresence,
   type TextModelSpec,
   type WorkerMessage,
@@ -30,7 +32,16 @@ import {
 import { currentPlan, onPlanChange, placementFor } from "./acceleration.js";
 import { log } from "../lib/log.js";
 
-export type { AnalyzeResult, CardCrop, EmbedTarget, ProbeResult, ProviderSpec, SubjectPresence, TextModelSpec };
+export type {
+  AnalyzeResult,
+  CardCrop,
+  EmbedTarget,
+  ProbeResult,
+  ProviderSpec,
+  SceneResult,
+  SubjectPresence,
+  TextModelSpec,
+};
 
 export type Priority = "interactive" | "commit" | "background";
 const PRIORITIES: Priority[] = ["interactive", "commit", "background"];
@@ -63,14 +74,22 @@ let mode: "worker" | "in-process" = process.env.LIFER_INFERENCE_IN_PROCESS === "
 
 // The models run in a worker thread, or in a child process when a downloaded GPU runtime needs
 // its own library path, which only a new process can be given (acceleration.ts).
-interface WorkerHandle {
+export interface WorkerHandle {
   post(msg: unknown, transfer: ArrayBuffer[]): void;
-  terminate(): void;
+  /** Resolves once the thread or process has actually exited. */
+  terminate(): Promise<void>;
   ref(): void;
   unref(): void;
 }
+type Runtime = ReturnType<typeof currentPlan>["runtime"];
+export interface WorkerEvents {
+  message(msg: WorkerMessage): void;
+  gone(err: Error): void;
+}
+export type WorkerStarter = (runtime: Runtime, on: WorkerEvents) => WorkerHandle;
+
 let worker: WorkerHandle | null = null;
-let runtime = currentPlan().runtime;
+let runtime: Runtime = currentPlan().runtime;
 let workerReady = false;
 // The plan's runtime changed while a job ran: the worker is replaced once it's done.
 let replaceAfterJob = false;
@@ -98,25 +117,40 @@ function tsxThreadEntry(url: URL): URL {
   return new URL(`data:text/javascript,${encodeURIComponent(boot)}`);
 }
 
-function startWorker(): WorkerHandle {
+const spawnWorker: WorkerStarter = (rt, on) => {
   const { url, execArgv } = workerEntry();
-  workerReady = false;
-  replaceAfterJob = false;
-  if (runtime) return startChild(url, execArgv, runtime);
+  if (rt) return startChild(url, execArgv, rt, on);
   const t = new Worker(execArgv.length > 0 ? tsxThreadEntry(url) : url, { workerData: { marker: WORKER_MARKER } });
-  const w: WorkerHandle = {
+  t.on("message", on.message);
+  t.on("error", on.gone);
+  t.on("exit", (code) => on.gone(new Error(`the inference worker exited (code ${code})`)));
+  return {
     post: (msg, transfer) => t.postMessage(msg, transfer),
-    terminate: () => void t.terminate(),
+    terminate: () => t.terminate().then(() => {}),
     ref: () => t.ref(),
     unref: () => t.unref(),
   };
-  t.on("message", (msg: WorkerMessage) => onWorkerMessage(w, msg));
-  t.on("error", (err) => onWorkerGone(w, err));
-  t.on("exit", (code) => onWorkerGone(w, new Error(`the inference worker exited (code ${code})`)));
+};
+let starter: WorkerStarter = spawnWorker;
+
+/** Tests swap in a fake thread or process; null restores the real one. */
+export function setWorkerStarterForTests(fn: WorkerStarter | null): void {
+  starter = fn ?? spawnWorker;
+}
+
+function startWorker(): WorkerHandle {
+  workerReady = false;
+  replaceAfterJob = false;
+  // The handle doesn't exist until the starter returns, so events find it through this binding.
+  let w: WorkerHandle | null = null;
+  w = starter(runtime, {
+    message: (msg) => w && onWorkerMessage(w, msg),
+    gone: (err) => w && onWorkerGone(w, err),
+  });
   return w;
 }
 
-function startChild(url: URL, execArgv: string[], rt: NonNullable<typeof runtime>): WorkerHandle {
+function startChild(url: URL, execArgv: string[], rt: NonNullable<Runtime>, on: WorkerEvents): WorkerHandle {
   const env = {
     ...process.env,
     LIFER_INFERENCE_CHILD: WORKER_MARKER,
@@ -129,9 +163,17 @@ function startChild(url: URL, execArgv: string[], rt: NonNullable<typeof runtime
     serialization: "advanced",
     stdio: ["ignore", "inherit", "inherit", "ipc"],
   });
-  const w: WorkerHandle = {
+  const exited = new Promise<void>((resolve) => c.once("exit", () => resolve()));
+  c.on("message", on.message);
+  c.on("error", on.gone);
+  c.on("exit", (code) => on.gone(new Error(`the inference process exited (code ${code})`)));
+  return {
     post: (msg) => c.send(msg as never),
-    terminate: () => void c.kill(),
+    terminate: () => {
+      if (c.exitCode !== null || c.signalCode !== null) return Promise.resolve();
+      c.kill();
+      return exited;
+    },
     ref: () => {
       c.ref();
       c.channel?.ref();
@@ -141,25 +183,30 @@ function startChild(url: URL, execArgv: string[], rt: NonNullable<typeof runtime
       c.channel?.unref();
     },
   };
-  c.on("message", (msg: WorkerMessage) => onWorkerMessage(w, msg));
-  c.on("error", (err) => onWorkerGone(w, err));
-  c.on("exit", (code) => onWorkerGone(w, new Error(`the inference process exited (code ${code})`)));
-  return w;
 }
 
+// A GPU runtime's process that crashes this often within the window is given up on. Crashes spread
+// over weeks are unrelated, so they never add up to a fallback.
 const MAX_RUNTIME_CRASHES = 3;
-let runtimeCrashes = 0;
+const RUNTIME_CRASH_WINDOW_MS = 10 * 60_000;
+let runtimeCrashTimes: number[] = [];
+
+function runtimeKeepsCrashing(): boolean {
+  const now = Date.now();
+  runtimeCrashTimes = [...runtimeCrashTimes.filter((t) => now - t < RUNTIME_CRASH_WINDOW_MS), now];
+  return runtimeCrashTimes.length >= MAX_RUNTIME_CRASHES;
+}
 
 // A new GPU runtime takes effect from the next job: the current process is replaced once idle.
 onPlanChange((plan) => {
   if (JSON.stringify(plan.runtime) === JSON.stringify(runtime)) return;
   runtime = plan.runtime;
-  runtimeCrashes = 0;
+  runtimeCrashTimes = [];
   if (mode !== "worker") return;
   const w = worker;
   if (w && !running) {
     worker = null;
-    w.terminate();
+    void w.terminate();
   } else if (w) replaceAfterJob = true;
 });
 
@@ -178,7 +225,7 @@ function finish(job: Job, outcome: { result: InferenceResult } | { error: Error 
     replaceAfterJob = false;
     const w = worker;
     worker = null;
-    w.terminate();
+    void w.terminate();
   }
   if ("error" in outcome) job.reject(outcome.error);
   else {
@@ -229,7 +276,7 @@ function onWorkerGone(w: WorkerHandle, err: Error): void {
     return;
   }
   // A GPU runtime's process that keeps dying: the bundled runtime from here on.
-  if (runtime && ++runtimeCrashes >= MAX_RUNTIME_CRASHES) {
+  if (runtime && runtimeKeepsCrashing()) {
     log.warn(`[inference] The GPU inference process keeps stopping (${err.message}); using a worker thread`);
     runtime = null;
   }
@@ -243,7 +290,7 @@ function timedOut(job: Job, what: string): void {
   if (mode === "worker") {
     const w = worker;
     worker = null; // onWorkerGone ignores this one's exit
-    w?.terminate();
+    void w?.terminate();
     finish(job, { error: err });
   } else {
     // In-process a native call can't be stopped: fail the caller now, and keep the queue held
@@ -270,7 +317,8 @@ function nextJob(): Job | null {
 /** Image bytes are copied once into their own buffer and handed over (not cloned again): a Node
  * Buffer often shares its memory with unrelated data, so it can't be transferred itself. */
 function forTransfer(request: InferenceRequest): { request: InferenceRequest; transfer: ArrayBuffer[] } {
-  if (request.op !== "analyze" || !("bytes" in request.image)) return { request, transfer: [] };
+  if ((request.op !== "analyze" && request.op !== "scene") || !("bytes" in request.image))
+    return { request, transfer: [] };
   const copy = new Uint8Array(request.image.bytes.byteLength);
   copy.set(request.image.bytes);
   return { request: { ...request, image: { bytes: copy } }, transfer: [copy.buffer] };
@@ -387,6 +435,17 @@ export function analyzeImage(
   );
 }
 
+/** The scene classes and colours filling a photo, from the scene model at `modelPath` (CPU only). */
+export function analyzeScene(
+  image: ImageSource,
+  model: { modelPath: string; missingMessage: string },
+  priority: Priority,
+): Promise<SceneResult> {
+  const input =
+    "path" in image && typeof image.path === "string" ? { path: image.path } : { bytes: image as Uint8Array };
+  return submit<SceneResult>({ op: "scene", image: input, ...model }, priority);
+}
+
 /** L2-normalized text-encoder vectors, one per text, in one job. */
 export function embedTexts(
   texts: string[],
@@ -449,16 +508,6 @@ export function inferenceMode(): "worker" | "in-process" {
 /** Several runs in a row have timed out: backfills stop rather than keep feeding it photos. */
 export function isInferenceStuck(): boolean {
   return consecutiveTimeouts >= MAX_CONSECUTIVE_TIMEOUTS;
-}
-
-/** Jobs waiting per priority, plus whether one is running. */
-export function inferenceQueueDepth(): Record<Priority, number> & { running: boolean } {
-  return {
-    interactive: queues.interactive.length,
-    commit: queues.commit.length,
-    background: queues.background.length,
-    running: running !== null,
-  };
 }
 
 /** For tests and shutdown: stops the worker; queued jobs fail. */

@@ -14,7 +14,9 @@ Species suggestions need image models (CLIP ViT-L/14 and BioCLIP 2, plus a small
 
 ## Decision
 
-Run the models (BioCLIP 2 for identification, CLIP for search and as a fallback) with `onnxruntime-node` inside the shared API process, comparing a photo's vector against reference vectors that ship in the catalog seed, on a worker thread (`packages/core/src/species/inferenceWorker.ts`), with a priority queue and timeouts on the main thread (`inference.ts`). From `inferenceWorker.ts`: it's a worker "because onnxruntime blocks the calling thread", and it "Imports nothing from the rest of the app so the desktop inference sidecar can reuse it as is" (used for [matching on the desktop while connected to a server](../state-and-sync.md#desktop-app-connected-to-a-server)).
+Run the models (BioCLIP 2 for identification, CLIP for search and as a fallback) with `onnxruntime-node` inside the shared API process, comparing a photo's vector against reference vectors that ship in the catalog seed, on a worker thread (`packages/core/src/species/inferenceWorker.ts`), with a priority queue and timeouts on the main thread (`inference.ts`). From `inferenceWorker.ts`: it's a worker "because onnxruntime blocks the calling thread", and it imports only config-free modules (logging and the image pixel limit) so the desktop inference sidecar can reuse it as is (used for [matching on the desktop while connected to a server](../state-and-sync.md#desktop-app-connected-to-a-server)).
+
+With a downloaded GPU runtime active, the worker runs as a child process instead of a thread: the runtime's libraries are found through `LD_LIBRARY_PATH`, which only takes effect for a new process. A child process that never starts is replaced by a worker thread with the bundled runtime, and one that crashes three times within ten minutes is given up on the same way until the acceleration plan changes.
 
 Model files are downloaded on first use and checked against pinned SHA-256 hashes, "so a truncated or tampered download is caught before it's ever loaded" (`modelChecksums.ts`). On a machine with a usable GPU, `acceleration.ts` checks the GPU gives the same answers as the CPU and is faster before switching. GPU runtime libraries (CUDA and the onnxruntime GPU build) are "downloaded once ... and only on machines with a card, so CPU-only installs and the Docker image carry none of it", and "Every file is pinned by sha256" (`apps/api/src/species/gpuRuntime.ts`).
 
@@ -39,6 +41,6 @@ Positive:
 Negative:
 
 - **Memory:** the models live in the API's process. Two large models need roughly 4 GB of RAM to be comfortable ([Requirements](../../install/requirements.md#memory)); models are unloaded when idle (`d3d29bd`).
-- **A hung model run can only be handled by restarting the worker**, which the queue does on timeout.
-- **Large optional downloads:** about 620 MB of models, and about 2.7 GB of NVIDIA runtime libraries from PyPI and NuGet on servers with an NVIDIA card. Every pinned version needs its hashes updated by hand.
+- **A hung model run can only be handled by restarting the worker** (thread or GPU child process), which the queue does on timeout.
+- **Large optional downloads:** about 680 MB of models, and about 2.7 GB of NVIDIA runtime libraries from PyPI and NuGet on servers with an NVIDIA card. Every pinned version needs its hashes updated by hand.
 - **Platform gaps:** onnxruntime stopped publishing Intel Mac binaries after 1.23, so the Intel app ships an older onnxruntime that some quantized models don't support ([Desktop app](../desktop-app.md#intel-macs)).
