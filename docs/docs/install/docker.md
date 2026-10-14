@@ -76,21 +76,20 @@ The server runs as two containers: Lifer itself (image `ghcr.io/sparklysparkspar
    This downloads the ready-made image. Nothing is built on your server.
 5. Open `http://<server-ip>:4000` in a browser, using your server's LAN IP address, and [create your account](#first-account).
 
-That's the whole setup. Every other setting has a sensible default; the ones you might want later are in [Environment variables](./environment-variables.md), and they go under `environment:` in the same file.
+Every other setting has a default. The ones you might want later are in [Environment variables](./environment-variables.md), and they go under `environment:` in the same file.
 
 On a NAS with a Docker interface (a TrueNAS Custom App, Portainer Stacks, Synology Container Manager, or Unraid's Compose Manager plugin), paste the file from step 3 into it, with your folders and password filled in. You don't need a terminal.
 
 ### Alternative: the repository's compose file with a `.env` file {#env-setup}
 
-The repository has a fuller [`docker-compose.yml`](https://raw.githubusercontent.com/Sparklysparkspark/lifer-app/main/docker-compose.yml) that reads its settings from a [`.env`](https://raw.githubusercontent.com/Sparklysparkspark/lifer-app/main/.env.example) file (rename `.env.example` to `.env`). It adds three things the file above leaves out:
+The repository has a fuller [`docker-compose.yml`](https://raw.githubusercontent.com/Sparklysparkspark/lifer-app/main/docker-compose.yml) that reads its settings from a [`.env`](https://raw.githubusercontent.com/Sparklysparkspark/lifer-app/main/.env.example) file (rename `.env.example` to `.env`). It adds two things the file above leaves out:
 
 - a `permissions` step that makes the library folder writable for you, with `PUID` and `PGID` choosing the user (see [File ownership](#file-ownership));
-- the automatic move of a database from Lifer 0.9.0 or earlier to Postgres 18 (see [Upgrading](./upgrading.md#postgres-18)), for installs that used its named volumes;
 - every optional setting listed, so you can change one by editing `.env`.
 
 In `.env`, set `LIFER_STORAGE_DIR` to your photo library folder and `DB_PASSWORD` to a database password before the first start, then run `docker compose up -d`.
 
-Nothing else needs setting up. Lifer works out whether you reached it over plain `http://` or HTTPS on its own, for every request.
+Lifer works out on its own whether each request came over plain `http://` or HTTPS, so there's nothing to set for that.
 
 Lifer serves the web app and its API on one port (`PORT`, `4000` by default). For HTTPS or a domain name, put a reverse proxy in front. See [Reverse proxy and HTTPS](./reverse-proxy.md).
 
@@ -118,15 +117,9 @@ The compose file stores data in three places:
 
 Your photos and the database are what you must [back up](./backup-restore.md).
 
-With the `.env` setup, servers installed with Lifer 0.9.0 or earlier also have a volume `lifer-postgres-data`, the old Postgres 16 database. Lifer reads it once, read-only, to [move it to Postgres 18](./upgrading.md#postgres-18), and you can remove it afterwards. On a new install it stays empty.
-
-:::note The database isn't on your network
 Postgres is only reachable by Lifer, inside Docker. It doesn't use your server's port `5432`, so it won't clash with another database. To reach it yourself, go through Docker, for example `docker compose exec postgres psql -U lifer lifer`. [Backups](./backup-restore.md) work the same way.
-:::
 
-:::caution Moving the library folder
 To move or rename the library folder, stop Lifer first (`docker compose down`), move the folder, update its path in `docker-compose.yml` (or `LIFER_STORAGE_DIR` in `.env`), then start Lifer again. Moving it while Lifer runs makes every upload fail until Lifer restarts.
-:::
 
 The species catalog is built into the image, so a new server shows countries and checklists right away, even without internet access.
 
@@ -140,9 +133,9 @@ With the [`.env` setup](#env-setup), `PUID` and `PGID` in `.env` choose the user
 
 - gives everything in the `lifer-app-data` volume to `PUID:PGID`, since those are Lifer's own files;
 - gives the top of your library folder to `PUID:PGID`, so Lifer can create folders in it;
-- once, the first time you start Lifer 0.9.0 or newer, gives `PUID:PGID` any files in the library that belong to root. Versions before 0.9.0 ran as root, so this lets Lifer manage the photos it saved back then.
+- gives `PUID:PGID` any files in the library that belong to root, once.
 
-It never changes library files that belong to anyone else, such as files written by an SMB share, Syncthing or another app. Make sure the `PUID` user can read those, and write to them if Lifer should rename or tag them. Lifer starts once the `permissions` container has finished. Its log shows what it did:
+It never changes library files that belong to anyone else, such as files written by an SMB share, Syncthing or another app, or folders you add under [Extra library folders](#extra-library-folders). Make sure the `PUID` user can read those, and write to them if Lifer should rename, tag or save photos there. Lifer starts once the `permissions` container has finished. Its log shows what it did:
 
 ```bash
 docker compose logs permissions
@@ -161,8 +154,6 @@ docker compose exec postgres psql -U lifer -c "ALTER USER lifer PASSWORD 'new-pa
 # then put new-password in POSTGRES_PASSWORD and DATABASE_URL (or DB_PASSWORD in .env), and:
 docker compose up -d
 ```
-
-Folders you add under [Extra library folders](#extra-library-folders) aren't changed. Make sure the `PUID` user can read them, and write to them if Lifer should save photos there.
 
 ## Extra library folders {#extra-library-folders}
 
@@ -185,7 +176,7 @@ On a server, Lifer can only read and write folders you give it. Besides `/data`,
    Separate several with commas: `NAS=/library/nas,Archive=/library/archive`.
 3. Run `docker compose up -d` again.
 
-The folders show up in **Settings > Storage > Library folders**. Anything outside `/data` and these folders is refused.
+The folders show up in **Settings > Storage > Extra library folders**. Anything outside `/data` and these folders is refused.
 
 All the settings are listed in [Environment variables](./environment-variables.md).
 
@@ -208,12 +199,8 @@ Lifer doesn't update itself on a server. You choose when to update:
 
 Lifer applies any database changes by itself when it starts. The web app shows a banner when a newer release exists.
 
-Coming from Lifer 0.9.0 or earlier:
-
-- **With the repository's compose file and `.env`:** download the new `docker-compose.yml` first. The database moves to Postgres 18 by itself on that first start. See [Moving the database to Postgres 18](./upgrading.md#postgres-18).
-- **With your own compose file** that still uses `postgis/postgis:16-3.4-alpine`: keep that image for now. Lifer works with it. Don't just change it to `postgres:18-alpine`: Postgres 18 can't open a Postgres 16 database folder. To move, [back up the database](./backup-restore.md#back-up-the-database), switch to the setup above with a new, empty database folder, and [restore](./backup-restore.md) into it.
-
 See [Upgrading](./upgrading.md) for choosing a version, rolling back, and auto-updaters.
+
 ## Admin commands
 
 The image includes `lifer-admin` for tasks you do from a shell inside the container:

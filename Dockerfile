@@ -1,6 +1,7 @@
 # One container serves the API and the built web app on one port, so a proxy needs one upstream.
 # Debian slim, not Alpine: sharp and exiftool-vendored ship glibc binaries, and exiftool needs perl.
-FROM node:22-slim AS base
+# Pinned by digest like every CI action; Dependabot (docker ecosystem) bumps the tag and digest together.
+FROM node:22-slim@sha256:c3de60bf2f9dd0ac6370e6117950ff62d6e339527e7472301c9c78a017978392 AS base
 RUN apt-get update && apt-get install -y --no-install-recommends perl && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 

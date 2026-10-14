@@ -5,7 +5,7 @@ description: Reach Lifer at your own domain with HTTPS, using Nginx Proxy Manage
 
 # Reverse proxy and HTTPS
 
-A reverse proxy gives Lifer a domain name and HTTPS, like `https://lifer.example.com`. Lifer needs very little from it: the proxy just forwards requests to Lifer's port.
+A reverse proxy gives Lifer a domain name and HTTPS, like `https://lifer.example.com`. The proxy only needs to forward requests to Lifer's port.
 
 On a home network with no domain, you can skip this page and use `http://<server-ip>:4000`.
 
@@ -17,7 +17,7 @@ On a home network with no domain, you can skip this page and use `http://<server
 
 Lifer sees that you reached it over HTTPS and keeps your sign-in HTTPS only.
 
-A few things you don't need to worry about:
+You don't need to change these in your proxy:
 
 - **Upload size.** Photos and videos of any size go up in small, resumable pieces, so you don't need to raise your proxy's upload limit. See [Large uploads](#large-uploads).
 - **Websockets.** Lifer doesn't use them.
@@ -38,11 +38,7 @@ Set `TRUST_PROXY` in `.env` to that address:
 | Lifer runs without Docker, with the proxy on the same machine | `TRUST_PROXY=loopback` |
 | Two proxies in a row, like Cloudflare in front of nginx | `TRUST_PROXY=2`, the number of proxies, but only if Lifer's port can't be reached without going through them. |
 
-Several values can be combined with commas, like `TRUST_PROXY=192.168.1.5,172.16.0.0/12`.
-
-:::note Upgrading
-Lifer used to trust any proxy on a private network by default. If you use a reverse proxy and never set `TRUST_PROXY`, add it as above. Setting `TRUST_PROXY=loopback,linklocal,uniquelocal` brings back the old behavior exactly, including its weakness on a shared network.
-:::
+Several values can be combined with commas, like `TRUST_PROXY=192.168.1.5,172.16.0.0/12`. See [Environment variables](./environment-variables.md#security-and-reverse-proxies) for every value `TRUST_PROXY` accepts.
 
 ## Examples
 
@@ -111,10 +107,6 @@ The Lifer web app and desktop app send files in pieces that start at 8 MB. If a 
 
 Only scripts that upload with a single plain multipart request (instead of [resumable uploads](../api/overview.md#large-files)) are limited by the proxy. For those, raise the limit in nginx with `client_max_body_size 0;`.
 
-## Unusual setups {#advanced}
+## The desktop app at home and away
 
-- **Two proxies in a row**, like Cloudflare in front of nginx: see [Tell Lifer about your proxy](#trust-proxy).
-
-See [Environment variables](./environment-variables.md#security-and-reverse-proxies) for details.
-
-If the desktop app connects to this server, it can use the fast local address at home and your domain elsewhere. See [Automatic URL switching](./connect-desktop-to-server.md#url-switching).
+If the desktop app connects to this server, it can use the fast local address at home and your domain elsewhere. See [Automatic address switching](./connect-desktop-to-server.md#url-switching).
