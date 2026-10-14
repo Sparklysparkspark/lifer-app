@@ -16,7 +16,7 @@ Every import path ends the same way: the original file is filed into a species f
 Two requests, so the user can review before anything is saved:
 
 1. **`POST /api/uploads/inspect`** (`apps/api/src/uploads/inspect.ts`) reads EXIF, keywords and cull marks, checks for duplicates and suggests species. It writes no database rows. A multipart file is kept in a staging folder and returned as a `stagedId`, so the import doesn't upload it again.
-2. **`POST /api/uploads`** (`apps/api/src/uploads/photo.ts`) imports. Its `mode` is `store` (the default: file the file into the library), `link` (leave it where it is, unmanaged; the path must pass the [path allowlist](../security-model.md#file-access)), or `s3` (an object in the configured bucket).
+2. **`POST /api/uploads`** (`apps/api/src/uploads/photo.ts`) imports. Its `mode` is `store` (the default: file the file into the library) or `link` (leave it where it is, unmanaged; the path must pass the [path allowlist](../security-model.md#file-access)).
 
 `POST /api/uploads/raw` takes many RAW files at once (two in parallel), and `POST /api/uploads/video` takes MP4 and MOV.
 
@@ -40,7 +40,7 @@ There's no other life-list import. iNaturalist is the other direction: Lifer sen
 
 ## RAW and JPEG pairing
 
-RAW extensions are listed in `apps/api/src/uploads/rawExtensions.ts` (`.cr2 .cr3 .nef .nrw .arw .raf .rw2 .orf .dng .pef .srw`, and `.tif`/`.tiff` only when the file holds sensor data). Lifer doesn't develop RAW files; it shows the JPEG preview embedded in them (`PreviewImage`, then `JpgFromRaw`, then `ThumbnailImage`, in `apps/api/src/uploads/exif.ts`).
+RAW extensions are listed in `packages/core/src/uploads/formats.ts` (`.cr2 .cr3 .nef .nrw .arw .raf .rw2 .orf .dng .pef .srw`, and `.tif`/`.tiff` only when the file holds sensor data). Lifer doesn't develop RAW files; it shows the JPEG preview embedded in them (`PreviewImage`, then `JpgFromRaw`, then `ThumbnailImage`, in `apps/api/src/uploads/exif.ts`).
 
 A RAW and a JPEG are one capture with two `originals` rows (`kind = 'raw'` and `'jpeg'`). When a RAW arrives (`findRawRelatedCaptures` in `apps/api/src/uploads/rawMatching.ts`), Lifer looks for a capture with no RAW yet:
 
@@ -81,7 +81,7 @@ Species are only assigned without the user in recovery: reimport (from keywords 
 
 ## Where files go
 
-Store-mode imports file the original under (`apps/api/src/uploads/organizedPath.ts`):
+Store-mode imports file the original under this layout. Every import path builds it through `speciesFolder` in `apps/api/src/uploads/managedFolders.ts` (layout in `organizedPath.ts`), so a species' photos, RAWs and videos always share one folder:
 
 ```text
 [<location>/][Wildlife <year>/]<Taxon>/<Species folder>/<RAW | Adjusted | Video>/<file>
@@ -94,7 +94,7 @@ Store-mode imports file the original under (`apps/api/src/uploads/organizedPath.
 
 Files keep their own names. A clash gets `-2`, `-3` and so on, up to 1000. Files are moved with a hard link and unlink, falling back to an exclusive copy: a move never overwrites (`packages/core/src/lib/safeFs.ts`). See [ADR 0007](./decisions/0007-library-layout-species-folders.md).
 
-A managed original always stays under the base it was filed under (`locateManagedOriginal` in `apps/api/src/uploads/managedFolders.ts`: its trip's destination folder when it's inside it, else its volume's `Lifer Originals` folder for a file on a drive or library root, else the library). When the user changes a photo's species (or a new photo claims an unmatched RAW), only the `<Taxon>/<Species folder>` levels change: the base and any year and location folders above them stay as they are (`moveManagedOriginalToSpeciesFolder`). A file not in that layout is filed under its base with the current settings, and one outside every base Lifer knows, or on a drive that isn't connected, stays put. The move happens before the database changes and is undone if the transaction fails; a file on a volume keeps `volume_id`, with `volume_relative_path` updated; emptied species folders are removed. Unmanaged (linked) files never move. **Reorganize existing photos now** in [Settings > Library](../settings.md#photo-library-organization) (`POST /api/settings/reorganize-originals`) refiles every managed original (hidden ones too, not trashed ones) under its own base with the current naming, year and location settings, skipping files on disconnected drives. Reimport's "organize" is the one path that moves files into the library from elsewhere (`fileIntoMainLibrary` in `apps/api/src/uploads/common.ts`).
+A managed original always stays under the base it was filed under (`locateManagedOriginal` in `apps/api/src/uploads/managedFolders.ts`: its trip's destination folder when it's inside it, else its volume's `Lifer Originals` folder for a file on a drive or library root, else the library). When the user changes a photo's species (or a new photo claims an unmatched RAW), only the `<Taxon>/<Species folder>` levels change: the base and any year and location folders above them stay as they are (`moveManagedOriginalToSpeciesFolder`). A file not in that layout is filed under its base with the current settings, and one outside every base Lifer knows, or on a drive that isn't connected, stays put. The move happens before the database changes and is undone if the transaction fails; a file on a volume keeps `volume_id`, with `volume_relative_path` updated; emptied species folders are removed. Unmanaged (linked) files never move. **Reorganize existing photos** in [Settings > Library](../settings.md#photo-library-organization) (`POST /api/settings/reorganize-originals`) refiles every managed original (hidden ones too, not trashed ones) under its own base with the current naming, year and location settings, skipping files on disconnected drives. Reimport's "organize" is the one path that moves files into the library from elsewhere (`fileIntoMainLibrary` in `apps/api/src/uploads/common.ts`).
 
 ## Previews
 
@@ -119,7 +119,7 @@ At import the user chooses what a reject does: skip it, import it hidden (`hidde
 
 Lifer writes its species and rating back to files so the library stays meaningful without Lifer, and so a lost database can be rebuilt ([ADR 0006](./decisions/0006-database-primary-files-carry-recovery-copy.md)). Everything goes through `syncCaptureXmpSidecars` (`apps/api/src/uploads/xmpSidecarSync.ts`) and `writeCaptureMetadata` (`apps/api/src/uploads/exif.ts`).
 
-**Only managed files are written**: originals with `managed = true` and `ref_type = 'path'`. Linked files and S3 objects are never touched.
+**Only managed files are written**: originals with `managed = true`. Linked files are never touched.
 
 **Where:** inside JPEG, TIFF, PNG, DNG, WebP, HEIC and HEIF files. For everything else, RAW and video, a `<name>.xmp` sidecar next to the file.
 
@@ -138,7 +138,7 @@ Keywords from other tools are kept: only Lifer's own (species names and codes, `
 
 **How:** `exiftool -overwrite_original`, one write at a time per file. ExifTool rewrites the file through a temp file and rename, so an interrupted write doesn't leave a half-written photo, but the file's modification time changes, which backup tools see as a change.
 
-**When:** in the background after an upload commits, and after a change of species (including extra species), rating, cover, or tags (including renaming or deleting a tag in Manage tags), after a reorganize, and after a catalog update moves photos to a merged species. A failed write is logged or ignored and never fails the request, so files can lag behind the database. Trip imports and video uploads don't write at import; their files are written at the next change.
+**When:** in the background after an upload commits, and after a change of species (including extra species), rating, cover, or tags (including renaming or deleting a tag on the Tags page), after a reorganize, and after a catalog update moves photos to a merged species. A failed write is logged or ignored and never fails the request, so files can lag behind the database. Trip imports and video uploads don't write at import; their files are written at the next change.
 
 ## Recovery files in the library
 

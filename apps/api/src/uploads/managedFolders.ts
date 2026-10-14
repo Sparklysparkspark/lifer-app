@@ -15,7 +15,7 @@ import { captureTimeFromTags, readExifTags } from "./exif.js";
 import { originalsFolder } from "./organizedPath.js";
 import { resolveSpeciesFolderName } from "./speciesFolderName.js";
 
-type Subfolder = "RAW" | "Adjusted" | "Video";
+export type Subfolder = "RAW" | "Adjusted" | "Video";
 const SUBFOLDERS = new Set<string>(["RAW", "Adjusted", "Video"]);
 
 export function subfolderFor(kind: string): Subfolder {
@@ -86,6 +86,36 @@ async function speciesFolderParts(userId: string, speciesId: string, namingStyle
   };
 }
 
+/** The folder a new or refiled original goes in under `base` (the library, a drive's or root's
+ *  "Lifer Originals" folder, or a trip folder), following the user's file settings. Every caller
+ *  files through here so a species' JPEGs, RAWs and videos always share one <taxon>/<species>
+ *  folder. `allowLocation: false` leaves out the location layer even when the user organizes by
+ *  location. Pass `settings` to reuse ones already read or to override a setting for one run. */
+export async function speciesFolder(
+  userId: string,
+  speciesId: string,
+  base: string,
+  o: {
+    subfolder: Subfolder;
+    takenAt: Date | null;
+    wallClock?: string | null;
+    locationLabel?: string | null;
+    allowLocation?: boolean;
+  },
+  settings?: UserFileSettings,
+): Promise<string> {
+  const s = settings ?? (await getUserFileSettings(userId));
+  return originalsFolder(base, {
+    ...(await speciesFolderParts(userId, speciesId, s.namingStyles)),
+    organizeByYear: s.organizeByYear,
+    organizeByLocation: (o.allowLocation ?? true) && s.organizeByLocation,
+    locationLabel: o.locationLabel ?? null,
+    takenAt: o.takenAt,
+    takenAtWallClock: o.wallClock ?? null,
+    subfolder: o.subfolder,
+  });
+}
+
 /** The folder the user's current settings file a managed original in, under its own root: what
  *  Reorganize applies. Trip folders get the year layer but never a location one, as trip imports
  *  file them. Null for a file outside every root Lifer knows. */
@@ -96,15 +126,19 @@ export async function organizedFolderFor(
   settings: UserFileSettings,
 ): Promise<string | null> {
   if (!location.root) return null;
-  return originalsFolder(location.root, {
-    ...(await speciesFolderParts(userId, original.speciesId, settings.namingStyles)),
-    organizeByYear: settings.organizeByYear,
-    organizeByLocation: settings.organizeByLocation && !location.tripRoot,
-    locationLabel: original.locationLabel,
-    takenAt: original.takenAt,
-    takenAtWallClock: settings.organizeByYear ? await fileWallClock(location.path) : null,
-    subfolder: subfolderFor(original.kind),
-  });
+  return speciesFolder(
+    userId,
+    original.speciesId,
+    location.root,
+    {
+      subfolder: subfolderFor(original.kind),
+      takenAt: original.takenAt,
+      wallClock: settings.organizeByYear ? await fileWallClock(location.path) : null,
+      locationLabel: original.locationLabel,
+      allowLocation: !location.tripRoot,
+    },
+    settings,
+  );
 }
 
 export interface MovedOriginal {
@@ -129,13 +163,12 @@ export async function moveManagedOriginalToSpeciesFolder(
     ManagedOriginalRow & {
       kind: string;
       managed: boolean;
-      ref_type: string;
       taken_at: Date | null;
       location_label: string | null;
     }
   >(
     // captures_all: a hidden photo's files are filed like any other.
-    `SELECT o.ref, o.kind, o.managed, o.ref_type, o.volume_id, o.volume_relative_path,
+    `SELECT o.ref, o.kind, o.managed, o.volume_id, o.volume_relative_path,
             t.destination_folder AS trip_destination, c.taken_at, c.location_label
      FROM originals o
      LEFT JOIN captures_all c ON c.id = o.capture_id
@@ -144,7 +177,7 @@ export async function moveManagedOriginalToSpeciesFolder(
     [originalId],
   );
   const row = res.rows[0];
-  if (!row || !row.managed || row.ref_type !== "path") return null;
+  if (!row || !row.managed) return null;
   const location = await locateManagedOriginal(userId, row);
   if (!location || !existsSync(location.path)) return null;
 

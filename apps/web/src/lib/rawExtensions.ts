@@ -1,4 +1,4 @@
-// Mirrors packages/core/src/uploads/formats.ts VENDOR_RAW_EXTENSIONS and uploads/rawExtensions.ts.
+// Mirrors packages/core/src/uploads/formats.ts VENDOR_RAW_EXTENSIONS.
 // Keep them in sync.
 export const VENDOR_RAW_EXTENSIONS = new Set([
   ".cr2",

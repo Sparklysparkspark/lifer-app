@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import { rmSync } from "node:fs";
 import path from "node:path";
 import type { FastifyInstance } from "fastify";
+import type { PoolClient } from "pg";
 import { pool } from "@lifer/core/db.js";
 import { requireAuth } from "../auth/session.js";
 import { withSchemas } from "../lib/schema.js";
@@ -21,8 +22,8 @@ import {
 } from "./exif.js";
 import { syncCaptureXmpSidecars } from "./xmpSidecarSync.js";
 import { isRawExtension, isRawFile } from "@lifer/core/uploads/formats.js";
-import { originalsFolder } from "./organizedPath.js";
-import { resolveSpeciesFolderName } from "./speciesFolderName.js";
+import { speciesFolder } from "./managedFolders.js";
+import { insertCapture, insertOriginal } from "./captureRows.js";
 import { resolveChosenVolumeDestination } from "../storageVolumes/resolve.js";
 import { ensureDir } from "@lifer/core/lib/safeFs.js";
 import { moveFile, receiveToFile } from "../lib/stagedUploads.js";
@@ -32,7 +33,6 @@ import { log } from "@lifer/core/lib/log.js";
 import { markCollected } from "../lib/userSpecies.js";
 import type { CullMarks } from "@lifer/shared";
 import { NO_CULL_MARKS } from "./cullMarks.js";
-import { getUserFileSettings } from "../lib/userFileSettings.js";
 import { contentHash } from "@lifer/core/species/inference.js";
 import { findRawRelatedCaptures, type RawCaptureMatch } from "./rawMatching.js";
 import { claimUploadById, isUploadSourceError, type ReceivedFile } from "./uploadSource.js";
@@ -80,17 +80,18 @@ async function fileRawWithCapture(
   fingerprint: ExifFingerprint,
   chosenVolume: ChosenVolume | null,
 ): Promise<void> {
-  const { organizeByYear, organizeByLocation } = await getUserFileSettings(userId);
-  const folder = originalsFolder(match.trip_folder ?? chosenVolume?.baseDir ?? ORIGINALS_DIR, {
-    organizeByYear,
-    organizeByLocation,
-    locationLabel: match.location_label,
-    speciesFolderName: await resolveSpeciesFolderName(userId, match.species_id),
-    taxonClass: match.taxon_class,
-    takenAt: exif.takenAt,
-    takenAtWallClock: time?.wallClock,
-    subfolder: "RAW",
-  });
+  const folder = await speciesFolder(
+    userId,
+    match.species_id,
+    match.trip_folder ?? chosenVolume?.baseDir ?? ORIGINALS_DIR,
+    {
+      subfolder: "RAW",
+      takenAt: exif.takenAt,
+      wallClock: time?.wallClock,
+      locationLabel: match.location_label,
+      allowLocation: !match.trip_folder,
+    },
+  );
   const dest = await moveIntoLibrary(
     file.path,
     folder,
@@ -98,21 +99,18 @@ async function fileRawWithCapture(
   );
   const volumeRelativePath = chosenVolume ? dest.slice(chosenVolume.mountPath.length) : null;
   try {
-    await pool.query(
-      `INSERT INTO originals (capture_id, kind, ref_type, ref, managed, content_hash, file_size, exif_fingerprint, exif_fingerprint_loose, user_id, volume_id, volume_relative_path)
-       VALUES ($1, 'raw', 'path', $2, true, $3, $4, $5, $6, $7, $8, $9)`,
-      [
-        match.id,
-        dest,
-        file.sha256,
-        file.size,
-        fingerprint.strict,
-        fingerprint.loose,
-        userId,
-        chosenVolume?.volumeId ?? null,
-        volumeRelativePath,
-      ],
-    );
+    await insertOriginal(pool, {
+      userId,
+      captureId: match.id,
+      kind: "raw",
+      ref: dest,
+      managed: true,
+      contentHash: file.sha256,
+      fileSize: file.size,
+      exifFingerprint: fingerprint,
+      volumeId: chosenVolume?.volumeId ?? null,
+      volumeRelativePath,
+    });
   } catch (err) {
     await moveFile(dest, file.path).catch(() => rmSync(dest, { force: true }));
     throw err;
@@ -167,11 +165,9 @@ async function processOneRawUpload(
     const speciesRes = await pool.query<{
       common_name: string | null;
       scientific_name: string;
-      taxon_class: string | null;
-    }>(`SELECT common_name, scientific_name, taxon_class FROM species WHERE id = $1`, [speciesId]);
+    }>(`SELECT common_name, scientific_name FROM species WHERE id = $1`, [speciesId]);
     const species = speciesRes.rows[0];
     if (species) {
-      const { organizeByYear } = await getUserFileSettings(userId);
       // A content-identical file already filed for this species is the same photo: skip it.
       const existing = await pool.query(
         `SELECT 1 FROM originals WHERE kind = 'raw' AND species_id = $1 AND content_hash = $2 AND user_id = $3 LIMIT 1`,
@@ -181,13 +177,11 @@ async function processOneRawUpload(
         return { filename: rawFileName, linked: false, collision: false, duplicate: true };
       }
 
-      const folder = originalsFolder(chosenVolume?.baseDir ?? ORIGINALS_DIR, {
-        organizeByYear,
-        speciesFolderName: await resolveSpeciesFolderName(userId, speciesId),
-        taxonClass: species.taxon_class,
-        takenAt: exif.takenAt,
-        takenAtWallClock: time?.wallClock,
+      const folder = await speciesFolder(userId, speciesId, chosenVolume?.baseDir ?? ORIGINALS_DIR, {
         subfolder: "RAW",
+        takenAt: exif.takenAt,
+        wallClock: time?.wallClock,
+        allowLocation: false,
       });
       // A plain name collision gets a "-2" suffix; identical content was ruled out above.
       const dest = await moveIntoLibrary(
@@ -197,21 +191,19 @@ async function processOneRawUpload(
       );
       const volumeRelativePath = chosenVolume ? dest.slice(chosenVolume.mountPath.length) : null;
       try {
-        await pool.query(
-          `INSERT INTO originals (capture_id, kind, ref_type, ref, managed, content_hash, file_size, exif_fingerprint, exif_fingerprint_loose, user_id, species_id, volume_id, volume_relative_path)
-           VALUES (NULL, 'raw', 'path', $1, true, $2, $3, $4, $5, $6, $7, $8, $9)`,
-          [
-            dest,
-            contentHash,
-            fileSize,
-            fingerprint.strict,
-            fingerprint.loose,
-            userId,
-            speciesId,
-            chosenVolume?.volumeId ?? null,
-            volumeRelativePath,
-          ],
-        );
+        await insertOriginal(pool, {
+          userId,
+          captureId: null,
+          speciesId,
+          kind: "raw",
+          ref: dest,
+          managed: true,
+          contentHash,
+          fileSize,
+          exifFingerprint: fingerprint,
+          volumeId: chosenVolume?.volumeId ?? null,
+          volumeRelativePath,
+        });
       } catch (err) {
         await moveFile(dest, tmpPath).catch(() => rmSync(dest, { force: true }));
         throw err;
@@ -260,7 +252,6 @@ export async function handleRawPrimaryUpload(
   const fingerprint: ExifFingerprint = await computeExifFingerprint(file.path, tags);
   let previewBuffer: Buffer | null = await extractEmbeddedPreview(file.path);
 
-  const { organizeByYear, organizeByLocation } = await getUserFileSettings(userId);
   const rawHash = file.sha256;
 
   const matches = await findRawRelatedCaptures(userId, rawFileName, exif, fingerprint, time);
@@ -292,15 +283,12 @@ export async function handleRawPrimaryUpload(
       if (d) photo = { id: photoId, ...d };
       else previewBuffer = null;
     }
-    const folder = originalsFolder(tripBaseDir ?? chosenVolume?.baseDir ?? ORIGINALS_DIR, {
-      organizeByYear,
-      organizeByLocation,
-      locationLabel: place.locationLabel,
-      speciesFolderName: await resolveSpeciesFolderName(userId, species.id),
-      taxonClass: species.taxon_class,
-      takenAt: exif.takenAt,
-      takenAtWallClock: time?.wallClock,
+    const folder = await speciesFolder(userId, species.id, tripBaseDir ?? chosenVolume?.baseDir ?? ORIGINALS_DIR, {
       subfolder: "RAW",
+      takenAt: exif.takenAt,
+      wallClock: time?.wallClock,
+      locationLabel: place.locationLabel,
+      allowLocation: !tripBaseDir,
     });
     dest = await moveIntoLibrary(
       file.path,
@@ -316,40 +304,24 @@ export async function handleRawPrimaryUpload(
   const volumeRelativePath = chosenVolume ? filedRaw.slice(chosenVolume.mountPath.length) : null;
   const photoId = photo?.id ?? null;
 
-  const client = await pool.connect();
+  // Connected inside the try, so a failed connect still moves the file back.
+  let client: PoolClient | undefined;
   let captureId: string;
   try {
+    client = await pool.connect();
     await client.query("BEGIN");
     await client.query(UPLOAD_TX_TIMEOUTS);
-    const captureRes = await client.query<{ id: string }>(
-      `INSERT INTO captures
-         (user_id, species_id, fingerprint, exif_fingerprint, exif_fingerprint_loose, taken_at, lat, lon, camera_model, lens, focal_length_mm, aperture, shutter, iso, trip_id, quality_rating, region_id, location_label, cull_verdict, cull_label)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
-       RETURNING id`,
-      [
-        userId,
-        species.id,
-        rawHash,
-        fingerprint.strict,
-        fingerprint.loose,
-        exif.takenAt,
-        exif.lat,
-        exif.lon,
-        exif.cameraModel,
-        exif.lens,
-        exif.focalLengthMm,
-        exif.aperture,
-        exif.shutter,
-        exif.iso,
-        tripId,
-        exif.rating,
-        place.regionId,
-        place.locationLabel,
-        cull.marks.verdict,
-        cull.marks.label,
-      ],
-    );
-    captureId = captureRes.rows[0].id;
+    captureId = await insertCapture(client, {
+      userId,
+      speciesId: species.id,
+      fingerprint: rawHash,
+      exifFingerprint: fingerprint,
+      exif,
+      tripId,
+      regionId: place.regionId,
+      locationLabel: place.locationLabel,
+      cull: cull.marks,
+    });
 
     if (photo) {
       await client.query(
@@ -361,43 +333,42 @@ export async function handleRawPrimaryUpload(
 
     if (!cull.hidden) await markCollected(client, userId, species.id, photoId, exif.takenAt);
 
-    await client.query(
-      `INSERT INTO originals (capture_id, kind, ref_type, ref, managed, content_hash, file_size, exif_fingerprint, exif_fingerprint_loose, user_id, volume_id, volume_relative_path)
-       VALUES ($1, 'raw', 'path', $2, true, $3, $4, $5, $6, $7, $8, $9)`,
-      [
-        captureId,
-        filedRaw,
-        rawHash,
-        file.size,
-        fingerprint.strict,
-        fingerprint.loose,
-        userId,
-        chosenVolume?.volumeId ?? null,
-        volumeRelativePath,
-      ],
-    );
+    await insertOriginal(client, {
+      userId,
+      captureId,
+      kind: "raw",
+      ref: filedRaw,
+      managed: true,
+      contentHash: rawHash,
+      fileSize: file.size,
+      exifFingerprint: fingerprint,
+      volumeId: chosenVolume?.volumeId ?? null,
+      volumeRelativePath,
+    });
 
     // Last, since the rows above are written through the `captures` view, which hides it.
     if (cull.hidden) await client.query(`UPDATE captures_all SET hidden_at = now() WHERE id = $1`, [captureId]);
 
     await client.query("COMMIT");
   } catch (err) {
-    await client.query("ROLLBACK").catch(() => {});
+    await client?.query("ROLLBACK").catch(() => {});
     removeFiles(written);
     await moveBack();
     throw err;
   } finally {
-    client.release();
+    client?.release();
   }
 
   // This photo may just have become the species' cover: frame the card on the animal.
   if (!cull.hidden) ensureDefaultCardCropLater(userId, species.id);
   // A RAW's species keywords and rating go in an .xmp sidecar next to it, where Lightroom and
   // digiKam look.
-  syncCaptureXmpSidecars(userId, captureId).catch(() => {});
+  syncCaptureXmpSidecars(userId, captureId).catch((err) =>
+    log.warn({ err, captureId }, "Couldn't write this RAW capture's XMP sidecar"),
+  );
 
   if (previewBuffer) {
-    queueCaptureVectors(captureId, previewBuffer, contentHash(previewBuffer), (err) =>
+    queueCaptureVectors(captureId, photoId, previewBuffer, contentHash(previewBuffer), (err) =>
       log.warn({ err, captureId }, "Couldn't compute a species-suggestion embedding for this RAW capture"),
     );
   }

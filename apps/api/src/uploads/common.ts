@@ -17,10 +17,12 @@ import {
   type PhotoVectorKind,
 } from "@lifer/core/species/embeddings.js";
 import { idModel } from "@lifer/core/species/idModel.js";
+import { storeCaptureScene } from "@lifer/core/species/sceneModel.js";
 import type { ImageSource } from "@lifer/core/species/inference.js";
 import type { CaptureTime } from "./exif.js";
-import { originalsFolder } from "./organizedPath.js";
-import { resolveSpeciesFolderName, stripForbiddenNameChars } from "./speciesFolderName.js";
+import { stripForbiddenNameChars } from "./speciesFolderName.js";
+import { speciesFolder } from "./managedFolders.js";
+import { getUserFileSettings } from "../lib/userFileSettings.js";
 
 export type ChosenVolume = { baseDir: string; mountPath: string; volumeId: string };
 
@@ -97,13 +99,15 @@ export function originalFilename(uploadedName: string | null, time: CaptureTime 
 // jobs hold a file path rather than bytes where they can, so a big import stays out of memory.
 const COMMIT_VECTOR_CONCURRENCY = 2;
 const commitVectorLimit = createLimiter(COMMIT_VECTOR_CONCURRENCY);
-// Photos with no file to read (S3, a RAW's embedded preview) wait holding their bytes: capped.
+// Photos with no file to read (a RAW's embedded preview) wait holding their bytes: capped.
 const MAX_BUFFERED_COMMIT_BYTES = 256 * 1024 * 1024;
 let bufferedCommitBytes = 0;
 
-/** `onDone` runs once the job is over either way, e.g. to remove a working copy it read. */
+/** `onDone` runs once the job is over either way, e.g. to remove a working copy it read. The
+ *  scene is stored only with the photo it describes (`photoId`). */
 export function queueCaptureVectors(
   captureId: string,
+  photoId: string | null,
   image: ImageSource,
   key: string,
   onError: (err: unknown) => void,
@@ -124,6 +128,7 @@ export function queueCaptureVectors(
       const { vectors } = photoVectors(image, { kinds, key, priority: "commit" });
       await storeCaptureEmbedding(pool, captureId, await vectors.clip);
       await storeIdCaptureEmbedding(pool, captureId, image, { key, priority: "commit" });
+      if (photoId) await storeCaptureScene(pool, captureId, photoId, image, { priority: "commit" });
     } finally {
       bufferedCommitBytes -= heldBytes;
     }
@@ -143,20 +148,18 @@ export async function fileIntoMainLibrary(
   speciesId: string,
   kind: "raw" | "jpeg",
   organizeByYear: boolean,
-  taxonClass: string | null,
   takenAt: Date | null,
   /** The file's own wall-clock capture time when known (see originalsFolder). */
   takenAtWallClock: string | null = null,
 ): Promise<string> {
   if (!managed || !existsSync(currentRef)) return currentRef;
-  const folder = originalsFolder(ORIGINALS_DIR, {
-    organizeByYear,
-    speciesFolderName: await resolveSpeciesFolderName(userId, speciesId),
-    taxonClass,
-    takenAt,
-    subfolder: kind === "raw" ? "RAW" : "Adjusted",
-    takenAtWallClock,
-  });
+  const folder = await speciesFolder(
+    userId,
+    speciesId,
+    ORIGINALS_DIR,
+    { subfolder: kind === "raw" ? "RAW" : "Adjusted", takenAt, wallClock: takenAtWallClock, allowLocation: false },
+    { ...(await getUserFileSettings(userId)), organizeByYear },
+  );
   const sourceDir = path.dirname(currentRef);
   // Already filed in the right folder: moving it would only rename it to "-2".
   if (path.resolve(sourceDir) === path.resolve(folder)) return currentRef;

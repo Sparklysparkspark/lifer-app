@@ -14,7 +14,8 @@ function taxonLabel(taxonClass: string | null, inatIconicTaxon: string | null, n
 }
 
 // <location>/<Wildlife year>/<taxon>/<species>/<subfolder>. The year and location (the place
-// name typed at import) layers are opt-in.
+// name typed at import) layers are opt-in. Only managedFolders.ts calls this: everything else
+// files through its speciesFolder, which fills the taxon and naming options consistently.
 export function originalsFolder(
   baseDir: string,
   opts: {

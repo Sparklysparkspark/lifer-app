@@ -6,13 +6,14 @@ import { existsSync, rmSync } from "node:fs";
 import { stat } from "node:fs/promises";
 import path from "node:path";
 import type { FastifyInstance } from "fastify";
+import type { PoolClient } from "pg";
 import { pool } from "@lifer/core/db.js";
 import { requireAuth } from "../auth/session.js";
 import { APP_DATA_DIR, ORIGINALS_DIR } from "@lifer/core/config.js";
 import { generateVideoDerivatives } from "@lifer/core/uploads/image.js";
 import { captureTimeFromTags, extractExif, readExifTags, type CaptureTime, type ExtractedExif } from "./exif.js";
-import { originalsFolder } from "./organizedPath.js";
-import { resolveSpeciesFolderName } from "./speciesFolderName.js";
+import { speciesFolder } from "./managedFolders.js";
+import { insertCapture, insertOriginal } from "./captureRows.js";
 import { resolveChosenVolumeDestination } from "../storageVolumes/resolve.js";
 import { ensureDir } from "@lifer/core/lib/safeFs.js";
 import { claimStagedUpload, moveFile, receiveToFile } from "../lib/stagedUploads.js";
@@ -21,7 +22,6 @@ import { ensureDefaultCardCropLater } from "../collection/defaultCardCrop.js";
 import { isUuid } from "../lib/validate.js";
 import { withSchemas } from "../lib/schema.js";
 import { markCollected } from "../lib/userSpecies.js";
-import { getUserFileSettings } from "../lib/userFileSettings.js";
 import {
   UPLOAD_TX_TIMEOUTS,
   derivativeFiles,
@@ -170,16 +170,7 @@ export async function videoUploadRoutes(fastify: FastifyInstance): Promise<void>
       albumId = albumRes.rows[0].id;
     }
 
-    const speciesRes = await pool.query<{
-      id: string;
-      common_name: string | null;
-      scientific_name: string;
-      taxon_class: string | null;
-      family: string | null;
-      inat_iconic_taxon: string | null;
-    }>(`SELECT id, common_name, scientific_name, taxon_class, family, inat_iconic_taxon FROM species WHERE id = $1`, [
-      speciesId,
-    ]);
+    const speciesRes = await pool.query<{ id: string }>(`SELECT id FROM species WHERE id = $1`, [speciesId]);
     if (speciesRes.rows.length === 0) return reply.code(400).send({ error: "Unknown species" });
     const species = speciesRes.rows[0];
 
@@ -208,7 +199,6 @@ export async function videoUploadRoutes(fastify: FastifyInstance): Promise<void>
     }
 
     const userId = request.user!.id;
-    const { organizeByYear, organizeByLocation } = await getUserFileSettings(userId);
     const locationLabel = fields.locationLabel?.trim() || null;
 
     // The poster frame, any playback transcode and the copy into the library all happen before
@@ -227,17 +217,12 @@ export async function videoUploadRoutes(fastify: FastifyInstance): Promise<void>
     };
     try {
       derivatives = await generateVideoDerivatives(tmpPath, photoId);
-      const folder = originalsFolder(tripBaseDir ?? chosenVolume?.baseDir ?? ORIGINALS_DIR, {
-        organizeByYear,
-        organizeByLocation,
-        locationLabel,
-        speciesFolderName: await resolveSpeciesFolderName(userId, species.id),
-        taxonClass: species.taxon_class,
-        inatIconicTaxon: species.inat_iconic_taxon,
-        namingStyles: [],
-        takenAt: exif.takenAt,
-        takenAtWallClock: time?.wallClock,
+      const folder = await speciesFolder(userId, species.id, tripBaseDir ?? chosenVolume?.baseDir ?? ORIGINALS_DIR, {
         subfolder: "Video",
+        takenAt: exif.takenAt,
+        wallClock: time?.wallClock,
+        locationLabel,
+        allowLocation: !tripBaseDir,
       });
       finalRef = await moveIntoLibrary(tmpPath, folder, originalFilename(fileName, time, videoExtension));
     } catch (err) {
@@ -251,37 +236,23 @@ export async function videoUploadRoutes(fastify: FastifyInstance): Promise<void>
       ? { volumeId: chosenVolume.volumeId, volumeRelativePath: filedRef.slice(chosenVolume.mountPath.length) }
       : { volumeId: null, volumeRelativePath: null };
 
-    const client = await pool.connect();
+    // Connected inside the try, so a failed connect still moves the file back.
+    let client: PoolClient | undefined;
     let captureId: string;
     try {
+      client = await pool.connect();
       await client.query("BEGIN");
       await client.query(UPLOAD_TX_TIMEOUTS);
 
-      const captureRes = await client.query<{ id: string }>(
-        `INSERT INTO captures
-           (user_id, species_id, fingerprint, taken_at, lat, lon, camera_model, lens, focal_length_mm, aperture, shutter, iso, trip_id, region_id, location_label, quality_rating)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
-         RETURNING id`,
-        [
-          userId,
-          speciesId,
-          fingerprint,
-          exif.takenAt,
-          exif.lat,
-          exif.lon,
-          exif.cameraModel,
-          exif.lens,
-          exif.focalLengthMm,
-          exif.aperture,
-          exif.shutter,
-          exif.iso,
-          tripId,
-          regionId,
-          locationLabel,
-          exif.rating,
-        ],
-      );
-      captureId = captureRes.rows[0].id;
+      captureId = await insertCapture(client, {
+        userId,
+        speciesId,
+        fingerprint,
+        exif,
+        tripId,
+        regionId,
+        locationLabel,
+      });
 
       await client.query(
         `INSERT INTO photos (id, capture_id, display_path, thumb_path, width, height, kind, duration_seconds, preview_path)
@@ -293,11 +264,16 @@ export async function videoUploadRoutes(fastify: FastifyInstance): Promise<void>
 
       await markCollected(client, userId, speciesId, photoId, exif.takenAt);
 
-      await client.query(
-        `INSERT INTO originals (capture_id, kind, ref_type, ref, managed, content_hash, file_size, volume_id, volume_relative_path)
-         VALUES ($1, 'video', 'path', $2, true, $3, $4, $5, $6)`,
-        [captureId, filedRef, fingerprint, fileSize, volumeTag.volumeId, volumeTag.volumeRelativePath],
-      );
+      await insertOriginal(client, {
+        userId,
+        captureId,
+        kind: "video",
+        ref: filedRef,
+        managed: true,
+        contentHash: fingerprint,
+        fileSize,
+        ...volumeTag,
+      });
 
       if (albumId) {
         await client.query(`INSERT INTO album_captures (album_id, capture_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, [
@@ -308,12 +284,12 @@ export async function videoUploadRoutes(fastify: FastifyInstance): Promise<void>
 
       await client.query("COMMIT");
     } catch (err) {
-      await client.query("ROLLBACK").catch(() => {});
+      await client?.query("ROLLBACK").catch(() => {});
       removeFiles(written);
       await moveBack();
       throw err;
     } finally {
-      client.release();
+      client?.release();
     }
     // This photo may just have become the species' cover: frame the card on the animal.
     ensureDefaultCardCropLater(userId, speciesId);
