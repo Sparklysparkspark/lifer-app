@@ -8,6 +8,7 @@ import { useDeploymentMode, useIsTauri } from "../hooks/useDeploymentMode";
 import { GROUPS } from "./settings/groups";
 import { useSettings } from "../hooks/useSettings";
 import { errorMessage } from "../lib/errorMessage";
+import { ignore } from "../lib/ignore";
 
 export default function SettingsPage() {
   const { t } = useTranslation();
@@ -27,16 +28,20 @@ export default function SettingsPage() {
 
   return (
     <div className="flex-1 bg-canvas">
-      <PageHeader sticky title={t("settings.title")} />
+      <PageHeader sticky topLevel title={t("settings.title")} />
 
-      <main className="mx-auto flex max-w-6xl flex-col gap-8 p-6 md:flex-row">
+      <main className="mx-auto flex max-w-6xl flex-col gap-section p-page md:flex-row">
         <SettingsSidebar groups={visibleGroups} activeId={active?.id ?? ""} />
 
-        <div className="min-w-0 flex-1 space-y-8">
+        <div className="min-w-0 flex-1 space-y-section">
           {!settings && settingsError != null && (
             <div className="space-y-2">
               <FormMessage error={errorMessage(settingsError, t("settings.loadFailed"))} />
-              <Button variant="secondary" size="sm" onClick={() => void refresh().catch(() => {})}>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => void refresh().catch(ignore("Couldn't reload settings"))}
+              >
                 {t("settings.retry")}
               </Button>
             </div>

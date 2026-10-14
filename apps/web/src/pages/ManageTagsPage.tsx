@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { useTranslation } from "react-i18next";
+import { Link, useLocation } from "react-router-dom";
 import { api, ApiError } from "../api/client";
 import PageHeader from "../components/PageHeader";
 import { Spinner } from "../components/LoadingScreen";
@@ -9,6 +10,9 @@ import Button from "../components/Button";
 import ConfirmDialog from "../components/ConfirmDialog";
 import FormMessage from "../components/FormMessage";
 import { pluralize } from "../lib/pluralize";
+import { backStateFor } from "../lib/backLabel";
+
+const TITLE = "Manage tags";
 
 interface TagRow {
   tag: string;
@@ -17,6 +21,8 @@ interface TagRow {
 
 // Library-wide tag list: rename or delete a tag on every photo that carries it in one request.
 export default function ManageTagsPage() {
+  const { t } = useTranslation();
+  const location = useLocation();
   const [tags, setTags] = useState<TagRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
@@ -29,7 +35,7 @@ export default function ManageTagsPage() {
 
   function load() {
     api
-      .get<{ tags: TagRow[] }>("/captures/tags/manage")
+      .get("/captures/tags/manage")
       .then((res) => setTags(res.tags))
       .catch(() => setError("Couldn't load tags. Try again."));
   }
@@ -79,9 +85,9 @@ export default function ManageTagsPage() {
 
   return (
     <div className="flex-1 bg-canvas">
-      <PageHeader sticky title="Manage tags" backFallbackTo="/settings" backLabel="Settings" />
+      <PageHeader sticky title={TITLE} backFallbackTo="/settings" backLabel="Settings" />
 
-      <main className="mx-auto max-w-2xl space-y-4 p-6">
+      <main className="mx-auto max-w-2xl space-y-section p-page">
         <p className="text-sm text-muted">
           Every custom tag across your photos. Rename one to fix a typo or merge it into another tag, and every photo
           carrying it updates at once. Delete one to remove it everywhere.
@@ -120,7 +126,7 @@ export default function ManageTagsPage() {
         )}
 
         {visibleTags.length > 0 && (
-          <div className="divide-y divide-line rounded-lg border border-line bg-surface">
+          <div className="divide-y divide-line rounded-panel border border-line bg-surface">
             {visibleTags.map((row) => (
               <div key={row.tag} className="flex items-center gap-3 px-4 py-2.5">
                 {editingTag === row.tag ? (
@@ -146,12 +152,14 @@ export default function ManageTagsPage() {
                   <>
                     <Link
                       to={`/gallery?tag=${encodeURIComponent(row.tag)}`}
+                      state={backStateFor(location, t, TITLE)}
                       className="min-w-0 flex-1 truncate text-sm text-ink hover:underline"
                     >
                       {row.tag}
                     </Link>
                     <Link
                       to={`/gallery?tag=${encodeURIComponent(row.tag)}`}
+                      state={backStateFor(location, t, TITLE)}
                       className="shrink-0 text-xs text-muted hover:underline"
                     >
                       {pluralize(row.count, "photo")}
@@ -180,7 +188,7 @@ export default function ManageTagsPage() {
       <ConfirmDialog
         open={!!confirmingDeleteTag}
         title={`Delete tag "${confirmingDeleteTag ?? ""}"?`}
-        message="This removes the tag from every photo that has it. The photos themselves aren't affected, only the tag goes away."
+        message="The tag comes off every photo that has it. The photos stay."
         confirmLabel="Delete tag"
         danger
         busy={deleting}
