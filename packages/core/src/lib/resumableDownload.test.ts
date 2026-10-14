@@ -15,6 +15,18 @@ const rangeHeaders: string[] = [];
 
 beforeAll(async () => {
   server = http.createServer((req, res) => {
+    if (req.url === "/ranged" || req.url === "/wrong-range" || req.url === "/long-range") {
+      // Ranged answers for "0123456789", like GitHub's release downloads.
+      const m = /bytes=(\d+)-(\d+)/.exec(req.headers.range ?? "");
+      if (!m) return void res.writeHead(200).end("0123456789");
+      if (req.url === "/wrong-range") return void res.writeHead(206, { "Content-Range": "bytes 0-3/10" }).end("0123");
+      if (req.url === "/long-range") return void res.writeHead(206, { "Content-Range": "bytes 3-6/10" }).end("3456789");
+      res
+        .writeHead(206, { "Content-Range": `bytes ${m[1]}-${m[2]}/10` })
+        .end("0123456789".slice(Number(m[1]), Number(m[2]) + 1));
+      return;
+    }
+    if (req.url === "/missing") return void res.writeHead(404).end();
     if (req.url === "/stall") {
       res.writeHead(200, { "content-length": String(body.length) });
       res.write(body.subarray(0, 10)); // then never finish
@@ -25,6 +37,7 @@ beforeAll(async () => {
     const m = range ? /^bytes=(\d+)-$/.exec(range) : null;
     if (m) {
       const start = Number(m[1]);
+      if (start >= body.length) return void res.writeHead(416).end();
       res.writeHead(206, { "content-length": String(body.length - start) });
       res.end(body.subarray(start));
     } else {
@@ -61,6 +74,15 @@ describe("downloadResumable", () => {
     expect(existsSync(`${dest}.part`)).toBe(false);
   });
 
+  it("restarts from zero when the partial file is already whole", async () => {
+    const dest = path.join(tmp(), "f.bin");
+    writeFileSync(`${dest}.part`, body);
+    await downloadResumable(`${base}/f`, dest, { expectedSha256: sha });
+    expect(rangeHeaders).toContain(`bytes=${body.length}-`);
+    expect(readFileSync(dest).equals(body)).toBe(true);
+    expect(existsSync(`${dest}.part`)).toBe(false);
+  });
+
   it("aborts a stalled transfer and keeps the partial file", async () => {
     const dest = path.join(tmp(), "f.bin");
     await expect(downloadResumable(`${base}/stall`, dest, { stallTimeoutMs: 300 })).rejects.toBeInstanceOf(StallError);
@@ -73,5 +95,54 @@ describe("downloadResumable", () => {
     const p = downloadResumable(`${base}/stall`, dest, { signal: ctl.signal, stallTimeoutMs: 10_000 });
     setTimeout(() => ctl.abort(), 100);
     await expect(p).rejects.toThrow();
+  });
+
+  it("returns the file's size", async () => {
+    const dest = path.join(tmp(), "f.bin");
+    expect(await downloadResumable(`${base}/f`, dest)).toEqual({ bytes: body.length, totalBytes: body.length });
+  });
+
+  it("rejects on HTTP errors and leaves no file behind", async () => {
+    const dest = path.join(tmp(), "missing.bin");
+    await expect(downloadResumable(`${base}/missing`, dest)).rejects.toThrow(/HTTP 404/);
+    expect(existsSync(dest)).toBe(false);
+  });
+});
+
+describe("downloadResumable with a byte range", () => {
+  it("fetches only the requested bytes", async () => {
+    const dest = path.join(tmp(), "ranged.bin");
+    expect(await downloadResumable(`${base}/ranged`, dest, { range: [3, 4] })).toEqual({ bytes: 4, totalBytes: 4 });
+    expect(readFileSync(dest, "utf8")).toBe("3456");
+  });
+
+  it("never resumes a ranged download from a partial file", async () => {
+    const dest = path.join(tmp(), "ranged.bin");
+    writeFileSync(`${dest}.part`, "xx");
+    await downloadResumable(`${base}/ranged`, dest, { range: [3, 4] });
+    expect(readFileSync(dest, "utf8")).toBe("3456");
+  });
+
+  it("rejects a range request answered with the whole file", async () => {
+    const dest = path.join(tmp(), "unranged.bin");
+    await expect(downloadResumable(`${base}/f`, dest, { range: [3, 4] })).rejects.toThrow(/requested part/);
+    expect(existsSync(dest)).toBe(false);
+    expect(existsSync(`${dest}.part`)).toBe(false);
+  });
+
+  it("rejects a partial answer for another part of the file, or one longer than asked", async () => {
+    const dest = path.join(tmp(), "wrong.bin");
+    await expect(downloadResumable(`${base}/wrong-range`, dest, { range: [3, 4] })).rejects.toThrow(/requested part/);
+    await expect(downloadResumable(`${base}/long-range`, dest, { range: [3, 4] })).rejects.toThrow(
+      /more than the expected/,
+    );
+    expect(existsSync(dest)).toBe(false);
+    expect(existsSync(`${dest}.part`)).toBe(false);
+  });
+
+  it("rejects an invalid range before fetching", async () => {
+    await expect(downloadResumable(`${base}/ranged`, path.join(tmp(), "bad.bin"), { range: [3, 0] })).rejects.toThrow(
+      /invalid byte range/,
+    );
   });
 });

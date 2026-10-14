@@ -7,7 +7,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { BUILD_DIR } from "@lifer/core/rawCache.js";
 import { isLicenseAllowed, normalizeLicense } from "@lifer/core/species/licensePolicy.js";
-import { fetchWithRetry } from "@lifer/core/lib/fetchWithRetry.js";
+import { fetchWithRetry } from "../lib/fetchWithRetry.js";
 import { stripTags } from "@lifer/core/species/descriptionText.js";
 
 const COMMONS_API = "https://commons.wikimedia.org/w/api.php";
@@ -42,7 +42,7 @@ export async function fetchCommonsFileMetadata(filename: string): Promise<Common
   const url =
     `${COMMONS_API}?action=query&titles=${encodeURIComponent(`File:${filename}`)}` +
     `&prop=imageinfo&iiprop=extmetadata|url&format=json&origin=*`;
-  const res = await fetchWithRetry(url, { headers: { "User-Agent": "lifer-data-pipeline/0.1 (personal project)" } });
+  const res = await fetchWithRetry(url);
   if (!res.ok) return { photoUrl: null, credit: null, license: null };
 
   const data = (await res.json()) as { query: { pages: Record<string, { imageinfo?: CommonsImageInfo[] }> } };

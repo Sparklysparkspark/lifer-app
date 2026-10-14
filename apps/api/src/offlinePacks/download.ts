@@ -7,19 +7,19 @@ import type { FastifyInstance } from "fastify";
 import { Type } from "typebox";
 import { pool, withTransaction } from "@lifer/core/db.js";
 import { requireAuth } from "../auth/session.js";
-import { withSchemas } from "../lib/schema.js";
+import { replies, withSchemas } from "../lib/schema.js";
+import { BatchStarted, Cancelled, JobStatus, Started } from "./responses.js";
 // Cross-package import: pure id derivation with no heavy dependencies.
 import { packIdFromFileName } from "@lifer/core/packs/packId.js";
 import { createJob, type JobContext } from "../lib/job.js";
 import {
   catalogFirstBootState,
-  catalogUpdateJob,
+  catalogUpdate,
   checkCatalogUpdate,
   startCatalogUpdateJob,
   waitForFirstBootCatalog,
 } from "../species/catalogSeedUpdate.js";
-import { downloadToFile } from "../lib/download.js";
-import { sha256OfFile } from "@lifer/core/lib/resumableDownload.js";
+import { downloadResumable } from "@lifer/core/lib/resumableDownload.js";
 import { invalidateSuggestionCache } from "@lifer/core/species/embeddings.js";
 import { resolveSpeciesSplits } from "../species/speciesSplits.js";
 import {
@@ -71,7 +71,8 @@ async function ensureCatalogCurrent(ctx: JobContext<{ packsApplied: number }, Do
     ctx.update({ phase: "preparing" });
     await waitForFirstBootCatalog();
   }
-  if (!catalogUpdateJob.running) {
+  const catalog = catalogUpdate.status;
+  if (!catalog.running) {
     let available: boolean;
     try {
       available = (await checkCatalogUpdate(pool)).available;
@@ -83,16 +84,19 @@ async function ensureCatalogCurrent(ctx: JobContext<{ packsApplied: number }, Do
     startCatalogUpdateJob(pool);
   }
   ctx.update({ phase: "updating_catalog", currentItem: null, downloadedBytes: null, totalBytes: null });
-  while (catalogUpdateJob.running) {
-    ctx.throwIfCancelled();
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-  }
-  if (catalogUpdateJob.error) {
+  // Cancelling the pack download stops waiting; the catalog update carries on by itself.
+  const cancelled = new Promise<void>((resolve) => {
+    if (ctx.signal.aborted) resolve();
+    else ctx.signal.addEventListener("abort", () => resolve(), { once: true });
+  });
+  await Promise.race([catalogUpdate.settled(), cancelled]);
+  ctx.throwIfCancelled();
+  if (catalog.error) {
     throw new Error(
-      `Couldn't update the species catalog first, so the packs would be missing their newest species: ${catalogUpdateJob.error}`,
+      `Couldn't update the species catalog first, so the packs would be missing their newest species: ${catalog.error}`,
     );
   }
-  if (catalogUpdateJob.cancelled) {
+  if (catalog.cancelled) {
     throw new Error("The species catalog update was cancelled. Start the download again to finish it.");
   }
 }
@@ -159,17 +163,20 @@ async function runDownloadJob(
       let bytes: number;
       try {
         // A pack is a byte range of a pack store shard (data-pipeline's pipeline/packStore.ts).
-        ({ bytes } = await downloadToFile(entry.url, tmpFile, {
+        ({ bytes } = await downloadResumable(entry.url, tmpFile, {
           signal: ctx.signal,
           range: entry.range,
+          expectedSha256: entry.sha256,
+          label: `"${id}"`,
           onProgress: (downloadedBytes, totalBytes) => ctx.update({ downloadedBytes, totalBytes }),
         }));
-        if (entry.sha256 && (await sha256OfFile(tmpFile)) !== entry.sha256) {
-          throw new Error("the downloaded pack is damaged (its checksum doesn't match)");
-        }
       } catch (err) {
         ctx.throwIfCancelled();
-        throw new Error(`Couldn't download "${id}": ${(err as Error).message}`, { cause: err });
+        const message = (err as Error).message;
+        // The downloader's own errors already name the pack.
+        throw new Error(message.startsWith("Couldn't download") ? message : `Couldn't download "${id}": ${message}`, {
+          cause: err,
+        });
       }
       ctx.throwIfCancelled();
       // On a brand-new server the catalog may still be loading (seedCatalogIfEmpty), so applying
@@ -296,7 +303,11 @@ const PackIds = Type.Array(PackId, { minItems: 1 });
 export async function packDownloadRoutes(fastify: FastifyInstance): Promise<void> {
   const app = withSchemas(fastify);
 
-  app.get("/offline-packs/download/status", { preValidation: requireAuth, schema: {} }, async () => downloadJob.status);
+  app.get(
+    "/offline-packs/download/status",
+    { preValidation: requireAuth, schema: { response: replies(JobStatus) } },
+    async () => downloadJob.status,
+  );
 
   app.post(
     "/offline-packs/download",
@@ -310,6 +321,7 @@ export async function packDownloadRoutes(fastify: FastifyInstance): Promise<void
           },
           { additionalProperties: false },
         ),
+        response: replies(Started),
       },
     },
     async (request, reply) => {
@@ -324,9 +336,13 @@ export async function packDownloadRoutes(fastify: FastifyInstance): Promise<void
 
   // Stops the current pack's download and the rest of the queue. 200 even when nothing runs.
   // No body schema: the web app sends `{}` and nothing in it is read.
-  app.post("/offline-packs/download/cancel", { preValidation: requireAuth, schema: {} }, async () => ({
-    cancelled: downloadJob.cancel(),
-  }));
+  app.post(
+    "/offline-packs/download/cancel",
+    { preValidation: requireAuth, schema: { response: replies(Cancelled) } },
+    async () => ({
+      cancelled: downloadJob.cancel(),
+    }),
+  );
 
   // Resolves the map picker's countries x taxa selection to pack ids and starts the download.
   app.post(
@@ -343,6 +359,7 @@ export async function packDownloadRoutes(fastify: FastifyInstance): Promise<void
           },
           { additionalProperties: false },
         ),
+        response: replies(BatchStarted),
       },
     },
     async (request, reply) => {

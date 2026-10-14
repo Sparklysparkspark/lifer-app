@@ -536,7 +536,9 @@ async function currentInatTaxonId(
 ): Promise<number | null | undefined> {
   if (Object.prototype.hasOwnProperty.call(cache, name)) return cache[name];
   if (offline) return undefined;
-  const d = await inatGet<{ results: Array<{ id: number; is_active: boolean; matched_term: string | null }> }>(
+  const d = await inatGet<{
+    results: Array<{ id: number; name: string; is_active: boolean; matched_term: string | null }>;
+  }>(
     `https://api.inaturalist.org/v1/taxa?${new URLSearchParams({ q: name, per_page: "10", is_active: "any", rank: "species" })}`,
   );
   const hit =

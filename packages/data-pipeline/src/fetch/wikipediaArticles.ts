@@ -14,9 +14,10 @@
 // with every description (species.description_requires_credit).
 import { setTimeout as sleep } from "node:timers/promises";
 import { findSection, splitSections } from "@lifer/core/species/descriptionText.js";
+import { sparqlString } from "./sparql.js";
+import { USER_AGENT } from "@lifer/core/lib/http.js";
 
-export const WIKI_USER_AGENT =
-  "LiferDataPipeline/0.9 (https://github.com/Sparklysparkspark/lifer-app; species descriptions)";
+export const WIKI_USER_AGENT = USER_AGENT;
 /** prop=extracts' exlimit with exintro (the API's maximum). */
 export const INTRO_BATCH = 20;
 /** Titles per prop=info request (the API's maximum for non-bot clients). */
@@ -344,40 +345,54 @@ export async function fetchRevisionIds(
 
 export const WIKIDATA_SPARQL = "https://query.wikidata.org/sparql";
 
-const sparqlString = (s: string) => `"${s.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+const sparqlLiteral = (s: string) => `"${sparqlString(s)}"`;
 
 /** Article titles in `lang` for species, from Wikidata: by GBIF taxon id (P846) first, then by
- *  taxon name (P225). A key whose id or name leads to more than one article is left out rather
- *  than guessed. Returns key to title. */
+ *  iNaturalist taxon id (P3151), then by taxon name (P225). The iNaturalist id finds a species
+ *  whose genus was renamed after the catalog's GBIF name and id were taken. A key whose id or name
+ *  leads to more than one article is left out rather than guessed. Returns key to title. */
 export async function resolveTitlesViaWikidata(
   client: PoliteClient,
   lang: string,
-  items: Array<{ key: string; gbifKey: number | null; scientificName: string }>,
+  items: Array<{ key: string; gbifKey: number | null; inatTaxonId?: number | null; scientificName: string }>,
 ): Promise<Map<string, string>> {
   const out = new Map<string, string>();
   for (let i = 0; i < items.length; i += WIKIDATA_BATCH) {
     const batch = items.slice(i, i + WIKIDATA_BATCH);
-    const gbifs = batch.filter((b) => b.gbifKey != null).map((b) => sparqlString(String(b.gbifKey)));
-    const names = batch.map((b) => sparqlString(b.scientificName));
-    const query = `SELECT ?gbif ?name ?title WHERE {
+    const gbifs = batch.filter((b) => b.gbifKey != null).map((b) => sparqlLiteral(String(b.gbifKey)));
+    const inats = batch.filter((b) => b.inatTaxonId != null).map((b) => sparqlLiteral(String(b.inatTaxonId)));
+    const names = batch.map((b) => sparqlLiteral(b.scientificName));
+    const query = `SELECT ?gbif ?inat ?name ?title WHERE {
   { VALUES ?gbif { ${gbifs.join(" ")} } ?item wdt:P846 ?gbif . }
+  UNION
+  { VALUES ?inat { ${inats.join(" ")} } ?item wdt:P3151 ?inat . }
   UNION
   { VALUES ?name { ${names.join(" ")} } ?item wdt:P225 ?name . }
   ?article schema:about ?item ; schema:isPartOf <https://${lang}.wikipedia.org/> ; schema:name ?title .
 }`;
     const data = await client.json<{
-      results: { bindings: Array<{ gbif?: { value: string }; name?: { value: string }; title: { value: string } }> };
+      results: {
+        bindings: Array<{
+          gbif?: { value: string };
+          inat?: { value: string };
+          name?: { value: string };
+          title: { value: string };
+        }>;
+      };
     }>(WIKIDATA_SPARQL, { query, format: "json" });
     const byGbif = new Map<string, Set<string>>();
+    const byInat = new Map<string, Set<string>>();
     const byName = new Map<string, Set<string>>();
     for (const b of data.results.bindings) {
       if (b.gbif) byGbif.set(b.gbif.value, (byGbif.get(b.gbif.value) ?? new Set()).add(b.title.value));
+      if (b.inat) byInat.set(b.inat.value, (byInat.get(b.inat.value) ?? new Set()).add(b.title.value));
       if (b.name) byName.set(b.name.value, (byName.get(b.name.value) ?? new Set()).add(b.title.value));
     }
     for (const b of batch) {
       const viaGbif = b.gbifKey != null ? byGbif.get(String(b.gbifKey)) : undefined;
+      const viaInat = b.inatTaxonId != null ? byInat.get(String(b.inatTaxonId)) : undefined;
       const viaName = byName.get(b.scientificName);
-      const pick = viaGbif?.size === 1 ? viaGbif : viaName?.size === 1 ? viaName : null;
+      const pick = viaGbif?.size === 1 ? viaGbif : viaInat?.size === 1 ? viaInat : viaName?.size === 1 ? viaName : null;
       if (pick) out.set(b.key, [...pick][0]);
     }
   }

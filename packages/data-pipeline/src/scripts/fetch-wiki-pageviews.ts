@@ -8,8 +8,8 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { pool } from "../db.js";
+import { httpFetch } from "@lifer/core/lib/http.js";
 
-const UA = "lifer-app/0.1 (species interest for rarity tiers; https://github.com/Sparklysparkspark/lifer-app)";
 const TIERED = ["aves", "mammalia", "actinopterygii", "amphibia", "squamata", "testudines"];
 
 const DAYS = 60;
@@ -42,23 +42,18 @@ export async function pageviewsBatch(titles: string[]): Promise<Map<string, numb
         redirects?: Array<{ from: string; to: string }>;
         pages?: Array<{ title: string; missing?: boolean; pageviews?: Record<string, number | null> }>;
       };
-    } | null = null;
-    for (let attempt = 0; attempt < 6 && !data; attempt++) {
-      try {
-        const res: Response = await fetch(`https://en.wikipedia.org/w/api.php?${params}`, {
-          headers: { "User-Agent": UA },
-          signal: AbortSignal.timeout(60_000),
-        });
-        if (res.status === 429 || res.status >= 500) {
-          const wait = Number(res.headers.get("retry-after")) || 30 * (attempt + 1);
-          await new Promise((r) => setTimeout(r, wait * 1000));
-          continue;
-        }
-        if (!res.ok) return new Map();
-        data = await res.json();
-      } catch {
-        await new Promise((r) => setTimeout(r, 10_000 * (attempt + 1)));
-      }
+    } | null;
+    try {
+      const res = await httpFetch(`https://en.wikipedia.org/w/api.php?${params}`, {
+        timeoutMs: 60_000,
+        maxRetries: 5,
+        retryServerErrors: true,
+        backoffBaseMs: 10_000,
+      });
+      if (!res.ok) return new Map();
+      data = await res.json();
+    } catch {
+      return new Map();
     }
     if (!data) return new Map();
     const q = data.query ?? {};

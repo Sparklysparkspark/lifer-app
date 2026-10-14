@@ -24,6 +24,7 @@ import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { pool } from "../db.js";
+import { httpFetch } from "@lifer/core/lib/http.js";
 import { mapWithConcurrency } from "@lifer/core/lib/concurrency.js";
 import { CATALOG_GBIF_CLASSES } from "../catalogClasses.js";
 
@@ -49,9 +50,6 @@ const HISTORY_VERTEBRATE_CLASSES = new Set([
   "Cladistii",
   "Holostei",
 ]);
-const USER_AGENT = "Lifer catalog builder (github.com/Sparklysparkspark/lifer-app)";
-// iNaturalist asks API users to stay around one request a second.
-const INAT_DELAY_MS = 1100;
 
 interface CatalogSpecies {
   id: string;
@@ -76,7 +74,6 @@ function arg(name: string): string | undefined {
   const i = process.argv.indexOf(`--${name}`);
   return i >= 0 ? process.argv[i + 1] : undefined;
 }
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 // The parts of each service's JSON this script reads; everything else is ignored.
 interface ColMatch {
@@ -101,18 +98,15 @@ export interface InatTaxonChange {
   input_taxa?: Array<{ id: number; name: string }>;
 }
 
-async function getJson<T>(url: string, attempt = 0): Promise<T> {
-  const res = await fetch(url, { headers: { "User-Agent": USER_AGENT, Accept: "application/json" } });
-  // Refused for going too fast (429): wait a full minute each time, since quick retries only
-  // spend more of iNaturalist's daily allowance.
-  if (res.status === 429 && attempt < 30) {
-    await sleep(60_000);
-    return getJson<T>(url, attempt + 1);
-  }
-  if (res.status >= 500 && attempt < 5) {
-    await sleep(2000 * 2 ** attempt);
-    return getJson<T>(url, attempt + 1);
-  }
+// The shared client paces iNaturalist (about one request a second) and holds it after a 429.
+// Backoff starts long, since quick retries only spend more of iNaturalist's daily allowance.
+async function getJson<T>(url: string): Promise<T> {
+  const res = await httpFetch(url, {
+    init: { headers: { Accept: "application/json" } },
+    maxRetries: 10,
+    retryServerErrors: true,
+    backoffBaseMs: 15_000,
+  });
   if (!res.ok) throw new Error(`${res.status} for ${url}`);
   return (await res.json()) as T;
 }
@@ -373,7 +367,6 @@ async function main() {
         console.log(
           `[inat] ${done}/${todo.length}, ${proposals.filter((p) => p.stage === "inat").length} results so far`,
         );
-      await sleep(INAT_DELAY_MS);
     }
   }
 
@@ -404,7 +397,6 @@ async function main() {
       `[history] ${unmatched.length} names in the GBIF data with ${minRecords}+ records match no catalog species`,
     );
     const fetchChanges = async (taxonId: number) => {
-      await sleep(INAT_DELAY_MS);
       const d = await getJson<unknown>(`${INAT_CHANGES_URL}?taxon_id=${taxonId}`);
       return Array.isArray(d) ? (d as InatTaxonChange[]) : [];
     };
@@ -413,7 +405,6 @@ async function main() {
       if (finished.has(`history:${name}`)) continue;
       let ok = true;
       try {
-        await sleep(INAT_DELAY_MS);
         const found = readInatResults(
           name,
           (await getJson<{ results?: InatTaxonResult[] }>(`${INAT_TAXA_URL}?q=${encodeURIComponent(name)}&per_page=10`))

@@ -2,14 +2,14 @@
 // specimens) as fully_extinct, catching extinct species GBIF's own extinct flags miss. Limited
 // to the top tiers, where a false entry hurts most. Prints the flagged species for review.
 import { pool } from "@lifer/core/db.js";
-import { fetchWithRetry } from "@lifer/core/species/lazyEnrich.js";
+import { httpFetch } from "@lifer/core/lib/http.js";
 
 const REAL_BASIS_OF_RECORD = ["HUMAN_OBSERVATION", "OBSERVATION", "MACHINE_OBSERVATION", "LIVING_SPECIMEN"];
 
 async function hasEverBeenObserved(gbifKey: string): Promise<boolean> {
   const basisParams = REAL_BASIS_OF_RECORD.map((b) => `basisOfRecord=${b}`).join("&");
   const url = `https://api.gbif.org/v1/occurrence/search?taxonKey=${gbifKey}&${basisParams}&limit=0`;
-  const res = await fetchWithRetry(url);
+  const res = await httpFetch(url, { timeoutMs: 15_000, maxRetries: 4 });
   if (!res.ok) return true; // fail open: a network hiccup shouldn't flag a real species
   const data = (await res.json()) as { count: number };
   return data.count > 0;

@@ -11,7 +11,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { BUILD_DIR } from "@lifer/core/rawCache.js";
 import { fetchCommonsFileMetadata, type CommonsPhotoRow } from "./fetch-commons-photo.js";
-import { fetchWithRetry } from "@lifer/core/lib/fetchWithRetry.js";
+import { fetchWithRetry } from "../lib/fetchWithRetry.js";
 
 const MEDIA_LIST_API = "https://en.wikipedia.org/api/rest_v1/page/media-list/";
 const MAX_PHOTOS = 6;
@@ -33,7 +33,7 @@ export interface WikipediaMediaPhoto extends CommonsPhotoRow {
 
 export async function fetchWikipediaMediaPhotos(title: string): Promise<WikipediaMediaPhoto[]> {
   const url = MEDIA_LIST_API + encodeURIComponent(title.replace(/ /g, "_"));
-  const res = await fetchWithRetry(url, { headers: { "User-Agent": "lifer-data-pipeline/0.1 (personal project)" } });
+  const res = await fetchWithRetry(url);
   if (!res.ok) return [];
 
   const data = (await res.json()) as { items?: MediaListItem[] };

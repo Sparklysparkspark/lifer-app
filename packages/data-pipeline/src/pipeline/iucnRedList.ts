@@ -10,6 +10,7 @@ import { existsSync, mkdirSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { normalizeIucnStatus, type IucnCode } from "@lifer/shared";
 import { RAW_DIR } from "@lifer/core/rawCache.js";
+import { USER_AGENT } from "@lifer/core/lib/http.js";
 
 export const IUCN_DATASET_KEY = "19491596-35ae-4a91-9a98-85cf505f1bd3";
 export const IUCN_ARCHIVE_URL = "https://hosted-datasets.gbif.org/datasets/iucn/iucn-latest.zip";
@@ -55,9 +56,7 @@ export async function downloadIucnArchive(
     return ARCHIVE_PATH;
   }
   log(`downloading ${IUCN_ARCHIVE_URL}`);
-  const res = await fetch(IUCN_ARCHIVE_URL, {
-    headers: { "User-Agent": "lifer-data-pipeline/0.1 (IUCN status backfill)" },
-  });
+  const res = await fetch(IUCN_ARCHIVE_URL, { headers: { "User-Agent": USER_AGENT } });
   if (!res.ok) throw new Error(`IUCN archive download failed: ${res.status} ${res.statusText}`);
   mkdirSync(path.dirname(ARCHIVE_PATH), { recursive: true });
   writeFileSync(ARCHIVE_PATH, Buffer.from(await res.arrayBuffer()));

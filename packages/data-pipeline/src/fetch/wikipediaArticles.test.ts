@@ -221,6 +221,37 @@ describe("resolveTitlesViaWikidata", () => {
       ]),
     );
   });
+
+  it("finds a renamed species by its iNaturalist id, after the GBIF id and before the name", async () => {
+    const { c } = client((_url, body) => {
+      expect(body!.get("query")).toContain("wdt:P3151");
+      expect(body!.get("query")).toContain('"508057"');
+      return json({
+        results: {
+          bindings: [
+            { inat: { value: "508057" }, title: { value: "White-naped crane" } },
+            { inat: { value: "1" }, title: { value: "By iNaturalist id" } },
+            { name: { value: "Ardea herodias" }, title: { value: "By name" } },
+            { gbif: { value: "2480" }, title: { value: "By GBIF id" } },
+            { inat: { value: "2" }, title: { value: "Not this one" } },
+          ],
+        },
+      });
+    });
+    const out = await resolveTitlesViaWikidata(c, "en", [
+      // Catalog name and GBIF id still say Grus vipio; Wikidata only has Antigone vipio.
+      { key: "crane", gbifKey: 2474999, inatTaxonId: 508057, scientificName: "Grus vipio" },
+      { key: "inat-over-name", gbifKey: null, inatTaxonId: 1, scientificName: "Ardea herodias" },
+      { key: "gbif-over-inat", gbifKey: 2480, inatTaxonId: 2, scientificName: "Unknownus" },
+    ]);
+    expect(out).toEqual(
+      new Map([
+        ["crane", "White-naped crane"],
+        ["inat-over-name", "By iNaturalist id"],
+        ["gbif-over-inat", "By GBIF id"],
+      ]),
+    );
+  });
 });
 
 describe("titles and URLs", () => {

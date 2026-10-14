@@ -1,10 +1,10 @@
 // A thin, authenticated iNaturalist API v1 client for observation sync.
 import { readFile } from "node:fs/promises";
 import { randomBytes, createHash } from "node:crypto";
+import { USER_AGENT } from "@lifer/core/lib/http.js";
 
 const INAT_API = "https://api.inaturalist.org/v1";
 const INAT_SITE = "https://www.inaturalist.org";
-const USER_AGENT = "lifer-app/0.1 (personal project; observation sync)";
 const REQUEST_TIMEOUT_MS = 30_000;
 
 export interface Pkce {

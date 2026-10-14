@@ -21,6 +21,7 @@ import path from "node:path";
 import { pool } from "@lifer/core/db.js";
 import { mapWithConcurrency } from "@lifer/core/lib/concurrency.js";
 import { RAW_DIR } from "@lifer/core/rawCache.js";
+import { httpFetch } from "@lifer/core/lib/http.js";
 
 const CONCURRENCY = 4;
 const CACHE_DIR = path.join(RAW_DIR, "gbif-species-profiles");
@@ -33,29 +34,15 @@ const TAXONOMIC_SOURCES = new Set([
 ]);
 
 async function fetchJson<T>(url: string): Promise<T | null> {
-  for (let attempt = 0; attempt <= 4; attempt++) {
-    let res: Response;
-    try {
-      res = await fetch(url, {
-        headers: { "User-Agent": "Lifer/0.7 (https://github.com/Sparklysparkspark/lifer-app)" },
-      });
-    } catch (err) {
-      console.error(`  network error (attempt ${attempt}) ${url}:`, err instanceof Error ? err.message : err);
-      await new Promise((r) => setTimeout(r, 1000 * 2 ** attempt));
-      continue;
-    }
-    if (res.status === 429 || res.status >= 500) {
-      const retryAfter = Number(res.headers.get("retry-after"));
-      const delayMs = Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : 1000 * 2 ** attempt;
-      console.error(`  ${res.status} for ${url}, backing off ${Math.round(delayMs / 1000)}s`);
-      await new Promise((r) => setTimeout(r, delayMs));
-      continue;
-    }
-    if (!res.ok) return null;
-    return (await res.json()) as T;
+  try {
+    const res = await httpFetch(url, { maxRetries: 4, retryServerErrors: true });
+    if (res.ok) return (await res.json()) as T;
+    if (res.status === 429 || res.status >= 500) console.error(`  giving up on ${url} after retries (${res.status})`);
+    return null;
+  } catch (err) {
+    console.error(`  network error ${url}:`, err instanceof Error ? err.message : err);
+    return null;
   }
-  console.error(`  giving up on ${url} after retries`);
-  return null;
 }
 
 // Cached per key on disk: a null (failed) fetch is NOT cached, so a rerun retries it.

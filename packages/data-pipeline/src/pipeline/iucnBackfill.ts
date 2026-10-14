@@ -3,7 +3,7 @@
 // columns (migration 129). Other Taxa species keep the status iNaturalist gave them when added.
 import type { Pool, PoolClient } from "pg";
 import { isIucnCode, type IucnCode, type IucnSource } from "@lifer/shared";
-import { fetchWithRetry } from "@lifer/core/lib/fetchWithRetry.js";
+import { fetchWithRetry } from "../lib/fetchWithRetry.js";
 import type { IucnRedList } from "./iucnRedList.js";
 import {
   buildIucnIndex,
@@ -75,9 +75,7 @@ export interface GbifIucnLink {
 /** GBIF's own link from a backbone key to an IUCN assessment. Cached in gbif_response_cache, so
  *  a rerun makes no calls. */
 export async function gbifIucnLink(gbifKey: number): Promise<GbifIucnLink> {
-  const res = await fetchWithRetry(`https://api.gbif.org/v1/species/${gbifKey}/iucnRedListCategory`, {
-    headers: { "User-Agent": "lifer-data-pipeline/0.1 (IUCN status backfill)" },
-  });
+  const res = await fetchWithRetry(`https://api.gbif.org/v1/species/${gbifKey}/iucnRedListCategory`);
   const text = res.ok ? await res.text() : "";
   return parseGbifIucnLink(text);
 }

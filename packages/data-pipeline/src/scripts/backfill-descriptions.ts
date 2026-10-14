@@ -9,7 +9,8 @@
 // Finding each species' article, cheapest and surest first:
 //   1. species.wikipedia_title (Wikidata's sitelink, from the catalog build), the wikipedia_url in
 //      the species' cached iNaturalist taxon record, or an older description_source_url;
-//   2. Wikidata, by GBIF taxon id (P846) or taxon name (P225), 100 species a query;
+//   2. Wikidata, by GBIF taxon id (P846), iNaturalist taxon id (P3151) or taxon name (P225), 100
+//      species a query;
 //   3. the scientific name as a title (Wikipedia redirects most of them), kept only when the
 //      article's lead names the species, so a redirect to the genus page doesn't count.
 // Leads come 20 articles a request; an article over 5 kB of wikitext is also fetched whole (one
@@ -63,6 +64,7 @@ export interface SpeciesToDescribe {
   id: string;
   scientific_name: string;
   gbif_key: number | null;
+  inat_taxon_id?: number | null;
   wikipedia_title: string | null;
   description_source_url: string | null;
   inat_wikipedia_url: string | null;
@@ -118,13 +120,18 @@ export async function describeSpecies(
     }
   }
 
-  // 2. Wikidata, by GBIF id or taxon name.
+  // 2. Wikidata, by GBIF id, iNaturalist id or taxon name.
   let rest = rows.filter((r) => !found.has(r.id));
   if (rest.length > 0) {
     const titles = await resolveTitlesViaWikidata(
       clients.wikidata,
       opts.lang,
-      rest.map((r) => ({ key: r.id, gbifKey: r.gbif_key, scientificName: r.scientific_name })),
+      rest.map((r) => ({
+        key: r.id,
+        gbifKey: r.gbif_key,
+        inatTaxonId: r.inat_taxon_id,
+        scientificName: r.scientific_name,
+      })),
     );
     const intros = await fetchIntros(clients.wikipedia, opts.lang, [...titles.values()]);
     for (const r of rest) {
@@ -245,7 +252,7 @@ export async function selectSpeciesToDescribe(
   opts: Pick<BackfillOptions, "missingOnly" | "recheckAfterDays" | "limit" | "species">,
 ): Promise<SpeciesToDescribe[]> {
   const res = await db.query<SpeciesToDescribe>(
-    `SELECT s.id, s.scientific_name, s.gbif_key, s.wikipedia_title, s.description_source_url,
+    `SELECT s.id, s.scientific_name, s.gbif_key, s.inat_taxon_id, s.wikipedia_title, s.description_source_url,
             (SELECT substring(c.response from '"wikipedia_url":"([^"]+)"') FROM inat_response_cache c
               WHERE s.inat_taxon_id IS NOT NULL AND c.url = 'https://api.inaturalist.org/v1/taxa/' || s.inat_taxon_id) AS inat_wikipedia_url
      FROM species s
