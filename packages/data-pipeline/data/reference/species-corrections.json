@@ -1,0 +1,56 @@
+[
+  {
+    "scientificName": "Chelonoidis niger",
+    "reason": "The catalog follows GBIF's broad Chelonoidis niger, every Galápagos giant tortoise, and its records are of living tortoises across the islands. iNaturalist and IUCN use the name for the extinct Floreana tortoise alone, so their common name and Extinct status describe the wrong animal.",
+    "commonName": "Galápagos Giant Tortoise",
+    "iucnStatus": null,
+    "iucnNote": "IUCN assesses each island's tortoise as a species of its own, with no status for them together.",
+    "extinct": false
+  },
+  {
+    "scientificName": "Bettongia penicillata",
+    "reason": "The Red List import gave the living Woylie the Extinct status of a subspecies. IUCN lists the species as Critically Endangered.",
+    "iucnStatus": "CR",
+    "extinct": false
+  },
+  {
+    "scientificName": "Balantiocheilos melanopterus",
+    "reason": "Native to Southeast Asia, where it has few records. The US records are released aquarium fish.",
+    "endemicCountry": null
+  },
+  {
+    "scientificName": "Phelsuma laticauda",
+    "reason": "Native to Madagascar and the Comoros. The US records are the introduced population on Hawaii.",
+    "endemicCountry": null
+  },
+  {
+    "scientificName": "Acipenser baerii",
+    "reason": "Native to Siberia, where it has few records. The Dutch records are escaped farm and pond fish.",
+    "endemicCountry": null
+  },
+  {
+    "scientificName": "Carettochelys insculpta",
+    "reason": "Native to northern Australia and southern New Guinea.",
+    "endemicCountry": null
+  },
+  {
+    "scientificName": "Marmota bobak",
+    "reason": "Native to the steppes of Ukraine, Russia and Kazakhstan.",
+    "endemicCountry": null
+  },
+  {
+    "scientificName": "Pseudochondrostoma polylepis",
+    "reason": "Native to rivers in both Spain and Portugal.",
+    "endemicCountry": null
+  },
+  {
+    "scientificName": "Hemidactylus mercatorius",
+    "reason": "Native to Madagascar, nearby islands and the East African coast.",
+    "endemicCountry": null
+  },
+  {
+    "scientificName": "Microctenopoma ansorgii",
+    "reason": "Native to the Congo basin in both Congos.",
+    "endemicCountry": null
+  }
+]
