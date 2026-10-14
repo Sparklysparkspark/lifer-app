@@ -5,7 +5,9 @@ import { usePackDownloadStatus } from "../hooks/usePackDownloadStatus";
 import { useIsTauri } from "../hooks/useDeploymentMode";
 import { useOnline } from "../hooks/useOnline";
 import { formatBytes } from "../lib/format";
+import { ignore } from "../lib/ignore";
 import { useTranslation } from "react-i18next";
+import { backStateFor } from "../lib/backLabel";
 import { DEV_BUILD_VERSION, GITHUB_REPO } from "../lib/appInfo";
 import InlineSpinner from "./InlineSpinner";
 
@@ -15,6 +17,12 @@ interface PackUpdatesSummary {
   updateCount: number;
   totalBytes: number;
   packIds: string[];
+}
+
+async function fetchJson<T>(url: string): Promise<T> {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`${url} answered ${res.status}`);
+  return (await res.json()) as T;
 }
 
 // A newer app version or a different set of stale packs invalidates a prior dismissal.
@@ -38,7 +46,7 @@ function writeDismissed(key: string) {
   }
 }
 
-// One pill for both app and offline-pack updates, positioned by StatusTray. Skips every check
+// One slim line under AppNav for both app and offline-pack updates. Skips every check
 // while offline and re-checks once back online.
 export default function UpdatesBanner() {
   const { t } = useTranslation();
@@ -49,20 +57,18 @@ export default function UpdatesBanner() {
   const [packSummary, setPackSummary] = useState<PackUpdatesSummary | null>(null);
   const [dismissed, setDismissed] = useState(false);
   // Reflects a pack update started anywhere, and refetches the summary when it finishes so the
-  // pill doesn't advertise updates that already downloaded.
+  // notice doesn't advertise updates that already downloaded.
   const downloadStatus = usePackDownloadStatus({ onFinish: () => refetchPackSummary() });
 
   function refetchPackSummary() {
     api
       .get<PackUpdatesSummary>("/offline-packs/updates-summary")
       .then((res) => setPackSummary(res.updateCount > 0 ? res : null))
-      .catch(() => {
-        // Silent, like the mount-time fetch below.
-      });
+      .catch(ignore("Couldn't check for pack updates"));
   }
 
-  // Re-checked when leaving Offline packs, where something may have just downloaded.
-  const onPacksPage = location.pathname === "/offline-packs";
+  // The app version is checked once per time online: GitHub's unauthenticated API allows only 60
+  // requests an hour per IP.
   useEffect(() => {
     if (!online) return;
     let cancelled = false;
@@ -77,10 +83,8 @@ export default function UpdatesBanner() {
           if (!cancelled && update) setAppVersion(update.version);
         } else {
           const [versionRes, releaseRes] = await Promise.all([
-            fetch("/version").then((r) => r.json() as Promise<{ version: string }>),
-            fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`).then(
-              (r) => r.json() as Promise<{ tag_name?: string }>,
-            ),
+            fetchJson<{ version: string }>("/version"),
+            fetchJson<{ tag_name?: string }>(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`),
           ]);
           if (cancelled || versionRes.version === "dev" || !releaseRes.tag_name) return;
           const latest = releaseRes.tag_name.replace(/^v/, "");
@@ -93,20 +97,27 @@ export default function UpdatesBanner() {
       }
     })();
 
+    return () => {
+      cancelled = true;
+    };
+  }, [online, isTauri]);
+
+  // Re-checked when leaving Offline packs, where something may have just downloaded.
+  const onPacksPage = location.pathname === "/offline-packs";
+  useEffect(() => {
+    if (!online) return;
+    let cancelled = false;
     api
       .get<PackUpdatesSummary>("/offline-packs/updates-summary")
       .then((res) => {
         // Also clears back to null at 0, so a stale count doesn't linger.
         if (!cancelled) setPackSummary(res.updateCount > 0 ? res : null);
       })
-      .catch(() => {
-        // Silent: a background nicety.
-      });
-
+      .catch(ignore("Couldn't check for pack updates"));
     return () => {
       cancelled = true;
     };
-  }, [online, onPacksPage, isTauri]);
+  }, [online, onPacksPage]);
 
   // Offline packs shows per-pack state inline, so only the pack half is hidden there.
   const showPacks = packSummary !== null && location.pathname !== "/offline-packs";
@@ -117,7 +128,7 @@ export default function UpdatesBanner() {
   if (readDismissed() === key) return null;
 
   return (
-    <div className="flex items-center gap-3 rounded-full border border-line bg-surface px-4 py-2 text-xs text-ink shadow-sm">
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-line bg-surface px-6 py-1.5 text-xs text-ink">
       <span>
         {showApp && t("updates.appAvailable", { version: appVersion })}
         {showApp && showPacks && " "}
@@ -131,7 +142,11 @@ export default function UpdatesBanner() {
         )}
       </span>
       {showApp && isTauri && (
-        <Link to="/settings/general" className="font-medium text-accent hover:underline">
+        <Link
+          to="/settings/general"
+          state={backStateFor(location, t)}
+          className="font-medium text-accent hover:underline"
+        >
           {t("updates.update")}
         </Link>
       )}
@@ -161,6 +176,7 @@ export default function UpdatesBanner() {
         ) : (
           <Link
             to="/offline-packs"
+            state={backStateFor(location, t)}
             onClick={() => {
               api
                 .post("/offline-packs/download", { packIds: packSummary.packIds })
@@ -178,7 +194,7 @@ export default function UpdatesBanner() {
           setDismissed(true);
         }}
         aria-label={t("updates.dismiss")}
-        className="text-muted hover:text-ink"
+        className="ml-auto text-muted hover:text-ink"
       >
         ✕
       </button>
