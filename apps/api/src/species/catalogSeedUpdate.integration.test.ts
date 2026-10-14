@@ -10,7 +10,7 @@ import { JobCancelledError } from "../lib/job.js";
 import {
   encodeGalleryEmbeddingRecord,
   encodeGalleryEmbeddingsHeader,
-} from "@lifer/shared/src/galleryEmbeddingsFormat.js";
+} from "@lifer/core/species/galleryEmbeddingsFormat.js";
 import { applyCatalogSeedFile, getAppliedCatalogVersion } from "./catalogSeedUpdate.js";
 import { applyGalleryEmbeddingsFile, ID_GALLERY } from "./galleryEmbeddingsAsset.js";
 
@@ -655,6 +655,62 @@ describe.skipIf(!url)("applyCatalogSeedFile (integration)", () => {
     expect(rs.rows).toEqual([{ region_id: OLD_GEORGIA }]);
 
     await client_cleanup();
+  });
+
+  it("nests an install's flat provinces under the seed's regional groups, keeping their ids", async () => {
+    // The install: country > [empty group, provinces]. The seed: country > group > province, a new
+    // group, and a province shown under its continent.
+    const CONTINENT = "88888888-8888-4888-8888-888888888801";
+    const COUNTRY = "88888888-8888-4888-8888-888888888802";
+    const GROUP = "88888888-8888-4888-8888-888888888803";
+    const NEW_GROUP = "88888888-8888-4888-8888-888888888804";
+    const [P1, P2, P3, ISLAND] = ["05", "06", "07", "08"].map((n) => `88888888-8888-4888-8888-8888888888${n}`);
+    const all = [CONTINENT, COUNTRY, GROUP, NEW_GROUP, P1, P2, P3, ISLAND];
+    await pool.query(`DELETE FROM regions WHERE id = ANY($1)`, [all]);
+    await pool.query(
+      `INSERT INTO regions (id, name, parent_id, has_children) VALUES
+         ($1, 'Groupia Continent', NULL, true), ($2, 'Groupia', $1, true), ($3, 'Northern Groupia', $2, false),
+         ($4, 'Alpha', $2, false), ($5, 'Beta', $2, false), ($6, 'Gamma', $2, false), ($7, 'Far Isle', $2, false)`,
+      [CONTINENT, COUNTRY, GROUP, P1, P2, P3, ISLAND],
+    );
+    const dump = [
+      "COPY public.regions (id, name, parent_id, has_children, home_country_id) FROM stdin;",
+      `${CONTINENT}\tGroupia Continent\t\\N\tt\t\\N`,
+      `${COUNTRY}\tGroupia\t${CONTINENT}\tt\t\\N`,
+      `${GROUP}\tNorthern Groupia\t${COUNTRY}\tt\t\\N`,
+      `${NEW_GROUP}\tSouthern Groupia\t${COUNTRY}\tt\t\\N`,
+      `${P1}\tAlpha\t${GROUP}\tf\t\\N`,
+      `${P2}\tBeta\t${GROUP}\tf\t\\N`,
+      `${P3}\tGamma\t${NEW_GROUP}\tf\t\\N`,
+      `${ISLAND}\tFar Isle\t${CONTINENT}\tf\t${COUNTRY}`,
+      "\\.",
+      "",
+    ].join("\n");
+    const file = path.join(mkdtempSync(path.join(os.tmpdir(), "lifer-region-groups-test-")), "seed.sql.gz");
+    writeFileSync(file, gzipSync(dump));
+
+    try {
+      await applyCatalogSeedFile(pool, file, null, noProgress, ["regions"]);
+      // Applying it again (the next update) changes nothing.
+      await applyCatalogSeedFile(pool, file, null, noProgress, ["regions"]);
+      const rows = await pool.query(
+        `SELECT id, name, parent_id, has_children, home_country_id FROM regions
+         WHERE id = ANY($1) OR name IN ('Alpha', 'Beta', 'Gamma', 'Far Isle', 'Southern Groupia') ORDER BY id`,
+        [all],
+      );
+      expect(rows.rows).toEqual([
+        { id: CONTINENT, name: "Groupia Continent", parent_id: null, has_children: true, home_country_id: null },
+        { id: COUNTRY, name: "Groupia", parent_id: CONTINENT, has_children: true, home_country_id: null },
+        { id: GROUP, name: "Northern Groupia", parent_id: COUNTRY, has_children: true, home_country_id: null },
+        { id: NEW_GROUP, name: "Southern Groupia", parent_id: COUNTRY, has_children: true, home_country_id: null },
+        { id: P1, name: "Alpha", parent_id: GROUP, has_children: false, home_country_id: null },
+        { id: P2, name: "Beta", parent_id: GROUP, has_children: false, home_country_id: null },
+        { id: P3, name: "Gamma", parent_id: NEW_GROUP, has_children: false, home_country_id: null },
+        { id: ISLAND, name: "Far Isle", parent_id: CONTINENT, has_children: false, home_country_id: COUNTRY },
+      ]);
+    } finally {
+      await pool.query(`DELETE FROM regions WHERE id = ANY($1)`, [all.slice().reverse()]);
+    }
   });
 
   it("rolls back on bad data without leaving partial rows", async () => {

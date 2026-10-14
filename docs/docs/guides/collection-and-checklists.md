@@ -11,7 +11,7 @@ The Collection page is Lifer's home screen. It shows the species checklist for a
 
 ## What the checklists cover {#groups}
 
-Lifer's checklists aren't just for birders. Each country's checklist is split into groups, and you download only the groups you care about from [Offline packs](./offline-packs-and-map.md):
+Each country's checklist is split into groups, and you download only the groups you want from [Offline packs](./offline-packs-and-map.md):
 
 | Group | What's in it |
 |---|---|
@@ -31,7 +31,7 @@ For anything else, like insects, spiders, plants or fungi, add species from iNat
 
 - With no region chosen, click **Browse by region →** or one of your downloaded countries.
 - Once you're in a region, the breadcrumb at the top (**All species / World / continent / country**) takes you back out.
-- **Drill in:** lists the provinces, states or other areas inside it. Some countries have a **Show provinces/states** button.
+- **Drill in:** lists the provinces, states or other areas inside the region, so you can go a level deeper. Some countries have a **Show provinces/states** button.
 - World and continent views combine the checklists of the countries you've downloaded, marked "(downloaded countries only)".
 - With the [offline map](./offline-packs-and-map.md#offline-map) downloaded, **Show map** / **Hide map** next to the breadcrumb shows the region's outline.
 
@@ -50,7 +50,7 @@ Species cards look different depending on your status:
 | Card | Meaning |
 |---|---|
 | Full color | **Collected**: you have your own photo of it |
-| Grey with a ✓ | **Seen**: you've seen it but not photographed it yet |
+| Gray with a ✓ | **Seen**: you've seen it but not photographed it yet |
 | Dimmed | Not seen yet |
 
 Archived and extinct species never count toward totals.
@@ -139,7 +139,7 @@ A tier is **how hard a species is to find and photograph** in a place. There are
 | **Rare** | Needs travel and patience. Getting a shot is a notable achievement. |
 | **Legendary** | Once in a lifetime: very local or extremely elusive (a Wolverine, a vagrant far from home). |
 
-**Common** is kept tight on purpose, to genuine everyday species, so each tier means something in the field instead of most species piling up at the easy end.
+**Common** is kept to genuine everyday species, so most species don't pile up at the easy end and each tier means something in the field.
 
 ### Tiers here and worldwide
 
@@ -185,7 +185,7 @@ Species pages can also show **Invasive here**: an established population in this
 
 By default, Lifer hides species almost nobody will encounter from checklists:
 
-- Fish that live deeper than recreational diving depth (60 m). Turn on [Technical diving](../settings.md#technical-diving) to use 120 m instead.
+- Fish that live deeper than recreational diving depth (60 m). Turn on [Technical diving depths](../settings.md#technical-diving) to use 120 m instead.
 - Species with almost no records.
 - Species marked **Vagrant** in the region you're viewing.
 
@@ -212,8 +212,8 @@ To change many photos at once, click **Select**, then click photos (<kbd>Shift</
 
 For groups Lifer has no checklists for, like insects, spiders, plants and fungi, you can add species from iNaturalist, one at a time or a whole list at once.
 
-1. Turn on [Any-taxa search](../settings.md#any-taxa-search) in **Settings > Species and import**.
-2. Click **Search iNaturalist for a species to add**. (With the setting on, quick search also offers **Search iNaturalist** when you type a species Lifer doesn't have.)
+1. Turn on [Search iNaturalist for other species](../settings.md#any-taxa-search) in **Settings > Species and import**.
+2. In **Add a species from iNaturalist**, click **Search**. (With the setting on, quick search also offers **Search iNaturalist** when you type a species Lifer doesn't have.)
 3. Choose **One species** to search and add a single species, or **Import a list** to paste many names at once, then pick a country, or a province or state.
 
 See [iNaturalist](./inaturalist.md#any-taxa) for the details.

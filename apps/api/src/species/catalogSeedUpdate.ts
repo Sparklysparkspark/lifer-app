@@ -37,10 +37,9 @@ export async function getAppliedCatalogVersion(db: Pool | PoolClient): Promise<n
   return v == null ? null : Number(v);
 }
 
-// userId is unused (the version is per-install); kept so existing callers compile.
+// The catalog version is per install, not per user.
 export async function checkCatalogUpdate(
   pool: Pool,
-  _userId?: string,
 ): Promise<{ available: boolean; remoteVersion: number; localVersion: number | null; downloadBytes: number | null }> {
   const manifest = await fetchCatalogManifest();
   const localVersion = await getAppliedCatalogVersion(pool);
@@ -710,8 +709,6 @@ function readdirSafe(dir: string): string[] {
 }
 
 export const catalogUpdate = createJob<CatalogMergeResult>("catalog-update");
-// Kept as the status object for existing callers (`catalogUpdateJob.running`).
-export const catalogUpdateJob = catalogUpdate.status;
 
 async function runCatalogUpdate(pool: Pool, ctx: JobContext<CatalogMergeResult>): Promise<CatalogMergeResult> {
   const manifest = await fetchCatalogManifest(ctx.signal);
@@ -738,7 +735,7 @@ async function runCatalogUpdate(pool: Pool, ctx: JobContext<CatalogMergeResult>)
 }
 
 /** Starts the Settings catalog update in the background. Returns false if one is already running. */
-export function startCatalogUpdateJob(pool: Pool, _userId?: string): boolean {
+export function startCatalogUpdateJob(pool: Pool): boolean {
   return catalogUpdate.start((ctx) => runCatalogUpdate(pool, ctx));
 }
 

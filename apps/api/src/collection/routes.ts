@@ -7,6 +7,7 @@ import { pool } from "@lifer/core/db.js";
 import { IdParams, Nullable, Ok, Uuid, notFoundOnInvalidId, replies, withSchemas } from "../lib/schema.js";
 import { requireAuth } from "../auth/session.js";
 import { toCollectionItem } from "./collectionItem.js";
+import { CollectionCount, CollectionItems, CollectionStats, NotModified } from "./responses.js";
 import { markNameChanged } from "../species/speciesSplits.js";
 import { syncCaptureXmpSidecarsLogged } from "../uploads/xmpSidecarSync.js";
 import { detectDefaultCardCrop } from "../species/detectAndCrop.js";
@@ -34,8 +35,12 @@ const UNLOCKED_SPECIES_CTE = `pack_regions AS MATERIALIZED (
   SELECT r2.id AS region_id, dp.taxon
   FROM regions r2
   LEFT JOIN regions parent2 ON parent2.id = r2.parent_id
+  LEFT JOIN regions grand2 ON grand2.id = parent2.parent_id
+  -- The country: the region, its parent, or for a grouped province its grandparent.
   JOIN downloaded_packs dp ON dp.region = (
-    CASE WHEN COALESCE(array_length(parent2.external_codes, 1), 0) = 0 THEN r2.name ELSE parent2.name END
+    CASE WHEN COALESCE(array_length(parent2.external_codes, 1), 0) = 0 THEN r2.name
+         WHEN COALESCE(array_length(grand2.external_codes, 1), 0) = 0 THEN parent2.name
+         ELSE grand2.name END
   )
 ),
 unlocked AS (
@@ -208,7 +213,10 @@ export async function collectionRoutes(fastify: FastifyInstance): Promise<void> 
 
   app.get(
     "/collection",
-    { preValidation: requireAuth, schema: { querystring: TaxonQuery } },
+    {
+      preValidation: requireAuth,
+      schema: { querystring: TaxonQuery, response: { ...replies(CollectionItems), 304: NotModified } },
+    },
     async (request, reply) => {
       const userId = request.user!.id;
       const taxa = request.query.taxon ? request.query.taxon.split(",").filter(Boolean) : null;
@@ -239,7 +247,10 @@ export async function collectionRoutes(fastify: FastifyInstance): Promise<void> 
   // GET /collection's counts only, so the header can show a total before the list loads.
   app.get(
     "/collection/count",
-    { preValidation: requireAuth, schema: { querystring: TaxonQuery } },
+    {
+      preValidation: requireAuth,
+      schema: { querystring: TaxonQuery, response: { ...replies(CollectionCount), 304: NotModified } },
+    },
     async (request, reply) => {
       const userId = request.user!.id;
       const taxa = request.query.taxon ? request.query.taxon.split(",").filter(Boolean) : null;
@@ -266,53 +277,104 @@ export async function collectionRoutes(fastify: FastifyInstance): Promise<void> 
     },
   );
 
-  // Totals collected by tier, by family and by year.
-  app.get("/collection/stats", { preValidation: requireAuth, schema: {} }, async (request) => {
-    const userId = request.user!.id;
+  // Totals collected by tier, by family and by year. With ?regionId=, the tiers are each species'
+  // local tier there, counting only species you've photographed in that region: a bird common
+  // overall can be a rare find locally.
+  app.get(
+    "/collection/stats",
+    {
+      preValidation: requireAuth,
+      schema: {
+        querystring: Type.Object({ regionId: Type.Optional(Uuid({ description: "Count local tiers here" })) }),
+        response: replies(CollectionStats),
+      },
+    },
+    async (request) => {
+      const userId = request.user!.id;
+      const regionId = request.query.regionId ?? null;
 
-    const totalRes = await pool.query(
-      `SELECT COUNT(*)::int AS total FROM user_species WHERE user_id = $1 AND state = 'collected'`,
-      [userId],
-    );
+      const totalRes = await pool.query(
+        `SELECT COUNT(*)::int AS total FROM user_species WHERE user_id = $1 AND state = 'collected'`,
+        [userId],
+      );
 
-    const byTierRes = await pool.query<{ tier: string; count: number }>(
-      `SELECT r.tier, COUNT(*)::int AS count
-       FROM user_species us
-       JOIN species_rarity r ON r.species_id = us.species_id
-       WHERE us.user_id = $1 AND us.state = 'collected'
-       GROUP BY r.tier`,
-      [userId],
-    );
+      const byTierRes = regionId
+        ? await pool.query<{ tier: string; count: number }>(
+            `WITH RECURSIVE region_tree AS (
+               SELECT id FROM regions WHERE id = $2
+               UNION ALL
+               SELECT r.id FROM regions r JOIN region_tree rt ON r.parent_id = rt.id
+             )
+             SELECT COALESCE(rs.local_tier, 'unrated') AS tier, COUNT(*)::int AS count
+               FROM user_species us
+               LEFT JOIN region_species rs ON rs.species_id = us.species_id AND rs.region_id = $2
+              WHERE us.user_id = $1 AND us.state = 'collected'
+                AND EXISTS (SELECT 1 FROM captures c WHERE c.user_id = $1 AND c.species_id = us.species_id
+                              AND c.region_id IN (SELECT id FROM region_tree))
+              GROUP BY 1`,
+            [userId, regionId],
+          )
+        : await pool.query<{ tier: string; count: number }>(
+            `SELECT r.tier, COUNT(*)::int AS count
+             FROM user_species us
+             JOIN species_rarity r ON r.species_id = us.species_id
+             WHERE us.user_id = $1 AND us.state = 'collected'
+             GROUP BY r.tier`,
+            [userId],
+          );
 
-    const byFamilyRes = await pool.query<{ family: string | null; count: number }>(
-      `SELECT s.family, COUNT(*)::int AS count
+      // The regions you've photographed in (and the ones they're in) that have local tiers.
+      const tierRegionsRes = await pool.query<{ id: string; name: string }>(
+        `WITH RECURSIVE up AS (
+           SELECT DISTINCT region_id AS id FROM captures WHERE user_id = $1 AND region_id IS NOT NULL
+           UNION
+           SELECT r.parent_id FROM regions r JOIN up ON r.id = up.id WHERE r.parent_id IS NOT NULL
+         )
+         SELECT r.id, r.name FROM regions r
+          WHERE r.id IN (SELECT id FROM up)
+            AND EXISTS (SELECT 1 FROM region_species rs WHERE rs.region_id = r.id AND rs.local_tier IS NOT NULL)
+          ORDER BY r.name`,
+        [userId],
+      );
+
+      const byFamilyRes = await pool.query<{ family: string | null; count: number }>(
+        `SELECT s.family, COUNT(*)::int AS count
        FROM user_species us
        JOIN species s ON s.id = us.species_id
        WHERE us.user_id = $1 AND us.state = 'collected'
        GROUP BY s.family
        ORDER BY count DESC, s.family ASC`,
-      [userId],
-    );
+        [userId],
+      );
 
-    const byYearRes = await pool.query<{ year: number; count: number }>(
-      `SELECT EXTRACT(YEAR FROM us.first_collected)::int AS year, COUNT(*)::int AS count
+      const byYearRes = await pool.query<{ year: number; count: number }>(
+        `SELECT EXTRACT(YEAR FROM us.first_collected)::int AS year, COUNT(*)::int AS count
        FROM user_species us
        WHERE us.user_id = $1 AND us.state = 'collected' AND us.first_collected IS NOT NULL
        GROUP BY year
        ORDER BY year ASC`,
-      [userId],
-    );
+        [userId],
+      );
 
-    const byTier: Record<string, number> = { common: 0, occasional: 0, uncommon: 0, rare: 0, legendary: 0, unrated: 0 };
-    for (const row of byTierRes.rows) byTier[row.tier] = row.count;
+      const byTier: Record<string, number> = {
+        common: 0,
+        occasional: 0,
+        uncommon: 0,
+        rare: 0,
+        legendary: 0,
+        unrated: 0,
+      };
+      for (const row of byTierRes.rows) byTier[row.tier] = row.count;
 
-    return {
-      totalCollected: totalRes.rows[0].total,
-      byTier,
-      byFamily: byFamilyRes.rows.map((r) => ({ family: r.family ?? "Unknown", count: r.count })),
-      byYear: byYearRes.rows.map((r) => ({ year: r.year, count: r.count })),
-    };
-  });
+      return {
+        totalCollected: totalRes.rows[0].total,
+        byTier,
+        byFamily: byFamilyRes.rows.map((r) => ({ family: r.family ?? "Unknown", count: r.count })),
+        byYear: byYearRes.rows.map((r) => ({ year: r.year, count: r.count })),
+        tierRegions: tierRegionsRes.rows,
+      };
+    },
+  );
 
   app.patch(
     "/species/:id/cover",

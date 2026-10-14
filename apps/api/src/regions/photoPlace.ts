@@ -1,7 +1,8 @@
 // The province or state and country a photo's region sits in, as names for its file's location
 // fields (exif.ts). Read from the region's ancestors by their eBird codes: a country's is two
 // letters ("CA"), a first-level subdivision's adds one part ("CA-BC"), and anything deeper (a
-// county, "US-NY-061") adds more, so the nearest match of each is the right one.
+// county, "US-NY-061") adds more, so the nearest match of each is the right one. A province shown
+// under its continent (home_country_id) is still in its country.
 import type { Pool, PoolClient } from "pg";
 import type { PhotoPlace } from "../uploads/exif.js";
 
@@ -14,10 +15,11 @@ export async function photoPlaceForRegion(db: Pool | PoolClient, regionId: strin
     country_codes: string[] | null;
   }>(
     `WITH RECURSIVE up AS (
-       SELECT id, name, parent_id, ebird_region_code, external_codes, 0 AS depth FROM regions WHERE id = $1
+       SELECT id, name, COALESCE(home_country_id, parent_id) AS up_id, ebird_region_code, external_codes, 0 AS depth
+         FROM regions WHERE id = $1
        UNION ALL
-       SELECT r.id, r.name, r.parent_id, r.ebird_region_code, r.external_codes, up.depth + 1
-         FROM regions r JOIN up ON r.id = up.parent_id WHERE up.depth < 12
+       SELECT r.id, r.name, COALESCE(r.home_country_id, r.parent_id), r.ebird_region_code, r.external_codes, up.depth + 1
+         FROM regions r JOIN up ON r.id = up.up_id WHERE up.depth < 12
      ),
      state AS (SELECT name FROM up WHERE ebird_region_code ~ '^[A-Z]{2}-[A-Z0-9]+$' ORDER BY depth LIMIT 1),
      country AS (SELECT name, ebird_region_code, external_codes FROM up WHERE ebird_region_code ~ '^[A-Z]{2}$' ORDER BY depth LIMIT 1)

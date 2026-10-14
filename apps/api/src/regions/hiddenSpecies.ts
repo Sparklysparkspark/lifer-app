@@ -1,10 +1,12 @@
 import type { FastifyInstance } from "fastify";
+import { descendantIdsSql } from "@lifer/core/regions/regionTree.js";
 import { Type } from "typebox";
 import { pool } from "@lifer/core/db.js";
 import { isUuid } from "../lib/validate.js";
 import { requireAuth } from "../auth/session.js";
 import { IdParams, Ok, Uuid, notFoundOnInvalidId, replies, withSchemas } from "../lib/schema.js";
 import { MEDIA_CACHE_BUST } from "@lifer/core/config.js";
+import { HiddenChildren, HiddenSpeciesList, RegionHiddenSpecies } from "./responses.js";
 
 const RegionSpeciesParams = Type.Object({ regionId: Uuid(), speciesId: Uuid() });
 const regionNotFound = notFoundOnInvalidId("Region not found");
@@ -24,8 +26,9 @@ export async function regionHiddenSpeciesRoutes(fastify: FastifyInstance): Promi
     async (request, reply) => {
       const userId = request.user!.id;
       const { regionId, speciesId } = request.params;
-      const regionRes = await pool.query<{ id: string; sovereignty_group: string | null }>(
-        `SELECT id, sovereignty_group FROM regions WHERE id = $1`,
+      const regionRes = await pool.query<{ id: string; cascades: boolean }>(
+        `SELECT r.id, (r.sovereignty_group IS NOT NULL OR p.sovereignty_group IS NOT NULL) AS cascades
+         FROM regions r LEFT JOIN regions p ON p.id = r.parent_id WHERE r.id = $1`,
         [regionId],
       );
       if (regionRes.rows.length === 0) return reply.code(404).send({ error: "Region not found" });
@@ -33,12 +36,12 @@ export async function regionHiddenSpeciesRoutes(fastify: FastifyInstance): Promi
         `INSERT INTO region_species_hidden (user_id, region_id, species_id) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
         [userId, regionId, speciesId],
       );
-      // A country-level hide also hides it in every province. Unhiding asks first instead, since
-      // a hide is easy to undo and an unhide isn't.
-      if (regionRes.rows[0].sovereignty_group != null) {
+      // A country-level hide also hides it in every regional group and province, and a group's in
+      // its provinces. Unhiding asks first instead, since a hide is easy to undo and an unhide isn't.
+      if (regionRes.rows[0].cascades) {
         await pool.query(
           `INSERT INTO region_species_hidden (user_id, region_id, species_id)
-           SELECT $1, id, $2 FROM regions WHERE parent_id = $3
+           SELECT $1, id, $2 FROM regions WHERE id IN (${descendantIdsSql("$3")})
            ON CONFLICT DO NOTHING`,
           [userId, speciesId, regionId],
         );
@@ -51,14 +54,18 @@ export async function regionHiddenSpeciesRoutes(fastify: FastifyInstance): Promi
   // unhiding them along with the country.
   app.get(
     "/regions/:regionId/species/:speciesId/hidden-children",
-    { preValidation: requireAuth, config: regionNotFound, schema: { params: RegionSpeciesParams } },
+    {
+      preValidation: requireAuth,
+      config: regionNotFound,
+      schema: { params: RegionSpeciesParams, response: replies(HiddenChildren) },
+    },
     async (request) => {
       const userId = request.user!.id;
       const { regionId, speciesId } = request.params;
       const res = await pool.query<{ id: string; name: string }>(
         `SELECT r.id, r.name FROM regions r
          JOIN region_species_hidden rsh ON rsh.region_id = r.id
-         WHERE r.parent_id = $1 AND rsh.user_id = $2 AND rsh.species_id = $3
+         WHERE r.id IN (${descendantIdsSql("$1")}) AND rsh.user_id = $2 AND rsh.species_id = $3
          ORDER BY r.name`,
         [regionId, userId, speciesId],
       );
@@ -96,20 +103,23 @@ export async function regionHiddenSpeciesRoutes(fastify: FastifyInstance): Promi
   );
 
   // Every region-scoped hide for the Hidden species page, grouped by region.
-  app.get("/regions/hidden-species", { preValidation: requireAuth, schema: {} }, async (request) => {
-    const userId = request.user!.id;
-    const [res, regionsRes] = await Promise.all([
-      pool.query<{
-        species_id: string;
-        scientific_name: string;
-        common_name: string | null;
-        reference_photo: string | null;
-        has_reference_thumb: boolean;
-        hidden_at: Date;
-        region_id: string;
-        region_name: string;
-      }>(
-        `SELECT s.id AS species_id, s.scientific_name, s.common_name,
+  app.get(
+    "/regions/hidden-species",
+    { preValidation: requireAuth, schema: { response: replies(HiddenSpeciesList) } },
+    async (request) => {
+      const userId = request.user!.id;
+      const [res, regionsRes] = await Promise.all([
+        pool.query<{
+          species_id: string;
+          scientific_name: string;
+          common_name: string | null;
+          reference_photo: string | null;
+          has_reference_thumb: boolean;
+          hidden_at: Date;
+          region_id: string;
+          region_name: string;
+        }>(
+          `SELECT s.id AS species_id, s.scientific_name, s.common_name,
                 s.reference_photo, s.reference_thumb_path IS NOT NULL AS has_reference_thumb,
                 rsh.hidden_at, r.id AS region_id, r.name AS region_name
          FROM region_species_hidden rsh
@@ -117,48 +127,54 @@ export async function regionHiddenSpeciesRoutes(fastify: FastifyInstance): Promi
          JOIN regions r ON r.id = rsh.region_id
          WHERE rsh.user_id = $1
          ORDER BY r.name, s.scientific_name`,
-        [userId],
-      ),
-      // To walk each region up to its country (the one with sovereignty_group set).
-      pool.query<{ id: string; name: string; parent_id: string | null; sovereignty_group: string | null }>(
-        `SELECT id, name, parent_id, sovereignty_group FROM regions`,
-      ),
-    ]);
-    const byId = new Map(regionsRes.rows.map((r) => [r.id, r]));
-    function countryAncestorOf(regionId: string): { id: string; name: string } | null {
-      let region = byId.get(regionId);
-      while (region && region.sovereignty_group == null && region.parent_id) {
-        const parent = byId.get(region.parent_id);
-        if (!parent) break;
-        region = parent;
+          [userId],
+        ),
+        // To walk each region up to its country (the one with sovereignty_group set).
+        pool.query<{ id: string; name: string; parent_id: string | null; sovereignty_group: string | null }>(
+          // A province shown under its continent goes with its country.
+          `SELECT id, name, COALESCE(home_country_id, parent_id) AS parent_id, sovereignty_group FROM regions`,
+        ),
+      ]);
+      const byId = new Map(regionsRes.rows.map((r) => [r.id, r]));
+      function countryAncestorOf(regionId: string): { id: string; name: string } | null {
+        let region = byId.get(regionId);
+        while (region && region.sovereignty_group == null && region.parent_id) {
+          const parent = byId.get(region.parent_id);
+          if (!parent) break;
+          region = parent;
+        }
+        return region ? { id: region.id, name: region.name } : null;
       }
-      return region ? { id: region.id, name: region.name } : null;
-    }
-    return {
-      items: res.rows.map((r) => {
-        const country = countryAncestorOf(r.region_id);
-        return {
-          speciesId: r.species_id,
-          scientificName: r.scientific_name,
-          commonName: r.common_name,
-          referencePhoto: r.reference_photo,
-          referenceThumbUrl: r.has_reference_thumb
-            ? `/api/species/${r.species_id}/reference-photo/thumb?v=${MEDIA_CACHE_BUST}`
-            : null,
-          hiddenAt: r.hidden_at,
-          regionId: r.region_id,
-          regionName: r.region_name,
-          countryId: country?.id ?? null,
-          countryName: country?.name ?? null,
-          isCountry: country?.id === r.region_id,
-        };
-      }),
-    };
-  });
+      return {
+        items: res.rows.map((r) => {
+          const country = countryAncestorOf(r.region_id);
+          return {
+            speciesId: r.species_id,
+            scientificName: r.scientific_name,
+            commonName: r.common_name,
+            referencePhoto: r.reference_photo,
+            referenceThumbUrl: r.has_reference_thumb
+              ? `/api/species/${r.species_id}/reference-photo/thumb?v=${MEDIA_CACHE_BUST}`
+              : null,
+            hiddenAt: r.hidden_at,
+            regionId: r.region_id,
+            regionName: r.region_name,
+            countryId: country?.id ?? null,
+            countryName: country?.name ?? null,
+            isCountry: country?.id === r.region_id,
+          };
+        }),
+      };
+    },
+  );
 
   app.get(
     "/regions/:id/hidden-species",
-    { preValidation: requireAuth, config: regionNotFound, schema: { params: IdParams } },
+    {
+      preValidation: requireAuth,
+      config: regionNotFound,
+      schema: { params: IdParams, response: replies(RegionHiddenSpecies) },
+    },
     async (request) => {
       const userId = request.user!.id;
       const { id: regionId } = request.params;

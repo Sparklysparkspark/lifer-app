@@ -195,6 +195,8 @@ const ENRICH_COUNTRY = "Zzenrichland";
 const OTHER_COUNTRY = "Zzenrich Elsewhere";
 const ISLE = "Zzenrich Isle";
 const MAINLAND = "Zzenrich Mainland";
+const GROUP = "Zzenrich Highlands";
+const GROUPED = "Zzenrich Peak";
 const SEA = "Zzenrich Sea";
 const BLOCKED_URL = "https://example.org/zzenrich-map.jpg";
 
@@ -209,9 +211,11 @@ describe.skipIf(!url)("applyPack enrichment and extras", () => {
   let seaId: string;
 
   async function cleanup() {
-    await db.query(`DELETE FROM regions WHERE name IN ($1, $2, $3, $4)`, [
+    await db.query(`DELETE FROM regions WHERE name IN ($1, $2, $3, $4, $5, $6)`, [
       ISLE,
       MAINLAND,
+      GROUP,
+      GROUPED,
       ENRICH_COUNTRY,
       OTHER_COUNTRY,
     ]);
@@ -794,6 +798,64 @@ describe.skipIf(!url)("applyPack enrichment and extras", () => {
     expect(country.rows[0].has_children).toBe(true);
     const childChecklist = await db.query(`SELECT species_id FROM region_species WHERE region_id = $1`, [isle.id]);
     expect(childChecklist.rows).toEqual([{ species_id: DONE }]);
+  });
+
+  it("applies a regional group with its provinces inside, moving the install's flat province into it", async () => {
+    // The install predates the country's groups: its province sits directly under the country.
+    const flatProvince = (
+      await db.query<{ id: string }>(`INSERT INTO regions (name, parent_id) VALUES ($1, $2) RETURNING id`, [
+        GROUPED,
+        countryId,
+      ])
+    ).rows[0].id;
+    const region = (name: string, speciesNames: string[]) => ({
+      name,
+      ebirdRegionCode: null,
+      boundaryGeoJson: null,
+      externalCodes: [],
+      species: speciesNames.map(species),
+    });
+    const manifest = {
+      type: "region",
+      region: ENRICH_COUNTRY,
+      species: [species("Zzenrich novus"), species("Zzenrich doneus")],
+      children: [
+        { ...region(GROUP, ["Zzenrich novus", "Zzenrich doneus"]), children: [region(GROUPED, ["Zzenrich doneus"])] },
+        region(MAINLAND, ["Zzenrich novus"]),
+      ],
+    };
+    const result = await apply(manifest);
+    const rows = async () =>
+      (
+        await db.query<{ id: string; name: string; parent: string; has_children: boolean; species: number }>(
+          `SELECT r.id, r.name, p.name AS parent, r.has_children,
+                  (SELECT count(*)::int FROM region_species rs WHERE rs.region_id = r.id) AS species
+           FROM regions r JOIN regions p ON p.id = r.parent_id
+           WHERE r.name IN ($1, $2, $3) ORDER BY r.name`,
+          [GROUP, GROUPED, MAINLAND],
+        )
+      ).rows;
+    const first = await rows();
+    expect(first.map(({ id: _id, ...r }) => r)).toEqual([
+      { name: GROUP, parent: ENRICH_COUNTRY, has_children: true, species: 2 },
+      { name: MAINLAND, parent: ENRICH_COUNTRY, has_children: false, species: 1 },
+      { name: GROUPED, parent: GROUP, has_children: false, species: 1 },
+    ]);
+    // The province kept its id, and only the country's direct children are offloadable units.
+    expect(first.find((r) => r.name === GROUPED)!.id).toBe(flatProvince);
+    expect(result.allChildRegionIds).toEqual(first.filter((r) => r.parent === ENRICH_COUNTRY).map((r) => r.id));
+
+    // A pack from before the groups leaves the province in its group rather than copying it.
+    await apply({
+      ...manifest,
+      children: [region(GROUPED, ["Zzenrich doneus"]), region(MAINLAND, ["Zzenrich novus"])],
+    });
+    const again = await rows();
+    expect(again.map((r) => [r.name, r.parent])).toEqual([
+      [GROUP, ENRICH_COUNTRY],
+      [MAINLAND, ENRICH_COUNTRY],
+      [GROUPED, GROUP],
+    ]);
   });
 
   it("changes nothing for a region or sea zone this install doesn't have", async () => {

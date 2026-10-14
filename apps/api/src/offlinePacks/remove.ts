@@ -1,5 +1,6 @@
 // Removing packs: the impact preview, deleting whole packs, and offloading single provinces.
 import { existsSync, rmSync, statSync } from "node:fs";
+import { descendantIdsSql } from "@lifer/core/regions/regionTree.js";
 import type { FastifyInstance } from "fastify";
 import { Type } from "typebox";
 import { subdivisionLabelFor } from "@lifer/shared";
@@ -8,6 +9,7 @@ import { requireAuth } from "../auth/session.js";
 import { invalidateSuggestionCache } from "@lifer/core/species/embeddings.js";
 import { log } from "@lifer/core/lib/log.js";
 import { Uuid, replies, withSchemas } from "../lib/schema.js";
+import { DeleteImpact, PackDeleted, PackProvinces } from "./responses.js";
 import { invalidatePackSizes } from "./index.js";
 import { isPackDownloadRunning, PackId } from "./download.js";
 
@@ -46,13 +48,16 @@ async function computeDeleteImpact(packId: string): Promise<DeleteImpact | null>
       const { id, name } = regionRes.rows[0];
       regionIds.push(id);
       checklistRegionsAffected.push(name);
-      const childrenRes = await pool.query<{ id: string; name: string }>(
-        `SELECT id, name FROM regions WHERE parent_id = $1`,
+      // Its groups and provinces; a group's provinces go with the group. A province shown under
+      // its continent (Galapagos) ships in its own pack, so it stays.
+      const childrenRes = await pool.query<{ id: string; name: string; unit_id: string }>(
+        `SELECT r.id, r.name, CASE WHEN r.parent_id = $1 THEN r.id ELSE r.parent_id END AS unit_id
+         FROM regions r WHERE r.id IN (${descendantIdsSql("$1")}) AND r.home_country_id IS NULL`,
         [id],
       );
       for (const child of childrenRes.rows) {
         // Skip provinces already offloaded individually, so they aren't counted twice.
-        if (appliedProvinceIds && !appliedProvinceIds.includes(child.id)) continue;
+        if (appliedProvinceIds && !appliedProvinceIds.includes(child.unit_id)) continue;
         regionIds.push(child.id);
         checklistRegionsAffected.push(child.name);
       }
@@ -251,7 +256,7 @@ export async function packRemoveRoutes(fastify: FastifyInstance): Promise<void> 
   // Dry run of DELETE, so the UI can say what will be removed and kept before confirming.
   app.get(
     "/offline-packs/:packId/delete-preview",
-    { preValidation: requireAuth, schema: { params: PackParams } },
+    { preValidation: requireAuth, schema: { params: PackParams, response: replies(DeleteImpact) } },
     async (request, reply) => {
       const impact = await computeDeleteImpact(request.params.packId);
       if (!impact) return reply.code(404).send({ error: "No downloaded pack found with that id" });
@@ -267,7 +272,7 @@ export async function packRemoveRoutes(fastify: FastifyInstance): Promise<void> 
 
   app.delete(
     "/offline-packs/:packId",
-    { preValidation: requireAuth, schema: { params: PackParams } },
+    { preValidation: requireAuth, schema: { params: PackParams, response: replies(PackDeleted) } },
     async (request, reply) => {
       if (isPackDownloadRunning())
         return reply.code(409).send({ error: "Wait for the pack download to finish, then try again" });
@@ -282,11 +287,12 @@ export async function packRemoveRoutes(fastify: FastifyInstance): Promise<void> 
     },
   );
 
-  // Which provinces of a country pack stay applied. The whole archive is always downloaded;
-  // applied_province_region_ids NULL means every province is applied.
+  // Which provinces of a country pack stay applied (a regional group stands for its provinces).
+  // The whole archive is always downloaded; applied_province_region_ids NULL means every
+  // province is applied.
   app.get(
     "/offline-packs/:packId/provinces",
-    { preValidation: requireAuth, schema: { params: PackParams } },
+    { preValidation: requireAuth, schema: { params: PackParams, response: replies(PackProvinces) } },
     async (request, reply) => {
       const packRes = await pool.query<{ region: string | null; applied_province_region_ids: string[] | null }>(
         `SELECT region, applied_province_region_ids FROM downloaded_packs WHERE pack_id = $1`,
@@ -331,7 +337,6 @@ export async function packRemoveRoutes(fastify: FastifyInstance): Promise<void> 
       }
 
       const { packId } = request.params;
-      const toOffload = request.body.regionIds;
       const packRes = await pool.query<{ region: string | null; applied_province_region_ids: string[] | null }>(
         `SELECT region, applied_province_region_ids FROM downloaded_packs WHERE pack_id = $1`,
         [packId],
@@ -347,6 +352,9 @@ export async function packRemoveRoutes(fastify: FastifyInstance): Promise<void> 
         regionId,
       ]);
       const allChildIds = allChildrenRes.rows.map((r) => r.id);
+      // Only this pack's own provinces, so no other region's checklist can be cleared through it.
+      const toOffload = request.body.regionIds.filter((id) => allChildIds.includes(id));
+      if (toOffload.length === 0) return reply.code(400).send({ error: "None of those provinces belong to this pack" });
       const currentlyApplied = appliedIds ?? allChildIds;
 
       const remaining = currentlyApplied.filter((id) => !toOffload.includes(id));
@@ -358,8 +366,11 @@ export async function packRemoveRoutes(fastify: FastifyInstance): Promise<void> 
           );
           const speciesIds = speciesRes.rows.map((r) => r.species_id);
           if (speciesIds.length > 0) {
+            // A regional group's provinces go with it.
             await client.query(
-              `DELETE FROM region_species WHERE region_id = ANY($1::uuid[]) AND species_id = ANY($2::uuid[])`,
+              `DELETE FROM region_species
+               WHERE (region_id = ANY($1::uuid[]) OR region_id IN (SELECT id FROM regions WHERE parent_id = ANY($1::uuid[])))
+                 AND species_id = ANY($2::uuid[])`,
               [toOffload, speciesIds],
             );
           }
@@ -378,7 +389,7 @@ export async function packRemoveRoutes(fastify: FastifyInstance): Promise<void> 
   // Summed dry run across several packs for the offload screen's multi-select.
   app.post(
     "/offline-packs/offload-preview",
-    { preValidation: requireAuth, schema: { body: PackIdsBody } },
+    { preValidation: requireAuth, schema: { body: PackIdsBody, response: replies(DeleteImpact) } },
     async (request) => {
       const { packIds } = request.body;
       let checklistRegionsAffectedCount = 0;
@@ -401,7 +412,7 @@ export async function packRemoveRoutes(fastify: FastifyInstance): Promise<void> 
 
   app.post(
     "/offline-packs/offload-batch",
-    { preValidation: requireAuth, schema: { body: PackIdsBody } },
+    { preValidation: requireAuth, schema: { body: PackIdsBody, response: replies(PackDeleted) } },
     async (request, reply) => {
       if (isPackDownloadRunning())
         return reply.code(409).send({ error: "Wait for the pack download to finish, then try again" });

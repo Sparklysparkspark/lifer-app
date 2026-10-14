@@ -16,6 +16,8 @@ const SPECIES = "eeeeeeee-0000-4000-8000-00000000057a";
 const SHARED_SPECIES = "eeeeeeee-0000-4000-8000-00000000057b";
 const PACK = "zz-remove-test-pack";
 const TOKEN = "lifer_test_pack_remove_571";
+const COUNTRY = "zz-Remove Countryland";
+const PROVINCE = "zz-Remove Province";
 
 describe.skipIf(!url)("removing a pack", () => {
   let app: FastifyInstance;
@@ -28,6 +30,8 @@ describe.skipIf(!url)("removing a pack", () => {
     await db.query(`DROP TRIGGER IF EXISTS zz_fail_pack_removal ON downloaded_packs`);
     await db.query(`DROP FUNCTION IF EXISTS zz_fail_pack_removal()`);
     await db.query(`DELETE FROM downloaded_packs WHERE pack_id = $1`, [PACK]);
+    await db.query(`DELETE FROM regions WHERE parent_id IN (SELECT id FROM regions WHERE name = $1)`, [COUNTRY]);
+    await db.query(`DELETE FROM regions WHERE name = $1`, [COUNTRY]);
     await db.query(`DELETE FROM species WHERE id = ANY($1)`, [[SPECIES, SHARED_SPECIES]]);
     await db.query(`DELETE FROM users WHERE id = $1`, [USER]);
   }
@@ -90,6 +94,42 @@ describe.skipIf(!url)("removing a pack", () => {
 
   const remove = () =>
     app.inject({ method: "DELETE", url: `/api/offline-packs/${PACK}`, cookies: { [cookieName]: TOKEN } });
+
+  it("offloads only the pack's own provinces", async () => {
+    const countryId = (await db.query<{ id: string }>(`INSERT INTO regions (name) VALUES ($1) RETURNING id`, [COUNTRY]))
+      .rows[0].id;
+    const provinceId = (
+      await db.query<{ id: string }>(`INSERT INTO regions (name, parent_id) VALUES ($1, $2) RETURNING id`, [
+        PROVINCE,
+        countryId,
+      ])
+    ).rows[0].id;
+    await db.query(`INSERT INTO region_species (region_id, species_id) VALUES ($1, $3), ($2, $3)`, [
+      countryId,
+      provinceId,
+      SPECIES,
+    ]);
+    await db.query(`UPDATE downloaded_packs SET region = $1 WHERE pack_id = $2`, [COUNTRY, PACK]);
+    const offload = (regionIds: string[]) =>
+      app.inject({
+        method: "POST",
+        url: `/api/offline-packs/${PACK}/provinces/offload`,
+        cookies: { [cookieName]: TOKEN },
+        payload: { regionIds },
+      });
+    const regionsLeft = async () =>
+      (
+        await db.query<{ region_id: string }>(`SELECT region_id FROM region_species WHERE species_id = $1`, [SPECIES])
+      ).rows.map((r) => r.region_id);
+
+    expect((await offload([countryId])).statusCode).toBe(400);
+    expect((await regionsLeft()).sort()).toEqual([countryId, provinceId].sort());
+
+    const res = await offload([countryId, provinceId]);
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ ok: true, remainingApplied: 0 });
+    expect(await regionsLeft()).toEqual([countryId]);
+  });
 
   it("keeps every file when the removal rolls back", async () => {
     await db.query(`CREATE FUNCTION zz_fail_pack_removal() RETURNS trigger LANGUAGE plpgsql AS $$

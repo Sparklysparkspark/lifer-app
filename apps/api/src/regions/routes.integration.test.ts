@@ -13,6 +13,8 @@ const SPECIES = "eeeeeeee-0000-4000-8000-00000000055a";
 const UNKNOWN = "eeeeeeee-0000-4000-8000-0000000005ff";
 const TOKEN = "lifer_test_region_routes_551";
 const REGION = "Zzvalidation Region";
+// Country > regional group > province, and a province directly under the country.
+const TREE = ["Zzvalidation Country", "Zzvalidation Group", "Zzvalidation Grouped", "Zzvalidation Direct"];
 
 const invalid = (pattern: RegExp) => ({ error: expect.stringMatching(pattern), code: "invalid_request" });
 
@@ -34,7 +36,7 @@ describe.skipIf(!url)("region routes validation", () => {
     await db.query(`DELETE FROM region_species_hidden WHERE user_id = $1`, [USER]);
     await db.query(`DELETE FROM users WHERE id = $1`, [USER]);
     await db.query(`DELETE FROM species WHERE id = $1`, [SPECIES]);
-    await db.query(`DELETE FROM regions WHERE name = $1`, [REGION]);
+    await db.query(`DELETE FROM regions WHERE name = $1 OR name = ANY($2)`, [REGION, TREE]);
   }
 
   beforeAll(async () => {
@@ -136,6 +138,43 @@ describe.skipIf(!url)("region routes validation", () => {
     expect([badCascade.statusCode, badCascade.json()]).toEqual([404, { error: "Region not found" }]);
     expect((await call("DELETE", `${route}?cascadeRegionIds=${UNKNOWN}`)).json()).toEqual({ ok: true });
     expect((await call("GET", `/api/regions/${regionId}/hidden-species`)).json().items).toEqual([]);
+  });
+
+  it("hides a species in a country's regional groups and their provinces too", async () => {
+    const country = (
+      await db.query<{ id: string }>(`INSERT INTO regions (name, sovereignty_group) VALUES ($1, 'ZZV') RETURNING id`, [
+        TREE[0],
+      ])
+    ).rows[0].id;
+    const group = (
+      await db.query<{ id: string }>(`INSERT INTO regions (name, parent_id) VALUES ($1, $2) RETURNING id`, [
+        TREE[1],
+        country,
+      ])
+    ).rows[0].id;
+    await db.query(`INSERT INTO regions (name, parent_id) VALUES ($1, $2), ($3, $4)`, [
+      TREE[2],
+      group,
+      TREE[3],
+      country,
+    ]);
+    const hiddenIn = async () =>
+      (
+        await db.query<{ name: string }>(
+          `SELECT r.name FROM region_species_hidden h JOIN regions r ON r.id = h.region_id
+           WHERE h.user_id = $1 AND r.name = ANY($2) ORDER BY r.name`,
+          [USER, TREE],
+        )
+      ).rows.map((r) => r.name);
+
+    expect((await call("POST", `/api/regions/${group}/species/${SPECIES}/hide`)).json()).toEqual({ ok: true });
+    expect(await hiddenIn()).toEqual([TREE[1], TREE[2]]);
+    expect((await call("POST", `/api/regions/${country}/species/${SPECIES}/hide`)).json()).toEqual({ ok: true });
+    expect(await hiddenIn()).toEqual([TREE[0], TREE[3], TREE[1], TREE[2]].sort());
+    const children = await call("GET", `/api/regions/${country}/species/${SPECIES}/hidden-children`);
+    expect(children.json().children.map((c: { regionName: string }) => c.regionName)).toEqual(
+      [TREE[3], TREE[1], TREE[2]].sort(),
+    );
   });
 
   it("drills down only from a country, accepting the empty body the web app sends", async () => {

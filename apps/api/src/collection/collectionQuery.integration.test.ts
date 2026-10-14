@@ -279,6 +279,60 @@ describe.skipIf(!url)("collection query rewrite", () => {
     }
   }, 180_000);
 
+  it("unlocks a grouped province's species through its grandparent country's pack", async () => {
+    const { collectionQuerySql, collectionCountSql } = await import("./routes.js");
+    const GROUPED_COUNTRY = "ffffffff-0000-4000-8000-0000000001c4";
+    const GROUP = "ffffffff-0000-4000-8000-0000000001c5";
+    const GROUPED_PROVINCE = "ffffffff-0000-4000-8000-0000000001c6";
+    const GROUPED_SPECIES = "ffffffff-0000-4000-8000-000000000124";
+    const GROUPED_PACK = "zz-collection-query-test-grouped";
+    const clean = async () => {
+      await db.query(`DELETE FROM downloaded_packs WHERE pack_id = $1`, [GROUPED_PACK]);
+      await db.query(`DELETE FROM species WHERE id = $1`, [GROUPED_SPECIES]);
+      await db.query(`DELETE FROM regions WHERE id = ANY($1)`, [[GROUPED_PROVINCE, GROUP, GROUPED_COUNTRY]]);
+    };
+    await clean();
+    try {
+      // Country > regional group > province, as the vernacular groupings store them.
+      await db.query(
+        `INSERT INTO regions (id, name, parent_id, external_codes) VALUES
+           ($1, 'Zzgrouped Query Test', NULL, '{ZZG}'),
+           ($2, 'Zzgrouped North', $1, '{"POLYGON((0 0,1 0,1 1,0 1,0 0))"}'),
+           ($3, 'Zzgrouped Province', $2, '{ZZG.1}')`,
+        [GROUPED_COUNTRY, GROUP, GROUPED_PROVINCE],
+      );
+      await db.query(
+        `INSERT INTO species (id, gbif_key, scientific_name, taxon_class, reference_photo, reference_credit, reference_license, sort_order)
+         VALUES ($1, 912124, 'Queryus groupedii', 'aves', 'http://x/y.jpg', 'Test', 'cc0', 900124)`,
+        [GROUPED_SPECIES],
+      );
+      await db.query(`INSERT INTO region_species (region_id, species_id) VALUES ($1, $2)`, [
+        GROUPED_PROVINCE,
+        GROUPED_SPECIES,
+      ]);
+      const ids = async () =>
+        (await db.query<{ species_id: string }>(collectionQuerySql(60), [USER, null, true])).rows.map(
+          (r) => r.species_id,
+        );
+      const total = async () => Number((await db.query(collectionCountSql(60), [USER, null, true])).rows[0].total);
+      const oldIds = async () =>
+        (await db.query<{ species_id: string }>(OLD_SQL(60), [USER, null, true])).rows.map((r) => r.species_id);
+
+      expect(await ids()).not.toContain(GROUPED_SPECIES);
+      const before = await total();
+
+      await db.query(
+        `INSERT INTO downloaded_packs (pack_id, region, taxon) VALUES ($1, 'Zzgrouped Query Test', NULL)`,
+        [GROUPED_PACK],
+      );
+      expect(await ids()).toContain(GROUPED_SPECIES);
+      expect(await oldIds()).toContain(GROUPED_SPECIES);
+      expect(await total()).toBe(before + 1);
+    } finally {
+      await clean();
+    }
+  }, 180_000);
+
   it("bumps the collection data version on writes", async () => {
     const has = await db.query(`SELECT 1 FROM pg_class WHERE relname = 'collection_data_version'`);
     if (has.rowCount === 0) return;

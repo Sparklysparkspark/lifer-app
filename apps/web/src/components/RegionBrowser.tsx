@@ -1,9 +1,13 @@
-import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { useEffect, useMemo } from "react";
+import { useTranslation } from "react-i18next";
+import { Link, useLocation } from "react-router-dom";
 import type { RegionSummary } from "@lifer/shared";
-import { api } from "../api/client";
 import { useRegions } from "../hooks/useRegions";
+import { downloadedTaxaByCountry, usePackIndex } from "../lib/packIndex";
+import { regionsReachableFrom } from "../lib/regionGrouping";
 import RegionPicker from "./RegionPicker";
+import { ignore } from "../lib/ignore";
+import { backStateFor } from "../lib/backLabel";
 
 const NO_REGIONS: RegionSummary[] = [];
 
@@ -22,51 +26,23 @@ export default function RegionBrowser({
    *  allowAnyRegion so it replaces the pack restriction instead of intersecting it. */
   restrictToIds?: Set<string> | null;
 }) {
+  const { t } = useTranslation();
+  const location = useLocation();
   const { regions, error: regionsError, refresh: refreshRegions } = useRegions();
   const allRegions = regions ?? NO_REGIONS;
-  const [downloadedCountryNames, setDownloadedCountryNames] = useState<Set<string> | null>(null);
-
-  useEffect(() => {
-    if (allowAnyRegion) return;
-    api
-      .get<{ packs: Array<{ type: string; region: string | null; downloaded: boolean }> }>("/offline-packs/index")
-      .then((res) => {
-        setDownloadedCountryNames(
-          new Set(res.packs.filter((p) => p.type === "region" && p.region && p.downloaded).map((p) => p.region!)),
-        );
-      })
-      .catch(() => setDownloadedCountryNames(new Set()));
-  }, [allowAnyRegion]);
+  const { packs, error: packsError } = usePackIndex(!allowAnyRegion);
+  // A failed index reads as "nothing downloaded" rather than leaving the picker unrestricted.
+  const downloadedCountryNames = useMemo(
+    () => (packs ? new Set(downloadedTaxaByCountry(packs).keys()) : packsError ? new Set<string>() : null),
+    [packs, packsError],
+  );
 
   // Same as the collection's: a downloaded country, its ancestors up to World, and every
   // descendant bundled in its pack.
   const availableRegionIds = useMemo(() => {
     if (restrictToIds) return restrictToIds;
     if (allowAnyRegion || !downloadedCountryNames) return null;
-    const byId = new Map(allRegions.map((r) => [r.id, r]));
-    const childrenOf = new Map<string, RegionSummary[]>();
-    for (const r of allRegions) {
-      if (r.parentId == null) continue;
-      if (!childrenOf.has(r.parentId)) childrenOf.set(r.parentId, []);
-      childrenOf.get(r.parentId)!.push(r);
-    }
-    const available = new Set<string>();
-    for (const region of allRegions) {
-      if (!downloadedCountryNames.has(region.name)) continue;
-      available.add(region.id);
-      let cursor: RegionSummary | undefined = region;
-      while (cursor?.parentId) {
-        available.add(cursor.parentId);
-        cursor = byId.get(cursor.parentId);
-      }
-      const stack = [...(childrenOf.get(region.id) ?? [])];
-      while (stack.length) {
-        const child = stack.pop()!;
-        available.add(child.id);
-        stack.push(...(childrenOf.get(child.id) ?? []));
-      }
-    }
-    return available;
+    return regionsReachableFrom(allRegions, downloadedCountryNames);
   }, [allRegions, downloadedCountryNames, restrictToIds, allowAnyRegion]);
 
   const worldRegion = useMemo(() => allRegions.find((r) => r.parentId === null && r.name === "World"), [allRegions]);
@@ -105,7 +81,11 @@ export default function RegionBrowser({
     return (
       <p className="text-sm text-muted">
         Couldn't load the region list.{" "}
-        <button type="button" onClick={() => void refreshRegions().catch(() => {})} className="text-ink underline">
+        <button
+          type="button"
+          onClick={() => void refreshRegions().catch(ignore("Couldn't reload the region list"))}
+          className="text-ink underline"
+        >
           Try again
         </button>
       </p>
@@ -117,7 +97,7 @@ export default function RegionBrowser({
       {noPacks ? (
         <p className="text-sm text-muted">
           No region pack is downloaded yet.{" "}
-          <Link to="/offline-packs" className="text-ink underline">
+          <Link to="/offline-packs" state={backStateFor(location, t)} className="text-ink underline">
             Download one in Offline packs
           </Link>{" "}
           to pick a region.
@@ -149,7 +129,7 @@ export default function RegionBrowser({
       )}
       {regionId && children.length > 0 && (
         <div className="flex flex-wrap items-center gap-2">
-          <span className="text-xs uppercase tracking-wide text-muted">Drill in:</span>
+          <span className="text-xs text-muted">Drill in:</span>
           <RegionPicker mode="single" items={children} selectedId={null} onSelectItem={onChange} />
         </div>
       )}

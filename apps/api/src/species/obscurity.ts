@@ -66,8 +66,12 @@ export const SPECIES_UNLOCKED_SQL = `(
     SELECT 1 FROM region_species rs2
     JOIN regions r2 ON r2.id = rs2.region_id
     LEFT JOIN regions parent2 ON parent2.id = r2.parent_id
+    LEFT JOIN regions grand2 ON grand2.id = parent2.parent_id
+    -- The country: the region, its parent, or for a grouped province its grandparent.
     JOIN downloaded_packs dp ON dp.region = (
-      CASE WHEN COALESCE(array_length(parent2.external_codes, 1), 0) = 0 THEN r2.name ELSE parent2.name END
+      CASE WHEN COALESCE(array_length(parent2.external_codes, 1), 0) = 0 THEN r2.name
+           WHEN COALESCE(array_length(grand2.external_codes, 1), 0) = 0 THEN parent2.name
+           ELSE grand2.name END
     )
     WHERE rs2.species_id = s.id AND (dp.taxon IS NULL OR dp.taxon = s.taxon_class)
   )

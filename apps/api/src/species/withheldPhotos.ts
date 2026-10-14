@@ -70,6 +70,14 @@ export async function selectWithheldPhotoSpecies(
          JOIN regions r ON r.name = dp.region
          JOIN regions c ON c.parent_id = r.id
         WHERE dp.applied_province_region_ids IS NULL OR dp.applied_province_region_ids ? c.id::text
+       UNION
+       -- A regional group's provinces, applied with their group.
+       SELECT dp.pack_id, g.id
+         FROM downloaded_packs dp
+         JOIN regions r ON r.name = dp.region
+         JOIN regions c ON c.parent_id = r.id
+         JOIN regions g ON g.parent_id = c.id
+        WHERE dp.applied_province_region_ids IS NULL OR dp.applied_province_region_ids ? c.id::text
      ),
      pack_zones AS (
        SELECT dp.pack_id, z.id AS sea_zone_id FROM downloaded_packs dp JOIN sea_zones z ON z.name = dp.region
