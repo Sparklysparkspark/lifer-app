@@ -97,6 +97,6 @@ test("honours a culling app's rejects and picks when importing a trip", async ({
   await tiles.first().getByRole("img").click();
   await expect(page.getByText("Picked in your culling app · Red label")).toBeVisible();
   await page.getByRole("button", { name: "Next" }).click();
-  await expect(page.getByText("Rejected in your culling app", { exact: true })).toBeVisible();
+  await expect(page.getByText(/· Rejected in your culling app$/)).toBeVisible();
   await page.getByRole("button", { name: "Close" }).click();
 });

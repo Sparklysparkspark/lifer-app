@@ -6,7 +6,12 @@ import { expect, test } from "../support/test.js";
 // The nav link, and something each page renders only once its data has loaded (the headings
 // show while loading, so they alone would pass before a failing request).
 const PAGES: Array<{ link: string; url: RegExp; heading: string; loaded: (page: Page) => Locator }> = [
-  { link: "Import", url: /\/import$/, heading: "Bulk import", loaded: (page) => page.getByText("choose files") },
+  {
+    link: "Import",
+    url: /\/import$/,
+    heading: "Bulk import",
+    loaded: (page) => page.getByText("Drag photos, RAWs or videos here, or choose them."),
+  },
   {
     link: "Stats",
     url: /\/stats$/,
@@ -17,7 +22,7 @@ const PAGES: Array<{ link: string; url: RegExp; heading: string; loaded: (page: 
     link: "Gallery",
     url: /\/gallery$/,
     heading: "Gallery",
-    loaded: (page) => page.getByPlaceholder(/^Search your photos/),
+    loaded: (page) => page.getByLabel("Search your photos by what's in them"),
   },
   {
     link: "Albums & trips",
@@ -29,8 +34,8 @@ const PAGES: Array<{ link: string; url: RegExp; heading: string; loaded: (page: 
     link: "Settings",
     url: /\/settings$/,
     heading: "Settings",
-    // The default group's first card, once the page has worked out which groups to show.
-    loaded: (page) => page.getByText("Light or dark mode, or follow whatever this device is set to."),
+    // The default group's first setting, once the page has worked out which groups to show.
+    loaded: (page) => page.getByRole("button", { name: "Follow system" }),
   },
 ];
 
@@ -45,7 +50,7 @@ test("every top-level page loads cleanly", async ({ page }) => {
   }
 
   // The logo goes back to the collection, the page the app opens on.
-  await page.getByRole("link", { name: "Collection" }).click();
+  await page.getByLabel("Collection").click();
   await expect(page.getByText(/^\d+ \/ \d+ collected$/)).toBeVisible();
 });
 

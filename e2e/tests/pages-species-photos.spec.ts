@@ -35,11 +35,12 @@ test("rates, sorts, edits and deletes photos on a species page", async ({ page }
   await expect(tiles.first()).toContainText("Nov 20, 2024");
 
   // Gallery view hides the captions and ratings.
-  await page.getByRole("button", { name: "Gallery view" }).click();
-  await expect(page.getByRole("button", { name: "Gallery view ✓" })).toBeVisible();
+  const galleryView = page.getByRole("button", { name: "Gallery view" });
+  await galleryView.click();
+  await expect(galleryView).toHaveAttribute("aria-pressed", "true");
   await expect(tiles.getByRole("button", { name: "Rate 1 star" })).toHaveCount(0);
   await expect(tiles.first()).not.toContainText("Nov 20, 2024");
-  await page.getByRole("button", { name: "Gallery view ✓" }).click();
+  await galleryView.click();
   await expect(tiles.getByRole("button", { name: "Rate 1 star" })).toHaveCount(2);
 
   // The lightbox, captioned with the photo's date.

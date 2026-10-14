@@ -1,6 +1,6 @@
 // Adding a species to a checklist yourself, from both places the app offers it: the region's
-// checklist ("+ Add a species", by search) and a species page ("Add to another checklist", by
-// region or sea zone). The fixture's robin is on Canada's checklist but not British Columbia's,
+// checklist ("+ Add a species", by search) and a species page's menu ("Add to another checklist",
+// by region or sea zone). The fixture's robin is on Canada's checklist but not British Columbia's,
 // so it's the species added. Each addition is removed again, leaving the checklist as it was.
 import { COUNTRY, PACKLESS_COUNTRY, PROVINCE, SEA_ZONE, SPECIES } from "../support/fixtureCatalog.js";
 import { speciesId } from "../support/library.js";
@@ -13,6 +13,12 @@ async function regionIdByName(request: import("@playwright/test").APIRequestCont
     regions: Array<{ id: string; name: string }>;
   };
   return regions.regions.find((r) => r.name === name)!.id;
+}
+
+/** Opens the species page's own menu (the first one, in its header) and picks the action. */
+async function openAddToAnotherChecklist(page: import("@playwright/test").Page): Promise<void> {
+  await page.getByRole("button", { name: "More options" }).first().click();
+  await page.getByRole("button", { name: "Add to another checklist" }).click();
 }
 
 test("adds a species to a province's checklist and removes it, from the checklist and the species page", async ({
@@ -32,7 +38,7 @@ test("adds a species to a province's checklist and removes it, from the checklis
   await expect(robinCard).toHaveCount(0);
 
   await page.getByRole("button", { name: "+ Add a species" }).click();
-  const dialog = page.getByRole("dialog", { name: `Add a species to ${PROVINCE.name}` });
+  const dialog = page.getByRole("dialog", { name: `Add species to ${PROVINCE.name}` });
   await expect(dialog).toBeVisible();
   await dialog.getByRole("combobox", { name: "Search species to add…" }).fill("robin");
   // Keyboard only: arrow to the match and pick it with Enter.
@@ -61,10 +67,7 @@ test("adds a species to a province's checklist and removes it, from the checklis
   // --- From the species page ---
   await page.goto(`/species/${robinId}`);
   await expect(page.getByRole("heading", { level: 1, name: robin })).toBeVisible();
-  const toggle = page.getByRole("button", { name: "Add to another checklist" });
-  await expect(toggle).toHaveAttribute("aria-expanded", "false");
-  await toggle.click();
-  await expect(toggle).toHaveAttribute("aria-expanded", "true");
+  await openAddToAnotherChecklist(page);
   const panel = page.getByRole("group", { name: "Add to another checklist" });
 
   // World and continents have no checklist of their own, so Add waits for a country or province.
@@ -110,7 +113,7 @@ test("shows the species you added on a country whose pack isn't downloaded, with
 
   // Adding doesn't wait for the pack.
   await page.getByRole("button", { name: "+ Add a species" }).click();
-  const dialog = page.getByRole("dialog", { name: `Add a species to ${PACKLESS_COUNTRY.name}` });
+  const dialog = page.getByRole("dialog", { name: `Add species to ${PACKLESS_COUNTRY.name}` });
   await dialog.getByRole("combobox", { name: "Search species to add…" }).fill("robin");
   await dialog.getByRole("option", { name: new RegExp(robin) }).click();
   await expect(page.getByText(`Added ${robin} to ${PACKLESS_COUNTRY.name}'s checklist.`)).toBeVisible();
@@ -134,7 +137,7 @@ test("adds a species to a sea zone from the species page, and shows it with that
   const robinCard = page.locator(`main a[href^="/species/${robinId}"]`);
 
   await page.goto(`/species/${robinId}`);
-  await page.getByRole("button", { name: "Add to another checklist" }).click();
+  await openAddToAnotherChecklist(page);
   const panel = page.getByRole("group", { name: "Add to another checklist" });
   await panel.getByRole("button", { name: "Sea zone" }).click();
   await panel.getByRole("textbox", { name: "Search sea zones" }).fill("alaska");
