@@ -1,5 +1,5 @@
 // Species matching on this computer while connected to a server: runs apps/api's inference-only
-// entry on a loopback port with a per-launch token. Pages reach it via lib.rs commands, since an
+// entry on a loopback port with a per-launch token. Pages reach it via commands.rs commands, since an
 // https page can't fetch an http loopback address.
 use crate::api;
 use std::collections::HashMap;
@@ -37,20 +37,16 @@ async fn spawn(app: &AppHandle, generation: u64) -> Result<Sidecar, String> {
     let api_dir = resources.join("api");
     // Compiled as its own entry by apps/api/scripts/build.mjs.
     let entry = api_dir.join("dist").join("localInferenceServer.js");
-    let app_data_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| format!("Couldn't resolve app data dir: {e}"))?;
     let token = random_token()?;
 
     let mut envs: HashMap<String, String> = std::env::vars().collect();
     envs.insert("NODE_ENV".into(), "production".into());
     envs.insert("LIFER_INFERENCE_TOKEN".into(), token.clone());
-    // The local API's own model folder, so a model downloaded in either mode serves both.
+    // The local API's own model folder (in the OS cache folder, model_cache.rs), so a model
+    // downloaded in either mode serves both.
     envs.insert(
         "LIFER_MODEL_DIR".into(),
-        app_data_dir
-            .join("app-data")
+        crate::model_cache::prepare(app)?
             .join("models")
             .to_string_lossy()
             .into_owned(),

@@ -2,8 +2,7 @@
 // matching is set up: a machine that never matches species doesn't download GPU files. LIFER_GPU=off
 // keeps everything on the CPU, for troubleshooting.
 import { rmSync } from "node:fs";
-import path from "node:path";
-import { APP_DATA_DIR } from "@lifer/core/config.js";
+import { ACCELERATION_CACHE_FILE, GPU_RUNTIME_DIR } from "@lifer/core/config.js";
 import {
   cancelAcceleration,
   forgetAcceleration,
@@ -15,8 +14,8 @@ import { idModel } from "@lifer/core/species/idModel.js";
 import { DETECTOR_MODEL_PATH } from "@lifer/core/species/inference.js";
 import type { OnnxImageModel } from "@lifer/core/species/onnxImageModel.js";
 
-const CACHE_FILE = path.join(APP_DATA_DIR, "acceleration.json");
-const GPU_RUNTIME_ROOT = path.join(APP_DATA_DIR, "gpu-runtime");
+const CACHE_FILE = ACCELERATION_CACHE_FILE;
+const GPU_RUNTIME_ROOT = GPU_RUNTIME_DIR;
 const ENCODER_DIMS = [1, 3, 224, 224];
 
 const gpuDisabled = () => process.env.LIFER_GPU?.toLowerCase() === "off";

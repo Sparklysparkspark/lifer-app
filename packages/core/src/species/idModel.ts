@@ -2,7 +2,7 @@
 // whenever it's downloaded and its reference vectors are installed; otherwise they fall back to
 // the CLIP model (embeddings.ts). See packages/shared/src/idModel.ts for why there are two.
 import path from "node:path";
-import { APP_DATA_DIR, ID_MODEL_GPU_BYTES, ID_MODEL_GPU_URL, ID_MODEL_URL, ID_MODEL_VERSION } from "../config.js";
+import { ID_MODEL_GPU_BYTES, ID_MODEL_GPU_URL, ID_MODEL_URL, ID_MODEL_VERSION, MODELS_DIR } from "../config.js";
 import { createOnnxImageModel } from "./onnxImageModel.js";
 
 interface ModelFile {
@@ -34,7 +34,7 @@ export function idModelFiles(
 }
 
 // Same directory as the CLIP model, so offloading the species-matching model removes both.
-const files = idModelFiles(process.platform, process.arch, path.join(APP_DATA_DIR, "models"), {
+const files = idModelFiles(process.platform, process.arch, MODELS_DIR, {
   cpu: ID_MODEL_URL,
   gpu: ID_MODEL_GPU_URL,
   gpuBytes: ID_MODEL_GPU_BYTES,
