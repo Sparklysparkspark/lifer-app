@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import BackToCollectionLink from "./BackToCollectionLink";
 
 // The shared back-link and title bar under the app nav.
 export default function PageHeader({
   title,
+  topLevel = false,
   backFallbackTo,
   backLabel,
   titleAddon,
@@ -13,6 +14,9 @@ export default function PageHeader({
 }: {
   /** Omit for a page whose real title lives in the body (a species' hero); only the back link shows. */
   title?: ReactNode;
+  /** A page the app nav links to: no back link (the nav reaches every other page) and no visible
+   *  title (the nav marks where you are). Without actions or children there's no bar at all. */
+  topLevel?: boolean;
   /** Passed to BackToCollectionLink for a page with a non-default fallback or label. */
   backFallbackTo?: string;
   backLabel?: string;
@@ -25,29 +29,13 @@ export default function PageHeader({
   /** Extra rows under the title: a description, a metadata line, a status count. */
   children?: ReactNode;
 }) {
-  // Once stuck to the top it sits where the mac traffic lights float, so index.css shifts its
-  // content right while data-stuck is set (only on the desktop app).
-  const ref = useRef<HTMLElement>(null);
-  const [stuck, setStuck] = useState(false);
-  useEffect(() => {
-    if (!sticky) return;
-    function check() {
-      const el = ref.current;
-      if (el) setStuck(window.scrollY > 0 && el.getBoundingClientRect().top <= 0);
-    }
-    window.addEventListener("scroll", check, { passive: true });
-    window.addEventListener("resize", check);
-    check();
-    return () => {
-      window.removeEventListener("scroll", check);
-      window.removeEventListener("resize", check);
-    };
-  }, [sticky]);
+  if (topLevel && !actions && !children) return <h1 className="sr-only">{title}</h1>;
 
   return (
     <header
-      ref={ref}
-      data-stuck={stuck ? "" : undefined}
+      // A back-link bar reads as part of the app nav above it: the mac title bar only shows its
+      // bottom edge once this has scrolled under it too (TitleBarDragRegion). A sticky one never does.
+      data-header-extension={!topLevel && !sticky ? "" : undefined}
       // Harmless outside Tauri. Links and buttons inside still take clicks.
       data-tauri-drag-region=""
       className={`page-subheader border-b border-line bg-surface px-6 py-4 ${sticky ? "sticky top-0 z-20" : ""} ${
@@ -55,17 +43,22 @@ export default function PageHeader({
       }`}
     >
       <div className={`min-w-0 ${actions ? "flex-1" : ""}`}>
-        <BackToCollectionLink
-          {...(backFallbackTo ? { fallbackTo: backFallbackTo } : {})}
-          {...(backLabel ? { label: backLabel } : {})}
-          className="text-sm text-muted hover:underline"
-        />
-        {title != null && (
-          <div className="mt-1 flex items-center gap-2">
-            <h1 className="text-lg font-semibold text-ink">{title}</h1>
-            {titleAddon}
-          </div>
+        {!topLevel && (
+          <BackToCollectionLink
+            {...(backFallbackTo ? { fallbackTo: backFallbackTo } : {})}
+            {...(backLabel ? { label: backLabel } : {})}
+            className="text-sm text-muted hover:underline"
+          />
         )}
+        {title != null &&
+          (topLevel ? (
+            <h1 className="sr-only">{title}</h1>
+          ) : (
+            <div className="mt-1 flex items-center gap-2">
+              <h1 className="text-lg font-semibold text-ink">{title}</h1>
+              {titleAddon}
+            </div>
+          ))}
         {children}
       </div>
       {actions && <div className="flex min-w-0 flex-wrap items-center gap-2">{actions}</div>}
