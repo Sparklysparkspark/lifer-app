@@ -8,6 +8,8 @@ banner.
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-10-14
+
 ### Added
 
 - Desktop: Settings > Storage > Remove all Lifer data deletes everything Lifer keeps on the
@@ -24,6 +26,17 @@ banner.
 - Photo search finds scenes and colours, like water, sky, a fence or purple leaves, even when they
   fill only part of the photo. The species-matching download adds a small scene model (~61 MB) for
   it, and photos already in the library are scanned in the background.
+- Desktop: swipe with two fingers to go back or forward a page, like in a browser. Going back
+  returns to the same spot, including the province you'd drilled into and how far you'd scrolled.
+- Species pages open with a short field-guide paragraph about the species, written from its
+  Wikipedia article.
+- A species you add by hand to a country's checklist shows on each of its provinces and states
+  too, except where iNaturalist has no records of it, and reads "Added by you to Canada".
+- The Gallery, albums and trips have a RAW files filter (show, hide or only; hidden by default) and
+  an Edited photos filter for photos with or without a RAW beside them.
+- When an imported photo looks like one you already have, the warning shows that photo, and Import
+  anyway gives it the same species.
+- Collection cards for species you added have Adjust card preview in their menu.
 
 ### Changed
 
@@ -49,6 +62,21 @@ banner.
   database, so new installs no longer download the old PostGIS image.
 - API: the API description (`/api/openapi.json`) lists the fields every route answers with, and
   `GET /api/species/:id` no longer includes the server's internal image file locations.
+- Desktop: a see-through bar sits behind the window buttons, and each button has a light backing so
+  it stays easy to see when Lifer is in the background.
+- Menu actions such as tags, correct the ID, location, also features and add to album open their
+  own dialog instead of editing inside the menu.
+- Grouped Collection: small groups sit side by side in compact clusters, every card stays at the
+  size you picked, and collapsing a group keeps your place and frees its space. Broad groups sort
+  species you added by hand into Insects, Fungi and so on.
+- The region map glides between a country and its provinces instead of starting from the whole
+  world.
+- The photo viewer fits small windows, zooms toward the pointer, stops panning at the photo's edges
+  and hides its controls while zoomed. Cmd+0 fits the photo again, and the fullscreen button is
+  hidden when Lifer is already fullscreen.
+- Import: photos and RAWs share one drop area, and the RAW result is shorter ("3 matched, 1 not
+  imported").
+- Star ratings preview the rating under the pointer, and toolbar controls are all the same height.
 
 ### Removed
 
@@ -93,6 +121,17 @@ banner.
 - Desktop: a database update that hangs at startup stops with an error after 10 minutes instead of
   waiting forever, and quitting during it no longer leaves it running. Settings, the offline cache
   and the database upgrade marker survive a power cut.
+- Desktop: Open in the folder picker imports the folder you're looking at.
+- Photos in the Trash no longer keep a species counted as collected, and emptying the Trash removes
+  a RAW-only photo's RAW file too.
+- A landscape with no animal in it is flagged as not wildlife instead of matched to a species.
+- A species' photo carousel no longer repeats its main photo, and your own photo shows its shooting
+  details.
+- A species with only RAW photos opens on All, and deleting a RAW-only photo or a video no longer
+  offers to delete a separate RAW.
+- People no longer appear on region checklists.
+- The species page's link back to Collection is always shown.
+- The photo viewer's backdrop covers the whole window.
 
 ## [0.10.3] - 2026-10-08
 

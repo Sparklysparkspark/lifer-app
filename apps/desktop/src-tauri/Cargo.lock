@@ -2296,7 +2296,7 @@ dependencies = [
 
 [[package]]
 name = "lifer-desktop"
-version = "0.10.3"
+version = "0.11.0"
 dependencies = [
  "block2",
  "flate2",
