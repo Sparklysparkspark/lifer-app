@@ -8,7 +8,7 @@ export const PMTILES_URL = "/maps/world-z8.pmtiles";
 // keeps a map that was never downloaded from showing up as a failed request in the console.
 export async function checkPmtilesAvailable(): Promise<boolean> {
   try {
-    const status = await api.get<{ downloaded: boolean }>("/settings/map/status");
+    const status = await api.get("/settings/map/status");
     return status.downloaded;
   } catch {
     return false;

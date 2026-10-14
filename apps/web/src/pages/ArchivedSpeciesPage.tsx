@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { api } from "../api/client";
+import { api, type ApiResponse } from "../api/client";
 import PageHeader from "../components/PageHeader";
 import InfoTip from "../components/InfoTip";
 import { Spinner } from "../components/LoadingScreen";
@@ -8,33 +8,24 @@ import PhotoPlaceholder from "../components/PhotoPlaceholder";
 import SearchInput from "../components/SearchInput";
 import Pill from "../components/Pill";
 import EmptyState from "../components/EmptyState";
+import Button from "../components/Button";
 import { useConfirm } from "../hooks/useConfirm";
 import { useToast } from "../hooks/useToast";
+import { groupInto } from "../lib/groupInto";
+import { useSpeciesName } from "../lib/speciesName";
 
 const ARCHIVED_INFO_PARAGRAPHS = [
   "Archiving a species just hides it from your collection and region checklists. It doesn't delete any photos or history, and unarchiving brings it right back.",
   "\"Unarchive all\" only unarchives the species currently shown for that family. If you're searching, it won't touch any archived species the search is hiding.",
 ];
 
-interface ArchivedItem {
-  speciesId: string;
-  scientificName: string;
-  commonName: string | null;
-  taxonClass: string;
-  family: string | null;
-  referencePhoto: string | null;
-  referenceThumbUrl: string | null;
-  archivedAt: string;
-}
-
-interface ArchiveResponse {
-  items: ArchivedItem[];
-  families: Array<{ taxonClass: string; family: string; count: number }>;
-}
+type ArchiveResponse = ApiResponse<"/archive">;
+type ArchivedItem = ArchiveResponse["items"][number];
 
 // Archived species never show in the collection or checklists, so this is the one place to see
 // them again and unarchive, one at a time or a whole family at once.
 export default function ArchivedSpeciesPage() {
+  const speciesName = useSpeciesName();
   const [data, setData] = useState<ArchiveResponse | null>(null);
   const [loadError, setLoadError] = useState(false);
   const [busyIds, setBusyIds] = useState<Set<string>>(new Set());
@@ -49,7 +40,7 @@ export default function ArchivedSpeciesPage() {
   // A refetch after an unarchive keeps the current grid up instead of flashing a spinner.
   function fetchArchive() {
     api
-      .get<ArchiveResponse>("/archive")
+      .get("/archive")
       .then(setData)
       .catch(() => setLoadError(true));
   }
@@ -79,9 +70,7 @@ export default function ArchivedSpeciesPage() {
   const grouped = useMemo(() => {
     const byFamily = new Map<string, ArchivedItem[]>();
     for (const item of visibleItems) {
-      const key = item.family ?? "Other";
-      if (!byFamily.has(key)) byFamily.set(key, []);
-      byFamily.get(key)!.push(item);
+      groupInto(byFamily, item.family ?? "Other", item);
     }
     return [...byFamily.entries()].sort(([a], [b]) => a.localeCompare(b));
   }, [visibleItems]);
@@ -162,7 +151,7 @@ export default function ArchivedSpeciesPage() {
       ) : !data ? (
         <Spinner />
       ) : (
-        <main className="space-y-6 p-6">
+        <main className="space-y-section p-page">
           {data.families.length > 0 && (
             <div className="flex flex-wrap items-center gap-2">
               <Pill size="sm" active={selectedFamily === null} onClick={() => setSelectedFamily(null)}>
@@ -200,7 +189,7 @@ export default function ArchivedSpeciesPage() {
                 </svg>
               }
               title="Nothing archived yet"
-              description={`Use the "Archive" button on a species card, or "Archive group" when a collection view is grouped by family, to keep species you don't care about completing off your to-collect count.`}
+              description="Archived species are left out of your to-collect count."
             />
           ) : visibleItems.length === 0 ? (
             <p className="text-muted">No archived species match "{search}".</p>
@@ -209,7 +198,7 @@ export default function ArchivedSpeciesPage() {
               {/* Collapsed families become chips, as in the collection grid. */}
               {grouped.some(([family]) => collapsed.has(family)) && (
                 <div className="flex flex-wrap items-center gap-2 rounded-lg border border-line bg-surface p-2">
-                  <span className="text-xs uppercase tracking-wide text-muted">Collapsed:</span>
+                  <span className="text-xs text-muted">Collapsed:</span>
                   {grouped
                     .filter(([family]) => collapsed.has(family))
                     .map(([family, items]) => (
@@ -256,7 +245,7 @@ export default function ArchivedSpeciesPage() {
                         {busyFamily === family ? "Unarchiving…" : "Unarchive all"}
                       </button>
                     </div>
-                    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
+                    <div className="grid grid-cols-2 gap-item sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
                       {items.map((item) => (
                         <div key={item.speciesId} className="rounded-lg border border-line bg-surface p-2">
                           <Link
@@ -268,14 +257,14 @@ export default function ArchivedSpeciesPage() {
                               {item.referenceThumbUrl ? (
                                 <img
                                   src={item.referenceThumbUrl}
-                                  alt={item.commonName ?? item.scientificName}
+                                  alt={speciesName(item)}
                                   loading="lazy"
                                   className="h-full w-full object-cover"
                                 />
                               ) : item.referencePhoto ? (
                                 <img
                                   src={item.referencePhoto}
-                                  alt={item.commonName ?? item.scientificName}
+                                  alt={speciesName(item)}
                                   loading="lazy"
                                   className="h-full w-full object-cover"
                                 />
@@ -283,18 +272,18 @@ export default function ArchivedSpeciesPage() {
                                 <PhotoPlaceholder className="h-full w-full" />
                               )}
                             </div>
-                            <p className="mt-1 truncate text-xs font-medium text-ink">
-                              {item.commonName ?? item.scientificName}
-                            </p>
-                            <p className="truncate text-[10px] italic text-muted">{item.scientificName}</p>
+                            <p className="mt-1 truncate text-xs font-medium text-ink">{speciesName(item)}</p>
+                            <p className="truncate text-xs italic text-muted">{item.scientificName}</p>
                           </Link>
-                          <button
+                          <Button
+                            variant="secondary"
+                            size="sm"
                             onClick={() => unarchiveOne(item.speciesId)}
-                            disabled={busyIds.has(item.speciesId)}
-                            className="mt-1 w-full rounded border border-line py-0.5 text-[10px] uppercase tracking-wide text-muted hover:bg-surface-muted disabled:opacity-50"
+                            loading={busyIds.has(item.speciesId)}
+                            className="mt-1 w-full"
                           >
-                            {busyIds.has(item.speciesId) ? "…" : "Unarchive"}
-                          </button>
+                            Unarchive
+                          </Button>
                         </div>
                       ))}
                     </div>

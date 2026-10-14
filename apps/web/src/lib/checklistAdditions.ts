@@ -1,7 +1,7 @@
 // Species you add to a region's or a sea zone's checklist yourself (apps/api
 // regions/checklistAdditions.ts), from the species page or a region's checklist.
 import type { RegionSummary } from "@lifer/shared";
-import { api } from "../api/client";
+import { api, apiPath } from "../api/client";
 import i18n from "../i18n";
 
 export interface AddToChecklistResult {
@@ -42,21 +42,31 @@ export interface SeaZoneSummary {
   name: string;
 }
 
-const additionPath = (kind: ChecklistKind, id: string, speciesId: string) =>
-  `/${kind === "seaZone" ? "sea-zones" : "regions"}/${encodeURIComponent(id)}/checklist-additions/${encodeURIComponent(speciesId)}`;
+// Regions and sea zones answer additions the same way.
+const addToRegion = (regionId: string, speciesId: string) =>
+  api.put(apiPath("/regions/{regionId}/checklist-additions/{speciesId}", { regionId, speciesId }));
+const addToSeaZone = (seaZoneId: string, speciesId: string) =>
+  api.put(apiPath("/sea-zones/{seaZoneId}/checklist-additions/{speciesId}", { seaZoneId, speciesId }));
 
-export const addToChecklist = (id: string, speciesId: string, kind: ChecklistKind = "region") =>
-  api.put<AddToChecklistResult>(additionPath(kind, id, speciesId));
+export const addToChecklist = (
+  id: string,
+  speciesId: string,
+  kind: ChecklistKind = "region",
+): Promise<AddToChecklistResult> => (kind === "seaZone" ? addToSeaZone(id, speciesId) : addToRegion(id, speciesId));
 
 export const removeFromChecklist = (id: string, speciesId: string, kind: ChecklistKind = "region") =>
-  api.delete<{ ok: boolean }>(additionPath(kind, id, speciesId));
+  kind === "seaZone"
+    ? api.delete(apiPath("/sea-zones/{seaZoneId}/checklist-additions/{speciesId}", { seaZoneId: id, speciesId }))
+    : api.delete(apiPath("/regions/{regionId}/checklist-additions/{speciesId}", { regionId: id, speciesId }));
 
-export const listSpeciesChecklistAdditions = (speciesId: string) =>
-  api.get<{ items: SpeciesChecklistAddition[]; seaZones: SpeciesSeaZoneAddition[] }>(
-    `/species/${encodeURIComponent(speciesId)}/checklist-additions`,
-  );
+export const listSpeciesChecklistAdditions = (
+  id: string,
+): Promise<{
+  items: SpeciesChecklistAddition[];
+  seaZones: SpeciesSeaZoneAddition[];
+}> => api.get(apiPath("/species/{id}/checklist-additions", { id }));
 
-export const listSeaZones = () => api.get<{ zones: SeaZoneSummary[] }>("/sea-zones").then((res) => res.zones);
+export const listSeaZones = () => api.get("/sea-zones").then((res) => res.zones);
 
 /** The checklist view that shows a sea zone addition: a nearby region with only that zone's water. */
 export const seaZoneViewPath = (addition: SpeciesSeaZoneAddition) =>

@@ -31,6 +31,8 @@
     "check:em-dashes": "node scripts/check-em-dashes.mjs",
     "check:migrations": "node scripts/check-migrations.mjs",
     "check:i18n": "node scripts/check-i18n.mjs",
+    "gen:api-types": "tsx apps/api/scripts/gen-api-types.ts",
+    "check:api-types": "tsx apps/api/scripts/gen-api-types.ts --check",
     "build": "npm run build --workspaces --if-present"
   },
   "engines": {

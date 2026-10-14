@@ -1,6 +1,6 @@
 import { useEffect } from "react";
-import type { CollectionItem } from "@lifer/shared";
 import { api } from "../api/client";
+import { toCollectionItems } from "../api/types";
 import { tauriInvoke } from "../lib/tauri";
 import { isSyncDue, makeBrowserThumb, syncOfflineCache, type CacheInfo } from "../lib/offlineCache";
 
@@ -28,7 +28,7 @@ export default function OfflineCacheSync({ userId }: { userId: string | null }) 
         await syncOfflineCache({
           invoke,
           userId,
-          fetchCollection: async () => (await api.get<{ items: CollectionItem[] }>("/collection")).items,
+          fetchCollection: async () => toCollectionItems((await api.get("/collection")).items),
           makeThumb: makeBrowserThumb,
         });
       } catch (err) {

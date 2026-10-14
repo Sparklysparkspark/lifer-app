@@ -17,6 +17,7 @@ These are the conventions Lifer's code already follows. Matching them makes revi
 
 - All TypeScript runs in strict mode. Avoid `any`; if a type really is unknown, use `unknown` and narrow it.
 - Types the API and the web app both use go in `packages/shared` (`@lifer/shared`), not in a copy on each side.
+- The web app's API calls are typed from the routes' own response schemas. `npm run gen:api-types` builds the OpenAPI document from every `/api` route and writes `apps/web/src/api/schema.gen.ts`; commit it with the schema change (CI's `npm run check:api-types` fails when it's stale). Call a route as `api.get(apiPath("/trips/{id}", { id }))`, or with its literal path when it has no parameters, and the answer is typed. A route whose response has no schema yet stays untyped (`api.get<T>(...)`) until one is added (`Open()` in `apps/api/src/lib/schema.ts` keeps fields it doesn't list).
 - The API runs through `tsx` in development, and its production build (esbuild) strips types without checking them, so `npm run typecheck` is what catches type errors. Run it before you push.
 
 ## Formatting and linting

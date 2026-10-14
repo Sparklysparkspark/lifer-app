@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { api } from "../../api/client";
+import { api, apiPath } from "../../api/client";
 import Lightbox, { type LightboxSlide } from "../Lightbox";
 
 /** Every reference photo of a suggested species, for comparing against the photo under review.
@@ -11,9 +11,7 @@ export function useSpeciesGallery() {
     const caption = (credit: string | null) => (credit ? `${label} · ${credit}` : label);
     const single = [{ url: `/api/species/${speciesId}/reference-photo/display`, caption: caption(null) }];
     try {
-      const res = await api.get<{ photos: Array<{ url: string; credit: string | null }> }>(
-        `/species/${speciesId}/reference-photos`,
-      );
+      const res = await api.get(apiPath("/species/{id}/reference-photos", { id: speciesId }));
       setGallery({
         slides: res.photos.length > 0 ? res.photos.map((p) => ({ url: p.url, caption: caption(p.credit) })) : single,
         index: 0,

@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { api, ApiError } from "../../api/client";
+import { api, apiPath, ApiError } from "../../api/client";
 import { useNow } from "../../hooks/useNow";
 import { useToast } from "../../hooks/useToast";
 import type { ShareLink } from "./types";
@@ -30,7 +30,7 @@ export function useAlbumShares(albumId: string | undefined) {
   function loadShares() {
     if (!albumId) return;
     api
-      .get<{ shares: ShareLink[] }>(`/albums/${albumId}/shares`)
+      .get(apiPath("/albums/{id}/shares", { id: albumId }))
       .then((res) => setShares(res.shares))
       .catch(() => toast.error("Couldn't load share links."));
   }
@@ -48,7 +48,7 @@ export function useAlbumShares(albumId: string | undefined) {
     setError(null);
     const days = SHARE_EXPIRY_OPTIONS.find((o) => o.value === expiry)?.days ?? null;
     try {
-      await api.post(`/albums/${albumId}/shares`, {
+      await api.post(apiPath("/albums/{id}/shares", { id: albumId }), {
         password: password.trim() || undefined,
         allowDownload,
         showMetadata,
@@ -65,7 +65,7 @@ export function useAlbumShares(albumId: string | undefined) {
 
   async function revokeShare(shareId: string) {
     try {
-      await api.delete(`/shares/${shareId}`);
+      await api.delete(apiPath("/shares/{id}", { id: shareId }));
     } catch {
       toast.error("Couldn't revoke this share link.");
     }

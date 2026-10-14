@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
-import { describeTier, TIER_ORDER, type TierExplain, type TierReason } from "@lifer/shared";
-import { api } from "../api/client";
+import { describeSeason, describeTier, TIER_ORDER, type TierExplain, type TierReason } from "@lifer/shared";
+import { api, apiPath } from "../api/client";
 import { errorMessage } from "../lib/errorMessage";
 import { tierLabel } from "../lib/speciesGroups";
-import { iucnBadge } from "../lib/iucnDisplay";
+import { iucnBadge, iucnCategoryName } from "../lib/iucnDisplay";
 import Modal from "./Modal";
 import Button from "./Button";
 import Select from "./Select";
@@ -65,7 +65,7 @@ export default function TierDetailsModal({
     try {
       // Clearing removes the override wherever it was set.
       const target = tier === null ? (details?.override?.everywhere ? null : regionId) : everywhere ? null : regionId;
-      await api.put(`/species/${speciesId}/tier-override`, { regionId: target, tier });
+      await api.put(apiPath("/species/{id}/tier-override", { id: speciesId }), { regionId: target, tier });
       onChanged();
       onClose();
     } catch (err) {
@@ -75,13 +75,22 @@ export default function TierDetailsModal({
     }
   }
 
-  const side = details?.local ?? details?.global ?? null;
-  const place = details?.local ? (details.local.regionName ?? null) : null;
+  const local = details?.local ?? null;
+  const place = local ? (local.regionName ?? null) : null;
   // Not Evaluated stays on the species page; this explains tiers, and NE adds nothing to that.
   const iucn = iucnBadge(details?.iucnStatus);
-  const lines = side ? describeTier(side.explain, side.reason, place) : [];
-  const worldLines =
-    details?.local && details.global.tier ? describeTier(details.global.explain, details.global.reason, null) : [];
+  // The full reasoning, folded away under the short facts.
+  const why = details
+    ? [
+        ...(local ? describeTier(local.explain, local.reason, place) : []),
+        ...(details.global.tier || !local ? describeTier(details.global.explain, details.global.reason, null) : []),
+        ...(iucn && iucn.code !== "NE"
+          ? [
+              "IUCN status is about how threatened a species is, not how hard it is to find, so it doesn't change the tier.",
+            ]
+          : []),
+      ]
+    : [];
 
   return (
     <Modal open onClose={onClose} title={speciesName} size="sm">
@@ -90,69 +99,87 @@ export default function TierDetailsModal({
         !error && <p className="text-sm text-muted">Loading…</p>
       ) : (
         <div className="space-y-4 text-sm">
-          <section>
-            <h3 className="font-medium text-ink">
-              {side?.tier
-                ? `${tierLabel(side.tier)}${place ? ` in ${place}` : " worldwide"}`
-                : `Not rated${place ? ` in ${place}` : ""}`}
-            </h3>
-            <ul className="mt-1 space-y-0.5 text-muted">
-              {lines.map((l) => (
-                <li key={l}>{l}</li>
-              ))}
-            </ul>
-          </section>
-          {worldLines.length > 0 && (
-            <section>
-              <h3 className="font-medium text-ink">{tierLabel(details.global.tier!)} worldwide</h3>
-              <ul className="mt-1 space-y-0.5 text-muted">
-                {worldLines.map((l) => (
+          <div className="space-y-1.5">
+            {local && <TierRow label="Here" text={sideText(local, place)} />}
+            {(details.global.tier || !local) && <TierRow label="Worldwide" text={sideText(details.global, null)} />}
+            {iucn && iucn.code !== "NE" && <TierRow label="IUCN" text={iucnCategoryName(iucn.code)} />}
+          </div>
+          {why.length > 0 && (
+            <details className="text-xs text-muted">
+              <summary className="cursor-pointer hover:text-ink">How Lifer rates this</summary>
+              <ul className="mt-1 space-y-0.5">
+                {why.map((l) => (
                   <li key={l}>{l}</li>
                 ))}
               </ul>
-            </section>
+            </details>
           )}
-          {iucn && iucn.code !== "NE" && (
-            <section>
-              <h3 className="font-medium text-ink">{iucn.label}</h3>
-              <p className="mt-1 text-muted">
-                Conservation status, from the IUCN Red List. It's about how threatened the species is, not how hard it
-                is to find, so it doesn't change the tier.
-              </p>
-            </section>
-          )}
-          <section className="border-t border-line pt-3">
-            <h3 className="font-medium text-ink">Your own tier</h3>
-            <p className="mt-0.5 text-xs text-muted">
-              Wrong for where you look? Your tier replaces Lifer's on this device.
-            </p>
-            <div className="mt-2 flex items-center gap-2">
-              <Select value={choice} onChange={(e) => setChoice(e.target.value)} className="flex-1">
-                <option value="">Lifer's tier</option>
-                {TIER_ORDER.map((t) => (
-                  <option key={t} value={t}>
-                    {tierLabel(t)}
-                  </option>
-                ))}
-              </Select>
-              <Button
-                size="sm"
-                loading={saving}
-                disabled={choice === (details.override?.tier ?? "")}
-                onClick={() => void save(choice || null)}
-              >
-                Save
-              </Button>
-            </div>
-            {regionId && choice && (
-              <label className="mt-2 flex items-center gap-2 text-xs text-muted">
-                <input type="checkbox" checked={everywhere} onChange={(e) => setEverywhere(e.target.checked)} />
-                Use it everywhere, not just {place ?? "here"}
+          <div className="border-t border-line pt-3">
+            <div className="grid grid-cols-[6rem_minmax(0,1fr)] items-center gap-x-3">
+              <label htmlFor="own-tier" className="text-muted">
+                Your tier
               </label>
-            )}
-          </section>
+              <div className="flex items-center gap-2">
+                <Select id="own-tier" value={choice} onChange={(e) => setChoice(e.target.value)} className="flex-1">
+                  <option value="">Lifer's tier</option>
+                  {TIER_ORDER.map((t) => (
+                    <option key={t} value={t}>
+                      {tierLabel(t)}
+                    </option>
+                  ))}
+                </Select>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  loading={saving}
+                  disabled={choice === (details.override?.tier ?? "")}
+                  onClick={() => void save(choice || null)}
+                >
+                  Save
+                </Button>
+              </div>
+            </div>
+            <div className="mt-1.5 space-y-1 pl-[calc(6rem+0.75rem)] text-xs text-muted">
+              <p>Replaces Lifer's tier on this device.</p>
+              {regionId && choice && (
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={everywhere}
+                    onChange={(e) => setEverywhere(e.target.checked)}
+                    className="accent-accent"
+                  />
+                  Everywhere, not just {place ?? "here"}
+                </label>
+              )}
+            </div>
+          </div>
         </div>
       )}
     </Modal>
   );
+}
+
+function TierRow({ label, text }: { label: string; text: string }) {
+  return (
+    <div className="grid grid-cols-[6rem_minmax(0,1fr)] gap-x-3">
+      <span className="text-muted">{label}</span>
+      <span className="text-ink">{text}</span>
+    </div>
+  );
+}
+
+// Long official names read badly mid-line.
+const SHORT_PLACE: Record<string, string> = { "United States of America": "the United States" };
+
+/** "Occasional in British Columbia · mostly Sep to Jun": the tier, then the few facts worth a glance. */
+function sideText(side: TierSide, place: string | null): string {
+  if (!side.tier || side.reason === "thin_data" || side.reason === "no_data") return "Not rated yet";
+  const facts = [`${tierLabel(side.tier)}${place ? ` in ${place}` : ""}`];
+  if (side.reason === "vagrant") facts.push("rare visitor");
+  if (!place && side.explain?.easiestIn)
+    facts.push(`easiest to find in ${SHORT_PLACE[side.explain.easiestIn] ?? side.explain.easiestIn}`);
+  const season = side.explain ? describeSeason(side.explain.season) : null;
+  if (season) facts.push(season.charAt(0).toLowerCase() + season.slice(1));
+  return facts.join(" · ");
 }

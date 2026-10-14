@@ -43,7 +43,7 @@ export function useLocalePreference(): {
     cacheLocalePreference(next);
     await applyLocalePreference(next);
     try {
-      const saved = await api.put<{ locale: string | null }>("/settings/locale", {
+      const saved = await api.put("/settings/locale", {
         locale: next === "auto" ? null : next,
       });
       setLocal({ locale: saved.locale });

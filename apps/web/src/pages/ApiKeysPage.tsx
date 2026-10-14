@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Trans, useTranslation } from "react-i18next";
-import { api } from "../api/client";
+import { api, apiPath, type ApiBody, type ApiResponse } from "../api/client";
 import Button from "../components/Button";
 import FormMessage from "../components/FormMessage";
 import { Spinner } from "../components/LoadingScreen";
@@ -10,13 +10,14 @@ import { useConfirm } from "../hooks/useConfirm";
 import { useToast } from "../hooks/useToast";
 import { docsUrl } from "../lib/docs";
 import { errorMessage } from "../lib/errorMessage";
-import { formatDate } from "../lib/format";
+import { formatDate, formatList } from "../lib/format";
 
 const API_GUIDE_URL = docsUrl("/api/overview");
 
 // One row per resource with Read/Write columns. Keep in sync with API_KEY_SCOPES in
 // apps/api/src/auth/apiKeyRoutes.ts, the source of truth.
-const SCOPE_GROUPS: Array<{ labelKey: string; read?: string; write?: string }> = [
+type Scope = ApiBody<"/api-keys", "post">["permissions"][number];
+const SCOPE_GROUPS: Array<{ labelKey: string; read?: Scope; write?: Scope }> = [
   { labelKey: "apiKeys.scopes.gallery", read: "gallery.read" },
   { labelKey: "apiKeys.scopes.species", read: "species.read" },
   { labelKey: "apiKeys.scopes.stats", read: "stats.read" },
@@ -29,20 +30,14 @@ const SCOPE_GROUPS: Array<{ labelKey: string; read?: string; write?: string }> =
   { labelKey: "apiKeys.scopes.lifeList", read: "collection.read", write: "collection.write" },
 ];
 
-interface ApiKey {
-  id: string;
-  name: string;
-  permissions: string[];
-  lastUsedAt: string | null;
-  createdAt: string;
-}
+type ApiKey = ApiResponse<"/api-keys">["keys"][number];
 
 export default function ApiKeysPage() {
   const { t } = useTranslation();
   const [keys, setKeys] = useState<ApiKey[] | null>(null);
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState("");
-  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [selected, setSelected] = useState<Set<Scope>>(new Set());
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [revealedToken, setRevealedToken] = useState<string | null>(null);
@@ -52,7 +47,7 @@ export default function ApiKeysPage() {
 
   function fetchKeys() {
     api
-      .get<{ keys: ApiKey[] }>("/api-keys")
+      .get("/api-keys")
       .then((res) => setKeys(res.keys))
       .catch((err) => setLoadError(errorMessage(err, t("apiKeys.loadFailed"))));
   }
@@ -66,7 +61,7 @@ export default function ApiKeysPage() {
   // Runs once per language (t is stable until the language changes).
   useEffect(fetchKeys, [t]);
 
-  function toggle(scope: string) {
+  function toggle(scope: Scope) {
     setSelected((prev) => {
       const next = new Set(prev);
       if (next.has(scope)) next.delete(scope);
@@ -81,7 +76,7 @@ export default function ApiKeysPage() {
     setSaving(true);
     setError(null);
     try {
-      const res = await api.post<{ token: string }>("/api-keys", { name: name.trim(), permissions: [...selected] });
+      const res = await api.post("/api-keys", { name: name.trim(), permissions: [...selected] });
       setRevealedToken(res.token);
       setName("");
       setSelected(new Set());
@@ -103,7 +98,7 @@ export default function ApiKeysPage() {
     });
     if (!ok) return;
     try {
-      await api.delete(`/api-keys/${key.id}`);
+      await api.delete(apiPath("/api-keys/{id}", { id: key.id }));
       load();
     } catch (err) {
       toast.error(errorMessage(err, t("apiKeys.revokeFailed")));
@@ -157,10 +152,10 @@ export default function ApiKeysPage() {
         </p>
       </PageHeader>
 
-      <main className="mx-auto max-w-2xl space-y-6 p-6">
+      <main className="mx-auto max-w-2xl space-y-section p-page">
         {revealedToken && (
-          <div className="rounded-lg border border-accent bg-surface p-4">
-            <p className="text-sm font-medium text-ink">{t("apiKeys.revealed.title")}</p>
+          <div className="rounded-panel border border-accent bg-surface p-panel">
+            <p className="text-sm font-semibold text-ink">{t("apiKeys.revealed.title")}</p>
             <p className="mt-1 text-xs text-muted">{t("apiKeys.revealed.description")}</p>
             <div className="mt-2 flex items-center gap-2">
               <code className="flex-1 overflow-x-auto rounded-md border border-line bg-surface-muted px-3 py-2 text-xs text-ink">
@@ -177,7 +172,7 @@ export default function ApiKeysPage() {
         )}
 
         {creating && (
-          <form onSubmit={createKey} className="space-y-4 rounded-lg border border-line bg-surface p-4">
+          <form onSubmit={createKey} className="space-y-item rounded-panel border border-line bg-surface p-panel">
             <p className="text-xs text-muted">
               <Trans
                 i18nKey="apiKeys.form.permissionsHint"
@@ -292,12 +287,12 @@ export default function ApiKeysPage() {
             </>
           )
         ) : (
-          <ul className="divide-y divide-line rounded-lg border border-line bg-surface">
+          <ul className="divide-y divide-line rounded-panel border border-line bg-surface">
             {keys.map((key) => (
               <li key={key.id} className="flex items-center justify-between gap-3 p-4">
                 <div className="min-w-0">
                   <p className="text-sm font-medium text-ink">{key.name}</p>
-                  <p className="mt-0.5 truncate text-xs text-muted">{key.permissions.join(", ")}</p>
+                  <p className="mt-0.5 truncate text-xs text-muted">{formatList(key.permissions, "unit")}</p>
                   <p className="mt-0.5 text-xs text-muted">
                     {key.lastUsedAt
                       ? t("apiKeys.lastUsed", { date: formatDate(key.lastUsedAt) })

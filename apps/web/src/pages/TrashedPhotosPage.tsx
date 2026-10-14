@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
-import { api } from "../api/client";
+import { api, apiPath, type ApiResponse } from "../api/client";
 import PageHeader from "../components/PageHeader";
 import { Spinner } from "../components/LoadingScreen";
 import Lightbox, { type LightboxSlide } from "../components/Lightbox";
@@ -17,27 +17,9 @@ import { useEscapeToClose } from "../hooks/useEscapeToClose";
 import { useSelectMode } from "../hooks/useSelectMode";
 import { useToast } from "../hooks/useToast";
 import { pluralize } from "../lib/pluralize";
+import { MENU_ITEM, MENU_PANEL } from "../lib/menuClasses";
 
-interface TrashItem {
-  captureId: string;
-  speciesId: string;
-  speciesName: string;
-  deletedAt: string;
-  pendingDeleteRaw: boolean;
-  photoId: string | null;
-  width: number | null;
-  height: number | null;
-  hasRawOriginal: boolean;
-  kind: "image" | "video";
-  durationSeconds: number | null;
-  originalKind: string | null;
-  purgesAt: string;
-}
-
-interface TrashResponse {
-  retentionDays: number;
-  items: TrashItem[];
-}
+type TrashResponse = ApiResponse<"/trash">;
 
 function daysLeft(purgesAt: string): number {
   const ms = new Date(purgesAt).getTime() - Date.now();
@@ -61,7 +43,7 @@ export default function TrashedPhotosPage() {
 
   function load() {
     api
-      .get<TrashResponse>("/trash")
+      .get("/trash")
       .then(setData)
       .catch(() => setError("Couldn't load Trash. Try again."));
   }
@@ -80,7 +62,7 @@ export default function TrashedPhotosPage() {
   async function restore(captureId: string) {
     setBusyId(captureId);
     try {
-      await api.post(`/trash/${captureId}/restore`, {});
+      await api.post(apiPath("/trash/{id}/restore", { id: captureId }), {});
       load();
     } catch {
       toast.error("Couldn't restore this photo. Try again.");
@@ -92,7 +74,7 @@ export default function TrashedPhotosPage() {
   async function restoreSelected() {
     const ids = [...select.selectedIds];
     select.exit();
-    const results = await Promise.allSettled(ids.map((id) => api.post(`/trash/${id}/restore`, {})));
+    const results = await Promise.allSettled(ids.map((id) => api.post(apiPath("/trash/{id}/restore", { id }), {})));
     const failed = results.filter((r) => r.status === "rejected").length;
     if (failed > 0) toast.error(`Couldn't restore ${pluralize(failed, "photo")}. Try again.`);
     load();
@@ -101,7 +83,7 @@ export default function TrashedPhotosPage() {
   async function emptyTrash() {
     setEmptying(true);
     try {
-      await api.post("/trash/empty", {});
+      await api.post("/trash/empty");
       setConfirmingEmpty(false);
       load();
     } catch {
@@ -181,8 +163,13 @@ export default function TrashedPhotosPage() {
                 Labels
               </label>
               <SelectModeToggle active={selectMode} onEnter={() => select.setSelectMode(true)} onExit={select.exit} />
-              <Button variant="danger" size="sm" onClick={() => setConfirmingEmpty(true)}>
-                Empty Trash
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => setConfirmingEmpty(true)}
+                className="text-red-600 dark:text-red-400"
+              >
+                Empty trash
               </Button>
             </div>
           )
@@ -198,12 +185,12 @@ export default function TrashedPhotosPage() {
         </div>
       )}
 
-      <main className="p-6">
+      <main className="space-y-section p-page">
         <FormMessage error={error} />
         {!data && !error && <Spinner />}
         {data && (
           <>
-            <p className="mb-4 text-sm text-muted">
+            <p className="text-sm text-muted">
               Deleted photos stay here for {data.retentionDays} days, then are permanently removed. You can restore any
               of them before then.
             </p>
@@ -232,7 +219,6 @@ export default function TrashedPhotosPage() {
               <MasonryGrid
                 items={visibleItems}
                 columnWidth={220}
-                extraHeightPx={showLabels ? 32 : 0}
                 keyFor={(item) => item.captureId}
                 aspectRatioFor={(item) => (item.width && item.height ? item.width / item.height : null)}
                 renderItem={(item, aspectRatio) => {
@@ -261,8 +247,8 @@ export default function TrashedPhotosPage() {
                               <span aria-hidden>▶</span>
                               {item.durationSeconds != null && (
                                 <span>
-                                  {Math.floor(item.durationSeconds / 60)}:
-                                  {String(Math.round(item.durationSeconds % 60)).padStart(2, "0")}
+                                  {Math.floor(Number(item.durationSeconds) / 60)}:
+                                  {String(Math.round(Number(item.durationSeconds) % 60)).padStart(2, "0")}
                                 </span>
                               )}
                             </div>
@@ -311,7 +297,7 @@ export default function TrashedPhotosPage() {
                             ⋯
                           </button>
                           {openMenuKey === item.captureId && (
-                            <div className="absolute right-0 top-full z-10 mt-1 w-36 rounded-md border border-line bg-surface py-1 shadow-lg">
+                            <div className={`absolute right-0 top-full z-10 mt-1 w-36 ${MENU_PANEL}`}>
                               <button
                                 type="button"
                                 onClick={(e) => {
@@ -320,7 +306,7 @@ export default function TrashedPhotosPage() {
                                   restore(item.captureId);
                                 }}
                                 disabled={busyId === item.captureId}
-                                className="block w-full px-3 py-1.5 text-left text-xs text-ink hover:bg-surface-muted disabled:opacity-50"
+                                className={MENU_ITEM}
                               >
                                 {busyId === item.captureId ? "Restoring…" : "Restore"}
                               </button>
@@ -330,8 +316,8 @@ export default function TrashedPhotosPage() {
                       )}
                       {showLabels && (
                         <>
-                          <p className="mt-1 truncate text-[11px] text-muted">{item.speciesName}</p>
-                          <p className="truncate text-[10px] text-muted">
+                          <p className="mt-1 truncate text-xs text-muted">{item.speciesName}</p>
+                          <p className="truncate text-xs text-muted">
                             {pluralize(daysLeft(item.purgesAt), "day")} left
                             {item.hasRawOriginal &&
                               (item.pendingDeleteRaw ? " · RAW will also be deleted" : " · RAW will be kept")}
@@ -358,11 +344,9 @@ export default function TrashedPhotosPage() {
 
       <ConfirmDialog
         open={confirmingEmpty}
-        title="Empty Trash?"
-        message={`This permanently removes everything in Trash right now, even photos that haven't reached their ${
-          data?.retentionDays ?? 7
-        }-day limit yet. This can't be undone.`}
-        confirmLabel="Empty Trash"
+        title="Empty trash?"
+        message="Everything in Trash is deleted for good, including photos that still have days left. This can't be undone."
+        confirmLabel="Empty trash"
         danger
         busy={emptying}
         onConfirm={() => void emptyTrash()}

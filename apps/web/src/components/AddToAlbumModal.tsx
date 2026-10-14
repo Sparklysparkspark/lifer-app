@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { api } from "../api/client";
+import { api, apiPath } from "../api/client";
 import Modal from "./Modal";
 import Button from "./Button";
 import FormMessage from "./FormMessage";
@@ -10,7 +10,7 @@ interface AlbumOption {
   name: string;
 }
 
-// AddToAlbumButton's picker as a centered modal, for use from inside another open menu.
+// Picks an album or creates one, for a photo menu's "Add to album" and the select toolbars.
 export default function AddToAlbumModal({
   captureIds,
   onClose,
@@ -28,7 +28,7 @@ export default function AddToAlbumModal({
   useEffect(() => {
     let cancelled = false;
     api
-      .get<{ albums: AlbumOption[] }>("/albums")
+      .get("/albums")
       .then((res) => {
         if (!cancelled) setAlbums(res.albums);
       })
@@ -58,15 +58,15 @@ export default function AddToAlbumModal({
 
   const addTo = (albumId: string) =>
     run(async () => {
-      await api.post(`/albums/${albumId}/captures`, { captureIds });
+      await api.post(apiPath("/albums/{id}/captures", { id: albumId }), { captureIds });
     });
 
   function createAndAdd(e: FormEvent) {
     e.preventDefault();
     if (!newName.trim()) return;
     void run(async () => {
-      const created = await api.post<{ id: string }>("/albums", { name: newName.trim() });
-      await api.post(`/albums/${created.id}/captures`, { captureIds });
+      const created = await api.post("/albums", { name: newName.trim() });
+      await api.post(apiPath("/albums/{id}/captures", { id: created.id }), { captureIds });
     });
   }
 
@@ -76,16 +76,16 @@ export default function AddToAlbumModal({
       onClose={onClose}
       title={`Add ${pluralize(captureIds.length, "photo")} to album`}
       footer={
-        <Button variant="ghost" size="sm" onClick={onClose}>
+        <Button variant="secondary" size="sm" onClick={onClose}>
           Cancel
         </Button>
       }
     >
-      <div className="mt-1 max-h-56 overflow-y-auto rounded-md border border-line">
+      <div className="mt-1 max-h-56 overflow-y-auto border-y border-line">
         {!albums ? (
-          <p className="px-3 py-2 text-xs text-muted">Loading…</p>
+          <p className="py-2 text-sm text-muted">Loading…</p>
         ) : albums.length === 0 ? (
-          <p className="px-3 py-2 text-xs text-muted">No albums yet. Create one below.</p>
+          <p className="py-2 text-sm text-muted">No albums yet. Create one below.</p>
         ) : (
           albums.map((a) => (
             <button
