@@ -1,13 +1,15 @@
 // Links a trip's RAW files to their JPEG captures by the same rule as uploads and the library
 // reimport: exact file stem and DateTimeOriginal within 1000ms of taken_at. No fingerprint
 // fallback, so an unmatched RAW stays unlinked. RAWs are never offered for species review.
-import { existsSync, readdirSync, statSync } from "node:fs";
+import { statSync } from "node:fs";
 import path from "node:path";
 import { pool } from "@lifer/core/db.js";
 import { extractExif, readExifTags } from "../uploads/exif.js";
 import { computeFileFingerprint } from "../uploads/fileFingerprint.js";
 import { isRawExtension, isRawFile } from "@lifer/core/uploads/formats.js";
 import { tagWithRegisteredVolume } from "../storageVolumes/resolve.js";
+import { insertOriginal } from "../uploads/captureRows.js";
+import { walkFiles } from "../library/walkFiles.js";
 
 export interface RawCandidate {
   relativePath: string;
@@ -17,19 +19,9 @@ export interface RawCandidate {
 // Recursive walk, so RAWs are found in a "RAW" subfolder or anywhere else in the trip folder.
 export async function listRawFiles(sourceFolder: string): Promise<RawCandidate[]> {
   const results: RawCandidate[] = [];
-  function walk(dir: string) {
-    if (!existsSync(dir)) return;
-    for (const entry of readdirSync(dir, { withFileTypes: true })) {
-      if (entry.name.startsWith(".")) continue;
-      const absolutePath = path.join(dir, entry.name);
-      if (entry.isDirectory()) {
-        walk(absolutePath);
-      } else if (isRawExtension(entry.name)) {
-        results.push({ relativePath: path.relative(sourceFolder, absolutePath), absolutePath });
-      }
-    }
+  for await (const { absolutePath, name } of walkFiles(sourceFolder)) {
+    if (isRawExtension(name)) results.push({ relativePath: path.relative(sourceFolder, absolutePath), absolutePath });
   }
-  walk(sourceFolder);
   // A TIFF is a RAW only when it holds sensor data (uploads/formats.ts); an edited TIFF is a photo.
   const raws: RawCandidate[] = [];
   for (const r of results) if (await isRawFile(r.absolutePath).catch(() => false)) raws.push(r);
@@ -51,6 +43,8 @@ export async function linkRawForCapture(
   jpegFileName: string,
   takenAt: Date | null,
   sourceFolder: string,
+  // true when Lifer copied the RAW there itself (a trip's sorted copies), so it's Lifer's to manage.
+  managed = false,
 ): Promise<boolean> {
   if (!takenAt) return false;
   const already = await pool.query(`SELECT 1 FROM originals WHERE capture_id = $1 AND kind = 'raw' LIMIT 1`, [
@@ -70,25 +64,23 @@ export async function linkRawForCapture(
 
   const { contentHash, exifFingerprint } = await computeFileFingerprint(candidate.absolutePath, tags);
   const fileSize = statSync(candidate.absolutePath).size;
-  const ownerRes = await pool.query<{ user_id: string }>(`SELECT user_id FROM captures WHERE id = $1`, [captureId]);
-  const volumeTag = ownerRes.rows[0]
-    ? await tagWithRegisteredVolume(ownerRes.rows[0].user_id, candidate.absolutePath)
-    : { volumeId: null, volumeRelativePath: null };
-  // Referenced in place (managed=false), like the trip's JPEGs.
-  await pool.query(
-    `INSERT INTO originals (capture_id, kind, ref_type, ref, managed, content_hash, file_size, exif_fingerprint, exif_fingerprint_loose, volume_id, volume_relative_path)
-     VALUES ($1, 'raw', 'path', $2, false, $3, $4, $5, $6, $7, $8)`,
-    [
-      captureId,
-      candidate.absolutePath,
-      contentHash,
-      fileSize,
-      exifFingerprint.strict,
-      exifFingerprint.loose,
-      volumeTag.volumeId,
-      volumeTag.volumeRelativePath,
-    ],
-  );
+  // captures_all: a hidden capture gets its RAW too (autoLinkMissingRaws).
+  const ownerRes = await pool.query<{ user_id: string }>(`SELECT user_id FROM captures_all WHERE id = $1`, [captureId]);
+  const userId = ownerRes.rows[0]?.user_id;
+  if (!userId) return false;
+  const volumeTag = await tagWithRegisteredVolume(userId, candidate.absolutePath);
+  // Referenced in place like the trip's JPEGs, unless Lifer made the copy.
+  await insertOriginal(pool, {
+    userId,
+    captureId,
+    kind: "raw",
+    ref: candidate.absolutePath,
+    managed,
+    contentHash,
+    fileSize,
+    exifFingerprint,
+    ...volumeTag,
+  });
   return true;
 }
 
