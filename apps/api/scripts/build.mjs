@@ -23,7 +23,6 @@ const WORKSPACE_PACKAGES = /^(@lifer\/(shared|core)|data-pipeline)(\/|$)/;
 const SAFE_SELF_RELATIVE = new Set([
   "packages/core/src/config.ts",
   "packages/core/src/species/inference.ts",
-  "packages/data-pipeline/src/embeddings.ts",
   "packages/core/src/rawCache.ts",
   "packages/data-pipeline/src/migrate.ts",
   // Its "started as a program" check compares itself with process.argv[1], which holds because it

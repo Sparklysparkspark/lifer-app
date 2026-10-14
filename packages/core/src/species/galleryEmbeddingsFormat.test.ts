@@ -6,8 +6,8 @@ import {
   float16BitsToFloat32,
   float32ToFloat16Bits,
   type GalleryEmbeddingsHeader,
-} from "@lifer/shared/src/galleryEmbeddingsFormat.js";
-import { cosineSimilarity, l2Normalize } from "@lifer/core/species/embeddings.js";
+} from "./galleryEmbeddingsFormat.js";
+import { cosineSimilarity, l2Normalize } from "./embeddings.js";
 
 function randomUnitVector(dim: number, seed: number): number[] {
   let s = seed;

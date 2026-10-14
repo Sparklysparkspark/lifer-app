@@ -5,7 +5,7 @@ import path from "node:path";
 import { pipeline } from "node:stream/promises";
 import { createGunzip } from "node:zlib";
 import type { Pool } from "pg";
-import { decodeSpeciesVectors, type SpeciesVectorHeader } from "@lifer/shared/src/speciesVectorFormat.js";
+import { decodeSpeciesVectors, type SpeciesVectorHeader } from "@lifer/core/species/speciesVectorFormat.js";
 import { APP_DATA_DIR } from "@lifer/core/config.js";
 import { getInstallSetting, setInstallSetting } from "../lib/installSettings.js";
 import { type JobContext } from "../lib/job.js";

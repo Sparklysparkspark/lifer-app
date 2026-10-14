@@ -4,7 +4,9 @@
 // preprocessing version, same model files (the desktop downloads them by the server's URL and
 // sha256), the same photo bytes, and well-formed unit vectors. Anything else is ignored and the
 // server computes as usual. Config-free, so the inference-only sidecar can share the encoding.
-import type { PhotoVectorKind } from "./embeddings.js";
+/** "clip" / "id": the whole photo through CLIP or the identification model. "clip-crop" /
+ * "id-crop": cropped to the detected animal first. */
+export type PhotoVectorKind = "clip" | "clip-crop" | "id" | "id-crop";
 
 export const CLIENT_VECTOR_DIMS = 768;
 export const MAX_CLIENT_VECTORS_BYTES = 64 * 1024;

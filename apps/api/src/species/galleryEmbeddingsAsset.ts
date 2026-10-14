@@ -9,7 +9,7 @@ import { pipeline } from "node:stream/promises";
 import { createGunzip } from "node:zlib";
 import type { Pool } from "pg";
 import type { JobStatus } from "@lifer/shared";
-import { decodeGalleryEmbeddings, type GalleryEmbeddingsHeader } from "@lifer/shared/src/galleryEmbeddingsFormat.js";
+import { decodeGalleryEmbeddings, type GalleryEmbeddingsHeader } from "@lifer/core/species/galleryEmbeddingsFormat.js";
 import { APP_DATA_DIR, EMBEDDING_MODEL_VERSION, ID_MODEL_VERSION } from "@lifer/core/config.js";
 import { getInstallSetting, setInstallSetting } from "../lib/installSettings.js";
 import { createJob, describeError, type JobContext } from "../lib/job.js";

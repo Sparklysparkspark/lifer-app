@@ -1,8 +1,8 @@
 // Binary format for the per-gallery-photo CLIP vectors (species_reference_gallery_embeddings),
 // published next to the catalog seed as lifer-gallery-embeddings-<modelVersion>.bin.gz. As
 // pg_dump text these were over 1GB and made up almost all of the seed; float16 binary is about
-// 1.5KB per row. Node-only (uses Buffer), so deliberately NOT exported from index.ts, which the
-// web app also imports. Import it as "@lifer/shared/src/galleryEmbeddingsFormat.js".
+// 1.5KB per row. Node-only (uses Buffer), so it lives in core rather than @lifer/shared, which
+// the web app imports.
 //
 // Layout (all integers little-endian):
 //   header: "LGEM" | u16 formatVersion | u16 dimension | u32 rowCount | u16 len | modelVersion utf8

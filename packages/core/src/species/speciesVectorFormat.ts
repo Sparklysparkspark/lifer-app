@@ -2,7 +2,6 @@
 // species_text_embeddings), published as its own compact asset the same way
 // galleryEmbeddingsFormat.ts covers the per-gallery-photo table. species_id is already a
 // portable natural key (species itself is in the catalog seed), so no id remapping is needed.
-// Node-only; import as "@lifer/shared/src/speciesVectorFormat.js".
 import { float16BitsToFloat32, float32ToFloat16Bits } from "./galleryEmbeddingsFormat.js";
 
 export const SPECIES_VECTOR_MAGIC = "LSVE";

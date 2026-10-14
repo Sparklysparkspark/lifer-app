@@ -15,12 +15,14 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { EMBEDDING_MODEL_VERSION as MODEL_VERSION } from "@lifer/core/config.js";
+import { placementFor } from "@lifer/core/species/acceleration.js";
+import * as inference from "@lifer/core/species/inference.js";
 import { pool } from "../db.js";
 
-const MODEL_VERSION = "clip-vit-l14-v2";
 const PIPELINE_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const BUILD_DIR = path.join(PIPELINE_DIR, "data", "build");
-const SPECIES_DIR = path.join(PIPELINE_DIR, "..", "core", "src", "species");
+const API_SPECIES_DIR = path.join(PIPELINE_DIR, "..", "..", "apps", "api", "src", "species");
 const DEFAULT_MODEL = path.join(BUILD_DIR, "models", `${MODEL_VERSION}-fp32.onnx`);
 const BATCH = 200;
 // Keeps the inference worker fed while results are written.
@@ -39,15 +41,7 @@ interface Pending {
 }
 
 // Imported at runtime: apps/api sits outside this package's TypeScript project.
-interface Inference {
-  analyzeImage(
-    image: { path: string },
-    opts: { targets: unknown[]; priority: "background" },
-  ): Promise<{ vectors: Array<Float32Array | { error: string }> }>;
-  isInferenceStuck(): boolean;
-  stopInference(): Promise<void>;
-}
-const load = <T>(file: string) => import(pathToFileURL(path.join(SPECIES_DIR, file)).href) as Promise<T>;
+const load = <T>(file: string) => import(pathToFileURL(path.join(API_SPECIES_DIR, file)).href) as Promise<T>;
 
 async function ensureTable(): Promise<void> {
   await pool.query(`
@@ -195,10 +189,6 @@ async function main(): Promise<void> {
   await ensureTable();
   // The CPU and GPU both run the fp32 file, so the vectors are full precision on either.
   const { selectAcceleration } = await load<{ selectAcceleration(o: unknown): Promise<void> }>("accelerationSelect.ts");
-  const { placementFor } = await load<{
-    placementFor(f: string, p: string): { modelPath: string; providers?: unknown[] };
-  }>("acceleration.ts");
-  const inference = await load<Inference>("inference.ts");
   await selectAcceleration({
     cacheFile: path.join(BUILD_DIR, "regenerate-clip-vectors-acceleration.json"),
     gpuRuntimeRoot: path.join(BUILD_DIR, "gpu-runtime"),

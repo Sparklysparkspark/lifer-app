@@ -7,111 +7,154 @@
 //
 // Only embeds rows that are missing or have a stale model_version, so it's safe to rerun.
 //
-// Optional --region=<name> scopes both passes to one region's checklist (same country-name
-// convention as build-region-pack.ts). Inserts are per-row upserts, so a scoped and an
-// unscoped pass can run concurrently.
-import { pool } from "../db.js";
-import { computeEmbedding, EMBEDDING_MODEL_VERSION } from "../embeddings.js";
+//   --region=<name>   scopes both passes to one region's checklist (same country-name convention
+//                     as build-region-pack.ts). Inserts are per-row upserts, so a scoped and an
+//                     unscoped pass can run concurrently.
+//   --grayscale-only  recomputes the current vectors of photos whose file is grayscale, instead of
+//                     filling in missing ones.
+//   --dry-run         counts what would be computed, computes nothing.
 import { readFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { parseArgs } from "node:util";
+import { EMBEDDING_MODEL_VERSION } from "@lifer/core/config.js";
+import { computeEmbedding } from "@lifer/core/species/embeddings.js";
+import { pool } from "../db.js";
+import { closeClip, isGrayscaleImage, prepareClip } from "../lib/clipEmbedding.js";
 
-async function main() {
-  const regionArg = process.argv.find((a) => a.startsWith("--region="))?.slice("--region=".length) ?? null;
+interface Job {
+  kind: "reference" | "gallery";
+  id: string;
+  speciesId: string;
+  scientificName: string;
+  path: string;
+}
+
+async function findJobs(regionId: string | null, grayscaleOnly: boolean): Promise<Job[]> {
+  const params: string[] = [EMBEDDING_MODEL_VERSION];
   let regionFilter = "";
   let galleryRegionFilter = "";
-  const params: string[] = [EMBEDDING_MODEL_VERSION];
-  if (regionArg) {
-    const regionRes = await pool.query<{ id: string }>(`SELECT id FROM regions WHERE name = $1`, [regionArg]);
-    if (!regionRes.rows[0]) {
-      console.error(`No region named "${regionArg}"`);
-      process.exit(1);
-    }
-    params.push(regionRes.rows[0].id);
+  if (regionId) {
+    params.push(regionId);
     regionFilter = `AND s.id IN (SELECT species_id FROM region_species WHERE region_id = $2)`;
     galleryRegionFilter = `AND p.species_id IN (SELECT species_id FROM region_species WHERE region_id = $2)`;
-    console.log(`[backfill-reference-embeddings] scoped to region "${regionArg}"`);
   }
-
-  const res = await pool.query<{ id: string; scientific_name: string; reference_display_path: string | null }>(
-    `SELECT s.id, s.scientific_name, s.reference_display_path
+  // Missing vectors normally; with --grayscale-only, the ones already there.
+  const has = grayscaleOnly ? "IS NOT NULL" : "IS NULL";
+  const refs = await pool.query<{ id: string; scientific_name: string; path: string }>(
+    `SELECT s.id, s.scientific_name, s.reference_display_path AS path
      FROM species s
      LEFT JOIN species_reference_embeddings sre ON sre.species_id = s.id AND sre.model_version = $1
-     WHERE s.reference_display_path IS NOT NULL AND sre.species_id IS NULL ${regionFilter}
+     WHERE s.reference_display_path IS NOT NULL AND sre.species_id ${has} ${regionFilter}
      ORDER BY s.scientific_name`,
     params,
   );
-  console.log(
-    `[backfill-reference-embeddings] ${res.rows.length} species need an embedding (model ${EMBEDDING_MODEL_VERSION})`,
-  );
-
-  let done = 0;
-  let failed = 0;
-  for (const row of res.rows) {
-    try {
-      const buffer = await readFile(row.reference_display_path!);
-      const embedding = await computeEmbedding(buffer);
-      await pool.query(
-        `INSERT INTO species_reference_embeddings (species_id, embedding, model_version)
-         VALUES ($1, $2, $3)
-         ON CONFLICT (species_id) DO UPDATE SET embedding = EXCLUDED.embedding, model_version = EXCLUDED.model_version, computed_at = now()`,
-        [row.id, embedding, EMBEDDING_MODEL_VERSION],
-      );
-      done++;
-    } catch (err) {
-      failed++;
-      console.error(`[backfill-reference-embeddings] FAILED ${row.scientific_name}:`, (err as Error).message);
-    }
-    if ((done + failed) % 200 === 0) console.log(`[backfill-reference-embeddings] ${done + failed}/${res.rows.length}`);
-  }
-  console.log(`[backfill-reference-embeddings] done: ${done} embedded, ${failed} failed`);
-
-  const galleryRes = await pool.query<{
-    id: string;
-    species_id: string;
-    scientific_name: string;
-    display_path: string;
-  }>(
-    `SELECT p.id, p.species_id, s.scientific_name, p.display_path
+  const gallery = await pool.query<{ id: string; species_id: string; scientific_name: string; path: string }>(
+    `SELECT p.id, p.species_id, s.scientific_name, p.display_path AS path
      FROM species_reference_photos p
      JOIN species s ON s.id = p.species_id
      LEFT JOIN species_reference_gallery_embeddings ge ON ge.reference_photo_id = p.id AND ge.model_version = $1
-     WHERE p.display_path IS NOT NULL AND ge.reference_photo_id IS NULL ${galleryRegionFilter}
+     WHERE p.display_path IS NOT NULL AND ge.reference_photo_id ${has} ${galleryRegionFilter}
      ORDER BY s.scientific_name`,
     params,
   );
-  console.log(
-    `[backfill-reference-embeddings] ${galleryRes.rows.length} gallery photos need an embedding (model ${EMBEDDING_MODEL_VERSION})`,
-  );
-
-  let galleryDone = 0;
-  let galleryFailed = 0;
-  for (const row of galleryRes.rows) {
+  const jobs: Job[] = [
+    ...refs.rows.map((r) => ({
+      kind: "reference" as const,
+      id: r.id,
+      speciesId: r.id,
+      scientificName: r.scientific_name,
+      path: r.path,
+    })),
+    ...gallery.rows.map((r) => ({
+      kind: "gallery" as const,
+      id: r.id,
+      speciesId: r.species_id,
+      scientificName: r.scientific_name,
+      path: r.path,
+    })),
+  ];
+  if (!grayscaleOnly) return jobs;
+  const gray: Job[] = [];
+  for (const job of jobs) {
+    if (!existsSync(job.path)) continue;
     try {
-      const buffer = await readFile(row.display_path);
-      const embedding = await computeEmbedding(buffer);
-      await pool.query(
-        `INSERT INTO species_reference_gallery_embeddings (reference_photo_id, species_id, embedding, model_version)
-         VALUES ($1, $2, $3, $4)
-         ON CONFLICT (reference_photo_id) DO UPDATE SET embedding = EXCLUDED.embedding, model_version = EXCLUDED.model_version, computed_at = now()`,
-        [row.id, row.species_id, embedding, EMBEDDING_MODEL_VERSION],
-      );
-      galleryDone++;
+      if (await isGrayscaleImage(job.path)) gray.push(job);
     } catch (err) {
-      galleryFailed++;
+      console.error(`[backfill-reference-embeddings] couldn't read ${job.path}: ${(err as Error).message}`);
+    }
+  }
+  return gray;
+}
+
+async function store(job: Job, embedding: number[]): Promise<void> {
+  if (job.kind === "reference") {
+    await pool.query(
+      `INSERT INTO species_reference_embeddings (species_id, embedding, model_version)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (species_id) DO UPDATE SET embedding = EXCLUDED.embedding, model_version = EXCLUDED.model_version, computed_at = now()`,
+      [job.id, embedding, EMBEDDING_MODEL_VERSION],
+    );
+  } else {
+    await pool.query(
+      `INSERT INTO species_reference_gallery_embeddings (reference_photo_id, species_id, embedding, model_version)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (reference_photo_id) DO UPDATE SET embedding = EXCLUDED.embedding, model_version = EXCLUDED.model_version, computed_at = now()`,
+      [job.id, job.speciesId, embedding, EMBEDDING_MODEL_VERSION],
+    );
+  }
+}
+
+async function main() {
+  const { values } = parseArgs({
+    options: {
+      region: { type: "string" },
+      "grayscale-only": { type: "boolean", default: false },
+      "dry-run": { type: "boolean", default: false },
+    },
+  });
+  const grayscaleOnly = values["grayscale-only"]!;
+
+  let regionId: string | null = null;
+  if (values.region) {
+    const regionRes = await pool.query<{ id: string }>(`SELECT id FROM regions WHERE name = $1`, [values.region]);
+    if (!regionRes.rows[0]) throw new Error(`No region named "${values.region}"`);
+    regionId = regionRes.rows[0].id;
+    console.log(`[backfill-reference-embeddings] scoped to region "${values.region}"`);
+  }
+
+  const jobs = await findJobs(regionId, grayscaleOnly);
+  const refs = jobs.filter((j) => j.kind === "reference").length;
+  console.log(
+    `[backfill-reference-embeddings] ${jobs.length} photos ${grayscaleOnly ? "are grayscale" : "need an embedding"}` +
+      ` (${refs} reference, ${jobs.length - refs} gallery; model ${EMBEDDING_MODEL_VERSION})`,
+  );
+  if (values["dry-run"] || jobs.length === 0) return;
+
+  await prepareClip();
+  let done = 0;
+  let failed = 0;
+  for (const job of jobs) {
+    try {
+      await store(job, await computeEmbedding(await readFile(job.path)));
+      done++;
+    } catch (err) {
+      failed++;
       console.error(
-        `[backfill-reference-embeddings] FAILED gallery photo of ${row.scientific_name}:`,
+        `[backfill-reference-embeddings] FAILED ${job.kind} photo of ${job.scientificName}:`,
         (err as Error).message,
       );
     }
-    if ((galleryDone + galleryFailed) % 200 === 0) {
-      console.log(`[backfill-reference-embeddings] gallery ${galleryDone + galleryFailed}/${galleryRes.rows.length}`);
-    }
+    if ((done + failed) % 200 === 0) console.log(`[backfill-reference-embeddings] ${done + failed}/${jobs.length}`);
   }
-  console.log(`[backfill-reference-embeddings] gallery done: ${galleryDone} embedded, ${galleryFailed} failed`);
-
-  await pool.end();
+  console.log(`[backfill-reference-embeddings] done: ${done} embedded, ${failed} failed`);
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+main()
+  .catch((err) => {
+    console.error(err);
+    process.exitCode = 1;
+  })
+  .finally(async () => {
+    await closeClip();
+    await pool.end();
+  });

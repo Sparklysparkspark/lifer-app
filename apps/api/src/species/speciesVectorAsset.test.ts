@@ -8,7 +8,7 @@ import path from "node:path";
 import { Writable } from "node:stream";
 import { gzipSync } from "node:zlib";
 import { describe, expect, it } from "vitest";
-import { encodeSpeciesVectorHeader, encodeSpeciesVectorRecord } from "@lifer/shared/src/speciesVectorFormat.js";
+import { encodeSpeciesVectorHeader, encodeSpeciesVectorRecord } from "@lifer/core/species/speciesVectorFormat.js";
 import {
   applySpeciesVectorFile,
   fetchAndApplySpeciesVectorAsset,

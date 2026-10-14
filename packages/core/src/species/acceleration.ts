@@ -12,6 +12,9 @@ export interface Placement {
   backend: string;
   modelPath: string;
   providers: ProviderSpec[];
+  /** Use this file even on the CPU, which otherwise runs the int8 copy: the data pipeline computes
+   *  the catalog's vectors with the full-precision weights on any backend. */
+  force?: boolean;
 }
 
 export interface AccelerationPlan {
@@ -42,6 +45,6 @@ export function onPlanChange(listener: (plan: AccelerationPlan) => void): () => 
 /** The file and backend for a model: the plan's, while its file is there, else the CPU one. */
 export function placementFor(family: ModelFamily, cpuPath: string): { modelPath: string; providers?: ProviderSpec[] } {
   const p = plan.placements[family];
-  if (!p || p.backend === "cpu" || !existsSync(p.modelPath)) return { modelPath: cpuPath };
+  if (!p || (p.backend === "cpu" && !p.force) || !existsSync(p.modelPath)) return { modelPath: cpuPath };
   return { modelPath: p.modelPath, providers: p.providers };
 }
