@@ -14,13 +14,7 @@ docker-compose.override.yml
 __pycache__/
 
 # Local app data, backups and script reports: never commit
-data/raw/
-data/build/
-data/lifer/
-data/lifer-app-data/
-data/backups/
-data/reports/
-data/junk_species_candidates.tsv
+/data/
 /archive/
 /packs/
 packages/data-pipeline/packs/

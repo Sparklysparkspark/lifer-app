@@ -26,14 +26,19 @@ const SCAN_PATHS = [
   "SECURITY.md",
   "THIRD_PARTY_NOTICES.md",
 ];
-const EXCLUDED_DIRS = new Set(["node_modules", "dist", "build", "target", "resources-staging", "migrations"]);
+const EXCLUDED_DIRS = new Set(["node_modules", "dist", "target", "resources-staging", "migrations"]);
+// "build" is output only outside source folders: packages/data-pipeline/src/build is code.
+const OUTPUT_ONLY_DIRS = new Set(["build"]);
 const EXCLUDED_FILES = new Set(["package-lock.json"]);
 const EM_DASH = String.fromCharCode(0x2014);
 
 function isExcluded(file) {
   const parts = file.split("/");
   if (EXCLUDED_FILES.has(parts[parts.length - 1])) return true;
-  return parts.slice(0, -1).some((part) => EXCLUDED_DIRS.has(part));
+  const dirs = parts.slice(0, -1);
+  return dirs.some(
+    (part, i) => EXCLUDED_DIRS.has(part) || (OUTPUT_ONLY_DIRS.has(part) && !dirs.slice(0, i).includes("src")),
+  );
 }
 
 const files = execFileSync("git", ["ls-files", "-z", "--", ...SCAN_PATHS], {
