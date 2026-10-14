@@ -109,6 +109,48 @@ describe.skipIf(!url)("auth and API key routes input validation", () => {
     }
   });
 
+  it("owner logs in after 50 foreign failures", async () => {
+    const login = (password: string, remoteAddress: string, cookies: Record<string, string> = {}) =>
+      app.inject({
+        method: "POST",
+        url: "/api/auth/login",
+        payload: { email: EMAIL, password },
+        remoteAddress,
+        cookies,
+      });
+
+    const first = await login(PASSWORD, "198.51.100.1");
+    const known = first.cookies.find((c) => c.name === "lifer_known_device");
+    expect(known).toMatchObject({ httpOnly: true, sameSite: "Lax", path: "/" });
+    const device = { lifer_known_device: known!.value };
+
+    // A guesser spreading 50 failures over many addresses.
+    for (let i = 0; i < 50; i++) {
+      expect((await login("guess guess", `203.0.113.${i + 1}`)).statusCode).toBe(401);
+    }
+    // A new device is refused, even from a clean address; the owner's device isn't.
+    expect((await login(PASSWORD, "198.51.100.2")).statusCode).toBe(429);
+    expect((await login(PASSWORD, "198.51.100.2", device)).statusCode).toBe(200);
+    // That success cleared the per-email count, so another device can sign in again.
+    expect((await login(PASSWORD, "198.51.100.3")).statusCode).toBe(200);
+
+    // The per-address limit still applies to a known device.
+    for (let i = 0; i < 10; i++) await login("guess guess", "198.51.100.4", device);
+    expect((await login(PASSWORD, "198.51.100.4", device)).statusCode).toBe(429);
+    // A forged cookie isn't a known device.
+    for (let i = 0; i < 50; i++) await login("guess guess", `203.0.113.${i + 101}`);
+    expect((await login(PASSWORD, "198.51.100.5", { lifer_known_device: "e30.forged" })).statusCode).toBe(429);
+  });
+
+  it("refuses an oversized password before hashing it", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/auth/login",
+      payload: { email: EMAIL, password: "x".repeat(1025) },
+    });
+    expect([res.statusCode, res.json()]).toEqual([400, { error: "email and password are required" }]);
+  });
+
   it("refuses malformed account changes before checking the password", async () => {
     const pw = await call("PUT", "/api/auth/password", { currentPassword: PASSWORD });
     expect([pw.statusCode, pw.json()]).toEqual([400, { error: "currentPassword and newPassword are required" }]);

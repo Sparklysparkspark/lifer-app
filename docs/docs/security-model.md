@@ -34,7 +34,7 @@ The desktop app runs the same API as a server, as a child process of the app, wi
 
 The desktop app makes two random values at each launch (`apps/desktop/src-tauri/src/local_credential.rs`) and passes both to the API in its environment:
 
-- `LIFER_LAUNCH_TOKEN`, 32 bytes from the OS random number generator, is the **credential**. It never leaves the app and the API process. The app's window gets it through a Tauri command, `local_api_credential`, which answers only a page loaded from the local API's own origin (`http://127.0.0.1:4310`); a connected server's pages, which can call the app's commands too, get nothing (`apps/desktop/src-tauri/src/lib.rs`). The window then sends it once, in an `x-lifer-launch-token` header, to `POST /api/auth/desktop-session` (`apps/web/src/lib/localApiSession.ts`) and drops it.
+- `LIFER_LAUNCH_TOKEN`, 32 bytes from the OS random number generator, is the **credential**. It never leaves the app and the API process. The app's window gets it through a Tauri command, `local_api_credential`, which answers only a page loaded from the local API's own origin (`http://127.0.0.1:4310`); a connected server's pages, which can call the app's commands too, get nothing (`apps/desktop/src-tauri/src/commands.rs`). The window then sends it once, in an `x-lifer-launch-token` header, to `POST /api/auth/desktop-session` (`apps/web/src/lib/localApiSession.ts`) and drops it.
 - That request sets the `lifer_desktop` cookie: an HMAC of the secret, not the secret itself, `HttpOnly` so page scripts can't read it, `SameSite=Strict` so a page on another site doesn't make the browser send it, and with no expiry, so it's kept in the web view's memory rather than written to disk and is gone when the app quits. A cookie rather than a header on each request, because photos load through `<img>` and `<video>` elements, which can't add headers. A new launch has a new secret, so an old cookie is worthless.
 - `LIFER_LAUNCH_ID`, 16 random bytes, is **not secret**. `GET /health` returns it as `launchId`, so the app can tell its own API process apart from a stale one left on port 4310 (`LocalApi::Ours` in `api.rs`). `/health` never returns the token (`apps/api/src/lib/health.ts`).
 
@@ -56,7 +56,7 @@ The desktop app's Postgres (`apps/desktop/src-tauri/src/embedded_db.rs`) listens
 
 ### When the desktop app is connected to a server
 
-The app shows the server's pages in its window. Those pages get a fixed set of the app's native features (`REMOTE_PERMISSIONS` in `apps/desktop/src-tauri/src/lib.rs`): window controls, native file dialogs and saving a file through Save As, opening `http`, `https` and `mailto` links, the updater, and the app's own commands. This is granted only to origins saved in the app's config. Commands that reconfigure the app check that the request comes from the bundled pages, the local API or a configured server (`is_trusted_sender`). Connecting the app to a server means trusting that server with those features; connect only to servers you run.
+The app shows the server's pages in its window. Those pages get a fixed set of the app's native features (`REMOTE_PERMISSIONS` in `apps/desktop/src-tauri/src/security.rs`): window controls, native file dialogs and saving a file through Save As, opening `http`, `https` and `mailto` links, and the app's own commands. Installing app updates and restarting the app are granted only to servers reached over HTTPS or on this computer or the local network (private and Tailscale addresses, and names like `nas.local`), since a page served over plain http from the internet could be altered on the way. This is granted only to origins saved in the app's config. Commands that reconfigure the app check that the request comes from the bundled pages, the local API or a configured server (`is_trusted_sender`). Connecting the app to a server means trusting that server with those features; connect only to servers you run.
 
 ## Home server on a LAN
 
@@ -113,11 +113,11 @@ See the [API guide](./api/overview.md#authentication) for using them.
 
 - A share link's token is 32 random bytes, in the URL. The database finds a link by the token's SHA-256 (`shared_links.token_hash`, migration 132, the same `hashToken` as sessions), so a copy of the database alone can't open a share. The owner's copy, for copying the link again from the album, is stored encrypted with the server's key (`token_encrypted`, see [Secrets at rest](#secrets)). Links from before migration 132 were hashed in place and keep working; their plain token is encrypted, and cleared, at the API's next start (`encryptStoredShareTokens` in `apps/api/src/shares/routes.ts`). Request logs replace share tokens with `[redacted]` (`redactShareTokens`, used by `packages/core/src/lib/log.ts`).
 - A link can have a password (hashed like the account password), an expiry date, and can be revoked. A link only shows the one album it was made for, and downloads of originals only when the owner allowed them.
-- Unlocking a password-protected link sets a cookie signed with HMAC-SHA256 under a key generated when the server starts (`apps/api/src/shares/unlockCookie.ts`). It lasts 24 hours, and a restart signs every visitor out of every unlocked share.
+- Unlocking a password-protected link sets a cookie signed with HMAC-SHA256 under a key derived from the server's [secrets key](#secrets) (`apps/api/src/shares/unlockCookie.ts`). It lasts 24 hours and survives a restart.
 
 ### iNaturalist sign-in
 
-Linking an iNaturalist account uses OAuth with PKCE and a random `state` value kept in memory for the user who started it (`apps/api/src/inaturalist/routes.ts`). Lifer stores no iNaturalist client secret. The access and refresh tokens it receives are stored encrypted with the server's key (`apps/api/src/inaturalist/tokenStore.ts`, see [Secrets at rest](#secrets)). Tokens stored in plain text by an older version are encrypted at the next start, or when first read.
+Linking an iNaturalist account uses OAuth with PKCE and a random `state` value kept in memory for the user who started it (`apps/api/src/inaturalist/routes.ts`). Lifer stores no iNaturalist client secret. The access and refresh tokens it receives are stored encrypted with the server's key (`apps/api/src/inaturalist/tokenStore.ts`, see [Secrets at rest](#secrets)).
 
 ## Cross-site requests {#csrf}
 
@@ -137,7 +137,7 @@ Other browser protections, from `@fastify/helmet` in `apps/api/src/index.ts`:
 
 ## Rate limiting {#rate-limiting}
 
-Only password checks are rate limited (`apps/api/src/auth/rateLimiter.ts`). The client address is the connection's own unless [`TRUST_PROXY`](#home-server-on-a-lan) names a proxy to believe:
+Password checks have their own strict limits (`apps/api/src/auth/rateLimiter.ts`). The client address is the connection's own unless [`TRUST_PROXY`](#home-server-on-a-lan) names a proxy to believe:
 
 | What | Limit |
 |---|---|
@@ -146,9 +146,11 @@ Only password checks are rate limited (`apps/api/src/auth/rateLimiter.ts`). The 
 | Share link password, per link and client address | 10 failed attempts in 15 minutes |
 | Share link password, per link | 50 failed attempts in 15 minutes |
 
-Only failures count, so the owner isn't locked out by someone else's guesses from another address once they sign in correctly. IPv6 clients are grouped by /64. The counters are in memory: they reset when Lifer restarts and wouldn't be shared between several API processes (Lifer runs one).
+Only failures count, and a correct sign-in clears both login counters. A browser that has signed in to the account before, or unlocked that share link before, skips the cross-address cap: it carries a signed "known device" cookie (`lifer_known_device`, `apps/api/src/auth/knownDevice.ts`, kept for a year). So someone guessing from many addresses can't lock the owner, or a returning visitor, out. The per-address limit still applies to a known device. The cookie names the account by a hash of its email and is signed with HMAC-SHA256 under a key derived from the server's [secrets key](#secrets), so it survives restarts and can't be forged. IPv6 clients are grouped by /64. The counters are in memory: they reset when Lifer restarts and wouldn't be shared between several API processes (Lifer runs one).
 
-Other routes aren't rate limited. Lifer doesn't defend against a signed-in user, or anyone with a valid API key, overloading their own server.
+Password fields are capped at 1,024 characters, so an unauthenticated request can't feed a huge value into the password hash.
+
+On a server, every route also shares a generous per-address limit (`RATE_LIMIT_PER_MINUTE`, 3000 a minute by default, IPv6 grouped by /64, `apps/api/src/lib/rateLimit.ts`). Lifer doesn't otherwise defend against a signed-in user, or anyone with a valid API key, overloading their own server.
 
 ## File access {#file-access}
 
@@ -185,7 +187,6 @@ Lifer fetches data from a fixed set of services ([Privacy](./privacy.md) lists t
 - **Lifer's own data** (catalog, packs, photo store, map, models): from `packages/core/src/config.ts` defaults or environment variables the server admin sets, never from a request.
 - **Species information and photos:** iNaturalist, GBIF and Wikimedia URLs built in code, or photo URLs that come from those services' responses and the catalog.
 - **GPU runtime libraries:** fixed npm, NuGet and PyPI URLs, each pinned by SHA-256 and size in `apps/api/src/species/gpuRuntime.ts`. Model files are checked against `packages/core/src/species/modelChecksums.ts`.
-- **S3 photo sources:** the endpoint, bucket and region come only from environment variables (`apps/api/src/photoSources/s3.ts`). A request supplies an object key, not a URL.
 - **Migrating a desktop library to a server:** the one place a user types a URL that the API then requests (`apps/api/src/settings/migrateToServer.ts`). It's available only in the desktop app (`desktopOnly`). It refuses loopback, link-local (which includes cloud metadata services) and unspecified addresses, and allows private network addresses, since a home server is the normal target. The check runs on the resolved addresses first, for a clear message, and then on every connection the migration makes, against the address actually connected to (`guardedDispatcher` in `apps/api/src/lib/outboundGuard.ts`). So a name that resolves to a public address when checked and to `127.0.0.1` when used (DNS rebinding), a redirect, or an upload address the server answers with can't reach loopback.
 
 No route on a server takes a URL to fetch.
@@ -202,7 +203,6 @@ No route on a server takes a URL to fetch.
 | The key for the encrypted values | `secrets/at-rest-key-v1` in the app data folder (`APP_DATA_DIR`) | Plain, mode 0600 in a 0700 folder; never in the database |
 | Database password, server | `DB_PASSWORD` in `.env`, and in `DATABASE_URL` in the container's environment | Plain text, readable by anyone who can read `.env` or inspect the container |
 | Database password, desktop | `app-data/postgres-password` | Plain text, mode 0600 |
-| S3 credentials | The container's environment, read by the AWS SDK | Wherever you configure them; never in the database |
 
 The encrypted values use AES-256-GCM through `node:crypto`, with a random IV each time and the kind of secret bound in as associated data, so a value moved to another column doesn't decrypt (`apps/api/src/lib/secretBox.ts`). The key is 32 random bytes the server makes on first use. Each value starts with its key's version (`lifer-enc:v1:`), so a new key can be introduced later: old values still decrypt with their own key file and are re-encrypted as they're read. On Windows the file modes don't apply; the app data folder's own permissions do.
 

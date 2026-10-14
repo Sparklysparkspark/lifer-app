@@ -16,6 +16,8 @@ import { contentDisposition } from "../lib/httpFile.js";
 import { parseDate } from "../lib/validate.js";
 import { IdParams, Nullable, Ok, Uuid, notFoundOnInvalidId, replies, withSchemas } from "../lib/schema.js";
 import { addUnlock, hasUnlock } from "./unlockCookie.js";
+import { CreatedShare, ShareList } from "../albums/responses.js";
+import { isKnownDevice, rememberDevice, shareDeviceId } from "../auth/knownDevice.js";
 
 const albumNotFound = notFoundOnInvalidId("Album not found");
 const TokenParams = Type.Object({ token: Type.String({ minLength: 1 }) });
@@ -100,7 +102,7 @@ export async function albumShareRoutes(fastify: FastifyInstance): Promise<void> 
         body: Type.Object(
           {
             // Blank means no password.
-            password: Type.Optional(Type.String()),
+            password: Type.Optional(Type.String({ maxLength: 1024 })),
             allowDownload: Type.Optional(Type.Boolean()),
             showMetadata: Type.Optional(Type.Boolean()),
             // Not format date-time: parseDate below takes any date string, as it always has.
@@ -108,6 +110,7 @@ export async function albumShareRoutes(fastify: FastifyInstance): Promise<void> 
           },
           { additionalProperties: false },
         ),
+        response: replies(CreatedShare),
       },
     },
     async (request, reply) => {
@@ -153,7 +156,11 @@ export async function albumShareRoutes(fastify: FastifyInstance): Promise<void> 
 
   app.get(
     "/albums/:id/shares",
-    { preValidation: requireScope("share.read"), config: albumNotFound, schema: { params: IdParams } },
+    {
+      preValidation: requireScope("share.read"),
+      config: albumNotFound,
+      schema: { params: IdParams, response: replies(ShareList) },
+    },
     async (request, reply) => {
       const albumRes = await pool.query(`SELECT 1 FROM albums WHERE id = $1 AND user_id = $2`, [
         request.params.id,
@@ -257,20 +264,25 @@ export async function albumShareRoutes(fastify: FastifyInstance): Promise<void> 
       config: { invalidInput: { body: { status: 401, error: "Incorrect password" } } },
       schema: {
         params: TokenParams,
-        body: Type.Object({ password: Type.Optional(Type.String()) }, { additionalProperties: false }),
+        body: Type.Object(
+          { password: Type.Optional(Type.String({ maxLength: 1024 })) },
+          { additionalProperties: false },
+        ),
       },
     },
     async (request, reply) => {
       // Per token+IP, plus a looser per-token cap so rotating IPs (or a spoofed
       // X-Forwarded-For) can't brute-force one share's password. Only wrong passwords count,
-      // so a visitor reopening the link isn't locked out.
+      // so a visitor reopening the link isn't locked out, and a browser that has unlocked this
+      // link before (knownDevice.ts) skips the per-token cap, so strangers can't lock it out.
+      const share = await resolveShare(request.params.token);
       const ipKey = `${request.params.token}:${ipRateLimitKey(request.ip)}`;
       const tokenKey = `share-token:${request.params.token}`;
-      if (isRateLimited(ipKey) || isRateLimited(tokenKey, SHARE_TOKEN_MAX_ATTEMPTS)) {
+      const knownVisitor = !!share && isKnownDevice(request, shareDeviceId(share.id));
+      if (isRateLimited(ipKey) || (!knownVisitor && isRateLimited(tokenKey, SHARE_TOKEN_MAX_ATTEMPTS))) {
         return reply.code(429).send({ error: "Too many attempts. Try again later." });
       }
 
-      const share = await resolveShare(request.params.token);
       const validPassword = await verifyPassword(
         share?.password_hash ?? DUMMY_PASSWORD_HASH,
         request.body.password ?? "",
@@ -289,6 +301,7 @@ export async function albumShareRoutes(fastify: FastifyInstance): Promise<void> 
         path: "/",
         expires: new Date(expiresAt),
       });
+      rememberDevice(request, reply, shareDeviceId(share.id));
       return { ok: true };
     },
   );

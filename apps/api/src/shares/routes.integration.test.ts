@@ -107,6 +107,27 @@ describe.skipIf(!url)("share routes input validation", () => {
     expect([unlocked.statusCode, unlocked.json()]).toEqual([200, { ok: true }]);
   });
 
+  it("keeps a link open to its earlier visitors after 50 foreign failures", async () => {
+    const [share] = (await call("GET", `/api/albums/${albumId}/shares`)).json().shares as Array<{ token: string }>;
+    const unlock = (password: string, remoteAddress: string, cookies: Record<string, string> = {}) =>
+      app.inject({
+        method: "POST",
+        url: `/api/share/${share.token}/unlock`,
+        payload: { password },
+        remoteAddress,
+        cookies,
+      });
+
+    const first = await unlock("hunter22", "198.51.100.1");
+    const known = first.cookies.find((c) => c.name === "lifer_known_device");
+    expect(known).toBeDefined();
+    // The test above already spent a few of the link's 50.
+    for (let i = 0; i < 50; i++) expect([401, 429]).toContain((await unlock("wrong", `203.0.113.${i + 1}`)).statusCode);
+
+    expect((await unlock("hunter22", "198.51.100.2")).statusCode).toBe(429);
+    expect((await unlock("hunter22", "198.51.100.2", { lifer_known_device: known!.value })).statusCode).toBe(200);
+  });
+
   it("revokes by id, answering a malformed id like an unknown one", async () => {
     for (const id of ["nope", NO_SUCH]) {
       const res = await call("DELETE", `/api/shares/${id}`);

@@ -36,6 +36,13 @@ describe("SecretBox", () => {
     expect(new SecretBox(dir).decrypt(stored, "ctx")).toBe("x");
   });
 
+  it("derives the same signing key in every process, one per purpose", () => {
+    const key = new SecretBox(dir).derivedKey("cookie");
+    expect(key).toHaveLength(32);
+    expect(new SecretBox(dir).derivedKey("cookie").equals(key)).toBe(true);
+    expect(new SecretBox(dir).derivedKey("other").equals(key)).toBe(false);
+  });
+
   it("refuses a value bound to another context, an altered value, or a lost key", () => {
     const box = new SecretBox(dir);
     const stored = box.encrypt("secret", "inaturalist-access-token");

@@ -12,7 +12,7 @@
 // Losing the key file (restoring the database without the app data folder) costs only what it
 // protects: iNaturalist has to be linked again, and existing share links keep working but can't
 // be shown again (they're found by their hash, not this copy).
-import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
+import { createCipheriv, createDecipheriv, hkdfSync, randomBytes } from "node:crypto";
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { APP_DATA_DIR } from "@lifer/core/config.js";
@@ -100,6 +100,12 @@ export class SecretBox {
     } catch {
       throw new SecretUnavailableError("Encrypted value doesn't match this server's key");
     }
+  }
+
+  /** A 256-bit signing key for `purpose`, derived from the current key, so signed cookies stay
+   *  valid across restarts without a key file of their own. */
+  derivedKey(purpose: string): Buffer {
+    return Buffer.from(hkdfSync("sha256", this.key(CURRENT_KEY_VERSION, true), Buffer.alloc(0), purpose, 32));
   }
 
   isEncrypted(value: string): boolean {

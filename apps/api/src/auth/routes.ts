@@ -4,20 +4,24 @@ import { pool, withTransaction } from "@lifer/core/db.js";
 import { DUMMY_PASSWORD_HASH, hashPassword, verifyPassword } from "./password.js";
 import { createSession, destroySession, getSessionUser, requireAuth, rotateSessions } from "./session.js";
 import { clearAttempts, ipRateLimitKey, isRateLimited, recordAttempt } from "./rateLimiter.js";
+import { isKnownDevice, loginDeviceId, rememberDevice } from "./knownDevice.js";
 import { tryRestoreCollectionStateOnce } from "../lib/collectionState.js";
 import { SINGLE_USER_MODE } from "@lifer/core/config.js";
 import { hasLaunchTokenHeader, localCredentialConfig, setLocalSessionCookie } from "./localCredential.js";
 import { Ok, replies, withSchemas, type InvalidInputReply } from "../lib/schema.js";
+import { AuthUser, Me } from "./responses.js";
 
 // These forms show the server's message to a person (the setup and sign-in pages, the desktop
 // app's server check), so a malformed body keeps the plain sentence they always got.
 const required = (error: string): { invalidInput: { body: InvalidInputReply } } => ({
   invalidInput: { body: { status: 400, error } },
 });
-const NonEmpty = Type.String({ minLength: 1 });
+// The cap keeps an unauthenticated caller from feeding megabytes into argon2.
+const NonEmpty = Type.String({ minLength: 1, maxLength: 1024 });
 const Credentials = Type.Object({ email: NonEmpty, password: NonEmpty }, { additionalProperties: false });
 
-// Across every IP, so rotating addresses can't keep guessing at one account.
+// Across every IP, so rotating addresses can't keep guessing at one account. A device the owner
+// has signed in from before (knownDevice.ts) is exempt, so this can't lock the owner out.
 const LOGIN_PER_EMAIL_MAX = 50;
 // Arbitrary constant key that serializes first-run registrations.
 const REGISTER_LOCK_KEY = 4_310_109;
@@ -39,7 +43,10 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
 
   app.post(
     "/auth/register",
-    { config: required("email and password are required"), schema: { body: Credentials } },
+    {
+      config: required("email and password are required"),
+      schema: { body: Credentials, response: replies(AuthUser) },
+    },
     async (request, reply) => {
       const { email, password } = request.body;
       // Here rather than in the schema, for the sentence the setup page shows.
@@ -83,17 +90,22 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
 
   app.post(
     "/auth/login",
-    { config: required("email and password are required"), schema: { body: Credentials } },
+    {
+      config: required("email and password are required"),
+      schema: { body: Credentials, response: replies(AuthUser) },
+    },
     async (request, reply) => {
       const { email, password } = request.body;
       const normalizedEmail = email.trim().toLowerCase();
 
-      // Keyed on email + IP and counting failures only, so someone else guessing at an email
-      // can't lock its owner out from their own machine. The looser per-email cap stops a
-      // guesser that spreads attempts over many addresses.
+      // Failures only count. The email + IP limit applies to everyone; the looser per-email cap
+      // stops a guesser spreading attempts over many addresses, and skips known devices so those
+      // guesses can't lock the owner out.
       const rateLimitKey = `${normalizedEmail}|${ipRateLimitKey(request.ip)}`;
       const emailKey = `login-email|${normalizedEmail}`;
-      if (isRateLimited(rateLimitKey) || isRateLimited(emailKey, LOGIN_PER_EMAIL_MAX)) {
+      const deviceId = loginDeviceId(normalizedEmail);
+      const knownDevice = isKnownDevice(request, deviceId);
+      if (isRateLimited(rateLimitKey) || (!knownDevice && isRateLimited(emailKey, LOGIN_PER_EMAIL_MAX))) {
         return reply.code(429).send({ error: "Too many login attempts. Try again later." });
       }
 
@@ -112,6 +124,8 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
       }
 
       clearAttempts(rateLimitKey);
+      clearAttempts(emailKey);
+      rememberDevice(request, reply, deviceId);
       await createSession(user.id, reply);
       return { id: user.id, email: user.email };
     },
@@ -122,7 +136,7 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
     return { ok: true };
   });
 
-  app.get("/auth/me", { schema: {} }, async (request) => {
+  app.get("/auth/me", { schema: { response: replies(Me) } }, async (request) => {
     const user = await getSessionUser(request);
     // A fresh install's user first appears here: bring back its archived/hidden/seen/target
     // species from the library's record, if there is one (lib/collectionState.ts).
