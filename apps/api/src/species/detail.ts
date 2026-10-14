@@ -2,7 +2,7 @@
 import { existsSync } from "node:fs";
 import { access as fsAccess, readFile as fsReadFile } from "node:fs/promises";
 import type { FastifyInstance } from "fastify";
-import { Type } from "typebox";
+import { Type, type TSchema } from "typebox";
 import { pool } from "@lifer/core/db.js";
 import { IdParams, Ok, Uuid, notFoundOnInvalidId, replies, withSchemas } from "../lib/schema.js";
 import { requireAuth, requireScope } from "../auth/session.js";
@@ -20,8 +20,10 @@ import { cosineSimilarity } from "@lifer/core/species/embeddings.js";
 import { BURST_MAX_GAP_MS, BURST_SIMILARITY } from "./bursts.js";
 import { computeSharpness } from "../lib/sharpness.js";
 import { log } from "@lifer/core/lib/log.js";
+import { scheduleInatDistributionSync, storedInatWeekly } from "./inatDistribution.js";
 import { bboxDiagonalDegrees, ringBoundingBox, type BoundingBox } from "@lifer/core/lib/geometry.js";
 import { SENSITIVE_CLUSTER_DIAGONAL_KM } from "@lifer/core/species/sensitiveSpecies.js";
+import { SpeciesDetail, SpeciesEncounters, SpeciesSequences, SpeciesVolumeUsage, UnmatchedRaws } from "./responses.js";
 
 const speciesNotFound = notFoundOnInvalidId("Species not found");
 // Marking routes take no body: the web app sends none.
@@ -30,11 +32,11 @@ const markOptions = {
   config: speciesNotFound,
   schema: { params: IdParams, response: replies(Ok) },
 };
-const readOptions = {
+const readOptions = <T extends TSchema>(response: T) => ({
   preValidation: requireScope("species.read"),
   config: speciesNotFound,
-  schema: { params: IdParams },
-};
+  schema: { params: IdParams, response: replies(response) },
+});
 
 export async function speciesDetailRoutes(fastify: FastifyInstance): Promise<void> {
   const app = withSchemas(fastify);
@@ -47,6 +49,7 @@ export async function speciesDetailRoutes(fastify: FastifyInstance): Promise<voi
       schema: {
         params: IdParams,
         querystring: Type.Object({ regionId: Type.Optional(Uuid({ description: "Region context" })) }),
+        response: replies(SpeciesDetail),
       },
     },
     async (request, reply) => {
@@ -69,6 +72,14 @@ export async function speciesDetailRoutes(fastify: FastifyInstance): Promise<voi
           await pool.query<{ region_id: string }>(
             `SELECT region_id FROM region_species WHERE species_id = $1 ORDER BY local_frequency DESC NULLS LAST LIMIT 1`,
             [id],
+          )
+        ).rows[0]?.region_id ??
+        // A species added by hand: the region it was added to.
+        (
+          await pool.query<{ region_id: string }>(
+            `SELECT region_id FROM region_species_user_added WHERE user_id = $1 AND species_id = $2
+             ORDER BY added_at LIMIT 1`,
+            [userId, id],
           )
         ).rows[0]?.region_id ??
         null;
@@ -176,7 +187,7 @@ export async function speciesDetailRoutes(fastify: FastifyInstance): Promise<voi
         regionBboxRes,
       ] = await Promise.all([
         pool.query(
-          `SELECT c.*, p.id AS photo_id, p.display_path, p.thumb_path, p.width, p.height,
+          `SELECT c.*, p.id AS photo_id, p.width, p.height,
                     p.kind AS photo_kind, p.duration_seconds, reg.name AS region_name,
                     o.ref AS original_ref, o.managed AS original_managed, o.kind AS original_kind,
                     o.volume_id AS original_volume_id, o.volume_relative_path AS original_volume_relative_path,
@@ -199,8 +210,13 @@ export async function speciesDetailRoutes(fastify: FastifyInstance): Promise<voi
         pool.query(`SELECT * FROM user_species WHERE user_id = $1 AND species_id = $2`, [userId, id]),
         pool.query(`SELECT 1 FROM user_archived_species WHERE user_id = $1 AND species_id = $2`, [userId, id]),
         pool.query(
-          `SELECT id, photo_url, credit, license, display_path IS NOT NULL AS has_cached_photo, focal_x, focal_y
-             FROM species_reference_photos WHERE species_id = $1 ORDER BY sort_order`,
+          // is_main: the species' own reference photo, which the page shows first already. Flagged
+          // here because both URLs are rewritten to local copies below, after which they can't be
+          // compared.
+          `SELECT p.id, p.photo_url, p.credit, p.license, p.display_path IS NOT NULL AS has_cached_photo,
+                  p.focal_x, p.focal_y, p.photo_url = s.reference_photo AS is_main
+             FROM species_reference_photos p JOIN species s ON s.id = p.species_id
+            WHERE p.species_id = $1 ORDER BY p.sort_order`,
           [id],
         ),
         // Monthly and weekly observation data and local rarity only mean something per region.
@@ -238,8 +254,17 @@ export async function speciesDetailRoutes(fastify: FastifyInstance): Promise<voi
       const localTier: string | null = regionSpeciesRes?.rows[0]?.local_tier ?? null;
       const isVagrant = regionSpeciesRes?.rows[0]?.is_vagrant === true;
       const isInvasive = regionSpeciesRes?.rows[0]?.is_invasive === true;
-      const weeklyFrequency: number[] | null = regionSpeciesRes?.rows[0]?.weekly_frequency ?? null;
-      const weeklyRegionName: string | null = regionNameRes?.rows[0]?.name ?? null;
+      // A hand-added species has no catalog row, so its weeks come from iNaturalist (inatDistribution.ts).
+      const catalogWeekly: number[] | null = regionSpeciesRes?.rows[0]?.weekly_frequency ?? null;
+      const inatWeekly =
+        !catalogWeekly && species.is_other_taxa && regionId
+          ? await storedInatWeekly(id, regionId).catch(() => null)
+          : null;
+      // One added before these were fetched on adding (or while offline) gets them now, for next time.
+      if (species.is_other_taxa && regionId && !catalogWeekly && !inatWeekly)
+        void scheduleInatDistributionSync(userId, id, regionId).catch(() => {});
+      const weeklyFrequency = catalogWeekly ?? inatWeekly?.weeklyFrequency ?? null;
+      const weeklyRegionName: string | null = inatWeekly?.regionName ?? regionNameRes?.rows[0]?.name ?? null;
       const hotspots = hotspotsRes?.rows ?? [];
 
       // Whether each original is still reachable, checked live and concurrently. A volume-tagged
@@ -262,11 +287,15 @@ export async function speciesDetailRoutes(fastify: FastifyInstance): Promise<voi
           return { available: exists, volumeLabel: null };
         }),
       );
-      const captures = capturesRes.rows.map((c, i) => ({
-        ...c,
-        original_available: originalStatuses[i].available,
-        original_volume_label: originalStatuses[i].volumeLabel,
-      }));
+      // The volume columns only locate the original above. Derivative paths are never selected;
+      // the original's own location (original_ref, raw_ref) stays, for reveal and copy path.
+      const captures = capturesRes.rows.map(
+        ({ original_volume_id: _volumeId, original_volume_relative_path: _relativePath, ...c }, i) => ({
+          ...c,
+          original_available: originalStatuses[i].available,
+          original_volume_label: originalStatuses[i].volumeLabel,
+        }),
+      );
 
       const endemicCountryName: string | null = endemicRes?.rows[0]?.name ?? null;
       const endemicLabel: string | null = species.endemic_region_label ?? endemicCountryName;
@@ -283,8 +312,14 @@ export async function speciesDetailRoutes(fastify: FastifyInstance): Promise<voi
           : p.photo_url,
       }));
 
+      const {
+        reference_display_path: _referenceDisplayPath,
+        reference_thumb_path: _referenceThumbPath,
+        ...speciesFields
+      } = species;
+
       return {
-        species: { ...species, reference_photo_url: referencePhotoUrl },
+        species: { ...speciesFields, reference_photo_url: referencePhotoUrl },
         captures,
         userSpecies: userSpeciesRes.rows[0] ?? null,
         referencePhotos,
@@ -402,7 +437,7 @@ export async function speciesDetailRoutes(fastify: FastifyInstance): Promise<voi
   });
 
   // RAWs filed straight into this species' folder by /uploads/raw (no capture) get their own list.
-  app.get("/species/:id/unmatched-raws", readOptions, async (request) => {
+  app.get("/species/:id/unmatched-raws", readOptions(UnmatchedRaws), async (request) => {
     const res = await pool.query<{ id: string; ref: string; file_size: string; last_seen_at: string }>(
       `SELECT id, ref, file_size, last_seen_at FROM originals
        WHERE species_id = $1 AND user_id = $2 AND capture_id IS NULL AND kind = 'raw'
@@ -412,7 +447,7 @@ export async function speciesDetailRoutes(fastify: FastifyInstance): Promise<voi
     return {
       rawFiles: res.rows.map((r) => ({
         id: r.id,
-        filename: r.ref.split("/").pop(),
+        filename: r.ref.split("/").pop() ?? r.ref,
         fileSize: Number(r.file_size),
         addedAt: r.last_seen_at,
         previewUrl: `/api/originals/${r.id}/preview`,
@@ -422,7 +457,7 @@ export async function speciesDetailRoutes(fastify: FastifyInstance): Promise<voi
   });
 
   // The stat line: photos, videos, encounters (clusterIntoEncounters), locations, cameras, lenses.
-  app.get("/species/:id/encounters", readOptions, async (request) => {
+  app.get("/species/:id/encounters", readOptions(SpeciesEncounters), async (request) => {
     const res = await pool.query<{
       id: string;
       taken_at: string | null;
@@ -454,7 +489,7 @@ export async function speciesDetailRoutes(fastify: FastifyInstance): Promise<voi
 
   // Bursts of 3+ near-identical frames, each with its sharpest frame (lib/sharpness.ts) as the
   // representative.
-  app.get("/species/:id/sequences", readOptions, async (request) => {
+  app.get("/species/:id/sequences", readOptions(SpeciesSequences), async (request) => {
     const res = await pool.query<{
       photo_id: string;
       taken_at: string | null;
@@ -504,7 +539,7 @@ export async function speciesDetailRoutes(fastify: FastifyInstance): Promise<voi
 
   // Which registered drives already hold this species' photos, for the import destination
   // picker's recommended drive. Every drive in use is returned, busiest first.
-  app.get("/species/:id/volume-usage", readOptions, async (request) => {
+  app.get("/species/:id/volume-usage", readOptions(SpeciesVolumeUsage), async (request) => {
     const res = await pool.query<{ volume_id: string | null; label: string | null; count: string }>(
       `SELECT sv.id AS volume_id, sv.label, COUNT(*) AS count
        FROM captures c
