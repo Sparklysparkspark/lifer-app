@@ -156,3 +156,62 @@ describe("tagWithRegisteredVolume", () => {
     });
   });
 });
+
+describe("drives: shared mounted-volume listing and batch resolving", () => {
+  const driveRow = (overrides: Record<string, unknown> = {}) => ({
+    id: "d1",
+    kind: "drive",
+    label: "Field SSD",
+    platform_volume_id: "UUID-1",
+    root_path: null,
+    removed_at: null,
+    ...overrides,
+  });
+
+  it("lists the mounted drives once for many files resolved together", async () => {
+    const { resolveOriginalPath } = await load(true);
+    identity.listMountedVolumes.mockResolvedValue([{ platformVolumeId: "UUID-1", mountPath: "/Volumes/SSD" }]);
+    query.mockResolvedValue({ rows: [driveRow()] });
+    const files = ["/a.jpg", "/b.jpg", "/c.jpg"].map((rel) => ({
+      ref: "/old",
+      volume_id: "d1",
+      volume_relative_path: rel,
+    }));
+    const resolved = await Promise.all(files.map((f) => resolveOriginalPath(f)));
+    expect(resolved.map((r) => r.path)).toEqual(["/Volumes/SSD/a.jpg", "/Volumes/SSD/b.jpg", "/Volumes/SSD/c.jpg"]);
+    expect(identity.listMountedVolumes).toHaveBeenCalledTimes(1);
+  });
+
+  it("lists again after a failed listing instead of keeping the failure", async () => {
+    const { resolveOriginalPath } = await load(true);
+    identity.listMountedVolumes
+      .mockRejectedValueOnce(new Error("diskutil failed"))
+      .mockResolvedValueOnce([{ platformVolumeId: "UUID-1", mountPath: "/Volumes/SSD" }]);
+    query.mockResolvedValue({ rows: [driveRow()] });
+    const file = { ref: "/old", volume_id: "d1", volume_relative_path: "/a.jpg" };
+    await expect(resolveOriginalPath(file)).rejects.toThrow("diskutil failed");
+    expect((await resolveOriginalPath(file)).path).toBe("/Volumes/SSD/a.jpg");
+  });
+
+  it("looks each volume up once for a batch, and keeps untagged and disconnected files apart", async () => {
+    const { resolveOriginalPaths } = await load(true);
+    identity.listMountedVolumes.mockResolvedValue([{ platformVolumeId: "UUID-1", mountPath: "/Volumes/SSD" }]);
+    query.mockResolvedValueOnce({
+      rows: [driveRow(), driveRow({ id: "d2", label: "Old Card", platform_volume_id: "UUID-2" })],
+    });
+    const resolved = await resolveOriginalPaths([
+      { ref: "/library/a.jpg", volume_id: null, volume_relative_path: null },
+      { ref: "/old", volume_id: "d1", volume_relative_path: "/b.jpg" },
+      { ref: "/old", volume_id: "d1", volume_relative_path: "/c.jpg" },
+      { ref: "/old", volume_id: "d2", volume_relative_path: "/d.jpg" },
+    ]);
+    expect(resolved).toEqual([
+      { path: "/library/a.jpg", connected: true },
+      { path: "/Volumes/SSD/b.jpg", connected: true, volumeLabel: "Field SSD" },
+      { path: "/Volumes/SSD/c.jpg", connected: true, volumeLabel: "Field SSD" },
+      { path: null, connected: false, volumeLabel: "Old Card" },
+    ]);
+    expect(query).toHaveBeenCalledTimes(1);
+    expect(identity.listMountedVolumes).toHaveBeenCalledTimes(1);
+  });
+});

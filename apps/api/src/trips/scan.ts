@@ -3,7 +3,7 @@
 // recover unknown destination files from the trip index, list unimported source files for review
 // with the marks a culling app left on them (cullMarks.ts), then link RAWs to their imported JPEGs
 // (rawLink.ts).
-import { existsSync, readdirSync, realpathSync, statSync } from "node:fs";
+import { existsSync, realpathSync, statSync } from "node:fs";
 import path from "node:path";
 import { pool } from "@lifer/core/db.js";
 import { canonicalPath, isWithin } from "@lifer/core/lib/pathContainment.js";
@@ -15,6 +15,7 @@ import { ACCEPTED_PHOTO_EXTENSIONS, isRawFile } from "@lifer/core/uploads/format
 import { resolveTripIndexSpecies } from "./tripIndex.js";
 import { importTripFile, matchingSourceRaw } from "./import.js";
 import { listRawFiles, autoLinkMissingRaws } from "./rawLink.js";
+import { walkFiles } from "../library/walkFiles.js";
 
 // Every photo format the app accepts (JPEG, PNG, WebP, TIFF, HEIC). A TIFF holding sensor data
 // is a RAW instead: onlyPhotos drops it here and listRawFiles picks it up.
@@ -32,23 +33,14 @@ export interface CandidateFile {
 }
 
 /** Recursive listing of photo files, skipping dotfiles and `skipFolder`. */
-export function listCandidateFiles(sourceFolder: string, skipFolder?: string): CandidateFile[] {
+export async function listCandidateFiles(sourceFolder: string, skipFolder?: string): Promise<CandidateFile[]> {
   const results: CandidateFile[] = [];
   const skip = skipFolder ? path.resolve(skipFolder) : null;
-  function walk(dir: string) {
-    if (!existsSync(dir)) return;
-    for (const entry of readdirSync(dir, { withFileTypes: true })) {
-      if (entry.name.startsWith(".")) continue;
-      const absolutePath = path.join(dir, entry.name);
-      if (entry.isDirectory()) {
-        if (skip && path.resolve(absolutePath) === skip) continue;
-        walk(absolutePath);
-      } else if (TRIP_IMAGE_EXTENSIONS.has(path.extname(entry.name).toLowerCase())) {
-        results.push({ relativePath: path.relative(sourceFolder, absolutePath), absolutePath });
-      }
+  for await (const { absolutePath, name } of walkFiles(sourceFolder, (dir) => path.resolve(dir) === skip)) {
+    if (TRIP_IMAGE_EXTENSIONS.has(path.extname(name).toLowerCase())) {
+      results.push({ relativePath: path.relative(sourceFolder, absolutePath), absolutePath });
     }
   }
-  walk(sourceFolder);
   return results;
 }
 
@@ -209,7 +201,7 @@ export async function scanTrip(
 ): Promise<ScanResult> {
   const { signal, onPhase } = opts;
   onPhase?.("checking");
-  const destinationImages = await onlyPhotos(listCandidateFiles(destinationFolder));
+  const destinationImages = await onlyPhotos(await listCandidateFiles(destinationFolder));
   // RAWs join the relink pass but are never offered for review: only autoLinkMissingRaws
   // handles them.
   const allDestination = [...destinationImages, ...(await listRawFiles(destinationFolder))];
@@ -225,7 +217,7 @@ export async function scanTrip(
   onPhase?.("finding-new");
   const unimported = await findUnimportedFiles(
     userId,
-    await onlyPhotos(listCandidateFiles(sourceFolder, destinationFolder)),
+    await onlyPhotos(await listCandidateFiles(sourceFolder, destinationFolder)),
     signal,
   );
   onPhase?.("reading-cull-marks");

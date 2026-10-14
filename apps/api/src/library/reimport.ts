@@ -4,7 +4,7 @@
 // Species can come from embedded metadata, an XMP sidecar, or file and folder names, pooled into
 // one candidate set; the folder name also breaks ties. Matching is by scientific name (ids differ
 // between installs), and a name shared by several species is flagged, not guessed.
-import { existsSync, readdirSync, statSync } from "node:fs";
+import { statSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { pool } from "@lifer/core/db.js";
@@ -30,13 +30,15 @@ import {
   type KeywordMatchedSpecies,
 } from "../species/matchByKeywords.js";
 import { matchSpeciesFromFilename } from "../species/matchByFilename.js";
-import { fileIntoMainLibrary } from "../uploads/routes.js";
+import { derivativeFiles, fileIntoMainLibrary, removeFiles } from "../uploads/common.js";
+import { insertCapture, insertOriginal } from "../uploads/captureRows.js";
 import { recoverAlbumMembership } from "../albums/albumIndex.js";
 import { tagWithRegisteredVolume, type VolumeTag } from "../storageVolumes/resolve.js";
 import { markCollected } from "../lib/userSpecies.js";
 import type { CullMarksOption } from "@lifer/shared";
 import { cullDecision, readPairCullMarks } from "../uploads/cullMarks.js";
 import { matchingSourceRaw } from "../trips/import.js";
+import { walkFiles } from "./walkFiles.js";
 
 const PHOTO_EXTENSIONS = new Set(ACCEPTED_PHOTO_EXTENSIONS);
 
@@ -52,23 +54,13 @@ export async function listManagedFiles(originalsDir: string): Promise<LibraryFil
   const raws: string[] = [];
   // Upload scratch files and app data (WebP derivatives) are never library photos.
   const skipDirs = new Set([path.resolve(uploadWorkDir()), path.resolve(APP_DATA_DIR)]);
-  async function walk(dir: string) {
-    if (!existsSync(dir)) return;
-    for (const entry of readdirSync(dir, { withFileTypes: true })) {
-      if (entry.name.startsWith(".")) continue;
-      const absolutePath = path.join(dir, entry.name);
-      if (entry.isDirectory()) {
-        if (!skipDirs.has(path.resolve(absolutePath))) await walk(absolutePath);
-        continue;
-      }
-      const ext = path.extname(entry.name).toLowerCase();
-      if (!PHOTO_EXTENSIONS.has(ext) && !VENDOR_RAW_EXTENSIONS.has(ext)) continue;
-      // A TIFF is a RAW only when it holds sensor data; an edited TIFF is a photo.
-      if (await isRawFile(absolutePath)) raws.push(absolutePath);
-      else jpegs.push(absolutePath);
-    }
+  for await (const { absolutePath, name } of walkFiles(originalsDir, (dir) => skipDirs.has(path.resolve(dir)))) {
+    const ext = path.extname(name).toLowerCase();
+    if (!PHOTO_EXTENSIONS.has(ext) && !VENDOR_RAW_EXTENSIONS.has(ext)) continue;
+    // A TIFF is a RAW only when it holds sensor data; an edited TIFF is a photo.
+    if (await isRawFile(absolutePath)) raws.push(absolutePath);
+    else jpegs.push(absolutePath);
   }
-  await walk(originalsDir);
   return { jpegs, raws };
 }
 
@@ -185,8 +177,8 @@ export async function recoverJpeg(
 ): Promise<JpegOutcome> {
   const contentHash = await computeContentHash(absolutePath);
   const known = await pool.query<{ id: string; ref: string; volume_id: string | null }>(
-    `SELECT id, ref, volume_id FROM originals WHERE content_hash = $1 LIMIT 1`,
-    [contentHash],
+    `SELECT id, ref, volume_id FROM originals WHERE content_hash = $1 AND user_id = $2 LIMIT 1`,
+    [contentHash, userId],
   );
   if (known.rows.length > 0) {
     const row = known.rows[0];
@@ -255,101 +247,86 @@ export async function recoverJpeg(
         species.id,
         "jpeg",
         organizeByYear,
-        species.taxon_class,
         exif.takenAt,
         // The camera's own year, so the folder doesn't depend on the server's zone.
         captureTimeFromTags(tags)?.wallClock ?? null,
       )
     : absolutePath;
 
+  // ref=finalPath: the file's own path for Lifer's tree, or the organized destination, which is
+  // untagged. A foreign folder imported in place stays unmanaged (see recoveredVolumeTag).
+  const tag = await recoveredVolumeTag(userId, absolutePath, volumeContext, organize, foreign);
+
+  // Derivatives are made before the transaction so sharp's decode never holds a pool connection,
+  // and removed again if the recovery doesn't commit. From the path, never the whole file in
+  // memory; HEIC is decoded through a working JPEG.
+  const photoId = randomUUID();
+  let derivatives: Awaited<ReturnType<typeof generateDerivatives>>;
+  try {
+    derivatives = await generateDerivatives(finalPath, photoId);
+  } catch (err) {
+    removeFiles(derivativeFiles(photoId));
+    throw err;
+  }
+  const { displayPath, thumbPath, width, height } = derivatives;
+
   const client = await pool.connect();
+  let captureId: string;
   try {
     await client.query("BEGIN");
 
-    const captureRes = await client.query<{ id: string }>(
-      `INSERT INTO captures
-         (user_id, species_id, fingerprint, exif_fingerprint, exif_fingerprint_loose, taken_at, lat, lon, camera_model, lens, focal_length_mm, aperture, shutter, iso, quality_rating, tags, cull_verdict, cull_label)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
-       RETURNING id`,
-      [
-        userId,
-        species.id,
-        contentHash,
-        exifFingerprint.strict,
-        exifFingerprint.loose,
-        exif.takenAt,
-        exif.lat,
-        exif.lon,
-        exif.cameraModel,
-        exif.lens,
-        exif.focalLengthMm,
-        exif.aperture,
-        exif.shutter,
-        exif.iso,
-        exif.rating,
-        // The photo tags Lifer wrote into the file, if it did.
-        extractLiferTags(tags),
-        // Kept as the culling app left them, whatever the reimport did with them.
-        marks.verdict,
-        marks.label,
-      ],
-    );
-    const captureId = captureRes.rows[0].id;
+    captureId = await insertCapture(client, {
+      userId,
+      speciesId: species.id,
+      fingerprint: contentHash,
+      exifFingerprint,
+      exif,
+      // The photo tags Lifer wrote into the file, if it did.
+      tags: extractLiferTags(tags),
+      // Kept as the culling app left them, whatever the reimport did with them.
+      cull: marks,
+    });
 
-    const photoId = randomUUID();
-    // From the path, never the whole file in memory; HEIC is decoded through a working JPEG.
-    const { displayPath, thumbPath, width, height } = await generateDerivatives(finalPath, photoId);
-    const photoRes = await client.query<{ id: string }>(
-      `INSERT INTO photos (id, capture_id, display_path, thumb_path, width, height) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
+    await client.query(
+      `INSERT INTO photos (id, capture_id, display_path, thumb_path, width, height) VALUES ($1,$2,$3,$4,$5,$6)`,
       [photoId, captureId, displayPath, thumbPath, width, height],
     );
-    await client.query(`UPDATE captures SET current_photo_id = $1 WHERE id = $2`, [photoRes.rows[0].id, captureId]);
+    await client.query(`UPDATE captures SET current_photo_id = $1 WHERE id = $2`, [photoId, captureId]);
 
     // A hidden photo doesn't count as collected until it's unhidden (captures/hidden.ts).
-    if (!hidden) await markCollected(client, userId, species.id, photoRes.rows[0].id, exif.takenAt);
+    if (!hidden) await markCollected(client, userId, species.id, photoId, exif.takenAt);
 
-    // ref=finalPath: the file's own path for Lifer's tree, or the organized destination, which is
-    // untagged. A foreign folder imported in place stays unmanaged (see recoveredVolumeTag).
-    const tag = await recoveredVolumeTag(userId, absolutePath, volumeContext, organize, foreign);
-    await client.query(
-      `INSERT INTO originals (capture_id, kind, ref_type, ref, managed, content_hash, file_size, exif_fingerprint, exif_fingerprint_loose, volume_id, volume_relative_path)
-       VALUES ($1, 'jpeg', 'path', $2, $9, $3, $4, $5, $6, $7, $8)`,
-      [
-        captureId,
-        finalPath,
-        contentHash,
-        fileSize,
-        exifFingerprint.strict,
-        exifFingerprint.loose,
-        tag.volumeId,
-        tag.volumeRelativePath,
-        // Lifer only owns files it wrote or moved into its own layout, never ones left in place
-        // in someone else's folder (managed files can get renamed or moved by Lifer later).
-        !foreign || organize,
-      ],
-    );
+    await insertOriginal(client, {
+      userId,
+      captureId,
+      kind: "jpeg",
+      ref: finalPath,
+      // Lifer only owns files it wrote or moved into its own layout, never ones left in place
+      // in someone else's folder (managed files can get renamed or moved by Lifer later).
+      managed: !foreign || organize,
+      contentHash,
+      fileSize,
+      exifFingerprint,
+      ...tag,
+    });
 
     // Last, since the rows above are written through the `captures` view, which hides it.
     if (hidden) await client.query(`UPDATE captures_all SET hidden_at = now() WHERE id = $1`, [captureId]);
 
     await client.query("COMMIT");
-    // This photo may just have become the species' cover: frame the card on the animal.
-    if (!hidden) ensureDefaultCardCropLater(userId, species.id);
-    // Best-effort: a missing or unreadable manifest never fails the recovery.
-    await recoverAlbumMembership(userId, finalPath, captureId).catch(() => {});
-    return {
-      status: "recovered",
-      captureId,
-      photoId: photoRes.rows[0].id,
-      scientificName: species.scientific_name,
-      hidden,
-    };
   } catch (err) {
     await client.query("ROLLBACK").catch(() => {});
+    removeFiles(derivativeFiles(photoId));
     throw err;
   } finally {
     client.release();
   }
+
+  // This photo may just have become the species' cover: frame the card on the animal.
+  if (!hidden) ensureDefaultCardCropLater(userId, species.id);
+  // Best-effort: a missing or unreadable manifest never fails the recovery.
+  await recoverAlbumMembership(userId, finalPath, captureId).catch(() => {});
+  return { status: "recovered", captureId, photoId, scientificName: species.scientific_name, hidden };
 }
 
 export type RawOutcome =
@@ -374,8 +351,8 @@ export async function recoverRaw(
 ): Promise<RawOutcome> {
   const contentHash = await computeContentHash(absolutePath);
   const known = await pool.query<{ id: string; ref: string; volume_id: string | null }>(
-    `SELECT id, ref, volume_id FROM originals WHERE content_hash = $1 LIMIT 1`,
-    [contentHash],
+    `SELECT id, ref, volume_id FROM originals WHERE content_hash = $1 AND user_id = $2 LIMIT 1`,
+    [contentHash, userId],
   );
   if (known.rows.length > 0) {
     const row = known.rows[0];
@@ -394,14 +371,10 @@ export async function recoverRaw(
     id: string;
     species_id: string;
     taken_at: string | null;
-    common_name: string | null;
-    scientific_name: string;
-    taxon_class: string | null;
   }>(
-    `SELECT c.id, s.id AS species_id, c.taken_at, s.common_name, s.scientific_name, s.taxon_class
+    `SELECT c.id, c.species_id, c.taken_at
      FROM captures c
      JOIN originals o ON o.capture_id = c.id AND o.kind = 'jpeg'
-     JOIN species s ON s.id = c.species_id
      WHERE c.user_id = $1
        AND NOT EXISTS (SELECT 1 FROM originals ro WHERE ro.capture_id = c.id AND ro.kind = 'raw')
        AND lower(regexp_replace(regexp_replace(o.ref, '^.*/', ''), '(-[0-9]+)?\\.[^.]+$', '')) = $2`,
@@ -423,27 +396,22 @@ export async function recoverRaw(
         match.species_id,
         "raw",
         organizeByYear,
-        match.taxon_class,
         exif.takenAt,
         captureTimeFromTags(tags)?.wallClock ?? null,
       )
     : absolutePath;
   const tag = await recoveredVolumeTag(userId, absolutePath, volumeContext, organize, foreign);
-  await pool.query(
-    `INSERT INTO originals (capture_id, kind, ref_type, ref, managed, content_hash, file_size, exif_fingerprint, exif_fingerprint_loose, volume_id, volume_relative_path)
-     VALUES ($1, 'raw', 'path', $2, $9, $3, $4, $5, $6, $7, $8)`,
-    [
-      match.id,
-      finalPath,
-      contentHash,
-      fileSize,
-      exifFingerprint.strict,
-      exifFingerprint.loose,
-      tag.volumeId,
-      tag.volumeRelativePath,
-      !foreign || organize,
-    ],
-  );
+  await insertOriginal(pool, {
+    userId,
+    captureId: match.id,
+    kind: "raw",
+    ref: finalPath,
+    managed: !foreign || organize,
+    contentHash,
+    fileSize,
+    exifFingerprint,
+    ...tag,
+  });
   return { status: "recovered", captureId: match.id };
 }
 

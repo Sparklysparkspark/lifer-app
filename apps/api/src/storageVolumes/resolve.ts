@@ -8,7 +8,7 @@ import path from "node:path";
 import { pool } from "@lifer/core/db.js";
 import { SINGLE_USER_MODE } from "@lifer/core/config.js";
 import { canonicalPath, isWithin } from "@lifer/core/lib/pathContainment.js";
-import { listMountedVolumes, mountPathFor, getVolumeId } from "./volumeIdentity.js";
+import { listMountedVolumes, mountPathFor, getVolumeId, type MountedVolume } from "./volumeIdentity.js";
 
 export const VOLUME_ORIGINALS_SUBDIR = "Lifer Originals";
 
@@ -89,12 +89,30 @@ interface VolumeRow {
   removed_at: string | null;
 }
 
+// Listing the mounted drives shells out once per drive on macOS, and a page of originals resolves
+// many files at once, so one listing is shared by every caller for a few seconds.
+const MOUNTED_VOLUMES_TTL_MS = 3000;
+let mountedVolumesCache: { at: number; list: Promise<MountedVolume[]> } | null = null;
+
+function mountedVolumes(): Promise<MountedVolume[]> {
+  const now = Date.now();
+  if (!mountedVolumesCache || now - mountedVolumesCache.at > MOUNTED_VOLUMES_TTL_MS) {
+    const list = listMountedVolumes();
+    mountedVolumesCache = { at: now, list };
+    // A failed listing isn't kept: the next caller tries again.
+    list.catch(() => {
+      if (mountedVolumesCache?.list === list) mountedVolumesCache = null;
+    });
+  }
+  return mountedVolumesCache.list;
+}
+
 // Current root of a volume, or null if it isn't reachable right now.
 async function currentMountPath(volume: VolumeRow): Promise<string | null> {
   if (volume.kind === "root") {
     return volume.removed_at == null && volume.root_path && isReadableDir(volume.root_path) ? volume.root_path : null;
   }
-  const volumes = await listMountedVolumes();
+  const volumes = await mountedVolumes();
   return volumes.find((v) => v.platformVolumeId === volume.platform_volume_id)?.mountPath ?? null;
 }
 
@@ -123,25 +141,50 @@ export interface ResolvedOriginal {
   volumeLabel?: string;
 }
 
-// Without a volume_id, `ref` is the path. With one, `ref` only caches the last path; the real one
-// is recomputed from the volume's current state, which can change between requests.
-export async function resolveOriginalPath(original: {
+interface OriginalLocation {
   ref: string;
   volume_id: string | null;
   volume_relative_path: string | null;
-}): Promise<ResolvedOriginal> {
-  if (!original.volume_id) return { path: original.ref, connected: true };
+}
 
-  const volumeRes = await pool.query<VolumeRow>(
+function resolveAgainst(
+  original: OriginalLocation,
+  volume: { row: VolumeRow; mountPath: string | null } | undefined,
+): ResolvedOriginal {
+  if (!original.volume_id) return { path: original.ref, connected: true };
+  if (!volume) return { path: original.ref, connected: true }; // volume was deleted (the FK already nulls volume_id); defensive fallback
+  if (!volume.mountPath || original.volume_relative_path == null) {
+    return { path: null, connected: false, volumeLabel: volume.row.label };
+  }
+  return {
+    path: `${volume.mountPath}${original.volume_relative_path}`,
+    connected: true,
+    volumeLabel: volume.row.label,
+  };
+}
+
+// Without a volume_id, `ref` is the path. With one, `ref` only caches the last path; the real one
+// is recomputed from the volume's current state, which can change between requests.
+export async function resolveOriginalPath(original: OriginalLocation): Promise<ResolvedOriginal> {
+  if (!original.volume_id) return { path: original.ref, connected: true };
+  const res = await pool.query<VolumeRow>(
     `SELECT kind, label, platform_volume_id, root_path, removed_at FROM storage_volumes WHERE id = $1`,
     [original.volume_id],
   );
-  const volume = volumeRes.rows[0];
-  if (!volume) return { path: original.ref, connected: true }; // volume was deleted (the FK already nulls volume_id); defensive fallback
+  const row = res.rows[0];
+  return resolveAgainst(original, row ? { row, mountPath: await currentMountPath(row) } : undefined);
+}
 
-  const mountPath = await currentMountPath(volume);
-  if (!mountPath || original.volume_relative_path == null) {
-    return { path: null, connected: false, volumeLabel: volume.label };
+/** resolveOriginalPath for many originals at once, looking each volume up only once. */
+export async function resolveOriginalPaths(originals: OriginalLocation[]): Promise<ResolvedOriginal[]> {
+  const volumeIds = [...new Set(originals.map((o) => o.volume_id).filter((id): id is string => id != null))];
+  const volumes = new Map<string, { row: VolumeRow; mountPath: string | null }>();
+  if (volumeIds.length > 0) {
+    const res = await pool.query<VolumeRow & { id: string }>(
+      `SELECT id, kind, label, platform_volume_id, root_path, removed_at FROM storage_volumes WHERE id = ANY($1::uuid[])`,
+      [volumeIds],
+    );
+    for (const row of res.rows) volumes.set(row.id, { row, mountPath: await currentMountPath(row) });
   }
-  return { path: `${mountPath}${original.volume_relative_path}`, connected: true, volumeLabel: volume.label };
+  return originals.map((o) => resolveAgainst(o, o.volume_id ? volumes.get(o.volume_id) : undefined));
 }

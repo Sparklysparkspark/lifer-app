@@ -10,13 +10,16 @@ import { captureTimeFromTags, extractExif, readExifTags } from "../uploads/exif.
 import { computeFileFingerprint } from "../uploads/fileFingerprint.js";
 import { recordTripIndexEntry } from "./tripIndex.js";
 import { linkRawForCapture, stemOf, type RawCandidate } from "./rawLink.js";
-import { originalsFolder } from "../uploads/organizedPath.js";
-import { resolveSpeciesFolderName } from "../uploads/speciesFolderName.js";
+import { speciesFolder, type Subfolder } from "../uploads/managedFolders.js";
+import { getUserFileSettings } from "../lib/userFileSettings.js";
 import { copyToNewFile } from "@lifer/core/lib/safeFs.js";
 import { tagWithRegisteredVolume } from "../storageVolumes/resolve.js";
 import { markCollected } from "../lib/userSpecies.js";
 import type { CullMarks, CullMarksOption } from "@lifer/shared";
 import { cullDecision, readCullMarks, readPairCullMarks } from "../uploads/cullMarks.js";
+import { insertCapture, insertOriginal } from "../uploads/captureRows.js";
+import { derivativeFiles, removeFiles } from "../uploads/common.js";
+import { log } from "@lifer/core/lib/log.js";
 
 export interface TripImportResult {
   captureId: string;
@@ -34,6 +37,8 @@ export interface CullHandling {
   /** The marks read from the file (and its sidecar and RAW twin); read here when left out. */
   marks?: CullMarks;
   hidden?: boolean;
+  /** Lifer copied the RAW next to the photo too, so the linked RAW is Lifer's to manage. */
+  managedRaw?: boolean;
 }
 
 // sourceFolder/relativePath are only used for the recovery index entry (tripIndex.ts).
@@ -69,89 +74,80 @@ export async function importTripFile(
   const marks = cull.marks ?? (await readCullMarks(absolutePath));
   const hidden = cull.hidden ?? false;
 
+  // Derivatives are made before the transaction so sharp's decode never holds a pool connection,
+  // and removed again if the import doesn't commit.
+  const photoId = randomUUID();
+  let derivatives: Awaited<ReturnType<typeof generateDerivatives>>;
+  try {
+    derivatives = await generateDerivatives(absolutePath, photoId);
+  } catch (err) {
+    removeFiles(derivativeFiles(photoId));
+    throw err;
+  }
+  const { displayPath, thumbPath, width, height } = derivatives;
+
   const client = await pool.connect();
+  let captureId: string;
   try {
     await client.query("BEGIN");
 
-    const captureRes = await client.query<{ id: string }>(
-      `INSERT INTO captures
-         (user_id, species_id, trip_id, region_id, fingerprint, exif_fingerprint, exif_fingerprint_loose, taken_at, lat, lon, camera_model, lens, focal_length_mm, aperture, shutter, iso, quality_rating, cull_verdict, cull_label)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
-       RETURNING id`,
-      [
-        userId,
-        speciesId,
-        tripId,
-        regionId,
-        contentHash,
-        exifFingerprint.strict,
-        exifFingerprint.loose,
-        exif.takenAt,
-        exif.lat,
-        exif.lon,
-        exif.cameraModel,
-        exif.lens,
-        exif.focalLengthMm,
-        exif.aperture,
-        exif.shutter,
-        exif.iso,
-        exif.rating,
-        marks.verdict,
-        marks.label,
-      ],
-    );
-    const captureId = captureRes.rows[0].id;
+    captureId = await insertCapture(client, {
+      userId,
+      speciesId,
+      fingerprint: contentHash,
+      exifFingerprint,
+      exif,
+      tripId,
+      regionId,
+      cull: marks,
+    });
 
-    const photoId = randomUUID();
-    const { displayPath, thumbPath, width, height } = await generateDerivatives(absolutePath, photoId);
-    const photoRes = await client.query<{ id: string }>(
-      `INSERT INTO photos (id, capture_id, display_path, thumb_path, width, height) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
+    await client.query(
+      `INSERT INTO photos (id, capture_id, display_path, thumb_path, width, height) VALUES ($1,$2,$3,$4,$5,$6)`,
       [photoId, captureId, displayPath, thumbPath, width, height],
     );
-    await client.query(`UPDATE captures SET current_photo_id = $1 WHERE id = $2`, [photoRes.rows[0].id, captureId]);
+    await client.query(`UPDATE captures SET current_photo_id = $1 WHERE id = $2`, [photoId, captureId]);
 
     // A trip photo counts as collected like any upload, even though the file stays in place. A
     // hidden one doesn't until it's unhidden (captures/hidden.ts).
-    if (!hidden) await markCollected(client, userId, speciesId, photoRes.rows[0].id, exif.takenAt);
+    if (!hidden) await markCollected(client, userId, speciesId, photoId, exif.takenAt);
 
-    await client.query(
-      `INSERT INTO originals (capture_id, kind, ref_type, ref, managed, content_hash, file_size, exif_fingerprint, exif_fingerprint_loose, user_id, volume_id, volume_relative_path)
-       VALUES ($1, 'jpeg', 'path', $2, $10, $3, $4, $5, $6, $7, $8, $9)`,
-      [
-        captureId,
-        absolutePath,
-        contentHash,
-        fileSize,
-        exifFingerprint.strict,
-        exifFingerprint.loose,
-        userId,
-        volumeTag.volumeId,
-        volumeTag.volumeRelativePath,
-        managed,
-      ],
-    );
+    await insertOriginal(client, {
+      userId,
+      captureId,
+      kind: "jpeg",
+      ref: absolutePath,
+      managed,
+      contentHash,
+      fileSize,
+      exifFingerprint,
+      ...volumeTag,
+    });
 
     // Last, since the rows above are written through the `captures` view, which hides it.
     if (hidden) await client.query(`UPDATE captures_all SET hidden_at = now() WHERE id = $1`, [captureId]);
 
     await client.query("COMMIT");
-    // This photo may just have become the species' cover: frame the card on the animal.
-    if (!hidden) ensureDefaultCardCropLater(userId, speciesId);
-    // Best effort, after commit: a lost index entry only costs a manual reassignment later.
-    recordTripIndexEntry(sourceFolder, relativePath, speciesRes.rows[0].scientific_name).catch(() => {});
-    // Best effort too: an unlinked RAW is picked up by the next rescan.
-    try {
-      await linkRawForCapture(captureId, path.basename(absolutePath), exif.takenAt, sourceFolder);
-    } catch {
-      // A missing or unreadable RAW leaves the capture without one; the import itself succeeded.
-    }
-    return { captureId, photoId: photoRes.rows[0].id, hidden };
   } catch (err) {
     await client.query("ROLLBACK").catch(() => {});
+    removeFiles(derivativeFiles(photoId));
     throw err;
   } finally {
     client.release();
   }
+
+  // This photo may just have become the species' cover: frame the card on the animal.
+  if (!hidden) ensureDefaultCardCropLater(userId, speciesId);
+  // Best effort, after commit: a lost index entry only costs a manual reassignment later.
+  recordTripIndexEntry(sourceFolder, relativePath, speciesRes.rows[0].scientific_name).catch(() => {});
+  // Best effort too: an unlinked RAW is picked up by the next rescan.
+  try {
+    await linkRawForCapture(captureId, path.basename(absolutePath), exif.takenAt, sourceFolder, cull.managedRaw);
+  } catch (err) {
+    // A missing or unreadable RAW leaves the capture without one; the import itself succeeded.
+    log.warn({ err, captureId }, "Couldn't link this trip photo's RAW");
+  }
+  return { captureId, photoId, hidden };
 }
 
 /** Imports one photo from the trip's source folder: copies it into the destination folder,
@@ -176,37 +172,37 @@ export async function importInboxFile(
   const decision = cullDecision(marks, cullOption);
   if (decision === "skip") return { skipped: "rejected" };
 
-  const speciesRes = await pool.query<{ taxon_class: string | null; inat_iconic_taxon: string | null }>(
-    `SELECT taxon_class, inat_iconic_taxon FROM species WHERE id = $1`,
-    [speciesId],
-  );
+  const speciesRes = await pool.query(`SELECT 1 FROM species WHERE id = $1`, [speciesId]);
   if (speciesRes.rows.length === 0) throw new Error("Unknown species");
-  const prefs = (
-    await pool.query<{ organize_originals_by_year: boolean; species_naming_styles: string[] | null }>(
-      `SELECT organize_originals_by_year, species_naming_styles FROM users WHERE id = $1`,
-      [userId],
-    )
-  ).rows[0];
+  const settings = await getUserFileSettings(userId);
   const tags = await readExifTags(sourceAbsolutePath);
   const exif = await extractExif(sourceAbsolutePath, tags);
-  const folderOpts = {
-    organizeByYear: prefs?.organize_originals_by_year ?? false,
-    speciesFolderName: await resolveSpeciesFolderName(userId, speciesId),
-    taxonClass: speciesRes.rows[0].taxon_class,
-    inatIconicTaxon: speciesRes.rows[0].inat_iconic_taxon,
-    namingStyles: prefs?.species_naming_styles ?? [],
-    takenAt: exif.takenAt,
-    // The camera's own year, as uploads file it, so the folder doesn't depend on the server's zone.
-    takenAtWallClock: captureTimeFromTags(tags)?.wallClock ?? null,
-  };
-  const adjustedDir = originalsFolder(destinationFolder, { ...folderOpts, subfolder: "Adjusted" });
+  // A trip folder never gets a location layer. The camera's own year, as uploads file it, so the
+  // folder doesn't depend on the server's zone.
+  const folderFor = (subfolder: Subfolder) =>
+    speciesFolder(
+      userId,
+      speciesId,
+      destinationFolder,
+      {
+        subfolder,
+        takenAt: exif.takenAt,
+        wallClock: captureTimeFromTags(tags)?.wallClock ?? null,
+        allowLocation: false,
+      },
+      settings,
+    );
+  const adjustedDir = await folderFor("Adjusted");
   const copy = await copyToNewFile(adjustedDir, path.basename(sourceAbsolutePath), sourceAbsolutePath);
 
   // The RAW goes first, so importTripFile's own RAW linking finds it next to the copy.
   let rawCopy: string | null = null;
   if (raw) {
-    const rawDir = originalsFolder(destinationFolder, { ...folderOpts, subfolder: "RAW" });
-    rawCopy = await copyToNewFile(rawDir, path.basename(raw.absolutePath), raw.absolutePath).catch(() => null);
+    const rawDir = await folderFor("RAW");
+    rawCopy = await copyToNewFile(rawDir, path.basename(raw.absolutePath), raw.absolutePath).catch((err) => {
+      log.warn({ err, raw: raw.absolutePath }, "Couldn't copy this trip photo's RAW; importing the photo without it");
+      return null;
+    });
   }
   try {
     const result = await importTripFile(
@@ -218,18 +214,8 @@ export async function importInboxFile(
       path.relative(destinationFolder, copy),
       regionId,
       true,
-      {
-        marks,
-        hidden: decision === "hide",
-      },
+      { marks, hidden: decision === "hide", managedRaw: rawCopy !== null },
     );
-    // Lifer made the RAW copy too, so it's Lifer's to manage like the photo (rawLink.ts links
-    // RAWs as the user's own files).
-    if (rawCopy) {
-      await pool
-        .query(`UPDATE originals SET managed = true WHERE capture_id = $1 AND kind = 'raw'`, [result.captureId])
-        .catch(() => {});
-    }
     return result;
   } catch (err) {
     // Nothing links to the copies if the import failed: remove them rather than leave stray files.
