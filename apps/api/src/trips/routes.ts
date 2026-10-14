@@ -12,6 +12,8 @@ import { markNameChanged } from "../species/speciesSplits.js";
 import { nextDefaultName } from "../lib/defaultName.js";
 import { isValidCrop } from "../lib/crop.js";
 import { isTripBusy, tripJobRoutes } from "./jobs.js";
+import { TripDetail, TripList, TripPhotos, TripSpecies, TripSummary } from "./responses.js";
+import { removeTripRecord } from "../lib/libraryRecords.js";
 
 /** Checks a trip's destination folder and creates it if needed. It must be an absolute path whose
  * parent Lifer is allowed to use (assertAllowedPath); the folder itself may not exist yet. */
@@ -128,10 +130,13 @@ export async function tripsRoutes(fastify: FastifyInstance): Promise<void> {
     },
   );
 
-  app.get("/trips", { preValidation: requireScope("trips.read"), schema: {} }, async (request) => {
-    const userId = request.user!.id;
-    const res = await pool.query(
-      `SELECT
+  app.get(
+    "/trips",
+    { preValidation: requireScope("trips.read"), schema: { response: replies(TripList) } },
+    async (request) => {
+      const userId = request.user!.id;
+      const res = await pool.query(
+        `SELECT
          t.id, t.name, t.source_folder, t.destination_folder, t.cover_layout,
          count(DISTINCT c.species_id) AS species_count,
          count(c.id) AS capture_count,
@@ -170,34 +175,39 @@ export async function tripsRoutes(fastify: FastifyInstance): Promise<void> {
        WHERE t.user_id = $1
        GROUP BY t.id, cover_c.id, cover_c.current_photo_id, quad.photo_ids
        ORDER BY t.created_at DESC`,
-      [userId],
-    );
-    return {
-      trips: res.rows.map((r) => ({
-        id: r.id,
-        name: r.name,
-        sourceFolder: r.source_folder,
-        destinationFolder: r.destination_folder,
-        speciesCount: Number(r.species_count),
-        captureCount: Number(r.capture_count),
-        earliestTakenAt: r.earliest_taken_at,
-        latestTakenAt: r.latest_taken_at,
-        coverPhotoUrl: r.cover_photo_id ? `/api/photos/${r.cover_photo_id}/thumb` : null,
-        // Set only for a manually picked cover; null renders a centered object-fit:cover.
-        coverCropX: r.cover_crop_x == null ? null : Number(r.cover_crop_x),
-        coverCropY: r.cover_crop_y == null ? null : Number(r.cover_crop_y),
-        coverCropSize: r.cover_crop_size == null ? null : Number(r.cover_crop_size),
-        coverLayout: r.cover_layout,
-        quadPhotoIds: r.quad_photo_ids ?? [],
-        // A scan or import is running: the card shows a loading state instead of a cover.
-        processing: isTripBusy(r.id),
-      })),
-    };
-  });
+        [userId],
+      );
+      return {
+        trips: res.rows.map((r) => ({
+          id: r.id,
+          name: r.name,
+          sourceFolder: r.source_folder,
+          destinationFolder: r.destination_folder,
+          speciesCount: Number(r.species_count),
+          captureCount: Number(r.capture_count),
+          earliestTakenAt: r.earliest_taken_at,
+          latestTakenAt: r.latest_taken_at,
+          coverPhotoUrl: r.cover_photo_id ? `/api/photos/${r.cover_photo_id}/thumb` : null,
+          // Set only for a manually picked cover; null renders a centered object-fit:cover.
+          coverCropX: r.cover_crop_x == null ? null : Number(r.cover_crop_x),
+          coverCropY: r.cover_crop_y == null ? null : Number(r.cover_crop_y),
+          coverCropSize: r.cover_crop_size == null ? null : Number(r.cover_crop_size),
+          coverLayout: r.cover_layout,
+          quadPhotoIds: r.quad_photo_ids ?? [],
+          // A scan or import is running: the card shows a loading state instead of a cover.
+          processing: isTripBusy(r.id),
+        })),
+      };
+    },
+  );
 
   app.get(
     "/trips/:id",
-    { preValidation: requireScope("trips.read"), config: tripNotFound, schema: { params: IdParams } },
+    {
+      preValidation: requireScope("trips.read"),
+      config: tripNotFound,
+      schema: { params: IdParams, response: replies(TripDetail) },
+    },
     async (request, reply) => {
       const userId = request.user!.id;
       const res = await pool.query(
@@ -310,11 +320,14 @@ export async function tripsRoutes(fastify: FastifyInstance): Promise<void> {
     "/trips/:id",
     { preValidation: requireAuth, config: tripNotFound, schema: { params: IdParams, response: replies(Ok) } },
     async (request, reply) => {
-      const res = await pool.query(`DELETE FROM trips WHERE id = $1 AND user_id = $2`, [
-        request.params.id,
-        request.user!.id,
-      ]);
-      if (res.rowCount === 0) return reply.code(404).send({ error: "Trip not found" });
+      const res = await pool.query<{ source_folder: string; destination_folder: string | null }>(
+        `DELETE FROM trips WHERE id = $1 AND user_id = $2 RETURNING source_folder, destination_folder`,
+        [request.params.id, request.user!.id],
+      );
+      const deleted = res.rows[0];
+      if (!deleted) return reply.code(404).send({ error: "Trip not found" });
+      // Its record goes too, so a library reimport doesn't bring the trip back.
+      removeTripRecord(request.params.id, deleted.source_folder, deleted.destination_folder);
       return { ok: true };
     },
   );
@@ -414,7 +427,11 @@ export async function tripsRoutes(fastify: FastifyInstance): Promise<void> {
   // The trip's species as collection items (same shape as /collection), for the Species view.
   app.get(
     "/trips/:id/species",
-    { preValidation: requireScope("trips.read"), config: tripNotFound, schema: { params: IdParams } },
+    {
+      preValidation: requireScope("trips.read"),
+      config: tripNotFound,
+      schema: { params: IdParams, response: replies(TripSpecies) },
+    },
     async (request, reply) => {
       const userId = request.user!.id;
       const tripRes = await pool.query(`SELECT id FROM trips WHERE id = $1 AND user_id = $2`, [
@@ -471,7 +488,11 @@ export async function tripsRoutes(fastify: FastifyInstance): Promise<void> {
   // is one of this trip's captures (not just on the same dates).
   app.get(
     "/trips/:id/summary",
-    { preValidation: requireScope("trips.read"), config: tripNotFound, schema: { params: IdParams } },
+    {
+      preValidation: requireScope("trips.read"),
+      config: tripNotFound,
+      schema: { params: IdParams, response: replies(TripSummary) },
+    },
     async (request, reply) => {
       const userId = request.user!.id;
       const tripId = request.params.id;
@@ -516,7 +537,11 @@ export async function tripsRoutes(fastify: FastifyInstance): Promise<void> {
   // Every photo from the trip, in the same shape as /gallery items so the web can reuse its grid.
   app.get(
     "/trips/:id/photos",
-    { preValidation: requireScope("trips.read"), config: tripNotFound, schema: { params: IdParams } },
+    {
+      preValidation: requireScope("trips.read"),
+      config: tripNotFound,
+      schema: { params: IdParams, response: replies(TripPhotos) },
+    },
     async (request, reply) => {
       const userId = request.user!.id;
       const tripRes = await pool.query(`SELECT id FROM trips WHERE id = $1 AND user_id = $2`, [

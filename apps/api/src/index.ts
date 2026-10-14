@@ -9,6 +9,7 @@ import staticFiles from "@fastify/static";
 import helmet from "@fastify/helmet";
 import {
   APP_DATA_DIR,
+  APP_VERSION,
   desktopModeStartupError,
   MAX_JSON_BODY_BYTES,
   MAX_UPLOAD_BYTES,
@@ -34,7 +35,7 @@ import { ensureGalleryEmbeddingsOnStartup } from "./species/galleryEmbeddingsAss
 import { ensureIdModelOnStartup } from "./species/modelDownloadJob.js";
 import { startWithheldPhotoFetch, stopWithheldPhotoFetch } from "./species/withheldPhotos.js";
 import { startAccelerationSelection } from "./species/accelerationSetup.js";
-import { pool } from "@lifer/core/db.js";
+import { pool, warmPool } from "@lifer/core/db.js";
 import { stopInference } from "@lifer/core/species/inference.js";
 import { closeExiftool } from "./uploads/exif.js";
 import { friendlyFsErrorMessage } from "./lib/friendlyFsError.js";
@@ -44,6 +45,7 @@ import { startEventLoopWatchdog } from "./lib/eventLoopWatchdog.js";
 import { startParentWatchdog } from "./lib/parentWatchdog.js";
 import { watchLibraryFolder } from "@lifer/core/lib/libraryFolder.js";
 import { registerCollectionStateSaving, syncCollectionStateOnStartup } from "./lib/collectionState.js";
+import { registerLibraryRecordSaving } from "./lib/libraryRecords.js";
 import { isBlockedCrossSiteWrite } from "@lifer/core/lib/requestGuard.js";
 import { startMaintenance } from "./lib/maintenance.js";
 import { log } from "@lifer/core/lib/log.js";
@@ -123,6 +125,7 @@ process.on("SIGINT", (signal) => void shutdown(signal));
 startEventLoopWatchdog(app);
 // Keeps archived/hidden/seen/target species in the library too, so a fresh install gets them back.
 registerCollectionStateSaving(app);
+registerLibraryRecordSaving(app);
 
 // Behind a reverse proxy with TRUST_PROXY unset, say once how to fix it (lib/trustProxyHint.ts).
 if (!SINGLE_USER_MODE) app.addHook("onRequest", trustProxyHint(app.log, process.env.TRUST_PROXY));
@@ -209,7 +212,7 @@ registerHealthRoute(app);
 
 // Set at Docker build time, for the web app's update banner. "dev" never shows an update.
 app.get("/version", { schema: { response: { 200: Type.Object({ version: Type.String() }) } } }, async () => ({
-  version: process.env.APP_VERSION ?? "dev",
+  version: APP_VERSION,
 }));
 
 // Offline basemap tiles. The folder is created up front so the route works once the map arrives.
@@ -235,6 +238,7 @@ if (existsSync(WEB_DIST_DIR)) {
   });
 }
 
+warmPool();
 try {
   // Desktop mode signs every request in, so it binds to loopback only.
   await app.listen({ port: PORT, host: SINGLE_USER_MODE ? "127.0.0.1" : "0.0.0.0" });

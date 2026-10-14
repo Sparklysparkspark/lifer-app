@@ -19,9 +19,15 @@ You don't need to back up the upload work folder (`uploads` in the app data fold
 
 Downloaded region packs can also be downloaded again from [Offline packs](../guides/offline-packs-and-map.md).
 
-:::tip Your files carry a safety net
-Lifer writes each photo's species and rating into the file itself (or an `.xmp` sidecar next to a RAW), and keeps small recovery records in `.lifer` folders inside the library: your seen species, targets, archived and hidden species, your own rarity tiers and checklist additions (`.lifer/collection-state.json`), which albums each photo is in, and the species of photos in trip folders. Collected species come back from the photos themselves. So even with only the photo library, **Settings > Library > Reimport library** can rebuild most of your collection. Settings, trips, cover photo choices, share links, API keys and your account aren't in the files, so they need the database backup.
-:::
+### What the photo library alone can restore {#library-only}
+
+Even with only the photo library, the **Reimport** panel in **Settings > Library** can rebuild most of your collection:
+
+- Collected species come back from the photos, since Lifer writes each photo's species and rating into the file (or an `.xmp` sidecar next to a RAW).
+- Seen species, targets, archived and hidden species, your own rarity tiers and checklist additions come back from `.lifer/collection-state.json` in the library.
+- Album membership and details come back from `.lifer/album-details.json`, and each trip with its photos from `.lifer/trip.json` in the trip's folder.
+
+Settings, share links, API keys and your account aren't in the files, so they need the database backup.
 
 ### The secrets key {#secrets-key}
 
@@ -71,7 +77,7 @@ docker compose cp ./lifer-secrets/. api:/app-data/secrets/
    docker compose up -d --no-deps postgres
    ```
 
-   The volume name starts with your project folder's name. Run `docker volume ls` to check it. `--no-deps` starts only the database, without the one-time [move of a Postgres 16 database](./upgrading.md#postgres-18) from Lifer 0.9.0 or earlier, so that your backup is what ends up in it.
+   The volume name starts with your project folder's name. Run `docker volume ls` to check it. `--no-deps` starts only the database, so nothing else writes to it before your backup is restored.
 3. Load the backup:
 
    ```bash
@@ -114,7 +120,7 @@ If the library is now in a different place, Lifer shows a "Lifer can't save phot
 
 ### Starting fresh with only your photos
 
-If you've lost the database, install Lifer, choose your old library folder at setup, then run **Settings > Library > Reimport library** with **Reimport my existing library**. Lifer rebuilds your photos and species from the files and restores your collected and seen status from the library.
+If you've lost the database, install Lifer, choose your old library folder at setup, then open **Settings > Library**, choose **Lifer library** under **Reimport**, and click **Reimport**. Lifer rebuilds your photos and species from the files and restores your collected and seen status from the library.
 
 ## Moving from the desktop app to a server
 

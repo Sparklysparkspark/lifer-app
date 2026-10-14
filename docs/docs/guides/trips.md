@@ -5,7 +5,7 @@ description: Point Lifer at a trip's folder, pick out the wildlife, and keep it 
 
 # Trips
 
-A trip points at a folder of photos, like everything from a week in Costa Rica. Lifer only reads that folder: it finds the photos, and you pick out the wildlife. The trip page shows what you photographed, how many lifers you got, and more.
+A trip points at a folder of photos, like everything from a week in Costa Rica. Lifer only reads that folder: it finds the photos, and you pick out the wildlife. The trip page shows what you photographed and how many lifers you got.
 
 Open **Albums & trips** in the top bar, then the **Trips** tab.
 

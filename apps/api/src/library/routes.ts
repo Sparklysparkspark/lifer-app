@@ -26,6 +26,7 @@ import { resolveChosenVolumeDestination } from "../storageVolumes/resolve.js";
 import { friendlyFsErrorMessage } from "../lib/friendlyFsError.js";
 import { libraryFolderStatus } from "@lifer/core/lib/libraryFolder.js";
 import { restoreCollectionState } from "../lib/collectionState.js";
+import { restoreLibraryRecords } from "../lib/libraryRecords.js";
 import { createJob, type JobContext } from "../lib/job.js";
 import { log } from "@lifer/core/lib/log.js";
 import { getUserFileSettings } from "../lib/userFileSettings.js";
@@ -194,6 +195,13 @@ async function runReimportJob(
     await restoreCollectionState(userId).catch((err) =>
       log.warn(`[collection-state] couldn't restore: ${(err as Error).message}`),
     );
+    // And trips (from each trip folder's .lifer/trip.json) and album details, now that the photos
+    // they point at are back.
+    await restoreLibraryRecords(userId, walkDir)
+      .then((r) => {
+        if (r.trips || r.albums) log.info(r, "[library-records] restored trips and album details");
+      })
+      .catch((err) => log.warn(`[library-records] couldn't restore: ${(err as Error).message}`));
     return { missingReferenceData: await findMissingReferenceData([...recoveredScientificNames]) };
   } catch (err) {
     if (ctx.signal.aborted) throw err;

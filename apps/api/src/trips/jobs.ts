@@ -4,6 +4,7 @@ import { createReadStream } from "node:fs";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { pool } from "@lifer/core/db.js";
+import { log } from "@lifer/core/lib/log.js";
 import { IdParams, Nullable, Uuid, notFoundOnInvalidId, replies, withSchemas } from "../lib/schema.js";
 import { requireAuth, requireScope } from "../auth/session.js";
 import { scanTrip, resolveWithinTripFolder } from "./scan.js";
@@ -12,7 +13,7 @@ import { listRawFiles } from "./rawLink.js";
 import { extractExif, extractKeywords, readExifTags } from "../uploads/exif.js";
 import { computeEmbedding, suggestSpecies, type SpeciesSuggestion } from "@lifer/core/species/embeddings.js";
 import { matchSpeciesByKeywords, groupByScientificName } from "../species/matchByKeywords.js";
-import { checkNotWildlife } from "../species/wildlifeCheck.js";
+import { checkSubject, unlessLikelyMatch } from "../species/wildlifeCheck.js";
 import { sniffPhotoFormat } from "@lifer/core/uploads/formats.js";
 import { prepareWorkingImage } from "../uploads/workingImage.js";
 import { originalSharpOptions } from "@lifer/core/lib/imageLimits.js";
@@ -20,7 +21,17 @@ import { canonicalPath, isWithin } from "@lifer/core/lib/pathContainment.js";
 import sharp from "sharp";
 import { mapWithConcurrency } from "@lifer/core/lib/concurrency.js";
 import { createJob, type Job, type JobContext } from "../lib/job.js";
+import { TripImportStatus, TripInspection, TripScanStatus } from "./responses.js";
 import { CULL_MARKS_OPTIONS, idleJobStatus, type CullMarks, type CullMarksOption, type JobStatus } from "@lifer/shared";
+import { scheduleTripRecordsSave } from "../lib/libraryRecords.js";
+
+// A broken model fails every photo the same way, so it's logged once per run.
+let suggestionFailureLogged = false;
+function logSuggestionFailureOnce(err: unknown): void {
+  if (suggestionFailureLogged) return;
+  suggestionFailureLogged = true;
+  log.warn({ err }, "Trip photo species suggestions are unavailable because the model failed");
+}
 
 // Each file pays an exiftool round trip plus a sharp resize, so files import in parallel.
 const IMPORT_CONCURRENCY = 4;
@@ -209,6 +220,8 @@ async function runImportJob(
     return result;
   });
   ctx.throwIfCancelled();
+  // The trip's record lists its photos; these arrived after the request that started the job.
+  scheduleTripRecordsSave(userId);
   return { imported, failed, skipped, hidden };
 }
 
@@ -291,7 +304,11 @@ export async function tripJobRoutes(fastify: FastifyInstance): Promise<void> {
 
   app.get(
     "/trips/:id/scan/status",
-    { preValidation: requireScope("trips.read"), config: tripNotFound, schema: { params: IdParams } },
+    {
+      preValidation: requireScope("trips.read"),
+      config: tripNotFound,
+      schema: { params: IdParams, response: replies(TripScanStatus) },
+    },
     async (request, reply) => {
       if (!(await ownsTrip(request.params.id, request.user!.id)))
         return reply.code(404).send({ error: "Trip not found" });
@@ -423,6 +440,7 @@ export async function tripJobRoutes(fastify: FastifyInstance): Promise<void> {
           { relativePath: Type.String({ minLength: 1 }), regionId: Type.Optional(Nullable(Uuid())) },
           { additionalProperties: false },
         ),
+        response: replies(TripInspection),
       },
     },
     async (request, reply) => {
@@ -447,7 +465,10 @@ export async function tripJobRoutes(fastify: FastifyInstance): Promise<void> {
       const [exif, keywords] = [await extractExif(absolutePath, tags), await extractKeywords(absolutePath, tags)];
 
       let suggestions: SpeciesSuggestion[] = regionId
-        ? await suggestSpecies(pool, userId, buffer, regionId, 5, exif.takenAt).catch(() => [])
+        ? await suggestSpecies(pool, userId, buffer, regionId, 5, exif.takenAt).catch((err) => {
+            logSuggestionFailureOnce(err);
+            return [];
+          })
         : [];
       let keywordMatched = false;
       if (keywords.length > 0) {
@@ -467,10 +488,15 @@ export async function tripJobRoutes(fastify: FastifyInstance): Promise<void> {
           ];
         }
       }
-      const notWildlife = keywordMatched
-        ? null
-        : await checkNotWildlife(buffer, await computeEmbedding(buffer).catch(() => null));
-      return { suggestions, notWildlife, takenAt: exif.takenAt };
+      const { notWildlife, invertebrate } = keywordMatched
+        ? { notWildlife: null, invertebrate: null }
+        : await checkSubject(buffer, await computeEmbedding(buffer).catch(() => null));
+      return {
+        suggestions: invertebrate ? unlessLikelyMatch(suggestions) : suggestions,
+        notWildlife,
+        invertebrate,
+        takenAt: exif.takenAt,
+      };
     },
   );
 
@@ -490,7 +516,11 @@ export async function tripJobRoutes(fastify: FastifyInstance): Promise<void> {
 
   app.get(
     "/trips/:id/import/status",
-    { preValidation: requireScope("trips.read"), config: tripNotFound, schema: { params: IdParams } },
+    {
+      preValidation: requireScope("trips.read"),
+      config: tripNotFound,
+      schema: { params: IdParams, response: replies(TripImportStatus) },
+    },
     async (request, reply) => {
       if (!(await ownsTrip(request.params.id, request.user!.id)))
         return reply.code(404).send({ error: "Trip not found" });
