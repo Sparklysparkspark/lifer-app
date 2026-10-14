@@ -3,14 +3,12 @@
 // published as the `catalog-latest` GitHub Release asset. Only reference/catalog data, nothing
 // per-user or per-install.
 //
-// Local filesystem path columns are nulled before dumping, since they point at the build
-// machine; installs fill them in from region packs or a live fetch. So is species.photo_checked_at,
-// the pipeline's own bookkeeping: on an install it records that install's own attempts to fetch a
-// withheld photo (apps/api/src/species/withheldPhotos.ts). species.photo_withheld does ship.
+// pg_dump reads copies of the catalog tables in a scratch schema, without local file paths or
+// Other Taxa rows (pipeline/catalogSeedExport.ts), so the source database is never modified.
 //
 // Embedding tables are not in the pg_dump (as float text they blow past NSIS's installer limit).
 // They're written as compact float16 binaries (format in
-// packages/shared/src/galleryEmbeddingsFormat.ts) that installs fetch after downloading the CLIP model.
+// packages/core/src/species/galleryEmbeddingsFormat.ts) that installs fetch after downloading the CLIP model.
 //
 // Also writes `catalog-manifest.json` so an install (species/catalogSeedUpdate.ts) can check
 // for a newer catalog first. `version` is an epoch-ms timestamp, since pg_dump output isn't
@@ -21,23 +19,27 @@
 // catalog-latest release (or run the catalog-seed.yml workflow, which does this for you):
 //   gh release upload catalog-latest <outputPath> <dir>/*.bin.gz --clobber
 //   gh release upload catalog-latest <dir>/catalog-manifest.json --clobber
-import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createGzip } from "node:zlib";
-import { createReadStream, createWriteStream, existsSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { createReadStream, createWriteStream, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import {
   encodeGalleryEmbeddingRecord,
   encodeGalleryEmbeddingsHeader,
-} from "@lifer/shared/src/galleryEmbeddingsFormat.js";
-import { encodeSpeciesVectorHeader, encodeSpeciesVectorRecord } from "@lifer/shared/src/speciesVectorFormat.js";
+} from "@lifer/core/species/galleryEmbeddingsFormat.js";
+import { encodeSpeciesVectorHeader, encodeSpeciesVectorRecord } from "@lifer/core/species/speciesVectorFormat.js";
 import { ID_MODEL_VERSION } from "@lifer/shared/src/idModel.js";
 import { pool } from "../db.js";
-import { EMBEDDING_MODEL_VERSION } from "../embeddings.js";
+import { EMBEDDING_MODEL_VERSION } from "@lifer/core/config.js";
 import { assertPhotosPublishable } from "../pipeline/photoLicensePolicy.js";
-import { resolvePgDump } from "../pipeline/pgDump.js";
+import {
+  CATALOG_TABLES,
+  createSeedExportSchema,
+  dropSeedExportSchema,
+  dumpSeedSchema,
+} from "../pipeline/catalogSeedExport.js";
 
 // Installers bundle the seed, and NSIS can't exceed 2GB (the installer is about 350 MB). Catch a
 // regression here, not in CI.
@@ -175,57 +177,6 @@ async function writeSpeciesVectorAsset(
   return { fileName, modelVersion, rowCount };
 }
 
-const CATALOG_TABLES = [
-  "species",
-  "species_reference_photos",
-  // species_reference_embeddings and species_text_embeddings ship as binary assets instead
-  // (writeSpeciesVectorAsset below).
-  "species_traits",
-  "species_rarity",
-  // Current GBIF/iNaturalist/eBird names for catalog species (scripts/reconcile-species-names.ts),
-  // so installs match a renamed species too (keyword tags on import, species/matchByKeywords.ts).
-  "species_synonyms",
-  // Duplicate species folded into one (migration 113); installs apply them on update.
-  "species_merges",
-  // Species split into several (migration 118); installs re-file photos under them by place.
-  "species_splits",
-  "regions",
-  "region_species",
-  "sea_zones",
-  "sea_zone_species",
-  // Non-photo reference images to delete from installs (migration 106). Keyed by URL, not
-  // species, so it isn't in OTHER_TAXA_TABLES.
-  "reference_photo_blocklist",
-];
-
-const PATH_COLUMNS: Record<string, string[]> = {
-  species: ["reference_display_path", "reference_thumb_path", "photo_checked_at"],
-  species_reference_photos: ["display_path", "thumb_path"],
-};
-
-// Other Taxa species (species.is_other_taxa) are personal, per-install additions stored in the
-// shared catalog tables. pg_dump --table has no row filter, so without this they'd ship in the
-// next seed to every install.
-//
-// Listed children before parent (safe DELETE order); main() reinserts in reverse. Each entry
-// is a CATALOG_TABLES table carrying a species_id (or, for `species`, `id`).
-const OTHER_TAXA_TABLES: Array<{ table: string; speciesIdColumn: string }> = [
-  { table: "species_merges", speciesIdColumn: "new_species_id" },
-  { table: "species_splits", speciesIdColumn: "parent_species_id" },
-  { table: "id_model_gallery_embeddings", speciesIdColumn: "species_id" },
-  { table: "id_model_reference_embeddings", speciesIdColumn: "species_id" },
-  { table: "id_model_text_embeddings", speciesIdColumn: "species_id" },
-  { table: "species_reference_gallery_embeddings", speciesIdColumn: "species_id" },
-  { table: "species_reference_embeddings", speciesIdColumn: "species_id" },
-  { table: "species_text_embeddings", speciesIdColumn: "species_id" },
-  { table: "species_reference_photos", speciesIdColumn: "species_id" },
-  { table: "species_traits", speciesIdColumn: "species_id" },
-  { table: "species_rarity", speciesIdColumn: "species_id" },
-  { table: "region_species", speciesIdColumn: "species_id" },
-  { table: "sea_zone_species", speciesIdColumn: "species_id" },
-  { table: "species", speciesIdColumn: "id" },
-];
-
 async function main() {
   const outputPath = process.argv[2];
   if (!outputPath) {
@@ -239,92 +190,13 @@ async function main() {
   }
   await assertPhotosPublishable(pool);
 
-  // pg_dump uses its own connection and can't see an uncommitted UPDATE, so the path values are
-  // backed up, committed as NULL, dumped, then restored by primary key. Assumes no concurrent
-  // writers during a manual export.
-  const backups: { table: string; idColumn: string; rows: Record<string, unknown>[] }[] = [];
-  // Other Taxa rows are removed the same way: backed up, deleted children first, dumped, then
-  // reinserted parents first, leaving the source database unchanged.
-  const otherTaxaBackups: Array<{ table: string; rows: Record<string, unknown>[] }> = [];
-  let tierExplainStripped = false;
-  const otherTaxaBackupPath = path.join(path.dirname(outputPath), `other-taxa-backup-${Date.now()}.json`);
   try {
-    for (const { table, speciesIdColumn } of OTHER_TAXA_TABLES) {
-      const whereOtherTaxa = `EXISTS (SELECT 1 FROM species s WHERE s.id = t.${speciesIdColumn} AND s.is_other_taxa)`;
-      const res = await pool.query(`SELECT t.* FROM ${table} t WHERE ${whereOtherTaxa}`);
-      otherTaxaBackups.push({ table, rows: res.rows });
-    }
-    // Written to disk BEFORE anything is deleted: the deletes commit immediately (pg_dump has to
-    // see them), so if the restore below ever fails this file is the only copy of those rows.
-    if (otherTaxaBackups.some((b) => b.rows.length > 0)) {
-      writeFileSync(otherTaxaBackupPath, JSON.stringify(otherTaxaBackups));
-      console.log(`[build-catalog-seed] backed up Other Taxa rows to ${otherTaxaBackupPath}`);
-    }
-    for (const { table, speciesIdColumn } of OTHER_TAXA_TABLES) {
-      const whereOtherTaxa = `EXISTS (SELECT 1 FROM species s WHERE s.id = t.${speciesIdColumn} AND s.is_other_taxa)`;
-      await pool.query(`DELETE FROM ${table} t WHERE ${whereOtherTaxa}`);
-    }
-    const otherTaxaSpeciesCount = otherTaxaBackups.find((b) => b.table === "species")?.rows.length ?? 0;
-    if (otherTaxaSpeciesCount > 0) {
-      console.log(
-        `[build-catalog-seed] excluding ${otherTaxaSpeciesCount} Other Taxa species (and their dependent rows) from the dump`,
-      );
-    }
-
-    // Per-listing tier explanations are ~50 MB and only shown for downloaded regions, whose packs
-    // carry them. Parked in a real table so a crash mid-dump can't lose them.
-    // A run that crashed mid-dump left its backup behind: restore it before taking a new one.
-    if ((await pool.query<{ t: string | null }>(`SELECT to_regclass('seed_tier_explain_backup') AS t`)).rows[0].t) {
-      await pool.query(
-        `UPDATE region_species rs SET tier_explain = b.tier_explain FROM seed_tier_explain_backup b
-         WHERE b.region_id = rs.region_id AND b.species_id = rs.species_id`,
-      );
-      await pool.query(`DROP TABLE seed_tier_explain_backup`);
-    }
-    await pool.query(
-      `CREATE TABLE seed_tier_explain_backup AS SELECT region_id, species_id, tier_explain FROM region_species WHERE tier_explain IS NOT NULL`,
-    );
-    await pool.query(`UPDATE region_species SET tier_explain = NULL WHERE tier_explain IS NOT NULL`);
-    tierExplainStripped = true;
-
-    for (const [table, columns] of Object.entries(PATH_COLUMNS)) {
-      const idColumn = "id";
-      const res = await pool.query(`SELECT ${idColumn}, ${columns.join(", ")} FROM ${table}`);
-      backups.push({ table, idColumn, rows: res.rows });
-      const sets = columns.map((c) => `${c} = NULL`).join(", ");
-      await pool.query(`UPDATE ${table} SET ${sets}`);
-    }
-
+    await createSeedExportSchema(pool);
+    const otherTaxa = await pool.query<{ n: string }>(`SELECT count(*) AS n FROM species WHERE is_other_taxa`);
+    if (Number(otherTaxa.rows[0].n) > 0)
+      console.log(`[build-catalog-seed] leaving out ${otherTaxa.rows[0].n} Other Taxa species and their rows`);
     console.log(`[build-catalog-seed] dumping ${CATALOG_TABLES.length} tables with local paths stripped...`);
-    // --disable-triggers: regions references itself (parent region), so a --data-only dump can't
-    // replay rows in FK-safe order.
-    // pg_dump 18, matching the Postgres installs restore into: PG_DUMP_BIN, else a desktop build's,
-    // else the Docker container's behind DATABASE_URL, else PATH's (pipeline/pgDump.ts).
-    const pgDumpCommand = resolvePgDump(databaseUrl);
-    console.log(
-      `[build-catalog-seed] pg_dump: ${pgDumpCommand.command} ${pgDumpCommand.prefixArgs.join(" ")} (${pgDumpCommand.source})`,
-    );
-    const args = [
-      ...pgDumpCommand.prefixArgs,
-      pgDumpCommand.databaseUrl,
-      "--data-only",
-      "--disable-triggers",
-      ...CATALOG_TABLES.flatMap((t) => ["--table", t]),
-    ];
-
-    // Streamed into gzip+file: the dump exceeds execFileSync's maxBuffer.
-    const pgDump = spawn(pgDumpCommand.command, args, { stdio: ["ignore", "pipe", "pipe"] });
-    let stderr = "";
-    pgDump.stderr.on("data", (chunk) => (stderr += chunk.toString()));
-    // Registered before awaiting the pipeline: pg_dump's "close" can fire before the await resolves,
-    // and a missed event leaves this Promise pending while node exits silently.
-    const pgDumpExit: Promise<number> = new Promise((resolve, reject) => {
-      pgDump.on("error", reject);
-      pgDump.on("close", (code) => resolve(code ?? 0));
-    });
-    await pipeline(pgDump.stdout, createGzip(), createWriteStream(outputPath));
-    const exitCode = await pgDumpExit;
-    if (exitCode !== 0) throw new Error(`pg_dump exited with code ${exitCode}: ${stderr}`);
+    await dumpSeedSchema(databaseUrl, outputPath, (m) => console.log(`[build-catalog-seed] ${m}`));
     const seedBytes = statSync(outputPath).size;
     console.log(`[build-catalog-seed] wrote ${outputPath} (${(seedBytes / 1024 / 1024).toFixed(1)} MB)`);
     if (seedBytes > MAX_SEED_BYTES) {
@@ -405,56 +277,7 @@ async function main() {
     writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
     console.log(`[build-catalog-seed] wrote ${manifestPath} (version ${version})`);
   } finally {
-    if (tierExplainStripped) {
-      await pool.query(
-        `UPDATE region_species rs SET tier_explain = b.tier_explain FROM seed_tier_explain_backup b
-         WHERE b.region_id = rs.region_id AND b.species_id = rs.species_id`,
-      );
-      await pool.query(`DROP TABLE seed_tier_explain_backup`);
-    }
-    for (const { table, idColumn, rows } of backups) {
-      const columns = PATH_COLUMNS[table];
-      for (const row of rows) {
-        const sets = columns.map((c, i) => `${c} = $${i + 2}`).join(", ");
-        await pool.query(`UPDATE ${table} SET ${sets} WHERE ${idColumn} = $1`, [
-          row[idColumn],
-          ...columns.map((c) => row[c]),
-        ]);
-      }
-    }
-    // Reverse of the delete order: species goes back first, then everything referencing it.
-    // Generated columns (species.genus) are skipped, since they can't be inserted into.
-    let restoreFailed = false;
-    for (const { table, rows } of [...otherTaxaBackups].reverse()) {
-      if (rows.length === 0) continue;
-      try {
-        const generated = await pool.query<{ column_name: string }>(
-          `SELECT column_name FROM information_schema.columns WHERE table_name = $1 AND is_generated = 'ALWAYS'`,
-          [table],
-        );
-        const skip = new Set(generated.rows.map((r) => r.column_name));
-        for (const row of rows) {
-          const columns = Object.keys(row).filter((c) => !skip.has(c));
-          if (columns.length === 0) continue;
-          const placeholders = columns.map((_, i) => `$${i + 1}`);
-          await pool.query(
-            `INSERT INTO ${table} (${columns.join(", ")}) VALUES (${placeholders.join(", ")})`,
-            columns.map((c) => row[c]),
-          );
-        }
-      } catch (err) {
-        restoreFailed = true;
-        console.error(
-          `[build-catalog-seed] FAILED to restore Other Taxa rows into ${table}. They are saved in ${otherTaxaBackupPath}.`,
-          err,
-        );
-      }
-    }
-    if (restoreFailed) {
-      process.exitCode = 1;
-    } else if (existsSync(otherTaxaBackupPath)) {
-      rmSync(otherTaxaBackupPath);
-    }
+    await dropSeedExportSchema(pool);
     await pool.end();
   }
 }
