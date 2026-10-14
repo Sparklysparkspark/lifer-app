@@ -5,6 +5,7 @@ import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { ExifTool } from "exiftool-vendored";
+import sharp from "sharp";
 import { TAXON_CLASS_LABEL, type TaxonClass } from "@lifer/shared";
 import { pool } from "@lifer/core/db.js";
 import { composeSpeciesName } from "./speciesFolderName.js";
@@ -237,12 +238,31 @@ export async function extractEmbeddedPreview(filePath: string): Promise<Buffer |
   for (const tag of PREVIEW_TAGS) {
     try {
       const buffer = await exiftool.extractBinaryTagToBuffer(tag, filePath);
-      if (buffer.length > 0) return buffer;
+      if (buffer.length > 0) return await uprightPreview(buffer, filePath);
     } catch {
       // Not in this file; try the next tag.
     }
   }
   return null;
+}
+
+// EXIF orientation values that turn the picture a quarter turn.
+const QUARTER_TURNS = new Set([5, 6, 7, 8]);
+
+/** A RAW's preview stored the way the sensor saw it (a portrait shot lying on its side), turned
+ *  upright with the RAW's own Orientation. A preview that carries its own orientation, or is
+ *  already the shape the orientation implies, is left as it is. */
+async function uprightPreview(buffer: Buffer, filePath: string): Promise<Buffer> {
+  const tags = await exiftool.read(filePath, { readArgs: ["-Orientation#"] }).catch(() => null);
+  const orientation = Number(tags?.Orientation);
+  if (!Number.isInteger(orientation) || orientation < 2 || orientation > 8) return buffer;
+  const meta = await sharp(buffer)
+    .metadata()
+    .catch(() => null);
+  if (!meta?.width || !meta.height || (meta.orientation && meta.orientation > 1)) return buffer;
+  if (QUARTER_TURNS.has(orientation) && meta.height > meta.width) return buffer;
+  const tagged = await sharp(buffer).withMetadata({ orientation }).jpeg({ quality: 92 }).toBuffer();
+  return sharp(tagged).rotate().jpeg({ quality: 92 }).toBuffer();
 }
 
 // Species tags embedded in the file so they travel with it, in the shapes extractKeywords reads
@@ -255,17 +275,6 @@ export interface SpeciesMetadata {
   family: string | null;
   abaCode?: string | null;
   ebirdCode?: string | null;
-}
-
-// Every species in the photo is written; metas[0] is the primary for the title. namingStyles only
-// changes the title and hierarchy label: Keywords keep the plain common and scientific names,
-// which reimport matching relies on, with codes added as extra keywords.
-export async function writeSpeciesMetadata(
-  filePath: string,
-  metas: SpeciesMetadata[],
-  namingStyles: string[] = [],
-): Promise<void> {
-  await writeLiferMetadata(filePath, { species: metas, namingStyles }, "embedded");
 }
 
 // The bare-stem name ("IMG_0001.xmp"), the one findSidecarPath checks first.
@@ -384,6 +393,9 @@ function writeLiferMetadata(target: string, data: LiferTags, mode: "embedded" | 
   return next;
 }
 
+// Every species in the photo is written; species[0] is the primary for the title. namingStyles only
+// changes the title and hierarchy label: Keywords keep the plain common and scientific names,
+// which reimport matching relies on, with codes added as extra keywords.
 async function writeLiferMetadataNow(target: string, data: LiferTags, mode: "embedded" | "sidecar"): Promise<void> {
   const labels = data.species.map((m) =>
     composeSpeciesName(

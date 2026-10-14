@@ -7,7 +7,6 @@ import type { PoolClient } from "pg";
 import { pool, withTransaction } from "@lifer/core/db.js";
 import { IdParams, Nullable, Ok, Uuid, notFoundOnInvalidId, replies, withSchemas } from "../lib/schema.js";
 import { requireScope } from "../auth/session.js";
-import { writeSpeciesMetadata } from "../uploads/exif.js";
 import { syncCaptureXmpSidecarsLogged } from "../uploads/xmpSidecarSync.js";
 import { invalidateUserVectors } from "@lifer/core/species/embeddings.js";
 import { ensureDefaultCardCropLater } from "../collection/defaultCardCrop.js";
@@ -29,43 +28,6 @@ interface SpeciesRow {
   family: string | null;
   aba_code: string | null;
   ebird_code: string | null;
-}
-
-/** Writes the capture's current species list (primary plus secondary tags) into its managed
- *  JPEG original. Skipped when there's no managed JPEG; a linked file is never written to. */
-export async function resyncSpeciesMetadata(userId: string, captureId: string): Promise<void> {
-  const originalRes = await pool.query<{ ref: string }>(
-    `SELECT ref FROM originals WHERE capture_id = $1 AND kind = 'jpeg' AND managed = true`,
-    [captureId],
-  );
-  const original = originalRes.rows[0];
-  if (!original) return;
-
-  const speciesRes = await pool.query<SpeciesRow>(
-    `SELECT s.id, s.common_name, s.scientific_name, s.taxon_class, s.family, s.aba_code, s.ebird_code
-     FROM species s WHERE s.id = (SELECT species_id FROM captures WHERE id = $1)
-     UNION ALL
-     SELECT s.id, s.common_name, s.scientific_name, s.taxon_class, s.family, s.aba_code, s.ebird_code
-     FROM species s JOIN capture_species cs ON cs.species_id = s.id WHERE cs.capture_id = $1`,
-    [captureId],
-  );
-  const namingStyleRes = await pool.query<{ species_naming_styles: string[] }>(
-    `SELECT species_naming_styles FROM users WHERE id = $1`,
-    [userId],
-  );
-
-  await writeSpeciesMetadata(
-    original.ref,
-    speciesRes.rows.map((s) => ({
-      commonName: s.common_name,
-      scientificName: s.scientific_name,
-      taxonClass: s.taxon_class,
-      family: s.family,
-      abaCode: s.aba_code,
-      ebirdCode: s.ebird_code,
-    })),
-    namingStyleRes.rows[0]?.species_naming_styles ?? [],
-  );
 }
 
 /** Clears a species' user_species row once no capture evidences it, after a reassign moves a
@@ -211,7 +173,6 @@ export async function reassignCaptureSpecies(
   // A new cover with no framing to carry over is framed on the animal, like any first photo.
   ensureDefaultCardCropLater(userId, speciesId);
 
-  await resyncSpeciesMetadata(userId, captureId);
   await syncCaptureXmpSidecarsLogged(userId, captureId);
   return { ok: true };
 }
@@ -259,7 +220,6 @@ export async function captureRoutes(fastify: FastifyInstance): Promise<void> {
 
       await markCollected(pool, userId, speciesId, capture.current_photo_id, capture.taken_at);
 
-      await resyncSpeciesMetadata(userId, captureId);
       await syncCaptureXmpSidecarsLogged(userId, captureId);
       return reply.code(201).send({ ok: true });
     },
@@ -284,7 +244,6 @@ export async function captureRoutes(fastify: FastifyInstance): Promise<void> {
       if (res.rowCount === 0) return reply.code(404).send({ error: "Tag not found" });
 
       // Collected state is left alone: untagging doesn't decide whether you've seen the species.
-      await resyncSpeciesMetadata(userId, captureId);
       await syncCaptureXmpSidecarsLogged(userId, captureId);
       return { ok: true };
     },

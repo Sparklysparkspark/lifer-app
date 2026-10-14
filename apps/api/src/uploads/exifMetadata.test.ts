@@ -121,8 +121,7 @@ describe("writeCaptureMetadata", () => {
     expect(tags.HierarchicalSubject).toEqual(["Species|Birds|Accipitridae|Bald Eagle", "Lifer Tags|courtship"]);
 
     // A write that doesn't carry the tags (a species-only rewrite) leaves them as they are.
-    const { writeSpeciesMetadata } = await import("./exif.js");
-    await writeSpeciesMetadata(file, data.species, []);
+    await writeCaptureMetadata(file, { ...data, tags: undefined });
     tags = (await readExifTags(file)) as unknown as Record<string, unknown>;
     expect(tags.Subject).toEqual(["portfolio", "Bald Eagle", "Haliaeetus leucocephalus", "courtship"]);
     expect(tags.HierarchicalSubject).toEqual(["Species|Birds|Accipitridae|Bald Eagle", "Lifer Tags|courtship"]);

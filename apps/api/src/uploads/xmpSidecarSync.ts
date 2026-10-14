@@ -13,7 +13,7 @@ export async function syncCaptureXmpSidecars(
   opts: { replacePlace?: boolean } = {},
 ): Promise<void> {
   const originalsRes = await pool.query<{ ref: string }>(
-    `SELECT ref FROM originals WHERE capture_id = $1 AND managed = true AND ref_type = 'path'`,
+    `SELECT ref FROM originals WHERE capture_id = $1 AND managed = true`,
     [captureId],
   );
   if (originalsRes.rows.length === 0) return;
@@ -89,7 +89,17 @@ export async function syncCaptureXmpSidecars(
     replacePlace: opts.replacePlace,
   };
 
-  await Promise.all(originalsRes.rows.map((o) => writeCaptureMetadata(o.ref, data).catch(() => {})));
+  // One file failing (read-only, removed meanwhile) mustn't stop the others being written.
+  await Promise.all(
+    originalsRes.rows.map((o) =>
+      writeCaptureMetadata(o.ref, data).catch((err) =>
+        log.warn(
+          { captureId, ref: o.ref, err: err instanceof Error ? err.message : err },
+          "Couldn't write this capture's metadata into a file",
+        ),
+      ),
+    ),
+  );
 }
 
 // Best-effort variant for callers that shouldn't fail on a sidecar write, but where a failure

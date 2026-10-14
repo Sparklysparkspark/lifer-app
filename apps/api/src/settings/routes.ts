@@ -1,5 +1,4 @@
-import { existsSync, readdirSync } from "node:fs";
-import { copyFile, mkdir, rename, rm } from "node:fs/promises";
+import { readdir } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { FastifyInstance } from "fastify";
@@ -9,10 +8,12 @@ import { requireAuth } from "../auth/session.js";
 import { DATA_DIR, SINGLE_USER_MODE, LIBRARY_ROOTS } from "@lifer/core/config.js";
 import { allowedRootFor, allowedRoots, assertAllowedPath } from "@lifer/core/lib/allowedPaths.js";
 import { LIBRARY_UPLOAD_DIR_NAME } from "../lib/uploadWorkDir.js";
-import { locateManagedOriginal, organizedFolderFor } from "../uploads/managedFolders.js";
-import { extractExif } from "../uploads/exif.js";
-import { syncCaptureXmpSidecarsLogged } from "../uploads/xmpSidecarSync.js";
-import { resyncSpeciesMetadata } from "../captures/routes.js";
+import {
+  REORGANIZE_IDLE_COUNTS,
+  runReorganize,
+  type ReorganizeCounts,
+  type ReorganizeResult,
+} from "../uploads/reorganizeOriginals.js";
 import {
   checkCatalogUpdate,
   startCatalogUpdateJob,
@@ -20,14 +21,12 @@ import {
   catalogFirstBootState,
 } from "../species/catalogSeedUpdate.js";
 import { isWithheldPhotoFetchEnabled, setWithheldPhotoFetchEnabled } from "../species/withheldPhotos.js";
-import { createJob, type JobContext } from "../lib/job.js";
-import { removeEmptyDirsUpward } from "../lib/fsCleanup.js";
-import { log } from "@lifer/core/lib/log.js";
-import { getUserFileSettings } from "../lib/userFileSettings.js";
+import { createJob } from "../lib/job.js";
 import { Flag, Nullable, replies, withSchemas } from "../lib/schema.js";
 import { assetRoutes } from "./assets.js";
 import { migrateToServerRoutes } from "./migrateToServer.js";
 import { storageMoveRoutes } from "./storageMove.js";
+import { AnyJobStatus, ReorganizeOutcome, Settings } from "./responses.js";
 
 export { recoverInterruptedStorageMigration } from "./storageMove.js";
 
@@ -70,7 +69,7 @@ async function abaCodesAvailable(): Promise<boolean> {
 export async function settingsRoutes(fastify: FastifyInstance): Promise<void> {
   const app = withSchemas(fastify);
 
-  app.get("/settings", { preValidation: requireAuth, schema: {} }, async (request) => {
+  app.get("/settings", { preValidation: requireAuth, schema: { response: replies(Settings) } }, async (request) => {
     const res = await pool.query<{
       organize_originals_by_year: boolean;
       organize_originals_by_location: boolean;
@@ -100,7 +99,7 @@ export async function settingsRoutes(fastify: FastifyInstance): Promise<void> {
       // Where the photo library lives (not APP_DATA_DIR, which is app-internal downloads), and
       // which kind of install this is, so the web app never has to infer the mode from a 404.
       dataDir: DATA_DIR,
-      deploymentMode: SINGLE_USER_MODE ? "desktop" : "server",
+      deploymentMode: SINGLE_USER_MODE ? ("desktop" as const) : ("server" as const),
       // "running" while a fresh server is still loading its species/region catalog.
       catalogLoading: catalogFirstBootState(),
       libraryRoots: SINGLE_USER_MODE ? [] : LIBRARY_ROOTS,
@@ -235,8 +234,8 @@ export async function settingsRoutes(fastify: FastifyInstance): Promise<void> {
 
   // Check first, apply on demand, like pack updates: the fresh-install seed never reaches a
   // running install.
-  app.get("/settings/catalog-update", { preValidation: requireAuth, schema: {} }, async (request) => {
-    return checkCatalogUpdate(pool, request.user!.id);
+  app.get("/settings/catalog-update", { preValidation: requireAuth, schema: {} }, async () => {
+    return checkCatalogUpdate(pool);
   });
 
   // Background job + poll (see lib/job.ts): download, then one-transaction apply, then the
@@ -252,7 +251,7 @@ export async function settingsRoutes(fastify: FastifyInstance): Promise<void> {
 
   app.get(
     "/settings/catalog-update/status",
-    { preValidation: requireAuth, schema: {} },
+    { preValidation: requireAuth, schema: { response: replies(AnyJobStatus) } },
     async () => catalogUpdate.status,
   );
 
@@ -264,160 +263,21 @@ export async function settingsRoutes(fastify: FastifyInstance): Promise<void> {
 
   // A background job, so a dropped connection doesn't stop it halfway. POST still waits for the
   // result by default; ?background=1 returns at once for polling.
-  interface ReorganizeCounts {
-    moved: number;
-    skipped: number;
-    failed: number;
-  }
-  interface ReorganizeResult extends ReorganizeCounts {
-    total: number;
-  }
-  const reorganizeJob = createJob<ReorganizeResult, ReorganizeCounts>("reorganize-originals", {
-    moved: 0,
-    skipped: 0,
-    failed: 0,
-  });
-
-  async function runReorganize(
-    ctx: JobContext<ReorganizeResult, ReorganizeCounts>,
-    userId: string,
-  ): Promise<ReorganizeResult> {
-    const counts = reorganizeJob.status;
-    const settings = await getUserFileSettings(userId);
-
-    const originalsRes = await pool.query<{
-      id: string;
-      ref: string;
-      kind: string;
-      capture_id: string | null;
-      species_id: string | null;
-      scientific_name: string | null;
-      taken_at: Date | null;
-      location_label: string | null;
-      volume_id: string | null;
-      volume_relative_path: string | null;
-      trip_destination: string | null;
-    }>(
-      // captures_all without trashed ones: a hidden photo's files are organized like any other.
-      `SELECT o.id, o.ref, o.kind, o.capture_id, o.volume_id, o.volume_relative_path,
-              COALESCE(c.species_id, o.species_id) AS species_id,
-              COALESCE(s1.scientific_name, s2.scientific_name) AS scientific_name,
-              c.taken_at, c.location_label, t.destination_folder AS trip_destination
-       FROM originals o
-       LEFT JOIN captures_all c ON c.id = o.capture_id AND c.deleted_at IS NULL
-       LEFT JOIN trips t ON t.id = c.trip_id
-       LEFT JOIN species s1 ON s1.id = c.species_id
-       LEFT JOIN species s2 ON s2.id = o.species_id
-       WHERE o.managed = true AND o.ref_type = 'path' AND COALESCE(c.user_id, o.user_id) = $1`,
-      [userId],
-    );
-    const total = originalsRes.rows.length;
-    ctx.update({ phase: "moving", total, processed: 0 });
-    const bump = () => ctx.update({ processed: counts.moved + counts.skipped + counts.failed });
-
-    // A file moves exactly when its species label changed, which also makes its embedded EXIF/XMP
-    // label stale. Collect those captures and resync their metadata after the move loop.
-    const captureIdsToResync = new Set<string>();
-    for (const original of originalsRes.rows) {
-      // Stops between files; the files already moved stay moved and get their metadata resynced.
-      if (ctx.signal.aborted) break;
-      ctx.update({ currentItem: path.basename(original.ref) });
-      // Each file is re-filed under the folder it was filed under (the library, its drive's
-      // "Lifer Originals" folder or its trip's folder), never moved to another. One on a drive
-      // that isn't connected, or outside every folder Lifer files into, is left alone.
-      const location =
-        original.species_id && original.scientific_name ? await locateManagedOriginal(userId, original) : null;
-      if (!location?.root || !existsSync(location.path)) {
-        counts.skipped++;
-        bump();
-        continue;
-      }
-      const current = location.path;
-      // Unmatched RAWs (capture_id NULL, filed straight into a species' own folder) have no
-      // captures.taken_at to read a year from; the file's own EXIF is the only place left to look.
-      const takenAt = original.capture_id ? original.taken_at : (await extractExif(current)).takenAt;
-
-      const folder = await organizedFolderFor(
-        userId,
-        location,
-        { kind: original.kind, speciesId: original.species_id!, takenAt, locationLabel: original.location_label },
-        settings,
-      );
-      const dest = folder ? path.join(folder, path.basename(current)) : current;
-      if (!folder || path.resolve(dest) === path.resolve(current)) {
-        counts.skipped++;
-        bump();
-        continue;
-      }
-      try {
-        await mkdir(folder, { recursive: true });
-        if (existsSync(dest)) {
-          // Another original already sits at this organized path: skip rather than overwrite.
-          counts.skipped++;
-          bump();
-          continue;
-        }
-        const oldFolder = path.dirname(current);
-        let copied = false;
-        try {
-          await rename(current, dest);
-        } catch {
-          try {
-            await copyFile(current, dest);
-          } catch (err) {
-            await rm(dest, { force: true }).catch(() => {});
-            throw err;
-          }
-          copied = true;
-        }
-        // A file on a drive or library root stays on it: its volume path follows the move.
-        const volumeRelativePath = location.mountPath ? dest.slice(location.mountPath.length) : null;
-        try {
-          await pool.query(
-            `UPDATE originals SET ref = $1, volume_relative_path = COALESCE($2, volume_relative_path) WHERE id = $3`,
-            [dest, volumeRelativePath, original.id],
-          );
-        } catch (err) {
-          // Put the file back so the row still points at it.
-          if (copied) await rm(dest, { force: true }).catch(() => {});
-          else await rename(dest, current).catch(() => {});
-          throw err;
-        }
-        if (copied) await rm(current, { force: true });
-        counts.moved++;
-        if (original.capture_id) captureIdsToResync.add(original.capture_id);
-        // Tidying the now-empty old folder is cosmetic, not part of the move.
-        try {
-          await removeEmptyDirsUpward(oldFolder, location.root);
-        } catch (err) {
-          log.warn(`[reorganize] Couldn't clean up ${oldFolder}: ${(err as Error).message}`);
-        }
-      } catch {
-        counts.failed++;
-      }
-      bump();
-    }
-
-    // Best-effort: a stale embedded label or XMP sidecar is recoverable (the next reassignment or
-    // reorganize pass fixes it) and shouldn't fail the whole job.
-    ctx.update({ phase: "updating_metadata", currentItem: null });
-    for (const captureId of captureIdsToResync) {
-      await resyncSpeciesMetadata(userId, captureId).catch(() => {});
-      await syncCaptureXmpSidecarsLogged(userId, captureId);
-    }
-
-    return { moved: counts.moved, skipped: counts.skipped, failed: counts.failed, total };
-  }
+  // The move engine is uploads/reorganizeOriginals.ts.
+  const reorganizeJob = createJob<ReorganizeResult, ReorganizeCounts>("reorganize-originals", REORGANIZE_IDLE_COUNTS);
 
   app.post(
     "/settings/reorganize-originals",
     {
       preValidation: requireAuth,
-      schema: { querystring: Type.Object({ background: Flag("1 to start the job and return at once, for polling") }) },
+      schema: {
+        querystring: Type.Object({ background: Flag("1 to start the job and return at once, for polling") }),
+        response: replies(ReorganizeOutcome),
+      },
     },
     async (request, reply) => {
       const userId = request.user!.id;
-      if (!reorganizeJob.start((ctx) => runReorganize(ctx, userId), { phase: "preparing" })) {
+      if (!reorganizeJob.start((ctx) => runReorganize(ctx, userId, reorganizeJob.status), { phase: "preparing" })) {
         return reply.code(409).send({ error: "Photos are already being reorganized" });
       }
       if (request.query.background === "1") return { started: true };
@@ -432,7 +292,7 @@ export async function settingsRoutes(fastify: FastifyInstance): Promise<void> {
 
   app.get(
     "/settings/reorganize-originals/status",
-    { preValidation: requireAuth, schema: {} },
+    { preValidation: requireAuth, schema: { response: replies(AnyJobStatus) } },
     async () => reorganizeJob.status,
   );
 
@@ -464,7 +324,7 @@ export async function settingsRoutes(fastify: FastifyInstance): Promise<void> {
       const target = assertAllowedPath(requested);
       let entries: string[];
       try {
-        entries = readdirSync(target, { withFileTypes: true })
+        entries = (await readdir(target, { withFileTypes: true }))
           .filter((e) => e.isDirectory() && !e.name.startsWith(".") && !LIFER_INTERNAL_DIR_NAMES.has(e.name))
           .map((e) => e.name)
           .sort((a, b) => a.localeCompare(b));
