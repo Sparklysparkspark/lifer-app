@@ -168,9 +168,7 @@ export function SpeciesOverview({
         </button>
       </h2>
       {open && (
-        <div
-          className={`mt-3 grid ${sideColumn ? "gap-section lg:grid-cols-[minmax(0,1fr)_24rem]" : "gap-item"}`}
-        >
+        <div className={`mt-3 grid ${sideColumn ? "gap-section lg:grid-cols-[minmax(0,1fr)_24rem]" : "gap-item"}`}>
           <SpeciesNotes species={species} status={status} />
           <SpeciesSightings detail={detail} encounters={encounters} />
         </div>

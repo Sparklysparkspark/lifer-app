@@ -70,7 +70,9 @@ function CollectionsHeader({ actions }: { actions: React.ReactNode }) {
         <>
           <SegmentedControl
             value={tab}
-            onChange={(next) => navigate(next === "albums" ? "/albums" : "/trips", { replace: true, state: location.state })}
+            onChange={(next) =>
+              navigate(next === "albums" ? "/albums" : "/trips", { replace: true, state: location.state })
+            }
             options={[
               { value: "albums", label: t("collections.tabs.albums") },
               { value: "trips", label: t("collections.tabs.trips") },

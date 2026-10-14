@@ -8739,11 +8739,12 @@
                       "type": "array",
                       "items": {
                         "type": "object",
-                        "required": ["id", "photo_url", "credit"],
+                        "required": ["id", "photo_url", "credit", "is_main"],
                         "properties": {
                           "id": { "type": "string", "format": "uuid" },
                           "photo_url": { "type": "string" },
-                          "credit": { "anyOf": [{ "type": "string" }, { "type": "null" }] }
+                          "credit": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                          "is_main": { "type": "boolean" }
                         },
                         "additionalProperties": true
                       }

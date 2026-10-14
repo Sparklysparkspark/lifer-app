@@ -20,7 +20,11 @@ export function visibleTripPhotos(
 ): TripPhoto[] {
   const query = search.trim().toLowerCase();
   return sortPhotos(
-    photos.filter((p) => (!query || nameMatches(p, query)) && matchesPhotoFilters(p, { hasRaw: p.hasRaw, rawOnly: p.originalKind === "raw" }, filters)),
+    photos.filter(
+      (p) =>
+        (!query || nameMatches(p, query)) &&
+        matchesPhotoFilters(p, { hasRaw: p.hasRaw, rawOnly: p.originalKind === "raw" }, filters),
+    ),
     sortBy,
   );
 }

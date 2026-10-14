@@ -11813,6 +11813,7 @@ export interface paths {
                 id: string;
                 photo_url: string;
                 credit: string | null;
+                is_main: boolean;
               } & {
                 [key: string]: unknown;
               })[];
