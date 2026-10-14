@@ -30,6 +30,7 @@ export default defineConfig({
     exclude: ["maplibre-gl"],
   },
   // Components translate through i18next; tests get the same English setup the app starts with.
+  // Tests run on node; hook and component tests opt into a DOM with `// @vitest-environment jsdom`.
   test: {
     setupFiles: ["src/i18n/testSetup.ts"],
   },

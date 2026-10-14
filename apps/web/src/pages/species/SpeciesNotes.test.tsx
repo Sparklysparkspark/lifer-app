@@ -1,10 +1,7 @@
-// @vitest-environment jsdom
-import { cleanup, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { renderToStaticMarkup } from "react-dom/server";
+import { describe, expect, it } from "vitest";
 import { SpeciesNotes } from "./SpeciesNotes";
 import type { SpeciesDetail } from "./types";
-
-afterEach(cleanup);
 
 const base = {
   description: "The emerald-chinned hummingbird is a species of hummingbird.",
@@ -20,44 +17,41 @@ const notes = (heading: string, bullets: string[]) => ({
   revision_id: 1,
 });
 
+// No DOM here: the rendered markup is enough to see which text shows and how often the credit does.
+const render = (species: SpeciesDetail["species"]) => renderToStaticMarkup(<SpeciesNotes species={species} />);
+
 describe("SpeciesNotes", () => {
   it("shows the Wikipedia text when a species has no notes", () => {
-    render(<SpeciesNotes species={base} />);
-    expect(screen.getByText(/is a species of hummingbird/)).toBeTruthy();
-    expect(screen.getByText("Montane forest.")).toBeTruthy();
-    expect(screen.queryByText(/Summarised from/)).toBeNull();
+    const html = render(base);
+    expect(html).toContain("is a species of hummingbird");
+    expect(html).toContain("Montane forest.");
+    expect(html).not.toContain("Summarised from");
   });
 
-  it("shows the notes instead of the text they replace, with one credit", () => {
-    render(
-      <SpeciesNotes
-        species={{
-          ...base,
-          identification_notes: notes("Identification", ["Small, 7-8.6 cm; short black bill."]),
-          habitat_notes: notes("Habitat", ["Humid montane forest edges."]),
-        }}
-      />,
-    );
-    expect(screen.getByText("Identification")).toBeTruthy();
-    expect(screen.getByText("Small, 7-8.6 cm; short black bill.")).toBeTruthy();
-    expect(screen.getByText("Humid montane forest edges.")).toBeTruthy();
-    expect(screen.queryByText(/is a species of hummingbird/)).toBeNull();
-    expect(screen.queryByText("Montane forest.")).toBeNull();
-    const credit = screen.getByRole("link", { name: "Wikipedia" });
-    expect(credit.getAttribute("href")).toBe("https://en.wikipedia.org/wiki/Emerald-chinned_hummingbird");
-    expect(screen.getAllByText(/Summarised from/)).toHaveLength(1);
+  it("shows the notes instead of the text they replace, crediting Wikipedia on the credits page, not here", () => {
+    const html = render({
+      ...base,
+      identification_notes: notes("Identification", ["Small, 7-8.6 cm; short black bill."]),
+      habitat_notes: notes("Habitat", ["Humid montane forest edges."]),
+    });
+    expect(html).toContain(">Identification<");
+    expect(html).toContain("Small, 7-8.6 cm; short black bill.");
+    expect(html).toContain("Humid montane forest edges.");
+    expect(html).not.toContain("is a species of hummingbird");
+    expect(html).not.toContain("Montane forest.");
+    expect(html).not.toContain("Summarised from");
   });
 
   it("replaces each text on its own: habitat notes leave the description in place", () => {
-    render(<SpeciesNotes species={{ ...base, habitat_notes: notes("Feeding", ["Hovers at tubular flowers."]) }} />);
-    expect(screen.getByText(/is a species of hummingbird/)).toBeTruthy();
-    expect(screen.getByText("Hovers at tubular flowers.")).toBeTruthy();
-    expect(screen.queryByText("Montane forest.")).toBeNull();
+    const html = render({ ...base, habitat_notes: notes("Feeding", ["Hovers at tubular flowers."]) });
+    expect(html).toContain("is a species of hummingbird");
+    expect(html).toContain("Hovers at tubular flowers.");
+    expect(html).not.toContain("Montane forest.");
   });
 
   it("treats notes with no bullets as missing", () => {
-    render(<SpeciesNotes species={{ ...base, identification_notes: notes("Overview", []) }} />);
-    expect(screen.getByText(/is a species of hummingbird/)).toBeTruthy();
-    expect(screen.queryByText("Overview")).toBeNull();
+    const html = render({ ...base, identification_notes: notes("Overview", []) });
+    expect(html).toContain("is a species of hummingbird");
+    expect(html).not.toContain(">Overview<");
   });
 });
