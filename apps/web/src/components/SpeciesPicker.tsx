@@ -6,6 +6,7 @@ import { SEARCH_DEBOUNCE_MS } from "../lib/searchNormalize";
 import AddOtherTaxaModal from "./AddOtherTaxaModal";
 import SearchInput from "./SearchInput";
 import { useLatest } from "../hooks/useLatest";
+import { useSettings } from "../hooks/useSettings";
 import { useSpeciesName } from "../lib/speciesName";
 
 export interface SpeciesResult {
@@ -27,18 +28,22 @@ export interface SuggestedSpecies extends SpeciesResult {
 }
 
 // Fuzzy species search, recent species when empty. With onSelect it assigns inline (bulk import,
-// ID correction); without it, it jumps to the species page and offers the iNaturalist fallback.
+// ID correction); without it, it jumps to the species page. Either way it offers the iNaturalist
+// fallback, which with onSelect assigns the added species too.
 export default function SpeciesPicker({
   onSelect,
   autoFocus,
   placeholder,
   regionId,
+  inline = false,
 }: {
   onSelect?: (r: SpeciesResult) => void;
   autoFocus?: boolean;
   placeholder?: string;
   /** Ranks this region's checklist first. */
   regionId?: string | null;
+  /** Full width with the results listed below it rather than dropped over the page, for a dialog. */
+  inline?: boolean;
 }) {
   const { t } = useTranslation();
   const speciesName = useSpeciesName();
@@ -48,7 +53,7 @@ export default function SpeciesPicker({
   const [resultsFor, setResultsFor] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
   const [highlighted, setHighlighted] = useState(0);
-  const [anyTaxaSearchEnabled, setAnyTaxaSearchEnabled] = useState(false);
+  const anyTaxaSearchEnabled = useSettings().settings?.anyTaxaSearchEnabled ?? false;
   const [otherTaxaModalOpen, setOtherTaxaModalOpen] = useState(false);
   const navigate = useNavigate();
   const listId = useId();
@@ -58,15 +63,6 @@ export default function SpeciesPicker({
   // Enter pressed before the current query's results arrived: pick the top one when they do.
   const enterPendingRef = useRef(false);
   const onSelectRef = useLatest(onSelect);
-
-  // The bulk-import picker already has a region for the whole batch, so no per-row iNat fallback.
-  useEffect(() => {
-    if (onSelect) return;
-    api
-      .get<{ anyTaxaSearchEnabled: boolean }>("/settings")
-      .then((res) => setAnyTaxaSearchEnabled(res.anyTaxaSearchEnabled))
-      .catch(() => {});
-  }, [onSelect]);
 
   function fetchResults(q: string) {
     abortRef.current?.abort();
@@ -109,11 +105,11 @@ export default function SpeciesPicker({
     [],
   );
 
-  const showInatRow = !onSelect && anyTaxaSearchEnabled && query.trim().length >= 2;
+  const showInatRow = anyTaxaSearchEnabled && query.trim().length >= 2;
   const optionCount = results.length + (showInatRow ? 1 : 0);
   // Clamped so a shorter result list never leaves the highlight past the end.
   const active = optionCount === 0 ? -1 : Math.min(Math.max(highlighted, 0), optionCount - 1);
-  const listOpen = open && optionCount > 0;
+  const listOpen = (inline || open) && optionCount > 0;
 
   function selectResult(r: SpeciesResult) {
     setOpen(false);
@@ -147,8 +143,9 @@ export default function SpeciesPicker({
       }
       if (showInatRow && active === results.length) openInatSearch();
       else if (results[active]) selectResult(results[active]);
-    } else if (e.key === "Escape" && listOpen) {
-      // Close just the suggestions, not an enclosing dialog too.
+    } else if (e.key === "Escape" && listOpen && !inline) {
+      // Close just the suggestions, not an enclosing dialog too. Inline, the list is the dialog's
+      // content, so Escape closes the dialog.
       e.preventDefault();
       setOpen(false);
     }
@@ -157,7 +154,7 @@ export default function SpeciesPicker({
   const optionId = (i: number) => `${listId}-opt-${i}`;
 
   return (
-    <div className="relative w-64">
+    <div className={inline ? "w-full" : "relative w-64"}>
       <SearchInput
         value={query}
         onChange={(v) => {
@@ -190,7 +187,9 @@ export default function SpeciesPicker({
           id={listId}
           role="listbox"
           aria-label={t("species.picker.listLabel")}
-          className="absolute z-10 mt-1 max-h-72 w-full overflow-y-auto rounded-md border border-line bg-surface shadow-lg"
+          className={`w-full overflow-y-auto rounded-md border border-line bg-surface ${
+            inline ? "mt-2 max-h-80" : "absolute z-10 mt-1 max-h-72 shadow-lg"
+          }`}
         >
           {results.map((r, i) => (
             <li
@@ -233,6 +232,8 @@ export default function SpeciesPicker({
       {otherTaxaModalOpen && (
         <AddOtherTaxaModal
           initialQuery={query}
+          initialRegionId={regionId}
+          onAdded={onSelect ? selectResult : undefined}
           onClose={() => {
             setOtherTaxaModalOpen(false);
             setQuery("");

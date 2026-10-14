@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState, type KeyboardEvent } from "react";
 import { useTranslation } from "react-i18next";
-import { api, ApiError } from "../../api/client";
+import { api, apiPath, ApiError } from "../../api/client";
 import { useToast } from "../../hooks/useToast";
 import type { useSelectMode } from "../../hooks/useSelectMode";
 import type { SpeciesCapture } from "./types";
+import { ignore } from "../../lib/ignore";
 
 function errorText(err: unknown, fallback: string): string {
   return err instanceof ApiError ? err.message : fallback;
@@ -39,9 +40,9 @@ export function useCaptureEdits({
   useEffect(() => {
     const controller = new AbortController();
     api
-      .get<{ tags: string[] }>("/captures/tags", { signal: controller.signal })
+      .get("/captures/tags", { signal: controller.signal })
       .then((res) => setTagOptions(res.tags))
-      .catch(() => {});
+      .catch(ignore("Couldn't load tags"));
     return () => controller.abort();
   }, []);
 
@@ -58,7 +59,7 @@ export function useCaptureEdits({
     async (captureId: string, rating: number | null) => {
       updateCaptures([captureId], () => ({ quality_rating: rating }));
       try {
-        await api.patch(`/captures/${captureId}/rating`, { rating });
+        await api.patch(apiPath("/captures/{id}/rating", { id: captureId }), { rating });
       } catch (err) {
         toast.error(errorText(err, t("species.edits.ratingFailed")));
       }
@@ -73,7 +74,7 @@ export function useCaptureEdits({
       addTagOptions(tags);
       updateCaptures([captureId], () => ({ tags }));
       try {
-        await api.patch(`/captures/${captureId}/tags`, { tags });
+        await api.patch(apiPath("/captures/{id}/tags", { id: captureId }), { tags });
       } catch (err) {
         toast.error(errorText(err, t("species.edits.tagsFailed")));
         load();
@@ -82,28 +83,16 @@ export function useCaptureEdits({
     [addTagOptions, updateCaptures, toast, load, t],
   );
 
-  const setCaptureRegion = useCallback(
-    async (captureId: string, regionId: string | null) => {
-      updateCaptures([captureId], () => ({ region_id: regionId }));
+  const setCaptureLocation = useCallback(
+    async (captureId: string, locationLabel: string, regionId: string | null) => {
+      updateCaptures([captureId], () => ({ location_label: locationLabel.trim() || null, region_id: regionId }));
       try {
-        await api.patch(`/captures/${captureId}/region`, { regionId });
+        await api.patch(apiPath("/captures/{id}/region", { id: captureId }), { locationLabel, regionId });
       } catch (err) {
         toast.error(errorText(err, t("species.edits.locationFailed")));
-        load();
       }
-    },
-    [updateCaptures, toast, load, t],
-  );
-
-  const setCaptureLocationLabel = useCallback(
-    async (captureId: string, locationLabel: string) => {
-      updateCaptures([captureId], () => ({ location_label: locationLabel.trim() || null }));
-      try {
-        await api.patch(`/captures/${captureId}/region`, { locationLabel });
-      } catch (err) {
-        toast.error(errorText(err, t("species.edits.placeNameFailed")));
-        load();
-      }
+      // Region names come from the server.
+      load();
     },
     [updateCaptures, toast, load, t],
   );
@@ -111,7 +100,7 @@ export function useCaptureEdits({
   async function setCover(photoId: string) {
     closeMenu();
     try {
-      await api.patch(`/species/${speciesId}/cover`, { photoId });
+      await api.patch(apiPath("/species/{id}/cover", { id: speciesId }), { photoId });
       load();
     } catch (err) {
       toast.error(errorText(err, t("species.edits.featuredFailed")));
@@ -141,7 +130,7 @@ export function useCaptureEdits({
   async function tagSpecies(captureId: string, otherSpeciesId: string) {
     closeMenu();
     try {
-      await api.post(`/captures/${captureId}/species`, { speciesId: otherSpeciesId });
+      await api.post(apiPath("/captures/{id}/species", { id: captureId }), { speciesId: otherSpeciesId });
       load();
     } catch (err) {
       toast.error(errorText(err, t("species.edits.tagSpeciesFailed")));
@@ -152,7 +141,7 @@ export function useCaptureEdits({
     closeMenu();
     setReassignError(null);
     try {
-      await api.patch(`/captures/${captureId}/reassign`, { speciesId: newSpeciesId });
+      await api.patch(apiPath("/captures/{id}/reassign", { id: captureId }), { speciesId: newSpeciesId });
       load();
     } catch (err) {
       setReassignError(errorText(err, t("species.edits.reassignFailed")));
@@ -165,7 +154,9 @@ export function useCaptureEdits({
     setReassignError(null);
     try {
       const results = await Promise.allSettled(
-        [...selectedIds].map((captureId) => api.patch(`/captures/${captureId}/reassign`, { speciesId: newSpeciesId })),
+        [...selectedIds].map((captureId) =>
+          api.patch(apiPath("/captures/{id}/reassign", { id: captureId }), { speciesId: newSpeciesId }),
+        ),
       );
       const failed = results.filter((r) => r.status === "rejected").length;
       if (failed > 0) setReassignError(t("species.edits.reassignSomeFailed", { failed, total: results.length }));
@@ -234,8 +225,7 @@ export function useCaptureEdits({
     exitSelectMode,
     rateCapture,
     tagCapture,
-    setCaptureRegion,
-    setCaptureLocationLabel,
+    setCaptureLocation,
     setCover,
     revealInFinder,
     copyPath,

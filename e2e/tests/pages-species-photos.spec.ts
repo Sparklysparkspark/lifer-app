@@ -65,19 +65,21 @@ test("rates, sorts, edits and deletes photos on a species page", async ({ page }
   }
   await expect(page.getByRole("button", { name: "Featured photo ✓" })).toBeVisible();
 
-  await page.getByRole("button", { name: "Edit tags…" }).click();
+  await page.getByRole("button", { name: "Edit tags" }).click();
   const tagged = page.waitForResponse((res) => res.url().endsWith("/tags") && res.request().method() === "PATCH");
   await page.getByPlaceholder("Add a tag").fill("e2e-species-tag");
   await page.getByPlaceholder("Add a tag").press("Enter");
   expect((await tagged).ok()).toBe(true);
   await expect(page.getByRole("button", { name: "Remove tag e2e-species-tag" })).toBeVisible();
+  await page.getByRole("dialog", { name: "Tags" }).getByRole("button", { name: "Done" }).click();
 
-  await page.getByRole("button", { name: "Set location…" }).click();
+  await menuButton.click();
+  await page.getByRole("button", { name: "Set location" }).click();
   const placed = page.waitForResponse((res) => res.url().endsWith("/region") && res.request().method() === "PATCH");
-  await page.getByPlaceholder("Custom place name (e.g. Prince George)…").fill("Backyard feeder");
-  await page.getByPlaceholder("Custom place name (e.g. Prince George)…").press("Enter");
+  const dialog = page.getByRole("dialog", { name: "Location" });
+  await dialog.getByLabel("Place name").fill("Backyard feeder");
+  await dialog.getByRole("button", { name: "Save" }).click();
   expect((await placed).ok()).toBe(true);
-  await page.keyboard.press("Escape");
   await expect(tiles.first()).toContainText("Backyard feeder");
 
   // Select mode: bulk tag both photos.

@@ -1,3 +1,5 @@
+import type { LightboxSlide } from "../../components/Lightbox";
+import { photoFilePaths } from "../../lib/photoFilePaths";
 import i18n from "../../i18n";
 import { mediaNoun } from "../../lib/mediaNoun";
 import { filterBucketFor, type PhotoFilter, type SpeciesCapture } from "./types";
@@ -57,9 +59,31 @@ export function photosSectionTitle(filter: PhotoFilter, counts: { edited: number
           : i18n.t("species.photos.yourPhotos");
 }
 
-export function deleteNoun(selected: SpeciesCapture[]): "file" | "video" | "photo" {
+/** The viewer's shooting details for one of your photos (camera, lens, settings, date, files). */
+export function captureInfo(c: SpeciesCapture): NonNullable<LightboxSlide["info"]> {
+  return {
+    cameraModel: c.camera_model,
+    lens: c.lens,
+    focalLengthMm: c.focal_length_mm,
+    aperture: c.aperture,
+    shutter: c.shutter,
+    iso: c.iso,
+    takenAt: c.taken_at,
+    durationSeconds: c.duration_seconds,
+    files: photoFilePaths(c.original_ref, c.raw_ref),
+  };
+}
+
+export function deleteNoun(selected: SpeciesCapture[]): "file" | "video" | "photo" | "RAW" {
   return mediaNoun(
     selected.some((c) => c.photo_kind === "video"),
     selected.some((c) => c.photo_kind !== "video"),
+    selected.length > 0 && selected.every((c) => c.original_kind === "raw"),
   );
+}
+
+/** Whether any selected photo has a RAW beside its edited original, for "also delete the RAW". A
+ *  RAW-only photo is its RAW, so deleting it removes the RAW anyway. */
+export function selectionHasSeparateRaw(selected: SpeciesCapture[]): boolean {
+  return selected.some((c) => c.has_raw_original && c.original_kind !== "raw");
 }

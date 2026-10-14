@@ -1,7 +1,7 @@
 import { memo, useState } from "react";
 import { Link } from "react-router-dom";
-import type { CollectionItem } from "@lifer/shared";
-import { api } from "../api/client";
+import { TIER_ORDER, type CollectionItem, type TierValue } from "@lifer/shared";
+import { api, apiPath } from "../api/client";
 import { cropToImageStyle } from "../lib/crop";
 import { tierLabel } from "../lib/speciesGroups";
 import { useFitText } from "../hooks/useFitText";
@@ -14,7 +14,12 @@ import ProgressiveImg from "./ProgressiveImg";
 import PhotoPlaceholder from "./PhotoPlaceholder";
 import DotMenu from "./DotMenu";
 import TierDetailsModal from "./TierDetailsModal";
+import Modal from "./Modal";
+import Button from "./Button";
 import NameChangedModal from "./NameChangedModal";
+import CardCropEditor from "./CardCropEditor";
+import { useSpeciesName } from "../lib/speciesName";
+import { MENU_ITEM, MENU_ITEM_DANGER, MENU_PANEL, MENU_SEPARATOR } from "../lib/menuClasses";
 
 // What a card action did, so the parent can patch its list instead of reloading: a field patch,
 // the species leaving this view, or "reload" after a failed optimistic change.
@@ -72,22 +77,89 @@ function SpeciesCard({
   const [busy, setBusy] = useState(false);
   const [tierOpen, setTierOpen] = useState(false);
   const [nameChangedOpen, setNameChangedOpen] = useState(false);
+  // Only your own featured photo can be cropped; a reference photo isn't yours to adjust.
+  const ownCoverPhotoId = item.coverPhotoUrl?.match(/^\/api\/photos\/([^/]+)\/thumb/)?.[1] ?? null;
+  const [croppingCover, setCroppingCover] = useState(false);
+  // Errors propagate so CardCropEditor stays open and shows them.
+  async function saveCrop(body: object) {
+    await api.patch(apiPath("/species/{id}/card-crop", { id: item.speciesId }), body);
+    onChanged?.(item.speciesId, "reload");
+  }
   // The badges sit inside the card's link: open the tier's details instead of following it.
   const openTier = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
     setTierOpen(true);
   };
-  const localNoData =
-    !!regionId &&
-    !item.localTier &&
-    (item.localTierReason === "thin_data" ||
-      item.localTierReason === "no_data" ||
-      item.localTierReason === "few_photos");
+  const openNameChanged = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setNameChangedOpen(true);
+  };
+  const shownTier = item.localTier ?? item.tier;
+  // A local tier only earns the badge when it's rarer here than overall.
+  const localRarer =
+    !!item.localTier &&
+    !!item.tier &&
+    TIER_ORDER.indexOf(item.localTier as TierValue) > TIER_ORDER.indexOf(item.tier as TierValue);
+  const badge: { label: string; title: string; className: string; onClick?: (e: React.MouseEvent) => void } | null =
+    item.nameChanged
+      ? {
+          label: "Name changed",
+          title: "This species was split. Tap to pick which one is in your photos.",
+          className: "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200",
+          onClick: openNameChanged,
+        }
+      : item.rediscoveredGhost || item.rediscoveredLost
+        ? {
+            label: "Rediscovered",
+            title: "Rare or undocumented when you found it. You helped rediscover this species.",
+            className: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200",
+          }
+        : item.isLost
+          ? {
+              label: "Lost",
+              title: "Not recorded anywhere in over 25 years",
+              className: "bg-surface-muted text-ink",
+            }
+          : item.isGhost
+            ? {
+                label: "Ghost",
+                title: "Rarely documented anywhere, but still out there to find",
+                className: "bg-surface-muted text-ink",
+              }
+            : item.endemic
+              ? {
+                  label: "Endemic",
+                  title: "Only ever recorded in one country",
+                  className: "bg-surface-muted text-ink",
+                }
+              : item.vagrant
+                ? {
+                    label: "Vagrant",
+                    title:
+                      "Records here are concentrated in very few years, likely a vagrant, not an established local presence",
+                    className: "bg-surface-muted text-ink",
+                  }
+                : localRarer
+                  ? {
+                      label: `${tierLabel(item.localTier!)} here`,
+                      title: "Harder to find here than overall. Tap for why.",
+                      className: "bg-surface-muted text-muted",
+                      onClick: openTier,
+                    }
+                  : item.userAddedRegion
+                    ? {
+                        label: "Added by you",
+                        title: `You added this to ${checklistLabel(item.userAddedRegion)} yourself`,
+                        className: "border border-dashed border-line text-muted",
+                      }
+                    : null;
   const { openKey: menuOpen, setOpenKey: setMenuOpen, ref: menuRef } = useDropdownMenu<true>();
   const confirm = useConfirm();
   const toast = useToast();
-  const displayName = item.commonName ?? item.scientificName;
+  const speciesName = useSpeciesName();
+  const displayName = speciesName(item);
   const { ref: nameRef, fontSize: nameFontSize } = useFitText([displayName]);
 
   function toggleMenu() {
@@ -100,7 +172,7 @@ function SpeciesCard({
     setMenuOpen(null);
     setArchiving(true);
     try {
-      await api.post(`/species/${item.speciesId}/archive`);
+      await api.post(apiPath("/species/{id}/archive", { id: item.speciesId }));
       onChanged?.(item.speciesId, "removed");
     } catch {
       toast.error("Couldn't archive this species. Try again.");
@@ -121,14 +193,14 @@ function SpeciesCard({
     e.preventDefault();
     e.stopPropagation();
     if (!regionId) return;
+    setMenuOpen(null);
     if (hasCountryChoice) {
       setHidePickerOpen(true);
       return;
     }
-    setMenuOpen(null);
     setHidingFromRegion(true);
     try {
-      await api.post(`/regions/${regionId}/species/${item.speciesId}/hide`);
+      await api.post(apiPath("/regions/{regionId}/species/{speciesId}/hide", { regionId, speciesId: item.speciesId }));
       onChanged?.(item.speciesId, "removed");
     } catch {
       toast.error("Couldn't hide this species from this region. Try again.");
@@ -139,18 +211,21 @@ function SpeciesCard({
 
   // Province and country are independent scopes (a vagrant in BC can stay visible in the rest
   // of Canada), so each checked box is its own hide row.
-  async function confirmHidePicker(e: React.MouseEvent) {
-    e.preventDefault();
-    e.stopPropagation();
+  async function confirmHidePicker() {
     if (!regionId) return;
     const targetIds = [hideProvinceChecked ? regionId : null, hideCountryChecked ? countryRegionId : null].filter(
       (id): id is string => !!id,
     );
     if (targetIds.length === 0) return;
-    setMenuOpen(null);
     setHidingFromRegion(true);
     try {
-      await Promise.all(targetIds.map((id) => api.post(`/regions/${id}/species/${item.speciesId}/hide`)));
+      await Promise.all(
+        targetIds.map((id) =>
+          api.post(
+            apiPath("/regions/{regionId}/species/{speciesId}/hide", { regionId: id, speciesId: item.speciesId }),
+          ),
+        ),
+      );
       setHidePickerOpen(false);
       onChanged?.(item.speciesId, "removed");
     } catch {
@@ -189,14 +264,14 @@ function SpeciesCard({
     setMenuOpen(null);
     const ok = await confirm({
       title: "Remove this species?",
-      message: "This can't be undone. You'd need to search and add it again from iNaturalist.",
+      message: "You can add it back later by searching iNaturalist.",
       confirmLabel: "Remove",
       danger: true,
     });
     if (!ok) return;
     setRemovingOtherTaxa(true);
     try {
-      await api.delete(`/species/${item.speciesId}/other-taxa`);
+      await api.delete(apiPath("/species/{id}/other-taxa", { id: item.speciesId }));
       onChanged?.(item.speciesId, "removed");
     } catch {
       toast.error("Couldn't remove this species. Try again.");
@@ -215,7 +290,8 @@ function SpeciesCard({
     onChanged?.(item.speciesId, patch);
     setBusy(true);
     try {
-      await api[method](`/species/${item.speciesId}/${path}`);
+      const url = `/species/${item.speciesId}/${path}`;
+      await (method === "patch" ? api.patch(url) : api.delete(url));
     } catch {
       toast.error("Couldn't update this species. Try again.");
       onChanged?.(item.speciesId, "reload");
@@ -237,6 +313,8 @@ function SpeciesCard({
       <Link
         to={regionId ? `/species/${item.speciesId}?regionId=${regionId}` : `/species/${item.speciesId}`}
         state={backLabel ? { backLabel } : undefined}
+        // useScrollMemory keeps the card at the top of the screen in place on Back.
+        data-scroll-anchor={item.speciesId}
         onClickCapture={handleClickCapture}
         // WebKit treats a drag on a link as "drag the link out", which swallows text selection.
         draggable={false}
@@ -264,14 +342,14 @@ function SpeciesCard({
                 <ProgressiveImg
                   thumbSrc={item.coverPhotoUrl}
                   fullSrc={item.coverPhotoUrl.replace(/\/thumb$/, "/display")}
-                  alt={item.commonName ?? item.scientificName}
+                  alt={speciesName(item)}
                   className="h-full w-full"
                   style={cropToImageStyle(item.cardCropX, item.cardCropY, item.cardCropSize)}
                 />
               ) : (
                 <img
                   src={item.coverPhotoUrl}
-                  alt={item.commonName ?? item.scientificName}
+                  alt={speciesName(item)}
                   className="h-full w-full object-cover"
                   style={{
                     objectPosition: `${item.referenceFocalX ?? 50}% ${item.referenceFocalY ?? 50}%`,
@@ -292,7 +370,7 @@ function SpeciesCard({
             )}
             {showVolumeBadge && item.coverVolumeLabel && (
               <span
-                className="absolute left-1.5 bottom-1.5 max-w-[80%] truncate rounded-full bg-black/60 px-2 py-0.5 text-[10px] font-medium text-white shadow"
+                className="absolute left-1.5 bottom-1.5 max-w-[80%] truncate rounded-full bg-black/60 px-2 py-0.5 text-xs font-medium text-white shadow"
                 title={`This photo is on the "${item.coverVolumeLabel}" drive`}
               >
                 {item.coverVolumeLabel}
@@ -300,42 +378,52 @@ function SpeciesCard({
             )}
           </div>
           <DotMenu open={!!menuOpen} onToggle={toggleMenu} menuRef={menuRef}>
-            <div className="absolute right-0 top-full z-10 mt-1 min-w-[9rem] rounded-md border border-line bg-surface py-1 shadow-lg">
+            <div className={`absolute right-0 top-full z-10 mt-1 min-w-[9rem] ${MENU_PANEL}`}>
               {/* Seen/unseen only makes sense before it's actually collected. */}
               {!isCollected &&
                 (isSeen ? (
-                  <button
-                    onClick={(e) => runStateChange(e, "delete", "seen")}
-                    disabled={busy}
-                    className="block w-full px-3 py-1.5 text-left text-xs text-ink hover:bg-surface-muted disabled:opacity-50"
-                  >
+                  <button onClick={(e) => runStateChange(e, "delete", "seen")} disabled={busy} className={MENU_ITEM}>
                     Mark as unseen
                   </button>
                 ) : (
-                  <button
-                    onClick={(e) => runStateChange(e, "patch", "seen")}
-                    disabled={busy}
-                    className="block w-full px-3 py-1.5 text-left text-xs text-ink hover:bg-surface-muted disabled:opacity-50"
-                  >
+                  <button onClick={(e) => runStateChange(e, "patch", "seen")} disabled={busy} className={MENU_ITEM}>
                     Mark as seen
                   </button>
                 ))}
+              {ownCoverPhotoId && (
+                <button
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setMenuOpen(null);
+                    setCroppingCover(true);
+                  }}
+                  className={MENU_ITEM}
+                >
+                  Adjust card preview
+                </button>
+              )}
               {/* Independent of state: a collected species can still be targeted. */}
               {isTarget ? (
-                <button
-                  onClick={(e) => runStateChange(e, "delete", "target")}
-                  disabled={busy}
-                  className="block w-full px-3 py-1.5 text-left text-xs text-ink hover:bg-surface-muted disabled:opacity-50"
-                >
+                <button onClick={(e) => runStateChange(e, "delete", "target")} disabled={busy} className={MENU_ITEM}>
                   Remove from targets
                 </button>
               ) : (
-                <button
-                  onClick={(e) => runStateChange(e, "patch", "target")}
-                  disabled={busy}
-                  className="block w-full px-3 py-1.5 text-left text-xs text-ink hover:bg-surface-muted disabled:opacity-50"
-                >
+                <button onClick={(e) => runStateChange(e, "patch", "target")} disabled={busy} className={MENU_ITEM}>
                   Add to targets
+                </button>
+              )}
+              {shownTier && (
+                <button
+                  onClick={(e) => {
+                    setMenuOpen(null);
+                    openTier(e);
+                  }}
+                  title="Why this tier, or set your own"
+                  className={MENU_ITEM}
+                >
+                  Rarity: {tierLabel(shownTier)}
+                  {item.tierOverridden && " (yours)"}
                 </button>
               )}
               {/* Archiving a collected species is a no-op server-side. */}
@@ -344,81 +432,38 @@ function SpeciesCard({
                   onClick={archive}
                   disabled={archiving}
                   title="Stop counting this toward your to-collect total (can be undone from the Archived page)"
-                  className="block w-full px-3 py-1.5 text-left text-xs text-ink hover:bg-surface-muted disabled:opacity-50"
+                  className={MENU_ITEM}
                 >
                   {archiving ? "Archiving…" : "Archive"}
                 </button>
               )}
-              {regionId && !isCollected && !hidePickerOpen && (
+              {regionId && !isCollected && (
                 <button
                   onClick={hideFromRegion}
                   disabled={hidingFromRegion}
                   title="Hide this species from this region's checklist only. It still shows up in other regions it's on."
-                  className="block w-full px-3 py-1.5 text-left text-xs text-ink hover:bg-surface-muted disabled:opacity-50"
+                  className={MENU_ITEM}
                 >
                   {hidingFromRegion ? "Hiding…" : "Hide from this region"}
                 </button>
-              )}
-              {regionId && hidePickerOpen && (
-                <div className="px-3 py-2 text-xs text-ink" onClick={(e) => e.stopPropagation()}>
-                  <p className="mb-1.5 font-medium">Hide from:</p>
-                  <label className="flex items-center gap-1.5 py-0.5">
-                    <input
-                      type="checkbox"
-                      checked={hideProvinceChecked}
-                      onChange={(e) => setHideProvinceChecked(e.target.checked)}
-                      className="accent-accent"
-                    />
-                    {regionName ?? "This region"}
-                  </label>
-                  <label className="flex items-center gap-1.5 py-0.5">
-                    <input
-                      type="checkbox"
-                      checked={hideCountryChecked}
-                      onChange={(e) => setHideCountryChecked(e.target.checked)}
-                      className="accent-accent"
-                    />
-                    All of {countryRegionName ?? "the country"}
-                  </label>
-                  <div className="mt-1.5 flex gap-2">
-                    <button
-                      onClick={confirmHidePicker}
-                      disabled={hidingFromRegion || (!hideProvinceChecked && !hideCountryChecked)}
-                      className="rounded-md bg-ink px-2 py-1 text-[11px] font-medium text-surface disabled:opacity-50"
-                    >
-                      {hidingFromRegion ? "Hiding…" : "Hide"}
-                    </button>
-                    <button
-                      onClick={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        setHidePickerOpen(false);
-                      }}
-                      className="rounded-md border border-line px-2 py-1 text-[11px] text-muted"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                </div>
               )}
               {item.userAddedRegion && (
                 <button
                   onClick={removeAddition}
                   disabled={removingAddition}
                   title={`You added this to ${checklistLabel(item.userAddedRegion)}. This takes it off again.`}
-                  className="block w-full px-3 py-1.5 text-left text-xs text-ink hover:bg-surface-muted disabled:opacity-50"
+                  className={MENU_ITEM}
                 >
                   {removingAddition ? "Removing…" : "Remove from this checklist"}
                 </button>
               )}
               {item.isOtherTaxa && !isCollected && (
-                <button
-                  onClick={removeOtherTaxa}
-                  disabled={removingOtherTaxa}
-                  className="block w-full px-3 py-1.5 text-left text-xs text-red-600 hover:bg-surface-muted disabled:opacity-50 dark:text-red-400"
-                >
-                  {removingOtherTaxa ? "Removing…" : "Remove species"}
-                </button>
+                <>
+                  <div className={MENU_SEPARATOR} />
+                  <button onClick={removeOtherTaxa} disabled={removingOtherTaxa} className={MENU_ITEM_DANGER}>
+                    {removingOtherTaxa ? "Removing…" : "Remove species"}
+                  </button>
+                </>
               )}
             </div>
           </DotMenu>
@@ -429,161 +474,111 @@ function SpeciesCard({
           >
             <p
               ref={nameRef}
+              title={shownTier ? `${displayName}, ${tierLabel(shownTier)}` : undefined}
               className="select-text overflow-hidden font-medium leading-tight text-ink"
               style={{ fontSize: nameFontSize }}
             >
               {displayName}
             </p>
             {!hideScientificName && (
-              <p
-                className={`select-text truncate italic text-muted ${compact ? "text-[10px] leading-tight" : "text-xs"}`}
-              >
+              <p className={`select-text truncate italic text-muted text-xs ${compact ? "leading-tight" : ""}`}>
                 {item.scientificName}
               </p>
             )}
-            {/* Every badge here is a label, so with labels hidden the row (and its margin) goes too. */}
-            {!hideLabels &&
-              (item.nameChanged ||
-                item.tier ||
-                item.localTier ||
-                localNoData ||
-                item.endemic ||
-                item.vagrant ||
-                item.isGhost ||
-                item.isLost ||
-                item.rediscoveredGhost ||
-                item.rediscoveredLost ||
-                item.userAddedRegion) && (
-                <div className={`${compact ? "mt-0.5" : "mt-1"} flex flex-wrap items-center gap-1`}>
-                  {/* The species was split and your photos' place doesn't settle which one they are. */}
-                  {item.nameChanged && (
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        setNameChangedOpen(true);
-                      }}
-                      className="inline-block rounded-md bg-amber-100 px-2 py-0.5 text-[10px] uppercase tracking-wide text-amber-800 hover:bg-amber-200"
-                      title="This species was split. Tap to pick which one is in your photos."
-                    >
-                      Name changed
-                    </button>
-                  )}
-                  {item.tier && (
-                    <button
-                      type="button"
-                      onClick={openTier}
-                      className={
-                        item.tier === "unrated"
-                          ? "inline-block rounded-md border border-dashed border-line px-2 py-0.5 text-[10px] uppercase tracking-wide text-muted hover:text-ink"
-                          : "inline-block rounded-md bg-surface-muted px-2 py-0.5 text-[10px] uppercase tracking-wide text-muted hover:text-ink"
-                      }
-                      title={
-                        item.tier === "unrated"
-                          ? "Not enough data yet to rate how hard this is to find"
-                          : "Why this tier?"
-                      }
-                    >
-                      {tierLabel(item.tier)}
-                      {item.tierOverridden && !regionId && <span className="normal-case"> (yours)</span>}
-                    </button>
-                  )}
-                  {/* Region-scoped rarity, only present on a region's checklist. */}
-                  {item.localTier && (
-                    <button
-                      type="button"
-                      onClick={openTier}
-                      className="inline-block rounded-md border border-line px-2 py-0.5 text-[10px] uppercase tracking-wide text-muted hover:text-ink"
-                      title="How hard this species is to find here. Tap for why."
-                    >
-                      {tierLabel(item.localTier)} here
-                      {item.tierOverridden && <span className="normal-case"> (yours)</span>}
-                    </button>
-                  )}
-                  {localNoData && (
-                    <button
-                      type="button"
-                      onClick={openTier}
-                      className="inline-block rounded-md border border-dashed border-line px-2 py-0.5 text-[10px] uppercase tracking-wide text-muted hover:text-ink"
-                      title="Too few records here to say how hard this is to find"
-                    >
-                      Not enough data here
-                    </button>
-                  )}
-                  {item.endemic && (
-                    <span
-                      className="inline-block rounded-md bg-amber-100 px-2 py-0.5 text-[10px] uppercase tracking-wide text-amber-700"
-                      title="Only ever recorded in one country"
-                    >
-                      Endemic
-                    </span>
-                  )}
-                  {/* Region-scoped: records here cluster in very few years. */}
-                  {item.vagrant && (
-                    <span
-                      className="inline-block rounded-md bg-sky-100 px-2 py-0.5 text-[10px] uppercase tracking-wide text-sky-700"
-                      title="Records here are concentrated in very few years, likely a vagrant, not an established local presence"
-                    >
-                      Vagrant
-                    </span>
-                  )}
-                  {/* Sparsely documented anywhere, but verified reachable. */}
-                  {item.isGhost && (
-                    <span
-                      className="inline-block rounded-md bg-violet-100 px-2 py-0.5 text-[10px] uppercase tracking-wide text-violet-700"
-                      title="Rarely documented anywhere, but still out there to find"
-                    >
-                      Ghost
-                    </span>
-                  )}
-                  {/* Nothing recorded anywhere in 25+ years. */}
-                  {item.isLost && (
-                    <span
-                      className="inline-block rounded-md bg-rose-100 px-2 py-0.5 text-[10px] uppercase tracking-wide text-rose-700"
-                      title="Not recorded anywhere in over 25 years"
-                    >
-                      Lost
-                    </span>
-                  )}
-                  {/* Was Ghost/Lost when you collected it; kept after the live badge clears. */}
-                  {(item.rediscoveredGhost || item.rediscoveredLost) && (
-                    <span
-                      className="inline-block rounded-md bg-emerald-100 px-2 py-0.5 text-[10px] uppercase tracking-wide text-emerald-700"
-                      title="Rare or undocumented when you found it. You helped rediscover this species."
-                    >
-                      Rediscovered
-                    </span>
-                  )}
-                  {/* Not from the catalog: you put it on this checklist yourself. */}
-                  {item.userAddedRegion && (
-                    <span
-                      className="inline-block rounded-md border border-dashed border-accent px-2 py-0.5 text-[10px] uppercase tracking-wide text-ink"
-                      title={`You added this to ${checklistLabel(item.userAddedRegion)} yourself`}
-                    >
-                      Added by you
-                    </span>
-                  )}
-                </div>
-              )}
+            {/* One badge at most, the most unusual thing about the species. */}
+            {!hideLabels && badge && (
+              <div className={compact ? "mt-0.5" : "mt-1"}>
+                {badge.onClick ? (
+                  <button
+                    type="button"
+                    onClick={badge.onClick}
+                    title={badge.title}
+                    className={`inline-block rounded-md px-1.5 py-0.5 text-xs hover:underline ${badge.className}`}
+                  >
+                    {badge.label}
+                  </button>
+                ) : (
+                  <span
+                    title={badge.title}
+                    className={`inline-block rounded-md px-1.5 py-0.5 text-xs ${badge.className}`}
+                  >
+                    {badge.label}
+                  </span>
+                )}
+              </div>
+            )}
           </div>
         )}
       </Link>
       {/* Outside the link: React bubbles clicks from a portal up its tree, so inside it they'd
         also open the species page. */}
+      {croppingCover && ownCoverPhotoId && (
+        <CardCropEditor
+          photoUrl={`/api/photos/${ownCoverPhotoId}/display`}
+          initialX={item.cardCropX ?? null}
+          initialY={item.cardCropY ?? null}
+          initialSize={item.cardCropSize ?? null}
+          onClose={() => setCroppingCover(false)}
+          onSave={(crop) => saveCrop(crop)}
+          onReset={() => saveCrop({ reset: true })}
+        />
+      )}
       {nameChangedOpen && (
         <NameChangedModal
           speciesId={item.speciesId}
-          speciesName={item.commonName ?? item.scientificName}
+          speciesName={speciesName(item)}
           scientificName={item.scientificName}
           onClose={() => setNameChangedOpen(false)}
           onChanged={() => onChanged?.(item.speciesId, "reload")}
         />
       )}
+      {hidePickerOpen && (
+        <Modal
+          open
+          onClose={() => setHidePickerOpen(false)}
+          title="Hide from checklist"
+          footer={
+            <>
+              <Button variant="secondary" onClick={() => setHidePickerOpen(false)}>
+                Cancel
+              </Button>
+              <Button
+                onClick={() => void confirmHidePicker()}
+                loading={hidingFromRegion}
+                disabled={!hideProvinceChecked && !hideCountryChecked}
+              >
+                Hide
+              </Button>
+            </>
+          }
+        >
+          <p className="mb-3 text-sm text-muted">It stays on the checklists you leave unticked.</p>
+          <div className="space-y-1.5 text-sm text-ink">
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={hideProvinceChecked}
+                onChange={(e) => setHideProvinceChecked(e.target.checked)}
+                className="accent-accent"
+              />
+              {regionName ?? "This region"}
+            </label>
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={hideCountryChecked}
+                onChange={(e) => setHideCountryChecked(e.target.checked)}
+                className="accent-accent"
+              />
+              All of {countryRegionName ?? "the country"}
+            </label>
+          </div>
+        </Modal>
+      )}
       {tierOpen && (
         <TierDetailsModal
           speciesId={item.speciesId}
-          speciesName={item.commonName ?? item.scientificName}
+          speciesName={speciesName(item)}
           regionId={regionId ?? null}
           onClose={() => setTierOpen(false)}
           onChanged={() => onChanged?.(item.speciesId, "reload")}
