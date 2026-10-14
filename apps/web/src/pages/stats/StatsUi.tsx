@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import SharedSelect from "../../components/Select";
+import { PANEL } from "../../lib/layout";
 
 export function NoValue() {
   return <span className="text-muted">n/a</span>;
@@ -7,8 +8,8 @@ export function NoValue() {
 
 export function StatCard({ label, value, sub }: { label: string; value: string; sub?: string }) {
   return (
-    <div className="rounded-xl border border-line bg-surface p-4">
-      <p className="text-xs font-medium uppercase tracking-wide text-muted">{label}</p>
+    <div className={PANEL}>
+      <p className="text-xs font-medium text-muted">{label}</p>
       <p className="mt-1 text-2xl font-semibold text-ink">{value}</p>
       {sub && <p className="mt-0.5 text-xs text-muted">{sub}</p>}
     </div>
@@ -27,8 +28,8 @@ export function ChartCard({
   className?: string;
 }) {
   return (
-    <div className={`rounded-xl border border-line bg-surface p-4 ${className ?? ""}`}>
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+    <div className={`${PANEL} ${className ?? ""}`}>
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
         <h3 className="text-sm font-semibold text-ink">{title}</h3>
         {controls}
       </div>

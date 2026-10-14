@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  groupScatterPoints,
   exifRows,
   gearRows,
   headlineStats,
@@ -87,6 +88,9 @@ describe("scatterPointsFor", () => {
     scientificName: "x",
     commonName: null,
     photoId,
+    camera: null,
+    lens: null,
+    takenAt: null,
   });
 
   it("keeps points with a value on both axes", () => {
@@ -252,5 +256,27 @@ describe("statsCsvFilename", () => {
   // Early in the UTC day, so in the Americas the local date is still the day before.
   it("names the filter and the UTC date", () => {
     expect(statsCsvFilename("topRated", new Date("2024-05-17T02:00:00Z"))).toBe("lifer-stats-topRated-2024-05-17.csv");
+  });
+});
+
+describe("groupScatterPoints", () => {
+  const points = [
+    { focalLength: 100, iso: 100, photoId: "low" },
+    { focalLength: 400, iso: 800, photoId: "a" },
+    { focalLength: 400, iso: 800, photoId: "b" },
+    { focalLength: 401, iso: 800, photoId: "near" },
+    { focalLength: 400, iso: 1600, photoId: "c" },
+    { focalLength: null, iso: 800, photoId: "unplotted" },
+  ];
+
+  it("merges photos whose dots would overlap, and skips ones missing a setting", () => {
+    const groups = groupScatterPoints(points, "focalLength", "iso");
+    expect(groups.map((g) => g.photos.map((p) => p.photoId))).toEqual([["low"], ["a", "b", "near"], ["c"]]);
+    expect(groups[1].count).toBe(3);
+  });
+
+  it("keeps apart settings that are visibly apart", () => {
+    const groups = groupScatterPoints(points, "focalLength", "iso", { radius: 0 });
+    expect(groups).toHaveLength(4);
   });
 });

@@ -34,6 +34,8 @@ import {
   TimeOfDayChart,
 } from "./stats/StatsCharts";
 import CollectionIntelligence from "./stats/CollectionIntelligence";
+import { useSpeciesName } from "../lib/speciesName";
+import { useScrollMemory } from "../hooks/useScrollMemory";
 
 const NO_STATS_ICON = (
   <svg
@@ -56,6 +58,7 @@ const FILTER_OPTIONS = [
 ];
 
 export default function StatsPage() {
+  const speciesName = useSpeciesName();
   const [filter, setFilter] = useState<PhotoFilter>("all");
   // The charts' choices live here, so they survive the charts unmounting for an empty filter.
   const [gearType, setGearType] = useState<GearType>("cameras");
@@ -64,11 +67,13 @@ export default function StatsPage() {
   const [monthlyMetric, setMonthlyMetric] = useState<MonthlyMetric>("newLifers");
   const [scatterX, setScatterX] = useState<ScatterAxisKey>("focalLength");
   const [scatterY, setScatterY] = useState<ScatterAxisKey>("shutterSeconds");
-  const [lightboxSlide, setLightboxSlide] = useState<LightboxSlide | null>(null);
+  const [lightbox, setLightbox] = useState<{ slides: LightboxSlide[]; index: number } | null>(null);
+  const showPhoto = (slide: LightboxSlide) => setLightbox({ slides: [slide], index: 0 });
   const downloads = useStatsDownloads(filter);
   const namingStyles = useSettings().settings?.speciesNamingStyles ?? [];
   const data = useStatsData(filter);
   const { stats, loadError } = data;
+  useScrollMemory(!!stats);
 
   const highlights = useMemo(() => portfolioHighlights(data.portfolio), [data.portfolio]);
   const scatterPoints = useMemo(
@@ -92,7 +97,7 @@ export default function StatsPage() {
   if (!stats) {
     return (
       <div className="flex-1 bg-canvas">
-        <PageHeader sticky title="Stats" />
+        <PageHeader sticky topLevel title="Stats" />
         {loadError ? (
           <div className="mx-auto flex max-w-md flex-col items-center gap-3 p-10 text-center">
             <FormMessage error={loadError} />
@@ -112,6 +117,7 @@ export default function StatsPage() {
   return (
     <div className="flex-1 bg-canvas">
       <PageHeader
+        topLevel
         sticky
         title="Stats"
         actions={
@@ -129,12 +135,12 @@ export default function StatsPage() {
         }
       />
       {(downloads.exportError || loadError) && (
-        <div className="px-6 pt-4">
+        <div className="px-page pt-4">
           <FormMessage error={downloads.exportError ?? loadError} />
         </div>
       )}
       {data.sectionError && (
-        <div className="px-6 pt-4">
+        <div className="px-page pt-4">
           <FormMessage error="Some sections couldn't load. Reload the page to try again." />
         </div>
       )}
@@ -146,7 +152,9 @@ export default function StatsPage() {
           description="Stats are built from your edited photos (RAW-only imports don't count), so import and edit a few to see them here."
         />
       ) : (
-        <div className="mx-auto max-w-5xl space-y-6 p-6">
+        <div className="mx-auto max-w-5xl space-y-section p-page">
+          {/* The life-list count is the page's headline number, so it leads. */}
+          <CollectionStatsPanel />
           <StatsHighlights stats={stats} headlines={headlines} />
           <MonthlyChart perMonth={stats.perMonth} metric={monthlyMetric} onMetricChange={setMonthlyMetric} />
           <PhotoScatterChart
@@ -156,16 +164,19 @@ export default function StatsPage() {
             y={scatterY}
             onXChange={setScatterX}
             onYChange={setScatterY}
-            onOpenPoint={(point) =>
-              setLightboxSlide({
-                url: `/api/photos/${point.photoId}/display`,
-                caption: point.commonName ?? point.scientificName,
-                info: {
-                  focalLengthMm: point.focalLength,
-                  aperture: point.aperture,
-                  shutter: point.shutterLabel,
-                  iso: point.iso,
-                },
+            onOpenPoints={(points, startIndex) =>
+              setLightbox({
+                index: startIndex,
+                slides: points.map((point) => ({
+                  url: `/api/photos/${point.photoId}/display`,
+                  caption: speciesName(point),
+                  info: {
+                    focalLengthMm: point.focalLength,
+                    aperture: point.aperture,
+                    shutter: point.shutterLabel,
+                    iso: point.iso,
+                  },
+                })),
               })
             }
           />
@@ -184,7 +195,7 @@ export default function StatsPage() {
             onBucketChange={setBarBucket}
             bucketDownloading={downloads.bucketDownloading}
             onDownloadBucket={downloads.downloadBucket}
-            onOpenPhoto={(id) => setLightboxSlide({ url: `/api/photos/${id}/display` })}
+            onOpenPhoto={(id) => showPhoto({ url: `/api/photos/${id}/display` })}
           />
           <TimeOfDayChart timeOfDay={stats.timeOfDay} busiestHour={headlines.busiestHour?.hour} />
           <CountriesCard countries={stats.countriesPhotographed} />
@@ -195,15 +206,16 @@ export default function StatsPage() {
             years={data.years}
             namingStyles={namingStyles}
           />
-          <div>
-            <h2 className="mb-2 text-sm font-semibold text-ink">Collection breakdown</h2>
-            <CollectionStatsPanel />
-          </div>
         </div>
       )}
 
-      {lightboxSlide && (
-        <Lightbox slides={[lightboxSlide]} index={0} onIndexChange={() => {}} onClose={() => setLightboxSlide(null)} />
+      {lightbox && (
+        <Lightbox
+          slides={lightbox.slides}
+          index={lightbox.index}
+          onIndexChange={(index) => setLightbox({ ...lightbox, index })}
+          onClose={() => setLightbox(null)}
+        />
       )}
     </div>
   );

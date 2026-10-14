@@ -39,13 +39,12 @@ test("shows stats for the library and exports them", async ({ page }) => {
   await page.getByLabel("EXIF field").selectOption("hitRate");
   await expect(page.getByLabel("EXIF field")).toHaveValue("hitRate");
 
-  // Collection intelligence, over the whole library.
-  await expect(page.getByRole("heading", { level: 2, name: "Collection intelligence" })).toBeVisible();
+  // Your collection, over the whole library.
+  await expect(page.getByRole("heading", { level: 2, name: "Your collection" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Most photographed" })).toBeVisible();
   await expect(page.getByRole("listitem").filter({ hasText: SPECIES.moose.commonName }).first()).toBeVisible();
-  await expect(page.getByText(/^0 \/ \d+$/)).toBeVisible();
-  await expect(page.getByText("Missing date")).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Photography DNA" })).toBeVisible();
+  await expect(page.getByText(/have a date$/)).toBeVisible();
+  await expect(page.getByRole("heading", { name: "What you shoot" })).toBeVisible();
   await expect(page.getByText("By taxon")).toBeVisible();
 
   // Year over year compares the two most recent years, and either can be changed.
@@ -58,8 +57,6 @@ test("shows stats for the library and exports them", async ({ page }) => {
   await page.getByLabel("First year").selectOption("2025");
   expect((await compared).ok()).toBe(true);
   await expect(table.getByRole("columnheader", { name: "2026" })).toHaveCount(0);
-
-  await expect(page.getByRole("heading", { level: 2, name: "Collection breakdown" })).toBeVisible();
 
   // Export downloads a dated CSV for the current filter.
   const download = page.waitForEvent("download");

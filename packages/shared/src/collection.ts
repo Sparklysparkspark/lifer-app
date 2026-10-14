@@ -92,4 +92,6 @@ export interface CollectionStats {
   byTier: Record<RarityTier, number>;
   byFamily: Array<{ family: string; count: number }>;
   byYear: Array<{ year: number; count: number }>;
+  /** Regions with local tiers where you've photographed, for ?regionId=. */
+  tierRegions: Array<{ id: string; name: string }>;
 }

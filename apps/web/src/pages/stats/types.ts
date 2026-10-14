@@ -38,6 +38,10 @@ export interface ScatterPoint {
   scientificName: string;
   commonName: string | null;
   photoId: string | null;
+  camera: string | null;
+  lens: string | null;
+  /** ISO 8601. */
+  takenAt: string | null;
 }
 
 export interface SpeciesRef {

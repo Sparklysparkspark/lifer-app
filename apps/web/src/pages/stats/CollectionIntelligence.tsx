@@ -1,11 +1,16 @@
-import { Link } from "react-router-dom";
+import type { ReactNode } from "react";
+import { useTranslation } from "react-i18next";
+import { Link, useLocation } from "react-router-dom";
 import { taxonDisplayLabel } from "@lifer/shared";
 import { Spinner } from "../../components/LoadingScreen";
 import InfoTip from "../../components/InfoTip";
 import { pluralize } from "../../lib/pluralize";
+import { formatNumber } from "../../lib/format";
 import { ChartCard, NoValue, OptionSelect } from "./StatsUi";
 import { SCATTER_AXES, type portfolioHighlights } from "./statsHelpers";
 import type { StatsData } from "./useStatsData";
+import { useSpeciesName } from "../../lib/speciesName";
+import { backStateFor } from "../../lib/backLabel";
 
 // Always over the whole library, unaffected by the photo filter.
 export default function CollectionIntelligence({
@@ -21,14 +26,17 @@ export default function CollectionIntelligence({
   years: StatsData["years"];
   namingStyles: Parameters<typeof taxonDisplayLabel>[1];
 }) {
+  const speciesName = useSpeciesName();
+  const { t } = useTranslation();
+  const location = useLocation();
   const { mostPhotographed, oneAndDone, needsBetterPhoto } = highlights;
   const yearOptions = years.available.map((y) => ({ value: String(y), label: String(y) }));
   const comparison = years.comparison;
 
   return (
     <div>
-      <h2 className="mb-2 text-sm font-semibold text-ink">Collection intelligence</h2>
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+      <h2 className="mb-3 text-lg font-semibold text-ink">Your collection</h2>
+      <div className="grid grid-cols-1 gap-item lg:grid-cols-2">
         <ChartCard title="Most photographed">
           {mostPhotographed.length === 0 ? (
             <p className="text-sm text-muted">No photos yet.</p>
@@ -37,7 +45,8 @@ export default function CollectionIntelligence({
               {mostPhotographed.map((s, i) => (
                 <li key={s.speciesId} className="flex items-center justify-between gap-2">
                   <span className="truncate text-ink">
-                    <span className="text-muted">{i + 1}.</span> {s.commonName ?? s.scientificName}
+                    <span className="text-muted">{i + 1}.</span>{" "}
+                    <SpeciesLink id={s.speciesId}>{speciesName(s)}</SpeciesLink>
                   </span>
                   <span className="shrink-0 text-xs text-muted">{pluralize(s.totalPhotos, "photo")}</span>
                 </li>
@@ -65,7 +74,7 @@ export default function CollectionIntelligence({
               <ul className="grid grid-cols-2 gap-1 text-xs text-muted sm:grid-cols-3">
                 {oneAndDone.slice(0, 30).map((s) => (
                   <li key={s.speciesId} className="truncate">
-                    {s.commonName ?? s.scientificName}
+                    <SpeciesLink id={s.speciesId}>{speciesName(s)}</SpeciesLink>
                   </li>
                 ))}
               </ul>
@@ -73,17 +82,16 @@ export default function CollectionIntelligence({
           )}
         </ChartCard>
 
-        <ChartCard
-          title="Could use a better photo"
-          controls={<InfoTip paragraphs={["Species with only one photo, and you've rated it 1 star yourself."]} />}
-        >
+        <ChartCard title="Could use a better photo">
           {needsBetterPhoto.length === 0 ? (
             <p className="text-sm text-muted">Nothing stands out. No single-photo species is rated 1 star.</p>
           ) : (
             <ul className="space-y-1 text-sm">
               {needsBetterPhoto.slice(0, 10).map((s) => (
                 <li key={s.speciesId} className="flex items-center justify-between gap-2 text-ink">
-                  <span className="truncate">{s.commonName ?? s.scientificName}</span>
+                  <SpeciesLink id={s.speciesId} className="truncate">
+                    {speciesName(s)}
+                  </SpeciesLink>
                   <span className="shrink-0 text-xs text-muted">1 photo, rated ★</span>
                 </li>
               ))}
@@ -91,65 +99,62 @@ export default function CollectionIntelligence({
           )}
         </ChartCard>
 
-        <ChartCard
-          title="Archive health"
-          controls={
-            <InfoTip
-              align="right"
-              paragraphs={["How much of your library is missing data a normal photo would have."]}
-            />
-          }
-        >
+        <ChartCard title="Archive health">
           {!archiveHealth ? (
             <Spinner />
           ) : (
             <ul className="space-y-1.5 text-sm text-ink">
-              <li className="flex items-center justify-between">
+              {/* A clean result reads as good news ("All 53 photos have a date"), not as "0 / 53". */}
+              <li className="flex items-center justify-between gap-2">
                 {archiveHealth.missingDate > 0 ? (
-                  <Link to="/gallery?missingDate=1" className="text-accent hover:underline">
-                    Missing date
-                  </Link>
+                  <>
+                    <Link
+                      to="/gallery?missingDate=1"
+                      state={backStateFor(location, t)}
+                      className="text-accent hover:underline"
+                    >
+                      {pluralize(archiveHealth.missingDate, "photo")} missing a date
+                    </Link>
+                    <span className="text-xs text-muted">of {formatNumber(archiveHealth.total)}</span>
+                  </>
                 ) : (
-                  <span>Missing date</span>
+                  <span>
+                    <span className="text-accent">✓</span>{" "}
+                    {archiveHealth.total === 1
+                      ? "Your photo has a date"
+                      : `All ${pluralize(archiveHealth.total, "photo")} have a date`}
+                  </span>
                 )}
-                <span className="text-muted">
-                  {archiveHealth.missingDate} / {archiveHealth.total}
-                </span>
               </li>
             </ul>
           )}
         </ChartCard>
 
-        <ChartCard
-          title="Photography DNA"
-          controls={
-            <InfoTip
-              paragraphs={[
-                "A statistical fingerprint of how you shoot wildlife: what you photograph and what kind of shot you tend to get.",
-              ]}
-            />
-          }
-        >
+        <ChartCard title="What you shoot">
           {!photographyDna ? (
             <Spinner />
           ) : (
             <div className="space-y-3 text-sm">
               <div>
-                <p className="mb-1 text-xs font-medium uppercase tracking-wide text-muted">By taxon</p>
+                <p className="mb-1 text-xs font-medium text-muted">By taxon</p>
                 {photographyDna.taxonBreakdown.slice(0, 5).map((t) => (
-                  <div key={t.taxonClass} className="flex items-center justify-between text-ink">
-                    <span>{taxonDisplayLabel(t.taxonClass, namingStyles)}</span>
-                    <span className="text-muted">{t.percent}%</span>
-                  </div>
+                  <DnaRow
+                    key={t.taxonClass}
+                    to={`/gallery?taxon=${encodeURIComponent(t.taxonClass)}`}
+                    label={taxonDisplayLabel(t.taxonClass, namingStyles)}
+                    percent={t.percent}
+                  />
                 ))}
               </div>
               <div>
-                <p className="mb-1 text-xs font-medium uppercase tracking-wide text-muted">By kind of shot</p>
+                <p className="mb-1 text-xs font-medium text-muted">By kind of shot</p>
                 {photographyDna.categoryBreakdown.map((c) => (
-                  <div key={c.key} className="flex items-center justify-between text-ink">
-                    <span className="capitalize">{c.key}</span>
-                    <span className="text-muted">{c.percent}%</span>
-                  </div>
+                  <DnaRow
+                    key={c.key}
+                    to={`/gallery?shotKind=${encodeURIComponent(c.key)}`}
+                    label={c.key.charAt(0).toUpperCase() + c.key.slice(1)}
+                    percent={c.percent}
+                  />
                 ))}
               </div>
               <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted">
@@ -227,5 +232,32 @@ export default function CollectionIntelligence({
         </ChartCard>
       </div>
     </div>
+  );
+}
+
+// One "What you shoot" row, opening the Gallery filtered to those photos.
+function DnaRow({ to, label, percent }: { to: string; label: string; percent: number }) {
+  const location = useLocation();
+  const { t } = useTranslation();
+  return (
+    <Link
+      to={to}
+      state={backStateFor(location, t)}
+      className="-mx-1 flex items-center justify-between rounded-control px-1 text-ink hover:bg-surface-muted"
+    >
+      <span>{label}</span>
+      <span className="text-muted">{percent}%</span>
+    </Link>
+  );
+}
+
+// A species name that opens its page.
+export function SpeciesLink({ id, className = "", children }: { id: string; className?: string; children: ReactNode }) {
+  const location = useLocation();
+  const { t } = useTranslation();
+  return (
+    <Link to={`/species/${id}`} state={backStateFor(location, t)} className={`hover:underline ${className}`}>
+      {children}
+    </Link>
   );
 }

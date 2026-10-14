@@ -127,3 +127,31 @@ export function portfolioHighlights(portfolio: SpeciesPortfolioResponse | null):
 export function statsCsvFilename(filter: PhotoFilter, now: Date): string {
   return `lifer-stats-${filter}-${now.toISOString().slice(0, 10)}.csv`;
 }
+
+/** Scatter points merged where their dots would overlap on the chart (identical settings, or
+ *  400mm next to 401mm), so every photo stays reachable: one dot per spot, sized by how many
+ *  photos it holds. `log` marks an axis drawn on a log scale (shutter speed). `radius` is how close
+ *  counts as overlapping, as a share of each axis's span. */
+export function groupScatterPoints<P extends object>(
+  points: P[],
+  x: keyof P,
+  y: keyof P,
+  { logX = false, logY = false, radius = 0.015 } = {},
+): Array<P & { photos: P[]; count: number }> {
+  const plotted = points.filter((p) => typeof p[x] === "number" && typeof p[y] === "number");
+  const scaled = (key: keyof P, log: boolean) => {
+    const values = plotted.map((p) => (log ? Math.log(p[key] as number) : (p[key] as number)));
+    const min = Math.min(...values);
+    const span = Math.max(...values) - min || 1;
+    return values.map((v) => (v - min) / span);
+  };
+  const xs = scaled(x, logX);
+  const ys = scaled(y, logY);
+  const groups: Array<{ x: number; y: number; photos: P[] }> = [];
+  plotted.forEach((p, i) => {
+    const near = groups.find((g) => Math.abs(g.x - xs[i]) <= radius && Math.abs(g.y - ys[i]) <= radius);
+    if (near) near.photos.push(p);
+    else groups.push({ x: xs[i], y: ys[i], photos: [p] });
+  });
+  return groups.map(({ photos }) => ({ ...photos[0], photos, count: photos.length }));
+}
