@@ -8,6 +8,11 @@ banner.
 
 ## [Unreleased]
 
+### Changed
+
+- Desktop: the bundled Node.js is updated to 22.23.3, which includes the security fixes from
+  22.23.2.
+
 ## [0.11.0] - 2026-10-14
 
 ### Added

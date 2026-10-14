@@ -10,7 +10,7 @@ import { pipeline } from "node:stream/promises";
 import { target } from "./target.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const NODE_VERSION = "22.22.1"; // keep in sync with root package.json's engines.node
+const NODE_VERSION = "22.23.3"; // keep in sync with root package.json's engines.node
 
 const TARGETS = {
   "aarch64-apple-darwin": { platform: "darwin-arm64", ext: "tar.gz" },

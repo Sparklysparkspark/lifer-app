@@ -124,7 +124,7 @@ app don't include onnxruntime-node's own CUDA or TensorRT provider libraries.
 
 ### Node.js
 
-- Component: [Node.js](https://nodejs.org) 22.22.1, the official build from nodejs.org, bundled
+- Component: [Node.js](https://nodejs.org) 22.23.3, the official build from nodejs.org, bundled
   as the desktop app's API runtime. The Docker image is based on the official `node:22-slim`
   image (Debian).
 - License: MIT, with bundled dependencies (V8, libuv, OpenSSL, ICU and others) under their own
