@@ -15,12 +15,12 @@
     "test:coverage": "vitest run --coverage --coverage.reporter=text-summary --coverage.reporter=json-summary --coverage.reporter=html"
   },
   "dependencies": {
-    "@huggingface/transformers": "^4.3.1",
+    "@huggingface/transformers": "^4.3.2",
     "@lifer/shared": "*",
-    "dotenv": "^18.0.7",
+    "dotenv": "^18.0.9",
     "ffmpeg-static": "^5.3.0",
     "heic-decode": "^2.1.0",
-    "onnxruntime-node": "^1.29.0",
+    "onnxruntime-node": "^1.31.1",
     "pg": "^8.23.1",
     "pino": "^10.4.0",
     "sharp": "^0.35.5"
@@ -29,7 +29,7 @@
     "@types/node": "^22.20.5",
     "@types/pg": "^8.11.10",
     "@vitest/coverage-v8": "^5.0.3",
-    "fastify": "^5.12.5",
+    "fastify": "^5.12.8",
     "typescript": "^6.0.3",
     "vitest": "^5.0.3"
   }
