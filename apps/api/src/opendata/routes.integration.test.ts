@@ -273,7 +273,9 @@ describe.skipIf(!url)("opendata endpoints (API key)", () => {
   });
 
   it("names species by Lifer's scientific and common names, through synonyms", async () => {
-    await db.query(`INSERT INTO species_synonyms (species_id, synonym_name) VALUES ($1, 'Oldgenus opendatus')`, [SP[1]]);
+    await db.query(`INSERT INTO species_synonyms (species_id, synonym_name) VALUES ($1, 'Oldgenus opendatus')`, [
+      SP[1],
+    ]);
     const res = await app.inject({
       method: "POST",
       url: "/api/opendata/v1/species/names",
@@ -286,6 +288,11 @@ describe.skipIf(!url)("opendata endpoints (API key)", () => {
       ["Oldgenus opendatus", "Opendatus b"],
       ["Opendatus a", "Opendatus a"],
     ]);
+    // The survivor's id and GBIF key, so a caller can store a stable key.
+    expect(names.find((n) => n.scientificName === "Oldgenus opendatus")).toMatchObject({
+      speciesId: SP[1],
+      gbifKey: 970701,
+    });
   });
 
   it("needs the opendata.read scope", async () => {

@@ -2,11 +2,12 @@
 // local cache (observationSync.ts), filters pairs cheaply (matching.ts), then compares the pictures
 // with the CLIP vectors Lifer already keeps for species matching and near-duplicates.
 import sharp from "sharp";
-import { pool } from "@lifer/core/db.js";
+import { pool, withTransaction } from "@lifer/core/db.js";
 import { EMBEDDING_MODEL_VERSION } from "@lifer/core/config.js";
 import { log } from "@lifer/core/lib/log.js";
 import { isModelDownloaded, photoVectors } from "@lifer/core/species/embeddings.js";
 import { fetchJwt } from "./client.js";
+import { recordFoundWrites, snapshotFound } from "./unlink.js";
 import {
   candidatePairs,
   decide,
@@ -380,7 +381,23 @@ export async function linkFound(links: Array<{ captureId: string; observationId:
        VALUES ($1, $2, true, 'inaturalist') ON CONFLICT (capture_id) DO NOTHING`,
       [l.captureId, l.observationId],
     );
-    if (res.rowCount) linkedObs.add(l.observationId);
+    if (!res.rowCount) continue;
+    linkedObs.add(l.observationId);
+    // The life stage and sex the user annotated there, where the photo has none of its own.
+    // Recorded on the link like the location write-back, so Unlink takes them back off.
+    await withTransaction(async (client) => {
+      const before = await snapshotFound(client, l.observationId, [l.captureId]);
+      await client.query(
+        `UPDATE captures_all c SET life_stage = COALESCE(c.life_stage, r.data->>'lifeStage'),
+           sex = COALESCE(c.sex, r.data->>'sex')
+         FROM inaturalist_remote_observations r
+         WHERE c.id = $1 AND r.user_id = c.user_id AND r.inat_observation_id = $2::bigint
+           AND ((c.life_stage IS NULL AND r.data->>'lifeStage' IS NOT NULL)
+             OR (c.sex IS NULL AND r.data->>'sex' IS NOT NULL))`,
+        [l.captureId, l.observationId],
+      );
+      await recordFoundWrites(client, l.observationId, before);
+    });
   }
   // A not-a-match left on a pair the user linked by hand no longer applies.
   if (links.length > 0)

@@ -110,6 +110,8 @@ const Names = Open({
   names: Type.Array(
     Open({
       scientificName: Type.String({ description: "The name asked for" }),
+      speciesId: Uuid({ description: "Lifer's id for the species" }),
+      gbifKey: Type.Integer({ description: "GBIF backbone taxon key" }),
       canonicalScientificName: Type.String({ description: "Lifer's current scientific name (differs for a synonym)" }),
       commonName: Nullable(Type.String()),
       ebirdCode: Nullable(Type.String()),
@@ -298,12 +300,14 @@ export async function opendataRoutes(fastify: FastifyInstance): Promise<void> {
       const asked = [...new Set(request.body.scientificNames)];
       const res = await pool.query<{
         asked: string;
+        id: string;
+        gbif_key: string;
         scientific_name: string;
         common_name: string | null;
         ebird_code: string | null;
         aba_code: string | null;
       }>(
-        `SELECT DISTINCT ON (a.asked) a.asked, s.scientific_name, s.common_name, s.ebird_code, s.aba_code
+        `SELECT DISTINCT ON (a.asked) a.asked, s.id, s.gbif_key, s.scientific_name, s.common_name, s.ebird_code, s.aba_code
            FROM unnest($1::text[]) AS a(asked)
            JOIN species s ON s.scientific_name = a.asked
              OR s.id = (SELECT syn.species_id FROM species_synonyms syn WHERE syn.synonym_name = a.asked)
@@ -314,6 +318,9 @@ export async function opendataRoutes(fastify: FastifyInstance): Promise<void> {
       return {
         names: res.rows.map((r) => ({
           scientificName: r.asked,
+          speciesId: r.id,
+          // bigint comes from pg as text; GBIF keys fit a JS number.
+          gbifKey: Number(r.gbif_key),
           canonicalScientificName: r.scientific_name,
           commonName: r.common_name,
           ebirdCode: r.ebird_code,
@@ -361,7 +368,10 @@ export async function opendataRoutes(fastify: FastifyInstance): Promise<void> {
       schema: {
         querystring: Type.Object({
           space: Type.Optional(
-            Type.String({ maxLength: 64, description: "The vectors' model version (default: the one Lifer matches in)" }),
+            Type.String({
+              maxLength: 64,
+              description: "The vectors' model version (default: the one Lifer matches in)",
+            }),
           ),
           ...OpenPageQuery,
         }),
@@ -378,7 +388,11 @@ export async function opendataRoutes(fastify: FastifyInstance): Promise<void> {
         });
       const page = await openVectorPage(request.query, true);
       if (!page) return reply.code(400).send({ error: "Invalid cursor" });
-      return { model: CLIP_SPACE.modelVersion, dimension: DIM, ...(page as Omit<Static<typeof VectorPage>, "model" | "dimension">) };
+      return {
+        model: CLIP_SPACE.modelVersion,
+        dimension: DIM,
+        ...(page as Omit<Static<typeof VectorPage>, "model" | "dimension">),
+      };
     },
   );
 
@@ -386,13 +400,17 @@ export async function opendataRoutes(fastify: FastifyInstance): Promise<void> {
   app.get(
     "/opendata/v1/attribution",
     { preValidation: scope, schema: { querystring: Type.Object(OpenPageQuery), response: replies(AttributionPage) } },
-    async (request, reply) => (await openVectorPage(request.query, false)) ?? reply.code(400).send({ error: "Invalid cursor" }),
+    async (request, reply) =>
+      (await openVectorPage(request.query, false)) ?? reply.code(400).send({ error: "Invalid cursor" }),
   );
 }
 
 const OpenPageQuery = {
   since: Type.Optional(
-    Type.String({ format: "date-time", description: "Only vectors added after this time (an `updatedAt` from an earlier call)" }),
+    Type.String({
+      format: "date-time",
+      description: "Only vectors added after this time (an `updatedAt` from an earlier call)",
+    }),
   ),
   cursor: Type.Optional(Type.String({ maxLength: 200, description: "`nextCursor` from the previous page" })),
   limit: Type.Optional(Type.Integer({ minimum: 1, description: "Page size, 1-500 (default 100)" })),
@@ -437,7 +455,9 @@ async function openVectorPage(query: { since?: string; cursor?: string; limit?: 
     const cursor = decodeVectorCursor(query.cursor);
     if (!cursor) return null;
     params.push(cursor.time, cursor.id);
-    where.push(`(ge.computed_at, ge.reference_photo_id) > ($${params.length - 1}::timestamptz, $${params.length}::uuid)`);
+    where.push(
+      `(ge.computed_at, ge.reference_photo_id) > ($${params.length - 1}::timestamptz, $${params.length}::uuid)`,
+    );
   }
   params.push(limit + 1);
   const res = await pool.query(

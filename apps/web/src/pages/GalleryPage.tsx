@@ -9,6 +9,7 @@ import AddToAlbumModal from "../components/AddToAlbumModal";
 import CaptureEditModal from "../components/CaptureEditModal";
 import CoordinatesModal from "../components/CoordinatesModal";
 import type { SpeciesResult } from "../components/SpeciesPicker";
+import type { Appearance } from "@lifer/shared";
 import { useLatest } from "../hooks/useLatest";
 import Button from "../components/Button";
 import FormMessage from "../components/FormMessage";
@@ -55,7 +56,7 @@ import { ignore } from "../lib/ignore";
 import Tip from "../components/Tip";
 import VersionNotice, { useVersionNotice } from "../components/VersionNotice";
 import { VersionTileMenu } from "../components/PhotoVersions";
-import { openPhotoVersions, useVersionCounts, versionName } from "../lib/photoVersions";
+import { openPhotoVersions, versionName } from "../lib/photoVersions";
 import type { ComparePhoto } from "../components/CompareView";
 import type { Placing } from "../components/PhotoMap";
 
@@ -109,7 +110,6 @@ export default function GalleryPage() {
   const allVersions = display.allVersions && !query.searchQuery && !query.onlyHidden;
   const listing = useGalleryListing({ query, groupBy, lightboxIndex, allVersions });
   const versionNotice = useVersionNotice();
-  const hasVersions = useVersionCounts().size > 0;
   const {
     items,
     loadError,
@@ -263,6 +263,15 @@ export default function GalleryPage() {
     },
     [setItems],
   );
+  const applyAppearance = useCallback(
+    (captureIds: string[], changes: Partial<Appearance>) => {
+      const ids = new Set(captureIds);
+      setItems((prev) => prev?.map((it) => (ids.has(it.captureId) ? { ...it, ...changes } : it)) ?? prev);
+    },
+    [setItems],
+  );
+  // Morphs on the loaded photos, offered while typing one.
+  const morphOptions = useMemo(() => (items ?? []).flatMap((i) => (i.morph ? [i.morph] : [])), [items]);
   const slides = useMemo<LightboxSlide[]>(
     () =>
       (items ?? []).map((item) => {
@@ -285,6 +294,8 @@ export default function GalleryPage() {
           onRate: readOnly ? undefined : (rating: number | null) => rateCapture(i.captureId, rating),
           tags: i.tags,
           onTagsChange: readOnly ? undefined : (tags: string[]) => tagCapture(i.captureId, tags),
+          appearance: i,
+          onAppearanceChange: readOnly ? undefined : (changes) => applyAppearance([i.captureId], changes),
           coordinates: {
             lat: i.lat == null ? null : Number(i.lat),
             lon: i.lon == null ? null : Number(i.lon),
@@ -309,7 +320,18 @@ export default function GalleryPage() {
           },
         };
       }),
-    [items, rateCapture, tagCapture, reassignRef, hiddenView, speciesName, applyCoordinates, similarTo, edits.reload],
+    [
+      items,
+      rateCapture,
+      tagCapture,
+      reassignRef,
+      hiddenView,
+      speciesName,
+      applyCoordinates,
+      applyAppearance,
+      similarTo,
+      edits.reload,
+    ],
   );
   const comparePhotos = useMemo<ComparePhoto[]>(
     () =>
@@ -463,6 +485,8 @@ export default function GalleryPage() {
             edits={edits}
             regionFirst={fixingRegionView}
             onCoordinatesSaved={applyCoordinates}
+            onAppearanceSaved={applyAppearance}
+            morphOptions={morphOptions}
             onCompare={() => setCompareIds([...selectedIds])}
             compareFirst={!!similarTo}
             onPlaceOnMap={placeSelectionOnMap}
@@ -486,8 +510,8 @@ export default function GalleryPage() {
       <main className="space-y-section p-page">
         <VersionNotice notice={versionNotice} />
         <Tip id="gallery-select" when={!!items && items.length > 0 && !selectMode && layout === "grid"} />
-        {/* Once, after the first photos get grouped; the notice above says what just happened first. */}
-        <Tip id="photo-versions" when={hasVersions && !versionNotice.visible && layout === "grid"} />
+        {/* Once, whether or not anything is grouped yet; the notice above says what just happened first. */}
+        <Tip id="photo-versions" when={!!items && items.length > 0 && !versionNotice.visible && layout === "grid"} />
         <Tip id="first-map" when={!!items && items.length > 0 && layout === "map"} />
         {fixingRegionView && selectMode && !!items && items.length > 0 && (
           <div className="flex items-center gap-3 text-callout text-muted">
@@ -586,6 +610,7 @@ export default function GalleryPage() {
           onIndexChange={setLightboxIndex}
           onClose={() => setLightboxIndex(null)}
           tagOptions={edits.tagOptions}
+          morphOptions={morphOptions}
         />
       )}
 

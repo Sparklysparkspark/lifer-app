@@ -2,8 +2,16 @@
 // reuse. They document the answer in the OpenAPI document and type the web app's calls; fields not
 // listed still pass through.
 import { Type } from "typebox";
-import { CULL_LABELS } from "@lifer/shared";
+import { CULL_LABELS, LIFE_STAGES, SEXES } from "@lifer/shared";
 import { DateTime, NumberLike, Nullable, Open, Uuid } from "../lib/schema.js";
+
+/** How the animal in a photo looks (migration 196); null when not set. */
+export const Appearance = {
+  lifeStage: Nullable(Type.Enum([...LIFE_STAGES])),
+  sex: Nullable(Type.Enum([...SEXES], { description: "unknown: looked at and can't tell" })),
+  plumage: Nullable(Type.String()),
+  morph: Nullable(Type.String({ description: "Colour morph, e.g. dark morph" })),
+};
 
 /** One photo (toGalleryItem in routes.ts). */
 export const GalleryItem = Open({
@@ -34,6 +42,7 @@ export const GalleryItem = Open({
   cullVerdict: Nullable(Type.Enum(["pick", "reject"])),
   cullLabel: Nullable(Type.Enum([...CULL_LABELS])),
   hidden: Type.Boolean({ description: "Imported hidden because a culling app rejected it" }),
+  ...Appearance,
   isFeatured: Nullable(Type.Boolean({ description: "Its species' cover photo (null when the species has none)" })),
   hasRawOriginal: Type.Boolean(),
   inatStatus: Nullable(

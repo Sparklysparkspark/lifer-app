@@ -6,6 +6,7 @@
 // the tombstones (migration 152). Species go by scientific name: ids differ between installs.
 import type { Pool, PoolClient, QueryResultRow } from "pg";
 import { Type, type Static } from "typebox";
+import { APPEARANCE_TEXT_MAX, LIFE_STAGES, SEXES } from "@lifer/shared";
 import { Nullable, Uuid } from "../lib/schema.js";
 
 type Db = Pick<Pool | PoolClient, "query">;
@@ -44,6 +45,11 @@ export const captureFields = {
   cullLabel: Text,
   /** Optional so an older desktop's push, which lacks it, leaves the server's trip as it is. */
   tripId: Type.Optional(Nullable(Uuid())),
+  // How the animal looks (migration 196).
+  lifeStage: Type.Optional(Nullable(Type.Enum([...LIFE_STAGES]))),
+  sex: Type.Optional(Nullable(Type.Enum([...SEXES]))),
+  plumage: Type.Optional(Nullable(Type.String({ minLength: 1, maxLength: APPEARANCE_TEXT_MAX }))),
+  morph: Type.Optional(Nullable(Type.String({ minLength: 1, maxLength: APPEARANCE_TEXT_MAX }))),
 };
 
 export const CaptureChangeSchema = Type.Object({
@@ -90,6 +96,7 @@ export const isoStamp = (column: string) => `to_char(${column} AT TIME ZONE 'UTC
 export const CAPTURE_COLUMNS = `c.deleted_at, c.hidden_at, s.scientific_name,
   c.fingerprint, c.taken_at, c.lat, c.lon, c.camera_model, c.lens, c.focal_length_mm, c.aperture, c.shutter, c.iso,
   c.quality_rating, c.tags, c.location_label, c.location_source, c.location_accuracy_m, c.region_id, c.cull_verdict, c.cull_label, c.trip_id,
+  c.life_stage, c.sex, c.plumage, c.morph,
   p.id AS photo_id, p.width, p.height, p.kind AS photo_kind, p.duration_seconds`;
 
 const iso = (v: Date | string | null) => (v ? new Date(v).toISOString() : null);
@@ -121,6 +128,10 @@ export function captureFromRow(r: QueryResultRow): CaptureChange {
     cullVerdict: r.cull_verdict,
     cullLabel: r.cull_label,
     tripId: r.trip_id ?? null,
+    lifeStage: r.life_stage ?? null,
+    sex: r.sex ?? null,
+    plumage: r.plumage ?? null,
+    morph: r.morph ?? null,
     photo: r.photo_id
       ? {
           id: r.photo_id,
@@ -152,6 +163,10 @@ export const CAPTURE_META = [
   ["cull_verdict", "cullVerdict"],
   ["cull_label", "cullLabel"],
   ["hidden_at", "hiddenAt"],
+  ["life_stage", "lifeStage"],
+  ["sex", "sex"],
+  ["plumage", "plumage"],
+  ["morph", "morph"],
 ] as const satisfies ReadonlyArray<readonly [string, keyof CaptureChange]>;
 
 /** The server's captures by id, as listChanges sends them. */

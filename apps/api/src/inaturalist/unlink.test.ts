@@ -10,6 +10,8 @@ const bare: CaptureValues = {
   location_accuracy_m: null,
   region_id: null,
   taken_at: "2026-09-11 04:40:17+00",
+  life_stage: null,
+  sex: null,
 };
 const placed: CaptureValues = {
   ...bare,
@@ -65,6 +67,13 @@ describe("revertFor", () => {
   it("restores a date the link added", () => {
     const dated = recordWrites({ ...bare, taken_at: null }, bare, null);
     expect(revertFor(dated, bare).set).toEqual({ taken_at: null });
+  });
+
+  it("takes back a life stage and sex the link filled in, unless edited since", () => {
+    const annotated = { ...bare, life_stage: "juvenile", sex: "female" };
+    const filled = recordWrites(bare, annotated, null);
+    expect(revertFor(filled, annotated).set).toEqual({ life_stage: null, sex: null });
+    expect(revertFor(filled, { ...annotated, sex: "male" }).set).toEqual({ life_stage: null });
   });
 
   it("has nothing to restore when the link wrote nothing", () => {

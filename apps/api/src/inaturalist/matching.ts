@@ -1,6 +1,7 @@
 // Matches the user's own iNaturalist observations to library photos. Two stages, both explainable:
 // a cheap filter on what both already record (species, day and time, place), then the picture
 // itself (CLIP similarity, see observationMatch.ts). Nothing here reads files or the network.
+import { appearanceFromInatAnnotations, type LifeStage, type Sex } from "@lifer/shared";
 import { observationPoint } from "./client.js";
 
 /** One observation as Lifer keeps it (inaturalist_remote_observations.data). Also read by the
@@ -25,6 +26,9 @@ export interface RemoteObservation {
   placeGuess: string | null;
   photos: Array<{ id: string; url: string | null; width: number | null; height: number | null }>;
   updatedAt: string;
+  /** From its Life Stage and Sex annotations; given to the photos it's linked to that have none. */
+  lifeStage?: LifeStage | null;
+  sex?: Sex | null;
 }
 
 type Raw = Record<string, unknown>;
@@ -75,6 +79,7 @@ export function parseObservation(raw: unknown): RemoteObservation | null {
         return { id: String(p.id), url: str(p.url), width: num(dims?.width), height: num(dims?.height) };
       }),
     updatedAt: str(o.updated_at) ?? new Date(0).toISOString(),
+    ...appearanceFromInatAnnotations(o.annotations),
   };
 }
 

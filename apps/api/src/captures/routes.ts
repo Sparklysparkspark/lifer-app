@@ -1,6 +1,6 @@
-// Capture edits: species tags, reassigning, date, location and rating. Removing a capture never
-// touches its original file, only Lifer's records and generated derivatives.
-import { dateOnlyToTakenAt } from "@lifer/shared";
+// Capture edits: species tags, reassigning, date, location, rating and appearance. Removing a
+// capture never touches its original file, only Lifer's records and generated derivatives.
+import { APPEARANCE_TEXT_MAX, LIFE_STAGES, SEXES, appearanceText, dateOnlyToTakenAt } from "@lifer/shared";
 import path from "node:path";
 import type { FastifyInstance } from "fastify";
 import { Type } from "typebox";
@@ -508,6 +508,47 @@ export async function captureRoutes(fastify: FastifyInstance): Promise<void> {
 
       await syncCaptureXmpSidecarsLogged(userId, captureId);
       return { ok: true };
+    },
+  );
+
+  // How the animal looks, for one photo or a selection. A field left out stays as it is; null clears it.
+  app.post(
+    "/captures/appearance",
+    {
+      preValidation: requireScope("photos.write"),
+      schema: {
+        body: Type.Object(
+          {
+            captureIds: Type.Array(Uuid(), { minItems: 1, maxItems: MAX_LOCATION_BATCH }),
+            lifeStage: Type.Optional(Nullable(Type.Enum([...LIFE_STAGES]))),
+            sex: Type.Optional(Nullable(Type.Enum([...SEXES]))),
+            plumage: Type.Optional(Nullable(Type.String({ maxLength: APPEARANCE_TEXT_MAX }))),
+            morph: Type.Optional(Nullable(Type.String({ maxLength: APPEARANCE_TEXT_MAX }))),
+          },
+          { additionalProperties: false },
+        ),
+        response: replies(Type.Object({ updated: Type.Integer() })),
+      },
+    },
+    async (request) => {
+      const { captureIds, lifeStage, sex, plumage, morph } = request.body;
+      const sets: string[] = [];
+      const params: unknown[] = [request.user!.id, captureIds];
+      const set = (column: string, value: string | null | undefined) => {
+        if (value === undefined) return;
+        params.push(value);
+        sets.push(`${column} = $${params.length}`);
+      };
+      set("life_stage", lifeStage);
+      set("sex", sex);
+      set("plumage", plumage === undefined ? undefined : appearanceText(plumage));
+      set("morph", morph === undefined ? undefined : appearanceText(morph));
+      if (sets.length === 0) return { updated: 0 };
+      const res = await pool.query(
+        `UPDATE captures SET ${sets.join(", ")} WHERE user_id = $1 AND id = ANY($2::uuid[])`,
+        params,
+      );
+      return { updated: res.rowCount ?? 0 };
     },
   );
 

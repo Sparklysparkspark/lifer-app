@@ -44,14 +44,14 @@ export const OPS: Record<string, Partial<Record<Method, OpText>>> = {
     get: {
       summary: "Photo feed for syncing",
       description:
-        "Every photo in the library, ordered by last change. Page with `cursor` until `nextCursor` is null; store the last item's `updatedAt` and pass it as `since` next time to get only new and edited photos. Photos deleted permanently simply stop appearing, so run an occasional full sync if you mirror deletions.",
+        "Every photo in the library, ordered by last change. Page with `cursor` until `nextCursor` is null; store the last item's `updatedAt` and pass it as `since` next time to get only new and edited photos. `lifeStage`, `sex`, `plumage` and `morph` say how the animal looks, null when not set. Photos deleted permanently simply stop appearing, so run an occasional full sync if you mirror deletions.",
     },
   },
   "/life-list": {
     get: {
       summary: "Life list",
       description:
-        "One row per species you've photographed, oldest first. `include=seen` adds species marked seen without a photo.",
+        "One row per species you've photographed, oldest first. `years` lists the calendar years with a dated photo of the species, by the camera's clock. `include=seen` adds species marked seen without a photo.",
     },
   },
   "/life-list/summary": {
@@ -178,7 +178,7 @@ export const OPS: Record<string, Partial<Record<Method, OpText>>> = {
     post: {
       summary: "Lifer's names for scientific names",
       description:
-        "Send up to 2000 `scientificNames`; each one Lifer knows, directly or as a superseded name, comes back with its `canonicalScientificName`, `commonName`, `ebirdCode` and `abaCode`. Names Lifer doesn't know are left out. No user data.",
+        "Send up to 2000 `scientificNames`; each one Lifer knows, directly or as a superseded name, comes back with its `speciesId`, `gbifKey`, `canonicalScientificName`, `commonName`, `ebirdCode` and `abaCode`. Names Lifer doesn't know are left out. No user data.",
     },
   },
   "/opendata/v1/species/rank": {
@@ -444,6 +444,13 @@ export const OPS: Record<string, Partial<Record<Method, OpText>>> = {
   "/captures/{id}/species": { post: { summary: "Add another species shown in the photo" } },
   "/captures/{id}/species/{speciesId}": { delete: { summary: "Remove an additional species" } },
   "/captures/{id}/rating": { patch: { summary: "Set the star rating" } },
+  "/captures/appearance": {
+    post: {
+      summary: "Set how the animal looks: life stage, sex, plumage and morph",
+      description:
+        "For one photo or many (`captureIds`). `lifeStage` is one of egg, larva, nymph, pupa, juvenile, subadult or adult; `sex` is male, female or unknown (looked at and can't tell). `plumage` and `morph` are free text up to 100 characters. A field left out stays as it is; null clears it. `updated` counts the photos changed.",
+    },
+  },
   "/captures/{id}/tags": { patch: { summary: "Replace the photo's tags" } },
   "/captures/{id}/taken-at": { patch: { summary: "Set the capture time" } },
   "/captures/{id}/region": {
@@ -540,7 +547,17 @@ export const OPS: Record<string, Partial<Record<Method, OpText>>> = {
 
   // --- Species ---
   "/species": {
-    get: { summary: "Search species by name, alias, old scientific name, code, genus or family (accents ignored)" },
+    get: {
+      summary: "Search species by name, alias, old scientific name, code, genus or family (accents ignored)",
+      description: "Each hit carries `gbif_key`, `inat_taxon_id` and `taxon_class` for matching it in other sources.",
+    },
+  },
+  "/species/merges": {
+    get: {
+      summary: "Species folded into others by catalog updates",
+      description:
+        "Each `oldSpeciesId` with the `newSpeciesId` it now lives on (after any later merges), its `oldScientificName` and `mergedAt`. Pass a `mergedAt` back as `since` to get only newer merges. Small; no user data.",
+    },
   },
   "/species/{id}": { get: { summary: "Species details" } },
   "/species/{id}/encounters": { get: { summary: "Your encounters with a species" } },

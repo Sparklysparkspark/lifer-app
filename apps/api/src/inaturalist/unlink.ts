@@ -7,7 +7,16 @@ import { createLimiter } from "@lifer/core/lib/concurrency.js";
 import { syncCaptureXmpSidecarsLogged } from "../uploads/xmpSidecarSync.js";
 import { queueRecheck } from "../captures/recheck.js";
 
-export const LINK_FIELDS = ["lat", "lon", "location_source", "location_accuracy_m", "region_id", "taken_at"] as const;
+export const LINK_FIELDS = [
+  "lat",
+  "lon",
+  "location_source",
+  "location_accuracy_m",
+  "region_id",
+  "taken_at",
+  "life_stage",
+  "sex",
+] as const;
 export type LinkField = (typeof LINK_FIELDS)[number];
 /** The fields as Postgres prints them (::text), so before and after compare exactly. */
 export type CaptureValues = Record<LinkField, string | null>;
@@ -57,7 +66,7 @@ export function revertFor(
 }
 
 const SNAPSHOT = `c.lat::text AS lat, c.lon::text AS lon, c.location_source, c.location_accuracy_m::text AS location_accuracy_m,
-  c.region_id::text AS region_id, c.taken_at::text AS taken_at`;
+  c.region_id::text AS region_id, c.taken_at::text AS taken_at, c.life_stage, c.sex`;
 
 /** The found links' photos as they are now, inside the write-back's transaction. */
 export async function snapshotFound(
@@ -101,6 +110,8 @@ const CAST: Record<LinkField, string> = {
   location_accuracy_m: "numeric",
   region_id: "uuid",
   taken_at: "timestamptz",
+  life_stage: "text",
+  sex: "text",
 };
 
 /** Unlinks photos found on iNaturalist (never ones Lifer sent): removes the link, restores what it

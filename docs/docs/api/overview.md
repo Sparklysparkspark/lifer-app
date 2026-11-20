@@ -41,7 +41,7 @@ extra header.
 | Scope | Allows |
 |---|---|
 | `photos.read` | The photo feed (`GET /captures`) and image files: thumbnails, display images, originals, RAWs, videos |
-| `photos.write` | Importing photos (`POST /uploads`, [resumable uploads](#large-files)) and editing them: species, extra species, rating, tags, capture time, location |
+| `photos.write` | Importing photos (`POST /uploads`, [resumable uploads](#large-files)) and editing them: species, extra species, rating, tags, capture time, location, life stage, sex, plumage and morph |
 | `collection.read` | The life list and its summary counts, and the species you added to checklists yourself |
 | `collection.write` | Adding species to region checklists yourself, and removing them again |
 | `gallery.read` | The gallery listing, content search, similar-photo groups and the map |
@@ -80,7 +80,7 @@ Every photo in your library, ordered by when it last changed. Built for syncing.
 
 | Query | Meaning |
 |---|---|
-| `since` | Only photos changed after this time: new photos, and changes to species, rating, tags, location, capture time, or moving to/from the trash |
+| `since` | Only photos changed after this time: new photos, and changes to species, rating, tags, location, capture time, life stage, sex, plumage, morph, or moving to/from the trash |
 | `cursor` | The previous page's `nextCursor` |
 | `limit` | Page size, 1-500 (default 100). Larger values are capped at 500 |
 | `speciesId` | Only photos showing this species |
@@ -96,7 +96,9 @@ Every photo in your library, ordered by when it last changed. Built for syncing.
       "takenAt": "2025-04-12T09:31:05.000Z", "createdAt": "…", "updatedAt": "2026-09-25T18:02:11.482193Z", "deletedAt": null,
       "lat": 49.28, "lon": -123.12, "regionId": "…", "regionName": "British Columbia", "locationLabel": "Stanley Park", "tripId": null,
       "camera": { "model": "EOS R5", "lens": "RF100-500mm", "focalLengthMm": 500, "aperture": 7.1, "shutter": "1/1000", "iso": 800 },
-      "rating": 4, "tags": ["courtship"], "kind": "image", "width": 2048, "height": 1365,
+      "rating": 4, "tags": ["courtship"],
+      "lifeStage": "adult", "sex": "male", "plumage": "breeding", "morph": null,
+      "kind": "image", "width": 2048, "height": 1365,
       "originals": {
         "jpeg": { "fileName": "IMG_4411.jpg", "sizeBytes": 8123456, "sha256": "…" },
         "raw": { "fileName": "IMG_4411.CR3", "sizeBytes": 41234567, "sha256": "…" },
@@ -109,6 +111,10 @@ Every photo in your library, ordered by when it last changed. Built for syncing.
 }
 ```
 
+`lifeStage` (egg, larva, nymph, pupa, juvenile, subadult or adult), `sex` (male, female, or unknown
+for "looked and can't tell"), `plumage` and `morph` (free text) say how the animal looks; each is
+`null` until set.
+
 `images` is `null` for the rare photo with no current image file, and any of `originals.jpeg`, `raw` or `video` is `null` when the photo doesn't have that kind of file.
 
 **Syncing pattern:** request pages until `nextCursor` is `null`, remembering the last item's
@@ -119,7 +125,8 @@ occasional full pass to catch permanent deletions.
 ### `GET /api/life-list` (collection.read)
 
 One row per species you've photographed, oldest first: `speciesId`, names, `taxonClass`, `family`,
-`status` (`photographed` or `seen`), `firstCollected`, `lastPhotographed`, `photoCount`, `bestRating`,
+`status` (`photographed` or `seen`), `firstCollected`, `lastPhotographed`, `photoCount`, `years` (the
+calendar years with a dated photo of it, oldest first, by the camera's clock), `bestRating`,
 `coverPhotoId` and `coverImage` (your chosen species photo). `?taxonClass=aves,mammalia` filters;
 `?include=seen` adds species marked seen without a photo (`status: "seen"`).
 
@@ -290,6 +297,7 @@ Uploads belong to the key's user. A finished upload waits 2 hours for its import
 | `PATCH /api/captures/{id}/tags` | `{ "tags": ["…"] }` replaces the tags |
 | `PATCH /api/captures/{id}/taken-at` | `{ "takenAt": "ISO time" }` |
 | `PATCH /api/captures/{id}/region` | `{ "regionId": "…", "locationLabel": "…" }` (either or both) |
+| `POST /api/captures/appearance` | `{ "captureIds": ["…"], "lifeStage": "juvenile", "sex": "female", "plumage": "…", "morph": "…" }` for one photo or many; a field left out stays, `null` clears |
 
 Changes are also written into the photo's own metadata (or its RAW sidecar) where Lifer manages the
 file, so Lightroom and digiKam see them too.
@@ -344,8 +352,12 @@ lists smart albums worth making, each with its rules, and `GET /api/pinned-filte
 
 `?q=` searches common and scientific names, old names, codes, genus and family, ignoring accents.
 Add `regionId` to rank species on that region's checklist higher. It returns
-a `results` list whose items have `id`, `scientific_name` and `common_name` (note the underscores
-here), best match first.
+a `results` list whose items have `id`, `scientific_name`, `common_name`, `taxon_class`, `gbif_key`
+and `inat_taxon_id` (note the underscores here), best match first.
+
+`GET /api/species/merges` (species.read) lists catalog species folded into another by a catalog
+update: `oldSpeciesId`, the `newSpeciesId` it lives on now, `oldScientificName` and `mergedAt`. Keep
+it to remap species ids you stored; `?since=` with an earlier `mergedAt` returns only newer merges.
 
 Everything else (the rest of gallery and species, stats, trips, albums, shares) is listed with its
 parameters in `/api/openapi.json`, and most routes with the fields of their answer too. Answers can

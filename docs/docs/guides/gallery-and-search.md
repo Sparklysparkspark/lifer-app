@@ -124,6 +124,7 @@ The toolbar shows how many are selected. Each action that needs a choice opens i
 - **Correct ID…**: change the species of all of them.
 - **Add tag…**: tag them all. Click **Done** when you're finished.
 - **Rate…**: give them all the same star rating.
+- **Set appearance**: give them all the same life stage, sex, plumage or colour morph. A field left at **Leave as is** keeps each photo's own.
 - **Set region…**: pick the country, state or province where they were all taken, by searching for it, drilling in, or clicking a **Suggested:** region. Optionally type a **Place name** for them all too; left blank, each photo keeps its own. A toast offers **Undo** when no place name was set.
 - **Add to album…**, or create a **New album…**.
 - **Download originals**: saves each selected photo's original, one after another, including photos **Select all** picked that haven't scrolled into view yet.
@@ -162,6 +163,8 @@ Click a photo to open it full screen.
 | <kbd>Esc</kbd>                              | Leave full screen, then close                                                                                                                         |
 
 To zoom, pinch on a trackpad or hold <kbd>Ctrl</kbd> and scroll (up to 6x), or press <kbd>+</kbd> and <kbd>-</kbd>. Zooming centres on the pointer. Double-click to zoom to 2.5x, and again to zoom back out. The viewer and compare zoom the same way. Once zoomed, drag or scroll to move around; the photo stops at its edges, and the controls hide until you zoom back out. The caption shows the species, date, star rating, camera settings and file names, and lets you edit tags. Click a star to rate, or **Correct the ID** to move the photo to another species.
+
+**Add appearance** under the stars records how the animal looks: its life stage (egg to adult), sex, plumage (like breeding or eclipse) and colour morph (like a dark morph), so a juvenile or a rare morph that looks nothing like the usual adult is easy to tell apart. What you set shows as small labels in the viewer, and a species page lists the stages and morphs among your photos of it. Appearance syncs with a linked server like other edits; it isn't written into the photo files.
 
 ### Adding coordinates {#coordinates}
 

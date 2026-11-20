@@ -37,12 +37,20 @@ import {
 import { useCaptureEdits } from "./useCaptureEdits";
 import CaptureEditModal, { type CaptureEdit } from "../../components/CaptureEditModal";
 import { CaptureSelectBar, DeleteCapturesDialog } from "./CaptureSelection";
+import type { Appearance } from "@lifer/shared";
+import { AppearanceSummary } from "../../components/Appearance";
 
 const SPECIES_PHOTO_SORTS: readonly PhotoSort[] = ["newest", "oldest", "rating"];
 
 // Same one-line caption budget GalleryPage uses; wrapped lines are added per item.
 
 const captureKey = (c: SpeciesCapture) => c.id;
+const appearanceOf = (c: SpeciesCapture): Appearance => ({
+  lifeStage: c.life_stage ?? null,
+  sex: c.sex ?? null,
+  plumage: c.plumage ?? null,
+  morph: c.morph ?? null,
+});
 const captureTile = (c: SpeciesCapture): PhotoGridTileData => ({
   photoId: c.photo_id,
   alt: "",
@@ -120,9 +128,7 @@ export default function SpeciesPhotoGrid({
     return [
       {
         key: "trip",
-        label: trip.name
-          ? t("species.photoGrid.fromTrip", { trip: trip.name })
-          : t("species.photoGrid.fromThisTrip"),
+        label: trip.name ? t("species.photoGrid.fromTrip", { trip: trip.name }) : t("species.photoGrid.fromThisTrip"),
         entries: fromTrip,
         collapsed: collapsed.has("trip"),
         onToggle: toggle("trip"),
@@ -171,10 +177,20 @@ export default function SpeciesPhotoGrid({
         onReassign: (species: SpeciesResult) => void reassignRef.current(c.id, species),
         tags: c.tags,
         onTagsChange: (tags: string[]) => void tagCapture(c.id, tags),
+        appearance: appearanceOf(c),
+        onAppearanceChange: (changes: Partial<Appearance>) =>
+          updateCaptures([c.id], () => ({
+            ...("lifeStage" in changes && { life_stage: changes.lifeStage }),
+            ...("sex" in changes && { sex: changes.sex }),
+            ...("plumage" in changes && { plumage: changes.plumage }),
+            ...("morph" in changes && { morph: changes.morph }),
+          })),
         info: captureInfo(c),
       })),
-    [photoCaptures, tagCapture, rateCapture, reassignRef],
+    [photoCaptures, tagCapture, rateCapture, reassignRef, updateCaptures],
   );
+  const appearances = useMemo(() => captures.map(appearanceOf), [captures]);
+  const morphOptions = useMemo(() => appearances.flatMap((a) => (a.morph ? [a.morph] : [])), [appearances]);
 
   // Loading tiles for uploads in flight, right where the new photo will land.
   const pendingKeys = useMemo(
@@ -231,6 +247,7 @@ export default function SpeciesPhotoGrid({
         <div className="mb-2 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
           {/* For screen readers only: on screen the photos speak for themselves. */}
           <h2 className="sr-only">{photosSectionTitle(photoFilter, counts)}</h2>
+          <AppearanceSummary items={appearances} className="max-w-prose" />
           <div className="ml-auto flex flex-wrap items-center gap-x-4 gap-y-2">
             {(counts.raw > 0 || counts.video > 0) && (
               <SegmentedControl
@@ -354,6 +371,7 @@ export default function SpeciesPhotoGrid({
           onIndexChange={setLightboxIndex}
           onClose={closeLightbox}
           tagOptions={edits.tagOptions}
+          morphOptions={morphOptions}
         />
       )}
 

@@ -83,6 +83,7 @@ describe("GallerySelectBar", () => {
       "Download originals",
       "Hide",
       "Add location coordinates",
+      "Set appearance",
       "Adjust date and time",
       "Delete selected",
     ]);
@@ -90,13 +91,14 @@ describe("GallerySelectBar", () => {
     expect(edits.batch.setOpen).toHaveBeenCalledWith(true);
   });
 
-  it("keeps Add coordinates and Adjust date and time in More even when the row has room", () => {
+  it("keeps Add coordinates, Set appearance and Adjust date and time in More even when the row has room", () => {
     layout(5000, 100);
     renderBar(2);
     expect(names()).not.toContain("Adjust date and time");
     fireEvent.click(screen.getByRole("button", { name: "More" }));
     expect(screen.getAllByRole("menuitem").map((b) => b.textContent)).toEqual([
       "Add location coordinates",
+      "Set appearance",
       "Adjust date and time",
     ]);
   });

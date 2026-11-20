@@ -1,3 +1,4 @@
+import type { LifeStage, Sex } from "@lifer/shared";
 /** One camera, lens or place with its photo count; the list is capped, so `count` of the matching
  *  total can exceed its length. */
 export interface NamedCount {
@@ -159,6 +160,11 @@ export interface SpeciesCapture {
   lon?: number | string | null;
   // Free-text place name nested under region_id ("Prince George" under British Columbia).
   location_label: string | null;
+  // How the animal looks (migration 196).
+  life_stage?: LifeStage | null;
+  sex?: Sex | null;
+  plumage?: string | null;
+  morph?: string | null;
 }
 
 export type PhotoFilter = "all" | "edited" | "raw" | "video";

@@ -7,6 +7,7 @@ import { pool } from "@lifer/core/db.js";
 import { Nullable, Uuid, replies, routeCatalog, withSchemas } from "../lib/schema.js";
 import { requireScope } from "../auth/session.js";
 import { buildOpenApi } from "./openapi.js";
+import { Appearance } from "../gallery/responses.js";
 import { sensitiveForKey } from "../companion/privacy.js";
 
 const DEFAULT_LIMIT = 100;
@@ -69,6 +70,7 @@ const CaptureItem = Type.Object({
   }),
   rating: Nullable(Type.Integer({ description: "1-5" })),
   tags: Type.Array(Type.String()),
+  ...Appearance,
   kind: Type.Enum(["image", "video", "audio"]),
   width: IntNull,
   height: IntNull,
@@ -91,6 +93,9 @@ const LifeListSpecies = Type.Object({
   firstCollected: TimeNull(),
   lastPhotographed: TimeNull(),
   photoCount: Type.Integer(),
+  years: Type.Array(Type.Integer(), {
+    description: "Calendar years with at least one dated photo of the species (the camera's clock), oldest first",
+  }),
   suggested: Type.Boolean({
     description: "True while every photo of the species was filed by Lifer and none is confirmed yet",
   }),
@@ -182,7 +187,7 @@ export async function integrationRoutes(fastify: FastifyInstance): Promise<void>
         `SELECT c.id, c.current_photo_id, c.species_id, s.scientific_name, s.common_name, s.taxon_class,
               c.taken_at, c.created_at, ${UPDATED_AT_TEXT} AS updated_at, c.deleted_at, c.lat, c.lon, c.region_id, r.name AS region_name,
               c.location_label, c.camera_model, c.lens, c.focal_length_mm, c.aperture, c.shutter, c.iso,
-              c.quality_rating, c.tags, c.trip_id, p.kind AS photo_kind, p.width, p.height,
+              c.quality_rating, c.tags, c.life_stage, c.sex, c.plumage, c.morph, c.trip_id, p.kind AS photo_kind, p.width, p.height,
               oj.ref AS jpeg_ref, oj.file_size AS jpeg_size, oj.content_hash AS jpeg_hash,
               orw.ref AS raw_ref, orw.file_size AS raw_size, orw.content_hash AS raw_hash,
               ov.ref AS video_ref, ov.file_size AS video_size, ov.content_hash AS video_hash,
@@ -239,6 +244,10 @@ export async function integrationRoutes(fastify: FastifyInstance): Promise<void>
           },
           rating: r.quality_rating,
           tags: r.tags ?? [],
+          lifeStage: r.life_stage,
+          sex: r.sex,
+          plumage: r.plumage,
+          morph: r.morph,
           kind: r.photo_kind ?? "image",
           width: r.width,
           height: r.height,
@@ -286,6 +295,9 @@ export async function integrationRoutes(fastify: FastifyInstance): Promise<void>
                 us.cover_photo_id, us.best_quality,
                 (SELECT count(*)::int FROM captures c WHERE c.user_id = $1 AND c.species_id = s.id) AS photo_count,
                 (SELECT max(c.taken_at) FROM captures c WHERE c.user_id = $1 AND c.species_id = s.id) AS last_photographed,
+                -- As the collection page's captured_years: taken_at holds the camera's clock as UTC.
+                (SELECT coalesce(array_agg(DISTINCT extract(year FROM c.taken_at)::int ORDER BY extract(year FROM c.taken_at)::int), '{}')
+                   FROM captures c WHERE c.user_id = $1 AND c.species_id = s.id AND c.taken_at IS NOT NULL) AS years,
                 EXISTS (SELECT 1 FROM captures c WHERE c.user_id = $1 AND c.species_id = s.id)
                   AND NOT EXISTS (SELECT 1 FROM captures c WHERE c.user_id = $1 AND c.species_id = s.id
                                   AND c.identification_state = 'confirmed') AS suggested
@@ -305,6 +317,7 @@ export async function integrationRoutes(fastify: FastifyInstance): Promise<void>
           firstCollected: r.first_collected,
           lastPhotographed: r.last_photographed,
           photoCount: r.photo_count,
+          years: r.years,
           suggested: r.suggested,
           bestRating: r.best_quality,
           coverPhotoId: r.cover_photo_id,

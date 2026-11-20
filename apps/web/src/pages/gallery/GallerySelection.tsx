@@ -17,6 +17,8 @@ import { formatNumber } from "../../lib/format";
 import Checkbox from "../../components/Checkbox";
 import AdjustTimeDialog from "./AdjustTimeDialog";
 import CoordinatesModal from "../../components/CoordinatesModal";
+import type { Appearance } from "@lifer/shared";
+import { AppearanceModal } from "../../components/Appearance";
 import { SelectionBar, type BarAction } from "../../components/SelectionActionRow";
 import { COMPARE_MAX, COMPARE_MIN } from "../../lib/compareZoom";
 
@@ -80,7 +82,7 @@ function SetRegionDialog({
   );
 }
 
-type BarDialog = "correctId" | "tag" | "rate" | "region" | "album" | "adjustTime" | "coordinates";
+type BarDialog = "correctId" | "tag" | "rate" | "region" | "album" | "adjustTime" | "coordinates" | "appearance";
 
 // Select mode's bar. In the album picker it only adds to that album; otherwise each action opens
 // its own dialog: correct the ID, tag, rate, set the region, add to any album; or downloads,
@@ -94,6 +96,8 @@ export function GallerySelectBar({
   regionFirst = false,
   selectionLacksRegion = false,
   onCoordinatesSaved,
+  onAppearanceSaved,
+  morphOptions,
   onCompare,
   compareFirst = false,
   onPlaceOnMap,
@@ -113,6 +117,10 @@ export function GallerySelectBar({
     point: { lat: number; lon: number } | null,
     region: { id: string; name: string } | null,
   ) => void;
+  /** After the selection's life stage, sex, plumage or morph is set, to show it at once. */
+  onAppearanceSaved?: (captureIds: string[], changes: Partial<Appearance>) => void;
+  /** Morphs already used, offered while typing one. */
+  morphOptions?: string[];
   /** Opens the selected photos side by side; offered for 2 to 4. */
   onCompare?: () => void;
   /** Reviewing a similar group: Compare leads, as the main action. */
@@ -207,6 +215,12 @@ export function GallerySelectBar({
           menuOnly: true,
         })),
         {
+          key: "appearance",
+          label: t("appearance.action"),
+          onClick: () => setDialog("appearance"),
+          menuOnly: true,
+        },
+        {
           key: "adjustTime",
           label: t("gallery.adjustTime.action"),
           onClick: () => setDialog("adjustTime"),
@@ -298,6 +312,15 @@ export function GallerySelectBar({
           suggestRegion={selectionLacksRegion}
           onSaved={(point, region) => onCoordinatesSaved?.([...selectedIds], point, region)}
           onUndone={edits.reload}
+          onClose={close}
+        />
+      )}
+      {dialog === "appearance" && (
+        <AppearanceModal
+          captureIds={[...selectedIds]}
+          morphOptions={morphOptions}
+          onSaved={(changes) => onAppearanceSaved?.([...selectedIds], changes)}
+          onFailed={edits.reload}
           onClose={close}
         />
       )}

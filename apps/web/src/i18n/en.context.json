@@ -101,6 +101,21 @@
     "alsoSetRegion": "A checkbox offered when the photo has no region: {region} is the province or country the coordinates fall in.",
     "filingUnder": "Shown after the user picks one of their saved places for the photos. {name} is the place. Photos that already have the camera's GPS keep that point and only take the place's name."
   },
+  "appearance": {
+    "title": "Dialog title and list name: how the animal in a photo looks (life stage, sex, plumage, colour morph).",
+    "titleMany": "Same dialog for several selected photos at once.",
+    "morph": "A colour form of one species, like the dark and light morphs of some hawks or the koi pattern of an angelfish.",
+    "leaveAsIs": "Option and placeholder when editing several photos: keep each photo's own value.",
+    "edit": "Link beside a photo's appearance badges in the photo viewer; opens the Appearance dialog.",
+    "action": "Selection bar action: set the appearance of every selected photo.",
+    "photographedAs": "On a species page, before the list of life stages, sexes and morphs among the user's photos of it.",
+    "sex": {
+      "unknown": "Looked at, but you can't tell male from female."
+    },
+    "plumage": {
+      "eclipse": "Birding term: the dull plumage some male ducks wear after breeding."
+    }
+  },
   "captureEdit": {
     "reassign": {
       "title": "Dialog title: the photo was identified as the wrong species; pick the right one."
@@ -1588,6 +1603,7 @@
   },
   "versions": {
     "badge": "A small badge on a photo thumbnail: how many versions (prints, edits, exports) the photo has.",
+    "linkToPhoto": "Screen reader label of a photo to pick in the link picker. {name} is its file name, like IMG_1234.jpg.",
     "label": {
       "withSize": "A version's name with its print size: {kind} is a version kind like Print, {size} a size like 8x10."
     },

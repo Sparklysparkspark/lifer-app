@@ -1,4 +1,4 @@
-// GET /species: the species picker's search.
+// GET /species: the species picker's search. GET /species/merges: catalog entries folded into others.
 import type { FastifyInstance } from "fastify";
 import { Type, type Static } from "typebox";
 import { pool, withTransaction } from "@lifer/core/db.js";
@@ -21,6 +21,10 @@ const SearchResults = Type.Object({
       common_name: Nullable(Type.String()),
       aba_code: Type.Optional(Nullable(Type.String())),
       ebird_code: Type.Optional(Nullable(Type.String())),
+      // Keys to match the species in other sources.
+      gbif_key: Type.Optional(Type.Integer({ description: "GBIF backbone taxon key" })),
+      inat_taxon_id: Type.Optional(Nullable(Type.Integer())),
+      taxon_class: Type.Optional(Nullable(Type.String())),
       rank: Type.Optional(Type.Number({ description: "Higher is better" })),
     }),
   ),
@@ -91,7 +95,7 @@ const SPECIES_SEARCH_SQL = `
     WHERE score > 0
     GROUP BY species_id
   )
-  SELECT s.id, s.scientific_name, s.common_name, s.aba_code, s.ebird_code, h.literal,
+  SELECT s.id, s.scientific_name, s.common_name, s.aba_code, s.ebird_code, s.gbif_key, s.inat_taxon_id, s.taxon_class, h.literal,
          ((h.score
            + CASE us.state WHEN 'collected' THEN 6 WHEN 'seen' THEN 3 ELSE 0 END
            + CASE WHEN $4::uuid IS NOT NULL AND EXISTS (
@@ -164,6 +168,63 @@ export async function speciesSearchRoutes(fastify: FastifyInstance): Promise<voi
   const app = withSchemas(fastify);
   if (!searchNamesCheck) void ensureSpeciesSearchNames();
 
+  // Old species ids an integration may still hold, each with the species it lives on as now
+  // (migration 113). A survivor merged again later resolves to its own survivor.
+  app.get(
+    "/species/merges",
+    {
+      preValidation: requireScope("species.read"),
+      schema: {
+        querystring: Type.Object({
+          since: Type.Optional(
+            Type.String({ format: "date-time", description: "Only merges applied after this time" }),
+          ),
+        }),
+        response: replies(
+          Type.Object({
+            merges: Type.Array(
+              Type.Object({
+                oldSpeciesId: Uuid(),
+                newSpeciesId: Uuid({ description: "The species it is now, after any later merges" }),
+                oldScientificName: Type.String(),
+                mergedAt: Type.String({ format: "date-time" }),
+              }),
+            ),
+          }),
+        ),
+      },
+    },
+    async (request) => {
+      const res = await pool.query<{
+        old_species_id: string;
+        new_species_id: string;
+        old_scientific_name: string;
+        merged_at: Date;
+      }>(
+        `WITH RECURSIVE chain AS (
+           SELECT old_species_id AS start, new_species_id AS target, 1 AS depth FROM species_merges
+           UNION ALL
+           SELECT c.start, m.new_species_id, c.depth + 1 FROM chain c JOIN species_merges m ON m.old_species_id = c.target
+           WHERE c.depth < 20
+         )
+         SELECT m.old_species_id, m.old_scientific_name, m.merged_at,
+                (SELECT c.target FROM chain c WHERE c.start = m.old_species_id ORDER BY c.depth DESC LIMIT 1) AS new_species_id
+         FROM species_merges m
+         WHERE $1::timestamptz IS NULL OR m.merged_at > $1::timestamptz
+         ORDER BY m.merged_at, m.old_species_id`,
+        [request.query.since ?? null],
+      );
+      return {
+        merges: res.rows.map((r) => ({
+          oldSpeciesId: r.old_species_id,
+          newSpeciesId: r.new_species_id,
+          oldScientificName: r.old_scientific_name,
+          mergedAt: r.merged_at.toISOString(),
+        })),
+      };
+    },
+  );
+
   app.get(
     "/species",
     {
@@ -177,7 +238,7 @@ export async function speciesSearchRoutes(fastify: FastifyInstance): Promise<voi
       if (!q) {
         // No query yet: pin the user's most recently photographed species first.
         const recent = await pool.query(
-          `SELECT s.id, s.scientific_name, s.common_name, s.aba_code, s.ebird_code, u.last_used
+          `SELECT s.id, s.scientific_name, s.common_name, s.aba_code, s.ebird_code, s.gbif_key, s.inat_taxon_id, s.taxon_class, u.last_used
          FROM (
            SELECT species_id, MAX(created_at) AS last_used
            FROM captures
@@ -218,7 +279,7 @@ export async function speciesSearchRoutes(fastify: FastifyInstance): Promise<voi
       // scientific names and aliases, prefix match on codes, genus and family (ranked lower).
       // Fully extinct species can't be photographed, so they're left out.
       const res = await pool.query(
-        `SELECT s.id, s.scientific_name, s.common_name, s.aba_code, s.ebird_code,
+        `SELECT s.id, s.scientific_name, s.common_name, s.aba_code, s.ebird_code, s.gbif_key, s.inat_taxon_id, s.taxon_class,
               GREATEST(
                 similarity(s.common_name, $1),
                 similarity(s.scientific_name, $1),

@@ -356,6 +356,44 @@
     "placeSaved": "Place name and region saved",
     "saveFailed": "Couldn't save the coordinates"
   },
+  "appearance": {
+    "title": "Appearance",
+    "titleMany": "Appearance of {count, plural, one {# photo} other {# photos}}",
+    "lifeStage": "Life stage",
+    "sexLabel": "Sex",
+    "plumageLabel": "Plumage",
+    "morph": "Colour morph",
+    "morphHint": "A colour form some species come in, like a dark morph.",
+    "notSet": "Not set",
+    "leaveAsIs": "Leave as is",
+    "saveFailed": "Couldn't save the appearance",
+    "add": "Add appearance",
+    "edit": "Edit",
+    "action": "Set appearance",
+    "photographedAs": "Your photos show",
+    "more": "and {count, plural, one {# more} other {# more}}",
+    "stage": {
+      "egg": "Egg",
+      "larva": "Larva",
+      "nymph": "Nymph",
+      "pupa": "Pupa",
+      "juvenile": "Juvenile",
+      "subadult": "Subadult",
+      "adult": "Adult"
+    },
+    "sex": {
+      "male": "Male",
+      "female": "Female",
+      "unknown": "Sex unknown"
+    },
+    "plumage": {
+      "breeding": "Breeding",
+      "nonBreeding": "Non-breeding",
+      "eclipse": "Eclipse",
+      "immature": "Immature",
+      "moulting": "Moulting"
+    }
+  },
   "captureEdit": {
     "tags": "Tags",
     "reassign": {
@@ -1966,6 +2004,10 @@
     "seen": {
       "body": "Mark a species seen when you spotted it without a photo, or add it to your targets to look for next.",
       "title": "Seen and targets"
+    },
+    "versions": {
+      "body": "Edits, prints and exports of one photo are grouped, so it counts once.",
+      "title": "Photo versions"
     }
   },
   "onboarding": {
@@ -3890,7 +3932,7 @@
     },
     "photoVersions": {
       "badge": "A stack badge marks a photo with prints, edits or exports.",
-      "switch": "switch between them in the viewer"
+      "link": "in the viewer links an edit or print to its original"
     }
   },
   "trash": {
@@ -4306,7 +4348,7 @@
     "ignore": "Ignore",
     "ignoreAll": "Ignore all",
     "ignoreAllConfirm": {
-      "title": "{count, plural, one {Ignore {total, number} file?} other {Ignore all {total, number} files?}}",
+      "title": "{count, plural, one {Ignore {total} file?} other {Ignore all {total} files?}}",
       "message": "Changed files are accepted as they are now. Missing and unreadable files stay off this list until they can be read again."
     },
     "ignoredAll": "{count, plural, one {{total} file ignored} other {{total} files ignored}}",
@@ -4371,6 +4413,7 @@
     "title": "Versions",
     "description": "The original, edits and exports of this photo count as one photo.",
     "single": "This photo has no other versions.",
+    "singleHint": "Is it an edit, print or export? Link it to the photo it was made from, and they count as one.",
     "shown": "Shown",
     "role": {
       "original": "Original",
@@ -4388,8 +4431,13 @@
     "splitOut": "Split out",
     "linkTo": "Link to another photo",
     "linkTitle": "Link to another photo",
-    "linkDescription": "Photos taken within two minutes. Pick the one this is a version of.",
-    "linkToPhoto": "Link to this photo",
+    "linkDescription": "Pick the photo this one is an edit, print or export of.",
+    "linkNearby": "Showing photos taken within two minutes. Search to find any other photo.",
+    "linkNoneNearby": "No photos were taken within two minutes. Search to find any other photo.",
+    "linkNoMatch": "No photos match.",
+    "linkSearch": "Search photos",
+    "linkSearchPlaceholder": "File name, species or date",
+    "linkToPhoto": "Link to {name}",
     "shownToast": "Showing {name}",
     "splitToast": "{name} is a photo of its own again",
     "linkedToast": "Linked as a version",

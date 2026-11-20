@@ -1,6 +1,7 @@
 // Response schemas for the species page's routes (detail.ts, referencePhotos.ts, splitRoutes.ts).
 // They document the answer in the OpenAPI document; fields not listed still pass through.
 import { Type } from "typebox";
+import { LIFE_STAGES, SEXES } from "@lifer/shared";
 import { DateTime, Nullable, NullableNumbers, NumberLike, Ok, Open, Uuid } from "../lib/schema.js";
 
 const Count = Type.Integer();
@@ -30,6 +31,7 @@ export const SpeciesDetail = Open({
     scientific_name: Type.String(),
     common_name: Text,
     inat_taxon_id: Nullable(Type.Integer()),
+    gbif_key: Type.Integer({ description: "GBIF backbone taxon key" }),
     ebird_code: Text,
     aba_code: Text,
     taxon_class: Text,
@@ -78,6 +80,11 @@ export const SpeciesDetail = Open({
       iso: Nullable(Type.Integer()),
       quality_rating: Nullable(Type.Integer()),
       tags: Type.Array(Type.String()),
+      // How the animal looks (migration 196).
+      life_stage: Nullable(Type.Enum([...LIFE_STAGES])),
+      sex: Nullable(Type.Enum([...SEXES])),
+      plumage: Text,
+      morph: Text,
       photo_kind: Nullable(Type.Enum(["image", "video", "audio"])),
       duration_seconds: Nullable(Type.Number()),
       original_ref: Text,

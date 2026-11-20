@@ -38,6 +38,8 @@ import {
   timeMaybeWrong,
   trustedSun,
   type CullLabel,
+  type LifeStage,
+  type Sex,
   type FrameBox,
   type LightStats,
   type LegacyShotKind,
@@ -80,7 +82,7 @@ export const GALLERY_ITEM_COLUMNS = `
   c.id AS capture_id, p.id AS photo_id, p.width, p.height, c.species_id, s.scientific_name, s.common_name, s.taxon_class,
   c.taken_at, c.created_at, c.camera_model, c.lens, c.focal_length_mm, c.aperture, c.shutter, c.iso, c.quality_rating,
   c.lat, c.lon, c.region_id, reg.name AS region_name, c.location_label, p.kind AS photo_kind, p.duration_seconds, c.tags,
-  c.cull_verdict, c.cull_label, c.hidden_at IS NOT NULL AS hidden,
+  c.cull_verdict, c.cull_label, c.hidden_at IS NOT NULL AS hidden, c.life_stage, c.sex, c.plumage, c.morph,
   (p.id = us.cover_photo_id) AS is_featured,
   EXISTS (SELECT 1 FROM originals ro WHERE ro.capture_id = c.id AND ro.kind = 'raw') AS has_raw_original,
   (SELECT io.status FROM capture_inaturalist_observations io WHERE io.capture_id = c.id AND io.photo_sent) AS inat_status,
@@ -1392,6 +1394,10 @@ export interface GalleryRow {
   cull_verdict: "pick" | "reject" | null;
   cull_label: CullLabel | null;
   hidden: boolean | null;
+  life_stage: LifeStage | null;
+  sex: Sex | null;
+  plumage: string | null;
+  morph: string | null;
   is_featured: boolean | null;
   has_raw_original: boolean;
   inat_status: "pending" | "completed" | null;
@@ -1456,6 +1462,10 @@ export function toGalleryItem(row: GalleryRow, score: number | null) {
     kind: row.photo_kind ?? "image",
     durationSeconds: row.duration_seconds,
     tags: row.tags ?? [],
+    lifeStage: row.life_stage ?? null,
+    sex: row.sex ?? null,
+    plumage: row.plumage ?? null,
+    morph: row.morph ?? null,
     // What a culling app marked the photo (shown in the lightbox's info), and whether it was
     // imported hidden.
     cullVerdict: row.cull_verdict ?? null,

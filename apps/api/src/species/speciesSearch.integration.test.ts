@@ -98,9 +98,12 @@ describe.skipIf(!url)("GET /species search", () => {
       "aba_code",
       "common_name",
       "ebird_code",
+      "gbif_key",
       "id",
+      "inat_taxon_id",
       "rank",
       "scientific_name",
+      "taxon_class",
     ]);
   });
 

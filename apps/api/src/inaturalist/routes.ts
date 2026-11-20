@@ -892,7 +892,9 @@ export async function inaturalistRoutes(fastify: FastifyInstance): Promise<void>
         response: replies(
           Open({
             unlinked: Type.Integer(),
-            kept: Type.Integer({ description: "Photos whose location or date changed since, left as they are" }),
+            kept: Type.Integer({
+              description: "Photos whose location, date, life stage or sex changed since, left as they are",
+            }),
           }),
         ),
       },

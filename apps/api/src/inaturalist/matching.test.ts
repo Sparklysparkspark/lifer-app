@@ -59,6 +59,23 @@ describe("parseObservation", () => {
     expect(o?.wallClock).toBe("2026-09-11T04:40:00");
   });
 
+  it("reads life stage and sex from the annotations, skipping voted-down and unmapped ones", () => {
+    const at = (attr: number, value: number, vote_score = 1) => ({
+      controlled_attribute_id: attr,
+      controlled_value_id: value,
+      vote_score,
+    });
+    expect(parseObservation({ id: 3, annotations: [at(1, 8), at(9, 10)] })).toMatchObject({
+      lifeStage: "juvenile",
+      sex: "female",
+    });
+    expect(parseObservation({ id: 4, annotations: [at(1, 2, -1), at(1, 3), at(9, 20)] })).toMatchObject({
+      lifeStage: null,
+      sex: "unknown",
+    });
+    expect(parseObservation({ id: 5 })).toMatchObject({ lifeStage: null, sex: null });
+  });
+
   it("keeps a date-only observation's day, and rejects things that aren't observations", () => {
     expect(parseObservation({ id: 2, observed_on: "2026-05-01", time_observed_at: null })).toMatchObject({
       instant: null,

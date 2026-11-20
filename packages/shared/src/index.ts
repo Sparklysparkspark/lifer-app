@@ -15,6 +15,7 @@ export * from "./tierExplain.js";
 export * from "./cardCrop.js";
 export * from "./iucn.js";
 export * from "./cull.js";
+export * from "./appearance.js";
 export * from "./settings.js";
 export * from "./taxonomicOrder.js";
 export * from "./folderLayout.js";

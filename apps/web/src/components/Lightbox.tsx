@@ -6,6 +6,9 @@ import PhotoPlaceholder from "./PhotoPlaceholder";
 import StarRating from "./StarRating";
 import CaptureEditModal from "./CaptureEditModal";
 import CoordinatesModal from "./CoordinatesModal";
+import type { Appearance } from "@lifer/shared";
+import { AppearanceBadges, AppearanceModal } from "./Appearance";
+import { NO_APPEARANCE } from "../lib/appearance";
 import { formatCoordinates } from "../lib/coordinates";
 import TagEditor from "./TagEditor";
 import type { SpeciesResult } from "./SpeciesPicker";
@@ -46,7 +49,7 @@ import { useFocusTrap } from "../hooks/useFocusTrap";
 import { sharpestShown } from "./ProgressiveImg";
 import { VersionStrip, usePhotoVersions } from "./PhotoVersions";
 import { StackIcon } from "./PhotoTile";
-import { openPhotoVersions, type PhotoVersion } from "../lib/photoVersions";
+import { openPhotoVersions, photoVersionsPanel, type PhotoVersion } from "../lib/photoVersions";
 import { useKeyboardShortcuts } from "../hooks/useKeyboardShortcuts";
 
 /** m:ss.cc, to the hundredth, so the saved frame is named exactly. */
@@ -101,6 +104,9 @@ export interface LightboxSlide {
   } | null;
   tags?: string[] | null;
   onTagsChange?: (tags: string[]) => void;
+  /** How the animal looks; with onAppearanceChange (and captureId) it can be set here. */
+  appearance?: Appearance | null;
+  onAppearanceChange?: (changes: Partial<Appearance>) => void;
   /** The photo's GPS point. With onChange (and captureId), it can be typed or cleared here. */
   coordinates?: {
     lat: number | null;
@@ -179,6 +185,7 @@ export default function Lightbox({
   onIndexChange,
   onClose,
   tagOptions,
+  morphOptions,
   backLabel,
 }: {
   slides: LightboxSlide[];
@@ -187,6 +194,8 @@ export default function Lightbox({
   onClose: () => void;
   /** Tag autocomplete for the caption band's TagEditor. */
   tagOptions?: string[];
+  /** Morphs already used, offered in the Appearance dialog. */
+  morphOptions?: string[];
   /** What the species page's back link calls this page, when it has a name (a trip's, an album's). */
   backLabel?: string;
 }) {
@@ -202,6 +211,7 @@ export default function Lightbox({
   ).data?.checklists[0];
   const [correcting, setCorrecting] = useState(false);
   const [editingCoordinates, setEditingCoordinates] = useState(false);
+  const [editingAppearance, setEditingAppearance] = useState(false);
   const idleTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
   useFocusTrap(dialogRef);
@@ -322,9 +332,27 @@ export default function Lightbox({
     const at = versions.findIndex((v) => v.captureId === activeVersion?.captureId);
     showVersion(versions[(at + by + versions.length) % versions.length]);
   }
+  // Any still photo: a photo without versions yet is the one to link to its original.
+  const versionsPanelOpen = photoVersionsPanel.use() != null;
   useKeyboardShortcuts(
-    { versionsShow: () => current?.captureId && openPhotoVersions(current.captureId, current.onVersionsChange) },
-    { enabled: versions.length > 1 && !correcting && !editingCoordinates },
+    {
+      versionsShow: () => current?.captureId && openPhotoVersions(current.captureId, current.onVersionsChange),
+      versionLinkTo: (e) => {
+        e.preventDefault();
+        if (current?.captureId && versions.length <= 1)
+          openPhotoVersions(current.captureId, current.onVersionsChange, true);
+      },
+    },
+    {
+      enabled:
+        !!current?.captureId &&
+        !current.videoUrl &&
+        !current.audioUrl &&
+        !versionsPanelOpen &&
+        !correcting &&
+        !editingCoordinates &&
+        !editingAppearance,
+    },
   );
 
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -359,7 +387,8 @@ export default function Lightbox({
   const stepVersionRef = useLatest(stepVersion);
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
-      if (correcting || editingCoordinates || isTypingTarget(e.target) || e.defaultPrevented) return;
+      if (correcting || editingCoordinates || editingAppearance || isTypingTarget(e.target) || e.defaultPrevented)
+        return;
       const slide = slides[index];
       const video = videoRef.current;
       const hasDuration = !!video && Number.isFinite(video.duration) && video.duration > 0;
@@ -412,6 +441,7 @@ export default function Lightbox({
     canToggleFullscreenRef,
     correcting,
     editingCoordinates,
+    editingAppearance,
     versionsRef,
     stepVersionRef,
   ]);
@@ -463,6 +493,7 @@ export default function Lightbox({
     !!slide.info?.cull ||
     slide.onTagsChange ||
     slide.onRate ||
+    !!slide.onAppearanceChange ||
     slide.coordinates?.lat != null ||
     !!slide.coordinates?.onChange
   );
@@ -508,7 +539,7 @@ export default function Lightbox({
           className={`absolute right-4 top-4 z-10 flex items-center gap-2 transition-opacity duration-300 ${overlayFadeClass}`}
         >
           {versions.length > 1 && slide.captureId && (
-            <Tooltip content={{ label: t("versions.manage") }}>
+            <Tooltip content={{ label: t("versions.manage"), shortcut: shortcutLabel("versionsShow") }}>
               {(tip) => (
                 // raw-control: a lightbox overlay control, light on the dark backdrop.
                 <button
@@ -765,6 +796,22 @@ export default function Lightbox({
                 <StarRating rating={slide.rating ?? null} onRate={slide.onRate} size="text-body" />
               </div>
             )}
+            {(slide.onAppearanceChange || slide.appearance) && (
+              <div className="mt-1 flex flex-wrap items-center justify-center gap-x-2 gap-y-1">
+                <AppearanceBadges dark appearance={slide.appearance} className="justify-center" />
+                {slide.onAppearanceChange && slide.captureId && (
+                  // raw-control: a link in the caption, light on the dark backdrop. design-token: as the links above
+                  <button
+                    type="button"
+                    onClick={() => setEditingAppearance(true)}
+                    // design-token: as the links above
+                    className="text-footnote text-white/70 underline hover:text-white"
+                  >
+                    {Object.values(slide.appearance ?? {}).some(Boolean) ? t("appearance.edit") : t("appearance.add")}
+                  </button>
+                )}
+              </div>
+            )}
             {(cameraLine || takenLabel || slide.info?.cull) && (
               <p className="mt-0.5 text-footnote text-white/50">
                 {[cameraLine, takenLabel, slide.info?.cull].filter(Boolean).join(" · ")}
@@ -841,6 +888,17 @@ export default function Lightbox({
             onTagsChange={() => {}}
             onReassign={slide.onReassign}
             onClose={() => setCorrecting(false)}
+          />
+        </div>
+      )}
+      {editingAppearance && slide.onAppearanceChange && slide.captureId && (
+        <div onClick={(e) => e.stopPropagation()}>
+          <AppearanceModal
+            captureIds={[slide.captureId]}
+            initial={slide.appearance ?? NO_APPEARANCE}
+            morphOptions={morphOptions}
+            onSaved={slide.onAppearanceChange}
+            onClose={() => setEditingAppearance(false)}
           />
         </div>
       )}
