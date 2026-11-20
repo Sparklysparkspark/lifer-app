@@ -1,17 +1,25 @@
-import { useEffect, useState } from "react";
-import { api, ApiError } from "../api/client";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import { Trans, useTranslation } from "react-i18next";
+import { api } from "../api/client";
 import PageHeader from "../components/PageHeader";
+import { useSidebarLayout } from "../components/AppSidebar";
+import { docsUrl } from "../lib/docs";
 import SegmentedControl from "../components/SegmentedControl";
 import { Spinner } from "../components/LoadingScreen";
 import EmptyState from "../components/EmptyState";
 import Button from "../components/Button";
-import FormMessage from "../components/FormMessage";
-import { formatDate } from "../lib/format";
-import { pluralize } from "../lib/pluralize";
 import { openExternal } from "../lib/openExternal";
-import { useSpeciesName } from "../lib/speciesName";
+import { useInatStatus } from "../hooks/useInatStatus";
+import { useToast } from "../hooks/useToast";
+import SightingsTab, { type Sighting } from "./inaturalist/SightingsTab";
+import ObservationsTab, { type ObservationSummary } from "./inaturalist/ObservationsTab";
+import { CLEAR_SELECTION_EVENT } from "./inaturalist/cardSelection";
+import type { PossibleMatch } from "./inaturalist/ExistingObservations";
+import { useExistingCheck } from "../hooks/useExistingCheck";
+import { onAccountReset } from "../lib/resource";
 
-const sendIcon = (
+const icon = (d: string) => (
   <svg
     viewBox="0 0 24 24"
     className="h-6 w-6 text-muted"
@@ -20,358 +28,287 @@ const sendIcon = (
     strokeWidth={1.75}
     strokeLinecap="round"
     strokeLinejoin="round"
+    aria-hidden
   >
-    <path d="M22 2 11 13M22 2l-7 20-4-9-9-4 20-7Z" />
+    <path d={d} />
   </svg>
 );
-const pendingIcon = (
-  <svg
-    viewBox="0 0 24 24"
-    className="h-6 w-6 text-muted"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth={1.75}
-    strokeLinecap="round"
-    strokeLinejoin="round"
-  >
-    <circle cx="12" cy="12" r="9" />
-    <path d="M12 7v5l3 3" />
-  </svg>
-);
-const completedIcon = (
-  <svg
-    viewBox="0 0 24 24"
-    className="h-6 w-6 text-muted"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth={1.75}
-    strokeLinecap="round"
-    strokeLinejoin="round"
-  >
-    <path d="M20 6 9 17l-5-5" />
-  </svg>
+const linkIcon = icon(
+  "M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7",
 );
 
-interface ImportCluster {
-  speciesId: string;
-  commonName: string | null;
-  scientificName: string;
-  earliestTakenAt: string | null;
-  latestTakenAt: string | null;
-  captures: Array<{ id: string; currentPhotoId: string | null }>;
-}
-
-interface ObservationSummary {
-  observationId: string;
-  scientificName: string;
-  commonName: string | null;
-  currentPhotoId: string | null;
-  createdAt: string;
-  confirmedAt: string | null;
-  url: string;
-  editUrl: string;
-}
-
+type Lists = {
+  sightings: Sighting[];
+  ignoredCount: number;
+  pending: ObservationSummary[];
+  completed: ObservationSummary[];
+  matches: PossibleMatch[];
+};
 type Tab = "import" | "pending" | "completed";
+const TABS: Tab[] = ["import", "pending", "completed"];
+const TAB_LABELS: Record<Tab, string> = {
+  import: "inaturalist.tabs.import",
+  pending: "inaturalist.tabs.pending",
+  completed: "inaturalist.tabs.completed",
+};
 
-function formatDateRange(start: string | null, end: string | null): string {
-  if (!start) return "Date unknown";
-  const startDate = formatDate(start, "medium");
-  if (!end || end === start) return startDate;
-  const endDate = formatDate(end, "medium");
-  return startDate === endDate ? startDate : `${startDate} – ${endDate}`;
-}
+// While To finish is showing, Lifer asks iNaturalist again after this, doubling each time nothing
+// changed, up to the maximum. The server also asks about each observation at most every 30 s.
+const CHECK_START_MS = 30_000;
+const CHECK_MAX_MS = 5 * 60_000;
 
-// Reached from Settings: sightings waiting to send, drafts not yet finished on iNaturalist, and
-// what's been fully contributed.
+// The last lists, so coming back draws them at once while they reload.
+let lastLists: Lists | null = null;
+onAccountReset(() => (lastLists = null));
+
+// Sightings waiting to send, observations to finish on iNaturalist, and what's done.
 export default function InaturalistPage() {
-  const [tab, setTab] = useState<Tab>("import");
+  const { t } = useTranslation();
+  const toast = useToast();
+  const navigate = useNavigate();
+  const sidebarLayout = useSidebarLayout();
+  const inat = useInatStatus();
+  const [params, setParams] = useSearchParams();
+  const [lists, setLists] = useState<Lists | null>(lastLists);
+  const [loadError, setLoadError] = useState(false);
+  const [barSlot, setBarSlot] = useState<HTMLDivElement | null>(null);
 
-  return (
-    <div className="flex-1 bg-canvas">
-      <PageHeader sticky title="iNaturalist" backFallbackTo="/settings" backLabel="Settings">
-        <p className="mt-1 text-sm text-muted">
-          Send your sightings to iNaturalist as draft observations, then finish them there.
-        </p>
-        <div className="mt-4">
-          <SegmentedControl
-            value={tab}
-            onChange={setTab}
-            options={[
-              { value: "import", label: "Import" },
-              { value: "pending", label: "Pending" },
-              { value: "completed", label: "Completed" },
-            ]}
-          />
-        </div>
-      </PageHeader>
-      <main className="mx-auto max-w-3xl space-y-section p-page">
-        {tab === "import" && <ImportTab />}
-        {tab === "pending" && <PendingTab />}
-        {tab === "completed" && <CompletedTab />}
-      </main>
-    </div>
-  );
-}
-
-function ImportTab() {
-  const speciesName = useSpeciesName();
-  const [clusters, setClusters] = useState<ImportCluster[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState<string | null>(null);
-  const [excluded, setExcluded] = useState<Record<string, Set<string>>>({});
-  const [notice, setNotice] = useState<string | null>(null);
-
-  function load() {
-    api
-      .get<{ clusters: ImportCluster[] }>("/inaturalist/import")
-      .then((r) => setClusters(r.clusters))
-      .catch((err) => setError(err instanceof ApiError ? err.message : "Couldn't load your library"));
-  }
-  useEffect(load, []);
-
-  function clusterKey(cluster: ImportCluster): string {
-    return cluster.captures.map((c) => c.id).join(",");
-  }
-
-  function toggleExcluded(key: string, captureId: string) {
-    setExcluded((prev) => {
-      const set = new Set(prev[key] ?? []);
-      if (set.has(captureId)) set.delete(captureId);
-      else set.add(captureId);
-      return { ...prev, [key]: set };
-    });
-  }
-
-  async function createObservation(cluster: ImportCluster) {
-    const key = clusterKey(cluster);
-    const excludedIds = excluded[key] ?? new Set<string>();
-    const captureIds = cluster.captures.map((c) => c.id).filter((id) => !excludedIds.has(id));
-    if (captureIds.length === 0) return;
-    setSubmitting(key);
-    setError(null);
-    setNotice(null);
-    try {
-      const sent = await api.post("/inaturalist/observations", { captureIds });
-      // Lifer only sends what the photos recorded. Anything missing is added on iNaturalist,
-      // whose map is far better for placing a sighting than anything offline.
-      if (sent.needsLocation || sent.needsDate) {
-        const missing =
-          sent.needsLocation && sent.needsDate ? "location and date" : sent.needsLocation ? "location" : "date";
-        setNotice(
-          `Sent. These photos had no ${missing}, so add it on iNaturalist, then choose Confirm complete on the Pending tab to bring it back into Lifer.`,
-        );
-        openExternal(sent.editUrl);
-      } else {
-        setNotice("Sent to iNaturalist.");
-      }
-      load();
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Couldn't create the observation");
-    } finally {
-      setSubmitting(null);
-    }
-  }
-
-  if (error) return <FormMessage error={error} />;
-  if (!clusters) return <Spinner />;
-  const noticeMessage = notice ? <FormMessage success={notice} /> : null;
-  if (clusters.length === 0)
-    return (
-      <div className="space-y-item">
-        {noticeMessage}
-        <EmptyState
-          icon={sendIcon}
-          title="Nothing waiting to be sent"
-          description="Every sighting has already been submitted."
-        />
-      </div>
-    );
-
-  return (
-    <div className="space-y-item">
-      {noticeMessage}
-      <div className="divide-y divide-line rounded-panel border border-line bg-surface">
-        {clusters.map((cluster) => {
-          const key = clusterKey(cluster);
-          const excludedIds = excluded[key] ?? new Set<string>();
-          return (
-            <div key={key} className="p-panel">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <p className="text-sm font-medium text-ink">{speciesName(cluster)}</p>
-                  <p className="text-xs text-muted">
-                    {pluralize(cluster.captures.length, "photo")} ·{" "}
-                    {formatDateRange(cluster.earliestTakenAt, cluster.latestTakenAt)}
-                  </p>
-                </div>
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={() => createObservation(cluster)}
-                  loading={submitting === key}
-                  disabled={excludedIds.size === cluster.captures.length}
-                >
-                  {submitting === key ? "Creating…" : "Create observation"}
-                </Button>
-              </div>
-              <div className="mt-2 flex flex-wrap gap-1.5">
-                {cluster.captures.map((capture) => (
-                  <label key={capture.id} className="relative">
-                    <input
-                      type="checkbox"
-                      checked={!excludedIds.has(capture.id)}
-                      onChange={() => toggleExcluded(key, capture.id)}
-                      className="absolute right-1 top-1 h-4 w-4"
-                    />
-                    {capture.currentPhotoId ? (
-                      <img
-                        src={`/api/photos/${capture.currentPhotoId}/thumb`}
-                        alt=""
-                        loading="lazy"
-                        className={`h-14 w-14 rounded-md object-cover ${excludedIds.has(capture.id) ? "opacity-30" : ""}`}
-                      />
-                    ) : (
-                      <div className="h-14 w-14 rounded-md bg-surface-muted" />
-                    )}
-                  </label>
-                ))}
-              </div>
-            </div>
+  const load = useCallback(
+    () =>
+      Promise.all([
+        api.get("/inaturalist/import"),
+        api.get("/inaturalist/pending"),
+        api.get("/inaturalist/completed"),
+        // Possible matches are extra: the page works without them.
+        api.get("/inaturalist/matches").catch(() => ({ running: false, matches: [] })),
+      ]).then(
+        ([importRes, pendingRes, completedRes, matchesRes]) => {
+          setLists(
+            (lastLists = {
+              sightings: importRes.clusters,
+              ignoredCount: importRes.ignoredCount,
+              pending: pendingRes.observations,
+              completed: completedRes.observations,
+              matches: matchesRes.matches ?? [],
+            }),
           );
-        })}
-      </div>
-    </div>
+          setLoadError(false);
+        },
+        () => setLoadError(true),
+      ),
+    [],
   );
-}
-
-function PendingTab() {
-  const speciesName = useSpeciesName();
-  const [observations, setObservations] = useState<ObservationSummary[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [confirming, setConfirming] = useState<string | null>(null);
-  const [message, setMessage] = useState<Record<string, string>>({});
-
-  function load() {
-    api
-      .get("/inaturalist/pending")
-      .then((r) => setObservations(r.observations))
-      .catch((err) => setError(err instanceof ApiError ? err.message : "Couldn't load pending observations"));
-  }
-  useEffect(load, []);
-
-  async function confirm(observationId: string) {
-    setConfirming(observationId);
-    setError(null);
+  const connected = inat?.connected === true;
+  // Photos already on iNaturalist, found by the check (started here, or by Lifer after connecting).
+  const existing = useExistingCheck(load, connected);
+  // Unlink: an observation found on iNaturalist goes back to To send, its photos as they were.
+  const unlink = async (observationId: string) => {
     try {
-      const result = await api.post<{ confirmed: boolean; message?: string }>(
-        `/inaturalist/observations/${observationId}/confirm`,
+      const r = await api.post("/inaturalist/matches/unlink", { observationId });
+      toast.success(
+        r.kept > 0
+          ? t("inaturalist.matches.unlinkedKept", { count: r.unlinked, kept: r.kept })
+          : t("inaturalist.matches.unlinked", { count: r.unlinked }),
       );
-      if (result.confirmed) load();
-      else setMessage((prev) => ({ ...prev, [observationId]: result.message ?? "Not yet confirmed." }));
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Couldn't check this observation");
-    } finally {
-      setConfirming(null);
+    } catch {
+      toast.error(t("inaturalist.existing.failed"));
     }
+    await load();
+  };
+  useEffect(() => {
+    if (connected) void load();
+  }, [connected, load]);
+
+  // Something unfinished comes first; otherwise the sightings still to send.
+  const asked = params.get("tab");
+  const tab: Tab = TABS.includes(asked as Tab)
+    ? (asked as Tab)
+    : lists && lists.pending.length > 0
+      ? "pending"
+      : "import";
+  const setTab = (next: Tab) => setParams({ tab: next }, { replace: true });
+
+  // Lifer asks iNaturalist itself whether each unfinished observation now has what it needed, and
+  // moves the finished ones to Completed. Notes say what one still needs.
+  const [notes, setNotes] = useState<Record<string, string>>({});
+  const [checking, setChecking] = useState(false);
+  const inFlight = useRef(false);
+  const hasPending = (lists?.pending.length ?? 0) > 0;
+  const check = useCallback(
+    async (observationIds?: string[]): Promise<number> => {
+      if (inFlight.current) return 0;
+      inFlight.current = true;
+      setChecking(true);
+      try {
+        const result = await api.post("/inaturalist/pending/check", observationIds ? { observationIds } : {});
+        setNotes(result.notes);
+        if (result.completed > 0) {
+          toast.success(t("inaturalist.pending.finished", { count: result.completed }));
+          await load();
+        }
+        return result.completed;
+      } catch {
+        return 0;
+      } finally {
+        inFlight.current = false;
+        setChecking(false);
+      }
+    },
+    [load, t, toast],
+  );
+
+  // On open, and whenever the window comes back to the front (often from iNaturalist).
+  const checkedOnOpen = useRef(false);
+  useEffect(() => {
+    if (!hasPending) return;
+    if (!checkedOnOpen.current) {
+      checkedOnOpen.current = true;
+      void check();
+    }
+    const onFocus = () => void check();
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [hasPending, check]);
+
+  // A gentle repeat while To finish is in view, backing off while nothing changes.
+  useEffect(() => {
+    if (tab !== "pending" || !hasPending) return;
+    let delay = CHECK_START_MS;
+    let timer: ReturnType<typeof setTimeout>;
+    const tick = async () => {
+      const finished = document.visibilityState === "visible" ? await check() : 0;
+      delay = finished > 0 ? CHECK_START_MS : Math.min(delay * 2, CHECK_MAX_MS);
+      timer = setTimeout(() => void tick(), delay);
+    };
+    timer = setTimeout(() => void tick(), delay);
+    return () => clearTimeout(timer);
+  }, [tab, hasPending, check]);
+
+  const counts: Record<Tab, number> = {
+    import: lists?.sightings.length ?? 0,
+    pending: lists?.pending.length ?? 0,
+    completed: lists?.completed.length ?? 0,
+  };
+
+  let body: ReactNode;
+  if (inat && !inat.connected) {
+    body = (
+      <EmptyState
+        icon={linkIcon}
+        title={t("inaturalist.notConnected.title")}
+        description={t("inaturalist.notConnected.description")}
+        action={{ label: t("inaturalist.notConnected.action"), onClick: () => navigate("/settings/integrations") }}
+      />
+    );
+  } else if (loadError && !lists) {
+    body = (
+      <div className="flex flex-col items-center gap-3 py-24 text-center">
+        <p className="text-body text-muted">{t("inaturalist.loadFailed")}</p>
+        <Button variant="secondary" size="sm" onClick={() => void load()}>
+          {t("common.retry")}
+        </Button>
+      </div>
+    );
+  } else if (!lists) {
+    body = <Spinner />;
+  } else if (tab === "import") {
+    body = (
+      <SightingsTab
+        sightings={lists.sightings}
+        ignoredCount={lists.ignoredCount}
+        barSlot={barSlot}
+        onChanged={load}
+        matches={lists.matches}
+        check={existing}
+      />
+    );
+  } else if (tab === "pending") {
+    body = (
+      <ObservationsTab
+        mode="pending"
+        observations={lists.pending}
+        notes={notes}
+        checking={checking}
+        onCheck={(ids) => void check(ids)}
+        onUnlink={(id) => void unlink(id)}
+        barSlot={barSlot}
+      />
+    );
+  } else {
+    body = (
+      <ObservationsTab
+        mode="completed"
+        observations={lists.completed}
+        onUnlink={(id) => void unlink(id)}
+        barSlot={barSlot}
+      />
+    );
   }
 
-  if (error) return <FormMessage error={error} />;
-  if (!observations) return <Spinner />;
-  if (observations.length === 0)
-    return (
-      <EmptyState
-        icon={pendingIcon}
-        title="Nothing pending"
-        description="Every observation you've sent has been confirmed complete."
-      />
-    );
-
+  const username = inat?.username;
   return (
-    <div className="divide-y divide-line rounded-panel border border-line bg-surface">
-      {observations.map((obs) => (
-        <div key={obs.observationId} className="p-panel">
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
-              {obs.currentPhotoId ? (
-                <img
-                  src={`/api/photos/${obs.currentPhotoId}/thumb`}
-                  alt=""
-                  loading="lazy"
-                  className="h-14 w-14 rounded-md object-cover"
-                />
-              ) : (
-                <div className="h-14 w-14 rounded-md bg-surface-muted" />
-              )}
-              <div>
-                <p className="text-sm font-medium text-ink">{speciesName(obs)}</p>
-                <a href={obs.editUrl} target="_blank" rel="noreferrer" className="text-xs text-muted hover:underline">
-                  Finish on iNaturalist
-                </a>
-              </div>
-            </div>
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => confirm(obs.observationId)}
-              loading={confirming === obs.observationId}
-            >
-              {confirming === obs.observationId ? "Checking…" : "Confirm complete"}
-            </Button>
-          </div>
-          {message[obs.observationId] && <p className="mt-2 text-xs text-muted">{message[obs.observationId]}</p>}
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function CompletedTab() {
-  const speciesName = useSpeciesName();
-  const [observations, setObservations] = useState<ObservationSummary[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    api
-      .get("/inaturalist/completed")
-      .then((r) => setObservations(r.observations))
-      .catch((err) => setError(err instanceof ApiError ? err.message : "Couldn't load completed observations"));
-  }, []);
-
-  if (error) return <FormMessage error={error} />;
-  if (!observations) return <Spinner />;
-  if (observations.length === 0)
-    return (
-      <EmptyState
-        icon={completedIcon}
-        title="Nothing here yet"
-        description="Confirmed observations will show up in this list."
-      />
-    );
-
-  return (
-    <div className="divide-y divide-line rounded-panel border border-line bg-surface">
-      {observations.map((obs) => (
-        <a
-          key={obs.observationId}
-          href={obs.url}
-          target="_blank"
-          rel="noreferrer"
-          className="flex items-center gap-3 p-panel first:rounded-t-panel last:rounded-b-panel hover:bg-surface-muted"
-        >
-          {obs.currentPhotoId ? (
-            <img
-              src={`/api/photos/${obs.currentPhotoId}/thumb`}
-              alt=""
-              loading="lazy"
-              className="h-14 w-14 rounded-md object-cover"
+    <div className="flex min-h-full flex-1 flex-col bg-canvas">
+      <PageHeader
+        sticky
+        topLevel={sidebarLayout}
+        title={t("inaturalist.title")}
+        backFallbackTo="/settings"
+        backLabel={t("nav.settings")}
+      >
+        <p className={`max-w-2xl text-subheadline text-muted ${sidebarLayout ? "" : "mt-1"}`}>
+          {t("inaturalist.intro")}{" "}
+          <Button
+            variant="link"
+            size="sm"
+            className="align-baseline text-link!"
+            onClick={() => openExternal(docsUrl("/guides/inaturalist"))}
+          >
+            {t("manageList.learnMore")}
+          </Button>
+        </p>
+        {connected && username && (
+          <p className="mt-1 text-footnote text-muted">
+            <Trans
+              i18nKey="inaturalist.connectedAs"
+              values={{ username }}
+              components={{
+                a: (
+                  <Button
+                    variant="link"
+                    size="sm"
+                    className="align-baseline text-link!"
+                    onClick={() => openExternal(`https://www.inaturalist.org/people/${encodeURIComponent(username)}`)}
+                  />
+                ),
+              }}
             />
-          ) : (
-            <div className="h-14 w-14 rounded-md bg-surface-muted" />
-          )}
-          <p className="text-sm font-medium text-ink">{speciesName(obs)}</p>
-        </a>
-      ))}
+          </p>
+        )}
+        {connected && (
+          <div className="mt-3">
+            <SegmentedControl
+              value={tab}
+              onChange={setTab}
+              label={t("inaturalist.tabs.label")}
+              options={TABS.map((value) => ({
+                value,
+                label: t(TAB_LABELS[value]),
+                count: lists ? counts[value] : undefined,
+              }))}
+            />
+          </div>
+        )}
+        <div ref={setBarSlot} />
+      </PageHeader>
+      <main
+        className="flex-1 p-page"
+        onClick={(e) => {
+          // The page's empty background clears a card selection, like Finder.
+          if (e.target === e.currentTarget) window.dispatchEvent(new Event(CLEAR_SELECTION_EVENT));
+        }}
+      >
+        {body}
+      </main>
     </div>
   );
 }

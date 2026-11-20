@@ -1,5 +1,8 @@
 // A thin, authenticated iNaturalist API v1 client for observation sync.
-import { readFile } from "node:fs/promises";
+import path from "node:path";
+import { stat } from "node:fs/promises";
+import sharp from "sharp";
+import { readCopyWithoutGps } from "../uploads/exif.js";
 import { randomBytes, createHash } from "node:crypto";
 import { USER_AGENT } from "@lifer/core/lib/http.js";
 
@@ -92,6 +95,10 @@ export interface DraftObservation {
   location: { lat: number; lon: number } | null;
   // Free text shown on iNaturalist as the place, from the region the photos are filed under.
   placeGuess: string | null;
+  /** From the saved spot the photos are filed under; left out (iNaturalist's open) otherwise. */
+  geoprivacy?: string | null;
+  /** Metres: a place's radius when the point came from one; left out for camera GPS. */
+  positionalAccuracy?: number | null;
 }
 
 /** The observation fields iNaturalist receives. Unknown values are left out, not filled in. */
@@ -103,6 +110,8 @@ export function observationFields(draft: DraftObservation): Record<string, strin
     fields.longitude = draft.location.lon;
   }
   if (draft.placeGuess) fields.place_guess = draft.placeGuess;
+  if (draft.geoprivacy) fields.geoprivacy = draft.geoprivacy;
+  if (draft.location && draft.positionalAccuracy) fields.positional_accuracy = draft.positionalAccuracy;
   return fields;
 }
 
@@ -118,11 +127,38 @@ export async function createObservation(jwt: string, draft: DraftObservation): P
   return String(data.id);
 }
 
-export async function addObservationPhoto(jwt: string, observationId: string, displayPath: string): Promise<void> {
-  const bytes = await readFile(displayPath);
+// iNaturalist takes JPEG, PNG and GIF (not the WebP the library keeps). The original goes up as it
+// is, so identifiers and crops get full detail; past this size, or when it can't be read, the
+// library's 2560 px copy goes instead.
+// shortcut: 20 MB is a guess at what iNaturalist accepts; raise it once its real limit is known.
+const MAX_ORIGINAL_BYTES = 20 * 1024 * 1024;
+const ORIGINAL_TYPES: Record<string, string> = { ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png" };
+
+async function uploadFile(displayPath: string, originalPath: string | null) {
+  const type = originalPath ? ORIGINAL_TYPES[path.extname(originalPath).toLowerCase()] : undefined;
+  if (originalPath && type) {
+    try {
+      if ((await stat(originalPath)).size <= MAX_ORIGINAL_BYTES) {
+        // The observation carries the location; the picture never carries exact GPS along.
+        return { bytes: await readCopyWithoutGps(originalPath), type, name: path.basename(originalPath) };
+      }
+    } catch {
+      // A drive that isn't connected, or an unreadable file: use the library copy.
+    }
+  }
+  return { bytes: await sharp(displayPath).jpeg({ quality: 90 }).toBuffer(), type: "image/jpeg", name: "photo.jpg" };
+}
+
+export async function addObservationPhoto(
+  jwt: string,
+  observationId: string,
+  displayPath: string,
+  originalPath: string | null = null,
+): Promise<void> {
+  const file = await uploadFile(displayPath, originalPath);
   const form = new FormData();
   form.append("observation_photo[observation_id]", observationId);
-  form.append("file", new Blob([bytes]), "photo.webp");
+  form.append("file", new Blob([new Uint8Array(file.bytes)], { type: file.type }), file.name);
   const res = await fetch(`${INAT_API}/observation_photos`, {
     method: "POST",
     headers: { Authorization: jwt, "User-Agent": USER_AGENT },
@@ -137,6 +173,8 @@ export interface RemoteObservationLocation {
   lat: number | null;
   lon: number | null;
   positionalAccuracyMeters: number | null;
+  /** The date on the observation, as iNaturalist's YYYY-MM-DD, or null. */
+  observedOn: string | null;
 }
 
 export async function fetchObservationLocation(jwt: string, observationId: string): Promise<RemoteObservationLocation> {
@@ -147,13 +185,37 @@ export async function fetchObservationLocation(jwt: string, observationId: strin
   });
   if (!res.ok) throw new Error(`iNaturalist observation lookup failed: ${res.status}`);
   const data = (await res.json()) as {
-    results: Array<{ latitude?: string | null; longitude?: string | null; positional_accuracy?: number | null }>;
+    results: Array<{
+      location?: string | null;
+      private_location?: string | null;
+      geojson?: { coordinates?: [number, number] } | null;
+      positional_accuracy?: number | null;
+      observed_on?: string | null;
+    }>;
   };
   const obs = data.results[0];
   if (!obs) throw new Error("iNaturalist observation lookup returned no result");
+  const point = observationPoint(obs);
   return {
-    lat: obs.latitude != null ? Number(obs.latitude) : null,
-    lon: obs.longitude != null ? Number(obs.longitude) : null,
+    lat: point?.lat ?? null,
+    lon: point?.lon ?? null,
     positionalAccuracyMeters: obs.positional_accuracy ?? null,
+    observedOn: obs.observed_on ?? null,
   };
+}
+
+/** Where the observation is. The API leaves `latitude` and `longitude` null here; the point is in
+ *  `location` ("lat,lon") and `geojson`. The owner's own request also carries `private_location`,
+ *  the true point of an obscured observation, which is the one a photo should take. */
+export function observationPoint(obs: {
+  location?: string | null;
+  private_location?: string | null;
+  geojson?: { coordinates?: [number, number] } | null;
+}): { lat: number; lon: number } | null {
+  for (const text of [obs.private_location, obs.location]) {
+    const [lat, lon] = (text ?? "").split(",").map(Number);
+    if (text && Number.isFinite(lat) && Number.isFinite(lon)) return { lat, lon };
+  }
+  const at = obs.geojson?.coordinates;
+  return at && Number.isFinite(at[0]) && Number.isFinite(at[1]) ? { lat: at[1], lon: at[0] } : null;
 }

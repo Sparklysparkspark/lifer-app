@@ -13,8 +13,24 @@ const client = vi.hoisted(() => ({
   fetchJwt: vi.fn(async () => "jwt"),
   createObservation: vi.fn(async () => "9001"),
   addObservationPhoto: vi.fn(async () => {}),
+  fetchObservationLocation: vi.fn(async () => ({
+    lat: 49.2,
+    lon: -123.1,
+    positionalAccuracyMeters: 25,
+    observedOn: "2026-06-03" as string | null,
+  })),
 }));
 vi.mock("./client.js", async (importOriginal) => ({ ...(await importOriginal<object>()), ...client }));
+
+// Reading observations back from iNaturalist (the existing-observations check) never leaves the test.
+vi.mock("./observationSync.js", async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  fetchObservationPages: vi.fn(async () => 0),
+  fetchDeletedObservationIds: vi.fn(async () => []),
+  fetchPreview: vi.fn(async () => {
+    throw new Error("no network in tests");
+  }),
+}));
 
 const url = process.env.TEST_DATABASE_URL;
 const USER = "eeeeeeee-0000-4000-8000-000000000821";
@@ -147,13 +163,92 @@ describe.skipIf(!url)("sending captures to iNaturalist", () => {
       "jwt",
       "9001",
       `/nowhere/d${captures.indexOf(unsent)}.webp`,
+      null,
     );
     expect((await links()).every((l) => l.photo_sent)).toBe(true);
+    // No GPS and no date were sent, so the Pending row says what's left to add on iNaturalist.
+    const listed = (await app.inject({ url: "/api/inaturalist/pending", cookies: { [cookieName]: TOKEN } })).json();
+    expect(listed.observations).toEqual([
+      expect.objectContaining({ observationId: "9001", photoCount: 2, observedAt: null, sentLocation: false }),
+    ]);
+    expect(listed.observations[0].photoIds).toHaveLength(2);
+    // Species cards group observations by this.
+    expect(listed.observations[0].speciesId).toBe(SPECIES_A);
 
     const again = await send([first]);
     expect([again.statusCode, again.json()]).toEqual([
       409,
       { error: "One or more of these photos is already on iNaturalist" },
     ]);
+  });
+
+  it("leaves ignored photos out of To send until they're restored", async () => {
+    const third = captures[2];
+    const ignore = (ignored: boolean) =>
+      app.inject({
+        method: "POST",
+        url: "/api/inaturalist/ignore",
+        payload: { captureIds: [third], ignored },
+        cookies: { [cookieName]: TOKEN },
+      });
+    const listed = async (ignored: boolean) =>
+      (
+        await app.inject({
+          url: `/api/inaturalist/import${ignored ? "?ignored=true" : ""}`,
+          cookies: { [cookieName]: TOKEN },
+        })
+      ).json();
+    const ids = (body: { clusters: Array<{ captures: Array<{ id: string }> }> }) =>
+      body.clusters.flatMap((c) => c.captures.map((x) => x.id));
+
+    expect((await ignore(true)).json()).toEqual({ updated: 1 });
+    const active = await listed(false);
+    expect(ids(active)).not.toContain(third);
+    expect(active.ignoredCount).toBe(1);
+    expect(ids(await listed(true))).toEqual([third]);
+    expect((await ignore(false)).json()).toEqual({ updated: 1 });
+    expect(ids(await listed(false))).toContain(third);
+  });
+
+  it("completes an observation at once when its photos had a location and a date", async () => {
+    const third = captures[2];
+    await db.query(
+      `UPDATE captures_all SET lat = 49.1, lon = -123.2, taken_at = '2026-06-04T10:00:00Z' WHERE id = $1`,
+      [third],
+    );
+    client.createObservation.mockResolvedValueOnce("9002");
+    const res = await send([third]);
+    expect([res.statusCode, res.json().needsLocation, res.json().needsDate]).toEqual([200, false, false]);
+    const completed = (
+      await app.inject({ url: "/api/inaturalist/completed", cookies: { [cookieName]: TOKEN } })
+    ).json();
+    expect(completed.observations).toEqual([
+      expect.objectContaining({ observationId: "9002", sentLocation: true, photoCount: 1 }),
+    ]);
+  });
+
+  it("finishes a pending observation by itself, filling only photos with no location or date", async () => {
+    // 9001 went without GPS or a date; the user has since placed it and dated it on iNaturalist.
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/inaturalist/pending/check",
+      cookies: { [cookieName]: TOKEN },
+    });
+    expect(res.json()).toEqual(expect.objectContaining({ completed: 1 }));
+    const photos = (
+      await db.query(`SELECT lat, lon, taken_at, location_source FROM captures_all WHERE id = ANY($1)`, [
+        captures.slice(0, 2),
+      ])
+    ).rows;
+    for (const p of photos) {
+      expect([Number(p.lat), Number(p.lon), p.location_source]).toEqual([49.2, -123.1, "inaturalist"]);
+      expect(new Date(p.taken_at).toISOString()).toBe("2026-06-03T12:00:00.000Z");
+    }
+    const completed = (
+      await app.inject({ url: "/api/inaturalist/completed", cookies: { [cookieName]: TOKEN } })
+    ).json();
+    expect(completed.observations).toContainEqual(
+      expect.objectContaining({ observationId: "9001", sentLocation: false, dateFromInat: true }),
+    );
   });
 });

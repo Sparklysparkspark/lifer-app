@@ -20,6 +20,12 @@ describe("observationFields", () => {
     });
   });
 
+  it("sends a saved spot's geoprivacy only when there is one", () => {
+    const draft = { taxonId: 1, observedOn: null, location: { lat: 1, lon: 2 }, placeGuess: null };
+    expect(observationFields({ ...draft, geoprivacy: "obscured" })).toMatchObject({ geoprivacy: "obscured" });
+    expect(observationFields(draft)).not.toHaveProperty("geoprivacy");
+  });
+
   it("leaves out a date and coordinates the photos don't have, rather than filling them in", () => {
     const fields = observationFields({
       taxonId: 4956,

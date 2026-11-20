@@ -1,0 +1,60 @@
+{
+  "total_results": 1,
+  "page": 1,
+  "per_page": 200,
+  "results": [
+    {
+      "id": 412876366,
+      "uuid": "6fa1ec1c-0ab1-4502-8c3b-9e160c47c1be",
+      "observed_on": "2026-09-11",
+      "observed_on_string": "2026/09/11 4:40 AM",
+      "observed_on_details": {
+        "date": "2026-09-11",
+        "day": 11,
+        "month": 9,
+        "year": 2026,
+        "hour": 4,
+        "week": 37
+      },
+      "time_observed_at": "2026-09-11T04:40:00-07:00",
+      "observed_time_zone": "America/Vancouver",
+      "time_zone_offset": "-07:00",
+      "created_at": "2026-11-04T15:16:59-07:00",
+      "updated_at": "2026-11-04T15:16:59-07:00",
+      "location": "54.001725703,-122.6977703871",
+      "geojson": {
+        "type": "Point",
+        "coordinates": [-122.6977703871, 54.001725703]
+      },
+      "positional_accuracy": 31,
+      "public_positional_accuracy": 31,
+      "geoprivacy": null,
+      "taxon_geoprivacy": "open",
+      "obscured": false,
+      "place_guess": "Prince George, BC, Canada",
+      "quality_grade": "needs_id",
+      "species_guess": "Osprey",
+      "ident_taxon_ids": [48460, 1, 2, 355675, 3, 71261, 200958, 71725, 116999],
+      "uri": "https://www.inaturalist.org/observations/412876366",
+      "taxon": {
+        "id": 116999,
+        "name": "Pandion haliaetus",
+        "rank": "species",
+        "rank_level": 10,
+        "ancestor_ids": [48460, 1, 2, 355675, 3, 71261, 200958, 71725, 116999],
+        "preferred_common_name": "Osprey"
+      },
+      "photos": [
+        {
+          "id": 759791188,
+          "license_code": "cc-by-nc",
+          "original_dimensions": {
+            "width": 2048,
+            "height": 1366
+          },
+          "url": "https://inaturalist-open-data.s3.amazonaws.com/photos/759791188/square.jpg"
+        }
+      ]
+    }
+  ]
+}
