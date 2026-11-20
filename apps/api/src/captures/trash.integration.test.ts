@@ -250,6 +250,33 @@ describe.skipIf(!url)("captures trash and reassign", () => {
     expect((await call("DELETE", "/api/captures/tags", { tag: "sitting" })).json()).toEqual({ ok: true, updated: 1 });
   });
 
+  it("renames and deletes a tag on hidden photos too, never on trashed ones", async () => {
+    const ids: Record<"hidden" | "trashed", string> = { hidden: "", trashed: "" };
+    for (const kind of ["hidden", "trashed"] as const) {
+      const c = await db.query<{ id: string }>(
+        `INSERT INTO captures_all (user_id, species_id, fingerprint, tags, hidden_at, deleted_at)
+         VALUES ($1, $2, $3, '{dusk}', $4, $5) RETURNING id`,
+        [
+          USER,
+          SPECIES_B,
+          `trash-tag-${kind}`,
+          kind === "hidden" ? new Date() : null,
+          kind === "trashed" ? new Date() : null,
+        ],
+      );
+      ids[kind] = c.rows[0].id;
+    }
+    const tagsOf = async (id: string) =>
+      (await db.query<{ tags: string[] }>(`SELECT tags FROM captures_all WHERE id = $1`, [id])).rows[0].tags;
+    const renamed = await call("PATCH", "/api/captures/tags/rename", { from: "dusk", to: "twilight" });
+    expect(renamed.json()).toEqual({ ok: true, updated: 1 });
+    expect([await tagsOf(ids.hidden), await tagsOf(ids.trashed)]).toEqual([["twilight"], ["dusk"]]);
+    expect((await call("DELETE", "/api/captures/tags", { tag: "twilight" })).json()).toEqual({ ok: true, updated: 1 });
+    expect((await call("DELETE", "/api/captures/tags", { tag: "dusk" })).json()).toEqual({ ok: true, updated: 0 });
+    expect([await tagsOf(ids.hidden), await tagsOf(ids.trashed)]).toEqual([[], ["dusk"]]);
+    await db.query(`DELETE FROM captures_all WHERE id = ANY($1)`, [Object.values(ids)]);
+  });
+
   it("removes a RAW-only photo's RAW with it, and keeps a RAW beside an edited photo unless asked", async () => {
     const dir = path.join(dataDir, "Birds", "Raw Bird");
     mkdirSync(dir, { recursive: true });

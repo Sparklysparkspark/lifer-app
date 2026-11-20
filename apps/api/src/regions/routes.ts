@@ -7,14 +7,17 @@ import { pool } from "@lifer/core/db.js";
 import { isUuid } from "../lib/validate.js";
 import { requireAuth } from "../auth/session.js";
 import { IdParams, Open, Uuid, notFoundOnInvalidId, replies, withSchemas } from "../lib/schema.js";
+import { RAW_CACHE_DIR } from "@lifer/core/config.js";
 import { fetchProvincesForCountry } from "@lifer/core/regions/regionBoundary.js";
 import { exteriorRingsFromGeometry, type BoundingBox } from "@lifer/core/lib/geometry.js";
 import { nearbyZones, resolveCountryRings } from "@lifer/core/regions/nearbyZones.js";
 import { regionBoundaryRoutes } from "./boundaries.js";
+import { regionAtRoutes } from "./regionAt.js";
 import { RegionList } from "./responses.js";
 import { regionChecklistRoutes } from "./checklist.js";
 import { regionHiddenSpeciesRoutes } from "./hiddenSpecies.js";
 import { regionChecklistAdditionRoutes } from "./checklistAdditions.js";
+import { createProvinces } from "./provinces.js";
 
 const regionNotFound = notFoundOnInvalidId("Region not found");
 
@@ -26,7 +29,8 @@ export async function regionRoutes(fastify: FastifyInstance): Promise<void> {
     // GET /regions/:id/species and all countries' from GET /regions/boundaries.
     const res = await pool.query(
       // Guantanamo Bay naval base ("USG") is left out: no civilian access.
-      `SELECT id, name, parent_id, ebird_region_code, has_children, external_codes, sovereignty_group, is_sovereign_dependency
+      `SELECT id, name, parent_id, ebird_region_code, has_children, external_codes, sovereignty_group, is_sovereign_dependency,
+              example_city, populous_child_id, aliases
        FROM regions WHERE external_codes[1] IS DISTINCT FROM 'USG' ORDER BY parent_id NULLS FIRST, name`,
     );
     return {
@@ -41,6 +45,9 @@ export async function regionRoutes(fastify: FastifyInstance): Promise<void> {
         // Country level only: groups a country with its separate territories in the picker.
         sovereigntyGroup: r.sovereignty_group,
         isSovereignDependency: r.is_sovereign_dependency,
+        exampleCity: r.example_city,
+        populousChildId: r.populous_child_id,
+        aliases: r.aliases,
       })),
     };
   });
@@ -165,7 +172,8 @@ export async function regionRoutes(fastify: FastifyInstance): Promise<void> {
     },
   );
 
-  // Creates a country's provinces on first open, from the cached Natural Earth admin-1 file.
+  // Creates a country's provinces from the cached Natural Earth admin-1 file. Downloading the
+  // country's pack does this too; this covers countries with no pack yet.
   // No body schema: the web app sends `{}` and nothing in it is read.
   app.post(
     "/regions/:id/drill-down",
@@ -189,31 +197,16 @@ export async function regionRoutes(fastify: FastifyInstance): Promise<void> {
         return reply.code(400).send({ error: "This region has no country code to drill down from" });
       }
 
-      const provinces = await fetchProvincesForCountry(region.external_codes[0]);
-      if (provinces.length > 0) {
-        await pool.query(
-          `INSERT INTO regions (name, parent_id, external_codes, ebird_region_code, boundary_geojson, is_overseas_territory, subdivision_type)
-           SELECT p.name, $1::uuid, CASE WHEN p.code IS NULL THEN '{}'::text[] ELSE ARRAY[p.code] END, p.code, p.feature::jsonb, p.overseas, p.type
-           FROM unnest($2::text[], $3::text[], $4::text[], $5::boolean[], $6::text[]) AS p(name, code, feature, overseas, type)
-           ON CONFLICT (name, parent_id) DO NOTHING`,
-          [
-            regionId,
-            provinces.map((p) => p.name),
-            provinces.map((p) => p.iso3166_2 ?? null),
-            provinces.map((p) => JSON.stringify(p.feature)),
-            provinces.map((p) => p.isOverseasTerritory),
-            provinces.map((p) => p.type),
-          ],
-        );
-      }
+      const provinces = await fetchProvincesForCountry(region.external_codes[0], RAW_CACHE_DIR);
+      await createProvinces(pool, regionId, provinces);
       const created = provinces.length;
-      await pool.query(`UPDATE regions SET has_children = true WHERE id = $1`, [regionId]);
 
       return { ok: true, created };
     },
   );
 
   await app.register(regionBoundaryRoutes);
+  await app.register(regionAtRoutes);
   await app.register(regionChecklistRoutes);
   await app.register(regionHiddenSpeciesRoutes);
   await app.register(regionChecklistAdditionRoutes);

@@ -31,7 +31,7 @@ export const TrashList = Open({
       width: Nullable(Type.Integer()),
       height: Nullable(Type.Integer()),
       hasRawOriginal: Type.Boolean(),
-      kind: Type.Enum(["image", "video"]),
+      kind: Type.Enum(["image", "video", "audio"]),
       durationSeconds: Nullable(NumberLike()),
       originalKind: Nullable(Type.String()),
       purgesAt: DateTime(),

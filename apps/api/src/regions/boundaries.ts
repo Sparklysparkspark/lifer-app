@@ -3,7 +3,7 @@ import type { FastifyInstance } from "fastify";
 import { pool } from "@lifer/core/db.js";
 import { Type } from "typebox";
 import { requireAuth } from "../auth/session.js";
-import { withSchemas } from "../lib/schema.js";
+import { Uuid, withSchemas } from "../lib/schema.js";
 import { simplifyRing, type Point } from "@lifer/core/lib/geometry.js";
 
 // USG (the Guantanamo Bay naval base) is left out, as in GET /regions.
@@ -67,17 +67,43 @@ async function countryBoundariesBody(): Promise<{ body: string; etag: string }> 
 export async function regionBoundaryRoutes(fastify: FastifyInstance): Promise<void> {
   const app = withSchemas(fastify);
   // Every country's outline at once, for the offline packs map. GET /regions leaves boundaries
-  // out, so this is the one place that sends them all.
+  // out, so this is the one place that sends them all. ?id= sends one region's (any level), for
+  // the photo map's region view of a province; ?parentId= a region's children, for clicking them
+  // (a child that's a group without an outline stands for its own children).
   app.get(
     "/regions/boundaries",
     {
       preValidation: requireAuth,
       schema: {
-        querystring: Type.Object({ level: Type.Optional(Type.Enum(["country"])) }),
+        querystring: Type.Object({
+          level: Type.Optional(Type.Enum(["country"])),
+          id: Type.Optional(Uuid()),
+          parentId: Type.Optional(Uuid()),
+        }),
         headers: Type.Object({ "if-none-match": Type.Optional(Type.String()) }),
       },
     },
     async (request, reply) => {
+      const { id, parentId } = request.query;
+      if (id || parentId) {
+        const res = await pool.query<{ id: string; name: string; parent_id: string | null; boundary_geojson: unknown }>(
+          id
+            ? `SELECT id, name, parent_id, boundary_geojson FROM regions WHERE id = $1 AND boundary_geojson IS NOT NULL`
+            : `SELECT id, name, parent_id, boundary_geojson FROM regions
+                WHERE boundary_geojson IS NOT NULL AND (parent_id = $1 OR parent_id IN (
+                  SELECT id FROM regions WHERE parent_id = $1 AND boundary_geojson IS NULL))
+                ORDER BY name`,
+          [id ?? parentId],
+        );
+        return {
+          regions: res.rows.map((r) => ({
+            id: r.id,
+            name: r.name,
+            parentId: r.parent_id,
+            boundaryGeoJson: simplifyBoundaryFeature(r.boundary_geojson),
+          })),
+        };
+      }
       const cached = await countryBoundariesBody();
       reply.header("ETag", cached.etag);
       reply.header("Cache-Control", "private, max-age=3600");

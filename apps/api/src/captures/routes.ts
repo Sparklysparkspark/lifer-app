@@ -1,5 +1,6 @@
 // Capture edits: species tags, reassigning, date, location and rating. Removing a capture never
 // touches its original file, only Lifer's records and generated derivatives.
+import { dateOnlyToTakenAt } from "@lifer/shared";
 import path from "node:path";
 import type { FastifyInstance } from "fastify";
 import { Type } from "typebox";
@@ -13,10 +14,23 @@ import { ensureDefaultCardCropLater } from "../collection/defaultCardCrop.js";
 import { moveManagedOriginalToSpeciesFolder } from "../uploads/routes.js";
 import { moveToFolder } from "@lifer/core/lib/safeFs.js";
 import { markCollected } from "../lib/userSpecies.js";
+import { followPlaceChange } from "../uploads/reorganizeOriginals.js";
 import { captureTagRoutes } from "./tags.js";
+import { PLACE_NAME_MAX, capturePlaceRoutes } from "./places.js";
 import { trashRoutes } from "./trash.js";
 import { hiddenCaptureRoutes } from "./hidden.js";
+import { captureVersionRoutes } from "./versions.js";
 import { speciesSuggestRoutes } from "./suggest.js";
+import { queueRecheck, recheckRoutes } from "./recheck.js";
+import { takenAtShiftRoutes } from "./takenAtShift.js";
+import {
+  PLACE_MAX,
+  SYNC_PLACE_MAX,
+  applyLocation,
+  locationJobRunningFor,
+  locationRoutes,
+  startLocationJob,
+} from "./locationHistory.js";
 
 type Queryable = Pick<PoolClient, "query">;
 
@@ -151,7 +165,11 @@ export async function reassignCaptureSpecies(
           [m.to, m.volumeRelativePath, m.id],
         );
       }
-      await client.query(`UPDATE captures SET species_id = $1 WHERE id = $2`, [speciesId, captureId]);
+      // Choosing a species is confirming it, whatever filed the photo before.
+      await client.query(
+        `UPDATE captures SET species_id = $1, identification_state = 'confirmed', suggestion_percent = NULL WHERE id = $2`,
+        [speciesId, captureId],
+      );
       await markCollected(client, userId, speciesId, capture.current_photo_id, capture.taken_at);
       // If the old species' cover becomes the new species' cover, its framing comes with it.
       await client.query(
@@ -179,6 +197,49 @@ export async function reassignCaptureSpecies(
 
 const SpeciesBody = Type.Object({ speciesId: Uuid() }, { additionalProperties: false });
 const captureNotFound = notFoundOnInvalidId("Capture not found");
+
+const MAX_LOCATION_BATCH = 5000;
+
+/** Sets the region and/or location label of this user's captures; a field left undefined stays
+ *  as it is. Trashed captures are skipped by the `captures` view. Returns how many changed. */
+async function setCaptureLocation(
+  userId: string,
+  captureIds: string[],
+  regionId: string | null | undefined,
+  locationLabel: string | null | undefined,
+): Promise<number> {
+  const res = await pool.query<{ id: string }>(
+    `UPDATE captures SET
+       region_id = CASE WHEN $4::boolean THEN $1 ELSE region_id END,
+       location_label = CASE WHEN $5::boolean THEN $2 ELSE location_label END
+     WHERE id = ANY($3::uuid[]) AND user_id = $6
+     RETURNING id`,
+    [
+      regionId ?? null,
+      locationLabel?.trim() || null,
+      captureIds,
+      regionId !== undefined,
+      locationLabel !== undefined,
+      userId,
+    ],
+  );
+  // The files' province, country and place name follow the change, and with place folders
+  // in the folder layout so do their folders. In the background: exiftool is slow.
+  if (regionId !== undefined || locationLabel !== undefined) {
+    await followPlaceChange(
+      userId,
+      res.rows.map((r) => r.id),
+      { replacePlace: !!regionId, replaceLabel: locationLabel !== undefined },
+    );
+  }
+  // A new region changes which species suit the photos still waiting as suggestions.
+  if (regionId)
+    queueRecheck(
+      userId,
+      res.rows.map((r) => r.id),
+    );
+  return res.rows.length;
+}
 
 export async function captureRoutes(fastify: FastifyInstance): Promise<void> {
   const app = withSchemas(fastify);
@@ -283,12 +344,13 @@ export async function captureRoutes(fastify: FastifyInstance): Promise<void> {
     },
     async (request, reply) => {
       const { id: captureId } = request.params;
-      const { takenAt } = request.body;
       const userId = request.user!.id;
 
-      if (takenAt !== null && Number.isNaN(new Date(takenAt).getTime())) {
+      if (request.body.takenAt !== null && Number.isNaN(new Date(request.body.takenAt).getTime())) {
         return reply.code(400).send({ error: "takenAt must be a valid date, or null to clear" });
       }
+      // A bare day ("2026-06-04") is stored as noon UTC so it reads as that day in every time zone.
+      const takenAt = dateOnlyToTakenAt(request.body.takenAt) ?? request.body.takenAt;
 
       const res = await pool.query(`UPDATE captures SET taken_at = $1 WHERE id = $2 AND user_id = $3 RETURNING id`, [
         takenAt,
@@ -296,6 +358,8 @@ export async function captureRoutes(fastify: FastifyInstance): Promise<void> {
         userId,
       ]);
       if (res.rows.length === 0) return reply.code(404).send({ error: "Capture not found" });
+      // Into the file too, when it has no date of its own, so a reimport brings it back.
+      if (takenAt !== null) void syncCaptureXmpSidecarsLogged(userId, captureId);
 
       return { ok: true };
     },
@@ -311,37 +375,100 @@ export async function captureRoutes(fastify: FastifyInstance): Promise<void> {
       schema: {
         params: IdParams,
         body: Type.Object(
-          { regionId: Type.Optional(Nullable(Uuid())), locationLabel: Type.Optional(Nullable(Type.String())) },
+          {
+            regionId: Type.Optional(Nullable(Uuid())),
+            locationLabel: Type.Optional(Nullable(Type.String({ maxLength: PLACE_NAME_MAX }))),
+          },
           { additionalProperties: false },
         ),
         response: replies(Ok),
       },
     },
     async (request, reply) => {
-      const { id: captureId } = request.params;
       const { regionId, locationLabel } = request.body;
-      const userId = request.user!.id;
-
-      const res = await pool.query(
-        `UPDATE captures SET
-           region_id = CASE WHEN $4::boolean THEN $1 ELSE region_id END,
-           location_label = CASE WHEN $5::boolean THEN $2 ELSE location_label END
-         WHERE id = $3 AND user_id = $6
-         RETURNING id`,
-        [
-          regionId ?? null,
-          locationLabel?.trim() || null,
-          captureId,
-          regionId !== undefined,
-          locationLabel !== undefined,
-          userId,
-        ],
-      );
-      if (res.rows.length === 0) return reply.code(404).send({ error: "Capture not found" });
-      // The files' province and country follow a new region. In the background: exiftool is slow.
-      if (regionId) void syncCaptureXmpSidecarsLogged(userId, captureId, { replacePlace: true });
-
+      const updated = await setCaptureLocation(request.user!.id, [request.params.id], regionId, locationLabel);
+      if (updated === 0) return reply.code(404).send({ error: "Capture not found" });
       return { ok: true };
+    },
+  );
+
+  // The same correction for many photos at once, e.g. Stats > Missing a region.
+  app.post(
+    "/captures/location",
+    {
+      preValidation: requireScope("photos.write"),
+      schema: {
+        body: Type.Object(
+          {
+            captureIds: Type.Array(Uuid(), { minItems: 1, maxItems: MAX_LOCATION_BATCH }),
+            regionId: Nullable(Uuid()),
+            locationLabel: Type.Optional(Nullable(Type.String({ maxLength: PLACE_NAME_MAX }))),
+          },
+          { additionalProperties: false },
+        ),
+        response: replies(Type.Object({ updated: Type.Integer() })),
+      },
+    },
+    async (request) => {
+      const { captureIds, regionId, locationLabel } = request.body;
+      return { updated: await setCaptureLocation(request.user!.id, captureIds, regionId, locationLabel) };
+    },
+  );
+
+  // Coordinates typed, pasted or placed on the map. Over SYNC_PLACE_MAX photos it runs in the
+  // background (GET /captures/location/status); either way POST /captures/location/undo reverts it.
+  app.post(
+    "/captures/coordinates",
+    {
+      preValidation: requireScope("photos.write"),
+      schema: {
+        body: Type.Object(
+          {
+            captureIds: Type.Array(Uuid(), { minItems: 1, maxItems: PLACE_MAX }),
+            lat: Nullable(Type.Number({ minimum: -90, maximum: 90 })),
+            lon: Nullable(Type.Number({ minimum: -180, maximum: 180 })),
+            locationLabel: Type.Optional(
+              Nullable(
+                Type.String({ maxLength: PLACE_NAME_MAX, description: "Also sets the place name; null clears it" }),
+              ),
+            ),
+            regionId: Type.Optional(Uuid({ description: "Also sets the region" })),
+            keepPoint: Type.Optional(
+              Type.Boolean({ description: "Leave every point as it is: only the place name and region change" }),
+            ),
+          },
+          { additionalProperties: false },
+        ),
+        response: replies(
+          Type.Object({
+            updated: Type.Integer({ description: "0 when it runs in the background" }),
+            background: Type.Boolean({ description: "More than 5,000 photos: follow GET /captures/location/status" }),
+          }),
+        ),
+      },
+    },
+    async (request, reply) => {
+      const { captureIds, lat, lon, locationLabel, regionId, keepPoint } = request.body;
+      const userId = request.user!.id;
+      // One undo step for the point, the place name and the region together.
+      const edit = {
+        lat,
+        lon,
+        source: "map" as const,
+        ...(locationLabel !== undefined ? { label: locationLabel?.trim() || null } : {}),
+        ...(regionId ? { regionId } : {}),
+        ...(keepPoint ? { keep: "all" as const } : {}),
+      };
+      if ((lat === null) !== (lon === null)) {
+        return reply.code(400).send({ error: "Send both lat and lon, or both null to clear" });
+      }
+      if (locationJobRunningFor(userId)) return reply.code(409).send({ error: "Wait for the placement to finish" });
+      if (captureIds.length > SYNC_PLACE_MAX) {
+        if (!startLocationJob(userId, captureIds, edit, null))
+          return reply.code(409).send({ error: "Photos are already being placed" });
+        return { updated: 0, background: true };
+      }
+      return { updated: await applyLocation(userId, captureIds, edit), background: false };
     },
   );
 
@@ -385,7 +512,12 @@ export async function captureRoutes(fastify: FastifyInstance): Promise<void> {
   );
 
   await app.register(captureTagRoutes);
+  await app.register(capturePlaceRoutes);
   await app.register(trashRoutes);
   await app.register(hiddenCaptureRoutes);
+  await app.register(captureVersionRoutes);
   await app.register(speciesSuggestRoutes);
+  await app.register(recheckRoutes);
+  await app.register(takenAtShiftRoutes);
+  await app.register(locationRoutes);
 }

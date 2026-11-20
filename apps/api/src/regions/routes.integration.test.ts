@@ -115,7 +115,7 @@ describe.skipIf(!url)("region routes validation", () => {
     expect((await call("GET", `${base}?filter=all&taxon=&seaZoneIds=`)).statusCode).toBe(200);
     // Each id in the list is still checked by the handler.
     const zones = await call("GET", `${base}/count?seaZoneIds=nope`);
-    expect([zones.statusCode, zones.json()]).toEqual([404, { error: "Sea zone not found" }]);
+    expect([zones.statusCode, zones.json()]).toEqual([404, { error: "Ocean area not found" }]);
   });
 
   it("requires regionIds for taxon presence", async () => {

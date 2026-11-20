@@ -329,7 +329,7 @@ export async function regionChecklistAdditionRoutes(fastify: FastifyInstance): P
     },
     async (request, reply) => {
       const { seaZoneId, speciesId } = request.params;
-      if (!(await seaZoneExists(seaZoneId))) return reply.code(404).send({ error: "Sea zone not found" });
+      if (!(await seaZoneExists(seaZoneId))) return reply.code(404).send({ error: "Ocean area not found" });
       if (!(await speciesExists(speciesId))) return reply.code(404).send({ error: "Species not found" });
       const inserted = await pool.query(
         `INSERT INTO sea_zone_species_user_added (user_id, sea_zone_id, species_id) VALUES ($1, $2, $3)
@@ -359,7 +359,7 @@ export async function regionChecklistAdditionRoutes(fastify: FastifyInstance): P
       if (!res.rowCount) {
         return reply
           .code(404)
-          .send({ error: "You haven't added that species to this sea zone's checklist", code: "not_added" });
+          .send({ error: "You haven't added that species to this ocean area's checklist", code: "not_added" });
       }
       return { ok: true };
     },
@@ -373,7 +373,7 @@ export async function regionChecklistAdditionRoutes(fastify: FastifyInstance): P
     },
     async (request, reply) => {
       const { id: seaZoneId } = request.params;
-      if (!(await seaZoneExists(seaZoneId))) return reply.code(404).send({ error: "Sea zone not found" });
+      if (!(await seaZoneExists(seaZoneId))) return reply.code(404).send({ error: "Ocean area not found" });
       const res = await pool.query<AddedSpeciesRow>(
         `SELECT s.id AS species_id, s.scientific_name, s.common_name, a.added_at,
                 EXISTS (SELECT 1 FROM sea_zone_species zs WHERE zs.sea_zone_id = a.sea_zone_id AND zs.species_id = a.species_id) AS on_catalog

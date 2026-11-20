@@ -634,14 +634,14 @@ describe.skipIf(!url)("checklist additions", () => {
       const twice = await call("DELETE", seaAddition(bightId, LISTED));
       expect([twice.statusCode, twice.json()]).toEqual([
         404,
-        { error: "You haven't added that species to this sea zone's checklist", code: "not_added" },
+        { error: "You haven't added that species to this ocean area's checklist", code: "not_added" },
       ]);
     });
 
     it("refuses bad input", async () => {
       expect((await call("PUT", `/api/sea-zones/nope/checklist-additions/${HAND}`)).statusCode).toBe(400);
       const unknownZone = await call("PUT", seaAddition(UNKNOWN, HAND));
-      expect([unknownZone.statusCode, unknownZone.json()]).toEqual([404, { error: "Sea zone not found" }]);
+      expect([unknownZone.statusCode, unknownZone.json()]).toEqual([404, { error: "Ocean area not found" }]);
       const unknownSpecies = await call("PUT", seaAddition(seaId, UNKNOWN));
       expect([unknownSpecies.statusCode, unknownSpecies.json()]).toEqual([404, { error: "Species not found" }]);
       expect((await call("GET", `/api/sea-zones/${UNKNOWN}/checklist-additions`)).statusCode).toBe(404);

@@ -387,7 +387,7 @@ describe.skipIf(!url)("capture routes", () => {
     });
 
     it("files by the photo's own capture year when organizing by year", async () => {
-      await db.query(`UPDATE users SET organize_originals_by_year = true WHERE id = $1`, [OWNER]);
+      await db.query(`UPDATE users SET folder_layout = '{wildlifeYear,group,species}' WHERE id = $1`, [OWNER]);
       try {
         // The database says 2021; the camera says 2019, and the folder goes by the camera.
         const { captureId } = await makeCapture(OWNER, SPECIES_A, 1);
@@ -411,7 +411,7 @@ describe.skipIf(!url)("capture routes", () => {
           { ref: path.join(dataDir, "Wildlife 2019", "Birds", "Routes Bird B", "Adjusted", "IMG_0003.jpg") },
         ]);
       } finally {
-        await db.query(`UPDATE users SET organize_originals_by_year = false WHERE id = $1`, [OWNER]);
+        await db.query(`UPDATE users SET folder_layout = '{group,species}' WHERE id = $1`, [OWNER]);
       }
     });
 
@@ -563,6 +563,45 @@ describe.skipIf(!url)("capture routes", () => {
         const res = await call("PATCH", `/api/captures/${id}/region`, { locationLabel: "x" });
         expect([res.statusCode, res.json()]).toEqual([404, { error: "Capture not found" }]);
       }
+    });
+
+    it("sets the place of many captures at once, only the owner's and not trashed ones", async () => {
+      const mine = [await makeCapture(OWNER, SPECIES_A, 1), await makeCapture(OWNER, SPECIES_B, 2)];
+      const trashed = await makeCapture(OWNER, SPECIES_A, 3);
+      await db.query(`UPDATE captures_all SET deleted_at = now() WHERE id = $1`, [trashed.captureId]);
+      const theirs = await makeCapture(OTHER, SPECIES_A, 1);
+      const ids = [...mine.map((c) => c.captureId), trashed.captureId, theirs.captureId];
+      const post = (body: unknown, token?: string) => call("POST", "/api/captures/location", body, token);
+
+      const set = await post({ captureIds: ids, regionId, locationLabel: " Kenai " });
+      expect([set.statusCode, set.json()]).toEqual([200, { updated: 2 }]);
+      for (const { captureId } of mine)
+        expect(await captureRow(captureId)).toMatchObject({ region_id: regionId, location_label: "Kenai" });
+      for (const { captureId } of [trashed, theirs])
+        expect(await captureRow(captureId)).toMatchObject({ region_id: null, location_label: null });
+
+      // Without a label the existing one stays.
+      const clear = await post({ captureIds: ids, regionId: null });
+      expect([clear.statusCode, clear.json()]).toEqual([200, { updated: 2 }]);
+      expect(await captureRow(mine[0].captureId)).toMatchObject({ region_id: null, location_label: "Kenai" });
+      expect((await post({ captureIds: [theirs.captureId], regionId }, OWNER_TOKEN)).json()).toEqual({ updated: 0 });
+
+      for (const bad of [
+        { captureIds: [], regionId },
+        { captureIds: ["nope"], regionId },
+        { captureIds: [mine[0].captureId] },
+        { captureIds: [mine[0].captureId], regionId: "nope" },
+        { captureIds: [mine[0].captureId], regionId, extra: 1 },
+        { captureIds: Array.from({ length: 5001 }, () => mine[0].captureId), regionId },
+      ]) {
+        const res = await post(bad);
+        expect([res.statusCode, res.json().code]).toEqual([400, "invalid_request"]);
+      }
+      const payload = { captureIds: [mine[0].captureId], regionId };
+      for (const headers of [{}, { "x-api-key": READ_KEY }])
+        expect((await app.inject({ method: "POST", url: "/api/captures/location", payload, headers })).statusCode).toBe(
+          401,
+        );
     });
 
     it("rates a photo 1 to 5 or clears it, keeping the species' best rating as the maximum", async () => {

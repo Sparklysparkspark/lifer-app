@@ -90,7 +90,7 @@ export async function trashRoutes(fastify: FastifyInstance): Promise<void> {
     }>(
       `SELECT capture_id, kind, ref, volume_id, volume_relative_path FROM originals
        WHERE capture_id = ANY($1::uuid[]) AND managed = true
-         AND (kind IN ('jpeg', 'video') OR (kind = 'raw' AND (capture_id = ANY($2::uuid[])
+         AND (kind IN ('jpeg', 'video', 'audio') OR (kind = 'raw' AND (capture_id = ANY($2::uuid[])
            -- A RAW with no edited original beside it is the photo itself, so it goes with it.
            OR NOT EXISTS (SELECT 1 FROM originals o WHERE o.capture_id = originals.capture_id AND o.kind <> 'raw'))))`,
       [[...found], rawCaptureIds],
@@ -125,12 +125,12 @@ export async function trashRoutes(fastify: FastifyInstance): Promise<void> {
       for (const cover of coversRes.rows) {
         // A secondary (capture_species) tag on another capture is evidence for this species too.
         const remaining = await client.query<{ current_photo_id: string | null }>(
-          `SELECT current_photo_id, taken_at FROM captures WHERE user_id = $1 AND species_id = $2 AND id <> ALL($3::uuid[])
+          `SELECT current_photo_id, taken_at, quality_rating FROM captures WHERE user_id = $1 AND species_id = $2 AND id <> ALL($3::uuid[])
            UNION ALL
-           SELECT c.current_photo_id, c.taken_at FROM capture_species cs
+           SELECT c.current_photo_id, c.taken_at, c.quality_rating FROM capture_species cs
              JOIN captures c ON c.id = cs.capture_id
              WHERE cs.species_id = $2 AND c.user_id = $1 AND c.id <> ALL($3::uuid[])
-           ORDER BY taken_at DESC NULLS LAST LIMIT 1`,
+           ORDER BY quality_rating DESC NULLS LAST, taken_at DESC NULLS LAST LIMIT 1`,
           [userId, cover.species_id, captureIds],
         );
         if (remaining.rows[0]?.current_photo_id) {
@@ -163,7 +163,7 @@ export async function trashRoutes(fastify: FastifyInstance): Promise<void> {
              SELECT c.current_photo_id FROM album_captures ac
                JOIN captures c ON c.id = ac.capture_id
                WHERE ac.album_id = a.id AND ac.capture_id <> ALL($3::uuid[]) AND c.current_photo_id IS NOT NULL
-               ORDER BY c.taken_at DESC NULLS LAST LIMIT 1
+               ORDER BY c.quality_rating DESC NULLS LAST, c.taken_at DESC NULLS LAST LIMIT 1
            ), cover_crop_x = NULL, cover_crop_y = NULL, cover_crop_size = NULL
            WHERE a.user_id = $1 AND a.cover_photo_id = ANY($2::uuid[])`,
           [userId, photoIds, captureIds],
@@ -195,6 +195,7 @@ export async function trashRoutes(fastify: FastifyInstance): Promise<void> {
         p.display_path,
         p.thumb_path,
         path.join(APP_DATA_DIR, "medium", `${p.id}.webp`),
+        path.join(APP_DATA_DIR, "phone", `${p.id}.webp`),
         path.join(APP_DATA_DIR, "video-preview", `${p.id}.mp4`),
       );
     }
@@ -328,7 +329,7 @@ export async function trashRoutes(fastify: FastifyInstance): Promise<void> {
       width: number | null;
       height: number | null;
       has_raw_original: boolean;
-      photo_kind: "image" | "video" | null;
+      photo_kind: "image" | "video" | "audio" | null;
       duration_seconds: number | null;
       original_kind: string | null;
     }>(

@@ -101,6 +101,35 @@ describe.skipIf(!url)("GET /regions/boundaries", () => {
     );
     const zones = await app.inject({ method: "GET", url: `/api/regions/${REGION}/species?seaZoneIds=nope` });
     expect(zones.statusCode).toBe(404);
-    expect(zones.json()).toEqual({ error: "Sea zone not found" });
+    expect(zones.json()).toEqual({ error: "Ocean area not found" });
+  });
+
+  it("sends one region's simplified outline with ?id=", async () => {
+    const res = await app.inject({ method: "GET", url: `/api/regions/boundaries?id=${REGION}` });
+    expect(res.statusCode).toBe(200);
+    const { regions } = res.json();
+    expect(regions).toHaveLength(1);
+    // Renamed by the cache test above.
+    expect(regions[0]).toMatchObject({ id: REGION, name: "Zzboundary Renamed" });
+    expect(regions[0].boundaryGeoJson.geometry.coordinates[0].length).toBeLessThan(801);
+  });
+
+  it("sends a region's children with ?parentId=, through a group without an outline", async () => {
+    const GROUP = "ffffffff-0000-4000-8000-0000000004b2";
+    const CHILD = "ffffffff-0000-4000-8000-0000000004b3";
+    const GRANDCHILD = "ffffffff-0000-4000-8000-0000000004b4";
+    await db.query(`DELETE FROM regions WHERE id = ANY($1::uuid[])`, [[GRANDCHILD, CHILD, GROUP]]);
+    await db.query(
+      `INSERT INTO regions (id, name, parent_id, boundary_geojson) VALUES
+         ($2, 'Zzchild', $1, $5), ($3, 'Zzgroup', $1, NULL), ($4, 'Zzgrandchild', $3, $5)`,
+      [REGION, CHILD, GROUP, GRANDCHILD, JSON.stringify(square(10))],
+    );
+    try {
+      const res = await app.inject({ method: "GET", url: `/api/regions/boundaries?parentId=${REGION}` });
+      expect(res.statusCode).toBe(200);
+      expect(res.json().regions.map((r: { name: string }) => r.name)).toEqual(["Zzchild", "Zzgrandchild"]);
+    } finally {
+      await db.query(`DELETE FROM regions WHERE id = ANY($1::uuid[])`, [[GRANDCHILD, CHILD, GROUP]]);
+    }
   });
 });

@@ -2,19 +2,27 @@ import { rmSync } from "node:fs";
 import { readFile, rm } from "node:fs/promises";
 import type { FastifyInstance } from "fastify";
 import { pool } from "@lifer/core/db.js";
-import { requireAuth } from "../auth/session.js";
-import { suggestSpecies, suggestSpeciesForFrames } from "@lifer/core/species/embeddings.js";
+import { requireAuth, requireScope } from "../auth/session.js";
+import {
+  rankSpeciesByEmbeddings,
+  suggestionVectorKind,
+  suggestSpecies,
+  suggestSpeciesForFrames,
+} from "@lifer/core/species/embeddings.js";
 import { probeVideo, extractVideoFrame } from "@lifer/core/uploads/image.js";
 import { uploadTempPath } from "../uploads/common.js";
 import { claimedPhotoFormat, sniffPhotoFormat } from "@lifer/core/uploads/formats.js";
 import { prepareWorkingImage, type WorkingImage } from "../uploads/workingImage.js";
 import { receiveToFile, stageUpload, sweepStagedUploads } from "../lib/stagedUploads.js";
 import { finishedTusUpload } from "../lib/tusUploads.js";
-import { replies, withSchemas } from "../lib/schema.js";
+import { IdParams, notFoundOnInvalidId, replies, withSchemas } from "../lib/schema.js";
 import { PhotoSuggestions, VideoSuggestions } from "./responses.js";
 
 // Both routes take multipart/form-data, read part by part from the stream, so there's no body
 // schema: the handlers check the fields (`file`, `regionId`, `uploadId`) as they arrive.
+// Added to a suggestion's score when its species is on the matched checklist.
+const CHECKLIST_BOOST = 0.1;
+
 export async function speciesSuggestRoutes(fastify: FastifyInstance): Promise<void> {
   const app = withSchemas(fastify);
 
@@ -65,6 +73,66 @@ export async function speciesSuggestRoutes(fastify: FastifyInstance): Promise<vo
         await working?.release();
         if (tmpPath) await rm(tmpPath, { force: true });
       }
+    },
+  );
+
+  // Other likely species for a photo already in the library, for "Correct the ID": ranked from its
+  // stored vector in its own region, like the import's suggestions. Empty without a vector or model.
+  app.get(
+    "/captures/:id/suggestions",
+    {
+      preValidation: requireScope("photos.read"),
+      config: notFoundOnInvalidId("Capture not found"),
+      schema: { params: IdParams, response: replies(PhotoSuggestions) },
+    },
+    async (request, reply) => {
+      const userId = request.user!.id;
+      const captureRes = await pool.query<{
+        species_id: string;
+        region_id: string | null;
+        taken_at: Date | null;
+        species_suggest_enabled: boolean;
+      }>(
+        `SELECT c.species_id, c.region_id, c.taken_at, u.species_suggest_enabled
+         FROM captures c JOIN users u ON u.id = c.user_id
+         WHERE c.id = $1 AND c.user_id = $2`,
+        [request.params.id, userId],
+      );
+      const capture = captureRes.rows[0];
+      if (!capture) return reply.code(404).send({ error: "Capture not found" });
+      if (capture.species_suggest_enabled === false) return { suggestions: [] };
+      const model = await suggestionVectorKind(pool).catch(() => null);
+      if (!model) return { suggestions: [] };
+      const vectorRes = await pool.query<{ embedding: number[] }>(
+        `SELECT embedding FROM ${model.space.captureTable} WHERE capture_id = $1 AND model_version = $2`,
+        [request.params.id, model.space.modelVersion],
+      );
+      const embedding = vectorRes.rows[0]?.embedding;
+      if (!embedding) return { suggestions: [] };
+      // Species on an eBird checklist this photo was matched to move up.
+      const listed = new Set(
+        (
+          await pool.query<{ name: string }>(
+            `SELECT DISTINCT unnest(e.species) AS name FROM capture_ebird_checklists l
+             JOIN ebird_checklists e ON e.user_id = l.user_id AND e.sub_id = l.sub_id
+             WHERE l.capture_id = $1 AND l.user_id = $2`,
+            [request.params.id, userId],
+          )
+        ).rows.map((r) => r.name),
+      );
+      const ranked = await rankSpeciesByEmbeddings(
+        pool,
+        userId,
+        [Float32Array.from(embedding)],
+        capture.region_id,
+        listed.size > 0 ? 15 : 5,
+        capture.taken_at,
+        model.space,
+        capture.species_id,
+      );
+      const boosted = (s: (typeof ranked)[number]) => s.score + (listed.has(s.scientific_name) ? CHECKLIST_BOOST : 0);
+      const suggestions = listed.size > 0 ? [...ranked].sort((a, b) => boosted(b) - boosted(a)).slice(0, 5) : ranked;
+      return { suggestions };
     },
   );
 

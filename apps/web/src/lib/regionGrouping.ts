@@ -108,6 +108,11 @@ export function availableTaxaByRegion(
   return byRegionId;
 }
 
+/** The chosen groups the chosen countries have: a choice made for other countries drops out. */
+export function availableChoice<T>(chosen: Set<T>, available: T[]): Set<T> {
+  return new Set(available.filter((t) => chosen.has(t)));
+}
+
 /** A downloaded country, its ancestors up to World, and every descendant bundled in its pack. */
 export function regionsReachableFrom(regions: RegionSummary[], countryNames: Set<string>): Set<string> {
   const byId = new Map(regions.map((r) => [r.id, r]));

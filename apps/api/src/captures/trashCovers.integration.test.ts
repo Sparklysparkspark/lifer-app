@@ -155,7 +155,7 @@ describe.skipIf(!url)("covers when a photo is trashed", () => {
     expect(album).toEqual(expect.objectContaining({ coverPhotoId: photo.newest, coverCropX: null }));
     const trips = (await call("GET", "/api/trips")).json().trips;
     expect(trips).toEqual([
-      expect.objectContaining({ id: tripId, coverPhotoUrl: `/api/photos/${photo.newest}/thumb`, coverCropX: null }),
+      expect.objectContaining({ id: tripId, coverPhotoUrl: `/api/photos/${photo.best}/thumb`, coverCropX: null }),
     ]);
   });
 

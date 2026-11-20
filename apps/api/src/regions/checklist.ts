@@ -1,6 +1,7 @@
 // A region's species checklist with the user's state: one region (plus any selected sea zones),
 // its header count, and the union over a continent's or World's downloaded countries.
 import type { FastifyInstance } from "fastify";
+import { taxonomicOrderBy } from "../lib/taxonomicOrder.js";
 import { Type } from "typebox";
 import { pool } from "@lifer/core/db.js";
 import { isUuid } from "../lib/validate.js";
@@ -34,6 +35,10 @@ const TaxonQuery = Type.Optional(Type.String());
 const SeaZoneIdsQuery = Type.Optional(Type.String());
 // "0" shows only the selected sea zones' species; anything else (or nothing) includes land.
 const IncludeLandQuery = Type.Optional(Type.Enum(["0", "1"]));
+// Counts a species as photographed only with a photo taken in the viewed region's country or
+// province. Anywhere (the default) when left out.
+const PhotographedInQuery = Type.Optional(Type.Enum(["country", "province"]));
+type PhotographedIn = "country" | "province" | undefined;
 
 const TIER_RANK: Record<string, number> = { legendary: 0, rare: 1, uncommon: 2, occasional: 3, common: 4 };
 
@@ -52,6 +57,45 @@ async function resolvePackRegionName(regionId: string): Promise<string | null> {
     [regionId],
   );
   return res.rows[0]?.name ?? null;
+}
+
+/** The viewed region's country (its home country for a province shown under its continent) and
+ *  whether the region is a province: a leaf below the country, not a vernacular group. No country
+ *  for World or a continent. */
+async function resolvePhotoScope(
+  regionId: string,
+): Promise<{ countryId: string; countryName: string; provinceName: string | null } | null> {
+  const res = await pool.query<{ country_id: string; country_name: string; province_name: string | null }>(
+    `WITH RECURSIVE up AS (
+       SELECT id, parent_id, external_codes, 0 AS depth FROM regions WHERE id = $1
+       UNION ALL SELECT r.id, r.parent_id, r.external_codes, up.depth + 1 FROM regions r JOIN up ON r.id = up.parent_id WHERE up.depth < 10
+     ),
+     country AS (
+       SELECT COALESCE(
+         (SELECT home_country_id FROM regions WHERE id = $1),
+         (SELECT up.id FROM up LEFT JOIN regions p ON p.id = up.parent_id
+          WHERE COALESCE(array_length(p.external_codes, 1), 0) = 0 AND COALESCE(array_length(up.external_codes, 1), 0) > 0
+          ORDER BY up.depth LIMIT 1)
+       ) AS id
+     )
+     SELECT c.id AS country_id, c.name AS country_name,
+            CASE WHEN c.id <> $1 AND NOT EXISTS (SELECT 1 FROM regions k WHERE k.parent_id = $1) THEN v.name END AS province_name
+     FROM country JOIN regions c ON c.id = country.id JOIN regions v ON v.id = $1`,
+    [regionId],
+  );
+  const row = res.rows[0];
+  return row ? { countryId: row.country_id, countryName: row.country_name, provinceName: row.province_name } : null;
+}
+
+/** The region whose photos count for photographedIn: the province itself, else the country (a
+ *  province-level choice on a country or group page). Null means anywhere. */
+function photoScopeRegionId(
+  regionId: string,
+  scope: Awaited<ReturnType<typeof resolvePhotoScope>>,
+  level: PhotographedIn,
+): string | null {
+  if (!level || !scope) return null;
+  return level === "province" && scope.provinceName ? regionId : scope.countryId;
 }
 
 // A region_species row doesn't mean its taxon's pack was downloaded (the catalog seed ships every
@@ -85,6 +129,7 @@ const P = {
   hideObscure: "$6",
   packRegion: "$7",
   hasPack: "$8",
+  photoScope: "$9",
 } as const;
 
 function regionViewParams(v: {
@@ -96,8 +141,19 @@ function regionViewParams(v: {
   hideObscure: boolean;
   packRegionName: string | null;
   needsPack: boolean;
+  photoScopeId: string | null;
 }): unknown[] {
-  return [v.userId, v.regionId, v.taxon, v.seaZoneIds, v.includeLand, v.hideObscure, v.packRegionName, !v.needsPack];
+  return [
+    v.userId,
+    v.regionId,
+    v.taxon,
+    v.seaZoneIds,
+    v.includeLand,
+    v.hideObscure,
+    v.packRegionName,
+    !v.needsPack,
+    v.photoScopeId,
+  ];
 }
 
 // The region view's species: the region's checklist plus any selected sea zones' (UNION, since
@@ -118,7 +174,44 @@ const REGION_VIEW_SPECIES_CTE = `WITH RECURSIVE region_tree AS (
            ${userAddedInTreeSql(P.user, P.includeLand, true)}
            UNION
            ${userAddedInSeaZonesSql(P.user, P.seaZones)}
+         ),
+         -- photographedIn: the scope region's tree and the species with a live photo there.
+         ${photographedInTreeCtes("photo_scope_tree", "photographed_in_scope", P.photoScope)},
+         -- The Photos taken filter: the same for the viewed region itself, and every species with
+         -- a photo that has a place at all.
+         ${photographedInTreeCtes("here_tree", "photographed_here", P.region)},
+         photographed_located AS (
+           SELECT c.species_id FROM captures c WHERE c.user_id = ${P.user} AND c.region_id IS NOT NULL
+           UNION
+           SELECT cs.species_id FROM capture_species cs JOIN captures c ON c.id = cs.capture_id
+           WHERE c.user_id = ${P.user} AND c.region_id IS NOT NULL
          )`;
+
+// Where the user's photos of a species were taken, for the Photos taken filter: "here" with any
+// in the viewed region, "elsewhere" with located ones all outside it, null with none located.
+const PHOTOGRAPHED_WHERE_SQL = `CASE WHEN s.id IN (SELECT species_id FROM photographed_here) THEN 'here'
+             WHEN s.id IN (SELECT species_id FROM photographed_located) THEN 'elsewhere' END`;
+
+// A region's subtree (groups included) plus provinces shown under their continent that belong
+// to it, and the species with a live photo there. Photos without a region (no GPS) are in none.
+function photographedInTreeCtes(tree: string, photographed: string, rootParam: string): string {
+  const inTree = `${rootParam}::uuid IS NOT NULL AND c.user_id = ${P.user} AND c.region_id IN (SELECT id FROM ${tree})`;
+  return `${tree} AS (
+           SELECT id FROM regions WHERE id = ${rootParam} OR home_country_id = ${rootParam}
+           UNION ALL
+           SELECT r.id FROM regions r JOIN ${tree} pt ON r.parent_id = pt.id
+         ),
+         ${photographed} AS (
+           SELECT c.species_id FROM captures c WHERE ${inTree}
+           UNION
+           SELECT cs.species_id FROM capture_species cs JOIN captures c ON c.id = cs.capture_id WHERE ${inTree}
+         )`;
+}
+
+// The user's state, with "collected" dropped to unseen when photographedIn is set and none of
+// the species' photos are in scope. Needs `us` and PHOTOGRAPHED_IN_SCOPE_JOIN.
+const SCOPED_STATE_SQL = `CASE WHEN ${P.photoScope}::uuid IS NOT NULL AND us.state = 'collected' AND pis.species_id IS NULL THEN NULL ELSE us.state END`;
+const PHOTOGRAPHED_IN_SCOPE_JOIN = `LEFT JOIN photographed_in_scope pis ON pis.species_id = s.id`;
 
 // Joins `rs`, `ua` and `uz` for the region view; without the pack ($8 false) the region's catalog
 // row isn't shown, so its tiers aren't either.
@@ -138,9 +231,15 @@ const regionViewFilterSql = (maxDepthM: number) => `${TAXON_FILTER_SQL(P.taxon)}
 
 /** Select-list columns toCollectionItem reads, for a checklist row joined as in the routes below.
  *  `userParam` is the user id's placeholder. */
-const checklistItemColumns = (userParam: string, userAddedColumns: string) => `s.id AS species_id,
+const checklistItemColumns = (
+  userParam: string,
+  userAddedColumns: string,
+  stateSql = "us.state",
+) => `s.id AS species_id,
            s.scientific_name,
            s.common_name,
+           s.aba_code,
+           s.ebird_code,
            s.taxon_class,
            s.family,
            s.taxon_order,
@@ -157,15 +256,16 @@ const checklistItemColumns = (userParam: string, userAddedColumns: string) => `s
            rs.tier_reason AS local_tier_reason,
            uto.tier AS override_tier,
            rs.is_vagrant,
-           rs.seasonality,
+           rs.is_invasive,
            rs.weekly_frequency,
            t.endemic_country_iso3,
            t.endemic_region_label,
            t.occurrence_count,
            t.last_occurrence_year,
            t.depth_min_m,
-           us.state,
+           ${stateSql} AS state,
            us.is_target,
+           us.needs_better_photo,
            us.was_ghost_when_collected,
            us.was_lost_when_collected,
            us.cover_photo_id,
@@ -175,6 +275,8 @@ const checklistItemColumns = (userParam: string, userAddedColumns: string) => `s
            p.thumb_path IS NOT NULL AS has_cover_photo,
            sv.label AS cover_volume_label,
            ${userAddedColumns},
+           (us.state = 'seen' AND EXISTS (SELECT 1 FROM captures ch JOIN photos hp ON hp.id = ch.current_photo_id
+              WHERE ch.user_id = ${userParam} AND ch.species_id = s.id AND hp.kind = 'audio')) AS heard,
            (SELECT array_agg(DISTINCT EXTRACT(YEAR FROM cy.taken_at)::int)
               FROM captures cy WHERE cy.user_id = ${userParam} AND cy.species_id = s.id AND cy.taken_at IS NOT NULL) AS captured_years`;
 
@@ -207,6 +309,7 @@ export async function regionChecklistRoutes(fastify: FastifyInstance): Promise<v
           taxon: TaxonQuery,
           seaZoneIds: SeaZoneIdsQuery,
           includeLand: IncludeLandQuery,
+          photographedIn: PhotographedInQuery,
         }),
         response: replies(RegionSpecies),
       },
@@ -220,14 +323,14 @@ export async function regionChecklistRoutes(fastify: FastifyInstance): Promise<v
       const { hideObscure, maxDepthM } = await getObscurityPreferences(userId);
       // Comma-separated, like `taxon`: several sea zones can be on at once.
       const seaZoneIds = splitList(request.query.seaZoneIds);
-      if (!seaZoneIds.every(isUuid)) return reply.code(404).send({ error: "Sea zone not found" });
+      if (!seaZoneIds.every(isUuid)) return reply.code(404).send({ error: "Ocean area not found" });
       // includeLand=0 shows only the selected zones' species. Defaults to land plus zones.
       const includeLand = request.query.includeLand !== "0";
 
       // Sea zone species come only from downloaded packs; a zone without one adds nothing.
       if (seaZoneIds.length > 0) {
         const zonesRes = await pool.query(`SELECT id FROM sea_zones WHERE id = ANY($1)`, [seaZoneIds]);
-        if (zonesRes.rows.length !== seaZoneIds.length) return reply.code(404).send({ error: "Sea zone not found" });
+        if (zonesRes.rows.length !== seaZoneIds.length) return reply.code(404).send({ error: "Ocean area not found" });
       }
 
       // canDrillDown needs to know whether this region is a country: there's no data below
@@ -248,14 +351,19 @@ export async function regionChecklistRoutes(fastify: FastifyInstance): Promise<v
       // don't wait for a download; the catalog's own checklist stays out until then.
       const needsPack = !region.occurrence_computed_at && region.external_codes?.length > 0;
 
-      const packRegionName = await resolvePackRegionName(regionId);
+      const [packRegionName, photoScope] = await Promise.all([
+        resolvePackRegionName(regionId),
+        resolvePhotoScope(regionId),
+      ]);
+      const photoScopeId = photoScopeRegionId(regionId, photoScope, request.query.photographedIn);
 
       // Per-user state as in GET /collection. Sea-zone-only species have no local_tier: they were
       // never ranked against this region's checklist.
       const res = await pool.query(
         `${REGION_VIEW_SPECIES_CTE}
          SELECT
-           ${checklistItemColumns(P.user, userAddedColumnsSql({ seaZonesParam: P.seaZones, includeLandParam: P.includeLand }))}
+           ${checklistItemColumns(P.user, userAddedColumnsSql({ seaZonesParam: P.seaZones, includeLandParam: P.includeLand }), SCOPED_STATE_SQL)},
+           ${PHOTOGRAPHED_WHERE_SQL} AS photographed_where
          FROM species_ids si
          JOIN species s ON s.id = si.species_id
          ${REGION_VIEW_JOINS}
@@ -267,10 +375,21 @@ export async function regionChecklistRoutes(fastify: FastifyInstance): Promise<v
            ORDER BY o.region_id NULLS LAST LIMIT 1
          ) uto ON true
          ${checklistItemJoins(P.user)}
+         ${PHOTOGRAPHED_IN_SCOPE_JOIN}
          LEFT JOIN region_species_hidden rsh ON rsh.user_id = ${P.user} AND rsh.species_id = s.id AND rsh.region_id = ${P.region}
          WHERE ${regionViewFilterSql(maxDepthM)}
-         ORDER BY s.sort_order NULLS LAST, s.scientific_name`,
-        regionViewParams({ userId, regionId, taxon, seaZoneIds, includeLand, hideObscure, packRegionName, needsPack }),
+         ORDER BY ${taxonomicOrderBy()}`,
+        regionViewParams({
+          userId,
+          regionId,
+          taxon,
+          seaZoneIds,
+          includeLand,
+          hideObscure,
+          packRegionName,
+          needsPack,
+          photoScopeId,
+        }),
       );
 
       let items = await markNameChanged(
@@ -316,6 +435,8 @@ export async function regionChecklistRoutes(fastify: FastifyInstance): Promise<v
           boundaryGeoJson: region.boundary_geojson,
           hasChildren: region.has_children,
           canDrillDown: (region.external_codes?.length ?? 0) > 0 && region.region_is_country_level,
+          countryName: photoScope?.countryName ?? null,
+          provinceName: photoScope?.provinceName ?? null,
         },
         stats,
         items,
@@ -366,7 +487,8 @@ export async function regionChecklistRoutes(fastify: FastifyInstance): Promise<v
         return { items: [], downloadedCountryNames: [] };
       }
 
-      // DISTINCT ON keeps one row per species across countries (preferring one with a tier).
+      // DISTINCT ON keeps one row per species across countries (preferring one with a tier); it
+      // needs the id order, so the outer query puts the list back in field-guide order.
       const res = await pool.query(
         `WITH RECURSIVE region_tree AS (
            SELECT id FROM regions WHERE id = ANY($2)
@@ -379,7 +501,8 @@ export async function regionChecklistRoutes(fastify: FastifyInstance): Promise<v
            ${capturedInTreeSql("$1", "true")}
            UNION
            ${userAddedInTreeSql("$1")}
-         )
+         ),
+         picked AS (
          SELECT DISTINCT ON (s.id)
            ${checklistItemColumns("$1", userAddedColumnsSql())}
          FROM species_ids si
@@ -398,7 +521,10 @@ export async function regionChecklistRoutes(fastify: FastifyInstance): Promise<v
            AND ${NOT_REGION_HIDDEN_SQL}
            -- A species you've photographed or added yourself stays even without its group's pack.
            AND (${ALREADY_OWNED_SQL} OR ${ADDED_IN_TREE_SQL} OR EXISTS (SELECT 1 FROM downloaded_packs dp WHERE dp.region = ANY($5) AND (dp.taxon IS NULL OR dp.taxon = s.taxon_class)))
-         ORDER BY s.id, (rs.local_tier IS NULL), s.scientific_name`,
+         ORDER BY s.id, (rs.local_tier IS NULL), s.scientific_name
+         )
+         SELECT picked.* FROM picked JOIN species s ON s.id = picked.species_id
+         ORDER BY ${taxonomicOrderBy()}`,
         [userId, countryIds, taxon, hideObscure, countryNames],
       );
 
@@ -419,7 +545,12 @@ export async function regionChecklistRoutes(fastify: FastifyInstance): Promise<v
       config: regionNotFound,
       schema: {
         params: IdParams,
-        querystring: Type.Object({ taxon: TaxonQuery, seaZoneIds: SeaZoneIdsQuery, includeLand: IncludeLandQuery }),
+        querystring: Type.Object({
+          taxon: TaxonQuery,
+          seaZoneIds: SeaZoneIdsQuery,
+          includeLand: IncludeLandQuery,
+          photographedIn: PhotographedInQuery,
+        }),
         response: replies(Open({ total: Type.Integer(), collected: Type.Integer(), seen: Type.Integer() })),
       },
     },
@@ -428,7 +559,7 @@ export async function regionChecklistRoutes(fastify: FastifyInstance): Promise<v
       const userId = request.user!.id;
       const taxon = request.query.taxon ? splitList(request.query.taxon) : null;
       const seaZoneIds = splitList(request.query.seaZoneIds);
-      if (!seaZoneIds.every(isUuid)) return reply.code(404).send({ error: "Sea zone not found" });
+      if (!seaZoneIds.every(isUuid)) return reply.code(404).send({ error: "Ocean area not found" });
       const includeLand = request.query.includeLand !== "0";
       const { hideObscure, maxDepthM } = await getObscurityPreferences(userId);
 
@@ -441,23 +572,38 @@ export async function regionChecklistRoutes(fastify: FastifyInstance): Promise<v
       // Same rule as GET /regions/:id/species: without its pack, only what's yours counts.
       const needsPack = !region.occurrence_computed_at && (region.external_codes?.length ?? 0) > 0;
 
-      const packRegionName = await resolvePackRegionName(regionId);
+      const [packRegionName, photoScope] = await Promise.all([
+        resolvePackRegionName(regionId),
+        resolvePhotoScope(regionId),
+      ]);
+      const photoScopeId = photoScopeRegionId(regionId, photoScope, request.query.photographedIn);
 
       const res = await pool.query<{ total: string; collected: string; seen: string }>(
         `${REGION_VIEW_SPECIES_CTE}
          SELECT
            count(*) AS total,
-           count(*) FILTER (WHERE us.state = 'collected') AS collected,
+           count(*) FILTER (WHERE ${SCOPED_STATE_SQL} = 'collected') AS collected,
            count(*) FILTER (WHERE us.state = 'seen') AS seen
          FROM species_ids si
          JOIN species s ON s.id = si.species_id
          LEFT JOIN species_traits t ON t.species_id = s.id
          ${REGION_VIEW_JOINS}
          LEFT JOIN user_species us ON us.user_id = ${P.user} AND us.species_id = s.id
+         ${PHOTOGRAPHED_IN_SCOPE_JOIN}
          LEFT JOIN user_archived_species uas ON uas.user_id = ${P.user} AND uas.species_id = s.id
          LEFT JOIN region_species_hidden rsh ON rsh.user_id = ${P.user} AND rsh.species_id = s.id AND rsh.region_id = ${P.region}
          WHERE ${regionViewFilterSql(maxDepthM)}`,
-        regionViewParams({ userId, regionId, taxon, seaZoneIds, includeLand, hideObscure, packRegionName, needsPack }),
+        regionViewParams({
+          userId,
+          regionId,
+          taxon,
+          seaZoneIds,
+          includeLand,
+          hideObscure,
+          packRegionName,
+          needsPack,
+          photoScopeId,
+        }),
       );
       const row = res.rows[0];
       return { total: Number(row.total), collected: Number(row.collected), seen: Number(row.seen) };

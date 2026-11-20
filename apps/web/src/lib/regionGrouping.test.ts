@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { RegionSummary } from "@lifer/shared";
 import type { PackStatusEntry } from "./packIndex";
 import {
+  availableChoice,
   availableTaxaByRegion,
   CENTRAL_AMERICA_CONTINENT_ID,
   continentIdForCountry,
@@ -91,6 +92,13 @@ describe("availableTaxaByRegion", () => {
       regions,
     );
     expect(result).toEqual({ fr: ["aves", "mammalia"] });
+  });
+});
+
+describe("availableChoice", () => {
+  it("keeps only the groups still available", () => {
+    expect(availableChoice(new Set(["aves", "insecta"]), ["aves", "mammalia"])).toEqual(new Set(["aves"]));
+    expect(availableChoice(new Set(["insecta"]), ["aves"]).size).toBe(0);
   });
 });
 

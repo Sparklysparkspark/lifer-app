@@ -19,6 +19,9 @@ export const RegionList = Open({
       hasScopedChecklist: Type.Boolean({ description: "False for World and the continents" }),
       sovereigntyGroup: Nullable(Type.String()),
       isSovereignDependency: Type.Boolean(),
+      exampleCity: Nullable(Type.String({ description: "A city to show in placeholders" })),
+      populousChildId: Nullable(Uuid()),
+      aliases: Type.Array(Type.String(), { description: "Other names the region is searched by" }),
     }),
   ),
 });
@@ -35,6 +38,8 @@ export const RegionSpecies = Open({
     boundaryGeoJson: Nullable(GeoJson),
     hasChildren: Type.Boolean(),
     canDrillDown: Type.Boolean(),
+    countryName: Nullable(Type.String({ description: "The region's country, for photographedIn" })),
+    provinceName: Nullable(Type.String({ description: "The region itself when it's a province" })),
   }),
   stats: RegionStats,
   items: Type.Array(CollectionItem),

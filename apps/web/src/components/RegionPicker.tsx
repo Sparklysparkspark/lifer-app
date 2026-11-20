@@ -1,10 +1,15 @@
+import type { ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 import SearchInput from "./SearchInput";
+import Pill from "./Pill";
 
 // Presentational region pills, optionally grouped under expandable headers, with an optional
 // jump-to search. Callers own the data and what selecting means (multi-toggle or navigate).
 export interface RegionPickerItem {
   id: string;
   name: string;
+  /** Search results only: a heading shown before the first result of each group. */
+  group?: string;
 }
 
 export interface RegionPickerGroup {
@@ -30,17 +35,12 @@ interface RegionPickerProps {
     results: RegionPickerItem[];
     onSelectResult: (item: RegionPickerItem) => void;
     placeholder?: string;
+    /** Under the results (a note, a credit); shown even when there are none. */
+    footer?: ReactNode;
   };
 }
 
 // Same shape as Pill.
-function pillClass(selected: boolean): string {
-  return `rounded-md border px-2.5 py-1 text-xs font-medium transition-colors ${
-    selected
-      ? "border-accent bg-accent text-accent-fg"
-      : "border-line bg-surface-muted text-muted hover:bg-surface-muted"
-  }`;
-}
 
 export default function RegionPicker({
   groups,
@@ -54,6 +54,7 @@ export default function RegionPicker({
   onSelectItem,
   search,
 }: RegionPickerProps) {
+  const { t } = useTranslation();
   const isSelected = (id: string) => (mode === "multi" ? (selectedIds?.has(id) ?? false) : selectedId === id);
   const select = (id: string) => (mode === "multi" ? onToggleItem?.(id) : onSelectItem?.(id));
 
@@ -64,21 +65,28 @@ export default function RegionPicker({
           <SearchInput
             value={search.term}
             onChange={search.onTermChange}
-            placeholder={search.placeholder ?? "Search…"}
+            placeholder={search.placeholder ?? t("ui.searchPlaceholder")}
           />
-          {search.results.length > 0 && (
-            <ul className="absolute z-10 mt-1 w-full rounded-md border border-line bg-surface shadow-md">
-              {search.results.map((r) => (
+          {(search.results.length > 0 || search.footer) && (
+            <ul className="absolute z-10 mt-1 w-full overflow-hidden rounded-panel border border-line bg-surface shadow-md">
+              {search.results.map((r, i) => (
                 <li key={r.id}>
+                  {r.group && r.group !== search.results[i - 1]?.group && (
+                    <p className="border-t border-line px-3 pb-1 pt-2 text-footnote font-semibold text-muted first:border-t-0">
+                      {r.group}
+                    </p>
+                  )}
+                  {/* raw-control: a row of the search results. */}
                   <button
                     type="button"
                     onClick={() => search.onSelectResult(r)}
-                    className="block w-full px-3 py-2 text-left text-sm text-ink hover:bg-surface-muted"
+                    className="block w-full px-3 py-2 text-left text-callout text-ink hover:bg-surface-muted focus-visible:outline-offset-[-2px]"
                   >
                     {r.name}
                   </button>
                 </li>
               ))}
+              {search.footer && <li className="px-3 py-2 text-footnote text-muted">{search.footer}</li>}
             </ul>
           )}
         </div>
@@ -90,14 +98,9 @@ export default function RegionPicker({
             if (group.items.length === 0) return null;
             const isOpen = openGroupIds?.has(group.id) ?? false;
             return (
-              <button
-                key={group.id}
-                type="button"
-                onClick={() => onToggleGroup?.(group.id)}
-                className={pillClass(isOpen)}
-              >
+              <Pill key={group.id} size="sm" active={isOpen} onClick={() => onToggleGroup?.(group.id)}>
                 {group.label}
-              </button>
+              </Pill>
             );
           })}
         </div>
@@ -109,19 +112,20 @@ export default function RegionPicker({
             .map((group) => (
               <div key={group.id} className="flex flex-wrap items-center gap-2">
                 {groups.filter((g) => openGroupIds?.has(g.id)).length > 1 && (
-                  <span className="text-xs font-semibold uppercase tracking-wide text-muted">{group.label}</span>
+                  <span className="text-footnote font-semibold uppercase tracking-wide text-muted">{group.label}</span>
                 )}
                 {[...group.items]
                   .sort((a, b) => a.name.localeCompare(b.name))
                   .map((item) => (
-                    <button
+                    <Pill
                       key={item.id}
-                      type="button"
+                      size="sm"
+
+                      active={isSelected(item.id)}
                       onClick={() => select(item.id)}
-                      className={pillClass(isSelected(item.id))}
                     >
                       {item.name}
-                    </button>
+                    </Pill>
                   ))}
               </div>
             ))
@@ -129,14 +133,15 @@ export default function RegionPicker({
           items.length > 0 && (
             <div className="flex flex-wrap items-center gap-2">
               {items.map((item) => (
-                <button
+                <Pill
                   key={item.id}
-                  type="button"
+                  size="sm"
+
+                  active={isSelected(item.id)}
                   onClick={() => select(item.id)}
-                  className={pillClass(isSelected(item.id))}
                 >
                   {item.name}
-                </button>
+                </Pill>
               ))}
             </div>
           )}

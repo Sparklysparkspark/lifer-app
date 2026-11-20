@@ -123,7 +123,8 @@ export async function captureTagRoutes(fastify: FastifyInstance): Promise<void> 
   );
 
   // Renames a tag everywhere (typos, casing). The DISTINCT re-aggregate merges it into the
-  // target tag on photos that already had both.
+  // target tag on photos that already had both. Hidden photos too (only the list leaves them
+  // out); trashed ones keep theirs.
   app.patch(
     "/captures/tags/rename",
     {
@@ -142,9 +143,9 @@ export async function captureTagRoutes(fastify: FastifyInstance): Promise<void> 
       if (from === to) return { ok: true, updated: 0 };
 
       const res = await pool.query<{ id: string }>(
-        `UPDATE captures SET tags = (
+        `UPDATE captures_all SET tags = (
          SELECT array_agg(DISTINCT t ORDER BY t) FROM unnest(array_replace(tags, $1, $2)) AS t
-       ) WHERE user_id = $3 AND $1 = ANY(tags)
+       ) WHERE user_id = $3 AND $1 = ANY(tags) AND deleted_at IS NULL
        RETURNING id`,
         [from, to, userId],
       );
@@ -157,7 +158,7 @@ export async function captureTagRoutes(fastify: FastifyInstance): Promise<void> 
     },
   );
 
-  // Deletes a tag everywhere it's used.
+  // Deletes a tag everywhere it's used, hidden photos included, like a rename.
   app.delete(
     "/captures/tags",
     {
@@ -173,7 +174,8 @@ export async function captureTagRoutes(fastify: FastifyInstance): Promise<void> 
       if (!tag) return reply.code(400).send({ error: "tag is required" });
 
       const res = await pool.query<{ id: string }>(
-        `UPDATE captures SET tags = array_remove(tags, $1) WHERE user_id = $2 AND $1 = ANY(tags) RETURNING id`,
+        `UPDATE captures_all SET tags = array_remove(tags, $1)
+          WHERE user_id = $2 AND $1 = ANY(tags) AND deleted_at IS NULL RETURNING id`,
         [tag, userId],
       );
       syncFilesInBackground(
