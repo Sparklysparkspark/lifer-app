@@ -1,39 +1,42 @@
 import type { PhotoFilter, PortfolioSpecies, ScatterPoint, SpeciesPortfolioResponse, StatsResponse } from "./types";
 
-// Axes the scatter plot's X/Y dropdowns can pick between.
+// Axes the scatter plot's X/Y dropdowns can pick between. Labels here are i18n keys.
 export const SCATTER_AXES = {
-  focalLength: { label: "Focal length", format: (v: number) => `${v}mm` },
-  aperture: { label: "Aperture", format: (v: number) => `f/${v}` },
-  iso: { label: "ISO", format: (v: number) => `${v}` },
-  shutterSeconds: { label: "Shutter speed", format: (v: number) => (v >= 1 ? `${v}s` : `1/${Math.round(1 / v)}`) },
+  focalLength: { labelKey: "stats.options.focalLength", format: (v: number) => `${v}mm` },
+  aperture: { labelKey: "stats.options.aperture", format: (v: number) => `f/${v}` },
+  iso: { labelKey: "stats.options.iso", format: (v: number) => `${v}` },
+  shutterSeconds: {
+    labelKey: "stats.options.shutterSpeed",
+    format: (v: number) => (v >= 1 ? `${v}s` : `1/${Math.round(1 / v)}`),
+  },
 } as const;
 export type ScatterAxisKey = keyof typeof SCATTER_AXES;
 
 export const GEAR_TYPES = [
-  { value: "cameras", label: "Cameras" },
-  { value: "lenses", label: "Lenses" },
-  { value: "combos", label: "Camera + lens" },
+  { value: "cameras", labelKey: "stats.options.cameras" },
+  { value: "lenses", labelKey: "stats.options.lenses" },
+  { value: "combos", labelKey: "stats.options.cameraAndLens" },
 ] as const;
 export type GearType = (typeof GEAR_TYPES)[number]["value"];
 
 export const GEAR_METRICS = [
-  { value: "photoCount", label: "Photos" },
-  { value: "speciesCount", label: "Species" },
+  { value: "photoCount", labelKey: "stats.options.photos" },
+  { value: "speciesCount", labelKey: "stats.options.species" },
 ] as const;
 export type GearMetric = (typeof GEAR_METRICS)[number]["value"];
 
 export const EXIF_METRICS = [
-  { value: "focalLength", label: "Photos by focal length" },
-  { value: "iso", label: "ISO" },
-  { value: "aperture", label: "Aperture" },
-  { value: "shutter", label: "Shutter speed" },
-  { value: "hitRate", label: "Species by focal length" },
+  { value: "focalLength", labelKey: "stats.options.photosByFocalLength" },
+  { value: "iso", labelKey: "stats.options.iso" },
+  { value: "aperture", labelKey: "stats.options.aperture" },
+  { value: "shutter", labelKey: "stats.options.shutterSpeed" },
+  { value: "hitRate", labelKey: "stats.options.speciesByFocalLength" },
 ] as const;
 export type ExifMetric = (typeof EXIF_METRICS)[number]["value"];
 
 export const MONTHLY_METRICS = [
-  { value: "newLifers", label: "New lifers" },
-  { value: "keepers", label: "Total keepers" },
+  { value: "newLifers", labelKey: "stats.options.newLifers" },
+  { value: "keepers", labelKey: "stats.options.totalKeepers" },
 ] as const;
 export type MonthlyMetric = (typeof MONTHLY_METRICS)[number]["value"];
 

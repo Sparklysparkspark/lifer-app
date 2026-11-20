@@ -1,10 +1,11 @@
+import { useTranslation } from "react-i18next";
+import { formatNumber } from "../../lib/format";
 import { SpeciesLink } from "./CollectionIntelligence";
-import { pluralize } from "../../lib/pluralize";
 import { StatCard } from "./StatsUi";
 import { percentOfKeepers, type headlineStats } from "./statsHelpers";
 import type { SpeciesRef, StatsResponse } from "./types";
 import { useSpeciesName } from "../../lib/speciesName";
-import { PANEL } from "../../lib/layout";
+import Panel from "../../components/Panel";
 
 // The top of the page: the "how do I shoot" cards and the rare finds (only shown once you've made one; most photographers never will).
 export default function StatsHighlights({
@@ -14,29 +15,42 @@ export default function StatsHighlights({
   stats: StatsResponse;
   headlines: ReturnType<typeof headlineStats>;
 }) {
+  const { t } = useTranslation();
   const { topCamera, topFocalLength, busiestHour, bestMonth } = headlines;
   return (
     <>
       <div className="grid grid-cols-2 gap-item sm:grid-cols-4">
         {topCamera && (
           <StatCard
-            label="Top camera"
+            label={t("stats.highlights.topCamera")}
             value={topCamera.model}
-            sub={`${percentOfKeepers(topCamera.photoCount, stats.totalKeepers)}% of keepers`}
+            sub={t("stats.highlights.ofKeepers", {
+              percent: percentOfKeepers(topCamera.photoCount, stats.totalKeepers),
+            })}
           />
         )}
         {topFocalLength && topFocalLength.count > 0 && (
-          <StatCard label="Favorite focal length" value={topFocalLength.label} sub="most common range" />
+          <StatCard
+            label={t("stats.highlights.focalLength")}
+            value={topFocalLength.label}
+            sub={t("stats.highlights.focalLengthSub")}
+          />
         )}
         {busiestHour && busiestHour.count > 0 && (
           <StatCard
-            label="Peak shooting time"
+            label={t("stats.highlights.peakTime")}
             value={busiestHour.label}
-            sub={`${percentOfKeepers(busiestHour.count, stats.totalKeepers)}% of keepers`}
+            sub={t("stats.highlights.ofKeepers", {
+              percent: percentOfKeepers(busiestHour.count, stats.totalKeepers),
+            })}
           />
         )}
         {bestMonth && bestMonth.newLifers > 0 && (
-          <StatCard label="Best month" value={bestMonth.label} sub={pluralize(bestMonth.newLifers, "lifer")} />
+          <StatCard
+            label={t("stats.highlights.bestMonth")}
+            value={bestMonth.label}
+            sub={t("stats.highlights.lifers", { count: bestMonth.newLifers, n: formatNumber(bestMonth.newLifers) })}
+          />
         )}
       </div>
 
@@ -45,26 +59,26 @@ export default function StatsHighlights({
           {stats.rediscoveredSpecies.length > 0 && (
             <SpeciesCallout
               species={stats.rediscoveredSpecies}
-              title="Rediscovered"
-              description="Was Ghost or Lost when you photographed it. Your record helped change that."
-              titleClass="text-emerald-700 dark:text-emerald-400"
+              title={t("stats.highlights.rediscovered")}
+              description={t("stats.highlights.rediscoveredDescription")}
+              titleClassName="text-emerald-700 dark:text-emerald-400"
               wide
             />
           )}
           {stats.ghostSpecies.length > 0 && (
             <SpeciesCallout
               species={stats.ghostSpecies}
-              title="Ghost species"
-              description="Rarely documented anywhere, but you found them."
-              titleClass="text-violet-700 dark:text-violet-400"
+              title={t("stats.highlights.ghost")}
+              description={t("stats.highlights.ghostDescription")}
+              titleClassName="text-violet-700 dark:text-violet-400"
             />
           )}
           {stats.lostSpecies.length > 0 && (
             <SpeciesCallout
               species={stats.lostSpecies}
-              title="Lost species"
-              description="Not recorded anywhere else in over 25 years."
-              titleClass="text-rose-700 dark:text-rose-400"
+              title={t("stats.highlights.lost")}
+              description={t("stats.highlights.lostDescription")}
+              titleClassName="text-rose-700 dark:text-rose-400"
             />
           )}
         </div>
@@ -77,29 +91,29 @@ function SpeciesCallout({
   species,
   title,
   description,
-  titleClass,
+  titleClassName,
   wide = false,
 }: {
   species: SpeciesRef[];
   title: string;
   description: string;
-  titleClass: string;
+  titleClassName: string;
   wide?: boolean;
 }) {
   const speciesName = useSpeciesName();
   return (
-    <div className={`${PANEL} ${wide ? "sm:col-span-2" : ""}`}>
-      <p className={`text-sm font-semibold ${titleClass}`}>
-        {title} ({species.length})
+    <Panel className={wide ? "sm:col-span-2" : ""}>
+      <p className={`text-callout font-semibold ${titleClassName}`}>
+        {title} ({formatNumber(species.length)})
       </p>
-      <p className="mt-0.5 text-xs text-muted">{description}</p>
-      <ul className="mt-2 space-y-0.5 text-sm text-ink">
+      <p className="mt-0.5 text-footnote text-muted">{description}</p>
+      <ul className="mt-2 space-y-0.5 text-callout text-ink">
         {species.map((s) => (
           <li key={s.speciesId}>
             <SpeciesLink id={s.speciesId}>{speciesName(s)}</SpeciesLink>
           </li>
         ))}
       </ul>
-    </div>
+    </Panel>
   );
 }

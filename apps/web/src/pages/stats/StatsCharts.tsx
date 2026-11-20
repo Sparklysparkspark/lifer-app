@@ -1,4 +1,8 @@
+import ProgressiveImg from "../../components/ProgressiveImg";
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { TFunction } from "i18next";
+import { useTranslation } from "react-i18next";
+import { Link } from "react-router-dom";
 import {
   ResponsiveContainer,
   AreaChart,
@@ -14,13 +18,13 @@ import {
   Cell,
   ZAxis,
 } from "recharts";
+import { Tooltip as ControlTooltip } from "../../components/Tooltip";
 import InfoTip from "../../components/InfoTip";
 import FilterPopover, { FilterFieldLabel } from "../../components/FilterPopover";
 import { DateRangeField } from "../../components/PhotoGridControls";
-import { pluralize } from "../../lib/pluralize";
 import { formatMonthName, formatNumber } from "../../lib/format";
 import { ChartCard, OptionSelect } from "./StatsUi";
-import { PANEL } from "../../lib/layout";
+import Panel from "../../components/Panel";
 import {
   EXIF_METRICS,
   GEAR_METRICS,
@@ -36,6 +40,8 @@ import {
 } from "./statsHelpers";
 import type { ScatterPoint, StatsResponse } from "./types";
 import { useSpeciesName } from "../../lib/speciesName";
+import EmptyState from "../../components/EmptyState";
+import Button from "../../components/Button";
 
 const ACCENT = "var(--color-accent)";
 const INK = "var(--color-ink)";
@@ -61,7 +67,7 @@ function ValueTooltip({
   if (!active || !payload?.length || label == null) return null;
   const value = payload[0].value;
   return (
-    <div className="rounded-md border border-line bg-surface px-2 py-1.5 text-xs shadow-md">
+    <div className="rounded-panel border border-line bg-surface px-2 py-1.5 text-footnote shadow-md">
       <p className="font-medium text-ink">{formatLabel ? formatLabel(label, payload[0].payload ?? {}) : label}</p>
       <p className="text-muted">
         {name}: <span className="text-ink">{typeof value === "number" ? formatNumber(value) : value}</span>
@@ -80,16 +86,23 @@ const fullMonth = (label: string | number, row: Record<string, unknown>) => {
 // The hovered bar's column, lighter than the bars themselves.
 const HOVER_CURSOR = { fill: "var(--color-surface-muted)" };
 
-const metricLabel = (options: ReadonlyArray<{ value: string; label: string }>, value: string) =>
-  options.find((o) => o.value === value)?.label ?? value;
+type KeyedOption = { value: string; labelKey: string };
 
-const KEEPER_INFO_PARAGRAPHS = [
-  'A "keeper" is any photo you\'ve edited/adjusted and kept, except one rated 1 star.',
-  "Rate a photo 1 star to exclude it from your stats, useful for an ID shot you only kept to confirm the species, not one you'd count as a real photo.",
-];
+const translateOptions = (options: ReadonlyArray<KeyedOption>, t: TFunction) =>
+  options.map((o) => ({ value: o.value, label: t(o.labelKey) }));
 
-const SCATTER_AXIS_OPTIONS = (prefix: string) =>
-  Object.entries(SCATTER_AXES).map(([value, a]) => ({ value, label: `${prefix}: ${a.label}` }));
+const metricLabel = (options: ReadonlyArray<KeyedOption>, value: string, t: TFunction) => {
+  const option = options.find((o) => o.value === value);
+  return option ? t(option.labelKey) : value;
+};
+
+const KEEPER_INFO_PARAGRAPHS = ["stats.charts.keeperInfo", "stats.charts.keeperInfoRating"];
+
+const SCATTER_AXIS_OPTIONS = (prefix: string, t: TFunction) =>
+  Object.entries(SCATTER_AXES).map(([value, a]) => ({
+    value,
+    label: t("stats.options.axisOption", { axis: prefix, field: t(a.labelKey) }),
+  }));
 
 export function MonthlyChart({
   perMonth,
@@ -100,18 +113,19 @@ export function MonthlyChart({
   metric: MonthlyMetric;
   onMetricChange: (metric: MonthlyMetric) => void;
 }) {
+  const { t } = useTranslation();
   return (
     <ChartCard
-      title="By month"
+      title={t("stats.charts.byMonth")}
       controls={
         <div className="flex items-center gap-2">
           <OptionSelect
-            ariaLabel="Monthly metric"
+            ariaLabel={t("stats.charts.monthlyMetric")}
             value={metric}
             onChange={(v) => onMetricChange(v as MonthlyMetric)}
-            options={[...MONTHLY_METRICS]}
+            options={translateOptions(MONTHLY_METRICS, t)}
           />
-          <InfoTip paragraphs={KEEPER_INFO_PARAGRAPHS} align="right" />
+          <InfoTip paragraphs={KEEPER_INFO_PARAGRAPHS.map((key) => t(key))} align="right" />
         </div>
       }
     >
@@ -125,8 +139,14 @@ export function MonthlyChart({
             axisLine={{ stroke: LINE }}
             minTickGap={40}
           />
-          <YAxis tick={{ fontSize: 11, fill: MUTED }} tickLine={false} axisLine={false} allowDecimals={false} />
-          <Tooltip content={<ValueTooltip name={metricLabel(MONTHLY_METRICS, metric)} formatLabel={fullMonth} />} />
+          <YAxis
+            tick={{ fontSize: 11, fill: MUTED }}
+            tickLine={false}
+            axisLine={false}
+            allowDecimals={false}
+            domain={[0, "dataMax"]}
+          />
+          <Tooltip content={<ValueTooltip name={metricLabel(MONTHLY_METRICS, metric, t)} formatLabel={fullMonth} />} />
           <Area type="monotone" dataKey={metric} stroke={ACCENT} fill={ACCENT} fillOpacity={0.15} strokeWidth={2} />
         </AreaChart>
       </ResponsiveContainer>
@@ -148,51 +168,64 @@ function ScatterCard({
   xKey,
   yKey,
   onOpen,
+  onViewAll,
 }: {
   group: ScatterGroup;
   xKey: ScatterAxisKey;
   yKey: ScatterAxisKey;
   onOpen: (startIndex: number) => void;
+  onViewAll: () => void;
 }) {
+  const { t } = useTranslation();
   const speciesName = useSpeciesName();
   const photos = group.photos.filter((photo) => photo.photoId);
   const names = [...new Set(group.photos.map((photo) => speciesName(photo)))];
   const xVal = group[xKey];
   const yVal = group[yKey];
   return (
-    <div className="w-max max-w-xs rounded-md border border-line bg-surface p-2 text-xs shadow-md">
-      <p className="font-medium text-ink">{group.count > 1 ? pluralize(group.count, "photo") : names[0]}</p>
+    <div className="w-max max-w-xs rounded-panel border border-line bg-surface p-2 text-footnote shadow-md">
+      <p className="font-medium text-ink">
+        {group.count > 1 ? t("stats.charts.photoCount", { count: group.count }) : names[0]}
+      </p>
       {group.count > 1 && (
-        <p className="text-ink">{names.length > 2 ? `${names.slice(0, 2).join(", ")} and more` : names.join(", ")}</p>
+        <p className="text-ink">
+          {names.length > 2
+            ? t("stats.charts.namesAndMore", { names: names.slice(0, 2).join(", ") })
+            : names.join(", ")}
+        </p>
       )}
       <p className="text-muted">
-        {xVal != null ? SCATTER_AXES[xKey].format(xVal) : "N/A"} ·{" "}
-        {yVal != null ? SCATTER_AXES[yKey].format(yVal) : "N/A"}
+        {xVal != null ? SCATTER_AXES[xKey].format(xVal) : t("stats.charts.notAvailable")} ·{" "}
+        {yVal != null ? SCATTER_AXES[yKey].format(yVal) : t("stats.charts.notAvailable")}
       </p>
       {photos.length > 0 && (
         <div className="mt-1.5 grid grid-cols-4 gap-1">
           {photos.slice(0, CARD_THUMBS).map((photo, i) => (
-            <button
-              key={photo.photoId}
-              type="button"
-              onClick={() => onOpen(i)}
-              title={speciesName(photo)}
-              className="rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent"
-            >
-              <img
-                src={`/api/photos/${photo.photoId}/thumb`}
-                alt={speciesName(photo)}
-                loading="lazy"
-                className="h-14 w-14 rounded object-cover hover:opacity-80"
-              />
-            </button>
+            <ControlTooltip key={photo.photoId} content={{ label: speciesName(photo) }}>
+              {(tip) => (
+                // raw-control: the photo thumbnail is the button
+                <button
+                  type="button"
+                  {...tip}
+                  onClick={() => onOpen(i)}
+                  aria-label={speciesName(photo)}
+                  className="rounded-badge focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent"
+                >
+                  <ProgressiveImg
+                    thumbSrc={`/api/photos/${photo.photoId}/thumb`}
+                    alt={speciesName(photo)}
+                    className="h-14 w-14 rounded-badge object-cover hover:opacity-80"
+                  />
+                </button>
+              )}
+            </ControlTooltip>
           ))}
         </div>
       )}
       {photos.length > CARD_THUMBS && (
-        <button type="button" onClick={() => onOpen(0)} className="mt-1 text-accent hover:underline">
-          View all {photos.length}
-        </button>
+        <Button variant="link" size="sm" onClick={onViewAll} className="mt-1">
+          {t("stats.charts.viewAll", { count: photos.length })}
+        </Button>
       )}
     </div>
   );
@@ -214,6 +247,7 @@ export function PhotoScatterChart({
   onXChange,
   onYChange,
   onOpenPoints,
+  onViewAll,
 }: {
   points: ScatterPoint[];
   shutterTicks: number[];
@@ -223,7 +257,10 @@ export function PhotoScatterChart({
   onYChange: (axis: ScatterAxisKey) => void;
   /** The photos behind a dot (one, or several at the same settings), opened at `startIndex`. */
   onOpenPoints: (points: ScatterPoint[], startIndex: number) => void;
+  /** Every photo behind a dot as a grid, under a title naming the count and settings. */
+  onViewAll: (points: ScatterPoint[], title: string) => void;
 }) {
+  const { t } = useTranslation();
   const [camera, setCamera] = useState(ALL);
   const [lens, setLens] = useState(ALL);
   // YYYY-MM-DD, inclusive.
@@ -234,18 +271,18 @@ export function PhotoScatterChart({
     () =>
       gearOptions(
         points.map((p) => p.camera),
-        "All bodies",
+        t("stats.charts.allBodies"),
       ),
-    [points],
+    [points, t],
   );
   // The lens list follows the body picked, so it only offers lenses used on it.
   const lensOptions = useMemo(
     () =>
       gearOptions(
         points.filter((p) => !camera || p.camera === camera).map((p) => p.lens),
-        "All lenses",
+        t("stats.charts.allLenses"),
       ),
-    [points, camera],
+    [points, camera, t],
   );
   const years = useMemo(
     () => [...new Set(points.map((p) => p.takenAt?.slice(0, 4)).filter((v): v is string => !!v))].sort().reverse(),
@@ -299,15 +336,15 @@ export function PhotoScatterChart({
 
   return (
     <ChartCard
-      title="Your photo distribution"
+      title={t("stats.charts.distribution")}
       controls={
         <div className="flex flex-wrap items-center justify-end gap-2">
           <FilterPopover activeCount={activeFilters}>
             {cameraOptions.length > 2 && (
               <div>
-                <FilterFieldLabel>Body</FilterFieldLabel>
+                <FilterFieldLabel>{t("stats.charts.body")}</FilterFieldLabel>
                 <OptionSelect
-                  ariaLabel="Camera body"
+                  ariaLabel={t("stats.charts.cameraBody")}
                   value={camera}
                   onChange={(v) => {
                     setCamera(v);
@@ -319,21 +356,29 @@ export function PhotoScatterChart({
             )}
             {lensOptions.length > 2 && (
               <div>
-                <FilterFieldLabel>Lens</FilterFieldLabel>
-                <OptionSelect ariaLabel="Lens" value={lens} onChange={setLens} options={lensOptions} />
+                <FilterFieldLabel>{t("stats.charts.lens")}</FilterFieldLabel>
+                <OptionSelect
+                  ariaLabel={t("stats.charts.lens")}
+                  value={lens}
+                  onChange={setLens}
+                  options={lensOptions}
+                />
               </div>
             )}
             {years.length > 1 && (
               <div>
-                <FilterFieldLabel>Year</FilterFieldLabel>
+                <FilterFieldLabel>{t("stats.charts.year")}</FilterFieldLabel>
                 <OptionSelect
-                  ariaLabel="Year"
+                  ariaLabel={t("stats.charts.year")}
                   value={year}
                   onChange={(v) => {
                     setDateFrom(v ? `${v}-01-01` : "");
                     setDateTo(v ? `${v}-12-31` : "");
                   }}
-                  options={[{ value: "", label: "All years" }, ...years.map((y) => ({ value: y, label: y }))]}
+                  options={[
+                    { value: "", label: t("stats.charts.allYears") },
+                    ...years.map((y) => ({ value: y, label: y })),
+                  ]}
                 />
               </div>
             )}
@@ -352,16 +397,16 @@ export function PhotoScatterChart({
             />
           </FilterPopover>
           <OptionSelect
-            ariaLabel="X axis"
+            ariaLabel={t("stats.charts.xAxis")}
             value={x}
             onChange={(v) => onXChange(v as ScatterAxisKey)}
-            options={SCATTER_AXIS_OPTIONS("X")}
+            options={SCATTER_AXIS_OPTIONS("X", t)}
           />
           <OptionSelect
-            ariaLabel="Y axis"
+            ariaLabel={t("stats.charts.yAxis")}
             value={y}
             onChange={(v) => onYChange(v as ScatterAxisKey)}
-            options={SCATTER_AXIS_OPTIONS("Y")}
+            options={SCATTER_AXIS_OPTIONS("Y", t)}
           />
         </div>
       }
@@ -386,7 +431,7 @@ export function PhotoScatterChart({
             <XAxis
               type="number"
               dataKey={x}
-              name={SCATTER_AXES[x].label}
+              name={t(SCATTER_AXES[x].labelKey)}
               tick={{ fontSize: 11, fill: MUTED }}
               axisLine={{ stroke: LINE }}
               tickLine={false}
@@ -398,7 +443,7 @@ export function PhotoScatterChart({
               ticks={x === "shutterSeconds" ? shutterTicks : undefined}
               tickFormatter={(v: number) => SCATTER_AXES[x].format(v)}
               label={{
-                value: SCATTER_AXES[x].label,
+                value: t(SCATTER_AXES[x].labelKey),
                 position: "insideBottom",
                 offset: -8,
                 fontSize: 11,
@@ -408,7 +453,7 @@ export function PhotoScatterChart({
             <YAxis
               type="number"
               dataKey={y}
-              name={SCATTER_AXES[y].label}
+              name={t(SCATTER_AXES[y].labelKey)}
               width={70}
               tick={{ fontSize: 11, fill: MUTED }}
               axisLine={{ stroke: LINE }}
@@ -418,7 +463,7 @@ export function PhotoScatterChart({
               ticks={y === "shutterSeconds" ? shutterTicks : undefined}
               tickFormatter={(v: number) => SCATTER_AXES[y].format(v)}
               label={{
-                value: SCATTER_AXES[y].label,
+                value: t(SCATTER_AXES[y].labelKey),
                 angle: -90,
                 position: "insideLeft",
                 offset: 10,
@@ -450,7 +495,29 @@ export function PhotoScatterChart({
             onMouseEnter={keepCard}
             onMouseLeave={closeCardSoon}
           >
-            <ScatterCard group={card.group} xKey={x} yKey={y} onOpen={(i) => open(card.group, i)} />
+            <ScatterCard
+              group={card.group}
+              xKey={x}
+              yKey={y}
+              onOpen={(i) => open(card.group, i)}
+              onViewAll={() => {
+                const photos = card.group.photos.filter((photo) => photo.photoId);
+                const setting = (key: ScatterAxisKey) => {
+                  const v = card.group[key];
+                  return v != null ? SCATTER_AXES[key].format(v) : t("stats.charts.notAvailable");
+                };
+                const settings = `${setting(x)}, ${setting(y)}`;
+                setCard(null);
+                onViewAll(
+                  photos,
+                  t("stats.charts.setTitle", {
+                    count: photos.length,
+                    formatted: formatNumber(photos.length),
+                    settings,
+                  }),
+                );
+              }}
+            />
           </div>
         )}
       </div>
@@ -471,22 +538,23 @@ export function GearChart({
   onGearTypeChange: (type: GearType) => void;
   onMetricChange: (metric: GearMetric) => void;
 }) {
+  const { t } = useTranslation();
   return (
     <ChartCard
-      title="Gear usage"
+      title={t("stats.charts.gearUsage")}
       controls={
         <div className="flex items-center gap-2">
           <OptionSelect
-            ariaLabel="Gear type"
+            ariaLabel={t("stats.charts.gearType")}
             value={gearType}
             onChange={(v) => onGearTypeChange(v as GearType)}
-            options={[...GEAR_TYPES]}
+            options={translateOptions(GEAR_TYPES, t)}
           />
           <OptionSelect
-            ariaLabel="Gear metric"
+            ariaLabel={t("stats.charts.gearMetric")}
             value={metric}
             onChange={(v) => onMetricChange(v as GearMetric)}
-            options={[...GEAR_METRICS]}
+            options={translateOptions(GEAR_METRICS, t)}
           />
         </div>
       }
@@ -502,7 +570,7 @@ export function GearChart({
             axisLine={false}
             tickLine={false}
           />
-          <Tooltip content={<ValueTooltip name={metricLabel(GEAR_METRICS, metric)} />} cursor={HOVER_CURSOR} />
+          <Tooltip content={<ValueTooltip name={metricLabel(GEAR_METRICS, metric, t)} />} cursor={HOVER_CURSOR} />
           <Bar dataKey={metric} fill={ACCENT} radius={[0, 4, 4, 0]} />
         </BarChart>
       </ResponsiveContainer>
@@ -516,30 +584,24 @@ export function ExifChart({
   data,
   metric,
   onMetricChange,
-  bucket,
-  onBucketChange,
-  bucketDownloading,
-  onDownloadBucket,
-  onOpenPhoto,
+  onOpenBucket,
 }: {
   data: { key: "count" | "species"; rows: Array<{ label: string; photoIds?: string[] }> };
   metric: ExifMetric;
   onMetricChange: (metric: ExifMetric) => void;
-  bucket: { label: string; photoIds: string[] } | null;
-  onBucketChange: (bucket: { label: string; photoIds: string[] } | null) => void;
-  bucketDownloading: boolean;
-  onDownloadBucket: (photoIds: string[]) => void;
-  onOpenPhoto: (photoId: string) => void;
+  /** A bar's photos: its position in `rows` (the bucket), label, photo count and a first sample. */
+  onOpenBucket: (index: number, row: { label: string; count: number; photoIds: string[] }) => void;
 }) {
+  const { t } = useTranslation();
   return (
     <ChartCard
-      title="EXIF distribution"
+      title={t("stats.charts.exifDistribution")}
       controls={
         <OptionSelect
-          ariaLabel="EXIF field"
+          ariaLabel={t("stats.charts.exifField")}
           value={metric}
           onChange={(v) => onMetricChange(v as ExifMetric)}
-          options={[...EXIF_METRICS]}
+          options={translateOptions(EXIF_METRICS, t)}
         />
       }
     >
@@ -557,7 +619,9 @@ export function ExifChart({
           />
           <YAxis tick={{ fontSize: 11, fill: MUTED }} axisLine={false} tickLine={false} allowDecimals={false} />
           <Tooltip
-            content={<ValueTooltip name={data.key === "species" ? "Species" : "Photos"} />}
+            content={
+              <ValueTooltip name={data.key === "species" ? t("stats.charts.species") : t("stats.charts.photos")} />
+            }
             cursor={HOVER_CURSOR}
           />
           <Bar
@@ -565,43 +629,18 @@ export function ExifChart({
             fill={ACCENT}
             radius={[3, 3, 0, 0]}
             cursor={metric === "hitRate" ? undefined : "pointer"}
-            onClick={(row: { payload?: { label: string; photoIds?: string[] } }) => {
-              const photoIds = row.payload?.photoIds;
-              if (!photoIds || photoIds.length === 0) return;
-              onBucketChange({ label: row.payload!.label, photoIds });
+            onClick={(row: { payload?: { label: string; count?: number; photoIds?: string[] } }) => {
+              const payload = row.payload;
+              if (!payload?.photoIds?.length) return;
+              onOpenBucket(data.rows.indexOf(payload), {
+                label: payload.label,
+                count: payload.count ?? payload.photoIds.length,
+                photoIds: payload.photoIds,
+              });
             }}
           />
         </BarChart>
       </ResponsiveContainer>
-      {bucket && (
-        <div className="mt-3 border-t border-line pt-3">
-          <div className="flex items-center justify-between">
-            <p className="text-sm text-ink">
-              {bucket.label}: {pluralize(bucket.photoIds.length, "photo")}
-            </p>
-            <div className="flex items-center gap-3">
-              <button
-                type="button"
-                onClick={() => onDownloadBucket(bucket.photoIds)}
-                disabled={bucketDownloading}
-                className="text-xs text-accent hover:underline disabled:opacity-50"
-              >
-                {bucketDownloading ? "Downloading…" : "Download all"}
-              </button>
-              <button type="button" onClick={() => onBucketChange(null)} className="text-xs text-muted hover:underline">
-                Close
-              </button>
-            </div>
-          </div>
-          <div className="mt-2 flex flex-wrap gap-2">
-            {bucket.photoIds.slice(0, 60).map((id) => (
-              <button key={id} type="button" onClick={() => onOpenPhoto(id)}>
-                <img src={`/api/photos/${id}/thumb`} alt="" loading="lazy" className="h-16 w-16 rounded object-cover" />
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
     </ChartCard>
   );
 }
@@ -614,9 +653,10 @@ export function TimeOfDayChart({
   busiestHour: number | undefined;
 }) {
   // The hovered hour turns green like the busiest one, instead of a beige band over beige bars.
+  const { t } = useTranslation();
   const [hoveredHour, setHoveredHour] = useState<number | null>(null);
   return (
-    <ChartCard title="Time of day">
+    <ChartCard title={t("stats.charts.timeOfDay")}>
       <ResponsiveContainer width="100%" height={180}>
         <BarChart
           data={timeOfDay}
@@ -635,7 +675,9 @@ export function TimeOfDayChart({
           />
           <YAxis tick={{ fontSize: 11, fill: MUTED }} axisLine={false} tickLine={false} allowDecimals={false} />
           <Tooltip
-            content={<ValueTooltip name="Photos" formatLabel={(h) => timeOfDay[Number(h)]?.label ?? ""} />}
+            content={
+              <ValueTooltip name={t("stats.charts.photos")} formatLabel={(h) => timeOfDay[Number(h)]?.label ?? ""} />
+            }
             cursor={false}
           />
           <Bar dataKey="count" radius={[3, 3, 0, 0]}>
@@ -653,33 +695,44 @@ export function TimeOfDayChart({
 const COUNTRY_LIST_MIN = 5;
 
 export function CountriesCard({ countries }: { countries: StatsResponse["countriesPhotographed"] }) {
+  const { t } = useTranslation();
   if (countries.countries.length === 0) {
     return (
-      <p className={`${PANEL} text-sm text-muted`}>
-        No countries yet. Pick a region during import (used for species suggestions) and it'll show up here.
-      </p>
+      <Panel>
+        <EmptyState compact title={t("stats.charts.noCountries")} />
+      </Panel>
     );
   }
   if (countries.countries.length < COUNTRY_LIST_MIN) {
     return (
-      <p className={`${PANEL} text-sm text-ink`}>
-        <span className="text-muted">Photographed in {pluralize(countries.count, "country", "countries")}: </span>
+      <Panel as="section" className="text-callout text-ink">
+        <span className="text-muted">{t("stats.charts.photographedIn", { count: countries.count })} </span>
         {countries.countries.map((c, i) => (
-          <span key={c.name}>
+          <span key={c.id}>
             {i > 0 && ", "}
-            {c.name} <span className="text-xs text-muted">({c.photoCount})</span>
+            <Link to={`/gallery?regionId=${c.id}`} className="text-link hover:underline">
+              {c.name}
+            </Link>{" "}
+            <span className="text-footnote text-muted">{t("stats.charts.countryPhotos", { count: c.photoCount })}</span>
           </span>
         ))}
-      </p>
+      </Panel>
     );
   }
   return (
-    <ChartCard title={`Countries photographed in (${countries.count})`}>
-      <ul className="grid grid-cols-2 gap-1.5 text-sm sm:grid-cols-3">
+    <ChartCard title={t("stats.charts.countriesTitle", { count: countries.count })}>
+      <ul className="grid grid-cols-2 gap-1.5 text-callout sm:grid-cols-3">
         {countries.countries.map((c) => (
-          <li key={c.name} className="flex items-center justify-between gap-2 text-ink">
-            <span className="truncate">{c.name}</span>
-            <span className="text-xs text-muted">{c.photoCount}</span>
+          <li key={c.id}>
+            <Link
+              to={`/gallery?regionId=${c.id}`}
+              className="flex items-center justify-between gap-2 rounded-control text-ink hover:text-link"
+            >
+              <span className="truncate">{c.name}</span>
+              <span className="text-footnote text-muted">
+                {t("stats.charts.countryPhotos", { count: c.photoCount })}
+              </span>
+            </Link>
           </li>
         ))}
       </ul>

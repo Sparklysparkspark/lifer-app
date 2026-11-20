@@ -17,7 +17,7 @@ export interface StatsResponse {
   };
   hitRateByFocalLength: Array<{ label: string; species: number }>;
   scatter: ScatterPoint[];
-  countriesPhotographed: { count: number; countries: Array<{ name: string; photoCount: number }> };
+  countriesPhotographed: { count: number; countries: Array<{ id: string; name: string; photoCount: number }> };
   ghostSpecies: SpeciesRef[];
   lostSpecies: SpeciesRef[];
   rediscoveredSpecies: SpeciesRef[];
@@ -71,12 +71,15 @@ export interface PortfolioSpecies {
 export interface ArchiveHealthResponse {
   total: number;
   missingDate: number;
+  missingRegion: number;
 }
 
 // GET /api/stats/photography-dna
 export interface PhotographyDnaResponse {
   taxonBreakdown: Array<{ taxonClass: string; count: number; percent: number }>;
-  categoryBreakdown: Array<{ key: string; count: number; percent: number }>;
+  /** Shares of each shot action and framing, of the photos with a reading. */
+  actionBreakdown: Array<{ key: string; count: number; percent: number }>;
+  framingBreakdown: Array<{ key: string; count: number; percent: number }>;
   medianFocalLengthMm: number | null;
   medianShutterSeconds: number | null;
   medianIso: number | null;

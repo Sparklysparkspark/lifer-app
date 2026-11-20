@@ -10,6 +10,13 @@ type Db = Pick<PoolClient, "query">;
 // star, which marks an ID shot. Stats describe finished, kept photos.
 export const KEEPER_FILTER = `EXISTS (SELECT 1 FROM originals o WHERE o.capture_id = c.id AND o.kind = 'jpeg') AND (c.quality_rating IS NULL OR c.quality_rating > 1)`;
 
+// With RAWs included, a photo whose only original is a RAW counts as a keeper too.
+export function keeperFilter(includeRaw: boolean): string {
+  return includeRaw
+    ? `EXISTS (SELECT 1 FROM originals o WHERE o.capture_id = c.id AND o.kind IN ('jpeg', 'raw')) AND (c.quality_rating IS NULL OR c.quality_rating > 1)`
+    : KEEPER_FILTER;
+}
+
 export type PhotoFilter = "all" | "featured" | "topRated";
 
 // "featured" is a species' cover photo, "topRated" a 5-star rating. The discovery timeline and
@@ -90,7 +97,8 @@ const SHUTTER_BUCKETS: Bucket[] = [
   { label: "≤1/125", min: 1 / 125 },
 ];
 
-// Up to this many photo ids per bucket, so a chart bar can open a sample of its photos.
+// Up to this many photo ids per bucket, newest first like GET /stats/exif-bucket, so a bar opens at
+// once on the start of its full list.
 const MAX_PHOTO_IDS_PER_BUCKET = 300;
 
 const EXIF_DIMENSIONS = {
@@ -99,7 +107,35 @@ const EXIF_DIMENSIONS = {
   aperture: APERTURE_BUCKETS,
   shutter: SHUTTER_BUCKETS,
 } as const;
-type ExifDimension = keyof typeof EXIF_DIMENSIONS;
+export type ExifDimension = keyof typeof EXIF_DIMENSIONS;
+export const EXIF_DIMENSION_NAMES = Object.keys(EXIF_DIMENSIONS) as ExifDimension[];
+
+// shortcut: one answer of ids only (36 bytes each); page it if a bucket ever passes this.
+const MAX_BUCKET_PHOTOS = 50_000;
+
+/** Every photo in one EXIF bar (`bucket` is 1-based, as width_bucket counts), newest first. */
+export async function loadExifBucketPhotoIds(
+  db: Db,
+  userId: string,
+  scope: string,
+  dim: ExifDimension,
+  bucket: number,
+): Promise<string[]> {
+  const value = {
+    focalLength: "c.focal_length_mm::float8",
+    iso: "c.iso::float8",
+    aperture: "c.aperture::float8",
+    shutter: shutterSecondsSql("c.shutter"),
+  }[dim];
+  const res = await db.query<{ photo_id: string }>(
+    `SELECT c.current_photo_id AS photo_id FROM captures c
+     WHERE c.user_id = $1 AND ${scope} AND c.current_photo_id IS NOT NULL AND ${value} IS NOT NULL
+       AND width_bucket(${value}, $2::float8[]) = $3
+     ORDER BY c.taken_at DESC NULLS LAST, c.id LIMIT ${MAX_BUCKET_PHOTOS}`,
+    [userId, EXIF_DIMENSIONS[dim].map((b) => b.min), bucket],
+  );
+  return res.rows.map((r) => r.photo_id);
+}
 
 export interface ExifBucketRow {
   dim: ExifDimension;
@@ -134,7 +170,8 @@ async function loadExifBuckets(db: Db, userId: string, scope: string): Promise<E
     `SELECT d.dim, width_bucket(d.v, CASE d.dim WHEN 'focalLength' THEN $2::float8[] WHEN 'iso' THEN $3::float8[]
                                                 WHEN 'aperture' THEN $4::float8[] ELSE $5::float8[] END) AS bucket,
             COUNT(*)::int AS count, COUNT(DISTINCT c.species_id)::int AS species,
-            (array_agg(c.current_photo_id) FILTER (WHERE c.current_photo_id IS NOT NULL))[1:${MAX_PHOTO_IDS_PER_BUCKET}] AS photo_ids
+            (array_agg(c.current_photo_id ORDER BY c.taken_at DESC NULLS LAST, c.id)
+               FILTER (WHERE c.current_photo_id IS NOT NULL))[1:${MAX_PHOTO_IDS_PER_BUCKET}] AS photo_ids
      FROM captures c
      CROSS JOIN LATERAL (VALUES ('focalLength', c.focal_length_mm::float8), ('iso', c.iso::float8),
                                 ('aperture', c.aperture::float8), ('shutter', ${shutterSecondsSql("c.shutter")})) AS d(dim, v)
@@ -145,7 +182,7 @@ async function loadExifBuckets(db: Db, userId: string, scope: string): Promise<E
   return res.rows;
 }
 
-async function loadPerMonth(db: Db, userId: string) {
+async function loadPerMonth(db: Db, userId: string, keepers: string) {
   const [timelineRes, keepersPerMonthRes] = await allSettledOrThrow([
     db.query<{ date: string; count: number }>(
       `SELECT us.first_collected::text AS date, COUNT(*)::int AS count
@@ -157,7 +194,7 @@ async function loadPerMonth(db: Db, userId: string) {
     // like newLifersPerMonth, so the timeline's meaning doesn't change with the dropdown.
     db.query<{ month: string; count: number }>(
       `SELECT to_char(c.taken_at, 'YYYY-MM') AS month, COUNT(*)::int AS count
-       FROM captures c WHERE c.user_id = $1 AND c.taken_at IS NOT NULL AND ${KEEPER_FILTER}
+       FROM captures c WHERE c.user_id = $1 AND c.taken_at IS NOT NULL AND ${keepers}
        GROUP BY month ORDER BY month`,
       [userId],
     ),
@@ -188,7 +225,7 @@ async function loadPerMonth(db: Db, userId: string) {
     });
 }
 
-async function loadGearUsage(db: Db, userId: string, scope: string) {
+export async function loadGearUsage(db: Db, userId: string, scope: string) {
   const [cameraRes, lensRes, comboRes] = await allSettledOrThrow([
     db.query<{ camera_model: string; photo_count: number; species_count: number }>(
       `SELECT c.camera_model, COUNT(*)::int AS photo_count, COUNT(DISTINCT c.species_id)::int AS species_count
@@ -291,8 +328,8 @@ async function loadCountries(db: Db, userId: string, scope: string) {
   // either (or shown under its continent, home_country_id), so its country is at most two levels
   // up. Only a final region with a 3-letter country code counts, so continents and World aren't
   // counted as countries.
-  const res = await db.query<{ country_name: string; photo_count: number }>(
-    `SELECT country.name AS country_name, COUNT(*)::int AS photo_count
+  const res = await db.query<{ country_id: string; country_name: string; photo_count: number }>(
+    `SELECT country.id AS country_id, country.name AS country_name, COUNT(*)::int AS photo_count
      FROM captures c
      JOIN regions leaf ON leaf.id = c.region_id
      LEFT JOIN regions up1 ON up1.id = COALESCE(leaf.home_country_id, leaf.parent_id)
@@ -301,12 +338,12 @@ async function loadCountries(db: Db, userId: string, scope: string) {
                                                 ELSE up1.parent_id END)
      WHERE c.user_id = $1 AND c.region_id IS NOT NULL AND ${scope}
        AND country.external_codes[1] ~ '^[A-Z]{3}$'
-     GROUP BY country.name ORDER BY photo_count DESC`,
+     GROUP BY country.id, country.name ORDER BY photo_count DESC`,
     [userId],
   );
   return {
     count: res.rows.length,
-    countries: res.rows.map((r) => ({ name: r.country_name, photoCount: r.photo_count })),
+    countries: res.rows.map((r) => ({ id: r.country_id, name: r.country_name, photoCount: r.photo_count })),
   };
 }
 
@@ -406,25 +443,32 @@ export function overviewInsights(input: InsightInputs): string[] {
   // Only mentioned when the user has one; "0 ghost species" is noise.
   if (input.ghostCount > 0) {
     insights.push(
-      `You've photographed ${input.ghostCount} Ghost species, rarely documented anywhere, but you found ${input.ghostCount === 1 ? "one" : "them"}.`,
+      `You've photographed ${input.ghostCount} rarely recorded species: hardly anyone documents them, but you found ${input.ghostCount === 1 ? "one" : "them"}.`,
     );
   }
   if (input.lostCount > 0) {
-    insights.push(`You've photographed ${input.lostCount} Lost species, not recorded anywhere else in over 25 years.`);
+    insights.push(`You've photographed ${input.lostCount} species not seen in 25 years anywhere else.`);
   }
   if (input.rediscoveredCount > 0) {
     const one = input.rediscoveredCount === 1;
     insights.push(
-      `You helped rediscover ${input.rediscoveredCount} species that ${one ? "was" : "were"} Ghost or Lost when you found ${one ? "it" : "them"}.`,
+      `${input.rediscoveredCount} species you photographed ${one ? "was" : "were"} rarely recorded or not seen in 25 years when you found ${one ? "it" : "them"}.`,
     );
   }
   return insights;
 }
 
-export async function loadStatsOverview(db: Db, userId: string, filter: PhotoFilter, maxDepthM: number) {
-  const scope = `${KEEPER_FILTER} ${photoFilterFragment(filter)}`;
+export async function loadStatsOverview(
+  db: Db,
+  userId: string,
+  filter: PhotoFilter,
+  maxDepthM: number,
+  includeRaw = true,
+) {
+  const keepers = keeperFilter(includeRaw);
+  const scope = `${keepers} ${photoFilterFragment(filter)}`;
   const pending = [
-    loadPerMonth(db, userId),
+    loadPerMonth(db, userId, keepers),
     loadGearUsage(db, userId, scope),
     loadTimeOfDay(db, userId, scope),
     loadExifBuckets(db, userId, scope),

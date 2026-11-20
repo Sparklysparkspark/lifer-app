@@ -52,7 +52,7 @@ export const StatsOverview = Open({
   ),
   countriesPhotographed: Open({
     count: Count,
-    countries: Type.Array(Open({ name: Type.String(), photoCount: Count })),
+    countries: Type.Array(Open({ id: Uuid(), name: Type.String(), photoCount: Count })),
   }),
 });
 
@@ -72,7 +72,14 @@ export const SpeciesPortfolio = Open({
   ),
 });
 
-export const ArchiveHealth = Open({ total: Count, missingDate: Count });
+export const ArchiveHealth = Open({
+  total: Count,
+  missingDate: Count,
+  missingRegion: Type.Integer({
+    minimum: 0,
+    description: "Photos with no region set, so they count toward no checklist",
+  }),
+});
 
 const TaxonShare = Open({ taxonClass: Type.String(), count: Count, percent: Type.Number() });
 
@@ -89,8 +96,17 @@ export const YearComparison = Open({ a: YearStats, b: YearStats });
 
 export const PhotographyDna = Open({
   taxonBreakdown: Type.Array(TaxonShare),
-  categoryBreakdown: Type.Array(Open({ key: Type.String(), count: Count, percent: Type.Number() })),
+  actionBreakdown: Type.Array(Open({ key: Type.String(), count: Count, percent: Type.Number() }), {
+    description: "Shares of flying, behaviour and at-rest shots, of the photos with a reading",
+  }),
+  framingBreakdown: Type.Array(Open({ key: Type.String(), count: Count, percent: Type.Number() }), {
+    description: "Shares of close and environmental shots, of the photos with a reading",
+  }),
   medianFocalLengthMm: Nullable(Type.Number()),
   medianShutterSeconds: Nullable(Type.Number()),
   medianIso: Nullable(Type.Number()),
+});
+
+export const ExifBucketPhotos = Open({
+  photoIds: Type.Array(Uuid(), { description: "Every photo in the bar, newest first (up to 50,000)" }),
 });

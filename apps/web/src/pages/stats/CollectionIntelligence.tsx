@@ -1,16 +1,17 @@
+import { taxaColour, taxaGroup, taxaIllustration, type TaxaGroup } from "../../lib/taxaColour";
 import type { ReactNode } from "react";
-import { useTranslation } from "react-i18next";
+import { Trans, useTranslation } from "react-i18next";
 import { Link, useLocation } from "react-router-dom";
 import { taxonDisplayLabel } from "@lifer/shared";
 import { Spinner } from "../../components/LoadingScreen";
 import InfoTip from "../../components/InfoTip";
-import { pluralize } from "../../lib/pluralize";
-import { formatNumber } from "../../lib/format";
 import { ChartCard, NoValue, OptionSelect } from "./StatsUi";
 import { SCATTER_AXES, type portfolioHighlights } from "./statsHelpers";
 import type { StatsData } from "./useStatsData";
 import { useSpeciesName } from "../../lib/speciesName";
 import { backStateFor } from "../../lib/backLabel";
+import { SHOT_ACTION_LABELS, SHOT_FRAMING_LABELS, UNCATEGORIZED_REGION_ID } from "../gallery/galleryHelpers";
+import EmptyState from "../../components/EmptyState";
 
 // Always over the whole library, unaffected by the photo filter.
 export default function CollectionIntelligence({
@@ -28,27 +29,28 @@ export default function CollectionIntelligence({
 }) {
   const speciesName = useSpeciesName();
   const { t } = useTranslation();
-  const location = useLocation();
   const { mostPhotographed, oneAndDone, needsBetterPhoto } = highlights;
   const yearOptions = years.available.map((y) => ({ value: String(y), label: String(y) }));
   const comparison = years.comparison;
 
   return (
     <div>
-      <h2 className="mb-3 text-lg font-semibold text-ink">Your collection</h2>
+      <h2 className="mb-3 text-title-3 font-semibold text-ink">{t("stats.collection.title")}</h2>
       <div className="grid grid-cols-1 gap-item lg:grid-cols-2">
-        <ChartCard title="Most photographed">
+        <ChartCard title={t("stats.collection.mostPhotographed")}>
           {mostPhotographed.length === 0 ? (
-            <p className="text-sm text-muted">No photos yet.</p>
+            <EmptyState compact title={t("stats.collection.noPhotos")} />
           ) : (
-            <ol className="space-y-1 text-sm">
+            <ol className="space-y-1 text-callout">
               {mostPhotographed.map((s, i) => (
                 <li key={s.speciesId} className="flex items-center justify-between gap-2">
                   <span className="truncate text-ink">
                     <span className="text-muted">{i + 1}.</span>{" "}
                     <SpeciesLink id={s.speciesId}>{speciesName(s)}</SpeciesLink>
                   </span>
-                  <span className="shrink-0 text-xs text-muted">{pluralize(s.totalPhotos, "photo")}</span>
+                  <span className="shrink-0 text-footnote text-muted">
+                    {t("stats.collection.photoCount", { count: s.totalPhotos })}
+                  </span>
                 </li>
               ))}
             </ol>
@@ -56,22 +58,21 @@ export default function CollectionIntelligence({
         </ChartCard>
 
         <ChartCard
-          title="One-and-done species"
-          controls={
-            <InfoTip
-              align="right"
-              paragraphs={["Species you've photographed exactly once. Candidates for going back for a better shot."]}
-            />
-          }
+          title={t("stats.collection.oneAndDone")}
+          controls={<InfoTip align="right" paragraphs={[t("stats.collection.oneAndDoneInfo")]} />}
         >
           {oneAndDone.length === 0 ? (
-            <p className="text-sm text-muted">Every species you've photographed has 2+ photos.</p>
+            <EmptyState compact title={t("stats.collection.noOneAndDone")} />
           ) : (
             <>
-              <p className="mb-2 text-sm text-ink">
-                <span className="font-semibold">{oneAndDone.length}</span> species represented by only one photograph.
+              <p className="mb-2 text-callout text-ink">
+                <Trans
+                  i18nKey="stats.collection.oneAndDoneCount"
+                  values={{ count: oneAndDone.length }}
+                  components={{ b: <span className="font-semibold" /> }}
+                />
               </p>
-              <ul className="grid grid-cols-2 gap-1 text-xs text-muted sm:grid-cols-3">
+              <ul className="grid grid-cols-2 gap-1 text-footnote text-muted sm:grid-cols-3">
                 {oneAndDone.slice(0, 30).map((s) => (
                   <li key={s.speciesId} className="truncate">
                     <SpeciesLink id={s.speciesId}>{speciesName(s)}</SpeciesLink>
@@ -82,108 +83,128 @@ export default function CollectionIntelligence({
           )}
         </ChartCard>
 
-        <ChartCard title="Could use a better photo">
+        <ChartCard title={t("stats.collection.needsBetter")}>
           {needsBetterPhoto.length === 0 ? (
-            <p className="text-sm text-muted">Nothing stands out. No single-photo species is rated 1 star.</p>
+            <EmptyState compact title={t("stats.collection.noNeedsBetter")} />
           ) : (
-            <ul className="space-y-1 text-sm">
+            <ul className="space-y-1 text-callout">
               {needsBetterPhoto.slice(0, 10).map((s) => (
                 <li key={s.speciesId} className="flex items-center justify-between gap-2 text-ink">
                   <SpeciesLink id={s.speciesId} className="truncate">
                     {speciesName(s)}
                   </SpeciesLink>
-                  <span className="shrink-0 text-xs text-muted">1 photo, rated ★</span>
+                  <span className="shrink-0 text-footnote text-muted">{t("stats.collection.ratedOneStar")}</span>
                 </li>
               ))}
             </ul>
           )}
         </ChartCard>
 
-        <ChartCard title="Archive health">
+        <ChartCard title={t("stats.collection.archiveHealth")}>
           {!archiveHealth ? (
             <Spinner />
           ) : (
-            <ul className="space-y-1.5 text-sm text-ink">
-              {/* A clean result reads as good news ("All 53 photos have a date"), not as "0 / 53". */}
-              <li className="flex items-center justify-between gap-2">
-                {archiveHealth.missingDate > 0 ? (
-                  <>
-                    <Link
-                      to="/gallery?missingDate=1"
-                      state={backStateFor(location, t)}
-                      className="text-accent hover:underline"
-                    >
-                      {pluralize(archiveHealth.missingDate, "photo")} missing a date
-                    </Link>
-                    <span className="text-xs text-muted">of {formatNumber(archiveHealth.total)}</span>
-                  </>
-                ) : (
-                  <span>
-                    <span className="text-accent">✓</span>{" "}
-                    {archiveHealth.total === 1
-                      ? "Your photo has a date"
-                      : `All ${pluralize(archiveHealth.total, "photo")} have a date`}
-                  </span>
-                )}
-              </li>
+            <ul className="space-y-1.5 text-callout text-ink">
+              <HealthRow
+                missing={archiveHealth.missingDate}
+                total={archiveHealth.total}
+                to="/gallery?missingDate=1"
+                missingText={t("stats.collection.missingDate", { count: archiveHealth.missingDate })}
+                okText={
+                  archiveHealth.total === 1
+                    ? t("stats.collection.oneHasDate")
+                    : t("stats.collection.allHaveDate", { count: archiveHealth.total })
+                }
+              />
+              <HealthRow
+                missing={archiveHealth.missingRegion}
+                total={archiveHealth.total}
+                to={`/gallery?regionId=${UNCATEGORIZED_REGION_ID}&fix=region`}
+                missingText={t("stats.collection.missingRegion", { count: archiveHealth.missingRegion })}
+                okText={
+                  archiveHealth.total === 1
+                    ? t("stats.collection.oneHasRegion")
+                    : t("stats.collection.allHaveRegion", { count: archiveHealth.total })
+                }
+              />
             </ul>
           )}
         </ChartCard>
 
-        <ChartCard title="What you shoot">
+        <ChartCard title={t("stats.collection.whatYouShoot")}>
           {!photographyDna ? (
             <Spinner />
           ) : (
-            <div className="space-y-3 text-sm">
+            <div className="space-y-3 text-callout">
               <div>
-                <p className="mb-1 text-xs font-medium text-muted">By taxon</p>
+                <p className="mb-1 text-footnote font-medium text-muted">{t("stats.collection.byGroup")}</p>
                 {photographyDna.taxonBreakdown.slice(0, 5).map((t) => (
                   <DnaRow
                     key={t.taxonClass}
                     to={`/gallery?taxon=${encodeURIComponent(t.taxonClass)}`}
                     label={taxonDisplayLabel(t.taxonClass, namingStyles)}
                     percent={t.percent}
+                    group={taxaGroup(t.taxonClass)}
                   />
                 ))}
               </div>
               <div>
-                <p className="mb-1 text-xs font-medium text-muted">By kind of shot</p>
-                {photographyDna.categoryBreakdown.map((c) => (
+                <p className="mb-1 text-footnote font-medium text-muted">{t("stats.collection.byShotAction")}</p>
+                {photographyDna.actionBreakdown.map((c) => (
                   <DnaRow
                     key={c.key}
-                    to={`/gallery?shotKind=${encodeURIComponent(c.key)}`}
-                    label={c.key.charAt(0).toUpperCase() + c.key.slice(1)}
+                    to={`/gallery?action=${encodeURIComponent(c.key)}`}
+                    label={t(SHOT_ACTION_LABELS[c.key as keyof typeof SHOT_ACTION_LABELS] ?? c.key)}
                     percent={c.percent}
                   />
                 ))}
               </div>
-              <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted">
+              <div>
+                <p className="mb-1 text-footnote font-medium text-muted">{t("stats.collection.byShotFraming")}</p>
+                {photographyDna.framingBreakdown.map((c) => (
+                  <DnaRow
+                    key={c.key}
+                    to={`/gallery?framing=${encodeURIComponent(c.key)}`}
+                    label={t(SHOT_FRAMING_LABELS[c.key as keyof typeof SHOT_FRAMING_LABELS] ?? c.key)}
+                    percent={c.percent}
+                  />
+                ))}
+              </div>
+              <div className="flex flex-wrap gap-x-4 gap-y-1 text-footnote text-muted">
                 {photographyDna.medianFocalLengthMm != null && (
-                  <span>Median focal length: {Math.round(photographyDna.medianFocalLengthMm)}mm</span>
+                  <span>
+                    {t("stats.collection.medianFocal", { mm: Math.round(photographyDna.medianFocalLengthMm) })}
+                  </span>
                 )}
                 {photographyDna.medianShutterSeconds != null && (
-                  <span>Median shutter: {SCATTER_AXES.shutterSeconds.format(photographyDna.medianShutterSeconds)}</span>
+                  <span>
+                    {t("stats.collection.medianShutter", {
+                      shutter: SCATTER_AXES.shutterSeconds.format(photographyDna.medianShutterSeconds),
+                    })}
+                  </span>
                 )}
-                {photographyDna.medianIso != null && <span>Median ISO: {Math.round(photographyDna.medianIso)}</span>}
+                {photographyDna.medianIso != null && (
+                  <span>{t("stats.collection.medianIso", { iso: Math.round(photographyDna.medianIso) })}</span>
+                )}
               </div>
             </div>
           )}
         </ChartCard>
 
         <ChartCard
-          title="Year over year"
+          title={t("stats.collection.yearOverYear")}
           controls={
             years.available.length > 1 && (
-              <div className="flex items-center gap-1.5 text-xs">
+              <div className="flex items-center gap-1.5 text-footnote">
                 <OptionSelect
-                  ariaLabel="First year"
+                  ariaLabel={t("stats.collection.firstYear")}
                   value={String(years.a ?? "")}
                   onChange={(v) => years.setA(Number(v))}
                   options={yearOptions}
                 />
-                <span className="text-muted">vs</span>
+                <span className="text-muted">{t("stats.collection.vs")}</span>
                 <OptionSelect
-                  ariaLabel="Second year"
+                  ariaLabel={t("stats.collection.secondYear")}
                   value={String(years.b ?? "")}
                   onChange={(v) => years.setB(Number(v))}
                   options={yearOptions}
@@ -193,13 +214,13 @@ export default function CollectionIntelligence({
           }
         >
           {years.available.length < 2 ? (
-            <p className="text-sm text-muted">Need photos from at least two different years to compare.</p>
+            <EmptyState compact title={t("stats.collection.needTwoYears")} />
           ) : !comparison ? (
             <Spinner />
           ) : (
-            <table className="w-full text-sm">
+            <table className="w-full text-callout">
               <thead>
-                <tr className="text-left text-xs text-muted">
+                <tr className="text-left text-footnote text-muted">
                   <th className="pb-1 font-medium"></th>
                   <th className="pb-1 font-medium">{comparison.a.year}</th>
                   <th className="pb-1 font-medium">{comparison.b.year}</th>
@@ -207,22 +228,22 @@ export default function CollectionIntelligence({
               </thead>
               <tbody className="text-ink">
                 <tr>
-                  <td className="text-muted">Species</td>
+                  <td className="text-muted">{t("stats.collection.rowSpecies")}</td>
                   <td>{comparison.a.speciesCount}</td>
                   <td>{comparison.b.speciesCount}</td>
                 </tr>
                 <tr>
-                  <td className="text-muted">Photos</td>
+                  <td className="text-muted">{t("stats.collection.rowPhotos")}</td>
                   <td>{comparison.a.photoCount}</td>
                   <td>{comparison.b.photoCount}</td>
                 </tr>
                 <tr>
-                  <td className="text-muted">Avg focal length</td>
+                  <td className="text-muted">{t("stats.collection.rowFocal")}</td>
                   <td>{comparison.a.avgFocalLength != null ? `${comparison.a.avgFocalLength}mm` : <NoValue />}</td>
                   <td>{comparison.b.avgFocalLength != null ? `${comparison.b.avgFocalLength}mm` : <NoValue />}</td>
                 </tr>
                 <tr>
-                  <td className="text-muted">Avg ISO</td>
+                  <td className="text-muted">{t("stats.collection.rowIso")}</td>
                   <td>{comparison.a.avgIso ?? <NoValue />}</td>
                   <td>{comparison.b.avgIso ?? <NoValue />}</td>
                 </tr>
@@ -236,7 +257,7 @@ export default function CollectionIntelligence({
 }
 
 // One "What you shoot" row, opening the Gallery filtered to those photos.
-function DnaRow({ to, label, percent }: { to: string; label: string; percent: number }) {
+function DnaRow({ to, label, percent, group }: { to: string; label: string; percent: number; group?: TaxaGroup }) {
   const location = useLocation();
   const { t } = useTranslation();
   return (
@@ -245,8 +266,20 @@ function DnaRow({ to, label, percent }: { to: string; label: string; percent: nu
       state={backStateFor(location, t)}
       className="-mx-1 flex items-center justify-between rounded-control px-1 text-ink hover:bg-surface-muted"
     >
-      <span>{label}</span>
-      <span className="text-muted">{percent}%</span>
+      <span className="flex min-w-0 items-center gap-2">
+        {group && (
+          <span
+            aria-hidden
+            className="size-4 shrink-0"
+            style={{
+              backgroundColor: taxaColour(group),
+              mask: `url(${taxaIllustration(group)}) center / contain no-repeat`,
+            }}
+          />
+        )}
+        <span className="truncate">{label}</span>
+      </span>
+      <span className="ml-2 shrink-0 text-muted">{percent}%</span>
     </Link>
   );
 }
@@ -259,5 +292,40 @@ export function SpeciesLink({ id, className = "", children }: { id: string; clas
     <Link to={`/species/${id}`} state={backStateFor(location, t)} className={`hover:underline ${className}`}>
       {children}
     </Link>
+  );
+}
+
+/** One Library health check: a link to the photos missing it, or good news when none are. A clean
+ *  result reads "All 53 photos have a date", not "0 / 53". */
+function HealthRow({
+  missing,
+  total,
+  to,
+  missingText,
+  okText,
+}: {
+  missing: number;
+  total: number;
+  to: string;
+  missingText: string;
+  okText: string;
+}) {
+  const { t } = useTranslation();
+  const location = useLocation();
+  return (
+    <li className="flex items-center justify-between gap-2">
+      {missing > 0 ? (
+        <>
+          <Link to={to} state={backStateFor(location, t)} className="text-accent hover:underline">
+            {missingText}
+          </Link>
+          <span className="text-footnote text-muted">{t("stats.collection.ofTotal", { total })}</span>
+        </>
+      ) : (
+        <span>
+          <span className="text-accent">✓</span> {okText}
+        </span>
+      )}
+    </li>
   );
 }

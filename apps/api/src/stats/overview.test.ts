@@ -54,9 +54,9 @@ describe("overviewInsights", () => {
     ];
     expect(overviewInsights({ ...quiet, perMonth, ghostCount: 1, lostCount: 2, rediscoveredCount: 1 })).toEqual([
       "February 2024 was your best month, 3 new lifers.",
-      "You've photographed 1 Ghost species, rarely documented anywhere, but you found one.",
-      "You've photographed 2 Lost species, not recorded anywhere else in over 25 years.",
-      "You helped rediscover 1 species that was Ghost or Lost when you found it.",
+      "You've photographed 1 rarely recorded species: hardly anyone documents them, but you found one.",
+      "You've photographed 2 species not seen in 25 years anywhere else.",
+      "1 species you photographed was rarely recorded or not seen in 25 years when you found it.",
     ]);
   });
 });

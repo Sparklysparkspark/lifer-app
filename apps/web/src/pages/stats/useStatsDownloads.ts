@@ -4,7 +4,7 @@ import { statsCsvFilename } from "./statsHelpers";
 import type { PhotoFilter } from "./types";
 
 // The CSV export, and downloading every photo behind an EXIF bar. Both report into one error line.
-export function useStatsDownloads(filter: PhotoFilter) {
+export function useStatsDownloads(filter: PhotoFilter, includeRaw = true) {
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
   const [bucketDownloading, setBucketDownloading] = useState(false);
@@ -27,7 +27,9 @@ export function useStatsDownloads(filter: PhotoFilter) {
     setExportError(null);
     try {
       const filename = statsCsvFilename(filter, new Date());
-      await downloadFile(`/api/stats/export.csv?filter=${filter}`, filename, { filename });
+      await downloadFile(`/api/stats/export.csv?filter=${filter}${includeRaw ? "" : "&includeRaw=0"}`, filename, {
+        filename,
+      });
     } catch (err) {
       setExportError(err instanceof Error ? err.message : "Couldn't export stats");
     } finally {

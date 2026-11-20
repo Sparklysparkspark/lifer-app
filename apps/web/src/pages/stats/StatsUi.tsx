@@ -1,18 +1,22 @@
 import type { ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 import SharedSelect from "../../components/Select";
-import { PANEL } from "../../lib/layout";
+import Panel from "../../components/Panel";
 
 export function NoValue() {
-  return <span className="text-muted">n/a</span>;
+  const { t } = useTranslation();
+  return <span className="text-muted">{t("stats.noValue")}</span>;
 }
 
 export function StatCard({ label, value, sub }: { label: string; value: string; sub?: string }) {
   return (
-    <div className={PANEL}>
-      <p className="text-xs font-medium text-muted">{label}</p>
-      <p className="mt-1 text-2xl font-semibold text-ink">{value}</p>
-      {sub && <p className="mt-0.5 text-xs text-muted">{sub}</p>}
-    </div>
+    <Panel>
+      <p className="text-footnote font-medium text-muted">{label}</p>
+      <p className="mt-1 truncate text-title-1 font-semibold text-ink" title={value}>
+        {value}
+      </p>
+      {sub && <p className="mt-0.5 text-footnote text-muted">{sub}</p>}
+    </Panel>
   );
 }
 
@@ -28,13 +32,13 @@ export function ChartCard({
   className?: string;
 }) {
   return (
-    <div className={`${PANEL} ${className ?? ""}`}>
+    <Panel className={className}>
       <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-        <h3 className="text-sm font-semibold text-ink">{title}</h3>
+        <h3 className="text-callout font-semibold text-ink">{title}</h3>
         {controls}
       </div>
       {children}
-    </div>
+    </Panel>
   );
 }
 

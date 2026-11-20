@@ -3,7 +3,13 @@
 import Fastify, { type FastifyInstance } from "fastify";
 import cookie from "@fastify/cookie";
 import pg from "pg";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+
+// Photos with vectors but no text model yet: the shot types can't be read, which isn't an error.
+vi.mock("@lifer/core/species/textEmbedding.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@lifer/core/species/textEmbedding.js")>()),
+  isTextModelDownloaded: () => false,
+}));
 
 const url = process.env.TEST_DATABASE_URL;
 const OWNER = "eeeeeeee-0000-4000-8000-000000000661";
@@ -176,20 +182,31 @@ describe.skipIf(!url)("GET /stats", () => {
       bestRating: 5,
       earliestTakenAt: expect.stringMatching(/^2024-05-01/),
     });
-    expect((await get("/api/stats/archive-health")).json()).toEqual({ total: 7, missingDate: 0 });
+    expect((await get("/api/stats/archive-health")).json()).toEqual({ total: 7, missingDate: 0, missingRegion: 7 });
+    const csv = (await get("/api/stats/export.csv")).body.split("\n");
+    expect(csv[0]).toBe(
+      "scientific_name,common_name,class,order,family,ebird_code,aba_code,taken_at,camera_model,lens,focal_length_mm,aperture,shutter,iso,quality_rating,country,region,place,latitude,longitude,tags",
+    );
+    // Dates as ISO 8601, not JavaScript's display format.
+    expect(csv[1].split(",")[7]).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
     expect((await get("/api/stats/gear-species-breakdown?camera=EOS%20R5")).json()).toEqual({
       breakdown: [{ taxonClass: "aves", count: 7, percent: 100 }],
     });
     const years = (await get("/api/stats/year-comparison?yearA=2024&yearB=2025")).json();
     expect(years.a).toMatchObject({ year: 2024, speciesCount: 2, photoCount: 7 });
     expect(years.b).toEqual({ year: 2025, speciesCount: 0, photoCount: 0, avgFocalLength: null, avgIso: null });
-    const dna = (await get("/api/stats/photography-dna")).json();
+    const { EMBEDDING_MODEL_VERSION } = await import("@lifer/core/config.js");
+    await db.query(
+      `INSERT INTO capture_embeddings (capture_id, embedding, model_version)
+       SELECT capture_id, $2, $3 FROM photos WHERE id = $1`,
+      [photoIds[0], Array.from({ length: 768 }, (_, i) => (i === 0 ? 1 : 0)), EMBEDDING_MODEL_VERSION],
+    );
+    const dnaRes = await get("/api/stats/photography-dna");
+    expect(dnaRes.statusCode).toBe(200);
+    const dna = dnaRes.json();
     expect(dna).toMatchObject({ medianFocalLengthMm: 600, medianIso: 400 });
-    expect(dna.categoryBreakdown.map((c: { key: string }) => c.key)).toEqual([
-      "portrait",
-      "flight",
-      "behavior",
-      "environmental",
-    ]);
+    expect(dna.actionBreakdown.map((c: { key: string }) => c.key)).toEqual(["flying", "behavior", "resting"]);
+    expect(dna.framingBreakdown.map((c: { key: string }) => c.key)).toEqual(["close", "environmental"]);
+    expect(dna.actionBreakdown.every((c: { count: number }) => c.count === 0)).toBe(true);
   });
 });

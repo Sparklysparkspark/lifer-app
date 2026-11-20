@@ -90,6 +90,88 @@ describe.skipIf(!url)("stats route validation", () => {
     expect([res.statusCode, res.json()]).toEqual([401, { error: "Not authenticated" }]);
   });
 
+  it("counts a species with only RAW photos unless includeRaw=0", async () => {
+    const species = "eeeeeeee-0000-4000-8000-000000000652";
+    await db.query(`DELETE FROM species WHERE id = $1`, [species]);
+    await db.query(
+      `INSERT INTO species (id, gbif_key, scientific_name, common_name, taxon_class) VALUES ($1, 916521, 'Rawia solum', 'Raw Only', 'aves')`,
+      [species],
+    );
+    try {
+      const c = await db.query<{ id: string }>(
+        `INSERT INTO captures_all (user_id, species_id, fingerprint, taken_at, identification_state, camera_model)
+         VALUES ($1, $2, 'stats-raw-only', '2025-05-01T10:00:00Z', 'confirmed', 'RawCam') RETURNING id`,
+        [OWNER, species],
+      );
+      await db.query(
+        `INSERT INTO originals (capture_id, kind, ref_type, ref, managed, content_hash, file_size)
+         VALUES ($1, 'raw', 'path', 'stats-raw-only.cr3', false, 'stats-raw-only', 1)`,
+        [c.rows[0].id],
+      );
+      const rawCam = (body: { gearUsage: { cameras: { model: string; speciesCount: number }[] } }) =>
+        body.gearUsage.cameras.find((g) => g.model === "RawCam");
+
+      for (const query of ["", "?includeRaw=1"]) {
+        const body = (await get(`/api/stats${query}`)).json();
+        expect([query, body.totalKeepers, rawCam(body)?.speciesCount]).toEqual([query, 1, 1]);
+      }
+      const excluded = (await get("/api/stats?includeRaw=0")).json();
+      expect([excluded.totalKeepers, rawCam(excluded)]).toEqual([0, undefined]);
+
+      expect((await get("/api/stats/export.csv")).body).toContain("Rawia solum");
+      expect((await get("/api/stats/export.csv?includeRaw=0")).body).not.toContain("Rawia solum");
+      expect((await get("/api/stats?includeRaw=yes")).statusCode).toBe(400);
+    } finally {
+      await db.query(`DELETE FROM captures_all WHERE user_id = $1`, [OWNER]);
+      await db.query(`DELETE FROM species WHERE id = $1`, [species]);
+    }
+  });
+
+  it("lists every photo behind one EXIF bar, beyond the overview's sample", async () => {
+    const species = "eeeeeeee-0000-4000-8000-000000000653";
+    await db.query(`DELETE FROM species WHERE id = $1`, [species]);
+    await db.query(
+      `INSERT INTO species (id, gbif_key, scientific_name, common_name, taxon_class) VALUES ($1, 916531, 'Focalia longa', 'Long Lens', 'aves')`,
+      [species],
+    );
+    try {
+      const photoIds: string[] = [];
+      for (let i = 0; i < 302; i++) {
+        const c = await db.query<{ id: string }>(
+          `INSERT INTO captures_all (user_id, species_id, fingerprint, taken_at, identification_state, focal_length_mm)
+           VALUES ($1, $2, $3, $4, 'confirmed', 450) RETURNING id`,
+          [OWNER, species, `stats-bucket-${i}`, new Date(Date.UTC(2025, 0, 1, 0, i)).toISOString()],
+        );
+        const p = await db.query<{ id: string }>(
+          `INSERT INTO photos (capture_id, display_path, thumb_path) VALUES ($1, '/nowhere/d.webp', '/nowhere/t.webp') RETURNING id`,
+          [c.rows[0].id],
+        );
+        await db.query(`UPDATE captures_all SET current_photo_id = $1 WHERE id = $2`, [p.rows[0].id, c.rows[0].id]);
+        await db.query(
+          `INSERT INTO originals (capture_id, kind, ref_type, ref, managed, content_hash, file_size)
+           VALUES ($1, 'jpeg', 'path', $2, false, $2, 1)`,
+          [c.rows[0].id, `stats-bucket-${i}.jpg`],
+        );
+        photoIds.push(p.rows[0].id);
+      }
+      const newestFirst = [...photoIds].reverse();
+      // 400-500mm is the fifth focal-length bar.
+      const overview = (await get("/api/stats")).json();
+      const bar = overview.exifDistributions.focalLength[4];
+      expect([bar.label, bar.count, bar.photoIds]).toEqual(["400-500mm", 302, newestFirst.slice(0, 300)]);
+
+      expect((await get("/api/stats/exif-bucket?dim=focalLength&bucket=5")).json()).toEqual({ photoIds: newestFirst });
+      expect((await get("/api/stats/exif-bucket?dim=focalLength&bucket=4")).json()).toEqual({ photoIds: [] });
+      expect((await get("/api/stats/exif-bucket?dim=focalLength&bucket=5&filter=topRated")).json()).toEqual({
+        photoIds: [],
+      });
+      expect((await get("/api/stats/exif-bucket?dim=depth&bucket=5")).statusCode).toBe(400);
+    } finally {
+      await db.query(`DELETE FROM captures_all WHERE user_id = $1`, [OWNER]);
+      await db.query(`DELETE FROM species WHERE id = $1`, [species]);
+    }
+  });
+
   it("filters the gear breakdown by camera or lens", async () => {
     expect((await get("/api/stats/gear-species-breakdown")).json()).toEqual({ breakdown: [] });
     expect((await get("/api/stats/gear-species-breakdown?camera=EOS%20R5")).json()).toEqual({ breakdown: [] });

@@ -3,7 +3,8 @@ import { Type } from "typebox";
 import { pool } from "@lifer/core/db.js";
 import { requireScope } from "../auth/session.js";
 import { replies, withSchemas } from "../lib/schema.js";
-import { classifyShotKinds, SHOT_KINDS } from "./shotKinds.js";
+import { classifyShotTypes } from "./shotKinds.js";
+import { SHOT_ACTIONS, SHOT_FRAMINGS } from "@lifer/shared";
 import { parseShutterSeconds } from "./shutter.js";
 import { ArchiveHealth, GearSpeciesBreakdown, PhotographyDna, SpeciesPortfolio, YearComparison } from "./responses.js";
 
@@ -68,16 +69,19 @@ export async function statsInsightRoutes(fastify: FastifyInstance): Promise<void
       const res = await pool.query<{
         total: number;
         missing_date: number;
+        missing_region: number;
       }>(
         `SELECT
          (SELECT COUNT(*) FROM captures WHERE user_id = $1)::int AS total,
-         (SELECT COUNT(*) FROM captures WHERE user_id = $1 AND taken_at IS NULL)::int AS missing_date`,
+         (SELECT COUNT(*) FROM captures WHERE user_id = $1 AND taken_at IS NULL)::int AS missing_date,
+         (SELECT COUNT(*) FROM captures WHERE user_id = $1 AND region_id IS NULL)::int AS missing_region`,
         [userId],
       );
       const row = res.rows[0];
       return {
         total: row.total,
         missingDate: row.missing_date,
+        missingRegion: row.missing_region,
       };
     },
   );
@@ -209,10 +213,13 @@ export async function statsInsightRoutes(fastify: FastifyInstance): Promise<void
         .filter((v): v is number => v != null);
       const isos = exifRes.rows.map((r) => r.iso).filter((v): v is number => v != null);
 
-      const shotKinds = await classifyShotKinds(userId);
-      const categoryCounts: Record<string, number> = Object.fromEntries(SHOT_KINDS.map((k) => [k.key, 0]));
-      for (const kind of shotKinds.values()) categoryCounts[kind]++;
-      const categoryTotal = shotKinds.size;
+      // Each axis' shares are of the photos it has a reading for (those with a vector).
+      const shotTypes = [...(await classifyShotTypes(userId)).values()];
+      const shares = <K extends string>(keys: readonly K[], of: (t: (typeof shotTypes)[number]) => K) =>
+        keys.map((key) => {
+          const count = shotTypes.filter((t) => of(t) === key).length;
+          return { key, count, percent: shotTypes.length > 0 ? Math.round((count / shotTypes.length) * 1000) / 10 : 0 };
+        });
 
       return {
         taxonBreakdown: taxonRes.rows.map((r) => ({
@@ -220,11 +227,8 @@ export async function statsInsightRoutes(fastify: FastifyInstance): Promise<void
           count: r.count,
           percent: taxonTotal > 0 ? Math.round((r.count / taxonTotal) * 1000) / 10 : 0,
         })),
-        categoryBreakdown: SHOT_KINDS.map((c) => ({
-          key: c.key,
-          count: categoryCounts[c.key],
-          percent: categoryTotal > 0 ? Math.round((categoryCounts[c.key] / categoryTotal) * 1000) / 10 : 0,
-        })),
+        actionBreakdown: shares(SHOT_ACTIONS, (t) => t.action),
+        framingBreakdown: shares(SHOT_FRAMINGS, (t) => t.framing),
         medianFocalLengthMm: median(focalLengths),
         medianShutterSeconds: median(shutters),
         medianIso: median(isos),
