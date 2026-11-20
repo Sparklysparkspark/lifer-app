@@ -18,6 +18,11 @@ function withRetry(src: string, attempt: number): string {
 // photos at once instead of blank tiles waiting on the observer.
 const shownSources = new Map<string, string>();
 
+/** The sharpest copy of a photo already on screen somewhere, by its thumbnail URL. */
+export function sharpestShown(thumbSrc: string): string {
+  return shownSources.get(thumbSrc) ?? thumbSrc;
+}
+
 function mediumSrcFor(thumbSrc: string): string | null {
   // Only your own photos (/api/photos/:id/thumb) have a medium copy; shared-album and reference
   // photos go straight from thumbnail to display.
@@ -26,14 +31,15 @@ function mediumSrcFor(thumbSrc: string): string | null {
 
 export default function ProgressiveImg({
   thumbSrc,
-  fullSrc,
+  fullSrc = thumbSrc,
   alt,
   onClick,
   className,
   style,
 }: {
   thumbSrc: string;
-  fullSrc: string;
+  /** The largest copy; a small thumbnail-only image (a list row's) leaves it out. */
+  fullSrc?: string;
   alt: string;
   onClick?: () => void;
   className?: string;
@@ -92,14 +98,13 @@ export default function ProgressiveImg({
     const medium = mediumSrcFor(thumbSrc);
     const target = medium && (shownWidth === 0 || shownWidth <= MEDIUM_WIDTH * 1.15) ? medium : fullSrc;
     if (target === thumbSrc) return;
-    let cancelled = false;
     const img = new Image();
     img.src = target;
-    img.onload = () => {
-      if (!cancelled) setLoadedSrc(target);
-    };
+    img.onload = () => setLoadedSrc(target);
     return () => {
-      cancelled = true;
+      // Dropping the source cancels the download, so fast scrolling doesn't queue up large images.
+      img.onload = null;
+      img.src = "";
     };
   }, [thumbSrc, fullSrc, near]);
 

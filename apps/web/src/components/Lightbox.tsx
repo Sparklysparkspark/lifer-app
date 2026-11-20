@@ -1,36 +1,87 @@
-import {
-  useEffect,
-  useRef,
-  useState,
-  type MouseEvent as ReactMouseEvent,
-  type WheelEvent as ReactWheelEvent,
-} from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Link, useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import PhotoPlaceholder from "./PhotoPlaceholder";
+import StarRating from "./StarRating";
+import CaptureEditModal from "./CaptureEditModal";
+import CoordinatesModal from "./CoordinatesModal";
+import { formatCoordinates } from "../lib/coordinates";
+import TagEditor from "./TagEditor";
+import type { SpeciesResult } from "./SpeciesPicker";
+import Tip from "./Tip";
 import { markDragBlocked } from "../lib/modalDragBlock";
 import { tauriCurrentWindow } from "../lib/tauri";
 import { useEscapeToClose } from "../hooks/useEscapeToClose";
 import { useLatest } from "../hooks/useLatest";
+import { isTypingTarget } from "../hooks/useKeyboardShortcuts";
+import { matches, shortcutLabel, type KeyAction } from "../lib/keymap";
+import { Tooltip } from "./Tooltip";
+import ZoomPane from "./ZoomPane";
+import PhotoArrows from "./PhotoArrows";
+import WindowTitleBar from "./WindowTitleBar";
+import { FIT, zoomView, type View } from "../lib/compareZoom";
+
+const RATE_ACTIONS: KeyAction[] = ["rate1", "rate2", "rate3", "rate4", "rate5"];
+// Shift+0 to 5: rate (0 clears) and move on, as in Lightroom.
+const RATE_NEXT_ACTIONS: KeyAction[] = [
+  "rateClearNext",
+  "rate1Next",
+  "rate2Next",
+  "rate3Next",
+  "rate4Next",
+  "rate5Next",
+];
 import { useToast } from "../hooks/useToast";
+import { useOpenInEditors } from "../hooks/useOpenInEditors";
+import { useApiRoute } from "../lib/resource";
+import { api, apiPath } from "../api/client";
 import { errorMessage } from "../lib/errorMessage";
+import { openExternal } from "../lib/openExternal";
 import { formatDate } from "../lib/format";
-import { downloadFile } from "../lib/downloadFile";
+import { downloadWithToast } from "../lib/downloadFile";
+import { ignore } from "../lib/ignore";
 import { backStateFor } from "../lib/backLabel";
+import { useFocusTrap } from "../hooks/useFocusTrap";
+import { sharpestShown } from "./ProgressiveImg";
+import { VersionStrip, usePhotoVersions } from "./PhotoVersions";
+import { StackIcon } from "./PhotoTile";
+import { openPhotoVersions, type PhotoVersion } from "../lib/photoVersions";
+import { useKeyboardShortcuts } from "../hooks/useKeyboardShortcuts";
+
+/** m:ss.cc, to the hundredth, so the saved frame is named exactly. */
+function frameTimeLabel(seconds: number): string {
+  const whole = Math.floor(seconds);
+  return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, "0")}.${String(Math.floor((seconds - whole) * 100)).padStart(2, "0")}`;
+}
 
 export interface LightboxSlide {
   url: string;
   /** Video slides play in a plain <video controls>; zoom and pan are image-only. */
   videoUrl?: string | null;
+  /** A sound recording: its waveform is the picture, with a player under it. */
+  audioUrl?: string | null;
+  /** Video slides: where a frame is saved as a photo; adds frame stepping and "Save frame". */
+  frameUrl?: string | null;
   /** A RAW file the browser can't decode: shows a badge instead of a broken <img>. */
   noPreview?: boolean;
+  /** The photo's thumbnail: its sharpest copy already loaded shows at once while `url` decodes. */
+  thumbUrl?: string | null;
+  /** The photo's upright size. */
+  width?: number | null;
+  height?: number | null;
   caption?: string | null;
-  /** 1-5 rating plus setter; lets the 1-5 keys rate the open slide. */
+  /** 1-5 rating plus setter; shows the stars and lets the 1-5 keys rate the open slide. */
   rating?: number | null;
   onRate?: (rating: number | null) => void;
+  /** Adds "Correct the ID", for the viewer's own photos. */
+  onReassign?: (species: SpeciesResult) => void;
+  /** The slide's photo, so "Correct the ID" can offer its likeliest other species. */
+  captureId?: string;
   // Adds a "View species" link; omitted on the species page itself.
   speciesId?: string | null;
+  /** Adds "Similar photos", a link to the photo's near-identical group. */
+  similarHref?: string | null;
   // Carried through for callers that crop the slide (the species hero); Lightbox ignores them.
   focalX?: number | null;
   focalY?: number | null;
@@ -50,136 +101,75 @@ export interface LightboxSlide {
   } | null;
   tags?: string[] | null;
   onTagsChange?: (tags: string[]) => void;
+  /** The photo's GPS point. With onChange (and captureId), it can be typed or cleared here. */
+  coordinates?: {
+    lat: number | null;
+    lon: number | null;
+    /** The photo has a region, so none is offered from the point. */
+    hasRegion: boolean;
+    onChange?: (point: { lat: number; lon: number } | null, region: { id: string; name: string } | null) => void;
+  } | null;
   /** When set, shows a download button for this slide. */
   download?: { url: string; filename: string } | null;
-}
-
-function isTypingTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) return false;
-  return target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable;
+  /** After a change to the photo's versions, e.g. to reload the shown photo. */
+  onVersionsChange?: () => void;
+  /** After "Save frame" adds a photo, so the page behind lists it at once. */
+  onFrameSaved?: () => void;
 }
 
 function fileNameOf(ref: string): string {
   return ref.split(/[\\/]/).pop() || ref;
 }
 
-export function TagEditor({
-  tags,
-  onChange,
-  existingTags,
-  label = "Tags",
-  compact = false,
-  dark = false,
-}: {
-  tags: string[];
-  onChange: (tags: string[]) => void;
-  /** Tags used elsewhere, for autocomplete; omit to disable suggestions. */
-  existingTags?: string[];
-  label?: string;
-  /** Drops the heading and top border, for inline use in a toolbar row. */
-  compact?: boolean;
-  /** White-on-black styling for Lightbox's fixed black backdrop, which ignores the app theme. */
-  dark?: boolean;
-}) {
-  const [draft, setDraft] = useState("");
-  const [suggestionsOpen, setSuggestionsOpen] = useState(false);
+// Neighbours kept decoded each way, and the most decoded pixels they may hold between them.
+const PRELOAD_EACH_WAY = 2;
+const PRELOAD_MAX_BYTES = 192 * 1024 * 1024;
 
-  function commitTag(value: string) {
-    const trimmed = value.trim();
-    if (!trimmed) return;
-    if (!tags.includes(trimmed)) onChange([...tags, trimmed]);
-    setDraft("");
-    setSuggestionsOpen(false);
-  }
-
-  const suggestions = (
-    draft.trim() && existingTags
-      ? existingTags.filter((t) => t.toLowerCase().includes(draft.trim().toLowerCase()) && !tags.includes(t))
-      : []
-  ).slice(0, 6);
-
-  return (
-    <div
-      className={compact ? "" : `mt-3 border-t pt-3 ${dark ? "border-white/20" : "border-line"}`}
-      onClick={(e) => e.stopPropagation()}
-    >
-      {!compact && (
-        <p className={`mb-2 text-xs font-medium uppercase tracking-wide ${dark ? "text-white/60" : "text-muted"}`}>
-          {label}
-        </p>
-      )}
-      {/* Centred under the photo in the viewer; left-aligned in menus and dialogs. */}
-      <div className={`flex flex-wrap items-center gap-1.5 ${dark ? "justify-center" : ""}`}>
-        {tags.map((tag) => (
-          <span
-            key={tag}
-            className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs ${
-              dark ? "border-white/30 bg-white/10 text-white" : "border-line bg-surface-muted text-ink"
-            }`}
-          >
-            {tag}
-            <button
-              type="button"
-              onClick={() => onChange(tags.filter((t) => t !== tag))}
-              className={dark ? "text-white/70 hover:text-white" : "text-muted hover:text-ink"}
-              aria-label={`Remove tag ${tag}`}
-            >
-              ×
-            </button>
-          </span>
-        ))}
-        <div className="relative">
-          <input
-            value={draft}
-            onChange={(e) => {
-              setDraft(e.target.value);
-              setSuggestionsOpen(true);
-            }}
-            onFocus={() => setSuggestionsOpen(true)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                commitTag(draft);
-              } else if (e.key === "Escape") {
-                setSuggestionsOpen(false);
-              }
-            }}
-            // Suggestion buttons preventDefault on mousedown, so blur only fires on a real click-away.
-            onBlur={() => commitTag(draft)}
-            placeholder="Add a tag"
-            className={`w-28 rounded-full border border-dashed bg-transparent px-2.5 py-1 text-xs outline-none ${
-              dark
-                ? "border-white/30 text-white placeholder:text-white/40 focus:border-white/60"
-                : "border-line text-ink focus:border-accent"
-            }`}
-          />
-          {suggestionsOpen && suggestions.length > 0 && (
-            <div
-              className={`absolute left-0 top-full z-10 mt-1 w-40 overflow-hidden rounded-md border py-1 shadow-lg ${
-                dark ? "border-white/20 bg-[#1c1e1f]" : "border-line bg-surface"
-              }`}
-            >
-              {suggestions.map((s) => (
-                <button
-                  key={s}
-                  type="button"
-                  onMouseDown={(e) => {
-                    e.preventDefault();
-                    commitTag(s);
-                  }}
-                  className={`block w-full truncate px-2.5 py-1 text-left text-xs ${
-                    dark ? "text-white hover:bg-white/10" : "text-ink hover:bg-surface-muted"
-                  }`}
-                >
-                  {s}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
+/** Decodes the open photo off the main thread and keeps its neighbours decoded, so the viewer
+ *  swaps its placeholder for a ready image and paging never shows an empty frame. Returns the
+ *  URLs that are ready to draw. */
+function useDecodedPhotos(slides: LightboxSlide[], index: number): ReadonlySet<string> {
+  const [ready, setReady] = useState<ReadonlySet<string>>(() => new Set());
+  const held = useRef(new Map<string, HTMLImageElement>());
+  useEffect(() => {
+    const images = held.current;
+    const current = slides[index]?.url;
+    const wanted = new Set<string>();
+    // Open slide first, then +1, -1, +2, -2.
+    for (let d = 0; d <= PRELOAD_EACH_WAY * 2; d++) {
+      const s = slides[(index + (d % 2 ? (d + 1) / 2 : -d / 2) + slides.length * 3) % slides.length];
+      if (s && !s.videoUrl && !s.audioUrl && !s.noPreview) wanted.add(s.url);
+    }
+    const drop = (url: string) => {
+      images.get(url)!.src = "";
+      images.delete(url);
+    };
+    // A dropped URL stays in `ready`: coming back to it skips the placeholder, as before preloading.
+    for (const url of [...images.keys()]) if (!wanted.has(url)) drop(url);
+    for (const url of wanted) {
+      if (images.has(url)) continue;
+      const img = new Image();
+      img.src = url;
+      images.set(url, img);
+      // A failed decode is marked ready too, so the <img> shows its own error.
+      const done = () => {
+        if (images.get(url) !== img) return;
+        const bytes = [...images.values()].reduce((n, i) => n + i.naturalWidth * i.naturalHeight * 4, 0);
+        if (bytes > PRELOAD_MAX_BYTES && url !== current) return drop(url);
+        setReady((prev) => new Set(prev).add(url));
+      };
+      // jsdom has no decode().
+      (typeof img.decode === "function" ? img.decode() : Promise.resolve()).then(done, done);
+    }
+  }, [slides, index]);
+  useEffect(() => {
+    const images = held.current;
+    return () => {
+      for (const img of images.values()) img.src = "";
+      images.clear();
+    };
+  }, []);
+  return ready;
 }
 
 // Full-size viewer with arrow navigation, zoom/pan, and a caption band for camera info and tags.
@@ -205,7 +195,16 @@ export default function Lightbox({
   const { t } = useTranslation();
   const location = useLocation();
   const [videoControlsIdle, setVideoControlsIdle] = useState(false);
+  // shortcut: the viewer offers the last-used editor only; the photo menus list them all.
+  const { editors, openIn } = useOpenInEditors();
+  const checklist = useApiRoute(
+    slides[index]?.captureId ? apiPath("/captures/{id}/ebird", { id: slides[index].captureId }) : null,
+  ).data?.checklists[0];
+  const [correcting, setCorrecting] = useState(false);
+  const [editingCoordinates, setEditingCoordinates] = useState(false);
   const idleTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(dialogRef);
   function resetVideoIdleTimer() {
     setVideoControlsIdle(false);
     if (idleTimeoutRef.current) clearTimeout(idleTimeoutRef.current);
@@ -232,22 +231,34 @@ export default function Lightbox({
   // nothing to offer: its button hides unless it's what made the window fullscreen.
   const appFullscreen = useAppFullscreen();
   const canToggleFullscreen = isFullscreen || !appFullscreen;
+  // Never rejects: a refused fullscreen request just leaves the layout as it was.
   async function toggleFullscreen() {
     const win = tauriCurrentWindow();
-    if (isFullscreen) {
-      setIsFullscreen(false);
-      if (!ownsWindowFullscreen.current) return;
-      ownsWindowFullscreen.current = false;
-      if (win) await win.setFullscreen(false);
-      else if (document.fullscreenElement) await document.exitFullscreen();
-      return;
+    try {
+      if (isFullscreen) {
+        setIsFullscreen(false);
+        if (!ownsWindowFullscreen.current) return;
+        ownsWindowFullscreen.current = false;
+        if (win) await win.setFullscreen(false);
+        else if (document.fullscreenElement) await document.exitFullscreen();
+        return;
+      }
+      const alreadyFullscreen = win ? await win.isFullscreen().catch(() => false) : !!document.fullscreenElement;
+      if (!alreadyFullscreen) {
+        // Set before the await so closing mid-request still undoes it.
+        ownsWindowFullscreen.current = true;
+        try {
+          if (win) await win.setFullscreen(true);
+          else await document.documentElement.requestFullscreen();
+        } catch (err) {
+          ownsWindowFullscreen.current = false;
+          throw err;
+        }
+      }
+      setIsFullscreen(true);
+    } catch (err) {
+      ignore("Couldn't change fullscreen")(err);
     }
-    setIsFullscreen(true);
-    const alreadyFullscreen = win ? await win.isFullscreen().catch(() => false) : !!document.fullscreenElement;
-    if (alreadyFullscreen) return;
-    ownsWindowFullscreen.current = true;
-    if (win) await win.setFullscreen(true);
-    else await document.documentElement.requestFullscreen();
   }
   // Every close path leaves the viewer's fullscreen first so the window isn't stuck fullscreen.
   async function handleClose() {
@@ -264,15 +275,8 @@ export default function Lightbox({
     },
     [],
   );
-  // Wheel and trackpad-pinch zoom plus drag-to-pan, reset on every slide change.
-  const [scale, setScale] = useState(1);
-  const [pan, setPan] = useState({ x: 0, y: 0 });
-  const dragRef = useRef<{ startX: number; startY: number; panX: number; panY: number } | null>(null);
-  const [dragging, setDragging] = useState(false);
-  // Skips the transform transition during a continuous pinch or trackpad pan; restarting it per
-  // event stutters.
-  const [wheeling, setWheeling] = useState(false);
-  const wheelTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Zoom and pan (ZoomPane does the gestures), reset on every slide change.
+  const [view, setView] = useState<View>(FIT);
 
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
@@ -286,26 +290,56 @@ export default function Lightbox({
     markDragBlocked(true);
     return () => markDragBlocked(false);
   }, []);
-  useEffect(
-    () => () => {
-      if (wheelTimeoutRef.current) clearTimeout(wheelTimeoutRef.current);
-    },
-    [],
-  );
   // A missing file shows a placeholder for that slide only; navigation keeps working.
   const [imageFailed, setImageFailed] = useState(false);
 
+  // The version on screen when the user switched away from the slide's own photo.
+  const [versionId, setVersionId] = useState<string | null>(null);
   // A new slide starts unzoomed, with its controls showing and no failure carried over.
   const [shownIndex, setShownIndex] = useState(index);
   if (shownIndex !== index) {
     setShownIndex(index);
     setVideoControlsIdle(false);
     setImageFailed(false);
-    setScale(1);
-    setPan({ x: 0, y: 0 });
+    setView(FIT);
+    setVersionId(null);
   }
+  const current = slides[index];
+  const { versions, groupCaptureId } = usePhotoVersions(
+    current?.captureId && !current.videoUrl && !current.audioUrl ? current.captureId : null,
+  );
+  // The slide's own photo among its versions, and the one on screen.
+  const ownVersion = versions.find((v) => v.photoId && current?.url.includes(v.photoId));
+  const activeVersion = versions.find((v) => v.captureId === versionId) ?? ownVersion;
+  function showVersion(next: PhotoVersion) {
+    const from = activeVersion;
+    setImageFailed(false);
+    setVersionId(next.captureId === ownVersion?.captureId ? null : next.captureId);
+    // Zoom stays put across versions of one size, so details compare in place.
+    if (!from || from.width !== next.width || from.height !== next.height) setView(FIT);
+  }
+  function stepVersion(by: 1 | -1) {
+    const at = versions.findIndex((v) => v.captureId === activeVersion?.captureId);
+    showVersion(versions[(at + by + versions.length) % versions.length]);
+  }
+  useKeyboardShortcuts(
+    { versionsShow: () => current?.captureId && openPhotoVersions(current.captureId, current.onVersionsChange) },
+    { enabled: versions.length > 1 && !correcting && !editingCoordinates },
+  );
 
   const videoRef = useRef<HTMLVideoElement>(null);
+  // Where the video stands, to name the exact frame "Save frame" would take.
+  const [videoTime, setVideoTime] = useState(0);
+  async function saveFrame(frameUrl: string, onSaved?: () => void) {
+    const at = videoRef.current?.currentTime ?? 0;
+    try {
+      const res = await api.post<{ duplicate?: boolean }>(frameUrl, { atSeconds: at });
+      toast.success(t(res.duplicate ? "lightbox.frameDuplicate" : "lightbox.frameSaved"));
+      if (!res.duplicate) onSaved?.();
+    } catch (err) {
+      toast.error(errorMessage(err, t("lightbox.frameFailed")));
+    }
+  }
 
   // Escape leaves fullscreen first, then closes on a second press. Through the shared stack so a
   // dialog or menu opened over the lightbox closes before it does.
@@ -321,133 +355,85 @@ export default function Lightbox({
   // The handler outlives renders; the ref keeps fullscreen toggling on the current state.
   const toggleFullscreenRef = useLatest(toggleFullscreen);
   const canToggleFullscreenRef = useLatest(canToggleFullscreen);
+  const versionsRef = useLatest(versions);
+  const stepVersionRef = useLatest(stepVersion);
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
-      if (isTypingTarget(e.target) || e.defaultPrevented) return;
-      // Cmd+0 (Ctrl+0), as in Lightroom: back to the whole photo, fitted to the window.
-      if ((e.metaKey || e.ctrlKey) && e.key === "0") {
-        e.preventDefault();
-        setScale(1);
-        setPan({ x: 0, y: 0 });
-        return;
-      }
+      if (correcting || editingCoordinates || isTypingTarget(e.target) || e.defaultPrevented) return;
       const slide = slides[index];
       const video = videoRef.current;
-      // On a video, arrows scrub 10s and only move to the next slide past either end.
-      if (slide?.videoUrl && video && Number.isFinite(video.duration) && video.duration > 0) {
-        if (e.key === "ArrowRight") {
-          if (video.currentTime + 10 >= video.duration) onIndexChange((index + 1) % slides.length);
-          else video.currentTime = Math.min(video.duration, video.currentTime + 10);
-          return;
-        }
-        if (e.key === "ArrowLeft") {
-          if (video.currentTime - 10 <= 0) onIndexChange((index - 1 + slides.length) % slides.length);
-          else video.currentTime = Math.max(0, video.currentTime - 10);
-          return;
-        }
-      }
-      if (e.key === "ArrowRight") onIndexChange((index + 1) % slides.length);
-      else if (e.key === "ArrowLeft") onIndexChange((index - 1 + slides.length) % slides.length);
-      else if (e.key >= "1" && e.key <= "5" && slide?.onRate) {
-        const rating = Number(e.key);
-        slide.onRate(slide.rating === rating ? null : rating);
-      } else if (e.key === " " && slide?.videoUrl) {
+      const hasDuration = !!video && Number.isFinite(video.duration) && video.duration > 0;
+      if (versionsRef.current.length > 1 && (matches(e, "versionNext") || matches(e, "versionPrevious"))) {
+        e.preventDefault();
+        stepVersionRef.current(matches(e, "versionNext") ? 1 : -1);
+      } else if (matches(e, "zoomFit")) {
+        e.preventDefault();
+        setView(FIT);
+      } else if (matches(e, "zoomIn") || matches(e, "zoomOut")) {
+        e.preventDefault();
+        const factor = matches(e, "zoomIn") ? 1.5 : 1 / 1.5;
+        setView((v) => zoomView(v, v.scale * factor));
+      } else if (e.metaKey || e.ctrlKey || e.altKey) {
+        return;
+      } else if (slide?.videoUrl && video && hasDuration && (matches(e, "skipBack") || matches(e, "skipForward"))) {
+        e.preventDefault();
+        video.currentTime = Math.max(
+          0,
+          Math.min(video.duration, video.currentTime + (matches(e, "skipForward") ? 10 : -10)),
+        );
+      } else if (slide?.frameUrl && video && (matches(e, "frameBack") || matches(e, "frameForward"))) {
+        e.preventDefault();
+        video.pause();
+        // 30 steps a second: the file's own frame rate isn't known here.
+        video.currentTime = Math.max(0, video.currentTime + (matches(e, "frameForward") ? 1 : -1) / 30);
+      } else if (matches(e, "next")) onIndexChange((index + 1) % slides.length);
+      else if (matches(e, "previous")) onIndexChange((index - 1 + slides.length) % slides.length);
+      else if (slide?.onRate && (matches(e, "rateClear") || RATE_ACTIONS.some((a) => matches(e, a)))) {
+        const rating = RATE_ACTIONS.findIndex((a) => matches(e, a)) + 1;
+        slide.onRate(rating === 0 || slide.rating === rating ? null : rating);
+      } else if (slide?.onRate && RATE_NEXT_ACTIONS.some((a) => matches(e, a))) {
+        const stars = RATE_NEXT_ACTIONS.findIndex((a) => matches(e, a));
+        slide.onRate(stars === 0 ? null : stars);
+        onIndexChange(Math.min(index + 1, slides.length - 1));
+      } else if (matches(e, "playPause") && slide?.videoUrl) {
         e.preventDefault();
         if (video) video.paused ? video.play() : video.pause();
-      } else if (e.key.toLowerCase() === "f" && canToggleFullscreenRef.current) {
+      } else if (matches(e, "fullScreen") && canToggleFullscreenRef.current) {
         void toggleFullscreenRef.current();
-      }
+      } else if (matches(e, "changeSpecies") && slide?.onReassign) setCorrecting(true);
     }
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
-  }, [index, slides, onIndexChange, toggleFullscreenRef, canToggleFullscreenRef]);
+  }, [
+    index,
+    slides,
+    onIndexChange,
+    toggleFullscreenRef,
+    canToggleFullscreenRef,
+    correcting,
+    editingCoordinates,
+    versionsRef,
+    stepVersionRef,
+  ]);
 
-  // The latest zoom and pan, read by events that arrive faster than renders (a pinch); zoomAt also
-  // writes it straight away so the next event builds on this one.
-  const viewRef = useLatest({ scale, pan });
-  // What the photo is drawn at right now, which its on-screen box reflects: during a fast pinch
-  // several events land before the next frame, so this lags viewRef.
-  const drawnPanRef = useLatest(pan);
-
-  const photoRef = useRef<HTMLImageElement>(null);
-  /** Keeps the zoomed photo covering its own box: it can't be pushed past its edges, and at its
-   *  normal size it doesn't move at all. */
-  function clampPan(next: { x: number; y: number }, atScale: number) {
-    const photo = photoRef.current;
-    if (!photo || atScale <= 1) return { x: 0, y: 0 };
-    // offsetWidth/Height are the untransformed size; zoomed, it overhangs by (scale - 1) / 2 a side.
-    const maxX = ((atScale - 1) * photo.offsetWidth) / 2;
-    const maxY = ((atScale - 1) * photo.offsetHeight) / 2;
-    return { x: Math.max(-maxX, Math.min(maxX, next.x)), y: Math.max(-maxY, Math.min(maxY, next.y)) };
-  }
-
-  /** Zooms to `next` keeping the photo's point under (clientX, clientY) where it is. The photo
-   *  scales about its own centre, so the pan moves by how far that point is from the centre. */
-  function zoomAt(next: number, clientX: number, clientY: number, photo: Element) {
-    const { scale: current, pan: currentPan } = viewRef.current;
-    if (next <= 1) {
-      viewRef.current = { scale: 1, pan: { x: 0, y: 0 } };
-      setScale(1);
-      setPan({ x: 0, y: 0 });
-      return;
-    }
-    const box = photo.getBoundingClientRect();
-    // The drawn box's centre is the untransformed centre moved by the drawn pan (scaling is about
-    // the centre, so it doesn't move it).
-    const dx = clientX - (box.left + box.width / 2 - drawnPanRef.current.x);
-    const dy = clientY - (box.top + box.height / 2 - drawnPanRef.current.y);
-    const nextPan = clampPan(
-      { x: dx - (next / current) * (dx - currentPan.x), y: dy - (next / current) * (dy - currentPan.y) },
-      next,
-    );
-    viewRef.current = { scale: next, pan: nextPan };
-    setScale(next);
-    setPan(nextPan);
-  }
-
-  // A trackpad pinch arrives as a wheel event with ctrlKey set; a plain scroll pans once zoomed.
-  function onWheel(e: ReactWheelEvent) {
-    e.preventDefault();
-    e.stopPropagation();
-    setWheeling(true);
-    if (wheelTimeoutRef.current) clearTimeout(wheelTimeoutRef.current);
-    wheelTimeoutRef.current = setTimeout(() => setWheeling(false), 150);
-    if (e.ctrlKey) {
-      const next = Math.min(4, Math.max(1, viewRef.current.scale - e.deltaY * 0.01));
-      zoomAt(next, e.clientX, e.clientY, e.currentTarget);
-      return;
-    }
-    const { scale: current, pan: currentPan } = viewRef.current;
-    if (current > 1) {
-      const nextPan = clampPan({ x: currentPan.x - e.deltaX, y: currentPan.y - e.deltaY }, current);
-      viewRef.current = { scale: current, pan: nextPan };
-      setPan(nextPan);
-    }
-  }
-
-  function onDoubleClickZoom(e: ReactMouseEvent) {
-    e.stopPropagation();
-    zoomAt(viewRef.current.scale > 1 ? 1 : 2, e.clientX, e.clientY, e.currentTarget);
-  }
-
-  function onDragStart(e: ReactMouseEvent) {
-    if (scale <= 1) return;
-    e.stopPropagation();
-    setDragging(true);
-    dragRef.current = { startX: e.clientX, startY: e.clientY, panX: pan.x, panY: pan.y };
-  }
-  function onDragMove(e: ReactMouseEvent) {
-    const d = dragRef.current;
-    if (!d) return;
-    setPan(clampPan({ x: d.panX + (e.clientX - d.startX), y: d.panY + (e.clientY - d.startY) }, scale));
-  }
-  function onDragEnd() {
-    dragRef.current = null;
-    setDragging(false);
-  }
+  // The open photo can leave the list (an ID corrected in a filtered gallery): close rather than
+  // leave an empty overlay holding the scroll lock. Keyed on the change, so it fires once.
+  const slideMissing = !slides[index];
+  const onCloseRef = useLatest(onClose);
+  useEffect(() => {
+    if (slideMissing) onCloseRef.current();
+  }, [slideMissing, onCloseRef]);
+  const decoded = useDecodedPhotos(slides, index);
 
   const slide = slides[index];
   if (!slide) return null;
+  // Until the full photo has decoded, the copy the grid already drew holds its place.
+  // Another version of the photo, switched to in the viewer.
+  const versionUrl =
+    activeVersion && activeVersion !== ownVersion && activeVersion.photoId
+      ? `/api/photos/${activeVersion.photoId}/display`
+      : null;
+  const placeholder = !versionUrl && slide.thumbUrl && !decoded.has(slide.url) ? sharpestShown(slide.thumbUrl) : null;
 
   const cameraLine = [
     slide.info?.cameraModel,
@@ -475,19 +461,19 @@ export default function Lightbox({
     takenLabel ||
     (slide.info?.files?.length ?? 0) > 0 ||
     !!slide.info?.cull ||
-    slide.onTagsChange
+    slide.onTagsChange ||
+    slide.onRate ||
+    slide.coordinates?.lat != null ||
+    !!slide.coordinates?.onChange
   );
   // A see-through light grey, to stand out on the black backdrop. The corner buttons are a fixed square with the
-  // glyph centred, so each is a circle whatever the character's shape; the arrows are the same tall
-  // ovals as the species page's photo carousel.
+  // glyph centred, so each is a circle whatever the character's shape; the arrows are PhotoArrows.
   const iconButtonClass =
-    "flex h-8 w-8 items-center justify-center rounded-full bg-white/10 text-base leading-none text-white transition-colors hover:bg-white/20";
-  const arrowButtonClass =
-    "absolute top-1/2 z-10 -translate-y-1/2 rounded-full bg-white/10 px-2.5 py-1 text-lg text-white transition-opacity duration-300 hover:bg-white/20";
+    "flex h-8 w-8 items-center justify-center rounded-full bg-white/10 text-body leading-none text-white transition-colors hover:bg-white/20";
 
   const videoIdle = !!slide.videoUrl && videoControlsIdle;
   // The controls and details step aside while a video plays untouched or the photo is zoomed in.
-  const overlayFadeClass = videoIdle || scale > 1 ? "pointer-events-none opacity-0" : "opacity-100";
+  const overlayFadeClass = videoIdle || view.scale > 1 ? "pointer-events-none opacity-0" : "opacity-100";
   // Outside fullscreen the photo shrinks to whatever the caption below leaves, rather than taking a
   // fixed share of the window and pushing past its top on a short one.
   const mediaClass = isFullscreen ? "h-full max-h-full w-full max-w-full" : "min-h-0 max-w-full";
@@ -497,7 +483,12 @@ export default function Lightbox({
   return createPortal(
     <div
       data-overlay
-      className={`fixed inset-0 z-50 bg-black/90 ${videoIdle ? "cursor-none" : ""}`}
+      ref={dialogRef}
+      role="dialog"
+      aria-modal="true"
+      aria-label={t("lightbox.label")}
+      tabIndex={-1}
+      className={`fixed inset-0 z-50 bg-surround outline-none ${videoIdle ? "cursor-none" : ""}`}
       onClick={handleClose}
       onMouseMove={() => {
         if (slide.videoUrl) resetVideoIdleTimer();
@@ -511,79 +502,112 @@ export default function Lightbox({
           slide.videoUrl ? "px-4 py-16" : isFullscreen ? "" : "px-4 pb-4 pt-14"
         }`}
       >
+        {/* The mac window's traffic lights get a drag strip of their own; the photo starts below it. */}
+        <WindowTitleBar dark className="absolute inset-x-0 top-0" />
         <div
           className={`absolute right-4 top-4 z-10 flex items-center gap-2 transition-opacity duration-300 ${overlayFadeClass}`}
         >
+          {versions.length > 1 && slide.captureId && (
+            <Tooltip content={{ label: t("versions.manage") }}>
+              {(tip) => (
+                // raw-control: a lightbox overlay control, light on the dark backdrop.
+                <button
+                  {...tip}
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    openPhotoVersions(slide.captureId!, slide.onVersionsChange);
+                  }}
+                  // design-token: as the round controls beside it, a pill for its count
+                  className="flex h-8 items-center gap-1.5 rounded-full bg-white/10 px-3 text-footnote text-white transition-colors hover:bg-white/20"
+                >
+                  <StackIcon className="h-3.5 w-3.5" />
+                  {t("versions.badge", { count: versions.length })}
+                </button>
+              )}
+            </Tooltip>
+          )}
           {slide.download && (
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                const { url, filename } = slide.download!;
-                downloadFile(url, filename).catch((err) =>
-                  toast.error(errorMessage(err, "Couldn't download this file")),
-                );
-              }}
-              className={iconButtonClass}
-              aria-label="Download"
-              title="Download"
-            >
-              <svg
-                viewBox="0 0 24 24"
-                className="h-[1.125rem] w-[1.125rem]"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth={2}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden
-              >
-                <path d="M12 4v11m0 0-4-4m4 4 4-4M5 20h14" />
-              </svg>
-            </button>
+            <Tooltip content={{ label: t("lightbox.download") }}>
+              {(tip) => (
+                // raw-control: a lightbox overlay control, light on the dark backdrop.
+                <button
+                  {...tip}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    const { url, filename } = slide.download!;
+                    void downloadWithToast(toast, url, filename);
+                  }}
+                  className={iconButtonClass}
+                  aria-label={t("lightbox.download")}
+                >
+                  <svg
+                    viewBox="0 0 24 24"
+                    className="h-[1.125rem] w-[1.125rem]"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth={2}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden
+                  >
+                    <path d="M12 4v11m0 0-4-4m4 4 4-4M5 20h14" />
+                  </svg>
+                </button>
+              )}
+            </Tooltip>
           )}
           {canToggleFullscreen && (
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                toggleFullscreen();
+            <Tooltip
+              content={{
+                label: isFullscreen ? t("lightbox.exitFullscreen") : t("lightbox.enterFullscreen"),
+                shortcut: shortcutLabel("fullScreen"),
               }}
-              className={iconButtonClass}
-              aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
             >
-              {isFullscreen ? "⤢" : "⛶"}
-            </button>
+              {(tip) => (
+                // raw-control: a lightbox overlay control, light on the dark backdrop.
+                <button
+                  {...tip}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void toggleFullscreen();
+                  }}
+                  className={iconButtonClass}
+                  aria-label={isFullscreen ? t("lightbox.exitFullscreen") : t("lightbox.enterFullscreen")}
+                >
+                  {isFullscreen ? "⤢" : "⛶"}
+                </button>
+              )}
+            </Tooltip>
           )}
-          <button onClick={handleClose} className={iconButtonClass} aria-label="Close">
-            ×
-          </button>
+          <Tooltip content={{ label: t("lightbox.close"), shortcut: shortcutLabel("backToGrid") }}>
+            {(tip) => (
+              // raw-control: a lightbox overlay control, light on the dark backdrop.
+              <button {...tip} onClick={handleClose} className={iconButtonClass} aria-label={t("lightbox.close")}>
+                ×
+              </button>
+            )}
+          </Tooltip>
         </div>
 
         {slides.length > 1 && (
-          <>
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onIndexChange((index - 1 + slides.length) % slides.length);
-              }}
-              className={`${arrowButtonClass} left-2 sm:left-6 ${overlayFadeClass}`}
-              aria-label="Previous"
-            >
-              ‹
-            </button>
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onIndexChange((index + 1) % slides.length);
-              }}
-              className={`${arrowButtonClass} right-2 sm:right-6 ${overlayFadeClass}`}
-              aria-label="Next"
-            >
-              ›
-            </button>
-          </>
+          <PhotoArrows
+            tone="dark"
+            wide
+            className={overlayFadeClass}
+            onPrevious={() => onIndexChange((index - 1 + slides.length) % slides.length)}
+            onNext={() => onIndexChange((index + 1) % slides.length)}
+            previousLabel={t("lightbox.previous")}
+            nextLabel={t("lightbox.next")}
+          />
         )}
 
-        {slide.videoUrl ? (
+        {slide.audioUrl ? (
+          <div className="flex w-full max-w-3xl flex-col items-center gap-4" onClick={(e) => e.stopPropagation()}>
+            <img src={slide.url} alt="" draggable={false} className="max-h-[60vh] w-full object-contain" />
+            <audio key={slide.audioUrl} src={slide.audioUrl} controls className="w-full" />
+          </div>
+        ) : slide.videoUrl ? (
           <video
             key={slide.videoUrl}
             ref={videoRef}
@@ -595,51 +619,58 @@ export default function Lightbox({
             // No autoPlay: unmuted autoplay is blocked here and leaves the play control disabled.
             className={`${mediaClass} object-contain`}
             onClick={(e) => e.stopPropagation()}
+            onSeeked={(e) => setVideoTime(e.currentTarget.currentTime)}
+            onPause={(e) => setVideoTime(e.currentTarget.currentTime)}
           />
         ) : slide.noPreview ? (
           <div
-            className="flex h-64 w-64 flex-col items-center justify-center gap-2 rounded-lg bg-white/10 text-white/70"
+            className="flex h-64 w-64 flex-col items-center justify-center gap-2 rounded-panel bg-white/10 text-white/70"
             onClick={(e) => e.stopPropagation()}
           >
-            <span className="text-xs font-medium uppercase tracking-wide">RAW</span>
-            <span className="text-xs">No preview available</span>
+            <span className="text-footnote font-medium uppercase tracking-wide">RAW</span>
+            <span className="text-footnote">{t("lightbox.noPreview")}</span>
           </div>
         ) : imageFailed ? (
           <PhotoPlaceholder className="h-64 w-64" onClick={(e) => e.stopPropagation()} />
         ) : (
-          <img
-            ref={photoRef}
-            src={slide.url}
-            alt=""
-            draggable={false}
-            className={`${mediaClass} select-none object-contain`}
-            style={{
-              transform: `translate(${pan.x}px, ${pan.y}px) scale(${scale})`,
-              transition: dragging || wheeling ? "none" : "transform 0.05s ease-out",
-              cursor: scale > 1 ? (dragging ? "grabbing" : "grab") : "zoom-in",
-            }}
-            onClick={(e) => e.stopPropagation()}
-            onDoubleClick={onDoubleClickZoom}
-            onWheel={onWheel}
-            onMouseDown={onDragStart}
-            onMouseMove={onDragMove}
-            onMouseUp={onDragEnd}
-            onMouseLeave={onDragEnd}
-            onError={() => setImageFailed(true)}
-          />
+          // The frame takes the room the caption leaves, so paging never shifts the layout.
+          <ZoomPane
+            view={view}
+            onViewChange={setView}
+            onBackdropClick={() => void handleClose()}
+            className={isFullscreen ? "h-full w-full" : "min-h-0 w-full flex-1"}
+          >
+            <img
+              src={versionUrl ?? placeholder ?? slide.url}
+              alt=""
+              draggable={false}
+              className="h-full w-full object-contain"
+              onError={() => {
+                if (!placeholder) setImageFailed(true);
+              }}
+            />
+          </ZoomPane>
         )}
 
         {hasCaptionBand && (isFullscreen ? !!slide.videoUrl : true) && (
           <div
             className={
               isFullscreen
-                ? `absolute inset-x-0 bottom-12 z-10 bg-gradient-to-t from-black/70 to-transparent px-4 pb-2 pt-8 text-center text-sm text-white/70 transition-opacity duration-300 ${overlayFadeClass}`
-                : `mt-3 w-full max-w-3xl shrink-0 text-center text-sm text-white/70 transition-opacity duration-300 ${overlayFadeClass}`
+                ? `absolute inset-x-0 bottom-12 z-10 bg-gradient-to-t from-black/70 to-transparent px-4 pb-2 pt-8 text-center text-callout text-white/70 transition-opacity duration-300 ${overlayFadeClass}`
+                : `mt-3 w-full max-w-3xl shrink-0 text-center text-callout text-white/70 transition-opacity duration-300 ${overlayFadeClass}`
             }
             onClick={(e) => e.stopPropagation()}
           >
+            {/* Ratings only exist on your own photos, so reference photos skip the tip. */}
+            <Tip id="viewer-keys" dark takeOver when={!!slide.onRate} className="mb-2 text-left" />
             {/* Kept to a few lines so the photo above gets the height on a small window. */}
-            {(slide.caption || durationLabel || slide.speciesId) && (
+            {(slide.caption ||
+              durationLabel ||
+              slide.speciesId ||
+              slide.similarHref ||
+              slide.onReassign ||
+              slide.frameUrl ||
+              (slide.captureId && editors[0])) && (
               <p className="text-white">
                 {slide.caption}
                 {slide.caption && durationLabel && " · "}
@@ -652,26 +683,131 @@ export default function Lightbox({
                       state={backStateFor(location, t, backLabel)}
                       className="text-white/70 underline hover:text-white"
                     >
-                      View species ↗
+                      {t("lightbox.viewSpecies")}
                     </Link>
+                  </>
+                )}
+                {slide.similarHref && (
+                  <>
+                    <span className="text-white/40"> · </span>
+                    {/* The group opens behind the viewer, so the viewer closes. */}
+                    <Link
+                      to={slide.similarHref}
+                      onClick={() => void handleClose()}
+                      className="text-white/70 underline hover:text-white"
+                    >
+                      {t("lightbox.similar")}
+                    </Link>
+                  </>
+                )}
+                {slide.onReassign && (
+                  <>
+                    <span className="text-white/40"> · </span>
+                    {/* raw-control: a link in the caption, light on the dark backdrop. */}
+                    <button
+                      type="button"
+                      onClick={() => setCorrecting(true)}
+                      className="text-white/70 underline hover:text-white"
+                    >
+                      {t("captureEdit.reassign.title")}
+                    </button>
+                  </>
+                )}
+                {slide.frameUrl && slide.videoUrl && (
+                  <>
+                    {/* design-token: caption text on the dark surround, as the links above */}
+                    <span className="text-white/40"> · </span>
+                    {/* raw-control: a link in the caption, light on the dark backdrop. design-token: as above */}
+                    <button
+                      type="button"
+                      onClick={() => void saveFrame(slide.frameUrl!, slide.onFrameSaved)}
+                      // design-token: as the links above
+                      className="text-white/70 underline hover:text-white"
+                    >
+                      {t("lightbox.saveFrame", { time: frameTimeLabel(videoTime) })}
+                    </button>
+                  </>
+                )}
+                {checklist && (
+                  <>
+                    {/* design-token: caption text on the dark surround, as the links above */}
+                    <span className="text-white/40"> · </span>
+                    {/* raw-control: a link in the caption, light on the dark backdrop. design-token: as above */}
+                    <button
+                      type="button"
+                      onClick={() => openExternal(checklist.url)}
+                      // design-token: as the links above
+                      className="text-white/70 underline hover:text-white"
+                    >
+                      {t("lightbox.ebirdChecklist")}
+                    </button>
+                  </>
+                )}
+                {slide.captureId && editors[0] && (
+                  <>
+                    {/* design-token: caption text on the dark surround, as the links above */}
+                    <span className="text-white/40"> · </span>
+                    {/* raw-control: a link in the caption, light on the dark backdrop. design-token: as above */}
+                    <button
+                      type="button"
+                      onClick={() => openIn(editors[0], [slide.captureId!])}
+                      // design-token: as the links above
+                      className="text-white/70 underline hover:text-white"
+                    >
+                      {t("openIn.item", { name: editors[0].name })}
+                    </button>
                   </>
                 )}
               </p>
             )}
+            {slide.onRate && (
+              <div className="mt-1 flex justify-center">
+                <StarRating rating={slide.rating ?? null} onRate={slide.onRate} size="text-body" />
+              </div>
+            )}
             {(cameraLine || takenLabel || slide.info?.cull) && (
-              <p className="mt-0.5 text-xs text-white/50">
+              <p className="mt-0.5 text-footnote text-white/50">
                 {[cameraLine, takenLabel, slide.info?.cull].filter(Boolean).join(" · ")}
               </p>
             )}
             {slide.info?.files && slide.info.files.length > 0 && (
               // Selectable, with the full stored location on hover, for finding the file yourself.
-              <p className="mt-0.5 select-text text-xs text-white/50" onClick={(e) => e.stopPropagation()}>
+              <p className="mt-0.5 select-text text-footnote text-white/50" onClick={(e) => e.stopPropagation()}>
                 {slide.info.files.map((ref, i) => (
                   <span key={ref} title={ref}>
                     {i > 0 && " · "}
                     {fileNameOf(ref)}
                   </span>
                 ))}
+              </p>
+            )}
+            {versions.length > 1 && groupCaptureId && activeVersion && (
+              <VersionStrip
+                versions={versions}
+                groupCaptureId={groupCaptureId}
+                activeId={activeVersion.captureId}
+                onSelect={showVersion}
+                onChange={slide.onVersionsChange}
+              />
+            )}
+            {slide.coordinates && (slide.coordinates.lat != null || slide.coordinates.onChange) && (
+              <p className="mt-0.5 text-footnote text-white/50">
+                {slide.coordinates.lat != null && slide.coordinates.lon != null && (
+                  <span className="select-text">{formatCoordinates(slide.coordinates.lat, slide.coordinates.lon)}</span>
+                )}
+                {slide.coordinates.onChange && slide.captureId && (
+                  <>
+                    {slide.coordinates.lat != null && <span className="text-white/40"> · </span>}
+                    {/* raw-control: a link in the caption, light on the dark backdrop. */}
+                    <button
+                      type="button"
+                      onClick={() => setEditingCoordinates(true)}
+                      className="text-white/70 underline hover:text-white"
+                    >
+                      {slide.coordinates.lat != null ? t("coordinates.edit") : t("coordinates.add")}
+                    </button>
+                  </>
+                )}
               </p>
             )}
             {(slide.onTagsChange || slides.length > 1) && (
@@ -686,7 +822,7 @@ export default function Lightbox({
                   />
                 )}
                 {slides.length > 1 && (
-                  <span className="text-xs text-white/40">
+                  <span className="text-footnote text-white/40">
                     {index + 1} / {slides.length}
                   </span>
                 )}
@@ -695,6 +831,31 @@ export default function Lightbox({
           </div>
         )}
       </div>
+      {/* Clicks inside the dialog would otherwise reach the viewer's click-to-close. */}
+      {correcting && slide.onReassign && (
+        <div onClick={(e) => e.stopPropagation()}>
+          <CaptureEditModal
+            edit="reassign"
+            capture={{ captureId: slide.captureId, tags: [] }}
+            tagOptions={[]}
+            onTagsChange={() => {}}
+            onReassign={slide.onReassign}
+            onClose={() => setCorrecting(false)}
+          />
+        </div>
+      )}
+      {editingCoordinates && slide.coordinates?.onChange && slide.captureId && (
+        <div onClick={(e) => e.stopPropagation()}>
+          <CoordinatesModal
+            captureIds={[slide.captureId]}
+            lat={slide.coordinates.lat}
+            lon={slide.coordinates.lon}
+            suggestRegion={!slide.coordinates.hasRegion}
+            onSaved={slide.coordinates.onChange}
+            onClose={() => setEditingCoordinates(false)}
+          />
+        </div>
+      )}
     </div>,
     document.body,
   );

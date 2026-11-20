@@ -3,38 +3,116 @@
    rounded-panel), so pages use these names instead of raw sizes. */
 
 :root {
+  /* Neutral grey around photos in the viewers (ISO 3664 / 12646): no tint, light enough text still reads. */
+  --color-surround: #5e5e5e;
   /* Warm cream, with cards in a paler cream rather than white. */
   --color-canvas: #f6eedc;
   --color-surface: #fbf7ee;
   --color-surface-muted: #f1e8d4;
+  /* A step darker than surface-muted, so macOS's own window buttons stand out from the sidebar. */
+  --color-sidebar: #ece2cc;
   --color-line: #e6dcc6;
   --color-ink: #242c34;
   --color-muted: #5f6b6f;
-  --color-accent: #748069;
+  /* Sage, dark enough for white button text to meet WCAG AA (4.9:1; see contrast.test.ts). */
+  --color-accent: #68745e;
   --color-accent-fg: #ffffff;
+  /* Buttons and toggles: a lifted white with a firm edge, so what's clickable stands out from the
+     cream. Links (and a breadcrumb's steps) in a sage dark enough to read as text. */
+  --color-control: #ffffff;
+  --color-control-line: #d2c5a7;
+  --color-link: #4e5a45;
+  /* One colour per broad taxa group (visual language option B), also the chart series order. Each
+     passes 4.5:1 on canvas, surface and surface-muted (contrast.test.ts). */
+  --color-taxa-birds: #4d6b4a;
+  --color-taxa-mammals: #925639;
+  --color-taxa-reptiles: #5c6928;
+  --color-taxa-amphibians: #356f65;
+  --color-taxa-fish: #3b6580;
+  --color-taxa-insects: #895f18;
+  --color-taxa-arachnids: #80506a;
+  --color-taxa-other: #65655e;
+  /* Calm map: paper land, a soft water hue, a hint of landcover, crisp relief and borders. Pins and
+     labels keep their contrast on land, water and forest (contrast.test.ts). */
+  --color-map-land: #f1ebdd;
+  --color-map-water: #c4d3da;
+  --color-map-forest: #c7ddb2;
+  --color-map-scrub: #e8e6d2;
+  --color-map-ice: #f8f9f7;
+  --color-map-line: #9c937c;
+  --color-map-line-province: #c9bfa6;
+  --color-map-relief: #4d4a40;
+  --color-map-relief-highlight: #fffdf7;
+  --color-map-label: #4f5652;
 }
 
 .dark {
+  --color-surround: #262626;
   /* Near black with the same faint warmth; surfaces a step lighter. */
   --color-canvas: #141516;
   --color-surface: #1c1e1f;
   --color-surface-muted: #25282a;
+  --color-sidebar: #18191a;
   --color-line: #34383b;
   --color-ink: #eceae5;
   --color-muted: #a9aca9;
-  --color-accent: #748069;
+  --color-accent: #68745e;
   --color-accent-fg: #ffffff;
+  --color-control: #2a2d2f;
+  --color-control-line: #4a4f52;
+  --color-link: #b3c0a5;
+  --color-taxa-birds: #a7c79f;
+  --color-taxa-mammals: #e0a583;
+  --color-taxa-reptiles: #c3d174;
+  --color-taxa-amphibians: #86cbbd;
+  --color-taxa-fish: #8fb7d4;
+  --color-taxa-insects: #e6bb62;
+  --color-taxa-arachnids: #d3a3bf;
+  --color-taxa-other: #b6b6ad;
+  --color-map-land: #2b2e2c;
+  --color-map-water: #141d26;
+  --color-map-forest: #284224;
+  --color-map-scrub: #30332d;
+  --color-map-ice: #3a3e3e;
+  --color-map-line: #636963;
+  --color-map-line-province: #474c48;
+  --color-map-relief: #050606;
+  --color-map-relief-highlight: #4b504c;
+  --color-map-label: #c8cbc4;
 }
 
 @theme inline {
+  --color-surround: var(--color-surround);
   --color-canvas: var(--color-canvas);
   --color-surface: var(--color-surface);
   --color-surface-muted: var(--color-surface-muted);
+  --color-sidebar: var(--color-sidebar);
   --color-line: var(--color-line);
   --color-ink: var(--color-ink);
   --color-muted: var(--color-muted);
   --color-accent: var(--color-accent);
   --color-accent-fg: var(--color-accent-fg);
+  --color-control: var(--color-control);
+  --color-control-line: var(--color-control-line);
+  --color-link: var(--color-link);
+  --color-taxa-birds: var(--color-taxa-birds);
+  --color-taxa-mammals: var(--color-taxa-mammals);
+  --color-taxa-reptiles: var(--color-taxa-reptiles);
+  --color-taxa-amphibians: var(--color-taxa-amphibians);
+  --color-taxa-fish: var(--color-taxa-fish);
+  --color-taxa-insects: var(--color-taxa-insects);
+  --color-taxa-arachnids: var(--color-taxa-arachnids);
+  --color-taxa-other: var(--color-taxa-other);
+  --color-map-land: var(--color-map-land);
+  --color-map-water: var(--color-map-water);
+  --color-map-line: var(--color-map-line);
+  --color-map-relief: var(--color-map-relief);
+  --color-map-forest: var(--color-map-forest);
+  --color-map-scrub: var(--color-map-scrub);
+  --color-map-ice: var(--color-map-ice);
+  --color-map-line-province: var(--color-map-line-province);
+  --color-map-relief-highlight: var(--color-map-relief-highlight);
+  --color-map-label: var(--color-map-label);
 }
 
 @theme {
@@ -47,7 +125,63 @@
   /* Inside a panel (p-panel). */
   --spacing-panel: 1.25rem;
 
-  /* Panels and cards (rounded-panel); buttons, inputs and other controls (rounded-control). */
+  /* Cards, panels, popovers, menus and modals (rounded-panel); buttons, fields, menu rows and photo
+     tiles (rounded-control); badges, keyboard keys, inline code and small thumbnails, where a
+     control's corner would look bubbly (rounded-badge). */
   --radius-panel: 0.75rem;
   --radius-control: 0.375rem;
+  --radius-badge: 0.25rem;
+
+  /* Named text styles, after Apple's (Large Title down to Caption): use these rather than raw
+     sizes, so a screen's hierarchy reads the same everywhere. text-large-title, text-title-1...
+     In rem, so the browser's and the Mac's text size settings scale them. */
+  --text-large-title: 1.75rem;
+  --text-large-title--line-height: 1.2;
+  --text-title-1: 1.5rem;
+  --text-title-1--line-height: 1.25;
+  --text-title-2: 1.25rem;
+  --text-title-2--line-height: 1.3;
+  --text-title-3: 1.0625rem;
+  --text-title-3--line-height: 1.35;
+  --text-headline: 0.9375rem;
+  --text-headline--line-height: 1.4;
+  --text-body: 0.9375rem;
+  --text-body--line-height: 1.45;
+  --text-callout: 0.875rem;
+  --text-callout--line-height: calc(1.25 / 0.875);
+  --text-subheadline: 0.8125rem;
+  --text-subheadline--line-height: 1.35;
+  --text-footnote: 0.75rem;
+  --text-footnote--line-height: calc(1 / 0.75);
+  --text-caption: 0.6875rem;
+  --text-caption--line-height: 1.3;
+  /* Only for labels inside a chart or a badge on a photo, where space is a few pixels. */
+  --text-micro: 0.5625rem;
+  --text-micro--line-height: 1.2;
+}
+
+/* Species card states, one place: photographed stays full colour; seen is dimmed colour; not
+   collected is nearly grey. Plain CSS filters (no SVG filters) so a grid of thousands scrolls
+   smoothly, and muted names stay at full opacity so they meet 4.5:1. */
+/* Lighter on the light canvas, where 60% still reads as a full colour photo. */
+.cover-seen img {
+  opacity: 0.45;
+}
+.dark .cover-seen img {
+  opacity: 0.6;
+}
+/* Light mode: a faint sepia tint so the grey sits in the page's warm tan instead of looking cold. */
+.cover-uncollected img {
+  filter: grayscale(0.95) sepia(0.35) contrast(0.9) brightness(1.08);
+}
+.dark .cover-uncollected img {
+  filter: grayscale(0.95) contrast(0.95) brightness(0.85);
+}
+/* The Collection's "Show uncollected species in colour" switch; the dark rule needs its own copy to win. */
+[data-uncollected-colour] .cover-uncollected img,
+.dark [data-uncollected-colour] .cover-uncollected img {
+  filter: none;
+}
+.text-uncollected p {
+  color: var(--color-muted);
 }

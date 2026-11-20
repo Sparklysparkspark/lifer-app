@@ -6,5 +6,6 @@ import { ignore } from "./ignore";
 export function openExternal(url: string): void {
   if (isTauri())
     import("@tauri-apps/plugin-opener").then(({ openUrl }) => openUrl(url)).catch(ignore("Couldn't open the link"));
+  // eslint-disable-next-line no-restricted-syntax -- this is the helper itself
   else window.open(url, "_blank", "noopener,noreferrer");
 }

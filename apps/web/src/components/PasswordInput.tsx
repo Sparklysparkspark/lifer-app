@@ -1,5 +1,6 @@
 import { useTranslation } from "react-i18next";
 import { useState } from "react";
+import TextField from "./TextField";
 
 // A password input with a show/hide toggle, so a typo in a new password can be caught before submitting.
 export default function PasswordInput({
@@ -11,6 +12,8 @@ export default function PasswordInput({
   minLength,
   autoComplete,
   autoFocus,
+  ariaLabel,
+  onBlur,
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -20,13 +23,16 @@ export default function PasswordInput({
   minLength?: number;
   autoComplete?: string;
   autoFocus?: boolean;
+  /** For a field without a visible label element. */
+  ariaLabel?: string;
+  onBlur?: () => void;
 }) {
   const { t } = useTranslation();
   const [visible, setVisible] = useState(false);
 
   return (
     <div className="relative">
-      <input
+      <TextField
         type={visible ? "text" : "password"}
         value={value}
         onChange={(e) => onChange(e.target.value)}
@@ -35,8 +41,11 @@ export default function PasswordInput({
         minLength={minLength}
         autoComplete={autoComplete}
         autoFocus={autoFocus}
-        className={`${className ?? ""} pr-9`}
+        aria-label={ariaLabel}
+        onBlur={onBlur}
+        className={`pr-9 ${className ?? ""}`}
       />
+      {/* raw-control: the show/hide toggle sits inside the field. */}
       <button
         type="button"
         onClick={() => setVisible((v) => !v)}

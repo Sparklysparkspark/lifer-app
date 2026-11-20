@@ -22,6 +22,10 @@ export interface TauriWindow {
   isFullscreen(): Promise<boolean>;
   setFullscreen(fullscreen: boolean): Promise<void>;
   onResized(handler: () => void): Promise<() => void>;
+  /** For a connected app asking Lifer to open it (components/HostOpenListener.tsx). */
+  show?(): Promise<void>;
+  unminimize?(): Promise<void>;
+  setFocus?(): Promise<void>;
 }
 
 export function tauriCurrentWindow(): TauriWindow | null {

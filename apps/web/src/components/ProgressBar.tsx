@@ -64,7 +64,7 @@ export default function ProgressBar({
   const hover = title && (
     <span
       role="tooltip"
-      className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-1 -translate-x-1/2 whitespace-nowrap rounded-md bg-ink px-1.5 py-0.5 text-xs text-canvas opacity-0 transition-opacity group-hover:opacity-100"
+      className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-1 -translate-x-1/2 whitespace-nowrap rounded-badge bg-ink px-1.5 py-0.5 text-footnote text-canvas opacity-0 transition-opacity group-hover:opacity-100"
     >
       {title}
     </span>
@@ -81,7 +81,7 @@ export default function ProgressBar({
     <div className={`flex items-center gap-2 ${hoverWrap} ${className}`}>
       {hover}
       <div className="min-w-0 flex-1">{track}</div>
-      <span className="w-9 shrink-0 text-right text-xs tabular-nums text-muted">
+      <span className="w-9 shrink-0 text-right text-footnote tabular-nums text-muted">
         {indeterminate ? "" : `${percent}%`}
       </span>
     </div>

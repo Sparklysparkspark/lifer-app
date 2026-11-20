@@ -1,12 +1,16 @@
 import { createContext, useContext } from "react";
-import type { ToastTone } from "../components/Toast";
+import type { ToastAction, ToastTone } from "../components/Toast";
 
 export interface ToastApi {
   success: (message: string) => number;
   error: (message: string) => number;
   info: (message: string) => number;
   // durationMs: null keeps it until dismissed.
-  show: (message: string, options?: { tone?: ToastTone; durationMs?: number | null }) => number;
+  // actions: buttons like View or Undo, e.g. show("Moved to Osprey", { actions: [{ label: "Undo", onClick }] }).
+  show: (
+    message: string,
+    options?: { tone?: ToastTone; durationMs?: number | null; actions?: ToastAction[] },
+  ) => number;
   dismiss: (id: number) => void;
 }
 

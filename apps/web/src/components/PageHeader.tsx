@@ -39,23 +39,28 @@ export default function PageHeader({
       // Harmless outside Tauri. Links and buttons inside still take clicks.
       data-tauri-drag-region=""
       className={`page-subheader border-b border-line bg-surface px-6 py-4 ${sticky ? "sticky top-0 z-20" : ""} ${
-        actions ? "flex flex-wrap items-start justify-between gap-x-4 gap-y-2" : ""
+        // With no visible title (a top-level page, or just a back link) the one line centres on the controls.
+        actions
+          ? `flex flex-wrap justify-between gap-x-4 gap-y-2 ${topLevel || !title ? "items-center" : "items-start"}`
+          : ""
       }`}
     >
-      <div className={`min-w-0 ${actions ? "flex-1" : ""}`}>
+      {/* A visible title keeps its natural width; the actions wrap onto their own row instead of squeezing it. */}
+      <div className={`min-w-0 ${actions ? (topLevel || !title ? "flex-1" : "flex-auto") : ""}`}>
         {!topLevel && (
           <BackToCollectionLink
             {...(backFallbackTo ? { fallbackTo: backFallbackTo } : {})}
             {...(backLabel ? { label: backLabel } : {})}
-            className="text-sm text-muted hover:underline"
+            className="text-callout text-link hover:underline"
           />
         )}
         {title != null &&
           (topLevel ? (
             <h1 className="sr-only">{title}</h1>
           ) : (
-            <div className="mt-1 flex items-center gap-2">
-              <h1 className="text-lg font-semibold text-ink">{title}</h1>
+            // The addon sits just after the title's text and centres on it.
+            <div className="mt-1 flex items-center gap-1.5">
+              <h1 className="min-w-0 text-title-2 font-semibold text-ink">{title}</h1>
               {titleAddon}
             </div>
           ))}

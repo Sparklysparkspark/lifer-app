@@ -1,18 +1,22 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Link, Navigate, useNavigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { api } from "../api/client";
 import Button from "../components/Button";
+import Panel from "../components/Panel";
 import FormMessage from "../components/FormMessage";
 import { Logo } from "../components/Logo";
 import PasswordInput from "../components/PasswordInput";
 import { errorMessage } from "../lib/errorMessage";
 import { openLocalLibrary } from "../lib/desktopConnection";
 import { ignore } from "../lib/ignore";
+import TextField from "../components/TextField";
 
 // Single-user app: a one-time "create your account" screen until the account exists, then a
 // plain login form for good.
 export default function LoginPage() {
+  const { t } = useTranslation();
   const { user, login, register } = useAuth();
   const navigate = useNavigate();
   const [needsSetup, setNeedsSetup] = useState<boolean | null>(null);
@@ -45,9 +49,9 @@ export default function LoginPage() {
       .catch((err) => {
         // Fall back to the login form so the page isn't blank; a real attempt reports the problem.
         setNeedsSetup(false);
-        setError(errorMessage(err, "Couldn't reach the server"));
+        setError(errorMessage(err, t("auth.login.unreachable")));
       });
-  }, []);
+  }, [t]);
 
   if (user && !justRegistered) return <Navigate to="/" replace />;
   if (needsSetup === null) return null;
@@ -65,7 +69,7 @@ export default function LoginPage() {
     e.preventDefault();
     setError(null);
     if (needsSetup && password !== confirmPassword) {
-      setError("Passwords don't match");
+      setError(t("auth.login.passwordMismatch"));
       return;
     }
     setSubmitting(true);
@@ -79,7 +83,7 @@ export default function LoginPage() {
       }
     } catch (err) {
       setJustRegistered(false);
-      setError(errorMessage(err, "Something went wrong"));
+      setError(errorMessage(err, t("auth.login.failed")));
     } finally {
       setSubmitting(false);
     }
@@ -87,72 +91,57 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-canvas">
-      <form
-        onSubmit={handleSubmit}
-        className="w-full max-w-sm space-y-4 rounded-panel border border-line bg-surface p-panel"
-      >
+      <Panel as="form" onSubmit={handleSubmit} className="w-full max-w-sm space-y-4">
         <Logo variant="wordmark" className="h-8 w-auto" />
-        <p className="text-sm text-muted">
-          {needsSetup
-            ? "A species-indexed home for your wildlife photography. Create the first account to get started."
-            : "A species-indexed home for your wildlife photography."}
-        </p>
+        <p className="text-callout text-muted">{needsSetup ? t("auth.login.taglineSetup") : t("auth.login.tagline")}</p>
 
-        <input
+        <TextField
           type="email"
-          placeholder="Email"
+          placeholder={t("auth.login.email")}
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           required
-          className="w-full rounded-md border border-line bg-surface px-3 py-2 text-sm text-ink"
         />
         <PasswordInput
-          placeholder="Password"
+          placeholder={t("auth.login.password")}
           value={password}
           onChange={setPassword}
           required
           minLength={8}
           autoComplete={needsSetup ? "new-password" : "current-password"}
-          className="w-full rounded-md border border-line bg-surface px-3 py-2 text-sm text-ink"
         />
         {needsSetup && (
           <PasswordInput
-            placeholder="Confirm password"
+            placeholder={t("auth.login.confirmPassword")}
             value={confirmPassword}
             onChange={setConfirmPassword}
             required
             minLength={8}
             autoComplete="new-password"
-            className="w-full rounded-md border border-line bg-surface px-3 py-2 text-sm text-ink"
           />
         )}
 
         <FormMessage error={error} />
 
         <Button type="submit" loading={submitting} className="w-full">
-          {needsSetup ? "Make account" : "Log in"}
+          {needsSetup ? t("auth.login.makeAccount") : t("auth.login.logIn")}
         </Button>
 
         {!needsSetup && (
-          <Link to="/forgot-password" className="block text-center text-sm text-muted hover:underline">
-            Forgot password?
+          <Link to="/forgot-password" className="block text-center text-callout text-muted hover:underline">
+            {t("auth.login.forgot")}
           </Link>
         )}
 
         {connectedServer && (
-          <div className="border-t border-line pt-4 text-center text-sm text-muted">
-            <p>Connected to {connectedServer}.</p>
-            <button
-              type="button"
-              onClick={switchToLocal}
-              disabled={switchingToLocal}
-              className="mt-1 text-ink hover:underline disabled:opacity-50"
-            >
-              {switchingToLocal ? "Switching…" : "Use the library on this computer instead"}
-            </button>
+          <div className="border-t border-line pt-4 text-center text-callout text-muted">
+            <p>{t("auth.login.connectedTo", { server: connectedServer })}</p>
+            <Button variant="link" onClick={switchToLocal} disabled={switchingToLocal} className="mt-1 text-ink">
+              {switchingToLocal ? t("auth.login.switching") : t("auth.login.useLocal")}
+            </Button>
           </div>
         )}
-      </form>
+      </Panel>
     </div>
   );
 }

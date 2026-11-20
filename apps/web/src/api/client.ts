@@ -1,4 +1,5 @@
 import { apiErrorMessage } from "../lib/apiErrors";
+import { MAX_RATE_LIMIT_WAITS, waitForRateLimit } from "../lib/rateLimitWait";
 import type { paths } from "./schema.gen";
 
 const BASE = "/api";
@@ -9,6 +10,9 @@ export class ApiError extends Error {
   status: number;
   code?: string;
   serverMessage: string;
+  // Set on disk_full (507): the sizes in bytes.
+  needed?: number;
+  free?: number;
   constructor(status: number, message: string, code?: string) {
     super(code ? apiErrorMessage(code, message) || message : message);
     this.status = status;
@@ -21,22 +25,50 @@ export class ApiError extends Error {
 // cross-site form post can't set custom headers). Exported for the few raw fetch() callers.
 export const CLIENT_HEADER = { "x-lifer-client": "1" } as const;
 
+// Set by AuthProvider: a 401 from a signed-in route means the session ended (it expired, or was
+// signed out elsewhere). /auth/* and the public /share/* routes answer 401 for other reasons.
+let unauthorizedHandler: (() => void) | null = null;
+
+// Fired on window when a save failed because the library folder is gone (LibraryFolderBanner).
+export const LIBRARY_FOLDER_UNAVAILABLE = "lifer:library-folder-unavailable";
+export function setUnauthorizedHandler(handler: (() => void) | null): void {
+  unauthorizedHandler = handler;
+}
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   // Only claim JSON when there is a body: Fastify rejects an empty body with a JSON content-type.
   const isJsonBody = typeof options.body === "string";
   const headers = new Headers(options.headers);
   headers.set("x-lifer-client", CLIENT_HEADER["x-lifer-client"]);
   if (isJsonBody && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
-  const res = await fetch(`${BASE}${path}`, {
-    // BASE is relative, so requests are always same-origin. "include" adds heavy per-request overhead
-    // in WKWebView.
-    credentials: "same-origin",
-    ...options,
-    headers,
-  });
+  const send = () =>
+    fetch(`${BASE}${path}`, {
+      // BASE is relative, so requests are always same-origin. "include" adds heavy per-request overhead
+      // in WKWebView.
+      credentials: "same-origin",
+      ...options,
+      headers,
+    });
+  let res = await send();
+  // An import's checks and imports wait out the server's rate limit instead of failing. Only under
+  // /uploads, whose only 429 is that limit (refused before handling, so resending is safe).
+  for (let waits = 0; res.status === 429 && path.startsWith("/uploads") && waits < MAX_RATE_LIMIT_WAITS; waits++) {
+    await waitForRateLimit(res.headers.get("Retry-After"), options.signal ?? undefined);
+    if (options.signal?.aborted) break;
+    res = await send();
+  }
   if (!res.ok) {
+    if (res.status === 401 && !path.startsWith("/auth/") && !path.startsWith("/share/")) unauthorizedHandler?.();
     const body = await res.json().catch(() => ({ error: res.statusText }));
-    throw new ApiError(res.status, body.error ?? res.statusText, typeof body.code === "string" ? body.code : undefined);
+    const apiErr = new ApiError(
+      res.status,
+      body.error ?? res.statusText,
+      typeof body.code === "string" ? body.code : undefined,
+    );
+    if (typeof body.needed === "number") apiErr.needed = body.needed;
+    if (typeof body.free === "number") apiErr.free = body.free;
+    if (apiErr.code === "library_folder_unavailable") window.dispatchEvent(new Event(LIBRARY_FOLDER_UNAVAILABLE));
+    throw apiErr;
   }
   // 204 and other empty bodies resolve to undefined instead of a JSON parse error.
   if (res.status === 204) return undefined as T;

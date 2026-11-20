@@ -3,8 +3,14 @@
 // raw API body ({ error, code }) or a Response. Anything unrecognized falls back to `fallback`.
 // An API error's `code` shows in the active language when it has a translation (lib/apiErrors.ts).
 import { apiErrorMessage } from "./apiErrors";
+import { userMessage } from "./userMessage";
+
+// fetch's own rejection when no answer came back (Chrome, Firefox, Safari wordings).
+const NO_ANSWER = /failed to fetch|networkerror|load failed/i;
 
 export function errorMessage(err: unknown, fallback: string): string {
+  // Plain words ("You're offline...") rather than the browser's "Failed to fetch" (ux-rules S1, S9).
+  if (err instanceof TypeError && NO_ANSWER.test(err.message)) return userMessage(err);
   if (typeof err === "string") return err.trim() || fallback;
   if (err instanceof Error) return err.message.trim() || fallback;
   if (err && typeof err === "object") {

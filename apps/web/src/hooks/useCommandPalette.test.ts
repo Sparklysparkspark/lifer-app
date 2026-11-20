@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { describe, expect, it } from "vitest";
 import { isCommandPaletteShortcut } from "./useCommandPalette";
 
@@ -23,5 +24,8 @@ describe("isCommandPaletteShortcut", () => {
     expect(isCommandPaletteShortcut(key({}), true)).toBe(false);
     expect(isCommandPaletteShortcut(key({ metaKey: true, shiftKey: true }), true)).toBe(false);
     expect(isCommandPaletteShortcut(key({ key: "K", metaKey: true }), true)).toBe(true);
+  });
+  it("reads a real keyboard event", () => {
+    expect(isCommandPaletteShortcut(new KeyboardEvent("keydown", { key: "k", ctrlKey: true }), false)).toBe(true);
   });
 });

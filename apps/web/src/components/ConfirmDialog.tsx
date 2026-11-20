@@ -1,4 +1,5 @@
 import { useRef, type KeyboardEvent, type ReactNode } from "react";
+import { matches } from "../lib/keymap";
 import Modal from "./Modal";
 import Button from "./Button";
 
@@ -37,8 +38,7 @@ export default function ConfirmDialog({
   // Handled on the panel (not document) and marked handled, so an Enter-to-confirm on a dialog
   // underneath never fires for the same keypress.
   function onKeyDown(e: KeyboardEvent<HTMLDivElement>) {
-    if (e.key !== "Enter" || e.nativeEvent.isComposing || e.defaultPrevented || busy) return;
-    if (e.shiftKey || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (!matches(e, "confirm") || e.nativeEvent.isComposing || e.defaultPrevented || busy) return;
     if (SKIP_ENTER.has((e.target as HTMLElement).tagName)) return;
     e.preventDefault();
     onConfirm();
@@ -49,22 +49,23 @@ export default function ConfirmDialog({
       open={open}
       onClose={dismiss}
       title={title}
+      size="sm"
       initialFocusRef={confirmRef}
       onKeyDown={onKeyDown}
       footer={
         <>
           {cancelLabel !== null && (
-            <Button variant="secondary" size="sm" onClick={dismiss} disabled={busy}>
+            <Button variant="secondary" onClick={dismiss} disabled={busy}>
               {cancelLabel}
             </Button>
           )}
-          <Button ref={confirmRef} variant={danger ? "danger" : "primary"} size="sm" onClick={onConfirm} loading={busy}>
+          <Button ref={confirmRef} variant={danger ? "danger" : "primary"} onClick={onConfirm} loading={busy}>
             {confirmLabel}
           </Button>
         </>
       }
     >
-      {message && <div className="text-sm text-muted">{message}</div>}
+      {message && <div className="text-callout text-muted">{message}</div>}
     </Modal>
   );
 }

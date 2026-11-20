@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { api } from "../../api/client";
 import Button from "../../components/Button";
 import FormMessage from "../../components/FormMessage";
 import InlineSpinner from "../../components/InlineSpinner";
 import PasswordInput from "../../components/PasswordInput";
 import { errorMessage } from "../../lib/errorMessage";
-import { SettingRow, SettingsGroup, inputClass } from "./shared";
+import TextField from "../../components/TextField";
+import { SettingLinkRow, SettingRow, SettingsGroup } from "./shared";
 
 interface AccountInfo {
   email: string;
@@ -15,6 +16,7 @@ interface AccountInfo {
 // Every change here requires the current password (see auth/routes.ts), so a stolen session
 // cookie alone can't take over the account. Server mode only: desktop's user has no password.
 export default function AccountSettings() {
+  const { t } = useTranslation();
   const [account, setAccount] = useState<AccountInfo | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -22,10 +24,10 @@ export default function AccountSettings() {
     api
       .get("/auth/settings")
       .then(setAccount)
-      .catch((err) => setLoadError(errorMessage(err, "Couldn't load your account details")));
+      .catch((err) => setLoadError(errorMessage(err, t("settings.account.loadFailed"))));
   }
   // There's no error to clear on the first load, only on Retry.
-  useEffect(fetchAccount, []);
+  useEffect(fetchAccount, [t]);
   function retry() {
     setLoadError(null);
     fetchAccount();
@@ -36,28 +38,24 @@ export default function AccountSettings() {
       <div className="space-y-2">
         <FormMessage error={loadError} />
         <Button variant="secondary" size="sm" onClick={retry}>
-          Retry
+          {t("settings.retry")}
         </Button>
       </div>
     );
   }
-  if (!account) return <InlineSpinner size="sm" label="Loading account" />;
+  if (!account) return <InlineSpinner size="sm" label={t("settings.account.loading")} />;
 
   return (
     <>
-      <SettingsGroup title="Sign-in">
+      <SettingsGroup title={t("settings.account.signIn")}>
         <EmailRow currentEmail={account.email} onChanged={(email) => setAccount({ ...account, email })} />
         <PasswordRow />
       </SettingsGroup>
-      <SettingsGroup title="Scripts and integrations">
-        <SettingRow
-          label="API keys"
-          description="Tokens for your own scripts, each limited to what it needs."
-          control={
-            <Link to="/settings/api-keys" className="text-sm text-ink underline">
-              Manage API keys
-            </Link>
-          }
+      <SettingsGroup title={t("settings.account.scripts")}>
+        <SettingLinkRow
+          to="/settings/api-keys"
+          label={t("settings.account.apiKeys")}
+          description={t("settings.account.apiKeysDescription")}
         />
       </SettingsGroup>
     </>
@@ -65,6 +63,7 @@ export default function AccountSettings() {
 }
 
 function EmailRow({ currentEmail, onChanged }: { currentEmail: string; onChanged: (email: string) => void }) {
+  const { t } = useTranslation();
   const [newEmail, setNewEmail] = useState("");
   const [currentPassword, setCurrentPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -81,36 +80,37 @@ function EmailRow({ currentEmail, onChanged }: { currentEmail: string; onChanged
       onChanged(res.email);
       setNewEmail("");
       setCurrentPassword("");
-      setSuccess("Email updated.");
+      setSuccess(t("settings.account.emailUpdated"));
     } catch (err) {
-      setError(errorMessage(err, "Couldn't update email"));
+      setError(errorMessage(err, t("settings.account.emailFailed")));
     } finally {
       setSubmitting(false);
     }
   }
 
   return (
-    <SettingRow label="Email" description={`Signed in as ${currentEmail}.`}>
+    <SettingRow
+      label={t("settings.account.email")}
+      description={t("settings.account.signedInAs", { email: currentEmail })}
+    >
       <form onSubmit={handleSubmit} className="max-w-sm space-y-2">
-        <input
+        <TextField
           type="email"
-          placeholder="New email"
+          placeholder={t("settings.account.newEmail")}
           value={newEmail}
           onChange={(e) => setNewEmail(e.target.value)}
           required
-          className={inputClass}
         />
         <PasswordInput
-          placeholder="Current password"
+          placeholder={t("settings.account.currentPassword")}
           value={currentPassword}
           onChange={setCurrentPassword}
           required
           autoComplete="current-password"
-          className={inputClass}
         />
         <FormMessage error={error} success={success} />
-        <Button type="submit" variant="secondary" size="sm" loading={submitting}>
-          Update email
+        <Button size="sm" type="submit" variant="secondary" loading={submitting}>
+          {t("settings.account.updateEmail")}
         </Button>
       </form>
     </SettingRow>
@@ -118,6 +118,7 @@ function EmailRow({ currentEmail, onChanged }: { currentEmail: string; onChanged
 }
 
 function PasswordRow() {
+  const { t } = useTranslation();
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -130,7 +131,7 @@ function PasswordRow() {
     setError(null);
     setSuccess(null);
     if (newPassword !== confirmPassword) {
-      setError("New passwords don't match");
+      setError(t("settings.account.passwordMismatch"));
       return;
     }
     setSubmitting(true);
@@ -139,46 +140,43 @@ function PasswordRow() {
       setCurrentPassword("");
       setNewPassword("");
       setConfirmPassword("");
-      setSuccess("Password updated.");
+      setSuccess(t("settings.account.passwordUpdated"));
     } catch (err) {
-      setError(errorMessage(err, "Couldn't update password"));
+      setError(errorMessage(err, t("settings.account.passwordFailed")));
     } finally {
       setSubmitting(false);
     }
   }
 
   return (
-    <SettingRow label="Password">
+    <SettingRow label={t("settings.account.password")}>
       <form onSubmit={handleSubmit} className="max-w-sm space-y-2">
         <PasswordInput
-          placeholder="Current password"
+          placeholder={t("settings.account.currentPassword")}
           value={currentPassword}
           onChange={setCurrentPassword}
           required
           autoComplete="current-password"
-          className={inputClass}
         />
         <PasswordInput
-          placeholder="New password"
+          placeholder={t("settings.account.newPassword")}
           value={newPassword}
           onChange={setNewPassword}
           required
           minLength={8}
           autoComplete="new-password"
-          className={inputClass}
         />
         <PasswordInput
-          placeholder="Confirm new password"
+          placeholder={t("settings.account.confirmPassword")}
           value={confirmPassword}
           onChange={setConfirmPassword}
           required
           minLength={8}
           autoComplete="new-password"
-          className={inputClass}
         />
         <FormMessage error={error} success={success} />
-        <Button type="submit" variant="secondary" size="sm" loading={submitting}>
-          Update password
+        <Button size="sm" type="submit" variant="secondary" loading={submitting}>
+          {t("settings.account.updatePassword")}
         </Button>
       </form>
     </SettingRow>

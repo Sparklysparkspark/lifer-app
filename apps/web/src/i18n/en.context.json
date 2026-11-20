@@ -1,10 +1,62 @@
 {
+  "archiveHealth": {
+    "ignoreAllConfirm": {
+      "title": "{total} is {count} formatted with digit grouping, like 2,500: every file on the list, including any not shown."
+    },
+    "ignoredAll": "Toast after Ignore all. {total} is {count} formatted with digit grouping."
+  },
+  "addedSpecies": {
+    "removeConfirm": {
+      "title": "{group} is a group of species the user added from iNaturalist, like Insects; {country} a country name.",
+      "bodyFrees": "{size} is a formatted file size, like 12 MB.",
+      "stays": "Appended to the confirmation: species with photos aren't removed."
+    },
+    "addedByYou": "Beside a group name in the Species downloads list: the user added these species themselves."
+  },
   "albums": {
-    "create": {
-      "namePlaceholder": "Example album name in the name field."
+    "addTo": {
+      "newPlaceholder": "Placeholder of the field for creating a new album to add the photos to."
+    },
+    "detail": {
+      "importAlbum": "Button: import new photos straight into this album.",
+      "shareNeedsServer": "Hover text on the greyed-out Share button in the desktop app: public share links need a self-hosted Lifer server."
+    },
+    "export": {
+      "action": "Button and album menu item: copy the album's photos into a folder on disk, for a photo frame or USB stick.",
+      "hide": "Closes the export dialog while the copy keeps going in the background.",
+      "includeSidecars": ".xmp sidecars are small files beside RAW photos that hold edits and metadata; keep \".xmp\" as is.",
+      "progress": "{done} and {total} are file counts, like \"12 of 40 files\".",
+      "reveal": "Button after the export finishes in the desktop app: opens the folder in the system file manager.",
+      "title": "{name} is the album's name, chosen by the user."
     },
     "list": {
       "photoCount": "Small uppercase pill on an album card."
+    },
+    "share": {
+      "downloadsAllowed": "Appended after \"Password-protected\" or \"No password\" on a share link row; keep the leading space and middle dot.",
+      "expiresOn": "Appended to the same share link row; keep the leading space and middle dot. {date} is a formatted date.",
+      "hiddenLink": "Shown instead of a share link's URL: the full link is only shown once, when it is created."
+    },
+    "smart": {
+      "matching": "Line under a smart album's title; {rules} is a summary of its rules, like \"Flight shots\". Clicking it opens the rule editor.",
+      "exclude": "Photo menu and selection action in a smart album: take this photo out even though it matches the album's rules.",
+      "excludedCount": "Small link under a smart album's title: how many photos the user excluded by hand. Opens a list to restore them.",
+      "label": "Hover text and screen reader name of the sparkle icon beside smart albums on album cards and the album page. A smart album fills itself from saved Gallery filters instead of hand-picked photos.",
+      "matches": "Live count in the smart album rule builder, updated as the filters change.",
+      "saveFromGallery": "Gallery header button: save the current search and filters as a smart album.",
+      "shareLive": "Shown in a smart album's share panel: the shared page always shows the album's current matches.",
+      "summary": {
+        "dateRange": "{from} and {to} are dates in YYYY-MM-DD form.",
+        "search": "{q} is the Gallery search text the album saves, shown in quotes.",
+        "tag": "{tag} is one of the user's own photo tags."
+      }
+    },
+    "photos": {
+      "isCover": "Photo menu item when this photo is the album's cover; choosing it goes back to the automatic cover."
+    },
+    "sections": {
+      "switchLabel": "Screen-reader name for the Albums page switch between the albums view and the trips view.",
+      "noMatch": "On the full list of albums or trips, when the name search finds nothing. {query} is what was typed."
     }
   },
   "apiKeys": {
@@ -24,21 +76,174 @@
       "lifeList": "Row label in the API key permission grid. Life list: the user's list of species photographed (a birding term)."
     }
   },
-  "collections": {
-    "title": "Page title. Albums are hand-picked photo collections; trips are photos imported from one trip's folder on disk."
+  "archivedSpecies": {
+    "countAll": {
+      "title": "{family} is a taxonomic family name, like Anatidae."
+    },
+    "title": "Page title: species the user chose to leave out of their collection counts (archived)."
+  },
+  "auth": {
+    "login": {
+      "taglineSetup": "Sign-in page, shown once before any account exists. Species-indexed: photos organised by species.",
+      "connectedTo": "Desktop app connected to a Lifer server. {server} is the server's address.",
+      "useLocal": "Desktop app: switch from the connected server back to the photo library stored on this computer."
+    },
+    "forgot": {
+      "truenasIntro": "TrueNAS is a NAS operating system. Apps, Shell and lifer are names shown in its interface; keep them in English.",
+      "copyCommand": "Screen reader label of a copy button. {command} is a shell command."
+    }
+  },
+  "coordinates": {
+    "editName": "Link in the location dialog: shows the photo's free-text place name and region fields.",
+    "titleMany": "Title of the dialog for typing GPS coordinates for several selected photos at once.",
+    "placeholder": "An example latitude and longitude in decimal degrees; keep the numbers.",
+    "preview": "{point} is the parsed latitude and longitude, like 49.28270, -123.12070.",
+    "alsoSetRegion": "A checkbox offered when the photo has no region: {region} is the province or country the coordinates fall in.",
+    "filingUnder": "Shown after the user picks one of their saved places for the photos. {name} is the place. Photos that already have the camera's GPS keep that point and only take the place's name."
+  },
+  "captureEdit": {
+    "reassign": {
+      "title": "Dialog title: the photo was identified as the wrong species; pick the right one."
+    },
+    "tagSpecies": {
+      "title": "Dialog title: the photo also shows a second species; pick it."
+    },
+    "couldAlsoBe": "Heading over the photo's next-likeliest species.",
+    "location": {
+      "placeNamePlaceholder": "Example place name shown greyed out in the empty field.",
+      "placeNameExample": "The same greyed-out example, using a place name the user already used in the picked region. {name} is that name."
+    }
+  },
+  "collection": {
+    "addSpecies": {
+      "intro": "\"Added by you\" must match the label shown on species cards added by hand.",
+      "seaZone": "Option for a sea zone checklist (a stretch of ocean) next to the region's own. {name} is the zone's name.",
+      "title": "Dialog title. {region} is the region whose species checklist gets the new species.",
+      "ebirdHint": "<a> wraps a link to the eBird import in Settings."
+    },
+    "addGroups": {
+      "loadingListPercent": "The same, once the size is known. {percent} is a whole number from 0 to 100; keep the % sign.",
+      "loadingList": "In the Add animal groups dialog, beside a small spinner, while the list of downloadable groups is still on its way (a slow connection). Downloaded groups already show above it.",
+      "byHand": "Item in the Collection's Add species menu: opens the dialog for putting one species on this region's checklist.",
+      "menuItem": "Item in the Collection's Add species menu: opens a dialog to download more animal groups (Reptiles, Fish...) for the countries in view.",
+      "moreCountries": "Last item in that menu: opens Settings > Species and import > Species downloads.",
+      "allDownloaded": "Muted note under the disabled Download animal groups item when nothing is left to download.",
+      "noCountries": "Muted note under the disabled Download animal groups item on a continent with no downloaded country.",
+      "downloaded": "Under an animal group's checkbox: it's already on this computer for these countries.",
+      "otherCountries": "Footnote in the Add animal groups dialog on one country. <more> wraps a link to the Species downloads page in Settings.",
+      "onlyDownloaded": "On a continent or World: groups are offered only for downloaded countries. <more> wraps a link to Settings > Species and import > Species downloads.",
+      "summary": "What the user picked: {count} groups, {size} a formatted file size like 45 MB.",
+      "summaryNoSize": "The same while the size (photos included) isn't known yet, briefly on a first start; ends with an ellipsis like other in-progress notes.",
+      "title": "Dialog title. {countries} is a list of up to three country names, like \"Canada and United States\".",
+      "titleCount": "Dialog title for more than three countries; the names are listed under it."
+    },
+    "breadcrumb": {
+      "moreAreas": "Last pill in the row of a country's areas (states, provinces) when they don't fit on two rows; opens a list of the rest. {count} is how many more.",
+      "noAreaMatch": "Shown in that list when nothing matches what the user typed.",
+      "searchAreas": "Placeholder of the search box in that list.",
+      "ofTotal": "Follows a large number of species photographed, e.g. \"42 of 310 photographed\". {total} is a formatted number.",
+      "inDownloadedCountries": "Appended to \"of 310 photographed\" for a continent or World, where only downloaded countries count.",
+      "seen": "{count} is a formatted number of species seen but not yet photographed.",
+      "areasIn": "Label before buttons for the provinces or states inside a region. {region} is the region's name.",
+      "noCountries": "<a> wraps a link to the Species downloads page."
+    },
+    "noHubCountries": {
+      "title": "Shown on a continent or other grouping of countries when none of its countries are downloaded yet."
+    },
+    "noSearchMatch": {
+      "description": "{shortcut} is the keyboard shortcut for the search palette: ⌘K on a Mac, Ctrl K elsewhere."
+    },
+    "packPrompt": {
+      "size": "{count} is the number of species in the download; {size} is a file size like 12 MB.",
+      "taxonBanner": "{taxon} is a lowercase animal group name in English, like \"fish\" or \"butterflies\"; {region} is a region name.",
+      "taxonNotDownloaded": "{taxon} is a lowercase animal group name, like \"fish\".",
+      "noPack": "<a> wraps a link to the Species downloads page. {region} is a region name.",
+      "otherTaxaGroupTitle": "Empty list heading. {group} is an iNaturalist group name in lowercase, e.g. \"insects\" or \"fungi\"; {region} is a place name.",
+      "otherTaxaBody": "Other species: the catch-all category for species Lifer has no dataset for, added by hand from iNaturalist.",
+      "seaZones": "Ocean areas are separate downloads of marine fish near a region. {region} is the land region's name."
+    },
+    "toolbar": {
+      "recordsSection": "Section title in the collection Filters menu, over filters for species that are rarely recorded or not recorded in decades.",
+      "whenSection": "Section title in the collection Filters menu, over the \"likely this month\" and year filters.",
+      "showing": "Shown when filters hide some species. {shown} and {total} are formatted numbers.",
+      "seaZones": "Label before checkboxes for sea zones (stretches of ocean) whose fish can be added to the region's list.",
+      "includeLand": "With a sea zone ticked: also show the land region's species. {region} is the region's name.",
+      "ghostOnly": "Filter: only species rarely documented anywhere.",
+      "view": "Button opening the layout options (grouping, sort, card size).",
+      "vagrants": "Vagrant: a bird or animal recorded far outside its normal range.",
+      "groupBroad": "Group species by broad group, e.g. birds of prey, waterfowl.",
+      "sortTaxonomic": "Sort in taxonomic order, as printed field guides do.",
+      "countPhotosFrom": "Label of a choice in the View menu on a region's checklist: a species counts as photographed only with a photo taken in the chosen place. The other choices are place names, like Canada or Alberta, which come from data and aren't translated.",
+      "countPhotosAnywhere": "Choice beside place names under \"Include photos from\": photos taken anywhere in the world count.",
+      "arrange": "Small heading in the View menu over the choices that order and size the cards (group, sort, size, what comes first).",
+      "counting": "Small heading in the View menu over \"Include photos from\": which photos count toward the photographed total.",
+      "nameSettings": "Link at the bottom of the View menu to Settings > General, where the species name and badge choices are.",
+      "sizeColumns": "Screen reader text for the card Size slider when cards stretch to fill each row: how many cards fit across.",
+      "mainName": "Label of a choice in the View menu: which species name each card leads with.",
+      "mainNameCommon": "Option: lead with the common name, e.g. American Robin.",
+      "mainNameScientific": "Option: lead with the scientific (Latin) name, e.g. Turdus migratorius.",
+      "alsoShow": "Label before checkboxes in the View menu: what else shows under the species' main name on each card.",
+      "alsoCommon": "Checkbox: also show the common name (when the scientific name is the main name).",
+      "alsoScientific": "Checkbox: also show the scientific (Latin) name (when the common name is the main name).",
+      "groupSpecies": "View menu group option: one card per species, opened to see what's inside.",
+      "uncollectedColour": "View menu checkbox on the Collection page: show covers of species the user has not photographed in full colour instead of the default grey. Off by default. Sentence case.",
+      "uncollectedColourTitle": "Tooltip for the uncollected-in-colour checkbox in the View menu.",
+      "showMapPins": "View menu checkbox on the Collection page: show pins on the region map where the user photographed each species. On by default."
+    },
+    "map": {
+      "noPins": "Shown on the Collection map when no photo here has coordinates. <placeLink> opens the Gallery map's Needs placing tray, where photos get a location.",
+      "photosHere": "Hover card of a species pin: how many of the user's photos of that species were taken at this place. {formatted} is {count} with digit grouping.",
+      "speciesHere": "Hover card of a group of species pins merged at this zoom: how many different species it holds. {formatted} is {count} with digit grouping.",
+      "resetView": "Button on the Collection map once zoomed in: go back to the starting view of the whole region.",
+      "viewSpecies": "Link in a species pin's hover card on the Collection map: opens the species page.",
+      "openPhotos": "Screen reader name of the photo in a species pin's hover card; clicking it opens that species' photos at this place in the photo viewer. {name} is the species name.",
+      "photosFailed": "Toast when clicking a species pin on the Collection map couldn't load its photos."
+    }
+  },
+  "collectionStats": {
+    "rarityFor": "Screen reader label of the picker choosing which region's rarity the counts use.",
+    "overall": "Option: count each species' overall rarity rather than a region's."
+  },
+  "commandPalette": {
+    "inRegion": "Chip in the command palette: results are limited to {region}, a region name.",
+    "searchEverywhere": "Screen reader label of the button that removes the region chip. {region} is a region name.",
+    "empty": {
+      "title": "{query} is the user's search text."
+    },
+    "groups": {
+      "speciesRegionFirst": "Heading of species results, ranked with {region} (a region name) first.",
+      "tripPhotosNamed": "Heading of photo results from the trip being viewed. {name} is the trip's name.",
+      "albumPhotosNamed": "Heading of photo results from the album being viewed. {name} is the album's name.",
+      "goTo": "Heading of the list of app pages to jump to."
+    },
+    "inat": {
+      "noLocalMatch": "{query} is the user's search text. Opens a search of iNaturalist instead."
+    }
   },
   "errors": {
     "api": {
       "desktop_only": "API error code desktop_only: the server refused an action that only the desktop app (with its local library) can do.",
+      "immich_too_old": "API error code immich_too_old: linking an Immich photo server that runs a version older than Lifer supports. The English server message names both versions.",
+      "immich_unreachable": "API error code immich_unreachable: any failure talking to the linked Immich photo server (offline, wrong address, API key rejected or missing permissions).",
+      "library_folder_unavailable": "API error code library_folder_unavailable: the photo library folder was moved, deleted or is on an unplugged drive, so a save failed.",
       "invalid_request": "API error code invalid_request: the server rejected malformed input. The English server message names the field; this is the generic version.",
+      "model_mismatch": "API error code model_mismatch: a recognition request used vectors from a different species-matching model than the one this Lifer ranks with.",
       "no_checklist": "API error code no_checklist: a species can't be added to a region (like a continent) that has no species checklist of its own.",
       "no_video_frames": "API error code no_video_frames: species matching couldn't decode any frames from an uploaded video.",
       "not_added": "API error code not_added: removing a species the user hadn't added to a region's or sea zone's checklist.",
-      "pack_index_unavailable": "API error code pack_index_unavailable: the list of downloadable offline packs couldn't be fetched (usually offline).",
+      "pack_index_unavailable": "API error code pack_index_unavailable: the list of downloadable regions couldn't be fetched (usually offline).",
       "reorganize_failed": "API error code reorganize_failed: moving original photo files into the year or location folder layout failed.",
       "storage_move_failed": "API error code storage_move_failed: moving the photo library to another folder or drive failed.",
-      "suggestion_failed": "API error code suggestion_failed: the species suggestion model couldn't analyse a photo or video (often because it isn't downloaded yet)."
+      "suggestion_failed": "API error code suggestion_failed: the species suggestion model couldn't analyse a photo or video (often because it isn't downloaded yet).",
+      "server_only": "API error code server_only: the Immich photo server link only works on a self-hosted Lifer server, so the single-user desktop app refuses it.",
+      "version_link_refused": "API error code version_link_refused: stacking a photo as a version of another failed because the photo already has versions of its own, which must be split out first.",
+      "maybe_on_inaturalist": "Error when a send is held back because the photos may already be on iNaturalist (added there by hand)."
     }
+  },
+  "folderPicker": {
+    "roots": "Heading of the folder browser at a server's top level, listing the folders the server allows.",
+    "allFolders": "Row that goes back to the top-level list of allowed folders. Keep the leading two dots.",
+    "upOneLevel": "Row that goes to the parent folder. Keep the leading two dots."
   },
   "gallery": {
     "albumPicker": {
@@ -50,30 +255,490 @@
       "matchingRead": "{query} is the user's search text; {reading} is how it was understood, e.g. \"ducks · Washington · 2024\".",
       "missingDate": "The Gallery's missing-date view, a to-do list of photos with no capture date.",
       "missingDateAtLeast": "Same, while more photos are still loading.",
-      "photos": "Count under the Gallery heading."
+      "photos": "Count under the Gallery heading.",
+      "photosAndVideos": "Same, when videos are included.",
+      "videos": "Same, when only videos are shown."
+    },
+    "empty": {
+      "allDated": "Empty Gallery in the missing-date view (a to-do list of photos with no date), once every photo has one.",
+      "noSearchMatch": "{query} is the user's search text.",
+      "presetsBody": "Shown when only the Gallery's default filters are on: by default it hides videos and recordings."
+    },
+    "fixRegion": {
+      "note": "Shown above the grid when the Gallery is opened from Stats to give region-less photos a region. Set region names the selection bar's button.",
+      "selectAll": "Button next to that note: selects every photo still missing a region."
     },
     "hidden": {
       "unhidToast": "Toast after unhiding photos that were imported hidden because a culling app rejected them."
     },
     "loadingMore": "Screen reader label of the spinner at the bottom of the grid.",
+    "scope": {
+      "album": "Removable filter chip under the Gallery heading. {name} is the album's name.",
+      "trip": "Removable filter chip. {name} is the trip's name.",
+      "remove": "Screen reader label of the chip's x button. {label} is the chip's text."
+    },
+    "searchPart": {
+      "background": "A removable token under the Gallery heading for one part of a long search: what's asked for behind the animal. {label} is from the user's search text, e.g. \"tree\".",
+      "probably": "A search token for a part answered by the picture model's best guess rather than stored facts. {label} is the token's text.",
+      "parts": "Screen reader label of the row of tokens showing how a long search was split into parts."
+    },
     "searchReading": {
+      "behind": "How a photo search was understood: what's asked for behind the animal. {things} is a list from the user's search text.",
+      "excluding": "How a photo search was understood: what the words after \"not\" or \"without\" left out. {names} is a list of species, groups or picture words.",
+      "readings": {
+        "lifers": "How a photo search was understood: only each species' first photo (a lifer), from words like \"lifers\" or \"my first\".",
+        "goldenHour": "How a photo search was understood: photos taken while the sun was low, just before or after sunrise or sunset."
+      },
+      "stars": "How a photo search was understood: the star rating asked for. {count} is the number of stars.",
       "looksLike": "How a photo search was understood: the part matched by what the picture looks like. {description} is from the user's search text.",
       "more": "How a photo search was understood: after the first three species names, how many more matched."
     },
+    "select": {
+      "selected": "{count} is a formatted number of selected photos.",
+      "addToAlbum": "Button in the album picker. {count} is how many photos are selected (blank when none).",
+      "deleteOne": "Dialog title. {noun} picks the word for what's being deleted: file (mixed photos and videos), video, RAW (a camera RAW file) or photo.",
+      "deleteMany": "Dialog title. {noun} picks the word, as in deleteOne; {count} is how many.",
+      "trashNote": "Trash note under the delete confirmation. {noun} is recording or photo (also video, file, RAW, which read as photos).",
+      "correctId": "Selection bar button: opens a species search to move the selected photos to the species they really show.",
+      "correctIdTitle": "Title of that species search dialog. {count} is how many photos are selected.",
+      "addTagTitle": "Title of the dialog that adds a tag to the selected photos. {count} is how many.",
+      "rateTitle": "Title of the dialog that gives the selected photos a star rating. {count} is how many.",
+      "more": "Selection bar menu button holding the actions that don't fit on the row.",
+      "none": "Shown in the selection bar while no photos are selected yet.",
+      "setRegion": "Button in the selection bar: opens a picker for the country or province where the selected photos were taken.",
+      "setRegionApply": "Confirm button in that picker.",
+      "setRegionTitle": "Title of that picker. {count} is how many photos are selected.",
+      "placeOnMap": "Selection bar button: opens the map to place the selected photos."
+    },
     "title": "Page title of the Gallery: every photo in the library in one grid.",
-    "unknownRegion": "Group heading for photos with no region when the grid is grouped by region."
+    "toolbar": {
+      "searchPlaceholder": "Example search: the Gallery searches photos by what they show.",
+      "featured": "Filter: featured photos, the one each species' card shows.",
+      "notOnInat": "Filter checkbox, shown when iNaturalist is connected: only photos not yet sent to iNaturalist as an observation.",
+      "missingDate": "Filter checkbox: only photos with no capture date.",
+      "shotKind": "Filter heading: the kind of shot, read on two axes (Action and Framing), as Stats counts them.",
+      "shotAction": "Shot type filter group: what the animal is doing (Flying, Behaviour, At rest). Also a Stats heading's subject.",
+      "shotFraming": "Shot type filter group: how much of the frame the animal fills (Close, Environmental).",
+      "tier": "Filter label: the species' rarity tier (Legendary, Rare...).",
+      "tierIn": "Rarity filter label when the tier is the local one for a region. {region} is a region name.",
+      "addTag": "Tag filter dropdown placeholder once a tag is chosen: pick one more tag to match as well.",
+      "moreValues": "Summary of a filter with many values: the first one and how many more, e.g. \"British Columbia + 3 more\". {first} is a name, {count} a number.",
+      "showOnly": "Heading above the filter checkboxes (Featured, Missing a date): show only the photos that match.",
+      "rating": "Filter heading and menu label: the photos' star rating (1 to 5 stars).",
+      "ratingAtMost": "Saved filter summary: photos rated {count} stars or fewer.",
+      "ratingExactly": "Rating filter option and summary: exactly {count} stars (1 to 5).",
+      "ratingRange": "Saved filter summary: photos rated from {min} to {max} stars, e.g. 3 to 4 stars.",
+      "unrated": "Rating filter option: only photos with no star rating yet.",
+      "searchingIn": "Filter heading above the removable \"In trip X\" / \"In album X\" chips: the search is limited to that trip or album.",
+      "region": "Region filter heading, and the Group menu option that groups photos by the region they were taken in.",
+      "missingCoordinates": "Filter for photos with no coordinates (they may still have a country or province)."
+    },
+    "unknownRegion": "Group heading for photos with no region when the grid is grouped by region.",
+    "shotType": {
+      "flying": "Shot action: the animal is flying.",
+      "behavior": "Shot action: the animal is doing something (eating, hunting, fighting, playing, bathing).",
+      "resting": "Shot action: the animal is at rest (perched, standing, swimming, walking).",
+      "close": "Shot framing: the animal fills much of the frame (a portrait or close-up).",
+      "environmental": "Shot framing: the animal is small in a wide scene of its habitat."
+    },
+    "map": {
+      "photoCount": "After a place picked on the map. {formatted} is {count} as a formatted number.",
+      "grouped": "Appended to the map's summary when a huge library's points were merged into a coarser grid.",
+      "noBasemap": "Above the Gallery's map when the offline basemap isn't downloaded; countries still show as outlines.",
+      "card": {
+        "noExactTag": "Tile tag in the photo list beside the map: this photo has only a region, no coordinates. Keep it short.",
+        "ringLine": "Hover card over a hollow ring on the map: photos filed under a region but with no coordinates. {region} is the region's name.",
+        "breakdown": "Hover card and panel line for a map cluster holding both kinds: {placed} photos with coordinates, {regionOnly} with only a region. Both are formatted numbers.",
+        "noExactLocation": "In the side panel for a map cluster: a region's photos that have only the region, no coordinates. Shown beside the region's name.",
+        "showAll": "Link at the foot of the card over a map dot: opens all of that place's photos beside the map.",
+        "more": "Last tile in the card's photo grid when there are more photos than shown; {formatted} is how many more, like 1,204.",
+        "spotsMore": "Title of the map's hover card for a photo dot or cluster with several saved spots under it. {names} is the first two spot names as a list."
+      },
+      "tilt": {
+        "label": "Accessible name of the two-way switch over the Gallery map between 3D and Flat.",
+        "auto": "Switch option: the map tilts to one fixed 3D angle when zoomed in far enough, and is flat otherwise. Keep it short.",
+        "flat": "Switch option: the map never tilts. Keep it short."
+      },
+      "showUnlocated": "Link beside the map's status line: opens the Gallery grid filtered to the photos with no coordinates.",
+      "searchPlaces": "Placeholder of the offline place search above the Gallery map; it searches saved spots and region names.",
+      "placed": "Toast after photos were given a point on the map. {formatted} is {count} formatted.",
+      "undo": "Toast button that puts back the photos' previous locations.",
+      "placing": {
+        "someLocated": "While placing: how many of the photos already have coordinates (for example from the camera).",
+        "allLocated": "While placing: every one of the photos already has coordinates.",
+        "modeLabel": "Screen reader name of the choice between keeping or replacing existing locations.",
+        "onlyMissing": "Choice: place only the photos that have no coordinates yet (the default).",
+        "replaceAll": "Choice: also replace the coordinates photos already have.",
+        "place": "Main button that sets the picked point on the photos. {formatted} is {count} formatted.",
+        "saveSpot": "Button: save the picked point as a named saved spot.",
+        "title": "Title of the map's side panel while photos picked in the Gallery are being placed. {formatted} is {count} formatted."
+      },
+      "status": {
+        "some": "Status line above the Gallery map. {placed} is the formatted number of photos with coordinates; {formatted} is {count}, every photo the filters match. A photo with only a country or province is not placed.",
+        "all": "Status line above the Gallery map when every photo has coordinates. {formatted} is {count} formatted.",
+        "none": "Status line above the Gallery map when no photo has coordinates (some may have a region)."
+      },
+      "needPlacing": "Button beside the map's status line that opens the Needs placing list. {formatted} is {count}, the photos with no coordinates.",
+      "removed": "Toast after removing the coordinates of the photos at a map dot, with Undo. {formatted} is {count} formatted.",
+      "nothingToUndo": "Toast when Undo (or Cmd/Ctrl+Z on the map) finds no location change left to put back.",
+      "placingProgress": "Progress label while a big placement runs in the background.",
+      "placingFiles": "Progress label of a placement's last step: the new GPS and place names are written into the photo files.",
+      "rateFailed": "Error when a star rating set in the viewer opened from the map can't be saved.",
+      "openInGallery": "Button in the map's side panel: shows the panel's photos as the Gallery grid instead.",
+      "showMore": "Button at the end of a long list in the map's side panel: loads the next page.",
+      "selectAll": "Ticks every photo of a group in the Needs placing list.",
+      "deselectAll": "Unticks every photo of a group in the Needs placing list.",
+      "closePanel": "Accessible name of the close (x) button of the map's side panel.",
+      "resizePanel": "Accessible name of the drag handle between the map and its side panel.",
+      "panel": {
+        "placeRing": "Menu item in the photo panel for a map cluster: place the photos that have only this region, no coordinates. {region} is its name.",
+        "move": "Menu item in the map's side panel: starts placing the panel's photos somewhere else.",
+        "removeLocation": "Menu item in the map's side panel: clears the coordinates of the panel's photos (undoable).",
+        "regionOnly": "Subtitle of the side panel opened from a hollow region ring: these photos have a region but no coordinates."
+      },
+      "pin": {
+        "prompt": "Top of the Needs placing list when no pin is on the map yet.",
+        "lift": "Button that removes the pin from the map without placing anything."
+      },
+      "tray": {
+        "title": "Title of the map's side list of photos without coordinates, grouped by trip and shooting session.",
+        "filterLabel": "Accessible label of the All / Region only / No location switch in the Needs placing list.",
+        "all": "Needs placing switch: every photo without coordinates. Its count shows beside it.",
+        "region": "Needs placing switch: photos with a country or province but no coordinates.",
+        "none": "Needs placing switch: photos with no location at all.",
+        "loading": "Spinner label while the map's side panel loads photos.",
+        "empty": "Empty state of the Needs placing list.",
+        "inTrip": "After a trip's name in the Needs placing list: how many of its photos need placing. {formatted} is {count} formatted.",
+        "noTrip": "Heading in the Needs placing list over sessions that aren't part of a trip.",
+        "group": "A shooting session in the Needs placing list. {formatted} is {count} formatted; {date} is the day, like Sep 14, 2026.",
+        "groupNoDate": "A group of photos without a capture date in the Needs placing list. {formatted} is {count} formatted.",
+        "place": "Button on a group before a pin is down: drops a pin in the middle of the map.",
+        "placeHint": "Tooltip of that Place button.",
+        "showPhotos": "Button that opens a group in the Needs placing list to show (and tick) its photos.",
+        "hidePhotos": "Button that closes a group's photos again.",
+        "outside": "Note under a group's Place button when the pin is outside the group's province or country. {region} is its name.",
+        "movesRegion": "Note under a group's Place button when the pin is a saved spot in another region: filing them there changes their region. {from} and {to} are region names.",
+        "preview": "Accessible name of a small thumbnail in a Needs placing group; opens it in the viewer. {index} is its position, 1 to 4."
+      },
+      "layers": {
+        "button": "Name and hover text of the icon-only button at the top right of the photo map that opens the map layers panel (Map or Satellite, online detail).",
+        "map": "Option in the photo map's Layers panel: the drawn map (as opposed to satellite imagery).",
+        "satellite": "Option in the photo map's Layers panel and in Settings > General > Map and places, and the layers button's label while it is shown: satellite imagery.",
+        "baseLabel": "Screen-reader name of the Map / Satellite choice in the photo map's Layers panel.",
+        "online": "Heading of the Automatic / Off choice in the photo map's Layers panel: whether street-level map detail loads from the internet.",
+        "auto": "Option: online map detail loads by itself when zoomed in and online. The default.",
+        "off": "Option: the map never uses the internet.",
+        "detailNote": "Under Automatic in the Layers panel. {detail} is the tile provider's name (OpenFreeMap). Says plainly what is sent.",
+        "offNote": "Under Off in the Layers panel.",
+        "satelliteNote": "In the Layers panel while Satellite is picked, and once on the map the first time. {imagery} is the imagery provider's name or a web address.",
+        "imageryLimit": "Honest note while Satellite is picked: the free imagery is about 10 metres per pixel.",
+        "failed": "Quiet line on the photo map when online tiles could not load (offline or the provider is down); the offline map stays.",
+        "slow": "Quiet line under the map's layers button when online map detail is taking a while on a slow connection; the offline map shows meanwhile. Not an error."
+      }
+    }
+  },
+  "guide": {
+    "library": {
+      "folderLayout": "<libraryLink> links to Settings > Library, where \"Folder layout\" is the setting's name. {folder} is a folder path like \"Wildlife <year taken>/\".",
+      "editedJpeg": "Placeholder inside a folder path diagram: Birds/<species name>/Adjusted/<your edited JPEG>. Folder names stay in English because Lifer writes them on disk.",
+      "matchingRaw": "Placeholder inside a folder path diagram: Birds/<species name>/RAW/<matching RAW file>.",
+      "speciesName": "Placeholder inside a folder path diagram: Birds/<species name>/Adjusted/...",
+      "yearTaken": "Placeholder inside a folder name: Wildlife <year taken>/, the year the photo was taken."
+    },
+    "steps": {
+      "trip": {
+        "folders": "\"Adjusted\" and \"RAW\" are folder names Lifer looks for on disk; keep them in English."
+      }
+    }
+  },
+  "hiddenSpecies": {
+    "allScope": "Fills {scope} in \"N species in {scope}\" when no country is picked.",
+    "count": "Count above the grid of hidden species. {scope} is a country or province name, or \"all hidden species\".",
+    "drillIn": "Label before a picker that narrows the list to one country, then one province or state.",
+    "unhideAll": {
+      "title": "{scope} is a country or province name, or \"all hidden species\"."
+    },
+    "unhideChildren": {
+      "title": "{names} is a list of province or state names, already joined (\"Ontario and Quebec\")."
+    },
+    "wholeCountry": "Picker entry for species hidden from the country itself rather than one of its provinces."
+  },
+  "hotspotMap": {
+    "radius": "{radius} is a distance in kilometres around an approximate point.",
+    "title": "Collapsible row on a species page: a map of areas where the species has historically been recorded (GBIF record clusters).",
+    "lastSeenAcross": "Map popup. {year} is the most recent year the species was recorded in this area, {years} how many distinct years it was.",
+    "sensitiveWithheld": "eBird Sensitive Species: eBird's list of species whose exact locations are hidden to protect them. Use eBird's term in your language if it has one.",
+    "recordShare": "Map popup. {percent} is this area's share of all records of the species in the region, {count} the number of records.",
+    "areaRadius": "After approximate coordinates. {radius} is a distance in kilometres; the point is the centre of an area.",
+    "locationsLastSeen": "After the Locality map heading. {year} is the most recent year any record was made.",
+    "sensitiveBadge": "Short badge on a location in the list: the species is eBird-sensitive there.",
+    "years": {
+      "last1": "Filter option for record years."
+    }
   },
   "import": {
+    "known": {
+      "summary": "One quiet line on the import screen after picking a folder. {known} is how many picked photos were already imported or left out of an earlier import (so they're skipped), {fresh} how many are new; both formatted numbers.",
+      "edited": "New photos whose file changed since an earlier import, probably edited in another app."
+    },
+    "recentFolders": {
+      "title": "Label before buttons for folders the user imported from before (desktop app).",
+      "newCount": "Inside a recent folder's button: photos added to that folder since the last import."
+    },
+    "skippedManager": {
+      "open": "Link on the import screen opening the list of photos left out of earlier imports. {formatted} is the count.",
+      "forget": "Removes one photo from the list, so importing its folder again offers it again."
+    },
+    "places": {
+      "groupTitle": "Heading of one group of photos on the import screen (photos taken in one outing). {formatted} is the formatted count, {date} a short date such as \"Sep 14\", {span} a time or a time range.",
+      "timeSpan": "Two clock times, the first and last photo of a group, e.g. \"07:10 to 08:02\".",
+      "groupLabel": "Screen reader name of a group of import photos. {time} is the first photo's clock time.",
+      "fromCamera": "Button showing where a group of photos was taken, read from the camera's GPS. {place} is \"near {town}\", a region name, or \"GPS point\".",
+      "near": "Lower case, follows \"From the camera:\". {town} is the nearest town from Lifer's offline town list.",
+      "cameraPoint": "Lower case, follows \"From the camera:\" when no town or region is known for the point.",
+      "mixed": "Button on a group where only some photos have camera GPS. {withGps} and {without} are formatted counts of photos.",
+      "sameAs": "Button or menu item: give this group of photos the place of the earlier group. {time} is that group's first clock time.",
+      "labelTitle": "Dialog title: a free-text place label for the photos. {formatted} is the formatted count.",
+      "dialogTitle": "Dialog title: choose where the photos were taken. {formatted} is the formatted count."
+    },
     "bulk": {
       "raw": {
         "linkedCount": "How many picked RAW files were matched to photos already in the library.",
         "pendingCount": "How many picked RAW files are still uploading. Shown after the matched and not-imported counts, joined by middle dots.",
         "unmatchedCount": "How many picked RAW files matched no photo in the library, so weren't imported. Shown after the matched count, joined by a middle dot."
+      },
+      "trip": {
+        "label": "Label of a dropdown on the import screen: the trip the photos being imported join.",
+        "none": "Dropdown option: the imported photos join no trip.",
+        "addingTo": "Above the trip dropdown on the import screen. {name} is the trip the photos will join.",
+        "choose": "Dropdown placeholder when several trips are active and the user hasn't picked one yet.",
+        "active": "Dropdown group heading: trips going on now.",
+        "other": "Dropdown group heading: every other trip."
       }
+    },
+    "cullMarks": {
+      "summary": "On an import screen. {count} photos picked, {rejected} (a formatted number) flagged as rejected by a culling app such as Photo Mechanic or Lightroom.",
+      "hide": "Option for the rejected photos: import them, but hidden from the gallery and life list."
     },
     "invertebrate": {
       "message": "Shown on an imported photo that looks like an insect or spider. {looksLike} is an English phrase such as \"a bee\" or \"a spider\".",
       "searchOptIn": "Tooltip on the button when iNaturalist search is still off: pressing it turns that setting on."
+    },
+    "review": {
+      "rawMatch": "After the picked species, joined by a middle dot: this RAW file pairs with a photo already imported.",
+      "suggestError": "{error} is an English error message from species matching.",
+      "duplicateExact": "{species} is the earlier photo's species; {date} is its formatted capture date, shown only when known (dated is yes or no).",
+      "duplicateSimilar": "Same as duplicateExact, for a near-duplicate.",
+      "notWildlife": "{looksLike} is an English phrase from the image model, such as \"a car\"."
+    },
+    "rows": {
+      "filed": "Toast after importing: how many photos went to how many species.",
+      "placesSet": "Toast after an import, with Undo: the places chosen on the import screen were applied. {formatted} is {count} formatted.",
+      "placesFailed": "Error toast: the import worked but applying the chosen places failed.",
+      "filesCount": "First part of the status line over the import list; the parts are joined by middle dots and a part with a zero count is left out.",
+      "notWildlifeCount": "A part of the import status line, joined with middle dots: files that don't look like wildlife and won't be imported.",
+      "photoFormatUnknown": "Shown in the thumbnail box when a file's format can't be named (otherwise JPEG, HEIC, etc.).",
+      "importPhotos": "Import button. With 0 it reads just \"Import photos\" (disabled).",
+      "assignSelected": "Before a species picker: give the {count} selected rows that species.",
+      "optional": "Hint next to the Location field label.",
+      "tripHint": "Notice after an import. {name} is a trip whose dates the photos fall in, though they weren't added to it."
+    }
+  },
+  "inaturalist": {
+    "send": {
+      "action": "Menu item and selection-bar button: sends the photo or the selected photos to iNaturalist as observations.",
+      "sending": "Toast shown while photos are being sent to iNaturalist in the background; it has a Cancel button.",
+      "nothingToSend": "Toast when none of the chosen photos could be sent: already on iNaturalist, or the species has no iNaturalist match yet.",
+      "sent": "Toast after sending. {count} is how many observations were created.",
+      "sentOneIncomplete": "Toast after sending one observation with no location or date; iNaturalist opens so the person can add it.",
+      "sentIncomplete": "Toast after sending several observations. {count} were sent and {incomplete} lack a location or date.",
+      "finish": "Toast button: shows the To finish tab of the iNaturalist page.",
+      "view": "Menu item for a photo already on iNaturalist: opens its observation there.",
+      "linkedExisting": "Toast after sending: these sightings were already on iNaturalist (added by hand), so Lifer linked them instead of making a second observation.",
+      "maybeOnInat": "Shown when Lifer held a send back: an observation the user made on iNaturalist themselves looks like these photos. Followed by two buttons.",
+      "checkMatches": "Button: open the To send tab's Maybe on iNaturalist list to compare the photos.",
+      "sendAnyway": "Button: send these photos as a new observation even so."
+    },
+    "title": "Page title. iNaturalist is a citizen-science site; keep the name as is.",
+    "tabs": {
+      "label": "Screen-reader name for the row of tabs.",
+      "import": "Tab: sightings in Lifer not yet sent to iNaturalist.",
+      "pending": "Tab: sent observations still missing a location or date, to add on iNaturalist.",
+      "completed": "Tab: observations on iNaturalist with everything they need."
+    },
+    "import": {
+      "summary": "One line under the tabs: how photos are grouped into sightings, and how to preview, open or select cards.",
+      "viewLabel": "Screen-reader name for the Waiting/Ignored switch.",
+      "waiting": "Switch option: sightings waiting to be sent.",
+      "search": "Placeholder and label of the species search box.",
+      "locationLabel": "Label of the location filter.",
+      "locationAll": "Location filter option: every sighting.",
+      "shownCount": "Selection bar when nothing is selected: how many sightings are listed.",
+      "selectedCount": "Selection bar: how many sightings are selected.",
+      "selectAll": "Selection bar link: selects every listed card. Hidden once all are selected.",
+      "sendSelected": "Selection bar button: sends the selected sightings, one observation each. In the Ignored view this also takes them out of Ignored.",
+      "ignoreSelected": "Selection bar button: ignores every photo in the selected sightings.",
+      "restoreSelected": "Selection bar button in the Ignored view: restores the selected sightings.",
+      "morePhotos": "Over the last photo on a card: how many more photos the sighting has.",
+      "sendPhotos": "Sighting window button: sends the ticked photos as one observation.",
+      "ignoreSighting": "Sighting window button: ignores every photo of this sighting.",
+      "ignoreUnticked": "Sighting window button: ignores just the photos left out.",
+      "restoreSighting": "Sighting window button in the Ignored view: brings its photos back to Waiting without sending.",
+      "tickAll": "Sighting window link: puts every photo back in.",
+      "untickAll": "Sighting window link: leaves every photo out.",
+      "ignored": "Toast after ignoring photos; it has an Undo button.",
+      "restored": "Toast after restoring ignored photos; it has an Undo button.",
+      "undo": "Toast button: reverses the ignore or restore.",
+      "ignoreFailed": "Error when ignoring or restoring fails.",
+      "noMatch": "Shown when the search or location filter hides every sighting.",
+      "sendAll": "Selection bar button: sends every listed sighting in the background, after asking once.",
+      "sendAllTitle": "Confirmation title before sending every sighting. {count} is how many.",
+      "sendAllMessage": "Confirmation text. {noLocation} is how many sightings have no location; empty when none.",
+      "createFailed": "Error when sending fails.",
+      "missing": "Note on a sighting row, shown before sending: what its photos don't record.",
+      "notMatched": "Note on a sighting row whose species has no iNaturalist match, so it can't be sent.",
+      "photosAndDate": "Row detail: {photos} is the photo count text, {date} the date or date range.",
+      "somePhotos": "Row detail when some photos are unticked: {kept} of {count} photos will be sent.",
+      "includePhoto": "Screen-reader label for the tick on each photo thumbnail. {n} is its position, {count} the total.",
+      "empty": {
+        "title": "Empty state heading when nothing is left to send.",
+        "description": "Empty state text."
+      },
+      "ignoredEmpty": {
+        "title": "Empty state heading for the Ignored view.",
+        "description": "Empty state text for the Ignored view."
+      },
+      "missingShort": "Status on a sighting card: what its photos don't record, added on iNaturalist after sending.",
+      "notMatchedShort": "Status on a sighting card whose species has no iNaturalist match.",
+      "preview": "Card button (magnifier) and menu item: shows the card's pictures full size.",
+      "previewShortcut": "Shortcut shown in the Preview tooltip: the Space key (Enter works too).",
+      "select": "Card menu item: adds the sighting to the selection.",
+      "deselect": "Card menu item: takes the sighting out of the selection.",
+      "leftOut": "Label over a photo in the sighting window that won't be sent.",
+      "windowHint": "Hint in the sighting window above its photos.",
+      "clearSelection": "Selection bar button: deselects every card. Its tooltip shows the Esc and Select None shortcuts.",
+      "onInat": "Note on a To send card: one of its photos looks the same as an observation the user already made on iNaturalist themselves.",
+      "ignoredMark": "Status on a sighting card shown with ignored ones: this sighting is ignored.",
+      "choosePhotos": "Sighting card menu item: opens its window to pick which photos to send, or to ignore it."
+    },
+    "pending": {
+      "steps": "Explains that the person finishes observations on iNaturalist and Lifer notices by itself.",
+      "checkNow": "Button: asks iNaturalist about the unfinished observations right away.",
+      "finished": "Toast when Lifer finds observations finished on iNaturalist and moves them to Completed.",
+      "needs": "Card status on To finish: what the observation still needs on iNaturalist.",
+      "finish": "Button: opens the observation's edit page on iNaturalist.",
+      "empty": {
+        "title": "Empty state heading.",
+        "description": "Empty state text."
+      },
+      "checkSelected": "Selection bar button on To finish: asks iNaturalist about the selected observations right away.",
+      "needsLabel": "Label of the To finish filter for what an observation is missing.",
+      "needsLocation": "Filter option: observations still missing a location.",
+      "needsDate": "Filter option: observations still missing a date."
+    },
+    "intro": "One-line purpose of the iNaturalist page under its title.",
+    "connectedAs": "Under the page intro. {username} is the person's iNaturalist username; <a> opens their iNaturalist profile.",
+    "loadFailed": "Shown with a Retry button when the page's lists can't load.",
+    "notConnected": {
+      "title": "Empty state heading when no iNaturalist account is connected.",
+      "description": "Explains where to connect the account.",
+      "action": "Button: opens Settings > Integrations."
+    },
+    "completed": {
+      "locationPhoto": "Row detail: the location sent came from the photo's GPS.",
+      "locationInat": "Row detail: the person placed the location on iNaturalist and Lifer copied it back.",
+      "empty": {
+        "title": "Empty state heading.",
+        "description": "Empty state text."
+      },
+      "withDateInat": "Row detail when a photo with no date took the date added on iNaturalist. {location} is the location source text.",
+      "fromPhoto": "Completed filter option: the location or date came from the photo itself.",
+      "fromInat": "Completed location filter option: the location was placed on iNaturalist.",
+      "dateLabel": "Label of the Completed filter for where the date came from.",
+      "dateFromInat": "Completed date filter option: the date was added on iNaturalist and copied to the photo.",
+      "found": "Line on a Completed card: the user made this observation on iNaturalist themselves, and Lifer found it and linked their photo to it."
+    },
+    "photoCount": "Row detail: how many photos an observation or sighting has.",
+    "observationCount": "Selection bar on To finish and Completed when a search or filter hides some: how many are listed.",
+    "selectAllObservations": "Selection bar link on To finish and Completed: selects every listed observation.",
+    "species": {
+      "trailLabel": "Screen-reader name for the trail back from one species.",
+      "allSpecies": "Link at the start of the trail: back to every species on this tab.",
+      "backTip": "Tooltip of the All species link.",
+      "backShortcut": "Shortcut shown in that tooltip: the Esc key.",
+      "count": "How many species cards a search or filter leaves.",
+      "selectAll": "Selection bar link: selects every listed species card.",
+      "selected": "Selection bar with species selected. {species} is how many species; {items} is the text for how many sightings or observations they hold, such as 41 observations.",
+      "itemsAndPhotos": "Species card line: {items} is the sighting or observation count, {photos} the photo count.",
+      "open": "Species card menu item: shows that species' sightings or observations.",
+      "noLocation": "Species card status on To send: how many of its sightings have no location.",
+      "notMatched": "Species card status on To send when the species has no iNaturalist match.",
+      "needLocation": "Species card status on To finish: how many observations still need a location.",
+      "needDate": "Species card status on To finish: how many observations still need a date.",
+      "noDate": "Species card status on To send: how many of its sightings have no date."
+    },
+    "existing": {
+      "noModel": "Shown after the check when the optional species-matching model isn't downloaded: without it Lifer can't compare pictures.",
+      "reading": "Progress label while the observations are downloaded; a count like (200 of 1,500) follows.",
+      "comparing": "Progress label while each observation's preview is compared with the user's photos; a count follows.",
+      "linked": "Toast when the check (started by the user or by Lifer in the background) linked photos.",
+      "noneFound": "Toast when a check the user started found nothing new.",
+      "failed": "Shown when the check, Link or Not a match fails, usually because iNaturalist can't be reached."
+    },
+    "matches": {
+      "view": "Segment on the To send tab, with a count: possible matches between the user's photos and their iNaturalist observations, to confirm or reject.",
+      "summary": "Explanation at the top of that list.",
+      "empty": "Shown when every possible match has been linked or rejected.",
+      "onInat": "Caption on the observation's photo in a possible-match card; the other half shows the user's photo. Keep it short.",
+      "yourPhoto": "Caption on the user's own photo in a possible-match card.",
+      "likeness": {
+        "same": "How alike the two pictures are, in words (no numbers): nearly identical.",
+        "probably": "How alike the two pictures are, in words: very alike, but not certain.",
+        "unknown": "The pictures couldn't be compared (no image model, or the preview couldn't be downloaded)."
+      },
+      "taxon": {
+        "same": "Evidence that matched: the observation is the photo's species. Joined with the other evidence by commas.",
+        "finer": "Same, when iNaturalist names a subspecies of the photo's species.",
+        "related": "The observation's name is broader than or different from the photo's species, but related."
+      },
+      "time": {
+        "close": "Evidence, after a comma: taken within about two minutes of the observation's time. Lowercase.",
+        "sameDay": "Evidence, after a comma: taken the same day. Lowercase."
+      },
+      "size": {
+        "same": "Evidence, after a comma: the iNaturalist photo has the same shape. Lowercase.",
+        "different": "Evidence, after a comma: the iNaturalist photo was cropped or resized. Lowercase."
+      },
+      "place": "Evidence, after a comma: both have a location close together. Lowercase.",
+      "link": "Button on a possible-match card: yes, this photo is in that observation.",
+      "notMatch": "Button on a possible-match card: no, and never suggest this pair again.",
+      "linked": "Toast after Link.",
+      "dismissed": "Toast after Not a match on a possible-match card.",
+      "undo": "Toast button: undo Not a match and show the card again.",
+      "unlink": "Menu item and button on an observation Lifer found on iNaturalist (made there by the user): undo the link, so its photos go back to To send as they were before.",
+      "unlinked": "Toast after Unlink or after Undo on a link.",
+      "unlinkedKept": "Same toast when some photos' location or date was changed by the user after linking: those changes stay."
+    },
+    "toolbar": {
+      "filters": "Toolbar button: opens the filters for this tab.",
+      "clearFilters": "Filters panel link: turns every filter off.",
+      "selectNone": "Select menu item: deselects every card.",
+      "cardSize": "View menu slider: how wide the cards are.",
+      "taxon": "Filters heading: groups of life such as birds or mammals.",
+      "has": "Filter option: sightings that have a location (or a date).",
+      "needs": "Filter option: sightings still without a location (or a date).",
+      "matched": "Filters heading: whether the species has a match on iNaturalist, which sending needs.",
+      "matchedYes": "Filter option: species matched on iNaturalist.",
+      "matchedNo": "Filter option: species with no iNaturalist match yet, so they can't be sent.",
+      "show": "Filters heading on To send: waiting sightings, ignored ones, or both.",
+      "ignoredCount": "Show filter option: ignored sightings. # is how many.",
+      "both": "Show filter option: waiting and ignored sightings together.",
+      "origin": "Filters heading on Completed: whether Lifer sent the observation or found one made on iNaturalist.",
+      "sentByLifer": "Filter option: observations Lifer sent."
+    },
+    "previewCaption": "Caption under a picture in the preview: the species name and the day it was photographed.",
+    "observations": {
+      "details": "Observation card menu item: opens its window with all its photos and its actions."
     }
   },
   "iucn": {
@@ -86,21 +751,428 @@
       "lowerRiskConservationDependent": "Old (1994) IUCN Red List category, still on a few assessments. Use the official IUCN term if one exists."
     }
   },
+  "lightbox": {
+    "viewSpecies": "Link in the photo viewer to the photo's species page. The arrow marks it as leaving the viewer."
+  },
+  "manageTags": {
+    "noMatch": "{search} is the user's search text.",
+    "deleteConfirm": {
+      "title": "{tag} is a tag name the user made."
+    }
+  },
+  "managePlaces": {
+    "noMatch": "{search} is the user's search text.",
+    "renameLabel": "Screen-reader name of the rename field. {name} is a place name the user typed, like Pigeon Lake.",
+    "renamed": "After renaming a place name. {count} is how many photos changed.",
+    "renamedAndMoved": "After renaming a place name when the folder layout has place folders. {count} photos changed, {moved} files moved into the new folder, {failed} files couldn't be moved (the clause is left out at 0).",
+    "removed": "After removing a place name. {count} is how many photos lost it.",
+    "removedAndMoved": "After removing a place name when the folder layout has place folders. {count} photos changed, {moved} files moved out of the place folder, {failed} files couldn't be moved (the clause is left out at 0).",
+    "mergeConfirm": {
+      "title": "Renaming a place name to one already in use joins them. {from} and {to} are place names the user typed.",
+      "message": "{to} is the place name already in use, {count} how many photos carry the old name."
+    },
+    "removeConfirm": {
+      "title": "{name} is a place name the user typed, {count} how many photos carry it."
+    }
+  },
+  "placeName": {
+    "detail": "After a suggested place name: its region (and country) and how many of the user's photos carry it. Starts with a middle dot separating it from the name.",
+    "detailNoRegion": "After a suggested place name with no region: how many of the user's photos carry it.",
+    "regionInCountry": "A region and the country it is in, like Alberta, Canada."
+  },
+  "nameChanged": {
+    "title": "Modal title: a species the user has photos of was split by taxonomists into several species.",
+    "splitInto": "{name} is the old common name, {scientificName} its scientific name (in <i>), {count} how many species it became, {photos} how many of the user's photos are affected.",
+    "thisOne": "Button next to one of the new species: move the photos to it.",
+    "keep": "Button: keep the old name for these photos. {scientificName} is the old scientific name."
+  },
+  "nav": {
+    "map": "Sidebar and top-bar link to the Gallery's map layout, where photos show as pins by where they were taken.",
+    "inaturalist": "Sidebar and top-bar link to the iNaturalist page; shown only once an iNaturalist account is connected. Keep the product name."
+  },
+  "offlinePacks": {
+    "offline": "Shown on download screens only when the computer is offline or the download host can't be reached at all: installed regions still show and work, but nothing new can be downloaded.",
+    "slow": "Shown beside a small spinner when the download host answers slowly (a weak signal). Downloads still work, just slower; keep it short and calm.",
+    "downloaded": {
+      "selectCountry": "Screen-reader name of the checkbox that selects every downloaded pack of one country. {country} is its name."
+    },
+    "offload": {
+      "addedSpecies": "Confirm dialog line when bulk removal includes species the user added from iNaturalist. {size} is a formatted file size, like 12 MB.",
+      "titleManyItems": "Items are downloaded regions plus groups of species the user added from iNaturalist."
+    },
+    "provinceManager": {
+      "loading": "{subdivisions} is the country's word for its subdivisions, lowercased and in English from the data: provinces, states or regions.",
+      "none": "{subdivisions} is the country's word for its subdivisions, lowercased and in English from the data: provinces, states or regions.",
+      "working": "Next to a province while it is being removed or downloaded again."
+    },
+    "provinces": "Button on a downloaded country's row that opens its list of provinces or states. The server may replace it with the country's own word (States, Regions).",
+    "recommend": {
+      "covers": "One suggested download. {name} is a region name, maybe with an animal group in brackets; {size} is a file size like 120 MB.",
+      "intro": "Shown after the library reimport tool found species with no reference photos or info."
+    },
+    "selection": {
+      "addToQueue": "Footer button while a region download runs: adds the selected regions to the end of the running download.",
+      "queued": "Short confirmation after the selection joined a running download. # is how many regions were added; =0 when they were all queued already.",
+      "summary": "Summary of what will download: how many countries, how many animal groups (none picked means all animals), and the total size like 1.2 GB.",
+      "summaryNoSize": "The same while the size (photos included) isn't known yet, briefly on a first start; ends with an ellipsis like other in-progress notes."
+    },
+    "status": {
+      "failed": "{error} is the server's error message, in English."
+    },
+    "taxonPicker": {
+      "groupCount": "A collapsible group of animal classes. {group} is its name (like Shells); then how many of its classes are picked."
+    },
+    "variant": {
+      "full": "Download size option: every reference photo for each species.",
+      "fullSize": "Compares sizes: what the other (Full) download option would be. {size} is like 1.2 GB.",
+      "small": "Download size option: one featured photo per species.",
+      "smallSize": "Compares sizes: what the other (Small) download option would be. {size} is like 300 MB."
+    }
+  },
+  "otherTaxa": {
+    "title": "Modal for adding a species Lifer has no data for (insects, plants, fungi) from iNaturalist to a region's list.",
+    "noChecklist": "{region} is a region name, like a continent, that can't hold a species list of its own.",
+    "importing": "Progress label while a pasted list of species is being imported.",
+    "bulkSummary": "After a bulk import, possibly after \"Done.\" or \"Cancelled.\". {added} and {alreadyPresent} are species counts.",
+    "bulkSummaryNotFound": "Same, plus {notFound}: how many lines matched no iNaturalist species.",
+    "notFoundList": "Followed by a list of the entries that matched nothing."
+  },
+  "photoFilters": {
+    "species": {
+      "heading": "Filters panel section heading on a trip's photos: pick one or more of the trip's species, each with its photo count.",
+      "search": "Placeholder and label of the box that narrows a long species list in that section.",
+      "clear": "Link under the species list: unpicks every species."
+    },
+    "rawFiles": {
+      "label": "Filter heading: RAW-only files (photos with no edited JPEG) can be shown, hidden, or shown alone.",
+      "only": "Filter option: show only RAW files."
+    },
+    "editedRaw": {
+      "label": "Filter heading: edited photos, filtered by whether a RAW file is paired with them.",
+      "any": "Filter option: edited photos with or without a RAW."
+    },
+    "media": {
+      "both": "Filter option: photos and videos."
+    },
+    "date": {
+      "to": "Between the from and to date fields, as in \"from [date] to [date]\"."
+    },
+    "display": {
+      "labels": "Checkbox in every View menu: show a caption under each photo (the species name; on a species page, the date and place).",
+      "cameraInfo": "Checkbox in every View menu: show the camera, lens and exposure under each photo.",
+      "ratings": "Checkbox in every View menu: show each photo's star rating."
+    },
+    "view": {
+      "layout": "View menu section heading: show the Gallery's photos as a grid or on a map."
+    },
+    "sort": {
+      "count": "Sort option for grouped cards: the group with the most items first."
+    }
+  },
+  "connectedApps": {
+    "showInSidebar": "Accessible name of a switch. {name} is the app's name.",
+    "lastUsed": "{date} is a date.",
+    "revokeTitle": "{name} is the app's name.",
+    "pairCode": "{code} is a 6-digit code.",
+    "hide": "Sidebar context menu item. {name} is the app's name.",
+    "hidden": "Toast after hiding an app from the sidebar. {name} is the app's name."
+  },
+  "lightroom": {
+    "found": "{total} and {matched} are counts of photos, formatted with digit grouping.",
+    "groupCounts": "Under a switch for one kind of change. {total} is the number of items in the catalogue, {change} how many would change something in Lifer, {conflicts} how many have a different value in Lifer already.",
+    "leftOut": "{labels} and {captions} are counts.",
+    "unmapped": "Heading above a list of Lightroom collections Lifer can't turn into albums.",
+    "unmappedMore": "{count} is the number of collections not listed.",
+    "notInLifer": "{count} is a number of photos in the catalogue that Lifer doesn't have.",
+    "done": "Shown after the import. {photos} is a count formatted with digit grouping; {albums} a count.",
+    "undo": "Button that reverses the whole Lightroom import."
+  },
+  "openIn": {
+    "item": "Menu item (desktop app): open the photo file in an installed photo editor. {name} is the editor, like Photoshop.",
+    "failed": "Error toast. {name} is the editor, like Photoshop."
+  },
+  "photoMenu": {
+    "feature": "Menu item: set this photo as the species' featured photo, the one its card shows.",
+    "correctId": "Menu item: move the photo to the species it really shows.",
+    "revealInFinder": "Menu item (desktop app): show the original file in the system file manager. {place} is Finder, Explorer or file manager.",
+    "connectVolume": "Photo menu item when the original is on a disconnected drive. {volume} is the drive's name.",
+    "tagSpecies": "Photo menu item: also list this photo under a second species that appears in it.",
+    "location": "Photo menu item: opens the location dialog (coordinates, saved places, place name and region). The photo's place shows under it.",
+    "hide": "{kind} is image, video or audio.",
+    "delete": "{kind} is image, video or audio."
+  },
+  "regionBrowser": {
+    "drillIn": "Before a picker of the current region's sub-regions (countries, provinces).",
+    "noPacks": "<a> wraps a link to the Species downloads page (in Settings > Species and import). Keep that page name as it is translated elsewhere.",
+    "allRegions": "First item of a region breadcrumb trail: back to the top of the region tree.",
+    "searchPlaceholder": "Placeholder of the box that searches every country, state and province by name. {name} is the region the user is working in, like Alberta; with none, searchLabel is the placeholder.",
+    "suggested": "Before a row of quick picks: the region of the photo or page, and the regions picked most recently."
+  },
+  "suggestedApps": {
+    "disclosure": "Shown just above the download button, whose label varies (Install, Start free trial). {host} is a web address like licence.preenwildlife.com.",
+    "cull": {
+      "modes": "Preen, a separate culling app, can show inside Lifer's window or run in its own window.",
+      "priceUsd": "Follows the trial line, so it starts with Then.",
+      "counted": "Appended to the disclosure sentence. Preen counts trial downloads as a bare total."
+    }
+  },
   "settings": {
+    "downloads": {
+      "back": "Back link at the top of Species downloads, a page inside Settings. {group} is that settings group's name, Species and import.",
+      "open": "Row at the top of Settings > Species and import that opens Species downloads, where countries and animal groups are downloaded.",
+      "openDescription": "Under that row: what a download brings."
+    },
+    "account": {
+      "signedInAs": "{email} is the account's email address.",
+      "signIn": "Settings group heading for the email and password used to sign in."
+    },
+    "ebirdImport": {
+      "checklists": "Shown after an eBird import. {count} is a number of checklists.",
+      "description": "<a> wraps a link to eBird's own Download My Data page; keep eBird's page name as eBird shows it in your language. MyEBirdData.csv is a file name, don't translate it.",
+      "summary": "After importing an eBird CSV. Each placeholder is a number of species.",
+      "notMatched": "<names> wraps a list of species names from the file that matched nothing.",
+      "undone": "{count} is a number of species."
+    },
     "general": {
       "language": {
         "automatic": "First option of the language picker: use the browser's or operating system's language when Lifer has it, else English.",
         "description": "Under the Language heading in Settings > General. Species common names are data from the catalog, not part of the interface."
+      },
+      "names": {
+        "title": "Section heading in Settings > General: how species cards name each species, and whether they show badges."
+      },
+      "packUpdates": {
+        "description": "Species downloads (offline packs) with a newer version on the server."
+      },
+      "updates": {
+        "version": "Desktop app version, e.g. \"Version 1.2.0.\" Shown before the update status sentence.",
+        "available": "{version} is the new version; {current} is the installed version number.",
+        "translocated": "macOS App Translocation: the app was opened straight from Downloads or a disk image, so it can't update itself.",
+        "macGatekeeper": "<b> wraps the exact macOS System Settings and button names; use the names macOS shows in your language.",
+        "windowsSmartScreen": "<b> wraps the exact Windows SmartScreen button names; use the names Windows shows in your language. The quoted text is the warning's title.",
+        "windowsInstaller": "<a> wraps a link to the GitHub releases page."
+      },
+      "map": {
+        "title": "Section heading in Settings > General for the photo map's online options and online place search.",
+        "mode": "Label in Settings > General > Map and places of the Automatic / Off / Satellite choice for the photo map.",
+        "modeHelp": "Under Online map in Settings. {detail} and {imagery} are tile provider names.",
+        "imageryUrl": "Label of a text field in Settings > General > Map and places: an optional satellite tile URL from the user's own provider.",
+        "imageryUrlHelp": "Under the Satellite imagery URL label. Leaving it empty uses the free default imagery.",
+        "imageryUrlPlaceholder": "Placeholder showing the URL shape; {z}, {x} and {y} are passed in as the literal tile placeholders. Keep the URL itself untranslated.",
+        "imageryUrlInvalid": "Error under the Satellite imagery URL field; {z}, {x} and {y} are passed in as the literal placeholders.",
+        "places": "Label in Settings > General > Map and places, and in the map's layers panel: online place search and place names (Automatic or Off).",
+        "placesHelp": "Under Online place names and search in Settings. {provider} is the service name (Photon by komoot)."
       }
     },
     "groups": {
       "general": "A tab in the Settings sidebar (also listed in the command palette). Keep tab names short.",
-      "offlineData": "Settings tab for the downloaded species catalog, offline packs and maps."
+      "offlineData": "Settings tab for the downloaded species catalog, downloaded regions and maps."
     },
     "help": "Link at the bottom of the Settings sidebar to the online Settings documentation.",
-    "retry": "Button to try loading again after an error."
+    "integrations": {
+      "assistantSetUp": "Button in Integrations on the desktop app: makes a key and shows the setup to paste into an assistant.",
+      "assistantDescriptionDesktop": "Description of the assistant row on the desktop app. Claude Desktop is a product name.",
+      "assistantKeyName": "Name given to the key made for an assistant. {date} is today's date.",
+      "assistantKeyFailed": "Toast when the key for an assistant couldn't be made.",
+      "assistantModalTitle": "Title of the window that shows the assistant setup.",
+      "assistantStep1": "Step 1 in the assistant setup window. Claude Desktop is a product name; Settings, Developer and Edit Config are its menu names.",
+      "assistantStep2": "Step 2. mcpServers is a name in Claude Desktop's config file and must stay as it is; lifer too.",
+      "assistantStep3": "Step 3 in the assistant setup window.",
+      "assistantKeyNote": "Note under the setup text: the key can't be shown again. API keys is the name of a Settings page.",
+      "connectedAs": "{username} is the user's iNaturalist username.",
+      "openInat": "Button next to Disconnect: opens Lifer's iNaturalist page.",
+      "finishSignIn": "Shown after Connect while the person signs in on iNaturalist's site."
+    },
+    "library": {
+      "folderLayout": {
+        "example": "Before a folder path showing where one of the user's recent photos would be filed with this layout.",
+        "sampleExample": "Before a folder path showing where a made-up sample photo would be filed, shown before the user has photos.",
+        "presets": {
+          "date": "A layout of year then date folders (2025/2025-06-14), the way Lightroom files imports by default."
+        },
+        "levels": {
+          "wildlifeYear": "A year folder named like \"Wildlife 2025\". The folder name itself stays in English on disk.",
+          "trip": "A folder for the photo's trip, inside a folder named Trips. The folder names stay in English on disk.",
+          "group": "The animal group folder; the folder names (Birds, Mammals) stay in English on disk."
+        }
+      },
+      "reorganizeResult": "Each placeholder is a number of files."
+    },
+    "matchingHardware": {
+      "progress": "{step} is the current hardware-test step (an English message from the server); {done} is a formatted download size.",
+      "progressOf": "Same, with {total} the full download size.",
+      "busy": "{step} is the current hardware-test step, possibly with download progress.",
+      "failed": "{message} is the server's English explanation of why the GPU test failed.",
+      "gpu": "{device} is the GPU's name, like Apple M2; {ms} is milliseconds per photo; {speedup} is a number like 3.5."
+    },
+    "offlineData": {
+      "catalog": {
+        "description": "{status} is one of the short status sentences (Up to date., Checking for updates. and so on).",
+        "updatedCount": "{species} is a formatted number of species."
+      },
+      "uses": "{size} is a file size like 550 MB.",
+      "vectorsUpdateFailed": "Recognition data: precomputed data the species recognition model compares photos against. {errors} is a list of technical error messages.",
+      "vectorsDownloadFailed": "Recognition data: precomputed data the species recognition model compares photos against. {errors} is a list of technical error messages.",
+      "map": {
+        "description": "{status} is the next sentence: Downloaded., About 550 MB., or Uses <size>.",
+        "removeConfirm": {
+          "messageWithSize": "{size} is a file size like 550 MB."
+        }
+      },
+      "model": {
+        "activeIdentification": "BioCLIP 2 is the model's name; keep it.",
+        "removeConfirm": {
+          "messageWithSize": "{size} is a file size like 680 MB."
+        },
+        "sceneMissing": "The scene model is the part of species recognition that lets Gallery search match scene and color words."
+      }
+    },
+    "reimport": {
+      "title": "Settings > Library section for bringing photos already on disk into Lifer.",
+      "review": {
+        "imported": "Toast. {species} is the species name the photos were imported as.",
+        "looksLike": "Under an unmatched photo: iNaturalist's confident species suggestion. {species} is a species name.",
+        "maybe": "Under an unmatched photo: iNaturalist's less certain species suggestion. {species} is a species name.",
+        "matchedMany": "{names} is a list of scientific names found in the photo's tags.",
+        "importAll": "Button: import every listed photo with this same suggested species. {count} is how many."
+      },
+      "importConfirm": {
+        "message": "{folder} is a folder path. {files} picks whether photos are moved into the library or left in place; {library} adds a sentence when the folder is another Lifer library."
+      },
+      "rescanConfirm": {
+        "messageDrive": "{drive} is the name of a registered external drive."
+      },
+      "folder": {
+        "placeholder": "Example folder path, shown greyed out in the empty field.",
+        "serverRootsHint": "LIFER_LIBRARY_ROOTS is an environment variable; keep it as is. Storage is the Settings tab of that name."
+      },
+      "rejected": {
+        "description": "Lightroom, Photo Mechanic and digiKam are photo apps; Hidden is a filter name in the Gallery."
+      },
+      "import": {
+        "progress": "Job progress detail. RAW files are camera raw image files."
+      },
+      "summary": {
+        "added": "After an import. {known} photos were already in the library; {raws} RAW files were matched to photos.",
+        "relinked": "Files whose drive or folder path changed, so Lifer updated where they are.",
+        "missingReferenceData": "<a> wraps a link to the downloadable regions that include those species."
+      },
+      "unmatched": {
+        "description": "{suggested} is how many of the unmatched photos have an iNaturalist species suggestion."
+      }
+    },
+    "retry": "Button to try loading again after an error.",
+    "server": {
+      "insecureUrl": "{urls} is one or more server addresses. Keep http and https:// as is.",
+      "showingWithExternal": "{local} is the home network address; {external} is the address used away from home.",
+      "showing": "{url} is the server's address.",
+      "connectedTo": "{url} is the server's address.",
+      "remove": "Screen reader label of a remove button. {url} is a server address.",
+      "autoSwitching": "Desktop app setting name, kept as a technical term (capitalized as a feature name): switch automatically between a home-network URL and other URLs for the same server.",
+      "testing": "Screen reader label while checking whether an address answers."
+    },
+    "species": {
+      "naming": {
+        "commonHint": "Example of the common-name format. Use the common name of the American Robin (Turdus migratorius) in your language.",
+        "latinHint": "Scientific name: keep as is.",
+        "ebirdCodeHint": "amerob is the eBird code for American Robin: keep it; translate the rest.",
+        "abaCodeHint": "AMRO is the ABA code for American Robin: keep it; translate the rest.",
+        "treeHint": "Scientific taxonomy: keep as is."
+      },
+      "moveUp": "Screen reader label of a reorder arrow. {name} is a name format, like Common name.",
+      "moveDown": "Screen reader label of a reorder arrow. {name} is a name format, like Common name.",
+      "nameFormatDescription": "The user picks and orders name parts (common name, scientific name, codes) used for folder names and photo tags.",
+      "updateResult": "Each placeholder is a number of photos.",
+      "technicalDiving": "Technical diving: deep scuba diving beyond recreational limits, using special gas mixes.",
+      "hideObscureDescription": "Vagrants: species outside their usual range, seen only occasionally. \"Seen or photographed\" are the two collection states.",
+      "inatAddDescription": "Under the \"Add a species from iNaturalist\" row: search iNaturalist by name and add the species to a checklist of a region the user picks."
+    },
+    "storage": {
+      "location": {
+        "saveForLaunchFailed": "{error} is a technical error message. \"Change Server / Library\" is the desktop app's menu item; use its translated name.",
+        "containerHint": "Server (Docker) installs. LIFER_STORAGE_DIR and docker-compose are technical names; keep them as is."
+      },
+      "drives": {
+        "namePlaceholder": "Example drive name, shown greyed out in the empty field.",
+        "lastSeen": "When an external drive was last connected. {date} is a formatted date and time.",
+        "lastSeenUnknown": "Fills {date} in \"Last seen {date}\" when the date isn't known."
+      },
+      "roots": {
+        "stepMount": "Docker setup step. Keep the <code> contents unchanged.",
+        "stepSet": "Docker setup step. Keep the <code> contents and Label=/container/path unchanged."
+      },
+      "removeAll": {
+        "typeToConfirm": "{word} is the English word the user must type (remove); it isn't translated, so keep it as {word}."
+      },
+      "health": {
+        "lastChecked": "{when} is a relative time in the interface language, like \"3 days ago\" or \"yesterday\".",
+        "allOk": "{when} is a relative time, like \"3 days ago\"; {count} is how many files were checked."
+      }
+    },
+    "sync": {
+      "linkedDescription": "{server} is the linked server's address, or \"Your server\" when it isn't known.",
+      "medium": {
+        "description": "Previews are smaller copies of each photo kept on this computer: thumbnails are tiny, medium previews are 1,024 pixels wide."
+      },
+      "waiting": "{count} is the number of changes made on this computer that the linked server doesn't have yet.",
+      "lastSent": "{date} is a formatted date and time; the rest are counts of photos uploaded, updated and failed in the last send.",
+      "lastCopied": "{date} is a formatted date and time; the rest are counts of what the last copy of the server's collection brought here.",
+      "libraryLastSent": "{date} is a formatted date and time; {count} is how many albums, trips and album photos were sent.",
+      "reason": {
+        "failed": "{error} is the server's or the app's English explanation of why the last send stopped."
+      }
+    },
+    "regions": {
+      "more": "Heading over the offline map and missing reference photo downloads, under the region download picker."
+    },
+    "versions": {
+      "found": "After looking for versions in one folder: {linked} files grouped as versions, {suggested} offered for the user to confirm on the Import page."
+    }
+  },
+  "share": {
+    "notFound": "Public page for an album someone shared by link.",
+    "labels": "Checkbox on a shared album: show species names under the photos."
   },
   "species": {
+    "suggestion": {
+      "probably": "Shown when the photo's species is a toss-up but its genus (or family) is clear. {name} is the scientific genus or family name (in <i>); {rank} is genus or family; {article} is a or an for that name in English."
+    },
+    "notes": {
+      "credit": "Credit line under text taken from Wikipedia. <article> wraps a link to the article, <licence> a link to the CC BY-SA licence."
+    },
+    "about": "Heading of the collapsible overview card on a species page.",
+    "checklists": {
+      "sea": "After the name of an ocean area the user added a species to, to mark it as a sea zone rather than a land region.",
+      "alsoListed": "After a checklist the user added a species to, when the built-in catalog already lists the species there.",
+      "removeFrom": "{checklist} is a region or ocean area name.",
+      "pickHint": "{species} is the species name. \"Added by you\" is the label shown on species the user added; keep it the same as that label.",
+      "addTo": "Button. {name} is the picked region or ocean area.",
+      "noChecklist": "{region} is a region name (like a continent) that has no species checklist of its own."
+    },
+    "detail": {
+      "firstObserved": "Under the species name. {date} is the date of the user's first photo of it.",
+      "seen": "Toggle button on a species page: the user has seen this species but not photographed it.",
+      "target": "Toggle button on a species page: mark the species as one to look for (a target).",
+      "dontCount": "Menu item: leave this species out of the user's counts (life list totals).",
+      "rawGallery": "Heading over RAW files of this species that have no matching edited photo.",
+      "upload": "Title of the upload dialog on a species page."
+    },
+    "encounters": {
+      "encounters": "Counts on a species page; <n> wraps the number (shown bold). An encounter is one sighting, however many photos it produced.",
+      "rowPhotos": "Right side of a row in the list that opens from the camera, lens or location count: how many of this species' photos used it.",
+      "more": "Last row of that list when it is cut short: {count} is how many more cameras, lenses or places there are."
+    },
+    "links": {
+      "inaturalist": "Link to the species on iNaturalist (opens in a new tab). Keep the site's name.",
+      "ebird": "Link to the species on eBird (opens in a new tab). Keep the site's name."
+    },
+    "photoGrid": {
+      "filterEdited": "Filter on a species page's photos: edited photos (JPEG/HEIC etc.), with how many there are.",
+      "bestShot": "Badge on the featured photo of a species.",
+      "unavailableConnect": "Hover text on a dot marking a photo whose original is on a disconnected drive. {volume} is the drive's name.",
+      "fromTrip": "Heading of the section of a species page listing photos taken on one trip, shown when the page was opened from that trip. {trip} is the trip's name.",
+      "otherPhotos": "Heading of the section after the trip's photos on a species page: the species' photos from anywhere else."
+    },
     "photos": {
       "placeInRegion": "Where a photo was taken. {place} is the place name the user typed (like Prince George), {region} the province, state or country it is in.",
       "yourPhotos": "Heading of the user's own photos section on a species page."
@@ -109,51 +1181,254 @@
       "listLabel": "Accessible name of the species search results list.",
       "searchInaturalistNoMatch": "Last row of the species search results. {query} is what the user typed. The arrow means it opens a search on the iNaturalist website."
     },
+    "seasonality": {
+      "weekRecords": "Hover label on a weekly observation bar. {week} is the ISO week number (1 to 52); records are wildlife observation records.",
+      "weekRecordsIn": "Same, scoped to a region. {region} is a region name."
+    },
+    "selection": {
+      "correctIdTo": "Select mode, before a species search: move the selected photos to the species picked.",
+      "typeSpecies": "Placeholder of the species search in select mode: moves the selected photos to the species picked.",
+      "hide": "Button in select mode: hide the selected photos.",
+      "deleteTitle": "{noun} is file (photos and videos mixed), video, RAW (RAW-only originals) or photo.",
+      "trashMessage": "Trash note under the delete confirmation. {noun} is recording or photo (other values read as photos)."
+    },
     "shotData": {
       "aperture": "Photographic aperture (f-number), e.g. f/5.6. Usually left as is.",
       "focalLength": "Lens focal length in a compact camera-settings line under a photo, e.g. 400mm.",
       "iso": "Camera sensor sensitivity, e.g. ISO 800."
     },
+    "status": {
+      "localTier": "Status tag on a species page: its rarity tier in the region being viewed. {tier} is a tier name such as Rare.",
+      "vagrant": "Status tag: the species turns up here only as a vagrant (a stray outside its normal range).",
+      "introduced": "Status tag: the species is non-native (introduced by people) in this region.",
+      "endemic": "Status tag. {country} is the only country the species is found in.",
+      "iucn": "Status tag. {category} is an IUCN Red List category name, like Least Concern."
+    },
     "suggestion": {
       "match": "Under a suggested species card. {percent} is a formatted percentage like 87%: how closely the photo matches the species."
     }
   },
+  "speciesCard": {
+    "badge": {
+      "rediscovered": "Badge on a species card: the user photographed a species that had been rarely recorded or unrecorded for 25 years.",
+      "ghost": "Badge on a species card: a species with very few records anywhere.",
+      "vagrant": "Badge on a species card. A vagrant is a bird or animal far outside its usual range (a birding term).",
+      "localTier": "Badge on a species card. {tier} is a rarity name such as Rare; the species is rarer in this region than worldwide.",
+      "addedByYouTitle": "{list} is a species list name, e.g. \"British Columbia's species list\"."
+    },
+    "removedFromList": "{name} is a species name, {list} a species list name, e.g. \"British Columbia's species list\".",
+    "archivedToast": "{name} is a species name. The species is left out of the user's counts.",
+    "addedToTargets": "Targets: species the user wants to photograph next.",
+    "seenTitle": "Hover text on a check mark: the user saw this species but has no photo of it.",
+    "volumeTitle": "{drive} is the name of an external drive.",
+    "menu": {
+      "adjustPreview": "Menu item: choose how the species card crops its photo.",
+      "rarityYours": "Menu item. {tier} is a rarity name; (yours) means the user set it themselves.",
+      "archiveTitle": "\"Archived species\" is the name of a Settings page; keep it as translated there."
+    },
+    "hidePicker": {
+      "note": "Modal with a checkbox for the province and one for its country: hide the species from the checked lists only."
+    }
+  },
+  "speciesGrid": {
+    "archiveGroup": "Small button after a group heading: leave every species in the group out of the user's counts. Keep it short.",
+    "pinned": {
+      "photographed": "Heading of a group pinned above the others: species the user has photographed.",
+      "targets": "Heading of a pinned group: species the user wants to photograph next."
+    },
+    "archiveConfirm": {
+      "title": "{count} is how many species, {group} the group's name (e.g. Ducks or Rare).",
+      "message": "\"Archived species\" is the name of a Settings page; keep it as translated there."
+    }
+  },
+  "stats": {
+    "filter": {
+      "all": "Option of the Stats page's photo filter. Keepers: the edited photos kept in the library.",
+      "featured": "Option of the Stats page's photo filter: only each species' featured photo."
+    },
+    "collection": {
+      "oneAndDone": "Stats card: species with exactly one photo.",
+      "oneAndDoneCount": "<b> wraps the number (shown bold).",
+      "ratedOneStar": "Beside a species with a single photo rated one star (★).",
+      "archiveHealth": "Stats card about the library's metadata, such as photos missing a capture date.",
+      "ofTotal": "After \"N photos missing a date\": out of how many photos. {total} is the library's photo count.",
+      "medianShutter": "{shutter} is an exposure time such as 1/500s.",
+      "vs": "Between two year pickers: compare the first year with the second."
+    },
+    "charts": {
+      "keeperInfo": "Info tip on the Stats charts. A keeper is a photo the user kept in their library.",
+      "namesAndMore": "On a scatter chart dot that stands for several photos. {names} is two species names joined by a comma.",
+      "notAvailable": "Shown instead of a camera setting (like shutter speed) a photo has no value for.",
+      "viewAll": "Button under a few thumbnails; {count} is how many photos there are in all.",
+      "body": "Filter label: the camera body (as opposed to the lens).",
+      "species": "Hover label on a chart bar, before a number of species.",
+      "setTitle": "Title over every photo behind a chart dot or bar. {formatted} is the count with digit grouping; {settings} the camera settings, such as 400mm, 1/1250.",
+      "countryPhotos": "How many of the user's photos were taken in a country, shown after the country name.",
+      "photographedIn": "Followed by a short list of country names."
+    },
+    "highlights": {
+      "ofKeepers": "Under a stat card. {percent} is a whole number. Keepers: the photos the user kept in their library.",
+      "focalLengthSub": "Under the favorite focal length (like 400-600mm): it's the range used most often.",
+      "lifers": "Under the best month. A lifer is a species photographed for the first time ever."
+    },
+    "noValue": "Placeholder in a stats table when there is no value (not applicable).",
+    "options": {
+      "axisOption": "Option of the scatter plot's axis pickers, e.g. \"X: Focal length\". {axis} is X or Y, {field} an EXIF field name.",
+      "totalKeepers": "A keeper is any edited photo the user kept, except one rated 1 star."
+    }
+  },
+  "tierDetails": {
+    "here": "Row label: the species' rarity in the region being browsed.",
+    "iucn": "Row label: the species' IUCN Red List category.",
+    "lifersRarity": "First option of the rarity picker: no override, use the rarity Lifer computed.",
+    "everywhereNotJust": "Checkbox: apply the user's rarity in every region. {place} is the region being browsed.",
+    "tierIn": "Short fact, e.g. \"Occasional in British Columbia\". {tier} is a rarity name, {place} a region. Joined to other facts by middle dots.",
+    "rareVisitor": "Short lowercase fact joined by middle dots: the species is a vagrant here.",
+    "easiestIn": "Short lowercase fact joined by middle dots. {place} is a country.",
+    "why": {
+      "whereIn": "Appended to other lines with its leading space. {place} is a region name.",
+      "whereWorldwide": "Appended to other lines with its leading space, in place of a region.",
+      "easiestInWhere": "{place} is a country; {tier} a lowercase rarity name, like common or rare.",
+      "inatShare": "{share} is a percentage, like 12% or under 0.01%. {group} picks the animal group noun.",
+      "sightingsShare": "{share} is a percentage, like 12% or under 0.01%. {group} picks the animal group noun.",
+      "reportedRelative": "{share} is like \"about 50%\" or \"about 1 in 40\".",
+      "season": "{start} and {end} are short month names.",
+      "seasonLine": "{season} is a season phrase like \"Mostly Apr to Sep\"; the period ends the sentence.",
+      "step": {
+        "deepWater": "{depth} is a depth in metres."
+      }
+    }
+  },
+  "targetLists": {
+    "import": {
+      "done": "Toast after importing a target list from a CSV. {name} is the list's name, which the user typed.",
+      "notFound": "{names} is a comma-separated list of species names from the user's file that matched nothing.",
+      "offChecklist": "Checkbox in the import review. {region} is a region name, like British Columbia.",
+      "summary": "{matched} is a formatted number of names matched to one species; the other parts only show when not zero."
+    },
+    "nameWithRegion": "A target list in a dropdown: its name, then the region it is for in parentheses.",
+    "summaryGeneral": "Under a target list's name in Settings. {count} is a formatted number; the list is not for any one region.",
+    "summaryRegion": "Under a target list's name in Settings. {count} is a formatted number; {region} a region name."
+  },
+  "trash": {
+    "daysLeft": "Under a photo in Trash: days until it is permanently deleted.",
+    "filter": {
+      "edited": "Filter option: photos whose original is an edited JPEG (not a RAW or video).",
+      "raw": "Filter option: photos whose only original is a RAW file."
+    },
+    "labels": "Checkbox: show the species name and days left under each photo.",
+    "rawDeletedToo": "Appended after the days left, with a leading space and middle dot. Keep both.",
+    "rawKept": "Appended after the days left, with a leading space and middle dot. Keep both.",
+    "retention": "{days} is a number of days, usually 7 or more."
+  },
   "trips": {
+    "files": {
+      "summary": "Toast when moving a trip's files ends. Skipped files were left where they are (not Lifer's to move); missing ones couldn't be found.",
+      "linked": "Linked: Lifer points at the user's own file where it is, instead of keeping its own copy. \"below\" is the tickbox \"Also move my own linked files\".",
+      "copySpace": "{size} is how much space the copies need, like \"1.2 GB\".",
+      "phase": {
+        "moving": "Progress label; {trip} is the trip's name."
+      }
+    },
+    "card": {
+      "processing": "Screen reader label of the spinner on a trip card while a scan or import runs.",
+      "counts": "Under a trip card. {species} is how many species, {photos} how many photos."
+    },
     "create": {
-      "buildHint": "{name} is the trip's name as typed by the user (user data). \"Wildlife\" is the folder name on disk and stays as is.",
-      "buildSubmit": "Button that creates a new trip folder on disk and starts importing into it.",
-      "namePlaceholder": "Example trip name in the name field.",
+      "namePlaceholder": "Hint in the empty trip name field.",
       "untitled": "Default trip name when none is typed; also used as a folder name."
     },
     "detail": {
       "addMorePhotos": "Button that rescans the trip's folder for photos not imported yet.",
-      "backLabel": "Label of the back link at the top of a trip's page, leading to the trips list.",
       "build": {
         "scanInstead": "\"Add more photos\" is the label of the button above; keep it matching that translation."
       },
       "deleteRawToo": "RAW is the camera raw file stored alongside the photo.",
-      "filters": {
-        "labels": "Checkbox in the filter menu: show species name labels on photo thumbnails.",
-        "topRated": "Checkbox in the filter menu: show only the highest-rated photos."
-      },
       "noPhotosMatch": "{search} is the text typed in the search box.",
       "noSpeciesMatch": "{search} is the text typed in the search box.",
-      "trashMessage": "Trash is the app's bin for deleted photos (its own page)."
+      "trashMessage": "Trash is the app's bin for deleted photos (its own page). {noun} is photo here."
+    },
+    "header": {
+      "tripFolder": "Before the path of the folder on disk the trip's photos were imported from.",
+      "relocate": "Link button next to the trip folder's path: choose a different folder for Lifer to look in for new photos.",
+      "savedTo": "Before the path of the folder imported wildlife photos are copied into.",
+      "species": "Trip summary; <n> wraps the number (shown bold).",
+      "lifers": "Trip summary; <n> wraps the number (shown bold). A lifer is a species photographed for the first time ever.",
+      "rare": "Trip summary: how many species of the rare or legendary rarity tier.",
+      "endemic": "Trip summary: how many species found only in one country."
     },
     "info": {
       "addMore": "\"Add more photos\" is the label of a button on the trip page; keep it matching that translation.",
       "copiedOnImport": "\"Save wildlife to\" is the label of a field on this page; \"Wildlife\" is the actual default folder name on disk and should stay as is. RAW is a camera raw file.",
-      "relocate": "\"Relocate…\" is the label of a menu item on the trip page; keep it matching that translation."
+      "relocate": "\"Move trip files to\" and \"Point to where I moved them\" are labels of menu items on the trip page; keep them matching those translations."
+    },
+    "jobs": {
+      "readingCullMarks": "Progress step: reading the reject/pick marks a culling app (like Photo Mechanic or SuperPicky) wrote on the photos.",
+      "cullSkipped": "After a trip import: photos marked rejected in a culling app were not imported.",
+      "recovered": "After a folder scan: photos whose originals had gone missing were found again.",
+      "relinked": "After a folder scan: photos whose files had moved inside the folder were linked to the new paths.",
+      "markedStale": "After a folder scan: {count} photos whose files are gone; they stay in the library, flagged as stale."
     },
     "list": {
-      "buildTrip": "Button: start a new trip by creating a fresh folder and importing photos into it (as opposed to importing an existing trip folder).",
-      "importTrip": "Button: point Lifer at an existing trip folder on disk."
+      "importTrip": "Button: point Lifer at an existing trip folder on disk.",
+      "startTrip": "Button: create a trip now, before taking or importing its photos."
+    },
+    "photoMenu": {
+      "isCover": "Photo menu item when this photo is the trip's cover; choosing it stops using it as the cover.",
+      "coverQuad": "Cover style option: four photos in a 2 by 2 grid.",
+      "adjustPosition": "Menu item: adjust how the cover photo is cropped."
+    },
+    "scanReview": {
+      "summary": "Above the list of photos a trip folder scan found. {ready} is how many already have a species picked.",
+      "notWildlife": "Joined after the summary with a middle dot: photos that look like no wildlife, so they aren't offered for import.",
+      "assignSelected": "Before a species search: give every selected photo that species.",
+      "copiedTo": "{folder} is a folder path on disk."
+    },
+    "start": {
+      "libraryFolder": "Shown as the trip folder's location. Trips/{name} is a folder path inside the user's photo library, keep it as is.",
+      "submit": "Button that creates the trip."
+    },
+    "active": {
+      "badge": "Short label on a trip that's going on now; new imports default to it.",
+      "end": "Button: the trip is over, its end date becomes today.",
+      "markInactive": "Button: stop treating this trip as current, whatever its dates.",
+      "markActive": "Button: treat this trip as current, whatever its dates."
+    },
+    "dates": {
+      "since": "A trip with no end date yet. {date} is its formatted start date."
+    },
+    "checklists": {
+      "clock": "Label of a menu: how far the camera's clock was from the local time at the place.",
+      "clockBehind": "Menu option: the camera's clock showed an earlier time than the place. {hours} is a whole number of hours.",
+      "clockAhead": "Menu option: the camera's clock showed a later time than the place. {hours} is a whole number of hours.",
+      "matched": "Toast after matching photos to eBird checklists. {count} is a number of photos.",
+      "species": "{count} is the number of species on an eBird checklist.",
+      "confirmed": "{count} is a number of photos.",
+      "suggested": "{count} is a number of photos.",
+      "confirm": "Button that links the suggested photos to the eBird checklist. {count} is a number of photos.",
+      "confirmedToast": "{count} is a number of photos, formatted with digit grouping.",
+      "gathered": "Toast after copying a checklist's photos to a folder. {count} is a number of photos."
+    },
+    "suggestions": {
+      "note": "On a trip's page. {name} is the trip, {dates} its formatted date range like May 3 – 10, 2026.",
+      "add": "{count} is how many selected photos join the trip.",
+      "dismiss": "{count} is how many selected photos stop being suggested for this trip."
+    }
+  },
+  "ui": {
+    "select": "Button that turns on multi-select mode in a photo or species grid.",
+    "toast": {
+      "region": "Screen reader name of the area where notification toasts pop up."
+    },
+    "job": {
+      "ofTotal": "Progress of a background job, e.g. \"12 MB of 40 MB\" or \"4 of 11\". {done} and {total} are already formatted."
     }
   },
   "upload": {
     "banner": {
       "keepDrive": "Shown while uploads are being saved to an external drive.",
-      "uploading": "Status pill shown on every page while uploads run in the background. {done} of {total} files finished; the bracketed parts appear only when some files failed or were skipped as duplicates."
+      "uploading": "Status pill shown on every page while uploads run in the background. {done} of {total} files finished; the bracketed parts appear only when some files failed or were skipped as duplicates.",
+      "waiting": "Status pill shown while uploads pause because the server asked them to slow down (rate limit). They carry on by themselves."
     },
     "duplicate": {
       "message": "{fileName} is the uploaded file's name, {species} a species name.",
@@ -168,6 +1443,157 @@
       "descriptionSpecies": "On a species page. RAW: a camera's unprocessed image file (CR3, NEF, ARW...). JPEG: the processed photo.",
       "duplicate": "Lower-case status after a RAW file's name.",
       "filedUnder": "Lower-case status after a RAW file's name. {name} is a species name."
+    }
+  },
+  "volumeDestination": {
+    "disconnected": "{drive} is the name of an external drive registered in Lifer.",
+    "defaultDrive": "Drive picker option. {drive} is an external drive's name."
+  },
+  "compare": {
+    "keep": "Screen-reader name of one of two stacked photos on a phone; tapping it keeps that photo. {position} is top or bottom.",
+    "pickPrompt": "Above two stacked photos on a phone. {step} of {total} counts the comparisons.",
+    "label": "Screen-reader name of the side-by-side comparison of 2 to 4 photos."
+  },
+  "similar": {
+    "groups": "Above the list of groups of near-identical photos (bursts), sorted biggest first."
+  },
+  "placeSuggestions": {
+    "title": "Heading over places Lifer suggests naming: spots with photos from several days that no saved place covers. A count follows it.",
+    "nearTown": "Suggested name for a place, from the nearest town in Lifer's offline town list. {town} is that town.",
+    "unnamed": "A suggested place with no town nearby to name it after.",
+    "photosOnDays": "How many photos a suggested place holds and on how many different days they were taken.",
+    "name": "Opens the Add a saved spot dialog, filled in from the suggestion.",
+    "dismiss": "Turns the suggestion down for good; a toast offers Undo.",
+    "dismissed": "Toast after dismissing a suggested place; has an Undo button.",
+    "dismissFailed": "Error when a suggestion couldn't be dismissed."
+  },
+  "placePicker": {
+    "listLabel": "Accessible name of the drop-down list of the user's own named places.",
+    "group": {
+      "nearby": "Heading in the place list: the user's places closest to the photos.",
+      "recent": "Heading in the place list: places the user filed photos under lately.",
+      "all": "Heading in the place list: every other place, A to Z."
+    },
+    "metres": "A distance under a kilometre, next to a nearby place. {distance} is a formatted number.",
+    "km": "A distance in kilometres, next to a nearby place or as a place's size. {distance} is a formatted number.",
+    "looksLike": "The first row when the photos are inside one of the user's places: offers that place back to them. {name} is the place.",
+    "addNamed": "First row of the place list while the user types a name that isn't one of their places: makes a new place with that name. {name} is what they typed.",
+    "newPlace": "Last row of the place list: makes a new named place by dropping a pin on a map.",
+    "placeholder": "Placeholder of the place picker; the example is a made-up pond name.",
+    "far": "Asked before filing photos under a place they seem far from. {km} is the furthest distance in kilometres.",
+    "fileAnyway": "Files the far photos under the place but keeps their own GPS point.",
+    "moveToo": "Files the far photos under the place and moves their GPS point to the place's centre."
+  },
+  "savedSpots": {
+    "edit": "Menu item: edit a saved place's name, size, town, notes and privacy.",
+    "editLabel": "Accessible name of the inline form editing a place. {name} is the place.",
+    "radiusLabel": "How big a place is (a radius). Photos inside it count as taken there, and it is sent to iNaturalist as the location's accuracy.",
+    "localityLabel": "The town and province a place is in, e.g. Prince George, British Columbia, Canada.",
+    "localityPlaceholder": "Example locality; keep a real town and province.",
+    "localityAuto": "Hint under the town or area field when adding a place and it is empty: Lifer works it out from the place's point.",
+    "localitySource": {
+      "region": "Where the town or area text came from: Lifer filled it in from the province.",
+      "user": "Where the town or area text came from: the user typed it.",
+      "inaturalist": "Where the town or area text came from: the user's iNaturalist observations.",
+      "gazetteer": "Where the town or area text came from: the nearest town in Lifer's offline town list.",
+      "online": "Where the town or area text came from: the place the user picked from online search results.",
+      "townList": "Where the town or area text came from: a town or area the user picked from Lifer's offline town list."
+    },
+    "workOutAgain": "Link under a place's typed town or area: clears it so Lifer fills it in from the nearest town or the province when saved.",
+    "notesLabel": "Free notes about a place (gate code, best season). Private.",
+    "notesHint": "Reassures that notes stay on this computer and are never sent anywhere.",
+    "alsoRename": "Checkbox, ticked by default, when renaming a place: also change the place name on the photos filed under it.",
+    "renamedPhotos": "Toast after renaming a place also renamed it on its photos; has an Undo button.",
+    "nearbyNotIn": "Second line of a place in the list: photos taken inside this place that aren't filed under it.",
+    "lastUsed": "When photos were last filed under this place. {when} is relative, like 3 days ago."
+  },
+  "placeSearch": {
+    "onlineResults": "Heading over the place search results found online (after the user's saved spots and regions).",
+    "onlineUnavailable": "Quiet line under the place search results when the online search failed or is paused; offline results still show.",
+    "credit": "Credit under online place results. {credit} is the provider and data credit, kept untranslated.",
+    "notice": "Shown once, under the place search results, the first time an online search is made. Says plainly what is sent and to whom.",
+    "gotIt": "Dismisses the one-time online place search notice for good.",
+    "turnOff": "Turns online place search and names off from the one-time notice.",
+    "kind": {
+      "town": "Place type after an online result's name: a city, town or village.",
+      "park": "Place type: a park or nature reserve.",
+      "water": "Place type: a lake, river or other water.",
+      "address": "Place type: a street or street address.",
+      "region": "Place type: a county, province, state or country."
+    },
+    "searchingOnline": "Quiet line under the place search results while the online search hasn't answered yet (it can be slow on a weak connection). Not an error."
+  },
+  "mapRegion": {
+    "pathLabel": "Accessible name of the breadcrumb over the map, like World / Canada / British Columbia.",
+    "world": "First step of the map breadcrumb: the whole world, zoomed out.",
+    "resetView": "Button over the map in a country or province: return to that region's designed framing.",
+    "resetViewHelp": "Tooltip line for Reset view. North up means the map is not rotated or tilted.",
+    "alsoIn": "Menu button beside the map breadcrumb listing far parts of a region left out of its view, like Svalbard for Norway. {region} is the region's name.",
+    "keepZooming": "Brief hint over the map while the user zooms out past a framed region's view; zooming out further leaves it for the next level up. {region} is the region's name, like British Columbia."
+  },
+  "shortcuts": {
+    "scope": {
+      "map": "Heading in the keyboard shortcut sheet: keys that work on the map."
+    },
+    "action": {
+      "undoLocation": "Keyboard shortcut sheet: Cmd/Ctrl+Z on the map puts back the latest location change."
+    }
+  },
+  "mapCredits": {
+    "title": "Name and tooltip of the small info button in the bottom-right corner of every map, and the heading of the popover it opens: each map data source's full credit and licence.",
+    "alsoUsed": "Heading in the map credits popover over sources the map can show but isn't showing now (offline relief, online detail, satellite)."
+  },
+  "sendPlace": {
+    "title": "Title of the step that files photos under one of the user's named places before sending them to iNaturalist.",
+    "titleWithout": "Same step, from the Gallery's Send to iNaturalist, when some photos have no location yet.",
+    "looksLike": "Offered when the photos were taken at or next to one of the user's named places but aren't filed under it. {name} is the place.",
+    "useIt": "Button after the looks-like line: files the photos under that place.",
+    "send": "Main button of the place step: files the photos under the chosen place, then sends them to iNaturalist.",
+    "setPlace": "Button and menu item: file these photos under one of the user's named places (no send).",
+    "setPlaceAndSend": "Selection bar action on the iNaturalist To send tab: choose a place for the selected sightings, then send them.",
+    "sendWithout": "Quiet second button: sends to iNaturalist without a location, to be placed on iNaturalist later.",
+    "sentObscured": "Short line on a sighting: its place's privacy is obscured, so iNaturalist will show only a rough area.",
+    "sentPrivate": "Short line on a sighting: its place's privacy is private, so iNaturalist will hide the location.",
+    "failed": "Error under the place step when filing the photos under the place failed."
+  },
+  "timeLeft": {
+    "measuring": "Shown under a progress bar until the time left can be measured, like a file copy's first moments."
+  },
+  "packProgress": {
+    "item": "{name} is a download, like Canada birds; {current} of {total} counts the downloads in this run.",
+    "places": "{name} is a download, like Canada birds. Shown while its birding spots are added.",
+    "alsoSettingUp": "{name} is a download being set up while another downloads, like Belize birds."
+  },
+  "onboarding": {
+    "done": {
+      "downloadMore": "Last line of the finish screen. <a> wraps a link to the Species downloads page; keep the path matching the Settings labels."
+    },
+    "setup": {
+      "description": "{country} is the first country the user chose, like Canada."
+    }
+  },
+  "movedPhotos": {
+    "found": "Toast after Lifer updated where moved photos are, with an Undo button.",
+    "undone": "Toast after Undo put the photos' old locations back.",
+    "tripFolderMoved": "{trip} is a trip name, like Costa Rica 2026; {folder} a full folder path. Shown with Use it and Not now buttons.",
+    "unreadable": "Appended to No moved photos found: folders skipped because Lifer isn't allowed to read them.",
+    "settings": {
+      "always": "{count} is how many trips the user has; only used to pick the wording.",
+      "batch": "A row in the list of recent relinks. {date} is a formatted date and time.",
+      "batchTrip": "A row for a trip whose folder Lifer updated. {trip} is the trip name, {date} a formatted date and time."
+    },
+    "reviewDialog": {
+      "showingFirst": "{shown} and {total} are formatted numbers."
+    }
+  },
+  "versions": {
+    "badge": "A small badge on a photo thumbnail: how many versions (prints, edits, exports) the photo has.",
+    "label": {
+      "withSize": "A version's name with its print size: {kind} is a version kind like Print, {size} a size like 8x10."
+    },
+    "showingAll": "Under the Gallery title when every version is listed as its own photo. {count} is the number of items listed.",
+    "notice": {
+      "found": "Shown after Lifer grouped prints, edits and exports of photos. {versions} files were grouped under {photos} photos."
     }
   }
 }

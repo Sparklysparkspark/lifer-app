@@ -54,3 +54,54 @@ export function justifyRows(
 export function gridGapFor(sizePx: number): number {
   return Math.min(8, Math.max(2, Math.round((sizePx - 100) / 20)));
 }
+
+/** Each row's top, given every row's full height (image plus caption) and the gap between rows. */
+export function rowTops(heights: readonly number[], gap: number): number[] {
+  const tops = new Array<number>(heights.length);
+  let y = 0;
+  for (let r = 0; r < heights.length; r++) {
+    tops[r] = y;
+    y += heights[r] + gap;
+  }
+  return tops;
+}
+
+/** First and last row overlapping [viewTop, viewBottom), both in grid coordinates. first > last
+ *  when no row does. Binary search, so it stays cheap for tens of thousands of rows. */
+export function visibleRows(
+  tops: readonly number[],
+  heights: readonly number[],
+  viewTop: number,
+  viewBottom: number,
+): [number, number] {
+  let lo = 0;
+  let hi = tops.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (tops[mid] + heights[mid] > viewTop) hi = mid;
+    else lo = mid + 1;
+  }
+  const first = lo;
+  hi = tops.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (tops[mid] < viewBottom) lo = mid + 1;
+    else hi = mid;
+  }
+  return [first, lo - 1];
+}
+
+/** How far content moved down when rows changed height from `prevHeights` to `heights`, counting
+ *  only rows that lay entirely above `viewTop` (grid coordinates, from the previous layout's
+ *  `tops`): scrolling by it keeps what's on screen still. Rows below the top edge just push the
+ *  content under them, as expected. */
+export function scrollShiftAbove(
+  tops: readonly number[],
+  prevHeights: readonly number[],
+  heights: readonly number[],
+  viewTop: number,
+): number {
+  let shift = 0;
+  for (let r = 0; r < tops.length && tops[r] + prevHeights[r] <= viewTop; r++) shift += heights[r] - prevHeights[r];
+  return shift;
+}

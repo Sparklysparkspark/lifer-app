@@ -1,13 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useLocation, useNavigationType } from "react-router-dom";
 
-// Where a long, progressively revealed list was scrolled to, and how many of its cards were
-// showing, kept per history entry so Back returns to the same spot. The browser's own restoration
-// can't: it scrolls before the list has loaded and revealed enough cards, so the page is still
-// too short and the position clamps.
+// Where a long list was scrolled to, kept per history entry so Back returns to the same spot. The
+// browser's own restoration can't: it scrolls before the list has loaded, so the page is still too
+// short and the position clamps.
 interface SavedScroll {
   y: number;
-  visible: number;
   /** The [data-scroll-anchor] element at the top of the screen, and how far below the top it was:
    *  content above it (a map, a banner) can load at a different height after Back. */
   anchor?: { id: string; top: number };
@@ -25,10 +23,30 @@ function topAnchor(): SavedScroll["anchor"] {
   return undefined;
 }
 
+// Windowed lists leave far-off cards unmounted; each registers where its cards would be (their
+// top relative to the screen, like getBoundingClientRect), or null for one it doesn't hold.
+type AnchorLocator = (id: string) => number | null;
+const anchorLocators = new Set<AnchorLocator>();
+
+export function registerAnchorLocator(locate: AnchorLocator): () => void {
+  anchorLocators.add(locate);
+  return () => anchorLocators.delete(locate);
+}
+
+function anchorTop(id: string): number | null {
+  const el = document.querySelector<HTMLElement>(`[data-scroll-anchor="${CSS.escape(id)}"]`);
+  if (el) return el.getBoundingClientRect().top;
+  for (const locate of anchorLocators) {
+    const top = locate(id);
+    if (top != null) return top;
+  }
+  return null;
+}
+
 function scrollToAnchor(anchor: NonNullable<SavedScroll["anchor"]>): boolean {
-  const el = document.querySelector<HTMLElement>(`[data-scroll-anchor="${CSS.escape(anchor.id)}"]`);
-  if (!el) return false;
-  window.scrollBy(0, el.getBoundingClientRect().top - anchor.top);
+  const top = anchorTop(anchor.id);
+  if (top == null) return false;
+  window.scrollBy(0, top - anchor.top);
   return true;
 }
 
@@ -39,9 +57,7 @@ function read(historyKey: string): SavedScroll | null {
     const raw = sessionStorage.getItem(storageKey(historyKey));
     if (!raw) return null;
     const parsed = JSON.parse(raw) as Partial<SavedScroll>;
-    return typeof parsed.y === "number" && typeof parsed.visible === "number"
-      ? { y: parsed.y, visible: parsed.visible, anchor: parsed.anchor }
-      : null;
+    return typeof parsed.y === "number" ? { y: parsed.y, anchor: parsed.anchor } : null;
   } catch {
     return null;
   }
@@ -55,24 +71,14 @@ function write(historyKey: string, value: SavedScroll): void {
   }
 }
 
-/** Remembers the window's scroll position and the list's revealed card count for this history
- *  entry, and restores both on Back/Forward once `ready` (the list has rendered). Pass the returned
- *  values to the list: `initialVisibleCount` reveals as many cards as before so the old position
- *  exists, and `onVisibleCountChange` keeps the saved count current. */
-export function useScrollMemory(ready: boolean): {
-  initialVisibleCount: number | undefined;
-  onVisibleCountChange: (count: number) => void;
-} {
+/** Remembers the window's scroll position (and the card at the top of the screen) for this
+ *  history entry, and restores it on Back/Forward once `ready` (the list has rendered). */
+export function useScrollMemory(ready: boolean): void {
   const { key } = useLocation();
   const navigationType = useNavigationType();
   // Read once per history entry: only a Back/Forward (POP) returns to a saved spot.
   const [saved] = useState(() => (navigationType === "POP" ? read(key) : null));
-  const visibleRef = useRef(saved?.visible ?? 0);
   const restored = useRef(false);
-
-  const onVisibleCountChange = useCallback((count: number) => {
-    visibleRef.current = count;
-  }, []);
 
   useEffect(() => {
     let frame = 0;
@@ -81,7 +87,7 @@ export function useScrollMemory(ready: boolean): {
     // positions taken while the history entry is still this one are kept.
     let y = window.scrollY;
     let anchor = topAnchor();
-    const save = () => write(key, { y, visible: visibleRef.current, anchor });
+    const save = () => write(key, { y, anchor });
     const onScroll = () => {
       // React Router calls the first page of a visit "default"; that entry has no key of its own.
       if (((window.history.state as { key?: string } | null)?.key ?? "default") !== key) return;
@@ -107,7 +113,7 @@ export function useScrollMemory(ready: boolean): {
     const restore = () => {
       if (!saved.anchor || !scrollToAnchor(saved.anchor)) window.scrollTo(0, saved.y);
     };
-    // Two frames: the revealed cards lay out (and fit their names) before the scroll is applied.
+    // Two frames: the cards lay out (and fit their names) before the scroll is applied.
     let second = 0;
     const first = requestAnimationFrame(() => {
       second = requestAnimationFrame(restore);
@@ -128,6 +134,4 @@ export function useScrollMemory(ready: boolean): {
       stop();
     };
   }, [ready, saved]);
-
-  return { initialVisibleCount: saved?.visible || undefined, onVisibleCountChange };
 }

@@ -9,6 +9,8 @@
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <link rel="manifest" href="/manifest.json" />
     <meta name="theme-color" content="#141516" />
+    <!-- Sets the theme class before first paint (an inline script is blocked by the desktop CSP). -->
+    <script src="/theme-boot.js"></script>
   </head>
   <body>
     <div id="root"></div>

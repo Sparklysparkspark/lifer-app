@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const get = vi.fn();
 vi.mock("../api/client", () => ({ api: { get: (...args: unknown[]) => get(...args) } }));
 
-const { createCachedResource, createStore, onAccountReset, resetAccountCaches, useApiResource } =
+const { createCachedResource, createStore, onAccountReset, prefetchApiResource, resetAccountCaches, useApiResource } =
   await import("./resource");
 
 function deferred<T>() {
@@ -35,7 +35,7 @@ describe("createCachedResource", () => {
   });
 
   it("keeps the last good data when a refresh fails, and retries on the next load after a first failure", async () => {
-    const things = createCachedResource<number>("/n");
+    const things = createCachedResource<number>("/n", (r) => r);
     get.mockRejectedValueOnce(new Error("offline")).mockResolvedValueOnce(1).mockRejectedValueOnce(new Error("down"));
     await expect(things.load()).rejects.toThrow("offline");
     expect(things.getState()).toMatchObject({ data: null, error: expect.any(Error) });
@@ -45,7 +45,7 @@ describe("createCachedResource", () => {
   });
 
   it("drops a response that lands after an account reset", async () => {
-    const things = createCachedResource<string>("/me");
+    const things = createCachedResource<string>("/me", (r) => r);
     const pending = deferred<string>();
     get.mockReturnValueOnce(pending.promise);
     const stale = things.load();
@@ -56,7 +56,7 @@ describe("createCachedResource", () => {
   });
 
   it("patches the cached copy locally once loaded", async () => {
-    const things = createCachedResource<{ n: number }>("/obj");
+    const things = createCachedResource<{ n: number }>("/obj", (r) => r);
     things.setLocal((d) => ({ n: d.n + 1 }));
     expect(things.getState().data).toBeNull();
     get.mockResolvedValue({ n: 1 });
@@ -66,7 +66,7 @@ describe("createCachedResource", () => {
   });
 
   it("loads on mount and re-renders subscribers", async () => {
-    const things = createCachedResource<string>("/hook");
+    const things = createCachedResource<string>("/hook", (r) => r);
     get.mockResolvedValue("hello");
     const { result } = renderHook(() => things.use());
     expect(result.current.loading).toBe(true);
@@ -75,7 +75,7 @@ describe("createCachedResource", () => {
   });
 
   it("doesn't load while disabled", () => {
-    const things = createCachedResource<string>("/off");
+    const things = createCachedResource<string>("/off", (r) => r);
     renderHook(() => things.use(false));
     expect(get).not.toHaveBeenCalled();
   });
@@ -147,5 +147,62 @@ describe("useApiResource", () => {
     act(() => result.current.setData((d) => (d ? { ...d, items: [1] } : d)));
     expect(result.current.data?.items).toEqual([1]);
     expect(get).not.toHaveBeenCalled();
+  });
+
+  it("opens again on the last answer and swaps in the fresh one when it lands", async () => {
+    get.mockResolvedValueOnce("v1");
+    const first = renderHook(() => useApiResource<string>("/stats"));
+    await waitFor(() => expect(first.result.current.data).toBe("v1"));
+    first.unmount();
+
+    const fresh = deferred<string>();
+    get.mockReturnValueOnce(fresh.promise);
+    const second = renderHook(() => useApiResource<string>("/stats"));
+    expect(second.result.current).toMatchObject({ data: "v1", loading: false });
+    expect(get).toHaveBeenCalledTimes(2);
+    await act(async () => fresh.resolve("v2"));
+    expect(second.result.current.data).toBe("v2");
+  });
+
+  it("keeps local edits for the next visit", async () => {
+    get.mockResolvedValueOnce(["a", "b"]).mockReturnValueOnce(new Promise(() => {}));
+    const first = renderHook(() => useApiResource<string[]>("/albums/x"));
+    await waitFor(() => expect(first.result.current.data).toEqual(["a", "b"]));
+    act(() => first.result.current.setData((d) => d?.filter((v) => v !== "b") ?? d));
+    first.unmount();
+    const second = renderHook(() => useApiResource<string[]>("/albums/x"));
+    expect(second.result.current.data).toEqual(["a"]);
+  });
+
+  it("starts empty after an account reset, and never keeps a custom fetcher's answer", async () => {
+    get.mockResolvedValueOnce("mine");
+    const first = renderHook(() => useApiResource<string>("/trips"));
+    await waitFor(() => expect(first.result.current.data).toBe("mine"));
+    first.unmount();
+    resetAccountCaches();
+    get.mockReturnValueOnce(new Promise(() => {}));
+    expect(renderHook(() => useApiResource<string>("/trips")).result.current.data).toBeNull();
+
+    const fetcher = vi.fn(async () => "combined");
+    const custom = renderHook(() => useApiResource("/both", fetcher));
+    await waitFor(() => expect(custom.result.current.data).toBe("combined"));
+    custom.unmount();
+    fetcher.mockReturnValueOnce(new Promise(() => {}));
+    expect(renderHook(() => useApiResource("/both", fetcher)).result.current.data).toBeNull();
+  });
+});
+
+describe("prefetchApiResource", () => {
+  it("warms a path once, so opening it draws at once", async () => {
+    const answer = deferred<{ name: string }>();
+    get.mockReturnValueOnce(answer.promise);
+    prefetchApiResource("/albums/a?limit=200");
+    prefetchApiResource("/albums/a?limit=200");
+    expect(get).toHaveBeenCalledTimes(1);
+    await act(async () => answer.resolve({ name: "Birds" }));
+    get.mockReturnValueOnce(new Promise(() => {}));
+    expect(renderHook(() => useApiResource("/albums/a?limit=200")).result.current.data).toEqual({ name: "Birds" });
+    prefetchApiResource("/albums/a?limit=200");
+    expect(get).toHaveBeenCalledTimes(2);
   });
 });

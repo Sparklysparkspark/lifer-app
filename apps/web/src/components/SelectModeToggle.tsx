@@ -1,6 +1,5 @@
-// Same look as the inactive Filters pill beside it; a plain button since it isn't a toggle state.
-const CLASSES =
-  "inline-flex items-center justify-center h-8 rounded-md border border-line px-3 text-xs font-medium text-muted transition-colors hover:bg-surface-muted";
+import { useTranslation } from "react-i18next";
+import Button from "./Button";
 
 // The Select/Cancel toggle every multi-select grid uses.
 export default function SelectModeToggle({
@@ -12,9 +11,11 @@ export default function SelectModeToggle({
   onEnter: () => void;
   onExit: () => void;
 }) {
+  const { t } = useTranslation();
   return (
-    <button type="button" onClick={active ? onExit : onEnter} className={CLASSES}>
-      {active ? "Cancel" : "Select"}
-    </button>
+    // Same look as the inactive Filters pill beside it; a plain button since it isn't a toggle state.
+    <Button variant="secondary" size="sm" onClick={active ? onExit : onEnter}>
+      {active ? t("common.cancel") : t("ui.select")}
+    </Button>
   );
 }

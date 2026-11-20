@@ -1,5 +1,5 @@
 import { useTranslation } from "react-i18next";
-import { useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import Button from "../components/Button";
 import FormMessage from "../components/FormMessage";
 import PageHeader from "../components/PageHeader";
@@ -9,12 +9,16 @@ import { GROUPS } from "./settings/groups";
 import { useSettings } from "../hooks/useSettings";
 import { errorMessage } from "../lib/errorMessage";
 import { ignore } from "../lib/ignore";
+import RegionsSettings from "./settings/RegionsSettings";
 
-export default function SettingsPage() {
+/** `subpage`: a page inside a group (Species downloads, inside Species and import), which keeps
+ *  that group lit in the sidebar and leads back to it. */
+export default function SettingsPage({ subpage }: { subpage?: "downloads" }) {
   const { t } = useTranslation();
   const deploymentMode = useDeploymentMode();
   const isTauri = useIsTauri();
-  const { groupId } = useParams<{ groupId?: string }>();
+  const params = useParams<{ groupId?: string }>();
+  const groupId = subpage ? "species" : params.groupId;
   const { settings, error: settingsError, refresh } = useSettings();
 
   const visibleGroups = GROUPS.filter((g) => g.visible({ mode: deploymentMode, isTauri }));
@@ -30,10 +34,15 @@ export default function SettingsPage() {
     <div className="flex-1 bg-canvas">
       <PageHeader sticky topLevel title={t("settings.title")} />
 
-      <main className="mx-auto flex max-w-6xl flex-col gap-section p-page md:flex-row">
-        <SettingsSidebar groups={visibleGroups} activeId={active?.id ?? ""} />
+      {/* The group list is a full-height column beside the app's sidebar, like Mail's or Notes',
+          and the panel keeps a reading width beside it, so a wide window leaves its spare room on
+          the right instead of floating the whole page in the middle. */}
+      <main className="flex flex-col md:min-h-[calc(100vh-var(--mac-title-bar,0px))] md:flex-row">
+        <div className="shrink-0 border-line px-page pt-page md:border-r md:px-3 md:pb-page">
+          <SettingsSidebar groups={visibleGroups} activeId={active?.id ?? ""} />
+        </div>
 
-        <div className="min-w-0 flex-1 space-y-section">
+        <div className="min-w-0 max-w-3xl flex-1 space-y-section p-page">
           {!settings && settingsError != null && (
             <div className="space-y-2">
               <FormMessage error={errorMessage(settingsError, t("settings.loadFailed"))} />
@@ -46,7 +55,16 @@ export default function SettingsPage() {
               </Button>
             </div>
           )}
-          {active && <active.Component key={active.id} />}
+          {subpage ? (
+            <>
+              <Link to={`/settings/${groupId}`} className="text-callout text-link hover:underline">
+                {t("settings.downloads.back", { group: active?.label ?? "" })}
+              </Link>
+              <RegionsSettings />
+            </>
+          ) : (
+            active && <active.Component key={active.id} />
+          )}
         </div>
       </main>
     </div>

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { errorMessage } from "./errorMessage";
 
 describe("errorMessage", () => {
@@ -17,6 +17,19 @@ describe("errorMessage", () => {
     expect(errorMessage({ ok: false, status: 502, statusText: "Bad Gateway" }, "Couldn't check")).toBe(
       "Couldn't check (502 Bad Gateway)",
     );
+  });
+  it("says a request that got no answer in plain words, offline or not", () => {
+    vi.stubGlobal("navigator", { onLine: true });
+    expect(errorMessage(new TypeError("Failed to fetch"), "fallback")).toBe(
+      "Couldn't reach Lifer. Check your connection and try again.",
+    );
+    vi.stubGlobal("navigator", { onLine: false });
+    expect(errorMessage(new TypeError("Load failed"), "fallback")).toBe(
+      "You're offline. Check your connection and try again.",
+    );
+    vi.unstubAllGlobals();
+    // Other TypeErrors are bugs with their own message.
+    expect(errorMessage(new TypeError("x is not a function"), "fallback")).toBe("x is not a function");
   });
   it("falls back for empty or unknown values", () => {
     expect(errorMessage("", "fallback")).toBe("fallback");

@@ -77,11 +77,9 @@ export function createCachedRoute<P extends ApiRoute<"get">, T>(
   return createCachedResource<T, ApiResponse<P>>(path, select);
 }
 
-/** One cached GET shared by the whole app, cleared with the other account caches on sign-in/out. */
-export function createCachedResource<T, Raw = T>(
-  path: string,
-  select: (raw: Raw) => T = (raw) => raw as unknown as T,
-): CachedResource<T> {
+/** One cached GET shared by the whole app, cleared with the other account caches on sign-in/out.
+ *  `select` is required so an untyped path never passes its answer through unchecked. */
+export function createCachedResource<T, Raw = T>(path: string, select: (raw: Raw) => T): CachedResource<T> {
   const store = createStore<ResourceState<T>>({ data: null, error: null });
   let pending: Promise<T> | null = null;
   let generation = 0;
@@ -155,6 +153,29 @@ export interface ApiResource<T> {
 
 const getJson = <T>(path: string, signal: AbortSignal) => api.get<T>(path, { signal });
 
+// The last answer per plain GET path, so a page opened again draws at once while it refetches.
+// Bounded, oldest out first; a custom fetcher's answers aren't kept (its path is only a key).
+const RECENT_MAX = 50;
+const recent = new Map<string, unknown>();
+onAccountReset(() => recent.clear());
+
+function remember(path: string, data: unknown): void {
+  recent.delete(path);
+  recent.set(path, data);
+  if (recent.size > RECENT_MAX) recent.delete(recent.keys().next().value!);
+}
+
+const warming = new Set<string>();
+/** Fetches a plain GET path into the kept answers (a card hovered), so opening it draws at once. */
+export function prefetchApiResource(path: string): void {
+  if (recent.has(path) || warming.has(path)) return;
+  warming.add(path);
+  api
+    .get(path)
+    .then((data) => remember(path, data), ignore(`Couldn't prefetch ${path}`))
+    .finally(() => warming.delete(path));
+}
+
 /** useApiResource for one route, typed by its response schema: `useApiRoute(apiPath(...))`. */
 export function useApiRoute<P extends ApiRoute<"get">>(path: ApiPath<P> | null): ApiResource<ApiResponse<P>> {
   return useApiResource<ApiResponse<P>>(path);
@@ -162,20 +183,25 @@ export function useApiRoute<P extends ApiRoute<"get">>(path: ApiPath<P> | null):
 
 /** One page's data, keyed by its path (null skips it). A new path drops the previous path's data
  *  in the same render and aborts its request, so a late answer for an old id can never show under
- *  the new one. `fetcher` replaces the plain GET, e.g. to load several requests as one. */
+ *  the new one. A plain GET starts from its last answer, if any, and refetches quietly.
+ *  `fetcher` replaces the plain GET, e.g. to load several requests as one. */
 export function useApiResource<T>(
   path: string | null,
   fetcher: (path: string, signal: AbortSignal) => Promise<T> = getJson,
 ): ApiResource<T> {
-  const [state, setState] = useState<{ path: string | null; data: T | null; error: unknown }>({
+  const cached = (p: string | null) =>
+    p !== null && fetcher === getJson ? ((recent.get(p) as T | undefined) ?? null) : null;
+  const [state, setState] = useState<{ path: string | null; data: T | null; error: unknown }>(() => ({
     path,
-    data: null,
+    data: cached(path),
     error: null,
-  });
-  if (state.path !== path) setState({ path, data: null, error: null });
-  const current = state.path === path ? state : { path, data: null, error: null };
+  }));
+  if (state.path !== path) setState({ path, data: cached(path), error: null });
+  const current = state.path === path ? state : { path, data: cached(path), error: null };
+  const keep = fetcher === getJson;
 
   const fetcherRef = useLatest(fetcher);
+  const keepRef = useLatest(keep);
   const pathRef = useLatest(path);
   const controller = useRef<AbortController | null>(null);
 
@@ -186,7 +212,9 @@ export function useApiResource<T>(
       controller.current = mine;
       return fetcherRef.current(target, mine.signal).then(
         (data) => {
-          if (!mine.signal.aborted) setState({ path: target, data, error: null });
+          if (mine.signal.aborted) return;
+          if (keepRef.current) remember(target, data);
+          setState({ path: target, data, error: null });
         },
         (error) => {
           if (mine.signal.aborted) return;
@@ -194,7 +222,7 @@ export function useApiResource<T>(
         },
       );
     },
-    [fetcherRef],
+    [fetcherRef, keepRef],
   );
 
   useEffect(() => {
@@ -209,9 +237,15 @@ export function useApiResource<T>(
     setState((prev) => (prev.path === target ? { ...prev, error: null } : prev));
     return run(target);
   }, [pathRef, run]);
+  // Local edits reach the kept copy too, so coming back doesn't briefly undo them.
   const setData = useCallback(
-    (update: (prev: T | null) => T | null) => setState((prev) => ({ ...prev, data: update(prev.data) })),
-    [],
+    (update: (prev: T | null) => T | null) =>
+      setState((prev) => {
+        const data = update(prev.data);
+        if (keepRef.current && prev.path !== null && data !== null) remember(prev.path, data);
+        return { ...prev, data };
+      }),
+    [keepRef],
   );
 
   return {

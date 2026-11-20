@@ -11,7 +11,7 @@ function InlineText({ parts }: { parts: Inline[] }) {
       );
     if (p.type === "code")
       return (
-        <code key={i} className="rounded bg-surface px-1 text-xs">
+        <code key={i} className="rounded-badge bg-surface px-1 text-footnote">
           {p.text}
         </code>
       );

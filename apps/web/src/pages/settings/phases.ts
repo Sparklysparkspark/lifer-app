@@ -98,4 +98,5 @@ export const APP_UPDATE_PHASES: PhaseLabels = {
 export const REIMPORT_PHASES: PhaseLabels = {
   jpegs: { label: "Reading photos", progress: "count" },
   raws: { label: "Matching RAW files", progress: "count" },
+  suggestions: { label: "Looking up unmatched photos on iNaturalist", progress: "count" },
 };

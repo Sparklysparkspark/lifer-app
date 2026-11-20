@@ -1,10 +1,11 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import { BrowserRouter } from "react-router-dom";
+import { TransitionRouter } from "./components/TransitionRouter";
 import { AuthProvider } from "./components/AuthProvider";
 import { ThemeProvider } from "./components/ThemeProvider";
 import App from "./App";
 import LocaleBoundary from "./components/LocaleBoundary";
+import CrashBoundary from "./components/CrashBoundary";
 import { applyLocalePreference, readCachedLocalePreference } from "./i18n";
 import { tauriCurrentWindow, tauriInvoke } from "./lib/tauri";
 import { ignore } from "./lib/ignore";
@@ -80,13 +81,15 @@ void Promise.allSettled([startLocalApiSession(invoke), applyLocalePreference(rea
     createRoot(document.getElementById("root")!).render(
       <StrictMode>
         <ThemeProvider>
-          <BrowserRouter>
+          <TransitionRouter>
             <AuthProvider>
               <LocaleBoundary>
-                <App />
+                <CrashBoundary reloadOnRetry>
+                  <App />
+                </CrashBoundary>
               </LocaleBoundary>
             </AuthProvider>
-          </BrowserRouter>
+          </TransitionRouter>
         </ThemeProvider>
       </StrictMode>,
     );

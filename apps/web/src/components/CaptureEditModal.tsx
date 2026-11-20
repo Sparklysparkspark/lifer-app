@@ -1,18 +1,25 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { api, apiPath } from "../api/client";
+import { formatPercent } from "../lib/format";
+import { ignore } from "../lib/ignore";
+import { useSpeciesName } from "../lib/speciesName";
 import Button from "./Button";
 import Modal from "./Modal";
-import { TagEditor } from "./Lightbox";
-import RegionBrowser from "./RegionBrowser";
-import SpeciesPicker from "./SpeciesPicker";
+import ProbableGroupText from "./ProbableGroupText";
+import TagEditor from "./TagEditor";
+import SpeciesPicker, { type SpeciesResult, type SuggestedSpecies } from "./SpeciesPicker";
 
 /** What the dialogs read from the photo; pages map their own row shape to this. */
 export interface EditedCapture {
+  /** Lets "Correct the ID" offer the photo's likeliest other species. */
+  captureId?: string;
   tags: string[];
   locationLabel?: string | null;
   regionId?: string | null;
 }
 
-export type CaptureEdit = "reassign" | "tagSpecies" | "location" | "tags";
+export type CaptureEdit = "reassign" | "tagSpecies" | "tags";
 
 // A photo menu's longer edits, each in its own dialog so the menu stays a plain list of actions. A
 // page passes the handlers for the edits its menu offers.
@@ -22,7 +29,6 @@ export default function CaptureEditModal({
   onClose,
   onReassign,
   onTagSpecies,
-  onSaveLocation,
   tagOptions,
   onTagsChange,
 }: {
@@ -32,57 +38,55 @@ export default function CaptureEditModal({
   /** Tags save as they're added or removed, like everywhere else tags are edited. */
   onTagsChange: (tags: string[]) => void;
   onClose: () => void;
-  onReassign: (speciesId: string) => void;
+  onReassign: (species: SpeciesResult) => void;
   onTagSpecies?: (speciesId: string) => void;
-  onSaveLocation?: (label: string, regionId: string | null) => void;
 }) {
+  const { t } = useTranslation();
   if (edit === "tags")
     return (
       <Modal
         open
         onClose={onClose}
-        title="Tags"
+        title={t("captureEdit.tags")}
         footer={
           <Button variant="secondary" onClick={onClose}>
-            Done
+            {t("common.done")}
           </Button>
         }
       >
         <TagEditor compact tags={capture.tags} existingTags={tagOptions} onChange={onTagsChange} />
       </Modal>
     );
-  if (edit === "location")
-    return (
-      <LocationModal
-        capture={capture}
-        onClose={onClose}
-        onSave={(label, regionId) => onSaveLocation?.(label, regionId)}
-      />
-    );
   const reassign = edit === "reassign";
   return (
     <Modal
       open
       onClose={onClose}
-      title={reassign ? "Correct the ID" : "Also features another species"}
-      size="md"
+      title={reassign ? t("captureEdit.reassign.title") : t("captureEdit.tagSpecies.title")}
       footer={
         <Button variant="secondary" onClick={onClose}>
-          Cancel
+          {t("common.cancel")}
         </Button>
       }
     >
-      <p className="mb-3 text-sm text-muted">
-        {reassign
-          ? "Moves this photo to the species it really shows."
-          : "Keeps this photo here and also lists it under the other species."}
+      <p className="mb-3 text-callout text-muted">
+        {reassign ? t("captureEdit.reassign.description") : t("captureEdit.tagSpecies.description")}
       </p>
+      {reassign && capture.captureId && (
+        <LikelySpecies
+          captureId={capture.captureId}
+          onSelect={(s) => {
+            onReassign(s);
+            onClose();
+          }}
+        />
+      )}
       <SpeciesPicker
         autoFocus
         inline
-        placeholder="Search species"
+        placeholder={t("captureEdit.searchSpecies")}
         onSelect={(s) => {
-          if (reassign) onReassign(s.id);
+          if (reassign) onReassign(s);
           else onTagSpecies?.(s.id);
           onClose();
         }}
@@ -91,57 +95,50 @@ export default function CaptureEditModal({
   );
 }
 
-function LocationModal({
-  capture,
-  onClose,
-  onSave,
-}: {
-  capture: EditedCapture;
-  onClose: () => void;
-  onSave: (label: string, regionId: string | null) => void;
-}) {
-  const [label, setLabel] = useState(capture.locationLabel ?? "");
-  const [regionId, setRegionId] = useState(capture.regionId ?? null);
-
-  function submit(e: FormEvent) {
-    e.preventDefault();
-    onSave(label, regionId);
-    onClose();
-  }
-
+// The photo's next-best matches, from the vector stored at import. Nothing shows without one.
+function LikelySpecies({ captureId, onSelect }: { captureId: string; onSelect: (s: SpeciesResult) => void }) {
+  const { t } = useTranslation();
+  const speciesName = useSpeciesName();
+  const [suggestions, setSuggestions] = useState<SuggestedSpecies[]>([]);
+  useEffect(() => {
+    const controller = new AbortController();
+    api
+      .get(apiPath("/captures/{id}/suggestions", { id: captureId }), { signal: controller.signal })
+      .then((res) => setSuggestions(res.suggestions))
+      // Optional: the search below still works.
+      .catch(ignore("Couldn't load species suggestions"));
+    return () => controller.abort();
+  }, [captureId]);
+  if (suggestions.length === 0) return null;
   return (
-    <Modal
-      open
-      onClose={onClose}
-      title="Location"
-      footer={
-        <>
-          <Button variant="secondary" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button type="submit" form="capture-location-form">
-            Save
-          </Button>
-        </>
-      }
-    >
-      <form id="capture-location-form" onSubmit={submit} className="space-y-4">
-        <label className="block text-sm">
-          <span className="mb-1 block text-muted">Place name</span>
-          <input
-            type="text"
-            autoFocus
-            value={label}
-            onChange={(e) => setLabel(e.target.value)}
-            placeholder="e.g. Prince George"
-            className="w-full rounded-md border border-line bg-surface px-2 py-1.5 text-sm text-ink outline-none focus:border-accent"
-          />
-        </label>
-        <div className="text-sm">
-          <p className="mb-1 text-muted">Region</p>
-          <RegionBrowser regionId={regionId} onChange={setRegionId} allowAnyRegion />
-        </div>
-      </form>
-    </Modal>
+    <div className="mb-3">
+      <p className="mb-1 text-footnote font-medium text-muted">{t("captureEdit.couldAlsoBe")}</p>
+      {suggestions[0].probably && (
+        <p className="mb-1 text-footnote text-muted wrap-anywhere">
+          <ProbableGroupText group={suggestions[0].probably} />
+        </p>
+      )}
+      <ul className="divide-y divide-line overflow-hidden rounded-panel border border-line">
+        {suggestions.map((s) => (
+          <li key={s.id}>
+            {/* raw-control: a row of the suggestion list. */}
+            <button
+              type="button"
+              onClick={() => onSelect(s)}
+              className="flex w-full items-baseline justify-between gap-3 px-3 py-2 text-left text-callout hover:bg-surface-muted focus-visible:outline-offset-[-2px]"
+            >
+              <span className="truncate text-ink">
+                {speciesName({ commonName: s.common_name, scientificName: s.scientific_name })}
+              </span>
+              {s.matchPercent != null && (
+                <span className="shrink-0 text-footnote text-muted">
+                  {t("species.suggestion.match", { percent: formatPercent(s.matchPercent / 100) })}
+                </span>
+              )}
+            </button>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }

@@ -6,6 +6,7 @@ import {
   formatMonthName,
   formatNumber,
   formatPercent,
+  formatRelativeTime,
   toDate,
   setFormatLocale,
 } from "./format";
@@ -124,5 +125,20 @@ describe("formatBytes across units", () => {
     expect(formatBytes(312_000_000)).toBe("312 MB");
     expect(formatBytes(1_100_000_000)).toBe("1.1 GB");
     expect(formatBytes(2_000_000)).toBe("2 MB");
+  });
+});
+
+describe("formatRelativeTime", () => {
+  const now = new Date("2026-10-21T12:00:00Z");
+  it("uses the largest whole unit", () => {
+    expect(formatRelativeTime("2026-10-18T09:00:00Z", now, "en-US")).toBe("3 days ago");
+    expect(formatRelativeTime("2026-10-20T11:00:00Z", now, "en-US")).toBe("yesterday");
+    expect(formatRelativeTime("2026-10-21T09:30:00Z", now, "en-US")).toBe("2 hours ago");
+    expect(formatRelativeTime("2026-08-01T12:00:00Z", now, "en-US")).toBe("2 months ago");
+    expect(formatRelativeTime("2026-10-21T11:59:50Z", now, "en-US")).toBe("now");
+  });
+  it("is empty for no date", () => {
+    expect(formatRelativeTime(null, now)).toBe("");
+    expect(formatRelativeTime("not a date", now)).toBe("");
   });
 });

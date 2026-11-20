@@ -1,4 +1,6 @@
 import type { AriaAttributes, InputHTMLAttributes, Ref } from "react";
+import { useTranslation } from "react-i18next";
+import { FIELD, FIELD_HEIGHT } from "../lib/fieldClasses";
 
 // The one search-box look used everywhere, with a real clear button.
 export default function SearchInput({
@@ -13,6 +15,7 @@ export default function SearchInput({
   "aria-label": ariaLabel,
   inputRef,
   inputProps,
+  size = "sm",
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -27,7 +30,10 @@ export default function SearchInput({
   // Combobox wiring (role, aria-expanded, aria-controls, aria-activedescendant, id).
   inputProps?: AriaAttributes &
     Pick<InputHTMLAttributes<HTMLInputElement>, "id" | "role" | "autoComplete" | "spellCheck">;
+  // sm matches toolbar controls (h-8), md a form's fields and md Buttons.
+  size?: "sm" | "md";
 }) {
+  const { t } = useTranslation();
   return (
     <div className={`relative ${className ?? ""}`}>
       <input
@@ -42,7 +48,7 @@ export default function SearchInput({
         onBlur={onBlur}
         onKeyDown={onKeyDown}
         aria-label={ariaLabel}
-        className={`h-8 w-full rounded-md border border-line bg-surface px-3 text-sm text-ink placeholder:text-muted focus:outline-none focus:ring-1 focus:ring-ink ${value ? "pr-7" : ""}`}
+        className={`${FIELD} ${FIELD_HEIGHT[size]} ${value ? "pr-7" : ""}`}
       />
       {value && (
         <button
@@ -50,8 +56,8 @@ export default function SearchInput({
           // Keeps focus in the field, so a combobox's list doesn't close on the click.
           onMouseDown={(e) => e.preventDefault()}
           onClick={() => onChange("")}
-          aria-label="Clear search"
-          className="absolute right-1.5 top-1/2 -translate-y-1/2 text-lg leading-none text-muted hover:text-ink"
+          aria-label={t("ui.clearSearch")}
+          className="absolute right-1.5 top-1/2 -translate-y-1/2 text-title-3 leading-none text-muted hover:text-ink"
         >
           ×
         </button>

@@ -5,6 +5,7 @@ import AccountSettings from "./AccountSettings";
 import GeneralSettings from "./GeneralSettings";
 import IntegrationsSettings from "./IntegrationsSettings";
 import LibrarySettings from "./LibrarySettings";
+import MetadataSettings from "./MetadataSettings";
 import OfflineDataSettings from "./OfflineDataSettings";
 import ServerSettings from "./ServerSettings";
 import SpeciesImportSettings from "./SpeciesImportSettings";
@@ -54,6 +55,14 @@ export const GROUPS: SettingsGroup[] = [
     Component: LibrarySettings,
   },
   {
+    id: "metadata",
+    get label() {
+      return i18n.t("settings.groups.metadata");
+    },
+    visible: () => true,
+    Component: MetadataSettings,
+  },
+  {
     id: "storage",
     get label() {
       return i18n.t("settings.groups.storage");
@@ -66,7 +75,7 @@ export const GROUPS: SettingsGroup[] = [
     get label() {
       return i18n.t("settings.groups.server");
     },
-    visible: ({ isTauri }) => isTauri,
+    visible: ({ mode, isTauri }) => isTauri || mode === "server",
     Component: ServerSettings,
   },
   {

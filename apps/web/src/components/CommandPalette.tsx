@@ -1,3 +1,5 @@
+import ProgressiveImg from "./ProgressiveImg";
+import { matches, shortcutLabel, type KeyAction } from "../lib/keymap";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { openExternal } from "../lib/openExternal";
 import { useTranslation } from "react-i18next";
@@ -7,6 +9,8 @@ import { useDeploymentMode, useIsTauri } from "../hooks/useDeploymentMode";
 import { DEFAULT_RAW_FILES, type EditedRawFilter, type RawFilesFilter } from "../lib/photoListFilters";
 import { usePersistedState } from "../hooks/usePersistedState";
 import { useRegions } from "../hooks/useRegions";
+import { downloadedTaxaByCountry, usePackIndex } from "../lib/packIndex";
+import { regionsReachableFrom } from "../lib/regionGrouping";
 import { useSettings } from "../hooks/useSettings";
 import { backStateFor } from "../lib/backLabel";
 import { docsUrl } from "../lib/docs";
@@ -36,12 +40,20 @@ import InlineSpinner from "./InlineSpinner";
 import Modal from "./Modal";
 import SearchInput from "./SearchInput";
 import { ignore } from "../lib/ignore";
-import { useSpeciesName } from "../lib/speciesName";
+import { pageNumber } from "../lib/mainPages";
+import { isTauri } from "../lib/tauri";
+import { namePartClass, useSpeciesName, useSpeciesNameParts } from "../lib/speciesName";
+import SpeciesNameText from "./SpeciesNameText";
+import { IconButton } from "./Button";
+import { TOUR_STATE } from "./Tour";
+import { SPECIES_DOWNLOADS_PATH } from "../lib/speciesDownloads";
 
 interface SpeciesHit {
   id: string;
   scientific_name: string;
   common_name: string | null;
+  aba_code?: string | null;
+  ebird_code?: string | null;
 }
 
 interface PhotoHit {
@@ -94,34 +106,81 @@ function loadLists(fresh = false) {
   return listsCache;
 }
 
-const ACTIONS: StaticEntry[] = [
+// The desktop menu binds the page chords; a browser keeps its own tab shortcuts, so no hint there.
+function pageChord(action: StaticEntry["action"]): string | undefined {
+  const n = action.type === "navigate" && !action.state && isTauri() ? pageNumber(action.to) : null;
+  return n ? shortcutLabel(`page${n}` as KeyAction) : undefined;
+}
+
+// Labels are i18n keys, translated when the groups are built.
+const ACTIONS: (Omit<StaticEntry, "label" | "sublabel"> & { labelKey: string; sublabelKey?: string })[] = [
   {
     id: "action:import",
-    label: "Import photos",
+    labelKey: "commandPalette.actions.import",
     keywords: ["upload", "add"],
     action: { type: "navigate", to: "/import" },
   },
-  { id: "action:gallery", label: "Gallery", keywords: ["photos"], action: { type: "navigate", to: "/gallery" } },
-  { id: "action:albums", label: "Albums and trips", keywords: ["trips"], action: { type: "navigate", to: "/albums" } },
+  {
+    id: "action:gallery",
+    labelKey: "commandPalette.actions.gallery",
+    keywords: ["photos"],
+    action: { type: "navigate", to: "/gallery" },
+  },
+  {
+    id: "action:similar",
+    labelKey: "commandPalette.actions.similar",
+    keywords: ["duplicates", "burst", "compare"],
+    action: { type: "navigate", to: "/gallery/similar" },
+  },
+  {
+    id: "action:albums",
+    labelKey: "commandPalette.actions.albums",
+    keywords: ["collections"],
+    action: { type: "navigate", to: "/albums" },
+  },
+  {
+    id: "action:trips",
+    labelKey: "commandPalette.actions.trips",
+    keywords: ["travel"],
+    // The Albums page's other side.
+    action: { type: "navigate", to: "/albums?view=trips" },
+  },
   {
     id: "action:stats",
-    label: "Stats",
+    labelKey: "commandPalette.actions.stats",
     keywords: ["statistics", "charts"],
     action: { type: "navigate", to: "/stats" },
   },
   {
-    id: "action:offline",
-    label: "Offline packs",
-    keywords: ["download", "pack", "maps"],
-    action: { type: "navigate", to: "/offline-packs" },
+    id: "action:review",
+    labelKey: "commandPalette.actions.review",
+    keywords: ["confirm", "identifications", "suggestions"],
+    action: { type: "navigate", to: "/review" },
   },
-  { id: "action:trash", label: "Trash", keywords: ["deleted", "restore"], action: { type: "navigate", to: "/trash" } },
+  {
+    id: "action:offline",
+    labelKey: "commandPalette.actions.offline",
+    keywords: ["download", "pack", "regions", "maps"],
+    action: { type: "navigate", to: SPECIES_DOWNLOADS_PATH },
+  },
+  {
+    id: "action:trash",
+    labelKey: "commandPalette.actions.trash",
+    keywords: ["deleted", "restore"],
+    action: { type: "navigate", to: "/trash" },
+  },
+  {
+    id: "action:tour",
+    labelKey: "tour.start",
+    keywords: ["tutorial", "guide", "help", "intro", "welcome"],
+    action: { type: "navigate", to: "/", state: TOUR_STATE },
+  },
   {
     id: "action:help",
-    label: "Help and user guide",
-    sublabel: "Opens the docs site",
+    labelKey: "commandPalette.actions.help",
+    sublabelKey: "commandPalette.actions.helpSublabel",
     keywords: ["docs", "guide"],
-    action: { type: "external", url: docsUrl("/") },
+    action: { type: "external", url: docsUrl("/intro") },
   },
 ];
 
@@ -134,6 +193,7 @@ export default function CommandPalette({
   onInatSearch?: (query: string, regionId: string | null) => void;
 }) {
   const speciesName = useSpeciesName();
+  const speciesNameParts = useSpeciesNameParts();
   const navigate = useNavigate();
   const location = useLocation();
   const { t } = useTranslation();
@@ -141,7 +201,14 @@ export default function CommandPalette({
     () => derivePaletteContext(location.pathname, location.search),
     [location.pathname, location.search],
   );
-  const { regions } = useRegions();
+  const { regions: allRegions } = useRegions();
+  // Only regions reachable from a downloaded country, as the Collection offers; none until known.
+  const { packs } = usePackIndex();
+  const regions = useMemo(() => {
+    if (!allRegions || !packs) return null;
+    const reachable = regionsReachableFrom(allRegions, new Set(downloadedTaxaByCountry(packs).keys()));
+    return allRegions.filter((r) => reachable.has(r.id));
+  }, [allRegions, packs]);
   const mode = useDeploymentMode();
   const inTauri = useIsTauri();
   const [recentQueries, setRecentQueries] = usePersistedState<string[]>("paletteRecentQueries", []);
@@ -228,8 +295,8 @@ export default function CommandPalette({
   }, [trimmed, regionId, rawFiles, editedRaw, mediaPreset, scopeKind, scopeId]);
 
   const regionName = useMemo(
-    () => (regionId ? (regions?.find((r) => r.id === regionId)?.name ?? null) : null),
-    [regions, regionId],
+    () => (regionId ? (allRegions?.find((r) => r.id === regionId)?.name ?? null) : null),
+    [allRegions, regionId],
   );
   const scopeName =
     scope &&
@@ -238,29 +305,41 @@ export default function CommandPalette({
       : lists?.albums.find((a) => a.id === scope.id)?.name);
 
   const groups = useMemo<PaletteGroup[]>(() => {
-    const speciesItems: PaletteItem[] = species.map((s) => ({
-      id: `species:${s.id}`,
-      label: speciesName(s),
-      sublabel: s.common_name ? s.scientific_name : undefined,
-      italicSublabel: true,
-      action: { type: "navigate", to: speciesPath(s.id, regionId) },
-    }));
+    const speciesItems: PaletteItem[] = species.map((s) => {
+      const { primary, secondary } = speciesNameParts(s);
+      return {
+        id: `species:${s.id}`,
+        label: primary.text,
+        labelClass: namePartClass(primary),
+        sublabelParts: secondary,
+        action: { type: "navigate", to: speciesPath(s.id, regionId) },
+      };
+    });
     const photoItem = (prefix: string, p: PhotoHit, fallbackTo: string): PaletteItem => ({
       id: `${prefix}:${p.photoId}`,
       label: speciesName(p),
       thumbUrl: `/api/photos/${p.photoId}/thumb`,
       action: { type: "navigate", to: p.speciesId ? speciesPath(p.speciesId, null) : fallbackTo },
     });
+    const actionEntries: StaticEntry[] = ACTIONS.map(({ labelKey, sublabelKey, ...entry }) => ({
+      ...entry,
+      label: t(labelKey),
+      sublabel: sublabelKey ? t(sublabelKey) : pageChord(entry.action),
+    }));
 
     if (!trimmed) {
       return [
         {
           id: "recent",
-          title: "Recent searches",
+          title: t("commandPalette.groups.recentSearches"),
           items: recentQueries.map((q) => ({ id: `recent:${q}`, label: q, action: { type: "setQuery", query: q } })),
         },
-        { id: "species", title: "Recent species", items: speciesItems },
-        { id: "actions", title: "Go to", items: filterEntries(ACTIONS, "", ACTIONS.length) },
+        { id: "species", title: t("commandPalette.groups.recentSpecies"), items: speciesItems },
+        {
+          id: "actions",
+          title: t("commandPalette.groups.goTo"),
+          items: filterEntries(actionEntries, "", actionEntries.length),
+        },
       ];
     }
 
@@ -268,8 +347,11 @@ export default function CommandPalette({
     if (anyTaxaSearchEnabled && onInatSearch && trimmed.length >= 2) {
       speciesItems.push({
         id: "species:inat",
-        label: speciesItems.length === 0 ? `No local match for "${trimmed}", search iNaturalist` : "Search iNaturalist",
-        sublabel: "Add a species Lifer has no data for",
+        label:
+          speciesItems.length === 0
+            ? t("commandPalette.inat.noLocalMatch", { query: trimmed })
+            : t("commandPalette.inat.search"),
+        sublabel: t("commandPalette.inat.sublabel"),
         action: { type: "inatSearch", query: trimmed },
       });
     }
@@ -280,7 +362,7 @@ export default function CommandPalette({
     if (trimmed.length >= MIN_PHOTO_QUERY) {
       photoGroup.push({
         id: "photos:all",
-        label: `Search all photos for "${trimmed}"`,
+        label: t("commandPalette.searchAllPhotos", { query: trimmed }),
         action: { type: "navigate", to: `/gallery?q=${encodeURIComponent(trimmed)}` },
       });
     }
@@ -291,12 +373,15 @@ export default function CommandPalette({
       scopeGroup.push(...scopePhotos.map((p) => photoItem("scope", p, scopeGallery)));
       scopeGroup.push({
         id: "scope:all",
-        label: `Search all photos in this ${scope.kind} for "${trimmed}"`,
+        label:
+          scope.kind === "trip"
+            ? t("commandPalette.searchTripPhotos", { query: trimmed })
+            : t("commandPalette.searchAlbumPhotos", { query: trimmed }),
         action: { type: "navigate", to: scopeGallery },
       });
     }
 
-    const regionParents = new Map((regions ?? []).map((r) => [r.id, r.name]));
+    const regionParents = new Map((allRegions ?? []).map((r) => [r.id, r.name]));
     const regionEntries: StaticEntry[] = (regions ?? []).map((r) => ({
       id: `region:${r.id}`,
       label: r.name,
@@ -318,28 +403,43 @@ export default function CommandPalette({
       (g) => ({
         id: `settings:${g.id}`,
         label: g.label,
-        sublabel: "Settings",
+        sublabel: t("commandPalette.groups.settings"),
         keywords: ["settings", "preferences"],
         action: { type: "navigate", to: `/settings/${g.id}` },
       }),
     );
 
     return [
-      { id: "species", title: regionName ? `Species, ${regionName} first` : "Species", items: speciesItems },
+      {
+        id: "species",
+        title: regionName
+          ? t("commandPalette.groups.speciesRegionFirst", { region: regionName })
+          : t("commandPalette.groups.species"),
+        items: speciesItems,
+      },
       {
         id: "scope",
-        title: `Photos in this ${scope?.kind ?? "trip"}${scopeName ? `: ${scopeName}` : ""}`,
+        title:
+          scope?.kind === "album"
+            ? scopeName
+              ? t("commandPalette.groups.albumPhotosNamed", { name: scopeName })
+              : t("commandPalette.groups.albumPhotos")
+            : scopeName
+              ? t("commandPalette.groups.tripPhotosNamed", { name: scopeName })
+              : t("commandPalette.groups.tripPhotos"),
         items: scopeGroup,
       },
-      { id: "photos", title: "Your photos", items: photoGroup },
-      { id: "regions", title: "Regions", items: filterEntries(regionEntries, trimmed, 5) },
-      { id: "trips", title: "Trips", items: filterEntries(tripEntries, trimmed, 4) },
-      { id: "albums", title: "Albums", items: filterEntries(albumEntries, trimmed, 4) },
-      { id: "settings", title: "Settings", items: filterEntries(settingsEntries, trimmed, 4) },
-      { id: "actions", title: "Go to", items: filterEntries(ACTIONS, trimmed, 4) },
+      { id: "photos", title: t("commandPalette.groups.photos"), items: photoGroup },
+      { id: "regions", title: t("commandPalette.groups.regions"), items: filterEntries(regionEntries, trimmed, 5) },
+      { id: "trips", title: t("commandPalette.groups.trips"), items: filterEntries(tripEntries, trimmed, 4) },
+      { id: "albums", title: t("commandPalette.groups.albums"), items: filterEntries(albumEntries, trimmed, 4) },
+      { id: "settings", title: t("commandPalette.groups.settings"), items: filterEntries(settingsEntries, trimmed, 4) },
+      { id: "actions", title: t("commandPalette.groups.goTo"), items: filterEntries(actionEntries, trimmed, 4) },
     ];
   }, [
+    t,
     speciesName,
+    speciesNameParts,
     trimmed,
     species,
     photos,
@@ -347,6 +447,7 @@ export default function CommandPalette({
     regionId,
     regionName,
     regions,
+    allRegions,
     lists,
     scope,
     scopePhotos,
@@ -378,17 +479,17 @@ export default function CommandPalette({
     if (trimmed) setRecentQueries(pushRecentQuery(recentQueries, trimmed));
     onClose();
     // Like any link: the page it opens can name and return to the one the palette was opened on.
-    if (action.type === "navigate") navigate(action.to, { state: backStateFor(location, t) });
+    if (action.type === "navigate") navigate(action.to, { state: action.state ?? backStateFor(location, t) });
     else if (action.type === "inatSearch") onInatSearch?.(action.query, regionId);
     else openExternal(action.url);
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
-    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+    if (matches(e, "listNext") || matches(e, "listPrevious")) {
       e.preventDefault();
-      const next = moveHighlight(active, e.key === "ArrowDown" ? 1 : -1, flat.items.length);
+      const next = moveHighlight(active, matches(e, "listNext") ? 1 : -1, flat.items.length);
       if (next >= 0) setHighlightedId(flat.items[next].id);
-    } else if (e.key === "Enter") {
+    } else if (matches(e, "choose")) {
       e.preventDefault();
       if (activeItem) activate(activeItem);
     }
@@ -414,9 +515,9 @@ export default function CommandPalette({
           {...common}
           aria-label={item.label}
           title={item.label}
-          className={`aspect-square cursor-pointer overflow-hidden rounded-md bg-surface-muted ${selected ? "ring-2 ring-accent" : ""}`}
+          className={`aspect-square cursor-pointer overflow-hidden rounded-control bg-surface-muted ${selected ? "ring-2 ring-accent" : ""}`}
         >
-          <img src={item.thumbUrl} alt="" loading="lazy" className="h-full w-full object-cover" />
+          <ProgressiveImg thumbSrc={item.thumbUrl} alt="" className="h-full w-full object-cover" />
         </div>
       );
     }
@@ -424,18 +525,20 @@ export default function CommandPalette({
       <div
         key={item.id}
         {...common}
-        className={`flex cursor-pointer items-baseline gap-2 rounded-md px-2.5 py-1.5 text-sm ${selected ? "bg-surface-muted" : ""}`}
+        className={`flex cursor-pointer items-baseline gap-2 rounded-control px-2.5 py-1.5 text-callout ${selected ? "bg-surface-muted" : ""}`}
       >
-        <span className="truncate text-ink">{item.label}</span>
-        {item.sublabel && (
-          <span className={`truncate text-xs text-muted ${item.italicSublabel ? "italic" : ""}`}>{item.sublabel}</span>
+        <span className={`truncate text-ink ${item.labelClass ?? ""}`}>{item.label}</span>
+        {(item.sublabel || (item.sublabelParts?.length ?? 0) > 0) && (
+          <span className="truncate text-footnote text-muted">
+            {item.sublabelParts ? <SpeciesNameText parts={item.sublabelParts} /> : item.sublabel}
+          </span>
         )}
       </div>
     );
   }
 
   return (
-    <Modal open onClose={onClose} ariaLabel="Search Lifer" size="lg" initialFocusRef={inputRef}>
+    <Modal open onClose={onClose} ariaLabel={t("commandPalette.label")} size="lg" initialFocusRef={inputRef}>
       <div className="flex items-center gap-2">
         <SearchInput
           value={query}
@@ -443,8 +546,8 @@ export default function CommandPalette({
             setQuery(v);
             setHighlightedId(null);
           }}
-          placeholder="Search species, photos, regions, trips, settings…"
-          aria-label="Search Lifer"
+          placeholder={t("commandPalette.placeholder")}
+          aria-label={t("commandPalette.label")}
           className="flex-1"
           onKeyDown={handleKeyDown}
           inputRef={inputRef}
@@ -458,37 +561,44 @@ export default function CommandPalette({
             "aria-activedescendant": activeItem ? optionId(activeItem) : undefined,
           }}
         />
-        <span className="flex w-4 justify-center">{loading && <InlineSpinner size="sm" label="Searching" />}</span>
-        <button
-          type="button"
+        <span className="flex w-4 justify-center">
+          {loading && <InlineSpinner size="sm" label={t("commandPalette.searching")} />}
+        </span>
+        <IconButton
+          tone="plain"
           onClick={onClose}
-          aria-label="Close search"
-          className="rounded-md px-1.5 text-lg leading-none text-muted hover:bg-surface-muted hover:text-ink"
+          aria-label={t("commandPalette.close")}
+          className="text-title-3 leading-none hover:bg-surface-muted"
         >
           ×
-        </button>
+        </IconButton>
       </div>
 
       {regionId && regionName && (
         <div className="mt-2 flex">
-          <span className="inline-flex items-center gap-1 rounded-full border border-line bg-surface-muted px-2 py-0.5 text-xs text-ink">
-            In {regionName}
-            <button
-              type="button"
+          <span className="inline-flex items-center gap-1 rounded-full border border-line bg-surface-muted px-2 py-0.5 text-footnote text-ink">
+            {t("commandPalette.inRegion", { region: regionName })}
+            <IconButton
+              tone="plain"
               onClick={() => {
                 setRegionDismissed(true);
                 inputRef.current?.focus();
               }}
-              aria-label={`Search everywhere, not just ${regionName}`}
-              className="text-sm leading-none text-muted hover:text-ink"
+              aria-label={t("commandPalette.searchEverywhere", { region: regionName })}
+              className="h-4! min-w-4! text-callout leading-none"
             >
               ×
-            </button>
+            </IconButton>
           </span>
         </div>
       )}
 
-      <div id={listId} role="listbox" aria-label="Results" className="mt-3 max-h-[60vh] space-y-3 overflow-y-auto">
+      <div
+        id={listId}
+        role="listbox"
+        aria-label={t("commandPalette.results")}
+        className="mt-3 max-h-[60vh] space-y-3 overflow-y-auto"
+      >
         {nothingFound ? (
           <EmptyState
             icon={
@@ -504,8 +614,8 @@ export default function CommandPalette({
                 <path d="m20 20-3.5-3.5" />
               </svg>
             }
-            title={`Nothing matches "${trimmed}"`}
-            description="Try a common or scientific name, an eBird code, a place or a trip name."
+            title={t("commandPalette.empty.title", { query: trimmed })}
+            description={t("commandPalette.empty.description")}
           />
         ) : (
           flat.groups.map((group) => {
@@ -513,7 +623,7 @@ export default function CommandPalette({
             const rows = group.items.filter((i) => !i.thumbUrl);
             return (
               <div key={group.id} role="group" aria-labelledby={`${listId}-g-${group.id}`}>
-                <div id={`${listId}-g-${group.id}`} className="px-2.5 pb-1 text-xs font-medium text-muted">
+                <div id={`${listId}-g-${group.id}`} className="px-2.5 pb-1 text-footnote font-medium text-muted">
                   {group.title}
                 </div>
                 {thumbs.length > 0 && (

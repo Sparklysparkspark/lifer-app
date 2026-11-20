@@ -1,7 +1,11 @@
+import SelectMark from "./SelectMark";
+import { SelectedRing } from "./MediaCard";
 import { memo, useContext, useState, type ReactNode, type RefObject } from "react";
+import { useTranslation } from "react-i18next";
 import { CompactGridContext } from "./compactGrid";
 import ProgressiveImg from "./ProgressiveImg";
-import DotMenu from "./DotMenu";
+import PhotoPlaceholder from "./PhotoPlaceholder";
+import Menu from "./Menu";
 
 // Photo-grid tile: image, select checkbox, hover "..." menu trigger and optional caption. The page
 // owns which menu is open; pass `null` as menuContent for closed tiles. Memoized: pass stable callbacks.
@@ -23,16 +27,24 @@ function PhotoTile({
   onDragSelectEnter,
   kind,
   durationSeconds,
+  versionCount,
+  versionLabel,
   contextMenuOpen,
   onOpenContextMenu,
   contextMenuAnchor,
 }: {
-  photoId: string;
+  /** Null shows a placeholder, for an item whose file is gone. */
+  photoId: string | null;
   alt: string;
-  /** Defaults to "image". A video tile shows its poster frame and plays a muted preview on hover. */
-  kind?: "image" | "video";
+  /** Defaults to "image". A video tile shows its poster frame and plays a muted preview on hover; a
+   *  recording shows its waveform with a badge. */
+  kind?: "image" | "video" | "audio";
   /** Video only: shown in a corner badge. */
   durationSeconds?: number | null;
+  /** More than one: a stack badge ("3 versions") for a photo with prints, edits or exports. */
+  versionCount?: number;
+  /** A version listed apart from its photo: its name in the same stack badge. */
+  versionLabel?: string;
   /** Only called when selectMode is off. */
   onOpen: () => void;
   selectMode: boolean;
@@ -41,7 +53,7 @@ function PhotoTile({
   onToggleSelect: (shiftKey: boolean) => void;
   /** Rendered below the image (caption, rating, or both). */
   label?: ReactNode;
-  /** Overrides the default `rounded-md` corners. */
+  /** Overrides the default `rounded-control` corners. */
   cornerRadiusPx?: number;
   /** The grid's ratio for this photo; crops via object-cover. Omit for natural aspect. */
   aspectRatio?: number;
@@ -59,6 +71,7 @@ function PhotoTile({
   contextMenuOpen?: boolean;
   contextMenuAnchor?: { x: number; y: number } | null;
 }) {
+  const { t } = useTranslation();
   const [videoHovering, setVideoHovering] = useState(false);
   // Phone layout: square corners and no caption, so the grid reads as one seamless sheet.
   const compact = useContext(CompactGridContext);
@@ -72,13 +85,14 @@ function PhotoTile({
       ? `${Math.floor(durationSeconds / 60)}:${String(Math.round(durationSeconds % 60)).padStart(2, "0")}`
       : null;
   const imgClassName = `block w-full cursor-pointer ${aspectRatio ? "h-full object-cover" : ""} ${
-    cornerRadiusPx == null ? "rounded-md" : ""
-  } ${selectMode && selected ? "ring-2 ring-inset ring-blue-500" : ""}`;
+    cornerRadiusPx == null ? "rounded-control" : ""
+  }`;
 
   return (
     // The tile's image shares its accessible name with the species card on the collection page,
     // so the e2e tests need this to know they're looking at a photo grid.
     <div data-testid="photo-tile" className="group relative w-full min-w-0">
+      {/* raw-control: the whole photo is the button (open, select, drag-select, right-click). */}
       <button
         onClick={(e) => {
           if (!selectMode) return onOpen();
@@ -103,10 +117,12 @@ function PhotoTile({
           e.preventDefault();
           onOpenContextMenu({ x: e.clientX, y: e.clientY });
         }}
-        className="block w-full overflow-hidden text-left"
+        className="relative block w-full overflow-hidden text-left"
         style={aspectRatio ? { aspectRatio } : undefined}
       >
-        {isVideo && videoHovering ? (
+        {photoId === null ? (
+          <PhotoPlaceholder className={`h-full w-full ${cornerRadiusPx == null ? "rounded-control" : ""}`} />
+        ) : isVideo && videoHovering ? (
           // A poster plus preload="auto" avoids a blank tile while the first frame decodes.
           <video
             src={`/api/photos/${photoId}/video`}
@@ -125,40 +141,66 @@ function PhotoTile({
             fullSrc={`/api/photos/${photoId}/display`}
             alt={alt}
             style={cornerRadiusPx != null ? { borderRadius: cornerRadiusPx } : undefined}
-            // ring-inset stays inside the rounded box, so overflow-hidden never clips it square.
             className={imgClassName}
           />
         )}
+        {selectMode && selected && <SelectedRing radiusPx={cornerRadiusPx} />}
+        {(versionLabel || (versionCount != null && versionCount > 1)) && (
+          <span
+            title={versionLabel}
+            // design-token: a scrim over the photo, as the video badge beside it.
+            className="pointer-events-none absolute bottom-2 left-2 flex max-w-[calc(100%-1rem)] items-center gap-1 rounded-badge bg-black/60 px-1.5 py-0.5 text-caption text-white"
+          >
+            <StackIcon />
+            <span className="truncate">{versionLabel ?? t("versions.badge", { count: versionCount })}</span>
+          </span>
+        )}
       </button>
-      {isVideo && !videoHovering && (
-        <div className="pointer-events-none absolute bottom-2 right-2 flex items-center gap-1 rounded bg-black/60 px-1.5 py-0.5 text-[11px] text-white">
-          <span aria-hidden>▶</span>
+      {(isVideo ? !videoHovering : kind === "audio") && (
+        <div className="pointer-events-none absolute bottom-2 right-2 flex items-center gap-1 rounded-badge bg-black/60 px-1.5 py-0.5 text-caption text-white">
+          <span aria-hidden>{isVideo ? "▶" : "♪"}</span>
+          {!isVideo && <span className="sr-only">{t("photoTile.recording")}</span>}
           {durationLabel && <span>{durationLabel}</span>}
         </div>
       )}
       {selectMode && (
-        <input
-          type="checkbox"
+        <SelectMark
           checked={selected}
           onChange={(e) => onToggleSelect((e.nativeEvent as MouseEvent).shiftKey ?? false)}
-          // z-[1]: a caller's `label` overlay renders after this and would otherwise sit on top.
-          className="absolute left-2 top-2 z-[1] h-4 w-4 accent-accent"
-          aria-label="Select photo"
+          label={t("photoTile.select")}
         />
       )}
       {label}
       {!selectMode && menuContent !== undefined && (
-        <DotMenu open={menuOpen} onToggle={onToggleMenu} menuRef={menuRef}>
+        <Menu open={menuOpen} onToggle={onToggleMenu} menuRef={menuRef}>
           {menuContent}
-        </DotMenu>
+        </Menu>
       )}
       {!selectMode && menuContent !== undefined && contextMenuOpen && (
-        <DotMenu open={contextMenuOpen} onToggle={onToggleMenu} menuRef={menuRef} anchorPoint={contextMenuAnchor}>
+        <Menu open={contextMenuOpen} onToggle={onToggleMenu} menuRef={menuRef} anchorPoint={contextMenuAnchor}>
           {menuContent}
-        </DotMenu>
+        </Menu>
       )}
     </div>
   );
 }
 
 export default memo(PhotoTile);
+
+/** Two offset frames: a photo with versions behind it. */
+export function StackIcon({ className = "h-3 w-3" }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      className={`shrink-0 ${className}`}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.5}
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <rect x="1.5" y="5" width="9.5" height="9.5" rx="1.5" />
+      <path d="M5 2.5h7a1.5 1.5 0 0 1 1.5 1.5v7" />
+    </svg>
+  );
+}

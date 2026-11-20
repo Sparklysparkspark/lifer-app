@@ -1,8 +1,11 @@
 import type { ReactNode } from "react";
+import type { TFunction } from "i18next";
+import { useTranslation } from "react-i18next";
 import type { JobStatus } from "@lifer/shared";
 import FormMessage from "./FormMessage";
 import ProgressBar from "./ProgressBar";
 import { formatBytes } from "../lib/format";
+import Button from "./Button";
 
 export interface PhaseConfig {
   label: string;
@@ -33,10 +36,7 @@ export type JobProgressStatus = Pick<
   | "cancelled"
 >;
 
-const smallButtonClass =
-  "shrink-0 rounded-md border border-line px-3 py-1 text-xs text-ink hover:bg-surface-muted disabled:opacity-50";
-
-function describe(status: JobProgressStatus, phases: PhaseLabels | undefined, fallbackLabel: string) {
+function describe(status: JobProgressStatus, phases: PhaseLabels | undefined, fallbackLabel: string, t: TFunction) {
   const raw = status.phase ? phases?.[status.phase] : undefined;
   const config: PhaseConfig = typeof raw === "string" ? { label: raw } : (raw ?? { label: fallbackLabel });
   const mode = config.progress ?? "auto";
@@ -45,19 +45,23 @@ function describe(status: JobProgressStatus, phases: PhaseLabels | undefined, fa
   const useBytes = mode === "bytes" || (mode === "auto" && hasBytes);
   const useCount = !useBytes && (mode === "count" || (mode === "auto" && hasCount));
 
-  let text = config.label;
-  if (config.showItem && status.currentItem) text += ` ${status.currentItem}`;
+  let head = config.label;
+  if (config.showItem && status.currentItem) head += ` ${status.currentItem}`;
+  let amount = "";
   let fraction: number | null = null;
   if (useBytes && hasBytes) {
-    text += status.totalBytes
-      ? ` ${formatBytes(status.downloadedBytes!)} of ${formatBytes(status.totalBytes)}`
-      : ` ${formatBytes(status.downloadedBytes!)}`;
+    amount = status.totalBytes
+      ? t("ui.job.ofTotal", { done: formatBytes(status.downloadedBytes!), total: formatBytes(status.totalBytes) })
+      : formatBytes(status.downloadedBytes!);
     if (status.totalBytes) fraction = status.downloadedBytes! / status.totalBytes;
   } else if (useCount && hasCount) {
-    text += ` (${status.processed} of ${status.total}${config.countNoun ? ` ${config.countNoun}` : ""})`;
+    // Strings, so ICU doesn't add digit grouping the count never had.
+    const of = t("ui.job.ofTotal", { done: String(status.processed), total: String(status.total) });
+    amount = `(${of}${config.countNoun ? ` ${config.countNoun}` : ""})`;
     if (status.total! > 0) fraction = status.processed! / status.total!;
   }
-  return { text, fraction: fraction == null ? null : Math.max(0, Math.min(1, fraction)) };
+  const text = amount ? `${head} ${amount}` : head;
+  return { head, amount, text, fraction: fraction == null ? null : Math.max(0, Math.min(1, fraction)) };
 }
 
 // Shared progress UI for background jobs: a bar (indeterminate when progress is unknown), a phase
@@ -65,15 +69,16 @@ function describe(status: JobProgressStatus, phases: PhaseLabels | undefined, fa
 export default function JobProgress({
   status,
   phases,
-  fallbackLabel = "Working…",
+  fallbackLabel,
   detail,
   onCancel,
   cancelling = false,
   onRetry,
-  retryLabel = "Retry",
+  retryLabel,
   error,
   errorPrefix,
   showCancelled = true,
+  compact = false,
 }: {
   status: JobProgressStatus | null;
   phases?: PhaseLabels;
@@ -88,23 +93,47 @@ export default function JobProgress({
   error?: string | null;
   errorPrefix?: string;
   showCancelled?: boolean;
+  // One line: the item (truncated), its amount and the detail, then a thin bar.
+  compact?: boolean;
 }) {
+  const { t } = useTranslation();
   if (status?.running) {
-    const { text, fraction } = describe(status, phases, fallbackLabel);
+    const { head, amount, text, fraction } = describe(status, phases, fallbackLabel ?? t("ui.job.working"), t);
     const stopping = cancelling || status.cancelRequested;
+    const cancelButton = onCancel && (
+      <Button variant="secondary" size="sm" onClick={onCancel} disabled={stopping} className="shrink-0">
+        {t("common.cancel")}
+      </Button>
+    );
+    const bar = (
+      // Keyed by item too: per-pack byte counts restart at 0 within one "downloading" phase.
+      <ProgressBar
+        value={fraction}
+        size={compact ? "xs" : "sm"}
+        resetKey={`${status.phase ?? ""}:${status.currentItem ?? ""}`}
+        label={text}
+      />
+    );
+    if (compact)
+      return (
+        <div className="space-y-1.5">
+          <div className="flex items-center gap-3 text-callout text-muted">
+            <p className="min-w-0 flex-1 truncate">{stopping ? t("ui.job.cancelling") : head}</p>
+            {!stopping && amount && <span className="shrink-0 tabular-nums">{amount}</span>}
+            {detail && <span className="shrink-0 text-footnote">{detail}</span>}
+            {cancelButton}
+          </div>
+          {bar}
+        </div>
+      );
     return (
       <div className="space-y-2">
         <div className="flex items-center justify-between gap-3">
-          <p className="min-w-0 truncate text-sm text-muted">{stopping ? "Cancelling…" : text}</p>
-          {onCancel && (
-            <button type="button" onClick={onCancel} disabled={stopping} className={smallButtonClass}>
-              Cancel
-            </button>
-          )}
+          <p className="min-w-0 truncate text-callout text-muted">{stopping ? t("ui.job.cancelling") : text}</p>
+          {cancelButton}
         </div>
-        {/* Keyed by item too: per-pack byte counts restart at 0 within one "downloading" phase. */}
-        <ProgressBar value={fraction} resetKey={`${status.phase ?? ""}:${status.currentItem ?? ""}`} label={text} />
-        {detail && <p className="text-xs text-muted">{detail}</p>}
+        {bar}
+        {detail && <p className="text-footnote text-muted">{detail}</p>}
       </div>
     );
   }
@@ -115,9 +144,9 @@ export default function JobProgress({
       <div className="space-y-2">
         <FormMessage error={errorPrefix ? `${errorPrefix}: ${message}` : message} />
         {onRetry && (
-          <button type="button" onClick={onRetry} className={smallButtonClass}>
-            {retryLabel}
-          </button>
+          <Button variant="secondary" size="sm" onClick={onRetry} className="shrink-0">
+            {retryLabel ?? t("common.retry")}
+          </Button>
         )}
       </div>
     );
@@ -126,11 +155,11 @@ export default function JobProgress({
   if (status?.cancelled && showCancelled) {
     return (
       <div className="flex items-center gap-3">
-        <p className="text-sm text-muted">Cancelled.</p>
+        <p className="text-callout text-muted">{t("ui.job.cancelled")}</p>
         {onRetry && (
-          <button type="button" onClick={onRetry} className={smallButtonClass}>
-            {retryLabel}
-          </button>
+          <Button variant="secondary" size="sm" onClick={onRetry} className="shrink-0">
+            {retryLabel ?? t("common.retry")}
+          </Button>
         )}
       </div>
     );

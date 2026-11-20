@@ -1,5 +1,6 @@
 import { createContext, useContext } from "react";
 import { isMac } from "../lib/platform";
+import { matches } from "../lib/keymap";
 
 // Provided by components/CommandPaletteProvider.tsx.
 export const CommandPaletteContext = createContext<{ open: () => void }>({ open: () => {} });
@@ -9,8 +10,9 @@ export function isCommandPaletteShortcut(
   e: Pick<KeyboardEvent, "key" | "metaKey" | "ctrlKey" | "altKey" | "shiftKey">,
   mac = isMac,
 ): boolean {
-  const mod = mac ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey;
-  return mod && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "k";
+  // Fields one by one: a DOM event's are prototype getters, which a spread doesn't copy.
+  const { key, metaKey, ctrlKey, altKey, shiftKey } = e;
+  return matches({ key, code: "", metaKey, ctrlKey, altKey, shiftKey }, "palette", mac);
 }
 
 export function useCommandPalette() {

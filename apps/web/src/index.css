@@ -3,26 +3,122 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
+/* html too, so overscroll and the area past a short page match the theme (ux-rules T1). */
+html,
 body {
   background-color: var(--color-canvas);
   color: var(--color-ink);
 }
 
 /* The frameless mac window's traffic lights float over the top-left (set by main.tsx). They sit
-   20px in and about 11px down, ending about 25px down, so the app nav starts below them. Not in full screen, which
+   20px in and about 19px down, ending about 33px down (centred on the 52px toolbar's middle),
+   so the app nav starts below them. Not in full screen, which
    hides them (data-fullscreen, also main.tsx). */
 [data-mac-app]:not([data-fullscreen]) header.page-header {
   padding-top: 56px;
 }
 
 /* TitleBarDragRegion keeps a bar this tall across the top for the traffic lights (they end about
-   25px down); a sticky page header sticks below it rather than under the window controls. */
+   33px down); a sticky page header sticks below it rather than under the window controls. */
 [data-mac-app]:not([data-fullscreen]) {
   --mac-title-bar: 40px;
 }
 
 [data-mac-app]:not([data-fullscreen]) header.page-subheader.sticky {
   top: var(--mac-title-bar);
+}
+
+/* The desktop app's sidebar layout (AppSidebar): the toolbar is the title bar, level with the
+   traffic lights, which sit over the sidebar. Sticky bars stick below the toolbar. */
+[data-mac-app][data-sidebar-layout]:not([data-fullscreen]) header.page-header {
+  padding-top: 0;
+}
+/* Repeated so it outranks the 40px mac title bar above: both attributes sit on the same element. */
+[data-sidebar-layout][data-sidebar-layout][data-sidebar-layout] {
+  --mac-title-bar: 52px;
+}
+/* The toolbar is sticky in full screen and on other platforms too. */
+[data-sidebar-layout] header.page-subheader.sticky {
+  top: var(--mac-title-bar);
+}
+
+/* Without the floating window controls (full screen, or a window with its own title bar) the
+   sidebar's strip for them goes, and the logo sits level with the toolbar instead. */
+:root:is([data-fullscreen], :not([data-mac-app])) .sidebar-window-controls {
+  display: none;
+}
+:root:is([data-fullscreen], :not([data-mac-app])) .sidebar-logo {
+  display: flex;
+  height: 52px;
+  align-items: center;
+  padding-bottom: 0;
+}
+
+/* A visible keyboard focus ring on every control, so none is left without one. :where keeps it
+   at zero specificity: a component's own focus style still wins. */
+/* In the base layer, so a component's focus utilities can replace it rather than stack on it. */
+@layer base {
+  :where(a, button, input, select, textarea, summary, [tabindex], [role="button"]):focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+    /* The ring follows the element's corners; ones with no rounding of their own (text links,
+       plain buttons) get the UI's small radius instead of a square ring. Utilities still win. */
+    border-radius: var(--radius-control);
+  }
+  /* Text-like fields show focus on their own border instead, so the ring never doubles up. */
+  :where(
+    input:not(
+      [type="checkbox"],
+      [type="radio"],
+      [type="range"],
+      [type="file"],
+      [type="button"],
+      [type="submit"],
+      [type="color"]
+    ),
+    select,
+    textarea
+  ):focus {
+    outline: none;
+    border-color: var(--color-accent);
+    box-shadow: 0 0 0 1px var(--color-accent);
+  }
+}
+
+/* Every animation and transition, off for people who ask for less motion. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Full-window layers (Lightbox, compare views) on the mac desktop get a title-bar row of their own
+   for the traffic lights (WindowTitleBar): 52px like the toolbar the lights are centred on (lib.rs),
+   with room either side so a centred title never runs under them. The title moves up into it.
+   Nothing extra in full screen, on Windows and Linux, or in a browser. */
+.window-title-bar {
+  display: none;
+}
+[data-mac-app]:not([data-fullscreen]) .window-title-bar {
+  display: flex;
+  height: 52px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  padding: 0 88px;
+}
+[data-mac-app]:not([data-fullscreen]) .window-title-elsewhere {
+  display: none;
+}
+
+/* Pages that start at the top without an app header (onboarding): clear the traffic lights. */
+[data-mac-app]:not([data-fullscreen]) .page-top {
+  padding-top: 56px;
 }
 
 /* Loading screens with a bare corner back link and no header. */
@@ -60,4 +156,44 @@ body {
     animation: lifer-progress-pulse 2.4s ease-in-out infinite;
     transform: none;
   }
+}
+
+/* Theme and dark-page switches dissolve the whole window (see lib/themeFade.ts). */
+:root {
+  --theme-fade: 1000ms;
+}
+
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: var(--theme-fade);
+  animation-timing-function: ease-in-out;
+}
+
+/* Map credits (components/map/MapCredits.tsx) may use the map's full width on narrow screens. */
+.maplibregl-map .maplibregl-ctrl-bottom-right {
+  max-width: 100%;
+}
+/* maplibre-gl.css gives any button in a map control a near-transparent hover fill; the house
+   controls (layers, credits) keep their own. */
+.maplibregl-map .maplibregl-ctrl button:not(:disabled):hover {
+  background-color: var(--color-surface-muted);
+}
+
+/* Windows high contrast drops box-shadow, which most focus rings are drawn with, so focus gets a
+   system-coloured outline there instead. */
+@media (forced-colors: active) {
+  :focus-visible {
+    outline: 2px solid Highlight !important;
+    outline-offset: 2px;
+  }
+}
+
+/* Menu sections: an empty one vanishes, and a divider sits only between two shown ones. */
+[data-menu-section]:empty {
+  display: none;
+}
+[data-menu-section]:not(:empty) ~ [data-menu-section]:not(:empty) {
+  margin-top: 0.25rem;
+  padding-top: 0.25rem;
+  border-top: 1px solid var(--color-line);
 }

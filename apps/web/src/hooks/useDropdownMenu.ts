@@ -10,7 +10,9 @@ export function useDropdownMenu<T = true>() {
   useEffect(() => {
     if (openKey === null) return;
     function onClickOutside(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpenKey(null);
+      const target = e.target as Element;
+      // The panel is portaled to the top layer, outside the trigger's wrapper.
+      if (ref.current && !ref.current.contains(target) && !target.closest?.("[data-menu-layer]")) setOpenKey(null);
     }
     document.addEventListener("click", onClickOutside);
     return () => document.removeEventListener("click", onClickOutside);

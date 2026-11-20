@@ -4,6 +4,8 @@ import { ToastViewport, type ToastItem, type ToastTone } from "./Toast";
 
 const TOAST_DURATION_MS: Record<ToastTone, number> = { success: 4000, info: 4000, error: 6000 };
 const MAX_VISIBLE = 5;
+// Long enough to read the message and reach for Undo.
+const ACTION_DURATION_MS = 8000;
 
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<ToastItem[]>([]);
@@ -22,8 +24,9 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       const tone = options.tone ?? "info";
       const id = ++nextId.current;
       // Oldest drop off first once the stack is full.
-      setToasts((list) => [...list, { id, tone, message }].slice(-MAX_VISIBLE));
-      const duration = options.durationMs === undefined ? TOAST_DURATION_MS[tone] : options.durationMs;
+      setToasts((list) => [...list, { id, tone, message, actions: options.actions }].slice(-MAX_VISIBLE));
+      const fallback = options.actions?.length ? ACTION_DURATION_MS : TOAST_DURATION_MS[tone];
+      const duration = options.durationMs === undefined ? fallback : options.durationMs;
       if (duration != null)
         timers.current.set(
           id,

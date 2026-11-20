@@ -1,7 +1,5 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { isDragBlocked, subscribeDragBlocked } from "../lib/modalDragBlock";
-import { useTheme } from "../hooks/useTheme";
-import { tauriInvoke } from "../lib/tauri";
 
 // Makes the AppNav header a window drag region, plus a bar across the top of the mac window behind
 // the traffic lights. The bar stays put as the page scrolls, so the window controls always have a
@@ -10,38 +8,6 @@ import { tauriInvoke } from "../lib/tauri";
 const TITLE_BAR_PX = 40; // matches index.css's --mac-title-bar
 // Pages without the header (sign-in, setup) get a solid strip as deep as the header's clearance.
 const NO_HEADER_PX = 56; // matches index.css's [data-mac-app] header.page-header padding
-// macOS greys the traffic lights out while the window is in the background, which on the white
-// title bar leaves them nearly invisible. The desktop app gives each native button a round colour
-// beneath its own drawing (window_controls.rs): its own colour while active, light grey in the
-// background, none in dark mode where they stand out already. Native, so it never moves with the
-// page's rubber-band bounce. `off` while the photo viewer's black backdrop is up. Re-sent when full
-// screen ends, since leaving it can rebuild the buttons.
-function useTrafficLightBackdrop(off: boolean, fullscreen: boolean) {
-  const focused = useWindowFocused();
-  const dark = useTheme().theme === "dark";
-  const state = off || dark ? "off" : focused ? "active" : "inactive";
-  useEffect(() => {
-    const invoke = tauriInvoke();
-    if (!invoke || window.liferSetup?.platform !== "darwin" || fullscreen) return;
-    void invoke("set_traffic_light_backdrop", { state }).catch(() => {});
-  }, [state, fullscreen]);
-}
-
-function useWindowFocused(): boolean {
-  const [focused, setFocused] = useState(() => document.hasFocus());
-  useEffect(() => {
-    const onFocus = () => setFocused(true);
-    const onBlur = () => setFocused(false);
-    window.addEventListener("focus", onFocus);
-    window.addEventListener("blur", onBlur);
-    return () => {
-      window.removeEventListener("focus", onFocus);
-      window.removeEventListener("blur", onBlur);
-    };
-  }, []);
-  return focused;
-}
-
 export default function TitleBarDragRegion() {
   // Lightbox raises this so its close/info buttons in this band stay clickable.
   const dragBlocked = useSyncExternalStore(subscribeDragBlocked, isDragBlocked);
@@ -52,13 +18,14 @@ export default function TitleBarDragRegion() {
   // Full screen hides the traffic lights and can't be dragged, so there's nothing to cover (main.tsx
   // sets data-fullscreen).
   const [fullscreen, setFullscreen] = useState(false);
-  useTrafficLightBackdrop(dragBlocked, fullscreen);
+  const [sidebarLayout, setSidebarLayout] = useState(false);
 
   useEffect(() => {
     let frame = 0;
     function sync() {
       frame = 0;
       setFullscreen(document.documentElement.hasAttribute("data-fullscreen"));
+      setSidebarLayout(document.documentElement.hasAttribute("data-sidebar-layout"));
       const header = document.querySelector<HTMLElement>("header.page-header");
       setHasHeader(!!header);
       if (!header) return;
@@ -75,7 +42,10 @@ export default function TitleBarDragRegion() {
     // AppNav mounts after auth loads and the toolbar after data loads, often with no route change.
     const observer = new MutationObserver(schedule);
     observer.observe(document.body, { childList: true, subtree: true });
-    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-fullscreen"] });
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["data-fullscreen", "data-sidebar-layout"],
+    });
     window.addEventListener("scroll", schedule, { passive: true });
     window.addEventListener("resize", schedule);
     sync();
@@ -89,7 +59,9 @@ export default function TitleBarDragRegion() {
 
   // macOS only: Windows and Linux keep a native title bar. Hidden while a Lightbox is open so it
   // doesn't show as a white bar over the dim backdrop.
+  // The sidebar layout's toolbar is itself the title bar (AppSidebar), so no strip over it.
   if (window.liferSetup?.platform !== "darwin" || dragBlocked || fullscreen) return null;
+  if (sidebarLayout) return null;
   return (
     <div
       data-tauri-drag-region=""

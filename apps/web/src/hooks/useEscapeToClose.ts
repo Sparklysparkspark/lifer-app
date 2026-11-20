@@ -1,12 +1,13 @@
 import { useEffect } from "react";
 import { useLatest } from "./useLatest";
+import { matches } from "../lib/keymap";
 
 // Every open overlay, oldest first. Only the newest one closes on Escape, so a confirm dialog
 // opened over a menu (or over another dialog) backs out one level per press.
 const stack: Array<{ current: () => void }> = [];
 
 function handleKeyDown(e: KeyboardEvent) {
-  if (e.key !== "Escape" || e.isComposing || e.defaultPrevented) return;
+  if (!matches(e, "close") || e.isComposing || e.defaultPrevented) return;
   const top = stack[stack.length - 1];
   if (!top) return;
   // Marks it handled so window-level listeners (Lightbox, useKeyboardShortcuts) skip it.

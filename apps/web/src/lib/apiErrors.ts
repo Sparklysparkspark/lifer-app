@@ -11,14 +11,21 @@ import i18n, { SOURCE_LOCALE } from "../i18n";
  */
 export const API_ERROR_MESSAGE_KEYS: Readonly<Record<string, string>> = {
   desktop_only: "errors.api.desktop_only",
+  immich_too_old: "errors.api.immich_too_old",
+  immich_unreachable: "errors.api.immich_unreachable",
   invalid_request: "errors.api.invalid_request",
+  library_folder_unavailable: "errors.api.library_folder_unavailable",
+  maybe_on_inaturalist: "errors.api.maybe_on_inaturalist",
+  model_mismatch: "errors.api.model_mismatch",
   no_checklist: "errors.api.no_checklist",
   no_video_frames: "errors.api.no_video_frames",
   not_added: "errors.api.not_added",
   pack_index_unavailable: "errors.api.pack_index_unavailable",
   reorganize_failed: "errors.api.reorganize_failed",
+  server_only: "errors.api.server_only",
   storage_move_failed: "errors.api.storage_move_failed",
   suggestion_failed: "errors.api.suggestion_failed",
+  version_link_refused: "errors.api.version_link_refused",
 };
 
 /**

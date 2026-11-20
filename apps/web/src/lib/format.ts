@@ -15,7 +15,8 @@ export function setFormatLocale(locale: string | undefined): void {
 
 // --- Dates ---
 
-export type DateStyle = "short" | "medium" | "long" | "monthYear" | "dateTime" | "time" | "monthDay" | "month";
+export type DateStyle =
+  "short" | "medium" | "long" | "monthYear" | "dateTime" | "time" | "timeSeconds" | "monthDay" | "month";
 
 const DATE_OPTIONS: Record<DateStyle, Intl.DateTimeFormatOptions> = {
   short: { year: "numeric", month: "numeric", day: "numeric" },
@@ -24,6 +25,8 @@ const DATE_OPTIONS: Record<DateStyle, Intl.DateTimeFormatOptions> = {
   monthYear: { year: "numeric", month: "long" },
   dateTime: { year: "numeric", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" },
   time: { hour: "numeric", minute: "2-digit" },
+  // Frames of a burst differ by seconds.
+  timeSeconds: { hour: "numeric", minute: "2-digit", second: "2-digit" },
   monthDay: { month: "short", day: "numeric" },
   month: { month: "short" },
 };
@@ -62,6 +65,23 @@ export function formatDate(
   return dateFormatterFor(style, locale).format(date);
 }
 
+/** A wall-clock time stored as UTC milliseconds (a camera's clock), shown as is, with no zone shift. */
+export function formatWallClock(ms: number, style: DateStyle = "medium"): string {
+  return new Intl.DateTimeFormat(currentLocale, { ...DATE_OPTIONS[style], timeZone: "UTC" }).format(ms);
+}
+
+/** Two dates in the active locale, sharing what they have in common, like "May 3 – 10, 2026". */
+export function formatDateSpan(
+  start: Date | string | null | undefined,
+  end: Date | string | null | undefined,
+  style: DateStyle = "medium",
+): string {
+  const a = toDate(start);
+  const b = toDate(end);
+  if (!a || !b) return formatDate(a ?? b, style);
+  return dateFormatterFor(style).formatRange(a, b);
+}
+
 /** A month's name (0 = January) in the active locale, in the given width. */
 export function formatMonthName(
   monthIndex: number,
@@ -71,6 +91,32 @@ export function formatMonthName(
   return new Intl.DateTimeFormat(locale ?? currentLocale, { month: width, timeZone: "UTC" }).format(
     new Date(Date.UTC(2000, monthIndex, 1)),
   );
+}
+
+const RELATIVE_UNITS: Array<[Intl.RelativeTimeFormatUnit, number]> = [
+  ["year", 365 * 86_400_000],
+  ["month", 30 * 86_400_000],
+  ["week", 7 * 86_400_000],
+  ["day", 86_400_000],
+  ["hour", 3_600_000],
+  ["minute", 60_000],
+];
+
+/** How long ago (or until) a moment is, in its largest whole unit: "3 days ago", "yesterday",
+ *  "now". Returns "" for null, empty or unparseable input. */
+export function formatRelativeTime(
+  value: Date | string | number | null | undefined,
+  now: Date | number = Date.now(),
+  locale?: string,
+): string {
+  const date = toDate(value);
+  if (!date) return "";
+  const diff = date.getTime() - Number(now);
+  const rtf = new Intl.RelativeTimeFormat(locale ?? currentLocale, { numeric: "auto" });
+  for (const [unit, ms] of RELATIVE_UNITS) {
+    if (Math.abs(diff) >= ms) return rtf.format(Math.trunc(diff / ms), unit);
+  }
+  return rtf.format(0, "second");
 }
 
 // --- Numbers ---

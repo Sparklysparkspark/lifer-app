@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
+import { storeManagedUpdates } from "../lib/platform";
 import { api } from "../api/client";
 import { usePackDownloadStatus } from "../hooks/usePackDownloadStatus";
 import { useIsTauri } from "../hooks/useDeploymentMode";
@@ -10,6 +11,8 @@ import { useTranslation } from "react-i18next";
 import { backStateFor } from "../lib/backLabel";
 import { DEV_BUILD_VERSION, GITHUB_REPO } from "../lib/appInfo";
 import InlineSpinner from "./InlineSpinner";
+import { IconButton } from "./Button";
+import { SPECIES_DOWNLOADS_PATH } from "../lib/speciesDownloads";
 
 const DISMISSED_KEY = "lifer-dismissed-updates";
 
@@ -48,6 +51,8 @@ function writeDismissed(key: string) {
 
 // One slim line under AppNav for both app and offline-pack updates. Skips every check
 // while offline and re-checks once back online.
+const UPDATES_CHECK_DELAY_MS = 5_000;
+
 export default function UpdatesBanner() {
   const { t } = useTranslation();
   const isTauri = useIsTauri();
@@ -60,12 +65,13 @@ export default function UpdatesBanner() {
   // notice doesn't advertise updates that already downloaded.
   const downloadStatus = usePackDownloadStatus({ onFinish: () => refetchPackSummary() });
 
-  function refetchPackSummary() {
+  const refetchPackSummary = useCallback(() => {
     api
-      .get<PackUpdatesSummary>("/offline-packs/updates-summary")
+      .get("/offline-packs/updates-summary")
+      // Also clears back to null at 0, so a stale count doesn't linger.
       .then((res) => setPackSummary(res.updateCount > 0 ? res : null))
       .catch(ignore("Couldn't check for pack updates"));
-  }
+  }, []);
 
   // The app version is checked once per time online: GitHub's unauthenticated API allows only 60
   // requests an hour per IP.
@@ -76,6 +82,7 @@ export default function UpdatesBanner() {
     (async () => {
       try {
         if (isTauri) {
+          if (storeManagedUpdates) return;
           const { getVersion } = await import("@tauri-apps/api/app");
           if ((await getVersion()) === DEV_BUILD_VERSION) return;
           const { check } = await import("@tauri-apps/plugin-updater");
@@ -102,25 +109,23 @@ export default function UpdatesBanner() {
     };
   }, [online, isTauri]);
 
-  // Re-checked when leaving Offline packs, where something may have just downloaded.
-  const onPacksPage = location.pathname === "/offline-packs";
+  // A few seconds in: a launch's first screens come before an update notice.
   useEffect(() => {
     if (!online) return;
-    let cancelled = false;
-    api
-      .get<PackUpdatesSummary>("/offline-packs/updates-summary")
-      .then((res) => {
-        // Also clears back to null at 0, so a stale count doesn't linger.
-        if (!cancelled) setPackSummary(res.updateCount > 0 ? res : null);
-      })
-      .catch(ignore("Couldn't check for pack updates"));
-    return () => {
-      cancelled = true;
-    };
-  }, [online, onPacksPage]);
+    const timer = setTimeout(refetchPackSummary, UPDATES_CHECK_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [online, refetchPackSummary]);
+
+  // Re-checked on leaving Offline packs, where something may have just downloaded, not on arriving.
+  const onPacksPage = location.pathname === SPECIES_DOWNLOADS_PATH;
+  const wasOnPacksPage = useRef(onPacksPage);
+  useEffect(() => {
+    if (wasOnPacksPage.current && !onPacksPage && online) refetchPackSummary();
+    wasOnPacksPage.current = onPacksPage;
+  }, [onPacksPage, online, refetchPackSummary]);
 
   // Offline packs shows per-pack state inline, so only the pack half is hidden there.
-  const showPacks = packSummary !== null && location.pathname !== "/offline-packs";
+  const showPacks = packSummary !== null && !onPacksPage;
   const showApp = appVersion !== null;
 
   if (!online || dismissed || (!showPacks && !showApp)) return null;
@@ -128,7 +133,7 @@ export default function UpdatesBanner() {
   if (readDismissed() === key) return null;
 
   return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-line bg-surface px-6 py-1.5 text-xs text-ink">
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-line bg-surface px-6 py-1.5 text-footnote text-ink">
       <span>
         {showApp && t("updates.appAvailable", { version: appVersion })}
         {showApp && showPacks && " "}
@@ -154,6 +159,7 @@ export default function UpdatesBanner() {
         // A server updates by pulling a new image, so link to the release notes instead.
         <a
           href={`https://github.com/${GITHUB_REPO}/releases/latest`}
+          // eslint-disable-next-line no-restricted-syntax -- baseline, migrate to openExternal() or a shared link component
           target="_blank"
           rel="noreferrer"
           className="font-medium text-accent hover:underline"
@@ -175,7 +181,7 @@ export default function UpdatesBanner() {
           </span>
         ) : (
           <Link
-            to="/offline-packs"
+            to={SPECIES_DOWNLOADS_PATH}
             state={backStateFor(location, t)}
             onClick={() => {
               api
@@ -187,17 +193,17 @@ export default function UpdatesBanner() {
             {t("updates.updateAllPacks")}
           </Link>
         ))}
-      <button
-        type="button"
+      <IconButton
+        tone="plain"
         onClick={() => {
           writeDismissed(key);
           setDismissed(true);
         }}
         aria-label={t("updates.dismiss")}
-        className="ml-auto text-muted hover:text-ink"
+        className="ml-auto"
       >
         ✕
-      </button>
+      </IconButton>
     </div>
   );
 }

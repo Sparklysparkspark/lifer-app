@@ -37,23 +37,24 @@ export function loadServerInfo(): Promise<ServerInfo> {
   return loadSettings().then((s) => toServerInfo(s)!);
 }
 
-/** null until GET /settings has answered once; synchronous on every mount after that. */
-export function useServerInfo(): ServerInfo | null {
+/** null until GET /settings has answered once; synchronous on every mount after that.
+ * load=false only reads the cache, for callers that can mount signed out. */
+export function useServerInfo(load = true): ServerInfo | null {
   const info = useSyncExternalStore(
     subscribeSettings,
     () => toServerInfo(getSettingsState().settings),
     () => toServerInfo(getSettingsState().settings),
   );
   useEffect(() => {
-    if (!info) loadServerInfo().catch(ignore("Couldn't load server info"));
-  }, [info]);
+    if (load && !info) loadServerInfo().catch(ignore("Couldn't load server info"));
+  }, [info, load]);
   return info;
 }
 
 /** "Is the API a local single-user one?" null while loading. Not the same question as
  * useIsTauri: the desktop shell can be connected to a remote server. */
-export function useDeploymentMode(): DeploymentMode | null {
-  return useServerInfo()?.deploymentMode ?? null;
+export function useDeploymentMode(load = true): DeploymentMode | null {
+  return useServerInfo(load)?.deploymentMode ?? null;
 }
 
 /** "Am I inside the desktop shell?" (native dialogs, updater, window.liferSetup bridge).

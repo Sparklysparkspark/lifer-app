@@ -10,7 +10,7 @@ export function backLabelFor(pathname: string, t: TFunction): string {
   if (pathname.startsWith("/gallery")) return t("nav.gallery");
   if (pathname.startsWith("/trips/")) return t("nav.trip");
   if (pathname.startsWith("/albums/")) return t("nav.album");
-  if (pathname.startsWith("/albums") || pathname.startsWith("/trips")) return t("nav.albumsAndTrips");
+  if (pathname.startsWith("/albums")) return t("nav.albums");
   if (pathname.startsWith("/settings")) return t("nav.settings");
   return t("nav.back");
 }
