@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Lifer
+Comment=A private wildlife photo archive and life list
+Exec=lifer-desktop
+Icon=app.lifer.desktop
+Categories=Graphics;Photography;Science;
+Terminal=false
+StartupWMClass=lifer-desktop

@@ -1,0 +1,50 @@
+# Flatpak manifest for Lifer. It repackages the release .deb (the same build the release
+# workflow produces) rather than rebuilding from source. The release workflow's flatpak job
+# swaps the deb source for the one it just built; for Flathub, set the url and sha256 of the
+# release's .deb. Needs flathub/shared-modules checked out beside this file (the job clones it):
+#   flatpak-builder --user --install --force-clean build packaging/flatpak/app.lifer.desktop.yml
+app-id: app.lifer.desktop
+runtime: org.gnome.Platform
+runtime-version: "50"
+sdk: org.gnome.Sdk
+command: lifer-desktop
+finish-args:
+  - --share=ipc
+  - --share=network
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --device=dri
+  # Photo libraries live anywhere, often on external drives or a NAS mount, and Lifer rescans
+  # them, so a one-off portal grant per file wouldn't do.
+  - --filesystem=home
+  - --filesystem=/media
+  - --filesystem=/run/media
+  - --filesystem=/mnt
+  - --talk-name=org.freedesktop.Notifications
+  # The tray icon.
+  - --talk-name=org.kde.StatusNotifierWatcher
+modules:
+  # Tauri's tray icon loads it at startup, and the GNOME runtime doesn't have it.
+  - shared-modules/libappindicator/libappindicator-gtk3-12.10.json
+
+  - name: lifer
+    buildsystem: simple
+    build-commands:
+      - ar x lifer.deb
+      - mkdir deb && tar -xf data.tar.* -C deb
+      - cp -a deb/usr/. /app/
+      # The deb's own launcher is replaced by one named after the app id.
+      - rm -f /app/share/applications/*.desktop
+      - install -Dm644 app.lifer.desktop.metainfo.xml /app/share/metainfo/app.lifer.desktop.metainfo.xml
+      - install -Dm644 app.lifer.desktop.desktop /app/share/applications/app.lifer.desktop.desktop
+      # The deb names its icons after the binary; Flatpak wants them named after the app id.
+      - for icon in /app/share/icons/hicolor/*/apps/lifer-desktop.png; do mv "$icon" "${icon%/*}/app.lifer.desktop.png"; done
+    sources:
+      - type: file
+        url: https://github.com/Sparklysparkspark/lifer-app/releases/download/vX.Y.Z/Lifer_X.Y.Z_amd64.deb
+        sha256: REPLACE_WITH_RELEASE_SHA256
+        dest-filename: lifer.deb
+      - type: file
+        path: app.lifer.desktop.metainfo.xml
+      - type: file
+        path: app.lifer.desktop.desktop

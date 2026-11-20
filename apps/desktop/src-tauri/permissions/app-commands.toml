@@ -3,10 +3,12 @@
 # Every command registered in lib.rs's tauri::generate_handler![...] (most live in commands.rs).
 # Tauri v2's ACL denies the app's own commands too unless a permission grants them; keep this
 # list in sync with that one.
-# Commands that reconfigure the app also check is_trusted_sender themselves.
+# allow-app-commands is also what a connected server's pages get (security.rs REMOTE_PERMISSIONS).
+# Commands that reconfigure the app also check is_trusted_sender themselves, and choose_setup and
+# test_endpoint only let a server's page act on that same server.
 [[permission]]
 identifier = "allow-app-commands"
-description = "Allow this app's own Tauri commands (see lib.rs's generate_handler! list)"
+description = "This app's own Tauri commands that the bundled, local library and connected server pages may call"
 commands.allow = [
   "get_config",
   "choose_setup",
@@ -15,32 +17,56 @@ commands.allow = [
   "set_traffic_light_backdrop",
   "current_network_info",
   "test_endpoint",
-  "test_login",
   "app_install_info",
-  "set_local_data_dir",
   "local_inference_status",
   "local_inference_prepare",
   "local_embed",
   "use_local_library",
-  "local_api_credential",
-  # offline_cache.rs: writes are checked against the connected server's origin, reads against the
-  # bundled offline.html page.
-  "offline_cache_begin",
-  "offline_cache_put_thumb",
-  "offline_cache_commit",
-  "offline_cache_clear",
-  "offline_cache_info",
-  "set_offline_cache",
-  "offline_cache_snapshot",
-  "offline_cache_thumb",
-  "offline_retry",
-  "offline_use_local_library",
+  # Onboarding's Back on its first step (commands.rs); checks is_trusted_sender.
+  "return_to_setup",
+  # server_link.rs: only the connected server's own page may read or write the link.
+  "server_link_needed",
+  "store_server_link",
+  "forget_server_link",
+  # server_paths.rs: Reveal in Finder for a connected server's files mounted on this Mac.
+  "server_root_on_this_mac",
+  "reveal_server_file",
+  # sync.rs: Settings > Server's sync rows on the server's page; check is_trusted_sender.
+  "sync_status",
+  "sync_set_derivative",
+  "sync_adopt",
+  "sync_now",
 ]
 
 # Only for the app's own pages: granted in capabilities/default.json, never in security.rs's
-# REMOTE_PERMISSIONS, so a connected server's pages can't call it. remove_data.rs checks the
-# calling page's origin as well.
+# REMOTE_PERMISSIONS, so a connected server's pages can't call them. Each checks the calling
+# page's origin as well.
 [[permission]]
 identifier = "allow-local-only-commands"
 description = "Commands only the bundled pages and the local library's own pages may call"
-commands.allow = ["remove_all_data"]
+commands.allow = [
+  "remove_all_data",
+  # Signs the window in to a typed server address (Settings, Server in the local library).
+  "test_login",
+  "set_local_data_dir",
+  "local_api_credential",
+  # companion.rs: Settings > Phones on the local library; each checks is_app_page.
+  "companion_status",
+  "companion_open_pairing",
+  "companion_set_paired",
+  "companion_set_keep_syncing",
+  "companion_set_autostart",
+  # plugins.rs: companion apps found on this computer, and starting them; each checks is_app_page.
+  "plugins_list",
+  "plugin_start",
+  "plugin_status",
+  "plugin_offered_imports",
+  "plugin_export_import",
+  # plugin_install.rs: downloading and checking a suggested app's installer; each checks is_app_page.
+  "plugin_install",
+  "plugin_install_progress",
+  "plugin_install_cancel",
+  # editors.rs: installed photo editors and opening files in one; each checks is_app_page.
+  "editors_list",
+  "open_in",
+]

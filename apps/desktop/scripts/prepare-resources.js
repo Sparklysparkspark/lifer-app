@@ -18,6 +18,7 @@ import {
   realpathSync,
 } from "node:fs";
 import { spawnSync } from "node:child_process";
+import { createRequire } from "node:module";
 import { createHash } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -404,6 +405,25 @@ function assertMachoFiles(dir) {
   );
 }
 
+// The assistant (MCP) server as one self-contained file, so "Connect an assistant" can hand Claude
+// Desktop a path that exists on the user's computer. It runs on the bundled Node, no install needed.
+async function stageMcpServer() {
+  const { build } = createRequire(path.join(REPO_ROOT, "apps", "api", "package.json"))("esbuild");
+  await build({
+    entryPoints: [path.join(REPO_ROOT, "packages", "mcp", "src", "index.ts")],
+    outfile: path.join(STAGING, "mcp", "lifer-mcp.mjs"),
+    bundle: true,
+    platform: "node",
+    format: "esm",
+    target: "node22",
+    // Bundled CommonJS dependencies still call require().
+    banner: {
+      js: 'import { createRequire as __createRequire } from "node:module"; const require = __createRequire(import.meta.url);',
+    },
+    logLevel: "warning",
+  });
+}
+
 async function main() {
   rmSync(STAGING, { recursive: true, force: true });
   mkdirSync(STAGING, { recursive: true });
@@ -418,10 +438,11 @@ async function main() {
   stageWorkspace(PIPELINE_DIR, path.join(STAGING, "node_modules", "data-pipeline"));
 
   cpSync(path.join(REPO_ROOT, "apps", "web", "dist"), path.join(STAGING, "web"), { recursive: true });
+  await stageMcpServer();
 
   // Traced against the installed tree, which is the build machine's: in a cross build it has the
   // host's native packages, which retargetNatives then swaps for the target's.
-  const { entries, keep } = traceRuntimePackages({
+  const { entries, specs, keep } = traceRuntimePackages({
     root: REPO_ROOT,
     distDirs: [API_DIST, path.join(PIPELINE_DIR, "dist")],
   });
@@ -442,11 +463,14 @@ async function main() {
   // Every package the server imports must load from the bundle alone, the way api.rs starts it.
   // A cross build's native binaries can't load here, so it only checks they're all found;
   // check-bundled-natives.js loads them under the target's Node.
-  assertPackagesLoad([...entries.keys()], {
-    fromDir: path.join(STAGING, "api", "dist"),
-    confineTo: STAGING,
-    resolveOnly: target.cross,
-  });
+  assertPackagesLoad(
+    [...entries.keys()].map((name) => specs.get(name)),
+    {
+      fromDir: path.join(STAGING, "api", "dist"),
+      confineTo: STAGING,
+      resolveOnly: target.cross,
+    },
+  );
   console.log(
     `[prepare-resources] all ${entries.size} imported packages ${target.cross ? "resolve" : "load"} from the bundle`,
   );

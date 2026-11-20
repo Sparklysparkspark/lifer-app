@@ -25,7 +25,7 @@ pub struct LocalInferenceState {
     generation: std::sync::atomic::AtomicU64,
 }
 
-fn random_token() -> Result<String, String> {
+pub(crate) fn random_token() -> Result<String, String> {
     let mut bytes = [0u8; 32];
     getrandom::fill(&mut bytes).map_err(|e| format!("Couldn't generate a token: {e}"))?;
     Ok(bytes.iter().map(|b| format!("{b:02x}")).collect())
@@ -217,6 +217,7 @@ pub async fn embed(
     app: &AppHandle,
     bytes: Vec<u8>,
     targets: &str,
+    raw: bool,
 ) -> Result<serde_json::Value, String> {
     if !targets
         .chars()
@@ -228,7 +229,10 @@ pub async fn embed(
         .await?
         .ok_or("Local matching isn't running")?;
     let res = client(Duration::from_secs(60))?
-        .post(format!("{base}/embed?targets={targets}"))
+        .post(format!(
+            "{base}/embed?targets={targets}&raw={}",
+            u8::from(raw)
+        ))
         .bearer_auth(token)
         .body(bytes)
         .send()
@@ -241,11 +245,15 @@ pub async fn embed(
 pub fn stop(app: &AppHandle) {
     use tauri::Manager;
     let state = app.state::<LocalInferenceState>();
-    let taken = state
-        .sidecar
-        .try_lock()
-        .ok()
-        .and_then(|mut guard| guard.take());
+    // A request may hold the lock for a moment; wait briefly rather than leave the sidecar running.
+    let mut taken = None;
+    for _ in 0..50 {
+        if let Ok(mut guard) = state.sidecar.try_lock() {
+            taken = guard.take();
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
     if let Some(sidecar) = taken {
         let _ = sidecar.child.kill();
     }

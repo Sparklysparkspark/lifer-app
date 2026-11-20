@@ -8,7 +8,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter};
-use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 use tauri_plugin_shell::ShellExt;
 
@@ -21,6 +20,10 @@ const RESTART_WINDOW: Duration = Duration::from_secs(5 * 60);
 // Generous, since a big library's migration can take a while, but a hung one must not block
 // startup forever.
 const MIGRATION_TIMEOUT: Duration = Duration::from_secs(10 * 60);
+// The first launch creates and migrates the database before the API answers.
+const LOCAL_API_TIMEOUT: Duration = Duration::from_secs(120);
+// Inherited from the user's shell, these could switch off the API's launch-token gate.
+const STRIPPED_ENV: &[&str] = &["LIFER_ALLOW_UNTOKENED_DESKTOP", "NODE_OPTIONS"];
 
 // A panic while a lock was held mustn't take every later stop or restart down with it: the
 // guarded values stay usable.
@@ -55,6 +58,9 @@ pub struct ApiState {
     // Embedded Postgres for local mode, kept for the app's lifetime so stop_api() can shut it
     // down and a second start_api() reuses it.
     pub postgres: Mutex<Option<PostgreSQL>>,
+    // Held for the whole of start_api, so a second caller can't find the first one's Postgres
+    // half started and stop it.
+    start_lock: tauri::async_runtime::Mutex<()>,
 }
 
 pub(crate) fn resources_root(app: &AppHandle) -> PathBuf {
@@ -124,6 +130,37 @@ async fn probe_local_api() -> LocalApi {
     }
 }
 
+pub async fn local_api_is_ours() -> bool {
+    matches!(probe_local_api().await, LocalApi::Ours)
+}
+
+// Only this launch's API gets the window and the launch token: another program that took the
+// port answers HTTP too, while our child dies on EADDRINUSE.
+async fn wait_until_ours(app: &AppHandle) -> Result<(), String> {
+    use tauri::Manager;
+    let start = Instant::now();
+    loop {
+        if local_api_is_ours().await {
+            return Ok(());
+        }
+        if lock(&app.state::<ApiState>().child).is_none() {
+            return Err("Lifer's backend stopped before it was ready.".into());
+        }
+        if start.elapsed() > LOCAL_API_TIMEOUT {
+            return Err(format!(
+                "Lifer's backend didn't start in time. If another program is using port {LOCAL_PORT}, quit it and open Lifer again."
+            ));
+        }
+        tokio::time::sleep(Duration::from_millis(300)).await;
+    }
+}
+
+// The child gets the user's environment minus STRIPPED_ENV.
+fn child_env(vars: impl Iterator<Item = (String, String)>) -> HashMap<String, String> {
+    vars.filter(|(k, _)| !STRIPPED_ENV.contains(&k.as_str()))
+        .collect()
+}
+
 // Waits for a previous launch's API to exit (its parent-pid watchdog polls every 3s) so the new
 // child doesn't die on EADDRINUSE.
 async fn wait_for_port_free(timeout: Duration) -> Result<(), String> {
@@ -142,15 +179,21 @@ async fn wait_for_port_free(timeout: Duration) -> Result<(), String> {
     }
 }
 
+/// Starts the local API (and its database) unless it's already running, and returns once it
+/// answers as this launch's own.
 pub async fn start_api(app: &AppHandle, data_dir: Option<String>) -> Result<(), String> {
     use tauri::Manager;
+    let state = app.state::<ApiState>();
+    let _starting = state.start_lock.lock().await;
 
+    // Started by an earlier caller, or restarting after a crash.
+    if lock(&state.child).is_some() {
+        return wait_until_ours(app).await;
+    }
     match probe_local_api().await {
         LocalApi::Ours => return Ok(()),
         LocalApi::Absent | LocalApi::Foreign => wait_for_port_free(Duration::from_secs(20)).await?,
     }
-
-    let state = app.state::<ApiState>();
 
     let resources = resources_root(app);
     let api_dir = resources.join("api");
@@ -161,7 +204,7 @@ pub async fn start_api(app: &AppHandle, data_dir: Option<String>) -> Result<(), 
         .map_err(|e| format!("Couldn't resolve app data dir: {e}"))?;
     ensure_dev_map(&app_data_dir);
 
-    let mut envs: HashMap<String, String> = std::env::vars().collect();
+    let mut envs = child_env(std::env::vars());
     envs.insert("PORT".into(), LOCAL_PORT.to_string());
     envs.insert("NODE_ENV".into(), "production".into());
     envs.insert("SINGLE_USER_MODE".into(), "1".into());
@@ -184,11 +227,19 @@ pub async fn start_api(app: &AppHandle, data_dir: Option<String>) -> Result<(), 
         "WEB_DIST_DIR".into(),
         web_dist.to_string_lossy().into_owned(),
     );
+    // The API fills an empty catalog from this copy (seedCatalogIfEmpty), tolerating a seed
+    // published before the latest migrations; it downloads one when the folder has none.
+    envs.insert(
+        "LIFER_BUNDLED_CATALOG_SEED_DIR".into(),
+        resources
+            .join("catalog-seed")
+            .to_string_lossy()
+            .into_owned(),
+    );
     // Rolling "map-latest" release, so a map update needs no app release. An env override wins.
     envs
         .entry("MAP_DOWNLOAD_URL".into())
         .or_insert_with(|| "https://github.com/Sparklysparkspark/lifer-app/releases/download/map-latest/world-z8.pmtiles".into());
-
     // An explicit DATABASE_URL wins (dev). Otherwise use embedded Postgres, reusing one already
     // started in this process.
     let already_running_url = {
@@ -200,22 +251,14 @@ pub async fn start_api(app: &AppHandle, data_dir: Option<String>) -> Result<(), 
     } else if let Some(url) = already_running_url {
         url
     } else {
+        crate::pg_upgrade::report_setup("Creating your library's database…", 0.02);
         let (postgresql, url) = embedded_db::start_embedded_postgres(&app_data_dir, &resources)
             .await
             .map_err(|e| format!("Couldn't start the embedded database: {e}"))?;
+        crate::pg_upgrade::report_setup("Preparing the database…", 0.06);
         run_migrations(app, &resources, &url).await?;
-        // A new database has the schema but no species catalog. Not fatal: the library still
-        // opens, and an empty catalog is retried next launch.
-        if let Err(e) = embedded_db::restore_catalog_seed_if_needed(&postgresql, &resources).await {
-            eprintln!("[start_api] catalog restore failed: {e}");
-            app.dialog()
-                .message(format!(
-                    "Lifer couldn't load the species catalog. It will try again next time Lifer opens, or you can update it from Settings.\n\n{e}"
-                ))
-                .kind(tauri_plugin_dialog::MessageDialogKind::Warning)
-                .show(|_| {});
-        }
         *lock(&state.postgres) = Some(postgresql);
+        crate::pg_upgrade::report_setup("Starting Lifer…", 0.97);
         url
     };
     envs.insert("DATABASE_URL".into(), database_url);
@@ -258,7 +301,8 @@ pub async fn start_api(app: &AppHandle, data_dir: Option<String>) -> Result<(), 
     };
     *lock(&state.spawn_spec) = Some(spec.clone());
     lock(&state.restarts).clear();
-    spawn_child(app, &spec)
+    spawn_child(app, &spec)?;
+    wait_until_ours(app).await
 }
 
 fn spawn_child(app: &AppHandle, spec: &SpawnSpec) -> Result<(), String> {
@@ -268,6 +312,7 @@ fn spawn_child(app: &AppHandle, spec: &SpawnSpec) -> Result<(), String> {
         .sidecar("node")
         .map_err(|e| format!("Couldn't resolve the node sidecar: {e}"))?
         .current_dir(&spec.api_dir)
+        .env_clear()
         .envs(spec.envs.clone())
         .args(spec.args.clone())
         .spawn()
@@ -302,8 +347,9 @@ fn spawn_child(app: &AppHandle, spec: &SpawnSpec) -> Result<(), String> {
                     }
                 }
                 CommandEvent::Terminated(payload) => {
+                    // Even a clean exit is a crash unless stop_api() asked for it.
                     let code = payload.code.unwrap_or(-1);
-                    if code != 0 && !stopping.load(Ordering::SeqCst) {
+                    if !stopping.load(Ordering::SeqCst) {
                         handle_unexpected_exit(&app_handle, &stopping, code).await;
                     }
                 }
@@ -315,7 +361,7 @@ fn spawn_child(app: &AppHandle, spec: &SpawnSpec) -> Result<(), String> {
     Ok(())
 }
 
-async fn handle_unexpected_exit(app: &AppHandle, stopping: &AtomicBool, code: i32) {
+async fn handle_unexpected_exit(app: &AppHandle, stopping: &Arc<AtomicBool>, code: i32) {
     use tauri::Manager;
     let state = app.state::<ApiState>();
     let can_restart = {
@@ -341,6 +387,16 @@ async fn handle_unexpected_exit(app: &AppHandle, stopping: &AtomicBool, code: i3
             Err(e) => failure = format!("{failure} Restarting it failed: {e}"),
         }
     }
+    // Given up on: a later start_api() starts afresh instead of waiting on this child.
+    {
+        let mut slot = lock(&state.child);
+        if slot
+            .as_ref()
+            .is_some_and(|c| Arc::ptr_eq(&c.stopping, stopping))
+        {
+            *slot = None;
+        }
+    }
     let stderr = lock(&state.recent_stderr).clone();
     let detail = if stderr.trim().is_empty() {
         "No error output was captured.".to_string()
@@ -364,13 +420,14 @@ async fn run_migrations(
         .join("dist")
         .join("migrate.js");
 
-    let mut envs: HashMap<String, String> = std::env::vars().collect();
+    let mut envs = child_env(std::env::vars());
     envs.insert("DATABASE_URL".into(), database_url.to_string());
 
     let (mut rx, child) = app
         .shell()
         .sidecar("node")
         .map_err(|e| format!("Couldn't resolve the node sidecar for migrations: {e}"))?
+        .env_clear()
         .envs(envs)
         .args([migrate_entry.to_string_lossy().into_owned()])
         .spawn()
@@ -467,29 +524,34 @@ async fn fetch_ok(url: &str) -> bool {
     matches!(client.get(url).send().await, Ok(res) if res.status().as_u16() < 500)
 }
 
-/// Polls a URL until it responds or times out, for the local API and remote servers alike.
-pub async fn wait_for_server(url: &str, timeout_ms: u64) -> Result<(), String> {
-    let start = std::time::Instant::now();
-    loop {
-        if fetch_ok(url).await {
-            return Ok(());
-        }
-        if start.elapsed().as_millis() as u64 > timeout_ms {
-            return Err(
-                "Lifer's backend didn't respond in time. Check that Postgres is running.".into(),
-            );
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
-    }
-}
-
 pub async fn is_reachable(url: &str) -> bool {
     fetch_ok(url).await
 }
 
-// Checks credentials against a remote server's /auth/login natively, avoiding CORS. The cookie
-// is discarded; the real login happens in LoginPage after the window navigates there.
-pub async fn test_login(url: &str, email: &str, password: &str) -> Result<(), String> {
+#[derive(serde::Deserialize, Default)]
+pub struct HealthInfo {
+    #[serde(rename = "instanceId")]
+    pub instance_id: Option<String>,
+}
+
+/// GET /health as the server reports it, or None when it doesn't answer. instance_id is how the
+/// app recognises a server at any address (store.rs server_instance_id).
+pub async fn health_info(health_url: &str) -> Option<HealthInfo> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(2))
+        .build()
+        .ok()?;
+    let res = client.get(health_url).send().await.ok()?;
+    if res.status().as_u16() >= 500 {
+        return None;
+    }
+    Some(res.json::<HealthInfo>().await.unwrap_or_default())
+}
+
+// Checks credentials against a remote server's /auth/login natively, avoiding CORS, and returns
+// the Set-Cookie values of the session it made, for the window to carry over (commands.rs
+// test_login), so the user doesn't sign in a second time once the window is on the server.
+pub async fn test_login(url: &str, email: &str, password: &str) -> Result<Vec<String>, String> {
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(8))
         .build()
@@ -503,7 +565,12 @@ pub async fn test_login(url: &str, email: &str, password: &str) -> Result<(), St
         .await
         .map_err(|_| "Couldn't reach that server.".to_string())?;
     if res.status().is_success() {
-        return Ok(());
+        return Ok(res
+            .headers()
+            .get_all(reqwest::header::SET_COOKIE)
+            .iter()
+            .filter_map(|v| v.to_str().ok().map(str::to_owned))
+            .collect());
     }
     #[derive(serde::Deserialize)]
     struct ErrorBody {
@@ -516,4 +583,22 @@ pub async fn test_login(url: &str, email: &str, password: &str) -> Result<(), St
         .and_then(|b| b.error)
         .unwrap_or_else(|| "Invalid email or password".into());
     Err(message)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn child_env_drops_the_keys_that_could_open_the_launch_token_gate() {
+        let vars = [
+            ("LIFER_ALLOW_UNTOKENED_DESKTOP", "1"),
+            ("NODE_OPTIONS", "--require /tmp/x.js"),
+            ("PATH", "/usr/bin"),
+        ]
+        .map(|(k, v)| (k.to_string(), v.to_string()));
+        let env = child_env(vars.into_iter());
+        assert_eq!(env.len(), 1);
+        assert_eq!(env.get("PATH").map(String::as_str), Some("/usr/bin"));
+    }
 }

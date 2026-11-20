@@ -5,13 +5,12 @@ use tauri::{AppHandle, Manager, WebviewWindow};
 use tauri_plugin_dialog::DialogExt;
 
 use crate::commands::remembered_local_dir;
-use crate::{api, app_data_dir, navigate_or_picker, network, offline_cache, store};
+use crate::{api, app_data_dir, navigate_or_picker, network, store};
 
 pub(crate) const STARTUP_SERVER_TRIES: u32 = 3;
 const SERVER_CHECK_INTERVAL_SECS: u64 = 15;
 // About a minute of failed checks, so a brief network drop or waking from sleep doesn't switch.
 const SERVER_FAILURES_BEFORE_FALLBACK: u32 = 4;
-const PUSH_BUTTON: &str = "Push My Photos";
 const SWITCH_BUTTON: &str = "Switch to Server";
 
 #[derive(Default)]
@@ -46,20 +45,32 @@ pub(crate) async fn reachable_server(cfg: &store::DesktopConfig) -> Option<Strin
             }
             None => true,
         };
-        if on_local_network && api::is_reachable(&format!("{local_url}/health")).await {
+        if on_local_network && is_known_server(cfg, local_url).await {
             return Some(local_url.clone());
         }
         for url in cfg.external_urls.clone().unwrap_or_default() {
-            if api::is_reachable(&format!("{url}/health")).await {
+            if is_known_server(cfg, &url).await {
                 return Some(url);
             }
         }
         return None;
     }
     let server_url = cfg.server_url.as_ref()?;
-    api::is_reachable(&format!("{server_url}/health"))
+    is_known_server(cfg, server_url)
         .await
         .then(|| server_url.clone())
+}
+
+/// The address answers, and it's the server the app connected to: the same instance id, or none
+/// recorded yet. An address that now answers with another id is some other server.
+pub(crate) async fn is_known_server(cfg: &store::DesktopConfig, url: &str) -> bool {
+    let Some(health) = api::health_info(&format!("{url}/health")).await else {
+        return false;
+    };
+    match (&cfg.server_instance_id, &health.instance_id) {
+        (Some(known), Some(reported)) => known == reported,
+        _ => true,
+    }
 }
 
 fn server_label(cfg: &store::DesktopConfig) -> String {
@@ -98,17 +109,7 @@ pub(crate) async fn use_local_while_offline(
             .show(|_| {});
         return;
     }
-    let url = format!("http://127.0.0.1:{}", api::LOCAL_PORT);
-    // The first time, the library on this computer is created and its species catalog loaded.
-    match api::wait_for_server(&format!("{url}/health"), 120_000).await {
-        Ok(()) => navigate_or_picker(window, &url),
-        Err(e) => {
-            app.dialog()
-                .message(e)
-                .kind(tauri_plugin_dialog::MessageDialogKind::Error)
-                .show(|_| {});
-        }
-    }
+    navigate_or_picker(window, &format!("http://127.0.0.1:{}", api::LOCAL_PORT));
 }
 
 /// Checks the server while in remote mode: switches to this computer's library after a minute
@@ -140,14 +141,6 @@ async fn watch_server(app: AppHandle, window: WebviewWindow) {
         };
         let reachable = reachable_server(&cfg).await;
         let state = app.state::<ServerFallback>();
-        // Showing the offline cache: back to the server as soon as it answers.
-        if offline_cache::showing(&window) {
-            if let Some(url) = reachable {
-                failures = 0;
-                navigate_or_picker(&window, &url);
-            }
-            continue;
-        }
         if state.active.load(Ordering::SeqCst) {
             let Some(url) = reachable else { continue };
             if state.offered.swap(true, Ordering::SeqCst) {
@@ -157,32 +150,24 @@ async fn watch_server(app: AppHandle, window: WebviewWindow) {
             let window2 = window.clone();
             app.dialog()
                 .message(format!(
-                    "Your server at {} is back.\n\nPush the photos you added on this computer to it first, or switch straight to the server. Anything you don't push stays in the library on this computer, and you can push it later from Settings, Server.",
+                    "Your server at {} is back.\n\nWhat you added or changed on this computer is sent to it in the background (Settings, Server shows the progress).",
                     server_label(&cfg)
                 ))
                 .title("Server reconnected")
-                .buttons(tauri_plugin_dialog::MessageDialogButtons::YesNoCancelCustom(
-                    PUSH_BUTTON.into(),
+                .buttons(tauri_plugin_dialog::MessageDialogButtons::OkCancelCustom(
                     SWITCH_BUTTON.into(),
                     "Not Now".into(),
                 ))
-                .show_with_result(move |choice| {
-                    use tauri_plugin_dialog::MessageDialogResult;
+                .show(move |switch| {
                     // The user may have switched library or server while this dialog was open.
                     if !app2.state::<ServerFallback>().active.load(Ordering::SeqCst) {
                         return;
                     }
-                    let picked = |label: &str, standard: MessageDialogResult| choice == standard || choice == MessageDialogResult::Custom(label.into());
-                    if picked(PUSH_BUTTON, MessageDialogResult::Yes) {
-                        // Settings, Server in this computer's library: connecting there shows "Migrate
-                        // your library to a server", which sends only what isn't on it yet.
-                        navigate_or_picker(&window2, &format!("http://127.0.0.1:{}/settings/server", api::LOCAL_PORT));
-                    } else if picked(SWITCH_BUTTON, MessageDialogResult::No) {
+                    // Either way the push runs: the library on this computer stays up for it.
+                    crate::sync::kick(&app2);
+                    if switch {
                         end_server_fallback(&app2);
                         navigate_or_picker(&window2, &url);
-                        // The library on this computer isn't needed while on the server.
-                        let app3 = app2.clone();
-                        tauri::async_runtime::spawn(async move { api::stop_api_async(&app3).await });
                     }
                 });
         } else if reachable.is_some() {
@@ -191,7 +176,7 @@ async fn watch_server(app: AppHandle, window: WebviewWindow) {
             failures += 1;
             if failures >= SERVER_FAILURES_BEFORE_FALLBACK {
                 failures = 0;
-                offline_cache::show_offline_or_local(&app, &window, &cfg).await;
+                use_local_while_offline(&app, &window, &cfg).await;
             }
         }
     }

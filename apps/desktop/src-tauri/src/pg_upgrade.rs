@@ -22,10 +22,12 @@
 // migrations ran) and /health answers, the marker is removed and a dialog offers to delete the
 // old copy, or keep it; the docs explain where it is.
 use serde::{Deserialize, Serialize};
+use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
-use std::sync::Mutex;
-use std::time::Duration;
+use std::process::{Child, Command, Output, Stdio};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 /// The PostgreSQL major the app bundles: data folders made by an older major are upgraded to
 /// it. POSTGRES_VERSION in scripts/stage-postgres.js and BUNDLED_MAJOR in
@@ -116,7 +118,7 @@ fn read_marker(layout: &Layout) -> Option<Marker> {
 fn write_marker(layout: &Layout, marker: &Marker) -> Result<(), String> {
     let path = layout.marker();
     let json = serde_json::to_vec_pretty(marker).map_err(|e| e.to_string())?;
-    crate::fsutil::write_atomic(&path, &json)
+    crate::fsutil::write_atomic(&path, &json, None)
         .map_err(|e| format!("Couldn't save {}: {e}", path.display()))
 }
 
@@ -178,9 +180,23 @@ fn report(detail: &str) {
     ));
 }
 
+/// First setup's progress on the setup page (src/picker.js): the step, and how far along the
+/// whole setup is, 0 to 1. A no-op on any other page.
+pub fn report_setup(step: &str, fraction: f64) {
+    let Some(window) = status_window() else {
+        return;
+    };
+    let Ok(step) = serde_json::to_string(step) else {
+        return;
+    };
+    let _ = window.eval(format!(
+        "window.__liferSetupProgress && window.__liferSetupProgress({step}, {fraction:.3});"
+    ));
+}
+
 // ---- Running the PostgreSQL programs --------------------------------------------------------
 
-fn command(program: &Path) -> Command {
+pub(crate) fn command(program: &Path) -> Command {
     let mut cmd = Command::new(program);
     cmd.stdin(Stdio::null());
     // No console window flashing up for each program on Windows.
@@ -197,10 +213,133 @@ fn tail(text: &str, lines: usize) -> String {
     all[all.len().saturating_sub(lines)..].join("\n")
 }
 
+/// When a child is given up on. A large library can take hours to convert, so there's no short
+/// timeout: only a child that shows no sign of work (no output, no growth in the folders or
+/// files it writes) for `stall` is stopped, or one still running at `deadline`.
+struct Limits {
+    stall: Duration,
+    deadline: Duration,
+    poll: Duration,
+}
+
+const LIMITS: Limits = Limits {
+    stall: Duration::from_secs(30 * 60),
+    deadline: Duration::from_secs(24 * 60 * 60),
+    poll: Duration::from_secs(2),
+};
+
+fn bytes_at(path: &Path) -> u64 {
+    std::fs::metadata(path)
+        .map(|m| if m.is_dir() { dir_size(path) } else { m.len() })
+        .unwrap_or(0)
+}
+
+/// Collects a pipe on its own thread (so a chatty child never blocks on a full pipe), counting
+/// the bytes as they arrive.
+fn drain(
+    pipe: Option<impl Read + Send + 'static>,
+    seen: &Arc<AtomicU64>,
+) -> std::thread::JoinHandle<Vec<u8>> {
+    let seen = Arc::clone(seen);
+    std::thread::spawn(move || {
+        let mut all = Vec::new();
+        let Some(mut pipe) = pipe else {
+            return all;
+        };
+        let mut buf = [0u8; 8192];
+        while let Ok(n) = pipe.read(&mut buf) {
+            if n == 0 {
+                break;
+            }
+            seen.fetch_add(n as u64, Ordering::Relaxed);
+            all.extend_from_slice(&buf[..n]);
+        }
+        all
+    })
+}
+
+/// Waits for `child` like wait_with_output, under `limits`. With `detail`, the startup page
+/// shows it with the time taken so far, so a long upgrade visibly isn't stuck.
+fn wait_watched(
+    mut child: Child,
+    what: &str,
+    growing: &[&Path],
+    detail: Option<&str>,
+    limits: &Limits,
+) -> Result<Output, String> {
+    let seen = Arc::new(AtomicU64::new(0));
+    let stdout = drain(child.stdout.take(), &seen);
+    let stderr = drain(child.stderr.take(), &seen);
+    let start = Instant::now();
+    let mut last_change = start;
+    let mut last_report = start;
+    let mut last_seen = (0, 0);
+    let status = loop {
+        if let Some(status) = child
+            .try_wait()
+            .map_err(|e| format!("{what} didn't finish: {e}"))?
+        {
+            break status;
+        }
+        std::thread::sleep(limits.poll);
+        let now_seen = (
+            seen.load(Ordering::Relaxed),
+            growing.iter().map(|p| bytes_at(p)).sum::<u64>(),
+        );
+        if now_seen != last_seen {
+            last_seen = now_seen;
+            last_change = Instant::now();
+        }
+        let stalled = last_change.elapsed() >= limits.stall;
+        if stalled || start.elapsed() >= limits.deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            let why = if stalled {
+                format!(
+                    "made no progress for {} minutes",
+                    limits.stall.as_secs() / 60
+                )
+            } else {
+                format!(
+                    "was still running after {} hours",
+                    limits.deadline.as_secs() / 3600
+                )
+            };
+            return Err(format!("{what} {why}, so it was stopped"));
+        }
+        if let Some(detail) = detail {
+            if last_report.elapsed() >= Duration::from_secs(60) {
+                last_report = Instant::now();
+                report(&format!(
+                    "{detail} ({} min so far)",
+                    start.elapsed().as_secs() / 60
+                ));
+            }
+        }
+    };
+    Ok(Output {
+        status,
+        stdout: stdout.join().unwrap_or_default(),
+        stderr: stderr.join().unwrap_or_default(),
+    })
+}
+
 fn run(cmd: &mut Command, what: &str) -> Result<String, String> {
-    let out = cmd
-        .output()
+    run_watched(cmd, what, &[], None)
+}
+
+fn run_watched(
+    cmd: &mut Command,
+    what: &str,
+    growing: &[&Path],
+    detail: Option<&str>,
+) -> Result<String, String> {
+    let child = cmd
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
         .map_err(|e| format!("couldn't run {what}: {e}"))?;
+    let out = wait_watched(child, what, growing, detail, &LIMITS)?;
     let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
     if out.status.success() {
         return Ok(stdout);
@@ -291,18 +430,20 @@ impl Servers {
     }
 }
 
-/// Stops a server running on `data` (fast shutdown), if one is. Never fails: used to clean up.
-fn stop_server(bin: &Path, data: &Path) {
+/// Stops a server running on `data` (fast shutdown), if one is. True once none is left running.
+fn stop_server(bin: &Path, data: &Path) -> bool {
     if !data.join("postmaster.pid").exists() {
-        return;
+        return true;
     }
-    let _ = command(&bin.join(exe("pg_ctl")))
+    let stopped = command(&bin.join(exe("pg_ctl")))
         .arg("stop")
         .arg("-D")
         .arg(data)
         .args(["-m", "fast", "-w", "-t", "60"])
-        .output();
+        .output()
+        .is_ok_and(|out| out.status.success());
     crate::embedded_db::clear_stale_lock_if_dead(data);
+    stopped || !data.join("postmaster.pid").exists()
 }
 
 // ---- Disk space ------------------------------------------------------------------------------
@@ -514,11 +655,17 @@ fn run_pg_upgrade(
         .map_err(|e| format!("couldn't run pg_upgrade: {e}"))?;
     marker.child_pid = Some(child.id());
     write_marker(layout, marker)?;
-    let out = child
-        .wait_with_output()
-        .map_err(|e| format!("pg_upgrade didn't finish: {e}"))?;
+    let new_data = layout.new_data();
+    let out = wait_watched(
+        child,
+        "pg_upgrade",
+        &[&new_data],
+        Some(method.detail()),
+        &LIMITS,
+    );
     marker.child_pid = None;
     write_marker(layout, marker)?;
+    let out = out?;
     if out.status.success() {
         return Ok(());
     }
@@ -580,19 +727,24 @@ fn dump_and_restore(servers: &Servers, layout: &Layout) -> Result<(), String> {
             return Ok(());
         }
         let dump = servers.work.join("lifer.dump");
-        run(
+        let detail = Some(Method::Dump.detail());
+        run_watched(
             servers
                 .client("pg_dump", servers.old_port)
                 .args(["-Fc", "-d", DB_NAME, "-f"])
                 .arg(&dump),
             "pg_dump",
+            &[&dump],
+            detail,
         )?;
-        run(
+        run_watched(
             servers
                 .client("pg_restore", servers.new_port)
                 .args(["--create", "--exit-on-error", "-d", "postgres"])
                 .arg(&dump),
             "pg_restore",
+            &[&new_data],
+            detail,
         )?;
         let _ = std::fs::remove_file(&dump);
         Ok(())
@@ -616,7 +768,7 @@ fn analyze(servers: &Servers, new_data: &Path, method: Method) -> Result<(), Str
     if method != Method::Dump {
         cmd.arg("--missing-stats-only");
     }
-    let result = run(&mut cmd, "vacuumdb").map(|_| ());
+    let result = run_watched(&mut cmd, "vacuumdb", &[new_data], None).map(|_| ());
     stop_server(&servers.new_bin, new_data);
     result
 }
@@ -841,6 +993,18 @@ fn upgrade(
         }
 
         report("Finishing up");
+        // Renaming a folder under a running server would corrupt it.
+        for (bin, dir) in [
+            (&servers.old_bin, data.clone()),
+            (&servers.new_bin, layout.new_data()),
+        ] {
+            if !stop_server(bin, &dir) {
+                return Err(format!(
+                    "the database server on {} didn't stop, so the upgrade was left unfinished",
+                    dir.display()
+                ));
+            }
+        }
         swap(layout, &mut marker)
     })();
 
@@ -1003,6 +1167,51 @@ fn offer_to_delete(backup: PathBuf, bytes: u64) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn a_silent_child_is_stopped_but_a_slow_working_one_is_not() {
+        let limits = Limits {
+            stall: Duration::from_millis(800),
+            deadline: Duration::from_secs(60),
+            poll: Duration::from_millis(100),
+        };
+        let spawn = |script: &str| {
+            Command::new("sh")
+                .args(["-c", script])
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+                .unwrap()
+        };
+        let started = Instant::now();
+        let err = wait_watched(spawn("sleep 30"), "sleep", &[], None, &limits).unwrap_err();
+        assert!(err.contains("no progress"), "{err}");
+        assert!(started.elapsed() < Duration::from_secs(10));
+
+        // Each pause is shorter than the stall limit, the total is longer.
+        let out = wait_watched(
+            spawn("for i in 1 2 3 4; do echo $i; sleep 0.4; done"),
+            "loop",
+            &[],
+            None,
+            &limits,
+        )
+        .unwrap();
+        assert!(out.status.success());
+        assert_eq!(String::from_utf8_lossy(&out.stdout), "1\n2\n3\n4\n");
+
+        // A file that keeps growing counts as progress too.
+        let dir = temp_app_dir("watched");
+        let file = dir.join("dump");
+        let script = format!(
+            "for i in 1 2 3 4; do echo x >> '{}'; sleep 0.4; done",
+            file.display()
+        );
+        let out = wait_watched(spawn(&script), "dump", &[&file], None, &limits).unwrap();
+        assert!(out.status.success());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     fn temp_app_dir(name: &str) -> PathBuf {
         let dir =

@@ -7,7 +7,6 @@ use postgresql_commands::pg_ctl::{Mode, PgCtlBuilder};
 use postgresql_commands::psql::PsqlBuilder;
 use postgresql_commands::traits::{AsyncCommandExecutor, CommandBuilder};
 use postgresql_embedded::{PostgreSQL, Settings};
-use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -18,16 +17,6 @@ const LEGACY_DB_PASSWORD: &str = "lifer-embedded";
 // Per-install random password, 0600, next to postgres-data (never inside it: initdb needs that
 // dir empty). scripts/headless-postgres.js reads the same file.
 const PASSWORD_FILE: &str = "postgres-password";
-
-// The base species/region catalog every install needs, on its own rolling GitHub Release.
-// A --data-only, --disable-triggers pg_dump of build-catalog-seed.ts's CATALOG_TABLES. Never user data.
-const CATALOG_SEED_URL: &str =
-    "https://github.com/Sparklysparkspark/lifer-app/releases/download/catalog-latest/lifer-catalog-seed.sql.gz";
-// Published next to the seed, with its sha256 (seed.sha256). fetch-catalog-seed.js bundles a
-// copy next to the bundled seed.
-const CATALOG_MANIFEST_URL: &str =
-    "https://github.com/Sparklysparkspark/lifer-app/releases/download/catalog-latest/catalog-manifest.json";
-const CATALOG_MANIFEST_FILE: &str = "catalog-manifest.json";
 
 /// Builds this instance's own connection URL from its resolved settings (host/port are only
 /// known for certain after start() resolves a dynamic port=0 to a real one).
@@ -143,26 +132,8 @@ fn generate_password() -> Result<String, String> {
 }
 
 pub(crate) fn write_secret_file(path: &Path, contents: &str) -> Result<(), String> {
-    let err = |e: std::io::Error| format!("Couldn't save {}: {e}", path.display());
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir).map_err(err)?;
-    }
-    let mut options = std::fs::OpenOptions::new();
-    options.write(true).create(true).truncate(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600);
-    }
-    let mut file = options.open(path).map_err(err)?;
-    // mode() only applies on create; tighten a file that already existed too.
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
-    }
-    file.write_all(contents.as_bytes()).map_err(err)?;
-    file.sync_all().map_err(err)
+    crate::fsutil::write_atomic(path, contents.as_bytes(), Some(0o600))
+        .map_err(|e| format!("Couldn't save {}: {e}", path.display()))
 }
 
 /// The PostgreSQL install bundled in the app's resources (resources/postgres, staged by
@@ -250,8 +221,9 @@ async fn rotate_legacy_password(
     data_dir: &Path,
     installation: Option<&Path>,
     new_password: &str,
-    scratch_dir: &Path,
+    password_file: &Path,
 ) -> Result<(), String> {
+    let scratch_dir = password_file.parent().unwrap_or(data_dir);
     let mut postgresql = PostgreSQL::new(settings_for(data_dir, LEGACY_DB_PASSWORD, installation));
     postgresql
         .setup()
@@ -266,7 +238,7 @@ async fn rotate_legacy_password(
         // An earlier launch may have applied the pending password but crashed before saving it.
         Err(legacy_err) => run_sql_as(&postgresql, new_password, "SELECT 1;", scratch_dir)
             .await
-            .map_err(|_| format!("Couldn't update the embedded database password: {legacy_err}")),
+            .map_err(|_| locked_out_message(password_file, &legacy_err)),
     };
 
     if tokio::time::timeout(Duration::from_secs(30), postgresql.stop())
@@ -276,6 +248,14 @@ async fn rotate_legacy_password(
         eprintln!("[embedded_db] postgres didn't stop within 30s after the password update");
     }
     result
+}
+
+// Neither the shared password nor a pending one opens the cluster: its own password file is gone.
+fn locked_out_message(password_file: &Path, detail: &str) -> String {
+    format!(
+        "Lifer couldn't open your library's database because its password file is missing or out of date:\n{}\n\nIf you have a backup of this computer, restore that file to the same place and open Lifer again. Your library's data is still there.\n\n({detail})",
+        password_file.display()
+    )
 }
 
 // Every password an existing cluster may have, most likely first: this install's, one a crash
@@ -321,13 +301,7 @@ async fn resolve_password(
     eprintln!(
         "[embedded_db] replacing the shared default database password with a per-install one"
     );
-    rotate_legacy_password(
-        data_dir,
-        installation,
-        &password,
-        path.parent().unwrap_or(app_data_dir),
-    )
-    .await?;
+    rotate_legacy_password(data_dir, installation, &password, &path).await?;
     std::fs::rename(&pending, &path)
         .map_err(|e| format!("Couldn't save {}: {e}", path.display()))?;
     Ok(password)
@@ -392,153 +366,7 @@ pub async fn start_embedded_postgres(
     Ok((postgresql, database_url))
 }
 
-fn psql(postgresql: &PostgreSQL) -> PsqlBuilder {
-    PsqlBuilder::from(postgresql.settings())
-        .dbname(DB_NAME)
-        .no_psqlrc()
-}
-
-async fn species_table_is_empty(postgresql: &PostgreSQL) -> Result<bool, String> {
-    let (stdout, _stderr) = psql(postgresql)
-        .command("SELECT count(*) FROM species")
-        .tuples_only()
-        .no_align()
-        .build_tokio()
-        .execute(Some(Duration::from_secs(30)))
-        .await
-        .map_err(|e| format!("Couldn't check the species catalog: {e}"))?;
-    Ok(stdout.trim().parse::<i64>().unwrap_or(0) == 0)
-}
-
-/// A fresh database has the schema but no species catalog. Restores it from the copy bundled at
-/// build time (fetch-catalog-seed.js), downloading it only when that copy is missing (`tauri dev`).
-pub async fn restore_catalog_seed_if_needed(
-    postgresql: &PostgreSQL,
-    resources: &Path,
-) -> Result<(), String> {
-    if !species_table_is_empty(postgresql).await? {
-        return Ok(());
-    }
-
-    let bundled_path = resources
-        .join("catalog-seed")
-        .join("lifer-catalog-seed.sql.gz");
-    let tmp_dir = std::env::temp_dir();
-    let pid = std::process::id();
-    let downloaded_gz = tmp_dir.join(format!("lifer-catalog-seed-{pid}.sql.gz"));
-    let sql_path = tmp_dir.join(format!("lifer-catalog-seed-{pid}.sql"));
-
-    let result = async {
-        let gz_path = if bundled_path.exists() {
-            // Checked against the manifest bundled next to it, like the server's bundled seed
-            // (verifiedBundledSeed in apps/api). Without a manifest, or one from before seeds had
-            // checksums, there's nothing to check it against.
-            let manifest =
-                std::fs::read_to_string(resources.join("catalog-seed").join(CATALOG_MANIFEST_FILE))
-                    .ok();
-            if let Some(expected) = manifest.as_deref().and_then(manifest_seed_sha256) {
-                verify_seed(
-                    bundled_path.clone(),
-                    expected,
-                    "The species catalog bundled with Lifer",
-                )
-                .await?;
-            }
-            bundled_path.clone()
-        } else {
-            download_seed(&downloaded_gz).await?;
-            downloaded_gz.clone()
-        };
-
-        eprintln!(
-            "[embedded_db] decompressing species catalog from {}",
-            gz_path.display()
-        );
-        let (gz, sql) = (gz_path.clone(), sql_path.clone());
-        let sql_bytes = tauri::async_runtime::spawn_blocking(move || decompress_to_file(&gz, &sql))
-            .await
-            .map_err(|e| format!("Couldn't decompress the species catalog: {e}"))??;
-        eprintln!(
-            "[embedded_db] loading species catalog ({} MB of SQL)",
-            sql_bytes / 1_000_000
-        );
-
-        // No timeout: a slow disk must not abort first launch. ON_ERROR_STOP makes a bad statement
-        // fail loudly instead of psql exiting 0 after single_transaction silently rolled back.
-        let started = std::time::Instant::now();
-        psql(postgresql)
-            .file(&sql_path)
-            .single_transaction()
-            .variable(("ON_ERROR_STOP", "1"))
-            .quiet()
-            .build_tokio()
-            .execute(None)
-            .await
-            .map_err(|e| format!("Couldn't load the species catalog: {e}"))?;
-        eprintln!(
-            "[embedded_db] species catalog loaded in {}s",
-            started.elapsed().as_secs()
-        );
-        refresh_search_names(postgresql).await;
-        Ok(())
-    }
-    .await;
-
-    let _ = std::fs::remove_file(&sql_path);
-    let _ = std::fs::remove_file(&downloaded_gz);
-    result
-}
-
-// The seed restore disables triggers, so the species search table starts empty. Best effort: the
-// API also rebuilds it at startup when empty. Skipped on schemas older than migration 111.
-async fn refresh_search_names(postgresql: &PostgreSQL) {
-    let sql = "DO $$ BEGIN IF to_regproc('refresh_species_search_names') IS NOT NULL THEN \
-               PERFORM refresh_species_search_names(NULL); END IF; END $$;";
-    let started = std::time::Instant::now();
-    let result = psql(postgresql)
-        .command(sql)
-        .variable(("ON_ERROR_STOP", "1"))
-        .quiet()
-        .build_tokio()
-        .execute(None)
-        .await;
-    match result {
-        Ok(_) => eprintln!(
-            "[embedded_db] species search names built in {}s",
-            started.elapsed().as_secs()
-        ),
-        Err(e) => eprintln!(
-            "[embedded_db] warning: couldn't build species search names, the API will retry: {e}"
-        ),
-    }
-}
-
-// The seed's sha256 from a catalog manifest ({ seed: { url, sha256, bytes }, ... }), or None for
-// one from before seeds had checksums.
-fn manifest_seed_sha256(manifest: &str) -> Option<String> {
-    let value: serde_json::Value = serde_json::from_str(manifest).ok()?;
-    value["seed"]["sha256"]
-        .as_str()
-        .map(|s| s.trim().to_ascii_lowercase())
-        .filter(|s| !s.is_empty())
-}
-
-// The seed's URL from a catalog manifest (relative to the manifest), else the fixed one.
-fn manifest_seed_url(manifest: &str) -> String {
-    serde_json::from_str::<serde_json::Value>(manifest)
-        .ok()
-        .and_then(|v| v["seed"]["url"].as_str().map(str::to_string))
-        .and_then(|u| {
-            url::Url::parse(CATALOG_MANIFEST_URL)
-                .ok()?
-                .join(&u)
-                .ok()
-                .map(|u| u.to_string())
-        })
-        .unwrap_or_else(|| CATALOG_SEED_URL.to_string())
-}
-
-fn sha256_file(path: &Path) -> Result<String, String> {
+pub(crate) fn sha256_file(path: &Path) -> Result<String, String> {
     use sha2::{Digest, Sha256};
     use std::io::Read;
     let read_err = |e: std::io::Error| format!("Couldn't read {}: {e}", path.display());
@@ -558,116 +386,6 @@ fn sha256_file(path: &Path) -> Result<String, String> {
         .iter()
         .map(|b| format!("{b:02x}"))
         .collect())
-}
-
-fn check_seed_sha256(path: &Path, expected: &str, label: &str) -> Result<(), String> {
-    let actual = sha256_file(path)?;
-    if actual == expected.to_ascii_lowercase() {
-        return Ok(());
-    }
-    Err(format!(
-        "{label} ({}) doesn't match the checksum in its manifest, so Lifer won't load it. \
-         Reinstall Lifer, or update the catalog from Settings once Lifer is open. \
-         (sha256 {actual}, expected {expected})",
-        path.display()
-    ))
-}
-
-// Off the async runtime: hashing ~200 MB takes a moment.
-async fn verify_seed(path: PathBuf, expected: String, label: &'static str) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || check_seed_sha256(&path, &expected, label))
-        .await
-        .map_err(|e| format!("Couldn't check the species catalog: {e}"))?
-}
-
-// Streams gzip -> .sql on disk so neither side is ever held in memory. Returns SQL byte count.
-fn decompress_to_file(gz_path: &Path, sql_path: &Path) -> Result<u64, String> {
-    let input = std::fs::File::open(gz_path)
-        .map_err(|e| format!("Couldn't read the species catalog: {e}"))?;
-    let mut decoder = flate2::read::GzDecoder::new(std::io::BufReader::new(input));
-    let output = std::fs::File::create(sql_path)
-        .map_err(|e| format!("Couldn't stage the species catalog: {e}"))?;
-    let mut writer = std::io::BufWriter::new(output);
-    let bytes = std::io::copy(&mut decoder, &mut writer)
-        .map_err(|e| format!("Couldn't decompress the species catalog: {e}"))?;
-    writer
-        .flush()
-        .map_err(|e| format!("Couldn't stage the species catalog: {e}"))?;
-    Ok(bytes)
-}
-
-// Live fallback (`tauri dev` without the bundled copy). Streams to disk and aborts on a 60s stall
-// rather than capping the whole transfer. The manifest comes first, and the download is checked
-// against its sha256 (the server's downloadSeed does the same).
-async fn download_seed(dest: &Path) -> Result<(), String> {
-    const STALL: Duration = Duration::from_secs(60);
-    let err = |e: String| format!("Couldn't download the species catalog: {e}");
-    let client = reqwest::Client::builder()
-        .connect_timeout(Duration::from_secs(30))
-        .build()
-        .map_err(|e| err(e.to_string()))?;
-    let manifest = tokio::time::timeout(STALL, async {
-        let response = client.get(CATALOG_MANIFEST_URL).send().await?;
-        response.error_for_status()?.text().await
-    })
-    .await
-    .map_err(|_| err("no response for the catalog manifest".into()))?
-    .map_err(|e| err(format!("couldn't read the catalog manifest: {e}")))?;
-    let expected = manifest_seed_sha256(&manifest);
-    let seed_url = manifest_seed_url(&manifest);
-    eprintln!("[embedded_db] downloading species catalog from {seed_url}");
-    let mut response = tokio::time::timeout(STALL, client.get(&seed_url).send())
-        .await
-        .map_err(|_| err("no response from the server".into()))?
-        .map_err(|e| err(e.to_string()))?;
-    if !response.status().is_success() {
-        return Err(err(format!("HTTP {}", response.status())));
-    }
-    let total = response.content_length();
-    let mut file = std::fs::File::create(dest).map_err(|e| err(e.to_string()))?;
-    let mut downloaded: u64 = 0;
-    let mut last_logged: u64 = 0;
-    loop {
-        let chunk = tokio::time::timeout(STALL, response.chunk())
-            .await
-            .map_err(|_| err("the download stalled".into()))?
-            .map_err(|e| err(e.to_string()))?;
-        let Some(chunk) = chunk else { break };
-        file.write_all(&chunk).map_err(|e| err(e.to_string()))?;
-        downloaded += chunk.len() as u64;
-        if downloaded - last_logged >= 10_000_000 {
-            last_logged = downloaded;
-            match total {
-                Some(t) => eprintln!(
-                    "[embedded_db] downloaded {} of {} MB",
-                    downloaded / 1_000_000,
-                    t / 1_000_000
-                ),
-                None => eprintln!("[embedded_db] downloaded {} MB", downloaded / 1_000_000),
-            }
-        }
-    }
-    file.flush().map_err(|e| err(e.to_string()))?;
-    if let Some(t) = total {
-        if downloaded != t {
-            return Err(err(format!("got {downloaded} of {t} bytes")));
-        }
-    }
-    drop(file);
-    match expected {
-        Some(expected) => {
-            verify_seed(
-                dest.to_path_buf(),
-                expected,
-                "The downloaded species catalog",
-            )
-            .await
-        }
-        None => {
-            eprintln!("[embedded_db] the catalog manifest has no checksum (an older one), so the download isn't checked");
-            Ok(())
-        }
-    }
 }
 
 #[cfg(test)]
@@ -695,38 +413,6 @@ mod tests {
             .collect();
         assert_eq!(sha256_file(&large).unwrap(), expected);
         std::fs::remove_dir_all(&dir).unwrap();
-    }
-
-    #[test]
-    fn catalog_seed_is_checked_against_its_manifest() {
-        let dir = std::env::temp_dir().join(format!("lifer-seed-check-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let seed = dir.join("lifer-catalog-seed.sql.gz");
-        std::fs::write(&seed, b"seed bytes").unwrap();
-        let real = sha256_file(&seed).unwrap();
-
-        let manifest = format!(
-            r#"{{"version": 7, "seed": {{"url": "lifer-catalog-seed.sql.gz", "sha256": "{}"}}}}"#,
-            real.to_uppercase()
-        );
-        let expected = manifest_seed_sha256(&manifest).unwrap();
-        assert_eq!(expected, real);
-        assert!(check_seed_sha256(&seed, &expected, "The seed").is_ok());
-        assert_eq!(
-            manifest_seed_url(&manifest),
-            "https://github.com/Sparklysparkspark/lifer-app/releases/download/catalog-latest/lifer-catalog-seed.sql.gz"
-        );
-
-        std::fs::write(&seed, b"tampered seed").unwrap();
-        let err = check_seed_sha256(&seed, &expected, "The seed").unwrap_err();
-        assert!(err.contains("doesn't match the checksum"), "{err}");
-        assert!(check_seed_sha256(&seed, &"0".repeat(64), "The seed").is_err());
-
-        // An older manifest without a checksum, or none at all: nothing to check against.
-        assert_eq!(manifest_seed_sha256(r#"{"version": 7}"#), None);
-        assert_eq!(manifest_seed_sha256("not json"), None);
-        assert_eq!(manifest_seed_url(r#"{"version": 7}"#), CATALOG_SEED_URL);
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     // Starts the bundled server the way the app does (setup, initdb on first launch, start,

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>app.lifer.desktop</id>
+  <name>Lifer</name>
+  <summary>A private wildlife photo archive and life list</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>AGPL-3.0-only</project_license>
+  <url type="homepage">https://sparklysparkspark.github.io/lifer-app</url>
+  <url type="bugtracker">https://github.com/Sparklysparkspark/lifer-app/issues</url>
+  <description>
+    <p>Lifer keeps your wildlife photos on your own computer, matches them to species and builds your life list. Nothing leaves your computer unless you turn a connection on.</p>
+  </description>
+  <launchable type="desktop-id">app.lifer.desktop.desktop</launchable>
+  <content_rating type="oars-1.1" />
+  <!-- Add a <releases> entry per version when submitting. -->
+</component>

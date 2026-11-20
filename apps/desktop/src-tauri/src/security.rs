@@ -8,6 +8,34 @@ use tauri_plugin_opener::OpenerExt;
 
 use crate::{api, app_data_dir, store, WINDOW_LABEL};
 
+/// The app's own bundled pages (picker, offline, startup): the embedded tauri:// scheme in a
+/// built app, the Tauri CLI's dev server (build.devUrl) under `tauri dev`.
+pub(crate) fn is_bundled_page(app: &AppHandle, url: &url::Url) -> bool {
+    if url.scheme() == "tauri" || url.host_str() == Some("tauri.localhost") {
+        return true;
+    }
+    cfg!(dev)
+        && app
+            .config()
+            .build
+            .dev_url
+            .as_ref()
+            .is_some_and(|dev| dev.origin() == url.origin())
+}
+
+/// Where a bundled page lives, for navigating to it (see is_bundled_page).
+pub(crate) fn bundled_page_url(app: &AppHandle, page: &str) -> String {
+    if cfg!(dev) {
+        if let Some(dev) = &app.config().build.dev_url {
+            return format!(
+                "{}{page}",
+                dev.as_str().trim_end_matches('/').to_owned() + "/"
+            );
+        }
+    }
+    format!("tauri://localhost/{page}")
+}
+
 pub(crate) fn is_local_api(url: &url::Url) -> bool {
     url.scheme() == "http"
         && matches!(url.host_str(), Some("127.0.0.1") | Some("localhost"))
@@ -27,7 +55,8 @@ pub(crate) fn is_configured_server(cfg: store::DesktopConfig, url: &url::Url) ->
 // What a connected server's pages may call. Registered at runtime for the configured origins
 // only (see grant_remote_capabilities); there is deliberately no static wildcard capability.
 // fs writes are limited to paths the user picked in a save dialog (the dialog plugin adds them
-// to the fs scope). capabilities/default.json grants the local API's pages the same set.
+// to the fs scope). capabilities/default.json grants the app's own pages this set plus
+// allow-local-only-commands.
 const REMOTE_PERMISSIONS: &[&str] = &[
     "core:default",
     "core:window:allow-start-dragging",
@@ -54,7 +83,7 @@ const UPDATE_PERMISSIONS: &[&str] = &[
 
 // HTTPS, or plain http that stays on this computer or the local network: a home server is
 // usually reached as http://192.168.x.x or http://nas.local, never over the public internet.
-fn is_secure_origin(url: &url::Url) -> bool {
+pub(crate) fn is_secure_origin(url: &url::Url) -> bool {
     url.scheme() == "https" || url.host().is_some_and(|host| is_local_network_host(&host))
 }
 
@@ -162,6 +191,13 @@ pub(crate) fn open_external(app: &AppHandle, url: &url::Url) {
     }
 }
 
+/// The app's own pages: the bundled ones and the local library's, never a connected server's.
+pub(crate) fn is_app_page(window: &WebviewWindow) -> bool {
+    window
+        .url()
+        .is_ok_and(|url| is_bundled_page(window.app_handle(), &url) || is_local_api(&url))
+}
+
 // Setup commands can reconfigure the app, so only honor them from trusted pages. Capability
 // allowlists can't express "the server currently in our config," so it's checked here.
 pub(crate) fn is_trusted_sender(window: &WebviewWindow) -> bool {
@@ -169,7 +205,7 @@ pub(crate) fn is_trusted_sender(window: &WebviewWindow) -> bool {
         Ok(u) => u,
         Err(_) => return false,
     };
-    if url.scheme() == "tauri" {
+    if is_bundled_page(window.app_handle(), &url) {
         return true; // our own bundled index.html/picker.html
     }
     if is_local_api(&url) {
@@ -187,6 +223,23 @@ mod tests {
 
     fn url(s: &str) -> url::Url {
         s.parse().unwrap()
+    }
+
+    #[test]
+    fn only_the_local_api_port_counts_as_the_local_api() {
+        let port = api::LOCAL_PORT;
+        assert!(is_local_api(&url(&format!(
+            "http://127.0.0.1:{port}/gallery"
+        ))));
+        assert!(is_local_api(&url(&format!("http://localhost:{port}/"))));
+        assert!(!is_local_api(&url(&format!(
+            "http://127.0.0.1:{}/",
+            port + 1
+        ))));
+        assert!(!is_local_api(&url(&format!("https://127.0.0.1:{port}/"))));
+        assert!(!is_local_api(&url(&format!("http://[::1]:{port}/"))));
+        assert!(!is_local_api(&url(&format!("http://192.168.1.10:{port}/"))));
+        assert!(!is_local_api(&url("http://127.0.0.1/")));
     }
 
     #[test]
@@ -230,6 +283,31 @@ mod tests {
             for p in UPDATE_PERMISSIONS {
                 assert!(granted.contains(p), "{trusted} lacks {p}");
             }
+        }
+    }
+
+    #[test]
+    fn server_pages_never_get_the_local_only_commands() {
+        assert!(!REMOTE_PERMISSIONS.contains(&"allow-local-only-commands"));
+        let toml = include_str!("../permissions/app-commands.toml");
+        let start = toml.find("\"allow-app-commands\"").expect("the shared set");
+        let end = toml
+            .find("\"allow-local-only-commands\"")
+            .expect("the local-only set");
+        let (shared, local_only) = (&toml[start..end], &toml[end..]);
+        for command in [
+            "remove_all_data",
+            "test_login",
+            "set_local_data_dir",
+            "local_api_credential",
+            "plugins_list",
+        ] {
+            let quoted = format!("\"{command}\"");
+            assert!(
+                !shared.contains(&quoted),
+                "{command} is in allow-app-commands"
+            );
+            assert!(local_only.contains(&quoted), "{command} isn't local-only");
         }
     }
 

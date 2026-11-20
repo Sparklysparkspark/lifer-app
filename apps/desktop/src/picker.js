@@ -2,11 +2,33 @@
 const localButton = document.getElementById("use-local");
 const statusEl = document.getElementById("status");
 const errorEl = document.getElementById("error");
+const serverErrorEl = document.getElementById("server-error");
+const STEPS = ["welcome", "choose", "server"];
+// "On this Mac" only on a Mac (lib.rs sets the platform before any page script runs).
+if (window.__LIFER_PLATFORM__ !== "darwin") document.getElementById("local-title").textContent = "On this computer";
+
+// One step on screen at a time; Back always returns to the step before.
+function showStep(name) {
+  for (const step of STEPS) document.getElementById(`step-${step}`).hidden = step !== name;
+  errorEl.hidden = true;
+  serverErrorEl.hidden = true;
+  const heading = document.querySelector(`#step-${name} h1`);
+  if (heading) {
+    heading.tabIndex = -1;
+    heading.focus();
+  }
+}
+document.getElementById("welcome-continue").addEventListener("click", () => showStep("choose"));
+// Back from onboarding lands on the choice, not the welcome (commands.rs return_to_setup).
+if (location.hash === "#choose") showStep("choose");
+for (const back of document.querySelectorAll("[data-back]")) {
+  back.addEventListener("click", () => showStep(back.dataset.back));
+}
 const httpWarningEl = document.getElementById("http-warning");
 
-function showError(message) {
-  errorEl.textContent = message;
-  errorEl.hidden = false;
+function showError(message, el = errorEl) {
+  el.textContent = message;
+  el.hidden = false;
 }
 
 function setBusy(message) {
@@ -17,20 +39,32 @@ function setBusy(message) {
 }
 function clearBusy() {
   statusEl.hidden = true;
+  document.getElementById("setup-progress").hidden = true;
   localButton.disabled = false;
   document.getElementById("show-server-form").disabled = false;
 }
 
+// First setup's progress, sent by the app (pg_upgrade.rs report_setup) while it creates
+// and migrates the database. The API loads the species catalog afterwards, in the background.
+window.__liferSetupProgress = (step, fraction) => {
+  statusEl.textContent = step;
+  statusEl.hidden = false;
+  const percent = Math.round(Math.min(Math.max(fraction, 0), 1) * 100);
+  document.getElementById("setup-fill").style.width = `${percent}%`;
+  document.getElementById("setup-bar").setAttribute("aria-valuenow", String(percent));
+  document.getElementById("setup-progress").hidden = false;
+};
+
 localButton.addEventListener("click", async () => {
-  // First setup can take 10-30+ seconds (database init, migrations, catalog restore).
-  setBusy("Setting up your library… this can take a minute the first time.");
+  setBusy("Setting up your library…");
   const result = await window.liferSetup.choose({ mode: "local" });
   // Success navigates away, so reaching here means canceled or failed.
   clearBusy();
   if (result && result.error) showError(result.error);
 });
 document.getElementById("show-server-form").addEventListener("click", () => {
-  document.getElementById("server-form").classList.add("open");
+  showStep("server");
+  serverUrlInput.focus();
 });
 
 const ipSwitchingCheckbox = document.getElementById("ip-switching");
@@ -99,11 +133,12 @@ serverUrlInput.addEventListener("input", updateHttpWarning);
 externalUrlInput.addEventListener("input", updateHttpWarning);
 
 document.getElementById("connect").addEventListener("click", async () => {
-  errorEl.hidden = true;
+  serverErrorEl.hidden = true;
   const rawServerUrl = serverUrlInput.value.trim();
   if (!rawServerUrl) {
     showError(
       ipSwitchingCheckbox.checked ? "Enter your local address." : "Enter a full URL, starting with http:// or https://",
+      serverErrorEl,
     );
     return;
   }
@@ -112,7 +147,7 @@ document.getElementById("connect").addEventListener("click", async () => {
   if (ipSwitchingCheckbox.checked) {
     const rawExternalUrl = externalUrlInput.value.trim();
     if (!rawExternalUrl) {
-      showError("Enter your external address too, or turn off IP switching.");
+      showError("Enter your external address too, or turn off Automatic URL Switching.", serverErrorEl);
       return;
     }
     const networkName = document.getElementById("local-network-name").value.trim();
@@ -124,12 +159,12 @@ document.getElementById("connect").addEventListener("click", async () => {
     };
   } else {
     if (!/^https?:\/\//.test(rawServerUrl)) {
-      showError("Enter a full URL, starting with http:// or https://");
+      showError("Enter a full URL, starting with http:// or https://", serverErrorEl);
       return;
     }
     payload = { mode: "remote", serverUrl: rawServerUrl };
   }
 
   const result = await window.liferSetup.choose(payload);
-  if (result && result.error) showError(result.error);
+  if (result && result.error) showError(result.error, serverErrorEl);
 });

@@ -6,7 +6,9 @@
 use std::path::{Component, Path, PathBuf};
 use tauri::{AppHandle, Manager, WebviewWindow};
 
-use crate::security::is_local_api;
+use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
+
+use crate::security::is_app_page;
 use crate::{api, local_inference, store};
 
 const NOT_ALLOWED: &str = "Not allowed from this page.";
@@ -65,14 +67,6 @@ fn collect(path: &Path, keep: &[PathBuf], out: &mut Vec<PathBuf>) {
     }
 }
 
-/// Only the app's own pages (the bundled tauri:// ones and the local library's), never a connected
-/// server's: a server, or anyone on its network, must not be able to wipe someone's data.
-fn is_own_page(window: &WebviewWindow) -> bool {
-    window
-        .url()
-        .is_ok_and(|url| url.scheme() == "tauri" || is_local_api(&url))
-}
-
 /// The `dataDir` in ~/.lifer/settings.json, if the file has one.
 fn settings_data_dir(path: &Path) -> Option<PathBuf> {
     let text = std::fs::read_to_string(path).ok()?;
@@ -86,8 +80,28 @@ fn settings_data_dir(path: &Path) -> Option<PathBuf> {
 
 #[tauri::command]
 pub(crate) async fn remove_all_data(window: WebviewWindow, app: AppHandle) -> Result<(), String> {
-    if !is_own_page(&window) {
+    // Only the app's own pages, never a connected server's: a server, or anyone on its network,
+    // must not be able to wipe someone's data.
+    if !is_app_page(&window) {
         return Err(NOT_ALLOWED.into());
+    }
+    // Asked natively as well as on the page, so script in the page alone can't delete anything.
+    let dialog = app
+        .dialog()
+        .message(
+            "This deletes Lifer's database on this computer (your collection, captures, albums and settings), along with its thumbnails, downloaded regions and caches, then quits Lifer.\n\nYour photo folders are not touched. This can't be undone.",
+        )
+        .title("Remove all Lifer data?")
+        .kind(MessageDialogKind::Warning)
+        .buttons(MessageDialogButtons::OkCancelCustom(
+            "Remove All Data".into(),
+            "Cancel".into(),
+        ));
+    let confirmed = tauri::async_runtime::spawn_blocking(move || dialog.blocking_show())
+        .await
+        .unwrap_or(false);
+    if !confirmed {
+        return Err("Nothing was removed.".into());
     }
     let paths = app.path();
     let resolve =
@@ -111,6 +125,8 @@ pub(crate) async fn remove_all_data(window: WebviewWindow, app: AppHandle) -> Re
 
     // Photo libraries stay: the default one (inside app data) and any the user chose.
     let mut keep = vec![app_data.join("data")];
+    // Plugin manifests belong to the apps that wrote them; only Lifer's approvals of them go.
+    keep.push(app_data.join("plugins"));
     if let Some(cfg) = store::read_config(&app_data) {
         keep.extend(cfg.data_dir.into_iter().map(PathBuf::from));
         keep.extend(cfg.last_local_data_dir.into_iter().map(PathBuf::from));

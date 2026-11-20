@@ -4,7 +4,7 @@ use tauri::{AppHandle, Manager, WebviewWindow};
 use tauri_plugin_dialog::DialogExt;
 
 use crate::security::{
-    grant_remote_capabilities, is_configured_server, is_local_api, is_trusted_sender,
+    grant_remote_capabilities, is_app_page, is_configured_server, is_local_api, is_trusted_sender,
 };
 use crate::server_watch::{end_server_fallback, ensure_server_watcher};
 use crate::{
@@ -69,36 +69,18 @@ pub(crate) fn arch() -> &'static str {
     }
 }
 
-// The window background shows during macOS overscroll bounce. ThemeProvider calls this so dark
-// mode doesn't flash light; colors match index.css's --color-canvas.
+// The window background shows during macOS overscroll bounce and before the first page paints.
+// ThemeProvider calls this so dark mode doesn't flash light; colors match index.css's --color-canvas.
 #[tauri::command]
 pub(crate) fn set_window_theme_background(window: WebviewWindow, dark: bool) {
+    // Remembered so the next launch opens in the right colour (window_state.rs).
+    crate::window_state::save_dark(window.app_handle(), dark);
     let color = if dark {
         tauri::webview::Color(0x14, 0x15, 0x16, 255) // matches theme.css's dark --color-canvas
     } else {
         tauri::webview::Color(0xf6, 0xee, 0xdc, 255) // matches theme.css's light --color-canvas
     };
     let _ = window.set_background_color(Some(color));
-}
-
-// The round colour behind the traffic lights (window_controls.rs): "active", "inactive" or "off".
-// The page calls it as the window gains or loses focus and as the theme changes. Nothing off macOS.
-#[tauri::command]
-pub(crate) fn set_traffic_light_backdrop(window: WebviewWindow, state: String) {
-    #[cfg(target_os = "macos")]
-    {
-        use crate::window_controls::{set_backdrop, Backdrop};
-        let backdrop = match state.as_str() {
-            "active" => Backdrop::Active,
-            "inactive" => Backdrop::Inactive,
-            _ => Backdrop::Off,
-        };
-        if let Ok(ns_window) = window.ns_window() {
-            set_backdrop(ns_window, backdrop);
-        }
-    }
-    #[cfg(not(target_os = "macos"))]
-    let _ = (window, state);
 }
 
 #[tauri::command]
@@ -151,8 +133,6 @@ pub(crate) struct ChooseSetupInput {
     local_network_name: Option<String>,
     #[serde(rename = "externalUrls")]
     external_urls: Option<Vec<String>>,
-    #[serde(rename = "offlineMode")]
-    offline_mode: Option<bool>,
 }
 
 #[derive(serde::Serialize)]
@@ -199,6 +179,25 @@ impl From<Result<(), String>> for ChooseSetupResult {
 }
 
 const NOT_ALLOWED: &str = "Not allowed from this page.";
+const OTHER_SERVER: &str =
+    "That address is a different server. To change servers, use the library on this computer.";
+
+/// None for the app's own pages. For a connected server's page, the instance id of that server:
+/// such a page may only change how the app reaches it, never point the app somewhere else.
+fn server_page_instance(window: &WebviewWindow) -> Option<Result<String, String>> {
+    if is_app_page(window) {
+        return None;
+    }
+    Some(
+        store::read_config(&app_data_dir(window.app_handle()))
+            .and_then(|cfg| cfg.server_instance_id)
+            .ok_or_else(|| NOT_ALLOWED.to_string()),
+    )
+}
+
+fn same_instance(required: Option<&str>, reported: Option<&str>) -> bool {
+    required.is_none_or(|id| reported == Some(id))
+}
 
 fn save_config(app: &AppHandle, config: &store::DesktopConfig) -> Result<(), String> {
     store::write_config(&app_data_dir(app), config)
@@ -241,10 +240,31 @@ pub(crate) async fn switch_to_local_library(
     end_server_fallback(app);
     api::stop_api_async(app).await;
     api::start_api(app, data_dir).await?;
-    let url = format!("http://127.0.0.1:{}", api::LOCAL_PORT);
-    api::wait_for_server(&format!("{url}/health"), 120_000).await?;
-    navigate_or_picker(window, &url);
+    navigate_or_picker(window, &format!("http://127.0.0.1:{}", api::LOCAL_PORT));
     Ok(())
+}
+
+// Onboarding's Back on its first step: forget the choice just made and show the setup choice
+// again. The library folder and its database stay where they are; choosing it again reopens them.
+#[tauri::command]
+pub(crate) async fn return_to_setup(window: WebviewWindow, app: AppHandle) -> ChooseSetupResult {
+    if !is_trusted_sender(&window) {
+        return ChooseSetupResult::error(NOT_ALLOWED);
+    }
+    let mut config = store::read_config(&app_data_dir(&app)).unwrap_or_default();
+    // Remembered, so the folder is one click away again.
+    config.last_local_data_dir = config.data_dir.take().or(config.last_local_data_dir);
+    config.mode = None;
+    if let Err(e) = save_config(&app, &config) {
+        return ChooseSetupResult::error(e);
+    }
+    end_server_fallback(&app);
+    navigate_or_picker(
+        &window,
+        &crate::security::bundled_page_url(&app, "picker.html#choose"),
+    );
+    api::stop_api_async(&app).await;
+    ChooseSetupResult::ok()
 }
 
 // Backs "Use the library on this computer" (signing out of a server, its sign-in page).
@@ -266,9 +286,11 @@ async fn connect_remote(
     save_config(app, &config)?;
     end_server_fallback(app);
     grant_remote_capabilities(app, &config);
-    api::stop_api_async(app).await;
     navigate_or_picker(window, target);
     ensure_server_watcher(app, window);
+    // The local library stays up alongside the server window, for the sync jobs (sync.rs). A
+    // first connection has no link yet; store_server_link kicks the sync once the page makes one.
+    crate::sync::kick(app);
     Ok(())
 }
 
@@ -279,6 +301,7 @@ async fn setup_url_switching(
     input: &ChooseSetupInput,
     local_url: &str,
     external_urls: &[String],
+    only_instance: Option<&str>,
 ) -> Result<(), String> {
     if external_urls.is_empty() {
         return Err("At least one external URL is required.".into());
@@ -289,17 +312,21 @@ async fn setup_url_switching(
         .map(|u| normalize_server_url(u))
         .collect::<Result<Vec<_>, _>>()?;
     let mut target = None;
-    if api::is_reachable(&format!("{local_trimmed}/health")).await {
-        target = Some(local_trimmed.clone());
-    } else {
-        for url in &external_trimmed {
-            if api::is_reachable(&format!("{url}/health")).await {
-                target = Some(url.clone());
-                break;
+    let mut other_server = false;
+    for url in std::iter::once(&local_trimmed).chain(external_trimmed.iter()) {
+        if let Some(health) = api::health_info(&format!("{url}/health")).await {
+            if !same_instance(only_instance, health.instance_id.as_deref()) {
+                other_server = true;
+                continue;
             }
+            target = Some((url.clone(), health.instance_id));
+            break;
         }
     }
-    let Some(target) = target else {
+    let Some((target, instance_id)) = target else {
+        if other_server {
+            return Err(OTHER_SERVER.into());
+        }
         return Err(
             "Couldn't reach any of the addresses. Check the URLs and that the server is running."
                 .into(),
@@ -310,7 +337,7 @@ async fn setup_url_switching(
         local_url: Some(local_trimmed.clone()),
         local_network_name: input.local_network_name.clone(),
         external_urls: Some(external_trimmed),
-        offline_mode: input.offline_mode,
+        server_instance_id: instance_id,
         last_local_data_dir: remembered_local_dir(app),
         last_server_url: Some(local_trimmed),
         ..Default::default()
@@ -322,18 +349,22 @@ async fn setup_single_server(
     app: &AppHandle,
     window: &WebviewWindow,
     input: &ChooseSetupInput,
+    only_instance: Option<&str>,
 ) -> Result<(), String> {
     let server_url = input.server_url.as_deref().ok_or("serverUrl is required")?;
     let trimmed = normalize_server_url(server_url)?;
-    if !api::is_reachable(&format!("{trimmed}/health")).await {
+    let Some(health) = api::health_info(&format!("{trimmed}/health")).await else {
         return Err(
             "Couldn't reach that address. Check the URL and that the server is running.".into(),
         );
+    };
+    if !same_instance(only_instance, health.instance_id.as_deref()) {
+        return Err(OTHER_SERVER.into());
     }
     let config = store::DesktopConfig {
         mode: Some("remote".into()),
         server_url: Some(trimmed.clone()),
-        offline_mode: input.offline_mode,
+        server_instance_id: health.instance_id,
         last_local_data_dir: remembered_local_dir(app),
         last_server_url: Some(trimmed.clone()),
         ..Default::default()
@@ -368,8 +399,9 @@ async fn setup_local(app: &AppHandle, window: &WebviewWindow) -> ChooseSetupResu
         api::stop_api_async(app).await;
         api::start_api(app, Some(data_dir)).await?;
         let url = format!("http://127.0.0.1:{}", api::LOCAL_PORT);
-        api::wait_for_server(&format!("{url}/health"), 30_000).await?;
-        navigate_or_picker(window, &url);
+        // Straight to setup's next step; onboarding sends a library that already has regions on to
+        // the collection, so the collection never flashes up first.
+        navigate_or_picker(window, &format!("{url}/onboarding"));
         Ok(())
     }
     .await;
@@ -385,14 +417,28 @@ pub(crate) async fn choose_setup(
     if !is_trusted_sender(&window) {
         return ChooseSetupResult::error(NOT_ALLOWED);
     }
+    let only_instance = match server_page_instance(&window) {
+        None => None,
+        Some(Ok(id)) if config.mode == "remote" => Some(id),
+        Some(_) => return ChooseSetupResult::error(NOT_ALLOWED),
+    };
+    let only_instance = only_instance.as_deref();
     if config.mode != "remote" {
         return setup_local(&app, &window).await;
     }
     match (&config.local_url, &config.external_urls) {
         (Some(local_url), Some(external_urls)) => {
-            setup_url_switching(&app, &window, &config, local_url, external_urls).await
+            setup_url_switching(
+                &app,
+                &window,
+                &config,
+                local_url,
+                external_urls,
+                only_instance,
+            )
+            .await
         }
-        _ => setup_single_server(&app, &window, &config).await,
+        _ => setup_single_server(&app, &window, &config, only_instance).await,
     }
     .into()
 }
@@ -420,14 +466,22 @@ pub(crate) fn current_network_info(window: WebviewWindow) -> CurrentNetworkInfo 
     }
 }
 
-// Backs Settings' live reachability checkmark, using the same check as connect time.
+// Backs Settings' live reachability checkmark, using the same check as connect time. A server's
+// page only learns whether the address reaches that same server, so it can't probe the network.
 #[tauri::command]
 pub(crate) async fn test_endpoint(window: WebviewWindow, url: String) -> bool {
     if !is_trusted_sender(&window) {
         return false;
     }
-    let trimmed = url.trim_end_matches('/');
-    api::is_reachable(&format!("{trimmed}/health")).await
+    let health = format!("{}/health", url.trim_end_matches('/'));
+    match server_page_instance(&window) {
+        None => api::is_reachable(&health).await,
+        Some(Ok(id)) => {
+            let reported = api::health_info(&health).await.and_then(|h| h.instance_id);
+            same_instance(Some(&id), reported.as_deref())
+        }
+        Some(Err(_)) => false,
+    }
 }
 
 // Backs Settings' "Sign in" step for a remote server (see api::test_login).
@@ -438,11 +492,28 @@ pub(crate) async fn test_login(
     email: String,
     password: String,
 ) -> Result<(), String> {
-    if !is_trusted_sender(&window) {
+    if !is_app_page(&window) {
         return Err(NOT_ALLOWED.into());
     }
     let trimmed = url.trim_end_matches('/');
-    api::test_login(trimmed, &email, &password).await
+    let cookies = api::test_login(trimmed, &email, &password).await?;
+    // The session the check made goes into the window's own cookie store, so the server's page
+    // is already signed in when connect_remote navigates there.
+    let host = url::Url::parse(trimmed)
+        .ok()
+        .and_then(|u| u.host_str().map(str::to_owned));
+    for raw in cookies {
+        if let (Ok(mut cookie), Some(host)) =
+            (tauri::webview::cookie::Cookie::parse(raw), host.clone())
+        {
+            // WKWebView drops a cookie with no domain.
+            cookie.set_domain(host);
+            if let Err(e) = window.set_cookie(cookie) {
+                eprintln!("[lifer] couldn't carry the sign-in over to the window: {e}");
+            }
+        }
+    }
+    Ok(())
 }
 
 // The desktop credential, for the local library's own pages only: they trade it for the session
@@ -502,7 +573,12 @@ pub(crate) async fn local_embed(
         .and_then(|v| v.to_str().ok())
         .unwrap_or("")
         .to_string();
-    local_inference::embed(window.app_handle(), bytes.clone(), &targets).await
+    // A camera RAW: the sidecar matches its embedded preview, as the server would.
+    let raw = request
+        .headers()
+        .get("x-lifer-raw")
+        .is_some_and(|v| v == "1");
+    local_inference::embed(window.app_handle(), bytes.clone(), &targets, raw).await
 }
 
 #[cfg(test)]
@@ -517,5 +593,17 @@ mod tests {
         );
         assert!(normalize_server_url("192.168.1.10:4310").is_err());
         assert!(normalize_server_url("file:///tmp").is_err());
+    }
+
+    #[test]
+    fn a_server_page_may_only_target_its_own_server() {
+        assert!(
+            same_instance(None, None),
+            "the app's own pages may pick any server"
+        );
+        assert!(same_instance(None, Some("b")));
+        assert!(same_instance(Some("a"), Some("a")));
+        assert!(!same_instance(Some("a"), Some("b")));
+        assert!(!same_instance(Some("a"), None));
     }
 }

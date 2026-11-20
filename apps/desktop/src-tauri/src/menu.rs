@@ -4,7 +4,32 @@ use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_dialog::DialogExt;
 
 use crate::commands::switch_to_local_library;
-use crate::{api, app_data_dir, navigate_or_picker, store, PICKER_URL, WINDOW_LABEL};
+use crate::{api, app_data_dir, navigate_or_picker, store, PICKER_PAGE, WINDOW_LABEL};
+
+// Menu items that take the window to a page, by id, with their shortcut. menu:navigate tells the
+// web app (App.tsx MenuCommands) where to go.
+const NAV_ITEMS: [(&str, &str, &str, &str); 7] = [
+    ("nav-settings", "Settings…", "CmdOrCtrl+,", "/settings"),
+    (
+        "nav-import",
+        "Import Photos…",
+        "CmdOrCtrl+Shift+I",
+        "/import",
+    ),
+    ("nav-collection", "Collection", "CmdOrCtrl+1", "/"),
+    ("nav-gallery", "Gallery", "CmdOrCtrl+2", "/gallery"),
+    ("nav-map", "Map", "CmdOrCtrl+3", "/gallery?view=map"),
+    ("nav-albums", "Albums", "CmdOrCtrl+4", "/albums"),
+    ("nav-stats", "Stats", "CmdOrCtrl+5", "/stats"),
+];
+
+fn nav_item(app: &AppHandle, id: &str) -> tauri::Result<MenuItem<tauri::Wry>> {
+    let (id, label, accelerator, _) = NAV_ITEMS
+        .iter()
+        .find(|(item, ..)| *item == id)
+        .expect("a known menu item");
+    MenuItem::with_id(app, *id, *label, true, Some(*accelerator))
+}
 
 pub(crate) fn build_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     let change_server = MenuItem::with_id(
@@ -37,6 +62,8 @@ pub(crate) fn build_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
         &[
             &PredefinedMenuItem::about(app, None, None)?,
             &PredefinedMenuItem::separator(app)?,
+            &nav_item(app, "nav-settings")?,
+            &PredefinedMenuItem::separator(app)?,
             &change_server,
             &use_local,
             &PredefinedMenuItem::separator(app)?,
@@ -65,6 +92,44 @@ pub(crate) fn build_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
             &delete_selected,
         ],
     )?;
+    let file_menu = Submenu::with_items(app, "File", true, &[&nav_item(app, "nav-import")?])?;
+    let find = MenuItem::with_id(app, "search", "Find…", true, Some("CmdOrCtrl+F"))?;
+    // Mail and Finder's shortcut for the sidebar.
+    let toggle_sidebar = MenuItem::with_id(
+        app,
+        "toggle-sidebar",
+        "Show or Hide Sidebar",
+        true,
+        Some(if cfg!(target_os = "macos") {
+            "Ctrl+Cmd+S"
+        } else {
+            "Ctrl+Alt+S"
+        }),
+    )?;
+    // Sidebar order, so Cmd or Ctrl plus the position matches (web lib/mainPages.ts).
+    let go_menu = Submenu::with_items(
+        app,
+        "Go",
+        true,
+        &[
+            &nav_item(app, "nav-collection")?,
+            &nav_item(app, "nav-gallery")?,
+            &nav_item(app, "nav-map")?,
+            &nav_item(app, "nav-albums")?,
+            &nav_item(app, "nav-stats")?,
+        ],
+    )?;
+    let view_menu = Submenu::with_items(
+        app,
+        "View",
+        true,
+        &[
+            &find,
+            &PredefinedMenuItem::separator(app)?,
+            &toggle_sidebar,
+            &PredefinedMenuItem::fullscreen(app, None)?,
+        ],
+    )?;
     let window_menu = Submenu::with_items(
         app,
         "Window",
@@ -74,7 +139,17 @@ pub(crate) fn build_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
             &PredefinedMenuItem::close_window(app, None)?,
         ],
     )?;
-    Menu::with_items(app, &[&lifer_menu, &edit_menu, &window_menu])
+    Menu::with_items(
+        app,
+        &[
+            &lifer_menu,
+            &file_menu,
+            &edit_menu,
+            &view_menu,
+            &go_menu,
+            &window_menu,
+        ],
+    )
 }
 
 pub(crate) fn handle_menu_event(app: &AppHandle, event: MenuEvent) {
@@ -83,8 +158,13 @@ pub(crate) fn handle_menu_event(app: &AppHandle, event: MenuEvent) {
             eprintln!("[lifer] couldn't clear the saved config: {e}");
         }
         if let Some(window) = app.get_webview_window(WINDOW_LABEL) {
-            api::stop_api(app);
-            navigate_or_picker(&window, PICKER_URL);
+            navigate_or_picker(
+                &window,
+                &crate::security::bundled_page_url(window.app_handle(), PICKER_PAGE),
+            );
+            // Off the UI thread: stopping can take up to 10 s.
+            let app = app.clone();
+            tauri::async_runtime::spawn(async move { api::stop_api_async(&app).await });
         }
     } else if event.id() == "use-local" {
         if let Some(window) = app.get_webview_window(WINDOW_LABEL) {
@@ -100,5 +180,11 @@ pub(crate) fn handle_menu_event(app: &AppHandle, event: MenuEvent) {
         }
     } else if event.id() == "delete-selected" {
         let _ = app.emit("menu:delete-selected", ());
+    } else if event.id() == "search" {
+        let _ = app.emit("menu:search", ());
+    } else if event.id() == "toggle-sidebar" {
+        let _ = app.emit("menu:toggle-sidebar", ());
+    } else if let Some((.., path)) = NAV_ITEMS.iter().find(|(id, ..)| event.id() == *id) {
+        let _ = app.emit("menu:navigate", *path);
     }
 }
