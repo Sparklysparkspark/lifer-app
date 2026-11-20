@@ -1,5 +1,5 @@
 // Runs only with TEST_DATABASE_URL pointing at a migrated, disposable database:
-//   TEST_DATABASE_URL=postgres://lifer@127.0.0.1:55432/lifer npx vitest run migrateToServer
+//   TEST_DATABASE_URL=postgres://lifer@127.0.0.1:55432/lifer npx vitest run uploadToServer
 // The migration sends each capture to the remote server as resumable uploads over real HTTP,
 // shrinking its chunks when a proxy refuses big bodies, then imports them by uploadId.
 import { createHash } from "node:crypto";
@@ -126,7 +126,7 @@ describe.skipIf(!url)("migrating to a server over resumable uploads", () => {
     writeFileSync(photoPath, photo);
     writeFileSync(rawPath, raw);
 
-    const { sendCaptureToServer } = await import("./migrateToServer.js");
+    const { sendCaptureToServer } = await import("./uploadToServer.js");
     const { TUS_MIN_CHUNK_SIZE } = await import("../lib/tusClient.js");
     const chunkState = { size: 8 * 1024 * 1024 };
     const auth = { Cookie: `${cookieName}=${SESSION}`, "x-lifer-client": "1" };
@@ -174,7 +174,7 @@ describe.skipIf(!url)("migrating to a server over resumable uploads", () => {
     expect(photo.length).toBeGreaterThan(PROXY_LIMIT);
     const photoPath = path.join(dataDir, "IMG_5001.jpg");
     writeFileSync(photoPath, photo);
-    const { sendCaptureToServer } = await import("./migrateToServer.js");
+    const { sendCaptureToServer } = await import("./uploadToServer.js");
     const chunkState = { size: 1024 * 1024 };
     const auth = { Cookie: `${cookieName}=${SESSION}`, "x-lifer-client": "1" };
     expect(
@@ -201,7 +201,7 @@ describe.skipIf(!url)("migrating to a server over resumable uploads", () => {
       .toBuffer();
     const photoPath = path.join(dataDir, "IMG_5002.jpg");
     writeFileSync(photoPath, photo);
-    const { sendCaptureToServer } = await import("./migrateToServer.js");
+    const { sendCaptureToServer } = await import("./uploadToServer.js");
     const auth = { Cookie: `${cookieName}=${SESSION}`, "x-lifer-client": "1" };
     const send = () =>
       sendCaptureToServer(
