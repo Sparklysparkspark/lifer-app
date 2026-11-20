@@ -50,6 +50,14 @@ export interface paths {
                     tag?: string[];
                     /** @description Only photos with this place name */
                     place?: string[];
+                    /** @description Only photos of this life stage */
+                    lifeStage?: ("egg" | "larva" | "nymph" | "pupa" | "juvenile" | "subadult" | "adult")[];
+                    /** @description Only photos of this sex */
+                    sex?: ("male" | "female" | "unknown")[];
+                    /** @description Only photos with this plumage, ignoring case */
+                    plumage?: string[];
+                    /** @description Only photos with this morph, ignoring case */
+                    morph?: string[];
                     /** @description Only photos with coordinates in this box: west,south,east,north in degrees */
                     bbox?: string;
                     /**
@@ -256,6 +264,14 @@ export interface paths {
                 dateTo?: string;
                 tag?: string[] | string;
                 place?: string[] | string;
+                /** @description Only photos of this life stage */
+                lifeStage?: ("egg" | "larva" | "nymph" | "pupa" | "juvenile" | "subadult" | "adult")[];
+                /** @description Only photos of this sex */
+                sex?: ("male" | "female" | "unknown")[];
+                /** @description Only photos with this plumage, ignoring case */
+                plumage?: string[];
+                /** @description Only photos with this morph, ignoring case */
+                morph?: string[];
                 /** @description Only photos with coordinates in this box: west,south,east,north in degrees */
                 bbox?: string;
                 /**
@@ -410,6 +426,14 @@ export interface paths {
                   tag?: string[];
                   /** @description Only photos with this place name */
                   place?: string[];
+                  /** @description Only photos of this life stage */
+                  lifeStage?: ("egg" | "larva" | "nymph" | "pupa" | "juvenile" | "subadult" | "adult")[];
+                  /** @description Only photos of this sex */
+                  sex?: ("male" | "female" | "unknown")[];
+                  /** @description Only photos with this plumage, ignoring case */
+                  plumage?: string[];
+                  /** @description Only photos with this morph, ignoring case */
+                  morph?: string[];
                   /** @description Only photos with coordinates in this box: west,south,east,north in degrees */
                   bbox?: string;
                   /**
@@ -626,6 +650,14 @@ export interface paths {
                   tag?: string[];
                   /** @description Only photos with this place name */
                   place?: string[];
+                  /** @description Only photos of this life stage */
+                  lifeStage?: ("egg" | "larva" | "nymph" | "pupa" | "juvenile" | "subadult" | "adult")[];
+                  /** @description Only photos of this sex */
+                  sex?: ("male" | "female" | "unknown")[];
+                  /** @description Only photos with this plumage, ignoring case */
+                  plumage?: string[];
+                  /** @description Only photos with this morph, ignoring case */
+                  morph?: string[];
                   /** @description Only photos with coordinates in this box: west,south,east,north in degrees */
                   bbox?: string;
                   /**
@@ -1008,6 +1040,14 @@ export interface paths {
                 dateTo?: string;
                 tag?: string[] | string;
                 place?: string[] | string;
+                /** @description Only photos of this life stage */
+                lifeStage?: ("egg" | "larva" | "nymph" | "pupa" | "juvenile" | "subadult" | "adult")[];
+                /** @description Only photos of this sex */
+                sex?: ("male" | "female" | "unknown")[];
+                /** @description Only photos with this plumage, ignoring case */
+                plumage?: string[];
+                /** @description Only photos with this morph, ignoring case */
+                morph?: string[];
                 /** @description Only photos with coordinates in this box: west,south,east,north in degrees */
                 bbox?: string;
                 /**
@@ -1162,6 +1202,14 @@ export interface paths {
                   tag?: string[];
                   /** @description Only photos with this place name */
                   place?: string[];
+                  /** @description Only photos of this life stage */
+                  lifeStage?: ("egg" | "larva" | "nymph" | "pupa" | "juvenile" | "subadult" | "adult")[];
+                  /** @description Only photos of this sex */
+                  sex?: ("male" | "female" | "unknown")[];
+                  /** @description Only photos with this plumage, ignoring case */
+                  plumage?: string[];
+                  /** @description Only photos with this morph, ignoring case */
+                  morph?: string[];
                   /** @description Only photos with coordinates in this box: west,south,east,north in degrees */
                   bbox?: string;
                   /**
@@ -2590,6 +2638,14 @@ export interface paths {
                     tag?: string[];
                     /** @description Only photos with this place name */
                     place?: string[];
+                    /** @description Only photos of this life stage */
+                    lifeStage?: ("egg" | "larva" | "nymph" | "pupa" | "juvenile" | "subadult" | "adult")[];
+                    /** @description Only photos of this sex */
+                    sex?: ("male" | "female" | "unknown")[];
+                    /** @description Only photos with this plumage, ignoring case */
+                    plumage?: string[];
+                    /** @description Only photos with this morph, ignoring case */
+                    morph?: string[];
                     /** @description Only photos with coordinates in this box: west,south,east,north in degrees */
                     bbox?: string;
                     /**
@@ -10685,6 +10741,14 @@ export interface paths {
           tag?: string[];
           /** @description Only photos with this place name */
           place?: string[];
+          /** @description Only photos of this life stage */
+          lifeStage?: ("egg" | "larva" | "nymph" | "pupa" | "juvenile" | "subadult" | "adult")[];
+          /** @description Only photos of this sex */
+          sex?: ("male" | "female" | "unknown")[];
+          /** @description Only photos with this plumage, ignoring case */
+          plumage?: string[];
+          /** @description Only photos with this morph, ignoring case */
+          morph?: string[];
           /** @description Only photos with coordinates in this box: west,south,east,north in degrees */
           bbox?: string;
           /** @description Only photos whose coordinates fall inside this saved place */
@@ -10923,6 +10987,86 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/gallery/appearance": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** The life stages, sexes, plumages and morphs in the library, with photo counts */
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              lifeStage: {
+                value: string;
+                count: number;
+              }[];
+              sex: {
+                value: string;
+                count: number;
+              }[];
+              plumage: {
+                value: string;
+                count: number;
+              }[];
+              morph: {
+                value: string;
+                count: number;
+              }[];
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the gallery.read scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/gallery/has-video": {
     parameters: {
       query?: never;
@@ -11012,6 +11156,14 @@ export interface paths {
           tag?: string[];
           /** @description Only photos with this place name */
           place?: string[];
+          /** @description Only photos of this life stage */
+          lifeStage?: ("egg" | "larva" | "nymph" | "pupa" | "juvenile" | "subadult" | "adult")[];
+          /** @description Only photos of this sex */
+          sex?: ("male" | "female" | "unknown")[];
+          /** @description Only photos with this plumage, ignoring case */
+          plumage?: string[];
+          /** @description Only photos with this morph, ignoring case */
+          morph?: string[];
           /** @description Only photos with coordinates in this box: west,south,east,north in degrees */
           bbox?: string;
           /** @description Only photos whose coordinates fall inside this saved place */
@@ -11165,6 +11317,14 @@ export interface paths {
           tag?: string[];
           /** @description Only photos with this place name */
           place?: string[];
+          /** @description Only photos of this life stage */
+          lifeStage?: ("egg" | "larva" | "nymph" | "pupa" | "juvenile" | "subadult" | "adult")[];
+          /** @description Only photos of this sex */
+          sex?: ("male" | "female" | "unknown")[];
+          /** @description Only photos with this plumage, ignoring case */
+          plumage?: string[];
+          /** @description Only photos with this morph, ignoring case */
+          morph?: string[];
           /** @description Only photos with coordinates in this box: west,south,east,north in degrees */
           bbox?: string;
           /** @description Only photos whose coordinates fall inside this saved place */
@@ -11356,6 +11516,14 @@ export interface paths {
           tag?: string[];
           /** @description Only photos with this place name */
           place?: string[];
+          /** @description Only photos of this life stage */
+          lifeStage?: ("egg" | "larva" | "nymph" | "pupa" | "juvenile" | "subadult" | "adult")[];
+          /** @description Only photos of this sex */
+          sex?: ("male" | "female" | "unknown")[];
+          /** @description Only photos with this plumage, ignoring case */
+          plumage?: string[];
+          /** @description Only photos with this morph, ignoring case */
+          morph?: string[];
           /** @description Only photos with coordinates in this box: west,south,east,north in degrees */
           bbox?: string;
           /** @description Only photos whose coordinates fall inside this saved place */
@@ -11511,6 +11679,14 @@ export interface paths {
           tag?: string[];
           /** @description Only photos with this place name */
           place?: string[];
+          /** @description Only photos of this life stage */
+          lifeStage?: ("egg" | "larva" | "nymph" | "pupa" | "juvenile" | "subadult" | "adult")[];
+          /** @description Only photos of this sex */
+          sex?: ("male" | "female" | "unknown")[];
+          /** @description Only photos with this plumage, ignoring case */
+          plumage?: string[];
+          /** @description Only photos with this morph, ignoring case */
+          morph?: string[];
           /** @description Only photos with coordinates in this box: west,south,east,north in degrees */
           bbox?: string;
           /** @description Only photos whose coordinates fall inside this saved place */
@@ -11716,6 +11892,14 @@ export interface paths {
           tag?: string[];
           /** @description Only photos with this place name */
           place?: string[];
+          /** @description Only photos of this life stage */
+          lifeStage?: ("egg" | "larva" | "nymph" | "pupa" | "juvenile" | "subadult" | "adult")[];
+          /** @description Only photos of this sex */
+          sex?: ("male" | "female" | "unknown")[];
+          /** @description Only photos with this plumage, ignoring case */
+          plumage?: string[];
+          /** @description Only photos with this morph, ignoring case */
+          morph?: string[];
           /** @description Only photos with coordinates in this box: west,south,east,north in degrees */
           bbox?: string;
           /** @description Only photos whose coordinates fall inside this saved place */
@@ -20434,7 +20618,8 @@ export interface paths {
       requestBody: {
         content: {
           "application/json": {
-            captureIds: string[];
+            captureIds?: string[];
+            photoIds?: string[];
           };
         };
       };
@@ -21909,6 +22094,14 @@ export interface paths {
                     tag?: string[];
                     /** @description Only photos with this place name */
                     place?: string[];
+                    /** @description Only photos of this life stage */
+                    lifeStage?: ("egg" | "larva" | "nymph" | "pupa" | "juvenile" | "subadult" | "adult")[];
+                    /** @description Only photos of this sex */
+                    sex?: ("male" | "female" | "unknown")[];
+                    /** @description Only photos with this plumage, ignoring case */
+                    plumage?: string[];
+                    /** @description Only photos with this morph, ignoring case */
+                    morph?: string[];
                     /** @description Only photos with coordinates in this box: west,south,east,north in degrees */
                     bbox?: string;
                     /**
@@ -22099,6 +22292,14 @@ export interface paths {
                   dateTo?: string;
                   tag?: string[] | string;
                   place?: string[] | string;
+                  /** @description Only photos of this life stage */
+                  lifeStage?: ("egg" | "larva" | "nymph" | "pupa" | "juvenile" | "subadult" | "adult")[];
+                  /** @description Only photos of this sex */
+                  sex?: ("male" | "female" | "unknown")[];
+                  /** @description Only photos with this plumage, ignoring case */
+                  plumage?: string[];
+                  /** @description Only photos with this morph, ignoring case */
+                  morph?: string[];
                   /** @description Only photos with coordinates in this box: west,south,east,north in degrees */
                   bbox?: string;
                   /**
@@ -22251,6 +22452,14 @@ export interface paths {
                     tag?: string[];
                     /** @description Only photos with this place name */
                     place?: string[];
+                    /** @description Only photos of this life stage */
+                    lifeStage?: ("egg" | "larva" | "nymph" | "pupa" | "juvenile" | "subadult" | "adult")[];
+                    /** @description Only photos of this sex */
+                    sex?: ("male" | "female" | "unknown")[];
+                    /** @description Only photos with this plumage, ignoring case */
+                    plumage?: string[];
+                    /** @description Only photos with this morph, ignoring case */
+                    morph?: string[];
                     /** @description Only photos with coordinates in this box: west,south,east,north in degrees */
                     bbox?: string;
                     /**

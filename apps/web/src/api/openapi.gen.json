@@ -104,6 +104,32 @@
                                         "description": "Only photos with this place name",
                                         "maxItems": 500
                                       },
+                                      "lifeStage": {
+                                        "type": "array",
+                                        "items": {
+                                          "enum": ["egg", "larva", "nymph", "pupa", "juvenile", "subadult", "adult"]
+                                        },
+                                        "description": "Only photos of this life stage",
+                                        "maxItems": 500
+                                      },
+                                      "sex": {
+                                        "type": "array",
+                                        "items": { "enum": ["male", "female", "unknown"] },
+                                        "description": "Only photos of this sex",
+                                        "maxItems": 500
+                                      },
+                                      "plumage": {
+                                        "type": "array",
+                                        "items": { "type": "string", "maxLength": 100 },
+                                        "description": "Only photos with this plumage, ignoring case",
+                                        "maxItems": 500
+                                      },
+                                      "morph": {
+                                        "type": "array",
+                                        "items": { "type": "string", "maxLength": 100 },
+                                        "description": "Only photos with this morph, ignoring case",
+                                        "maxItems": 500
+                                      },
                                       "bbox": {
                                         "type": "string",
                                         "pattern": "^-?[0-9.]+,-?[0-9.]+,-?[0-9.]+,-?[0-9.]+$",
@@ -351,6 +377,30 @@
                               { "type": "string" }
                             ]
                           },
+                          "lifeStage": {
+                            "type": "array",
+                            "items": { "enum": ["egg", "larva", "nymph", "pupa", "juvenile", "subadult", "adult"] },
+                            "description": "Only photos of this life stage",
+                            "maxItems": 500
+                          },
+                          "sex": {
+                            "type": "array",
+                            "items": { "enum": ["male", "female", "unknown"] },
+                            "description": "Only photos of this sex",
+                            "maxItems": 500
+                          },
+                          "plumage": {
+                            "type": "array",
+                            "items": { "type": "string", "maxLength": 100 },
+                            "description": "Only photos with this plumage, ignoring case",
+                            "maxItems": 500
+                          },
+                          "morph": {
+                            "type": "array",
+                            "items": { "type": "string", "maxLength": 100 },
+                            "description": "Only photos with this morph, ignoring case",
+                            "maxItems": 500
+                          },
                           "bbox": {
                             "type": "string",
                             "pattern": "^-?[0-9.]+,-?[0-9.]+,-?[0-9.]+,-?[0-9.]+$",
@@ -542,6 +592,32 @@
                                   "type": "array",
                                   "items": { "type": "string", "maxLength": 500 },
                                   "description": "Only photos with this place name",
+                                  "maxItems": 500
+                                },
+                                "lifeStage": {
+                                  "type": "array",
+                                  "items": {
+                                    "enum": ["egg", "larva", "nymph", "pupa", "juvenile", "subadult", "adult"]
+                                  },
+                                  "description": "Only photos of this life stage",
+                                  "maxItems": 500
+                                },
+                                "sex": {
+                                  "type": "array",
+                                  "items": { "enum": ["male", "female", "unknown"] },
+                                  "description": "Only photos of this sex",
+                                  "maxItems": 500
+                                },
+                                "plumage": {
+                                  "type": "array",
+                                  "items": { "type": "string", "maxLength": 100 },
+                                  "description": "Only photos with this plumage, ignoring case",
+                                  "maxItems": 500
+                                },
+                                "morph": {
+                                  "type": "array",
+                                  "items": { "type": "string", "maxLength": 100 },
+                                  "description": "Only photos with this morph, ignoring case",
                                   "maxItems": 500
                                 },
                                 "bbox": {
@@ -791,6 +867,32 @@
                                   "type": "array",
                                   "items": { "type": "string", "maxLength": 500 },
                                   "description": "Only photos with this place name",
+                                  "maxItems": 500
+                                },
+                                "lifeStage": {
+                                  "type": "array",
+                                  "items": {
+                                    "enum": ["egg", "larva", "nymph", "pupa", "juvenile", "subadult", "adult"]
+                                  },
+                                  "description": "Only photos of this life stage",
+                                  "maxItems": 500
+                                },
+                                "sex": {
+                                  "type": "array",
+                                  "items": { "enum": ["male", "female", "unknown"] },
+                                  "description": "Only photos of this sex",
+                                  "maxItems": 500
+                                },
+                                "plumage": {
+                                  "type": "array",
+                                  "items": { "type": "string", "maxLength": 100 },
+                                  "description": "Only photos with this plumage, ignoring case",
+                                  "maxItems": 500
+                                },
+                                "morph": {
+                                  "type": "array",
+                                  "items": { "type": "string", "maxLength": 100 },
+                                  "description": "Only photos with this morph, ignoring case",
                                   "maxItems": 500
                                 },
                                 "bbox": {
@@ -1346,6 +1448,30 @@
                               { "type": "string" }
                             ]
                           },
+                          "lifeStage": {
+                            "type": "array",
+                            "items": { "enum": ["egg", "larva", "nymph", "pupa", "juvenile", "subadult", "adult"] },
+                            "description": "Only photos of this life stage",
+                            "maxItems": 500
+                          },
+                          "sex": {
+                            "type": "array",
+                            "items": { "enum": ["male", "female", "unknown"] },
+                            "description": "Only photos of this sex",
+                            "maxItems": 500
+                          },
+                          "plumage": {
+                            "type": "array",
+                            "items": { "type": "string", "maxLength": 100 },
+                            "description": "Only photos with this plumage, ignoring case",
+                            "maxItems": 500
+                          },
+                          "morph": {
+                            "type": "array",
+                            "items": { "type": "string", "maxLength": 100 },
+                            "description": "Only photos with this morph, ignoring case",
+                            "maxItems": 500
+                          },
                           "bbox": {
                             "type": "string",
                             "pattern": "^-?[0-9.]+,-?[0-9.]+,-?[0-9.]+,-?[0-9.]+$",
@@ -1537,6 +1663,32 @@
                                   "type": "array",
                                   "items": { "type": "string", "maxLength": 500 },
                                   "description": "Only photos with this place name",
+                                  "maxItems": 500
+                                },
+                                "lifeStage": {
+                                  "type": "array",
+                                  "items": {
+                                    "enum": ["egg", "larva", "nymph", "pupa", "juvenile", "subadult", "adult"]
+                                  },
+                                  "description": "Only photos of this life stage",
+                                  "maxItems": 500
+                                },
+                                "sex": {
+                                  "type": "array",
+                                  "items": { "enum": ["male", "female", "unknown"] },
+                                  "description": "Only photos of this sex",
+                                  "maxItems": 500
+                                },
+                                "plumage": {
+                                  "type": "array",
+                                  "items": { "type": "string", "maxLength": 100 },
+                                  "description": "Only photos with this plumage, ignoring case",
+                                  "maxItems": 500
+                                },
+                                "morph": {
+                                  "type": "array",
+                                  "items": { "type": "string", "maxLength": 100 },
+                                  "description": "Only photos with this morph, ignoring case",
                                   "maxItems": 500
                                 },
                                 "bbox": {
@@ -3008,6 +3160,32 @@
                                     "type": "array",
                                     "items": { "type": "string", "maxLength": 500 },
                                     "description": "Only photos with this place name",
+                                    "maxItems": 500
+                                  },
+                                  "lifeStage": {
+                                    "type": "array",
+                                    "items": {
+                                      "enum": ["egg", "larva", "nymph", "pupa", "juvenile", "subadult", "adult"]
+                                    },
+                                    "description": "Only photos of this life stage",
+                                    "maxItems": 500
+                                  },
+                                  "sex": {
+                                    "type": "array",
+                                    "items": { "enum": ["male", "female", "unknown"] },
+                                    "description": "Only photos of this sex",
+                                    "maxItems": 500
+                                  },
+                                  "plumage": {
+                                    "type": "array",
+                                    "items": { "type": "string", "maxLength": 100 },
+                                    "description": "Only photos with this plumage, ignoring case",
+                                    "maxItems": 500
+                                  },
+                                  "morph": {
+                                    "type": "array",
+                                    "items": { "type": "string", "maxLength": 100 },
+                                    "description": "Only photos with this morph, ignoring case",
                                     "maxItems": 500
                                   },
                                   "bbox": {
@@ -9455,6 +9633,38 @@
             "schema": { "type": "array", "items": { "type": "string", "maxLength": 500 }, "maxItems": 500 }
           },
           {
+            "name": "lifeStage",
+            "in": "query",
+            "required": false,
+            "description": "Only photos of this life stage",
+            "schema": {
+              "type": "array",
+              "items": { "enum": ["egg", "larva", "nymph", "pupa", "juvenile", "subadult", "adult"] },
+              "maxItems": 500
+            }
+          },
+          {
+            "name": "sex",
+            "in": "query",
+            "required": false,
+            "description": "Only photos of this sex",
+            "schema": { "type": "array", "items": { "enum": ["male", "female", "unknown"] }, "maxItems": 500 }
+          },
+          {
+            "name": "plumage",
+            "in": "query",
+            "required": false,
+            "description": "Only photos with this plumage, ignoring case",
+            "schema": { "type": "array", "items": { "type": "string", "maxLength": 100 }, "maxItems": 500 }
+          },
+          {
+            "name": "morph",
+            "in": "query",
+            "required": false,
+            "description": "Only photos with this morph, ignoring case",
+            "schema": { "type": "array", "items": { "type": "string", "maxLength": 100 }, "maxItems": 500 }
+          },
+          {
             "name": "bbox",
             "in": "query",
             "required": false,
@@ -10029,6 +10239,74 @@
         }
       }
     },
+    "/gallery/appearance": {
+      "get": {
+        "summary": "The life stages, sexes, plumages and morphs in the library, with photo counts",
+        "tags": ["gallery"],
+        "security": [{ "apiKey": [] }],
+        "x-required-scope": "gallery.read",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["lifeStage", "sex", "plumage", "morph"],
+                  "properties": {
+                    "lifeStage": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": ["value", "count"],
+                        "properties": { "value": { "type": "string" }, "count": { "type": "integer" } }
+                      }
+                    },
+                    "sex": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": ["value", "count"],
+                        "properties": { "value": { "type": "string" }, "count": { "type": "integer" } }
+                      }
+                    },
+                    "plumage": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": ["value", "count"],
+                        "properties": { "value": { "type": "string" }, "count": { "type": "integer" } }
+                      }
+                    },
+                    "morph": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": ["value", "count"],
+                        "properties": { "value": { "type": "string" }, "count": { "type": "integer" } }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request doesn't match this operation's parameters or body",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "401": {
+            "description": "Missing key, or the key lacks the gallery.read scope",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "default": {
+            "description": "Any other error",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          }
+        }
+      }
+    },
     "/gallery/has-video": {
       "get": {
         "summary": "Whether the library has any videos",
@@ -10121,6 +10399,38 @@
             "required": false,
             "description": "Only photos with this place name",
             "schema": { "type": "array", "items": { "type": "string", "maxLength": 500 }, "maxItems": 500 }
+          },
+          {
+            "name": "lifeStage",
+            "in": "query",
+            "required": false,
+            "description": "Only photos of this life stage",
+            "schema": {
+              "type": "array",
+              "items": { "enum": ["egg", "larva", "nymph", "pupa", "juvenile", "subadult", "adult"] },
+              "maxItems": 500
+            }
+          },
+          {
+            "name": "sex",
+            "in": "query",
+            "required": false,
+            "description": "Only photos of this sex",
+            "schema": { "type": "array", "items": { "enum": ["male", "female", "unknown"] }, "maxItems": 500 }
+          },
+          {
+            "name": "plumage",
+            "in": "query",
+            "required": false,
+            "description": "Only photos with this plumage, ignoring case",
+            "schema": { "type": "array", "items": { "type": "string", "maxLength": 100 }, "maxItems": 500 }
+          },
+          {
+            "name": "morph",
+            "in": "query",
+            "required": false,
+            "description": "Only photos with this morph, ignoring case",
+            "schema": { "type": "array", "items": { "type": "string", "maxLength": 100 }, "maxItems": 500 }
           },
           {
             "name": "bbox",
@@ -10445,6 +10755,38 @@
             "required": false,
             "description": "Only photos with this place name",
             "schema": { "type": "array", "items": { "type": "string", "maxLength": 500 }, "maxItems": 500 }
+          },
+          {
+            "name": "lifeStage",
+            "in": "query",
+            "required": false,
+            "description": "Only photos of this life stage",
+            "schema": {
+              "type": "array",
+              "items": { "enum": ["egg", "larva", "nymph", "pupa", "juvenile", "subadult", "adult"] },
+              "maxItems": 500
+            }
+          },
+          {
+            "name": "sex",
+            "in": "query",
+            "required": false,
+            "description": "Only photos of this sex",
+            "schema": { "type": "array", "items": { "enum": ["male", "female", "unknown"] }, "maxItems": 500 }
+          },
+          {
+            "name": "plumage",
+            "in": "query",
+            "required": false,
+            "description": "Only photos with this plumage, ignoring case",
+            "schema": { "type": "array", "items": { "type": "string", "maxLength": 100 }, "maxItems": 500 }
+          },
+          {
+            "name": "morph",
+            "in": "query",
+            "required": false,
+            "description": "Only photos with this morph, ignoring case",
+            "schema": { "type": "array", "items": { "type": "string", "maxLength": 100 }, "maxItems": 500 }
           },
           {
             "name": "bbox",
@@ -10861,6 +11203,38 @@
             "schema": { "type": "array", "items": { "type": "string", "maxLength": 500 }, "maxItems": 500 }
           },
           {
+            "name": "lifeStage",
+            "in": "query",
+            "required": false,
+            "description": "Only photos of this life stage",
+            "schema": {
+              "type": "array",
+              "items": { "enum": ["egg", "larva", "nymph", "pupa", "juvenile", "subadult", "adult"] },
+              "maxItems": 500
+            }
+          },
+          {
+            "name": "sex",
+            "in": "query",
+            "required": false,
+            "description": "Only photos of this sex",
+            "schema": { "type": "array", "items": { "enum": ["male", "female", "unknown"] }, "maxItems": 500 }
+          },
+          {
+            "name": "plumage",
+            "in": "query",
+            "required": false,
+            "description": "Only photos with this plumage, ignoring case",
+            "schema": { "type": "array", "items": { "type": "string", "maxLength": 100 }, "maxItems": 500 }
+          },
+          {
+            "name": "morph",
+            "in": "query",
+            "required": false,
+            "description": "Only photos with this morph, ignoring case",
+            "schema": { "type": "array", "items": { "type": "string", "maxLength": 100 }, "maxItems": 500 }
+          },
+          {
             "name": "bbox",
             "in": "query",
             "required": false,
@@ -11211,6 +11585,38 @@
             "schema": { "type": "array", "items": { "type": "string", "maxLength": 500 }, "maxItems": 500 }
           },
           {
+            "name": "lifeStage",
+            "in": "query",
+            "required": false,
+            "description": "Only photos of this life stage",
+            "schema": {
+              "type": "array",
+              "items": { "enum": ["egg", "larva", "nymph", "pupa", "juvenile", "subadult", "adult"] },
+              "maxItems": 500
+            }
+          },
+          {
+            "name": "sex",
+            "in": "query",
+            "required": false,
+            "description": "Only photos of this sex",
+            "schema": { "type": "array", "items": { "enum": ["male", "female", "unknown"] }, "maxItems": 500 }
+          },
+          {
+            "name": "plumage",
+            "in": "query",
+            "required": false,
+            "description": "Only photos with this plumage, ignoring case",
+            "schema": { "type": "array", "items": { "type": "string", "maxLength": 100 }, "maxItems": 500 }
+          },
+          {
+            "name": "morph",
+            "in": "query",
+            "required": false,
+            "description": "Only photos with this morph, ignoring case",
+            "schema": { "type": "array", "items": { "type": "string", "maxLength": 100 }, "maxItems": 500 }
+          },
+          {
             "name": "bbox",
             "in": "query",
             "required": false,
@@ -11552,6 +11958,38 @@
             "required": false,
             "description": "Only photos with this place name",
             "schema": { "type": "array", "items": { "type": "string", "maxLength": 500 }, "maxItems": 500 }
+          },
+          {
+            "name": "lifeStage",
+            "in": "query",
+            "required": false,
+            "description": "Only photos of this life stage",
+            "schema": {
+              "type": "array",
+              "items": { "enum": ["egg", "larva", "nymph", "pupa", "juvenile", "subadult", "adult"] },
+              "maxItems": 500
+            }
+          },
+          {
+            "name": "sex",
+            "in": "query",
+            "required": false,
+            "description": "Only photos of this sex",
+            "schema": { "type": "array", "items": { "enum": ["male", "female", "unknown"] }, "maxItems": 500 }
+          },
+          {
+            "name": "plumage",
+            "in": "query",
+            "required": false,
+            "description": "Only photos with this plumage, ignoring case",
+            "schema": { "type": "array", "items": { "type": "string", "maxLength": 100 }, "maxItems": 500 }
+          },
+          {
+            "name": "morph",
+            "in": "query",
+            "required": false,
+            "description": "Only photos with this morph, ignoring case",
+            "schema": { "type": "array", "items": { "type": "string", "maxLength": 100 }, "maxItems": 500 }
           },
           {
             "name": "bbox",
@@ -18591,9 +19029,14 @@
             "application/json": {
               "schema": {
                 "type": "object",
-                "required": ["captureIds"],
                 "properties": {
                   "captureIds": {
+                    "type": "array",
+                    "items": { "type": "string", "format": "uuid" },
+                    "minItems": 1,
+                    "maxItems": 200
+                  },
+                  "photoIds": {
                     "type": "array",
                     "items": { "type": "string", "format": "uuid" },
                     "minItems": 1,
@@ -19491,6 +19934,32 @@
                                     "description": "Only photos with this place name",
                                     "maxItems": 500
                                   },
+                                  "lifeStage": {
+                                    "type": "array",
+                                    "items": {
+                                      "enum": ["egg", "larva", "nymph", "pupa", "juvenile", "subadult", "adult"]
+                                    },
+                                    "description": "Only photos of this life stage",
+                                    "maxItems": 500
+                                  },
+                                  "sex": {
+                                    "type": "array",
+                                    "items": { "enum": ["male", "female", "unknown"] },
+                                    "description": "Only photos of this sex",
+                                    "maxItems": 500
+                                  },
+                                  "plumage": {
+                                    "type": "array",
+                                    "items": { "type": "string", "maxLength": 100 },
+                                    "description": "Only photos with this plumage, ignoring case",
+                                    "maxItems": 500
+                                  },
+                                  "morph": {
+                                    "type": "array",
+                                    "items": { "type": "string", "maxLength": 100 },
+                                    "description": "Only photos with this morph, ignoring case",
+                                    "maxItems": 500
+                                  },
                                   "bbox": {
                                     "type": "string",
                                     "pattern": "^-?[0-9.]+,-?[0-9.]+,-?[0-9.]+,-?[0-9.]+$",
@@ -19719,6 +20188,32 @@
                                     { "type": "string" }
                                   ]
                                 },
+                                "lifeStage": {
+                                  "type": "array",
+                                  "items": {
+                                    "enum": ["egg", "larva", "nymph", "pupa", "juvenile", "subadult", "adult"]
+                                  },
+                                  "description": "Only photos of this life stage",
+                                  "maxItems": 500
+                                },
+                                "sex": {
+                                  "type": "array",
+                                  "items": { "enum": ["male", "female", "unknown"] },
+                                  "description": "Only photos of this sex",
+                                  "maxItems": 500
+                                },
+                                "plumage": {
+                                  "type": "array",
+                                  "items": { "type": "string", "maxLength": 100 },
+                                  "description": "Only photos with this plumage, ignoring case",
+                                  "maxItems": 500
+                                },
+                                "morph": {
+                                  "type": "array",
+                                  "items": { "type": "string", "maxLength": 100 },
+                                  "description": "Only photos with this morph, ignoring case",
+                                  "maxItems": 500
+                                },
                                 "bbox": {
                                   "type": "string",
                                   "pattern": "^-?[0-9.]+,-?[0-9.]+,-?[0-9.]+,-?[0-9.]+$",
@@ -19919,6 +20414,32 @@
                                     "type": "array",
                                     "items": { "type": "string", "maxLength": 500 },
                                     "description": "Only photos with this place name",
+                                    "maxItems": 500
+                                  },
+                                  "lifeStage": {
+                                    "type": "array",
+                                    "items": {
+                                      "enum": ["egg", "larva", "nymph", "pupa", "juvenile", "subadult", "adult"]
+                                    },
+                                    "description": "Only photos of this life stage",
+                                    "maxItems": 500
+                                  },
+                                  "sex": {
+                                    "type": "array",
+                                    "items": { "enum": ["male", "female", "unknown"] },
+                                    "description": "Only photos of this sex",
+                                    "maxItems": 500
+                                  },
+                                  "plumage": {
+                                    "type": "array",
+                                    "items": { "type": "string", "maxLength": 100 },
+                                    "description": "Only photos with this plumage, ignoring case",
+                                    "maxItems": 500
+                                  },
+                                  "morph": {
+                                    "type": "array",
+                                    "items": { "type": "string", "maxLength": 100 },
+                                    "description": "Only photos with this morph, ignoring case",
                                     "maxItems": 500
                                   },
                                   "bbox": {
