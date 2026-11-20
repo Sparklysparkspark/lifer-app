@@ -56,6 +56,8 @@ A photo with versions shows a small stack badge, like **3 versions**, in the Gal
 
 Open the photo, and the viewer lists its versions by name under the photo. Click one to see it, or press <kbd>Option</kbd>+<kbd>←</kbd> and <kbd>Option</kbd>+<kbd>→</kbd> (<kbd>Alt</kbd>+<kbd>←</kbd> and <kbd>Alt</kbd>+<kbd>→</kbd> on Windows and Linux). When two versions are the same size, the zoom stays where it is, so you can compare details.
 
+File actions follow the version you see. In the viewer, **Open in** an editor opens the version on screen. In a photo's **⋯** menu, **Reveal in Finder**, **Copy original's path** and **Open in** use the version shown as the photo.
+
 - **Rename**: double-click a version's name, or click **Rename**, type a name like "Gallery print" and press <kbd>Enter</kbd>. <kbd>Esc</kbd> cancels. Clear the name to go back to the one Lifer chose.
 - **Use this as the photo**: shows that version everywhere the photo appears: grids, the species card and albums. Undo is in the message that follows.
 - **Manage versions**: the button at the top of the viewer lists every file with its size and format, and why it was grouped. From there you can **Split out** a version that isn't the same photo (it becomes a photo of its own again, and Lifer won't group it again).
@@ -64,7 +66,9 @@ Open the photo, and the viewer lists its versions by name under the photo. Click
 
 When Lifer didn't group a file, open it and choose **Versions** in its **⋯** menu, then **Link to another photo** (or press <kbd>Cmd</kbd>+<kbd>G</kbd> in the viewer). Lifer first shows photos taken within two minutes. To link a print scanned years later, or a file whose date was lost, search by file name, species, place or date.
 
-A linked version counts under the original's species and date. Its own species and date are kept, so **Split out** gives them back. Every link and split offers **Undo**. A photo that already has versions of its own can't be linked to another; split its versions out first.
+You can pick a photo that already has versions, marked with its stack badge: the file joins them. Picking one of its versions does the same.
+
+A linked version counts under the original's species and date. Its own species and date are kept, so **Split out** gives them back. Every link and split offers **Undo**. The photo you link can't have versions of its own; split those out first.
 
 ## Keyboard shortcuts
 

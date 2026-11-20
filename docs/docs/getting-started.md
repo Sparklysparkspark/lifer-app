@@ -80,6 +80,6 @@ Your photos appear on their species' pages, those species count as photographed,
 
 ### Take the tour {#tour}
 
-The tour points at each main part of Lifer in turn, in a few short steps. Start it from **Take the tour** at the end of setup, in **Settings > General > Tips**, or by searching for it with <kbd>Cmd</kbd>+<kbd>K</kbd>. Use **Next** and **Back** or the arrow keys; <kbd>Esc</kbd>, **Skip** or clicking any page ends it.
+The tour points at each main part of Lifer in turn, in a few short steps, and ends with how edits, prints and exports of one photo stack together. Start it from **Take the tour** at the end of setup, in **Settings > General > Tips**, or by searching for it with <kbd>Cmd</kbd>+<kbd>K</kbd>. Use **Next** and **Back** or the arrow keys; <kbd>Esc</kbd>, **Skip** or clicking any page ends it.
 
 Already have a big library? [Import an existing library](./guides/importing.md#existing-library) brings it in by reading the species tags already in your files.

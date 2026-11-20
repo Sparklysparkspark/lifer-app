@@ -143,11 +143,9 @@ describe.skipIf(!url)("linking any photo as a version", () => {
     const own = await db.query(`SELECT species_id, taken_at FROM captures_all WHERE id = $1`, [ids.print]);
     expect(own.rows[0].species_id).toBe(HERON);
 
-    // A photo with versions of its own can't become one, and a group is never offered.
-    expect(
-      (await call("POST", `/api/captures/${ids.moose}/versions/link`, { groupCaptureId: ids.burst })).statusCode,
-    ).toBe(409);
-    expect((await call("GET", `/api/captures/${ids.burst}/versions/candidates?q=IMG_1234`)).json().items).toEqual([]);
+    // A photo with versions of its own can't become one: merging two groups would make Undo lossy.
+    const refused = await call("POST", `/api/captures/${ids.moose}/versions/link`, { groupCaptureId: ids.burst });
+    expect([refused.statusCode, refused.json().code]).toEqual([409, "version_link_refused"]);
 
     const split = await call("POST", `/api/captures/${ids.print}/versions/split`);
     expect(split.json()).toEqual({ groupCaptureId: ids.moose });
@@ -163,6 +161,30 @@ describe.skipIf(!url)("linking any photo as a version", () => {
     await db.query(`UPDATE captures_all SET hidden_at = NULL WHERE id = $1`, [ids.heron]);
   });
 
+  it("joins a photo that already has versions, and a split gives back exactly what was there", async () => {
+    await call("POST", `/api/captures/${ids.print}/versions/link`, { groupCaptureId: ids.moose });
+    // The group is offered, nearby and by search.
+    const group = (await call("GET", `/api/captures/${ids.burst}/versions`)).json();
+    expect(group.nearby.map((n: { captureId: string }) => n.captureId)).toContain(ids.moose);
+    const found = (await call("GET", `/api/captures/${ids.burst}/versions/candidates?q=IMG_1234`)).json();
+    expect(found.items).toEqual([expect.objectContaining({ captureId: ids.moose })]);
+
+    const own = `SELECT species_id, taken_at, hidden_at, current_photo_id FROM captures_all WHERE id = $1`;
+    const before = (await db.query(own, [ids.burst])).rows[0];
+    // Picking one of the group's versions lands in the group too.
+    const link = await call("POST", `/api/captures/${ids.burst}/versions/link`, { groupCaptureId: ids.print });
+    expect(link.json()).toEqual({ groupCaptureId: ids.moose });
+    expect((await call("GET", "/api/captures/version-counts")).json().counts).toEqual({ [ids.moose]: 3 });
+    expect(await visible()).toBe(2);
+
+    const split = await call("POST", `/api/captures/${ids.burst}/versions/split`);
+    expect(split.json()).toEqual({ groupCaptureId: ids.moose });
+    expect((await db.query(own, [ids.burst])).rows[0]).toEqual(before);
+    expect((await call("GET", "/api/captures/version-counts")).json().counts).toEqual({ [ids.moose]: 2 });
+    await call("POST", `/api/captures/${ids.print}/versions/split`);
+    expect(await visible()).toBe(4);
+  });
+
   it("serves the shown version's file from the group's photo", async () => {
     await call("POST", `/api/captures/${ids.print}/versions/link`, { groupCaptureId: ids.moose });
     const show = await call("POST", `/api/captures/${ids.moose}/versions/show`, { captureId: ids.print });
@@ -172,6 +194,15 @@ describe.skipIf(!url)("linking any photo as a version", () => {
     expect((await state(MOOSE))?.cover_photo_id).toBe(photos.print);
     expect((await resolveOriginal(photos.print, USER, "jpeg"))?.ref).toBe("/lib/Scans/moose_print_16x20.jpg");
     expect((await resolveOriginal(photos.moose, USER, "jpeg"))?.ref).toBe("/lib/Moose/IMG_1234.jpg");
+    // Grids, Reveal and Open in follow the shown file the same way.
+    const { filesCaptureOf } = await import("../lib/versionFiles.js");
+    const filesOf = async (id: string) =>
+      (await db.query(`SELECT ${filesCaptureOf("c")} AS id FROM captures_all c WHERE c.id = $1`, [id])).rows[0].id;
+    expect([await filesOf(ids.moose), await filesOf(ids.print), await filesOf(ids.heron)]).toEqual([
+      ids.print,
+      ids.moose,
+      ids.heron,
+    ]);
 
     // Undo puts the original back, and splitting a shown version shows the original again.
     await call("POST", `/api/captures/${ids.print}/versions/split`);

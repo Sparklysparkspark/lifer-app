@@ -18,12 +18,17 @@ vi.mock("../api/client", async (importOriginal) => ({
   },
 }));
 
+const openIn = vi.fn();
+vi.mock("../hooks/useOpenInEditors", () => ({
+  useOpenInEditors: () => ({ editors: [{ id: "ps", name: "Photoshop" }], openIn }),
+}));
+
 const { default: PhotoTile } = await import("./PhotoTile");
 const { default: Lightbox } = await import("./Lightbox");
 const { PhotoViewMenu } = await import("./PhotoGridControls");
 const { default: VersionNotice, useVersionNotice } = await import("./VersionNotice");
 const { PhotoVersionsHost } = await import("./PhotoVersions");
-const { openPhotoVersions, photoVersionsPanel } = await import("../lib/photoVersions");
+const { openPhotoVersions, photoVersionsPanel, refreshVersionCounts } = await import("../lib/photoVersions");
 
 const toast: ToastApi = { success: vi.fn(), error: vi.fn(), info: vi.fn(), show: vi.fn(), dismiss: vi.fn() };
 
@@ -159,11 +164,22 @@ describe("the viewer's version switcher", () => {
     fireEvent.keyDown(window, { key: "G", code: "KeyG", shiftKey: true, ctrlKey: true });
     await waitFor(() => expect(post).toHaveBeenCalledWith("/captures/v2/versions/split"));
   });
+
+  it("opens the version on screen in an editor and names its file", async () => {
+    openViewer();
+    fireEvent.click(screen.getByRole("button", { name: "Open in Photoshop" }));
+    expect(openIn).toHaveBeenLastCalledWith(expect.objectContaining({ id: "ps" }), { captureIds: ["g1"] });
+    fireEvent.click(await screen.findByRole("radio", { name: "Black and white" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open in Photoshop" }));
+    expect(openIn).toHaveBeenLastCalledWith(expect.objectContaining({ id: "ps" }), { photoIds: ["p2"] });
+    expect(screen.getByText(VERSIONS[1].fileName)).toBeTruthy();
+  });
 });
 
 describe("linking to any photo", () => {
   it("explains the two-minute list, searches the rest and links with Undo", async () => {
     get.mockImplementation(async (path: string) => {
+      if (path.startsWith("/captures/version-counts")) return { counts: { far: 3 } };
       if (path.includes("/versions/candidates"))
         return {
           items: [
@@ -180,13 +196,17 @@ describe("linking to any photo", () => {
       return {};
     });
     post.mockResolvedValue({ groupCaptureId: "far" });
+    await refreshVersionCounts();
     wrap(<PhotoVersionsHost />);
     openPhotoVersions("solo", undefined, true);
     expect(
       await screen.findByText("No photos were taken within two minutes. Search to find any other photo."),
     ).toBeTruthy();
     fireEvent.change(screen.getByRole("textbox", { name: "Search photos" }), { target: { value: "IMG_9" } });
-    fireEvent.click(await screen.findByRole("button", { name: "Link to IMG_9.jpg" }));
+    // A photo that has versions already is offered, marked as such; this one joins them.
+    const target = await screen.findByRole("button", { name: "Link to IMG_9.jpg" });
+    expect(target.textContent).toContain("3 versions");
+    fireEvent.click(target);
     await waitFor(() => expect(post).toHaveBeenCalledWith("/captures/solo/versions/link", { groupCaptureId: "far" }));
     expect(get).toHaveBeenCalledWith(
       expect.stringContaining("/captures/solo/versions/candidates?q=IMG_9"),

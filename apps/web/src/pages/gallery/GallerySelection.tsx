@@ -211,7 +211,7 @@ export function GallerySelectBar({
         ...openInEditors.editors.map((editor) => ({
           key: `openIn-${editor.id}`,
           label: t("openIn.item", { name: editor.name }),
-          onClick: () => openInEditors.openIn(editor, [...selectedIds].slice(0, 200)),
+          onClick: () => openInEditors.openIn(editor, { captureIds: [...selectedIds].slice(0, 200) }),
           menuOnly: true,
         })),
         {

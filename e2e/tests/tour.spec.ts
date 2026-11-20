@@ -36,7 +36,7 @@ test("the guided tour starts from Settings and the palette, and ends cleanly", a
   await page.keyboard.press("ArrowLeft");
   await expect(tour.getByText(`1 of ${total}`)).toBeVisible();
   for (let i = 1; i < total; i++) await page.keyboard.press("ArrowRight");
-  await expect(tour.getByRole("heading", { name: "Search and shortcuts" })).toBeVisible();
+  await expect(tour.getByRole("heading", { name: "Photo versions" })).toBeVisible();
   await tour.getByRole("button", { name: "Done" }).click();
   await expect(tour).toHaveCount(0);
 

@@ -458,11 +458,10 @@ export default function Lightbox({
   const slide = slides[index];
   if (!slide) return null;
   // Until the full photo has decoded, the copy the grid already drew holds its place.
-  // Another version of the photo, switched to in the viewer.
-  const versionUrl =
-    activeVersion && activeVersion !== ownVersion && activeVersion.photoId
-      ? `/api/photos/${activeVersion.photoId}/display`
-      : null;
+  // Another version of the photo, switched to in the viewer: the file actions and names follow it.
+  const otherVersion = activeVersion && activeVersion !== ownVersion && activeVersion.photoId ? activeVersion : null;
+  const versionUrl = otherVersion ? `/api/photos/${otherVersion.photoId}/display` : null;
+  const files = otherVersion ? [otherVersion.fileName] : (slide.info?.files ?? []);
   const placeholder = !versionUrl && slide.thumbUrl && !decoded.has(slide.url) ? sharpestShown(slide.thumbUrl) : null;
 
   const cameraLine = [
@@ -781,7 +780,14 @@ export default function Lightbox({
                     {/* raw-control: a link in the caption, light on the dark backdrop. design-token: as above */}
                     <button
                       type="button"
-                      onClick={() => openIn(editors[0], [slide.captureId!])}
+                      onClick={() =>
+                        openIn(
+                          editors[0],
+                          otherVersion?.photoId
+                            ? { photoIds: [otherVersion.photoId] }
+                            : { captureIds: [slide.captureId!] },
+                        )
+                      }
                       // design-token: as the links above
                       className="text-white/70 underline hover:text-white"
                     >
@@ -817,10 +823,10 @@ export default function Lightbox({
                 {[cameraLine, takenLabel, slide.info?.cull].filter(Boolean).join(" · ")}
               </p>
             )}
-            {slide.info?.files && slide.info.files.length > 0 && (
+            {files.length > 0 && (
               // Selectable, with the full stored location on hover, for finding the file yourself.
               <p className="mt-0.5 select-text text-footnote text-white/50" onClick={(e) => e.stopPropagation()}>
-                {slide.info.files.map((ref, i) => (
+                {files.map((ref, i) => (
                   <span key={ref} title={ref}>
                     {i > 0 && " · "}
                     {fileNameOf(ref)}

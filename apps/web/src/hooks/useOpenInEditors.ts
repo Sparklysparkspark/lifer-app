@@ -27,11 +27,14 @@ export function orderEditors(editors: PhotoEditor[], last: string | null): Photo
   return [...editors].sort((a, b) => Number(b.id === last) - Number(a.id === last));
 }
 
-/** Editors installed on this computer and a way to open captures' files in one. Empty on a server
+/** Photos to open: a photo id is one exact version, a capture id the photo it shows. */
+export type EditorTargets = { captureIds: string[] } | { photoIds: string[] };
+
+/** Editors installed on this computer and a way to open photos' files in one. Empty on a server
  *  or in a browser, where the files aren't on this computer; also empty when none is installed. */
 export function useOpenInEditors(): {
   editors: PhotoEditor[];
-  openIn: (editor: PhotoEditor, captureIds: string[]) => void;
+  openIn: (editor: PhotoEditor, targets: EditorTargets) => void;
 } {
   const { t } = useTranslation();
   const toast = useToast();
@@ -53,7 +56,7 @@ export function useOpenInEditors(): {
   }, [local]);
 
   const openIn = useCallback(
-    (editor: PhotoEditor, captureIds: string[]) => {
+    (editor: PhotoEditor, targets: EditorTargets) => {
       const invoke = tauriInvoke();
       if (!invoke) return;
       try {
@@ -63,7 +66,7 @@ export function useOpenInEditors(): {
       }
       setEditors((prev) => orderEditors(prev, editor.id));
       void api
-        .post("/originals/editor-paths", { captureIds })
+        .post("/originals/editor-paths", targets)
         .then(({ paths }) => {
           if (paths.length === 0) throw new Error("none");
           return invoke("open_in", { editorId: editor.id, paths });

@@ -8,6 +8,7 @@ import {
   notifyVersionChange,
   openPhotoVersions,
   photoVersionsPanel,
+  useVersionCounts,
   versionChanges,
   versionName,
   type PhotoVersion,
@@ -24,6 +25,7 @@ import Modal from "./Modal";
 import Button from "./Button";
 import Menu, { MenuItem, MenuPanel } from "./Menu";
 import PhotoMenu from "./PhotoMenu";
+import { VersionStackBadge } from "./PhotoTile";
 import SearchInput from "./SearchInput";
 import { Tooltip } from "./Tooltip";
 
@@ -297,6 +299,8 @@ function LinkPicker({
   }, [query]);
   const found = useApiRoute(q ? apiPath("/captures/{id}/versions/candidates", { id: captureId }, { q }) : null);
   const items = q ? (found.data?.items ?? []) : nearby;
+  // A photo with versions can be picked too; this one joins them.
+  const counts = useVersionCounts();
   const status = q
     ? found.data && items.length === 0
       ? t("versions.linkNoMatch")
@@ -342,9 +346,12 @@ function LinkPicker({
               title={n.fileName ?? undefined}
               className="block w-full min-w-0 rounded-control text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
             >
-              <span className="block aspect-square overflow-hidden rounded-control bg-surface-muted">
+              <span className="relative block aspect-square overflow-hidden rounded-control bg-surface-muted">
                 {n.photoId && (
                   <img src={`/api/photos/${n.photoId}/thumb`} alt="" className="h-full w-full object-cover" />
+                )}
+                {(counts.get(n.captureId) ?? 0) > 1 && (
+                  <VersionStackBadge label={t("versions.badge", { count: counts.get(n.captureId) })} />
                 )}
               </span>
               {n.fileName && <span className="mt-1 block truncate text-footnote text-ink">{n.fileName}</span>}

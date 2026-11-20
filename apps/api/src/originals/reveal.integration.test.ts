@@ -1,7 +1,8 @@
 // Runs only with TEST_DATABASE_URL pointing at a migrated, disposable database.
 // POST /originals/reveal in desktop mode, where it does run: the body is checked before the
-// handler, and a well-formed path still reaches the ownership check.
-import { mkdtempSync, rmSync } from "node:fs";
+// handler, and a well-formed path still reaches the ownership check. "Open in" an editor opens the
+// version on screen.
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import Fastify, { type FastifyInstance } from "fastify";
@@ -75,5 +76,63 @@ describe.skipIf(!url)("revealing an original on the desktop", () => {
   it("still checks that a well-formed path is one of your originals", async () => {
     const res = await reveal({ path: "/somewhere/not/yours.jpg" });
     expect([res.statusCode, res.json()]).toEqual([403, { error: "Not your file" }]);
+  });
+
+  it("opens the shown version's file, or one version's own by its photo", async () => {
+    const SPECIES = "eeeeeeee-0000-4000-8000-000000000a71";
+    const userId = (await db.query<{ id: string }>(`SELECT id FROM users WHERE email = $1`, [LOCAL_EMAIL])).rows[0].id;
+    await db.query(
+      `INSERT INTO species (id, gbif_key, scientific_name, common_name, taxon_class)
+       VALUES ($1, 922971, 'Alces editorus', 'Editor Moose', 'mammalia')`,
+      [SPECIES],
+    );
+    const add = async (key: string) => {
+      const file = path.join(dataDir, `${key}.jpg`);
+      writeFileSync(file, key);
+      const c = await db.query<{ id: string }>(
+        `INSERT INTO captures (user_id, species_id, fingerprint) VALUES ($1, $2, $3) RETURNING id`,
+        [userId, SPECIES, `editor-${key}`],
+      );
+      const p = await db.query<{ id: string }>(
+        `INSERT INTO photos (capture_id, display_path, thumb_path) VALUES ($1, '/x/d.webp', '/x/t.webp') RETURNING id`,
+        [c.rows[0].id],
+      );
+      await db.query(`UPDATE captures_all SET current_photo_id = $1 WHERE id = $2`, [p.rows[0].id, c.rows[0].id]);
+      await db.query(
+        `INSERT INTO originals (user_id, capture_id, kind, ref_type, ref, managed, content_hash, file_size)
+         VALUES ($1, $2, 'jpeg', 'path', $3, false, $4, 1)`,
+        [userId, c.rows[0].id, file, `editor-hash-${key}`],
+      );
+      return { capture: c.rows[0].id, photo: p.rows[0].id, file };
+    };
+    const editorPaths = async (body: object) =>
+      (
+        await app.inject({
+          method: "POST",
+          url: "/api/originals/editor-paths",
+          headers: { "x-lifer-launch-token": LAUNCH_TOKEN },
+          payload: body,
+        })
+      ).json().paths;
+    try {
+      const group = await add("original");
+      const print = await add("print");
+      const { pool } = await import("@lifer/core/db.js");
+      const { linkVersionTx, showVersionTx } = await import("../uploads/versionGrouping.js");
+      const client = await pool.connect();
+      try {
+        await linkVersionTx(client, userId, print.capture, group.capture, "manual", { covers: [], recrop: [] });
+        await showVersionTx(client, group.capture, print.capture, []);
+      } finally {
+        client.release();
+      }
+      expect(await editorPaths({ captureIds: [group.capture] })).toEqual([print.file]);
+      expect(await editorPaths({ photoIds: [group.photo] })).toEqual([group.file]);
+      expect(await editorPaths({ photoIds: [print.photo] })).toEqual([print.file]);
+    } finally {
+      await db.query(`UPDATE captures_all SET current_photo_id = NULL WHERE species_id = $1`, [SPECIES]);
+      await db.query(`DELETE FROM captures_all WHERE species_id = $1`, [SPECIES]);
+      await db.query(`DELETE FROM species WHERE id = $1`, [SPECIES]);
+    }
   });
 });

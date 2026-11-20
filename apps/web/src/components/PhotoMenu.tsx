@@ -163,7 +163,11 @@ export default function PhotoMenu({
               {reveal?.kind === "reveal" && photo.originalManaged === false && (
                 <MenuItem onSelect={act(() => copyPath(photo.originalRef!))}>{t("photoMenu.copyPath")}</MenuItem>
               )}
-              <OpenInMenuItems captureIds={[photo.captureId]} onSelect={onClose} />
+              {/* By photo, so a version opens its own file. */}
+              <OpenInMenuItems
+                targets={photo.photoId ? { photoIds: [photo.photoId] } : { captureIds: [photo.captureId] }}
+                onSelect={onClose}
+              />
             </>
           )}
         </MenuSection>

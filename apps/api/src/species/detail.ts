@@ -26,6 +26,7 @@ import { scheduleInatDistributionSync, storedInatWeekly } from "./inatDistributi
 import { bboxDiagonalDegrees, ringBoundingBox, type BoundingBox } from "@lifer/core/lib/geometry.js";
 import { SENSITIVE_CLUSTER_DIAGONAL_KM } from "@lifer/core/species/sensitiveSpecies.js";
 import { SpeciesDetail, SpeciesEncounters, SpeciesSequences, SpeciesVolumeUsage, UnmatchedRaws } from "./responses.js";
+import { filesCaptureOf } from "../lib/versionFiles.js";
 
 const speciesNotFound = notFoundOnInvalidId("Species not found");
 // Marking routes take no body: the web app sends none.
@@ -207,16 +208,16 @@ export async function speciesDetailRoutes(fastify: FastifyInstance): Promise<voi
                     o.ref AS original_ref, o.managed AS original_managed, o.kind AS original_kind,
                     (SELECT io.inat_observation_id FROM capture_inaturalist_observations io WHERE io.capture_id = c.id AND io.photo_sent) AS inat_observation_id,
                     o.volume_id AS original_volume_id, o.volume_relative_path AS original_volume_relative_path,
-                    EXISTS (SELECT 1 FROM originals ro WHERE ro.capture_id = c.id AND ro.kind = 'raw') AS has_raw_original,
+                    EXISTS (SELECT 1 FROM originals ro WHERE ro.capture_id = ${filesCaptureOf("c")} AND ro.kind = 'raw') AS has_raw_original,
                     -- Shown by name in the photo viewer, so you can find the RAW on disk yourself.
-                    (SELECT rr.ref FROM originals rr WHERE rr.capture_id = c.id AND rr.kind = 'raw' LIMIT 1) AS raw_ref
+                    (SELECT rr.ref FROM originals rr WHERE rr.capture_id = ${filesCaptureOf("c")} AND rr.kind = 'raw' LIMIT 1) AS raw_ref
              FROM captures c
              LEFT JOIN photos p ON p.id = c.current_photo_id
              LEFT JOIN regions reg ON reg.id = c.region_id
              -- One original per capture (the JPEG when there is one), so a capture with a RAW
              -- isn't listed twice. has_raw_original above still reports the RAW.
              LEFT JOIN LATERAL (
-               SELECT * FROM originals o WHERE o.capture_id = c.id ORDER BY (o.kind = 'jpeg') DESC LIMIT 1
+               SELECT * FROM originals o WHERE o.capture_id = ${filesCaptureOf("c")} ORDER BY (o.kind = 'jpeg') DESC LIMIT 1
              ) o ON true
              WHERE c.user_id = $1
                -- An IN over a UNION, not "species_id = $2 OR EXISTS", so both indexes are used

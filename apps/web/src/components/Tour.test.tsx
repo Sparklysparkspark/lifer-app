@@ -72,24 +72,26 @@ describe("Tour", () => {
   it("skips steps whose control isn't on screen, but keeps search in the middle of the window", () => {
     setup({ key: "skips" });
     draw();
-    // import, collection, gallery, search
-    expect(screen.getByText("1 of 4")).toBeTruthy();
+    // import, collection, gallery, search, versions
+    expect(screen.getByText("1 of 5")).toBeTruthy();
     setup({ review: true, key: "review" });
     draw();
-    expect(screen.getAllByText("1 of 5").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("1 of 6").length).toBeGreaterThan(0);
   });
 
   it("moves with Next, Back and the arrow keys, and ends on Done", () => {
     setup({ key: "keys" });
     draw();
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
-    expect(screen.getByText("2 of 4")).toBeTruthy();
+    expect(screen.getByText("2 of 5")).toBeTruthy();
     fireEvent.keyDown(window, { key: "ArrowRight" });
-    expect(screen.getByText("3 of 4")).toBeTruthy();
+    expect(screen.getByText("3 of 5")).toBeTruthy();
     fireEvent.keyDown(window, { key: "ArrowLeft" });
     fireEvent.click(screen.getByRole("button", { name: "Back" }));
-    expect(screen.getByText("1 of 4")).toBeTruthy();
-    for (let i = 0; i < 3; i++) fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    expect(screen.getByText("1 of 5")).toBeTruthy();
+    for (let i = 0; i < 4; i++) fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    // Versions come last, pointed at from the Gallery, where their stack badge shows.
+    expect(screen.getByRole("dialog", { name: "Photo versions" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Done" }));
     expect(card()).toBeNull();
   });

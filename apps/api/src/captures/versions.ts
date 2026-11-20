@@ -110,8 +110,8 @@ async function groupOf(userId: string, captureId: string): Promise<string | null
   return res.rows[0]?.head ?? null;
 }
 
-/** What the link picker shows of `ids`, in their order. Leaves out `groupId` itself, photos with
- *  versions of their own (linkVersionTx refuses nesting) and anything that isn't a still photo. */
+/** What the link picker shows of `ids`, in their order. Leaves out `groupId` itself and anything
+ *  that isn't a still photo. A photo with versions is offered: the link joins its group. */
 async function describeCandidates(userId: string, groupId: string, ids: string[]) {
   const res = await pool.query<{
     id: string;
@@ -126,7 +126,6 @@ async function describeCandidates(userId: string, groupId: string, ids: string[]
      JOIN photos p ON p.id = c.current_photo_id AND COALESCE(p.kind, 'image') = 'image'
      LEFT JOIN species s ON s.id = c.species_id
      WHERE c.id = ANY($1::uuid[]) AND c.user_id = $2 AND c.id <> $3
-       AND NOT EXISTS (SELECT 1 FROM capture_versions v WHERE v.group_capture_id = c.id AND v.state = 'linked')
      ORDER BY array_position($1::uuid[], c.id)`,
     [ids, userId, groupId],
   );
@@ -235,7 +234,6 @@ export async function captureVersionRoutes(fastify: FastifyInstance): Promise<vo
         `SELECT c.id FROM captures c, captures_all g
          WHERE g.id = $1 AND c.user_id = $2 AND c.id <> g.id AND g.taken_at IS NOT NULL
            AND c.taken_at BETWEEN g.taken_at - make_interval(secs => $3) AND g.taken_at + make_interval(secs => $3)
-           AND NOT EXISTS (SELECT 1 FROM capture_versions v WHERE v.group_capture_id = c.id AND v.state = 'linked')
          ORDER BY abs(extract(epoch FROM c.taken_at - g.taken_at)), c.id
          LIMIT $4`,
         [groupId, userId, NEARBY_SECONDS, NEARBY_LIMIT],
@@ -354,7 +352,9 @@ export async function captureVersionRoutes(fastify: FastifyInstance): Promise<vo
     },
   );
 
-  // "Link to": files this photo as a version of another. Undo: split it out.
+  // "Link to": files this photo as a version of another, joining its group when it has versions.
+  // A photo with versions of its own is refused, not merged, so Undo (split it out) gives back
+  // exactly what was there.
   app.post(
     "/captures/:id/versions/link",
     {
@@ -375,7 +375,7 @@ export async function captureVersionRoutes(fastify: FastifyInstance): Promise<vo
       );
       if (!linked) {
         return reply.code(409).send({
-          error: "This photo can't be linked there. A photo with versions of its own has to split them out first.",
+          error: "This photo has versions of its own, so it can't become a version. Split its versions out first.",
           code: "version_link_refused",
         });
       }

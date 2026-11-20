@@ -8,6 +8,7 @@ import { IdParams, Nullable, Ok, Open, notFoundOnInvalidId, replies, withSchemas
 import { requireAuth, requireScope } from "../auth/session.js";
 import { revealFile } from "./browse.js";
 import { resolveOriginalPath } from "../storageVolumes/resolve.js";
+import { filesCaptureOf } from "../lib/versionFiles.js";
 import { contentDisposition } from "../lib/httpFile.js";
 import { desktopOnly } from "../settings/requireDesktopMode.js";
 import { DATA_DIR } from "@lifer/core/config.js";
@@ -171,14 +172,16 @@ export async function originalsRoutes(fastify: FastifyInstance): Promise<void> {
   );
 
   // Where the files of these photos are on this computer, the RAW when there is one, for "Open in"
-  // an editor. Desktop only, like Reveal: the paths mean nothing on a server.
+  // an editor. Desktop only, like Reveal: the paths mean nothing on a server. A photo id names one
+  // version exactly (the one on screen in the viewer); a capture id means the photo it shows.
+  const EditorIds = Type.Array(Type.String({ format: "uuid" }), { minItems: 1, maxItems: 200 });
   app.post(
     "/originals/editor-paths",
     {
       preValidation: [requireAuth, desktopOnly],
       schema: {
         body: Type.Object(
-          { captureIds: Type.Array(Type.String({ format: "uuid" }), { minItems: 1, maxItems: 200 }) },
+          { captureIds: Type.Optional(EditorIds), photoIds: Type.Optional(EditorIds) },
           { additionalProperties: false },
         ),
         response: replies(Type.Object({ paths: Type.Array(Type.String()) })),
@@ -186,12 +189,14 @@ export async function originalsRoutes(fastify: FastifyInstance): Promise<void> {
     },
     async (request) => {
       const res = await pool.query<OriginalRow>(
-        `SELECT DISTINCT ON (c.id) o.ref, o.volume_id, o.volume_relative_path
+        `SELECT DISTINCT ON (p.id) o.ref, o.volume_id, o.volume_relative_path
          FROM captures_all c
-         JOIN originals o ON o.capture_id = c.id AND o.kind IN ('raw', 'jpeg')
-         WHERE c.id = ANY($1::uuid[]) AND c.user_id = $2
-         ORDER BY c.id, (o.kind = 'raw') DESC`,
-        [request.body.captureIds, request.user!.id],
+         JOIN photos p ON p.capture_id = c.id
+         JOIN originals o ON o.capture_id = ${filesCaptureOf("c")} AND o.kind IN ('raw', 'jpeg')
+         WHERE c.user_id = $3
+           AND (p.id = ANY($2::uuid[]) OR (c.id = ANY($1::uuid[]) AND p.id = c.current_photo_id))
+         ORDER BY p.id, (o.kind = 'raw') DESC`,
+        [request.body.captureIds ?? [], request.body.photoIds ?? [], request.user!.id],
       );
       const paths: string[] = [];
       for (const row of res.rows) {

@@ -17,6 +17,7 @@ import { ORIGINALS_DIR } from "@lifer/core/config.js";
 import { tripMembershipRoutes } from "./membership.js";
 import { tripFileMoveRoutes } from "./moveFiles.js";
 import { GALLERY_TIER_SQL } from "../gallery/routes.js";
+import { filesCaptureOf } from "../lib/versionFiles.js";
 import { BEST_PHOTO_ORDER } from "../lib/bestPhotoOrder.js";
 import { sensitiveForKey } from "../companion/privacy.js";
 
@@ -577,7 +578,7 @@ export async function tripsRoutes(fastify: FastifyInstance): Promise<void> {
       const res = await pool.query(
         `SELECT p.id AS photo_id, p.width, p.height, c.id AS capture_id, c.species_id, s.scientific_name, s.common_name, c.taken_at, c.created_at,
               c.camera_model, c.lens, c.focal_length_mm, c.aperture, c.shutter, c.iso, c.quality_rating,
-              EXISTS (SELECT 1 FROM originals ro WHERE ro.capture_id = c.id AND ro.kind = 'raw') AS has_raw,
+              EXISTS (SELECT 1 FROM originals ro WHERE ro.capture_id = ${filesCaptureOf("c")} AND ro.kind = 'raw') AS has_raw,
               o.ref AS original_ref, o.kind AS original_kind, o.managed AS original_managed,
               c.tags, c.region_id, c.location_label, c.lat, c.lon,
               (SELECT io.inat_observation_id FROM capture_inaturalist_observations io WHERE io.capture_id = c.id AND io.photo_sent) AS inat_observation_id,
@@ -591,7 +592,7 @@ export async function tripsRoutes(fastify: FastifyInstance): Promise<void> {
        -- resolves to 'raw', which the frontend uses to hide "Download original" (Download RAW
        -- already covers that exact same file).
        LEFT JOIN LATERAL (
-         SELECT * FROM originals lo WHERE lo.capture_id = c.id ORDER BY (lo.kind = 'jpeg') DESC LIMIT 1
+         SELECT * FROM originals lo WHERE lo.capture_id = ${filesCaptureOf("c")} ORDER BY (lo.kind = 'jpeg') DESC LIMIT 1
        ) o ON true
        WHERE c.trip_id = $1 AND c.user_id = $2
        ORDER BY c.taken_at DESC NULLS LAST, c.created_at DESC`,

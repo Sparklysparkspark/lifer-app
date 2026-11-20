@@ -1,14 +1,14 @@
 import { useTranslation } from "react-i18next";
 import { MenuItem } from "./Menu";
-import { useOpenInEditors } from "../hooks/useOpenInEditors";
+import { useOpenInEditors, type EditorTargets } from "../hooks/useOpenInEditors";
 
 /** "Open in Photoshop" and the like for a photo menu. Nothing when no editor is installed or the
  *  files aren't on this computer. */
 export default function OpenInMenuItems({
-  captureIds,
+  targets,
   onSelect,
 }: {
-  captureIds: string[];
+  targets: EditorTargets;
   /** Runs first, e.g. to close the menu. */
   onSelect?: () => void;
 }) {
@@ -19,7 +19,7 @@ export default function OpenInMenuItems({
       key={editor.id}
       onSelect={() => {
         onSelect?.();
-        openIn(editor, captureIds);
+        openIn(editor, targets);
       }}
     >
       {t("openIn.item", { name: editor.name })}

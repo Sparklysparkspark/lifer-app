@@ -30,6 +30,8 @@ export const TOUR_STEPS: Step[] = [
   { anchor: "stats", title: "tour.stats.title", body: "tour.stats.body" },
   { anchor: "review", title: "tour.review.title", body: "tour.review.body" },
   { anchor: "search", title: "tour.search.title", body: "tour.search.body", optional: true },
+  // Versions have no control of their own; their stack badge lives on the Gallery's photos.
+  { anchor: "gallery", title: "tour.versions.title", body: "tour.versions.body" },
 ];
 
 // How long to wait for the Collection's ready marker before starting anyway (an error or empty state).
@@ -172,7 +174,7 @@ export default function Tour() {
   const step = steps[Math.min(index, steps.length - 1)]!;
   return (
     <TourCard
-      key={step.anchor}
+      key={step.title}
       step={step}
       position={t("tour.position", { current: index + 1, total: steps.length })}
       first={index === 0}

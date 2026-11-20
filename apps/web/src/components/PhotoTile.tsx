@@ -146,14 +146,10 @@ function PhotoTile({
         )}
         {selectMode && selected && <SelectedRing radiusPx={cornerRadiusPx} />}
         {(versionLabel || (versionCount != null && versionCount > 1)) && (
-          <span
+          <VersionStackBadge
+            label={versionLabel ?? t("versions.badge", { count: versionCount })}
             title={versionLabel}
-            // design-token: a scrim over the photo, as the video badge beside it.
-            className="pointer-events-none absolute bottom-2 left-2 flex max-w-[calc(100%-1rem)] items-center gap-1 rounded-badge bg-black/60 px-1.5 py-0.5 text-caption text-white"
-          >
-            <StackIcon />
-            <span className="truncate">{versionLabel ?? t("versions.badge", { count: versionCount })}</span>
-          </span>
+          />
         )}
       </button>
       {(isVideo ? !videoHovering : kind === "audio") && (
@@ -186,6 +182,20 @@ function PhotoTile({
 }
 
 export default memo(PhotoTile);
+
+/** The stack badge in a photo's corner: how many versions it has, or which version it is. */
+export function VersionStackBadge({ label, title }: { label: string; title?: string }) {
+  return (
+    <span
+      title={title}
+      // design-token: a scrim over the photo, as the video badge beside it.
+      className="pointer-events-none absolute bottom-2 left-2 flex max-w-[calc(100%-1rem)] items-center gap-1 rounded-badge bg-black/60 px-1.5 py-0.5 text-caption text-white"
+    >
+      <StackIcon />
+      <span className="truncate">{label}</span>
+    </span>
+  );
+}
 
 /** Two offset frames: a photo with versions behind it. */
 export function StackIcon({ className = "h-3 w-3" }: { className?: string }) {
