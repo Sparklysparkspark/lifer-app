@@ -1,0 +1,26 @@
+{
+  "ellipsis": ["albums.addTo.button", "gallery.adjustTime.action"],
+  "platform": [
+    "albums.export.reveal",
+    "photoMenu.revealInFinder",
+    "settings.general.updates.macBlocked",
+    "settings.general.updates.macGatekeeper"
+  ],
+  "selectAll": [
+    "albums.smart.selectAll",
+    "collection.toolbar.seaZonesAll",
+    "gallery.fixRegion.selectAll",
+    "gallery.map.selectAll",
+    "offlinePacks.downloaded.selectCountry",
+    "offlinePacks.downloaded.selectAll",
+    "trips.suggestions.selectAll"
+  ],
+  "jargon": [
+    "guide.steps.bulk.title",
+    "guide.steps.upload.body",
+    "hiddenSpecies.drillIn",
+    "otherTaxa.bulkHint",
+    "regionBrowser.drillIn"
+  ],
+  "emoji": ["hotspotMap.sensitiveBadge"]
+}

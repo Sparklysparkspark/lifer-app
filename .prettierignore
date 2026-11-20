@@ -13,3 +13,4 @@ apps/desktop/src-tauri/resources-staging
 packages/data-pipeline/data
 packages/data-pipeline/migrations
 CHANGELOG.md
+packages/shared/src/designTokens.ts

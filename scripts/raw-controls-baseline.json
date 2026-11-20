@@ -1,0 +1,34 @@
+[
+  {
+    "file": "components/CompareView.tsx",
+    "text": "role=\"dialog\""
+  },
+  {
+    "file": "components/CompareView.tsx",
+    "text": "aria-modal=\"true\""
+  },
+  {
+    "file": "components/CompareView.tsx",
+    "text": "className=\"fixed inset-0 z-50 flex flex-col bg-surround outline-none\""
+  },
+  {
+    "file": "components/Lightbox.tsx",
+    "text": "role=\"dialog\""
+  },
+  {
+    "file": "components/Lightbox.tsx",
+    "text": "aria-modal=\"true\""
+  },
+  {
+    "file": "components/Lightbox.tsx",
+    "text": "className={`fixed inset-0 z-50 bg-surround outline-none ${videoIdle ? \"cursor-none\" : \"\"}`}"
+  },
+  {
+    "file": "components/PhotoGridControls.tsx",
+    "text": "<input"
+  },
+  {
+    "file": "components/PhotoGridControls.tsx",
+    "text": "<button type=\"button\" onClick={onOpen} className={`${FIELD} ${FIELD_HEIGHT.sm} text-left text-muted!`}>"
+  }
+]

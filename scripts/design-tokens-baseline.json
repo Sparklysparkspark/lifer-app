@@ -1,0 +1,590 @@
+[
+  {
+    "file": "apps/web/src/components/AppSidebar.tsx",
+    "kind": "pixel",
+    "text": "<div data-tauri-drag-region=\"\" className=\"sidebar-window-controls h-[52px] shrink-0\" />",
+    "count": 1
+  },
+  {
+    "file": "apps/web/src/components/AppSidebar.tsx",
+    "kind": "pixel",
+    "text": "`flex min-h-8 items-center gap-2.5 rounded-control px-2.5 py-1.5 text-callout transition-colors focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-accent ${",
+    "count": 1
+  },
+  {
+    "file": "apps/web/src/components/AppSidebar.tsx",
+    "kind": "pixel",
+    "text": "className=\"h-[18px] w-[18px] shrink-0\"",
+    "count": 2
+  },
+  {
+    "file": "apps/web/src/components/AppSidebar.tsx",
+    "kind": "pixel",
+    "text": "className=\"h-[18px] w-[18px]\"",
+    "count": 2
+  },
+  {
+    "file": "apps/web/src/components/AppSidebar.tsx",
+    "kind": "pixel",
+    "text": "className={`page-header sticky top-0 z-30 flex h-[52px] shrink-0 items-center justify-between gap-4 border-b border-line bg-surface/80 pr-5 backdrop-blur-xl ${",
+    "count": 1
+  },
+  {
+    "file": "apps/web/src/components/AppSidebar.tsx",
+    "kind": "pixel",
+    "text": "sidebarHidden && mac ? \"pl-[84px]\" : \"pl-3\"",
+    "count": 1
+  },
+  {
+    "file": "apps/web/src/components/CaptureEditModal.tsx",
+    "kind": "pixel",
+    "text": "className=\"flex w-full items-baseline justify-between gap-3 px-3 py-2 text-left text-callout hover:bg-surface-muted focus-visible:outline-offset-[-2px]\"",
+    "count": 1
+  },
+  {
+    "file": "apps/web/src/components/CardCropEditor.tsx",
+    "kind": "colour",
+    "text": "className=\"absolute -bottom-1.5 -right-1.5 h-4 w-4 cursor-nwse-resize rounded-full border-2 border-stone-900 bg-white\"",
+    "count": 2
+  },
+  {
+    "file": "apps/web/src/components/CardCropEditor.tsx",
+    "kind": "colour",
+    "text": "className=\"absolute cursor-move border-2 border-white shadow-[0_0_0_9999px_rgba(0,0,0,0.4)]\"",
+    "count": 1
+  },
+  {
+    "file": "apps/web/src/components/CompareView.tsx",
+    "kind": "focus-ring",
+    "text": "className=\"fixed inset-0 z-50 flex flex-col bg-surround outline-none\"",
+    "count": 1
+  },
+  {
+    "file": "apps/web/src/components/CoordinatesModal.tsx",
+    "kind": "colour",
+    "text": "className={`text-footnote ${point || !text.trim() ? \"text-muted\" : \"text-rose-700 dark:text-rose-400\"}`}",
+    "count": 2
+  },
+  {
+    "file": "apps/web/src/components/EditableTextField.tsx",
+    "kind": "focus-ring",
+    "text": "const shared = `block w-full min-w-0 rounded-control border-b border-transparent bg-transparent px-0 outline-none transition-colors hover:border-line focus:border-ink focus:shadow-none ${className ?? \"\"}`;",
+    "count": 1
+  },
+  {
+    "file": "apps/web/src/components/FormMessage.tsx",
+    "kind": "colour",
+    "text": "className={`rounded-control border border-emerald-200 bg-emerald-50 px-3 py-2 text-callout text-emerald-700 dark:border-emerald-900/50 dark:bg-emerald-950/30 dark:text-emerald-400 ${className}`}",
+    "count": 6
+  },
+  {
+    "file": "apps/web/src/components/FormMessage.tsx",
+    "kind": "colour",
+    "text": "className={`rounded-control border border-rose-200 bg-rose-50 px-3 py-2 text-callout text-rose-700 dark:border-rose-900/50 dark:bg-rose-950/30 dark:text-rose-400 ${className}`}",
+    "count": 6
+  },
+  {
+    "file": "apps/web/src/components/Lightbox.tsx",
+    "kind": "colour",
+    "text": "\"flex h-8 w-8 items-center justify-center rounded-full bg-white/10 text-body leading-none text-white transition-colors hover:bg-white/20\";",
+    "count": 3
+  },
+  {
+    "file": "apps/web/src/components/Lightbox.tsx",
+    "kind": "colour",
+    "text": ": `mt-3 w-full max-w-3xl shrink-0 text-center text-callout text-white/70 transition-opacity duration-300 ${overlayFadeClass}`",
+    "count": 1
+  },
+  {
+    "file": "apps/web/src/components/Lightbox.tsx",
+    "kind": "colour",
+    "text": "<p className=\"mt-0.5 select-text text-footnote text-white/50\" onClick={(e) => e.stopPropagation()}>",
+    "count": 1
+  },
+  {
+    "file": "apps/web/src/components/Lightbox.tsx",
+    "kind": "colour",
+    "text": "<p className=\"mt-0.5 text-footnote text-white/50\">",
+    "count": 2
+  },
+  {
+    "file": "apps/web/src/components/Lightbox.tsx",
+    "kind": "colour",
+    "text": "<p className=\"text-white\">",
+    "count": 1
+  },
+  {
+    "file": "apps/web/src/components/Lightbox.tsx",
+    "kind": "colour",
+    "text": "<span className=\"text-footnote text-white/40\">",
+    "count": 1
+  },
+  {
+    "file": "apps/web/src/components/Lightbox.tsx",
+    "kind": "colour",
+    "text": "<span className=\"text-white/40\"> · </span>",
+    "count": 2
+  },
+  {
+    "file": "apps/web/src/components/Lightbox.tsx",
+    "kind": "colour",
+    "text": "? `absolute inset-x-0 bottom-12 z-10 bg-gradient-to-t from-black/70 to-transparent px-4 pb-2 pt-8 text-center text-callout text-white/70 transition-opacity duration-300 ${overlayFadeClass}`",
+    "count": 2
+  },
+  {
+    "file": "apps/web/src/components/Lightbox.tsx",
+    "kind": "colour",
+    "text": "className=\"flex h-64 w-64 flex-col items-center justify-center gap-2 rounded-panel bg-white/10 text-white/70\"",
+    "count": 2
+  },
+  {
+    "file": "apps/web/src/components/Lightbox.tsx",
+    "kind": "colour",
+    "text": "className=\"text-white/70 underline hover:text-white\"",
+    "count": 8
+  },
+  {
+    "file": "apps/web/src/components/Lightbox.tsx",
+    "kind": "colour",
+    "text": "{(slide.caption || durationLabel) && <span className=\"text-white/40\"> · </span>}",
+    "count": 1
+  },
+  {
+    "file": "apps/web/src/components/Lightbox.tsx",
+    "kind": "colour",
+    "text": "{slide.coordinates.lat != null && <span className=\"text-white/40\"> · </span>}",
+    "count": 1
+  },
+  {
+    "file": "apps/web/src/components/Lightbox.tsx",
+    "kind": "focus-ring",
+    "text": "className={`fixed inset-0 z-50 bg-surround outline-none ${videoIdle ? \"cursor-none\" : \"\"}`}",
+    "count": 1
+  },
+  {
+    "file": "apps/web/src/components/PacksMap.tsx",
+    "kind": "colour",
+    "text": "layers: [{ id: \"background\", type: \"background\", paint: { \"background-color\": canvas || \"#f1e8d4\" } }],",
+    "count": 1
+  },
+  {
+    "file": "apps/web/src/components/PhotoTile.tsx",
+    "kind": "colour",
+    "text": "<div className=\"pointer-events-none absolute bottom-2 right-2 flex items-center gap-1 rounded-badge bg-black/60 px-1.5 py-0.5 text-caption text-white\">",
+    "count": 2
+  },
+  {
+    "file": "apps/web/src/components/RawUpload.tsx",
+    "kind": "colour",
+    "text": "<span className=\"text-amber-600\">{t(\"upload.raw.collision\")}</span>",
+    "count": 1
+  },
+  {
+    "file": "apps/web/src/components/RawUpload.tsx",
+    "kind": "colour",
+    "text": "<span className=\"text-emerald-700\">{t(\"upload.raw.addedToFolder\", { name: rowSpeciesName(r) })}</span>",
+    "count": 1
+  },
+  {
+    "file": "apps/web/src/components/RawUpload.tsx",
+    "kind": "colour",
+    "text": "<span className=\"text-emerald-700\">{t(\"upload.raw.filedUnder\", { name: rowSpeciesName(r) })}</span>",
+    "count": 1
+  },
+  {
+    "file": "apps/web/src/components/RawUpload.tsx",
+    "kind": "colour",
+    "text": "<span className=\"text-rose-700 dark:text-rose-400\">{r.error}</span>",
+    "count": 2
+  },
+  {
+    "file": "apps/web/src/components/RegionPicker.tsx",
+    "kind": "pixel",
+    "text": "className=\"block w-full px-3 py-2 text-left text-callout text-ink hover:bg-surface-muted focus-visible:outline-offset-[-2px]\"",
+    "count": 1
+  },
+  {
+    "file": "apps/web/src/components/SpeciesCard.tsx",
+    "kind": "colour",
+    "text": "className: \"bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200\",",
+    "count": 4
+  },
+  {
+    "file": "apps/web/src/components/SpeciesCard.tsx",
+    "kind": "colour",
+    "text": "className: \"bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200\",",
+    "count": 4
+  },
+  {
+    "file": "apps/web/src/components/SpeciesCard.tsx",
+    "kind": "colour",
+    "text": "className=\"absolute left-1.5 bottom-1.5 max-w-[80%] truncate rounded-full bg-black/60 px-2 py-0.5 text-footnote font-medium text-white shadow\"",
+    "count": 2
+  },
+  {
+    "file": "apps/web/src/components/SpeciesCard.tsx",
+    "kind": "colour",
+    "text": "className=\"flex h-5 w-5 items-center justify-center rounded-full bg-white/90 text-footnote font-bold text-stone-600 shadow\"",
+    "count": 4
+  },
+  {
+    "file": "apps/web/src/components/SpeciesHotspotMap.tsx",
+    "kind": "colour",
+    "text": "\"circle-color\": \"#b45309\",",
+    "count": 1
+  },
+  {
+    "file": "apps/web/src/components/SpeciesHotspotMap.tsx",
+    "kind": "colour",
+    "text": "\"circle-stroke-color\": [\"case\", [\"get\", \"isReliable\"], \"#15803d\", \"#78350f\"],",
+    "count": 2
+  },
+  {
+    "file": "apps/web/src/components/SpeciesHotspotMap.tsx",
+    "kind": "colour",
+    "text": "<p className=\"mb-2 text-footnote text-amber-800 dark:text-amber-300\">{t(\"hotspotMap.sensitiveNote\")}</p>",
+    "count": 2
+  },
+  {
+    "file": "apps/web/src/components/SpeciesHotspotMap.tsx",
+    "kind": "colour",
+    "text": "<span className=\"font-medium text-green-700\">{t(\"hotspotMap.goodChance\")}</span>",
+    "count": 1
+  },
+  {
+    "file": "apps/web/src/components/SpeciesHotspotMap.tsx",
+    "kind": "colour",
+    "text": "<span className=\"ml-1.5 text-amber-700\" title={t(\"hotspotMap.sensitiveWithheld\")}>",
+    "count": 1
+  },
+  {
+    "file": "apps/web/src/components/SpeciesHotspotMap.tsx",
+    "kind": "colour",
+    "text": "isReliable ? `<div style=\"font-weight:600;color:#15803d\">${t(\"hotspotMap.goodChance\")}</div>` : \"\"",
+    "count": 1
+  },
+  {
+    "file": "apps/web/src/components/SpeciesHotspotMap.tsx",
+    "kind": "colour",
+    "text": "isSensitive ? `<div style=\"font-weight:600;color:#b45309\">${t(\"hotspotMap.sensitiveWithheld\")}</div>` : \"\"",
+    "count": 1
+  },
+  {
+    "file": "apps/web/src/components/SpeciesHotspotMap.tsx",
+    "kind": "colour",
+    "text": "{h.isReliable && <span className=\"ml-1.5 text-green-700\">●</span>}",
+    "count": 1
+  },
+  {
+    "file": "apps/web/src/components/SpeciesHotspotMap.tsx",
+    "kind": "colour",
+    "text": "}${t(\"hotspotMap.recordShare\", { percent: Math.round(recordShare * 100), count: pointCount })}${recencyLine ? `<br/>${recencyLine}` : \"\"}<br/><span style=\"color:#78716c\">~${centroidLat.toFixed(3)}, ${centroidLon.toFixed(3)} ${t(\"hotspotMap.areaRadius\", { radius: areaRadiusKm })}</span></div>`,",
+    "count": 1
+  },
+  {
+    "file": "apps/web/src/components/StarRating.tsx",
+    "kind": "colour",
+    "text": "shown != null && star <= shown ? (preview != null ? \"text-amber-400\" : \"text-amber-500\") : \"text-muted\"",
+    "count": 2
+  },
+  {
+    "file": "apps/web/src/components/Switch.tsx",
+    "kind": "pixel",
+    "text": "checked ? \"translate-x-[18px]\" : \"translate-x-0.5\"",
+    "count": 1
+  },
+  {
+    "file": "apps/web/src/components/TagEditor.tsx",
+    "kind": "colour",
+    "text": "? \"border-white/30 text-white placeholder:text-white/40 focus:border-white/60\"",
+    "count": 4
+  },
+  {
+    "file": "apps/web/src/components/TagEditor.tsx",
+    "kind": "colour",
+    "text": "className={`h-4! min-w-4! ${dark ? \"text-white/70! hover:text-white!\" : \"\"}`}",
+    "count": 2
+  },
+  {
+    "file": "apps/web/src/components/TagEditor.tsx",
+    "kind": "colour",
+    "text": "className={`mb-2 text-footnote font-medium uppercase tracking-wide ${dark ? \"text-white/60\" : \"text-muted\"}`}",
+    "count": 1
+  },
+  {
+    "file": "apps/web/src/components/TagEditor.tsx",
+    "kind": "colour",
+    "text": "className={compact ? \"\" : `mt-3 border-t pt-3 ${dark ? \"border-white/20\" : \"border-line\"}`}",
+    "count": 1
+  },
+  {
+    "file": "apps/web/src/components/TagEditor.tsx",
+    "kind": "colour",
+    "text": "dark ? \"border-white/20 bg-[#1c1e1f]\" : \"border-line bg-surface\"",
+    "count": 2
+  },
+  {
+    "file": "apps/web/src/components/TagEditor.tsx",
+    "kind": "colour",
+    "text": "dark ? \"border-white/30 bg-white/10 text-white\" : \"border-line bg-surface-muted text-ink\"",
+    "count": 3
+  },
+  {
+    "file": "apps/web/src/components/TagEditor.tsx",
+    "kind": "colour",
+    "text": "dark ? \"text-white hover:bg-white/10\" : \"text-ink hover:bg-surface-muted\"",
+    "count": 2
+  },
+  {
+    "file": "apps/web/src/components/TagEditor.tsx",
+    "kind": "focus-ring",
+    "text": "className={`w-28 rounded-full border border-dashed bg-transparent px-2.5 py-1 text-footnote outline-none ${",
+    "count": 1
+  },
+  {
+    "file": "apps/web/src/components/Tip.tsx",
+    "kind": "colour",
+    "text": "<span className={`font-semibold ${dark ? \"text-white\" : \"text-link\"}`}>{t(\"tips.label\")}</span>",
+    "count": 1
+  },
+  {
+    "file": "apps/web/src/components/Tip.tsx",
+    "kind": "colour",
+    "text": "? \"rounded-badge border border-white/30 bg-white/10 px-1.5 py-0.5 font-mono text-caption text-white\"",
+    "count": 3
+  },
+  {
+    "file": "apps/web/src/components/Tip.tsx",
+    "kind": "colour",
+    "text": "dark ? \"border-white/15 bg-white/10 text-white/85\" : \"border-accent/40 bg-accent/10 text-ink\"",
+    "count": 3
+  },
+  {
+    "file": "apps/web/src/components/Tip.tsx",
+    "kind": "colour",
+    "text": "dark ? \"text-white hover:bg-white/15\" : \"text-link hover:bg-accent/15\"",
+    "count": 2
+  },
+  {
+    "file": "apps/web/src/components/Toast.tsx",
+    "kind": "colour",
+    "text": "error: \"border-rose-200 text-rose-700 dark:border-rose-900/50 dark:text-rose-400\",",
+    "count": 4
+  },
+  {
+    "file": "apps/web/src/components/Toast.tsx",
+    "kind": "colour",
+    "text": "error: \"text-rose-600 dark:text-rose-400\",",
+    "count": 2
+  },
+  {
+    "file": "apps/web/src/components/Toast.tsx",
+    "kind": "colour",
+    "text": "success: \"text-emerald-600 dark:text-emerald-400\",",
+    "count": 2
+  },
+  {
+    "file": "apps/web/src/components/UploadQueueBanner.tsx",
+    "kind": "colour",
+    "text": "<span className=\"font-medium text-amber-700 dark:text-amber-400\">{t(\"upload.banner.keepDrive\")}</span>",
+    "count": 2
+  },
+  {
+    "file": "apps/web/src/components/VolumeDestinationPicker.tsx",
+    "kind": "colour",
+    "text": "<p className=\"rounded-control bg-amber-50 px-2 py-1.5 text-footnote text-amber-800 dark:bg-amber-950/30 dark:text-amber-300\">",
+    "count": 4
+  },
+  {
+    "file": "apps/web/src/components/importReview/ImportReviewRow.tsx",
+    "kind": "colour",
+    "text": "<div className=\"mt-2 ml-7 flex items-center gap-2 rounded-control border border-amber-200 bg-amber-50 px-2 py-1.5 text-footnote text-amber-800\">",
+    "count": 6
+  },
+  {
+    "file": "apps/web/src/components/importReview/InvertebrateHint.tsx",
+    "kind": "colour",
+    "text": "{search.error && <span className=\"w-full text-rose-700 dark:text-rose-300\">{search.error}</span>}",
+    "count": 2
+  },
+  {
+    "file": "apps/web/src/lib/buttonClasses.ts",
+    "kind": "colour",
+    "text": "danger: \"border-transparent bg-red-600 text-white hover:bg-red-700 dark:bg-red-700 dark:hover:bg-red-600\",",
+    "count": 5
+  },
+  {
+    "file": "apps/web/src/lib/menuClasses.ts",
+    "kind": "colour",
+    "text": "\"block w-full px-3 py-1.5 text-left text-footnote text-red-600 focus:bg-surface-muted focus-visible:outline-offset-[-2px] disabled:opacity-50 dark:text-red-400\";",
+    "count": 2
+  },
+  {
+    "file": "apps/web/src/lib/menuClasses.ts",
+    "kind": "pixel",
+    "text": "\"block w-full px-3 py-1.5 text-left text-footnote text-ink focus:bg-surface-muted focus-visible:outline-offset-[-2px] disabled:opacity-50\";",
+    "count": 1
+  },
+  {
+    "file": "apps/web/src/lib/menuClasses.ts",
+    "kind": "pixel",
+    "text": "\"block w-full px-3 py-1.5 text-left text-footnote text-red-600 focus:bg-surface-muted focus-visible:outline-offset-[-2px] disabled:opacity-50 dark:text-red-400\";",
+    "count": 1
+  },
+  {
+    "file": "apps/web/src/pages/ApiKeysPage.tsx",
+    "kind": "colour",
+    "text": "className=\"shrink-0 text-rose-700 dark:text-rose-400\"",
+    "count": 2
+  },
+  {
+    "file": "apps/web/src/pages/BulkImportPage.tsx",
+    "kind": "colour",
+    "text": "<span className=\"text-amber-600 dark:text-amber-400\">{t(\"upload.raw.collision\")}</span>",
+    "count": 2
+  },
+  {
+    "file": "apps/web/src/pages/BulkImportPage.tsx",
+    "kind": "colour",
+    "text": "<span className=\"text-emerald-700 dark:text-emerald-400\">",
+    "count": 2
+  },
+  {
+    "file": "apps/web/src/pages/BulkImportPage.tsx",
+    "kind": "colour",
+    "text": "<span className=\"text-red-600 dark:text-red-400\">{r.error}</span>",
+    "count": 2
+  },
+  {
+    "file": "apps/web/src/pages/TrashedPhotosPage.tsx",
+    "kind": "colour",
+    "text": "className=\"text-red-600 dark:text-red-400\"",
+    "count": 2
+  },
+  {
+    "file": "apps/web/src/pages/album/AlbumCoverEditor.tsx",
+    "kind": "colour",
+    "text": "<div className=\"absolute inset-0 flex items-center justify-center bg-black/30\">",
+    "count": 1
+  },
+  {
+    "file": "apps/web/src/pages/album/AlbumCoverEditor.tsx",
+    "kind": "colour",
+    "text": "<div className=\"absolute inset-0 flex items-center justify-center bg-black/50 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100\">",
+    "count": 1
+  },
+  {
+    "file": "apps/web/src/pages/album/AlbumCoverEditor.tsx",
+    "kind": "colour",
+    "text": "<div className=\"absolute inset-0 flex items-center justify-center gap-1 bg-black/50 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100\">",
+    "count": 1
+  },
+  {
+    "file": "apps/web/src/pages/settings/ServerSettings.tsx",
+    "kind": "colour",
+    "text": "<p className=\"text-footnote text-green-700 dark:text-green-400\">",
+    "count": 2
+  },
+  {
+    "file": "apps/web/src/pages/settings/ServerSettings.tsx",
+    "kind": "colour",
+    "text": "<p role=\"status\" className=\"text-footnote text-amber-700 dark:text-amber-300\">",
+    "count": 2
+  },
+  {
+    "file": "apps/web/src/pages/settings/ServerSettings.tsx",
+    "kind": "colour",
+    "text": "className=\"text-green-600\"",
+    "count": 1
+  },
+  {
+    "file": "apps/web/src/pages/settings/ServerSettings.tsx",
+    "kind": "colour",
+    "text": "className=\"text-rose-600\"",
+    "count": 1
+  },
+  {
+    "file": "apps/web/src/pages/settings/StorageSettings.tsx",
+    "kind": "colour",
+    "text": "<span className={`text-footnote ${connected ? \"text-green-700 dark:text-green-400\" : \"text-muted\"}`}>",
+    "count": 2
+  },
+  {
+    "file": "apps/web/src/pages/species/SpeciesFacts.tsx",
+    "kind": "colour",
+    "text": "className: \"text-amber-700 dark:text-amber-300\",",
+    "count": 2
+  },
+  {
+    "file": "apps/web/src/pages/species/SpeciesFacts.tsx",
+    "kind": "colour",
+    "text": "className: \"text-rose-700 dark:text-rose-300\",",
+    "count": 2
+  },
+  {
+    "file": "apps/web/src/pages/species/SpeciesFacts.tsx",
+    "kind": "colour",
+    "text": "className: \"text-sky-700 dark:text-sky-300\",",
+    "count": 2
+  },
+  {
+    "file": "apps/web/src/pages/species/SpeciesFacts.tsx",
+    "kind": "colour",
+    "text": "near: \"text-amber-700 dark:text-amber-300\",",
+    "count": 2
+  },
+  {
+    "file": "apps/web/src/pages/species/SpeciesFacts.tsx",
+    "kind": "colour",
+    "text": "threatened: \"text-rose-700 dark:text-rose-300\",",
+    "count": 2
+  },
+  {
+    "file": "apps/web/src/pages/species/SpeciesHero.tsx",
+    "kind": "colour",
+    "text": "<div className={`relative bg-black ${FRAME}`} style={FRAME_STYLE}>",
+    "count": 1
+  },
+  {
+    "file": "apps/web/src/pages/species/SpeciesHero.tsx",
+    "kind": "colour",
+    "text": "<span className=\"absolute bottom-2 right-2 rounded-badge bg-black/40 px-1.5 py-0.5 text-caption text-white\">",
+    "count": 2
+  },
+  {
+    "file": "apps/web/src/pages/species/SpeciesPhotoGrid.tsx",
+    "kind": "colour",
+    "text": "className=\"absolute bottom-1.5 left-1.5 h-2.5 w-2.5 rounded-full bg-red-600 shadow\"",
+    "count": 1
+  },
+  {
+    "file": "apps/web/src/pages/species/SpeciesPhotoGrid.tsx",
+    "kind": "colour",
+    "text": "className={`pointer-events-none absolute top-1.5 rounded-full bg-black/40 px-1.5 py-0.5 text-micro text-white ${",
+    "count": 2
+  },
+  {
+    "file": "apps/web/src/pages/stats/StatsHighlights.tsx",
+    "kind": "colour",
+    "text": "titleClassName=\"text-emerald-700 dark:text-emerald-400\"",
+    "count": 2
+  },
+  {
+    "file": "apps/web/src/pages/stats/StatsHighlights.tsx",
+    "kind": "colour",
+    "text": "titleClassName=\"text-rose-700 dark:text-rose-400\"",
+    "count": 2
+  },
+  {
+    "file": "apps/web/src/pages/stats/StatsHighlights.tsx",
+    "kind": "colour",
+    "text": "titleClassName=\"text-violet-700 dark:text-violet-400\"",
+    "count": 2
+  },
+  {
+    "file": "apps/web/src/pages/trip/TripJobStatus.tsx",
+    "kind": "colour",
+    "text": "{scanStatus.error && <span className=\"text-rose-700 dark:text-rose-400\"> {scanStatus.error}</span>}",
+    "count": 2
+  }
+]

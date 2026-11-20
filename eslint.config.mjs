@@ -8,85 +8,6 @@ import globals from "globals";
 import i18next from "eslint-plugin-i18next";
 import tseslint from "typescript-eslint";
 
-// Web files that still have hard-coded interface text (see the i18next rule below). Shrinks over
-// time; nothing new should be added.
-const I18N_UNMIGRATED_FILES = [
-  "apps/web/src/components/AddOtherTaxaModal.tsx",
-  "apps/web/src/components/AddToAlbumButton.tsx",
-  "apps/web/src/components/AddToAlbumModal.tsx",
-  "apps/web/src/components/CaptureEditModal.tsx",
-  "apps/web/src/components/CollectionStats.tsx",
-  "apps/web/src/components/CommandPalette.tsx",
-  "apps/web/src/components/FolderPicker.tsx",
-  "apps/web/src/components/GroupedSpeciesGrid.tsx",
-  "apps/web/src/components/Lightbox.tsx",
-  "apps/web/src/components/NameChangedModal.tsx",
-  "apps/web/src/components/PhotoGridControls.tsx",
-  "apps/web/src/components/PhotoImportRows.tsx",
-  "apps/web/src/components/PhotoTile.tsx",
-  "apps/web/src/components/RegionBrowser.tsx",
-  "apps/web/src/components/SpeciesCard.tsx",
-  "apps/web/src/components/SpeciesHotspotMap.tsx",
-  "apps/web/src/components/TierDetailsModal.tsx",
-  "apps/web/src/components/TripCard.tsx",
-  "apps/web/src/components/UploadQueueBanner.tsx",
-  "apps/web/src/components/VolumeDestinationPicker.tsx",
-  "apps/web/src/components/importReview/CullMarksChoice.tsx",
-  "apps/web/src/components/importReview/ImportReviewRow.tsx",
-  "apps/web/src/pages/AlbumDetailPage.tsx",
-  "apps/web/src/pages/ArchivedSpeciesPage.tsx",
-  "apps/web/src/pages/CollectionPage.tsx",
-  "apps/web/src/pages/ForgotPasswordPage.tsx",
-  "apps/web/src/pages/GuidePage.tsx",
-  "apps/web/src/pages/HiddenSpeciesPage.tsx",
-  "apps/web/src/pages/InaturalistPage.tsx",
-  "apps/web/src/pages/LoginPage.tsx",
-  "apps/web/src/pages/ManageTagsPage.tsx",
-  "apps/web/src/pages/OfflinePacksPage.tsx",
-  "apps/web/src/pages/SharePage.tsx",
-  "apps/web/src/pages/SpeciesDetailPage.tsx",
-  "apps/web/src/pages/StatsPage.tsx",
-  "apps/web/src/pages/TrashedPhotosPage.tsx",
-  "apps/web/src/pages/album/AlbumCoverEditor.tsx",
-  "apps/web/src/pages/album/AlbumPhotoGrid.tsx",
-  "apps/web/src/pages/album/AlbumSharePanel.tsx",
-  "apps/web/src/pages/collection/AddSpeciesToChecklistModal.tsx",
-  "apps/web/src/pages/collection/CollectionToolbar.tsx",
-  "apps/web/src/pages/collection/PackPrompts.tsx",
-  "apps/web/src/pages/collection/RegionBreadcrumb.tsx",
-  "apps/web/src/pages/gallery/GalleryGrid.tsx",
-  "apps/web/src/pages/gallery/GalleryHeader.tsx",
-  "apps/web/src/pages/gallery/GallerySelection.tsx",
-  "apps/web/src/pages/gallery/GalleryTile.tsx",
-  "apps/web/src/pages/offlinePacks/ProvinceManager.tsx",
-  "apps/web/src/pages/settings/AccountSettings.tsx",
-  "apps/web/src/pages/settings/EbirdImportRow.tsx",
-  "apps/web/src/pages/settings/GeneralSettings.tsx",
-  "apps/web/src/pages/settings/IntegrationsSettings.tsx",
-  "apps/web/src/pages/settings/LibraryReimportSection.tsx",
-  "apps/web/src/pages/settings/LibrarySettings.tsx",
-  "apps/web/src/pages/settings/MatchingHardware.tsx",
-  "apps/web/src/pages/settings/OfflineCacheSetting.tsx",
-  "apps/web/src/pages/settings/OfflineDataSettings.tsx",
-  "apps/web/src/pages/settings/ServerSettings.tsx",
-  "apps/web/src/pages/settings/SpeciesImportSettings.tsx",
-  "apps/web/src/pages/settings/StorageSettings.tsx",
-  "apps/web/src/pages/settings/shared.tsx",
-  "apps/web/src/pages/species/CaptureMenu.tsx",
-  "apps/web/src/pages/species/CaptureSelection.tsx",
-  "apps/web/src/pages/species/ChecklistAdditions.tsx",
-  "apps/web/src/pages/species/SpeciesFacts.tsx",
-  "apps/web/src/pages/species/SpeciesHero.tsx",
-  "apps/web/src/pages/species/SpeciesPhotoGrid.tsx",
-  "apps/web/src/pages/stats/CollectionIntelligence.tsx",
-  "apps/web/src/pages/stats/StatsCharts.tsx",
-  "apps/web/src/pages/stats/StatsHighlights.tsx",
-  "apps/web/src/pages/trip/TripHeaderDetails.tsx",
-  "apps/web/src/pages/trip/TripJobStatus.tsx",
-  "apps/web/src/pages/trip/TripPhotoGrid.tsx",
-  "apps/web/src/pages/trip/TripScanReview.tsx",
-];
-
 export default tseslint.config(
   {
     ignores: [
@@ -119,6 +40,17 @@ export default tseslint.config(
       "@typescript-eslint/no-unused-expressions": ["error", { allowShortCircuit: true, allowTernary: true }],
     },
   },
+  // The phone app reuses packages/shared, so it can't import anything from Node.
+  {
+    files: ["packages/shared/src/**/*.ts"],
+    ignores: ["**/*.test.ts"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        { patterns: [{ group: ["node:*"], message: "packages/shared must run on a phone: no node: imports." }] },
+      ],
+    },
+  },
   // TypeScript already reports undefined names, with type information ESLint lacks.
   { files: ["**/*.{ts,tsx}"], rules: { "no-undef": "off" } },
   {
@@ -147,21 +79,40 @@ export default tseslint.config(
             'LogicalExpression[operator!="&&"][left.property.name=/^common_?[nN]ame$/][right.property.name=/^scientific_?[nN]ame$/]',
           message: "Show species names through useSpeciesName() (lib/speciesName.ts).",
         },
+        {
+          selector: "JSXElement > JSXExpressionContainer > MemberExpression[property.name='message']",
+          message: "Never render error.message. Show userMessage(err) from lib/userMessage.ts (ux-rules S1).",
+        },
+        {
+          selector: "CallExpression[callee.name='String'][arguments.0.name=/^(e|ex|err|error)$|Err(or)?$/]",
+          message: "Never String(error) for display. Use userMessage(err) from lib/userMessage.ts (ux-rules S1).",
+        },
+        {
+          selector: "JSXAttribute[name.name='target'][value.value='_blank']",
+          message: "Open external links through openExternal() in lib/openExternal.ts (ux-rules X3).",
+        },
+        {
+          selector: "CallExpression[callee.object.name='window'][callee.property.name='open']",
+          message: "Open external links through openExternal() in lib/openExternal.ts (ux-rules X3).",
+        },
+        {
+          selector:
+            "JSXElement[openingElement.name.name=/^Menu(Panel|Item|Group)?$/] JSXOpeningElement[name.name=/^(TextField|Select|input)$/]",
+          message: "No fields inside menus. Open a dialog for anything that needs input (ux-rules M2).",
+        },
       ],
     },
   },
-  // Every user-visible string in the web app is meant to go through src/locales/en.json (see
+  // Every user-visible string in the web app goes through src/locales/en.json (see
   // docs/docs/contributing/translating.md). It flags hard-coded strings in JSX text, string props
-  // and literals inside JSX expressions. Files not moved to en.json yet are listed in
-  // I18N_UNMIGRATED_FILES; take a file off the list once it's migrated, and turn the rule to
-  // "error" when the list is empty.
+  // and literals inside JSX expressions.
   {
     files: ["apps/web/src/**/*.tsx"],
-    ignores: ["**/*.test.tsx", ...I18N_UNMIGRATED_FILES],
+    ignores: ["**/*.test.tsx"],
     plugins: { i18next },
     rules: {
       "i18next/no-literal-string": [
-        "warn",
+        "error",
         {
           mode: "jsx-only",
           "jsx-components": { exclude: ["Trans"] },
@@ -191,6 +142,8 @@ export default tseslint.config(
               "size",
               "tone",
               "kind",
+              "state",
+              "subpage",
               "icon",
               "align",
               "side",
@@ -211,6 +164,9 @@ export default tseslint.config(
               "group",
               "format",
               "sizes",
+              "sections",
+              "trigger",
+              "onSelect",
               "loading",
               "decoding",
               "fetchPriority",
@@ -249,11 +205,15 @@ export default tseslint.config(
               "kindFilter",
               "backFallbackTo",
               "fullSrc",
+              "value",
+              "edit",
+              "tour",
             ],
           },
           words: {
             // Strings with no letter at all (punctuation, symbols, numbers) never need translating.
-            exclude: ["[^\\p{L}]*", "[A-Z_-]+", "Lifer"],
+            // A RegExp, not a string: the plugin compiles strings without the u flag \p{L} needs.
+            exclude: [/^[^\p{L}]*$/u, "[A-Z_-]+", "Lifer", "iNaturalist", "eBird"],
           },
           callees: {
             exclude: [
@@ -275,6 +235,9 @@ export default tseslint.config(
               "fetch",
               "[a-zA-Z]+\\.(get|set|has|delete|append)",
               "classNames|clsx|cn|buttonClass[A-Za-z]*",
+              // Keymap action ids, not words.
+              "matches",
+              "shortcutLabels?",
               "console\\.[a-z]+",
               "new URL|URL",
               "URLSearchParams",
@@ -291,6 +254,16 @@ export default tseslint.config(
               "invoke",
               "replace",
               "[a-zA-Z]+\\.(cancel|start|post)",
+              "resolveDuplicate",
+              "updateParams?",
+              "goBack",
+              "([a-zA-Z]+\\.)?clearScope",
+              "setStep",
+              "ignore",
+              "formatList",
+              "onChanged\\??",
+              "save",
+              "formatMonthName",
             ],
           },
           "object-properties": {
@@ -315,6 +288,10 @@ export default tseslint.config(
               "color",
               "fontSize",
               "fontWeight",
+              "progress",
+              "role",
+              "autoComplete",
+              "aria-[a-z-]+",
               "cursor",
               "display",
               "width",

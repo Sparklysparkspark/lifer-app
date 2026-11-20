@@ -41,6 +41,10 @@ function flatten(obj, prefix, out, file) {
 // would print {name} literally. Write '' (two apostrophes) for a literal one there.
 const QUOTE_HAZARD = /(^|[^'])'(?=[{}#|<])/;
 
+// HTML void elements have no closing tag, so the parser behind Trans closes <link>text</link> at once
+// and the link renders empty. Use <a> or another non-void name for a wrapped component.
+const VOID_TAG = /<\/?(area|base|br|col|embed|hr|img|input|link|meta|param|source|track|wbr)\s*>/i;
+
 function checkMessages(file, messages, { strictEmpty }) {
   for (const [key, message] of messages) {
     if (strictEmpty && !message.trim()) errors.push(`${file}: "${key}" is empty`);
@@ -49,6 +53,11 @@ function checkMessages(file, messages, { strictEmpty }) {
     } catch (err) {
       errors.push(`${file}: "${key}" is not valid ICU MessageFormat (${err.message}): ${message}`);
       continue;
+    }
+    if (VOID_TAG.test(message)) {
+      errors.push(
+        `${file}: "${key}" wraps text in an HTML void element tag, which renders empty. Use <a> or a non-void name: ${message}`,
+      );
     }
     if (QUOTE_HAZARD.test(message)) {
       errors.push(

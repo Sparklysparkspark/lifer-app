@@ -73,10 +73,14 @@ export function traceRuntimePackages({
   }
 
   const entries = new Map(); // package name -> a dist file that imports it
+  const specs = new Map(); // package name -> the specifier it's imported by (some have no root export)
   for (const dir of distDirs) {
     for (const file of readdirSync(dir).filter((f) => f.endsWith(".js"))) {
       for (const [, spec] of readFileSync(path.join(dir, file), "utf8").matchAll(IMPORT_RE)) {
-        if (!isBuiltin(spec) && !entries.has(packageName(spec))) entries.set(packageName(spec), path.join(dir, file));
+        if (!isBuiltin(spec) && !entries.has(packageName(spec))) {
+          entries.set(packageName(spec), path.join(dir, file));
+          specs.set(packageName(spec), spec);
+        }
       }
     }
   }
@@ -111,7 +115,7 @@ export function traceRuntimePackages({
       else if (!(name in optional)) console.warn(`[prune] ${pkg.name} depends on ${name}, which isn't installed`);
     }
   }
-  return { entries, keep };
+  return { entries, specs, keep };
 }
 
 // Removes the files inside a kept package that Node on `platform`-`arch` never loads, by calling
