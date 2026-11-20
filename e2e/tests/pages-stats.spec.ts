@@ -18,13 +18,15 @@ test("shows stats for the library and exports them", async ({ page }) => {
   await expect(page.getByText(/E2E Test Camera/).first()).toBeVisible();
   await expect(page.getByText("Peak shooting time")).toBeVisible();
 
-  // The photo filter reloads the stats from the server.
+  // The Photos popover's filter reloads the stats from the server.
+  await page.getByRole("button", { name: "Photos: All keepers" }).click();
   const featured = page.waitForResponse((res) => res.url().includes("/api/stats?filter=featured"));
-  await page.getByLabel("Photos to count").selectOption("featured");
+  await page.getByRole("radio", { name: "Featured only" }).check();
   expect((await featured).ok()).toBe(true);
   const all = page.waitForResponse((res) => res.url().includes("/api/stats?filter=all"));
-  await page.getByLabel("Photos to count").selectOption("all");
+  await page.getByRole("radio", { name: "All keepers" }).check();
   expect((await all).ok()).toBe(true);
+  await page.keyboard.press("Escape");
   await expect(page.getByText("Top camera")).toBeVisible();
 
   // Chart controls switch what each chart plots.

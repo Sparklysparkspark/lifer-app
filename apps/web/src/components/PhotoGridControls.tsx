@@ -57,7 +57,13 @@ export interface PhotoViewMenuProps<S extends SortOption = SortOption, G extends
   sections: readonly ViewSection[];
   /** Choices off their default, e.g. a sort other than newest. */
   activeCount: number;
-  show?: { value: "gallery" | "species"; onChange(value: "gallery" | "species"): void };
+  /** `menuOpen` keeps the menu open on a page that renders a different toolbar per view. */
+  show?: {
+    value: "gallery" | "species";
+    onChange(value: "gallery" | "species"): void;
+    menuOpen?: boolean;
+    onMenuOpenChange?(open: boolean): void;
+  };
   /** The photos as a grid, or on a map of where they were taken. */
   layout?: { value: PhotoLayout; onChange(value: PhotoLayout): void };
   group?: ViewChoice<G>;
@@ -123,7 +129,12 @@ export function PhotoViewMenu<S extends SortOption, G extends GroupOption>({
   const showAllVersions = on.has("versions") && allVersions;
   const showCounting = on.has("counting") && counting;
   return (
-    <FilterPopover label={t("collection.toolbar.view")} activeCount={activeCount}>
+    <FilterPopover
+      label={t("collection.toolbar.view")}
+      activeCount={activeCount}
+      open={show?.menuOpen}
+      onOpenChange={show?.onMenuOpenChange}
+    >
       {on.has("show") && show && <ShowField view={show.value} onChange={show.onChange} />}
       {on.has("layout") && layout && (
         <div role="group" aria-label={t("photoFilters.view.layout")}>

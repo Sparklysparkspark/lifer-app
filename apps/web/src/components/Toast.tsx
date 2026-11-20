@@ -78,12 +78,13 @@ function ToastCard({ toast, onDismiss }: { toast: ToastItem; onDismiss: (id: num
 
 // Bottom-right, opposite StatusTray. Each toast carries its own live-region role; the named
 // region lets assistive tech (and the e2e checks) tell toasts apart from other alerts on the page.
+// z-[60]: above the viewer and dialogs (z-50), so an Undo raised from one stays clickable.
 export function ToastViewport({ toasts, onDismiss }: { toasts: ToastItem[]; onDismiss: (id: number) => void }) {
   const { t } = useTranslation();
   return (
     <section
       aria-label={t("ui.toast.region")}
-      className="pointer-events-none fixed bottom-4 right-4 z-50 flex w-[min(22rem,calc(100%-2rem))] flex-col items-end gap-2"
+      className="pointer-events-none fixed bottom-4 right-4 z-[60] flex w-[min(22rem,calc(100%-2rem))] flex-col items-end gap-2"
     >
       {toasts.map((item) => (
         <ToastCard key={item.id} toast={item} onDismiss={onDismiss} />

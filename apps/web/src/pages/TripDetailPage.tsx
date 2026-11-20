@@ -192,8 +192,12 @@ export default function TripDetailPage() {
     }
   }
   useScrollMemory(!!trip && !!photos);
-  const view = viewParam === "gallery" || viewParam === "species" ? viewParam : photos?.length ? "species" : "gallery";
+  const view: "gallery" | "species" =
+    viewParam === "gallery" || viewParam === "species" ? viewParam : photos?.length ? "species" : "gallery";
   const setView = (next: "gallery" | "species") => setViewParam(next);
+  // Each view has its own toolbar, so the page holds the View menu open across a switch.
+  const [viewMenuOpen, setViewMenuOpen] = useState(false);
+  const show = { value: view, onChange: setView, menuOpen: viewMenuOpen, onMenuOpenChange: setViewMenuOpen };
 
   // Set by "Add trip from folder": the first scan starts by itself, once.
   const location = useLocation();
@@ -389,7 +393,7 @@ export default function TripDetailPage() {
                 shownCount={visibleSpecies.length}
                 totalLoaded={speciesItems.length}
                 gridWidth={gridWidth}
-                show={{ value: view, onChange: setView }}
+                show={show}
               />
             ) : (
               <>
@@ -405,7 +409,7 @@ export default function TripDetailPage() {
                   activeCount={
                     view === "gallery" ? (sortBy !== "newest" ? 1 : 0) + (photoGroupBy !== "none" ? 1 : 0) : 0
                   }
-                  show={{ value: view, onChange: setView }}
+                  show={show}
                   group={{ value: photoGroupBy, options: TRIP_PHOTO_GROUPS, onChange: setPhotoGroupBy }}
                   sort={{ value: sortBy, options: PHOTO_SORTS, onChange: filters.setSortBy }}
                   size={{ value: thumbSizePx, onChange: updateThumbSize }}
