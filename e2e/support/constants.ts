@@ -15,4 +15,5 @@ export const LOCAL_DATABASE_URL = `postgres://lifer:lifer@127.0.0.1:${LOCAL_PG_P
 export const ACCOUNT = { email: "e2e@lifer.test", password: "correct horse battery staple" };
 
 // Signed-in browser state saved by the first-run spec, reused by the specs that depend on it.
-export const AUTH_STATE_PATH = "test-results/.auth/user.json";
+// E2E_AUTH_STATE lets a second run alongside keep its own session.
+export const AUTH_STATE_PATH = process.env.E2E_AUTH_STATE ?? "test-results/.auth/user.json";

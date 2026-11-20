@@ -1,0 +1,184 @@
+[
+  {
+    "spec": "back-navigation.spec.ts",
+    "test": "collection: search, scroll and a species, back by button",
+    "reason": "the back link says Collection but the Collection page's h1 is the region name",
+    "uxRule": "N2",
+    "fixedBy": "unassigned"
+  },
+  {
+    "spec": "back-navigation.spec.ts",
+    "test": "collection: a filter in the URL survives a species, back by button",
+    "reason": "the back link says Collection but the Collection page's h1 is the region name",
+    "uxRule": "N2",
+    "fixedBy": "unassigned"
+  },
+  {
+    "spec": "back-navigation.spec.ts",
+    "test": "collection: search, scroll and a species, back by browser",
+    "reason": "back does not restore the scroll position",
+    "uxRule": "N1",
+    "fixedBy": "unassigned"
+  },
+  {
+    "spec": "back-navigation.spec.ts",
+    "test": "collection: a filter in the URL survives a species, back by browser",
+    "reason": "back does not restore the scroll position",
+    "uxRule": "N1",
+    "fixedBy": "unassigned"
+  },
+  {
+    "spec": "back-navigation.spec.ts",
+    "test": "gallery: search and scroll then another page, back by browser",
+    "reason": "back does not restore the scroll position",
+    "uxRule": "N1",
+    "fixedBy": "unassigned"
+  },
+  {
+    "spec": "back-navigation.spec.ts",
+    "test": "collection: search, scroll and a species, back by swipe",
+    "reason": "back does not restore the scroll position",
+    "uxRule": "N1",
+    "fixedBy": "unassigned"
+  },
+  {
+    "spec": "extreme-sweep",
+    "test": "collection: 300-character state chip",
+    "reason": "wraps the Areas in row to three lines",
+    "uxRule": "S8, L4",
+    "fixedBy": "unassigned"
+  },
+  {
+    "spec": "extreme-sweep",
+    "test": "collection: 300-character common name",
+    "reason": "shrinks to tiny text and overflows its card",
+    "uxRule": "S8, L6",
+    "fixedBy": "unassigned"
+  },
+  {
+    "spec": "extreme-sweep",
+    "test": "collection: photographed count against hidden species",
+    "reason": "4,500 of 4,800 against a 5,000 checklist with 300 hidden: counts must add up",
+    "uxRule": "U1",
+    "fixedBy": "unassigned"
+  },
+  {
+    "spec": "extreme-sweep",
+    "test": "trips: 300-character trip name",
+    "reason": "shrinks and overflows its card",
+    "uxRule": "S8, L6",
+    "fixedBy": "unassigned"
+  },
+  {
+    "spec": "extreme-sweep",
+    "test": "trips: undated trip range",
+    "reason": "long range from photos is cut off with an ellipsis",
+    "uxRule": "S8",
+    "fixedBy": "unassigned"
+  },
+  {
+    "spec": "extreme-sweep",
+    "test": "trips: date formats",
+    "reason": "cards mix 'January 2015 to March 2019' and 'Jan 8 to 13, 2015'",
+    "uxRule": "C3",
+    "fixedBy": "unassigned"
+  },
+  {
+    "spec": "extreme-sweep",
+    "test": "trips: toolbar order",
+    "reason": "primary Start a trip comes first, unlike Albums; info button left of both",
+    "uxRule": "C3, L5",
+    "fixedBy": "unassigned"
+  },
+  {
+    "spec": "extreme-sweep",
+    "test": "albums: long name",
+    "reason": "ends in an ellipsis with no way to read it, unlike Trips",
+    "uxRule": "S8, C3",
+    "fixedBy": "unassigned"
+  },
+  {
+    "spec": "extreme-sweep",
+    "test": "gallery: header count",
+    "reason": "59,183 photos: videos left out or 'photos' is the wrong word",
+    "uxRule": "U1, W9",
+    "fixedBy": "unassigned"
+  },
+  {
+    "spec": "extreme-sweep",
+    "test": "stats: thousands separator",
+    "reason": "Total photographed 4500 has none, Collection shows 4,500",
+    "uxRule": "S7, U1",
+    "fixedBy": "unassigned"
+  },
+  {
+    "spec": "extreme-sweep",
+    "test": "stats: top camera tile",
+    "reason": "wraps in large type inside a small tile",
+    "uxRule": "S8",
+    "fixedBy": "unassigned"
+  },
+  {
+    "spec": "extreme-sweep",
+    "test": "stats: dropdown look",
+    "reason": "selects look native and differ in height from neighbouring buttons",
+    "uxRule": "C1, L4",
+    "fixedBy": "unassigned"
+  },
+  {
+    "spec": "extreme-sweep",
+    "test": "stats: by month axis (sparse)",
+    "reason": "axis runs to 4 when the largest value is 1",
+    "uxRule": "S5",
+    "fixedBy": "unassigned"
+  },
+  {
+    "spec": "extreme-sweep",
+    "test": "pages: page titles",
+    "reason": "Albums, Trips, Stats and Gallery show no page title, Collection does",
+    "uxRule": "C8",
+    "fixedBy": "unassigned"
+  },
+  {
+    "spec": "extreme-sweep",
+    "test": "stats: empty export",
+    "reason": "Export CSV and the keeper filter are offered with nothing to export",
+    "uxRule": "A1, A4",
+    "fixedBy": "unassigned"
+  },
+  {
+    "spec": "extreme-sweep",
+    "test": "stats: empty state action",
+    "reason": "no action button, unlike Gallery's Import photos",
+    "uxRule": "S6",
+    "fixedBy": "unassigned"
+  },
+  {
+    "spec": "extreme-sweep",
+    "test": "gallery: empty toolbar",
+    "reason": "View, Filters and ... stay visible with 0 photos",
+    "uxRule": "A1",
+    "fixedBy": "unassigned"
+  },
+  {
+    "spec": "lightroom-import.spec.ts",
+    "test": "onboarding offers a Lightroom Classic catalogue",
+    "reason": "onboarding has no Lightroom Classic catalogue entry yet",
+    "uxRule": "F2",
+    "fixedBy": "I-04"
+  },
+  {
+    "spec": "multi-value-filters.spec.ts",
+    "test": "a reload or a copied URL brings back BC or Alberta, 3 to 5 stars",
+    "reason": "the rating range is never written to or read from the Gallery URL, so a reload keeps the regions but drops 3 to 5 stars",
+    "uxRule": "N1",
+    "fixedBy": "F-02"
+  },
+  {
+    "spec": "smart-album-tag.spec.ts",
+    "test": "a smart album and a pin on a tag survive the tag being deleted",
+    "reason": "applying a pinned filter replaces the Gallery URL and the filters are not read back from the URL, so Back leaves the Gallery instead of the pin (apps/web, pages/gallery/useGalleryFilters.ts)",
+    "uxRule": "N1",
+    "fixedBy": "unassigned"
+  }
+]

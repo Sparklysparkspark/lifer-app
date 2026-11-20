@@ -64,6 +64,15 @@ export const COUNTRY = { name: "Canada", code: "CA" };
 export const PROVINCE = { name: "British Columbia", code: "CA-BC" };
 // A country the mirror publishes no pack for, so its checklist is never downloaded.
 export const PACKLESS_COUNTRY = { name: "United States", code: "US" };
+// A second province for multi-value region filters; no checklist, so no pack.
+export const SECOND_PROVINCE = { name: "Alberta", code: "CA-AB" };
+// A packless country known by other names, for region search by alias.
+export const ALIASED_COUNTRY = {
+  name: "Netherlands",
+  code: "NL",
+  continent: "Europe",
+  aliases: ["Holland", "Nederland"],
+};
 // Canada's nearby water. Sea zones have checklists (and packs) of their own; this one's is empty.
 export const SEA_ZONE = { name: "Gulf of Alaska" };
 
@@ -113,6 +122,20 @@ export async function insertFixtureCatalog(db: ClientBase): Promise<void> {
       `INSERT INTO regions (name, parent_id, external_codes, ebird_region_code)
        VALUES ($1, $2, $3, $4) RETURNING id`,
       [PROVINCE.name, country.rows[0].id, [PROVINCE.code], PROVINCE.code],
+    );
+    await db.query(`INSERT INTO regions (name, parent_id, external_codes, ebird_region_code) VALUES ($1, $2, $3, $4)`, [
+      SECOND_PROVINCE.name,
+      country.rows[0].id,
+      [SECOND_PROVINCE.code],
+      SECOND_PROVINCE.code,
+    ]);
+    const europe = await db.query<{ id: string }>(
+      `INSERT INTO regions (name, parent_id, has_children) VALUES ($1, $2, true) RETURNING id`,
+      [ALIASED_COUNTRY.continent, world.rows[0].id],
+    );
+    await db.query(
+      `INSERT INTO regions (name, parent_id, external_codes, ebird_region_code, aliases) VALUES ($1, $2, $3, $4, $5)`,
+      [ALIASED_COUNTRY.name, europe.rows[0].id, [ALIASED_COUNTRY.code], ALIASED_COUNTRY.code, ALIASED_COUNTRY.aliases],
     );
 
     // Checklist rows. The collection only lists a taxon once its pack is downloaded, which the

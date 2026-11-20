@@ -7,15 +7,10 @@ import http from "node:http";
 import path from "node:path";
 import sharp from "sharp";
 import * as tar from "tar";
-import { ALL_SPECIES, CATALOG_VERSION, COUNTRY, PROVINCE, TAXA, type FixtureSpecies } from "./fixtureCatalog.js";
+import { ALL_SPECIES, CATALOG_VERSION, COUNTRY, PROVINCE, TAXA } from "./fixtureCatalog.js";
+import { BASEMAP_FILE, buildRealisticPacks, type RealisticPack } from "./realisticPacks.js";
 
-interface BuiltPack {
-  id: string;
-  file: string;
-  taxon: string;
-  species: FixtureSpecies[];
-  contentVersion: string;
-}
+type BuiltPack = RealisticPack;
 
 // One pack per taxon for the fixture country, with its province bundled in, as the real pack
 // builder publishes them (packages/data-pipeline build-region-pack.ts).
@@ -73,7 +68,15 @@ async function buildPacks(dir: string): Promise<BuiltPack[]> {
     const file = path.join(dir, `${id}.pack.tar.gz`);
     await tar.c({ gzip: true, file, cwd: work, portable: true }, ["manifest.json", "photos"]);
     const contentVersion = createHash("sha256").update(manifestJson).digest("hex").slice(0, 16);
-    packs.push({ id, file, taxon, species, contentVersion });
+    packs.push({
+      id,
+      file,
+      region: COUNTRY.name,
+      taxon,
+      speciesCount: species.length,
+      scientificNames: species.map((s) => s.scientificName),
+      contentVersion,
+    });
   }
   return packs;
 }
@@ -87,20 +90,23 @@ export async function startMirror(opts: {
   port: number;
   workDir: string;
   log: (line: string) => void;
+  /** "realistic" serves the visual tour's packs and a basemap (realisticPacks.ts). */
+  fixture?: "tiny" | "realistic";
 }): Promise<Mirror> {
   const base = `http://127.0.0.1:${opts.port}`;
-  const packs = await buildPacks(opts.workDir);
+  const realistic = opts.fixture === "realistic";
+  const packs = realistic ? await buildRealisticPacks(opts.log) : await buildPacks(opts.workDir);
   const packIndex = {
     generatedAt: new Date().toISOString(),
     packs: packs.map((p) => ({
       id: p.id,
       type: "region",
-      region: COUNTRY.name,
+      region: p.region,
       taxon: p.taxon,
       sizeBytes: statSync(p.file).size,
-      speciesCount: p.species.length,
+      speciesCount: p.speciesCount,
       contentVersion: p.contentVersion,
-      scientificNames: p.species.map((s) => s.scientificName),
+      scientificNames: p.scientificNames,
       // Must share the index's origin (assertTrustedPackUrl in apps/api/src/offlinePacks/index.ts).
       url: `${base}/packs/${path.basename(p.file)}`,
     })),
@@ -123,8 +129,11 @@ export async function startMirror(opts: {
     } else if (pathname === "/catalog-manifest.json") {
       res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(catalogManifest));
     } else if (pathname.startsWith("/packs/") && packs.some((p) => `/packs/${path.basename(p.file)}` === pathname)) {
-      const body = readFileSync(path.join(opts.workDir, path.basename(pathname)));
+      const body = readFileSync(packs.find((p) => `/packs/${path.basename(p.file)}` === pathname)!.file);
       res.writeHead(200, { "content-type": "application/gzip", "content-length": body.length }).end(body);
+    } else if (realistic && pathname === "/world.pmtiles") {
+      const body = readFileSync(BASEMAP_FILE);
+      res.writeHead(200, { "content-type": "application/octet-stream", "content-length": body.length }).end(body);
     } else {
       opts.log(`[e2e mirror] 404 for ${req.method} ${pathname}`);
       res.writeHead(404).end();

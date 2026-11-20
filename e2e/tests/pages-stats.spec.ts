@@ -45,7 +45,7 @@ test("shows stats for the library and exports them", async ({ page }) => {
   await expect(page.getByRole("listitem").filter({ hasText: SPECIES.moose.commonName }).first()).toBeVisible();
   await expect(page.getByText(/have a date$/)).toBeVisible();
   await expect(page.getByRole("heading", { name: "What you shoot" })).toBeVisible();
-  await expect(page.getByText("By taxon")).toBeVisible();
+  await expect(page.getByText("By animal group")).toBeVisible();
 
   // Year over year compares the two most recent years, and either can be changed.
   const table = page.getByRole("table");

@@ -1,0 +1,126 @@
+{
+  "note": "Golden queries for the library in searchGoldenSeed.ts. include and exclude name species by common name; only is the exact set; none means no results. surfaces lists where a query is checked: gallery, palette, collection. The palette's species list searches the whole catalog, so it also lists species with no photos. Scene words (eating, playing, water) have no scene data here, so only the species words and the narrowing are asserted.",
+  "queries": [
+    {
+      "q": "pil",
+      "kind": "prefix",
+      "include": ["Pileated Woodpecker"],
+      "exclude": ["Red Fox", "Moose"],
+      "surfaces": ["gallery", "palette", "collection"]
+    },
+    {
+      "q": "pileated",
+      "kind": "species",
+      "only": ["Pileated Woodpecker"],
+      "surfaces": ["gallery", "palette", "collection"]
+    },
+    { "q": "PIWO", "kind": "code", "only": ["Pileated Woodpecker"], "surfaces": ["gallery", "palette"] },
+    {
+      "q": "water crow",
+      "kind": "scene",
+      "exclude": ["Red Fox", "Moose", "Pileated Woodpecker", "Bald Eagle"],
+      "surfaces": ["gallery"]
+    },
+    { "q": "eating", "kind": "scene", "fewerThan": 18, "surfaces": ["gallery"] },
+    {
+      "q": "fox playing",
+      "kind": "scene",
+      "exclude": ["Moose", "American Crow", "Pileated Woodpecker"],
+      "surfaces": ["gallery"]
+    },
+    { "q": "foxes playing", "kind": "scene", "sameAs": "fox playing", "surfaces": ["gallery"] },
+    {
+      "q": "fox",
+      "kind": "species",
+      "only": ["Red Fox", "Arctic Fox"],
+      "surfaces": ["gallery", "palette", "collection"]
+    },
+    { "q": "foxes", "kind": "species", "sameAs": "fox", "surfaces": ["gallery", "palette", "collection"] },
+    { "q": "crows", "kind": "species", "only": ["American Crow"], "surfaces": ["gallery", "palette", "collection"] },
+    {
+      "q": "moo",
+      "kind": "prefix",
+      "include": ["Moose", "Common Moorhen"],
+      "exclude": ["Red Fox", "Purple Finch"],
+      "surfaces": ["gallery", "palette", "collection"]
+    },
+    { "q": "moose", "kind": "species", "only": ["Moose"], "surfaces": ["gallery", "palette", "collection"] },
+    {
+      "q": "purpl",
+      "kind": "prefix",
+      "only": ["Purple Finch", "Purple Martin", "Purple Sandpiper"],
+      "surfaces": ["gallery", "palette", "collection"]
+    },
+    {
+      "q": "purple",
+      "kind": "prefix",
+      "only": ["Purple Finch", "Purple Martin", "Purple Sandpiper"],
+      "surfaces": ["gallery", "palette", "collection"]
+    },
+    {
+      "q": "purple finch",
+      "kind": "species",
+      "only": ["Purple Finch"],
+      "surfaces": ["gallery", "palette", "collection"]
+    },
+    { "q": "tiger", "kind": "absent", "none": true, "surfaces": ["gallery", "collection"] },
+    { "q": "tiger", "kind": "catalog", "include": ["Tiger Salamander"], "surfaces": ["palette"] },
+    {
+      "q": "raptors",
+      "kind": "group",
+      "include": ["Bald Eagle"],
+      "exclude": ["Red Fox", "American Crow"],
+      "surfaces": ["gallery", "palette", "collection"]
+    },
+    {
+      "q": "stanley park",
+      "kind": "place",
+      "only": ["Pileated Woodpecker", "American Crow", "Purple Finch", "Black-capped Chickadee"],
+      "surfaces": ["gallery"]
+    },
+    {
+      "q": "2023",
+      "kind": "date",
+      "only": ["Pileated Woodpecker", "American Crow", "Purple Finch", "Purple Martin"],
+      "surfaces": ["gallery"]
+    },
+    { "q": "in may", "kind": "date", "only": ["Pileated Woodpecker"], "surfaces": ["gallery"] },
+    {
+      "q": "rare",
+      "kind": "rarity",
+      "only": ["Arctic Fox", "Purple Sandpiper", "Great Horned Owl"],
+      "surfaces": ["gallery"]
+    },
+    { "q": "legendary", "kind": "rarity", "only": ["Bald Eagle"], "surfaces": ["gallery"] },
+    { "q": "lifers", "kind": "lifer", "count": 12, "surfaces": ["gallery"] },
+    { "q": "crow lifers", "kind": "lifer", "only": ["American Crow"], "count": 1, "surfaces": ["gallery"] },
+    { "q": "owl or eagle", "kind": "or", "only": ["Great Horned Owl", "Bald Eagle"], "surfaces": ["gallery"] },
+    { "q": "fox not arctic", "kind": "not", "only": ["Red Fox"], "surfaces": ["gallery"] },
+    {
+      "q": "r5",
+      "kind": "camera",
+      "only": [
+        "Pileated Woodpecker",
+        "American Crow",
+        "Moose",
+        "Purple Finch",
+        "Purple Martin",
+        "Black-capped Chickadee"
+      ],
+      "surfaces": ["gallery"]
+    },
+    { "q": "three crows", "kind": "count", "only": ["American Crow"], "count": 1, "surfaces": ["gallery"] }
+  ],
+  "narrowing": [
+    { "word": "pileated", "min": 3 },
+    { "word": "purple", "min": 3 },
+    { "word": "moose", "min": 3 },
+    { "word": "chickadee", "min": 3 }
+  ],
+  "plurals": [
+    ["fox", "foxes"],
+    ["crow", "crows"],
+    ["finch", "finches"],
+    ["owl", "owls"]
+  ]
+}

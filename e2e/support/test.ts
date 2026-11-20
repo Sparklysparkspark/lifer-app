@@ -5,10 +5,13 @@ import { test as base, expect, type Page } from "@playwright/test";
 interface PageProblems {
   /** Console errors matching this are expected by the test and not counted. */
   allowConsoleErrors: RegExp | null;
+  /** Uncaught page errors matching this are expected (a browser's own benign notices) and not counted. */
+  allowPageErrors: RegExp | null;
 }
 
 export const test = base.extend<PageProblems & { problems: string[]; offlineUpdateCheck: void }>({
   allowConsoleErrors: [null, { option: true }],
+  allowPageErrors: [null, { option: true }],
   // The update banner asks GitHub for the latest release on every page load, from the browser
   // rather than the server. Answered here with no release, so a run stays offline and never hits
   // GitHub's hourly limit for anonymous requests (which fails the run with a 403 console error).
@@ -23,9 +26,11 @@ export const test = base.extend<PageProblems & { problems: string[]; offlineUpda
   ],
   // Automatic, so every test is checked whether or not it asks for the list.
   problems: [
-    async ({ page, allowConsoleErrors }, use) => {
+    async ({ page, allowConsoleErrors, allowPageErrors }, use) => {
       const problems: string[] = [];
-      page.on("pageerror", (err) => problems.push(`page error: ${err.message}`));
+      page.on("pageerror", (err) => {
+        if (!allowPageErrors?.test(err.message)) problems.push(`page error: ${err.message}`);
+      });
       page.on("console", (msg) => {
         if (msg.type() !== "error") return;
         // The resource URL is only in the location, so it's added for matching and reporting.

@@ -38,6 +38,14 @@ export default defineConfig({
     },
     // Last, since it signs in and out on its own rather than using the saved session.
     { name: "sign-in", testMatch: "logout.spec.ts", dependencies: ["signed-in"] },
+    // Seeded with the extreme, sparse and empty libraries (e2e/support/extremeLibrary.ts). They
+    // replace the database contents, so they run after everything else; run one on its own with
+    // `--project=extreme --no-deps`.
+    { name: "extreme", testDir: "e2e/extreme", dependencies: ["sign-in"] },
+    { name: "sparse", testDir: "e2e/extreme", dependencies: ["extreme"] },
+    { name: "empty", testDir: "e2e/extreme", dependencies: ["sparse"] },
+    // Real species names on a small library, for the search golden queries.
+    { name: "search-golden", testDir: "e2e/search-golden", dependencies: ["empty"] },
   ],
   webServer: {
     command: "npx tsx e2e/support/startServer.ts",

@@ -1,10 +1,13 @@
-// The photo grid on a species page: ratings and the best-shot badge, sorting, gallery view, the
+// The photo grid on a species page: ratings and the best-shot badge, sorting, caption choices, the
 // lightbox, the tile menu (featured photo, tags, place name), select mode with bulk tags and ID
-// correction, and deleting. Runs after import.spec.ts: see pages-trip-detail.spec.ts. Only this
-// spec gives the robin photos, so the page holds exactly the photos made here.
+// correction, and deleting. It starts from an empty library, so the page holds exactly the photos
+// made here.
 import { SPECIES } from "../support/fixtureCatalog.js";
 import { seedTrip, speciesId } from "../support/library.js";
+import { resetLibrary } from "../support/resetLibrary.js";
 import { expect, test } from "../support/test.js";
+
+test.beforeAll(() => resetLibrary());
 
 test("rates, sorts, edits and deletes photos on a species page", async ({ page }) => {
   await seedTrip(page.request, "E2E Species Photos", [
@@ -18,30 +21,41 @@ test("rates, sorts, edits and deletes photos on a species page", async ({ page }
   const tiles = page.getByTestId("photo-tile");
   await expect(tiles).toHaveCount(2);
 
-  // One column, so the grid's order is the page order. Newest first by default.
+  // View menu: one column, so the grid's order is the page order. Newest first by default.
+  const viewMenu = page.getByRole("button", { name: /^View( \(\d\))?$/ });
+  await viewMenu.click();
   await page.getByRole("slider", { name: "Photo grid thumbnail size" }).fill("800");
+  await page.getByRole("checkbox", { name: "Labels" }).check();
   await expect(tiles.first()).toContainText("Nov 20, 2024");
   await page.getByLabel("Sort").selectOption("oldest");
   await expect(tiles.first()).toContainText("Jan 15, 2020");
+  // Labels and Ratings are the same caption choices the Gallery offers, off until turned on.
+  await page.getByRole("checkbox", { name: "Ratings" }).check();
+
+  await page.keyboard.press("Escape");
 
   // Rating the older photo makes it the best shot, and first when sorted by rating.
   const rated = page.waitForResponse((res) => res.url().endsWith("/rating") && res.request().method() === "PATCH");
   await tiles.first().getByRole("button", { name: "Rate 4 stars" }).click();
   expect((await rated).ok()).toBe(true);
   await expect(tiles.first().getByText("Best shot")).toBeVisible();
+  await viewMenu.click();
   await page.getByLabel("Sort").selectOption("rating");
   await expect(tiles.first()).toContainText("Jan 15, 2020");
   await page.getByLabel("Sort").selectOption("newest");
   await expect(tiles.first()).toContainText("Nov 20, 2024");
 
-  // Gallery view hides the captions and ratings.
-  const galleryView = page.getByRole("button", { name: "Gallery view" });
-  await galleryView.click();
-  await expect(galleryView).toHaveAttribute("aria-pressed", "true");
+  // Labels (here the date and place) and Ratings hide their captions.
+  const labels = page.getByRole("checkbox", { name: "Labels" });
+  const ratings = page.getByRole("checkbox", { name: "Ratings" });
+  await labels.uncheck();
+  await ratings.uncheck();
   await expect(tiles.getByRole("button", { name: "Rate 1 star" })).toHaveCount(0);
   await expect(tiles.first()).not.toContainText("Nov 20, 2024");
-  await galleryView.click();
+  await labels.check();
+  await ratings.check();
   await expect(tiles.getByRole("button", { name: "Rate 1 star" })).toHaveCount(2);
+  await page.keyboard.press("Escape");
 
   // The lightbox, captioned with the photo's date.
   await tiles.first().locator("img").first().click();
@@ -52,21 +66,25 @@ test("rates, sorts, edits and deletes photos on a species page", async ({ page }
   // The tile menu: featured photo, tags and a place name.
   const menuButton = tiles.first().getByRole("button", { name: "More options" });
   await menuButton.click();
-  const featured = await page.getByRole("button", { name: /^(Set as featured photo|Featured photo ✓)$/ }).textContent();
+  const featured = await page
+    .getByRole("menuitem", { name: /^(Set as|Remove as) featured photo$/ })
+    .textContent();
   if (featured === "Set as featured photo") {
     const saved = page.waitForResponse((res) => res.url().endsWith("/cover") && res.request().method() === "PATCH");
-    await page.getByRole("button", { name: "Set as featured photo" }).click();
+    await page.getByRole("menuitem", { name: "Set as featured photo" }).click();
     expect((await saved).ok()).toBe(true);
     // The menu reads the cover from the page's reload after the save, so reopen until it lands.
     await expect(async () => {
       await page.keyboard.press("Escape");
       await menuButton.click();
-      await expect(page.getByRole("button", { name: "Featured photo ✓" })).toBeVisible({ timeout: 1000 });
+      await expect(page.getByRole("menuitem", { name: "Remove as featured photo" })).toBeVisible({
+        timeout: 1000,
+      });
     }).toPass();
   }
-  await expect(page.getByRole("button", { name: "Featured photo ✓" })).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: "Remove as featured photo" })).toBeVisible();
 
-  await page.getByRole("button", { name: "Edit tags" }).click();
+  await page.getByRole("menuitem", { name: "Edit tags" }).click();
   const tagged = page.waitForResponse((res) => res.url().endsWith("/tags") && res.request().method() === "PATCH");
   await page.getByPlaceholder("Add a tag").fill("e2e-species-tag");
   await page.getByPlaceholder("Add a tag").press("Enter");
@@ -75,9 +93,13 @@ test("rates, sorts, edits and deletes photos on a species page", async ({ page }
   await page.getByRole("dialog", { name: "Tags" }).getByRole("button", { name: "Done" }).click();
 
   await menuButton.click();
-  await page.getByRole("button", { name: "Set location" }).click();
-  const placed = page.waitForResponse((res) => res.url().endsWith("/region") && res.request().method() === "PATCH");
-  const dialog = page.getByRole("dialog", { name: "Location" });
+  // One Location item: the coordinates dialog, with the place name and region behind a link.
+  await page.getByRole("menuitem", { name: /^Location/ }).click();
+  const placed = page.waitForResponse(
+    (res) => res.url().endsWith("/api/captures/coordinates") && res.request().method() === "POST",
+  );
+  const dialog = page.getByRole("dialog", { name: /coordinates/ });
+  await dialog.getByRole("button", { name: "Edit name and region" }).click();
   await dialog.getByLabel("Place name").fill("Backyard feeder");
   await dialog.getByRole("button", { name: "Save" }).click();
   expect((await placed).ok()).toBe(true);
@@ -114,7 +136,7 @@ test("rates, sorts, edits and deletes photos on a species page", async ({ page }
   // Delete the photo that isn't featured from its menu (species cards on later pages would
   // otherwise ask for a trashed cover photo).
   await tiles.last().getByRole("button", { name: "More options" }).click();
-  await page.getByRole("button", { name: "Delete photo" }).click();
+  await page.getByRole("menuitem", { name: "Delete photo" }).click();
   await expect(page.getByRole("heading", { name: "Delete 1 photo?" })).toBeVisible();
   await page.getByRole("button", { name: "Delete", exact: true }).click();
   await expect(tiles).toHaveCount(1);

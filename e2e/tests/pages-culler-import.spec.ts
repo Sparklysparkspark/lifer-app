@@ -47,7 +47,7 @@ test("honours a culling app's rejects and picks when importing a trip", async ({
 
   // The scan counts the rejects and, by default, leaves them out of the review.
   await page.goto(`/trips/${tripId}`);
-  await page.getByRole("button", { name: "Add more photos" }).first().click();
+  await page.getByRole("button", { name: "Scan folder" }).first().click();
   await expect(page.getByTestId("cull-summary")).toHaveText("3 photos, 2 marked rejected by your culling app.");
   await expect(page.getByLabel("Rejected photos")).toHaveValue("skip");
   await expect(page.getByText("1 new photo · 0 ready to import")).toBeVisible();
@@ -68,6 +68,9 @@ test("honours a culling app's rejects and picks when importing a trip", async ({
     "2 photos rejected in your culling app imported hidden.",
     { timeout: 20_000 },
   );
+  await page.getByRole("button", { name: /^View( \(\d\))?$/ }).click();
+  await page.getByRole("group", { name: "Show" }).getByRole("button", { name: "Photos" }).click();
+  await page.keyboard.press("Escape");
   const tripTiles = page.getByTestId("photo-tile");
   await expect(tripTiles).toHaveCount(1);
   await expect(page.getByText("· 1 photo")).toBeVisible();
@@ -85,7 +88,7 @@ test("honours a culling app's rejects and picks when importing a trip", async ({
   await expect(tiles).toHaveCount(2);
   // Newest first: the 2019-08-02 reject.
   await tiles.first().getByRole("button", { name: "More options" }).click();
-  await page.getByRole("button", { name: "Unhide" }).click();
+  await page.getByRole("menuitem", { name: "Unhide" }).click();
   await expect(page.getByText("Unhid 1 photo")).toBeVisible();
   await expect(tiles).toHaveCount(1);
 
@@ -94,7 +97,7 @@ test("honours a culling app's rejects and picks when importing a trip", async ({
   await page.getByRole("checkbox", { name: "Hidden" }).uncheck();
   await page.getByRole("button", { name: /^Filters/ }).click();
   await expect(tiles).toHaveCount(2);
-  await tiles.first().getByRole("img").click();
+  await tiles.first().getByRole("img").first().click();
   await expect(page.getByText("Picked in your culling app · Red label")).toBeVisible();
   await page.getByRole("button", { name: "Next" }).click();
   await expect(page.getByText(/· Rejected in your culling app$/)).toBeVisible();

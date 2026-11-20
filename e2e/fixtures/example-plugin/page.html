@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Example companion</title>
+    <style>
+      body {
+        margin: 0;
+        padding: 24px;
+        font:
+          15px system-ui,
+          sans-serif;
+        background: var(--color-canvas, #fff);
+        color: var(--color-ink, #111);
+      }
+      button {
+        margin: 4px 8px 4px 0;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Example companion</h1>
+    <p id="status" role="status">Waiting for Lifer</p>
+    <p id="import" role="status"></p>
+    <button id="gallery">Search the gallery</button>
+    <button id="species">Open Black-capped Chickadee</button>
+    <button id="pick">Import a folder</button>
+    <button id="notify">Send a notice</button>
+    <button id="refresh">Refresh</button>
+    <p id="reply"></p>
+    <script type="module">
+      // Host protocol version 1. Lifer's origin is learned from the credential message, which
+      // only the framing window (window.parent) sends; everything after is checked against it.
+      let host = null;
+      let token = null;
+      let reserved = [];
+      const waiting = new Map();
+      let nextId = 0;
+      const $ = (id) => document.getElementById(id);
+
+      function post(type, payload, id) {
+        window.parent.postMessage({ lifer: 1, type, id, payload }, host ?? "*");
+      }
+      // A request that Lifer answers with exactly one `reply`.
+      function ask(type, payload) {
+        const id = `r${++nextId}`;
+        return new Promise((resolve) => {
+          waiting.set(id, resolve);
+          post(type, payload, id);
+        });
+      }
+      const own = (route, body) =>
+        fetch(route, {
+          method: body ? "POST" : "GET",
+          headers: { "x-page-token": token, ...(body ? { "content-type": "application/json" } : {}) },
+          body: body ? JSON.stringify(body) : undefined,
+        }).then((r) => r.json());
+
+      function applyTheme(theme) {
+        for (const [name, value] of Object.entries(theme.tokens))
+          document.documentElement.style.setProperty(name, value);
+        document.documentElement.style.colorScheme = theme.mode;
+      }
+
+      async function show() {
+        const s = await own("/state");
+        $("status").textContent = s.error
+          ? `Not connected: ${s.error}`
+          : s.paired
+            ? `Connected. ${s.species} species in your life list.`
+            : "Waiting for you to allow it in Lifer";
+        if (s.job)
+          $("import").textContent = s.job.running ? "Importing" : `Import finished: ${s.job.processed ?? 0} processed`;
+        if (!s.paired && !s.error) setTimeout(show, 1000);
+        if (s.job?.running) setTimeout(show, 1000);
+      }
+
+      window.addEventListener("message", (event) => {
+        if (event.source !== window.parent) return;
+        const msg = event.data;
+        if (!msg || msg.lifer !== 1 || typeof msg.type !== "string") return;
+        if (msg.type === "credential") {
+          host = event.origin;
+          token = msg.payload.token;
+          return;
+        }
+        if (event.origin !== host) return;
+        switch (msg.type) {
+          case "init":
+            reserved = msg.payload.reservedShortcuts;
+            applyTheme(msg.payload.theme);
+            post("title", { text: "Example companion" });
+            void show();
+            break;
+          case "theme":
+            applyTheme(msg.payload);
+            break;
+          case "reply":
+            waiting.get(msg.id)?.(msg.payload);
+            waiting.delete(msg.id);
+            break;
+        }
+      });
+
+      // Lifer's chords: never bind them here, hand them to Lifer.
+      window.addEventListener("keydown", (e) => {
+        const hit = reserved.find(
+          (c) =>
+            (c.code ? c.code === e.code : c.key.toLowerCase() === e.key.toLowerCase()) &&
+            c.meta === e.metaKey &&
+            c.ctrl === e.ctrlKey &&
+            c.alt === e.altKey &&
+            c.shift === e.shiftKey,
+        );
+        if (!hit) return;
+        e.preventDefault();
+        post("shortcut", {
+          key: e.key,
+          code: e.code,
+          meta: e.metaKey,
+          ctrl: e.ctrlKey,
+          alt: e.altKey,
+          shift: e.shiftKey,
+        });
+      });
+
+      const say = (r) => ($("reply").textContent = r.ok ? "Done" : `Lifer said ${r.error}`);
+      $("gallery").onclick = () => post("navigate", { to: "gallery", query: "chickadee" });
+      $("species").onclick = async () =>
+        say(await ask("navigate", { to: "species", scientificName: "Poecile atricapillus" }));
+      $("notify").onclick = async () => say(await ask("notify", { title: "Hello from the example" }));
+      $("refresh").onclick = async () => {
+        await own("/refresh", {});
+        await show();
+      };
+      $("pick").onclick = async () => {
+        const r = await ask("pickFolder", { title: "Choose photos to import" });
+        if (!r.ok || !r.result) return say(r);
+        await own("/import", { folder: r.result });
+        await show();
+      };
+
+      post("ready", { protocol: 1 });
+    </script>
+  </body>
+</html>

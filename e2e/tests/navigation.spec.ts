@@ -9,14 +9,16 @@ const PAGES: Array<{ link: string; url: RegExp; heading: string; loaded: (page: 
   {
     link: "Import",
     url: /\/import$/,
-    heading: "Bulk import",
+    heading: "Import photos",
     loaded: (page) => page.getByText("Drag photos, RAWs or videos here, or choose them."),
   },
   {
     link: "Stats",
     url: /\/stats$/,
     heading: "Stats",
-    loaded: (page) => page.getByRole("button", { name: "Export CSV" }),
+    // An empty library has nothing to export, so it shows its empty state instead.
+    loaded: (page) =>
+      page.getByRole("button", { name: "Export CSV" }).or(page.getByRole("heading", { name: "No stats yet" })),
   },
   {
     link: "Gallery",
@@ -25,10 +27,11 @@ const PAGES: Array<{ link: string; url: RegExp; heading: string; loaded: (page: 
     loaded: (page) => page.getByLabel("Search your photos by what's in them"),
   },
   {
-    link: "Albums & trips",
+    link: "Albums",
     url: /\/albums$/,
-    heading: "Albums & trips",
-    loaded: (page) => page.getByRole("button", { name: "Trips" }),
+    heading: "Albums",
+    // It opens on the Albums section (Trips is the other one, remembered once chosen).
+    loaded: (page) => page.getByRole("button", { name: "New album", exact: true }),
   },
   {
     link: "Settings",
@@ -51,7 +54,7 @@ test("every top-level page loads cleanly", async ({ page }) => {
 
   // The logo goes back to the collection, the page the app opens on.
   await page.getByLabel("Collection").click();
-  await expect(page.getByText(/^\d+ \/ \d+ collected$/)).toBeVisible();
+  await expect(page.getByText(/^\d+ of \d+ photographed$/)).toBeVisible();
 });
 
 test("missing files are 404s, while app routes get the web app", async ({ request }) => {
@@ -64,13 +67,35 @@ test("missing files are 404s, while app routes get the web app", async ({ reques
   expect(await deepLink.text()).toContain('<div id="root">');
 });
 
-test("the offline packs page loads cleanly without a downloaded map", async ({ page }) => {
-  await page.goto("/offline-packs");
-  await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
+test("Species downloads load cleanly in Settings without a downloaded map, from Species and import", async ({
+  page,
+}) => {
+  await page.goto("/settings/species");
+  await page.getByRole("link", { name: /Download more countries and animal groups/ }).click();
+  await expect(page).toHaveURL(/\/settings\/species\/downloads$/);
+  await expect(page.getByRole("heading", { level: 2, name: "Species downloads" })).toBeVisible();
+  // Settings keeps Species and import lit, and the page leads back to it.
+  await expect(page.getByRole("link", { name: "Species and import", exact: true })).toHaveAttribute(
+    "aria-current",
+    "page",
+  );
+  await page.getByRole("link", { name: "← Species and import" }).click();
+  await expect(page).toHaveURL(/\/settings\/species$/);
+  // The old address still lands here.
+  await page.goto("/settings/regions");
+  await expect(page).toHaveURL(/\/settings\/species\/downloads$/);
+});
+
+test("old Regions and Trips addresses land on their new homes", async ({ page }) => {
+  await page.goto("/offline-packs?missing=Ardea%20herodias");
+  await expect(page).toHaveURL(/\/settings\/species\/downloads\?missing=Ardea%20herodias$/);
+  await page.goto("/trips");
+  await expect(page).toHaveURL(/\/albums\?view=trips$/);
+  await expect(page.getByRole("heading", { level: 1, name: "Trips" })).toBeAttached();
 });
 
 test("a page opened from a URL goes back into the app, even after a redirect landed on it", async ({ page }) => {
-  await page.goto("/offline-packs");
+  await page.goto("/trash");
   // What a redirect leaves behind (signing in first, say): the first entry of the visit, with a key.
   await page.evaluate(() => window.history.replaceState({ usr: null, key: "redirected", idx: 0 }, ""));
   await page.reload();

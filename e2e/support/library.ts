@@ -8,7 +8,7 @@ import type { FixtureSpecies } from "./fixtureCatalog.js";
 import { makeCameraJpeg } from "./photo.js";
 
 // The header the web app sends with every request (apps/web/src/api/client.ts).
-const HEADERS = { "x-lifer-client": "1" };
+export const HEADERS = { "x-lifer-client": "1" };
 
 export interface SeedPhoto {
   file: string;
@@ -27,7 +27,7 @@ export interface SeededTrip {
   captureIds: Record<string, string>;
 }
 
-async function json<T>(res: Awaited<ReturnType<APIRequestContext["get"]>>): Promise<T> {
+export async function json<T>(res: Awaited<ReturnType<APIRequestContext["get"]>>): Promise<T> {
   if (!res.ok()) throw new Error(`${res.url()} answered ${res.status()}: ${await res.text()}`);
   return (await res.json()) as T;
 }
@@ -38,6 +38,17 @@ export async function libraryFolder(request: APIRequestContext): Promise<string>
     await request.get("/api/settings/browse-directory", { headers: HEADERS }),
   );
   return res.entries[0].path;
+}
+
+/** A folder outside the library the server may write to (LIFER_LIBRARY_ROOTS in startServer.ts),
+ *  for exports, which refuse a folder inside the library. */
+export async function exportsFolder(request: APIRequestContext): Promise<string> {
+  const res = await json<{ entries: Array<{ name: string; path: string }> }>(
+    await request.get("/api/settings/browse-directory", { headers: HEADERS }),
+  );
+  const root = res.entries.find((e) => e.name === "Exports");
+  if (!root) throw new Error("The e2e server has no Exports root");
+  return root.path;
 }
 
 export async function speciesId(request: APIRequestContext, species: FixtureSpecies): Promise<string> {
@@ -70,8 +81,8 @@ export async function createTrip(request: APIRequestContext, name: string, folde
   return res.id;
 }
 
-async function waitForJob(request: APIRequestContext, statusUrl: string): Promise<void> {
-  const deadline = Date.now() + 30_000;
+export async function waitForJob(request: APIRequestContext, statusUrl: string, timeoutMs = 30_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
   for (;;) {
     const status = await json<{ running: boolean; finishedAt: number | null; error: string | null }>(
       await request.get(statusUrl, { headers: HEADERS }),
@@ -119,4 +130,20 @@ export async function createAlbum(request: APIRequestContext, name: string, capt
     );
   }
   return album.id;
+}
+
+/** Files the capture under the region with this name, as the selection bar's Set region does. */
+export async function setRegion(request: APIRequestContext, captureId: string, regionName: string): Promise<void> {
+  const { regions } = await json<{ regions: Array<{ id: string; name: string }> }>(
+    await request.get("/api/regions", { headers: HEADERS }),
+  );
+  const region = regions.find((r) => r.name === regionName);
+  if (!region) throw new Error(`No region named ${regionName}`);
+  await json(
+    await request.patch(`/api/captures/${captureId}/region`, { headers: HEADERS, data: { regionId: region.id } }),
+  );
+}
+
+export async function rate(request: APIRequestContext, captureId: string, rating: number | null): Promise<void> {
+  await json(await request.patch(`/api/captures/${captureId}/rating`, { headers: HEADERS, data: { rating } }));
 }

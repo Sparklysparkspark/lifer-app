@@ -1,5 +1,5 @@
 // A trip's page: scanning its folder, assigning species in the review, importing, then the photo
-// grid's search, sort, filters, species view, featured photo, select-and-delete and renaming.
+// grid's search, sort, filters, species view, cover, select-and-delete and renaming.
 //
 // The pages-* specs run after import.spec.ts (files run in name order), whose exact counts they
 // would otherwise change. Each one makes its own photos (support/library.ts).
@@ -32,12 +32,18 @@ test("scans, imports and manages a trip's photos", async ({ page }) => {
   await expect(page.getByText("· 0 photos")).toBeVisible();
 
   // The scan lists both files for review; each gets a species, then they import together.
-  await page.getByRole("button", { name: "Add more photos" }).first().click();
+  await page.getByRole("button", { name: "Scan folder" }).first().click();
   await expect(page.getByText("2 new photos · 0 ready to import")).toBeVisible();
   await pickSpecies(page, "chickadee.jpg", "chickadee", SPECIES.chickadee.commonName);
   await pickSpecies(page, "moose.jpg", "moose", SPECIES.moose.commonName);
   await expect(page.getByText("2 new photos · 2 ready to import")).toBeVisible();
   await page.getByRole("button", { name: "Import 2 photos" }).click();
+  // A trip with photos opens on its species; the photo grid is the other view, in the View menu.
+  const viewMenu = page.getByRole("button", { name: /^View( \(\d\))?$/ });
+  const show = page.getByRole("group", { name: "Show" });
+  await viewMenu.click();
+  await show.getByRole("button", { name: "Photos" }).click();
+  await page.keyboard.press("Escape");
 
   const tiles = page.getByTestId("photo-tile");
   await expect(tiles).toHaveCount(2, { timeout: 20_000 });
@@ -45,10 +51,12 @@ test("scans, imports and manages a trip's photos", async ({ page }) => {
   await expect(page.getByText(/^\s*2\s*species$/)).toBeVisible();
 
   // One column, so the grid's order is the page order.
+  await page.getByRole("button", { name: "View", exact: true }).click();
   await page.getByRole("slider", { name: "Photo grid thumbnail size" }).fill("800");
+  await page.keyboard.press("Escape");
 
   // Search narrows the grid by species name.
-  const search = page.getByPlaceholder("Search this trip's species…");
+  const search = page.getByPlaceholder("Search this trip…");
   await search.fill("moose");
   await expect(tiles).toHaveCount(1);
   await expect(tiles.getByRole("img", { name: SPECIES.moose.commonName })).toBeVisible();
@@ -56,49 +64,69 @@ test("scans, imports and manages a trip's photos", async ({ page }) => {
   await expect(tiles).toHaveCount(2);
 
   // Newest first by default; oldest first puts the 2023 chickadee on top.
-  await expect(tiles.first().getByRole("img")).toHaveAccessibleName(SPECIES.moose.commonName);
+  await expect(tiles.first().getByRole("img").first()).toHaveAccessibleName(SPECIES.moose.commonName);
+  await page.getByRole("button", { name: "View", exact: true }).click();
   await page.getByLabel("Sort").selectOption("oldest");
-  await expect(tiles.first().getByRole("img")).toHaveAccessibleName(SPECIES.chickadee.commonName);
-
-  // The lightbox opens on the tile clicked, with its caption, and closes.
-  await tiles.first().getByRole("img").click();
-  await expect(page.getByText(`${SPECIES.chickadee.commonName} · Jun 1, 2023`)).toBeVisible();
-  await page.getByRole("button", { name: "Close" }).click();
-  await expect(page.getByText(`${SPECIES.chickadee.commonName} · Jun 1, 2023`)).toHaveCount(0);
-
-  // Filters: neither photo is rated, so "Top rated" empties the grid.
-  await page.getByRole("button", { name: "Filters" }).click();
-  await page.getByRole("checkbox", { name: "Top rated" }).check();
-  await expect(page.getByRole("button", { name: "Filters (1)" })).toBeVisible();
-  await expect(tiles).toHaveCount(0);
-  await page.getByRole("checkbox", { name: "Top rated" }).uncheck();
-  await expect(tiles).toHaveCount(2);
+  await expect(tiles.first().getByRole("img").first()).toHaveAccessibleName(SPECIES.chickadee.commonName);
+  await expect(page.getByRole("button", { name: "View (1)" })).toBeVisible();
   await page.getByRole("checkbox", { name: "Labels" }).check();
   await expect(page.locator("main").getByText(SPECIES.moose.commonName, { exact: true })).toBeVisible();
   await page.keyboard.press("Escape");
 
+  // The lightbox opens on the tile clicked, with its caption, and closes.
+  await tiles.first().getByRole("img").first().click();
+  await expect(page.getByText(`${SPECIES.chickadee.commonName} · Jun 1, 2023`)).toBeVisible();
+  await page.getByRole("button", { name: "Close" }).click();
+  await expect(page.getByText(`${SPECIES.chickadee.commonName} · Jun 1, 2023`)).toHaveCount(0);
+
+  // Filters, the Gallery's own: neither photo is rated, so 5 stars empties the grid and Unrated
+  // keeps both. Birds is answered by the server and leaves the chickadee.
+  await page.getByRole("button", { name: "Filters" }).click();
+  await page
+    .getByRole("group", { name: "Rating", exact: true })
+    .getByRole("button", { name: "5 stars", exact: true })
+    .click();
+  await expect(page.getByRole("button", { name: "Filters (1)" })).toBeVisible();
+  await expect(tiles).toHaveCount(0);
+  await page.getByRole("checkbox", { name: "Unrated", exact: true }).check();
+  await expect(tiles).toHaveCount(2);
+  await page.getByRole("button", { name: "Clear rating" }).click();
+  await page.getByRole("button", { name: "Birds", exact: true }).click();
+  await expect(tiles).toHaveCount(1);
+  await expect(tiles.getByRole("img", { name: SPECIES.chickadee.commonName })).toBeVisible();
+  await page.getByRole("button", { name: "Clear animal filter" }).click();
+  await expect(tiles).toHaveCount(2);
+  await expect(page.getByRole("button", { name: "Filters", exact: true })).toBeVisible();
+  await page.keyboard.press("Escape");
+
   // Species view lists the trip's species as cards.
-  await page.getByRole("button", { name: "Species view" }).click();
+  await viewMenu.click();
+  await show.getByRole("button", { name: "Species" }).click();
   await expect(tiles).toHaveCount(0);
   await expect(page.getByText(SPECIES.chickadee.commonName).first()).toBeVisible();
   await expect(page.getByText(SPECIES.moose.commonName).first()).toBeVisible();
-  await page.getByRole("button", { name: "Gallery", exact: true }).click();
+  await show.getByRole("button", { name: "Photos" }).click();
+  await page.keyboard.press("Escape");
   await expect(tiles).toHaveCount(2);
 
-  // Featuring a photo opens the crop editor; afterwards the menu shows it as featured.
-  await tiles.first().getByRole("button", { name: "More options" }).click();
-  await page.getByRole("button", { name: "Set as featured photo" }).click();
-  await expect(page.getByRole("button", { name: "Cancel" })).toBeVisible();
-  await page.getByRole("button", { name: "Cancel" }).click();
-  await tiles.first().getByRole("button", { name: "More options" }).click();
-  await expect(page.getByRole("button", { name: "Featured photo ✓" })).toBeVisible();
+  // Scanning again and deleting the trip live in the More menu.
+  await page.locator("header").getByRole("button", { name: "More options" }).click();
+  await expect(page.getByRole("menuitem", { name: "Add more photos" })).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: "Delete trip" })).toBeVisible();
   await page.keyboard.press("Escape");
 
+  // The cover's own menu holds its style; making a photo the cover opens its crop first.
+  await tiles.first().getByRole("button", { name: "More options" }).click();
+  await page.getByRole("menuitem", { name: "Use as trip cover" }).click();
+  await page.getByRole("button", { name: "Cancel" }).click();
+  await tiles.first().getByRole("button", { name: "More options" }).click();
+  await expect(page.getByRole("menuitem", { name: "Trip cover ✓" })).toBeVisible();
   const coverStyle = page.waitForResponse(
     (res) => res.url().endsWith(`/api/trips/${tripId}`) && res.request().method() === "PATCH",
   );
   await page.getByRole("button", { name: "Quad grid" }).click();
   expect((await coverStyle).ok()).toBe(true);
+  await page.keyboard.press("Escape");
 
   // Select one photo and delete it.
   await page.getByRole("button", { name: "Select", exact: true }).click();

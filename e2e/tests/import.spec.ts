@@ -2,9 +2,13 @@
 // then find it in the Gallery and the species collected on its region checklist.
 import { PHOTO_TAKEN, makeCameraJpeg } from "../support/photo.js";
 import { SPECIES } from "../support/fixtureCatalog.js";
+import { resetLibrary } from "../support/resetLibrary.js";
 import { expect, test } from "../support/test.js";
 
 const species = SPECIES.chickadee;
+
+// The counts below start from an empty library.
+test.beforeAll(() => resetLibrary());
 
 test("imports a photo, which shows in the Gallery and collects its species", async ({ page }, testInfo) => {
   const photoPath = testInfo.outputPath("chickadee.jpg");
@@ -27,7 +31,7 @@ test("imports a photo, which shows in the Gallery and collects its species", asy
   // Importing returns to the collection while the upload finishes in the background.
   await page.getByRole("button", { name: "Import 1 photo" }).click();
   await expect(page).toHaveURL(/\/(\?.*)?$/);
-  await expect(page.getByText("1 / 3 collected")).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByText("1 of 3 photographed")).toBeVisible({ timeout: 20_000 });
 
   // The checklist's "Collected" view lists the species, and only it.
   await page.goto("/?show=collected");

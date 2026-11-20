@@ -24,10 +24,10 @@ test("logs in, logs out and logs back in", async ({ page }) => {
 
   await logIn(page, ACCOUNT.password);
   await expect(page).toHaveURL(/\/(\?.*)?$/);
-  await expect(page.getByText(/\d+ \/ \d+ collected/)).toBeVisible();
+  await expect(page.getByText(/^\d+ of \d+ photographed$/)).toBeVisible();
 
   await page.getByRole("button", { name: "Account menu" }).click();
-  await page.getByRole("button", { name: "Log out" }).click();
+  await page.getByRole("menuitem", { name: "Log out" }).click();
   await expect(page).toHaveURL(/\/login$/);
 
   // The session is gone on the server too, not just in the page: a reload stays signed out.

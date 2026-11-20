@@ -20,10 +20,14 @@ import {
   MIRROR_URL,
 } from "./constants.js";
 import { insertFixtureCatalog } from "./fixtureCatalog.js";
+import { insertRealisticCatalog } from "./realisticCatalog.js";
 import { startMirror, type Mirror } from "./mirror.js";
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const API_DIR = path.join(REPO_ROOT, "apps", "api");
+// E2E_API_DIST: a build in another folder of apps/api (same depth as dist), so a run can test
+// fresh code without rebuilding the shared dist.
+const API_DIST = process.env.E2E_API_DIST ?? "dist";
 const MIGRATE_JS = path.join(REPO_ROOT, "packages", "data-pipeline", "dist", "migrate.js");
 const LOG_PATH = path.join(REPO_ROOT, "test-results", "e2e-server.log");
 
@@ -34,6 +38,9 @@ function log(line: string): void {
   // stderr is what Playwright shows from a web server, so setup progress and failures appear there.
   process.stderr.write(`[e2e] ${line}\n`);
 }
+
+// The visual tour's config sets "realistic" (e2e/playwright.visual.config.ts).
+const FIXTURE = process.env.E2E_FIXTURE === "realistic" ? "realistic" : "tiny";
 
 let startedContainer = false;
 let tempDir: string | null = null;
@@ -122,7 +129,8 @@ async function prepareDatabase(url: string): Promise<void> {
   const db = await connectWithRetry(url, 60_000);
   try {
     log(`resetting database ${dbName}`);
-    await db.query("DROP SCHEMA public CASCADE");
+    // IF EXISTS: a run cut off between these two statements leaves no schema behind.
+    await db.query("DROP SCHEMA IF EXISTS public CASCADE");
     await db.query("CREATE SCHEMA public");
   } finally {
     await db.end();
@@ -141,15 +149,18 @@ async function prepareDatabase(url: string): Promise<void> {
 
   const fixtureDb = await connectWithRetry(url, 10_000);
   try {
-    log("inserting the fixture catalog");
-    await insertFixtureCatalog(fixtureDb);
+    log(`inserting the ${FIXTURE} fixture catalog`);
+    await (FIXTURE === "realistic" ? insertRealisticCatalog(fixtureDb) : insertFixtureCatalog(fixtureDb));
   } finally {
     await fixtureDb.end();
   }
 }
 
 async function main(): Promise<void> {
-  if (!existsSync(path.join(API_DIR, "dist", "index.js")) || !existsSync(path.join(REPO_ROOT, "apps", "web", "dist"))) {
+  if (
+    !existsSync(path.join(API_DIR, API_DIST, "index.js")) ||
+    !existsSync(path.join(REPO_ROOT, "apps", "web", "dist"))
+  ) {
     throw new Error("The production build is missing. Build first: npm run build -w web && npm run build -w api");
   }
 
@@ -161,7 +172,7 @@ async function main(): Promise<void> {
   await prepareDatabase(databaseUrl);
 
   tempDir = mkdtempSync(path.join(os.tmpdir(), "lifer-e2e-"));
-  mirror = await startMirror({ port: MIRROR_PORT, workDir: path.join(tempDir, "mirror"), log });
+  mirror = await startMirror({ port: MIRROR_PORT, workDir: path.join(tempDir, "mirror"), log, fixture: FIXTURE });
 
   const env: NodeJS.ProcessEnv = {
     ...process.env,
@@ -178,6 +189,8 @@ async function main(): Promise<void> {
     EBIRD_API_KEY: "",
     INAT_CLIENT_ID: "",
     DATA_DIR: path.join(tempDir, "library"),
+    // Exports must land outside the library, and a server only writes inside its allowed roots.
+    LIFER_LIBRARY_ROOTS: `Exports=${path.join(tempDir, "exports")}`,
     APP_DATA_DIR: path.join(tempDir, "app-data"),
     // CPU only: no GPU self-test or GPU runtime download (species/accelerationSetup.ts).
     LIFER_GPU: "off",
@@ -192,10 +205,11 @@ async function main(): Promise<void> {
     HTTPS_PROXY: MIRROR_URL,
     NO_PROXY: "127.0.0.1,localhost",
   };
-  for (const dir of [env.DATA_DIR!, env.APP_DATA_DIR!]) mkdirSync(dir, { recursive: true });
+  for (const dir of [env.DATA_DIR!, env.APP_DATA_DIR!, path.join(tempDir, "exports")])
+    mkdirSync(dir, { recursive: true });
 
   log(`starting the API on port ${API_PORT}`);
-  api = spawn(process.execPath, ["dist/index.js"], { cwd: API_DIR, env, stdio: ["ignore", "pipe", "pipe"] });
+  api = spawn(process.execPath, [`${API_DIST}/index.js`], { cwd: API_DIR, env, stdio: ["ignore", "pipe", "pipe"] });
   api.stdout!.pipe(logFile, { end: false });
   api.stderr!.pipe(logFile, { end: false });
   api.on("exit", (code, signal) => {

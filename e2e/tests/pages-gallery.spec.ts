@@ -33,10 +33,9 @@ test("searches, selects and edits photos in the Gallery", async ({ page }) => {
   await expect(tiles).toHaveCount(3);
   await expect(page).not.toHaveURL(/[?&]q=/);
 
-  // Keyboard: S enters select mode, mod+A selects every photo, Escape leaves.
+  // Select enters select mode, mod+A selects every photo, Escape leaves.
   // The "Desktop Chrome" device reports Windows, so the app's "mod" key is Ctrl on any host.
-  await page.locator("main").click({ position: { x: 5, y: 5 } });
-  await page.keyboard.press("s");
+  await page.getByRole("button", { name: "Select", exact: true }).click();
   await expect(page.getByText("0 selected")).toBeVisible();
   await page.keyboard.press("Control+a");
   await expect(page.getByText("3 selected")).toBeVisible();
@@ -49,6 +48,7 @@ test("searches, selects and edits photos in the Gallery", async ({ page }) => {
   await page.getByRole("button", { name: "Select", exact: true }).click();
   await page.keyboard.press("Control+a");
   await expect(page.getByText("2 selected")).toBeVisible();
+  await page.getByRole("button", { name: "Add tag" }).click();
   const tagInput = page.getByPlaceholder("Add a tag");
   const tagged = page.waitForResponse(
     (res) => res.url().endsWith("/api/captures/tags") && res.request().method() === "PATCH",
@@ -65,24 +65,30 @@ test("searches, selects and edits photos in the Gallery", async ({ page }) => {
   await tagFilter.selectOption("e2e-gallery-tag");
   await expect(tiles).toHaveCount(2);
   await expect(page.getByRole("button", { name: "Filters (2)" })).toBeVisible();
-  await tagFilter.selectOption("");
+  // Tags are multi-value: each chosen tag is a chip with its own remove button.
+  await page.getByRole("button", { name: "Remove filter: e2e-gallery-tag" }).click();
   await expect(tiles).toHaveCount(3);
 
-  // Display options: ratings under each tile, and grouping by region.
+  // View options: ratings under each tile, and grouping by region.
+  await page.getByRole("button", { name: "View", exact: true }).click();
   await page.getByRole("checkbox", { name: "Ratings" }).check();
-  await page.getByRole("checkbox", { name: "Group by region" }).check();
+  const groupSelect = page.getByRole("combobox", { name: "Group", exact: true });
+  await groupSelect.selectOption("region");
   await expect(page.getByRole("heading", { level: 2, name: "Unknown region" })).toBeVisible();
-  await page.getByRole("checkbox", { name: "Group by region" }).uncheck();
+  await groupSelect.selectOption("none");
   await page.locator("main").click({ position: { x: 5, y: 5 } });
 
-  // Rate one photo 5 stars, then show only top rated.
+  // Rate one photo 5 stars, then filter to 5 stars.
   const rated = page.waitForResponse((res) => res.url().endsWith("/rating") && res.request().method() === "PATCH");
   await tiles.first().getByRole("button", { name: "Rate 5 stars" }).click();
   expect((await rated).ok()).toBe(true);
   await page.getByRole("button", { name: "Filters (1)" }).click();
-  await page.getByRole("checkbox", { name: "Top rated" }).check();
+  await page
+    .getByRole("group", { name: "Rating", exact: true })
+    .getByRole("button", { name: "5 stars", exact: true })
+    .click();
   await expect(tiles).toHaveCount(1);
-  await page.getByRole("checkbox", { name: "Top rated" }).uncheck();
+  await page.getByRole("button", { name: "Clear rating" }).click();
   await expect(tiles).toHaveCount(3);
   await page.locator("main").click({ position: { x: 5, y: 5 } });
 
@@ -91,17 +97,19 @@ test("searches, selects and edits photos in the Gallery", async ({ page }) => {
   // featured, so "Featured" then shows exactly one of the two moose.
   const moose = tiles.filter({ has: page.getByRole("img", { name: SPECIES.moose.commonName }) });
   await moose.first().getByRole("button", { name: "More options" }).click();
-  const firstLabel = await page.getByRole("button", { name: /^(Set as|Remove from) featured$/ }).textContent();
+  const firstLabel = await page
+    .getByRole("menuitem", { name: /^(Set as|Remove as) featured photo$/ })
+    .textContent();
   await page.keyboard.press("Escape");
   // Newest first: moose.first() is the 2024 photo, moose.last() the 2022 one.
-  const featuredNewest = firstLabel === "Set as featured";
+  const featuredNewest = firstLabel === "Set as featured photo";
   const target = featuredNewest ? moose.first() : moose.last();
   await target.getByRole("button", { name: "More options" }).click();
   const featured = page.waitForResponse((res) => res.url().endsWith("/cover") && res.request().method() === "PATCH");
-  await page.getByRole("button", { name: "Set as featured" }).click();
+  await page.getByRole("menuitem", { name: "Set as featured photo" }).click();
   expect((await featured).ok()).toBe(true);
   await target.getByRole("button", { name: "More options" }).click();
-  await expect(page.getByRole("button", { name: "Remove from featured" })).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: "Remove as featured photo" })).toBeVisible();
   await page.keyboard.press("Escape");
   await page.getByRole("button", { name: "Filters (1)" }).click();
   await page.getByRole("checkbox", { name: "Featured" }).check();
@@ -111,7 +119,7 @@ test("searches, selects and edits photos in the Gallery", async ({ page }) => {
   await page.locator("main").click({ position: { x: 5, y: 5 } });
 
   // The lightbox opens on a photo and closes.
-  await tiles.first().getByRole("img").click();
+  await tiles.first().getByRole("img").first().click();
   await expect(page.getByRole("button", { name: "Next" })).toBeVisible();
   await page.getByRole("button", { name: "Close" }).click();
   await expect(page.getByRole("button", { name: "Next" })).toHaveCount(0);
@@ -122,6 +130,7 @@ test("searches, selects and edits photos in the Gallery", async ({ page }) => {
   await page.getByRole("button", { name: "Select", exact: true }).click();
   await tiles.first().getByRole("checkbox", { name: "Select photo" }).check();
   await expect(page.getByText("1 selected")).toBeVisible();
+  await page.getByRole("button", { name: "Correct ID" }).click();
   await page.getByRole("combobox", { name: "Type a species…" }).fill("moose");
   await page.getByRole("option", { name: new RegExp(SPECIES.moose.commonName) }).click();
   await expect(page.getByText(/^\d+ selected$/)).toHaveCount(0);

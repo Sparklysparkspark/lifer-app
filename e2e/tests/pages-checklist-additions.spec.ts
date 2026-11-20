@@ -1,5 +1,5 @@
 // Adding a species to a checklist yourself, from both places the app offers it: the region's
-// checklist ("+ Add a species", by search) and a species page's menu ("Add to another checklist",
+// checklist (Add species > "Add one species by hand", by search) and a species page's menu ("Add to another checklist",
 // by region or sea zone). The fixture's robin is on Canada's checklist but not British Columbia's,
 // so it's the species added. Each addition is removed again, leaving the checklist as it was.
 import { COUNTRY, PACKLESS_COUNTRY, PROVINCE, SEA_ZONE, SPECIES } from "../support/fixtureCatalog.js";
@@ -18,7 +18,7 @@ async function regionIdByName(request: import("@playwright/test").APIRequestCont
 /** Opens the species page's own menu (the first one, in its header) and picks the action. */
 async function openAddToAnotherChecklist(page: import("@playwright/test").Page): Promise<void> {
   await page.getByRole("button", { name: "More options" }).first().click();
-  await page.getByRole("button", { name: "Add to another checklist" }).click();
+  await page.getByRole("menuitem", { name: "Add to another checklist" }).click();
 }
 
 test("adds a species to a province's checklist and removes it, from the checklist and the species page", async ({
@@ -30,14 +30,16 @@ test("adds a species to a province's checklist and removes it, from the checklis
   const provinceId = regions.regions.find((r) => r.name === PROVINCE.name)!.id;
   const robinId = await speciesId(page.request, SPECIES.robin);
   // The robin's card on the checklist (its link carries the species id).
-  const robinCard = page.locator(`main a[href^="/species/${robinId}"]`);
+  // The card is the link plus its More options button beside it.
+  const robinCard = page.locator(`main a[href^="/species/${robinId}"]`).locator("xpath=..");
 
   // --- From the region's checklist ---
   await page.goto(`/?region=${provinceId}`);
   await expect(page.getByText(SPECIES.moose.commonName).first()).toBeVisible();
   await expect(robinCard).toHaveCount(0);
 
-  await page.getByRole("button", { name: "+ Add a species" }).click();
+  await page.getByRole("button", { name: "+ Add species" }).click();
+  await page.getByRole("menuitem", { name: "Add one species by hand" }).click();
   const dialog = page.getByRole("dialog", { name: `Add species to ${PROVINCE.name}` });
   await expect(dialog).toBeVisible();
   await dialog.getByRole("combobox", { name: "Search species to add…" }).fill("robin");
@@ -47,7 +49,7 @@ test("adds a species to a province's checklist and removes it, from the checklis
   await page.keyboard.press("ArrowUp");
   await page.keyboard.press("Enter");
   await expect(dialog).toHaveCount(0);
-  await expect(page.getByText(`Added ${robin} to ${PROVINCE.name}'s checklist.`)).toBeVisible();
+  await expect(page.getByText(`Added ${robin} to ${PROVINCE.name}'s species list.`)).toBeVisible();
 
   await expect(robinCard).toBeVisible();
   await expect(robinCard.getByText("Added by you")).toBeVisible();
@@ -59,8 +61,8 @@ test("adds a species to a province's checklist and removes it, from the checklis
   await expect(robinCard.getByText("Added by you")).toBeVisible();
 
   await robinCard.getByRole("button", { name: "More options" }).click();
-  await robinCard.getByRole("button", { name: "Remove from this checklist" }).click();
-  await expect(page.getByText(`Removed ${robin} from ${PROVINCE.name}'s checklist.`)).toBeVisible();
+  await page.getByRole("menuitem", { name: "Remove from this list" }).click();
+  await expect(page.getByText(`Removed ${robin} from ${PROVINCE.name}'s species list.`)).toBeVisible();
   await expect(robinCard).toHaveCount(0);
   await expect(page.getByText(SPECIES.moose.commonName).first()).toBeVisible();
 
@@ -78,7 +80,7 @@ test("adds a species to a province's checklist and removes it, from the checklis
   await panel.getByRole("button", { name: "Canada" }).click();
   await panel.getByRole("button", { name: PROVINCE.name }).click();
   await panel.getByRole("button", { name: `Add to ${PROVINCE.name}` }).click();
-  await expect(page.getByText(`Added ${robin} to ${PROVINCE.name}'s checklist.`)).toBeVisible();
+  await expect(page.getByText(`Added ${robin} to ${PROVINCE.name}'s species list.`)).toBeVisible();
   await expect(panel).toHaveCount(0);
 
   const added = page.getByRole("list", { name: "Checklists you added this species to" });
@@ -90,8 +92,8 @@ test("adds a species to a province's checklist and removes it, from the checklis
   await expect(robinCard.getByText("Added by you")).toBeVisible();
 
   await page.goBack();
-  await page.getByRole("button", { name: `Remove from ${PROVINCE.name}'s checklist` }).click();
-  await expect(page.getByText(`Removed ${robin} from ${PROVINCE.name}'s checklist.`)).toBeVisible();
+  await page.getByRole("button", { name: `Remove from ${PROVINCE.name}'s species list` }).click();
+  await expect(page.getByText(`Removed ${robin} from ${PROVINCE.name}'s species list.`)).toBeVisible();
   await expect(added).toHaveCount(0);
 
   await page.goto(`/?region=${provinceId}`);
@@ -104,19 +106,21 @@ test("shows the species you added on a country whose pack isn't downloaded, with
 }) => {
   const countryId = await regionIdByName(page.request, PACKLESS_COUNTRY.name);
   const robinId = await speciesId(page.request, SPECIES.robin);
-  const robinCard = page.locator(`main a[href^="/species/${robinId}"]`);
-  const prompt = page.getByRole("heading", { name: `${PACKLESS_COUNTRY.name}'s checklist isn't downloaded yet` });
+  // The card is the link plus its More options button beside it.
+  const robinCard = page.locator(`main a[href^="/species/${robinId}"]`).locator("xpath=..");
+  const prompt = page.getByRole("heading", { name: `${PACKLESS_COUNTRY.name}'s species list isn't downloaded yet` });
 
   await page.goto(`/?region=${countryId}`);
   await expect(prompt).toBeVisible();
   await expect(robinCard).toHaveCount(0);
 
   // Adding doesn't wait for the pack.
-  await page.getByRole("button", { name: "+ Add a species" }).click();
+  await page.getByRole("button", { name: "+ Add species" }).click();
+  await page.getByRole("menuitem", { name: "Add one species by hand" }).click();
   const dialog = page.getByRole("dialog", { name: `Add species to ${PACKLESS_COUNTRY.name}` });
   await dialog.getByRole("combobox", { name: "Search species to add…" }).fill("robin");
   await dialog.getByRole("option", { name: new RegExp(robin) }).click();
-  await expect(page.getByText(`Added ${robin} to ${PACKLESS_COUNTRY.name}'s checklist.`)).toBeVisible();
+  await expect(page.getByText(`Added ${robin} to ${PACKLESS_COUNTRY.name}'s species list.`)).toBeVisible();
 
   // The robin shows, marked, under the download prompt, which stays.
   await expect(robinCard.getByText("Added by you")).toBeVisible();
@@ -126,24 +130,25 @@ test("shows the species you added on a country whose pack isn't downloaded, with
   await expect(robinCard.getByText("Added by you")).toBeVisible();
 
   await robinCard.getByRole("button", { name: "More options" }).click();
-  await robinCard.getByRole("button", { name: "Remove from this checklist" }).click();
-  await expect(page.getByText(`Removed ${robin} from ${PACKLESS_COUNTRY.name}'s checklist.`)).toBeVisible();
+  await page.getByRole("menuitem", { name: "Remove from this list" }).click();
+  await expect(page.getByText(`Removed ${robin} from ${PACKLESS_COUNTRY.name}'s species list.`)).toBeVisible();
   await expect(robinCard).toHaveCount(0);
   await expect(prompt).toBeVisible();
 });
 
 test("adds a species to a sea zone from the species page, and shows it with that water ticked", async ({ page }) => {
   const robinId = await speciesId(page.request, SPECIES.robin);
-  const robinCard = page.locator(`main a[href^="/species/${robinId}"]`);
+  // The card is the link plus its More options button beside it.
+  const robinCard = page.locator(`main a[href^="/species/${robinId}"]`).locator("xpath=..");
 
   await page.goto(`/species/${robinId}`);
   await openAddToAnotherChecklist(page);
   const panel = page.getByRole("group", { name: "Add to another checklist" });
-  await panel.getByRole("button", { name: "Sea zone" }).click();
-  await panel.getByRole("textbox", { name: "Search sea zones" }).fill("alaska");
+  await panel.getByRole("button", { name: "Ocean area" }).click();
+  await panel.getByRole("textbox", { name: "Search ocean areas" }).fill("alaska");
   await panel.getByRole("button", { name: SEA_ZONE.name }).click();
   await panel.getByRole("button", { name: `Add to ${SEA_ZONE.name}` }).click();
-  await expect(page.getByText(`Added ${robin} to the ${SEA_ZONE.name} checklist.`)).toBeVisible();
+  await expect(page.getByText(`Added ${robin} to the ${SEA_ZONE.name} species list.`)).toBeVisible();
 
   const added = page.getByRole("list", { name: "Checklists you added this species to" });
   await expect(added.getByText("(sea)")).toBeVisible();
@@ -157,8 +162,8 @@ test("adds a species to a sea zone from the species page, and shows it with that
   await expect(page.locator("main").getByText("Added by you")).toHaveCount(1);
 
   await robinCard.getByRole("button", { name: "More options" }).click();
-  await robinCard.getByRole("button", { name: "Remove from this checklist" }).click();
-  await expect(page.getByText(`Removed ${robin} from the ${SEA_ZONE.name} checklist.`)).toBeVisible();
+  await page.getByRole("menuitem", { name: "Remove from this list" }).click();
+  await expect(page.getByText(`Removed ${robin} from the ${SEA_ZONE.name} species list.`)).toBeVisible();
   // Nothing of yours is left in that water, so it's no longer offered, and Canada's own list,
   // robin included, comes back.
   await expect(page.getByRole("checkbox", { name: SEA_ZONE.name })).toHaveCount(0);

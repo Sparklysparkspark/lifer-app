@@ -34,66 +34,99 @@ test("shows, edits, shares and refills an album", async ({ page }) => {
   await page.reload();
   await expect(page.getByPlaceholder("Add a description…")).toHaveValue("Birds and a moose");
 
-  // One column, so the grid's order is the page order. Newest first, then oldest taken first.
+  // View menu: one column, so the grid's order is the page order. Newest first, then oldest taken first.
+  await page.getByRole("button", { name: "View", exact: true }).click();
   await page.getByRole("slider", { name: "Photo grid thumbnail size" }).fill("800");
-  await expect(tiles.first().getByRole("img")).toHaveAccessibleName(SPECIES.moose.commonName);
+  await expect(tiles.first().getByRole("img").first()).toHaveAccessibleName(SPECIES.moose.commonName);
   await page.getByLabel("Sort").selectOption("oldest");
-  await expect(tiles.first().getByRole("img")).toHaveAccessibleName(SPECIES.chickadee.commonName);
+  await expect(tiles.first().getByRole("img").first()).toHaveAccessibleName(SPECIES.chickadee.commonName);
+  await expect(page.getByRole("button", { name: "View (1)" })).toBeVisible();
+  await page.getByRole("checkbox", { name: "Labels" }).check();
+  await expect(page.locator("main").getByText(SPECIES.moose.commonName, { exact: true })).toBeVisible();
+  await page.keyboard.press("Escape");
 
-  await tiles.first().getByRole("img").click();
+  await tiles.first().getByRole("img").first().click();
   await expect(page.getByRole("button", { name: "Next" })).toBeVisible();
   await page.getByRole("button", { name: "Close" }).click();
   await expect(page.getByRole("button", { name: "Next" })).toHaveCount(0);
 
-  // Filters: neither photo is rated, so "Top rated" empties the grid; Labels adds captions.
+  // Filters, the Gallery's own: neither photo is rated, so 5 stars empties the grid and Unrated
+  // keeps both. Birds is answered by the server and leaves the chickadee.
   await page.getByRole("button", { name: "Filters" }).click();
-  await page.getByRole("checkbox", { name: "Top rated" }).check();
+  await page
+    .getByRole("group", { name: "Rating", exact: true })
+    .getByRole("button", { name: "5 stars", exact: true })
+    .click();
   await expect(page.getByRole("button", { name: "Filters (1)" })).toBeVisible();
   await expect(tiles).toHaveCount(0);
-  await page.getByRole("checkbox", { name: "Top rated" }).uncheck();
+  await page.getByRole("checkbox", { name: "Unrated", exact: true }).check();
   await expect(tiles).toHaveCount(2);
-  await page.getByRole("checkbox", { name: "Labels" }).check();
-  await expect(page.locator("main").getByText(SPECIES.moose.commonName, { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Clear rating" }).click();
+  await page.getByRole("button", { name: "Birds", exact: true }).click();
+  await expect(tiles).toHaveCount(1);
+  await expect(tiles.getByRole("img", { name: SPECIES.chickadee.commonName })).toBeVisible();
+  await page.getByRole("button", { name: "Clear animal filter" }).click();
+  await expect(tiles).toHaveCount(2);
+  await expect(page.getByRole("button", { name: "Filters", exact: true })).toBeVisible();
+  await page.keyboard.press("Escape");
 
-  // Species view.
-  await page.getByRole("button", { name: "Species view" }).click();
+  // Species view, from the View menu's Show switch. Filters and Select act on photos, so they go.
+  const viewMenu = page.getByRole("button", { name: /^View( \(\d\))?$/ });
+  await viewMenu.click();
+  await page.getByRole("group", { name: "Show" }).getByRole("button", { name: "Species" }).click();
   await expect(tiles).toHaveCount(0);
   await expect(page.getByText(SPECIES.chickadee.commonName).first()).toBeVisible();
-  await page.getByRole("button", { name: "Gallery", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Filters" })).toHaveCount(0);
+  await page.getByRole("group", { name: "Show" }).getByRole("button", { name: "Photos" }).click();
+  await page.keyboard.press("Escape");
   await expect(tiles).toHaveCount(2);
+
+  // The toolbar keeps the frequent controls; the rest are in the More menu.
+  const more = page.locator("header").getByRole("button", { name: "More options" });
+  await more.click();
+  for (const item of ["Edit album", "Export", "Delete album"]) {
+    await expect(page.getByRole("menuitem", { name: item })).toBeVisible();
+  }
+  await expect(page.getByRole("menuitem", { name: "Edit rules" })).toHaveCount(0);
+  await page.keyboard.press("Escape");
 
   // The tile menu sets the album cover (the first photo added is the cover until one is picked).
   await tiles.last().getByRole("button", { name: "More options" }).click();
-  await page.getByRole("button", { name: "Set as album cover" }).click();
+  await page.getByRole("menuitem", { name: "Use as album cover" }).click();
   await tiles.last().getByRole("button", { name: "More options" }).click();
-  await expect(page.getByRole("button", { name: "Album cover ✓" })).toBeDisabled();
+  // Choosing it again would go back to the automatic cover.
+  await expect(page.getByRole("menuitem", { name: "Album cover ✓" })).toBeEnabled();
   await page.keyboard.press("Escape");
 
-  // Edit mode: a quad cover, with one tile's photo picked from the grid.
-  await page.getByRole("button", { name: "Edit album" }).click();
+  // Edit mode: the cover editor, then a quad cover with one tile's photo picked from the grid.
+  await more.click();
+  await page.getByRole("menuitem", { name: "Edit album" }).click();
   await expect(page.getByRole("link", { name: "Add photos" })).toHaveAttribute(
     "href",
     `/gallery?select=1&albumId=${albumId}`,
   );
-  await page.getByRole("button", { name: "Edit cover" }).click();
+  await expect(page.getByText("Hover the cover to adjust its crop.", { exact: false })).toBeVisible();
   await page.getByRole("button", { name: "Quad grid" }).click();
   await expect(page.getByText("Hover a tile to change its photo or crop.")).toBeVisible();
   await page.getByRole("button", { name: "Change" }).first().click({ force: true });
   await expect(page.getByText("Click a photo below to use it in this tile.")).toBeVisible();
   const slotSaved = page.waitForResponse((res) => res.url().endsWith(`/api/albums/${albumId}/quad-slot`));
-  await tiles.last().getByRole("img").click();
+  await tiles.last().getByRole("img").first().click();
   expect((await slotSaved).ok()).toBe(true);
   await expect(page.getByText("Hover a tile to change its photo or crop.")).toBeVisible();
-  await page.getByRole("button", { name: "Done editing cover" }).click();
   await page.getByRole("button", { name: "Done editing" }).click();
+  await expect(page.getByRole("button", { name: "Quad grid" })).toHaveCount(0);
 
   // Share links: create one, then revoke it.
   await page.getByRole("button", { name: "Share…" }).click();
+  // Exact locations are off unless the owner turns them on.
+  await expect(page.getByRole("checkbox", { name: /Show exact locations/ })).not.toBeChecked();
   await page.getByRole("checkbox", { name: "Allow visitors to download photos" }).check();
   await page.getByRole("button", { name: "Create share link" }).click();
   await expect(page.getByText("No password · Downloads allowed")).toBeVisible();
   await expect(page.getByText(/\/share\/[^/]+$/)).toBeVisible();
   await page.getByRole("button", { name: "Revoke" }).click();
+  await page.getByRole("dialog", { name: "Revoke this share link?" }).getByRole("button", { name: "Revoke" }).click();
   await expect(page.getByText("Revoked", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Hide sharing" }).click();
 
@@ -107,7 +140,8 @@ test("shows, edits, shares and refills an album", async ({ page }) => {
   await expect(tiles).toHaveCount(1);
 
   // "Add photos" opens the Gallery as a picker for this album; adding returns to the album.
-  await page.getByRole("button", { name: "Edit album" }).click();
+  await more.click();
+  await page.getByRole("menuitem", { name: "Edit album" }).click();
   await page.getByRole("link", { name: "Add photos" }).click();
   await expect(page.getByRole("heading", { name: `Add photos to ${ALBUM}` })).toBeVisible();
   // Narrowed to this spec's trip so the picker's "select all" takes only its photos.
@@ -119,4 +153,34 @@ test("shows, edits, shares and refills an album", async ({ page }) => {
   await page.getByRole("button", { name: "Add 2 to album" }).click();
   await expect(page).toHaveURL(new RegExp(`/albums/${albumId}$`));
   await expect(tiles).toHaveCount(2);
+});
+
+test("New album opens an empty album with its name selected to type over", async ({ page }) => {
+  await page.goto("/albums");
+  await page.getByRole("button", { name: "New album" }).click();
+  await expect(page).toHaveURL(/\/albums\/[^/]+$/);
+  const title = page.locator("header input").first();
+  await expect(title).toBeFocused();
+  await expect(title).toHaveValue(/^Untitled Album/);
+  await expect(page.getByRole("button", { name: "Add photos" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Import into album" })).toBeVisible();
+
+  // Typing replaces the selected name; Enter saves it.
+  const saved = page.waitForResponse((res) => res.request().method() === "PATCH" && /\/api\/albums\//.test(res.url()));
+  await page.keyboard.type("E2E Named In Place");
+  await page.keyboard.press("Enter");
+  expect((await saved).ok()).toBe(true);
+
+  // A reload is a normal visit: the name isn't selected again.
+  await page.reload();
+  await expect(title).toHaveValue("E2E Named In Place");
+  await expect(title).not.toBeFocused();
+
+  // An empty unnamed album is kept, never cleaned up behind the user's back.
+  await page.goto("/albums");
+  await page.getByRole("button", { name: "New album" }).click();
+  await expect(title).toBeFocused();
+  const untitled = await title.inputValue();
+  await page.goto("/albums");
+  await expect(page.getByText(untitled, { exact: true })).toBeVisible();
 });
